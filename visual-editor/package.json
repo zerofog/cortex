@@ -1,0 +1,34 @@
+{
+  "name": "cortex-visual-editor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "cortex-visual-editor": "dist/bin.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/bin.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepare": "npm run build"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "http-proxy-middleware": "^3.0.3",
+    "preact": "^10.25.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@testing-library/preact": "^3.2.0",
+    "@types/express": "^5.0.0",
+    "@types/ws": "^8.5.13",
+    "happy-dom": "^15.0.0",
+    "open-props": "^1.7.0",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

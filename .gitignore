@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+.claude/
+.mcp.json
+.env*
+CLAUDE.md
