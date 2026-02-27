@@ -21,6 +21,23 @@ const MAX_INJECT_SIZE = 5 * 1024 * 1024; // 5MB safety valve
 // '[::1]' matches raw Host header; '::1' matches URL.hostname (WHATWG URL strips brackets)
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
+/** Extract hostname from a Host header, handling IPv6 brackets and port suffix. */
+function hostnameFromHostHeader(host: string): string {
+  // Bracketed IPv6: "[::1]:3000" → "::1"
+  if (host.startsWith('[')) {
+    const close = host.indexOf(']');
+    return close === -1 ? host : host.slice(1, close);
+  }
+  // IPv4 or hostname: "localhost:3000" → "localhost"
+  // Bare IPv6 without brackets (e.g. "::1") — only strip if single colon + digits
+  const lastColon = host.lastIndexOf(':');
+  if (lastColon === -1) return host;
+  if (host.indexOf(':') === lastColon && /^\d+$/.test(host.slice(lastColon + 1))) {
+    return host.slice(0, lastColon);
+  }
+  return host;
+}
+
 function isLoopbackOrigin(origin: string): boolean {
   try { return LOOPBACK_HOSTS.has(new URL(origin).hostname); }
   catch { return false; }
@@ -66,8 +83,10 @@ function rewriteCsp(csp: string): string {
 
     if (name === 'script-src') {
       hasScriptSrc = true;
-      if (!parts.includes("'self'")) parts.push("'self'");
-      result.push(parts.join(' '));
+      // 'none' must be sole token — remove it when adding 'self'
+      const filtered = parts.filter(p => p !== "'none'");
+      if (!filtered.includes("'self'")) filtered.push("'self'");
+      result.push(filtered.join(' '));
       continue;
     }
 
@@ -81,7 +100,9 @@ function rewriteCsp(csp: string): string {
       d.split(/\s+/)[0]!.toLowerCase() === 'default-src'
     );
     if (defaultSrc) {
-      const values = new Set(defaultSrc.split(/\s+/).slice(1));
+      const values = new Set(
+        defaultSrc.split(/\s+/).slice(1).filter(v => v !== "'none'")
+      );
       values.add("'self'");
       result.push(`script-src ${[...values].join(' ')}`);
     }
@@ -133,9 +154,7 @@ export function createApp(options: ServerOptions): AppContext {
   // ── Host header validation ──────────────────────────────────
 
   app.use((req: Request, res: Response, next: NextFunction) => {
-    const hostHeader = req.headers.host ?? '';
-    // Strip port to get hostname (handles both "host:port" and bare "host")
-    const hostname = hostHeader.replace(/:\d+$/, '');
+    const hostname = hostnameFromHostHeader(req.headers.host ?? '');
     if (!LOOPBACK_HOSTS.has(hostname)) {
       res.status(403).send('Forbidden: invalid Host header');
       return;
@@ -282,17 +301,26 @@ export function createApp(options: ServerOptions): AppContext {
         // CSP rewrite: preserve policy but allow our scripts + iframing
         const existingCsp = proxyRes.headers['content-security-policy'];
         if (existingCsp) {
-          const cspValue = Array.isArray(existingCsp) ? existingCsp[0]! : existingCsp;
-          res.setHeader('content-security-policy', rewriteCsp(cspValue));
+          const rewrittenCsp = Array.isArray(existingCsp)
+            ? existingCsp.map(policy => rewriteCsp(policy))
+            : rewriteCsp(existingCsp);
+          res.setHeader('content-security-policy', rewrittenCsp);
         }
         // CSP-report-only and X-Frame-Options already excluded by skipHeaders
 
-        // Decompress if needed
-        const encoding = proxyRes.headers['content-encoding'];
+        // Decompress if needed (normalize string[] to first value)
+        const rawEncoding = proxyRes.headers['content-encoding'];
+        const encoding = Array.isArray(rawEncoding) ? rawEncoding[0] : rawEncoding;
         let source: NodeJS.ReadableStream = proxyRes;
         if (encoding === 'gzip') source = proxyRes.pipe(createGunzip());
         else if (encoding === 'br') source = proxyRes.pipe(createBrotliDecompress());
         else if (encoding === 'deflate') source = proxyRes.pipe(createInflate());
+        else if (encoding) {
+          // Unsupported encoding — pass through without injection to avoid corruption
+          res.writeHead(proxyRes.statusCode ?? 200, proxyRes.headers);
+          proxyRes.pipe(res);
+          return;
+        }
 
         // Buffer HTML, inject scripts, send
         const chunks: Buffer[] = [];
@@ -404,7 +432,7 @@ export function attachUpgradeHandler(server: Server, context: AppContext): void 
 
   server.on('upgrade', (req: IncomingMessage, socket: Socket, head: Buffer) => {
     // C1: Validate Host (mirrors Express middleware)
-    const reqHost = (req.headers.host ?? '').replace(/:\d+$/, '');
+    const reqHost = hostnameFromHostHeader(req.headers.host ?? '');
     if (!LOOPBACK_HOSTS.has(reqHost)) { socket.destroy(); return; }
 
     // C1: Validate Origin if present
@@ -509,6 +537,13 @@ export function startServer(options: ServerOptions): Promise<ServerContext> {
 
       resolve({ ...context, server, close });
     });
-    server.on('error', reject);
+    server.on('error', (err) => {
+      // Clean up process-level handlers on startup failure
+      process.removeListener('SIGTERM', onSignal);
+      process.removeListener('SIGINT', onSignal);
+      process.removeListener('uncaughtException', onFatalError);
+      process.removeListener('unhandledRejection', onFatalError);
+      reject(err);
+    });
   });
 }
