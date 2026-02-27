@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cortex Visual Editor</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; }
+    .shell {
+      display: flex;
+      height: 100vh;
+    }
+    .shell-viewport {
+      flex: 1;
+      border: none;
+    }
+    #panel-mount {
+      width: 320px;
+      flex-shrink: 0;
+      border-left: 1px solid #e0e0e0;
+      background: #fafafa;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <iframe class="shell-viewport" sandbox="allow-same-origin allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox"></iframe>
+    <div id="panel-mount"></div>
+  </div>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    let path = params.get('path') || '/';
+    if (!path.startsWith('/')) path = '/';
+    document.querySelector('.shell-viewport').src = path;
+  </script>
+  <script src="/__zerofog/client/panel.js"></script>
+</body>
+</html>
