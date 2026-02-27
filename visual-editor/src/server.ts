@@ -18,7 +18,8 @@ const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_PORT = 3100;
 const DEFAULT_HOST = 'localhost';
 const MAX_INJECT_SIZE = 5 * 1024 * 1024; // 5MB safety valve
-const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+// '[::1]' matches raw Host header; '::1' matches URL.hostname (WHATWG URL strips brackets)
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
 function isLoopbackOrigin(origin: string): boolean {
   try { return LOOPBACK_HOSTS.has(new URL(origin).hostname); }

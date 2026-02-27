@@ -31,7 +31,7 @@
   <script>
     const params = new URLSearchParams(window.location.search);
     let path = params.get('path') || '/';
-    if (!path.startsWith('/')) path = '/';
+    if (!path.startsWith('/') || path.startsWith('//')) path = '/';
     document.querySelector('.shell-viewport').src = path;
   </script>
   <script src="/__zerofog/client/panel.js"></script>
