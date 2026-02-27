@@ -99,25 +99,28 @@ function createTestSidecar(targetPort: number): Promise<TestSidecar> {
   });
 }
 
+/** Wait for a single WS message with timeout and cleanup. */
+function waitForWsMessage(ws: WebSocket, timeoutMs = 3000): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      ws.removeListener('message', onMsg);
+      reject(new Error('WS message timeout'));
+    }, timeoutMs);
+    function onMsg(data: Buffer) { clearTimeout(timer); resolve(data.toString()); }
+    ws.once('message', onMsg);
+    ws.once('error', (err) => { clearTimeout(timer); reject(err); });
+  });
+}
+
 /** Complete the auth handshake on an editor WS connection. */
 async function authenticateWs(ws: WebSocket, sessionId: string): Promise<void> {
-  // Wait for hello
-  const hello = await new Promise<string>((resolve, reject) => {
-    ws.on('message', (data) => resolve(data.toString()));
-    ws.on('error', reject);
-    setTimeout(() => reject(new Error('WS hello timeout')), 3000);
-  });
+  const hello = await waitForWsMessage(ws);
   const parsed = JSON.parse(hello);
   if (parsed.type !== 'hello') throw new Error(`Expected hello, got ${parsed.type}`);
 
-  // Send auth
   ws.send(JSON.stringify({ type: 'auth', sessionId }));
 
-  // Wait for session confirmation
-  const session = await new Promise<string>((resolve, reject) => {
-    ws.on('message', (data) => resolve(data.toString()));
-    setTimeout(() => reject(new Error('WS session timeout')), 3000);
-  });
+  const session = await waitForWsMessage(ws);
   const sessionMsg = JSON.parse(session);
   if (sessionMsg.type !== 'session' || !sessionMsg.authenticated) {
     throw new Error(`Auth failed: ${JSON.stringify(sessionMsg)}`);
@@ -302,12 +305,12 @@ describe('shell', () => {
     expect(html).toContain('sandbox="allow-same-origin allow-scripts');
   });
 
-  it('validates path param to prevent javascript: injection', async () => {
+  it('validates path param to prevent javascript: and protocol-relative injection', async () => {
     const res = await fetch(sidecar.url + '/__zerofog/shell', {
       headers: { Host: `127.0.0.1:${sidecar.port}` },
     });
     const html = await res.text();
-    expect(html).toContain("if (!path.startsWith('/')) path = '/';");
+    expect(html).toContain("if (!path.startsWith('/') || path.startsWith('//')) path = '/';");
   });
 });
 
