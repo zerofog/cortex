@@ -1,20 +1,9 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig([
-  // CLI entry — needs shebang for direct execution
+  // Server + CLI — single build pass, shebang added via postbuild script
   {
-    entry: ['src/bin.ts'],
-    format: ['esm'],
-    target: 'node20',
-    sourcemap: true,
-    dts: true,
-    banner: {
-      js: '#!/usr/bin/env node',
-    },
-  },
-  // Server — Node ESM, no shebang (may be import()-ed)
-  {
-    entry: ['src/server.ts'],
+    entry: ['src/bin.ts', 'src/server.ts'],
     format: ['esm'],
     target: 'node20',
     sourcemap: true,
@@ -32,7 +21,7 @@ export default defineConfig([
     target: 'es2020',
     platform: 'browser',
     outDir: 'dist/client',
-    sourcemap: 'inline',
+    sourcemap: false,
     outExtension() {
       return { js: '.js' };
     },

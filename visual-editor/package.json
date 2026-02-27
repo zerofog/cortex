@@ -21,6 +21,7 @@
   "scripts": {
     "prebuild": "rm -rf dist",
     "build": "tsup",
+    "postbuild": "node -e \"const fs=require('fs'),p='dist/bin.js',s='#!/usr/bin/env node\\n';if(!fs.existsSync(p)){console.error(p+' not found');process.exit(1)}const c=fs.readFileSync(p,'utf8');if(!c.startsWith(s))fs.writeFileSync(p,s+c)\"",
     "dev": "tsx src/bin.ts",
     "test": "vitest run",
     "test:watch": "vitest",
