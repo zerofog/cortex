@@ -3,15 +3,28 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    },
+    "./client/panel.js": "./dist/client/panel.js",
+    "./client/inspector.js": "./dist/client/inspector.js",
+    "./client/nav-blocker.js": "./dist/client/nav-blocker.js"
+  },
   "bin": {
     "cortex-visual-editor": "dist/bin.js"
   },
   "scripts": {
+    "prebuild": "rm -rf dist",
     "build": "tsup",
     "dev": "tsx src/bin.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "prepare": "npm run build"
   },
   "dependencies": {
@@ -23,6 +36,7 @@
   "devDependencies": {
     "@testing-library/preact": "^3.2.0",
     "@types/express": "^5.0.0",
+    "@types/node": "^20",
     "@types/ws": "^8.5.13",
     "happy-dom": "^15.0.0",
     "open-props": "^1.7.0",
