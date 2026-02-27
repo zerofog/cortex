@@ -3,9 +3,10 @@ import { readFileSync, readdirSync, writeFileSync, unlinkSync, mkdirSync } from 
 import { createServer, type Server, type IncomingMessage } from 'node:http';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createGunzip, createInflate, createBrotliDecompress } from 'node:zlib';
 
 import express, { type Request, type Response, type NextFunction } from 'express';
-import { createProxyMiddleware, responseInterceptor } from 'http-proxy-middleware';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Socket } from 'node:net';
 
@@ -25,7 +26,67 @@ function isLoopbackOrigin(origin: string): boolean {
 }
 
 function escapeHtml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
+
+export function checkPidFile(pidPath: string): 'none' | 'stale' | 'alive' {
+  let content: string;
+  try { content = readFileSync(pidPath, 'utf-8'); }
+  catch { return 'none'; }
+
+  const pid = parseInt(content.trim(), 10);
+  if (isNaN(pid) || pid <= 0) return 'stale';
+
+  try {
+    process.kill(pid, 0);  // signal 0 = existence check
+    return 'alive';
+  } catch (err: unknown) {
+    const code = (err as { code?: string }).code;
+    if (code === 'ESRCH') return 'stale';  // no such process
+    return 'alive';  // EPERM = exists but can't signal
+  }
+}
+
+function rewriteCsp(csp: string): string {
+  const directives = csp.split(';').map(d => d.trim()).filter(Boolean);
+  const result: string[] = [];
+  let hasScriptSrc = false;
+
+  for (const directive of directives) {
+    const parts = directive.split(/\s+/);
+    const name = parts[0]!.toLowerCase();
+
+    if (name === 'frame-ancestors') continue;  // must allow iframing
+
+    if (name === 'script-src') {
+      hasScriptSrc = true;
+      if (!parts.includes("'self'")) parts.push("'self'");
+      result.push(parts.join(' '));
+      continue;
+    }
+
+    result.push(directive);
+  }
+
+  // If default-src exists but no script-src, browsers fall back to default-src
+  // for scripts. Add explicit script-src derived from default-src + 'self'.
+  if (!hasScriptSrc) {
+    const defaultSrc = directives.find(d =>
+      d.split(/\s+/)[0]!.toLowerCase() === 'default-src'
+    );
+    if (defaultSrc) {
+      const values = new Set(defaultSrc.split(/\s+/).slice(1));
+      values.add("'self'");
+      result.push(`script-src ${[...values].join(' ')}`);
+    }
+  }
+
+  return result.join('; ');
 }
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -189,23 +250,68 @@ export function createApp(options: ServerOptions): AppContext {
     target: `http://127.0.0.1:${targetPort}`,
     selfHandleResponse: true,
     on: {
-      proxyRes: responseInterceptor(async (buffer, proxyRes, _req, res) => {
+      proxyRes: (proxyRes, _req, _res) => {
+        const res = _res as import('node:http').ServerResponse;
         const contentType = String(proxyRes.headers['content-type'] ?? '');
-        const isHtml = contentType.includes('text/html');
+        const mimeType = contentType.split(';')[0]!.trim();
+        const isHtml = mimeType === 'text/html';
 
-        if (isHtml) {
-          // Strip framing/CSP headers on HTML responses
-          res.removeHeader('content-security-policy');
-          res.removeHeader('content-security-policy-report-only');
-          res.removeHeader('x-frame-options');
+        // --- Passthrough: non-HTML streams through without buffering ---
+        if (!isHtml) {
+          res.writeHead(proxyRes.statusCode ?? 200, proxyRes.headers);
+          proxyRes.pipe(res);
+          return;
+        }
 
-          if (buffer.length <= MAX_INJECT_SIZE) {
-            return injectScripts(buffer.toString('utf-8'));
+        // --- Buffered: HTML needs CSP rewrite + script injection ---
+        res.statusCode = proxyRes.statusCode ?? 200;
+
+        // Copy headers, skipping ones we'll rewrite
+        const skipHeaders = new Set([
+          'content-encoding', 'transfer-encoding', 'content-length',
+          'content-security-policy', 'content-security-policy-report-only',
+          'x-frame-options',
+        ]);
+        for (const [key, value] of Object.entries(proxyRes.headers)) {
+          if (!skipHeaders.has(key) && value !== undefined) {
+            res.setHeader(key, value);
           }
         }
 
-        return buffer;
-      }) as any,
+        // CSP rewrite: preserve policy but allow our scripts + iframing
+        const existingCsp = proxyRes.headers['content-security-policy'];
+        if (existingCsp) {
+          const cspValue = Array.isArray(existingCsp) ? existingCsp[0]! : existingCsp;
+          res.setHeader('content-security-policy', rewriteCsp(cspValue));
+        }
+        // CSP-report-only and X-Frame-Options already excluded by skipHeaders
+
+        // Decompress if needed
+        const encoding = proxyRes.headers['content-encoding'];
+        let source: NodeJS.ReadableStream = proxyRes;
+        if (encoding === 'gzip') source = proxyRes.pipe(createGunzip());
+        else if (encoding === 'br') source = proxyRes.pipe(createBrotliDecompress());
+        else if (encoding === 'deflate') source = proxyRes.pipe(createInflate());
+
+        // Buffer HTML, inject scripts, send
+        const chunks: Buffer[] = [];
+        source.on('data', (chunk: Buffer) => chunks.push(chunk));
+        source.on('end', () => {
+          const buffer = Buffer.concat(chunks);
+          let body: Buffer;
+          if (buffer.length <= MAX_INJECT_SIZE) {
+            body = Buffer.from(injectScripts(buffer.toString('utf-8')), 'utf-8');
+          } else {
+            body = buffer;
+          }
+          res.setHeader('content-length', Buffer.byteLength(body));
+          res.end(body);
+        });
+        source.on('error', (err) => {
+          res.statusCode = 502;
+          res.end(`Error processing proxied response: ${escapeHtml(err.message)}`);
+        });
+      },
       error: (err: Error & { code?: string }, _req: IncomingMessage, res: unknown) => {
         // res may be a Socket for WS upgrades — only handle HTTP responses
         if (res && typeof res === 'object' && 'writeHead' in res) {
@@ -225,33 +331,65 @@ export function createApp(options: ServerOptions): AppContext {
 
   // ── Editor WebSocket ────────────────────────────────────────
 
+  interface WsMessage {
+    type: string;
+    id?: string;
+    sessionId?: string;
+    [key: string]: unknown;
+  }
+
+  function isValidWsMessage(data: unknown): data is WsMessage {
+    if (typeof data !== 'object' || data === null) return false;
+    const obj = data as Record<string, unknown>;
+    if (typeof obj.type !== 'string') return false;
+    if ('id' in obj && typeof obj.id !== 'string') return false;
+    if ('sessionId' in obj && typeof obj.sessionId !== 'string') return false;
+    return true;
+  }
+
   editorWss.on('connection', (ws: WebSocket) => {
     let authenticated = false;
 
     ws.send(JSON.stringify({ type: 'hello' }));
 
     ws.on('message', (data: Buffer) => {
-      try {
-        const msg = JSON.parse(data.toString());
-
-        if (!authenticated) {
-          if (msg.type === 'auth' && msg.sessionId === sessionId) {
-            authenticated = true;
-            ws.send(JSON.stringify({ type: 'session', authenticated: true }));
-          } else {
-            ws.send(JSON.stringify({ type: 'error', message: 'auth failed' }));
-            ws.close(4001, 'Authentication failed');
-          }
-          return;
-        }
-
-        ws.send(JSON.stringify({ type: 'ack', id: msg.id }));
-      } catch {
+      let parsed: unknown;
+      try { parsed = JSON.parse(data.toString()); }
+      catch {
         if (!authenticated) {
           ws.close(4001, 'Authentication failed');
-          return;
         }
+        // Silently ignore non-JSON after auth (matches existing behaviour)
+        return;
       }
+
+      if (!isValidWsMessage(parsed)) {
+        if (!authenticated) {
+          ws.close(4001, 'Authentication failed');
+        } else {
+          ws.send(JSON.stringify({ type: 'error', message: 'invalid message schema' }));
+        }
+        return;
+      }
+
+      if (!authenticated) {
+        if (parsed.type === 'auth' && parsed.sessionId === sessionId) {
+          authenticated = true;
+          ws.send(JSON.stringify({ type: 'session', authenticated: true }));
+        } else {
+          ws.send(JSON.stringify({ type: 'error', message: 'auth failed' }));
+          ws.close(4001, 'Authentication failed');
+        }
+        return;
+      }
+
+      // Post-auth: require message id
+      if (!parsed.id) {
+        ws.send(JSON.stringify({ type: 'error', message: 'missing message id' }));
+        return;
+      }
+
+      ws.send(JSON.stringify({ type: 'ack', id: parsed.id }));
     });
   });
 
@@ -294,13 +432,23 @@ export function attachUpgradeHandler(server: Server, context: AppContext): void 
 export function startServer(options: ServerOptions): Promise<ServerContext> {
   const port = options.port ?? DEFAULT_PORT;
   const host = options.host ?? DEFAULT_HOST;
+
+  const pidDir = join(process.cwd(), '.cortex');
+  const pidPath = join(pidDir, 'sidecar.pid');
+
+  // Check for existing PID before starting
+  const pidStatus = checkPidFile(pidPath);
+  if (pidStatus === 'alive') {
+    return Promise.reject(new Error('Another sidecar is already running'));
+  }
+  if (pidStatus === 'stale') {
+    try { unlinkSync(pidPath); } catch { /* ignore */ }
+  }
+
   const context = createApp(options);
   const server = createServer(context.app);
 
   attachUpgradeHandler(server, context);
-
-  const pidDir = join(process.cwd(), '.cortex');
-  const pidPath = join(pidDir, 'sidecar.pid');
 
   let closing = false;
 
@@ -309,6 +457,8 @@ export function startServer(options: ServerOptions): Promise<ServerContext> {
     closing = true;
     process.removeListener('SIGTERM', onSignal);
     process.removeListener('SIGINT', onSignal);
+    process.removeListener('uncaughtException', onFatalError);
+    process.removeListener('unhandledRejection', onFatalError);
 
     return new Promise((resolve) => {
       let resolved = false;
@@ -337,8 +487,14 @@ export function startServer(options: ServerOptions): Promise<ServerContext> {
   };
 
   function onSignal() { close(); }
+  function onFatalError() {
+    try { unlinkSync(pidPath); } catch { /* ignore */ }
+    process.exit(1);
+  }
   process.on('SIGTERM', onSignal);
   process.on('SIGINT', onSignal);
+  process.on('uncaughtException', onFatalError);
+  process.on('unhandledRejection', onFatalError);
 
   // Wire shutdown callback
   context.setShutdownHandler(() => { close(); });

@@ -1,7 +1,10 @@
-import { describe, expect, it, beforeAll, afterAll } from 'vitest';
+import { describe, expect, it, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { createServer, request as httpRequest, type Server } from 'node:http';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
-import { createApp, attachUpgradeHandler, type AppContext } from '../../src/server.js';
+import { createApp, attachUpgradeHandler, startServer, checkPidFile, type AppContext } from '../../src/server.js';
 
 // ─── Test helpers ────────────────────────────────────────────────
 
@@ -20,10 +23,25 @@ function createMockTarget(): Promise<MockTarget> {
         res.end(JSON.stringify({ ok: true }));
         return;
       }
+      if (req.url === '/events') {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        });
+        res.write('data: hello\n\n');
+        setTimeout(() => res.end(), 100);
+        return;
+      }
+      if (req.url === '/no-csp') {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end('<html><body><p>no csp app</p></body></html>');
+        return;
+      }
       // Default: serve HTML with CSP and X-Frame-Options
       res.writeHead(200, {
         'Content-Type': 'text/html',
-        'Content-Security-Policy': "default-src 'self'",
+        'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'",
         'X-Frame-Options': 'DENY',
       });
       res.end('<html><body><p>target app</p></body></html>');
@@ -133,12 +151,33 @@ describe('proxy', () => {
     expect(html).toContain('inspector.js');
   });
 
-  it('strips CSP and X-Frame-Options from HTML responses', async () => {
+  it('rewrites CSP on HTML responses: adds self to script-src, removes frame-ancestors', async () => {
     const res = await fetch(sidecar.url + '/', {
       headers: { Host: `127.0.0.1:${sidecar.port}` },
     });
-    expect(res.headers.get('content-security-policy')).toBeNull();
+    const csp = res.headers.get('content-security-policy');
+    expect(csp).not.toBeNull();
+    expect(csp).toContain("'self'");
+    expect(csp).not.toContain('frame-ancestors');
     expect(res.headers.get('x-frame-options')).toBeNull();
+  });
+
+  it('does not add CSP when target has none', async () => {
+    const res = await fetch(sidecar.url + '/no-csp', {
+      headers: { Host: `127.0.0.1:${sidecar.port}` },
+    });
+    expect(res.headers.get('content-security-policy')).toBeNull();
+  });
+
+  it('passes SSE responses through without buffering', async () => {
+    const res = await fetch(sidecar.url + '/events', {
+      headers: { Host: `127.0.0.1:${sidecar.port}` },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/event-stream');
+    const body = await res.text();
+    expect(body).toContain('data: hello');
+    expect(body).not.toContain('__zerofog_injected__');
   });
 
   it('passes non-HTML responses through without injection', async () => {
@@ -431,7 +470,7 @@ describe('WebSocket', () => {
     await authenticateWs(ws, sidecar.context.sessionId);
     // Send non-JSON — should be silently ignored after auth
     ws.send('not json at all');
-    // Then send valid JSON
+    // Then send valid JSON (must include id post-validation)
     ws.send(JSON.stringify({ id: 'after-garbage', type: 'ping' }));
     const ack = await new Promise<string>((resolve, reject) => {
       ws.on('message', (data) => resolve(data.toString()));
@@ -470,6 +509,51 @@ describe('WebSocket', () => {
       setTimeout(() => resolve(0), 3000);
     });
     expect(closeCode).toBe(4001);
+  });
+
+  it('rejects messages with non-string type', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${sidecar.port}/__zerofog`);
+    // Wait for hello
+    await new Promise<string>((resolve, reject) => {
+      ws.on('message', (data) => resolve(data.toString()));
+      ws.on('error', reject);
+      setTimeout(() => reject(new Error('WS timeout')), 3000);
+    });
+    // Send message with non-string type (invalid schema)
+    ws.send(JSON.stringify({ type: 123 }));
+    const closeCode = await new Promise<number>((resolve) => {
+      ws.on('close', (code) => resolve(code));
+      setTimeout(() => resolve(0), 3000);
+    });
+    expect(closeCode).toBe(4001);
+  });
+
+  it('rejects messages without id after auth', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${sidecar.port}/__zerofog`);
+    await authenticateWs(ws, sidecar.context.sessionId);
+    ws.send(JSON.stringify({ type: 'ping' }));
+    const msg = await new Promise<string>((resolve, reject) => {
+      ws.on('message', (data) => resolve(data.toString()));
+      setTimeout(() => reject(new Error('WS error timeout')), 3000);
+    });
+    const parsed = JSON.parse(msg);
+    expect(parsed.type).toBe('error');
+    expect(parsed.message).toBe('missing message id');
+    ws.close();
+  });
+
+  it('rejects messages with non-string id after auth', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${sidecar.port}/__zerofog`);
+    await authenticateWs(ws, sidecar.context.sessionId);
+    ws.send(JSON.stringify({ type: 'ping', id: 123 }));
+    const msg = await new Promise<string>((resolve, reject) => {
+      ws.on('message', (data) => resolve(data.toString()));
+      setTimeout(() => reject(new Error('WS error timeout')), 3000);
+    });
+    const parsed = JSON.parse(msg);
+    expect(parsed.type).toBe('error');
+    expect(parsed.message).toBe('invalid message schema');
+    ws.close();
   });
 
   it('rejects non-auth messages before authentication', async () => {
@@ -555,4 +639,113 @@ describe('injection safety valve', () => {
       await bigTarget.close();
     }
   }, 10000);
+});
+
+// ─── startServer lifecycle ──────────────────────────────────────
+
+describe('startServer lifecycle', () => {
+  let tmpDir: string;
+  let originalCwd: string;
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+    tmpDir = mkdtempSync(join(tmpdir(), 'cortex-test-'));
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    try { rmSync(tmpDir, { recursive: true }); } catch { /* ignore */ }
+  });
+
+  it('creates PID file on startup and removes on close', async () => {
+    const pidPath = join(tmpDir, '.cortex', 'sidecar.pid');
+    const ctx = await startServer({ targetPort: 59999, port: 0 });
+    expect(existsSync(pidPath)).toBe(true);
+    await ctx.close();
+    expect(existsSync(pidPath)).toBe(false);
+  });
+
+  it('double close is idempotent', async () => {
+    const ctx = await startServer({ targetPort: 59999, port: 0 });
+    await ctx.close();
+    // Second close should resolve immediately without error
+    await ctx.close();
+  });
+
+  it('detects stale PID and overwrites', async () => {
+    const pidDir = join(tmpDir, '.cortex');
+    const pidPath = join(pidDir, 'sidecar.pid');
+    // Write a stale PID (non-existent process)
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync(pidDir, { recursive: true });
+    writeFileSync(pidPath, '999999999');
+
+    // Should start successfully despite stale PID
+    const ctx = await startServer({ targetPort: 59999, port: 0 });
+    expect(existsSync(pidPath)).toBe(true);
+    await ctx.close();
+  });
+
+  it('throws if another instance is alive', async () => {
+    const first = await startServer({ targetPort: 59999, port: 0 });
+    try {
+      await expect(startServer({ targetPort: 59999, port: 0 }))
+        .rejects.toThrow('Another sidecar is already running');
+    } finally {
+      await first.close();
+    }
+  });
+
+  it('server responds to health check', async () => {
+    const ctx = await startServer({ targetPort: 59999, port: 0, host: '127.0.0.1' });
+    try {
+      const addr = ctx.server.address();
+      const port = typeof addr === 'object' && addr ? addr.port : 0;
+      const res = await fetch(`http://127.0.0.1:${port}/__zerofog/api/health`, {
+        headers: { Host: `127.0.0.1:${port}` },
+      });
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data).toEqual({ status: 'ok' });
+    } finally {
+      await ctx.close();
+    }
+  });
+});
+
+// ─── checkPidFile unit tests ────────────────────────────────────
+
+describe('checkPidFile', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'cortex-pid-'));
+  });
+
+  afterEach(() => {
+    try { rmSync(tmpDir, { recursive: true }); } catch { /* ignore */ }
+  });
+
+  it('returns none when file does not exist', () => {
+    expect(checkPidFile(join(tmpDir, 'nonexistent.pid'))).toBe('none');
+  });
+
+  it('returns stale for invalid PID content', () => {
+    const pidPath = join(tmpDir, 'bad.pid');
+    writeFileSync(pidPath, 'not-a-number');
+    expect(checkPidFile(pidPath)).toBe('stale');
+  });
+
+  it('returns stale for non-existent PID', () => {
+    const pidPath = join(tmpDir, 'gone.pid');
+    writeFileSync(pidPath, '999999999');
+    expect(checkPidFile(pidPath)).toBe('stale');
+  });
+
+  it('returns alive for current process PID', () => {
+    const pidPath = join(tmpDir, 'self.pid');
+    writeFileSync(pidPath, String(process.pid));
+    expect(checkPidFile(pidPath)).toBe('alive');
+  });
 });
