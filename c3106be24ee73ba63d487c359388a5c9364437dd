@@ -1,0 +1,132 @@
+visual-editor/tests/server/scaffold.test.ts
+  0050c507b7acdeae 1-8
+visual-editor/package.json
+  0d9743168c4c2ea4 6-8,22,39
+  26a763a39b862dc2 9-13,17
+  0050c507b7acdeae 14-16,27
+thoughts/2026-02-26-scaffold-fix-review.md
+  0d9743168c4c2ea4 1-162
+  26a763a39b862dc2 163-294
+visual-editor/tsconfig.test.json
+  0050c507b7acdeae 1-8
+tasks/todo.md
+  0050c507b7acdeae 1-28
+visual-editor/tsconfig.json
+  26a763a39b862dc2 15
+  0d9743168c4c2ea4 12-14,18
+  0050c507b7acdeae 16
+visual-editor/vitest.config.ts
+  26a763a39b862dc2 5,7-8
+  0050c507b7acdeae 6
+  0d9743168c4c2ea4 1-4,9-10
+visual-editor/tsup.config.ts
+  0d9743168c4c2ea4 4,15-22,35-38,40-41
+  26a763a39b862dc2 33
+visual-editor/tests/client/scaffold.test.ts
+  0050c507b7acdeae 1-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.5",
+  "base_commit_sha": "c3106be24ee73ba63d487c359388a5c9364437dd",
+  "prompts": {
+    "0050c507b7acdeae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72ddba7f-5bb8-4a99-8620-2ff7beb5093d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 58,
+      "total_deletions": 4,
+      "accepted_lines": 58,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/90f02b0ce858908b1a24c29a5a5f46110264546ab85709dc2fd22227fd161b7d"
+    },
+    "0d9743168c4c2ea4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5cc31e29-79f0-4ee9-a05e-eb7264a4bde6",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 196,
+      "total_deletions": 9,
+      "accepted_lines": 192,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/528cc2739de0fa8dca4df965a96241a448e46428debcc3bc2e4c5aa921a35026"
+    },
+    "26a763a39b862dc2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78e5975a-342d-487c-86ab-c977dc6d0bbf",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 148,
+      "total_deletions": 4,
+      "accepted_lines": 143,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/9f20106a444bb4eb7e0ec2ab6091a7e609ae5da644ff7c7dfa939c1a924357e3"
+    },
+    "64b3eebf7f3c4189": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c224b400-4a8a-4df4-9394-4014817cac72",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 3,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/9b15eee0511a6e9a6e82219689dfa8401d7453690977da400b1baa7a589aaf09"
+    },
+    "b2eb3844ca119100": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "801b094f-a690-4458-a6fb-b091086addd4",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 667,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/57d112b75c0ac02c6c5d45b9b30c8c8b8297c632c4a66472d3751114ad0070d1"
+    },
+    "bf5c17d9d77e4588": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f199beba-68b6-4bb5-b97a-f2edaef73682",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 23,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/57c4fd6fd16e4ffbca8e0da19e9dfc3fa2f08d57f770a25aa64e5951dd9d88b1"
+    },
+    "c64fc89156fb8ca2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b93d0b6a-e7dc-4a82-8ae1-5180d8253576",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 319,
+      "total_deletions": 8,
+      "accepted_lines": 311,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/ef1aafc12ddf1f2176d46cfc90d8496efa71d301da687e5d5b430e11c905d8c0"
+    }
+  }
+}
