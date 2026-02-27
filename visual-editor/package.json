@@ -21,6 +21,7 @@
   "scripts": {
     "prebuild": "rm -rf dist",
     "build": "tsup",
+    "postbuild": "node -e \"const fs=require('fs'),p='dist/bin.js';fs.writeFileSync(p,'#!/usr/bin/env node\\n'+fs.readFileSync(p,'utf8'))\"",
     "dev": "tsx src/bin.ts",
     "test": "vitest run",
     "test:watch": "vitest",
