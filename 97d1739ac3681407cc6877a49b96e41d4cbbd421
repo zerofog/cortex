@@ -1,0 +1,28 @@
+visual-editor/src/server.ts
+  4faeba700f978e16 21-22
+visual-editor/tests/server/server.test.ts
+  4faeba700f978e16 102-114,117,123,308,313
+visual-editor/src/client/shell.html
+  4faeba700f978e16 34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.5",
+  "base_commit_sha": "97d1739ac3681407cc6877a49b96e41d4cbbd421",
+  "prompts": {
+    "4faeba700f978e16": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f45429f9-a0a5-4c9a-83c5-4c484c8a8f76",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 20,
+      "total_deletions": 16,
+      "accepted_lines": 20,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/f1450d4818f67d48ad479215a762ae0d3c8a80dc4d337742c6cfce7a2522ddf1"
+    }
+  }
+}
