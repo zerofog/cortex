@@ -1,17 +1,24 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig([
-  // Server — Node ESM
+  // CLI entry — needs shebang for direct execution
   {
-    entry: ['src/bin.ts', 'src/server.ts'],
+    entry: ['src/bin.ts'],
     format: ['esm'],
     target: 'node20',
-    clean: true,
     sourcemap: true,
     dts: true,
     banner: {
       js: '#!/usr/bin/env node',
     },
+  },
+  // Server — Node ESM, no shebang (may be import()-ed)
+  {
+    entry: ['src/server.ts'],
+    format: ['esm'],
+    target: 'node20',
+    sourcemap: true,
+    dts: true,
   },
   // Client — Preact panel bundled as IIFE for Shadow DOM injection
   // inspector.js and nav-blocker.js also bundled for consistent dist/client/ serving
@@ -23,11 +30,15 @@ export default defineConfig([
     ],
     format: ['iife'],
     target: 'es2020',
+    platform: 'browser',
     outDir: 'dist/client',
-    sourcemap: true,
+    sourcemap: 'inline',
+    outExtension() {
+      return { js: '.js' };
+    },
     esbuildOptions(options) {
-      options.jsxFactory = 'h';
-      options.jsxFragment = 'Fragment';
+      options.jsx = 'automatic';
+      options.jsxImportSource = 'preact';
     },
   },
 ]);
