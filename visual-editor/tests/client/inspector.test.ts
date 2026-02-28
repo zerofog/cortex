@@ -636,6 +636,11 @@ function sendInspectorMessage(type: string) {
 
 describe('Inspector IIFE Integration', () => {
   beforeEach(async () => {
+    // Deactivate previous inspector instance to remove its event listeners.
+    // Each IIFE creates its own closure, so the new instance's deactivate()
+    // can't remove the old closure's handlers — must call the old one first.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).__ZEROFOG__?.deactivateInspector?.();
     // Clear DOM state from previous test
     while (document.body.firstChild) {
       document.body.removeChild(document.body.firstChild);
@@ -843,6 +848,16 @@ describe('Inspector IIFE Integration', () => {
     it('rejects message with non-object data', () => {
       window.dispatchEvent(new MessageEvent('message', {
         data: 'inspector:enter-select',
+        origin: '__SIDECAR_ORIGIN__',
+      }));
+
+      expect(zf().selectMode).toBe(false);
+    });
+
+    it('rejects message with inherited (non-own) sessionId', () => {
+      const proto = { sessionId: '__SESSION_ID__', type: 'inspector:enter-select', version: 1 };
+      window.dispatchEvent(new MessageEvent('message', {
+        data: Object.create(proto),
         origin: '__SIDECAR_ORIGIN__',
       }));
 

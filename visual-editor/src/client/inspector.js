@@ -267,6 +267,7 @@ function isValidInbound(e) {
     e.origin === SIDECAR_ORIGIN &&
     e.data &&
     typeof e.data === 'object' &&
+    Object.prototype.hasOwnProperty.call(e.data, 'sessionId') &&
     e.data.sessionId === SESSION_ID
   );
 }
