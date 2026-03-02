@@ -26,6 +26,18 @@ var MSG_VERSION = 1;
 
 // ── Pure functions (exported for testing) ────────────────────────
 
+/**
+ * Escape special characters for use inside a CSS attribute-value selector.
+ * E.g. `card"panel` → `card\"panel`, `path\to` → `path\\to`
+ *
+ * Scope: escapes backslash and double-quote only. Does NOT handle null bytes,
+ * control characters, or other Unicode edge cases. testId values are
+ * developer-controlled strings that should not contain such characters.
+ */
+function escapeAttrValue(val) {
+  return val.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
 function getComponentName(fiber) {
   if (!fiber || !fiber.type) return null;
   return fiber.type.displayName || fiber.type.name || null;
@@ -242,6 +254,111 @@ function classifyElement(componentChain, tagName) {
   return 'unknown';
 }
 
+/**
+ * Parse semicolon-delimited CSS declarations into a property→value map.
+ * E.g. "padding: 16px !important; color: red" → { padding: "16px !important", color: "red" }
+ *
+ * Splits on semicolons naively. Semicolons inside quoted values will cause incorrect splits.
+ */
+function parseDeclarations(body, target) {
+  var declarations = body.split(';');
+  for (var j = 0; j < declarations.length; j++) {
+    var decl = declarations[j].trim();
+    if (!decl) continue;
+    var colonIdx = decl.indexOf(':');
+    if (colonIdx === -1) continue;
+    var prop = decl.substring(0, colonIdx).trim();
+    var val = decl.substring(colonIdx + 1).trim();
+    if (prop) target[prop] = val;
+  }
+}
+
+/**
+ * Parse a CSS text block into a rules object.
+ * Returns { selector: { property: value, ... }, ... }
+ * Uses brace-depth tracking to correctly handle @media/@supports nesting.
+ *
+ * Handles one level of @-rule nesting. Double-nested (e.g. @supports inside @media) drops inner rules.
+ */
+function parseOverrideRules(cssText) {
+  var rules = {};
+  if (!cssText || !cssText.trim()) return rules;
+
+  var depth = 0;
+  var buffer = '';
+  var currentSelector = '';
+  var inAtRule = false;
+
+  for (var i = 0; i < cssText.length; i++) {
+    var ch = cssText[i];
+
+    if (ch === '{') {
+      if (depth === 0) {
+        // Depth 0→1: entering a top-level block
+        var sel = buffer.trim();
+        if (sel.charAt(0) === '@') {
+          // @media or @supports — wrapper, not a rule selector
+          inAtRule = true;
+        } else {
+          currentSelector = sel;
+        }
+        buffer = '';
+      } else if (depth === 1 && inAtRule) {
+        // Depth 1→2: entering inner rule inside @-rule
+        currentSelector = buffer.trim();
+        buffer = '';
+      }
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0 && !inAtRule) {
+        // End of flat rule — parse declarations
+        if (currentSelector) {
+          if (!rules[currentSelector]) rules[currentSelector] = {};
+          parseDeclarations(buffer, rules[currentSelector]);
+        }
+        buffer = '';
+        currentSelector = '';
+      } else if (depth === 1 && inAtRule) {
+        // End of nested rule inside @-rule
+        if (currentSelector) {
+          if (!rules[currentSelector]) rules[currentSelector] = {};
+          parseDeclarations(buffer, rules[currentSelector]);
+        }
+        buffer = '';
+        currentSelector = '';
+      } else if (depth === 0 && inAtRule) {
+        // End of @-rule wrapper
+        inAtRule = false;
+        buffer = '';
+      }
+    } else {
+      buffer += ch;
+    }
+  }
+
+  return rules;
+}
+
+/**
+ * Serialize a rules object back to CSS text.
+ */
+function buildOverrideCSS(rules) {
+  var css = '';
+  for (var selector in rules) {
+    if (!Object.prototype.hasOwnProperty.call(rules, selector)) continue;
+    var props = [];
+    for (var prop in rules[selector]) {
+      if (!Object.prototype.hasOwnProperty.call(rules[selector], prop)) continue;
+      props.push(prop + ': ' + rules[selector][prop]);
+    }
+    if (props.length > 0) {
+      css += selector + ' { ' + props.join('; ') + '; }\n';
+    }
+  }
+  return css;
+}
+
 // ── PostMessage helpers ──────────────────────────────────────────
 
 function postToParent(type, payload) {
@@ -272,11 +389,24 @@ function isValidInbound(e) {
   );
 }
 
+// ── Module-level alias for IIFE-scoped buildSelector (ESM export bridge) ──
+// Initialized to a stub that throws in non-browser contexts (SSR/Node).
+// The IIFE overwrites this with the real implementation at runtime.
+var _buildSelector = function () {
+  throw new Error('buildSelector requires a browser environment');
+};
+
 // ── Browser Inspector (only runs in browser context) ─────────────
 
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   // Initialize consolidated namespace (idempotent — safe for re-injection)
   window.__ZEROFOG__ = window.__ZEROFOG__ || {};
+
+  // Guard: deactivate previous IIFE instance before new closure replaces references.
+  // Prevents ghost listeners from old closure that become unreachable after re-injection.
+  if (window.__ZEROFOG__.deactivateInspector) {
+    window.__ZEROFOG__.deactivateInspector();
+  }
 
   (function () {
     var OVERLAY_ID = '__zerofog_inspector_overlay__';
@@ -289,6 +419,59 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     var elementMap = Object.create(null);
     var lastHoverTarget = null;
     var hoverRafPending = false;
+    function pruneDetachedElements() {
+      var mapKeys = Object.keys(elementMap);
+      for (var i = 0; i < mapKeys.length; i++) {
+        var el = elementMap[mapKeys[i]];
+        if (el && !document.contains(el)) {
+          delete elementMap[mapKeys[i]];
+        }
+      }
+    }
+
+    /**
+     * Attach navigation listeners to prune detached elements on SPA route changes.
+     *
+     * Uses a sentinel pattern: pushState/replaceState are wrapped once (guarded by
+     * `__cortexPatched`) and read `_pruneCallback` from the global on each invocation.
+     * On teardown, we null the callback instead of restoring originals — this avoids
+     * breaking framework router patches installed above ours.
+     *
+     * Known limitation: if a framework router also patches pushState, and the
+     * inspector loads/unloads between the framework's setup and teardown, the
+     * restore-on-teardown can break the framework's wrapper.
+     */
+    function setupNavListeners() {
+      window.__ZEROFOG__._pruneCallback = pruneDetachedElements;
+      window.addEventListener('popstate', pruneDetachedElements);
+      if (!history.pushState.__cortexPatched) {
+        var origPush = history.pushState;
+        history.pushState = function () {
+          origPush.apply(history, arguments);
+          if (window.__ZEROFOG__ && window.__ZEROFOG__._pruneCallback) {
+            window.__ZEROFOG__._pruneCallback();
+          }
+        };
+        history.pushState.__cortexPatched = true;
+      }
+      if (!history.replaceState.__cortexPatched) {
+        var origReplace = history.replaceState;
+        history.replaceState = function () {
+          origReplace.apply(history, arguments);
+          if (window.__ZEROFOG__ && window.__ZEROFOG__._pruneCallback) {
+            window.__ZEROFOG__._pruneCallback();
+          }
+        };
+        history.replaceState.__cortexPatched = true;
+      }
+    }
+
+    function teardownNavListeners() {
+      window.removeEventListener('popstate', pruneDetachedElements);
+      if (window.__ZEROFOG__) {
+        window.__ZEROFOG__._pruneCallback = null;
+      }
+    }
 
     function createOverlay(id, borderColor, bgColor) {
       var el = document.getElementById(id);
@@ -369,6 +552,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
           hoverRafPending = false;
           if (active && lastHoverTarget && document.contains(lastHoverTarget)) {
             updateHoverOverlay(lastHoverTarget);
+          } else if (overlay) {
+            overlay.style.display = 'none';
+            labelEl.style.display = 'none';
           }
         });
       }
@@ -464,6 +650,16 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       selectMode = false;
       window.__ZEROFOG__.selectMode = false;
     };
+    messageHandlers['inspector:discard-overrides'] = function () {
+      discardOverrides();
+    };
+    messageHandlers['inspector:build-selector'] = function (payload) {
+      if (!payload || !payload.elementId) return;
+      var el = elementMap[payload.elementId];
+      if (!el) return;
+      var selector = buildSelector(el);
+      postToParent('zerofog:selector', { selector: selector });
+    };
 
     function handleMessage(e) {
       if (!isValidInbound(e)) return;
@@ -471,20 +667,14 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       if (handler) handler(e.data.payload);
     }
 
-    function deactivate() {
+    function teardownListeners() {
       var wasActive = active;
       active = false;
       selectMode = false;
-      // Clear element references to allow GC of detached DOM nodes
-      var mapKeys = Object.keys(elementMap);
-      for (var i = 0; i < mapKeys.length; i++) {
-        delete elementMap[mapKeys[i]];
-      }
       lastHoverTarget = null;
       hoverRafPending = false;
       window.__ZEROFOG__.inspectorActive = false;
       window.__ZEROFOG__.selectMode = false;
-      window.__ZEROFOG__.selected = null;
       if (overlay) overlay.style.display = 'none';
       if (selectedOverlay) selectedOverlay.style.display = 'none';
       if (labelEl) labelEl.style.display = 'none';
@@ -493,15 +683,43 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       document.removeEventListener('click', handleClick, true);
       document.removeEventListener('keydown', handleKeyDown, true);
       window.removeEventListener('message', handleMessage);
+      teardownNavListeners();
       if (wasActive) {
         document.dispatchEvent(new CustomEvent('zerofog:deselected'));
         postToParent('zerofog:deselected', null);
       }
     }
 
+    function discardOverrides() {
+      // Clear element references to allow GC of detached DOM nodes
+      var mapKeys = Object.keys(elementMap);
+      for (var i = 0; i < mapKeys.length; i++) {
+        delete elementMap[mapKeys[i]];
+      }
+      window.__ZEROFOG__.selected = null;
+    }
+
+    function deactivate() {
+      teardownListeners();
+      discardOverrides();
+    }
+
     function activate() {
-      // Idempotent — clean up before re-attaching
-      deactivate();
+      // Idempotent — tear down listeners before re-attaching (preserves override state)
+      teardownListeners();
+
+      // Recover cortexIdCounter from pre-existing DOM (survives HMR/re-injection)
+      var existingIds = document.querySelectorAll('[data-cortex-id]');
+      var maxId = cortexIdCounter;
+      for (var ei = 0; ei < existingIds.length; ei++) {
+        var val = existingIds[ei].getAttribute('data-cortex-id');
+        var match = val && val.match(/^cx-(\d+)$/);
+        if (match) {
+          var num = parseInt(match[1], 10);
+          if (num > maxId) maxId = num;
+        }
+      }
+      cortexIdCounter = maxId;
 
       overlay = createOverlay(OVERLAY_ID, '#3b82f6', 'rgba(59,130,246,0.08)');
       selectedOverlay = createOverlay(
@@ -519,16 +737,49 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       document.addEventListener('click', handleClick, true);
       document.addEventListener('keydown', handleKeyDown, true);
       window.addEventListener('message', handleMessage);
+      setupNavListeners();
 
       postToParent('zerofog:ready', null);
     }
 
+    var cortexIdCounter = 0;
+
+    function buildSelector(element) {
+      // Prefer data-testid if unique on the page
+      var testId = element.getAttribute('data-testid');
+      if (testId) {
+        var escaped = escapeAttrValue(testId);
+        var matches = document.querySelectorAll('[data-testid="' + escaped + '"]');
+        if (matches.length === 1) {
+          return '[data-testid="' + escaped + '"]';
+        }
+      }
+
+      // Fallback: use or assign data-cortex-id for a unique selector
+      var cortexId = element.getAttribute('data-cortex-id');
+      if (!cortexId) {
+        cortexIdCounter++;
+        cortexId = 'cx-' + cortexIdCounter;
+        element.setAttribute('data-cortex-id', cortexId);
+      }
+      return '[data-cortex-id="' + cortexId + '"]';
+    }
+
+    // Bridge IIFE-scoped buildSelector to module scope for ESM export
+    _buildSelector = buildSelector;
+
     // Expose for re-activation, deactivation, and state checking
     window.__ZEROFOG__.activateInspector = activate;
     window.__ZEROFOG__.deactivateInspector = deactivate;
+    window.__ZEROFOG__.pauseInspector = teardownListeners;
+    window.__ZEROFOG__.discardOverrides = discardOverrides;
+    window.__ZEROFOG__.buildSelector = buildSelector;
     window.__ZEROFOG__.selected = null;
     window.__ZEROFOG__.inspectorActive = false;
     window.__ZEROFOG__.selectMode = false;
+    window.__ZEROFOG__._pruneCallback = null;
+    /** Internal/unstable: elementMap exposed as mutable reference for first-party
+     *  panel code. Not part of the public API. */
     window.__ZEROFOG__.elementMap = elementMap;
 
     // Auto-activate on injection
@@ -538,10 +789,14 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
 
 // ── Exports (for testing; stripped by tsup IIFE bundling) ────────
 export {
+  escapeAttrValue,
   resolveSource,
   getComponentName,
   findReactFiberKeys,
   walkComponentChain,
   isFiberAncestor,
   classifyElement,
+  parseOverrideRules,
+  buildOverrideCSS,
+  _buildSelector as buildSelector,
 };
