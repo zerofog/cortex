@@ -1,0 +1,103 @@
+visual-editor/tests/client/toolbar.test.ts
+  820cd03d50065d11 128-151,347-446,503-549
+  6832cb8e886c3657 1,11,44-45,65-70,72-81,83-94,105-110,169-193,632,641-684,730-991
+  227e4ecb92aabac7 2-10,12-43,46-64,71,82,95-104,111-127,152-168,194-346,447-502,550-631,633-640,685-729
+visual-editor/src/client/toolbar.js
+  227e4ecb92aabac7 1-11,16-18,20-38,41-45,49-50,52-63,69-115,129-132,140-179,181-192,195,199,201-221,230-232,234,236-242,244-271
+  820cd03d50065d11 51,64-68,119-128,135-139,180
+  6832cb8e886c3657 12-15,19,39-40,46-48,116-118,133-134,193-194,196-198,200,222-229,233,235,243
+visual-editor/src/client/toolbar.d.ts
+  6832cb8e886c3657 45,54
+  227e4ecb92aabac7 1-44,46-53,55-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "ae2b704999efa0f1df65954138b32fab043ef71c",
+  "prompts": {
+    "227e4ecb92aabac7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f6f702b7-5f1e-4c3a-8375-9ca8c381d14a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 1145,
+      "total_deletions": 23,
+      "accepted_lines": 1080,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/5621c1aafef10b8819c3118f40beed38824207e6bd43b04b2bf64278f5741b8b"
+    },
+    "4d09664a8a5111ad": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "22b62e12-5e68-459c-a590-32d43ce2f384",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 170,
+      "total_deletions": 0,
+      "accepted_lines": 12,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/818cbda60784fb4135e26f112eedc4378dd09bc659aab5128d4d00fa37366a76"
+    },
+    "6832cb8e886c3657": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "05191980-d6a9-4844-8350-b94c975d8da3",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 415,
+      "total_deletions": 50,
+      "accepted_lines": 404,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/27776838e0c4f998c8a97f116a3e729719b4854994db7cf9226dd516123bb4b9"
+    },
+    "820cd03d50065d11": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4ba67220-8f79-43e2-b8e4-98d6f18be4a4",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 1568,
+      "total_deletions": 51,
+      "accepted_lines": 1520,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/8e28ffb8e3116a52fc2db59bf09eb2f40c45ccd2c7293e338449b6970d77b6a5"
+    },
+    "93e74dac38710f2a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1505004a-4d18-4b43-b509-f304af18afcd",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 354,
+      "total_deletions": 217,
+      "accepted_lines": 348,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/45338ae5c65c330415a4dcad172ebdf4099500e3bef2880c7a26fd5fbe4c5210"
+    },
+    "fe945cbbd8fcc891": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19969f0d-ea3b-40c4-9a08-7cb045130ec9",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 386,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/6163acf24e28cc2a6ec19b73ca28af40d33b3944c1e9c4544867b0197e1c39b7"
+    }
+  }
+}
