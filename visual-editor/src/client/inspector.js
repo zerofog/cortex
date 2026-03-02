@@ -390,7 +390,11 @@ function isValidInbound(e) {
 }
 
 // ── Module-level alias for IIFE-scoped buildSelector (ESM export bridge) ──
-var _buildSelector;
+// Initialized to a stub that throws in non-browser contexts (SSR/Node).
+// The IIFE overwrites this with the real implementation at runtime.
+var _buildSelector = function () {
+  throw new Error('buildSelector requires a browser environment');
+};
 
 // ── Browser Inspector (only runs in browser context) ─────────────
 
