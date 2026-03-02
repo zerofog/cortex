@@ -30,6 +30,12 @@ export type ElementCategory =
   | 'input'
   | 'unknown';
 
+/** Escape special characters for use inside a CSS attribute-value selector. */
+export declare function escapeAttrValue(val: string): string;
+
+/** Build a unique CSS selector for a DOM element. */
+export declare function buildSelector(element: Element): string;
+
 /** Extract component display name from a fiber node. */
 export declare function getComponentName(fiber: unknown): string | null;
 
@@ -57,3 +63,61 @@ export declare function classifyElement(
   componentChain: string[],
   tagName: string | null | undefined,
 ): ElementCategory;
+
+/** CSS rules object: { selector: { property: value, ... }, ... } */
+export type OverrideRules = Record<string, Record<string, string>>;
+
+/** Parse CSS text into a rules object. Handles @media/@supports nesting. */
+export declare function parseOverrideRules(cssText: string): OverrideRules;
+
+/** Serialize a rules object back to CSS text. */
+export declare function buildOverrideCSS(rules: OverrideRules): string;
+
+/** Runtime selection shape produced by the click handler. */
+export interface Selection {
+  id: number;
+  timestamp: number;
+  testId: string | null;
+  componentChain: string[];
+  hasClientFiber: boolean;
+  elementType: ElementCategory;
+  element: {
+    tag: string;
+    classes: string[];
+    text: string;
+    bounds: { top: number; left: number; width: number; height: number };
+  };
+  styles: {
+    color: string;
+    background: string;
+    fontSize: string;
+    padding: string;
+    margin: string;
+    display: string;
+    gap: string;
+    borderRadius: string;
+    fontWeight: string;
+    fontFamily: string;
+  };
+}
+
+/** Shape of the window.__ZEROFOG__ runtime namespace. */
+export interface ZerofogGlobal {
+  activateInspector: () => void;
+  deactivateInspector: () => void;
+  pauseInspector: () => void;
+  discardOverrides: () => void;
+  buildSelector: (element: Element) => string;
+  selected: Selection | null;
+  inspectorActive: boolean;
+  selectMode: boolean;
+  elementMap: Record<string, Element>;
+  /** Internal: prune callback reference for pushState sentinel pattern. */
+  _pruneCallback: (() => void) | null;
+}
+
+declare global {
+  interface Window {
+    __ZEROFOG__?: ZerofogGlobal;
+  }
+}

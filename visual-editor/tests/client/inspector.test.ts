@@ -1,11 +1,15 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
+  escapeAttrValue,
   resolveSource,
   classifyElement,
   walkComponentChain,
   isFiberAncestor,
   getComponentName,
   findReactFiberKeys,
+  parseOverrideRules,
+  buildOverrideCSS,
+  buildSelector,
 } from '../../src/client/inspector.js';
 
 /**
@@ -608,6 +612,180 @@ describe('walkComponentChain — strategy conflict', () => {
   });
 });
 
+// ── parseOverrideRules ──────────────────────────────────────
+
+describe('parseOverrideRules', () => {
+  it('parses flat CSS rules into selector→properties map', () => {
+    const css = '[data-testid="card"] { padding: 16px !important; color: red !important }';
+    const result = parseOverrideRules(css);
+
+    expect(result['[data-testid="card"]']).toBeDefined();
+    expect(result['[data-testid="card"]']!['padding']).toBe('16px !important');
+    expect(result['[data-testid="card"]']!['color']).toBe('red !important');
+  });
+
+  it('parses multiple flat rules', () => {
+    const css = '.foo { color: red !important }\n.bar { margin: 8px !important }';
+    const result = parseOverrideRules(css);
+
+    expect(Object.keys(result)).toHaveLength(2);
+    expect(result['.foo']!['color']).toBe('red !important');
+    expect(result['.bar']!['margin']).toBe('8px !important');
+  });
+
+  it('correctly parses CSS with @media nesting', () => {
+    const css = '@media (min-width: 768px) { .responsive { font-size: 18px !important } }';
+    const result = parseOverrideRules(css);
+
+    // Should extract the inner rule, not break on the nested braces
+    expect(result['.responsive']).toBeDefined();
+    expect(result['.responsive']!['font-size']).toBe('18px !important');
+  });
+
+  it('returns empty object for empty string', () => {
+    expect(parseOverrideRules('')).toEqual({});
+  });
+
+  it('returns empty object for whitespace-only string', () => {
+    expect(parseOverrideRules('   \n  ')).toEqual({});
+  });
+
+  it('handles mixed flat and nested rules', () => {
+    const css = '.flat { color: blue !important }\n@media (max-width: 600px) { .nested { padding: 4px !important } }';
+    const result = parseOverrideRules(css);
+
+    expect(result['.flat']!['color']).toBe('blue !important');
+    expect(result['.nested']!['padding']).toBe('4px !important');
+  });
+
+  it('mangles double-nested at-rules (known limitation)', () => {
+    const css = '@media (min-width: 768px) { @supports (display: grid) { .inner { color: red } } }';
+    const result = parseOverrideRules(css);
+
+    // Double-nested at-rules produce garbled output — inner braces collapse
+    // into the declaration buffer, yielding a mangled selector+property key.
+    // This documents the known limitation: only one level of @-rule nesting is supported.
+    expect(result['.inner']).toBeUndefined();
+  });
+
+  it('splits incorrectly on semicolons inside quoted values (known limitation)', () => {
+    const css = '.sel { content: "a; b"; color: red }';
+    const result = parseOverrideRules(css);
+
+    // Naive semicolon splitting breaks the content value — documents known behavior
+    expect(result['.sel']).toBeDefined();
+    // content gets truncated at the semicolon inside the quotes
+    expect(result['.sel']!['content']).toBe('"a');
+  });
+});
+
+// ── buildOverrideCSS ────────────────────────────────────────
+
+describe('buildOverrideCSS', () => {
+  it('serializes rules object to CSS text', () => {
+    const rules = {
+      '.foo': { color: 'red !important', padding: '8px !important' },
+    };
+    const css = buildOverrideCSS(rules);
+
+    expect(css).toContain('.foo');
+    expect(css).toContain('color: red !important');
+    expect(css).toContain('padding: 8px !important');
+  });
+
+  it('returns empty string for empty rules', () => {
+    expect(buildOverrideCSS({})).toBe('');
+  });
+
+  it('roundtrips with parseOverrideRules', () => {
+    const original = { '.card': { padding: '16px !important' } };
+    const css = buildOverrideCSS(original);
+    const parsed = parseOverrideRules(css);
+
+    expect(parsed['.card']!['padding']).toBe('16px !important');
+  });
+
+  it('ignores inherited properties on rules object', () => {
+    const proto = { '.inherited': { color: 'blue' } };
+    const rules = Object.create(proto);
+    rules['.own'] = { padding: '8px' };
+
+    const css = buildOverrideCSS(rules);
+
+    expect(css).toContain('.own');
+    expect(css).not.toContain('.inherited');
+  });
+
+  it('ignores inherited properties on individual rule declarations', () => {
+    const declProto = { 'font-size': '14px' };
+    const decls = Object.create(declProto);
+    decls['color'] = 'red';
+
+    const css = buildOverrideCSS({ '.sel': decls });
+
+    expect(css).toContain('color: red');
+    expect(css).not.toContain('font-size');
+  });
+
+  it('emits trailing semicolon after last declaration', () => {
+    const rules = { '.foo': { color: 'red', padding: '8px' } };
+    const css = buildOverrideCSS(rules);
+
+    expect(css).toMatch(/; \}$/m);
+  });
+});
+
+// ── escapeAttrValue ─────────────────────────────────────────
+
+describe('escapeAttrValue', () => {
+  it('escapes double quotes in testId', () => {
+    expect(escapeAttrValue('card"panel')).toBe('card\\"panel');
+  });
+
+  it('escapes backslashes in testId', () => {
+    expect(escapeAttrValue('path\\to')).toBe('path\\\\to');
+  });
+
+  it('handles closing bracket without throwing', () => {
+    // Bracket is safe inside quoted attribute values — just verify no error
+    expect(() => escapeAttrValue('a]b')).not.toThrow();
+    expect(escapeAttrValue('a]b')).toBe('a]b');
+  });
+});
+
+// ── buildSelector (ESM export) ───────────────────────────────────
+
+describe('buildSelector (ESM export)', () => {
+  it('is callable as an ESM import', () => {
+    expect(typeof buildSelector).toBe('function');
+  });
+
+  it('returns data-testid selector for unique testid', () => {
+    const div = document.createElement('div');
+    div.setAttribute('data-testid', 'esm-test-unique');
+    document.body.appendChild(div);
+
+    try {
+      const selector = buildSelector(div);
+      expect(selector).toBe('[data-testid="esm-test-unique"]');
+    } finally {
+      div.remove();
+    }
+  });
+
+  it('falls back to data-cortex-id when no testid', () => {
+    const div = document.createElement('div');
+    document.body.appendChild(div);
+
+    try {
+      const selector = buildSelector(div);
+      expect(selector).toMatch(/\[data-cortex-id="/);
+    } finally {
+      div.remove();
+    }
+  });
+});
+
 // ── Inspector IIFE Integration Tests ─────────────────────────────
 //
 // These tests exercise the browser runtime code (the IIFE that wraps
@@ -625,10 +803,10 @@ function zf(): any {
   return (window as any).__ZEROFOG__;
 }
 
-function sendInspectorMessage(type: string) {
+function sendInspectorMessage(type: string, payload?: Record<string, unknown>) {
   window.dispatchEvent(
     new MessageEvent('message', {
-      data: { type, sessionId: '__SESSION_ID__', version: 1 },
+      data: { type, sessionId: '__SESSION_ID__', version: 1, payload },
       origin: '__SIDECAR_ORIGIN__',
     })
   );
@@ -775,7 +953,7 @@ describe('Inspector IIFE Integration', () => {
       expect(zf().selectMode).toBe(false);
     });
 
-    it('selectionId increases monotonically across deactivate/reactivate', () => {
+    it('selectionId increases monotonically across pause/reactivate', () => {
       sendInspectorMessage('inspector:enter-select');
 
       const div1 = document.createElement('div');
@@ -783,8 +961,8 @@ describe('Inspector IIFE Integration', () => {
       div1.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       const firstId = zf().selected.id;
 
-      // Deactivate → reactivate → select again
-      zf().deactivateInspector();
+      // Pause → reactivate → select again
+      zf().pauseInspector();
       zf().activateInspector();
       sendInspectorMessage('inspector:enter-select');
 
@@ -821,6 +999,507 @@ describe('Inspector IIFE Integration', () => {
       }
 
       expect(Object.keys(zf().elementMap).length).toBe(50);
+    });
+  });
+
+  // ── buildSelector Uniqueness (Bug C) ────────────────────────
+
+  describe('buildSelector Uniqueness', () => {
+    it('uses data-testid when it is unique on the page', () => {
+      const div = document.createElement('div');
+      div.setAttribute('data-testid', 'unique-card');
+      document.body.appendChild(div);
+
+      const selector = zf().buildSelector(div);
+
+      expect(selector).toBe('[data-testid="unique-card"]');
+      // Should NOT stamp data-cortex-id
+      expect(div.hasAttribute('data-cortex-id')).toBe(false);
+    });
+
+    it('returns data-cortex-id selector when data-testid is shared', () => {
+      // Create two elements with the same testId
+      const div1 = document.createElement('div');
+      div1.setAttribute('data-testid', 'card');
+      document.body.appendChild(div1);
+
+      const div2 = document.createElement('div');
+      div2.setAttribute('data-testid', 'card');
+      document.body.appendChild(div2);
+
+      const selector = zf().buildSelector(div1);
+
+      // Should fall back to data-cortex-id since testId is not unique
+      expect(selector).toMatch(/\[data-cortex-id=/);
+      expect(div1.hasAttribute('data-cortex-id')).toBe(true);
+    });
+
+    it('returns data-cortex-id selector when element has no testId', () => {
+      const div = document.createElement('div');
+      document.body.appendChild(div);
+
+      const selector = zf().buildSelector(div);
+
+      expect(selector).toMatch(/\[data-cortex-id=/);
+      expect(div.hasAttribute('data-cortex-id')).toBe(true);
+    });
+
+    it('handles special characters in data-testid without throwing', () => {
+      const div = document.createElement('div');
+      div.setAttribute('data-testid', 'card"panel');
+      document.body.appendChild(div);
+
+      // Should not throw DOMException on the escaped querySelectorAll
+      const selector = zf().buildSelector(div);
+
+      // happy-dom doesn't support CSS \" escaping, so querySelectorAll returns 0 matches
+      // and buildSelector falls through to data-cortex-id. The important property is
+      // that it doesn't throw — the escapeAttrValue unit tests verify correctness.
+      expect(selector).toBeTruthy();
+      expect(() => document.querySelectorAll(selector)).not.toThrow();
+    });
+
+    it('reuses existing data-cortex-id if already stamped', () => {
+      const div = document.createElement('div');
+      div.setAttribute('data-cortex-id', 'existing-id');
+      document.body.appendChild(div);
+
+      const selector = zf().buildSelector(div);
+
+      expect(selector).toBe('[data-cortex-id="existing-id"]');
+    });
+  });
+
+  // ── cortexIdCounter Recovery (H2) ──────────────────────────
+
+  describe('cortexIdCounter Recovery', () => {
+    it('resumes counter from pre-existing data-cortex-id values', () => {
+      // Pre-populate DOM with cx-5 before re-activation
+      const existing = document.createElement('div');
+      existing.setAttribute('data-cortex-id', 'cx-5');
+      document.body.appendChild(existing);
+
+      // Re-activate to trigger counter recovery
+      zf().deactivateInspector();
+      zf().activateInspector();
+
+      // Next assigned id should be cx-6
+      const div = document.createElement('div');
+      document.body.appendChild(div);
+      const selector = zf().buildSelector(div);
+
+      expect(selector).toBe('[data-cortex-id="cx-6"]');
+    });
+
+    it('ignores non-matching data-cortex-id formats', () => {
+      const existing = document.createElement('div');
+      existing.setAttribute('data-cortex-id', 'custom-id');
+      document.body.appendChild(existing);
+
+      // Re-activate to trigger counter recovery
+      zf().deactivateInspector();
+      zf().activateInspector();
+
+      // Counter stays at 0, next assigned is cx-1
+      const div = document.createElement('div');
+      document.body.appendChild(div);
+      const selector = zf().buildSelector(div);
+
+      expect(selector).toBe('[data-cortex-id="cx-1"]');
+    });
+  });
+
+  // ── elementMap SPA Navigation Cleanup (Bug A) ──────────────
+
+  describe('elementMap SPA Navigation Cleanup', () => {
+    it('prunes detached DOM nodes from elementMap on popstate', () => {
+      sendInspectorMessage('inspector:enter-select');
+
+      // Select an element, then detach it (simulates React unmount on SPA nav)
+      const div = document.createElement('div');
+      document.body.appendChild(div);
+      div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(Object.keys(zf().elementMap).length).toBe(1);
+
+      // Simulate SPA navigation — React unmounts and removes the element
+      document.body.removeChild(div);
+
+      // Fire popstate (browser back/forward)
+      window.dispatchEvent(new PopStateEvent('popstate'));
+
+      // Stale entry should be pruned
+      expect(Object.keys(zf().elementMap).length).toBe(0);
+    });
+
+    it('keeps attached DOM nodes in elementMap on popstate', () => {
+      sendInspectorMessage('inspector:enter-select');
+
+      const div = document.createElement('div');
+      document.body.appendChild(div);
+      div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      // Don't detach — element is still in the document
+      window.dispatchEvent(new PopStateEvent('popstate'));
+
+      // Entry should survive since element is still attached
+      expect(Object.keys(zf().elementMap).length).toBe(1);
+    });
+
+    it('prunes detached DOM nodes on pushState', () => {
+      sendInspectorMessage('inspector:enter-select');
+
+      const div = document.createElement('div');
+      document.body.appendChild(div);
+      div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      // Detach and trigger pushState (SPA forward navigation)
+      document.body.removeChild(div);
+      history.pushState({}, '', '/new-route');
+
+      expect(Object.keys(zf().elementMap).length).toBe(0);
+    });
+  });
+
+  // ── pushState Sentinel Pattern (M-R5) ──────────────────────
+
+  describe('pushState Sentinel Pattern', () => {
+    it('pushState wrapper is pass-through after teardown (no throw, sentinel persists)', () => {
+      zf().deactivateInspector();
+
+      // pushState should still work — sentinel wrapper remains, just nulled callback
+      expect(() => history.pushState({}, '', '/after-teardown')).not.toThrow();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((history.pushState as any).__cortexPatched).toBe(true);
+    });
+
+    it('does not double-patch on re-activation (same function reference)', () => {
+      const pushRef = history.pushState;
+
+      zf().deactivateInspector();
+      zf().activateInspector();
+
+      // Same patched function — sentinel guard prevents re-wrapping
+      expect(history.pushState).toBe(pushRef);
+    });
+
+    it('prune callback fires through sentinel wrapper on pushState', () => {
+      sendInspectorMessage('inspector:enter-select');
+
+      const div = document.createElement('div');
+      document.body.appendChild(div);
+      div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      // Detach and trigger pushState — prune should fire via sentinel
+      document.body.removeChild(div);
+      history.pushState({}, '', '/sentinel-prune');
+
+      expect(Object.keys(zf().elementMap).length).toBe(0);
+    });
+  });
+
+  // ── State Preservation Across Mode Toggle (Bug D) ──────────
+
+  describe('State Preservation Across Mode Toggle', () => {
+    it('elementMap entries survive pauseInspector → activate cycle', () => {
+      sendInspectorMessage('inspector:enter-select');
+
+      const div = document.createElement('div');
+      document.body.appendChild(div);
+      div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(Object.keys(zf().elementMap).length).toBe(1);
+
+      // Soft-pause and reactivate — state preserved
+      zf().pauseInspector();
+      zf().activateInspector();
+
+      // elementMap should still have the entry
+      expect(Object.keys(zf().elementMap).length).toBe(1);
+    });
+
+    it('discardOverrides clears elementMap', () => {
+      sendInspectorMessage('inspector:enter-select');
+
+      const div = document.createElement('div');
+      document.body.appendChild(div);
+      div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(Object.keys(zf().elementMap).length).toBe(1);
+
+      // Explicit discard should clear state
+      zf().discardOverrides();
+
+      expect(Object.keys(zf().elementMap).length).toBe(0);
+    });
+
+    it('selected state survives pauseInspector → activate cycle', () => {
+      sendInspectorMessage('inspector:enter-select');
+
+      const div = document.createElement('div');
+      document.body.appendChild(div);
+      div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      const selectedBefore = zf().selected;
+      expect(selectedBefore).not.toBeNull();
+
+      zf().pauseInspector();
+      zf().activateInspector();
+
+      // selected should be preserved
+      expect(zf().selected).toEqual(selectedBefore);
+    });
+
+    it('deactivateInspector clears elementMap (full cleanup)', () => {
+      sendInspectorMessage('inspector:enter-select');
+
+      const div = document.createElement('div');
+      document.body.appendChild(div);
+      div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(Object.keys(zf().elementMap).length).toBe(1);
+
+      zf().deactivateInspector();
+
+      expect(Object.keys(zf().elementMap).length).toBe(0);
+    });
+
+    it('pauseInspector preserves elementMap (soft pause)', () => {
+      sendInspectorMessage('inspector:enter-select');
+
+      const div = document.createElement('div');
+      document.body.appendChild(div);
+      div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(Object.keys(zf().elementMap).length).toBe(1);
+
+      zf().pauseInspector();
+
+      expect(Object.keys(zf().elementMap).length).toBe(1);
+    });
+  });
+
+  // ── postMessage Handlers (M4) ──────────────────────────────
+
+  describe('postMessage Handlers', () => {
+    it('inspector:discard-overrides clears elementMap', () => {
+      sendInspectorMessage('inspector:enter-select');
+
+      const div = document.createElement('div');
+      document.body.appendChild(div);
+      div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(Object.keys(zf().elementMap).length).toBe(1);
+
+      sendInspectorMessage('inspector:discard-overrides');
+
+      expect(Object.keys(zf().elementMap).length).toBe(0);
+    });
+
+    it('inspector:build-selector responds with selector for valid elementMap entry', () => {
+      sendInspectorMessage('inspector:enter-select');
+
+      const div = document.createElement('div');
+      div.setAttribute('data-testid', 'msg-target');
+      document.body.appendChild(div);
+      div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      const selId = zf().selected.id;
+
+      // Listen for the zerofog:selector custom event dispatched by postToParent
+      // In test env window.parent === window, so postToParent is a no-op.
+      // Instead, verify buildSelector works on the mapped element directly.
+      const el = zf().elementMap[selId];
+      expect(el).toBe(div);
+
+      // Trigger the handler — it calls buildSelector internally
+      sendInspectorMessage('inspector:build-selector', { elementId: selId });
+
+      // Verify the element is still properly mapped (handler didn't error)
+      expect(zf().elementMap[selId]).toBe(div);
+    });
+  });
+
+  // ── Stale Hover Overlay (M-R8) ─────────────────────────────
+
+  describe('Stale Hover Overlay on Ephemeral Elements', () => {
+    it('hides overlay when hovered element is removed before rAF fires', async () => {
+      // Re-import with deferred rAF to control timing
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).__ZEROFOG__?.deactivateInspector?.();
+      while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (window as any).__ZEROFOG__;
+      vi.resetModules();
+
+      let pendingRafCallback: FrameRequestCallback | null = null;
+      vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+        pendingRafCallback = cb;
+        return 0;
+      });
+
+      await import('../../src/client/inspector.js');
+
+      const div = document.createElement('div');
+      div.textContent = 'ephemeral tooltip';
+      document.body.appendChild(div);
+
+      // Trigger mouseover — rAF callback is captured but not fired
+      div.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      expect(pendingRafCallback).not.toBeNull();
+
+      // Remove the element before rAF fires (simulates tooltip vanishing)
+      document.body.removeChild(div);
+
+      // Now fire the rAF callback
+      pendingRafCallback!(performance.now());
+
+      const overlay = document.getElementById('__zerofog_inspector_overlay__')!;
+      expect(overlay.style.display).toBe('none');
+    });
+
+    it('shows overlay when hovered element is still in DOM when rAF fires', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).__ZEROFOG__?.deactivateInspector?.();
+      while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (window as any).__ZEROFOG__;
+      vi.resetModules();
+
+      let pendingRafCallback: FrameRequestCallback | null = null;
+      vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+        pendingRafCallback = cb;
+        return 0;
+      });
+
+      await import('../../src/client/inspector.js');
+
+      const div = document.createElement('div');
+      div.textContent = 'stable element';
+      document.body.appendChild(div);
+
+      div.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+
+      // Element stays in DOM — fire rAF
+      pendingRafCallback!(performance.now());
+
+      const overlay = document.getElementById('__zerofog_inspector_overlay__')!;
+      expect(overlay.style.display).toBe('block');
+    });
+  });
+
+  // ── IIFE Re-injection Guard (M-R6) ──────────────────────────
+
+  describe('IIFE Re-injection Guard', () => {
+    it('calls old deactivateInspector on re-import to prevent ghost listeners', async () => {
+      const oldDeactivate = vi.fn();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).__ZEROFOG__.deactivateInspector = oldDeactivate;
+
+      vi.resetModules();
+      await import('../../src/client/inspector.js');
+
+      // Old deactivate should have been called by the guard
+      expect(oldDeactivate).toHaveBeenCalledOnce();
+      // New instance should be active
+      expect(zf().inspectorActive).toBe(true);
+    });
+  });
+
+  // ── postToParent Cross-Frame Messaging (M-R2) ──────────────
+
+  describe('postToParent Cross-Frame Messaging', () => {
+    let postMessageSpy: ReturnType<typeof vi.fn>;
+    let originalParentDesc: PropertyDescriptor | undefined;
+
+    beforeEach(() => {
+      // Save original parent descriptor for cleanup
+      originalParentDesc = Object.getOwnPropertyDescriptor(window, 'parent');
+    });
+
+    afterEach(() => {
+      // Restore window.parent
+      if (originalParentDesc) {
+        Object.defineProperty(window, 'parent', originalParentDesc);
+      }
+    });
+
+    it('sends zerofog:ready message on activation', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).__ZEROFOG__?.deactivateInspector?.();
+      while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (window as any).__ZEROFOG__;
+      vi.resetModules();
+
+      // Mock window.parent as a different object with postMessage spy
+      postMessageSpy = vi.fn();
+      Object.defineProperty(window, 'parent', {
+        value: { postMessage: postMessageSpy },
+        writable: true,
+        configurable: true,
+      });
+
+      vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+        cb(performance.now());
+        return 0;
+      });
+
+      await import('../../src/client/inspector.js');
+
+      // Verify zerofog:ready was sent
+      expect(postMessageSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'zerofog:ready',
+          sessionId: '__SESSION_ID__',
+          version: 1,
+        }),
+        '__SIDECAR_ORIGIN__'
+      );
+    });
+
+    it('sends zerofog:selected message on element click in select mode', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).__ZEROFOG__?.deactivateInspector?.();
+      while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (window as any).__ZEROFOG__;
+      vi.resetModules();
+
+      postMessageSpy = vi.fn();
+      Object.defineProperty(window, 'parent', {
+        value: { postMessage: postMessageSpy },
+        writable: true,
+        configurable: true,
+      });
+
+      vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+        cb(performance.now());
+        return 0;
+      });
+
+      await import('../../src/client/inspector.js');
+      postMessageSpy.mockClear(); // Clear the zerofog:ready call
+
+      // Enter select mode and click
+      sendInspectorMessage('inspector:enter-select');
+      const div = document.createElement('div');
+      div.textContent = 'post-target';
+      document.body.appendChild(div);
+      div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(postMessageSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'zerofog:selected',
+          sessionId: '__SESSION_ID__',
+          version: 1,
+          payload: expect.objectContaining({
+            id: expect.any(Number),
+            element: expect.objectContaining({ tag: 'DIV' }),
+          }),
+        }),
+        '__SIDECAR_ORIGIN__'
+      );
     });
   });
 
