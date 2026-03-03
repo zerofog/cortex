@@ -18,6 +18,10 @@ var TOOLBAR_SIZES = ['xs', 'sm', 'md', 'lg', 'xl'];
 var RADIUS_SIZES = ['none', 'xs', 'sm', 'md', 'lg', 'xl'];
 
 function buildTokenMaps(styleGetter) {
+  if (typeof document === 'undefined') {
+    return { spacing: {}, radius: {} };
+  }
+
   var _getStyle =
     styleGetter ||
     function (el) {
@@ -26,27 +30,46 @@ function buildTokenMaps(styleGetter) {
   var spacingMap = {};
   var radiusMap = {};
 
-  // Create hidden sentinel element for CSS variable resolution
-  var sentinel = document.createElement('div');
-  sentinel.style.cssText =
-    'position:absolute;visibility:hidden;pointer-events:none;width:0;height:0';
-  document.body.appendChild(sentinel);
-
-  for (var i = 0; i < TOOLBAR_SIZES.length; i++) {
-    var s = TOOLBAR_SIZES[i];
-
-    // Resolve spacing: apply CSS variable as padding, read back resolved px
-    sentinel.style.padding = 'var(--mantine-spacing-' + s + ')';
-    var spacingPx = _getStyle(sentinel).paddingTop;
-    if (spacingPx && spacingPx !== '0px') spacingMap[spacingPx] = s;
-
-    // Resolve radius: apply CSS variable as border-radius, read back resolved px
-    sentinel.style.borderRadius = 'var(--mantine-radius-' + s + ')';
-    var radiusPx = _getStyle(sentinel).borderTopLeftRadius;
-    if (radiusPx && radiusPx !== '0px') radiusMap[radiusPx] = s;
+  if (!document.body) {
+    return { spacing: {}, radius: {} };
   }
 
-  document.body.removeChild(sentinel);
+  // Batch writes: one sentinel per token size, all styles set before any reads.
+  // Avoids layout thrash (interleaved write→read forces synchronous reflow each time).
+  var sentinels = [];
+  var frag = document.createDocumentFragment();
+  for (var i = 0; i < TOOLBAR_SIZES.length; i++) {
+    var s = TOOLBAR_SIZES[i];
+    var el = document.createElement('div');
+    el.style.cssText =
+      'position:absolute;visibility:hidden;pointer-events:none;width:0;height:0';
+    el.style.padding = 'var(--mantine-spacing-' + s + ')';
+    el.style.borderRadius = 'var(--mantine-radius-' + s + ')';
+    sentinels.push(el);
+    frag.appendChild(el);
+  }
+  document.body.appendChild(frag);
+
+  try {
+    // Batch reads: no writes between reads, so browser resolves layout once
+    // on first getComputedStyle call; subsequent reads use cached layout.
+    for (var i = 0; i < TOOLBAR_SIZES.length; i++) {
+      var s = TOOLBAR_SIZES[i];
+      var styles = _getStyle(sentinels[i]);
+
+      var spacingPx = styles.paddingTop;
+      if (spacingPx && spacingPx !== '0px') spacingMap[spacingPx] = s;
+
+      var radiusPx = styles.borderTopLeftRadius;
+      if (radiusPx && radiusPx !== '0px') radiusMap[radiusPx] = s;
+    }
+  } catch (_e) {
+    return { spacing: {}, radius: {} };
+  } finally {
+    for (var i = 0; i < sentinels.length; i++) {
+      sentinels[i].remove();
+    }
+  }
 
   // Special radius values
   radiusMap['0px'] = 'none';

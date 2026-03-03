@@ -167,6 +167,44 @@ describe('buildTokenMaps', () => {
     expect(maps.spacing['1rem']).toBeUndefined();
   });
 
+  it('batches all style writes before reads (no layout thrash)', () => {
+    const readElements: { padding: string; borderRadius: string }[] = [];
+
+    const mockStyleGetter = function (el: Element) {
+      const htmlEl = el as HTMLElement;
+      // Record what properties were set at read time
+      readElements.push({
+        padding: htmlEl.style.padding,
+        borderRadius: htmlEl.style.borderRadius,
+      });
+      return { paddingTop: '16px', borderTopLeftRadius: '8px' };
+    };
+
+    buildTokenMaps(mockStyleGetter);
+
+    // Each element should have BOTH padding AND borderRadius set at read time.
+    // In the old interleaved code, borderRadius wouldn't be set when reading paddingTop.
+    expect(readElements.length).toBe(5);
+    for (const el of readElements) {
+      expect(el.padding).toContain('--mantine-spacing-');
+      expect(el.borderRadius).toContain('--mantine-radius-');
+    }
+  });
+
+  it('cleans up all sentinel elements after completion', () => {
+    const mockStyleGetter = createMockStyleGetter({
+      paddingTop: '16px',
+      borderTopLeftRadius: '8px',
+    });
+
+    buildTokenMaps(mockStyleGetter);
+
+    const sentinels = document.querySelectorAll(
+      'div[style*="visibility:hidden"]'
+    );
+    expect(sentinels.length).toBe(0);
+  });
+
   it('returns empty maps when document.body is null', () => {
     const origBody = document.body;
     Object.defineProperty(document, 'body', { value: null, writable: true, configurable: true });
