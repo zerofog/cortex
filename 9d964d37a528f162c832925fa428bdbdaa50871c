@@ -1,0 +1,28 @@
+thoughts/shared/plans/2026-02-25-visual-editor-implementation.md
+  61f2676a699e295c 934-935,1058-1059
+thoughts/shared/plans/2026-03-02-finalize-pipeline-spec.md
+  61f2676a699e295c 1-969
+thoughts/shared/plans/2026-02-25-visual-editor-standalone-product.md
+  61f2676a699e295c 483
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "9d964d37a528f162c832925fa428bdbdaa50871c",
+  "prompts": {
+    "61f2676a699e295c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b7f4c077-d2d4-416d-b87a-c04c0837f909",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 986,
+      "total_deletions": 13,
+      "accepted_lines": 974,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/132ae0861cf2482b16e068c1b532a5bc686d70c4796e86cee363443abaa1342f"
+    }
+  }
+}
