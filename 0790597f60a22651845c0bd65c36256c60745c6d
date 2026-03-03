@@ -1,0 +1,24 @@
+thoughts/shared/plans/2026-03-02-structural-editing-architecture.md
+  b048c775d1842667 1-1049
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "0790597f60a22651845c0bd65c36256c60745c6d",
+  "prompts": {
+    "b048c775d1842667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "47168410-286e-4aba-8284-63300da9f30e",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 1049,
+      "total_deletions": 0,
+      "accepted_lines": 1049,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/5945a8a010774a4c88d8af5e6f235ef66c4b4c718ba64ef825597de67038b843"
+    }
+  }
+}
