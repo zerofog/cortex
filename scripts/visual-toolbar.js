@@ -30,6 +30,10 @@ function buildTokenMaps(styleGetter) {
   var spacingMap = {};
   var radiusMap = {};
 
+  if (!document.body) {
+    return { spacing: {}, radius: {} };
+  }
+
   // Batch writes: one sentinel per token size, all styles set before any reads.
   // Avoids layout thrash (interleaved write→read forces synchronous reflow each time).
   var sentinels = [];
@@ -46,21 +50,25 @@ function buildTokenMaps(styleGetter) {
   }
   document.body.appendChild(frag);
 
-  // Batch reads: no writes between reads, so browser resolves layout once
-  // on first getComputedStyle call; subsequent reads use cached layout.
-  for (var i = 0; i < TOOLBAR_SIZES.length; i++) {
-    var s = TOOLBAR_SIZES[i];
-    var styles = _getStyle(sentinels[i]);
+  try {
+    // Batch reads: no writes between reads, so browser resolves layout once
+    // on first getComputedStyle call; subsequent reads use cached layout.
+    for (var i = 0; i < TOOLBAR_SIZES.length; i++) {
+      var s = TOOLBAR_SIZES[i];
+      var styles = _getStyle(sentinels[i]);
 
-    var spacingPx = styles.paddingTop;
-    if (spacingPx && spacingPx !== '0px') spacingMap[spacingPx] = s;
+      var spacingPx = styles.paddingTop;
+      if (spacingPx && spacingPx !== '0px') spacingMap[spacingPx] = s;
 
-    var radiusPx = styles.borderTopLeftRadius;
-    if (radiusPx && radiusPx !== '0px') radiusMap[radiusPx] = s;
-  }
-
-  for (var i = 0; i < sentinels.length; i++) {
-    sentinels[i].remove();
+      var radiusPx = styles.borderTopLeftRadius;
+      if (radiusPx && radiusPx !== '0px') radiusMap[radiusPx] = s;
+    }
+  } catch (_e) {
+    return { spacing: {}, radius: {} };
+  } finally {
+    for (var i = 0; i < sentinels.length; i++) {
+      sentinels[i].remove();
+    }
   }
 
   // Special radius values
