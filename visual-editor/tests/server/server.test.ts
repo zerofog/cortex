@@ -297,12 +297,14 @@ describe('shell', () => {
     expect(html).toContain("params.get('path')");
   });
 
-  it('iframe has sandbox attribute', async () => {
+  it('iframe has sandbox attribute with required permissions', async () => {
     const res = await fetch(sidecar.url + '/__zerofog/shell', {
       headers: { Host: `127.0.0.1:${sidecar.port}` },
     });
     const html = await res.text();
     expect(html).toContain('sandbox="allow-same-origin allow-scripts');
+    expect(html).toMatch(/sandbox="[^"]*allow-downloads[^"]*"/);
+    expect(html).toMatch(/sandbox="[^"]*allow-top-navigation-by-user-activation[^"]*"/);
   });
 
   it('validates path param to prevent javascript: and protocol-relative injection', async () => {

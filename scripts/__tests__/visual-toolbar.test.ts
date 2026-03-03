@@ -5,6 +5,10 @@ import { describe, expect, it } from 'vitest';
  *
  * The toolbar runs in the browser via browser_evaluate. We test the
  * exported functions with dependency-injected mocks for browser APIs.
+ *
+ * NOTE: This test file runs in Node.js (no DOM). buildTokenMaps tests
+ * verify the SSR guard behavior here. Full DOM-dependent buildTokenMaps
+ * tests live in visual-editor/tests/client/toolbar.test.ts (happy-dom).
  */
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -46,70 +50,25 @@ function createMockFiber(overrides: Record<string, unknown> = {}) {
 // ── buildTokenMaps ───────────────────────────────────────────────
 
 describe('buildTokenMaps', () => {
-  it('returns correct spacing map from sentinel reads', () => {
-    const sizeValues: Record<string, Record<string, string>> = {
-      xs: { paddingTop: '4px', borderTopLeftRadius: '2px' },
-      sm: { paddingTop: '8px', borderTopLeftRadius: '4px' },
-      md: { paddingTop: '16px', borderTopLeftRadius: '8px' },
-      lg: { paddingTop: '20px', borderTopLeftRadius: '12px' },
-      xl: { paddingTop: '24px', borderTopLeftRadius: '16px' },
-    };
+  // NOTE: Full DOM-dependent buildTokenMaps tests (sentinel reads, token
+  // resolution, error handling) live in visual-editor/tests/client/toolbar.test.ts
+  // which runs in a happy-dom environment. This file tests SSR/non-browser behavior.
 
-    let callCount = 0;
-    const sizes = ['xs', 'sm', 'md', 'lg', 'xl'];
+  it('returns empty maps when document is undefined (SSR guard)', () => {
+    // In Node.js (no DOM), buildTokenMaps should return empty maps safely.
+    const maps = buildTokenMaps();
+    expect(maps).toEqual({ spacing: {}, radius: {} });
+  });
+
+  it('SSR guard prevents styleGetter from being called', () => {
+    let called = false;
     const mockStyleGetter = function () {
-      // Each size calls styleGetter twice (once for spacing, once for radius)
-      const sizeIndex = Math.floor(callCount / 2);
-      const isRadius = callCount % 2 === 1;
-      callCount++;
-      const size = sizes[sizeIndex] || 'xs';
-      const vals = sizeValues[size];
-      return {
-        paddingTop: isRadius ? '0px' : vals.paddingTop,
-        borderTopLeftRadius: isRadius ? vals.borderTopLeftRadius : '0px',
-      };
+      called = true;
+      return { paddingTop: '16px', borderTopLeftRadius: '8px' };
     };
 
-    const maps = buildTokenMaps(mockStyleGetter);
-
-    expect(maps.spacing['4px']).toBe('xs');
-    expect(maps.spacing['8px']).toBe('sm');
-    expect(maps.spacing['16px']).toBe('md');
-    expect(maps.spacing['20px']).toBe('lg');
-    expect(maps.spacing['24px']).toBe('xl');
-  });
-
-  it('returns correct radius map including none for 0px', () => {
-    const mockStyleGetter = createMockStyleGetter({});
-    const maps = buildTokenMaps(mockStyleGetter);
-
-    expect(maps.radius['0px']).toBe('none');
-  });
-
-  it('handles missing CSS variables gracefully (sentinel returns 0px)', () => {
-    const mockStyleGetter = createMockStyleGetter({});
-    const maps = buildTokenMaps(mockStyleGetter);
-
-    // 0px values should not be added to spacing map
-    expect(maps.spacing['0px']).toBeUndefined();
-  });
-
-  it('maps are keyed by px strings, not rem strings', () => {
-    let callCount = 0;
-    const mockStyleGetter = function () {
-      callCount++;
-      // Only return a value for the first spacing call
-      if (callCount === 1) {
-        return { paddingTop: '16px', borderTopLeftRadius: '0px' };
-      }
-      return { paddingTop: '0px', borderTopLeftRadius: '0px' };
-    };
-
-    const maps = buildTokenMaps(mockStyleGetter);
-
-    // Should be keyed by px, not rem
-    expect(maps.spacing['16px']).toBe('xs');
-    expect(maps.spacing['1rem']).toBeUndefined();
+    buildTokenMaps(mockStyleGetter);
+    expect(called).toBe(false);
   });
 });
 
