@@ -42,6 +42,9 @@ export declare function getComponentName(fiber: unknown): string | null;
 /** Find __reactFiber$ keys on a DOM element. */
 export declare function findReactFiberKeys(element: Record<string, unknown>): string[];
 
+/** Get fiber from element using cached key (fast path for hover). */
+export declare function getFiberFromElement(element: Record<string, unknown>): Fiber | null;
+
 /** Walk fiber tree to extract component name chain. */
 export declare function walkComponentChain(fiber: unknown): string[];
 
@@ -56,6 +59,7 @@ export declare function isFiberAncestor(
 export declare function resolveSource(
   element: Record<string, unknown>,
   fiberKeys?: string[],
+  bounds?: { top: number; left: number; width: number; height: number },
 ): ResolvedSource;
 
 /** Classify an element by its component chain and tag name. */
@@ -63,6 +67,38 @@ export declare function classifyElement(
   componentChain: string[],
   tagName: string | null | undefined,
 ): ElementCategory;
+
+/** Check if a CSS value is a valid token for a given property. */
+export declare function isTokenValue(cssProperty: string, cssValue: string): boolean;
+
+/** Resolve bare token names to CSS var() references for constrained properties. */
+export declare function resolveTokenValue(cssProperty: string, cssValue: string): string;
+
+/** Convert camelCase string to kebab-case. */
+export declare function camelToKebab(str: string): string;
+
+/** CSS variable prefix lookup for token-constrained properties. */
+export declare const TOKEN_VAR_PREFIX: Record<string, string>;
+
+/** CSS properties that can be overridden via applyOverride. */
+export declare const ALLOWED_CSS_PROPERTIES: Set<string>;
+
+/** Regex matching unsafe CSS values (expression(), url(), @import, etc). */
+export declare const CSS_VALUE_UNSAFE: RegExp;
+
+/** CSS properties that require token values (not arbitrary pixels). */
+export declare const TOKEN_CONSTRAINED_PROPERTIES: Set<string>;
+
+/** Valid spacing token names. */
+export declare const SPACING_TOKENS: string[];
+
+/** Valid radius token names. */
+export declare const RADIUS_TOKENS: string[];
+
+/** Result of applyOverride — either success or a typed error. */
+export type ApplyOverrideResult =
+  | { ok: true }
+  | { ok: false; error: 'unknown-property' | 'unsafe-value' | 'token-required' | 'unknown-element' | 'invalid-input' };
 
 /** CSS rules object: { selector: { property: value, ... }, ... } */
 export type OverrideRules = Record<string, Record<string, string>>;
@@ -108,6 +144,9 @@ export interface ZerofogGlobal {
   pauseInspector: () => void;
   discardOverrides: () => void;
   buildSelector: (element: Element) => string;
+  applyOverride: (elementId: number, cssProperty: string, cssValue: string) => ApplyOverrideResult;
+  removeOverride: (elementId: number, cssProperty: string) => void;
+  overrideRules: OverrideRules;
   selected: Selection | null;
   inspectorActive: boolean;
   selectMode: boolean;
