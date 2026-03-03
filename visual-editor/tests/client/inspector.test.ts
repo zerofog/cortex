@@ -7,9 +7,19 @@ import {
   isFiberAncestor,
   getComponentName,
   findReactFiberKeys,
+  getFiberFromElement,
   parseOverrideRules,
   buildOverrideCSS,
   buildSelector,
+  isTokenValue,
+  resolveTokenValue,
+  camelToKebab,
+  ALLOWED_CSS_PROPERTIES,
+  CSS_VALUE_UNSAFE,
+  TOKEN_CONSTRAINED_PROPERTIES,
+  SPACING_TOKENS,
+  RADIUS_TOKENS,
+  TOKEN_VAR_PREFIX,
 } from '../../src/client/inspector.js';
 
 /**
@@ -64,6 +74,9 @@ function createMockElement(overrides: Record<string, unknown> = {}) {
     classList: classes,
     className: classes.join(' '),
     textContent: text,
+    childNodes: text
+      ? [{ nodeType: 3, nodeValue: text }]
+      : [],
     parentElement: (overrides.parentElement as HTMLElement | undefined) ?? null,
     getBoundingClientRect: () => ({
       top: 0,
@@ -240,6 +253,23 @@ describe('resolveSource', () => {
       expect(result.element.tag).toBe('BUTTON');
       expect(result.element.classes).toEqual(['btn', 'btn-primary']);
       expect(result.element.text.length).toBeLessThanOrEqual(100);
+    });
+
+    it('uses pre-computed bounds when provided', () => {
+      const element = createMockElement({ closest: () => null });
+      const preComputedBounds = { top: 10, left: 20, width: 200, height: 100 };
+      const result = resolveSource(element, undefined, preComputedBounds);
+
+      expect(result.element.bounds).toEqual(preComputedBounds);
+    });
+
+    it('falls back to getBoundingClientRect when bounds not provided', () => {
+      const element = createMockElement({ closest: () => null });
+      const result = resolveSource(element);
+
+      // Default mock returns {top: 0, left: 0, width: 100, height: 50, ...}
+      expect(result.element.bounds.width).toBe(100);
+      expect(result.element.bounds.height).toBe(50);
     });
   });
 
@@ -555,6 +585,79 @@ describe('getComponentName', () => {
   it('returns null when fiber.type is null', () => {
     expect(getComponentName({ type: null })).toBeNull();
   });
+
+  it('resolves name through forwardRef wrapper ({render: fn})', () => {
+    function MyButton() {}
+    const fiber = { type: { render: MyButton } };
+    expect(getComponentName(fiber)).toBe('MyButton');
+  });
+
+  it('resolves displayName through forwardRef render', () => {
+    function inner() {}
+    inner.displayName = 'ForwardedButton';
+    const fiber = { type: { render: inner } };
+    expect(getComponentName(fiber)).toBe('ForwardedButton');
+  });
+
+  it('resolves name through memo wrapper ({type: inner})', () => {
+    const fiber = { type: { type: { name: 'MemoizedCard' } } };
+    expect(getComponentName(fiber)).toBe('MemoizedCard');
+  });
+
+  it('resolves name through nested memo(forwardRef(fn))', () => {
+    function BaseInput() {}
+    const fiber = { type: { type: { render: BaseInput } } };
+    expect(getComponentName(fiber)).toBe('BaseInput');
+  });
+
+  it('returns null for deeply nested wrapper beyond depth 5', () => {
+    // Build 6 levels of memo nesting: type.type.type.type.type.type.name
+    let inner: Record<string, unknown> = { name: 'DeepComp' };
+    for (let i = 0; i < 6; i++) {
+      inner = { type: inner };
+    }
+    const fiber = { type: inner };
+    expect(getComponentName(fiber)).toBeNull();
+  });
+});
+
+// ── camelToKebab ────────────────────────────────────────────────
+
+describe('camelToKebab', () => {
+  it('converts camelCase to kebab-case', () => {
+    expect(camelToKebab('borderRadius')).toBe('border-radius');
+  });
+
+  it('passes through single-word properties unchanged', () => {
+    expect(camelToKebab('color')).toBe('color');
+  });
+
+  it('handles multiple uppercase letters', () => {
+    expect(camelToKebab('backgroundColor')).toBe('background-color');
+  });
+});
+
+// ── getFiberFromElement ─────────────────────────────────────────
+
+describe('getFiberFromElement', () => {
+  it('returns fiber and caches the key for subsequent lookups', () => {
+    const fiber = { tag: 0, type: { name: 'App' } };
+    const element = { '__reactFiber$xyz789': fiber, id: 'test' };
+    const result = getFiberFromElement(element as Record<string, unknown>);
+    expect(result).toBe(fiber);
+
+    // Second call on different element should use cached key
+    const fiber2 = { tag: 1, type: { name: 'Other' } };
+    const element2 = { '__reactFiber$xyz789': fiber2 };
+    const result2 = getFiberFromElement(element2 as Record<string, unknown>);
+    expect(result2).toBe(fiber2);
+  });
+
+  it('returns null for element without fiber keys', () => {
+    const element = { id: 'no-react' };
+    const result = getFiberFromElement(element as Record<string, unknown>);
+    expect(result).toBeNull();
+  });
 });
 
 // ── findReactFiberKeys ──────────────────────────────────────────
@@ -732,6 +835,231 @@ describe('buildOverrideCSS', () => {
     const css = buildOverrideCSS(rules);
 
     expect(css).toMatch(/; \}$/m);
+  });
+
+  it('converts fontSize to font-size in CSS output', () => {
+    const css = buildOverrideCSS({ '.sel': { fontSize: '14px' } });
+    expect(css).toContain('font-size: 14px');
+    expect(css).not.toContain('fontSize');
+  });
+
+  it('converts borderRadius to border-radius in CSS output', () => {
+    const css = buildOverrideCSS({ '.sel': { borderRadius: '8px' } });
+    expect(css).toContain('border-radius: 8px');
+  });
+
+  it('converts fontWeight to font-weight in CSS output', () => {
+    const css = buildOverrideCSS({ '.sel': { fontWeight: '700' } });
+    expect(css).toContain('font-weight: 700');
+  });
+
+  it('converts fontFamily to font-family in CSS output', () => {
+    const css = buildOverrideCSS({ '.sel': { fontFamily: 'monospace' } });
+    expect(css).toContain('font-family: monospace');
+  });
+
+  it('handles mixed camelCase and single-word properties', () => {
+    const css = buildOverrideCSS({ '.sel': { color: 'red', fontSize: '14px' } });
+    expect(css).toContain('color: red');
+    expect(css).toContain('font-size: 14px');
+  });
+});
+
+// ── isTokenValue ────────────────────────────────────────────
+
+describe('isTokenValue', () => {
+  it('accepts spacing token names for padding', () => {
+    expect(isTokenValue('padding', 'xs')).toBe(true);
+    expect(isTokenValue('padding', 'md')).toBe(true);
+    expect(isTokenValue('padding', 'xl')).toBe(true);
+  });
+
+  it('accepts spacing token names for margin', () => {
+    expect(isTokenValue('margin', 'sm')).toBe(true);
+    expect(isTokenValue('margin', 'lg')).toBe(true);
+  });
+
+  it('accepts spacing token names for gap', () => {
+    expect(isTokenValue('gap', 'xs')).toBe(true);
+    expect(isTokenValue('gap', 'xl')).toBe(true);
+  });
+
+  it('accepts radius token names including "none"', () => {
+    expect(isTokenValue('borderRadius', 'none')).toBe(true);
+    expect(isTokenValue('borderRadius', 'xs')).toBe(true);
+    expect(isTokenValue('borderRadius', 'lg')).toBe(true);
+  });
+
+  it('accepts CSS var references for constrained properties', () => {
+    expect(isTokenValue('padding', 'var(--mantine-spacing-md)')).toBe(true);
+    expect(isTokenValue('borderRadius', 'var(--mantine-radius-sm)')).toBe(true);
+  });
+
+  it('rejects pixel values for constrained properties', () => {
+    expect(isTokenValue('padding', '16px')).toBe(false);
+    expect(isTokenValue('margin', '2rem')).toBe(false);
+    expect(isTokenValue('gap', '10px')).toBe(false);
+    expect(isTokenValue('borderRadius', '4px')).toBe(false);
+  });
+
+  it('rejects "auto" for constrained properties', () => {
+    expect(isTokenValue('padding', 'auto')).toBe(false);
+    expect(isTokenValue('margin', 'auto')).toBe(false);
+  });
+
+  it('passes through any value for non-constrained properties', () => {
+    expect(isTokenValue('color', '#ff0000')).toBe(true);
+    expect(isTokenValue('fontSize', '14px')).toBe(true);
+    expect(isTokenValue('fontWeight', '700')).toBe(true);
+    expect(isTokenValue('display', 'flex')).toBe(true);
+  });
+
+  it('rejects "none" for spacing properties (only valid for radius)', () => {
+    expect(isTokenValue('padding', 'none')).toBe(false);
+    expect(isTokenValue('margin', 'none')).toBe(false);
+  });
+});
+
+// ── CSS_VALUE_UNSAFE ────────────────────────────────────────
+
+describe('CSS_VALUE_UNSAFE', () => {
+  it('catches expression()', () => {
+    expect(CSS_VALUE_UNSAFE.test('expression(alert(1))')).toBe(true);
+  });
+
+  it('catches url()', () => {
+    expect(CSS_VALUE_UNSAFE.test('url(javascript:alert(1))')).toBe(true);
+  });
+
+  it('catches @import', () => {
+    expect(CSS_VALUE_UNSAFE.test('@import "evil.css"')).toBe(true);
+  });
+
+  it('catches semicolons', () => {
+    expect(CSS_VALUE_UNSAFE.test('red; background: url(evil)')).toBe(true);
+  });
+
+  it('catches braces', () => {
+    expect(CSS_VALUE_UNSAFE.test('red } .evil { color: green')).toBe(true);
+    expect(CSS_VALUE_UNSAFE.test('red { color: green')).toBe(true);
+  });
+
+  it('catches backslash', () => {
+    expect(CSS_VALUE_UNSAFE.test('red\\n')).toBe(true);
+  });
+
+  it('allows normal CSS values', () => {
+    expect(CSS_VALUE_UNSAFE.test('md')).toBe(false);
+    expect(CSS_VALUE_UNSAFE.test('#ff0000')).toBe(false);
+    expect(CSS_VALUE_UNSAFE.test('var(--mantine-spacing-md)')).toBe(false);
+    expect(CSS_VALUE_UNSAFE.test('rgb(255, 0, 0)')).toBe(false);
+  });
+
+  it('catches image-set()', () => {
+    expect(CSS_VALUE_UNSAFE.test('image-set("foo.png" 1x)')).toBe(true);
+  });
+
+  it('catches element()', () => {
+    expect(CSS_VALUE_UNSAFE.test('element(#target)')).toBe(true);
+  });
+
+  it('catches paint()', () => {
+    expect(CSS_VALUE_UNSAFE.test('paint(myPainter)')).toBe(true);
+  });
+});
+
+// ── resolveTokenValue ───────────────────────────────────────
+
+describe('resolveTokenValue', () => {
+  it('resolves spacing token for padding', () => {
+    expect(resolveTokenValue('padding', 'md')).toBe('var(--mantine-spacing-md)');
+  });
+
+  it('resolves spacing token for margin', () => {
+    expect(resolveTokenValue('margin', 'lg')).toBe('var(--mantine-spacing-lg)');
+  });
+
+  it('resolves radius token for borderRadius', () => {
+    expect(resolveTokenValue('borderRadius', 'sm')).toBe('var(--mantine-radius-sm)');
+  });
+
+  it('resolves "none" radius token', () => {
+    expect(resolveTokenValue('borderRadius', 'none')).toBe('var(--mantine-radius-none)');
+  });
+
+  it('resolves spacing token for gap', () => {
+    expect(resolveTokenValue('gap', 'xl')).toBe('var(--mantine-spacing-xl)');
+  });
+
+  it('passes through existing CSS var references', () => {
+    expect(resolveTokenValue('padding', 'var(--mantine-spacing-md)')).toBe('var(--mantine-spacing-md)');
+  });
+
+  it('passes through values for non-constrained properties', () => {
+    expect(resolveTokenValue('color', '#ff0000')).toBe('#ff0000');
+  });
+
+  it('resolves compound token values', () => {
+    expect(resolveTokenValue('padding', 'md lg')).toBe('var(--mantine-spacing-md) var(--mantine-spacing-lg)');
+  });
+});
+
+// ── isTokenValue — tightened var() validation ───────────────
+
+describe('isTokenValue — tightened validation', () => {
+  it('rejects arbitrary CSS var references', () => {
+    expect(isTokenValue('padding', 'var(--evil)')).toBe(false);
+  });
+
+  it('accepts exact Mantine radius CSS var', () => {
+    expect(isTokenValue('borderRadius', 'var(--mantine-radius-xl)')).toBe(true);
+  });
+
+  it('rejects non-Mantine CSS var for constrained property', () => {
+    expect(isTokenValue('gap', 'var(--custom-thing)')).toBe(false);
+  });
+
+  it('accepts compound token values for padding', () => {
+    expect(isTokenValue('padding', 'md lg')).toBe(true);
+  });
+
+  it('accepts four-value compound tokens', () => {
+    expect(isTokenValue('padding', 'xs sm md lg')).toBe(true);
+  });
+
+  it('rejects mixed token and pixel values', () => {
+    expect(isTokenValue('margin', 'md 16px')).toBe(false);
+  });
+
+  it('accepts compound radius tokens', () => {
+    expect(isTokenValue('borderRadius', 'sm lg')).toBe(true);
+  });
+});
+
+// ── Token enforcement constants ─────────────────────────────
+
+describe('Token enforcement constants', () => {
+  it('ALLOWED_CSS_PROPERTIES matches Selection.styles keys', () => {
+    const styleKeys = ['color', 'background', 'fontSize', 'padding', 'margin',
+      'display', 'gap', 'borderRadius', 'fontWeight', 'fontFamily'];
+    for (const key of styleKeys) {
+      expect(ALLOWED_CSS_PROPERTIES.has(key)).toBe(true);
+    }
+    expect(ALLOWED_CSS_PROPERTIES.size).toBe(styleKeys.length);
+  });
+
+  it('TOKEN_CONSTRAINED_PROPERTIES is a subset of ALLOWED_CSS_PROPERTIES', () => {
+    for (const prop of TOKEN_CONSTRAINED_PROPERTIES) {
+      expect(ALLOWED_CSS_PROPERTIES.has(prop)).toBe(true);
+    }
+  });
+
+  it('SPACING_TOKENS has 5 entries', () => {
+    expect(SPACING_TOKENS).toEqual(['xs', 'sm', 'md', 'lg', 'xl']);
+  });
+
+  it('RADIUS_TOKENS has 6 entries (includes "none")', () => {
+    expect(RADIUS_TOKENS).toEqual(['none', 'xs', 'sm', 'md', 'lg', 'xl']);
   });
 });
 
@@ -1541,6 +1869,376 @@ describe('Inspector IIFE Integration', () => {
       }));
 
       expect(zf().selectMode).toBe(false);
+    });
+  });
+
+  // ── Override Engine (applyOverride / removeOverride) ───────
+
+  describe('Override Engine', () => {
+    function selectElement(): { div: HTMLElement; id: number } {
+      sendInspectorMessage('inspector:enter-select');
+      const div = document.createElement('div');
+      div.setAttribute('data-testid', 'override-target');
+      document.body.appendChild(div);
+      div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      return { div, id: zf().selected.id };
+    }
+
+    it('applyOverride rejects unknown CSS property', () => {
+      const { id } = selectElement();
+      const result = zf().applyOverride(id, 'zIndex', 'md');
+      expect(result).toEqual({ ok: false, error: 'unknown-property' });
+    });
+
+    it('applyOverride rejects unsafe CSS value', () => {
+      const { id } = selectElement();
+      const result = zf().applyOverride(id, 'color', 'expression(alert(1))');
+      expect(result).toEqual({ ok: false, error: 'unsafe-value' });
+    });
+
+    it('applyOverride rejects non-token value for constrained property', () => {
+      const { id } = selectElement();
+      const result = zf().applyOverride(id, 'padding', '16px');
+      expect(result).toEqual({ ok: false, error: 'token-required' });
+    });
+
+    it('applyOverride rejects unknown elementId', () => {
+      const result = zf().applyOverride(99999, 'color', 'red');
+      expect(result).toEqual({ ok: false, error: 'unknown-element' });
+    });
+
+    it('applyOverride accepts valid token and injects <style> tag', () => {
+      const { id } = selectElement();
+      const result = zf().applyOverride(id, 'padding', 'md');
+
+      expect(result).toEqual({ ok: true });
+      const tag = document.getElementById('zerofog-override-styles');
+      expect(tag).not.toBeNull();
+      expect(tag!.textContent).toContain('padding: var(--mantine-spacing-md) !important');
+    });
+
+    it('applyOverride accepts non-constrained property with arbitrary value', () => {
+      const { id } = selectElement();
+      const result = zf().applyOverride(id, 'color', '#ff0000');
+
+      expect(result).toEqual({ ok: true });
+      const tag = document.getElementById('zerofog-override-styles');
+      expect(tag!.textContent).toContain('color: #ff0000 !important');
+    });
+
+    it('applyOverride accepts CSS var reference for constrained property', () => {
+      const { id } = selectElement();
+      const result = zf().applyOverride(id, 'padding', 'var(--mantine-spacing-md)');
+
+      expect(result).toEqual({ ok: true });
+      const tag = document.getElementById('zerofog-override-styles');
+      expect(tag!.textContent).toContain('var(--mantine-spacing-md) !important');
+    });
+
+    it('removeOverride removes property and updates <style> tag', () => {
+      const { id } = selectElement();
+      zf().applyOverride(id, 'padding', 'md');
+      zf().applyOverride(id, 'color', '#ff0000');
+
+      const tagBefore = document.getElementById('zerofog-override-styles');
+      expect(tagBefore!.textContent).toContain('padding');
+      expect(tagBefore!.textContent).toContain('color');
+
+      zf().removeOverride(id, 'padding');
+
+      const tagAfter = document.getElementById('zerofog-override-styles');
+      expect(tagAfter!.textContent).not.toContain('padding');
+      expect(tagAfter!.textContent).toContain('color');
+    });
+
+    it('removeOverride removes <style> tag when last property is removed', () => {
+      const { id } = selectElement();
+      zf().applyOverride(id, 'padding', 'md');
+
+      expect(document.getElementById('zerofog-override-styles')).not.toBeNull();
+
+      zf().removeOverride(id, 'padding');
+
+      expect(document.getElementById('zerofog-override-styles')).toBeNull();
+    });
+
+    it('discardOverrides clears all overrideRules and removes <style> tag', () => {
+      const { id } = selectElement();
+      zf().applyOverride(id, 'padding', 'md');
+      zf().applyOverride(id, 'color', 'red');
+
+      expect(document.getElementById('zerofog-override-styles')).not.toBeNull();
+
+      zf().discardOverrides();
+
+      expect(document.getElementById('zerofog-override-styles')).toBeNull();
+      expect(Object.keys(zf().overrideRules).length).toBe(0);
+    });
+
+    it('overrideRules is exposed on window.__ZEROFOG__', () => {
+      expect(zf().overrideRules).toBeDefined();
+      expect(typeof zf().overrideRules).toBe('object');
+    });
+
+    it('overrideRules has null prototype', () => {
+      const rules = zf().overrideRules;
+      expect(Object.getPrototypeOf(rules)).toBeNull();
+    });
+
+    it('SPACING_TOKENS is frozen', () => {
+      expect(Object.isFrozen(SPACING_TOKENS)).toBe(true);
+    });
+
+    it('RADIUS_TOKENS is frozen', () => {
+      expect(Object.isFrozen(RADIUS_TOKENS)).toBe(true);
+    });
+
+    it('prunes stale override rules when element is removed from DOM', () => {
+      const { div, id } = selectElement();
+      zf().applyOverride(id, 'padding', 'md');
+
+      const tagBefore = document.getElementById('zerofog-override-styles');
+      expect(tagBefore).not.toBeNull();
+
+      // Remove element from DOM and trigger prune via popstate
+      div.remove();
+      window.dispatchEvent(new PopStateEvent('popstate'));
+
+      const tagAfter = document.getElementById('zerofog-override-styles');
+      expect(tagAfter).toBeNull();
+      expect(Object.keys(zf().overrideRules).length).toBe(0);
+    });
+
+    it('data-testid selector survives prune when element is still in DOM', () => {
+      const { id } = selectElement();
+      zf().applyOverride(id, 'color', 'red');
+
+      // Trigger prune — element is still in DOM
+      window.dispatchEvent(new PopStateEvent('popstate'));
+
+      expect(Object.keys(zf().overrideRules).length).toBe(1);
+      const tag = document.getElementById('zerofog-override-styles');
+      expect(tag).not.toBeNull();
+    });
+
+    it('discardOverrides hides selectedOverlay and labelEl', () => {
+      selectElement();
+
+      // selectedOverlay should be visible after selection
+      const selectedOverlay = document.getElementById('__zerofog_inspector_selected__');
+      expect(selectedOverlay).not.toBeNull();
+      expect(selectedOverlay!.style.display).toBe('block');
+
+      zf().discardOverrides();
+
+      expect(selectedOverlay!.style.display).toBe('none');
+    });
+
+    it('message handler ignores non-numeric elementId', () => {
+      // Should not throw — handler silently rejects
+      sendInspectorMessage('inspector:apply-override', {
+        elementId: 'not-a-number' as unknown as number,
+        cssProperty: 'padding',
+        cssValue: 'md',
+      });
+      // No style tag should be created
+      expect(document.getElementById('zerofog-override-styles')).toBeNull();
+    });
+
+    it('applyOverride with camelCase property produces kebab-case in style tag (end-to-end)', () => {
+      const { id } = selectElement();
+      zf().applyOverride(id, 'fontSize', '14px');
+
+      const tag = document.getElementById('zerofog-override-styles');
+      expect(tag).not.toBeNull();
+      expect(tag!.textContent).toContain('font-size:');
+      expect(tag!.textContent).not.toContain('fontSize');
+    });
+
+    it('message handler inspector:apply-override posts result back', async () => {
+      // Re-import with parent mock to capture postToParent calls
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).__ZEROFOG__?.deactivateInspector?.();
+      while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (window as any).__ZEROFOG__;
+      vi.resetModules();
+
+      const postMessageSpy = vi.fn();
+      Object.defineProperty(window, 'parent', {
+        value: { postMessage: postMessageSpy },
+        writable: true,
+        configurable: true,
+      });
+      vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+        cb(performance.now());
+        return 0;
+      });
+
+      await import('../../src/client/inspector.js');
+
+      // Select an element
+      sendInspectorMessage('inspector:enter-select');
+      const div = document.createElement('div');
+      div.setAttribute('data-testid', 'msg-override');
+      document.body.appendChild(div);
+      div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const selId = zf().selected.id;
+
+      postMessageSpy.mockClear();
+
+      // Send apply-override message
+      sendInspectorMessage('inspector:apply-override', {
+        elementId: selId,
+        cssProperty: 'padding',
+        cssValue: 'md',
+      });
+
+      expect(postMessageSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'zerofog:apply-override-result',
+          payload: { ok: true },
+        }),
+        '__SIDECAR_ORIGIN__'
+      );
+
+      // Restore parent
+      Object.defineProperty(window, 'parent', {
+        value: window,
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    it('applyOverride rejects non-string cssProperty', () => {
+      const { id } = selectElement();
+      const result = zf().applyOverride(id, undefined, 'red');
+      expect(result).toEqual({ ok: false, error: 'invalid-input' });
+    });
+
+    it('applyOverride rejects non-string cssValue', () => {
+      const { id } = selectElement();
+      const result = zf().applyOverride(id, 'color', 42);
+      expect(result).toEqual({ ok: false, error: 'invalid-input' });
+    });
+
+    it('applyOverride rejects null cssProperty', () => {
+      const { id } = selectElement();
+      const result = zf().applyOverride(id, null, 'red');
+      expect(result).toEqual({ ok: false, error: 'invalid-input' });
+    });
+  });
+
+  // ── Message Security Boundary (H4) ────────────────────────
+
+  describe('Message Security Boundary', () => {
+    it('accepts valid message with correct origin, sessionId, and version', () => {
+      sendInspectorMessage('inspector:enter-select');
+      expect(zf().selectMode).toBe(true);
+    });
+
+    it('rejects message with wrong origin', () => {
+      window.dispatchEvent(new MessageEvent('message', {
+        data: { type: 'inspector:enter-select', sessionId: '__SESSION_ID__', version: 1 },
+        origin: 'https://evil.example.com',
+      }));
+      expect(zf().selectMode).toBe(false);
+    });
+
+    it('rejects message with missing sessionId property', () => {
+      window.dispatchEvent(new MessageEvent('message', {
+        data: { type: 'inspector:enter-select', version: 1 },
+        origin: '__SIDECAR_ORIGIN__',
+      }));
+      expect(zf().selectMode).toBe(false);
+    });
+
+    it('rejects message with wrong sessionId value', () => {
+      window.dispatchEvent(new MessageEvent('message', {
+        data: { type: 'inspector:enter-select', sessionId: 'wrong-session', version: 1 },
+        origin: '__SIDECAR_ORIGIN__',
+      }));
+      expect(zf().selectMode).toBe(false);
+    });
+
+    it('rejects message with wrong version', () => {
+      window.dispatchEvent(new MessageEvent('message', {
+        data: { type: 'inspector:enter-select', sessionId: '__SESSION_ID__', version: 99 },
+        origin: '__SIDECAR_ORIGIN__',
+      }));
+      expect(zf().selectMode).toBe(false);
+    });
+
+    it('rejects message with null data', () => {
+      window.dispatchEvent(new MessageEvent('message', {
+        data: null,
+        origin: '__SIDECAR_ORIGIN__',
+      }));
+      expect(zf().selectMode).toBe(false);
+    });
+
+    it('rejects message with string data (non-object)', () => {
+      window.dispatchEvent(new MessageEvent('message', {
+        data: 'inspector:enter-select',
+        origin: '__SIDECAR_ORIGIN__',
+      }));
+      expect(zf().selectMode).toBe(false);
+    });
+
+    it('message handler ignores NaN elementId', () => {
+      sendInspectorMessage('inspector:apply-override', {
+        elementId: NaN as unknown as number,
+        cssProperty: 'padding',
+        cssValue: 'md',
+      });
+      expect(document.getElementById('zerofog-override-styles')).toBeNull();
+    });
+
+    it('message handler ignores string elementId', () => {
+      sendInspectorMessage('inspector:apply-override', {
+        elementId: 'not-a-number' as unknown as number,
+        cssProperty: 'padding',
+        cssValue: 'md',
+      });
+      expect(document.getElementById('zerofog-override-styles')).toBeNull();
+    });
+  });
+
+  // ── replaceState Sentinel Pattern (M7) ────────────────────
+
+  describe('replaceState Sentinel Pattern', () => {
+    it('prunes detached DOM nodes on replaceState', () => {
+      sendInspectorMessage('inspector:enter-select');
+
+      const div = document.createElement('div');
+      document.body.appendChild(div);
+      div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(Object.keys(zf().elementMap).length).toBe(1);
+
+      // Detach and trigger replaceState (SPA route replacement)
+      document.body.removeChild(div);
+      history.replaceState({}, '', '/replaced-route');
+
+      expect(Object.keys(zf().elementMap).length).toBe(0);
+    });
+
+    it('replaceState wrapper is pass-through after teardown', () => {
+      zf().deactivateInspector();
+      expect(() => history.replaceState({}, '', '/after-teardown')).not.toThrow();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((history.replaceState as any).__cortexPatched).toBe(true);
+    });
+  });
+
+  // ── Overlay Transition Properties (M3) ────────────────────
+
+  describe('Overlay Transition Properties', () => {
+    it('overlay uses specific transition properties instead of all', () => {
+      const overlay = document.getElementById('__zerofog_inspector_overlay__');
+      expect(overlay).not.toBeNull();
+      expect(overlay!.style.cssText).not.toContain('transition:all');
+      expect(overlay!.style.cssText).toContain('transition');
     });
   });
 });

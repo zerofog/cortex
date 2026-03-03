@@ -16,6 +16,7 @@
 
 var SESSION_ID = '__SESSION_ID__';
 var SIDECAR_ORIGIN = '__SIDECAR_ORIGIN__';
+var TEMPLATE_OK = SESSION_ID.indexOf('__') !== 0 && SIDECAR_ORIGIN.indexOf('__') !== 0;
 
 // ── Constants ────────────────────────────────────────────────────
 
@@ -23,6 +24,36 @@ var MAX_CHAIN_DEPTH = 20;
 var MAX_ANCESTOR_DEPTH = 50;
 var MAX_ELEMENT_MAP_SIZE = 50;
 var MSG_VERSION = 1;
+var FIBER_TAG_FUNCTION = 0;
+var FIBER_TAG_CLASS = 1;
+
+var ALLOWED_CSS_PROPERTIES = new Set([
+  'color', 'background', 'fontSize', 'padding', 'margin',
+  'display', 'gap', 'borderRadius', 'fontWeight', 'fontFamily',
+]);
+
+var CSS_VALUE_UNSAFE = /expression\s*\(|url\s*\(|image-set\s*\(|element\s*\(|paint\s*\(|@import|[;{}\\]/i;
+
+var TOKEN_CONSTRAINED_PROPERTIES = new Set([
+  'padding', 'margin', 'gap', 'borderRadius',
+]);
+
+var SPACING_TOKENS = ['xs', 'sm', 'md', 'lg', 'xl'];
+var RADIUS_TOKENS  = ['none', 'xs', 'sm', 'md', 'lg', 'xl'];
+Object.freeze(SPACING_TOKENS);
+Object.freeze(RADIUS_TOKENS);
+
+function camelToKebab(str) {
+  return str.replace(/[A-Z]/g, function (c) { return '-' + c.toLowerCase(); });
+}
+
+var TOKEN_VAR_PREFIX = Object.create(null);
+TOKEN_VAR_PREFIX['padding'] = '--mantine-spacing-';
+TOKEN_VAR_PREFIX['margin'] = '--mantine-spacing-';
+TOKEN_VAR_PREFIX['gap'] = '--mantine-spacing-';
+TOKEN_VAR_PREFIX['borderRadius'] = '--mantine-radius-';
+
+var OVERRIDE_STYLE_ID = 'zerofog-override-styles';
 
 // ── Pure functions (exported for testing) ────────────────────────
 
@@ -40,7 +71,18 @@ function escapeAttrValue(val) {
 
 function getComponentName(fiber) {
   if (!fiber || !fiber.type) return null;
-  return fiber.type.displayName || fiber.type.name || null;
+  var type = fiber.type;
+  if (typeof type === 'string') return null;
+  var depth = 0;
+  while (type && depth < 5) {
+    if (type.displayName || type.name) return type.displayName || type.name;
+    if (type.render && typeof type.render === 'function') {
+      return type.render.displayName || type.render.name || null;
+    }
+    if (type.type && typeof type.type !== 'string') { type = type.type; depth++; continue; }
+    break;
+  }
+  return null;
 }
 
 function findReactFiberKeys(element) {
@@ -52,6 +94,22 @@ function findReactFiberKeys(element) {
     }
   }
   return keys;
+}
+
+var cachedFiberKey = null;
+
+function getFiberFromElement(element) {
+  if (cachedFiberKey) {
+    var cached = element[cachedFiberKey];
+    if (cached !== undefined) return cached;
+    // Cache miss — element may belong to a different React root; fall through to slow path
+  }
+  var keys = findReactFiberKeys(element);
+  if (keys.length > 0) {
+    cachedFiberKey = keys[0];
+    return element[keys[0]] || null;
+  }
+  return null;
 }
 
 /**
@@ -84,7 +142,7 @@ function walkComponentChain(fiber) {
   var currentB = fiber;
   var depthB = 0;
   while (currentB && depthB < MAX_CHAIN_DEPTH) {
-    if (currentB.tag === 0 || currentB.tag === 1) {
+    if (currentB.tag === FIBER_TAG_FUNCTION || currentB.tag === FIBER_TAG_CLASS) {
       var nameB = getComponentName(currentB);
       if (nameB) chain.push(nameB);
     }
@@ -122,7 +180,7 @@ function isFiberAncestor(childElement, ancestorElement, fiberKeys) {
   return false;
 }
 
-function resolveSource(element, fiberKeys) {
+function resolveSource(element, fiberKeys, bounds) {
   var testId = null;
   var componentChain = [];
   var hasClientFiber = false;
@@ -139,11 +197,8 @@ function resolveSource(element, fiberKeys) {
   }
 
   // Strategy 2: React fiber chain
-  var fiber = null;
-  var keys = fiberKeys || findReactFiberKeys(element);
-  for (var k = 0; k < keys.length && !fiber; k++) {
-    fiber = element[keys[k]];
-  }
+  var fiber = fiberKeys ? element[fiberKeys[0]] || null : getFiberFromElement(element);
+  var keys = fiberKeys || (cachedFiberKey ? [cachedFiberKey] : []);
 
   if (fiber) {
     hasClientFiber = true;
@@ -162,10 +217,17 @@ function resolveSource(element, fiberKeys) {
   var classes = element.classList
     ? Array.prototype.slice.call(element.classList)
     : [];
-  var text = (element.textContent || '').substring(0, 100);
-  var bounds = element.getBoundingClientRect
+  var text = '';
+  var cn = element.childNodes;
+  if (cn) {
+    for (var ti = 0; ti < cn.length && text.length < 100; ti++) {
+      if (cn[ti].nodeType === 3) text += cn[ti].nodeValue;
+    }
+    text = text.substring(0, 100);
+  }
+  var actualBounds = bounds || (element.getBoundingClientRect
     ? element.getBoundingClientRect()
-    : { top: 0, left: 0, width: 0, height: 0 };
+    : { top: 0, left: 0, width: 0, height: 0 });
 
   return {
     testId: testId,
@@ -175,7 +237,7 @@ function resolveSource(element, fiberKeys) {
       tag: tag,
       classes: classes,
       text: text,
-      bounds: bounds,
+      bounds: actualBounds,
     },
   };
 }
@@ -252,6 +314,30 @@ function classifyElement(componentChain, tagName) {
     return 'layout';
 
   return 'unknown';
+}
+
+function isTokenValue(cssProperty, cssValue) {
+  if (!TOKEN_CONSTRAINED_PROPERTIES.has(cssProperty)) return true;
+  if (/^var\(--mantine-(?:spacing|radius)-(?:none|xs|sm|md|lg|xl)\)$/.test(cssValue)) return true;
+  var tokens = cssProperty === 'borderRadius' ? RADIUS_TOKENS : SPACING_TOKENS;
+  var parts = cssValue.split(/\s+/);
+  for (var i = 0; i < parts.length; i++) {
+    if (tokens.indexOf(parts[i]) === -1) return false;
+  }
+  return parts.length > 0;
+}
+
+function resolveTokenValue(cssProperty, cssValue) {
+  if (!TOKEN_CONSTRAINED_PROPERTIES.has(cssProperty)) return cssValue;
+  if (/^var\(--/.test(cssValue)) return cssValue;
+  var prefix = TOKEN_VAR_PREFIX[cssProperty];
+  if (!prefix) return cssValue;
+  var parts = cssValue.split(/\s+/);
+  var resolved = [];
+  for (var i = 0; i < parts.length; i++) {
+    resolved.push('var(' + prefix + parts[i] + ')');
+  }
+  return resolved.join(' ');
 }
 
 /**
@@ -350,7 +436,8 @@ function buildOverrideCSS(rules) {
     var props = [];
     for (var prop in rules[selector]) {
       if (!Object.prototype.hasOwnProperty.call(rules[selector], prop)) continue;
-      props.push(prop + ': ' + rules[selector][prop]);
+      var cssName = camelToKebab(prop);
+      props.push(cssName + ': ' + rules[selector][prop]);
     }
     if (props.length > 0) {
       css += selector + ' { ' + props.join('; ') + '; }\n';
@@ -384,6 +471,7 @@ function isValidInbound(e) {
     e.origin === SIDECAR_ORIGIN &&
     e.data &&
     typeof e.data === 'object' &&
+    e.data.version === MSG_VERSION &&
     Object.prototype.hasOwnProperty.call(e.data, 'sessionId') &&
     e.data.sessionId === SESSION_ID
   );
@@ -399,6 +487,10 @@ var _buildSelector = function () {
 // ── Browser Inspector (only runs in browser context) ─────────────
 
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  if (!TEMPLATE_OK && typeof console !== 'undefined' && console.warn) {
+    console.warn('[zerofog] Template variables not substituted — message auth will reject all inbound messages');
+  }
+
   // Initialize consolidated namespace (idempotent — safe for re-injection)
   window.__ZEROFOG__ = window.__ZEROFOG__ || {};
 
@@ -427,6 +519,16 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
           delete elementMap[mapKeys[i]];
         }
       }
+      // Prune override rules whose selectors match zero DOM elements
+      var ruleKeys = Object.keys(overrideRules);
+      var pruned = false;
+      for (var j = 0; j < ruleKeys.length; j++) {
+        if (!document.querySelector(ruleKeys[j])) {
+          delete overrideRules[ruleKeys[j]];
+          pruned = true;
+        }
+      }
+      if (pruned) scheduleOverrideSheet();
     }
 
     /**
@@ -487,7 +589,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
         'background:' +
         bgColor +
         ';' +
-        'transition:all 0.1s ease;display:none;';
+        'transition:top 0.1s ease,left 0.1s ease,width 0.1s ease,height 0.1s ease;display:none;';
       document.body.appendChild(el);
       return el;
     }
@@ -519,7 +621,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       positionOverlay(overlay, rect);
 
       // Show component label
-      var info = resolveSource(target);
+      var info = resolveSource(target, undefined, rect);
       var labelText =
         info.componentChain.length > 0
           ? info.componentChain[0] + ' <' + info.element.tag.toLowerCase() + '>'
@@ -654,11 +756,20 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       discardOverrides();
     };
     messageHandlers['inspector:build-selector'] = function (payload) {
-      if (!payload || !payload.elementId) return;
+      if (!payload || typeof payload.elementId !== 'number' || payload.elementId !== payload.elementId) return;
       var el = elementMap[payload.elementId];
       if (!el) return;
       var selector = buildSelector(el);
       postToParent('zerofog:selector', { selector: selector });
+    };
+    messageHandlers['inspector:apply-override'] = function (payload) {
+      if (!payload || typeof payload.elementId !== 'number' || payload.elementId !== payload.elementId) return;
+      var result = applyOverride(payload.elementId, payload.cssProperty, payload.cssValue);
+      postToParent('zerofog:apply-override-result', result);
+    };
+    messageHandlers['inspector:remove-override'] = function (payload) {
+      if (!payload || typeof payload.elementId !== 'number' || payload.elementId !== payload.elementId) return;
+      removeOverride(payload.elementId, payload.cssProperty);
     };
 
     function handleMessage(e) {
@@ -696,6 +807,15 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       for (var i = 0; i < mapKeys.length; i++) {
         delete elementMap[mapKeys[i]];
       }
+      // Clear override rules in-place (preserves window.__ZEROFOG__.overrideRules reference)
+      var ruleKeys = Object.keys(overrideRules);
+      for (var ri = 0; ri < ruleKeys.length; ri++) {
+        delete overrideRules[ruleKeys[ri]];
+      }
+      var tag = document.getElementById(OVERRIDE_STYLE_ID);
+      if (tag) tag.remove();
+      if (selectedOverlay) selectedOverlay.style.display = 'none';
+      if (labelEl) labelEl.style.display = 'none';
       window.__ZEROFOG__.selected = null;
     }
 
@@ -720,6 +840,22 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
         }
       }
       cortexIdCounter = maxId;
+
+      // Recover overrideRules from previous IIFE instance (best-effort: only works if
+      // the new IIFE runs before the old window.__ZEROFOG__ is garbage-collected)
+      if (window.__ZEROFOG__ && window.__ZEROFOG__.overrideRules) {
+        var prevRules = window.__ZEROFOG__.overrideRules;
+        var prevKeys = Object.keys(prevRules);
+        for (var ri = 0; ri < prevKeys.length; ri++) {
+          var ruleKey = prevKeys[ri];
+          overrideRules[ruleKey] = {};
+          var propKeys = Object.keys(prevRules[ruleKey]);
+          for (var pi = 0; pi < propKeys.length; pi++) {
+            overrideRules[ruleKey][propKeys[pi]] = prevRules[ruleKey][propKeys[pi]];
+          }
+        }
+        updateOverrideSheet();
+      }
 
       overlay = createOverlay(OVERLAY_ID, '#3b82f6', 'rgba(59,130,246,0.08)');
       selectedOverlay = createOverlay(
@@ -765,6 +901,71 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       return '[data-cortex-id="' + cortexId + '"]';
     }
 
+    var overrideRules = Object.create(null);
+    var overrideSheetPending = false;
+
+    function scheduleOverrideSheet() {
+      if (overrideSheetPending) return;
+      overrideSheetPending = true;
+      requestAnimationFrame(function () {
+        overrideSheetPending = false;
+        updateOverrideSheet();
+      });
+    }
+
+    function updateOverrideSheet() {
+      var css = buildOverrideCSS(overrideRules);
+      var tag = document.getElementById(OVERRIDE_STYLE_ID);
+      if (!css) {
+        if (tag) tag.remove();
+        return;
+      }
+      if (!tag) {
+        tag = document.createElement('style');
+        tag.id = OVERRIDE_STYLE_ID;
+        tag.setAttribute('data-zerofog-ui', 'true');
+        document.head.appendChild(tag);
+      }
+      tag.textContent = css;
+    }
+
+    function applyOverride(elementId, cssProperty, cssValue) {
+      if (typeof cssProperty !== 'string' || typeof cssValue !== 'string') {
+        return { ok: false, error: 'invalid-input' };
+      }
+      if (!ALLOWED_CSS_PROPERTIES.has(cssProperty)) {
+        return { ok: false, error: 'unknown-property' };
+      }
+      if (CSS_VALUE_UNSAFE.test(cssValue)) {
+        return { ok: false, error: 'unsafe-value' };
+      }
+      if (!isTokenValue(cssProperty, cssValue)) {
+        return { ok: false, error: 'token-required' };
+      }
+      var el = elementMap[elementId];
+      if (!el) {
+        return { ok: false, error: 'unknown-element' };
+      }
+      var selector = buildSelector(el);
+      if (!overrideRules[selector]) overrideRules[selector] = {};
+      var resolvedValue = resolveTokenValue(cssProperty, cssValue);
+      overrideRules[selector][cssProperty] = resolvedValue + ' !important';
+      scheduleOverrideSheet();
+      return { ok: true };
+    }
+
+    function removeOverride(elementId, cssProperty) {
+      var el = elementMap[elementId];
+      if (!el) return;
+      var selector = buildSelector(el);
+      if (!overrideRules[selector]) return;
+      delete overrideRules[selector][cssProperty];
+      if (Object.keys(overrideRules[selector]).length === 0) {
+        delete overrideRules[selector];
+      }
+      scheduleOverrideSheet();
+    }
+
     // Bridge IIFE-scoped buildSelector to module scope for ESM export
     _buildSelector = buildSelector;
 
@@ -778,6 +979,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     window.__ZEROFOG__.inspectorActive = false;
     window.__ZEROFOG__.selectMode = false;
     window.__ZEROFOG__._pruneCallback = null;
+    window.__ZEROFOG__.applyOverride = applyOverride;
+    window.__ZEROFOG__.removeOverride = removeOverride;
+    window.__ZEROFOG__.overrideRules = overrideRules;
     /** Internal/unstable: elementMap exposed as mutable reference for first-party
      *  panel code. Not part of the public API. */
     window.__ZEROFOG__.elementMap = elementMap;
@@ -793,10 +997,20 @@ export {
   resolveSource,
   getComponentName,
   findReactFiberKeys,
+  getFiberFromElement,
   walkComponentChain,
   isFiberAncestor,
   classifyElement,
+  isTokenValue,
+  resolveTokenValue,
   parseOverrideRules,
   buildOverrideCSS,
   _buildSelector as buildSelector,
+  ALLOWED_CSS_PROPERTIES,
+  CSS_VALUE_UNSAFE,
+  TOKEN_CONSTRAINED_PROPERTIES,
+  SPACING_TOKENS,
+  RADIUS_TOKENS,
+  camelToKebab,
+  TOKEN_VAR_PREFIX,
 };
