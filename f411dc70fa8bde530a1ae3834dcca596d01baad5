@@ -1,0 +1,24 @@
+scripts/visual-toolbar.js
+  d69b17cd2205db45 33-36,53,56-58,60-61,63-68,71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "f411dc70fa8bde530a1ae3834dcca596d01baad5",
+  "prompts": {
+    "d69b17cd2205db45": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "66db66d8-5960-44ca-b957-63d2d2bebea5",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 21,
+      "total_deletions": 13,
+      "accepted_lines": 17,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/f4fe837250ebdc4fbf2c78e1d4607810a2bf010f879eb7c4d3ef666631ffbf7b"
+    }
+  }
+}
