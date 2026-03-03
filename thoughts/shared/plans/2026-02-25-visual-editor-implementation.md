@@ -931,6 +931,8 @@ Carry over all 22 tests from `scripts/__tests__/visual-toolbar.test.ts`. Add:
 
 ## Phase 5: Finalization Pipeline
 
+> **Detailed spec:** [2026-03-02-finalize-pipeline-spec.md](./2026-03-02-finalize-pipeline-spec.md) — covers input format (`AccumulatedDiff`), edit strategy dispatch per `StyleOrigin`, Claude integration, approval flow, MVP tiers, and architecture review findings.
+
 ### Overview
 Build the state machine, write-ahead log, three-phase commit (simplified), auto-trigger finalization, and nav-blocker. This connects browser editing to source code changes.
 
@@ -1052,6 +1054,8 @@ What's NOT blocked:
 ---
 
 ## Phase 6: CLI & Integration
+
+> **Key dependency:** [2026-03-02-finalize-pipeline-spec.md](./2026-03-02-finalize-pipeline-spec.md) — the slash command template below is a simplified version; the spec's §5.2 (edit strategy dispatch) and §5.3 (full slash command) are the authoritative references. Architecture review findings (appended to spec) identified 5 CRITICAL issues to address during implementation, notably: use `POST /api/diff/claim` instead of GET for the claim operation, add session auth to all API endpoints, and add claim fencing tokens.
 
 ### Overview
 Build the CLI entry point, slash command template, WebSocket heartbeat (IM10), and run full integration testing.

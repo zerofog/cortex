@@ -480,7 +480,7 @@ User Alt+Clicks a Card element. Panel shows editable properties:
 
 User clicks **"Send to Claude"** (not "Finalize" — the button name sets the expectation that the next step involves Claude in the terminal). The accumulated diff goes through WebSocket → sidecar (persisted to disk as write-ahead log). The panel shows: "Changes sent. Tell Claude to apply them in the terminal." CSS overrides remain visible — they are NOT cleared yet (see Three-Phase Commit).
 
-In the terminal, the user says "finalize" (or Claude detects the pending diff via a health check). Claude fetches the diff via `GET /__zerofog/api/diff`, edits source code (grouped by file to avoid ordering conflicts), then `POST /__zerofog/api/complete` with per-change results. The sidecar pushes `edit-complete` to the browser. HMR updates the page with real code. The browser clears CSS overrides only after verifying HMR landed.
+In the terminal, the user says "finalize" (or Claude detects the pending diff via a health check). Claude claims the diff via `POST /__zerofog/api/diff/claim` (see [finalize pipeline spec](./2026-03-02-finalize-pipeline-spec.md) for the full data contract, edit strategy dispatch per `StyleOrigin`, and architecture review findings), edits source code (grouped by file to avoid ordering conflicts), then `POST /__zerofog/api/complete` with per-change results. The sidecar pushes `edit-complete` to the browser. HMR updates the page with real code. The browser clears CSS overrides only after verifying HMR landed.
 
 For changes Claude couldn't apply (ambiguous source, component in `node_modules`, etc.), the browser re-applies those CSS overrides and shows: "5/8 applied. 3 changes need attention: [reasons]."
 
