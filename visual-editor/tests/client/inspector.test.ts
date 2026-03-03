@@ -2113,19 +2113,19 @@ describe('Inspector IIFE Integration', () => {
     it('applyOverride rejects non-string cssProperty', () => {
       const { id } = selectElement();
       const result = zf().applyOverride(id, undefined, 'red');
-      expect(result).toEqual({ ok: false, error: 'unknown-property' });
+      expect(result).toEqual({ ok: false, error: 'invalid-input' });
     });
 
     it('applyOverride rejects non-string cssValue', () => {
       const { id } = selectElement();
       const result = zf().applyOverride(id, 'color', 42);
-      expect(result).toEqual({ ok: false, error: 'unknown-property' });
+      expect(result).toEqual({ ok: false, error: 'invalid-input' });
     });
 
     it('applyOverride rejects null cssProperty', () => {
       const { id } = selectElement();
       const result = zf().applyOverride(id, null, 'red');
-      expect(result).toEqual({ ok: false, error: 'unknown-property' });
+      expect(result).toEqual({ ok: false, error: 'invalid-input' });
     });
   });
 

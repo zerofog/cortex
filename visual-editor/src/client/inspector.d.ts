@@ -98,7 +98,7 @@ export declare const RADIUS_TOKENS: string[];
 /** Result of applyOverride — either success or a typed error. */
 export type ApplyOverrideResult =
   | { ok: true }
-  | { ok: false; error: 'unknown-property' | 'unsafe-value' | 'token-required' | 'unknown-element' };
+  | { ok: false; error: 'unknown-property' | 'unsafe-value' | 'token-required' | 'unknown-element' | 'invalid-input' };
 
 /** CSS rules object: { selector: { property: value, ... }, ... } */
 export type OverrideRules = Record<string, Record<string, string>>;

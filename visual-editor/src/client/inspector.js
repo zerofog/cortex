@@ -101,7 +101,8 @@ var cachedFiberKey = null;
 function getFiberFromElement(element) {
   if (cachedFiberKey) {
     var cached = element[cachedFiberKey];
-    return cached !== undefined ? cached : null;
+    if (cached !== undefined) return cached;
+    // Cache miss — element may belong to a different React root; fall through to slow path
   }
   var keys = findReactFiberKeys(element);
   if (keys.length > 0) {
@@ -840,7 +841,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       }
       cortexIdCounter = maxId;
 
-      // Recover overrideRules from previous IIFE instance (survives HMR/re-injection)
+      // Recover overrideRules from previous IIFE instance (best-effort: only works if
+      // the new IIFE runs before the old window.__ZEROFOG__ is garbage-collected)
       if (window.__ZEROFOG__ && window.__ZEROFOG__.overrideRules) {
         var prevRules = window.__ZEROFOG__.overrideRules;
         var prevKeys = Object.keys(prevRules);
@@ -929,7 +931,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
 
     function applyOverride(elementId, cssProperty, cssValue) {
       if (typeof cssProperty !== 'string' || typeof cssValue !== 'string') {
-        return { ok: false, error: 'unknown-property' };
+        return { ok: false, error: 'invalid-input' };
       }
       if (!ALLOWED_CSS_PROPERTIES.has(cssProperty)) {
         return { ok: false, error: 'unknown-property' };
