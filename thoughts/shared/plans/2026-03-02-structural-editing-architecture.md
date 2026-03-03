@@ -176,6 +176,30 @@ messageHandlers['inspector:set-edit-mode'] = function (payload) {
 };
 ```
 
+### 3.6 Review Findings
+
+**[H4] Mode-before-selection inverts designer mental model** (3/6 reviewers, HIGH — disputed)
+
+*What users experience*: A designer opens the tool, clicks a Card to explore it, then decides to delete it — but nothing happens because they're still in Style mode. They have to switch to Delete mode, then re-click the same Card. Every structural operation requires two click-sequences instead of the one that Figma, Photoshop, and every other design tool uses.
+
+Decision D4 forces mode selection before element selection. Design-clink praised this as a "strong interaction foundation" for power users; Design-native and DX-native flagged it as friction that contradicts the select-then-act convention designers expect.
+
+*Fix*: Support both flows. Default to select-then-act (right-click context menu or action panel shows Add/Delete/Reorder after selection). Keep mode-first as power-user shortcut.
+
+**[M] No keyboard shortcuts for mode switching** (3/6 reviewers, MEDIUM)
+
+*What users experience*: Switching between Style, Add, Delete, and Reorder requires clicking buttons in the panel. Power users who want to quickly toggle modes while inspecting elements must move their cursor away from the app every time.
+
+*Fix*: Define keyboard shortcuts (e.g., `1`=Style, `2`=Add, `3`=Delete, `4`=Reorder) and ARIA labels for accessibility. Add to the postMessage handler.
+
+**[M] editMode creates 16 possible states; spec only defines a subset** (MTS-native, MEDIUM)
+
+*What users experience*: When switching between modes rapidly, stale DOM artifacts from the previous mode (hover highlights, drop zones, delete overlays) persist. The user sees red delete overlays while in Add mode, or green drop zones while in Style mode.
+
+The state space is `active × selectMode × editMode` = 2 × 2 × 4 = 16 combinations, but the spec only defines behavior for a handful. Undefined transitions leave the UI in inconsistent visual states.
+
+*Fix*: Enumerate all 16 state combinations and define explicit behavior or mark invalid. Add cleanup logic to the mode-switch handler that removes all mode-specific DOM artifacts.
+
 ---
 
 ## 4. Structural Intent Types
@@ -318,6 +342,36 @@ isDynamic: boolean;
 3. Children have sequential or array-derived keys (`key="item-0"`, `key="item-1"`)
 
 **Behavior**: Dynamic children are detected and reported but NOT automatically edited (Decision D7). The panel shows: "These children appear to be rendered from data. To add/remove items, modify the data source." This prevents Claude from trying to manually duplicate JSX for what should be a data operation.
+
+### 4.7 Review Findings
+
+**[C4] Position-based indices fragile across batch operations** (4/6 reviewers, CRITICAL)
+
+*What users experience*: A designer adds a Card at position 2 and removes a Badge at position 4 in the same session, then clicks Finalize. Claude processes the add first (inserting at index 2), which shifts all subsequent indices — so the Badge removal at "index 4" now targets the wrong element. The designer sees the wrong component deleted, or gets a broken build.
+
+`insertionIndex`, `childIndex`, `fromIndex`, `toIndex` are positional integers that become stale when earlier operations in the same batch modify sibling order. Double-applied `AddIntent` (from crash recovery) inserts duplicate components.
+
+*Fix*: For v1.5, enforce one structural edit per container per batch. Add immutable `opId` (UUID) per structural change for idempotent replay. For v2, use anchor-based references ("after the component with testId X") and maintain a dedupe log keyed by `(sessionId, opId)`.
+
+**[M] Dynamic children heuristic produces false positives** (4/6 reviewers, MEDIUM)
+
+*What users experience*: A designer has a dashboard with 4 static `<Card>` components, each with different content. The tool flags them as "rendered from data" and refuses to let the user add or remove Cards, displaying "modify the data source" — but there is no data source. The cards are just hardcoded JSX. The designer is stuck with no way to override.
+
+The heuristic (3+ consecutive same-type siblings = dynamic) is too aggressive. Static dashboard layouts with repeated Cards, navigation items, or feature sections trigger false positives.
+
+*Fix*: Require composite evidence: key pattern analysis (sequential keys like `key="item-0"`) + Fragment/`.map()` AST signal + runtime key evidence. Add a "This is static JSX" override button for false positives.
+
+**[M] `componentName` input validation missing** (2/6 security reviewers, MEDIUM)
+
+*What users experience*: No visible impact under normal use. But `componentName` flows from browser to sidecar to Claude. If malicious content is injected (e.g., `Card"; import "evil-package`), Claude could be tricked into injecting arbitrary imports or JSX.
+
+*Fix*: Validate `componentName` matches `^[A-Z][A-Za-z0-9_.]*$`. Validate `packageName` against `^@?[a-z0-9][-a-z0-9./]*$`.
+
+**[L] `elementType` field name collision** (DX-native, LOW)
+
+*What users experience*: No direct UX impact, but creates confusion during development. `StructuralTarget.elementType` is a union type (`'container' | 'text' | ...`) while `ChildInfo.elementType` is a plain string. Same field name, different semantics.
+
+*Fix*: Rename `ChildInfo.elementType` to `category` or `classification`.
 
 ---
 
@@ -493,6 +547,42 @@ After clicking a drop zone (insertion point selected), the panel shows a compone
 
 The picker is a panel-side UI element (not injected into the app iframe). Selection produces the `AddIntent` with `componentName` and `packageName`.
 
+### 5.6 Review Findings
+
+**[C2] `enumerateFiberChildren` loses siblings after Fragment descent** (4/6 reviewers, CRITICAL)
+
+*What users experience*: A designer selects a Stack containing `[Card, <>Alert, Badge</>, Button]`. The tree view shows Card, Alert, Badge — but Button is missing. They insert a component "after Badge" (what they think is position 3), but it actually goes before Button because the algorithm never saw Button. The rendered result has the new component in the wrong place.
+
+The pseudocode in §5.1 descends into Fragment's `.child` but loses the Fragment's `.sibling` pointer. After visiting the Fragment's children, the loop cannot find the next sibling (Button) because `current.sibling` inside the Fragment points to Badge's sibling (null), not to Button. Additionally, Portal fibers (tag 6) are skipped and descended into, but Portal children render to a *different DOM node* (e.g., `document.body` for modals), causing wrong insertion indices.
+
+*Fix*: Use explicit stack-based DFS: push `current.sibling` onto a stack before descending `current.child`. For Portals, include as a counted leaf with `isPortal: true` flag but do NOT descend. For Suspense (tag 13), check `fiber.memoizedState` — if non-null, the boundary is showing fallback; skip enumeration with a "Loading content — cannot enumerate" message.
+
+**[C7] React 19 fiber traversal fundamentally incomplete** (2/6 reviewers, CRITICAL)
+
+*What users experience*: On a Next.js 15 project (which uses React 19), the designer hovers over a Mantine Button — but the component chain shows nothing. The confidence drops to `low`, and every element displays "Cannot perform structural edits — this element couldn't be reliably identified." The entire structural editing feature is effectively disabled for React 19 projects.
+
+Strategy B for React 19 uses `fiber.return` traversal with tag filter `[0, 1]` (FunctionComponent, ClassComponent). ForwardRef-wrapped components (tag 11) are invisible — and every Mantine component (`Button`, `ActionIcon`, `Paper`, `Card`) uses `forwardRef`. Component chains will be empty/truncated, collapsing confidence to `low` and gating out all structural operations via §4.5.
+
+*Fix*: Expand tag filter to `[0, 1, 11, 14, 15]` (matching `detectStyleOrigin` in toolbar.js:146). For ForwardRef fibers, resolve name via `fiber.type.render.displayName`. Investigate `_debugStack` / React DevTools global hook as alternative owner source.
+
+**[H10] `stateNode` assumptions break for function components** (MTS-native, HIGH)
+
+*What users experience*: The designer hovers over a function component (the majority of modern React components). The tree view shows "unknown" as the tag name because `stateNode` is null for function components (tag 0). For class components (tag 1), `stateNode` is the class instance, not the DOM node. Child enumeration silently produces empty results for these elements.
+
+*Fix*: Walk down from the fiber to the first `HostComponent` descendant (tag 5) to find the actual DOM element. Use `fiber.stateNode` only when `fiber.tag === 5`.
+
+**[M] Component picker severely underspecified** (4/6 reviewers, MEDIUM)
+
+*What users experience*: After clicking a drop zone, the designer sees a flat list of component names like `[Card] [Badge] [Alert]` with no previews, no size indicators, no descriptions. They pick "Card" and get an empty `<Card></Card>` — no default content, no variant selection, no size prop. The inserted component is useless without manual editing.
+
+*Fix*: Add metadata-backed picker with `variant`, `size`, required props, allowed parent/slot, tokenized defaults, and visual thumbnails. Custom input should validate against known components.
+
+**[L] `shouldSkipFiber()` does not skip `React.lazy` wrappers** (Distsys-native, LOW)
+
+*What users experience*: Lazy-loaded components (tag 16) appear as extra children in the tree view. Minor visual clutter.
+
+*Fix*: Add tag 16 to `SKIP_FIBER_TAGS`.
+
 ---
 
 ## 6. Removability Analysis
@@ -596,6 +686,34 @@ function analyzeRemovability(
   };
 }
 ```
+
+### 6.4 Review Findings
+
+**[C3] `_debugSource` unreliable for node_modules detection** (3/6 reviewers, CRITICAL)
+
+*What users experience*: The designer hovers over a Mantine `<NavLink>` in Delete mode and sees a green highlight with "Safe to remove." They click it, Claude deletes the `<NavLink>` from the parent JSX, and the entire navigation sidebar disappears. The app is broken. The tool told them it was safe to remove a framework component.
+
+`analyzeRemovability()` depends on `fiber._debugSource.fileName.includes('node_modules')` to block deletion of library components. But `_debugSource` is stripped in production builds, absent in React 19 with Vite+SWC (the dominant modern toolchain), and not part of any public React API. When the guard fails, every library component becomes "safe to remove."
+
+*Fix*: Replace with component name registry + `fiber.return` ascent strategy. Maintain a list of known library component names (Mantine, MUI, etc.) and match against `getComponentName()` output. Fall back to checking the import graph rather than fiber metadata.
+
+**[M] Hardcoded Mantine component names make classification framework-specific** (Frontend-native, MEDIUM)
+
+*What users experience*: A designer using Material UI, Chakra, or shadcn/ui finds that every element is classified as `unknown`. MUI's `IconButton` doesn't match `ActionIcon`, `Typography` doesn't match `Text`. The mode compatibility table (§3.3) blocks Add, Delete, and Reorder for all `unknown` elements. The structural editing feature is effectively Mantine-only.
+
+*Fix*: Make classification configurable via `.cortex/components.json` with Mantine defaults. Add heuristic fallback: if a component's fiber has children that are other components, classify as `container`. If it renders `<svg>`, classify as `icon`.
+
+**[M] Remove strategy can over-delete conditional wrappers** (MTS-clink, MEDIUM)
+
+*What users experience*: A designer deletes a Badge that's inside a conditional: `{isAdmin && <Badge>Admin</Badge>}`. Claude removes the entire conditional expression, including the `isAdmin` guard. If other code depends on that guard pattern being present, the deletion has side effects beyond the visible component.
+
+*Fix*: AST transform should remove only the target JSX branch when safe. If the conditional wraps a single element, remove the conditional. If it wraps multiple elements, remove only the target. If the pattern is too complex, fail with an actionable error message rather than silently over-deleting.
+
+**[L] `RemovabilityResult.reason` overloads three semantic meanings** (DX-native, LOW)
+
+*What users experience*: No direct impact, but the field conflates "why it's blocked" (hard block reason), "why it might be risky" (warning text), and "it's safe" (confirmation) into one string.
+
+*Fix*: Separate into `reason` (always present), `warning` (risk note when removable=true), `blockMessage` (only when removable=false).
 
 ---
 
@@ -732,6 +850,30 @@ Two sub-strategies based on whether children are static JSX or dynamically rende
 **Dynamic children (v2 — Decision D7)**:
 Dynamic children (rendered via `.map()`) cannot be reordered by moving JSX — the order comes from the data source. Claude reports: "These children are dynamically rendered from data. Reordering requires modifying the data source or adding a sort parameter."
 
+### 7.3 Review Findings
+
+**[H6] Parent file resolution via grep is not robust** (MTS-clink, HIGH)
+
+*What users experience*: A designer adds a Card to a Stack. Claude searches for "Stack" in the codebase and finds it in three files: `Dashboard.tsx`, `Settings.tsx`, and `components/Layout.tsx`. Claude picks the wrong one — maybe `Layout.tsx` where a different Stack is defined. The Card appears in the wrong page, or Claude edits a shared layout component that affects every page.
+
+`componentChain[0]` + grep can match ambiguous component names, HOC-wrapped components, default exports, and repeated names across files.
+
+*Fix*: Resolve via ownership/import graph and source provenance. Include the file path hint from `_debugSource` (when available) in the `StructuralTarget`. If >1 candidate file matches, block the operation and ask the user for disambiguation.
+
+**[H7] AccumulatedDiff `version: 2` is a breaking change, not backward compatible** (MTS-clink + Distsys-native, HIGH)
+
+*What users experience*: After upgrading the inspector but not the sidecar (or vice versa), the sidecar rejects the diff with a parse error. The designer's accumulated changes are lost. The version mismatch is silent — no helpful error message, just a failed finalization.
+
+The spec claims backward compatibility (§7.1: "v1 consumers that don't understand structuralChanges simply ignore it"), but a hard `version: 2` bump means strict v1 parsers will reject the payload on version check alone, even though `structuralChanges` is structurally optional.
+
+*Fix*: Either retain `version: 1` with additive optional fields (true backward compatibility), or specify explicit version negotiation with clear error messages when mismatched.
+
+**[M] No progress indication during structural edit pipeline** (DX-native, MEDIUM)
+
+*What users experience*: The designer clicks Finalize, and nothing happens for 5-30 seconds. No spinner, no progress bar, no status message. They wonder if the click registered, click again (potentially double-submitting), or assume the tool is broken.
+
+*Fix*: Define progress states: "Sending to Claude..." → "Claude is editing Dashboard.tsx..." → "Waiting for HMR..." → "Done." Display in the panel's status area.
+
 ---
 
 ## 8. Preview Strategy
@@ -817,6 +959,28 @@ For block layout (where CSS `order` doesn't apply):
 
 Position numbers are rendered as overlay badges (similar to the existing label element, inspector.js:496) positioned at the top-right corner of each child.
 
+### 8.4 Review Findings
+
+**[C1] MutationObserver re-insertion creates infinite loop** (5/6 reviewers, CRITICAL)
+
+*What users experience*: The designer clicks "Add Card" and sees the placeholder appear. Then the page starts flickering violently — the placeholder appears and disappears dozens of times per second. The browser tab becomes unresponsive. They have to force-close the tab and lose their accumulated changes.
+
+The §8.1 MutationObserver re-inserts placeholder DOM nodes when React removes them. React's reconciliation detects the foreign node and removes it, triggering the observer again: remove→reinsert→React removes→reinsert. The `insertBefore` call triggers the observer, and `mutation.nextSibling` is stale by callback time (MutationObserver callbacks are microtask-batched). In concurrent mode (React 18+ default), this corrupts the fiber tree.
+
+*Fix*: Abandon DOM injection for add previews entirely. Use portal-based overlay approach: absolutely-positioned overlay elements with `data-zerofog-ui="true"`, positioned via `getBoundingClientRect` of the adjacent sibling, rendered outside React's managed subtree. This matches the existing hover highlight pattern (inspector.js:476-515) which works reliably.
+
+**[H5] CSS override selectors break with CSS-in-JS, CSS Modules, and Tailwind** (Frontend-native, HIGH)
+
+*What users experience*: A designer changes the padding on a CSS-in-JS styled component. The preview looks correct. They navigate to another page and come back — the override is gone because the CSS Module hash changed during HMR, and the selector `[class*="_card_a1b2c"]` no longer matches `_card_d3e4f`. With Tailwind, targeting `[class~="p-4"]` would match every element with that padding, causing global side effects.
+
+*Fix*: For previews, use `element.style.setProperty(prop, value, 'important')` directly (highest specificity, no selector needed). For persistent overrides, use `data-cortex-id` with MutationObserver-based re-application after React commits.
+
+**[M] CSS `order` reorder preview broken for non-flex/grid layouts** (4/6 reviewers, MEDIUM)
+
+*What users experience*: A designer reorders children in a block-layout container. Instead of seeing the components physically move to their new positions, they see the components stay in place with small numbered badges in the corner. The "preview" doesn't actually preview anything — it just shows numbers. For flex/grid containers, the CSS `order` trick only affects visual order; screen readers and Tab key navigation still follow the original DOM order, creating an accessibility gap between preview and final result.
+
+*Fix*: For block layout, use `display: flex; flex-direction: column; order: N` as the preview (changes layout mode but shows accurate visual result). For accessibility, document that preview order differs from tab order.
+
 ---
 
 ## 9. Pipeline Integration
@@ -894,6 +1058,36 @@ interface StructuralFailedChange {
 }
 ```
 
+### 9.4 Review Findings
+
+**[C5] Claim fencing token not propagated to structural operations** (3/6 reviewers, CRITICAL)
+
+*What users experience*: The designer clicks Finalize. Two Claude instances are running (e.g., the user opened a second terminal). Both claim the diff simultaneously. Both apply the structural edit. The designer ends up with duplicate `<Card>` components inserted, or conflicting file edits that produce a broken build. There's no error — the operations both succeed from each Claude's perspective.
+
+The finalize-pipeline spec defines a claim fencing token pattern, but the structural editing spec shows the old pattern without fencing. `CompletionReport` has no claim-bound token, so any Claude actor can report completion for any claimed diff.
+
+*Fix*: Require `{claimToken, epoch}` on `POST /api/complete`; reject stale epochs. Add `intentId` UUIDs per structural change for partial completion journaling. This is a one-time integration with the finalize pipeline spec's existing fencing infrastructure.
+
+**[H8] Crash mid-processing recovery undefined for structural edits** (Distsys-clink + Distsys-native, HIGH)
+
+*What users experience*: Claude crashes halfway through applying structural edits — it edited `Dashboard.tsx` (added a Card) but didn't update the imports file. The build is broken. The designer retries by clicking Finalize again, but the WAL replays the full batch, inserting a *second* Card (the first one is already there from the crashed attempt). Now they have duplicate components and a broken build.
+
+If Claude crashes after writing some files but before `POST /api/complete`, replay behavior is undefined. WAL durability mechanics (fsync, checksums) are not specified.
+
+*Fix*: Persist per-op apply checkpoints: after each structural change is applied, record it. On recovery, skip already-applied ops. Use atomic write protocol (`write temp → fsync → rename → fsync dir`). Add `baseRevision` (file content hash) as a precondition — reject replay if the file has already been modified.
+
+**[H1] `data-cortex-id` selectors don't survive React reconciliation or HMR** (Frontend-native, HIGH)
+
+*What users experience*: The designer selects a component and makes a padding change. The app re-renders (maybe they typed in an input field, or data loaded). The padding override disappears because React destroyed and recreated the DOM node — and the `data-cortex-id` attribute was on the old DOM node, not in the React VDOM. The `elementMap` still references the dead node, so clicking the same visual element creates a new entry instead of updating the old one.
+
+*Fix*: Use component chain + child index as a composite key instead of a DOM attribute. For structural edits, require `data-testid` (gate on `high` confidence). For CSS overrides, re-apply `data-cortex-id` via a MutationObserver that watches for React commits, or use inline `style.setProperty()` which survives as long as the DOM node exists.
+
+**[M] No progress indication during pipeline** (DX-native, MEDIUM)
+
+*What users experience*: After clicking Finalize, the UI goes silent for 5-30 seconds. The designer wonders if the button click registered, clicks it again (potentially double-submitting), or assumes the tool is broken and refreshes the page (losing accumulated changes).
+
+*Fix*: Display progress states in the panel: "Sending to Claude..." → "Claude is editing Dashboard.tsx..." → "Waiting for HMR..." → "Done." Connect to the existing WebSocket `edit-complete` and `hmr-detected` events.
+
 ---
 
 ## 10. Scope Boundary Table
@@ -932,7 +1126,7 @@ interface StructuralFailedChange {
 | Component library browser | Loading all available components into a browser panel duplicates documentation and bloats the inspector; component picker is sufficient |
 | Cross-file structural edits | Moving a component's definition from one file to another is refactoring, not visual editing |
 | Template/snippet system | Pre-built component arrangements ("add a login form") are Claude prompt territory, not visual editor features |
-| Undo stack for structural edits | Git stash (finalize-pipeline-spec §6.3) is sufficient; a custom undo system is over-engineering |
+| ~~Undo stack for structural edits~~ | ~~Git stash is sufficient~~ — **REVISIT (C6)**: 2/6 reviewers flagged this as CRITICAL. Designers expect Cmd+Z; `git stash pop` is hostile to non-developer users. Add session-level undo/redo with one-click revert. Keep git as deep fallback. |
 
 ---
 
@@ -1050,168 +1244,220 @@ The `MAX_CHILDREN = 100` cap in `enumerateFiberChildren()` is arbitrary. What ha
 
 ---
 
-## Architecture Review Findings (2026-03-02)
+## 14. Security & Infrastructure Review Findings
 
-Review team: **frontend**, **security**, **mts**, **design**, **dx**, **distsys** (6 personas)
-- **frontend**: DOM/iframe architecture, React fiber traversal, CSS override strategy, HMR lifecycle
-- **security**: Threat modeling, WebSocket security, CSP, iframe sandbox, input validation
-- **mts** (Member of Technical Staff): First-principles correctness, algorithm bugs, type system integrity
-- **design**: Designer mental model, UX friction, preview fidelity, undo expectations
-- **dx** (Developer Experience): Installation, naming, error messages, framework portability, accessibility
-- **distsys** (Distributed Systems): Idempotency, claim fencing, crash recovery, WAL durability, ordering barriers
+> Architecture review: 2026-03-02 — 6 personas × 2 modes (clink multi-model + native Claude agents) = 12 parallel reviews.
 
-Mode: **both** (clink multi-model + native Claude agents = 12 parallel reviews)
+The following findings affect the sidecar server, iframe architecture, and WebSocket transport rather than specific spec sections.
 
-### Cross-Reviewer Consensus
+**[H2] CSWSH — WebSocket accepts connections without Origin header** (2/6 security reviewers, HIGH)
 
-Issues independently flagged by 3+ reviewers — highest-confidence signals:
+*What users experience*: No visible impact under normal use. But a malicious website opened in another browser tab could silently connect to `ws://localhost:3100/__zerofog` (since WebSocket upgrade requests don't require an Origin header). The attacker could inject structural intents — adding malicious components to the user's codebase — without the designer's knowledge.
 
-| Issue | Flagged By | Consensus Severity |
+The `Origin` header is optional in WebSocket upgrade requests. If omitted, the connection is allowed through because the validation only checks *when present*.
+
+*Fix*: `if (!origin || !isLoopbackOrigin(origin)) { socket.destroy(); return; }` — one-line fix in `server.ts`.
+
+**[H3] Session ID leakage via unauthenticated GET endpoints** (2/6 security reviewers, HIGH)
+
+*What users experience*: No visible impact under normal use. But the session ID — the sole authentication credential — is embedded in all client JavaScript files served via GET with no authentication. Any process on localhost (a browser extension, a rogue npm script, a malicious app) can fetch `/__zerofog/client/inspector.js`, extract the session ID, and impersonate the editor.
+
+*Fix*: Deliver session ID via one-time handshake using an HttpOnly cookie or a short-lived token endpoint requiring `Sec-Fetch-Site: same-origin`.
+
+**[H9] Cross-origin iframe restrictions block OAuth and SameSite cookies** (Frontend-native, HIGH)
+
+*What users experience*: The designer's app has "Login with Google." They click the OAuth button inside the editor. The iframe navigates to `accounts.google.com`, breaking the postMessage bridge. The inspector script is gone (it was injected into the original page, not the OAuth page). After the OAuth callback redirects back, the editor is disconnected — no hover highlights, no selection, no structural editing. They have to refresh and start over, losing accumulated changes.
+
+Additionally, cookies with `SameSite=Strict` won't be sent cross-port (Safari treats different ports as different sites), so the app may appear logged out when accessed through the sidecar proxy.
+
+*Fix*: Detect navigation away from proxied origin and show a "Return to app" overlay rather than trying to maintain the inspector across origin changes. Rewrite `Set-Cookie` headers to adjust `SameSite` and `Domain` attributes.
+
+**[M] CSP weakening enables XSS amplification** (2/6 security reviewers, MEDIUM)
+
+*What users experience*: No visible impact under normal use. But the sidecar strips `frame-ancestors`, `X-Frame-Options`, and replaces `'none'` with `'self'` in `script-src` to allow script injection. If the target app has an XSS vulnerability, it's amplified when accessed through the sidecar because the weakened CSP can't block the exploit.
+
+*Fix*: Generate a per-request nonce and add to both the rewritten CSP and injected `<script>` tags.
+
+**[M] iframe sandbox `allow-same-origin + allow-scripts` = no sandbox** (2/6 security reviewers, MEDIUM)
+
+*What users experience*: No visible impact under normal use. But since the iframe content is served from the same origin as the shell, the combination of `allow-same-origin` and `allow-scripts` means any XSS in the target app grants full access to the parent frame (the editor panel). The attacker could read accumulated diffs, inject structural intents, or exfiltrate session data.
+
+*Fix*: Serve the inspector via a different origin (e.g., `localhost:3101`), or document as accepted risk for a dev-only tool. Remove unnecessary `allow-top-navigation-by-user-activation`.
+
+**[M] No rate limiting on WebSocket messages** (2/6 security reviewers, MEDIUM)
+
+*What users experience*: Under normal use, no impact. But an authenticated client (or attacker with the session ID) could flood the server with thousands of finalize messages per second, exhausting the sidecar's memory and CPU. The editor becomes unresponsive for legitimate use.
+
+*Fix*: Add per-connection rate limiter (100 msg/s), message type allowlist, payload schema validation with size limits.
+
+**[M] Prototype pollution defense incomplete** (2/6 security reviewers, MEDIUM)
+
+*What users experience*: No visible impact under normal use. But `parseOverrideRules` (inspector.js:285) uses `{}` with prototype for objects built from external CSS data. If a CSS selector happens to be `__proto__` or `constructor`, it could pollute the object prototype, causing hard-to-debug behavior across the application.
+
+*Fix*: Use `Object.create(null)` consistently for all objects built from external data. The spec already does this in some places (toolbar.js:39) but not others.
+
+**[M] Split-brain naming convention** (DX-native, MEDIUM)
+
+*What users experience*: A developer contributing to the codebase encounters three naming conventions simultaneously: `data-zerofog-ui` attributes, `cortex-id` identifiers, `inspector:set-edit-mode` message prefixes, `__ZEROFOG__` global namespace, and `/__zerofog/` API paths. They can't tell if these are the same system or different subsystems. Searching for "zerofog" misses "cortex" references and vice versa.
+
+*Fix*: Unify naming convention across all code. Pick one name (cortex or zerofog) and use it everywhere.
+
+**[M] No installation or first-run path** (DX-native + DX-clink, MEDIUM)
+
+*What users experience*: A new user reads the spec and wants to try the tool. There's no mention of how to install it, start it, or connect it to their project. The single most important DX moment — first successful use — is completely undefined.
+
+*Fix*: Define a one-command flow (e.g., `npx cortex dev`) and document what happens: sidecar starts, opens browser, injects inspector, shows panel.
+
+**[M] `pushState` monkey-patching race with framework routers** (Frontend-native, MEDIUM)
+
+*What users experience*: After a few HMR cycles, navigation-triggered cleanup (`pruneDetachedElements`) stops running. The `elementMap` accumulates stale DOM references, causing the tool to target wrong elements (clicking a Card might reference a Card that was already destroyed and recreated by React). Memory usage slowly increases during long editing sessions.
+
+The inspector patches `history.pushState` before framework routers initialize. When the router patches it later, it captures the inspector's wrapper. If the inspector is re-injected (HMR), the `__cortexPatched` guard prevents re-wrapping, but the framework's reference to the old wrapper's closure is stale.
+
+*Fix*: Use the Navigation API (`navigation.addEventListener('navigate')`) where available (Chrome 102+). Fall back to polling `location.href` on a 500ms interval.
+
+**[M] Memory leak via `elementMap` references** (Frontend-native, MEDIUM)
+
+*What users experience*: During a long editing session (1+ hours), the browser tab gradually uses more memory. Each React re-render that destroys and recreates elements leaves stale entries in `elementMap`. The 50-element cap bounds unbounded growth, but each stale entry transitively retains a large object graph (DOM subtree, event handlers, closures).
+
+*Fix*: Run `pruneDetachedElements` on a debounced MutationObserver (observing `document.body` with `{ childList: true, subtree: true }`). Use `WeakRef` wrappers for `elementMap` values.
+
+**[M] Error messages written for developers, not designers** (Design-native + DX-native, MEDIUM)
+
+*What users experience*: A designer triggers the confidence gate and sees: "Cannot perform structural edits — this element couldn't be reliably identified. Add a `data-testid` or ensure React DevTools access." They don't know what `data-testid` means, don't have React DevTools installed, and can't take any action to fix the problem. They feel the tool is broken.
+
+*Fix*: Rewrite all user-facing copy from the designer's perspective: "This element can't be edited right now. Try selecting a nearby element, or ask a developer to add a test ID." Replace technical jargon with actionable guidance.
+
+**[L] `escapeAttrValue` missing null byte and control character filtering** (2/6 reviewers, LOW)
+
+*What users experience*: Extremely unlikely to encounter. If a `data-testid` contains null bytes or control characters, the CSS selector fails silently and the override doesn't apply.
+
+*Fix*: Add `val.replace(/[\x00-\x1f]/g, '')`.
+
+**[L] `elementMap` exposed as mutable global** (Security-native, LOW)
+
+*What users experience*: No visible impact. But `window.__ZEROFOG__.elementMap` is a mutable reference that any script in the iframe can modify, potentially poisoning element targeting.
+
+*Fix*: Use `WeakMap` or `Object.freeze` on the reference.
+
+**[L] `parseDeclarations` breaks on CSS semicolons in values** (Frontend-native, LOW)
+
+*What users experience*: When an override rule contains `content: "Hello; World"` or a data URI with semicolons, the CSS parsing silently corrupts the rule. The override doesn't apply correctly, causing a visual glitch in the preview.
+
+*Fix*: Use the browser's built-in `CSSStyleDeclaration` parser instead of manual string splitting.
+
+**[L] Service Worker bypass** (Frontend-native, LOW)
+
+*What users experience*: If the target app uses a Service Worker with a cached HTML response, the sidecar proxy is bypassed entirely. The inspector script is never injected. The designer opens the editor and sees the raw app with no editing UI — no hover highlights, no panel.
+
+*Fix*: Inject a script that unregisters Service Workers on first load, with a console warning.
+
+**[L] Preact/non-React compatibility** (Frontend-native, LOW)
+
+*What users experience*: A designer using Preact with `preact/compat` sees zero hover highlights and zero element selection. The tool silently fails because `__reactFiber$` keys don't exist in Preact's internal structure.
+
+*Fix*: Add `findPreactInternalKeys` fallback. Detect framework on startup and display clear error for unsupported frameworks.
+
+**[L] Module Federation multi-instance React** (Frontend-native, LOW)
+
+*What users experience*: In a micro-frontend app with multiple React instances, the inspector may select the wrong fiber (from a different React instance than the one rendering the target element). Component chains show wrong component names, and structural edits target wrong components.
+
+*Fix*: When multiple `__reactFiber$` keys exist, validate with `element[key].stateNode === element` to select the correct instance.
+
+**[L] `MAX_CHILDREN` / `MAX_ELEMENT_MAP_SIZE` cap interaction** (MTS-native + Distsys-native, LOW)
+
+*What users experience*: A container with 120 children silently shows only the first 100 with no indication that 20 are hidden. Operations near the cap boundary may target hidden children.
+
+*Fix*: Return `{children, totalCount, truncated}` and show "Showing 100 of 120 children" in the tree view.
+
+**[L] `Shift+Click` for container cycling is undiscoverable** (DX-native + DX-clink, LOW)
+
+*What users experience*: A designer wants to add a child to a Grid, but clicking always selects the nested Stack inside the Grid. They don't know that Shift+Click cycles through container ancestors because there's no visible indicator.
+
+*Fix*: Add a visible breadcrumb trail in the panel (e.g., `Grid > Stack > Card`) that the user can click to change target container.
+
+**[L] Focus management between shell and iframe** (Frontend-native, LOW)
+
+*What users experience*: After pressing Escape to deactivate the inspector, keyboard focus stays trapped in the iframe. Tab key navigates through the app's elements instead of the panel. Keyboard-only users can't reach the mode buttons without clicking.
+
+*Fix*: Post `zerofog:focus-request` message after deactivation; shell calls `iframe.blur()` and `panelElement.focus()`.
+
+**[L] `shouldSkipFiber()` misses `React.lazy` wrappers** (Distsys-native, LOW)
+
+*What users experience*: Lazy-loaded components appear as extra, confusing children in the tree view. Minor visual clutter that may cause insertion index miscounting.
+
+*Fix*: Add tag 16 to `SKIP_FIBER_TAGS`.
+
+**[L] DNS rebinding attack surface** (2/6 security reviewers, LOW)
+
+*What users experience*: No visible impact. But sophisticated DNS rebinding attacks could bypass Host header validation and access the sidecar from external origins.
+
+*Fix*: Add `Sec-Fetch-Site` validation on sensitive endpoints; reject `cross-site` or `none`.
+
+**[L] No CSRF token on GET endpoints** (Security-native, LOW)
+
+*What users experience*: No visible impact under normal use. Future `GET /api/diff` endpoint would return all edit data without authentication.
+
+*Fix*: Add `X-Session-Id` validation to data-returning GET endpoints. Add `Cache-Control: no-store`.
+
+**[L] Shell `path` parameter sanitization** (Security-native, LOW)
+
+*What users experience*: No visible impact. But `data:` or `blob:` URIs in the path parameter could be used to inject content into the iframe.
+
+*Fix*: Add explicit protocol validation: reject any path containing `:` that isn't a relative path.
+
+**[L] Persistent `history.pushState` monkey-patching** (Security-native, LOW)
+
+*What users experience*: After deactivating the inspector, the monkey-patched `pushState`/`replaceState` remains. If the app's router relies on the original function identity (unlikely but possible), routing may behave differently.
+
+*Fix*: Accept as documented trade-off or use `Proxy` instead of direct replacement.
+
+---
+
+## 15. Review Summary
+
+### Cross-Reviewer Consensus (3+ independent reviewers)
+
+| Issue | Flagged By | Severity | Spec Section |
+|---|---|---|---|
+| MutationObserver re-insertion infinite loop | Frontend-clink, MTS-native, DX-native, Distsys-native, Frontend-native (5) | CRITICAL | §8.4 C1 |
+| `enumerateFiberChildren` loses siblings after Fragment | MTS-native, MTS-clink, Frontend-clink, Frontend-native (4) | CRITICAL | §5.6 C2 |
+| Position-based indices fragile across batch | Distsys-clink, Distsys-native, MTS-clink, Frontend-native (4) | CRITICAL | §4.7 C4 |
+| Component picker underspecified | Design-native, DX-native, MTS-native, Design-clink (4) | MEDIUM | §5.6 M |
+| CSS `order` reorder preview broken for block | MTS-native, DX-native, Distsys-native, Frontend-native (4) | MEDIUM | §8.4 M |
+| Dynamic children heuristic false positives | MTS-native, Design-clink, MTS-clink, Distsys-native (4) | MEDIUM | §4.7 M |
+| `_debugSource` unreliable for removability | Frontend-clink, MTS-native, Frontend-native (3) | CRITICAL | §6.4 C3 |
+| Claim fencing not propagated | Distsys-clink, Distsys-native, MTS-clink (3) | CRITICAL | §9.4 C5 |
+| Mode-before-selection friction | Design-native, DX-native, Design-clink (split) | HIGH | §3.6 H4 |
+| No keyboard shortcuts | Design-native, DX-native, Frontend-native (3) | MEDIUM | §3.6 M |
+
+### Finding Count by Severity
+
+| Severity | Count | User Impact Summary |
 |---|---|---|
-| MutationObserver re-insertion creates infinite loop with React reconciliation | Frontend-clink, MTS-native, DX-native, Distsys-native, Frontend-native (5) | CRITICAL |
-| `enumerateFiberChildren` loses siblings after Fragment/wrapper descent | MTS-native, MTS-clink, Frontend-clink, Frontend-native (4) | CRITICAL |
-| Position-based `insertionIndex`/`childIndex` fragile across batch operations | Distsys-clink, Distsys-native, MTS-clink, Frontend-native (4) | CRITICAL |
-| Component picker severely underspecified (no search, preview, metadata) | Design-native, DX-native, MTS-native, Design-clink (4) | HIGH |
-| CSS `order` reorder preview broken for non-flex/grid, misleading for block layout | MTS-native, DX-native, Distsys-native, Frontend-native (4) | HIGH |
-| Dynamic children heuristic (3+ same-type) produces false positives on static layouts | MTS-native, Design-clink, MTS-clink, Distsys-native (4) | MEDIUM |
-| `_debugSource` unreliable for node_modules detection in modern toolchains | Frontend-clink, MTS-native, Frontend-native (3) | CRITICAL |
-| Claim fencing token not propagated to structural operations | Distsys-clink, Distsys-native, MTS-clink (3) | CRITICAL |
-| Mode-before-selection inverts designer mental model (object-first, then verb) | Design-native, DX-native, Design-clink (split opinion) | HIGH |
-| No keyboard shortcuts or accessibility for mode switching | Design-native, DX-native, Frontend-native (3) | MEDIUM |
-
-### Consolidated Findings by Severity
-
-#### CRITICAL — Must fix before v1.5
-
-**C1. MutationObserver re-insertion creates infinite loop** (5 reviewers)
-- **Spec §8.1**: Proposes re-injecting placeholder DOM nodes via `MutationObserver` when React removes them. React's reconciliation fights back, creating a mutation storm (remove→reinsert→React removes→reinsert). `mutation.nextSibling` is stale by callback time (microtask-batched). In concurrent mode, this corrupts the fiber tree. The `insertBefore` call triggers the observer again, and positional re-insertion becomes nondeterministic with batched mutation records.
-- **Fix**: Abandon DOM injection for add previews. Use portal-based overlay approach: absolutely-positioned overlay elements with `data-zerofog-ui="true"`, positioned via `getBoundingClientRect` of the adjacent sibling, outside React's managed subtree. This matches the existing hover highlight pattern (inspector.js:476-515).
-
-**C2. `enumerateFiberChildren` loses siblings after Fragment descent** (4 reviewers)
-- **Spec §5.1**: The pseudocode descends into Fragment's `.child` but loses the Fragment's `.sibling` pointer. In a tree like `[Card, Fragment[A, B], Badge]`, after visiting A and B, Badge is never visited. Additionally, Portal fibers (tag 6) are skipped and descended into, but Portal children render to a *different DOM node* — causing incorrect insertion indices for containers with modals/tooltips.
-- **Fix**: Use explicit stack-based DFS: `push current.sibling before descending current.child`. For Portals, include as a counted leaf with `isPortal: true` flag but do NOT descend. For Suspense (tag 13), check `fiber.memoizedState` — if non-null, boundary shows fallback; skip enumeration with "Loading content" message.
-
-**C3. `_debugSource` unreliable for node_modules detection** (3 reviewers)
-- **Spec §6**: `analyzeRemovability()` depends on `fiber._debugSource.fileName.includes('node_modules')` to block deletion of library components. `_debugSource` is stripped in production, absent in React 19 with Vite+SWC (the dominant toolchain), and not part of any public API. Users will be offered "safe to remove" on framework-critical components (`<NavLink>`, `<AppShell>`).
-- **Fix**: Replace with component name registry + `fiber.return` ascent strategy. Match component names against known library component lists. Fall back to checking the import graph, not fiber metadata.
-
-**C4. Position-based indices fragile across batch operations** (4 reviewers)
-- **Spec §4, §7**: `insertionIndex`, `childIndex`, `fromIndex`, `toIndex` are positional integers that shift when earlier structural edits in the same batch modify the same container. Double-applied `AddIntent` inserts duplicate components; removing by index after an insertion targets the wrong sibling. Retry/recovery can double-apply or mis-apply when array order changes.
-- **Fix**: For v1.5, enforce one structural edit per container per batch. Add immutable `opId` (UUID) per structural change for idempotent replay. For v2, use anchor-based references ("after component with key X") and maintain dedupe log keyed by `(sessionId, opId)`.
-
-**C5. Claim fencing token not propagated to structural operations** (3 reviewers)
-- **Spec §9**: The finalize-pipeline spec defines a claim fencing token pattern (`POST /api/diff/claim → {claimToken, leaseUntil, epoch}`), but the structural editing spec shows the old pattern without fencing. Concurrent Claude actors can race `POST /api/complete`; split-brain completion is possible because `CompletionReport` has no claim-bound token.
-- **Fix**: Require `{claimToken, epoch}` on complete; reject stale epochs (fencing token pattern). Add `intentId` UUIDs for structural operations with partial completion journaling.
-
-**C6. No in-product undo for structural edits** (2 reviewers, both CRITICAL)
-- **Spec §10 (rejected)**: The spec explicitly rejects "Undo stack for structural edits" and relies on `git stash pop`. Designers expect Cmd+Z; requiring git fluency for rollback is trust-destroying for the target audience. State can desync between browser preview and git state.
-- **Fix**: Add in-product structural undo/redo (session stack + one-click revert button). Keep git as deep fallback. The preview state already captures enough to restore pre-edit state.
-
-**C7. React 19 fiber traversal fundamentally incomplete** (2 reviewers)
-- **inspector.js:62-95, Spec §5.1**: Strategy B for React 19 uses `fiber.return` traversal with tag filter `[0, 1]`, making ForwardRef-wrapped components (tag 11 — used by every Mantine `Button`, `ActionIcon`, `Paper`, etc.) invisible. Component chains will be empty/truncated on React 19 / Next.js 15+, collapsing confidence to `low` and gating out all structural operations.
-- **Fix**: Expand tag filter to `[0, 1, 11, 14, 15]` (matching `detectStyleOrigin` in toolbar.js:146). For ForwardRef fibers, resolve name via `fiber.type.render.displayName`. Investigate `_debugStack` / React DevTools global hook as alternative owner source.
-
-#### HIGH — Should fix in v1.5
-
-**H1. `data-cortex-id` selectors don't survive React reconciliation or HMR** (Frontend-native)
-- **inspector.js:747-766, Spec §4.2**: `data-cortex-id` is assigned directly to DOM elements but not in the React VDOM. Reconciliation, HMR, and Suspense boundary resolution destroy/recreate DOM nodes without this attribute. `elementMap` accumulates stale references. The structural spec uses this selector as primary identifier sent to Claude.
-- **Fix**: Use component chain + child index as composite key. For structural edits, require `data-testid` (gate on `high` confidence). For CSS overrides, re-apply attribute via `MutationObserver` after React commits, or use inline `style.setProperty()`.
-
-**H2. CSWSH — WebSocket accepts connections without Origin header** (2 security reviewers)
-- **server.ts:438-441**: Origin header is optional in WebSocket upgrade requests. If omitted, the connection is allowed. A malicious webpage can connect to `ws://localhost:3100/__zerofog` without Origin.
-- **Fix**: `if (!origin || !isLoopbackOrigin(origin)) { socket.destroy(); return; }` — one-line fix.
-
-**H3. Session ID leakage via unauthenticated GET endpoints** (2 security reviewers)
-- **server.ts:179-182**: Session ID embedded in all client scripts served via GET with no authentication. Any localhost process can extract the sole authentication credential.
-- **Fix**: Deliver session ID via one-time handshake (HttpOnly cookie or short-lived token endpoint requiring `Sec-Fetch-Site: same-origin`).
-
-**H4. Mode-before-selection inverts designer mental model** (3 reviewers, split opinion)
-- **Spec §3, Decision D4**: Designers think object-first then verb-second: select a Card, then decide to delete it. The spec forces mode selection first. Design-clink considered this a "strong interaction foundation" for power users, while Design-native and DX-native flagged it as friction.
-- **Fix**: Support both flows. Default to select-then-act (right-click context menu or action panel after selection). Keep mode-first as power-user shortcut.
-
-**H5. CSS override selectors break with CSS-in-JS, CSS Modules, and Tailwind** (Frontend-native)
-- **inspector.js:283-360, Spec §8.2**: CSS Module hashes change per build/HMR. CSS-in-JS generates runtime-unique class names. Tailwind utility classes match too broadly. The `!important` specificity war is unpredictable.
-- **Fix**: For previews, use `element.style.setProperty(prop, value, 'important')` directly (highest specificity, no selector needed). For persistent overrides, use `data-cortex-id` with reconciliation-aware re-application.
-
-**H6. Parent file resolution via `componentChain[0]` + grep is not robust** (MTS-clink)
-- **Spec §7.1-7.2**: Ambiguous component names, HOCs, default exports, and repeated names across files can lead to wrong-file edits. Structural edits target the parent file (where composition happens), but grep-based resolution is fragile.
-- **Fix**: Resolve via ownership/import graph and source provenance. If >1 candidate, block and ask user for disambiguation.
-
-**H7. `AccumulatedDiff v2` backward compatibility claim is inaccurate** (MTS-clink, Distsys-native)
-- **Spec §7, §9**: Hard `version: 2` bump is a breaking change. Strict v1 consumers will fail parse on version mismatch, even though `structuralChanges` is structurally optional.
-- **Fix**: Retain `version: 1` with additive optional fields (true backward compatibility), or specify explicit dual-parser compatibility mode.
-
-**H8. Crash mid-processing recovery undefined for structural edits** (Distsys-clink, Distsys-native)
-- **Spec §9**: If Claude crashes after writing some files but before `POST /api/complete`, replay behavior is undefined and can duplicate mutations. WAL durability/integrity mechanics (fsync, checksums) are not specified.
-- **Fix**: Persist per-op apply checkpoints. Use atomic write protocol (`write temp → fsync → rename → fsync dir`). Add `baseRevision` for source file precondition checks.
-
-**H9. Cross-origin iframe restrictions block OAuth and SameSite cookies** (Frontend-native)
-- **server.ts:251-264**: OAuth flows redirect iframe to third-party origins, breaking postMessage bridge. Cookies with `SameSite=Strict` won't be sent cross-port (Safari treats ports as different sites). Service Workers can bypass proxy entirely.
-- **Fix**: Detect navigation away from proxied origin and show "return to app" overlay. Rewrite `Set-Cookie` headers. Unregister Service Workers on first load.
-
-**H10. `stateNode` assumptions break for function components** (MTS-native)
-- **Spec §5.1**: The spec assumes fiber `stateNode` consistently points to DOM elements, but for function components (tag 0) `stateNode` is null, and for class components (tag 1) it's the class instance, not the DOM node.
-- **Fix**: Walk down from the fiber to the first `HostComponent` descendant (tag 5) to find the actual DOM element.
-
-#### MEDIUM
-
-- Dynamic children heuristic (3+ consecutive same-type siblings) produces false positives on static dashboard layouts with repeated Cards (4 reviewers). **Fix**: require composite evidence (key pattern + Fragment/`.map()` signal + runtime key analysis).
-- Component picker has no search, preview, variant metadata, or empty state (4 reviewers). **Fix**: add metadata-backed picker with `variant`, `size`, required props, allowed parent/slot, and tokenized defaults.
-- CSS `order` reorder preview incorrect for `display: block` or non-flex/grid containers; accessibility misleading (tab/screen reader order unchanged) (4 reviewers). **Fix**: for block layout, use `display: flex; flex-direction: column; order: N` as preview, or use `position: absolute` repositioning.
-- No keyboard shortcuts or accessibility for mode switching (3 reviewers). **Fix**: define keyboard shortcuts (e.g., `1`=Style, `2`=Add, `3`=Delete, `4`=Reorder) and ARIA labels.
-- Error messages and confidence gating messages written for developers, not designers (2 reviewers). **Fix**: rewrite all user-facing copy from designer perspective; replace "ensure React DevTools access" with actionable guidance.
-- CSP weakening enables XSS amplification — strips `frame-ancestors`, replaces `'none'` with `'self'`, no nonce for injected scripts (2 security reviewers). **Fix**: generate per-request nonce, add to both rewritten CSP and injected `<script>` tags.
-- `iframe sandbox="allow-same-origin allow-scripts"` is equivalent to no sandbox since iframe content is same-origin as shell (2 security reviewers). **Fix**: serve inspector via different origin or document as accepted dev-only risk.
-- No rate limiting or size validation on WebSocket messages (2 security reviewers). **Fix**: add per-connection rate limiter (100 msg/s), message type allowlist, payload schema validation.
-- No input validation on `componentName` in structural intents — could trick Claude into injecting arbitrary imports/JSX (2 security reviewers). **Fix**: validate `componentName` matches `^[A-Z][A-Za-z0-9_.]*$`, validate `packageName` against `^@?[a-z0-9][-a-z0-9./]*$`.
-- Split-brain naming: `zerofog` vs `cortex` vs `inspector` used simultaneously across attributes, namespaces, message prefixes, API paths (DX-native). **Fix**: unify naming convention.
-- `editMode` as third axis creates 16 possible states; spec only defines behavior for a subset; stale DOM artifacts may persist across mode switches (MTS-native). **Fix**: enumerate all state combinations and define behavior or explicitly mark invalid.
-- Remove strategy can over-delete by dropping conditional wrappers (`{cond && <X/>}`) (MTS-clink). **Fix**: AST transform should remove only target branch when safe; fail with actionable error otherwise.
-- No progress indication during 5-30s structural edit pipeline (DX-native). **Fix**: define progress states and corresponding UI indicators.
-- `elementType` field name collision between `StructuralTarget` (union type) and `ChildInfo` (plain string) (DX-native). **Fix**: rename one to avoid semantic confusion.
-- No installation or first-run path defined anywhere in the spec (DX-native, DX-clink). **Fix**: define one-command flow (e.g., `npx cortex dev`).
-- Hardcoded Mantine component names in `classifyElement` make the tool framework-specific without acknowledging the limitation (Frontend-native). **Fix**: make classification configurable via `.cortex/components.json` with Mantine defaults.
-- Memory leak via `elementMap` holding references to detached DOM nodes; `pruneDetachedElements` only runs on navigation (Frontend-native). **Fix**: run pruning on debounced `MutationObserver` or use `WeakRef` for map values.
-- Prototype pollution defense incomplete — inconsistent `Object.create(null)` usage (2 security reviewers). **Fix**: use `Object.create(null)` consistently for all objects built from external data.
-- `pushState` monkey-patching race with framework routers after HMR (Frontend-native). **Fix**: use Navigation API where available; fall back to polling `location.href`.
-
-#### LOW
-
-- `escapeAttrValue` missing null byte and control character filtering (2 reviewers). **Fix**: add `val.replace(/[\x00-\x1f]/g, '')`.
-- `elementMap` exposed as mutable reference on global `window.__ZEROFOG__` object (Security-native). **Fix**: use `WeakMap` or `Object.freeze`.
-- Persistent `history.pushState` monkey-patching not restored on teardown (Security-native). **Fix**: accept as documented trade-off or use `Proxy`.
-- `parseDeclarations` breaks on CSS values containing semicolons (e.g., `content: "a;b"`, data URIs) (Frontend-native). **Fix**: use browser's built-in `CSSStyleDeclaration` parser.
-- Service Worker interception can bypass the sidecar proxy entirely (Frontend-native). **Fix**: inject SW unregistration script on first load.
-- Preact/non-React compatibility: `__reactFiber$` key is React-specific (Frontend-native). **Fix**: add `findPreactInternalKeys` fallback.
-- Module Federation / micro-frontend React instances create multiple fiber trees; first `__reactFiber$` key may be wrong (Frontend-native). **Fix**: validate each key with `element[key].stateNode === element`.
-- Shell `path` parameter doesn't sanitize `data:` or `blob:` URIs (Security-native). **Fix**: add explicit protocol validation.
-- `MAX_CHILDREN=100` and `MAX_ELEMENT_MAP_SIZE=50` caps interact poorly; no warning when hit (MTS-native, Distsys-native). **Fix**: return `{children, totalCount, truncated}` and surface in UI.
-- `RemovabilityResult.reason` field overloads "reason" for three different semantic meanings (DX-native). **Fix**: separate into `reason`, `warning`, `blockMessage`.
-- `Shift+Click` for container ancestor cycling (Q2) is undiscoverable (DX-native, DX-clink). **Fix**: add visible breadcrumb trail (e.g., `Grid > Stack > Card`).
-- `shouldSkipFiber()` does not skip `React.lazy` wrappers (tag 16) (Distsys-native). **Fix**: add tag 16 to skip list.
-- Focus management between shell and iframe unaddressed — keyboard users trapped in iframe (Frontend-native). **Fix**: `postToParent('zerofog:focus-request')` after deactivation.
-- No CSRF token on GET endpoints returning sensitive data (Security-native). **Fix**: add `X-Session-Id` validation, `Cache-Control: no-store`.
-- DNS rebinding attack surface on localhost (2 security reviewers). **Fix**: add `Sec-Fetch-Site` validation on sensitive endpoints.
+| CRITICAL | 7 | Feature doesn't work, or actively damages user's project |
+| HIGH | 10 | Breaks in real-world apps (OAuth, React 19, CSS-in-JS) |
+| MEDIUM | 19 | Friction, confusion, dead-ends that degrade trust |
+| LOW | 15 | Paper cuts — missing shortcuts, edge cases, naming |
+| **Total** | **51** | |
 
 ### Positive Practices — Preserve These
 
-1. **Decision D3 (intents are declarative, Claude determines implementation)** is architecturally correct and matches the actual competency boundary between browser runtime and LLM. Praised by Frontend-clink, MTS-clink, Distsys-clink, Design-clink.
-2. **Decision D7 (detect but don't edit dynamic children)** avoids the most dangerous class of structural edit errors — data source modification. Praised by Frontend-clink, Distsys-clink, MTS-clink.
-3. **Decision D2 (extend AccumulatedDiff, not separate StructuralDiff)** — one contract, one WAL, one endpoint — is the right versioning strategy. Praised by Frontend-clink, Design-clink.
-4. **Confidence gating (medium+ for structural ops)** is the right safety boundary for operations with higher blast radius than token changes. Praised by Distsys-clink, DX-clink, MTS-clink.
-5. **Scope boundary table and decisions log** are unusually crisp; they reduce future drift and scope creep. Praised by MTS-clink, DX-clink.
-6. **`data-zerofog-ui="true"` guard pattern** in the existing inspector cleanly separates injected UI from app DOM. Praised by Frontend-clink — should be consistently applied to all structural UI elements.
-7. **Clear v1.5/v2 phasing** with pragmatic feature sequencing (up/down buttons before drag, static before dynamic). Praised by DX-clink, Design-clink.
-8. **`POST /api/diff/claim`** avoids side-effectful GET semantics for state-changing operations. Praised by Distsys-clink.
+1. **Decision D3 (intents are declarative, Claude determines implementation)** — architecturally correct competency boundary between browser and LLM. (4/6 reviewers praised)
+2. **Decision D7 (detect but don't edit dynamic children)** — avoids the most dangerous class of structural edit errors. (3/6 reviewers praised)
+3. **Decision D2 (extend AccumulatedDiff, not separate StructuralDiff)** — one contract, one WAL, one endpoint. (2/6 reviewers praised)
+4. **Confidence gating (medium+ for structural ops)** — right safety boundary for higher-risk operations. (3/6 reviewers praised)
+5. **Scope boundary table and decisions log** — unusually crisp; reduces future drift and scope creep. (2/6 reviewers praised)
+6. **`data-zerofog-ui="true"` guard pattern** — cleanly separates injected UI from app DOM. (1/6 reviewers praised)
+7. **Clear v1.5/v2 phasing** — pragmatic feature sequencing. (2/6 reviewers praised)
+8. **`POST /api/diff/claim`** — avoids side-effectful GET semantics. (1/6 reviewers praised)
 
-### Review Methodology Note
+### Review Methodology
 
-**Both mode** deployed 12 parallel reviews: 6 via PAL clink (multi-model: Codex, Gemini, Claude rotation) and 6 via native Claude agents with direct codebase access.
+12 parallel reviews via **both mode**: 6 PAL clink (multi-model: Codex, Gemini, Claude rotation) + 6 native Claude agents with codebase access.
 
-**What clink uniquely caught**: Broader pattern-level issues — the `AccumulatedDiff v2` backward compatibility problem (MTS-clink), delete-mode blocking on component source rather than parent composition context (Design-clink), and framework lock-in without graceful degradation (DX-clink). Multi-model diversity surfaced concerns that single-model analysis might not prioritize.
+- **Clink uniquely caught**: Pattern-level issues — AccumulatedDiff v2 backward compatibility (H7), delete-mode blocking on component source vs. parent composition (C3), framework lock-in without graceful degradation.
+- **Native uniquely caught**: Implementation-level bugs — `data-cortex-id` reconciliation problem (H1), `stateNode` null for function components (H10), OAuth iframe breakage (H9), full 15-finding security threat model.
+- **Both converged on**: All 10 cross-reviewer consensus items appeared in both clink and native results.
+- **Reviewer agreement rate**: 10/51 findings reached 3+ reviewer consensus. Top signal: MutationObserver loop (5/6 teams).
 
-**What native uniquely caught**: Deep implementation-level bugs requiring codebase cross-referencing — the `data-cortex-id` reconciliation problem tied to specific inspector.js line numbers (Frontend-native), `stateNode` null for function components (MTS-native), OAuth iframe breakage from server.ts redirect logic (Frontend-native), and the full 15-finding security threat model with line-level attribution (Security-native).
-
-**Recommendation**: Use **both mode** for architecture specs that reference existing code. Clink provides breadth and model-diversity perspective; native provides depth and code-grounded accuracy. The 5 cross-reviewer consensus items all appeared in both clink and native results, confirming they are genuine architectural risks rather than reviewer-specific concerns.
-
-**Reviewer agreement rate**: 10 issues reached 3+ reviewer consensus out of ~90 total deduplicated findings. The top issue (MutationObserver infinite loop) was flagged by 5 of 6 review teams independently — the strongest convergence signal in the review.
