@@ -1,0 +1,28 @@
+visual-editor/tests/client/inspector.test.ts
+  d047ddbaeed9ab8e 1044-1045
+visual-editor/src/client/panel.tsx
+  d047ddbaeed9ab8e 203,208,264
+visual-editor/src/client/inspector.js
+  d047ddbaeed9ab8e 32-33,41-42,56-59,61-64,848-872,874-896
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "d9ede035e82b46b625767a54ab8ca24c3229878e",
+  "prompts": {
+    "d047ddbaeed9ab8e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "eee05733-10af-497a-9277-68055a38bef0",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 80,
+      "total_deletions": 6,
+      "accepted_lines": 78,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/794a6eb6470120b3b9366e894a8bf5468fce3f1f503af289626e13e7b064ec2b"
+    }
+  }
+}
