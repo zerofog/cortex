@@ -1,0 +1,34 @@
+visual-editor/tests/client/panel-state.test.ts
+  d047ddbaeed9ab8e 67
+visual-editor/src/client/panel-state.ts
+  d047ddbaeed9ab8e 8,15-16,52,56,59,64,72,83-86,88,97-98,160-162,175,195,206,257,273,282-283
+visual-editor/src/client/panel-components.tsx
+  d047ddbaeed9ab8e 17-18,24,37-38,161-165,175-176,179-181,213-216,310
+visual-editor/src/client/panel.tsx
+  d047ddbaeed9ab8e 187-190,193-196,201,206,249,266
+visual-editor/tests/client/panel-e2e.test.ts
+  d047ddbaeed9ab8e 84,156,182
+visual-editor/src/client/inspector.js
+  d047ddbaeed9ab8e 479,496-522,527-528,535-537
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "1d7ffadb542e6b744f84960988effb8505f7f074",
+  "prompts": {
+    "d047ddbaeed9ab8e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "eee05733-10af-497a-9277-68055a38bef0",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 125,
+      "total_deletions": 124,
+      "accepted_lines": 96,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/28783545d8b80acca8ed64d0f6b3e4c6714db66e3aefca70594cb66024049370"
+    }
+  }
+}
