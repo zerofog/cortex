@@ -419,6 +419,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     var elementMap = Object.create(null);
     var lastHoverTarget = null;
     var hoverRafPending = false;
+    var overrideRules = Object.create(null);
+    var overrideStyleEl = null;
     function pruneDetachedElements() {
       var mapKeys = Object.keys(elementMap);
       for (var i = 0; i < mapKeys.length; i++) {
@@ -471,6 +473,51 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       if (window.__ZEROFOG__) {
         window.__ZEROFOG__._pruneCallback = null;
       }
+    }
+
+    function ensureOverrideStyle() {
+      if (overrideStyleEl && document.head.contains(overrideStyleEl)) return;
+      overrideStyleEl = document.createElement('style');
+      overrideStyleEl.id = '__zerofog_overrides__';
+      overrideStyleEl.setAttribute('data-zerofog-ui', 'true');
+      document.head.appendChild(overrideStyleEl);
+    }
+
+    function syncOverrideCSS() {
+      ensureOverrideStyle();
+      overrideStyleEl.textContent = buildOverrideCSS(overrideRules);
+    }
+
+    function emitTokenMaps() {
+      var spacingMap = {};
+      var radiusMap = {};
+      var tokens = ['xs', 'sm', 'md', 'lg', 'xl'];
+      var radiusTokens = ['xs', 'sm', 'md', 'lg', 'xl'];
+      var sentinel = document.createElement('div');
+      sentinel.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;';
+      sentinel.setAttribute('data-zerofog-ui', 'true');
+      document.body.appendChild(sentinel);
+
+      for (var i = 0; i < tokens.length; i++) {
+        sentinel.style.padding = 'var(--mantine-spacing-' + tokens[i] + ')';
+        var computed = window.getComputedStyle(sentinel).paddingTop;
+        if (computed && computed !== '0px') {
+          spacingMap[computed] = tokens[i];
+        }
+      }
+      for (var j = 0; j < radiusTokens.length; j++) {
+        sentinel.style.padding = '0';
+        sentinel.style.borderRadius = 'var(--mantine-radius-' + radiusTokens[j] + ')';
+        var computedR = window.getComputedStyle(sentinel).borderTopLeftRadius;
+        if (computedR && computedR !== '0px') {
+          radiusMap[computedR] = radiusTokens[j];
+        }
+      }
+      // Add 'none' for radius
+      radiusMap['0px'] = 'none';
+
+      sentinel.remove();
+      postToParent('zerofog:token-maps', { spacing: spacingMap, radius: radiusMap });
     }
 
     function createOverlay(id, borderColor, bgColor) {
@@ -625,6 +672,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
           fontWeight: computed.fontWeight,
           fontFamily: computed.fontFamily,
         },
+        origins: {},
       };
 
       window.__ZEROFOG__.selected = selection;
@@ -649,6 +697,29 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     messageHandlers['inspector:exit-select'] = function () {
       selectMode = false;
       window.__ZEROFOG__.selectMode = false;
+    };
+    messageHandlers['inspector:apply-override'] = function (payload) {
+      if (!payload || !payload.elementId || !payload.cssProperty) return;
+      var el = elementMap[payload.elementId];
+      if (!el) return;
+      var selector = buildSelector(el);
+      if (!overrideRules[selector]) overrideRules[selector] = Object.create(null);
+      overrideRules[selector][payload.cssProperty] = payload.cssValue + ' !important';
+      syncOverrideCSS();
+      postToParent('zerofog:apply-override-result', { ok: true });
+    };
+    messageHandlers['inspector:remove-override'] = function (payload) {
+      if (!payload || !payload.elementId || !payload.cssProperty) return;
+      var el = elementMap[payload.elementId];
+      if (!el) return;
+      var selector = buildSelector(el);
+      if (overrideRules[selector]) {
+        delete overrideRules[selector][payload.cssProperty];
+        if (Object.keys(overrideRules[selector]).length === 0) {
+          delete overrideRules[selector];
+        }
+      }
+      syncOverrideCSS();
     };
     messageHandlers['inspector:discard-overrides'] = function () {
       discardOverrides();
@@ -696,12 +767,19 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       for (var i = 0; i < mapKeys.length; i++) {
         delete elementMap[mapKeys[i]];
       }
+      // Clear override CSS
+      overrideRules = Object.create(null);
+      if (overrideStyleEl) overrideStyleEl.textContent = '';
       window.__ZEROFOG__.selected = null;
     }
 
     function deactivate() {
       teardownListeners();
       discardOverrides();
+      if (overrideStyleEl && overrideStyleEl.parentNode) {
+        overrideStyleEl.remove();
+        overrideStyleEl = null;
+      }
     }
 
     function activate() {
@@ -740,6 +818,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       setupNavListeners();
 
       postToParent('zerofog:ready', null);
+      emitTokenMaps();
     }
 
     var cortexIdCounter = 0;
