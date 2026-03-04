@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, unlinkSync, mkdirSync, existsSync, openSync, writeSync, fsyncSync, closeSync, renameSync, realpathSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import type { ChangeEntry } from './client/toolbar.js';
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -100,8 +100,10 @@ function isValidElementDiff(el: unknown): el is ElementDiff {
   return (
     typeof obj.elementSelector === 'string' &&
     Array.isArray(obj.componentChain) &&
+    obj.componentChain.every((c: unknown) => typeof c === 'string') &&
     typeof obj.elementType === 'string' &&
-    Array.isArray(obj.changes)
+    Array.isArray(obj.changes) &&
+    obj.changes.every((c: unknown) => typeof c === 'object' && c !== null)
   );
 }
 
@@ -168,7 +170,7 @@ export class StateManager {
     mkdirSync(this.walDir, { recursive: true });
     const realWalDir = realpathSync(this.walDir);
     const parentReal = this.walParentReal ?? realpathSync(resolve(this.walDir, '..'));
-    if (!realWalDir.startsWith(parentReal)) {
+    if (!realWalDir.startsWith(parentReal + sep) && realWalDir !== parentReal) {
       throw new Error(`WAL directory symlink escape detected: ${realWalDir}`);
     }
     const data = JSON.stringify(diff, null, 2);
@@ -176,6 +178,9 @@ export class StateManager {
     const fd = openSync(tmpPath, 'w');
     try { writeSync(fd, data); fsyncSync(fd); } finally { closeSync(fd); }
     renameSync(tmpPath, this.walPath);
+    // Fsync directory to ensure rename is durable across crash/power-loss
+    const dirFd = openSync(realWalDir, 'r');
+    try { fsyncSync(dirFd); } finally { closeSync(dirFd); }
   }
 
   claimDiff(): Readonly<AccumulatedDiff> {

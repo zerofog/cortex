@@ -155,7 +155,9 @@ export function createApp(options: ServerOptions): AppContext {
   function broadcastWs(payload: Record<string, unknown>): void {
     const msg = JSON.stringify(payload);
     for (const client of editorWss.clients) {
-      if (client.readyState === WebSocket.OPEN) client.send(msg);
+      if (client.readyState === WebSocket.OPEN) {
+        try { client.send(msg); } catch { /* ignore per-client errors */ }
+      }
     }
   }
 
@@ -309,6 +311,12 @@ export function createApp(options: ServerOptions): AppContext {
       return;
     }
     next();
+  });
+
+  // ── Error handler (catches express.json() parse failures, etc.) ──
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Express requires 4-param signature
+  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+    res.status(400).json({ error: err.message || 'Bad request' });
   });
 
   // ── Reverse proxy ──────────────────────────────────────────
