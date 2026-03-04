@@ -1,0 +1,32 @@
+visual-editor/src/client/inspector.js
+  d047ddbaeed9ab8e 687-690,692-695
+visual-editor/tests/client/panel-state.test.ts
+  d047ddbaeed9ab8e 11,125-141,231-248
+visual-editor/src/client/panel-state.ts
+  d047ddbaeed9ab8e 150-154,218-220,228,240,242
+visual-editor/src/client/panel.tsx
+  d047ddbaeed9ab8e 14,197,200-201,204,209,221,265,281
+visual-editor/tests/client/panel-e2e.test.ts
+  d047ddbaeed9ab8e 38-39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "494cb114ec7138540e908d77c3d5cad9ef51f16f",
+  "prompts": {
+    "d047ddbaeed9ab8e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "eee05733-10af-497a-9277-68055a38bef0",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 68,
+      "total_deletions": 12,
+      "accepted_lines": 66,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/7b0a301c70c7440bede39380771d2b66728e62f232e3d058468158571dd3103b"
+    }
+  }
+}
