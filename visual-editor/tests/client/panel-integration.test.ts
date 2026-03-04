@@ -5,7 +5,7 @@
  * the panel's reaction to inspector messages.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   createMessageEnvelope,
   isValidPanelMessage,

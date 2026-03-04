@@ -5,15 +5,11 @@
  * (postMessage, WS sends) are handled by the component layer after dispatch.
  */
 
-import { TOOLBAR_SIZES, RADIUS_SIZES, reverseTokenLookup } from './toolbar.js';
-import type { TokenMaps, StyleOrigin } from './toolbar.js';
+import type { TokenMaps, StyleOrigin, ChangeEntry } from './toolbar.js';
 
 // ── Types ────────────────────────────────────────────────────────
 
 export type { TokenMaps, StyleOrigin };
-
-export type WsStatus = 'connecting' | 'connected' | 'disconnected';
-export type InteractionMode = 'browse' | 'select';
 
 export interface SelectionPayload {
   id: number;
@@ -32,15 +28,8 @@ export interface SelectionPayload {
   origins: Record<string, StyleOrigin>;
 }
 
-export interface PendingChange {
-  property: string;
-  token: string;
-  previousToken: string | null;
-  previousCssValue: string;
-  cssProperty: string;
-  cssValue: string;
-  styleOrigin: StyleOrigin;
-}
+/** Alias for ChangeEntry — deduplicated to prevent structural drift. */
+export type PendingChange = ChangeEntry;
 
 export interface UndoEntry {
   property: string;
@@ -49,27 +38,26 @@ export interface UndoEntry {
 }
 
 export interface PanelState {
-  mode: InteractionMode;
+  mode: 'browse' | 'select';
   selection: SelectionPayload | null;
+  origins: Record<string, StyleOrigin> | null;
   tokenMaps: TokenMaps | null;
   activeTokens: Record<string, string | null>;
-  originalTokens: Record<string, string | null>;
   pendingChanges: PendingChange[];
   undoStack: UndoEntry[];
-  wsStatus: WsStatus;
+  wsStatus: 'connecting' | 'connected' | 'disconnected';
   pipelineStatus: string | null;
 }
 
 export type PanelAction =
-  | { type: 'SET_MODE'; mode: InteractionMode }
-  | { type: 'ELEMENT_SELECTED'; selection: SelectionPayload }
+  | { type: 'SET_MODE'; mode: 'browse' | 'select' }
+  | { type: 'ELEMENT_SELECTED'; selection: SelectionPayload; origins: Record<string, StyleOrigin> }
   | { type: 'ELEMENT_DESELECTED' }
   | { type: 'APPLY_CHANGE'; property: string; token: string; cssProperty: string; cssValue: string; styleOrigin: StyleOrigin }
   | { type: 'UNDO' }
-  | { type: 'UNDO_PROPERTY'; property: string }
   | { type: 'DISCARD_ALL' }
   | { type: 'TOKEN_MAPS_LOADED'; tokenMaps: TokenMaps }
-  | { type: 'WS_STATUS'; status: WsStatus }
+  | { type: 'WS_STATUS'; status: 'connecting' | 'connected' | 'disconnected' }
   | { type: 'FINALIZE_START' }
   | { type: 'FINALIZE_SUCCESS' }
   | { type: 'FINALIZE_ERROR'; error: string };
@@ -94,28 +82,58 @@ export const PER_SIDE_MAP: Record<string, string[]> = {
   margin: ['marginTop', 'marginRight', 'marginBottom', 'marginLeft'],
 };
 
-export const SPACING_TOKENS = TOOLBAR_SIZES;
-export const RADIUS_TOKENS = RADIUS_SIZES;
+/**
+ * Maps per-side CSS properties to their origin category key.
+ * Derived from PER_SIDE_MAP to avoid hand-duplicating the same property list.
+ * Only includes properties that VAR_PREFIX can resolve — adding entries here
+ * without a corresponding VAR_PREFIX entry causes silent live-preview failures.
+ */
+export const PROPERTY_TO_ORIGIN_KEY: Record<string, string> = Object.fromEntries(
+  Object.entries(PER_SIDE_MAP).flatMap(([category, props]) =>
+    props.map(prop => [prop, category]),
+  ),
+);
 
-export const MAX_UNDO_STACK = 50;
+/** Look up origin for a property, falling back to category key. */
+const UNKNOWN_ORIGIN: StyleOrigin = { origin: 'unknown' };
+
+export function getOriginForProperty(
+  property: string,
+  origins: Record<string, StyleOrigin> | null,
+): StyleOrigin {
+  if (!origins) return UNKNOWN_ORIGIN;
+  if (origins[property]) return origins[property];
+  const category = PROPERTY_TO_ORIGIN_KEY[property];
+  if (category && origins[category]) return origins[category];
+  return UNKNOWN_ORIGIN;
+}
+
+export const SPACING_TOKENS = ['xs', 'sm', 'md', 'lg', 'xl'] as const;
+export const RADIUS_TOKENS = ['none', 'xs', 'sm', 'md', 'lg', 'xl'] as const;
 
 /** CSS variable prefix lookup — maps CSS property names to their Mantine var prefix. */
-const VAR_PREFIX: Record<string, string> = {
+const BASE_VAR_PREFIX: Record<string, string> = {
   padding: '--mantine-spacing-',
-  paddingTop: '--mantine-spacing-',
-  paddingRight: '--mantine-spacing-',
-  paddingBottom: '--mantine-spacing-',
-  paddingLeft: '--mantine-spacing-',
   margin: '--mantine-spacing-',
-  marginTop: '--mantine-spacing-',
-  marginRight: '--mantine-spacing-',
-  marginBottom: '--mantine-spacing-',
-  marginLeft: '--mantine-spacing-',
   gap: '--mantine-spacing-',
   borderRadius: '--mantine-radius-',
 };
 
+/** Derived: per-side properties inherit their parent's var prefix. */
+const VAR_PREFIX: Record<string, string> = {
+  ...BASE_VAR_PREFIX,
+  ...Object.fromEntries(
+    Object.entries(PER_SIDE_MAP).flatMap(([category, props]) => {
+      const prefix = BASE_VAR_PREFIX[category];
+      return prefix ? props.map(prop => [prop, prefix]) : [];
+    }),
+  ),
+};
+
 // ── Token resolution ─────────────────────────────────────────────
+
+/** Origins that resolve correctly via Mantine CSS var() references. */
+const MANTINE_COMPATIBLE_ORIGINS = new Set(['mantine-prop', 'mantine-default', 'unknown']);
 
 /**
  * Resolve a token name to a CSS value for live preview.
@@ -124,6 +142,11 @@ const VAR_PREFIX: Record<string, string> = {
  * can vary per framework. For v1 all origins resolve to Mantine CSS vars
  * because the inspector applies overrides as inline styles with !important,
  * and Mantine apps have --mantine-spacing-* on :root.
+ *
+ * V1 constraint: Only Mantine is supported. Non-Mantine origins will still
+ * get var() values, which may resolve to initial values (likely 0) in apps
+ * without Mantine CSS custom properties. Multi-framework support is planned
+ * in the native rendering overrides spec (2026-03-01).
  *
  * When Tailwind native class swap lands, the 'tailwind' branch will produce
  * the computed px value (read from token maps) instead of a var() reference,
@@ -134,22 +157,14 @@ export function resolveTokenToCssValue(
   token: string,
   origin?: StyleOrigin,
 ): string {
-  if (token.startsWith('var(--')) return token;
-
-  // TODO(v2): Tailwind origins need computed px values from token maps,
-  // not Mantine CSS vars, since Tailwind apps lack --mantine-* custom properties.
-  if (origin && 'origin' in origin && origin.origin === 'tailwind') {
-    console.warn('[zerofog] Tailwind origin resolved to Mantine var — override may not render correctly');
+  if (origin && !MANTINE_COMPATIBLE_ORIGINS.has(origin.origin)) {
+    console.warn(`[cortex] Non-Mantine origin "${origin.origin}" detected for ${cssProperty}. Live preview may be inaccurate.`);
   }
+  if (token.startsWith('var(--')) return token;
 
   const prefix = VAR_PREFIX[cssProperty];
   if (!prefix) return token;
   return `var(${prefix}${token})`;
-}
-
-/** Convert camelCase property name to kebab-case CSS property name. */
-export function toKebabCase(prop: string): string {
-  return prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
 }
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -162,9 +177,9 @@ function deriveActiveTokens(
   const tokens: Record<string, string | null> = {};
 
   for (const [prop, value] of Object.entries(styles)) {
-    if (!(prop in VAR_PREFIX)) continue;
-    const category = prop === 'borderRadius' ? 'radius' : 'spacing';
-    tokens[prop] = reverseTokenLookup(tokenMaps, category, value);
+    const isRadius = prop === 'borderRadius';
+    const map = isRadius ? tokenMaps.radius : tokenMaps.spacing;
+    tokens[prop] = map[value] ?? null;
   }
 
   return tokens;
@@ -175,9 +190,9 @@ function deriveActiveTokens(
 export const initialPanelState: PanelState = {
   mode: 'browse',
   selection: null,
+  origins: null,
   tokenMaps: null,
   activeTokens: {},
-  originalTokens: {},
   pendingChanges: [],
   undoStack: [],
   wsStatus: 'disconnected',
@@ -196,61 +211,49 @@ export function panelReducer(state: PanelState, action: PanelAction): PanelState
       return {
         ...state,
         selection: action.selection,
+        origins: action.origins,
         activeTokens,
-        originalTokens: activeTokens,
         pendingChanges: [],
         undoStack: [],
       };
     }
 
     case 'ELEMENT_DESELECTED':
-      return {
-        ...state,
-        selection: null,
-        activeTokens: {},
-        originalTokens: {},
-        pendingChanges: [],
-        undoStack: [],
-      };
+      return { ...state, selection: null, origins: null, activeTokens: {} };
 
     case 'APPLY_CHANGE': {
       const currentToken = state.activeTokens[action.property] ?? null;
-      const existingChange = state.pendingChanges.find(c => c.property === action.property);
-      // Record previous CSS value from the current override (if any), not from original styles
-      const previousCssValue = existingChange?.cssValue ?? state.selection?.styles[action.property] ?? '';
+      const currentCssValue = state.selection?.styles[action.property] ?? '';
 
       const undoEntry: UndoEntry = {
         property: action.property,
         previousToken: currentToken,
-        previousCssValue,
+        previousCssValue: currentCssValue,
       };
 
-      const existingIdx = state.pendingChanges.findIndex(c => c.property === action.property);
+      const existing = state.pendingChanges.findIndex(c => c.property === action.property);
       let pendingChanges: PendingChange[];
       const change: PendingChange = {
         property: action.property,
         token: action.token,
         previousToken: currentToken,
-        previousCssValue,
+        previousCssValue: currentCssValue,
         cssProperty: action.cssProperty,
         cssValue: action.cssValue,
         styleOrigin: action.styleOrigin,
       };
 
-      if (existingIdx >= 0) {
+      if (existing >= 0) {
         pendingChanges = [...state.pendingChanges];
-        pendingChanges[existingIdx] = change;
+        pendingChanges[existing] = change;
       } else {
         pendingChanges = [...state.pendingChanges, change];
       }
 
-      const newStack = [...state.undoStack, undoEntry];
-      if (newStack.length > MAX_UNDO_STACK) newStack.shift();
-
       return {
         ...state,
         pendingChanges,
-        undoStack: newStack,
+        undoStack: [...state.undoStack, undoEntry].slice(-100),
         activeTokens: { ...state.activeTokens, [action.property]: action.token },
       };
     }
@@ -260,13 +263,19 @@ export function panelReducer(state: PanelState, action: PanelAction): PanelState
       const stack = [...state.undoStack];
       const entry = stack.pop()!;
 
+      // Revert activeTokens
       const activeTokens = { ...state.activeTokens, [entry.property]: entry.previousToken };
-      const originalToken = state.originalTokens[entry.property] ?? null;
+
+      // Revert pending changes: if previousToken matches original derived token, remove the change
+      const originalToken = state.selection
+        ? deriveActiveTokens(state.selection.styles, state.tokenMaps)[entry.property] ?? null
+        : null;
 
       let pendingChanges: PendingChange[];
       if (entry.previousToken === originalToken) {
         pendingChanges = state.pendingChanges.filter(c => c.property !== entry.property);
       } else {
+        // Update the pending change to the previous token
         pendingChanges = state.pendingChanges.map(c => {
           if (c.property !== entry.property) return c;
           return { ...c, token: entry.previousToken ?? '', cssValue: entry.previousCssValue };
@@ -276,18 +285,12 @@ export function panelReducer(state: PanelState, action: PanelAction): PanelState
       return { ...state, undoStack: stack, activeTokens, pendingChanges };
     }
 
-    case 'UNDO_PROPERTY': {
-      const originalToken = state.originalTokens[action.property] ?? null;
-      return {
-        ...state,
-        undoStack: state.undoStack.filter(e => e.property !== action.property),
-        pendingChanges: state.pendingChanges.filter(c => c.property !== action.property),
-        activeTokens: { ...state.activeTokens, [action.property]: originalToken },
-      };
+    case 'DISCARD_ALL': {
+      const activeTokens = state.selection
+        ? deriveActiveTokens(state.selection.styles, state.tokenMaps)
+        : {};
+      return { ...state, pendingChanges: [], undoStack: [], activeTokens };
     }
-
-    case 'DISCARD_ALL':
-      return { ...state, pendingChanges: [], undoStack: [], activeTokens: { ...state.originalTokens }, pipelineStatus: null };
 
     case 'TOKEN_MAPS_LOADED':
       return { ...state, tokenMaps: action.tokenMaps };
@@ -299,12 +302,14 @@ export function panelReducer(state: PanelState, action: PanelAction): PanelState
       return { ...state, pipelineStatus: 'sending' };
 
     case 'FINALIZE_SUCCESS':
-      return { ...state, pipelineStatus: 'applied' };
+      return { ...state, pipelineStatus: 'applied', pendingChanges: [], undoStack: [] };
 
     case 'FINALIZE_ERROR':
       return { ...state, pipelineStatus: `error: ${action.error}` };
 
-    default:
+    default: {
+      const _exhaustive: never = action;
       return state;
+    }
   }
 }

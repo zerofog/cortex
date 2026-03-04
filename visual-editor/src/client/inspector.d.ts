@@ -134,7 +134,16 @@ export interface Selection {
     borderRadius: string;
     fontWeight: string;
     fontFamily: string;
+    paddingTop: string;
+    paddingRight: string;
+    paddingBottom: string;
+    paddingLeft: string;
+    marginTop: string;
+    marginRight: string;
+    marginBottom: string;
+    marginLeft: string;
   };
+  origins: Partial<Record<'padding' | 'margin' | 'gap' | 'borderRadius', import('./toolbar.js').StyleOrigin>>;
 }
 
 /** Shape of the window.__ZEROFOG__ runtime namespace. */

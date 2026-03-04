@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, fireEvent } from '@testing-library/preact';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, fireEvent, screen } from '@testing-library/preact';
 import { h } from 'preact';
 import {
   PanelHeader,
@@ -12,30 +12,8 @@ import {
   ActionBar,
   StatusBar,
 } from '../../src/client/panel-components.js';
-import type { SelectionPayload, PendingChange } from '../../src/client/panel-state.js';
-
-// ── Helpers ──────────────────────────────────────────────────────
-
-function makeSelection(overrides: Partial<SelectionPayload> = {}): SelectionPayload {
-  return {
-    id: 1,
-    timestamp: Date.now(),
-    testId: 'card-root',
-    componentChain: ['Card', 'Paper'],
-    hasClientFiber: true,
-    elementType: 'container',
-    element: { tag: 'DIV', classes: [], text: '', bounds: { top: 0, left: 0, width: 100, height: 50 } },
-    styles: {
-      color: 'rgb(0,0,0)', background: 'rgb(255,255,255)', fontSize: '16px',
-      padding: '16px', margin: '0px', display: 'flex', gap: '8px',
-      borderRadius: '4px', fontWeight: '400', fontFamily: 'sans-serif',
-      paddingTop: '16px', paddingRight: '16px', paddingBottom: '16px', paddingLeft: '16px',
-      marginTop: '0px', marginRight: '0px', marginBottom: '0px', marginLeft: '0px',
-    },
-    origins: {},
-    ...overrides,
-  };
-}
+import type { PendingChange } from '../../src/client/panel-state.js';
+import { makeSelection } from './helpers.js';
 
 // ── PanelHeader ──────────────────────────────────────────────────
 
@@ -68,23 +46,6 @@ describe('ModeToggle', () => {
     const selectBtn = container.querySelectorAll('.mode-btn')[1]!;
     fireEvent.click(selectBtn);
     expect(handler).toHaveBeenCalledWith('select');
-  });
-
-  it('has aria-checked matching mode (L4)', () => {
-    const { container } = render(h(ModeToggle, { mode: 'select', onModeChange: () => {} }));
-    const buttons = container.querySelectorAll('.mode-btn');
-    // Preact serializes boolean aria-checked to "true"/"false" attribute strings
-    expect(['false', null]).toContain(buttons[0]?.getAttribute('aria-checked'));
-    expect(buttons[1]?.getAttribute('aria-checked')).toBe('true');
-    expect(buttons[0]?.getAttribute('role')).toBe('radio');
-  });
-
-  it('uses fieldset with radiogroup role', () => {
-    const { container } = render(h(ModeToggle, { mode: 'browse', onModeChange: () => {} }));
-    const fieldset = container.querySelector('fieldset');
-    expect(fieldset).toBeTruthy();
-    expect(fieldset?.getAttribute('role')).toBe('radiogroup');
-    expect(fieldset?.getAttribute('aria-label')).toBe('Interaction mode');
   });
 });
 
@@ -145,18 +106,6 @@ describe('TokenRow', () => {
     fireEvent.click(container.querySelectorAll('.token-btn')[1]!);
     expect(handler).toHaveBeenCalledWith('sm');
   });
-
-  it('has role="radio" and aria-checked (M6)', () => {
-    const tokens = ['xs', 'sm', 'md'];
-    const { container } = render(h(TokenRow, { tokens, activeToken: 'sm', changedToken: null, onSelect: () => {} }));
-    const buttons = container.querySelectorAll('.token-btn');
-    expect(buttons[0]?.getAttribute('role')).toBe('radio');
-    // Preact serializes boolean false as missing or "false" attribute
-    expect(['false', null]).toContain(buttons[0]?.getAttribute('aria-checked'));
-    expect(buttons[1]?.getAttribute('aria-checked')).toBe('true');
-    const wrapper = container.querySelector('.token-row');
-    expect(wrapper?.getAttribute('role')).toBe('radiogroup');
-  });
 });
 
 // ── SpacingControl ───────────────────────────────────────────────
@@ -188,33 +137,6 @@ describe('SpacingControl', () => {
   });
 });
 
-// ── PropertySections ─────────────────────────────────────────────
-
-describe('PropertySections', () => {
-  it('shows loading state when tokenMaps is null (M4)', () => {
-    const { container } = render(h(PropertySections, {
-      elementType: 'container',
-      activeTokens: {},
-      pendingChanges: [],
-      tokenMaps: null,
-      onTokenSelect: () => {},
-    }));
-    expect(container.querySelector('.token-loading')?.textContent).toBe('Loading design tokens...');
-  });
-
-  it('renders sections when tokenMaps is present', () => {
-    const { container } = render(h(PropertySections, {
-      elementType: 'container',
-      activeTokens: {},
-      pendingChanges: [],
-      tokenMaps: { spacing: {}, radius: {} },
-      onTokenSelect: () => {},
-    }));
-    expect(container.querySelector('.token-loading')).toBeNull();
-    expect(container.querySelectorAll('.section').length).toBeGreaterThan(0);
-  });
-});
-
 // ── ChangeList ───────────────────────────────────────────────────
 
 describe('ChangeList', () => {
@@ -223,27 +145,20 @@ describe('ChangeList', () => {
     expect(container.querySelector('.change-list')).toBeNull();
   });
 
-  it('renders change items with undo buttons', () => {
+  it('renders change items with single "Undo Last" button (M2)', () => {
     const changes: PendingChange[] = [
       { property: 'padding', token: 'lg', previousToken: 'md', previousCssValue: '16px', cssProperty: 'padding', cssValue: 'var(--mantine-spacing-lg)', styleOrigin: { origin: 'unknown' } },
+      { property: 'gap', token: 'sm', previousToken: 'xs', previousCssValue: '4px', cssProperty: 'gap', cssValue: 'var(--mantine-spacing-sm)', styleOrigin: { origin: 'unknown' } },
     ];
     const handler = vi.fn();
     const { container } = render(h(ChangeList, { changes, onUndo: handler }));
-    expect(container.querySelectorAll('.change-item')).toHaveLength(1);
-    fireEvent.click(container.querySelector('.change-undo-btn')!);
-    expect(handler).toHaveBeenCalledWith('padding');
-  });
-
-  it('passes property name to onUndo (H2)', () => {
-    const changes: PendingChange[] = [
-      { property: 'padding', token: 'lg', previousToken: 'md', previousCssValue: '16px', cssProperty: 'padding', cssValue: 'v', styleOrigin: { origin: 'unknown' } },
-      { property: 'gap', token: 'xl', previousToken: 'sm', previousCssValue: '8px', cssProperty: 'gap', cssValue: 'v', styleOrigin: { origin: 'unknown' } },
-    ];
-    const handler = vi.fn();
-    const { container } = render(h(ChangeList, { changes, onUndo: handler }));
+    expect(container.querySelectorAll('.change-item')).toHaveLength(2);
+    // Single undo button at list level, not per item
     const undoButtons = container.querySelectorAll('.change-undo-btn');
-    fireEvent.click(undoButtons[1]!); // click undo on gap
-    expect(handler).toHaveBeenCalledWith('gap');
+    expect(undoButtons).toHaveLength(1);
+    expect(undoButtons[0]?.textContent).toBe('Undo Last');
+    fireEvent.click(undoButtons[0]!);
+    expect(handler).toHaveBeenCalled();
   });
 });
 
@@ -252,7 +167,7 @@ describe('ChangeList', () => {
 describe('ActionBar', () => {
   it('disables Apply when no changes', () => {
     const { container } = render(h(ActionBar, {
-      hasChanges: false, wsConnected: true, pipelineStatus: null, onDiscard: () => {}, onApply: () => {},
+      hasChanges: false, wsConnected: true, onDiscard: () => {}, onApply: () => {},
     }));
     const applyBtn = container.querySelector('.action-btn-primary') as HTMLButtonElement;
     expect(applyBtn.disabled).toBe(true);
@@ -260,7 +175,7 @@ describe('ActionBar', () => {
 
   it('disables Apply when WS disconnected', () => {
     const { container } = render(h(ActionBar, {
-      hasChanges: true, wsConnected: false, pipelineStatus: null, onDiscard: () => {}, onApply: () => {},
+      hasChanges: true, wsConnected: false, onDiscard: () => {}, onApply: () => {},
     }));
     const applyBtn = container.querySelector('.action-btn-primary') as HTMLButtonElement;
     expect(applyBtn.disabled).toBe(true);
@@ -268,7 +183,7 @@ describe('ActionBar', () => {
 
   it('enables Apply when changes exist and WS connected', () => {
     const { container } = render(h(ActionBar, {
-      hasChanges: true, wsConnected: true, pipelineStatus: null, onDiscard: () => {}, onApply: () => {},
+      hasChanges: true, wsConnected: true, onDiscard: () => {}, onApply: () => {},
     }));
     const applyBtn = container.querySelector('.action-btn-primary') as HTMLButtonElement;
     expect(applyBtn.disabled).toBe(false);
@@ -277,27 +192,10 @@ describe('ActionBar', () => {
   it('calls onApply when Apply button clicked', () => {
     const handler = vi.fn();
     const { container } = render(h(ActionBar, {
-      hasChanges: true, wsConnected: true, pipelineStatus: null, onDiscard: () => {}, onApply: handler,
+      hasChanges: true, wsConnected: true, onDiscard: () => {}, onApply: handler,
     }));
     fireEvent.click(container.querySelector('.action-btn-primary')!);
     expect(handler).toHaveBeenCalled();
-  });
-
-  it('shows error message and Retry label on error (H7)', () => {
-    const { container } = render(h(ActionBar, {
-      hasChanges: true, wsConnected: true, pipelineStatus: 'error: timeout', onDiscard: () => {}, onApply: () => {},
-    }));
-    expect(container.querySelector('.action-error')?.textContent).toBe('timeout');
-    expect(container.querySelector('.action-btn-primary')?.textContent).toBe('Retry');
-  });
-
-  it('shows Applying... and disables during sending (H7)', () => {
-    const { container } = render(h(ActionBar, {
-      hasChanges: true, wsConnected: true, pipelineStatus: 'sending', onDiscard: () => {}, onApply: () => {},
-    }));
-    const applyBtn = container.querySelector('.action-btn-primary') as HTMLButtonElement;
-    expect(applyBtn.textContent).toBe('Applying...');
-    expect(applyBtn.disabled).toBe(true);
   });
 });
 

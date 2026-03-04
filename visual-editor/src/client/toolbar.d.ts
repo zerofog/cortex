@@ -12,12 +12,23 @@ export type StyleOrigin =
   | { origin: 'css-module' }
   | { origin: 'unknown' };
 
+/** A single style change entry with full origin context for finalization. */
+export interface ChangeEntry {
+  property: string;
+  token: string;
+  previousToken: string | null;
+  previousCssValue: string;
+  cssProperty: string;
+  cssValue: string;
+  styleOrigin: StyleOrigin;
+}
+
 /** Result of finalizeDiff — accumulated style changes for an element. */
 export interface DiffResult {
   elementSelector: string;
   componentChain: string[];
   elementType: string;
-  changes: unknown[];
+  changes: ChangeEntry[];
   timestamp: string;
 }
 
@@ -42,7 +53,7 @@ export declare function reverseTokenLookup(
 /** Detect the origin of a CSS property value on an element. */
 export declare function detectStyleOrigin(
   element: Record<string, unknown>,
-  property: 'padding' | 'margin' | 'gap' | 'border-radius',
+  property: 'padding' | 'margin' | 'gap' | 'borderRadius',
   findFiberKeysFn?: (el: Record<string, unknown>) => string[],
   themeDefaults?: Record<string, Record<string, unknown>>,
 ): StyleOrigin;
@@ -50,7 +61,7 @@ export declare function detectStyleOrigin(
 /** Finalize accumulated changes into a diff object. */
 export declare function finalizeDiff(
   selection: { testId?: string | null; componentChain?: string[]; elementType?: string },
-  changes: unknown[],
+  changes: ChangeEntry[],
   _now?: Date,
 ): DiffResult;
 

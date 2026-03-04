@@ -112,6 +112,13 @@ function waitForWsMessage(ws: WebSocket, timeoutMs = 3000): Promise<string> {
   });
 }
 
+/** Create an editor WebSocket with the required Origin header. */
+function createEditorWs(port: number): WebSocket {
+  return new WebSocket(`ws://127.0.0.1:${port}/__zerofog`, {
+    headers: { Origin: `http://127.0.0.1:${port}` },
+  });
+}
+
 /** Complete the auth handshake on an editor WS connection. */
 async function authenticateWs(ws: WebSocket, sessionId: string): Promise<void> {
   const hello = await waitForWsMessage(ws);
@@ -425,7 +432,7 @@ describe('client script serving', () => {
 
 describe('WebSocket', () => {
   it('editor WS sends hello without sessionId on connect', async () => {
-    const ws = new WebSocket(`ws://127.0.0.1:${sidecar.port}/__zerofog`);
+    const ws = createEditorWs(sidecar.port);
     const msg = await new Promise<string>((resolve, reject) => {
       ws.on('message', (data) => resolve(data.toString()));
       ws.on('error', reject);
@@ -438,7 +445,7 @@ describe('WebSocket', () => {
   });
 
   it('editor WS authenticates and echoes ack for messages', async () => {
-    const ws = new WebSocket(`ws://127.0.0.1:${sidecar.port}/__zerofog`);
+    const ws = createEditorWs(sidecar.port);
     await authenticateWs(ws, sidecar.context.sessionId);
     // Send a message and expect ack
     ws.send(JSON.stringify({ id: 'test-123', type: 'ping' }));
@@ -471,7 +478,7 @@ describe('WebSocket', () => {
   });
 
   it('survives non-JSON messages after auth and still processes valid ones', async () => {
-    const ws = new WebSocket(`ws://127.0.0.1:${sidecar.port}/__zerofog`);
+    const ws = createEditorWs(sidecar.port);
     await authenticateWs(ws, sidecar.context.sessionId);
     // Send non-JSON — should be silently ignored after auth
     ws.send('not json at all');
@@ -500,7 +507,7 @@ describe('WebSocket', () => {
   });
 
   it('rejects connection with wrong sessionId', async () => {
-    const ws = new WebSocket(`ws://127.0.0.1:${sidecar.port}/__zerofog`);
+    const ws = createEditorWs(sidecar.port);
     // Wait for hello
     await new Promise<string>((resolve, reject) => {
       ws.on('message', (data) => resolve(data.toString()));
@@ -517,7 +524,7 @@ describe('WebSocket', () => {
   });
 
   it('rejects messages with non-string type', async () => {
-    const ws = new WebSocket(`ws://127.0.0.1:${sidecar.port}/__zerofog`);
+    const ws = createEditorWs(sidecar.port);
     // Wait for hello
     await new Promise<string>((resolve, reject) => {
       ws.on('message', (data) => resolve(data.toString()));
@@ -534,7 +541,7 @@ describe('WebSocket', () => {
   });
 
   it('rejects messages without id after auth', async () => {
-    const ws = new WebSocket(`ws://127.0.0.1:${sidecar.port}/__zerofog`);
+    const ws = createEditorWs(sidecar.port);
     await authenticateWs(ws, sidecar.context.sessionId);
     ws.send(JSON.stringify({ type: 'ping' }));
     const msg = await new Promise<string>((resolve, reject) => {
@@ -548,7 +555,7 @@ describe('WebSocket', () => {
   });
 
   it('rejects messages with non-string id after auth', async () => {
-    const ws = new WebSocket(`ws://127.0.0.1:${sidecar.port}/__zerofog`);
+    const ws = createEditorWs(sidecar.port);
     await authenticateWs(ws, sidecar.context.sessionId);
     ws.send(JSON.stringify({ type: 'ping', id: 123 }));
     const msg = await new Promise<string>((resolve, reject) => {
@@ -562,7 +569,7 @@ describe('WebSocket', () => {
   });
 
   it('rejects non-auth messages before authentication', async () => {
-    const ws = new WebSocket(`ws://127.0.0.1:${sidecar.port}/__zerofog`);
+    const ws = createEditorWs(sidecar.port);
     // Wait for hello
     await new Promise<string>((resolve, reject) => {
       ws.on('message', (data) => resolve(data.toString()));
@@ -580,6 +587,16 @@ describe('WebSocket', () => {
 });
 
 describe('WS upgrade security', () => {
+  it('rejects /__zerofog WS without Origin header', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${sidecar.port}/__zerofog`);
+    const result = await new Promise<string>((resolve) => {
+      ws.on('error', (err) => resolve(err.message));
+      ws.on('close', () => resolve('closed'));
+      setTimeout(() => resolve('timeout'), 3000);
+    });
+    expect(result).not.toBe('timeout');
+  });
+
   it('rejects WS upgrade with invalid Origin', async () => {
     const ws = new WebSocket(`ws://127.0.0.1:${sidecar.port}/__zerofog`, {
       headers: { Origin: 'https://evil.com' },
