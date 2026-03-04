@@ -291,7 +291,7 @@ describe('detectStyleOrigin', () => {
     (element as Record<string, unknown>)[fiberKey] = domFiber;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result: any = detectStyleOrigin(element, 'border-radius', () => [
+    const result: any = detectStyleOrigin(element, 'borderRadius', () => [
       fiberKey,
     ]);
 
@@ -351,7 +351,7 @@ describe('detectStyleOrigin', () => {
     const element = createMockElement({ className: 'rounded-lg border' });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result: any = detectStyleOrigin(element, 'border-radius', () => []);
+    const result: any = detectStyleOrigin(element, 'borderRadius', () => []);
 
     expect(result.origin).toBe('tailwind');
     expect(result.className).toBe('rounded-lg');
@@ -472,7 +472,7 @@ describe('detectStyleOrigin — React 19 dual-strategy (F2)', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result: any = detectStyleOrigin(
       element,
-      'border-radius',
+      'borderRadius',
       () => [fiberKey]
     );
 
@@ -603,7 +603,7 @@ describe('finalizeDiff', () => {
         cssProperty: 'padding',
         cssValue: '24px',
         styleOrigin: {
-          origin: 'mantine-prop',
+          origin: 'mantine-prop' as const,
           prop: 'p',
           value: 'lg',
           component: 'Card',
@@ -638,16 +638,16 @@ describe('finalizeDiff', () => {
         previousCssValue: '20px',
         cssProperty: 'padding',
         cssValue: '24px',
-        styleOrigin: { origin: 'mantine-prop' },
+        styleOrigin: { origin: 'mantine-prop' as const, prop: 'p', value: 'lg', component: 'Card' },
       },
       {
-        property: 'border-radius',
+        property: 'borderRadius',
         token: 'lg',
         previousToken: 'md',
         previousCssValue: '8px',
-        cssProperty: 'border-radius',
+        cssProperty: 'borderRadius',
         cssValue: '12px',
-        styleOrigin: { origin: 'mantine-prop' },
+        styleOrigin: { origin: 'mantine-prop' as const, prop: 'radius', value: 'md', component: 'Card' },
       },
     ];
 
@@ -736,7 +736,7 @@ describe('finalizeDiff', () => {
         previousCssValue: '4px',
         cssProperty: 'gap',
         cssValue: '16px',
-        styleOrigin: { origin: 'mantine-prop' },
+        styleOrigin: { origin: 'mantine-prop' as const, prop: 'gap', value: 'sm', component: 'Stack' },
       },
     ];
 
@@ -816,7 +816,7 @@ describe('detectStyleOrigin — ForwardRef/Memo tags (H2)', () => {
     (element as Record<string, unknown>)[fiberKey] = domFiber;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result: any = detectStyleOrigin(element, 'border-radius', () => [fiberKey]);
+    const result: any = detectStyleOrigin(element, 'borderRadius', () => [fiberKey]);
     expect(result.origin).toBe('mantine-prop');
     expect(result.prop).toBe('radius');
   });
@@ -938,7 +938,7 @@ describe('detectStyleOrigin — Tailwind regex gaps (H4)', () => {
   it('matches rounded-t-lg (directional)', () => {
     const element = createMockElement({ className: 'rounded-t-lg border' });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result: any = detectStyleOrigin(element, 'border-radius', () => []);
+    const result: any = detectStyleOrigin(element, 'borderRadius', () => []);
     expect(result.origin).toBe('tailwind');
     expect(result.className).toBe('rounded-t-lg');
   });
@@ -946,7 +946,7 @@ describe('detectStyleOrigin — Tailwind regex gaps (H4)', () => {
   it('matches rounded-bl-md (corner)', () => {
     const element = createMockElement({ className: 'rounded-bl-md border' });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result: any = detectStyleOrigin(element, 'border-radius', () => []);
+    const result: any = detectStyleOrigin(element, 'borderRadius', () => []);
     expect(result.origin).toBe('tailwind');
     expect(result.className).toBe('rounded-bl-md');
   });

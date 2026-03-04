@@ -83,7 +83,7 @@ describe('End-to-end message flow', () => {
 
     // Step 5: User selects an element
     const selection = makeSelection();
-    state = panelReducer(state, { type: 'ELEMENT_SELECTED', selection });
+    state = panelReducer(state, { type: 'ELEMENT_SELECTED', selection, origins: {} });
     expect(state.selection).toBe(selection);
     expect(state.activeTokens.padding).toBe('md'); // 16px → md
 
@@ -107,8 +107,8 @@ describe('End-to-end message flow', () => {
     expect(state.undoStack).toHaveLength(1);
     expect(sentMessages[sentMessages.length - 1]!.type).toBe('inspector:apply-override');
 
-    // Step 7: User undoes via UNDO_PROPERTY
-    state = panelReducer(state, { type: 'UNDO_PROPERTY', property: 'padding' });
+    // Step 7: User undoes via UNDO
+    state = panelReducer(state, { type: 'UNDO' });
     mockSendToInspector('inspector:remove-override', {
       elementId: selection.id,
       cssProperty: 'padding',
@@ -155,16 +155,16 @@ describe('End-to-end message flow', () => {
   it('simulates discard flow', () => {
     let state: PanelState = { ...initialPanelState, tokenMaps: makeTokenMaps() };
     const selection = makeSelection();
-    state = panelReducer(state, { type: 'ELEMENT_SELECTED', selection });
+    state = panelReducer(state, { type: 'ELEMENT_SELECTED', selection, origins: {} });
 
     // Apply two changes
     state = panelReducer(state, {
       type: 'APPLY_CHANGE', property: 'padding', token: 'lg',
-      cssProperty: 'padding', cssValue: 'v', styleOrigin: { origin: 'unknown' },
+      cssProperty: 'padding', cssValue: 'v', styleOrigin: { origin: 'unknown' as const },
     });
     state = panelReducer(state, {
       type: 'APPLY_CHANGE', property: 'gap', token: 'xl',
-      cssProperty: 'gap', cssValue: 'v', styleOrigin: { origin: 'unknown' },
+      cssProperty: 'gap', cssValue: 'v', styleOrigin: { origin: 'unknown' as const },
     });
     expect(state.pendingChanges).toHaveLength(2);
 
@@ -181,11 +181,11 @@ describe('End-to-end message flow', () => {
   it('simulates error recovery flow', () => {
     let state: PanelState = { ...initialPanelState, tokenMaps: makeTokenMaps(), wsStatus: 'connected' };
     const selection = makeSelection();
-    state = panelReducer(state, { type: 'ELEMENT_SELECTED', selection });
+    state = panelReducer(state, { type: 'ELEMENT_SELECTED', selection, origins: {} });
 
     state = panelReducer(state, {
       type: 'APPLY_CHANGE', property: 'padding', token: 'lg',
-      cssProperty: 'padding', cssValue: 'v', styleOrigin: { origin: 'unknown' },
+      cssProperty: 'padding', cssValue: 'v', styleOrigin: { origin: 'unknown' as const },
     });
 
     // Finalize fails
