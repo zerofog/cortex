@@ -29,6 +29,8 @@ var FIBER_TAG_CLASS = 1;
 
 var ALLOWED_CSS_PROPERTIES = new Set([
   'color', 'background', 'fontSize', 'padding', 'margin',
+  'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+  'marginTop', 'marginRight', 'marginBottom', 'marginLeft',
   'display', 'gap', 'borderRadius', 'fontWeight', 'fontFamily',
 ]);
 
@@ -36,6 +38,8 @@ var CSS_VALUE_UNSAFE = /expression\s*\(|url\s*\(|image-set\s*\(|element\s*\(|pai
 
 var TOKEN_CONSTRAINED_PROPERTIES = new Set([
   'padding', 'margin', 'gap', 'borderRadius',
+  'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+  'marginTop', 'marginRight', 'marginBottom', 'marginLeft',
 ]);
 
 var SPACING_TOKENS = ['xs', 'sm', 'md', 'lg', 'xl'];
@@ -49,7 +53,15 @@ function camelToKebab(str) {
 
 var TOKEN_VAR_PREFIX = Object.create(null);
 TOKEN_VAR_PREFIX['padding'] = '--mantine-spacing-';
+TOKEN_VAR_PREFIX['paddingTop'] = '--mantine-spacing-';
+TOKEN_VAR_PREFIX['paddingRight'] = '--mantine-spacing-';
+TOKEN_VAR_PREFIX['paddingBottom'] = '--mantine-spacing-';
+TOKEN_VAR_PREFIX['paddingLeft'] = '--mantine-spacing-';
 TOKEN_VAR_PREFIX['margin'] = '--mantine-spacing-';
+TOKEN_VAR_PREFIX['marginTop'] = '--mantine-spacing-';
+TOKEN_VAR_PREFIX['marginRight'] = '--mantine-spacing-';
+TOKEN_VAR_PREFIX['marginBottom'] = '--mantine-spacing-';
+TOKEN_VAR_PREFIX['marginLeft'] = '--mantine-spacing-';
 TOKEN_VAR_PREFIX['gap'] = '--mantine-spacing-';
 TOKEN_VAR_PREFIX['borderRadius'] = '--mantine-radius-';
 
@@ -720,13 +732,22 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
           background: computed.background,
           fontSize: computed.fontSize,
           padding: computed.padding,
+          paddingTop: computed.paddingTop,
+          paddingRight: computed.paddingRight,
+          paddingBottom: computed.paddingBottom,
+          paddingLeft: computed.paddingLeft,
           margin: computed.margin,
+          marginTop: computed.marginTop,
+          marginRight: computed.marginRight,
+          marginBottom: computed.marginBottom,
+          marginLeft: computed.marginLeft,
           display: computed.display,
           gap: computed.gap,
           borderRadius: computed.borderRadius,
           fontWeight: computed.fontWeight,
           fontFamily: computed.fontFamily,
         },
+        origins: {},
       };
 
       window.__ZEROFOG__.selected = selection;
@@ -824,6 +845,57 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       discardOverrides();
     }
 
+    function emitTokenMaps() {
+      var spacingMap = {};
+      var radiusMap = {};
+      var tokens = ['xs', 'sm', 'md', 'lg', 'xl'];
+      var radiusTokens = ['xs', 'sm', 'md', 'lg', 'xl'];
+
+      // Batch writes: create all sentinel elements via DocumentFragment to avoid layout thrash
+      var fragment = document.createDocumentFragment();
+      var spacingEls = [];
+      var radiusEls = [];
+      var i, j;
+
+      for (i = 0; i < tokens.length; i++) {
+        var el = document.createElement('div');
+        el.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;padding:var(--mantine-spacing-' + tokens[i] + ')';
+        el.setAttribute('data-zerofog-ui', 'true');
+        fragment.appendChild(el);
+        spacingEls.push(el);
+      }
+      for (j = 0; j < radiusTokens.length; j++) {
+        var rEl = document.createElement('div');
+        rEl.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;border-radius:var(--mantine-radius-' + radiusTokens[j] + ')';
+        rEl.setAttribute('data-zerofog-ui', 'true');
+        fragment.appendChild(rEl);
+        radiusEls.push(rEl);
+      }
+
+      document.body.appendChild(fragment);
+
+      // Batch reads: single forced layout for all elements
+      for (i = 0; i < tokens.length; i++) {
+        var computed = window.getComputedStyle(spacingEls[i]).paddingTop;
+        if (computed && computed !== '0px') {
+          spacingMap[computed] = tokens[i];
+        }
+      }
+      for (j = 0; j < radiusTokens.length; j++) {
+        var computedR = window.getComputedStyle(radiusEls[j]).borderTopLeftRadius;
+        if (computedR && computedR !== '0px') {
+          radiusMap[computedR] = radiusTokens[j];
+        }
+      }
+      radiusMap['0px'] = 'none';
+
+      // Cleanup
+      for (i = 0; i < spacingEls.length; i++) spacingEls[i].remove();
+      for (j = 0; j < radiusEls.length; j++) radiusEls[j].remove();
+
+      postToParent('zerofog:token-maps', { spacing: spacingMap, radius: radiusMap });
+    }
+
     function activate() {
       // Idempotent — tear down listeners before re-attaching (preserves override state)
       teardownListeners();
@@ -876,6 +948,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       setupNavListeners();
 
       postToParent('zerofog:ready', null);
+      emitTokenMaps();
     }
 
     var cortexIdCounter = 0;
