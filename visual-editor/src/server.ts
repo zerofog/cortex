@@ -11,6 +11,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { Socket } from 'node:net';
 
 import { injectScripts } from './inject.js';
+import { StateManager, StateConflictError, isFinalizePayload, isCompletionReport } from './state.js';
 
 // Works from both src/ (tsx) and dist/ (built)
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -70,6 +71,9 @@ export function checkPidFile(pidPath: string): 'none' | 'stale' | 'alive' {
   }
 }
 
+// Security tradeoff: CSP rewriting weakens the target app's CSP (adds 'self' to
+// script-src, strips frame-ancestors). Acceptable because this is a dev-only tool
+// bound to loopback — never deployed to production. See M6 in phase5-review.md.
 function rewriteCsp(csp: string): string {
   const directives = csp.split(';').map(d => d.trim()).filter(Boolean);
   const result: string[] = [];
@@ -124,6 +128,7 @@ export interface AppContext {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- HPM generic types don't align with Express 5
   proxy: any;
   editorWss: WebSocketServer;
+  stateManager: StateManager;
   sessionId: string;
   startedAt: number;
   setShutdownHandler: (cb: () => void) => void;
@@ -146,6 +151,22 @@ export function createApp(options: ServerOptions): AppContext {
 
   const app = express();
   const editorWss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
+
+  function broadcastWs(payload: Record<string, unknown>): void {
+    const msg = JSON.stringify(payload);
+    for (const client of editorWss.clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        try { client.send(msg); } catch { /* ignore per-client errors */ }
+      }
+    }
+  }
+
+  const walDir = join(process.cwd(), '.cortex', 'wal');
+  const stateManager = new StateManager({
+    sessionId,
+    walDir,
+    onTimeout: () => broadcastWs({ type: 'processing-timeout' }),
+  });
 
   let shutdownCb: (() => void) | undefined;
   const setShutdownHandler = (cb: () => void): void => { shutdownCb = cb; };
@@ -171,6 +192,10 @@ export function createApp(options: ServerOptions): AppContext {
     shellHtml = readFileSync(join(PACKAGE_ROOT, 'src', 'client', 'shell.html'), 'utf-8');
   }
 
+  // Security note: sessionId is embedded in unauthenticated script responses.
+  // This is acceptable because the server is loopback-only — only local browser
+  // tabs can load these scripts. The sessionId acts as a CSRF token for WS auth
+  // and mutating API calls. See M7 in phase5-review.md.
   const clientScriptCache = new Map<string, string>();
   try {
     const clientDir = join(PACKAGE_ROOT, 'dist', 'client');
@@ -208,15 +233,40 @@ export function createApp(options: ServerOptions): AppContext {
     res.status(200).json({
       uptime: Math.floor((Date.now() - startedAt) / 1000),
       targetPort,
+      pipelineState: stateManager.getState(),
     });
   });
 
-  api.post('/diff', (_req: Request, res: Response) => {
-    res.status(501).json({ error: 'Not implemented — Phase 5' });
+  function handleStateError(err: unknown, res: Response, label: string): void {
+    if (err instanceof StateConflictError) {
+      res.status(409).json({ error: 'conflict', state: err.currentState });
+      return;
+    }
+    console.error(`[cortex] Unexpected ${label} error:`, err);
+    res.status(500).json({ error: 'internal' });
+  }
+
+  api.post('/claim', (req: Request, res: Response) => {
+    try {
+      const diff = stateManager.claimDiff();
+      res.status(200).json(diff);
+    } catch (err) {
+      handleStateError(err, res, 'claim');
+    }
   });
 
-  api.post('/complete', (_req: Request, res: Response) => {
-    res.status(501).json({ error: 'Not implemented — Phase 5' });
+  api.post('/complete', express.json(), (req: Request, res: Response) => {
+    if (!isCompletionReport(req.body)) {
+      res.status(400).json({ error: 'Invalid completion report' });
+      return;
+    }
+    try {
+      const report = stateManager.complete(req.body);
+      broadcastWs({ type: 'edit-complete', payload: report });
+      res.status(200).json(report);
+    } catch (err) {
+      handleStateError(err, res, 'complete');
+    }
   });
 
   api.post('/shutdown', (_req: Request, res: Response) => {
@@ -261,6 +311,12 @@ export function createApp(options: ServerOptions): AppContext {
       return;
     }
     next();
+  });
+
+  // ── Error handler (catches express.json() parse failures, etc.) ──
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Express requires 4-param signature
+  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+    res.status(400).json({ error: err.message || 'Bad request' });
   });
 
   // ── Reverse proxy ──────────────────────────────────────────
@@ -322,7 +378,9 @@ export function createApp(options: ServerOptions): AppContext {
           return;
         }
 
-        // Buffer HTML, inject scripts, send
+        // Design tradeoff: buffering the full HTML response defeats streaming SSR.
+        // Acceptable for a dev-only editing tool where injection correctness matters
+        // more than TTFB. See M5 in phase5-review.md.
         const chunks: Buffer[] = [];
         source.on('data', (chunk: Buffer) => chunks.push(chunk));
         source.on('end', () => {
@@ -422,11 +480,36 @@ export function createApp(options: ServerOptions): AppContext {
         return;
       }
 
+      // Dispatch finalize messages to state machine
+      if (parsed.type === 'finalize') {
+        const reply = (result: Record<string, unknown>) =>
+          ws.send(JSON.stringify({ type: 'finalize-result', id: parsed.id, ...result }));
+
+        if (!isFinalizePayload(parsed.payload)) {
+          reply({ ok: false, error: 'invalid payload' });
+          return;
+        }
+        try {
+          const diff = stateManager.receiveDiff(parsed.payload);
+          const changeCount = diff.elements.reduce((sum, el) => sum + el.changes.length, 0);
+          reply({ ok: true, changeCount });
+          console.log(`[cortex] Diff received (${changeCount} changes)`);
+        } catch (err) {
+          if (err instanceof StateConflictError) {
+            reply({ ok: false, error: 'conflict' });
+            return;
+          }
+          console.error('[cortex] Unexpected finalize error:', err);
+          reply({ ok: false, error: 'internal' });
+        }
+        return;
+      }
+
       ws.send(JSON.stringify({ type: 'ack', id: parsed.id }));
     });
   });
 
-  return { app, proxy, editorWss, sessionId, startedAt, setShutdownHandler, triggerShutdown };
+  return { app, proxy, editorWss, stateManager, sessionId, startedAt, setShutdownHandler, triggerShutdown };
 }
 
 // ─── attachUpgradeHandler ────────────────────────────────────────
@@ -481,6 +564,7 @@ export function startServer(options: ServerOptions): Promise<ServerContext> {
   }
 
   const context = createApp(options);
+  context.stateManager.recover();
   const server = createServer(context.app);
 
   attachUpgradeHandler(server, context);
@@ -504,6 +588,7 @@ export function startServer(options: ServerOptions): Promise<ServerContext> {
         resolve();
       };
 
+      context.stateManager.dispose();
       for (const client of context.editorWss.clients) {
         client.close(1001, 'Server shutting down');
       }
