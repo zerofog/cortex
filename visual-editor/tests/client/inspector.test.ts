@@ -1041,9 +1041,9 @@ describe('isTokenValue — tightened validation', () => {
 describe('Token enforcement constants', () => {
   it('ALLOWED_CSS_PROPERTIES matches Selection.styles keys', () => {
     const styleKeys = ['color', 'background', 'fontSize', 'padding', 'margin',
+      'display', 'gap', 'borderRadius', 'fontWeight', 'fontFamily',
       'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
-      'marginTop', 'marginRight', 'marginBottom', 'marginLeft',
-      'display', 'gap', 'borderRadius', 'fontWeight', 'fontFamily'];
+      'marginTop', 'marginRight', 'marginBottom', 'marginLeft'];
     for (const key of styleKeys) {
       expect(ALLOWED_CSS_PROPERTIES.has(key)).toBe(true);
     }

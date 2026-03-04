@@ -4,14 +4,15 @@
  * Bundled by tsup into a single IIFE. Template variables SESSION_ID and
  * SIDECAR_ORIGIN are replaced by the server at injection time.
  *
- * Exports pure functions for testing (createMessageEnvelope, isValidPanelMessage).
+ * Exports pure functions for testing (createMessageEnvelope, isValidPanelMessage)
+ * and PanelRoot for integration tests.
  * The IIFE self-invoking block at the bottom only runs in browser context.
  */
 
 import { h, render } from 'preact';
 import { useReducer, useEffect, useCallback, useRef } from 'preact/hooks';
-import type { FunctionComponent } from 'preact';
-import { panelReducer, initialPanelState, resolveTokenToCssValue } from './panel-state.js';
+import type { VNode } from 'preact';
+import { panelReducer, initialPanelState, resolveTokenToCssValue, getOriginForProperty } from './panel-state.js';
 import type { SelectionPayload, TokenMaps } from './panel-state.js';
 import type { StyleOrigin } from './toolbar.js';
 import { applyPanelStyles } from './panel-styles.js';
@@ -60,11 +61,10 @@ interface PanelRootProps {
   sidecarOrigin: string;
 }
 
-const PanelRoot: FunctionComponent<PanelRootProps> = ({ sessionId, sidecarOrigin }) => {
+export function PanelRoot({ sessionId, sidecarOrigin }: PanelRootProps): VNode {
   const [state, dispatch] = useReducer(panelReducer, initialPanelState);
   const wsRef = useRef<WebSocket | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const modeRef = useRef(state.mode);
 
   // Helper: send message to iframe inspector
   const sendToInspector = useCallback((type: string, payload: unknown = null) => {
@@ -75,33 +75,65 @@ const PanelRoot: FunctionComponent<PanelRootProps> = ({ sessionId, sidecarOrigin
         createMessageEnvelope(type, payload, sessionId),
         sidecarOrigin,
       );
-    } else {
-      console.warn('[zerofog] No iframe found for:', type);
     }
-  }, [sessionId, sidecarOrigin]);
+  }, [sessionId]);
 
-  // Keep modeRef in sync (H4: avoids stale closure)
-  useEffect(() => { modeRef.current = state.mode; }, [state.mode]);
+  // ── Runtime payload validation ──────────────────────────────────
+
+  function isSelectionPayload(data: unknown): data is SelectionPayload {
+    if (!data || typeof data !== 'object') return false;
+    const d = data as Record<string, unknown>;
+    return typeof d.id === 'number' && typeof d.elementType === 'string'
+      && d.element !== null && typeof d.element === 'object'
+      && d.styles !== null && typeof d.styles === 'object';
+  }
+
+  function isTokenMaps(data: unknown): data is TokenMaps {
+    if (!data || typeof data !== 'object') return false;
+    const d = data as Record<string, unknown>;
+    return d.spacing !== null && typeof d.spacing === 'object'
+      && d.radius !== null && typeof d.radius === 'object';
+  }
 
   // ── postMessage listener for inspector messages ────────────────
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
   useEffect(() => {
     const messageDispatch: Record<string, (payload: Record<string, unknown>) => void> = {
       'zerofog:ready': () => {
-        sendToInspector('inspector:set-edit-mode', { mode: 'style' });
-        if (modeRef.current === 'select') {
+        if (stateRef.current.mode === 'select') {
           sendToInspector('inspector:enter-select');
         }
       },
       'zerofog:selected': (payload) => {
-        const selection = payload as unknown as SelectionPayload;
-        dispatch({ type: 'ELEMENT_SELECTED', selection });
+        if (!isSelectionPayload(payload)) {
+          console.warn('[cortex] Invalid selection payload, ignoring');
+          return;
+        }
+        // Remove live preview overrides from previous element before switching.
+        // Uses per-property remove (not discard-overrides) to preserve elementMap.
+        const { pendingChanges, selection: prevSelection } = stateRef.current;
+        if (pendingChanges.length > 0 && prevSelection) {
+          for (const change of pendingChanges) {
+            sendToInspector('inspector:remove-override', {
+              elementId: prevSelection.id,
+              cssProperty: change.property,
+            });
+          }
+        }
+        const origins = (payload.origins ?? {}) as Record<string, StyleOrigin>;
+        dispatch({ type: 'ELEMENT_SELECTED', selection: payload, origins });
       },
       'zerofog:deselected': () => {
         dispatch({ type: 'ELEMENT_DESELECTED' });
       },
       'zerofog:token-maps': (payload) => {
-        const tokenMaps = payload as unknown as TokenMaps;
-        dispatch({ type: 'TOKEN_MAPS_LOADED', tokenMaps });
+        if (!isTokenMaps(payload)) {
+          console.warn('[cortex] Invalid token maps payload, ignoring');
+          return;
+        }
+        dispatch({ type: 'TOKEN_MAPS_LOADED', tokenMaps: payload });
       },
       'zerofog:apply-override-result': () => {
         // Acknowledgement — no action needed for v1
@@ -118,33 +150,28 @@ const PanelRoot: FunctionComponent<PanelRootProps> = ({ sessionId, sidecarOrigin
     return () => window.removeEventListener('message', handleMessage);
   }, [sessionId, sidecarOrigin, sendToInspector]);
 
-  // ── WebSocket connection with reconnection (H1) ──────────────────
+  // ── WebSocket connection with reconnection ─────────────────────
   useEffect(() => {
     const protocol = sidecarOrigin.startsWith('https') ? 'wss' : 'ws';
     const host = sidecarOrigin.replace(/^https?:\/\//, '');
     const url = `${protocol}://${host}/__zerofog`;
-    const MAX_RETRIES = 10;
-    const BASE_DELAY = 1000;
-    const MAX_DELAY = 30000;
     let retryCount = 0;
-    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
-    let cancelled = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let disposed = false;
 
     function connect() {
-      if (cancelled) return;
+      if (disposed) return;
       dispatch({ type: 'WS_STATUS', status: 'connecting' });
       const ws = new WebSocket(url);
       wsRef.current = ws;
 
-      ws.onopen = () => {
-        retryCount = 0;
-        ws.send(JSON.stringify({ type: 'auth', sessionId }));
-      };
-
       ws.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data as string) as { type: string; [k: string]: unknown };
-          if (msg.type === 'session') {
+          if (msg.type === 'hello') {
+            ws.send(JSON.stringify({ type: 'auth', sessionId }));
+          } else if (msg.type === 'session') {
+            retryCount = 0;
             dispatch({ type: 'WS_STATUS', status: 'connected' });
           } else if (msg.type === 'finalize-result') {
             if (msg.ok) {
@@ -152,87 +179,42 @@ const PanelRoot: FunctionComponent<PanelRootProps> = ({ sessionId, sidecarOrigin
             } else {
               dispatch({ type: 'FINALIZE_ERROR', error: String(msg.error ?? 'unknown') });
             }
+          } else if (msg.type === 'error') {
+            dispatch({ type: 'FINALIZE_ERROR', error: String(msg.message ?? 'unknown') });
+          } else if (msg.type === 'ack') {
+            // Message acknowledged — no action needed
           }
-        } catch (err) {
-          console.warn('[zerofog] WS parse error:', err);
+        } catch {
+          // Ignore non-JSON messages
         }
       };
 
       ws.onclose = () => {
         dispatch({ type: 'WS_STATUS', status: 'disconnected' });
         wsRef.current = null;
-        if (!cancelled && retryCount < MAX_RETRIES) {
-          const delay = Math.min(BASE_DELAY * Math.pow(2, retryCount), MAX_DELAY);
+        if (!disposed && retryCount < 5) {
+          const delay = Math.min(1000 * 2 ** retryCount, 30000);
+          reconnectTimer = setTimeout(connect, delay);
           retryCount++;
-          retryTimeout = setTimeout(connect, delay);
         }
       };
 
-      // onerror fires before onclose — no separate handling needed
-      ws.onerror = () => {};
+      ws.onerror = () => {
+        // onclose will fire after onerror
+      };
     }
 
     connect();
 
     return () => {
-      cancelled = true;
-      if (retryTimeout !== null) clearTimeout(retryTimeout);
+      disposed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
       }
     };
   }, [sidecarOrigin, sessionId]);
-
-  // ── Refs for stable undo callback (avoids re-registering keydown on every state change) ──
-  const stateRef = useRef(state);
-  useEffect(() => { stateRef.current = state; }, [state]);
-
-  // ── Shared undo logic (H3: deduplicated) ─────────────────────────
-  const performUndo = useCallback(() => {
-    const s = stateRef.current;
-    if (s.undoStack.length === 0) return;
-    const top = s.undoStack[s.undoStack.length - 1]!;
-    const origin = s.pendingChanges.find(c => c.property === top.property)?.styleOrigin;
-    const originalToken = s.originalTokens[top.property] ?? null;
-    dispatch({ type: 'UNDO' });
-
-    if (top.previousToken === null || top.previousToken === originalToken) {
-      sendToInspector('inspector:remove-override', {
-        elementId: s.selection?.id,
-        cssProperty: top.property,
-      });
-    } else {
-      sendToInspector('inspector:apply-override', {
-        elementId: s.selection?.id,
-        cssProperty: top.property,
-        cssValue: resolveTokenToCssValue(top.property, top.previousToken, origin),
-      });
-    }
-  }, [sendToInspector]);
-
-  // ── Per-property undo (H2) ──────────────────────────────────────
-  const handleUndoProperty = useCallback((property: string) => {
-    dispatch({ type: 'UNDO_PROPERTY', property });
-    // Side effect: tell inspector to remove the override for this property
-    sendToInspector('inspector:remove-override', {
-      elementId: state.selection?.id,
-      cssProperty: property,
-    });
-  }, [state.selection, sendToInspector]);
-
-  // ── Keyboard shortcuts ─────────────────────────────────────────
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        performUndo();
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [performUndo]);
 
   // ── Event handlers ─────────────────────────────────────────────
 
@@ -246,8 +228,8 @@ const PanelRoot: FunctionComponent<PanelRootProps> = ({ sessionId, sidecarOrigin
   }, [sendToInspector]);
 
   const handleTokenSelect = useCallback((property: string, token: string) => {
-    if (!state.selection) return;
-    const origin = state.selection.origins?.[property] ?? { origin: 'unknown' as const };
+    if (!stateRef.current.selection) return;
+    const origin = getOriginForProperty(property, stateRef.current.origins);
     const cssValue = resolveTokenToCssValue(property, token, origin);
 
     dispatch({
@@ -259,12 +241,46 @@ const PanelRoot: FunctionComponent<PanelRootProps> = ({ sessionId, sidecarOrigin
       styleOrigin: origin,
     });
 
+    // Side effect: live preview via inspector
     sendToInspector('inspector:apply-override', {
-      elementId: state.selection.id,
+      elementId: stateRef.current.selection.id,
       cssProperty: property,
       cssValue,
     });
-  }, [state.selection, sendToInspector]);
+  }, [sendToInspector]);
+
+  const handleUndo = useCallback(() => {
+    const { undoStack, pendingChanges, selection } = stateRef.current;
+    if (undoStack.length === 0) return;
+    const top = undoStack[undoStack.length - 1]!;
+    const origin = pendingChanges.find(c => c.property === top.property)?.styleOrigin;
+    dispatch({ type: 'UNDO' });
+
+    if (top.previousToken === null) {
+      sendToInspector('inspector:remove-override', {
+        elementId: selection?.id,
+        cssProperty: top.property,
+      });
+    } else {
+      sendToInspector('inspector:apply-override', {
+        elementId: selection?.id,
+        cssProperty: top.property,
+        cssValue: resolveTokenToCssValue(top.property, top.previousToken, origin),
+      });
+    }
+  }, [sendToInspector]);
+
+  // ── Keyboard shortcuts (H2: delegates to handleUndo) ──────────
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo]);
 
   const handleDiscard = useCallback(() => {
     dispatch({ type: 'DISCARD_ALL' });
@@ -273,21 +289,22 @@ const PanelRoot: FunctionComponent<PanelRootProps> = ({ sessionId, sidecarOrigin
 
   const handleApply = useCallback(() => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    if (!state.selection || state.pendingChanges.length === 0) return;
+    const { selection, pendingChanges } = stateRef.current;
+    if (!selection || pendingChanges.length === 0) return;
 
     dispatch({ type: 'FINALIZE_START' });
     wsRef.current.send(JSON.stringify({
-      id: crypto.randomUUID(),
       type: 'finalize',
+      id: crypto.randomUUID(),
       payload: {
-        elementId: state.selection.id,
-        testId: state.selection.testId,
-        componentChain: state.selection.componentChain,
-        elementType: state.selection.elementType,
-        changes: state.pendingChanges,
+        elementId: selection.id,
+        testId: selection.testId,
+        componentChain: selection.componentChain,
+        elementType: selection.elementType,
+        changes: pendingChanges,
       },
     }));
-  }, [state.selection, state.pendingChanges]);
+  }, []);
 
   // ── Render ─────────────────────────────────────────────────────
 
@@ -301,34 +318,33 @@ const PanelRoot: FunctionComponent<PanelRootProps> = ({ sessionId, sidecarOrigin
           elementType={state.selection.elementType}
           activeTokens={state.activeTokens}
           pendingChanges={state.pendingChanges}
-          tokenMaps={state.tokenMaps}
           onTokenSelect={handleTokenSelect}
         />
       )}
-      <ChangeList changes={state.pendingChanges} onUndo={handleUndoProperty} />
+      <ChangeList changes={state.pendingChanges} onUndo={handleUndo} />
       <ActionBar
         hasChanges={state.pendingChanges.length > 0}
         wsConnected={state.wsStatus === 'connected'}
-        pipelineStatus={state.pipelineStatus}
         onDiscard={handleDiscard}
         onApply={handleApply}
       />
       <StatusBar wsStatus={state.wsStatus} pipelineStatus={state.pipelineStatus} />
     </div>
   );
-};
+}
 
 // ── IIFE: Shadow DOM mount (browser-only) ────────────────────────
 
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   (function () {
-    const SESSION_ID = '__SESSION_ID__';
-    const SIDECAR_ORIGIN = '__SIDECAR_ORIGIN__';
+    var SESSION_ID = '__SESSION_ID__';
+    var SIDECAR_ORIGIN = '__SIDECAR_ORIGIN__';
 
     const mount = document.getElementById('panel-mount');
     if (!mount) return;
 
-    const shadow = mount.attachShadow({ mode: 'closed' });
+    // TODO: Switch to 'closed' for production builds
+    const shadow = mount.attachShadow({ mode: 'open' });
     applyPanelStyles(shadow);
 
     const root = document.createElement('div');

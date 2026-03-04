@@ -6,3 +6,4 @@ dist/
 .mcp.json
 .env*
 CLAUDE.md
+manual-test.ts

@@ -131,12 +131,11 @@ function detectStyleOrigin(element, property, findFiberKeysFn, themeDefaults) {
     var useDebugOwner = domFiber &&
       Object.prototype.hasOwnProperty.call(domFiber, '_debugOwner');
 
-    var owner = null;
-    if (useDebugOwner) {
-      owner = domFiber ? domFiber._debugOwner : null;
-    } else {
-      owner = domFiber ? domFiber.return : null;
-    }
+    // useDebugOwner is truthy only when domFiber is truthy, so the
+    // null-guard is only needed in the else branch.
+    var owner = useDebugOwner
+      ? domFiber._debugOwner
+      : (domFiber ? domFiber.return : null);
 
     var depth = 0;
     var MAX_DEPTH = 20;
@@ -160,7 +159,7 @@ function detectStyleOrigin(element, property, findFiberKeysFn, themeDefaults) {
           padding: ['padding', 'p', 'px', 'py', 'pt', 'pb', 'pl', 'pr'],
           margin: ['margin', 'm', 'mx', 'my', 'mt', 'mb', 'ml', 'mr'],
           gap: ['gap'],
-          'border-radius': ['radius'],
+          borderRadius: ['radius'],
         };
         var candidates = propMap[property] || [];
         for (var ci = 0; ci < candidates.length; ci++) {
@@ -178,7 +177,7 @@ function detectStyleOrigin(element, property, findFiberKeysFn, themeDefaults) {
         var defaults = _themeDefaults[compName];
         if (defaults) {
           var defaultPropName =
-            property === 'border-radius' ? 'radius' : property;
+            property === 'borderRadius' ? 'radius' : property;
           if (defaults[defaultPropName] !== undefined) {
             return {
               origin: 'mantine-default',
@@ -208,7 +207,7 @@ function detectStyleOrigin(element, property, findFiberKeysFn, themeDefaults) {
       padding: /(?:^|\s)!?(?:[\w-]+:)*p[xytblrse]?-(\d+(?:\.5)?|px|auto|\[\S+?\])/,
       margin: /(?:^|\s)!?(?:[\w-]+:)*-?m[xytblrse]?-(\d+(?:\.5)?|px|auto|\[\S+?\])/,
       gap: /(?:^|\s)!?(?:[\w-]+:)*gap-(\d+(?:\.5)?|px|auto|\[\S+?\])/,
-      'border-radius':
+      borderRadius:
         /(?:^|\s)!?(?:[\w-]+:)*rounded(?:-(?:tl|tr|bl|br|t|b|l|r|s|e)(?=-|\s|$))?(?:-(none|sm|md|lg|xl|2xl|3xl|full|\[\S+?\]))?/,
     };
     if (twPatterns[property] && twPatterns[property].test(classes)) {

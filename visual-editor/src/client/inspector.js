@@ -29,9 +29,9 @@ var FIBER_TAG_CLASS = 1;
 
 var ALLOWED_CSS_PROPERTIES = new Set([
   'color', 'background', 'fontSize', 'padding', 'margin',
+  'display', 'gap', 'borderRadius', 'fontWeight', 'fontFamily',
   'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
   'marginTop', 'marginRight', 'marginBottom', 'marginLeft',
-  'display', 'gap', 'borderRadius', 'fontWeight', 'fontFamily',
 ]);
 
 var CSS_VALUE_UNSAFE = /expression\s*\(|url\s*\(|image-set\s*\(|element\s*\(|paint\s*\(|@import|[;{}\\]/i;
@@ -53,17 +53,22 @@ function camelToKebab(str) {
 
 var TOKEN_VAR_PREFIX = Object.create(null);
 TOKEN_VAR_PREFIX['padding'] = '--mantine-spacing-';
-TOKEN_VAR_PREFIX['paddingTop'] = '--mantine-spacing-';
-TOKEN_VAR_PREFIX['paddingRight'] = '--mantine-spacing-';
-TOKEN_VAR_PREFIX['paddingBottom'] = '--mantine-spacing-';
-TOKEN_VAR_PREFIX['paddingLeft'] = '--mantine-spacing-';
 TOKEN_VAR_PREFIX['margin'] = '--mantine-spacing-';
-TOKEN_VAR_PREFIX['marginTop'] = '--mantine-spacing-';
-TOKEN_VAR_PREFIX['marginRight'] = '--mantine-spacing-';
-TOKEN_VAR_PREFIX['marginBottom'] = '--mantine-spacing-';
-TOKEN_VAR_PREFIX['marginLeft'] = '--mantine-spacing-';
 TOKEN_VAR_PREFIX['gap'] = '--mantine-spacing-';
 TOKEN_VAR_PREFIX['borderRadius'] = '--mantine-radius-';
+
+// Per-side properties inherit the spacing prefix from their parent
+var PER_SIDE_PROPS = {
+  padding: ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'],
+  margin: ['marginTop', 'marginRight', 'marginBottom', 'marginLeft'],
+};
+var perSideKeys = Object.keys(PER_SIDE_PROPS);
+for (var psi = 0; psi < perSideKeys.length; psi++) {
+  var sides = PER_SIDE_PROPS[perSideKeys[psi]];
+  for (var sj = 0; sj < sides.length; sj++) {
+    TOKEN_VAR_PREFIX[sides[sj]] = TOKEN_VAR_PREFIX[perSideKeys[psi]];
+  }
+}
 
 var OVERRIDE_STYLE_ID = 'zerofog-override-styles';
 
@@ -150,14 +155,13 @@ function walkComponentChain(fiber) {
   }
 
   // Strategy B: React 19 — fiber.return traversal
-  // Only include FunctionComponent (tag 0) and ClassComponent (tag 1)
+  // Use getComponentName as filter (handles ForwardRef=11, Memo=14, SimpleMemo=15
+  // in addition to FunctionComponent=0 and ClassComponent=1)
   var currentB = fiber;
   var depthB = 0;
   while (currentB && depthB < MAX_CHAIN_DEPTH) {
-    if (currentB.tag === FIBER_TAG_FUNCTION || currentB.tag === FIBER_TAG_CLASS) {
-      var nameB = getComponentName(currentB);
-      if (nameB) chain.push(nameB);
-    }
+    var nameB = getComponentName(currentB);
+    if (nameB) chain.push(nameB);
     currentB = currentB.return;
     depthB++;
   }
@@ -513,6 +517,138 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   }
 
   (function () {
+    // ── detectStyleOrigin (duplicated from toolbar.js — pure function) ──
+    // DUPLICATED: canonical source is toolbar.js. Keep in sync.
+    // TODO: Extract to shared module at build time (Phase 5 — IIFE bundling constraint)
+    function detectStyleOrigin(element, property, findFiberKeysFn, themeDefaults) {
+      var _findKeys = findFiberKeysFn || findReactFiberKeys;
+      var _themeDefaults =
+        themeDefaults !== undefined
+          ? themeDefaults
+          : (window.__ZEROFOG__ && window.__ZEROFOG__.themeDefaults) || {};
+      var fiberKeys = _findKeys(element);
+
+      if (fiberKeys.length > 0) {
+        var domFiber = element[fiberKeys[0]];
+        var useDebugOwner = domFiber &&
+          Object.prototype.hasOwnProperty.call(domFiber, '_debugOwner');
+        // useDebugOwner is truthy only when domFiber is truthy, so the
+        // null-guard is only needed in the else branch.
+        var owner = useDebugOwner
+          ? domFiber._debugOwner
+          : (domFiber ? domFiber.return : null);
+        var depth = 0;
+        var MAX_DEPTH = 20;
+        while (owner && depth < MAX_DEPTH) {
+          if (!useDebugOwner && [0, 1, 11, 14, 15].indexOf(owner.tag) === -1) {
+            owner = owner.return;
+            depth++;
+            continue;
+          }
+          var compName = '';
+          if (owner.type) {
+            compName = owner.type.displayName || owner.type.name || '';
+          }
+          if (compName && owner.memoizedProps) {
+            var propMap = {
+              padding: ['padding', 'p', 'px', 'py', 'pt', 'pb', 'pl', 'pr'],
+              margin: ['margin', 'm', 'mx', 'my', 'mt', 'mb', 'ml', 'mr'],
+              gap: ['gap'],
+              borderRadius: ['radius'],
+            };
+            var candidates = propMap[property] || [];
+            for (var ci = 0; ci < candidates.length; ci++) {
+              if (owner.memoizedProps[candidates[ci]] !== undefined) {
+                return {
+                  origin: 'mantine-prop',
+                  prop: candidates[ci],
+                  value: owner.memoizedProps[candidates[ci]],
+                  component: compName,
+                };
+              }
+            }
+            var defaults = _themeDefaults[compName];
+            if (defaults) {
+              var defaultPropName = property === 'borderRadius' ? 'radius' : property;
+              if (defaults[defaultPropName] !== undefined) {
+                return { origin: 'mantine-default', component: compName, defaultValue: defaults[defaultPropName] };
+              }
+            }
+          }
+          owner = useDebugOwner ? owner._debugOwner : owner.return;
+          depth++;
+        }
+      }
+
+      var classes = element.className || '';
+      if (typeof classes === 'string') {
+        var twPatterns = {
+          padding: /(?:^|\s)!?(?:[\w-]+:)*p[xytblrse]?-(\d+(?:\.5)?|px|auto|\[\S+?\])/,
+          margin: /(?:^|\s)!?(?:[\w-]+:)*-?m[xytblrse]?-(\d+(?:\.5)?|px|auto|\[\S+?\])/,
+          gap: /(?:^|\s)!?(?:[\w-]+:)*gap-(\d+(?:\.5)?|px|auto|\[\S+?\])/,
+          borderRadius: /(?:^|\s)!?(?:[\w-]+:)*rounded(?:-(?:tl|tr|bl|br|t|b|l|r|s|e)(?=-|\s|$))?(?:-(none|sm|md|lg|xl|2xl|3xl|full|\[\S+?\]))?/,
+        };
+        if (twPatterns[property] && twPatterns[property].test(classes)) {
+          var match = classes.match(twPatterns[property]);
+          return { origin: 'tailwind', className: match[0].trim() };
+        }
+      }
+
+      if (typeof classes === 'string') {
+        var classTokens = classes.split(/\s+/);
+        for (var j = 0; j < classTokens.length; j++) {
+          if (/^[a-zA-Z][a-zA-Z0-9-]+_[a-z0-9]{5,8}$/.test(classTokens[j])) {
+            return { origin: 'css-module' };
+          }
+        }
+      }
+
+      return { origin: 'unknown' };
+    }
+
+    // ── buildTokenMaps (duplicated from toolbar.js — pure function) ──
+    // DUPLICATED: canonical source is toolbar.js. Keep in sync.
+    // TODO: Extract to shared module at build time (Phase 5 — IIFE bundling constraint)
+    var TOOLBAR_SIZES = ['xs', 'sm', 'md', 'lg', 'xl'];
+    function buildTokenMaps(styleGetter) {
+      if (typeof document === 'undefined') return { spacing: {}, radius: {} };
+      var _getStyle = styleGetter || function (el) { return getComputedStyle(el); };
+      var spacingMap = Object.create(null);
+      var radiusMap = Object.create(null);
+      if (!document.body) return { spacing: {}, radius: {} };
+
+      var sentinels = [];
+      var frag = document.createDocumentFragment();
+      for (var i = 0; i < TOOLBAR_SIZES.length; i++) {
+        var s = TOOLBAR_SIZES[i];
+        var el = document.createElement('div');
+        el.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;width:0;height:0';
+        el.style.padding = 'var(--mantine-spacing-' + s + ')';
+        el.style.borderRadius = 'var(--mantine-radius-' + s + ')';
+        sentinels.push(el);
+        frag.appendChild(el);
+      }
+      document.body.appendChild(frag);
+      try {
+        for (var i = 0; i < TOOLBAR_SIZES.length; i++) {
+          var s = TOOLBAR_SIZES[i];
+          var styles = _getStyle(sentinels[i]);
+          var spacingPx = styles.paddingTop;
+          if (spacingPx && spacingPx !== '0px') spacingMap[spacingPx] = s;
+          var radiusPx = styles.borderTopLeftRadius;
+          if (radiusPx && radiusPx !== '0px') radiusMap[radiusPx] = s;
+        }
+      } catch (_e) {
+        return { spacing: {}, radius: {} };
+      } finally {
+        for (var i = 0; i < sentinels.length; i++) {
+          sentinels[i].remove();
+        }
+      }
+      radiusMap['0px'] = 'none';
+      return { spacing: spacingMap, radius: radiusMap };
+    }
+
     var OVERLAY_ID = '__zerofog_inspector_overlay__';
     var overlay = null;
     var selectedOverlay = null;
@@ -732,22 +868,27 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
           background: computed.background,
           fontSize: computed.fontSize,
           padding: computed.padding,
-          paddingTop: computed.paddingTop,
-          paddingRight: computed.paddingRight,
-          paddingBottom: computed.paddingBottom,
-          paddingLeft: computed.paddingLeft,
           margin: computed.margin,
-          marginTop: computed.marginTop,
-          marginRight: computed.marginRight,
-          marginBottom: computed.marginBottom,
-          marginLeft: computed.marginLeft,
           display: computed.display,
           gap: computed.gap,
           borderRadius: computed.borderRadius,
           fontWeight: computed.fontWeight,
           fontFamily: computed.fontFamily,
+          paddingTop: computed.paddingTop,
+          paddingRight: computed.paddingRight,
+          paddingBottom: computed.paddingBottom,
+          paddingLeft: computed.paddingLeft,
+          marginTop: computed.marginTop,
+          marginRight: computed.marginRight,
+          marginBottom: computed.marginBottom,
+          marginLeft: computed.marginLeft,
         },
-        origins: {},
+        origins: {
+          padding: detectStyleOrigin(target, 'padding'),
+          margin: detectStyleOrigin(target, 'margin'),
+          gap: detectStyleOrigin(target, 'gap'),
+          borderRadius: detectStyleOrigin(target, 'borderRadius'),
+        },
       };
 
       window.__ZEROFOG__.selected = selection;
@@ -845,57 +986,6 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       discardOverrides();
     }
 
-    function emitTokenMaps() {
-      var spacingMap = {};
-      var radiusMap = {};
-      var tokens = ['xs', 'sm', 'md', 'lg', 'xl'];
-      var radiusTokens = ['xs', 'sm', 'md', 'lg', 'xl'];
-
-      // Batch writes: create all sentinel elements via DocumentFragment to avoid layout thrash
-      var fragment = document.createDocumentFragment();
-      var spacingEls = [];
-      var radiusEls = [];
-      var i, j;
-
-      for (i = 0; i < tokens.length; i++) {
-        var el = document.createElement('div');
-        el.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;padding:var(--mantine-spacing-' + tokens[i] + ')';
-        el.setAttribute('data-zerofog-ui', 'true');
-        fragment.appendChild(el);
-        spacingEls.push(el);
-      }
-      for (j = 0; j < radiusTokens.length; j++) {
-        var rEl = document.createElement('div');
-        rEl.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;border-radius:var(--mantine-radius-' + radiusTokens[j] + ')';
-        rEl.setAttribute('data-zerofog-ui', 'true');
-        fragment.appendChild(rEl);
-        radiusEls.push(rEl);
-      }
-
-      document.body.appendChild(fragment);
-
-      // Batch reads: single forced layout for all elements
-      for (i = 0; i < tokens.length; i++) {
-        var computed = window.getComputedStyle(spacingEls[i]).paddingTop;
-        if (computed && computed !== '0px') {
-          spacingMap[computed] = tokens[i];
-        }
-      }
-      for (j = 0; j < radiusTokens.length; j++) {
-        var computedR = window.getComputedStyle(radiusEls[j]).borderTopLeftRadius;
-        if (computedR && computedR !== '0px') {
-          radiusMap[computedR] = radiusTokens[j];
-        }
-      }
-      radiusMap['0px'] = 'none';
-
-      // Cleanup
-      for (i = 0; i < spacingEls.length; i++) spacingEls[i].remove();
-      for (j = 0; j < radiusEls.length; j++) radiusEls[j].remove();
-
-      postToParent('zerofog:token-maps', { spacing: spacingMap, radius: radiusMap });
-    }
-
     function activate() {
       // Idempotent — tear down listeners before re-attaching (preserves override state)
       teardownListeners();
@@ -948,7 +1038,10 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       setupNavListeners();
 
       postToParent('zerofog:ready', null);
-      emitTokenMaps();
+      // TODO(Phase 5): Token maps are built once at activation. Reconnect via
+      // MutationObserver on <html> class changes to detect dark mode toggle
+      // and rebuild maps when Mantine theme variables change at runtime.
+      postToParent('zerofog:token-maps', buildTokenMaps());
     }
 
     var cortexIdCounter = 0;

@@ -5,7 +5,7 @@
  * except SpacingControl which has local state for all/per-side toggle.
  */
 
-import { h, type FunctionComponent } from 'preact';
+import { type FunctionComponent } from 'preact';
 import { useState } from 'preact/hooks';
 import {
   ELEMENT_TYPE_CATEGORIES,
@@ -14,14 +14,12 @@ import {
   RADIUS_TOKENS,
   type SelectionPayload,
   type PendingChange,
-  type WsStatus,
-  type InteractionMode,
 } from './panel-state.js';
 
 // ── PanelHeader ──────────────────────────────────────────────────
 
 export interface PanelHeaderProps {
-  wsStatus: WsStatus;
+  wsStatus: 'connecting' | 'connected' | 'disconnected';
 }
 
 export const PanelHeader: FunctionComponent<PanelHeaderProps> = ({ wsStatus }) => (
@@ -34,17 +32,15 @@ export const PanelHeader: FunctionComponent<PanelHeaderProps> = ({ wsStatus }) =
 // ── ModeToggle ───────────────────────────────────────────────────
 
 export interface ModeToggleProps {
-  mode: InteractionMode;
-  onModeChange: (mode: InteractionMode) => void;
+  mode: 'browse' | 'select';
+  onModeChange: (mode: 'browse' | 'select') => void;
 }
 
 export const ModeToggle: FunctionComponent<ModeToggleProps> = ({ mode, onModeChange }) => (
-  <fieldset class="mode-toggle" role="radiogroup" aria-label="Interaction mode">
+  <div class="mode-toggle">
     <button
       class="mode-btn"
       data-active={String(mode === 'browse')}
-      role="radio"
-      aria-checked={mode === 'browse'}
       onClick={() => onModeChange('browse')}
     >
       Browse
@@ -52,13 +48,11 @@ export const ModeToggle: FunctionComponent<ModeToggleProps> = ({ mode, onModeCha
     <button
       class="mode-btn"
       data-active={String(mode === 'select')}
-      role="radio"
-      aria-checked={mode === 'select'}
       onClick={() => onModeChange('select')}
     >
       Select Element
     </button>
-  </fieldset>
+  </div>
 );
 
 // ── SelectionInfo ────────────────────────────────────────────────
@@ -95,26 +89,17 @@ export interface TokenRowProps {
 }
 
 export const TokenRow: FunctionComponent<TokenRowProps> = ({ tokens, activeToken, changedToken, onSelect }) => (
-  <div class="token-row" role="radiogroup">
+  <div class="token-row">
     {tokens.map(token => {
       let state = 'default';
       if (changedToken === token) state = 'changed';
       else if (activeToken === token) state = 'active';
-      const isChecked = changedToken === token || (changedToken === null && activeToken === token);
       return (
         <button
           key={token}
           class="token-btn"
           data-state={state}
-          role="radio"
-          aria-checked={isChecked}
           onClick={() => onSelect(token)}
-          onKeyDown={(e: KeyboardEvent) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              onSelect(token);
-            }
-          }}
         >
           {token}
         </button>
@@ -153,34 +138,44 @@ export const SpacingControl: FunctionComponent<SpacingControlProps> = ({
     return change?.token ?? null;
   };
 
-  return (
-    <div class="spacing-control">
-      {isSpacing && (
-        <div class="spacing-mode-toggle">
-          <button class="spacing-mode-btn" data-active={String(!perSide)} onClick={() => setPerSide(false)}>All</button>
-          <button class="spacing-mode-btn" data-active={String(perSide)} onClick={() => setPerSide(true)}>Per-side</button>
-        </div>
-      )}
-      {isSpacing && perSide ? (
-        sides.map(sideProp => (
-          <div key={sideProp} class="per-side-row">
-            <span class="per-side-label">{SIDE_LABELS[sideProp] ?? ''}</span>
-            <TokenRow
-              tokens={tokens}
-              activeToken={activeTokens[sideProp] ?? null}
-              changedToken={changedTokenFor(sideProp)}
-              onSelect={(token) => onTokenSelect(sideProp, token)}
-            />
+  if (!isSpacing || !perSide) {
+    // All-sides mode (or non-spacing property like gap, borderRadius)
+    return (
+      <div class="spacing-control">
+        {isSpacing && (
+          <div class="spacing-mode-toggle">
+            <button class="spacing-mode-btn" data-active={String(!perSide)} onClick={() => setPerSide(false)}>All</button>
+            <button class="spacing-mode-btn" data-active={String(perSide)} onClick={() => setPerSide(true)}>Per-side</button>
           </div>
-        ))
-      ) : (
+        )}
         <TokenRow
           tokens={tokens}
           activeToken={activeTokens[property] ?? null}
           changedToken={changedTokenFor(property)}
           onSelect={(token) => onTokenSelect(property, token)}
         />
-      )}
+      </div>
+    );
+  }
+
+  // Per-side mode
+  return (
+    <div class="spacing-control">
+      <div class="spacing-mode-toggle">
+        <button class="spacing-mode-btn" data-active={String(!perSide)} onClick={() => setPerSide(false)}>All</button>
+        <button class="spacing-mode-btn" data-active={String(perSide)} onClick={() => setPerSide(true)}>Per-side</button>
+      </div>
+      {sides.map(sideProp => (
+        <div key={sideProp} class="per-side-row">
+          <span class="per-side-label">{SIDE_LABELS[sideProp] ?? ''}</span>
+          <TokenRow
+            tokens={tokens}
+            activeToken={activeTokens[sideProp] ?? null}
+            changedToken={changedTokenFor(sideProp)}
+            onSelect={(token) => onTokenSelect(sideProp, token)}
+          />
+        </div>
+      ))}
     </div>
   );
 };
@@ -205,7 +200,6 @@ export interface PropertySectionsProps {
   elementType: string;
   activeTokens: Record<string, string | null>;
   pendingChanges: PendingChange[];
-  tokenMaps: unknown | null;
   onTokenSelect: (property: string, token: string) => void;
 }
 
@@ -220,15 +214,10 @@ export const PropertySections: FunctionComponent<PropertySectionsProps> = ({
   elementType,
   activeTokens,
   pendingChanges,
-  tokenMaps,
   onTokenSelect,
 }) => {
   const categories = ELEMENT_TYPE_CATEGORIES[elementType] ?? ELEMENT_TYPE_CATEGORIES['unknown'] ?? [];
   if (categories.length === 0) return null;
-
-  if (tokenMaps === null) {
-    return <div class="token-loading">Loading design tokens...</div>;
-  }
 
   return (
     <div>
@@ -250,7 +239,7 @@ export const PropertySections: FunctionComponent<PropertySectionsProps> = ({
 
 export interface ChangeListProps {
   changes: PendingChange[];
-  onUndo: (property: string) => void;
+  onUndo: () => void;
 }
 
 export const ChangeList: FunctionComponent<ChangeListProps> = ({ changes, onUndo }) => {
@@ -263,9 +252,9 @@ export const ChangeList: FunctionComponent<ChangeListProps> = ({ changes, onUndo
         <div key={change.property} class="change-item">
           <span class="change-item-label">{change.property}</span>
           <span class="change-item-value">{change.token}</span>
-          <button class="change-undo-btn" onClick={() => onUndo(change.property)}>undo</button>
         </div>
       ))}
+      <button class="change-undo-btn" onClick={onUndo}>Undo Last</button>
     </div>
   );
 };
@@ -275,39 +264,29 @@ export const ChangeList: FunctionComponent<ChangeListProps> = ({ changes, onUndo
 export interface ActionBarProps {
   hasChanges: boolean;
   wsConnected: boolean;
-  pipelineStatus: string | null;
   onDiscard: () => void;
   onApply: () => void;
 }
 
-export const ActionBar: FunctionComponent<ActionBarProps> = ({ hasChanges, wsConnected, pipelineStatus, onDiscard, onApply }) => {
-  const isSending = pipelineStatus === 'sending';
-  const isError = pipelineStatus !== null && pipelineStatus.startsWith('error:');
-  const buttonLabel = isSending ? 'Applying...' : isError ? 'Retry' : 'Apply to Code';
-
-  return (
-    <div class="action-bar">
-      {isError && (
-        <div class="action-error">{pipelineStatus!.replace(/^error:\s*/, '')}</div>
-      )}
-      <button class="action-btn" onClick={onDiscard} disabled={!hasChanges}>
-        Discard All
-      </button>
-      <button
-        class="action-btn action-btn-primary"
-        onClick={onApply}
-        disabled={!hasChanges || !wsConnected || isSending}
-      >
-        {buttonLabel}
-      </button>
-    </div>
-  );
-};
+export const ActionBar: FunctionComponent<ActionBarProps> = ({ hasChanges, wsConnected, onDiscard, onApply }) => (
+  <div class="action-bar">
+    <button class="action-btn" onClick={onDiscard} disabled={!hasChanges}>
+      Discard All
+    </button>
+    <button
+      class="action-btn action-btn-primary"
+      onClick={onApply}
+      disabled={!hasChanges || !wsConnected}
+    >
+      Apply to Code
+    </button>
+  </div>
+);
 
 // ── StatusBar ────────────────────────────────────────────────────
 
 export interface StatusBarProps {
-  wsStatus: WsStatus;
+  wsStatus: 'connecting' | 'connected' | 'disconnected';
   pipelineStatus: string | null;
 }
 

@@ -381,6 +381,10 @@ export function createApp(options: ServerOptions): AppContext {
 
     ws.send(JSON.stringify({ type: 'hello' }));
 
+    ws.on('error', (err) => {
+      console.error('[zerofog] ws client error:', err.message);
+    });
+
     ws.on('message', (data: Buffer) => {
       let parsed: unknown;
       try { parsed = JSON.parse(data.toString()); }
@@ -435,18 +439,20 @@ export function attachUpgradeHandler(server: Server, context: AppContext): void 
     const reqHost = hostnameFromHostHeader(req.headers.host ?? '');
     if (!LOOPBACK_HOSTS.has(reqHost)) { socket.destroy(); return; }
 
-    // C1: Validate Origin if present
     const origin = req.headers.origin;
-    if (origin && !isLoopbackOrigin(origin)) { socket.destroy(); return; }
-
     const url = req.url ?? '';
 
     if (url.startsWith('/__zerofog')) {
+      // H5: Defense-in-depth — editor WS requires Origin header.
+      // The real auth boundary is sessionId (randomUUID()); Origin blocks
+      // non-browser clients (curl/scripts) that omit it.
+      if (!origin || !isLoopbackOrigin(origin)) { socket.destroy(); return; }
       editorWss.handleUpgrade(req, socket, head, (ws) => {
         editorWss.emit('connection', ws, req);
       });
     } else {
-      // H5: Runtime guard instead of non-null assertion
+      // Proxy WS: validate Origin if present
+      if (origin && !isLoopbackOrigin(origin)) { socket.destroy(); return; }
       if (typeof proxy.upgrade === 'function') {
         proxy.upgrade(req, socket, head);
       } else {
