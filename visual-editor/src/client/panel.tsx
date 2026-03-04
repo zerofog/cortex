@@ -11,7 +11,7 @@
 import { h, render } from 'preact';
 import { useReducer, useEffect, useCallback, useRef } from 'preact/hooks';
 import type { FunctionComponent } from 'preact';
-import { panelReducer, initialPanelState, resolveTokenToCssValue } from './panel-state.js';
+import { panelReducer, initialPanelState, resolveTokenToCssValue, toKebabCase } from './panel-state.js';
 import type { SelectionPayload, TokenMaps } from './panel-state.js';
 import type { StyleOrigin } from './toolbar.js';
 import { applyPanelStyles } from './panel-styles.js';
@@ -194,17 +194,19 @@ const PanelRoot: FunctionComponent<PanelRootProps> = ({ sessionId, sidecarOrigin
     if (s.undoStack.length === 0) return;
     const top = s.undoStack[s.undoStack.length - 1]!;
     const origin = s.pendingChanges.find(c => c.property === top.property)?.styleOrigin;
+    const originalToken = s.originalTokens[top.property] ?? null;
     dispatch({ type: 'UNDO' });
 
-    if (top.previousToken === null) {
+    const kebabProp = toKebabCase(top.property);
+    if (top.previousToken === null || top.previousToken === originalToken) {
       sendToInspector('inspector:remove-override', {
         elementId: s.selection?.id,
-        cssProperty: top.property,
+        cssProperty: kebabProp,
       });
     } else {
       sendToInspector('inspector:apply-override', {
         elementId: s.selection?.id,
-        cssProperty: top.property,
+        cssProperty: kebabProp,
         cssValue: resolveTokenToCssValue(top.property, top.previousToken, origin),
       });
     }
@@ -216,7 +218,7 @@ const PanelRoot: FunctionComponent<PanelRootProps> = ({ sessionId, sidecarOrigin
     // Side effect: tell inspector to remove the override for this property
     sendToInspector('inspector:remove-override', {
       elementId: state.selection?.id,
-      cssProperty: property,
+      cssProperty: toKebabCase(property),
     });
   }, [state.selection, sendToInspector]);
 
@@ -260,7 +262,7 @@ const PanelRoot: FunctionComponent<PanelRootProps> = ({ sessionId, sidecarOrigin
 
     sendToInspector('inspector:apply-override', {
       elementId: state.selection.id,
-      cssProperty: property,
+      cssProperty: toKebabCase(property),
       cssValue,
     });
   }, [state.selection, sendToInspector]);
@@ -276,6 +278,7 @@ const PanelRoot: FunctionComponent<PanelRootProps> = ({ sessionId, sidecarOrigin
 
     dispatch({ type: 'FINALIZE_START' });
     wsRef.current.send(JSON.stringify({
+      id: crypto.randomUUID(),
       type: 'finalize',
       payload: {
         elementId: state.selection.id,

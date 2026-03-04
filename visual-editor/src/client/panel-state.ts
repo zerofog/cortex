@@ -147,6 +147,11 @@ export function resolveTokenToCssValue(
   return `var(${prefix}${token})`;
 }
 
+/** Convert camelCase property name to kebab-case CSS property name. */
+export function toKebabCase(prop: string): string {
+  return prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
+}
+
 // ── Helpers ──────────────────────────────────────────────────────
 
 function deriveActiveTokens(
@@ -210,29 +215,31 @@ export function panelReducer(state: PanelState, action: PanelAction): PanelState
 
     case 'APPLY_CHANGE': {
       const currentToken = state.activeTokens[action.property] ?? null;
-      const currentCssValue = state.selection?.styles[action.property] ?? '';
+      const existingChange = state.pendingChanges.find(c => c.property === action.property);
+      // Record previous CSS value from the current override (if any), not from original styles
+      const previousCssValue = existingChange?.cssValue ?? state.selection?.styles[action.property] ?? '';
 
       const undoEntry: UndoEntry = {
         property: action.property,
         previousToken: currentToken,
-        previousCssValue: currentCssValue,
+        previousCssValue,
       };
 
-      const existing = state.pendingChanges.findIndex(c => c.property === action.property);
+      const existingIdx = state.pendingChanges.findIndex(c => c.property === action.property);
       let pendingChanges: PendingChange[];
       const change: PendingChange = {
         property: action.property,
         token: action.token,
         previousToken: currentToken,
-        previousCssValue: currentCssValue,
+        previousCssValue,
         cssProperty: action.cssProperty,
         cssValue: action.cssValue,
         styleOrigin: action.styleOrigin,
       };
 
-      if (existing >= 0) {
+      if (existingIdx >= 0) {
         pendingChanges = [...state.pendingChanges];
-        pendingChanges[existing] = change;
+        pendingChanges[existingIdx] = change;
       } else {
         pendingChanges = [...state.pendingChanges, change];
       }

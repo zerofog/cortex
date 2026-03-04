@@ -8,6 +8,7 @@ import {
   RADIUS_TOKENS,
   MAX_UNDO_STACK,
   resolveTokenToCssValue,
+  toKebabCase,
   type PanelState,
   type PanelAction,
   type SelectionPayload,
@@ -121,6 +122,23 @@ describe('resolveTokenToCssValue', () => {
   });
 });
 
+// ── toKebabCase ─────────────────────────────────────────────────
+
+describe('toKebabCase', () => {
+  it('converts camelCase CSS properties to kebab-case', () => {
+    expect(toKebabCase('paddingTop')).toBe('padding-top');
+    expect(toKebabCase('marginLeft')).toBe('margin-left');
+    expect(toKebabCase('borderRadius')).toBe('border-radius');
+    expect(toKebabCase('paddingBottom')).toBe('padding-bottom');
+  });
+
+  it('passes through already-kebab or single-word properties', () => {
+    expect(toKebabCase('padding')).toBe('padding');
+    expect(toKebabCase('margin')).toBe('margin');
+    expect(toKebabCase('gap')).toBe('gap');
+  });
+});
+
 import { vi } from 'vitest';
 
 // ── Reducer ──────────────────────────────────────────────────────
@@ -208,6 +226,24 @@ describe('panelReducer', () => {
     expect(state.pendingChanges[0]!.token).toBe('xl');
     expect(state.undoStack).toHaveLength(2);
     expect(state.activeTokens.padding).toBe('xl');
+  });
+
+  it('APPLY_CHANGE records previousCssValue from current override, not original', () => {
+    const sel = makeSelection();
+    const base = stateWithTokenMaps();
+    let state = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel });
+    // First change: padding md → lg
+    state = panelReducer(state, {
+      type: 'APPLY_CHANGE', property: 'padding', token: 'lg',
+      cssProperty: 'padding', cssValue: 'var(--mantine-spacing-lg)', styleOrigin: { origin: 'unknown' },
+    });
+    // Second change: padding lg → xl (undo should record lg's cssValue, not original 16px)
+    state = panelReducer(state, {
+      type: 'APPLY_CHANGE', property: 'padding', token: 'xl',
+      cssProperty: 'padding', cssValue: 'var(--mantine-spacing-xl)', styleOrigin: { origin: 'unknown' },
+    });
+    // The second undo entry should have the previous override's cssValue
+    expect(state.undoStack[1]!.previousCssValue).toBe('var(--mantine-spacing-lg)');
   });
 
   it('per-side spacing: APPLY_CHANGE for paddingTop does not affect paddingBottom', () => {

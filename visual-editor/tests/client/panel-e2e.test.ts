@@ -35,6 +35,8 @@ function makeSelection(): SelectionPayload {
       color: 'rgb(0,0,0)', background: 'rgb(255,255,255)', fontSize: '16px',
       padding: '16px', margin: '0px', display: 'flex', gap: '8px',
       borderRadius: '4px', fontWeight: '400', fontFamily: 'sans-serif',
+      paddingTop: '16px', paddingRight: '16px', paddingBottom: '16px', paddingLeft: '16px',
+      marginTop: '0px', marginRight: '0px', marginBottom: '0px', marginLeft: '0px',
     },
     origins: {},
   };
