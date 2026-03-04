@@ -99,16 +99,29 @@ function createTestSidecar(targetPort: number): Promise<TestSidecar> {
   });
 }
 
-/** Wait for a single WS message with timeout and cleanup. */
-function waitForWsMessage(ws: WebSocket, timeoutMs = 3000): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    const timer = setTimeout(() => {
+/** Wait for a WS message, optionally filtering by type. Skips non-matching messages. */
+function waitForWsMessage(ws: WebSocket, type?: string, timeoutMs = 3000): Promise<any> {
+  return new Promise<any>((resolve, reject) => {
+    function cleanup() {
+      clearTimeout(timer);
       ws.removeListener('message', onMsg);
-      reject(new Error('WS message timeout'));
+      ws.removeListener('error', onError);
+    }
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(type ? `WS message type '${type}' timeout` : 'WS message timeout'));
     }, timeoutMs);
-    function onMsg(data: Buffer) { clearTimeout(timer); resolve(data.toString()); }
-    ws.once('message', onMsg);
-    ws.once('error', (err) => { clearTimeout(timer); reject(err); });
+    function onMsg(data: Buffer) {
+      let parsed: any;
+      try { parsed = JSON.parse(data.toString()); } catch { return; }
+      if (!type || parsed.type === type) {
+        cleanup();
+        resolve(type ? parsed : data.toString());
+      }
+    }
+    function onError(err: Error) { cleanup(); reject(err); }
+    ws.on('message', onMsg);
+    ws.once('error', onError);
   });
 }
 
@@ -117,6 +130,20 @@ function createEditorWs(port: number): WebSocket {
   return new WebSocket(`ws://127.0.0.1:${port}/__zerofog`, {
     headers: { Origin: `http://127.0.0.1:${port}` },
   });
+}
+
+/** POST to sidecar API with session auth headers. */
+function apiPost(path: string, body?: unknown): Promise<Response> {
+  const headers: Record<string, string> = {
+    Host: `127.0.0.1:${sidecar.port}`,
+    'X-Session-Id': sidecar.context.sessionId,
+  };
+  const init: RequestInit = { method: 'POST', headers };
+  if (body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+    init.body = JSON.stringify(body);
+  }
+  return fetch(sidecar.url + `/__zerofog/api${path}`, init);
 }
 
 /** Complete the auth handshake on an editor WS connection. */
@@ -247,15 +274,11 @@ describe('API', () => {
     expect(data.targetPort).toBe(target.port);
   });
 
-  it('POST /diff returns 501', async () => {
-    const res = await fetch(sidecar.url + '/__zerofog/api/diff', {
-      method: 'POST',
-      headers: {
-        Host: `127.0.0.1:${sidecar.port}`,
-        'X-Session-Id': sidecar.context.sessionId,
-      },
-    });
-    expect(res.status).toBe(501);
+  it('POST /claim returns 409 when idle (no pending diff)', async () => {
+    const res = await apiPost('/claim');
+    expect(res.status).toBe(409);
+    const data = await res.json();
+    expect(data.error).toBe('conflict');
   });
 
   it('POST /shutdown triggers callback', async () => {
@@ -352,15 +375,9 @@ describe('session auth', () => {
     expect(res.status).toBe(200);
   });
 
-  it('POST /complete returns 501 with valid session', async () => {
-    const res = await fetch(sidecar.url + '/__zerofog/api/complete', {
-      method: 'POST',
-      headers: {
-        Host: `127.0.0.1:${sidecar.port}`,
-        'X-Session-Id': sidecar.context.sessionId,
-      },
-    });
-    expect(res.status).toBe(501);
+  it('POST /complete returns 409 when idle', async () => {
+    const res = await apiPost('/complete', { applied: [], failed: [] });
+    expect(res.status).toBe(409);
   });
 });
 
@@ -769,5 +786,258 @@ describe('checkPidFile', () => {
     const pidPath = join(tmpDir, 'self.pid');
     writeFileSync(pidPath, String(process.pid));
     expect(checkPidFile(pidPath)).toBe('alive');
+  });
+});
+
+// ─── Finalize pipeline integration ──────────────────────────────
+
+describe('finalize pipeline', () => {
+  const makeFinalize = (id = 'fin-1') => JSON.stringify({
+    type: 'finalize',
+    id,
+    payload: {
+      elementId: 1,
+      testId: 'btn-submit',
+      componentChain: ['Button', 'Form'],
+      elementType: 'button',
+      changes: [{
+        property: 'padding',
+        token: 'md',
+        previousToken: 'sm',
+        previousCssValue: '8px',
+        cssProperty: 'padding',
+        cssValue: '16px',
+        styleOrigin: { origin: 'unknown' },
+      }],
+    },
+  });
+
+  // C2: Force-reset state machine after each pipeline test to prevent cascading failures
+  afterEach(() => {
+    const sm = sidecar.context.stateManager;
+    const state = sm.getState();
+    if (state === 'pending_diff') {
+      sm.claimDiff();
+      sm.complete({ applied: [], failed: [] });
+    } else if (state === 'processing') {
+      sm.complete({ applied: [], failed: [] });
+    }
+  });
+
+  it('WS finalize returns finalize-result with changeCount', async () => {
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+    ws.send(makeFinalize());
+    const msg = await waitForWsMessage(ws);
+    const parsed = JSON.parse(msg);
+    expect(parsed.type).toBe('finalize-result');
+    expect(parsed.ok).toBe(true);
+    expect(parsed.changeCount).toBe(1);
+    ws.close();
+  });
+
+  it('POST /api/claim after finalize returns AccumulatedDiff', async () => {
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+    ws.send(makeFinalize());
+    await waitForWsMessage(ws); // consume finalize-result
+
+    const res = await apiPost('/claim');
+    expect(res.status).toBe(200);
+    const diff = await res.json();
+    expect(diff.version).toBe(1);
+    expect(diff.elements).toHaveLength(1);
+    expect(diff.elements[0].elementSelector).toBe('[data-testid="btn-submit"]');
+    ws.close();
+  });
+
+  it('POST /api/complete after claim returns 200 and resets to idle', async () => {
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+    ws.send(makeFinalize());
+    await waitForWsMessage(ws);
+
+    await apiPost('/claim');
+
+    const res = await apiPost('/complete', { applied: [0], failed: [] });
+    expect(res.status).toBe(200);
+    const report = await res.json();
+    expect(report.applied).toEqual([0]);
+
+    // Verify state is idle -- POST /claim should return 409
+    const check = await apiPost('/claim');
+    expect(check.status).toBe(409);
+    ws.close();
+  });
+
+  it('WS finalize rejected when processing (conflict)', async () => {
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+
+    // First finalize + claim
+    ws.send(makeFinalize('fin-first'));
+    await waitForWsMessage(ws);
+    await apiPost('/claim');
+
+    // Second finalize should be rejected (state is processing)
+    ws.send(makeFinalize('fin-second'));
+    const msg = await waitForWsMessage(ws);
+    const parsed = JSON.parse(msg);
+    expect(parsed.type).toBe('finalize-result');
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toBe('conflict');
+    ws.close();
+  });
+
+  it('POST /api/complete sends edit-complete to connected WS clients', async () => {
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+
+    // Finalize + claim
+    ws.send(makeFinalize());
+    await waitForWsMessage(ws);
+    await apiPost('/claim');
+
+    // Set up typed WS listener BEFORE the HTTP call to avoid race condition
+    const broadcastPromise = waitForWsMessage(ws, 'edit-complete');
+
+    // Complete -- should broadcast edit-complete to WS
+    await apiPost('/complete', { applied: [0], failed: [] });
+
+    const parsed = await broadcastPromise;
+    expect(parsed.type).toBe('edit-complete');
+    expect(parsed.payload.applied).toEqual([0]);
+    ws.close();
+  });
+
+  it('GET /status includes pipelineState', async () => {
+    const res = await fetch(sidecar.url + '/__zerofog/api/status', {
+      headers: { Host: `127.0.0.1:${sidecar.port}` },
+    });
+    const data = await res.json();
+    expect(data.pipelineState).toBe('idle');
+  });
+
+  // M14: POST /claim auth test — middleware now gates it as a POST endpoint
+  it('POST /claim without X-Session-Id returns 403', async () => {
+    const res = await fetch(sidecar.url + '/__zerofog/api/claim', {
+      method: 'POST',
+      headers: { Host: `127.0.0.1:${sidecar.port}` },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  // H7: Multi-client broadcast test
+  it('edit-complete broadcasts to multiple WS clients', async () => {
+    // Authenticate each client immediately after creation to avoid losing
+    // the 'hello' message while the other client authenticates.
+    const ws1 = createEditorWs(sidecar.port);
+    await authenticateWs(ws1, sidecar.context.sessionId);
+    const ws2 = createEditorWs(sidecar.port);
+    await authenticateWs(ws2, sidecar.context.sessionId);
+
+    // Finalize via ws1
+    ws1.send(makeFinalize());
+    await waitForWsMessage(ws1); // consume finalize-result
+
+    await apiPost('/claim');
+
+    // Set up listeners on both clients BEFORE complete
+    const broadcast1 = waitForWsMessage(ws1, 'edit-complete');
+    const broadcast2 = waitForWsMessage(ws2, 'edit-complete');
+
+    await apiPost('/complete', { applied: [0], failed: [] });
+
+    const [msg1, msg2] = await Promise.all([broadcast1, broadcast2]);
+    expect(msg1.type).toBe('edit-complete');
+    expect(msg2.type).toBe('edit-complete');
+    ws1.close();
+    ws2.close();
+  });
+
+  // M11: Sequential finalize cycle test
+  it('supports 3 sequential finalize -> claim -> complete cycles', async () => {
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+
+    for (let i = 0; i < 3; i++) {
+      ws.send(makeFinalize(`cycle-${i}`));
+      const result = await waitForWsMessage(ws, 'finalize-result');
+      expect(result.ok).toBe(true);
+
+      await apiPost('/claim');
+      await apiPost('/complete', { applied: [i], failed: [] });
+    }
+
+    // Verify final state is idle
+    const status = await fetch(sidecar.url + '/__zerofog/api/status', {
+      headers: { Host: `127.0.0.1:${sidecar.port}` },
+    });
+    const data = await status.json();
+    expect(data.pipelineState).toBe('idle');
+    ws.close();
+  });
+
+  // M13: WAL recovery integration test
+  it('recovers from WAL and completes full cycle', async () => {
+    // Create a fresh sidecar with a writable WAL directory
+    const walDir = mkdtempSync(join(tmpdir(), 'cortex-wal-'));
+    const walPath = join(walDir, 'pending-diff.json');
+
+    // Write a WAL file manually
+    writeFileSync(walPath, JSON.stringify({
+      version: 1,
+      sessionId: 'old-session',
+      elements: [{
+        elementSelector: '[data-testid="recovered"]',
+        componentChain: ['RecoveredComponent'],
+        elementType: 'div',
+        changes: [],
+      }],
+      metadata: { createdAt: new Date().toISOString() },
+    }));
+
+    // Create a StateManager that will discover the WAL
+    const { StateManager } = await import('../../src/state.js');
+    const sm = new StateManager({ sessionId: 'new-session', walDir });
+    sm.recover();
+
+    expect(sm.getState()).toBe('pending_diff');
+    expect(sm.getDiff()!.sessionId).toBe('new-session');
+
+    // Full cycle on recovered diff
+    const claimed = sm.claimDiff();
+    expect(claimed.elements[0]!.elementSelector).toBe('[data-testid="recovered"]');
+
+    const report = sm.complete({ applied: [0], failed: [] });
+    expect(report.applied).toEqual([0]);
+    expect(sm.getState()).toBe('idle');
+
+    sm.dispose();
+    try { rmSync(walDir, { recursive: true }); } catch { /* ignore */ }
+  });
+
+  // WS finalize with invalid payload returns error
+  it('WS finalize with invalid payload returns error', async () => {
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+
+    // Send finalize with string elementId (should fail validation)
+    ws.send(JSON.stringify({
+      type: 'finalize',
+      id: 'bad-fin',
+      payload: {
+        elementId: 'not-a-number',
+        testId: 'btn',
+        componentChain: ['A'],
+        elementType: 'button',
+        changes: [],
+      },
+    }));
+
+    const result = await waitForWsMessage(ws, 'finalize-result');
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('invalid payload');
+    ws.close();
   });
 });

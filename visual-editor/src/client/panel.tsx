@@ -124,9 +124,11 @@ export function PanelRoot({ sessionId, sidecarOrigin }: PanelRootProps): VNode {
         }
         const origins = (payload.origins ?? {}) as Record<string, StyleOrigin>;
         dispatch({ type: 'ELEMENT_SELECTED', selection: payload, origins });
+        sendToInspector('nav-blocker-enable');
       },
       'zerofog:deselected': () => {
         dispatch({ type: 'ELEMENT_DESELECTED' });
+        sendToInspector('nav-blocker-disable');
       },
       'zerofog:token-maps': (payload) => {
         if (!isTokenMaps(payload)) {
@@ -176,6 +178,7 @@ export function PanelRoot({ sessionId, sidecarOrigin }: PanelRootProps): VNode {
           } else if (msg.type === 'finalize-result') {
             if (msg.ok) {
               dispatch({ type: 'FINALIZE_SUCCESS' });
+              sendToInspector('nav-blocker-disable');
             } else {
               dispatch({ type: 'FINALIZE_ERROR', error: String(msg.error ?? 'unknown') });
             }
@@ -285,6 +288,7 @@ export function PanelRoot({ sessionId, sidecarOrigin }: PanelRootProps): VNode {
   const handleDiscard = useCallback(() => {
     dispatch({ type: 'DISCARD_ALL' });
     sendToInspector('inspector:discard-overrides');
+    sendToInspector('nav-blocker-disable');
   }, [sendToInspector]);
 
   const handleApply = useCallback(() => {
