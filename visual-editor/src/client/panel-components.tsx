@@ -14,12 +14,14 @@ import {
   RADIUS_TOKENS,
   type SelectionPayload,
   type PendingChange,
+  type WsStatus,
+  type InteractionMode,
 } from './panel-state.js';
 
 // ── PanelHeader ──────────────────────────────────────────────────
 
 export interface PanelHeaderProps {
-  wsStatus: 'connecting' | 'connected' | 'disconnected';
+  wsStatus: WsStatus;
 }
 
 export const PanelHeader: FunctionComponent<PanelHeaderProps> = ({ wsStatus }) => (
@@ -32,8 +34,8 @@ export const PanelHeader: FunctionComponent<PanelHeaderProps> = ({ wsStatus }) =
 // ── ModeToggle ───────────────────────────────────────────────────
 
 export interface ModeToggleProps {
-  mode: 'browse' | 'select';
-  onModeChange: (mode: 'browse' | 'select') => void;
+  mode: InteractionMode;
+  onModeChange: (mode: InteractionMode) => void;
 }
 
 export const ModeToggle: FunctionComponent<ModeToggleProps> = ({ mode, onModeChange }) => (
@@ -144,54 +146,41 @@ export const SpacingControl: FunctionComponent<SpacingControlProps> = ({
   const [perSide, setPerSide] = useState(false);
   const sides = PER_SIDE_MAP[property];
   const isSpacing = !!sides;
-  const tokens = property === 'border-radius' || property === 'borderRadius'
-    ? RADIUS_TOKENS
-    : SPACING_TOKENS;
+  const tokens = property === 'borderRadius' ? RADIUS_TOKENS : SPACING_TOKENS;
 
   const changedTokenFor = (prop: string): string | null => {
     const change = pendingChanges.find(c => c.property === prop);
     return change?.token ?? null;
   };
 
-  if (!isSpacing || !perSide) {
-    // All-sides mode (or non-spacing property like gap, borderRadius)
-    const activeProp = property === 'border-radius' ? 'borderRadius' : property;
-    return (
-      <div class="spacing-control">
-        {isSpacing && (
-          <div class="spacing-mode-toggle">
-            <button class="spacing-mode-btn" data-active={String(!perSide)} onClick={() => setPerSide(false)}>All</button>
-            <button class="spacing-mode-btn" data-active={String(perSide)} onClick={() => setPerSide(true)}>Per-side</button>
-          </div>
-        )}
-        <TokenRow
-          tokens={tokens}
-          activeToken={activeTokens[activeProp] ?? null}
-          changedToken={changedTokenFor(activeProp)}
-          onSelect={(token) => onTokenSelect(activeProp, token)}
-        />
-      </div>
-    );
-  }
-
-  // Per-side mode
   return (
     <div class="spacing-control">
-      <div class="spacing-mode-toggle">
-        <button class="spacing-mode-btn" data-active={String(!perSide)} onClick={() => setPerSide(false)}>All</button>
-        <button class="spacing-mode-btn" data-active={String(perSide)} onClick={() => setPerSide(true)}>Per-side</button>
-      </div>
-      {sides.map(sideProp => (
-        <div key={sideProp} class="per-side-row">
-          <span class="per-side-label">{SIDE_LABELS[sideProp] ?? ''}</span>
-          <TokenRow
-            tokens={tokens}
-            activeToken={activeTokens[sideProp] ?? null}
-            changedToken={changedTokenFor(sideProp)}
-            onSelect={(token) => onTokenSelect(sideProp, token)}
-          />
+      {isSpacing && (
+        <div class="spacing-mode-toggle">
+          <button class="spacing-mode-btn" data-active={String(!perSide)} onClick={() => setPerSide(false)}>All</button>
+          <button class="spacing-mode-btn" data-active={String(perSide)} onClick={() => setPerSide(true)}>Per-side</button>
         </div>
-      ))}
+      )}
+      {isSpacing && perSide ? (
+        sides.map(sideProp => (
+          <div key={sideProp} class="per-side-row">
+            <span class="per-side-label">{SIDE_LABELS[sideProp] ?? ''}</span>
+            <TokenRow
+              tokens={tokens}
+              activeToken={activeTokens[sideProp] ?? null}
+              changedToken={changedTokenFor(sideProp)}
+              onSelect={(token) => onTokenSelect(sideProp, token)}
+            />
+          </div>
+        ))
+      ) : (
+        <TokenRow
+          tokens={tokens}
+          activeToken={activeTokens[property] ?? null}
+          changedToken={changedTokenFor(property)}
+          onSelect={(token) => onTokenSelect(property, token)}
+        />
+      )}
     </div>
   );
 };
@@ -221,10 +210,10 @@ export interface PropertySectionsProps {
 }
 
 const SECTION_TITLES: Record<string, string> = {
-  'padding': 'Padding',
-  'margin': 'Margin',
-  'gap': 'Gap',
-  'border-radius': 'Border Radius',
+  padding: 'Padding',
+  margin: 'Margin',
+  gap: 'Gap',
+  borderRadius: 'Border Radius',
 };
 
 export const PropertySections: FunctionComponent<PropertySectionsProps> = ({
@@ -318,7 +307,7 @@ export const ActionBar: FunctionComponent<ActionBarProps> = ({ hasChanges, wsCon
 // ── StatusBar ────────────────────────────────────────────────────
 
 export interface StatusBarProps {
-  wsStatus: 'connecting' | 'connected' | 'disconnected';
+  wsStatus: WsStatus;
   pipelineStatus: string | null;
 }
 

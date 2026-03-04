@@ -5,11 +5,15 @@
  * (postMessage, WS sends) are handled by the component layer after dispatch.
  */
 
+import { TOOLBAR_SIZES, RADIUS_SIZES, reverseTokenLookup } from './toolbar.js';
 import type { TokenMaps, StyleOrigin } from './toolbar.js';
 
 // ── Types ────────────────────────────────────────────────────────
 
 export type { TokenMaps, StyleOrigin };
+
+export type WsStatus = 'connecting' | 'connected' | 'disconnected';
+export type InteractionMode = 'browse' | 'select';
 
 export interface SelectionPayload {
   id: number;
@@ -45,27 +49,27 @@ export interface UndoEntry {
 }
 
 export interface PanelState {
-  mode: 'browse' | 'select';
+  mode: InteractionMode;
   selection: SelectionPayload | null;
-  origins: Record<string, StyleOrigin> | null;
   tokenMaps: TokenMaps | null;
   activeTokens: Record<string, string | null>;
+  originalTokens: Record<string, string | null>;
   pendingChanges: PendingChange[];
   undoStack: UndoEntry[];
-  wsStatus: 'connecting' | 'connected' | 'disconnected';
+  wsStatus: WsStatus;
   pipelineStatus: string | null;
 }
 
 export type PanelAction =
-  | { type: 'SET_MODE'; mode: 'browse' | 'select' }
-  | { type: 'ELEMENT_SELECTED'; selection: SelectionPayload; origins: Record<string, StyleOrigin> }
+  | { type: 'SET_MODE'; mode: InteractionMode }
+  | { type: 'ELEMENT_SELECTED'; selection: SelectionPayload }
   | { type: 'ELEMENT_DESELECTED' }
   | { type: 'APPLY_CHANGE'; property: string; token: string; cssProperty: string; cssValue: string; styleOrigin: StyleOrigin }
   | { type: 'UNDO' }
   | { type: 'UNDO_PROPERTY'; property: string }
   | { type: 'DISCARD_ALL' }
   | { type: 'TOKEN_MAPS_LOADED'; tokenMaps: TokenMaps }
-  | { type: 'WS_STATUS'; status: 'connecting' | 'connected' | 'disconnected' }
+  | { type: 'WS_STATUS'; status: WsStatus }
   | { type: 'FINALIZE_START' }
   | { type: 'FINALIZE_SUCCESS' }
   | { type: 'FINALIZE_ERROR'; error: string };
@@ -76,12 +80,12 @@ export type PanelAction =
 export const ELEMENT_TYPE_CATEGORIES: Record<string, string[]> = {
   icon: [],
   text: ['margin'],
-  interactive: ['padding', 'border-radius'],
-  container: ['padding', 'margin', 'gap', 'border-radius'],
-  input: ['border-radius'],
-  feedback: ['border-radius'],
+  interactive: ['padding', 'borderRadius'],
+  container: ['padding', 'margin', 'gap', 'borderRadius'],
+  input: ['borderRadius'],
+  feedback: ['borderRadius'],
   layout: ['gap', 'padding'],
-  unknown: ['padding', 'margin', 'gap', 'border-radius'],
+  unknown: ['padding', 'margin', 'gap', 'borderRadius'],
 };
 
 /** Per-side CSS property names for spacing properties. */
@@ -90,8 +94,8 @@ export const PER_SIDE_MAP: Record<string, string[]> = {
   margin: ['marginTop', 'marginRight', 'marginBottom', 'marginLeft'],
 };
 
-export const SPACING_TOKENS = ['xs', 'sm', 'md', 'lg', 'xl'] as const;
-export const RADIUS_TOKENS = ['none', 'xs', 'sm', 'md', 'lg', 'xl'] as const;
+export const SPACING_TOKENS = TOOLBAR_SIZES;
+export const RADIUS_TOKENS = RADIUS_SIZES;
 
 export const MAX_UNDO_STACK = 50;
 
@@ -153,9 +157,9 @@ function deriveActiveTokens(
   const tokens: Record<string, string | null> = {};
 
   for (const [prop, value] of Object.entries(styles)) {
-    const isRadius = prop === 'borderRadius';
-    const map = isRadius ? tokenMaps.radius : tokenMaps.spacing;
-    tokens[prop] = map[value] ?? null;
+    if (!(prop in VAR_PREFIX)) continue;
+    const category = prop === 'borderRadius' ? 'radius' : 'spacing';
+    tokens[prop] = reverseTokenLookup(tokenMaps, category, value);
   }
 
   return tokens;
@@ -166,9 +170,9 @@ function deriveActiveTokens(
 export const initialPanelState: PanelState = {
   mode: 'browse',
   selection: null,
-  origins: null,
   tokenMaps: null,
   activeTokens: {},
+  originalTokens: {},
   pendingChanges: [],
   undoStack: [],
   wsStatus: 'disconnected',
@@ -187,8 +191,8 @@ export function panelReducer(state: PanelState, action: PanelAction): PanelState
       return {
         ...state,
         selection: action.selection,
-        origins: action.origins,
         activeTokens,
+        originalTokens: activeTokens,
         pendingChanges: [],
         undoStack: [],
       };
@@ -198,8 +202,8 @@ export function panelReducer(state: PanelState, action: PanelAction): PanelState
       return {
         ...state,
         selection: null,
-        origins: null,
         activeTokens: {},
+        originalTokens: {},
         pendingChanges: [],
         undoStack: [],
       };
@@ -249,19 +253,13 @@ export function panelReducer(state: PanelState, action: PanelAction): PanelState
       const stack = [...state.undoStack];
       const entry = stack.pop()!;
 
-      // Revert activeTokens
       const activeTokens = { ...state.activeTokens, [entry.property]: entry.previousToken };
-
-      // Revert pending changes: if previousToken matches original derived token, remove the change
-      const originalToken = state.selection
-        ? deriveActiveTokens(state.selection.styles, state.tokenMaps)[entry.property] ?? null
-        : null;
+      const originalToken = state.originalTokens[entry.property] ?? null;
 
       let pendingChanges: PendingChange[];
       if (entry.previousToken === originalToken) {
         pendingChanges = state.pendingChanges.filter(c => c.property !== entry.property);
       } else {
-        // Update the pending change to the previous token
         pendingChanges = state.pendingChanges.map(c => {
           if (c.property !== entry.property) return c;
           return { ...c, token: entry.previousToken ?? '', cssValue: entry.previousCssValue };
@@ -272,9 +270,7 @@ export function panelReducer(state: PanelState, action: PanelAction): PanelState
     }
 
     case 'UNDO_PROPERTY': {
-      const originalToken = state.selection
-        ? deriveActiveTokens(state.selection.styles, state.tokenMaps)[action.property] ?? null
-        : null;
+      const originalToken = state.originalTokens[action.property] ?? null;
       return {
         ...state,
         undoStack: state.undoStack.filter(e => e.property !== action.property),
@@ -283,12 +279,8 @@ export function panelReducer(state: PanelState, action: PanelAction): PanelState
       };
     }
 
-    case 'DISCARD_ALL': {
-      const activeTokens = state.selection
-        ? deriveActiveTokens(state.selection.styles, state.tokenMaps)
-        : {};
-      return { ...state, pendingChanges: [], undoStack: [], activeTokens, pipelineStatus: null };
-    }
+    case 'DISCARD_ALL':
+      return { ...state, pendingChanges: [], undoStack: [], activeTokens: { ...state.originalTokens }, pipelineStatus: null };
 
     case 'TOKEN_MAPS_LOADED':
       return { ...state, tokenMaps: action.tokenMaps };

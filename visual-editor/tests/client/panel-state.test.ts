@@ -64,7 +64,7 @@ describe('Constants', () => {
     expect(ELEMENT_TYPE_CATEGORIES.container).toContain('padding');
     expect(ELEMENT_TYPE_CATEGORIES.container).toContain('margin');
     expect(ELEMENT_TYPE_CATEGORIES.container).toContain('gap');
-    expect(ELEMENT_TYPE_CATEGORIES.container).toContain('border-radius');
+    expect(ELEMENT_TYPE_CATEGORIES.container).toContain('borderRadius');
     // icon gets nothing
     expect(ELEMENT_TYPE_CATEGORIES.icon).toHaveLength(0);
   });
@@ -136,9 +136,8 @@ describe('panelReducer', () => {
   it('ELEMENT_SELECTED stores selection and derives activeTokens', () => {
     const sel = makeSelection();
     const base = stateWithTokenMaps();
-    const state = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel, origins: {} });
+    const state = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel });
     expect(state.selection).toBe(sel);
-    expect(state.origins).toEqual({});
     // padding is 16px → 'md' via token maps
     expect(state.activeTokens.padding).toBe('md');
     expect(state.activeTokens.gap).toBe('sm'); // 8px → sm
@@ -151,7 +150,7 @@ describe('panelReducer', () => {
       pendingChanges: [{ property: 'padding', token: 'lg', previousToken: 'md', previousCssValue: '16px', cssProperty: 'padding', cssValue: 'var(--mantine-spacing-lg)', styleOrigin: { origin: 'unknown' } }],
       undoStack: [{ property: 'padding', previousToken: 'md', previousCssValue: '16px' }],
     });
-    const state = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel, origins: {} });
+    const state = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel });
     expect(state.pendingChanges).toHaveLength(0);
     expect(state.undoStack).toHaveLength(0);
   });
@@ -161,14 +160,13 @@ describe('panelReducer', () => {
   it('ELEMENT_DESELECTED resets all selection state', () => {
     const sel = makeSelection();
     const base = stateWithTokenMaps();
-    let state = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel, origins: {} });
+    let state = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel });
     state = panelReducer(state, {
       type: 'APPLY_CHANGE', property: 'padding', token: 'lg',
       cssProperty: 'padding', cssValue: 'var(--mantine-spacing-lg)', styleOrigin: { origin: 'unknown' },
     });
     state = panelReducer(state, { type: 'ELEMENT_DESELECTED' });
     expect(state.selection).toBeNull();
-    expect(state.origins).toBeNull();
     expect(state.activeTokens).toEqual({});
     expect(state.pendingChanges).toHaveLength(0);
     expect(state.undoStack).toHaveLength(0);
@@ -177,7 +175,7 @@ describe('panelReducer', () => {
   it('APPLY_CHANGE pushes undo and upserts pendingChanges', () => {
     const sel = makeSelection();
     const base = stateWithTokenMaps();
-    const withSelection = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel, origins: {} });
+    const withSelection = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel });
     const state = panelReducer(withSelection, {
       type: 'APPLY_CHANGE',
       property: 'padding',
@@ -196,7 +194,7 @@ describe('panelReducer', () => {
   it('APPLY_CHANGE upserts existing pending change for same property', () => {
     const sel = makeSelection();
     const base = stateWithTokenMaps();
-    let state = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel, origins: {} });
+    let state = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel });
     state = panelReducer(state, {
       type: 'APPLY_CHANGE', property: 'padding', token: 'lg',
       cssProperty: 'padding', cssValue: 'var(--mantine-spacing-lg)', styleOrigin: { origin: 'unknown' },
@@ -215,7 +213,7 @@ describe('panelReducer', () => {
   it('per-side spacing: APPLY_CHANGE for paddingTop does not affect paddingBottom', () => {
     const sel = makeSelection();
     const base = stateWithTokenMaps();
-    let state = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel, origins: {} });
+    let state = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel });
     state = panelReducer(state, {
       type: 'APPLY_CHANGE', property: 'paddingTop', token: 'xs',
       cssProperty: 'paddingTop', cssValue: 'var(--mantine-spacing-xs)', styleOrigin: { origin: 'unknown' },
@@ -230,7 +228,7 @@ describe('panelReducer', () => {
   it('APPLY_CHANGE caps undo stack at MAX_UNDO_STACK', () => {
     const sel = makeSelection();
     const base = stateWithTokenMaps();
-    let state = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel, origins: {} });
+    let state = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel });
     // Push 60 entries
     for (let i = 0; i < 60; i++) {
       state = panelReducer(state, {
@@ -244,7 +242,7 @@ describe('panelReducer', () => {
   it('UNDO pops stack and reverts change', () => {
     const sel = makeSelection();
     const base = stateWithTokenMaps();
-    let state = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel, origins: {} });
+    let state = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel });
     state = panelReducer(state, {
       type: 'APPLY_CHANGE', property: 'padding', token: 'lg',
       cssProperty: 'padding', cssValue: 'var(--mantine-spacing-lg)', styleOrigin: { origin: 'unknown' },
@@ -267,7 +265,7 @@ describe('panelReducer', () => {
   it('UNDO_PROPERTY reverts specific property and leaves others intact', () => {
     const sel = makeSelection();
     const base = stateWithTokenMaps();
-    let state = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel, origins: {} });
+    let state = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel });
     // Apply changes to two different properties
     state = panelReducer(state, {
       type: 'APPLY_CHANGE', property: 'padding', token: 'lg',
@@ -292,7 +290,7 @@ describe('panelReducer', () => {
   it('DISCARD_ALL clears pendingChanges, undoStack, and pipelineStatus (M5)', () => {
     const sel = makeSelection();
     const base = stateWithTokenMaps({ pipelineStatus: 'sending' });
-    let state = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel, origins: {} });
+    let state = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel });
     state = panelReducer(state, {
       type: 'APPLY_CHANGE', property: 'padding', token: 'lg',
       cssProperty: 'padding', cssValue: 'var(--mantine-spacing-lg)', styleOrigin: { origin: 'unknown' },

@@ -12,7 +12,7 @@ import { h, render } from 'preact';
 import { useReducer, useEffect, useCallback, useRef } from 'preact/hooks';
 import type { FunctionComponent } from 'preact';
 import { panelReducer, initialPanelState, resolveTokenToCssValue } from './panel-state.js';
-import type { PanelState, PanelAction, SelectionPayload, TokenMaps } from './panel-state.js';
+import type { SelectionPayload, TokenMaps } from './panel-state.js';
 import type { StyleOrigin } from './toolbar.js';
 import { applyPanelStyles } from './panel-styles.js';
 import {
@@ -94,8 +94,7 @@ const PanelRoot: FunctionComponent<PanelRootProps> = ({ sessionId, sidecarOrigin
       },
       'zerofog:selected': (payload) => {
         const selection = payload as unknown as SelectionPayload;
-        const origins = (payload.origins ?? {}) as Record<string, StyleOrigin>;
-        dispatch({ type: 'ELEMENT_SELECTED', selection, origins });
+        dispatch({ type: 'ELEMENT_SELECTED', selection });
       },
       'zerofog:deselected': () => {
         dispatch({ type: 'ELEMENT_DESELECTED' });
@@ -185,26 +184,31 @@ const PanelRoot: FunctionComponent<PanelRootProps> = ({ sessionId, sidecarOrigin
     };
   }, [sidecarOrigin, sessionId]);
 
+  // ── Refs for stable undo callback (avoids re-registering keydown on every state change) ──
+  const stateRef = useRef(state);
+  useEffect(() => { stateRef.current = state; }, [state]);
+
   // ── Shared undo logic (H3: deduplicated) ─────────────────────────
   const performUndo = useCallback(() => {
-    if (state.undoStack.length === 0) return;
-    const top = state.undoStack[state.undoStack.length - 1]!;
-    const origin = state.pendingChanges.find(c => c.property === top.property)?.styleOrigin;
+    const s = stateRef.current;
+    if (s.undoStack.length === 0) return;
+    const top = s.undoStack[s.undoStack.length - 1]!;
+    const origin = s.pendingChanges.find(c => c.property === top.property)?.styleOrigin;
     dispatch({ type: 'UNDO' });
 
     if (top.previousToken === null) {
       sendToInspector('inspector:remove-override', {
-        elementId: state.selection?.id,
+        elementId: s.selection?.id,
         cssProperty: top.property,
       });
     } else {
       sendToInspector('inspector:apply-override', {
-        elementId: state.selection?.id,
+        elementId: s.selection?.id,
         cssProperty: top.property,
         cssValue: resolveTokenToCssValue(top.property, top.previousToken, origin),
       });
     }
-  }, [state.undoStack, state.pendingChanges, state.selection, sendToInspector]);
+  }, [sendToInspector]);
 
   // ── Per-property undo (H2) ──────────────────────────────────────
   const handleUndoProperty = useCallback((property: string) => {
@@ -242,7 +246,7 @@ const PanelRoot: FunctionComponent<PanelRootProps> = ({ sessionId, sidecarOrigin
 
   const handleTokenSelect = useCallback((property: string, token: string) => {
     if (!state.selection) return;
-    const origin = state.origins?.[property] ?? { origin: 'unknown' as const };
+    const origin = state.selection.origins?.[property] ?? { origin: 'unknown' as const };
     const cssValue = resolveTokenToCssValue(property, token, origin);
 
     dispatch({
@@ -254,13 +258,12 @@ const PanelRoot: FunctionComponent<PanelRootProps> = ({ sessionId, sidecarOrigin
       styleOrigin: origin,
     });
 
-    // Side effect: live preview via inspector
     sendToInspector('inspector:apply-override', {
       elementId: state.selection.id,
       cssProperty: property,
       cssValue,
     });
-  }, [state.selection, state.origins, sendToInspector]);
+  }, [state.selection, sendToInspector]);
 
   const handleDiscard = useCallback(() => {
     dispatch({ type: 'DISCARD_ALL' });

@@ -81,7 +81,7 @@ describe('End-to-end message flow', () => {
 
     // Step 5: User selects an element
     const selection = makeSelection();
-    state = panelReducer(state, { type: 'ELEMENT_SELECTED', selection, origins: {} });
+    state = panelReducer(state, { type: 'ELEMENT_SELECTED', selection });
     expect(state.selection).toBe(selection);
     expect(state.activeTokens.padding).toBe('md'); // 16px → md
 
@@ -153,7 +153,7 @@ describe('End-to-end message flow', () => {
   it('simulates discard flow', () => {
     let state: PanelState = { ...initialPanelState, tokenMaps: makeTokenMaps() };
     const selection = makeSelection();
-    state = panelReducer(state, { type: 'ELEMENT_SELECTED', selection, origins: {} });
+    state = panelReducer(state, { type: 'ELEMENT_SELECTED', selection });
 
     // Apply two changes
     state = panelReducer(state, {
@@ -179,7 +179,7 @@ describe('End-to-end message flow', () => {
   it('simulates error recovery flow', () => {
     let state: PanelState = { ...initialPanelState, tokenMaps: makeTokenMaps(), wsStatus: 'connected' };
     const selection = makeSelection();
-    state = panelReducer(state, { type: 'ELEMENT_SELECTED', selection, origins: {} });
+    state = panelReducer(state, { type: 'ELEMENT_SELECTED', selection });
 
     state = panelReducer(state, {
       type: 'APPLY_CHANGE', property: 'padding', token: 'lg',

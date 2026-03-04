@@ -476,7 +476,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     }
 
     function ensureOverrideStyle() {
-      if (overrideStyleEl && document.head.contains(overrideStyleEl)) return;
+      if (overrideStyleEl && overrideStyleEl.parentNode) return;
       overrideStyleEl = document.createElement('style');
       overrideStyleEl.id = '__zerofog_overrides__';
       overrideStyleEl.setAttribute('data-zerofog-ui', 'true');
@@ -493,30 +493,49 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       var radiusMap = {};
       var tokens = ['xs', 'sm', 'md', 'lg', 'xl'];
       var radiusTokens = ['xs', 'sm', 'md', 'lg', 'xl'];
-      var sentinel = document.createElement('div');
-      sentinel.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;';
-      sentinel.setAttribute('data-zerofog-ui', 'true');
-      document.body.appendChild(sentinel);
 
-      for (var i = 0; i < tokens.length; i++) {
-        sentinel.style.padding = 'var(--mantine-spacing-' + tokens[i] + ')';
-        var computed = window.getComputedStyle(sentinel).paddingTop;
+      // Batch writes: create separate elements for each token to avoid layout thrash
+      var fragment = document.createDocumentFragment();
+      var spacingEls = [];
+      var radiusEls = [];
+      var i, j;
+
+      for (i = 0; i < tokens.length; i++) {
+        var el = document.createElement('div');
+        el.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;padding:var(--mantine-spacing-' + tokens[i] + ')';
+        el.setAttribute('data-zerofog-ui', 'true');
+        fragment.appendChild(el);
+        spacingEls.push(el);
+      }
+      for (j = 0; j < radiusTokens.length; j++) {
+        var rEl = document.createElement('div');
+        rEl.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;border-radius:var(--mantine-radius-' + radiusTokens[j] + ')';
+        rEl.setAttribute('data-zerofog-ui', 'true');
+        fragment.appendChild(rEl);
+        radiusEls.push(rEl);
+      }
+
+      document.body.appendChild(fragment);
+
+      // Batch reads: single forced layout for all elements
+      for (i = 0; i < tokens.length; i++) {
+        var computed = window.getComputedStyle(spacingEls[i]).paddingTop;
         if (computed && computed !== '0px') {
           spacingMap[computed] = tokens[i];
         }
       }
-      for (var j = 0; j < radiusTokens.length; j++) {
-        sentinel.style.padding = '0';
-        sentinel.style.borderRadius = 'var(--mantine-radius-' + radiusTokens[j] + ')';
-        var computedR = window.getComputedStyle(sentinel).borderTopLeftRadius;
+      for (j = 0; j < radiusTokens.length; j++) {
+        var computedR = window.getComputedStyle(radiusEls[j]).borderTopLeftRadius;
         if (computedR && computedR !== '0px') {
           radiusMap[computedR] = radiusTokens[j];
         }
       }
-      // Add 'none' for radius
       radiusMap['0px'] = 'none';
 
-      sentinel.remove();
+      // Cleanup
+      for (i = 0; i < spacingEls.length; i++) spacingEls[i].remove();
+      for (j = 0; j < radiusEls.length; j++) radiusEls[j].remove();
+
       postToParent('zerofog:token-maps', { spacing: spacingMap, radius: radiusMap });
     }
 
