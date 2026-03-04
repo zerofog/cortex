@@ -7,3 +7,4 @@ dist/
 .env*
 CLAUDE.md
 manual-test.ts
+.cortex/
