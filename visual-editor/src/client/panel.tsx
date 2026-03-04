@@ -11,7 +11,7 @@
 import { h, render } from 'preact';
 import { useReducer, useEffect, useCallback, useRef } from 'preact/hooks';
 import type { FunctionComponent } from 'preact';
-import { panelReducer, initialPanelState, resolveTokenToCssValue, toKebabCase } from './panel-state.js';
+import { panelReducer, initialPanelState, resolveTokenToCssValue } from './panel-state.js';
 import type { SelectionPayload, TokenMaps } from './panel-state.js';
 import type { StyleOrigin } from './toolbar.js';
 import { applyPanelStyles } from './panel-styles.js';
@@ -197,16 +197,15 @@ const PanelRoot: FunctionComponent<PanelRootProps> = ({ sessionId, sidecarOrigin
     const originalToken = s.originalTokens[top.property] ?? null;
     dispatch({ type: 'UNDO' });
 
-    const kebabProp = toKebabCase(top.property);
     if (top.previousToken === null || top.previousToken === originalToken) {
       sendToInspector('inspector:remove-override', {
         elementId: s.selection?.id,
-        cssProperty: kebabProp,
+        cssProperty: top.property,
       });
     } else {
       sendToInspector('inspector:apply-override', {
         elementId: s.selection?.id,
-        cssProperty: kebabProp,
+        cssProperty: top.property,
         cssValue: resolveTokenToCssValue(top.property, top.previousToken, origin),
       });
     }
@@ -218,7 +217,7 @@ const PanelRoot: FunctionComponent<PanelRootProps> = ({ sessionId, sidecarOrigin
     // Side effect: tell inspector to remove the override for this property
     sendToInspector('inspector:remove-override', {
       elementId: state.selection?.id,
-      cssProperty: toKebabCase(property),
+      cssProperty: property,
     });
   }, [state.selection, sendToInspector]);
 
@@ -262,7 +261,7 @@ const PanelRoot: FunctionComponent<PanelRootProps> = ({ sessionId, sidecarOrigin
 
     sendToInspector('inspector:apply-override', {
       elementId: state.selection.id,
-      cssProperty: toKebabCase(property),
+      cssProperty: property,
       cssValue,
     });
   }, [state.selection, sendToInspector]);
