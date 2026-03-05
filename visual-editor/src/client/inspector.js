@@ -10,13 +10,24 @@
  *
  * Template variables (replaced by server at injection time):
  *   SESSION_ID, SIDECAR_ORIGIN
+ *
+ * H8: Framework hardcoding constraint
+ * This module contains React-specific fiber traversal (walkComponentChain,
+ * getComponentName, detectStyleOrigin) and Mantine-specific token resolution
+ * (TOKEN_VAR_PREFIX, buildTokenMaps). These are intentionally hardcoded for v1.
+ * Multi-framework support (Vue, Svelte, Angular, Tailwind-native) is planned
+ * in the native rendering overrides spec (2026-03-01). When adding framework
+ * support, extract framework-specific logic into strategy objects keyed by
+ * framework detection results.
  */
 
 // ── Template variables (server-replaced) ─────────────────────────
 
 var SESSION_ID = '__SESSION_ID__';
-var SIDECAR_ORIGIN = '__SIDECAR_ORIGIN__';
-var TEMPLATE_OK = SESSION_ID.indexOf('__') !== 0 && SIDECAR_ORIGIN.indexOf('__') !== 0;
+// H8: Derive origin at runtime to handle localhost/127.0.0.1/::1 variations.
+// Session ID (randomUUID) is the real auth boundary; origin is defense-in-depth.
+var SIDECAR_ORIGIN = (typeof window !== 'undefined' && window.location) ? window.location.origin : '';
+var TEMPLATE_OK = SESSION_ID.indexOf('__') !== 0;
 
 // ── Constants ────────────────────────────────────────────────────
 
@@ -24,8 +35,6 @@ var MAX_CHAIN_DEPTH = 20;
 var MAX_ANCESTOR_DEPTH = 50;
 var MAX_ELEMENT_MAP_SIZE = 50;
 var MSG_VERSION = 1;
-var FIBER_TAG_FUNCTION = 0;
-var FIBER_TAG_CLASS = 1;
 
 var ALLOWED_CSS_PROPERTIES = new Set([
   'color', 'background', 'fontSize', 'padding', 'margin',
@@ -78,12 +87,16 @@ var OVERRIDE_STYLE_ID = 'zerofog-override-styles';
  * Escape special characters for use inside a CSS attribute-value selector.
  * E.g. `card"panel` → `card\"panel`, `path\to` → `path\\to`
  *
- * Scope: escapes backslash and double-quote only. Does NOT handle null bytes,
- * control characters, or other Unicode edge cases. testId values are
- * developer-controlled strings that should not contain such characters.
+ * Phase 9: Also escapes `]` (breaks out of attribute selector) and strips
+ * null bytes (CSS parsing poison). testId values are developer-controlled
+ * but defence-in-depth is warranted for selector injection prevention.
  */
 function escapeAttrValue(val) {
-  return val.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return val
+    .replace(/\0/g, '')
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/]/g, '\\]');
 }
 
 function getComponentName(fiber) {
@@ -91,7 +104,7 @@ function getComponentName(fiber) {
   var type = fiber.type;
   if (typeof type === 'string') return null;
   var depth = 0;
-  while (type && depth < 5) {
+  while (type && depth < 10) {
     if (type.displayName || type.name) return type.displayName || type.name;
     if (type.render && typeof type.render === 'function') {
       return type.render.displayName || type.render.name || null;
@@ -371,6 +384,8 @@ function parseDeclarations(body, target) {
     if (colonIdx === -1) continue;
     var prop = decl.substring(0, colonIdx).trim();
     var val = decl.substring(colonIdx + 1).trim();
+    // M: Strip existing !important to prevent doubling on HMR recovery
+    val = val.replace(/\s*!important\s*$/, '');
     if (prop) target[prop] = val;
   }
 }
@@ -540,14 +555,13 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
         var depth = 0;
         var MAX_DEPTH = 20;
         while (owner && depth < MAX_DEPTH) {
-          if (!useDebugOwner && [0, 1, 11, 14, 15].indexOf(owner.tag) === -1) {
+          // C3: Use type-based filter instead of tag-number allowlist.
+          // getComponentName returns null for non-component fibers (HostComponent, HostRoot, etc.)
+          var compName = getComponentName(owner) || '';
+          if (!useDebugOwner && !compName) {
             owner = owner.return;
             depth++;
             continue;
-          }
-          var compName = '';
-          if (owner.type) {
-            compName = owner.type.displayName || owner.type.name || '';
           }
           if (compName && owner.memoizedProps) {
             var propMap = {
@@ -659,6 +673,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     var elementMap = Object.create(null);
     var lastHoverTarget = null;
     var hoverRafPending = false;
+    // C4: MutationObserver for selector survival — prunes detached elements on DOM removals
+    var mutationObserver = null;
+    var _prunePending = false;
     function pruneDetachedElements() {
       var mapKeys = Object.keys(elementMap);
       for (var i = 0; i < mapKeys.length; i++) {
@@ -671,7 +688,13 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       var ruleKeys = Object.keys(overrideRules);
       var pruned = false;
       for (var j = 0; j < ruleKeys.length; j++) {
-        if (!document.querySelector(ruleKeys[j])) {
+        try {
+          if (!document.querySelector(ruleKeys[j])) {
+            delete overrideRules[ruleKeys[j]];
+            pruned = true;
+          }
+        } catch (_e) {
+          // Invalid selector — treat as detached, remove rule
           delete overrideRules[ruleKeys[j]];
           pruned = true;
         }
@@ -680,47 +703,17 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     }
 
     /**
-     * Attach navigation listeners to prune detached elements on SPA route changes.
-     *
-     * Uses a sentinel pattern: pushState/replaceState are wrapped once (guarded by
-     * `__cortexPatched`) and read `_pruneCallback` from the global on each invocation.
-     * On teardown, we null the callback instead of restoring originals — this avoids
-     * breaking framework router patches installed above ours.
-     *
-     * Known limitation: if a framework router also patches pushState, and the
-     * inspector loads/unloads between the framework's setup and teardown, the
-     * restore-on-teardown can break the framework's wrapper.
+     * H4/H6: Navigation listeners removed — MutationObserver with RAF debounce (H3)
+     * handles DOM cleanup after React reconciliation, which is the correct timing.
+     * Previously, these fired before React unmounted, making document.contains()
+     * return true for elements about to be removed.
      */
     function setupNavListeners() {
-      window.__ZEROFOG__._pruneCallback = pruneDetachedElements;
-      window.addEventListener('popstate', pruneDetachedElements);
-      if (!history.pushState.__cortexPatched) {
-        var origPush = history.pushState;
-        history.pushState = function () {
-          origPush.apply(history, arguments);
-          if (window.__ZEROFOG__ && window.__ZEROFOG__._pruneCallback) {
-            window.__ZEROFOG__._pruneCallback();
-          }
-        };
-        history.pushState.__cortexPatched = true;
-      }
-      if (!history.replaceState.__cortexPatched) {
-        var origReplace = history.replaceState;
-        history.replaceState = function () {
-          origReplace.apply(history, arguments);
-          if (window.__ZEROFOG__ && window.__ZEROFOG__._pruneCallback) {
-            window.__ZEROFOG__._pruneCallback();
-          }
-        };
-        history.replaceState.__cortexPatched = true;
-      }
+      // Intentionally empty — MutationObserver handles cleanup (H4)
     }
 
     function teardownNavListeners() {
-      window.removeEventListener('popstate', pruneDetachedElements);
-      if (window.__ZEROFOG__) {
-        window.__ZEROFOG__._pruneCallback = null;
-      }
+      // Intentionally empty — MutationObserver handles cleanup (H4)
     }
 
     function createOverlay(id, borderColor, bgColor) {
@@ -896,6 +889,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
         new CustomEvent('zerofog:selected', { detail: selection })
       );
       postToParent('zerofog:selected', selection);
+      // Return focus to editing panel after element selection (iframe click steals focus)
+      postToParent('focus-panel', null);
     }
 
     function handleKeyDown(e) {
@@ -957,6 +952,16 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       document.removeEventListener('keydown', handleKeyDown, true);
       window.removeEventListener('message', handleMessage);
       teardownNavListeners();
+      // C4: Disconnect MutationObserver on teardown
+      if (mutationObserver) {
+        mutationObserver.disconnect();
+        mutationObserver = null;
+      }
+      // H7: Clear periodic pruning interval
+      if (pruneIntervalId) {
+        clearInterval(pruneIntervalId);
+        pruneIntervalId = null;
+      }
       if (wasActive) {
         document.dispatchEvent(new CustomEvent('zerofog:deselected'));
         postToParent('zerofog:deselected', null);
@@ -976,6 +981,11 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       }
       var tag = document.getElementById(OVERRIDE_STYLE_ID);
       if (tag) tag.remove();
+      // M: Clean up data-cortex-id attributes from DOM elements
+      var markedEls = document.querySelectorAll('[data-cortex-id]');
+      for (var ci = 0; ci < markedEls.length; ci++) {
+        markedEls[ci].removeAttribute('data-cortex-id');
+      }
       if (selectedOverlay) selectedOverlay.style.display = 'none';
       if (labelEl) labelEl.style.display = 'none';
       window.__ZEROFOG__.selected = null;
@@ -1037,11 +1047,46 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       window.addEventListener('message', handleMessage);
       setupNavListeners();
 
+      // C4/H3: MutationObserver with RAF debounce — prune detached elements when DOM nodes are removed.
+      // RAF ensures we run after React reconciliation completes, not during the mutation batch.
+      if (typeof MutationObserver !== 'undefined') {
+        mutationObserver = new MutationObserver(function (mutations) {
+          for (var mi = 0; mi < mutations.length; mi++) {
+            if (mutations[mi].removedNodes.length > 0 && !_prunePending) {
+              _prunePending = true;
+              requestAnimationFrame(function () { _prunePending = false; pruneDetachedElements(); });
+              return;
+            }
+          }
+        });
+        mutationObserver.observe(document.body, { childList: true, subtree: true });
+      }
+
+      // H7: Periodic pruning of detached elements and stale override rules
+      pruneIntervalId = setInterval(pruneDetachedElements, 30000);
+
       postToParent('zerofog:ready', null);
       // TODO(Phase 5): Token maps are built once at activation. Reconnect via
       // MutationObserver on <html> class changes to detect dark mode toggle
       // and rebuild maps when Mantine theme variables change at runtime.
-      postToParent('zerofog:token-maps', buildTokenMaps());
+      buildTokenMapsWithRetry(3);
+    }
+
+    /**
+     * M: Build token maps with retry. Mantine CSS custom properties may not
+     * be available immediately if the theme loads asynchronously. Retries up
+     * to `maxAttempts` times with 500ms delay between attempts.
+     */
+    function buildTokenMapsWithRetry(maxAttempts) {
+      var maps = buildTokenMaps();
+      var hasTokens = Object.keys(maps.spacing).length > 0 || Object.keys(maps.radius).length > 0;
+      if (hasTokens || maxAttempts <= 1) {
+        postToParent('zerofog:token-maps', maps);
+        return;
+      }
+      setTimeout(function () {
+        if (active) buildTokenMapsWithRetry(maxAttempts - 1);
+      }, 500);
     }
 
     var cortexIdCounter = 0;
@@ -1068,7 +1113,11 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     }
 
     var overrideRules = Object.create(null);
+    // H7: Cap override rules to prevent unbounded memory growth in long editing sessions
+    var MAX_OVERRIDE_RULES = 200;
     var overrideSheetPending = false;
+    // H7: Periodic pruning interval reference (cleared on teardown)
+    var pruneIntervalId = null;
 
     function scheduleOverrideSheet() {
       if (overrideSheetPending) return;
@@ -1095,6 +1144,16 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       tag.textContent = css;
     }
 
+    /**
+     * Apply a CSS override to an element via a <style> tag with !important.
+     *
+     * C6: V1 CSS-in-JS specificity constraint — this approach uses stylesheet
+     * rules with !important, which beats inline styles from CSS-in-JS libraries
+     * (Emotion, styled-components). However, if the library also uses !important
+     * or dynamic <style> injection ordering, overrides may lose the cascade race.
+     * Future: consider CSSStyleSheet.insertRule() with :where() wrapping for
+     * zero-specificity overrides, or use element.style.setProperty(prop, val, 'important').
+     */
     function applyOverride(elementId, cssProperty, cssValue) {
       if (typeof cssProperty !== 'string' || typeof cssValue !== 'string') {
         return { ok: false, error: 'invalid-input' };
@@ -1113,10 +1172,20 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
         return { ok: false, error: 'unknown-element' };
       }
       var selector = buildSelector(el);
-      if (!overrideRules[selector]) overrideRules[selector] = {};
+      if (!overrideRules[selector]) {
+        // H7: Evict oldest rule when at cap before adding a new selector
+        var ruleKeys = Object.keys(overrideRules);
+        if (ruleKeys.length >= MAX_OVERRIDE_RULES) {
+          delete overrideRules[ruleKeys[0]];
+        }
+        overrideRules[selector] = {};
+      }
       var resolvedValue = resolveTokenValue(cssProperty, cssValue);
       overrideRules[selector][cssProperty] = resolvedValue + ' !important';
       scheduleOverrideSheet();
+      // H7: Belt-and-suspenders — inline style as fallback for CSS-in-JS frameworks
+      // (Emotion/styled-components) that may inject <style> tags after our stylesheet.
+      try { el.style.setProperty(cssProperty, resolvedValue, 'important'); } catch (_e) { /* ignore */ }
       return { ok: true };
     }
 
@@ -1144,7 +1213,6 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     window.__ZEROFOG__.selected = null;
     window.__ZEROFOG__.inspectorActive = false;
     window.__ZEROFOG__.selectMode = false;
-    window.__ZEROFOG__._pruneCallback = null;
     window.__ZEROFOG__.applyOverride = applyOverride;
     window.__ZEROFOG__.removeOverride = removeOverride;
     window.__ZEROFOG__.overrideRules = overrideRules;

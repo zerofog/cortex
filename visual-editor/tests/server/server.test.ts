@@ -4,16 +4,18 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
-import { createApp, attachUpgradeHandler, startServer, checkPidFile, type AppContext } from '../../src/server.js';
+import { startServer, checkPidFile, rewriteCsp } from '../../src/server.js';
+import {
+  createTestSidecar,
+  createEditorWs,
+  waitForWsMessage,
+  authenticateWs,
+  apiPost,
+  type MockTarget,
+  type TestSidecar,
+} from '../helpers/server-helpers.js';
 
-// ─── Test helpers ────────────────────────────────────────────────
-
-interface MockTarget {
-  server: Server;
-  wss: WebSocketServer;
-  port: number;
-  close: () => Promise<void>;
-}
+// ─── Local mock target (server tests need multiple routes) ──────
 
 function createMockTarget(): Promise<MockTarget> {
   return new Promise((resolve) => {
@@ -68,99 +70,6 @@ function createMockTarget(): Promise<MockTarget> {
   });
 }
 
-interface TestSidecar {
-  context: AppContext;
-  server: Server;
-  port: number;
-  url: string;
-  close: () => Promise<void>;
-}
-
-function createTestSidecar(targetPort: number): Promise<TestSidecar> {
-  return new Promise((resolve) => {
-    const context = createApp({ targetPort, port: 0 });
-    const server = createServer(context.app);
-    attachUpgradeHandler(server, context);
-
-    server.listen(0, '127.0.0.1', () => {
-      const addr = server.address();
-      const port = typeof addr === 'object' && addr ? addr.port : 0;
-      resolve({
-        context,
-        server,
-        port,
-        url: `http://127.0.0.1:${port}`,
-        close: () => new Promise<void>((r) => {
-          context.editorWss.close();
-          server.close(() => r());
-        }),
-      });
-    });
-  });
-}
-
-/** Wait for a WS message, optionally filtering by type. Skips non-matching messages. */
-function waitForWsMessage(ws: WebSocket, type?: string, timeoutMs = 3000): Promise<any> {
-  return new Promise<any>((resolve, reject) => {
-    function cleanup() {
-      clearTimeout(timer);
-      ws.removeListener('message', onMsg);
-      ws.removeListener('error', onError);
-    }
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error(type ? `WS message type '${type}' timeout` : 'WS message timeout'));
-    }, timeoutMs);
-    function onMsg(data: Buffer) {
-      let parsed: any;
-      try { parsed = JSON.parse(data.toString()); } catch { return; }
-      if (!type || parsed.type === type) {
-        cleanup();
-        resolve(type ? parsed : data.toString());
-      }
-    }
-    function onError(err: Error) { cleanup(); reject(err); }
-    ws.on('message', onMsg);
-    ws.once('error', onError);
-  });
-}
-
-/** Create an editor WebSocket with the required Origin header. */
-function createEditorWs(port: number): WebSocket {
-  return new WebSocket(`ws://127.0.0.1:${port}/__zerofog`, {
-    headers: { Origin: `http://127.0.0.1:${port}` },
-  });
-}
-
-/** POST to sidecar API with session auth headers. */
-function apiPost(path: string, body?: unknown): Promise<Response> {
-  const headers: Record<string, string> = {
-    Host: `127.0.0.1:${sidecar.port}`,
-    'X-Session-Id': sidecar.context.sessionId,
-  };
-  const init: RequestInit = { method: 'POST', headers };
-  if (body !== undefined) {
-    headers['Content-Type'] = 'application/json';
-    init.body = JSON.stringify(body);
-  }
-  return fetch(sidecar.url + `/__zerofog/api${path}`, init);
-}
-
-/** Complete the auth handshake on an editor WS connection. */
-async function authenticateWs(ws: WebSocket, sessionId: string): Promise<void> {
-  const hello = await waitForWsMessage(ws);
-  const parsed = JSON.parse(hello);
-  if (parsed.type !== 'hello') throw new Error(`Expected hello, got ${parsed.type}`);
-
-  ws.send(JSON.stringify({ type: 'auth', sessionId }));
-
-  const session = await waitForWsMessage(ws);
-  const sessionMsg = JSON.parse(session);
-  if (sessionMsg.type !== 'session' || !sessionMsg.authenticated) {
-    throw new Error(`Auth failed: ${JSON.stringify(sessionMsg)}`);
-  }
-}
-
 // ─── Tests ───────────────────────────────────────────────────────
 
 let target: MockTarget;
@@ -188,15 +97,31 @@ describe('proxy', () => {
     expect(html).toContain('inspector.js');
   });
 
-  it('rewrites CSP on HTML responses: adds self to script-src, removes frame-ancestors', async () => {
+  it('rewrites CSP on HTML responses: adds self + nonce to script-src, removes frame-ancestors', async () => {
     const res = await fetch(sidecar.url + '/', {
       headers: { Host: `127.0.0.1:${sidecar.port}` },
     });
     const csp = res.headers.get('content-security-policy');
     expect(csp).not.toBeNull();
     expect(csp).toContain("'self'");
+    expect(csp).toMatch(/'nonce-[A-Za-z0-9+/=]+'/);
     expect(csp).not.toContain('frame-ancestors');
     expect(res.headers.get('x-frame-options')).toBeNull();
+  });
+
+  it('injected script nonce matches CSP nonce', async () => {
+    const res = await fetch(sidecar.url + '/', {
+      headers: { Host: `127.0.0.1:${sidecar.port}` },
+    });
+    const csp = res.headers.get('content-security-policy')!;
+    const html = await res.text();
+    // Extract nonce from CSP
+    const cspNonce = csp.match(/'nonce-([A-Za-z0-9+/=]+)'/)?.[1];
+    expect(cspNonce).toBeTruthy();
+    // Verify injected scripts have that nonce
+    expect(html).toContain(`nonce="${cspNonce}"`);
+    expect(html).toContain(`nonce="${cspNonce}" src="/__zerofog/client/nav-blocker.js"`);
+    expect(html).toContain(`nonce="${cspNonce}" src="/__zerofog/client/inspector.js"`);
   });
 
   it('does not add CSP when target has none', async () => {
@@ -260,7 +185,8 @@ describe('API', () => {
     });
     expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data).toEqual({ status: 'ok' });
+    expect(data).toMatchObject({ status: 'ok' });
+    expect(data).toHaveProperty('targetReachable');
   });
 
   it('GET /status returns uptime without sessionId', async () => {
@@ -275,10 +201,20 @@ describe('API', () => {
   });
 
   it('POST /claim returns 409 when idle (no pending diff)', async () => {
-    const res = await apiPost('/claim');
+    const res = await apiPost(sidecar, '/claim');
     expect(res.status).toBe(409);
     const data = await res.json();
     expect(data.error).toBe('conflict');
+  });
+
+  // H9: GET /diff endpoint
+  it('GET /diff returns 404 when idle', async () => {
+    const res = await fetch(sidecar.url + '/__zerofog/api/diff', {
+      headers: { Host: `127.0.0.1:${sidecar.port}` },
+    });
+    expect(res.status).toBe(404);
+    const data = await res.json();
+    expect(data.error).toBe('No pending diff');
   });
 
   it('POST /shutdown triggers callback', async () => {
@@ -375,8 +311,38 @@ describe('session auth', () => {
     expect(res.status).toBe(200);
   });
 
-  it('POST /complete returns 409 when idle', async () => {
-    const res = await apiPost('/complete', { applied: [], failed: [] });
+  it('POST /complete without claimToken returns 400', async () => {
+    const res = await apiPost(sidecar, '/complete', { applied: [], failed: [] });
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toBe('Missing claimToken');
+  });
+
+  it('POST /complete with wrong claimToken returns 403 (not 409) for token mismatch', async () => {
+    // First, get into processing state
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+    ws.send(JSON.stringify({
+      type: 'finalize', id: 'auth-test',
+      payload: {
+        elementId: 1, testId: 'btn', componentChain: ['A'], elementType: 'button',
+        changes: [{ property: 'padding', token: 'md', previousToken: 'sm', previousCssValue: '8px', cssProperty: 'padding', cssValue: '16px', styleOrigin: { origin: 'unknown' } }],
+      },
+    }));
+    await waitForWsMessage(ws, 'finalize-result');
+    await apiPost(sidecar, '/claim');
+    // Complete with wrong token — should be 403 (auth failure), not 409 (state conflict)
+    const res = await apiPost(sidecar, '/complete', { applied: [0], failed: [], claimToken: 'wrong-token' });
+    expect(res.status).toBe(403);
+    const data = await res.json();
+    expect(data.error).toBe('forbidden');
+    ws.close();
+    // Clean up: reset state machine so subsequent tests see idle state
+    sidecar.context.stateManager.dispose();
+  });
+
+  it('POST /complete with claimToken returns 409 when idle', async () => {
+    const res = await apiPost(sidecar, '/complete', { applied: [], failed: [], claimToken: 'fake' });
     expect(res.status).toBe(409);
   });
 });
@@ -585,6 +551,57 @@ describe('WebSocket', () => {
     ws.close();
   });
 
+  it('server sends heartbeat pings to connected clients', async () => {
+    // Create a sidecar with a short heartbeat interval for testing
+    const hbSidecar = await createTestSidecar(target.port, { heartbeatIntervalMs: 200 });
+    try {
+      const ws = createEditorWs(hbSidecar.port);
+      await authenticateWs(ws, hbSidecar.context.sessionId);
+      const pingReceived = await new Promise<boolean>((resolve) => {
+        ws.on('ping', () => resolve(true));
+        setTimeout(() => resolve(false), 2000);
+      });
+      expect(pingReceived).toBe(true);
+      ws.close();
+    } finally {
+      await hbSidecar.close();
+    }
+  }, 5000);
+
+  it('terminates dead connections that do not respond to pings', async () => {
+    const hbSidecar = await createTestSidecar(target.port, { heartbeatIntervalMs: 100 });
+    try {
+      // Connect raw TCP socket to perform WS upgrade but never send pong
+      const net = await import('node:net');
+      const crypto = await import('node:crypto');
+      const key = crypto.randomBytes(16).toString('base64');
+      const sock = net.createConnection(hbSidecar.port, '127.0.0.1');
+
+      // Perform HTTP upgrade handshake manually
+      await new Promise<void>((resolve) => {
+        sock.once('connect', () => {
+          sock.write(
+            `GET /__zerofog HTTP/1.1\r\nHost: 127.0.0.1:${hbSidecar.port}\r\n` +
+            `Origin: http://127.0.0.1:${hbSidecar.port}\r\n` +
+            `Upgrade: websocket\r\nConnection: Upgrade\r\n` +
+            `Sec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n\r\n`
+          );
+          sock.once('data', () => resolve()); // 101 Switching Protocols
+        });
+      });
+
+      // Socket is now a WS connection but will never respond to pings
+      // Wait for server to terminate us (after 2 heartbeat intervals = ~200ms)
+      const closed = await new Promise<boolean>((resolve) => {
+        sock.on('close', () => resolve(true));
+        setTimeout(() => { sock.destroy(); resolve(false); }, 2000);
+      });
+      expect(closed).toBe(true);
+    } finally {
+      await hbSidecar.close();
+    }
+  }, 5000);
+
   it('rejects non-auth messages before authentication', async () => {
     const ws = createEditorWs(sidecar.port);
     // Wait for hello
@@ -736,6 +753,29 @@ describe('startServer lifecycle', () => {
     }
   });
 
+  // H2: PID file cleaned up on listen failure (EADDRINUSE)
+  it('cleans up PID file when listen fails with EADDRINUSE', async () => {
+    const pidPath = join(tmpDir, '.cortex', 'sidecar.pid');
+    // Occupy a port with a plain HTTP server (not a sidecar, so no PID conflict)
+    const blocker = createServer();
+    const blockerPort = await new Promise<number>((resolve) => {
+      blocker.listen(0, '127.0.0.1', () => {
+        const addr = blocker.address();
+        resolve(typeof addr === 'object' && addr ? addr.port : 0);
+      });
+    });
+
+    try {
+      // startServer will write PID file, then fail on listen
+      await expect(startServer({ targetPort: 59999, port: blockerPort, host: '127.0.0.1' }))
+        .rejects.toThrow(/already in use/);
+      // H2: PID file should be cleaned up after listen failure
+      expect(existsSync(pidPath)).toBe(false);
+    } finally {
+      blocker.close();
+    }
+  });
+
   it('server responds to health check', async () => {
     const ctx = await startServer({ targetPort: 59999, port: 0, host: '127.0.0.1' });
     try {
@@ -746,7 +786,8 @@ describe('startServer lifecycle', () => {
       });
       expect(res.status).toBe(200);
       const data = await res.json();
-      expect(data).toEqual({ status: 'ok' });
+      expect(data).toMatchObject({ status: 'ok' });
+      expect(data).toHaveProperty('targetReachable');
     } finally {
       await ctx.close();
     }
@@ -812,15 +853,12 @@ describe('finalize pipeline', () => {
     },
   });
 
-  // C2: Force-reset state machine after each pipeline test to prevent cascading failures
+  // C2: Force-reset state machine after each pipeline test to prevent cascading failures.
+  // Uses dispose() which resets all state including the C1 idempotency hash.
   afterEach(() => {
     const sm = sidecar.context.stateManager;
-    const state = sm.getState();
-    if (state === 'pending_diff') {
-      sm.claimDiff();
-      sm.complete({ applied: [], failed: [] });
-    } else if (state === 'processing') {
-      sm.complete({ applied: [], failed: [] });
+    if (sm.getState() !== 'idle') {
+      sm.dispose();
     }
   });
 
@@ -828,26 +866,26 @@ describe('finalize pipeline', () => {
     const ws = createEditorWs(sidecar.port);
     await authenticateWs(ws, sidecar.context.sessionId);
     ws.send(makeFinalize());
-    const msg = await waitForWsMessage(ws);
-    const parsed = JSON.parse(msg);
-    expect(parsed.type).toBe('finalize-result');
+    const parsed = await waitForWsMessage(ws, 'finalize-result');
     expect(parsed.ok).toBe(true);
     expect(parsed.changeCount).toBe(1);
     ws.close();
   });
 
-  it('POST /api/claim after finalize returns AccumulatedDiff', async () => {
+  it('POST /api/claim after finalize returns AccumulatedDiff with claimToken', async () => {
     const ws = createEditorWs(sidecar.port);
     await authenticateWs(ws, sidecar.context.sessionId);
     ws.send(makeFinalize());
-    await waitForWsMessage(ws); // consume finalize-result
+    await waitForWsMessage(ws, 'finalize-result'); // consume
 
-    const res = await apiPost('/claim');
+    const res = await apiPost(sidecar, '/claim');
     expect(res.status).toBe(200);
     const diff = await res.json();
     expect(diff.version).toBe(1);
     expect(diff.elements).toHaveLength(1);
     expect(diff.elements[0].elementSelector).toBe('[data-testid="btn-submit"]');
+    expect(typeof diff.claimToken).toBe('string');
+    expect(diff.claimToken.length).toBeGreaterThan(0);
     ws.close();
   });
 
@@ -855,17 +893,18 @@ describe('finalize pipeline', () => {
     const ws = createEditorWs(sidecar.port);
     await authenticateWs(ws, sidecar.context.sessionId);
     ws.send(makeFinalize());
-    await waitForWsMessage(ws);
+    await waitForWsMessage(ws, 'finalize-result');
 
-    await apiPost('/claim');
+    const claimRes = await apiPost(sidecar, '/claim');
+    const { claimToken } = await claimRes.json();
 
-    const res = await apiPost('/complete', { applied: [0], failed: [] });
+    const res = await apiPost(sidecar, '/complete', { applied: [0], failed: [], claimToken });
     expect(res.status).toBe(200);
     const report = await res.json();
     expect(report.applied).toEqual([0]);
 
     // Verify state is idle -- POST /claim should return 409
-    const check = await apiPost('/claim');
+    const check = await apiPost(sidecar, '/claim');
     expect(check.status).toBe(409);
     ws.close();
   });
@@ -874,16 +913,15 @@ describe('finalize pipeline', () => {
     const ws = createEditorWs(sidecar.port);
     await authenticateWs(ws, sidecar.context.sessionId);
 
-    // First finalize + claim
+    // First finalize + claim (token captured for afterEach cleanup)
     ws.send(makeFinalize('fin-first'));
-    await waitForWsMessage(ws);
-    await apiPost('/claim');
+    await waitForWsMessage(ws, 'finalize-result');
+    const claimRes = await apiPost(sidecar, '/claim');
+    void claimRes.json(); // consume body
 
     // Second finalize should be rejected (state is processing)
     ws.send(makeFinalize('fin-second'));
-    const msg = await waitForWsMessage(ws);
-    const parsed = JSON.parse(msg);
-    expect(parsed.type).toBe('finalize-result');
+    const parsed = await waitForWsMessage(ws, 'finalize-result');
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toBe('conflict');
     ws.close();
@@ -895,18 +933,99 @@ describe('finalize pipeline', () => {
 
     // Finalize + claim
     ws.send(makeFinalize());
-    await waitForWsMessage(ws);
-    await apiPost('/claim');
+    await waitForWsMessage(ws, 'finalize-result');
+    const claimRes = await apiPost(sidecar, '/claim');
+    const { claimToken } = await claimRes.json();
 
     // Set up typed WS listener BEFORE the HTTP call to avoid race condition
     const broadcastPromise = waitForWsMessage(ws, 'edit-complete');
 
     // Complete -- should broadcast edit-complete to WS
-    await apiPost('/complete', { applied: [0], failed: [] });
+    await apiPost(sidecar, '/complete', { applied: [0], failed: [], claimToken });
 
     const parsed = await broadcastPromise;
     expect(parsed.type).toBe('edit-complete');
     expect(parsed.payload.applied).toEqual([0]);
+    ws.close();
+  });
+
+  // H9: GET /diff returns diff without claiming
+  it('GET /diff returns pending diff without advancing state', async () => {
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+    ws.send(makeFinalize());
+    await waitForWsMessage(ws, 'finalize-result');
+
+    // GET /diff should return the diff
+    const res = await fetch(sidecar.url + '/__zerofog/api/diff', {
+      headers: { Host: `127.0.0.1:${sidecar.port}` },
+    });
+    expect(res.status).toBe(200);
+    const diff = await res.json();
+    expect(diff.version).toBe(1);
+    expect(diff.elements).toHaveLength(1);
+    expect(diff.elements[0].elementSelector).toBe('[data-testid="btn-submit"]');
+
+    // State should still be pending_diff (not processing)
+    const statusRes = await fetch(sidecar.url + '/__zerofog/api/status', {
+      headers: { Host: `127.0.0.1:${sidecar.port}` },
+    });
+    const status = await statusRes.json();
+    expect(status.pipelineState).toBe('pending_diff');
+    ws.close();
+  });
+
+  // Phase 6: GET /diff still returns diff during processing state
+  it('GET /diff returns diff during processing state (after claim)', async () => {
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+    ws.send(makeFinalize());
+    await waitForWsMessage(ws, 'finalize-result');
+
+    // Claim to enter processing state
+    await apiPost(sidecar, '/claim');
+
+    // GET /diff should still return the diff
+    const res = await fetch(sidecar.url + '/__zerofog/api/diff', {
+      headers: { Host: `127.0.0.1:${sidecar.port}` },
+    });
+    expect(res.status).toBe(200);
+    const diff = await res.json();
+    expect(diff.version).toBe(1);
+    expect(diff.elements).toHaveLength(1);
+    ws.close();
+  });
+
+  // C5-server: selector field test
+  it('WS finalize with selector uses it as elementSelector', async () => {
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+    ws.send(JSON.stringify({
+      type: 'finalize',
+      id: 'sel-1',
+      payload: {
+        elementId: 1,
+        testId: 'btn-submit',
+        selector: 'div.card > button:nth-child(2)',
+        componentChain: ['Button', 'Form'],
+        elementType: 'button',
+        changes: [{
+          property: 'padding',
+          token: 'md',
+          previousToken: 'sm',
+          previousCssValue: '8px',
+          cssProperty: 'padding',
+          cssValue: '16px',
+          styleOrigin: { origin: 'unknown' },
+        }],
+      },
+    }));
+    await waitForWsMessage(ws, 'finalize-result');
+
+    // Claim and check the selector
+    const claimRes = await apiPost(sidecar, '/claim');
+    const diff = await claimRes.json();
+    expect(diff.elements[0].elementSelector).toBe('div.card > button:nth-child(2)');
     ws.close();
   });
 
@@ -940,13 +1059,14 @@ describe('finalize pipeline', () => {
     ws1.send(makeFinalize());
     await waitForWsMessage(ws1); // consume finalize-result
 
-    await apiPost('/claim');
+    const claimRes = await apiPost(sidecar, '/claim');
+    const { claimToken } = await claimRes.json();
 
     // Set up listeners on both clients BEFORE complete
     const broadcast1 = waitForWsMessage(ws1, 'edit-complete');
     const broadcast2 = waitForWsMessage(ws2, 'edit-complete');
 
-    await apiPost('/complete', { applied: [0], failed: [] });
+    await apiPost(sidecar, '/complete', { applied: [0], failed: [], claimToken });
 
     const [msg1, msg2] = await Promise.all([broadcast1, broadcast2]);
     expect(msg1.type).toBe('edit-complete');
@@ -965,8 +1085,9 @@ describe('finalize pipeline', () => {
       const result = await waitForWsMessage(ws, 'finalize-result');
       expect(result.ok).toBe(true);
 
-      await apiPost('/claim');
-      await apiPost('/complete', { applied: [i], failed: [] });
+      const claimRes = await apiPost(sidecar, '/claim');
+      const { claimToken } = await claimRes.json();
+      await apiPost(sidecar, '/complete', { applied: [0], failed: [], claimToken });
     }
 
     // Verify final state is idle
@@ -1006,10 +1127,10 @@ describe('finalize pipeline', () => {
     expect(sm.getDiff()!.sessionId).toBe('new-session');
 
     // Full cycle on recovered diff
-    const claimed = sm.claimDiff();
+    const { diff: claimed, claimToken } = sm.claimDiff();
     expect(claimed.elements[0]!.elementSelector).toBe('[data-testid="recovered"]');
 
-    const report = sm.complete({ applied: [0], failed: [] });
+    const report = sm.complete({ applied: [0], failed: [] }, claimToken);
     expect(report.applied).toEqual([0]);
     expect(sm.getState()).toBe('idle');
 
@@ -1039,5 +1160,58 @@ describe('finalize pipeline', () => {
     expect(result.ok).toBe(false);
     expect(result.error).toBe('invalid payload');
     ws.close();
+  });
+});
+
+// ─── H3: rewriteCsp unit tests ───────────────────────────────────────
+
+describe('rewriteCsp', () => {
+  const nonce = 'test-nonce-123';
+
+  it('adds nonce and self to script-src', () => {
+    const result = rewriteCsp("script-src 'self'; default-src 'self'", nonce);
+    expect(result).toContain(`'nonce-${nonce}'`);
+    expect(result).toContain("'self'");
+  });
+
+  it('strips frame-ancestors', () => {
+    const result = rewriteCsp("default-src 'self'; frame-ancestors 'none'", nonce);
+    expect(result).not.toContain('frame-ancestors');
+  });
+
+  it('strips require-trusted-types-for', () => {
+    const result = rewriteCsp("default-src 'self'; require-trusted-types-for 'script'", nonce);
+    expect(result).not.toContain('require-trusted-types-for');
+  });
+
+  it('removes strict-dynamic from script-src', () => {
+    const result = rewriteCsp("script-src 'self' 'strict-dynamic'", nonce);
+    expect(result).not.toContain("'strict-dynamic'");
+    expect(result).toContain(`'nonce-${nonce}'`);
+  });
+
+  it('handles script-src-elem directive', () => {
+    const result = rewriteCsp("script-src-elem 'self'", nonce);
+    expect(result).toContain('script-src-elem');
+    expect(result).toContain(`'nonce-${nonce}'`);
+  });
+
+  it('derives script-src from default-src when not present', () => {
+    const result = rewriteCsp("default-src 'self' https:", nonce);
+    expect(result).toContain('script-src');
+    expect(result).toContain(`'nonce-${nonce}'`);
+    expect(result).toContain("'self'");
+  });
+
+  it('removes none from script-src when adding nonce', () => {
+    const result = rewriteCsp("script-src 'none'", nonce);
+    expect(result).not.toContain("'none'");
+    expect(result).toContain(`'nonce-${nonce}'`);
+  });
+
+  it('adds script-src-elem fallback when script-src exists but script-src-elem does not', () => {
+    const result = rewriteCsp("script-src 'self'", nonce);
+    expect(result).toContain('script-src-elem');
+    expect(result).toContain(`'nonce-${nonce}'`);
   });
 });

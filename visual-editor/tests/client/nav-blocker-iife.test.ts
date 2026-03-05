@@ -247,6 +247,90 @@ describe('initNavBlocker', () => {
     spy.mockRestore();
   });
 
+  // ── H6: zerofog:navigation event dispatch ───────────────────
+
+  it('dispatches zerofog:navigation after successful pushState to different route', () => {
+    handle = initNavBlocker(SESSION_ID, SIDECAR_ORIGIN);
+
+    const events: Event[] = [];
+    const listener = (e: Event) => events.push(e);
+    window.addEventListener('zerofog:navigation', listener);
+
+    // Navigate to a different pathname (from /app to /dashboard)
+    history.pushState(null, '', '/dashboard?tab=1');
+
+    expect(events.length).toBe(1);
+    expect(events[0]!.type).toBe('zerofog:navigation');
+
+    window.removeEventListener('zerofog:navigation', listener);
+  });
+
+  it('dispatches zerofog:navigation after successful replaceState to different route', () => {
+    handle = initNavBlocker(SESSION_ID, SIDECAR_ORIGIN);
+
+    const events: Event[] = [];
+    const listener = (e: Event) => events.push(e);
+    window.addEventListener('zerofog:navigation', listener);
+
+    // Navigate to a different pathname (from /app to /settings)
+    history.replaceState(null, '', '/settings#section');
+
+    expect(events.length).toBe(1);
+
+    window.removeEventListener('zerofog:navigation', listener);
+  });
+
+  it('does NOT dispatch zerofog:navigation for same-pathname query/hash changes', () => {
+    handle = initNavBlocker(SESSION_ID, SIDECAR_ORIGIN);
+
+    const events: Event[] = [];
+    const listener = (e: Event) => events.push(e);
+    window.addEventListener('zerofog:navigation', listener);
+
+    // Same pathname (/app) with different query/hash — should NOT fire
+    history.pushState(null, '', '/app?tab=1');
+    history.replaceState(null, '', '/app#section');
+
+    expect(events.length).toBe(0);
+
+    window.removeEventListener('zerofog:navigation', listener);
+  });
+
+  it('does NOT dispatch zerofog:navigation when pushState is blocked', () => {
+    handle = initNavBlocker(SESSION_ID, SIDECAR_ORIGIN);
+    activate();
+
+    const events: Event[] = [];
+    const listener = (e: Event) => events.push(e);
+    window.addEventListener('zerofog:navigation', listener);
+
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    history.pushState(null, '', '/other');
+    spy.mockRestore();
+
+    // Blocked navigation should NOT dispatch zerofog:navigation
+    expect(events.length).toBe(0);
+
+    window.removeEventListener('zerofog:navigation', listener);
+  });
+
+  it('does NOT dispatch zerofog:navigation for hash-only or query-only changes', () => {
+    handle = initNavBlocker(SESSION_ID, SIDECAR_ORIGIN);
+
+    const events: Event[] = [];
+    const listener = (e: Event) => events.push(e);
+    window.addEventListener('zerofog:navigation', listener);
+
+    // Hash-only and query-only changes on same pathname should NOT fire navigation event
+    history.pushState(null, '', '#section');
+    history.replaceState(null, '', '?tab=2');
+    history.pushState(null, '', '#other');
+
+    expect(events.length).toBe(0);
+
+    window.removeEventListener('zerofog:navigation', listener);
+  });
+
   // ── Activation/deactivation toggle ──────────────────────────
 
   it('activation/deactivation via postMessage toggles blocking', () => {

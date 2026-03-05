@@ -8,3 +8,16 @@ dist/
 CLAUDE.md
 manual-test.ts
 .cortex/
+
+# Local review/task docs
+tasks/implement-visual-editor.md
+tasks/phase1-8-architecture-review.md
+tasks/phase2-review.md
+tasks/phase3-review.md
+tasks/phase4a-strategic-review.md
+tasks/phase4a-ux-review.md
+tasks/phase5-review.md
+tasks/post-strategic-review.md
+tasks/toolbar-architecture-review.md
+thoughts/shared/plans/2026-03-01-native-rendering-overrides.md
+visual-editor/tasks/

@@ -102,6 +102,27 @@ function reverseTokenLookup(maps, category, pxValue) {
 }
 
 /**
+ * Extract a human-readable component name from a React fiber.
+ * Returns null for non-component fibers (HostComponent, HostRoot, etc.)
+ * DUPLICATED: canonical source is inspector.js. Keep in sync.
+ */
+function getComponentName(fiber) {
+  if (!fiber || !fiber.type) return null;
+  var type = fiber.type;
+  if (typeof type === 'string') return null;
+  var depth = 0;
+  while (type && depth < 5) {
+    if (type.displayName || type.name) return type.displayName || type.name;
+    if (type.render && typeof type.render === 'function') {
+      return type.render.displayName || type.render.name || null;
+    }
+    if (type.type && typeof type.type !== 'string') { type = type.type; depth++; continue; }
+    break;
+  }
+  return null;
+}
+
+/**
  * Detect the origin of a CSS property value on an element.
  * Returns a discriminated union: { origin: 'mantine-prop' | 'mantine-default' | 'tailwind' | 'css-module' | 'unknown', ... }
  *
@@ -141,16 +162,13 @@ function detectStyleOrigin(element, property, findFiberKeysFn, themeDefaults) {
     var MAX_DEPTH = 20;
 
     while (owner && depth < MAX_DEPTH) {
-      // Tags: 0=FunctionComponent, 1=ClassComponent, 11=ForwardRef, 14=MemoComponent, 15=SimpleMemoComponent
-      if (!useDebugOwner && [0, 1, 11, 14, 15].indexOf(owner.tag) === -1) {
+      // C3: Use type-based filter instead of tag-number allowlist.
+      // getComponentName returns null for non-component fibers (HostComponent, HostRoot, etc.)
+      var compName = getComponentName(owner) || '';
+      if (!useDebugOwner && !compName) {
         owner = owner.return;
         depth++;
         continue;
-      }
-
-      var compName = '';
-      if (owner.type) {
-        compName = owner.type.displayName || owner.type.name || '';
       }
 
       if (compName && owner.memoizedProps) {
@@ -230,24 +248,34 @@ function detectStyleOrigin(element, property, findFiberKeysFn, themeDefaults) {
 }
 
 /**
- * Escape backslash and double-quote for CSS attribute selectors.
- * Mirrors inspector.js:37-39 — intentional duplicate (IIFEs independent).
+ * Escape special characters for CSS attribute selectors.
+ * Mirrors inspector.js — intentional duplicate (IIFEs independent).
+ * Phase 9: Also escapes `]` and strips null bytes.
  */
 function escapeAttrValue(val) {
-  return val.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return val
+    .replace(/\0/g, '')
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/]/g, '\\]');
 }
 
 /**
  * Finalize a diff object from selection metadata and accumulated changes.
  * Pure data transformation — no DOM access.
+ *
+ * C5-client: Accepts optional `selector` parameter (from window.__ZEROFOG__.buildSelector)
+ * to include the actual CSS selector in the payload for server-side source editing.
  */
-function finalizeDiff(selection, changes, _now) {
-  var selector = selection.testId
-    ? '[data-testid="' + escapeAttrValue(selection.testId) + '"]'
-    : 'unknown';
+function finalizeDiff(selection, changes, _now, selector) {
+  var elementSelector = selector
+    || (selection.testId
+      ? '[data-testid="' + escapeAttrValue(selection.testId) + '"]'
+      : 'unknown');
 
   return {
-    elementSelector: selector,
+    elementSelector: elementSelector,
+    selector: selector || null,
     componentChain: selection.componentChain || [],
     elementType: selection.elementType || 'unknown',
     changes: changes,

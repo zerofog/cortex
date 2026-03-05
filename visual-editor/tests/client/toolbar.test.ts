@@ -745,6 +745,36 @@ describe('finalizeDiff', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((diff.changes[0] as any).previousToken).toBeNull();
   });
+
+  // ── C5-client: selector parameter ──────────────────────────
+
+  it('includes selector field when provided as 4th argument', () => {
+    const diff = finalizeDiff(
+      { testId: 'card-1', componentChain: ['Card'] },
+      [],
+      new Date(),
+      '[data-cortex-id="cx-5"]'
+    );
+    expect(diff.selector).toBe('[data-cortex-id="cx-5"]');
+    expect(diff.elementSelector).toBe('[data-cortex-id="cx-5"]');
+  });
+
+  it('uses testId for elementSelector when selector not provided', () => {
+    const diff = finalizeDiff({ testId: 'card-1' }, []);
+    expect(diff.elementSelector).toBe('[data-testid="card-1"]');
+    expect(diff.selector).toBeNull();
+  });
+
+  it('selector overrides testId for elementSelector', () => {
+    const diff = finalizeDiff(
+      { testId: 'card-1' },
+      [],
+      new Date(),
+      '[data-testid="card-1"]'
+    );
+    expect(diff.elementSelector).toBe('[data-testid="card-1"]');
+    expect(diff.selector).toBe('[data-testid="card-1"]');
+  });
 });
 
 // ── findReactFiberKeys ───────────────────────────────────────────

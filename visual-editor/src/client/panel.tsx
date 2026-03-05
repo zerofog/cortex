@@ -177,11 +177,18 @@ export function PanelRoot({ sessionId, sidecarOrigin }: PanelRootProps): VNode {
             dispatch({ type: 'WS_STATUS', status: 'connected' });
           } else if (msg.type === 'finalize-result') {
             if (msg.ok) {
-              dispatch({ type: 'FINALIZE_SUCCESS' });
-              sendToInspector('nav-blocker-disable');
+              // Server accepted diff — now in processing queue. Don't clear changes yet.
+              dispatch({ type: 'FINALIZE_QUEUED' });
             } else {
               dispatch({ type: 'FINALIZE_ERROR', error: String(msg.error ?? 'unknown') });
             }
+          } else if (msg.type === 'edit-complete') {
+            // Downstream processing succeeded — source code changed. Safe to clear.
+            dispatch({ type: 'FINALIZE_SUCCESS' });
+            sendToInspector('nav-blocker-disable');
+          } else if (msg.type === 'processing-timeout') {
+            // Processing timed out — preserve changes for retry.
+            dispatch({ type: 'FINALIZE_TIMEOUT' });
           } else if (msg.type === 'error') {
             dispatch({ type: 'FINALIZE_ERROR', error: String(msg.message ?? 'unknown') });
           } else if (msg.type === 'ack') {
@@ -342,7 +349,8 @@ export function PanelRoot({ sessionId, sidecarOrigin }: PanelRootProps): VNode {
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   (function () {
     var SESSION_ID = '__SESSION_ID__';
-    var SIDECAR_ORIGIN = '__SIDECAR_ORIGIN__';
+    // H8: Derive origin at runtime — handles localhost/127.0.0.1/::1 variations
+    var SIDECAR_ORIGIN = window.location.origin;
 
     const mount = document.getElementById('panel-mount');
     if (!mount) return;

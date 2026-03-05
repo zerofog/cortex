@@ -65,23 +65,37 @@ function initNavBlocker(sessionId, sidecarOrigin) {
   var origReplaceState = History.prototype.replaceState;
 
   History.prototype.pushState = function () {
-    if (active && isDifferentRoute(arguments[2] || '')) {
-      console.warn('[cortex] Navigation blocked: pushState to ' + arguments[2]);
+    var url = arguments[2] || '';
+    var changesRoute = isDifferentRoute(url);
+    if (active && changesRoute) {
+      console.warn('[cortex] Navigation blocked: pushState to ' + url);
       return;
     }
     var result = origPushState.apply(this, arguments);
     if (active) currentUrl = window.location.href;
+    // H6: Dispatch custom event so inspector.js can listen without duplicating the patch
+    // Only fire for real route changes — hash-only and query-only changes are no-ops
+    if (changesRoute) {
+      window.dispatchEvent(new CustomEvent('zerofog:navigation'));
+    }
     return result;
   };
   History.prototype.pushState.__cortexNavBlocker = true;
 
   History.prototype.replaceState = function () {
-    if (active && isDifferentRoute(arguments[2] || '')) {
-      console.warn('[cortex] Navigation blocked: replaceState to ' + arguments[2]);
+    var url = arguments[2] || '';
+    var changesRoute = isDifferentRoute(url);
+    if (active && changesRoute) {
+      console.warn('[cortex] Navigation blocked: replaceState to ' + url);
       return;
     }
     var result = origReplaceState.apply(this, arguments);
     if (active) currentUrl = window.location.href;
+    // H6: Dispatch custom event so inspector.js can listen without duplicating the patch
+    // Only fire for real route changes — hash-only and query-only changes are no-ops
+    if (changesRoute) {
+      window.dispatchEvent(new CustomEvent('zerofog:navigation'));
+    }
     return result;
   };
   History.prototype.replaceState.__cortexNavBlocker = true;

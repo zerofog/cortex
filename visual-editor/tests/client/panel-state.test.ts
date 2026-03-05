@@ -207,13 +207,48 @@ describe('panelReducer', () => {
     expect(state.wsStatus).toBe('connected');
   });
 
-  it('FINALIZE_START/SUCCESS/ERROR updates pipelineStatus', () => {
+  it('FINALIZE_START/QUEUED/SUCCESS/TIMEOUT/ERROR updates pipelineStatus', () => {
     let state = panelReducer(initialPanelState, { type: 'FINALIZE_START' });
     expect(state.pipelineStatus).toBe('sending');
+    state = panelReducer(state, { type: 'FINALIZE_QUEUED' });
+    expect(state.pipelineStatus).toBe('processing');
     state = panelReducer(state, { type: 'FINALIZE_SUCCESS' });
     expect(state.pipelineStatus).toBe('applied');
+    state = panelReducer(initialPanelState, { type: 'FINALIZE_TIMEOUT' });
+    expect(state.pipelineStatus).toBe('timeout');
     state = panelReducer(initialPanelState, { type: 'FINALIZE_ERROR', error: 'timeout' });
     expect(state.pipelineStatus).toBe('error: timeout');
+  });
+
+  it('FINALIZE_QUEUED preserves pendingChanges and undoStack (C2)', () => {
+    const sel = makeSelection();
+    const base = stateWithTokenMaps();
+    let state = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel, origins: {} });
+    state = panelReducer(state, {
+      type: 'APPLY_CHANGE', property: 'padding', token: 'lg',
+      cssProperty: 'padding', cssValue: 'var(--mantine-spacing-lg)', styleOrigin: { origin: 'unknown' },
+    });
+    expect(state.pendingChanges).toHaveLength(1);
+    expect(state.undoStack).toHaveLength(1);
+    state = panelReducer(state, { type: 'FINALIZE_QUEUED' });
+    expect(state.pendingChanges).toHaveLength(1);
+    expect(state.undoStack).toHaveLength(1);
+    expect(state.pipelineStatus).toBe('processing');
+  });
+
+  it('FINALIZE_TIMEOUT preserves pendingChanges for retry (C2)', () => {
+    const sel = makeSelection();
+    const base = stateWithTokenMaps();
+    let state = panelReducer(base, { type: 'ELEMENT_SELECTED', selection: sel, origins: {} });
+    state = panelReducer(state, {
+      type: 'APPLY_CHANGE', property: 'padding', token: 'lg',
+      cssProperty: 'padding', cssValue: 'var(--mantine-spacing-lg)', styleOrigin: { origin: 'unknown' },
+    });
+    state = panelReducer(state, { type: 'FINALIZE_QUEUED' });
+    state = panelReducer(state, { type: 'FINALIZE_TIMEOUT' });
+    expect(state.pendingChanges).toHaveLength(1);
+    expect(state.undoStack).toHaveLength(1);
+    expect(state.pipelineStatus).toBe('timeout');
   });
 
   it('FINALIZE_SUCCESS clears pendingChanges and undoStack (M1)', () => {
