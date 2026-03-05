@@ -1,0 +1,220 @@
+visual-editor/src/state.ts
+  05a7b456bc5c63df 1-3,6-12,35,51-67,76,150,177,182-183,185,199,201-209,214-217,223-228,239-246,248,288-290,339
+  726b0d948704f6f7 48-50,68-69,80-81,103,149,231,250,263,268-270,274-281,332-333
+  a9595ef1f2f3ac90 90,94,140,236-238,255,271-273,330-331
+visual-editor/tests/helpers/server-helpers.ts
+  726b0d948704f6f7 1-125
+visual-editor/tests/client/nav-blocker-iife.test.ts
+  05a7b456bc5c63df 250-251,253-258,261-267,269-274,277-278,295-316
+  a9595ef1f2f3ac90 252,259-260,268,275-276,279-294,317-333
+visual-editor/src/inject.ts
+  05a7b456bc5c63df 3-6,8-11,20,22,28-30,35-36,39-40
+.gitignore
+  ee1a008ee044065d 11-23
+visual-editor/tests/client/toolbar.test.ts
+  05a7b456bc5c63df 748-777
+visual-editor/tests/client/inspector.test.ts
+  a9595ef1f2f3ac90 613-614,616-626,1148-1163,1187,1382-1416,1489-1492,1529,1542-1544,1550,1557,1561,1568,1570-1572,1862,1906,1926,1935,1945,2073,2080,2082-2083,2090,2094,2113-2129,2195,2244,2252,2260,2268,2276,2303,2312,2314-2315,2340,2349,2352,2354,2371-2372,2379-2407
+  05a7b456bc5c63df 731,736-738,746-747,756,771-780,822,827-829,1100-1113,1578,1580-1582,1584,1587,1594-1595,1597-1602,2300,2302,2320,2322,2336-2339,2341-2348,2350-2351,2353,2355-2370,2373-2378,2408-2467
+visual-editor/tests/server/bin.test.ts
+  726b0d948704f6f7 1-25
+visual-editor/src/validation.ts
+  05a7b456bc5c63df 1-26
+visual-editor/vitest.config.ts
+  2c5baad891cf0eb9 8
+visual-editor/tests/server/state.test.ts
+  726b0d948704f6f7 61,65,81,103,116-117,142,159,174-175,196,231-234,630-631,633,635-640,644-650,655-661,663,665-670,672,674-679,681,683-688,691,693-694,710-711,722-723,725,727-731
+  a9595ef1f2f3ac90 87-97,475-490,541-592,641,651-654,689-690,695-709,712-721,733-734,741,745-748,769-786
+  05a7b456bc5c63df 53,56,72-74,79-80,82,108-109,114-115,122-123,136-139,152,154-157,168-171,184-193,257-258,264-265,330-448,509,511,632,634,642-643,662,664,671,673,680,682,692,724,726,732,735-740,742-744,749-768,787-842
+visual-editor/src/client/inspector.js
+  a9595ef1f2f3ac90 27-29,107,678,691-697,706-709,712,716,892-893,984-988,1050-1051,1055-1057,1186-1188
+  05a7b456bc5c63df 13-21,90-92,96-99,387-388,558-561,676-677,955-964,1052-1054,1058-1067,1072-1089,1116-1117,1119-1120,1147-1156,1175-1180,1182
+visual-editor/src/client/nav-blocker.js
+  05a7b456bc5c63df 76,79,94,97
+  a9595ef1f2f3ac90 68-71,77-78,80,86-89,95-96,98
+visual-editor/tests/server/inject.test.ts
+  05a7b456bc5c63df 114-129
+visual-editor/src/client/panel-state.ts
+  05a7b456bc5c63df 6-12
+  a9595ef1f2f3ac90 69,71,313-316,318,321-323
+visual-editor/templates/visual.md
+  2c5baad891cf0eb9 1-24,27-36,48-53,55-58,60-75,78,84-96,98-102,104-107,109-111,113-122,135-140,142-146
+  726b0d948704f6f7 25-26,54,59,76-77,103,108,123-134
+  05a7b456bc5c63df 37-47,79-83,97,112,141
+visual-editor/src/client/panel.tsx
+  a9595ef1f2f3ac90 180-181,185-191,352-353
+visual-editor/src/client/toolbar.d.ts
+  a9595ef1f2f3ac90 29,64
+visual-editor/tests/integration/integration.test.ts
+  2c5baad891cf0eb9 1-5,7-8,19-24,27-29,31-55,58-111,114-155,160-165,168-179,181-209
+  a9595ef1f2f3ac90 157-158
+  726b0d948704f6f7 6,9-18,25-26,30,56-57,156,159,166-167,180
+  05a7b456bc5c63df 112-113
+visual-editor/src/server.ts
+  05a7b456bc5c63df 1,80-81,83-96,100,107,111-117,125,132,135,140-144,177-185,187-189,203-205,216-225,249,271-393,407-408,471-473,494-495,534-536,555-556,630-634,638,769,776-778
+  a9595ef1f2f3ac90 48-52,228-229,405,435,578-580,582-597,599,601,649-650,791-795
+  726b0d948704f6f7 11,162-163,232-235,242-243,254-258,260,414,606-608,627,677-686,693,696,698-710,712,714-718,746,748,765,767-768,785,796-798,800
+  2c5baad891cf0eb9 22,156-157,399
+visual-editor/tests/client/panel-state.test.ts
+  a9595ef1f2f3ac90 210,213-214,217-218,223-251
+visual-editor/tests/server/server.test.ts
+  05a7b456bc5c63df 7,100,107,112-126,188-189,210-219,789-790,856-857,860,952-977,999-1031,1165-1217
+  a9595ef1f2f3ac90 321-343,756-778,978-998
+  2c5baad891cf0eb9 554-570
+  726b0d948704f6f7 8-18,204,314-320,344-345,571-604,861,869,875,879,881,887-888,896,898-899,901,907,916,918-920,924,936-938,944,1062-1063,1069,1088-1090,1130,1133
+visual-editor/src/client/shell.html
+  05a7b456bc5c63df 28
+visual-editor/src/bin.ts
+  05a7b456bc5c63df 4-6,80-92
+  2c5baad891cf0eb9 1-3,7-8,10-18,20,25-28,34-40,43,45,57-59,65-67,76,78-79,93-96
+  726b0d948704f6f7 9,19,21-24,29-33,41-42,44,46-56,60-64,68-75,77,97
+visual-editor/src/client/toolbar.js
+  05a7b456bc5c63df 105-124,165-168,251-253,257-260,266-268,270-272,274,277-278
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "5cd6bec14657a33618963e227519a4d86ea3ae7e",
+  "prompts": {
+    "05a7b456bc5c63df": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "996c18e6-84d1-4484-85e6-863b0a4127e9",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 1604,
+      "total_deletions": 524,
+      "accepted_lines": 1426,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/c23f9a44b31d7a78f689825ebcc69269f848ec25333736565691724873ec29b7"
+    },
+    "2c5baad891cf0eb9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "96f1b318-cad2-49a3-991b-e85bcd89c12b",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 699,
+      "total_deletions": 7,
+      "accepted_lines": 563,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/6df51a6e846154369a385af53a93fd8d852731f88825ca82411e64956d618b6b"
+    },
+    "4d09664a8a5111ad": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "22b62e12-5e68-459c-a590-32d43ce2f384",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 12,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/818cbda60784fb4135e26f112eedc4378dd09bc659aab5128d4d00fa37366a76"
+    },
+    "726b0d948704f6f7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2a4bbcba-c8ab-4bcd-8819-4602ece74485",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 844,
+      "total_deletions": 316,
+      "accepted_lines": 779,
+      "overriden_lines": 1,
+      "messages_url": "https://usegitai.com/cas/df19447a91dcf2064aaccca6d5c80147dfcbf5d6b9623406cb489aaf3be289db"
+    },
+    "820cd03d50065d11": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4ba67220-8f79-43e2-b8e4-98d6f18be4a4",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1107,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/8e28ffb8e3116a52fc2db59bf09eb2f40c45ccd2c7293e338449b6970d77b6a5"
+    },
+    "93e74dac38710f2a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1505004a-4d18-4b43-b509-f304af18afcd",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 348,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/45338ae5c65c330415a4dcad172ebdf4099500e3bef2880c7a26fd5fbe4c5210"
+    },
+    "a9595ef1f2f3ac90": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8c8d184e-9ca1-43c5-a180-dfe9b12ebace",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 581,
+      "total_deletions": 129,
+      "accepted_lines": 553,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/c1ab69128e6d9699aeecf3d8b5f01958b41b30f25b65c73dbe15d8f08a844d00"
+    },
+    "e98ee94fc3b00bcf": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2141bdda-0e58-4025-b05b-87a64453877f",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 205,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/25b6d2ce5a17ac0ccc0bdf724eb274299439ecf269b16d9518fdd582e4452f68"
+    },
+    "ee1a008ee044065d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5608f639-7b3d-44bf-9415-429229ff2ef4",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 439,
+      "total_deletions": 23,
+      "accepted_lines": 416,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/1ae3833d6e9f286bf207a3374b0c8ceef483ed0f405b3a7e8eac542d16f31188"
+    },
+    "fe945cbbd8fcc891": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19969f0d-ea3b-40c4-9a08-7cb045130ec9",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 386,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/6163acf24e28cc2a6ec19b73ca28af40d33b3944c1e9c4544867b0197e1c39b7"
+    }
+  }
+}
