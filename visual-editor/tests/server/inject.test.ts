@@ -127,4 +127,29 @@ describe('injectScripts', () => {
     expect(result).toContain('<script src="/__zerofog/client/nav-blocker.js">');
     expect(result).toContain('<script src="/__zerofog/client/inspector.js">');
   });
+
+  // Nonce format validation
+  it('rejects nonce with unsafe characters', () => {
+    const html = '<html><head></head><body></body></html>';
+    expect(() => injectScripts(html, 'bad"nonce')).toThrow('Invalid nonce format');
+    expect(() => injectScripts(html, 'has spaces')).toThrow('Invalid nonce format');
+    expect(() => injectScripts(html, 'has<script>')).toThrow('Invalid nonce format');
+  });
+
+  it('accepts valid base64 nonce', () => {
+    const html = '<html><head></head><body></body></html>';
+    const result = injectScripts(html, 'YWJjMTIz');
+    expect(result).toContain('nonce="YWJjMTIz"');
+  });
+
+  // T10: Nonce values differ across calls (uniqueness is actually at the server level,
+  // but we verify inject itself doesn't memoize/cache nonce)
+  it('different nonces produce different script tags', () => {
+    const html = '<html><head></head><body></body></html>';
+    const a = injectScripts(html, 'AAAA');
+    const b = injectScripts(html, 'BBBB');
+    expect(a).toContain('nonce="AAAA"');
+    expect(b).toContain('nonce="BBBB"');
+    expect(a).not.toEqual(b);
+  });
 });

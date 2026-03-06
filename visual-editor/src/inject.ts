@@ -1,11 +1,14 @@
 const MARKER = '<!-- __zerofog_injected__ -->';
+const SAFE_NONCE = /^[A-Za-z0-9+/=]+$/;
 
 function headScripts(nonce?: string): string {
+  if (nonce && !SAFE_NONCE.test(nonce)) throw new Error('Invalid nonce format');
   const attr = nonce ? ` nonce="${nonce}"` : '';
   return `\n${MARKER}\n<script${attr} src="/__zerofog/client/nav-blocker.js"></script>\n`;
 }
 
 function bodyScripts(nonce?: string): string {
+  if (nonce && !SAFE_NONCE.test(nonce)) throw new Error('Invalid nonce format');
   const attr = nonce ? ` nonce="${nonce}"` : '';
   return `\n<script${attr} src="/__zerofog/client/inspector.js"></script>\n`;
 }

@@ -64,6 +64,7 @@ export declare function finalizeDiff(
   selection: { testId?: string | null; selector?: string; componentChain?: string[]; elementType?: string },
   changes: ChangeEntry[],
   _now?: Date,
+  selector?: string,
 ): DiffResult;
 
 /** Find __reactFiber$ keys on a DOM element. */

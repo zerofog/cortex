@@ -47,9 +47,9 @@ function buildTokenMaps(styleGetter) {
   // Avoids layout thrash (interleaved write→read forces synchronous reflow each time).
   var sentinels = [];
   var frag = document.createDocumentFragment();
-  for (var i = 0; i < TOOLBAR_SIZES.length; i++) {
-    var s = TOOLBAR_SIZES[i];
-    var el = document.createElement('div');
+  for (let i = 0; i < TOOLBAR_SIZES.length; i++) {
+    let s = TOOLBAR_SIZES[i];
+    let el = document.createElement('div');
     el.style.cssText =
       'position:absolute;visibility:hidden;pointer-events:none;width:0;height:0';
     el.style.padding = 'var(--mantine-spacing-' + s + ')';
@@ -62,20 +62,20 @@ function buildTokenMaps(styleGetter) {
   try {
     // Batch reads: no writes between reads, so browser resolves layout once
     // on first getComputedStyle call; subsequent reads use cached layout.
-    for (var i = 0; i < TOOLBAR_SIZES.length; i++) {
-      var s = TOOLBAR_SIZES[i];
-      var styles = _getStyle(sentinels[i]);
+    for (let i = 0; i < TOOLBAR_SIZES.length; i++) {
+      let s = TOOLBAR_SIZES[i];
+      let styles = _getStyle(sentinels[i]);
 
-      var spacingPx = styles.paddingTop;
+      let spacingPx = styles.paddingTop;
       if (spacingPx && spacingPx !== '0px') spacingMap[spacingPx] = s;
 
-      var radiusPx = styles.borderTopLeftRadius;
+      let radiusPx = styles.borderTopLeftRadius;
       if (radiusPx && radiusPx !== '0px') radiusMap[radiusPx] = s;
     }
   } catch (_e) {
     return { spacing: {}, radius: {} };
   } finally {
-    for (var i = 0; i < sentinels.length; i++) {
+    for (let i = 0; i < sentinels.length; i++) {
       sentinels[i].remove();
     }
   }
@@ -111,7 +111,7 @@ function getComponentName(fiber) {
   var type = fiber.type;
   if (typeof type === 'string') return null;
   var depth = 0;
-  while (type && depth < 5) {
+  while (type && depth < 10) {
     if (type.displayName || type.name) return type.displayName || type.name;
     if (type.render && typeof type.render === 'function') {
       return type.render.displayName || type.render.name || null;

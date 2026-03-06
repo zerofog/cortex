@@ -63,21 +63,35 @@ function isValidChangeEntry(c: unknown): boolean {
   if (typeof origin !== 'string' || !ALLOWED_ORIGINS.has(origin)) return false;
   const cssValue = e.cssValue as string;
   if (cssValue.length > CSS_VALUE_MAX_LENGTH || CSS_VALUE_UNSAFE.test(cssValue)) return false;
+  // H5: Validate previousToken (null or valid token) and previousCssValue
+  if (e.previousToken !== null && (typeof e.previousToken !== 'string' || !ALLOWED_TOKENS.has(e.previousToken as string))) return false;
+  const prevCss = e.previousCssValue;
+  if (typeof prevCss !== 'string') return false;
+  if ((prevCss as string).length > CSS_VALUE_MAX_LENGTH || CSS_VALUE_UNSAFE.test(prevCss as string)) return false;
 
   return true;
 }
 
+/** Only allow safe CSS selector characters: word chars, spaces, brackets, quotes, dots, colons, combinators, hashes, hyphens, equals, parens. */
+const SAFE_SELECTOR = /^[\w\s\[\]=".:>+~#()\-,*]+$/;
+const MAX_SELECTOR_LENGTH = 500;
+
 export function isFinalizePayload(v: unknown): v is FinalizePayload {
   if (typeof v !== 'object' || v === null) return false;
   const obj = v as Record<string, unknown>;
+  if ('selector' in obj) {
+    if (typeof obj.selector !== 'string') return false;
+    if (obj.selector.length > MAX_SELECTOR_LENGTH || !SAFE_SELECTOR.test(obj.selector)) return false;
+  }
   return (
     typeof obj.elementId === 'number' &&
     (obj.testId === null || typeof obj.testId === 'string') &&
-    (!('selector' in obj) || typeof obj.selector === 'string') &&
     Array.isArray(obj.componentChain) &&
+    obj.componentChain.length <= 50 &&
     obj.componentChain.every((c: unknown) => typeof c === 'string') &&
     typeof obj.elementType === 'string' &&
     Array.isArray(obj.changes) &&
+    obj.changes.length <= 100 &&
     obj.changes.every(isValidChangeEntry)
   );
 }
@@ -85,34 +99,42 @@ export function isFinalizePayload(v: unknown): v is FinalizePayload {
 export function isCompletionReport(v: unknown): v is CompletionReport {
   if (typeof v !== 'object' || v === null) return false;
   const obj = v as Record<string, unknown>;
-  return (
-    Array.isArray(obj.applied) &&
-    obj.applied.every((n: unknown) => Number.isInteger(n)) &&
-    Array.isArray(obj.failed) &&
-    obj.failed.every((f: unknown) =>
+  if (
+    !Array.isArray(obj.applied) ||
+    !obj.applied.every((n: unknown) => Number.isInteger(n)) ||
+    !Array.isArray(obj.failed) ||
+    !obj.failed.every((f: unknown) =>
       typeof f === 'object' && f !== null &&
       Number.isInteger((f as Record<string, unknown>).index) &&
       typeof (f as Record<string, unknown>).reason === 'string'
     )
-  );
+  ) return false;
+  // L17: applied and failed indices must be disjoint
+  const appliedSet = new Set(obj.applied as number[]);
+  for (const f of obj.failed as Array<{ index: number }>) {
+    if (appliedSet.has(f.index)) return false;
+  }
+  return true;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────
 
 function escapeAttrValue(s: string): string {
-  return s.replace(/\0/g, '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return s.replace(/\0/g, '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/]/g, '\\]');
 }
 
 export class StateConflictError extends Error {
   currentState: MachineState;
   attemptedTransition: string;
+  kind: 'conflict' | 'token-mismatch';
 
-  constructor(currentState: MachineState, attemptedTransition: string) {
+  constructor(currentState: MachineState, attemptedTransition: string, kind: 'conflict' | 'token-mismatch' = 'conflict') {
     super(`Cannot ${attemptedTransition} in state '${currentState}'`);
     Object.setPrototypeOf(this, StateConflictError.prototype);
     this.name = 'StateConflictError';
     this.currentState = currentState;
     this.attemptedTransition = attemptedTransition;
+    this.kind = kind;
   }
 }
 
@@ -210,7 +232,10 @@ export class StateManager {
     return diff;
   }
 
-  /** Atomically persist diff to WAL, verifying no symlink escape. */
+  /** Atomically persist diff to WAL, verifying no symlink escape.
+   *  TODO(M2): Add SHA-256 checksum to WAL for corruption detection on recovery.
+   *  Currently recover() relies on JSON.parse succeeding, which doesn't detect
+   *  partial writes or bit-rot. Write checksum as trailing line, verify on read. */
   private async writeWal(diff: AccumulatedDiff): Promise<void> {
     await mkdir(this.walDir, { recursive: true });
     const realWalDir = await realpath(this.walDir);
@@ -265,7 +290,7 @@ export class StateManager {
       throw new StateConflictError(this.state, 'complete');
     }
     if (this.claimToken !== claimToken) {
-      throw new StateConflictError(this.state, 'complete (token mismatch)');
+      throw new StateConflictError(this.state, 'complete (token mismatch)', 'token-mismatch');
     }
 
     // Invariant: diff must exist in processing state (set by receiveDiff, guarded by claimDiff)
@@ -305,11 +330,13 @@ export class StateManager {
     try {
       const raw = readFileSync(this.walPath, 'utf-8');
       const parsed = JSON.parse(raw) as AccumulatedDiff;
-      // Deep validation: version, elements shape, and sessionId update
+      // Deep validation: version, elements shape, metadata, and sessionId update
       if (
         parsed.version === 1 &&
         Array.isArray(parsed.elements) &&
-        parsed.elements.every(isValidElementDiff)
+        parsed.elements.every(isValidElementDiff) &&
+        parsed.metadata !== null && typeof parsed.metadata === 'object' &&
+        typeof (parsed.metadata as Record<string, unknown>).createdAt === 'string'
       ) {
         parsed.sessionId = this.sessionId;
         this.diff = parsed;
@@ -326,9 +353,10 @@ export class StateManager {
     }
   }
 
-  dispose(opts?: { deleteWal?: boolean }): void {
-    // Only delete WAL when idle — pending_diff/processing WAL should survive for recovery
-    if (opts?.deleteWal && this.state === 'idle') {
+  dispose(opts?: { deleteWal?: boolean; force?: boolean }): void {
+    // H12: force=true deletes WAL unconditionally (graceful shutdown)
+    // Without force, only delete WAL when idle — pending_diff/processing WAL survives for crash recovery
+    if (opts?.deleteWal && (opts.force || this.state === 'idle')) {
       try { unlinkSync(this.walPath); } catch { /* ignore */ }
     }
     if (this.timeoutTimer) {

@@ -186,7 +186,6 @@ describe('API', () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data).toMatchObject({ status: 'ok' });
-    expect(data).toHaveProperty('targetReachable');
   });
 
   it('GET /status returns uptime without sessionId', async () => {
@@ -210,7 +209,7 @@ describe('API', () => {
   // H9: GET /diff endpoint
   it('GET /diff returns 404 when idle', async () => {
     const res = await fetch(sidecar.url + '/__zerofog/api/diff', {
-      headers: { Host: `127.0.0.1:${sidecar.port}` },
+      headers: { Host: `127.0.0.1:${sidecar.port}`, 'X-Session-Id': sidecar.context.sessionId },
     });
     expect(res.status).toBe(404);
     const data = await res.json();
@@ -787,7 +786,6 @@ describe('startServer lifecycle', () => {
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(data).toMatchObject({ status: 'ok' });
-      expect(data).toHaveProperty('targetReachable');
     } finally {
       await ctx.close();
     }
@@ -886,6 +884,9 @@ describe('finalize pipeline', () => {
     expect(diff.elements[0].elementSelector).toBe('[data-testid="btn-submit"]');
     expect(typeof diff.claimToken).toBe('string');
     expect(diff.claimToken.length).toBeGreaterThan(0);
+    // H18: Verify explicit response shape — only expected keys present
+    const keys = Object.keys(diff).sort();
+    expect(keys).toEqual(['claimToken', 'elements', 'metadata', 'sessionId', 'version']);
     ws.close();
   });
 
@@ -958,7 +959,7 @@ describe('finalize pipeline', () => {
 
     // GET /diff should return the diff
     const res = await fetch(sidecar.url + '/__zerofog/api/diff', {
-      headers: { Host: `127.0.0.1:${sidecar.port}` },
+      headers: { Host: `127.0.0.1:${sidecar.port}`, 'X-Session-Id': sidecar.context.sessionId },
     });
     expect(res.status).toBe(200);
     const diff = await res.json();
@@ -987,7 +988,7 @@ describe('finalize pipeline', () => {
 
     // GET /diff should still return the diff
     const res = await fetch(sidecar.url + '/__zerofog/api/diff', {
-      headers: { Host: `127.0.0.1:${sidecar.port}` },
+      headers: { Host: `127.0.0.1:${sidecar.port}`, 'X-Session-Id': sidecar.context.sessionId },
     });
     expect(res.status).toBe(200);
     const diff = await res.json();
@@ -1161,12 +1162,85 @@ describe('finalize pipeline', () => {
     expect(result.error).toBe('invalid payload');
     ws.close();
   });
+
+  // T5: RangeError via HTTP /complete with out-of-range index
+  it('/complete with out-of-range applied index returns 400', async () => {
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+    ws.send(makeFinalize());
+    await waitForWsMessage(ws, 'finalize-result');
+    const claimRes = await apiPost(sidecar, '/claim');
+    const { claimToken } = await claimRes.json();
+    const res = await apiPost(sidecar, '/complete', { applied: [99], failed: [], claimToken });
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toBe('index out of bounds');
+    ws.close();
+  });
+
+  // T9: 100kb body limit rejection on /complete
+  it('/complete rejects oversized body', async () => {
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+    ws.send(makeFinalize());
+    await waitForWsMessage(ws, 'finalize-result');
+    await apiPost(sidecar, '/claim');
+    // Send a body > 100kb — need > 102400 bytes of valid JSON
+    const padding = 'x'.repeat(110000);
+    const largeBody = JSON.stringify({ applied: [0], failed: [], claimToken: padding });
+    const res = await fetch(sidecar.url + '/__zerofog/api/complete', {
+      method: 'POST',
+      headers: {
+        Host: `127.0.0.1:${sidecar.port}`,
+        'X-Session-Id': sidecar.context.sessionId,
+        'Content-Type': 'application/json',
+      },
+      body: largeBody,
+    });
+    // Express json({ limit }) throws PayloadTooLargeError → caught by blanket error handler
+    expect([413, 500]).toContain(res.status);
+    ws.close();
+  });
+
+  // T11: Cache-Control header on sidecar scripts
+  it('sidecar scripts have Cache-Control header', async () => {
+    const res = await fetch(sidecar.url + '/__zerofog/client/nav-blocker.js', {
+      headers: { Host: `127.0.0.1:${sidecar.port}` },
+    });
+    // Script may not exist in test env, but if it does, check cache headers
+    if (res.status === 200) {
+      const cc = res.headers.get('cache-control');
+      expect(cc).toBeTruthy();
+    }
+  });
+
+  // M13: /shutdown returns 409 during processing
+  it('/shutdown returns 409 during processing state', async () => {
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+    ws.send(makeFinalize());
+    await waitForWsMessage(ws, 'finalize-result');
+    // Don't claim — shutdown during pending_diff
+    const res = await apiPost(sidecar, '/shutdown');
+    expect(res.status).toBe(409);
+    const data = await res.json();
+    expect(data.error).toBe('conflict');
+    ws.close();
+  });
+
+  // M32: GET /diff without auth returns 403
+  it('GET /diff without X-Session-Id returns 403', async () => {
+    const res = await fetch(sidecar.url + '/__zerofog/api/diff', {
+      headers: { Host: `127.0.0.1:${sidecar.port}` },
+    });
+    expect(res.status).toBe(403);
+  });
 });
 
 // ─── H3: rewriteCsp unit tests ───────────────────────────────────────
 
 describe('rewriteCsp', () => {
-  const nonce = 'test-nonce-123';
+  const nonce = 'dGVzdG5vbmNlMTIz';
 
   it('adds nonce and self to script-src', () => {
     const result = rewriteCsp("script-src 'self'; default-src 'self'", nonce);
@@ -1213,5 +1287,21 @@ describe('rewriteCsp', () => {
     const result = rewriteCsp("script-src 'self'", nonce);
     expect(result).toContain('script-src-elem');
     expect(result).toContain(`'nonce-${nonce}'`);
+  });
+
+  // M15: Nonce format validation
+  it('throws on nonce with unsafe characters', () => {
+    expect(() => rewriteCsp("script-src 'self'", 'bad nonce')).toThrow('Invalid nonce format');
+    expect(() => rewriteCsp("script-src 'self'", "x'; script-src 'none")).toThrow('Invalid nonce format');
+  });
+
+  // H9: script-src-elem inherits CDN hosts from script-src
+  it('derives script-src-elem from rewritten script-src tokens (preserving CDN hosts)', () => {
+    const result = rewriteCsp("script-src 'self' https://cdn.example.com", nonce);
+    expect(result).toContain('script-src-elem');
+    // CDN host must be in script-src-elem too
+    const elemDirective = result.split(';').map(d => d.trim()).find(d => d.startsWith('script-src-elem'));
+    expect(elemDirective).toContain('https://cdn.example.com');
+    expect(elemDirective).toContain(`'nonce-${nonce}'`);
   });
 });

@@ -61,8 +61,8 @@ export function createTestSidecar(
 // ─── WebSocket helpers ──────────────────────────────────────────
 
 /** Wait for a WS message, optionally filtering by type. Always returns parsed object. */
-export function waitForWsMessage(ws: WebSocket, type?: string, timeoutMs = 5000): Promise<any> {
-  return new Promise<any>((resolve, reject) => {
+export function waitForWsMessage<T = Record<string, unknown>>(ws: WebSocket, type?: string, timeoutMs = 5000): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
     function cleanup() {
       clearTimeout(timer);
       ws.removeListener('message', onMsg);
@@ -73,11 +73,11 @@ export function waitForWsMessage(ws: WebSocket, type?: string, timeoutMs = 5000)
       reject(new Error(type ? `WS message type '${type}' timeout` : 'WS message timeout'));
     }, timeoutMs);
     function onMsg(data: Buffer) {
-      let parsed: any;
+      let parsed: unknown;
       try { parsed = JSON.parse(data.toString()); } catch { return; }
-      if (!type || parsed.type === type) {
+      if (!type || (parsed as Record<string, unknown>).type === type) {
         cleanup();
-        resolve(parsed);
+        resolve(parsed as T);
       }
     }
     function onError(err: Error) { cleanup(); reject(err); }

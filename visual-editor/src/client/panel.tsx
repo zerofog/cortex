@@ -91,8 +91,14 @@ export function PanelRoot({ sessionId, sidecarOrigin }: PanelRootProps): VNode {
   function isTokenMaps(data: unknown): data is TokenMaps {
     if (!data || typeof data !== 'object') return false;
     const d = data as Record<string, unknown>;
-    return d.spacing !== null && typeof d.spacing === 'object'
-      && d.radius !== null && typeof d.radius === 'object';
+    if (!d.spacing || typeof d.spacing !== 'object') return false;
+    if (!d.radius || typeof d.radius !== 'object') return false;
+    // M7: Validate value types — all values must be strings (token names)
+    const spacing = d.spacing as Record<string, unknown>;
+    const radius = d.radius as Record<string, unknown>;
+    for (const v of Object.values(spacing)) { if (typeof v !== 'string') return false; }
+    for (const v of Object.values(radius)) { if (typeof v !== 'string') return false; }
+    return true;
   }
 
   // ── postMessage listener for inspector messages ────────────────
@@ -167,13 +173,16 @@ export function PanelRoot({ sessionId, sidecarOrigin }: PanelRootProps): VNode {
       const ws = new WebSocket(url);
       wsRef.current = ws;
 
+      ws.onopen = () => {
+        retryCount = 0;
+      };
+
       ws.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data as string) as { type: string; [k: string]: unknown };
           if (msg.type === 'hello') {
             ws.send(JSON.stringify({ type: 'auth', sessionId }));
           } else if (msg.type === 'session') {
-            retryCount = 0;
             dispatch({ type: 'WS_STATUS', status: 'connected' });
           } else if (msg.type === 'finalize-result') {
             if (msg.ok) {

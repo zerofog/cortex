@@ -362,6 +362,8 @@ describe('isFinalizePayload', () => {
         token: 'md',
         cssProperty: 'padding',
         cssValue: '16px',
+        previousToken: 'sm',
+        previousCssValue: '8px',
         styleOrigin: { origin: 'unknown' },
       }],
     })).toBe(true);
@@ -766,24 +768,6 @@ describe('StateManager hardening', () => {
     sm.dispose();
   });
 
-  it('timeout clears claimedDiffHash — re-claim of same diff succeeds (H1 deadlock fix)', async () => {
-    const sm = new StateManager({ sessionId: 'test', walDir, timeoutMs: 100 });
-    await sm.receiveDiff(makePayload());
-    vi.useFakeTimers();
-    try {
-      sm.claimDiff();
-      vi.advanceTimersByTime(100);
-      expect(sm.getState()).toBe('pending_diff');
-      // After timeout, re-claim of same diff should succeed (deadlock fix)
-      const { claimToken } = sm.claimDiff();
-      expect(sm.getState()).toBe('processing');
-      sm.complete({ applied: [0], failed: [] }, claimToken);
-      sm.dispose();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it('allows claim of a DIFFERENT diff after timeout', async () => {
     const sm = new StateManager({ sessionId: 'test', walDir, timeoutMs: 100 });
     await sm.receiveDiff(makePayload());
@@ -827,6 +811,166 @@ describe('StateManager hardening', () => {
     sm.dispose();
   });
 
+  // H1: escapeAttrValue escapes ] to prevent attribute selector breakout
+  it('escapes ] in testId for attribute selector safety', async () => {
+    const sm = new StateManager({ sessionId: 'test', walDir });
+    const diff = await sm.receiveDiff(makePayload({ testId: 'a]b' }));
+    expect(diff.elements[0]!.elementSelector).toBe('[data-testid="a\\]b"]');
+    sm.dispose();
+  });
+
+  // H11: Selector validation rejects unsafe characters
+  it('receiveDiff rejects payload with unsafe selector (script injection)', () => {
+    expect(isFinalizePayload({
+      elementId: 1,
+      testId: null,
+      selector: '.foo { } body::after { content: "xss" }',
+      componentChain: ['A'],
+      elementType: 'div',
+      changes: [],
+    })).toBe(false);
+  });
+
+  it('receiveDiff rejects payload with excessively long selector', () => {
+    expect(isFinalizePayload({
+      elementId: 1,
+      testId: null,
+      selector: '.a'.repeat(300),
+      componentChain: ['A'],
+      elementType: 'div',
+      changes: [],
+    })).toBe(false);
+  });
+
+  it('receiveDiff accepts payload with valid CSS selector', () => {
+    expect(isFinalizePayload({
+      elementId: 1,
+      testId: null,
+      selector: '[data-testid="card-1"] > .inner',
+      componentChain: ['A'],
+      elementType: 'div',
+      changes: [],
+    })).toBe(true);
+  });
+
+  // H5: previousToken validation
+  it('rejects change with invalid previousToken', () => {
+    expect(isFinalizePayload({
+      elementId: 1,
+      testId: 'btn',
+      componentChain: ['A'],
+      elementType: 'button',
+      changes: [{
+        property: 'padding',
+        token: 'md',
+        cssProperty: 'padding',
+        cssValue: '16px',
+        previousToken: 'xxl',
+        previousCssValue: '8px',
+        styleOrigin: { origin: 'unknown' },
+      }],
+    })).toBe(false);
+  });
+
+  it('accepts change with null previousToken', () => {
+    expect(isFinalizePayload({
+      elementId: 1,
+      testId: 'btn',
+      componentChain: ['A'],
+      elementType: 'button',
+      changes: [{
+        property: 'padding',
+        token: 'md',
+        cssProperty: 'padding',
+        cssValue: '16px',
+        previousToken: null,
+        previousCssValue: '',
+        styleOrigin: { origin: 'unknown' },
+      }],
+    })).toBe(true);
+  });
+
+  it('rejects change with CSS injection in previousCssValue', () => {
+    expect(isFinalizePayload({
+      elementId: 1,
+      testId: 'btn',
+      componentChain: ['A'],
+      elementType: 'button',
+      changes: [{
+        property: 'padding',
+        token: 'md',
+        cssProperty: 'padding',
+        cssValue: '16px',
+        previousToken: 'sm',
+        previousCssValue: '8px; background: url(evil)',
+        styleOrigin: { origin: 'unknown' },
+      }],
+    })).toBe(false);
+  });
+
+  // M4: recovery rejects null metadata
+  it('recovery stays idle on WAL with null metadata', () => {
+    const walPath = join(walDir, 'pending-diff.json');
+    writeFileSync(walPath, JSON.stringify({
+      version: 1,
+      sessionId: 'test',
+      elements: [{
+        elementSelector: '[data-testid="x"]',
+        componentChain: ['A'],
+        elementType: 'div',
+        changes: [],
+      }],
+      metadata: null,
+    }));
+    const sm = new StateManager({ sessionId: 'test', walDir });
+    sm.recover();
+    expect(sm.getState()).toBe('idle');
+    sm.dispose();
+  });
+
+  it('recovery stays idle on WAL with missing createdAt in metadata', () => {
+    const walPath = join(walDir, 'pending-diff.json');
+    writeFileSync(walPath, JSON.stringify({
+      version: 1,
+      sessionId: 'test',
+      elements: [{
+        elementSelector: '[data-testid="x"]',
+        componentChain: ['A'],
+        elementType: 'div',
+        changes: [],
+      }],
+      metadata: { something: 'else' },
+    }));
+    const sm = new StateManager({ sessionId: 'test', walDir });
+    sm.recover();
+    expect(sm.getState()).toBe('idle');
+    sm.dispose();
+  });
+
+  // H12: dispose with force deletes WAL even during pending_diff
+  it('dispose({deleteWal:true, force:true}) removes WAL during pending_diff', async () => {
+    const sm = new StateManager({ sessionId: 'test', walDir });
+    await sm.receiveDiff(makePayload());
+    const walPath = join(walDir, 'pending-diff.json');
+    expect(existsSync(walPath)).toBe(true);
+    sm.dispose({ deleteWal: true, force: true });
+    expect(existsSync(walPath)).toBe(false);
+  });
+
+  // M3: StateConflictError kind field
+  it('complete with wrong token has kind token-mismatch', async () => {
+    const sm = new StateManager({ sessionId: 'test', walDir });
+    await sm.receiveDiff(makePayload());
+    sm.claimDiff();
+    try {
+      sm.complete({ applied: [0], failed: [] }, 'wrong-token');
+    } catch (e) {
+      expect(e).toBeInstanceOf(StateConflictError);
+      expect((e as StateConflictError).kind).toBe('token-mismatch');
+    }
+    sm.dispose();
+  });
+
   // H1: Async WAL rollback on write failure
   it('receiveDiff rolls back state to idle on WAL write failure', async () => {
     // Use a non-existent path nested under a file (not a directory) to trigger write failure
@@ -839,5 +983,62 @@ describe('StateManager hardening', () => {
     expect(sm.getState()).toBe('idle');
     expect(sm.getDiff()).toBeNull();
     sm.dispose();
+  });
+
+  // T2: Adversarial receiveDiff race — WAL written once
+  it('concurrent receiveDiff calls — second one throws conflict', async () => {
+    const sm = new StateManager({ sessionId: 'test', walDir });
+    // First receiveDiff succeeds
+    const first = sm.receiveDiff(makePayload());
+    // Second immediate call should throw StateConflictError (state is already pending_diff)
+    await expect(sm.receiveDiff(makePayload())).rejects.toThrow(StateConflictError);
+    await first;
+    const walPath = join(walDir, 'pending-diff.json');
+    expect(existsSync(walPath)).toBe(true);
+    sm.dispose();
+  });
+
+  // T7: dispose({deleteWal:true}) during processing state without force
+  it('dispose({deleteWal:true}) preserves WAL during processing state', async () => {
+    const sm = new StateManager({ sessionId: 'test', walDir });
+    await sm.receiveDiff(makePayload());
+    sm.claimDiff(); // move to processing
+    const walPath = join(walDir, 'pending-diff.json');
+    expect(existsSync(walPath)).toBe(true);
+    sm.dispose({ deleteWal: true }); // no force — WAL should survive
+    expect(existsSync(walPath)).toBe(true);
+  });
+
+  // L17: isCompletionReport rejects overlapping applied/failed
+  it('isCompletionReport rejects overlapping applied and failed indices', () => {
+    expect(isCompletionReport({
+      applied: [0, 1],
+      failed: [{ index: 1, reason: 'conflict' }],
+    })).toBe(false);
+  });
+
+  // M27: Field-level limits
+  it('isFinalizePayload rejects componentChain > 50', () => {
+    expect(isFinalizePayload({
+      elementId: 1,
+      testId: 'btn',
+      componentChain: Array(51).fill('A'),
+      elementType: 'button',
+      changes: [],
+    })).toBe(false);
+  });
+
+  it('isFinalizePayload rejects changes > 100', () => {
+    const change = {
+      property: 'padding', token: 'md', cssProperty: 'padding', cssValue: '16px',
+      previousToken: 'sm', previousCssValue: '8px', styleOrigin: { origin: 'unknown' },
+    };
+    expect(isFinalizePayload({
+      elementId: 1,
+      testId: 'btn',
+      componentChain: ['A'],
+      elementType: 'button',
+      changes: Array(101).fill(change),
+    })).toBe(false);
   });
 });

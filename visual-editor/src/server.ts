@@ -93,11 +93,16 @@ function rewriteScriptDirective(parts: string[], nonce: string): string[] {
   return filtered;
 }
 
+const SAFE_NONCE = /^[A-Za-z0-9+/=]+$/;
+
 export function rewriteCsp(csp: string, nonce: string): string {
+  // M15: Reject nonces that could inject into CSP directives
+  if (!SAFE_NONCE.test(nonce)) throw new Error('Invalid nonce format');
   const directives = csp.split(';').map(d => d.trim()).filter(Boolean);
   const result: string[] = [];
   let hasScriptSrc = false;
   let hasScriptSrcElem = false;
+  let rewrittenScriptSrcTokens: string[] | null = null;
 
   for (const directive of directives) {
     const parts = directive.split(/\s+/);
@@ -108,7 +113,8 @@ export function rewriteCsp(csp: string, nonce: string): string {
 
     if (name === 'script-src') {
       hasScriptSrc = true;
-      result.push(rewriteScriptDirective(parts, nonce).join(' '));
+      rewrittenScriptSrcTokens = rewriteScriptDirective(parts, nonce);
+      result.push(rewrittenScriptSrcTokens.join(' '));
       continue;
     }
 
@@ -137,11 +143,13 @@ export function rewriteCsp(csp: string, nonce: string): string {
     }
   }
 
-  // If script-src-elem wasn't present but script-src was, browsers use script-src
-  // for <script> elements. But if another part of the app adds script-src-elem later,
-  // our injected scripts need coverage. Only add if script-src is present.
-  if (hasScriptSrc && !hasScriptSrcElem) {
-    result.push(`script-src-elem 'self' 'nonce-${nonce}'`);
+  // H9: Derive script-src-elem from rewritten script-src tokens (preserving CDN hosts)
+  // rather than just 'self' + nonce, which would block external scripts.
+  if (hasScriptSrc && !hasScriptSrcElem && rewrittenScriptSrcTokens) {
+    // Replace directive name 'script-src' → 'script-src-elem'
+    const elemTokens = [...rewrittenScriptSrcTokens];
+    elemTokens[0] = 'script-src-elem';
+    result.push(elemTokens.join(' '));
   }
 
   return result.join('; ');
@@ -200,9 +208,14 @@ function createApiRouter(deps: ApiRouterDeps): express.Router {
     next();
   });
 
-  api.get('/health', async (_req: Request, res: Response) => {
+  // H19: Split health into liveness (fast, no I/O) and readiness (TCP check to target)
+  api.get('/health', (_req: Request, res: Response) => {
+    res.status(200).json({ status: 'ok' });
+  });
+
+  api.get('/ready', async (_req: Request, res: Response) => {
     const targetReachable = await checkTargetReachable(targetPort);
-    res.status(200).json({ status: 'ok', targetReachable });
+    res.status(targetReachable ? 200 : 503).json({ status: targetReachable ? 'ready' : 'not_ready', targetReachable });
   });
 
   api.get('/status', (_req: Request, res: Response) => {
@@ -214,7 +227,12 @@ function createApiRouter(deps: ApiRouterDeps): express.Router {
   });
 
   // H9: Read-only diff inspection — does not advance state machine
-  api.get('/diff', (_req: Request, res: Response) => {
+  // M32: Require auth even for read-only diff (contains element selectors)
+  api.get('/diff', (req: Request, res: Response) => {
+    if (req.headers['x-session-id'] !== sessionId) {
+      res.status(403).json({ error: 'Invalid or missing X-Session-Id header' });
+      return;
+    }
     const diff = stateManager.getDiff();
     if (!diff) {
       res.status(404).json({ error: 'No pending diff' });
@@ -225,7 +243,7 @@ function createApiRouter(deps: ApiRouterDeps): express.Router {
 
   function handleStateError(err: unknown, res: Response, label: string): void {
     if (err instanceof StateConflictError) {
-      const status = err.attemptedTransition.includes('token mismatch') ? 403 : 409;
+      const status = err.kind === 'token-mismatch' ? 403 : 409;
       res.status(status).json({ error: status === 403 ? 'forbidden' : 'conflict', state: err.currentState });
       return;
     }
@@ -240,7 +258,14 @@ function createApiRouter(deps: ApiRouterDeps): express.Router {
   api.post('/claim', (req: Request, res: Response) => {
     try {
       const { diff, claimToken } = stateManager.claimDiff();
-      res.status(200).json({ ...diff, claimToken });
+      // H18: Explicit response shape — prevents leaking internal fields if AccumulatedDiff grows
+      res.status(200).json({
+        version: diff.version,
+        sessionId: diff.sessionId,
+        elements: diff.elements,
+        metadata: diff.metadata,
+        claimToken,
+      });
     } catch (err) {
       handleStateError(err, res, 'claim');
     }
@@ -266,6 +291,11 @@ function createApiRouter(deps: ApiRouterDeps): express.Router {
   });
 
   api.post('/shutdown', (_req: Request, res: Response) => {
+    // M13: Prevent shutdown during active editing pipeline
+    if (stateManager.getState() !== 'idle') {
+      res.status(409).json({ error: 'conflict', state: stateManager.getState() });
+      return;
+    }
     res.status(202).json({ status: 'shutting down' });
     triggerShutdown();
   });
@@ -283,11 +313,12 @@ interface WsHandlerDeps {
   heartbeatMs: number;
 }
 
+// M21: Typed WS message — no index signature to prevent accidental property leaks
 interface WsMessage {
   type: string;
   id?: string;
   sessionId?: string;
-  [key: string]: unknown;
+  payload?: unknown;
 }
 
 function isValidWsMessage(data: unknown): data is WsMessage {
@@ -305,6 +336,13 @@ function setupWsHandler(deps: WsHandlerDeps): void {
   editorWss.on('connection', (ws: WebSocket) => {
     let authenticated = false;
 
+    // H4: Close unauthenticated connections after 5 seconds
+    const authTimer = setTimeout(() => {
+      if (!authenticated) {
+        ws.close(4001, 'Authentication timeout');
+      }
+    }, 5000);
+
     ws.send(JSON.stringify({ type: 'hello' }));
 
     // Heartbeat: detect dead connections via ping/pong (RFC 6455).
@@ -316,6 +354,7 @@ function setupWsHandler(deps: WsHandlerDeps): void {
       try { ws.ping(); } catch { clearInterval(heartbeatTimer); }
     }, heartbeatMs);
     ws.on('close', () => {
+      clearTimeout(authTimer);
       clearInterval(heartbeatTimer);
       authenticatedClients.delete(ws);
     });
@@ -325,6 +364,13 @@ function setupWsHandler(deps: WsHandlerDeps): void {
     });
 
     ws.on('message', async (data: Buffer) => {
+      try { await handleWsMessage(data); } catch (err) {
+        // H13: Blanket catch prevents unhandled rejection from crashing the process
+        console.error('[cortex] Unexpected WS message handler error:', err);
+      }
+    });
+
+    async function handleWsMessage(data: Buffer): Promise<void> {
       let parsed: unknown;
       try { parsed = JSON.parse(data.toString()); }
       catch {
@@ -346,6 +392,7 @@ function setupWsHandler(deps: WsHandlerDeps): void {
       if (!authenticated) {
         if (parsed.type === 'auth' && parsed.sessionId === sessionId) {
           authenticated = true;
+          clearTimeout(authTimer);
           authenticatedClients.add(ws);
           ws.send(JSON.stringify({ type: 'session', authenticated: true }));
         } else {
@@ -387,7 +434,7 @@ function setupWsHandler(deps: WsHandlerDeps): void {
       }
 
       ws.send(JSON.stringify({ type: 'ack', id: parsed.id }));
-    });
+    }
   });
 }
 
@@ -458,9 +505,9 @@ export function createApp(options: ServerOptions): AppContext {
     for (const entry of readdirSync(clientDir)) {
       if (entry.endsWith('.js')) {
         let content = readFileSync(join(clientDir, entry), 'utf-8');
+        // M24: __SIDECAR_ORIGIN__ removed — nav-blocker derives origin from window.location (H14)
         content = content
-          .replace(/__SESSION_ID__/g, sessionId)
-          .replace(/__SIDECAR_ORIGIN__/g, `http://${host}:${port}`);
+          .replace(/__SESSION_ID__/g, sessionId);
         clientScriptCache.set(entry, content);
       }
     }
@@ -517,8 +564,8 @@ export function createApp(options: ServerOptions): AppContext {
     target: `http://127.0.0.1:${targetPort}`,
     selfHandleResponse: true,
     on: {
-      proxyRes: (proxyRes, _req, _res) => {
-        const res = _res as import('node:http').ServerResponse;
+      proxyRes: (proxyRes, _req, rawRes) => {
+        const res = rawRes as import('node:http').ServerResponse;
         const contentType = String(proxyRes.headers['content-type'] ?? '');
         const mimeType = contentType.split(';')[0]!.trim();
         const isHtml = mimeType === 'text/html';
@@ -562,9 +609,16 @@ export function createApp(options: ServerOptions): AppContext {
         const rawEncoding = proxyRes.headers['content-encoding'];
         const encoding = Array.isArray(rawEncoding) ? rawEncoding[0] : rawEncoding;
         let source: NodeJS.ReadableStream = proxyRes;
-        if (encoding === 'gzip') source = proxyRes.pipe(createGunzip());
-        else if (encoding === 'br') source = proxyRes.pipe(createBrotliDecompress());
-        else if (encoding === 'deflate') source = proxyRes.pipe(createInflate());
+        // M6: Shared error handler for decompressor and source stream errors
+        const streamErr = (err: Error) => {
+          if (!res.headersSent) {
+            res.writeHead(502, { 'content-type': 'text/html; charset=utf-8' });
+          }
+          res.end(`Error processing proxied response: ${escapeHtml(err.message)}`);
+        };
+        if (encoding === 'gzip') { source = proxyRes.pipe(createGunzip()); source.on('error', streamErr); }
+        else if (encoding === 'br') { source = proxyRes.pipe(createBrotliDecompress()); source.on('error', streamErr); }
+        else if (encoding === 'deflate') { source = proxyRes.pipe(createInflate()); source.on('error', streamErr); }
         else if (encoding) {
           // Unsupported encoding — pass through without injection to avoid corruption
           res.writeHead(proxyRes.statusCode ?? 200, proxyRes.headers);
@@ -587,6 +641,10 @@ export function createApp(options: ServerOptions): AppContext {
           totalSize += chunk.length;
           if (totalSize > MAX_INJECT_SIZE) {
             oversize = true;
+            // M12: Restore original CSP since we're not injecting scripts
+            if (existingCsp) {
+              res.setHeader('content-security-policy', existingCsp);
+            }
             // Flush already-buffered chunks, then this chunk, directly to response
             for (const c of chunks) res.write(c);
             res.write(chunk);
@@ -602,12 +660,7 @@ export function createApp(options: ServerOptions): AppContext {
           res.setHeader('content-length', Buffer.byteLength(body));
           res.end(body);
         });
-        source.on('error', (err) => {
-          if (!res.headersSent) {
-            res.writeHead(502, { 'content-type': 'text/html; charset=utf-8' });
-          }
-          res.end(`Error processing proxied response: ${escapeHtml(err.message)}`);
-        });
+        source.on('error', streamErr);
       },
       error: (err: Error & { code?: string }, _req: IncomingMessage, res: unknown) => {
         // res may be a Socket for WS upgrades — only handle HTTP responses
@@ -630,7 +683,8 @@ export function createApp(options: ServerOptions): AppContext {
   // C2: Error handler AFTER proxy so it catches proxy errors too
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Express requires 4-param signature
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    res.status(400).json({ error: err.message || 'Bad request' });
+    console.error('[cortex] Unexpected error:', err);
+    res.status(500).json({ error: 'internal' });
   });
 
   // ── Editor WebSocket ────────────────────────────────────────
@@ -674,13 +728,26 @@ export function attachUpgradeHandler(server: Server, context: AppContext): void 
 
 // ─── startServer ─────────────────────────────────────────────────
 
-function checkTargetReachable(port: number, host = '127.0.0.1'): Promise<boolean> {
+function checkTargetReachableOnce(port: number, host: string): Promise<boolean> {
   return new Promise((resolve) => {
+    let done = false;
+    const finish = (result: boolean) => { if (done) return; done = true; clearTimeout(timer); sock.destroy(); resolve(result); };
     const sock = createConnection({ host, port });
-    const timer = setTimeout(() => { sock.destroy(); resolve(false); }, 2000);
-    sock.once('connect', () => { clearTimeout(timer); sock.destroy(); resolve(true); });
-    sock.once('error', () => { clearTimeout(timer); sock.destroy(); resolve(false); });
+    // M22: blanket error handler to prevent unhandled errors
+    sock.on('error', () => {});
+    const timer = setTimeout(() => finish(false), 500);
+    sock.once('connect', () => finish(true));
+    sock.once('error', () => finish(false));
   });
+}
+
+// M14: Try both IPv4 and IPv6 loopback to handle dual-stack environments
+async function checkTargetReachable(port: number, host = '127.0.0.1'): Promise<boolean> {
+  if (await checkTargetReachableOnce(port, host)) return true;
+  // If the default host is IPv4, also try IPv6 (and vice versa)
+  const fallback = host === '127.0.0.1' ? '::1' : (host === '::1' ? '127.0.0.1' : null);
+  if (fallback) return checkTargetReachableOnce(port, fallback);
+  return false;
 }
 
 export async function startServer(options: ServerOptions): Promise<ServerContext> {
@@ -731,8 +798,8 @@ export async function startServer(options: ServerOptions): Promise<ServerContext
     closing = true;
     process.removeListener('SIGTERM', onSignal);
     process.removeListener('SIGINT', onSignal);
-    process.removeListener('uncaughtException', onFatalError);
-    process.removeListener('unhandledRejection', onFatalError);
+    process.removeListener('uncaughtException', onUncaughtException);
+    process.removeListener('unhandledRejection', onUnhandledRejection);
 
     return new Promise((resolve) => {
       let resolved = false;
@@ -743,7 +810,7 @@ export async function startServer(options: ServerOptions): Promise<ServerContext
         resolve();
       };
 
-      context.stateManager.dispose({ deleteWal: true });
+      context.stateManager.dispose({ deleteWal: true, force: true });
       for (const client of context.editorWss.clients) {
         try { client.terminate(); } catch { /* ignore */ }
       }
@@ -764,14 +831,20 @@ export async function startServer(options: ServerOptions): Promise<ServerContext
   function onSignal() {
     close().then(() => process.exit(0)).catch(() => process.exit(1));
   }
-  function onFatalError(err: unknown) {
-    console.error('[cortex] Fatal error:', err);
+  // H3: uncaughtException must use sync-only operations — async close() may not complete
+  function onUncaughtException(err: unknown) {
+    console.error('[cortex] Uncaught exception:', err);
+    try { unlinkSync(pidPath); } catch { /* ignore */ }
+    process.exit(1);
+  }
+  function onUnhandledRejection(err: unknown) {
+    console.error('[cortex] Unhandled rejection:', err);
     close().catch(() => {}).finally(() => process.exit(1));
   }
   process.on('SIGTERM', onSignal);
   process.on('SIGINT', onSignal);
-  process.on('uncaughtException', onFatalError);
-  process.on('unhandledRejection', onFatalError);
+  process.on('uncaughtException', onUncaughtException);
+  process.on('unhandledRejection', onUnhandledRejection);
 
   // H4: Wire shutdown callback — setImmediate ensures 202 response flushes before close()
   context.setShutdownHandler(() => {
@@ -786,8 +859,8 @@ export async function startServer(options: ServerOptions): Promise<ServerContext
       // Clean up process-level handlers on startup failure
       process.removeListener('SIGTERM', onSignal);
       process.removeListener('SIGINT', onSignal);
-      process.removeListener('uncaughtException', onFatalError);
-      process.removeListener('unhandledRejection', onFatalError);
+      process.removeListener('uncaughtException', onUncaughtException);
+      process.removeListener('unhandledRejection', onUnhandledRejection);
       // H2: Clean up PID file if it's ours — prevents false "already running" on retry
       try {
         const pidContent = readFileSync(pidPath, 'utf-8').trim();

@@ -179,12 +179,12 @@ function initNavBlocker(sessionId, sidecarOrigin) {
 (function () {
   // Template variables (server-replaced)
   var SESSION_ID = '__SESSION_ID__';
-  var SIDECAR_ORIGIN = '__SIDECAR_ORIGIN__';
 
   // Guard: don't run if templates weren't replaced (test env)
   if (SESSION_ID.indexOf('__') === 0) return;
 
-  initNavBlocker(SESSION_ID, SIDECAR_ORIGIN);
+  // H14: Derive sidecar origin from current page origin (works for 127.0.0.1, localhost, etc.)
+  initNavBlocker(SESSION_ID, window.location.origin);
 })();
 
 // ── Exports (for testing; stripped by tsup IIFE bundling) ────────

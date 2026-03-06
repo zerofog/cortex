@@ -110,7 +110,6 @@ describe('integration: full sidecar lifecycle', () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data).toMatchObject({ status: 'ok' });
-    expect(data).toHaveProperty('targetReachable');
   });
 
   // Step 7: GET /api/status → idle

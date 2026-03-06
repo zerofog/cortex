@@ -115,6 +115,13 @@ function getComponentName(fiber) {
   return null;
 }
 
+// M29: React 19 Strategy B — accessing `__reactFiber$` on detached elements can
+// retain the fiber tree in memory (GC leak). Since we only traverse fibers of
+// the currently-selected DOM element (not storing fiber references long-term),
+// the leak window is bounded to one element. Monitor if users report memory growth.
+// M30: This fiber traversal fails for elements inside Shadow DOM — querySelectorAll
+// and __reactFiber$ don't cross shadow boundaries. A future fix would need
+// shadowRoot.querySelectorAll or a MutationObserver-based approach.
 function findReactFiberKeys(element) {
   var keys = [];
   var allKeys = Object.keys(element);
@@ -889,8 +896,6 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
         new CustomEvent('zerofog:selected', { detail: selection })
       );
       postToParent('zerofog:selected', selection);
-      // Return focus to editing panel after element selection (iframe click steals focus)
-      postToParent('focus-panel', null);
     }
 
     function handleKeyDown(e) {
@@ -969,9 +974,20 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     }
 
     function discardOverrides() {
-      // Clear element references to allow GC of detached DOM nodes
+      // H8: Remove inline style fallbacks before clearing element references
       var mapKeys = Object.keys(elementMap);
       for (var i = 0; i < mapKeys.length; i++) {
+        var el = elementMap[mapKeys[i]];
+        if (el) {
+          var elSelector = buildSelector(el);
+          var props = overrideRules[elSelector];
+          if (props) {
+            var propNames = Object.keys(props);
+            for (var pi = 0; pi < propNames.length; pi++) {
+              try { el.style.removeProperty(camelToKebab(propNames[pi])); } catch (_e) { /* ignore */ }
+            }
+          }
+        }
         delete elementMap[mapKeys[i]];
       }
       // Clear override rules in-place (preserves window.__ZEROFOG__.overrideRules reference)
@@ -992,6 +1008,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     }
 
     function deactivate() {
+      // M23: Cancel pending token map retry
+      if (tokenRetryTimer) { clearTimeout(tokenRetryTimer); tokenRetryTimer = null; }
       teardownListeners();
       discardOverrides();
     }
@@ -1077,6 +1095,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
      * be available immediately if the theme loads asynchronously. Retries up
      * to `maxAttempts` times with 500ms delay between attempts.
      */
+    // M23: Track retry timer so deactivate can cancel it
+    var tokenRetryTimer = null;
+
     function buildTokenMapsWithRetry(maxAttempts) {
       var maps = buildTokenMaps();
       var hasTokens = Object.keys(maps.spacing).length > 0 || Object.keys(maps.radius).length > 0;
@@ -1084,7 +1105,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
         postToParent('zerofog:token-maps', maps);
         return;
       }
-      setTimeout(function () {
+      tokenRetryTimer = setTimeout(function () {
+        tokenRetryTimer = null;
         if (active) buildTokenMapsWithRetry(maxAttempts - 1);
       }, 500);
     }
@@ -1185,7 +1207,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       scheduleOverrideSheet();
       // H7: Belt-and-suspenders — inline style as fallback for CSS-in-JS frameworks
       // (Emotion/styled-components) that may inject <style> tags after our stylesheet.
-      try { el.style.setProperty(cssProperty, resolvedValue, 'important'); } catch (_e) { /* ignore */ }
+      try { el.style.setProperty(camelToKebab(cssProperty), resolvedValue, 'important'); } catch (_e) { /* ignore */ }
       return { ok: true };
     }
 
@@ -1198,6 +1220,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       if (Object.keys(overrideRules[selector]).length === 0) {
         delete overrideRules[selector];
       }
+      // H8: Remove inline style fallback set by applyOverride
+      try { el.style.removeProperty(camelToKebab(cssProperty)); } catch (_e) { /* ignore */ }
       scheduleOverrideSheet();
     }
 

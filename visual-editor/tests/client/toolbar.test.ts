@@ -1057,3 +1057,27 @@ describe('detectStyleOrigin — CSS Module edge cases (M4)', () => {
     expect(detectStyleOrigin(element, 'padding', () => []).origin).toBe('css-module');
   });
 });
+
+// ── H10: getComponentName depth increase ──────────────────────────
+
+describe('getComponentName — depth 6-10 via detectStyleOrigin', () => {
+  it('resolves component name through 7-deep type.type chain', () => {
+    // Build a type chain deeper than 5 but within 10
+    // type.type.type.type.type.type.type has displayName at depth 7
+    let deepType: Record<string, unknown> = { displayName: 'DeepCard' };
+    for (let i = 0; i < 7; i++) {
+      deepType = { type: deepType };
+    }
+    const ownerFiber = createMockFiber({
+      type: deepType,
+      memoizedProps: { p: 'lg' },
+    });
+    const domFiber = createMockFiber({ _debugOwner: ownerFiber });
+    const fiberKey = '__reactFiber$depth7';
+    const element = createMockElement();
+    (element as Record<string, unknown>)[fiberKey] = domFiber;
+
+    const result = detectStyleOrigin(element, 'padding', () => [fiberKey]);
+    expect(result.origin).toBe('mantine-prop');
+  });
+});

@@ -53,7 +53,7 @@ export interface PanelState {
   pendingChanges: PendingChange[];
   undoStack: UndoEntry[];
   wsStatus: 'connecting' | 'connected' | 'disconnected';
-  pipelineStatus: string | null;
+  pipelineStatus: 'sending' | 'processing' | 'applied' | 'timeout' | `error: ${string}` | null;
 }
 
 export type PanelAction =
