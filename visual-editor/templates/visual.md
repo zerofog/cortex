@@ -39,7 +39,8 @@ This means the designer finalized changes in the browser. Proceed to claim the d
 You can inspect the pending diff without claiming it (read-only, no state change):
 
 ```bash
-curl -s http://localhost:3100/__zerofog/api/diff
+curl -s http://localhost:3100/__zerofog/api/diff \
+  -H "X-Session-Id: $SESSION_ID"
 ```
 
 Returns the `AccumulatedDiff` JSON if a diff is pending, or `404` if idle.
@@ -125,7 +126,7 @@ Returns `202` and gracefully stops the sidecar.
 | Status | Cause | Recovery |
 |--------|-------|----------|
 | `409` from `/claim` | Another consumer already claimed the diff | Wait for completion or timeout (~120s), then retry |
-| `409` from `/complete` | Claim token mismatch (expired or wrong token) | Re-claim the diff to get a fresh token |
+| `403` from `/complete` | Claim token mismatch (wrong or expired token) | Re-claim the diff to get a fresh token |
 | `400` from `/complete` | Missing `claimToken` or invalid report body | Check request includes `claimToken` and valid `applied`/`failed` arrays |
 | `502` from proxy | Target dev server unreachable | Ensure your dev server is running on the `--target` port |
 
@@ -138,7 +139,7 @@ and the pipeline reverts to `pending_diff`. Re-claim to get a new token.
 |----------|--------|------|-------------|
 | `/__zerofog/api/health` | GET | No | Health check |
 | `/__zerofog/api/status` | GET | No | Pipeline state + uptime |
-| `/__zerofog/api/diff` | GET | No | Read-only: current diff or 404 |
+| `/__zerofog/api/diff` | GET | Session | Read-only: current diff or 404 |
 | `/__zerofog/api/claim` | POST | Session | Claim pending diff |
 | `/__zerofog/api/complete` | POST | Session | Report edit results |
 | `/__zerofog/api/shutdown` | POST | Session | Graceful shutdown |
