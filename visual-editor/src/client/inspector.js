@@ -640,9 +640,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
 
       var sentinels = [];
       var frag = document.createDocumentFragment();
-      for (var i = 0; i < TOOLBAR_SIZES.length; i++) {
-        var s = TOOLBAR_SIZES[i];
-        var el = document.createElement('div');
+      for (let i = 0; i < TOOLBAR_SIZES.length; i++) {
+        let s = TOOLBAR_SIZES[i];
+        let el = document.createElement('div');
         el.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;width:0;height:0';
         el.style.padding = 'var(--mantine-spacing-' + s + ')';
         el.style.borderRadius = 'var(--mantine-radius-' + s + ')';
@@ -651,18 +651,18 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       }
       document.body.appendChild(frag);
       try {
-        for (var i = 0; i < TOOLBAR_SIZES.length; i++) {
-          var s = TOOLBAR_SIZES[i];
-          var styles = _getStyle(sentinels[i]);
-          var spacingPx = styles.paddingTop;
+        for (let i = 0; i < TOOLBAR_SIZES.length; i++) {
+          let s = TOOLBAR_SIZES[i];
+          let styles = _getStyle(sentinels[i]);
+          let spacingPx = styles.paddingTop;
           if (spacingPx && spacingPx !== '0px') spacingMap[spacingPx] = s;
-          var radiusPx = styles.borderTopLeftRadius;
+          let radiusPx = styles.borderTopLeftRadius;
           if (radiusPx && radiusPx !== '0px') radiusMap[radiusPx] = s;
         }
       } catch (_e) {
         return { spacing: {}, radius: {} };
       } finally {
-        for (var i = 0; i < sentinels.length; i++) {
+        for (let i = 0; i < sentinels.length; i++) {
           sentinels[i].remove();
         }
       }
@@ -686,8 +686,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     function pruneDetachedElements() {
       var mapKeys = Object.keys(elementMap);
       for (var i = 0; i < mapKeys.length; i++) {
-        var el = elementMap[mapKeys[i]];
-        if (el && !document.contains(el)) {
+        var entry = elementMap[mapKeys[i]];
+        if (entry && !document.contains(entry.el)) {
           delete elementMap[mapKeys[i]];
         }
       }
@@ -842,7 +842,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       );
 
       selectionId++;
-      elementMap[selectionId] = target;
+      elementMap[selectionId] = { el: target, selector: null };
 
       // Evict oldest entries when map exceeds cap
       var mapKeys = Object.keys(elementMap);
@@ -919,10 +919,10 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     };
     messageHandlers['inspector:build-selector'] = function (payload) {
       if (!payload || typeof payload.elementId !== 'number' || payload.elementId !== payload.elementId) return;
-      var el = elementMap[payload.elementId];
-      if (!el) return;
-      var selector = buildSelector(el);
-      postToParent('zerofog:selector', { selector: selector });
+      var entry = elementMap[payload.elementId];
+      if (!entry) return;
+      if (!entry.selector) entry.selector = buildSelector(entry.el);
+      postToParent('zerofog:selector', { selector: entry.selector });
     };
     messageHandlers['inspector:apply-override'] = function (payload) {
       if (!payload || typeof payload.elementId !== 'number' || payload.elementId !== payload.elementId) return;
@@ -977,14 +977,14 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       // H8: Remove inline style fallbacks before clearing element references
       var mapKeys = Object.keys(elementMap);
       for (var i = 0; i < mapKeys.length; i++) {
-        var el = elementMap[mapKeys[i]];
-        if (el) {
-          var elSelector = buildSelector(el);
+        var entry = elementMap[mapKeys[i]];
+        if (entry) {
+          var elSelector = entry.selector || buildSelector(entry.el);
           var props = overrideRules[elSelector];
           if (props) {
             var propNames = Object.keys(props);
             for (var pi = 0; pi < propNames.length; pi++) {
-              try { el.style.removeProperty(camelToKebab(propNames[pi])); } catch (_e) { /* ignore */ }
+              try { entry.el.style.removeProperty(camelToKebab(propNames[pi])); } catch (_e) { /* ignore */ }
             }
           }
         }
@@ -1189,11 +1189,12 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       if (!isTokenValue(cssProperty, cssValue)) {
         return { ok: false, error: 'token-required' };
       }
-      var el = elementMap[elementId];
-      if (!el) {
+      var entry = elementMap[elementId];
+      if (!entry) {
         return { ok: false, error: 'unknown-element' };
       }
-      var selector = buildSelector(el);
+      if (!entry.selector) entry.selector = buildSelector(entry.el);
+      var selector = entry.selector;
       if (!overrideRules[selector]) {
         // H7: Evict oldest rule when at cap before adding a new selector
         var ruleKeys = Object.keys(overrideRules);
@@ -1207,21 +1208,22 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       scheduleOverrideSheet();
       // H7: Belt-and-suspenders — inline style as fallback for CSS-in-JS frameworks
       // (Emotion/styled-components) that may inject <style> tags after our stylesheet.
-      try { el.style.setProperty(camelToKebab(cssProperty), resolvedValue, 'important'); } catch (_e) { /* ignore */ }
+      try { entry.el.style.setProperty(camelToKebab(cssProperty), resolvedValue, 'important'); } catch (_e) { /* ignore */ }
       return { ok: true };
     }
 
     function removeOverride(elementId, cssProperty) {
-      var el = elementMap[elementId];
-      if (!el) return;
-      var selector = buildSelector(el);
+      var entry = elementMap[elementId];
+      if (!entry) return;
+      if (!entry.selector) entry.selector = buildSelector(entry.el);
+      var selector = entry.selector;
       if (!overrideRules[selector]) return;
       delete overrideRules[selector][cssProperty];
       if (Object.keys(overrideRules[selector]).length === 0) {
         delete overrideRules[selector];
       }
       // H8: Remove inline style fallback set by applyOverride
-      try { el.style.removeProperty(camelToKebab(cssProperty)); } catch (_e) { /* ignore */ }
+      try { entry.el.style.removeProperty(camelToKebab(cssProperty)); } catch (_e) { /* ignore */ }
       scheduleOverrideSheet();
     }
 

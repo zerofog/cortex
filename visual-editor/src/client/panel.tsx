@@ -89,10 +89,10 @@ export function PanelRoot({ sessionId, sidecarOrigin }: PanelRootProps): VNode {
   }
 
   function isTokenMaps(data: unknown): data is TokenMaps {
-    if (!data || typeof data !== 'object') return false;
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
     const d = data as Record<string, unknown>;
-    if (!d.spacing || typeof d.spacing !== 'object') return false;
-    if (!d.radius || typeof d.radius !== 'object') return false;
+    if (!d.spacing || typeof d.spacing !== 'object' || Array.isArray(d.spacing)) return false;
+    if (!d.radius || typeof d.radius !== 'object' || Array.isArray(d.radius)) return false;
     // M7: Validate value types — all values must be strings (token names)
     const spacing = d.spacing as Record<string, unknown>;
     const radius = d.radius as Record<string, unknown>;
@@ -174,7 +174,7 @@ export function PanelRoot({ sessionId, sidecarOrigin }: PanelRootProps): VNode {
       wsRef.current = ws;
 
       ws.onopen = () => {
-        retryCount = 0;
+        // retryCount reset moved to 'session' handler (H1: prevent infinite reconnect on auth failure)
       };
 
       ws.onmessage = (e) => {
@@ -183,6 +183,7 @@ export function PanelRoot({ sessionId, sidecarOrigin }: PanelRootProps): VNode {
           if (msg.type === 'hello') {
             ws.send(JSON.stringify({ type: 'auth', sessionId }));
           } else if (msg.type === 'session') {
+            retryCount = 0; // H1: Only reset after auth confirmed (not on open)
             dispatch({ type: 'WS_STATUS', status: 'connected' });
           } else if (msg.type === 'finalize-result') {
             if (msg.ok) {

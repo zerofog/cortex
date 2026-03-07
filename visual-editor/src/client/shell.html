@@ -40,9 +40,9 @@
   <script>
     const params = new URLSearchParams(window.location.search);
     let path = params.get('path') || '/';
-    if (!path.startsWith('/') || path.startsWith('//') || path.toLowerCase().startsWith('javascript:')) path = '/';
+    if (!path.startsWith('/') || path.startsWith('//') || /^(javascript|data|vbscript):/i.test(path)) path = '/';
     document.querySelector('.shell-viewport').src = path;
   </script>
-  <script src="/__zerofog/client/panel.js"></script>
+  <script src="/__zerofog/client/panel.js?v=__SESSION_ID__"></script>
 </body>
 </html>

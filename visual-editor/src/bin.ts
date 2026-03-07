@@ -45,7 +45,7 @@ async function main(): Promise<void> {
   });
 
   if (values.help) {
-    console.log(`Usage: cortex-visual-editor [options]
+    console.log(`Usage: cortex-editor [options]
 
 Options:
   --target <port>   Dev server port to proxy (default: 3000)
@@ -71,6 +71,7 @@ Options:
   const reset = isTTY ? '\x1b[0m' : '';
   console.log(`${green}[cortex]${reset} Visual editor running at ${url}`);
   console.log(`${green}[cortex]${reset} Proxying target on port ${targetPort}`);
+  console.log(`${green}[cortex]${reset} Session ID: ${ctx.sessionId}`);
 
   if (!values['no-open']) {
     openBrowser(url);

@@ -11,7 +11,7 @@ in the browser, claims diffs, applies source edits, and reports completion.
 ## 1. Start the Sidecar
 
 ```bash
-npx cortex-visual-editor --target $PORT
+npx cortex-editor --target $PORT
 ```
 
 Where `$PORT` is your dev server's port (e.g., 3000).

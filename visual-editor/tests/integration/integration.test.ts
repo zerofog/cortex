@@ -112,6 +112,15 @@ describe('integration: full sidecar lifecycle', () => {
     expect(data).toMatchObject({ status: 'ok' });
   });
 
+  // L6: GET /api/ready returns readiness status
+  it('step 6b: ready check returns readiness status', async () => {
+    const res = await apiGet(sidecar, '/ready');
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.targetReachable).toBe(true);
+    expect(data.status).toBe('ready');
+  });
+
   // Step 7: GET /api/status → idle
   it('step 7: status shows idle pipeline', async () => {
     const res = await apiGet(sidecar, '/status');

@@ -10,6 +10,7 @@ import {
   createEditorWs,
   waitForWsMessage,
   authenticateWs,
+  apiGet,
   apiPost,
   type MockTarget,
   type TestSidecar,
@@ -120,8 +121,8 @@ describe('proxy', () => {
     expect(cspNonce).toBeTruthy();
     // Verify injected scripts have that nonce
     expect(html).toContain(`nonce="${cspNonce}"`);
-    expect(html).toContain(`nonce="${cspNonce}" src="/__zerofog/client/nav-blocker.js"`);
-    expect(html).toContain(`nonce="${cspNonce}" src="/__zerofog/client/inspector.js"`);
+    expect(html).toMatch(new RegExp(`nonce="${cspNonce}" src="/__zerofog/client/nav-blocker\\.js(\\?[^"]*)?"`));
+    expect(html).toMatch(new RegExp(`nonce="${cspNonce}" src="/__zerofog/client/inspector\\.js(\\?[^"]*)?"`));
   });
 
   it('does not add CSP when target has none', async () => {
@@ -188,13 +189,14 @@ describe('API', () => {
     expect(data).toMatchObject({ status: 'ok' });
   });
 
-  it('GET /status returns uptime without sessionId', async () => {
+  it('GET /status returns sessionId and uptime', async () => {
     const res = await fetch(sidecar.url + '/__zerofog/api/status', {
       headers: { Host: `127.0.0.1:${sidecar.port}` },
     });
     expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data.sessionId).toBeUndefined();
+    expect(typeof data.sessionId).toBe('string');
+    expect(data.sessionId).toMatch(/^[0-9a-f-]{36}$/);
     expect(typeof data.uptime).toBe('number');
     expect(data.targetPort).toBe(target.port);
   });
@@ -230,6 +232,48 @@ describe('API', () => {
     expect(res.status).toBe(202);
     expect(shutdownCalled).toBe(true);
   });
+
+  // H7: /ready returns 503 without crash when target unreachable
+  it('GET /ready returns 503 when target unreachable', async () => {
+    const deadSidecar = await createTestSidecar(59998);
+    try {
+      const res = await apiGet(deadSidecar, '/ready');
+      expect(res.status).toBe(503);
+      const data = await res.json();
+      expect(data.targetReachable).toBe(false);
+    } finally {
+      await deadSidecar.close();
+    }
+  });
+
+  // M-shutdown: /shutdown?force=true proceeds during processing state
+  it('POST /shutdown?force=true proceeds during processing state', async () => {
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+    ws.send(JSON.stringify({
+      type: 'finalize', id: 'force-shut',
+      payload: {
+        elementId: 1, testId: 'btn', componentChain: ['A'], elementType: 'button',
+        changes: [{ property: 'padding', token: 'md', previousToken: 'sm', previousCssValue: '8px', cssProperty: 'padding', cssValue: '16px', styleOrigin: { origin: 'unknown' } }],
+      },
+    }));
+    await waitForWsMessage(ws, 'finalize-result');
+
+    let shutdownCalled = false;
+    sidecar.context.setShutdownHandler(() => { shutdownCalled = true; });
+
+    const res = await fetch(sidecar.url + '/__zerofog/api/shutdown?force=true', {
+      method: 'POST',
+      headers: {
+        Host: `127.0.0.1:${sidecar.port}`,
+        'X-Session-Id': sidecar.context.sessionId,
+      },
+    });
+    expect(res.status).toBe(202);
+    expect(shutdownCalled).toBe(true);
+    ws.close();
+    sidecar.context.stateManager.dispose();
+  });
 });
 
 describe('host validation', () => {
@@ -246,6 +290,35 @@ describe('host validation', () => {
       req.end();
     });
     expect(status).toBe(403);
+  });
+
+  // L-localhost: localhost. trailing dot accepted
+  it('accepts localhost. Host header (DNS trailing dot)', async () => {
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = httpRequest({
+        hostname: '127.0.0.1',
+        port: sidecar.port,
+        path: '/__zerofog/api/health',
+        headers: { Host: 'localhost.' },
+      }, (res) => resolve(res.statusCode ?? 0));
+      req.on('error', reject);
+      req.end();
+    });
+    expect(status).toBe(200);
+  });
+
+  it('accepts uppercase Host header (case-insensitive per RFC 7230)', async () => {
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = httpRequest({
+        hostname: '127.0.0.1',
+        port: sidecar.port,
+        path: '/__zerofog/api/health',
+        headers: { Host: 'LOCALHOST' },
+      }, (res) => resolve(res.statusCode ?? 0));
+      req.on('error', reject);
+      req.end();
+    });
+    expect(status).toBe(200);
   });
 });
 
@@ -272,12 +345,15 @@ describe('shell', () => {
     expect(html).toMatch(/sandbox="[^"]*allow-top-navigation-by-user-activation[^"]*"/);
   });
 
-  it('validates path param to prevent javascript: and protocol-relative injection', async () => {
-    const res = await fetch(sidecar.url + '/__zerofog/shell', {
-      headers: { Host: `127.0.0.1:${sidecar.port}` },
-    });
-    const html = await res.text();
-    expect(html).toContain("if (!path.startsWith('/') || path.startsWith('//')) path = '/';");
+  it('validates path param to prevent javascript:/data:/vbscript:/protocol-relative injection', async () => {
+    // Verify the source shell.html contains the full URI guard (served content is cached at startup)
+    const { readFileSync } = await import('node:fs');
+    const { join, dirname } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const shellPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'client', 'shell.html');
+    const html = readFileSync(shellPath, 'utf-8');
+    expect(html).toContain("if (!path.startsWith('/') || path.startsWith('//')");
+    expect(html).toMatch(/javascript\|data\|vbscript/i);
   });
 });
 
@@ -630,6 +706,19 @@ describe('WS upgrade security', () => {
     expect(result).not.toBe('timeout');
   });
 
+  it('accepts editor WS with uppercase Origin', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${sidecar.port}/__zerofog`, {
+      headers: { Origin: `HTTP://LOCALHOST:${sidecar.port}` },
+    });
+    const result = await new Promise<string>((resolve) => {
+      ws.on('open', () => resolve('open'));
+      ws.on('error', (err) => resolve(err.message));
+      setTimeout(() => resolve('timeout'), 3000);
+    });
+    expect(result).toBe('open');
+    ws.close();
+  });
+
   it('rejects WS upgrade with invalid Origin', async () => {
     const ws = new WebSocket(`ws://127.0.0.1:${sidecar.port}/__zerofog`, {
       headers: { Origin: 'https://evil.com' },
@@ -657,6 +746,45 @@ describe('proxy error handling', () => {
       expect(html).toContain('location.reload()');
     } finally {
       await deadSidecar.close();
+    }
+  });
+
+  it('returns 502 with generic message for corrupted gzip stream', async () => {
+    const badGzipTarget = await new Promise<MockTarget>((resolve) => {
+      const server = createServer((_req, res) => {
+        res.writeHead(200, {
+          'Content-Type': 'text/html',
+          'Content-Encoding': 'gzip',
+        });
+        // Send plain HTML instead of gzip — triggers decompression error
+        res.end('<html><body>not gzip</body></html>');
+      });
+      const wss = new WebSocketServer({ server });
+      server.listen(0, '127.0.0.1', () => {
+        const addr = server.address();
+        const port = typeof addr === 'object' && addr ? addr.port : 0;
+        resolve({
+          server, wss, port,
+          close: () => new Promise<void>((r) => { wss.close(); server.close(() => r()); }),
+        });
+      });
+    });
+
+    const gzipSidecar = await createTestSidecar(badGzipTarget.port);
+    try {
+      const res = await fetch(gzipSidecar.url + '/', {
+        headers: { Host: `127.0.0.1:${gzipSidecar.port}` },
+      });
+      expect(res.status).toBe(502);
+      expect(res.headers.get('content-type')).toContain('text/html');
+      const body = await res.text();
+      // Should be generic — no internal paths or stack traces
+      expect(body).not.toMatch(/\/(src|node_modules)\//);
+      expect(body).not.toMatch(/^\s+at /m);
+      expect(body).toContain('Error processing proxied response');
+    } finally {
+      await gzipSidecar.close();
+      await badGzipTarget.close();
     }
   });
 });
@@ -694,6 +822,45 @@ describe('injection safety valve', () => {
       await bigTarget.close();
     }
   }, 10000);
+
+  it('preserves CSP and X-Frame-Options headers on oversize pages', async () => {
+    // Add CSP-RO and XFO to the shared mock target route for oversize
+    const oversizeTarget = await new Promise<MockTarget>((resolve) => {
+      const server = createServer((_req, res) => {
+        res.writeHead(200, {
+          'Content-Type': 'text/html',
+          'Content-Security-Policy-Report-Only': "default-src 'self'",
+          'X-Frame-Options': 'DENY',
+        });
+        // Exceed MAX_INJECT_SIZE (5MB) to trigger oversize path
+        res.end('<html><body>' + 'x'.repeat(5.5 * 1024 * 1024) + '</body></html>');
+      });
+      const wss = new WebSocketServer({ server });
+      server.listen(0, '127.0.0.1', () => {
+        const addr = server.address();
+        const port = typeof addr === 'object' && addr ? addr.port : 0;
+        resolve({
+          server, wss, port,
+          close: () => new Promise<void>((r) => { wss.close(); server.close(() => r()); }),
+        });
+      });
+    });
+
+    const oversizeSidecar = await createTestSidecar(oversizeTarget.port);
+    try {
+      const res = await fetch(oversizeSidecar.url + '/', {
+        headers: { Host: `127.0.0.1:${oversizeSidecar.port}` },
+        signal: AbortSignal.timeout(8000),
+      });
+      expect(res.status).toBe(200);
+      // CSP-report-only and X-Frame-Options should be restored unchanged
+      expect(res.headers.get('content-security-policy-report-only')).toBe("default-src 'self'");
+      expect(res.headers.get('x-frame-options')).toBe('DENY');
+    } finally {
+      await oversizeSidecar.close();
+      await oversizeTarget.close();
+    }
+  }, 15000);
 });
 
 // ─── startServer lifecycle ──────────────────────────────────────
@@ -1197,8 +1364,10 @@ describe('finalize pipeline', () => {
       },
       body: largeBody,
     });
-    // Express json({ limit }) throws PayloadTooLargeError → caught by blanket error handler
-    expect([413, 500]).toContain(res.status);
+    // Express json({ limit }) throws PayloadTooLargeError (status 413) → caught by error handler
+    expect(res.status).toBe(413);
+    const body = await res.json();
+    expect(body).toEqual({ error: 'client error' });
     ws.close();
   });
 

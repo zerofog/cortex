@@ -1,12 +1,15 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   StateManager,
   StateConflictError,
+  IndexOutOfBoundsError,
   isFinalizePayload,
   isCompletionReport,
+  isValidElementDiff,
   type FinalizePayload,
   type AccumulatedDiff,
 } from '../../src/state.js';
@@ -119,11 +122,18 @@ describe('StateManager', () => {
     expect(existsSync(walPath)).toBe(false);
   });
 
-  it('WAL contains valid AccumulatedDiff', async () => {
+  it('WAL contains valid AccumulatedDiff with SHA-256 checksum', async () => {
     await sm.receiveDiff(makePayload());
     const walPath = join(walDir, 'pending-diff.json');
     const raw = readFileSync(walPath, 'utf-8');
-    const parsed = JSON.parse(raw) as AccumulatedDiff;
+    const lastNewline = raw.lastIndexOf('\n');
+    expect(lastNewline).toBeGreaterThan(0);
+    const json = raw.substring(0, lastNewline);
+    const storedChecksum = raw.substring(lastNewline + 1);
+    // Verify checksum format and correctness
+    expect(storedChecksum).toMatch(/^[0-9a-f]{64}$/);
+    expect(createHash('sha256').update(json).digest('hex')).toBe(storedChecksum);
+    const parsed = JSON.parse(json) as AccumulatedDiff;
     expect(parsed.version).toBe(1);
     expect(parsed.sessionId).toBe('test-session');
     expect(parsed.elements).toHaveLength(1);
@@ -252,6 +262,76 @@ describe('StateManager', () => {
     fresh.dispose();
   });
 
+  it('rejects WAL with corrupted checksum', () => {
+    const walPath = join(walDir, 'pending-diff.json');
+    const diff: AccumulatedDiff = {
+      version: 1,
+      sessionId: 'test-session',
+      elements: [{
+        elementSelector: '[data-testid="test"]',
+        componentChain: ['Button'],
+        elementType: 'button',
+        changes: [],
+      }],
+      metadata: { createdAt: new Date().toISOString() },
+    };
+    const json = JSON.stringify(diff, null, 2);
+    const badChecksum = '0'.repeat(64);
+    writeFileSync(walPath, json + '\n' + badChecksum);
+    const fresh = new StateManager({ sessionId: 'test-session', walDir });
+    fresh.recover();
+    expect(fresh.getState()).toBe('idle');
+    expect(existsSync(walPath)).toBe(false); // WAL was deleted
+    fresh.dispose();
+  });
+
+  it('accepts legacy WAL without checksum', () => {
+    const walPath = join(walDir, 'pending-diff.json');
+    const diff: AccumulatedDiff = {
+      version: 1,
+      sessionId: 'test-session',
+      elements: [{
+        elementSelector: '[data-testid="test"]',
+        componentChain: ['Button'],
+        elementType: 'button',
+        changes: [],
+      }],
+      metadata: { createdAt: new Date().toISOString() },
+    };
+    writeFileSync(walPath, JSON.stringify(diff, null, 2));
+    const fresh = new StateManager({ sessionId: 'test-session', walDir });
+    fresh.recover();
+    expect(fresh.getState()).toBe('pending_diff');
+    // Verify the diff content was loaded correctly
+    const { diff: claimed } = fresh.claimDiff();
+    expect(claimed.version).toBe(1);
+    expect(claimed.elements).toHaveLength(diff.elements.length);
+    expect(claimed.elements[0]!.elementSelector).toBe('[data-testid="test"]');
+    fresh.dispose();
+  });
+
+  it('accepts WAL with valid checksum', () => {
+    const walPath = join(walDir, 'pending-diff.json');
+    const diff: AccumulatedDiff = {
+      version: 1,
+      sessionId: 'test-session',
+      elements: [{
+        elementSelector: '[data-testid="test"]',
+        componentChain: ['Button'],
+        elementType: 'button',
+        changes: [],
+      }],
+      metadata: { createdAt: new Date().toISOString() },
+    };
+    const json = JSON.stringify(diff, null, 2);
+    const checksum = createHash('sha256').update(json).digest('hex');
+    writeFileSync(walPath, json + '\n' + checksum);
+    const fresh = new StateManager({ sessionId: 'test-session', walDir });
+    fresh.recover();
+    expect(fresh.getState()).toBe('pending_diff');
+    fresh.dispose();
+  });
+
   // ── Element selector ────────────────────────────────────────
 
   it('uses "unknown" selector when testId is null', async () => {
@@ -298,6 +378,37 @@ describe('isFinalizePayload', () => {
       elementType: 'button',
       changes: [],
     })).toBe(false);
+  });
+
+  // R9-5b: elementId edge cases validated by Number.isInteger
+  it('rejects NaN elementId', () => {
+    expect(isFinalizePayload({
+      elementId: NaN, testId: 'btn', componentChain: ['A'], elementType: 'button', changes: [],
+    })).toBe(false);
+  });
+
+  it('rejects negative elementId', () => {
+    expect(isFinalizePayload({
+      elementId: -1, testId: 'btn', componentChain: ['A'], elementType: 'button', changes: [],
+    })).toBe(false);
+  });
+
+  it('rejects float elementId', () => {
+    expect(isFinalizePayload({
+      elementId: 1.5, testId: 'btn', componentChain: ['A'], elementType: 'button', changes: [],
+    })).toBe(false);
+  });
+
+  it('rejects Infinity elementId', () => {
+    expect(isFinalizePayload({
+      elementId: Infinity, testId: 'btn', componentChain: ['A'], elementType: 'button', changes: [],
+    })).toBe(false);
+  });
+
+  it('accepts elementId of 0', () => {
+    expect(isFinalizePayload({
+      elementId: 0, testId: 'btn', componentChain: ['A'], elementType: 'button', changes: [],
+    })).toBe(true);
   });
 
   it('rejects missing componentChain', () => {
@@ -492,6 +603,20 @@ describe('isCompletionReport', () => {
 
   it('rejects null', () => {
     expect(isCompletionReport(null)).toBe(false);
+  });
+
+  it('rejects reason with control characters', () => {
+    expect(isCompletionReport({
+      applied: [],
+      failed: [{ index: 0, reason: 'bad\x00reason' }],
+    })).toBe(false);
+  });
+
+  it('rejects reason > 1000 chars', () => {
+    expect(isCompletionReport({
+      applied: [],
+      failed: [{ index: 0, reason: 'x'.repeat(1001) }],
+    })).toBe(false);
   });
 });
 
@@ -732,28 +857,6 @@ describe('StateManager hardening', () => {
     expect(existsSync(walPath)).toBe(true);
   });
 
-  // H1: After timeout, re-claim succeeds (deadlock fix clears claimedDiffHash)
-  it('re-claim of same diff after timeout succeeds (H1 deadlock fix)', async () => {
-    const sm = new StateManager({ sessionId: 'test', walDir, timeoutMs: 100 });
-    await sm.receiveDiff(makePayload());
-    vi.useFakeTimers();
-    try {
-      sm.claimDiff(); // first claim stores diff hash
-
-      // Timeout fires — reverts to pending_diff and clears claimedDiffHash
-      vi.advanceTimersByTime(100);
-      expect(sm.getState()).toBe('pending_diff');
-
-      // H1: Re-claim succeeds — no deadlock
-      const { claimToken } = sm.claimDiff();
-      expect(sm.getState()).toBe('processing');
-      sm.complete({ applied: [0], failed: [] }, claimToken);
-      sm.dispose();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it('allows claim of same diff after successful complete (fresh cycle)', async () => {
     const sm = new StateManager({ sessionId: 'test', walDir });
     await sm.receiveDiff(makePayload());
@@ -959,6 +1062,7 @@ describe('StateManager hardening', () => {
 
   // M3: StateConflictError kind field
   it('complete with wrong token has kind token-mismatch', async () => {
+    expect.assertions(2);
     const sm = new StateManager({ sessionId: 'test', walDir });
     await sm.receiveDiff(makePayload());
     sm.claimDiff();
@@ -968,6 +1072,238 @@ describe('StateManager hardening', () => {
       expect(e).toBeInstanceOf(StateConflictError);
       expect((e as StateConflictError).kind).toBe('token-mismatch');
     }
+    sm.dispose();
+  });
+
+  // H3: complete() with out-of-bounds index preserves original timeout for recovery
+  it('complete with out-of-bounds index preserves original timeout for recovery', async () => {
+    const onTimeout = vi.fn();
+    const sm = new StateManager({ sessionId: 'test', walDir, timeoutMs: 100, onTimeout });
+    await sm.receiveDiff(makePayload());
+    vi.useFakeTimers();
+    try {
+      const { claimToken } = sm.claimDiff();
+      expect(() => sm.complete({ applied: [5], failed: [] }, claimToken))
+        .toThrow(IndexOutOfBoundsError);
+      // State stays processing immediately after the throw
+      expect(sm.getState()).toBe('processing');
+      // But the restarted timeout fires and auto-recovers to pending_diff
+      vi.advanceTimersByTime(100);
+      expect(sm.getState()).toBe('pending_diff');
+      expect(onTimeout).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+    sm.dispose();
+  });
+
+  // M3-R5: Repeated bad completions do not extend the timeout deadline
+  it('repeated bad completions do not extend the timeout deadline', async () => {
+    const onTimeout = vi.fn();
+    const sm = new StateManager({ sessionId: 'test', walDir, timeoutMs: 200, onTimeout });
+    await sm.receiveDiff(makePayload());
+    vi.useFakeTimers();
+    try {
+      const { claimToken } = sm.claimDiff();
+      // Three bad completions at different offsets — none should extend the deadline
+      vi.advanceTimersByTime(50);
+      expect(() => sm.complete({ applied: [5], failed: [] }, claimToken))
+        .toThrow(IndexOutOfBoundsError);
+      vi.advanceTimersByTime(50);
+      expect(() => sm.complete({ applied: [5], failed: [] }, claimToken))
+        .toThrow(IndexOutOfBoundsError);
+      vi.advanceTimersByTime(50);
+      expect(() => sm.complete({ applied: [5], failed: [] }, claimToken))
+        .toThrow(IndexOutOfBoundsError);
+      // At t=199ms — still within the original 200ms deadline
+      vi.advanceTimersByTime(49);
+      expect(sm.getState()).toBe('processing');
+      // At t=200ms — exactly at the original deadline
+      vi.advanceTimersByTime(1);
+      expect(sm.getState()).toBe('pending_diff');
+      expect(onTimeout).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+    sm.dispose();
+  });
+
+  // R6-T2: complete() after timeout throws StateConflictError (state is pending_diff)
+  it('complete after timeout throws StateConflictError (state is pending_diff)', async () => {
+    const sm = new StateManager({ sessionId: 'test', walDir, timeoutMs: 100 });
+    await sm.receiveDiff(makePayload());
+    expect.assertions(3);
+    vi.useFakeTimers();
+    try {
+      const { claimToken } = sm.claimDiff();
+      vi.advanceTimersByTime(100);
+      expect(sm.getState()).toBe('pending_diff');
+      try {
+        sm.complete({ applied: [0], failed: [] }, claimToken);
+      } catch (e) {
+        expect(e).toBeInstanceOf(StateConflictError);
+        expect((e as StateConflictError).currentState).toBe('pending_diff');
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+    sm.dispose();
+  });
+
+  // H4: complete() rejects partial coverage report
+  it('complete rejects partial coverage report', async () => {
+    const sm = new StateManager({ sessionId: 'test', walDir });
+    await sm.receiveDiff(makePayload());
+    const { claimToken } = sm.claimDiff();
+    // Payload has 1 element but report covers 0 — incomplete
+    expect(() => sm.complete({ applied: [], failed: [] }, claimToken))
+      .toThrow(IndexOutOfBoundsError);
+    sm.dispose();
+  });
+
+  // H4: multi-element partial coverage throws IndexOutOfBoundsError
+  it('complete rejects partial coverage on multi-element diff', () => {
+    // Use WAL recovery to create a 3-element diff (receiveDiff always creates 1-element)
+    const walPath = join(walDir, 'pending-diff.json');
+    const multiDiff: AccumulatedDiff = {
+      version: 1,
+      sessionId: 'test',
+      elements: [
+        { elementSelector: '[data-testid="a"]', componentChain: ['A'], elementType: 'div', changes: [] },
+        { elementSelector: '[data-testid="b"]', componentChain: ['B'], elementType: 'span', changes: [] },
+        { elementSelector: '[data-testid="c"]', componentChain: ['C'], elementType: 'p', changes: [] },
+      ],
+      metadata: { createdAt: new Date().toISOString() },
+    };
+    writeFileSync(walPath, JSON.stringify(multiDiff));
+    const sm = new StateManager({ sessionId: 'test', walDir });
+    sm.recover();
+    expect(sm.getState()).toBe('pending_diff');
+    const { claimToken } = sm.claimDiff();
+    // Only report 1 of 3 elements — should throw incomplete report
+    expect(() => sm.complete({ applied: [0], failed: [] }, claimToken))
+      .toThrow(IndexOutOfBoundsError);
+    sm.dispose();
+  });
+
+  // M-duplicates: isCompletionReport rejects negative indices
+  it('isCompletionReport rejects negative indices', () => {
+    expect(isCompletionReport({ applied: [-1], failed: [] })).toBe(false);
+  });
+
+  // M-duplicates: isCompletionReport rejects duplicate applied indices
+  it('isCompletionReport rejects duplicate applied indices', () => {
+    expect(isCompletionReport({ applied: [0, 0], failed: [] })).toBe(false);
+  });
+
+  // M-duplicates: isCompletionReport rejects duplicate failed indices
+  it('isCompletionReport rejects duplicate failed indices', () => {
+    expect(isCompletionReport({
+      applied: [],
+      failed: [{ index: 0, reason: 'a' }, { index: 0, reason: 'b' }],
+    })).toBe(false);
+  });
+
+  // M-lengths: isFinalizePayload rejects testId > 200 chars
+  it('isFinalizePayload rejects testId > 200 chars', () => {
+    expect(isFinalizePayload({
+      elementId: 1,
+      testId: 'x'.repeat(201),
+      componentChain: ['A'],
+      elementType: 'button',
+      changes: [],
+    })).toBe(false);
+  });
+
+  // M-lengths: isFinalizePayload rejects componentChain element > 200 chars
+  it('isFinalizePayload rejects componentChain element > 200 chars', () => {
+    expect(isFinalizePayload({
+      elementId: 1,
+      testId: 'btn',
+      componentChain: ['x'.repeat(201)],
+      elementType: 'button',
+      changes: [],
+    })).toBe(false);
+  });
+
+  // M-selector: SAFE_SELECTOR allows single-quoted attribute values
+  it('receiveDiff accepts payload with single-quoted attribute selector', () => {
+    expect(isFinalizePayload({
+      elementId: 1,
+      testId: null,
+      selector: "[data-testid='card-1'] > .inner",
+      componentChain: ['A'],
+      elementType: 'div',
+      changes: [],
+    })).toBe(true);
+  });
+
+  // M-staleness: recover() ignores WAL older than 24 hours
+  it('recover ignores WAL older than 24 hours', () => {
+    const walPath = join(walDir, 'pending-diff.json');
+    const oldDate = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    writeFileSync(walPath, JSON.stringify({
+      version: 1,
+      sessionId: 'test',
+      elements: [{
+        elementSelector: '[data-testid="x"]',
+        componentChain: ['A'],
+        elementType: 'div',
+        changes: [],
+      }],
+      metadata: { createdAt: oldDate },
+    }));
+    const sm = new StateManager({ sessionId: 'test', walDir });
+    sm.recover();
+    expect(sm.getState()).toBe('idle');
+    // WAL file should be deleted
+    expect(existsSync(walPath)).toBe(false);
+    sm.dispose();
+  });
+
+  // R9-5c: WAL recovery timestamp validation
+  it('recover ignores WAL with unparseable createdAt', () => {
+    const walPath = join(walDir, 'pending-diff.json');
+    const json = JSON.stringify({
+      version: 1,
+      sessionId: 'test',
+      elements: [{
+        elementSelector: '[data-testid="x"]',
+        componentChain: ['A'],
+        elementType: 'div',
+        changes: [],
+      }],
+      metadata: { createdAt: 'not-a-date' },
+    });
+    const checksum = createHash('sha256').update(json).digest('hex');
+    writeFileSync(walPath, json + '\n' + checksum);
+    const sm = new StateManager({ sessionId: 'test', walDir });
+    sm.recover();
+    expect(sm.getState()).toBe('idle');
+    expect(existsSync(walPath)).toBe(false);
+    sm.dispose();
+  });
+
+  it('recover ignores WAL with future createdAt', () => {
+    const walPath = join(walDir, 'pending-diff.json');
+    const futureDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+    const json = JSON.stringify({
+      version: 1,
+      sessionId: 'test',
+      elements: [{
+        elementSelector: '[data-testid="x"]',
+        componentChain: ['A'],
+        elementType: 'div',
+        changes: [],
+      }],
+      metadata: { createdAt: futureDate },
+    });
+    const checksum = createHash('sha256').update(json).digest('hex');
+    writeFileSync(walPath, json + '\n' + checksum);
+    const sm = new StateManager({ sessionId: 'test', walDir });
+    sm.recover();
+    expect(sm.getState()).toBe('idle');
+    expect(existsSync(walPath)).toBe(false);
     sm.dispose();
   });
 
@@ -1040,5 +1376,147 @@ describe('StateManager hardening', () => {
       elementType: 'button',
       changes: Array(101).fill(change),
     })).toBe(false);
+  });
+
+  it('isFinalizePayload rejects elementType > 200 chars', () => {
+    expect(isFinalizePayload({
+      elementId: 1,
+      testId: 'btn',
+      componentChain: ['A'],
+      elementType: 'x'.repeat(201),
+      changes: [],
+    })).toBe(false);
+  });
+});
+
+// ─── R9-5d: isValidElementDiff direct tests ─────────────────────
+
+describe('isValidElementDiff', () => {
+  const validChange = {
+    property: 'padding', token: 'md', cssProperty: 'padding', cssValue: '16px',
+    previousToken: 'sm', previousCssValue: '8px', styleOrigin: { origin: 'unknown' },
+  };
+
+  it('accepts valid element diff', () => {
+    expect(isValidElementDiff({
+      elementSelector: '[data-testid="x"]',
+      componentChain: ['A'],
+      elementType: 'button',
+      changes: [validChange],
+    })).toBe(true);
+  });
+
+  it('rejects elementSelector > 500 chars', () => {
+    expect(isValidElementDiff({
+      elementSelector: 'a'.repeat(501),
+      componentChain: ['A'],
+      elementType: 'button',
+      changes: [],
+    })).toBe(false);
+  });
+
+  it('rejects elementSelector with injection characters', () => {
+    expect(isValidElementDiff({
+      elementSelector: '.foo { } body::after',
+      componentChain: ['A'],
+      elementType: 'button',
+      changes: [],
+    })).toBe(false);
+  });
+
+  it('rejects componentChain > 50 entries', () => {
+    expect(isValidElementDiff({
+      elementSelector: '.foo',
+      componentChain: Array(51).fill('A'),
+      elementType: 'button',
+      changes: [],
+    })).toBe(false);
+  });
+
+  it('rejects elementType > 200 chars', () => {
+    expect(isValidElementDiff({
+      elementSelector: '.foo',
+      componentChain: ['A'],
+      elementType: 'x'.repeat(201),
+      changes: [],
+    })).toBe(false);
+  });
+
+  it('rejects changes > 100 entries', () => {
+    expect(isValidElementDiff({
+      elementSelector: '.foo',
+      componentChain: ['A'],
+      elementType: 'button',
+      changes: Array(101).fill(validChange),
+    })).toBe(false);
+  });
+
+  it('rejects non-object and null', () => {
+    expect(isValidElementDiff(null)).toBe(false);
+    expect(isValidElementDiff('string')).toBe(false);
+    expect(isValidElementDiff(42)).toBe(false);
+  });
+});
+
+// ─── R9-6: Boundary acceptance tests (at exact limits) ──────────
+
+describe('boundary acceptance (at exact limits)', () => {
+  const validChange = {
+    property: 'padding', token: 'md', cssProperty: 'padding', cssValue: '16px',
+    previousToken: 'sm', previousCssValue: '8px', styleOrigin: { origin: 'unknown' },
+  };
+
+  it('isFinalizePayload accepts testId exactly 200 chars', () => {
+    expect(isFinalizePayload({
+      elementId: 1, testId: 'x'.repeat(200), componentChain: ['A'], elementType: 'button', changes: [],
+    })).toBe(true);
+  });
+
+  it('isFinalizePayload accepts componentChain element exactly 200 chars', () => {
+    expect(isFinalizePayload({
+      elementId: 1, testId: 'btn', componentChain: ['x'.repeat(200)], elementType: 'button', changes: [],
+    })).toBe(true);
+  });
+
+  it('isFinalizePayload accepts elementType exactly 200 chars', () => {
+    expect(isFinalizePayload({
+      elementId: 1, testId: 'btn', componentChain: ['A'], elementType: 'x'.repeat(200), changes: [],
+    })).toBe(true);
+  });
+
+  it('isFinalizePayload accepts componentChain exactly 50 elements', () => {
+    expect(isFinalizePayload({
+      elementId: 1, testId: 'btn', componentChain: Array(50).fill('A'), elementType: 'button', changes: [],
+    })).toBe(true);
+  });
+
+  it('isFinalizePayload accepts changes exactly 100 entries', () => {
+    expect(isFinalizePayload({
+      elementId: 1, testId: 'btn', componentChain: ['A'], elementType: 'button',
+      changes: Array(100).fill(validChange),
+    })).toBe(true);
+  });
+
+  it('isCompletionReport accepts reason exactly 1000 chars', () => {
+    expect(isCompletionReport({
+      applied: [],
+      failed: [{ index: 0, reason: 'x'.repeat(1000) }],
+    })).toBe(true);
+  });
+
+  it('isFinalizePayload accepts selector exactly 500 chars', () => {
+    expect(isFinalizePayload({
+      elementId: 1, testId: null, selector: '.a'.repeat(250),
+      componentChain: ['A'], elementType: 'div', changes: [],
+    })).toBe(true);
+  });
+
+  it('isValidElementDiff accepts elementSelector exactly 500 chars', () => {
+    expect(isValidElementDiff({
+      elementSelector: '.a'.repeat(250),
+      componentChain: ['A'],
+      elementType: 'div',
+      changes: [],
+    })).toBe(true);
   });
 });

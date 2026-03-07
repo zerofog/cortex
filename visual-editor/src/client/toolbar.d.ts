@@ -61,7 +61,7 @@ export declare function detectStyleOrigin(
 
 /** Finalize accumulated changes into a diff object. */
 export declare function finalizeDiff(
-  selection: { testId?: string | null; selector?: string; componentChain?: string[]; elementType?: string },
+  selection: { testId?: string | null; componentChain?: string[]; elementType?: string },
   changes: ChangeEntry[],
   _now?: Date,
   selector?: string,

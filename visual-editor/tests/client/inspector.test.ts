@@ -1714,14 +1714,14 @@ describe('Inspector IIFE Integration', () => {
       // Listen for the zerofog:selector custom event dispatched by postToParent
       // In test env window.parent === window, so postToParent is a no-op.
       // Instead, verify buildSelector works on the mapped element directly.
-      const el = zf().elementMap[selId];
-      expect(el).toBe(div);
+      const entry = zf().elementMap[selId];
+      expect(entry.el).toBe(div);
 
       // Trigger the handler — it calls buildSelector internally
       sendInspectorMessage('inspector:build-selector', { elementId: selId });
 
       // Verify the element is still properly mapped (handler didn't error)
-      expect(zf().elementMap[selId]).toBe(div);
+      expect(zf().elementMap[selId].el).toBe(div);
     });
   });
 
@@ -2445,7 +2445,7 @@ describe('Inspector IIFE Integration', () => {
       // Apply overrides to 201 elements (MAX_OVERRIDE_RULES = 200)
       for (let i = 0; i < 201; i++) {
         // Manually add to elementMap and apply override
-        (zf().elementMap as Record<string, HTMLElement>)[`${1000 + i}`] = elements[i]!;
+        (zf().elementMap as Record<string, { el: HTMLElement; selector: string | null }>)[`${1000 + i}`] = { el: elements[i]!, selector: null };
         zf().applyOverride(1000 + i, 'color', `#${String(i).padStart(6, '0')}`);
       }
 

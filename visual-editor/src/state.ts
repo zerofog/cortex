@@ -73,7 +73,7 @@ function isValidChangeEntry(c: unknown): boolean {
 }
 
 /** Only allow safe CSS selector characters: word chars, spaces, brackets, quotes, dots, colons, combinators, hashes, hyphens, equals, parens. */
-const SAFE_SELECTOR = /^[\w\s\[\]=".:>+~#()\-,*]+$/;
+const SAFE_SELECTOR = /^[\w\s\[\]="'.:>+~#()\-,*]+$/;
 const MAX_SELECTOR_LENGTH = 500;
 
 export function isFinalizePayload(v: unknown): v is FinalizePayload {
@@ -84,12 +84,13 @@ export function isFinalizePayload(v: unknown): v is FinalizePayload {
     if (obj.selector.length > MAX_SELECTOR_LENGTH || !SAFE_SELECTOR.test(obj.selector)) return false;
   }
   return (
-    typeof obj.elementId === 'number' &&
-    (obj.testId === null || typeof obj.testId === 'string') &&
+    Number.isInteger(obj.elementId) && (obj.elementId as number) >= 0 &&
+    (obj.testId === null || (typeof obj.testId === 'string' && obj.testId.length <= 200)) &&
     Array.isArray(obj.componentChain) &&
     obj.componentChain.length <= 50 &&
-    obj.componentChain.every((c: unknown) => typeof c === 'string') &&
+    obj.componentChain.every((c: unknown) => typeof c === 'string' && (c as string).length <= 200) &&
     typeof obj.elementType === 'string' &&
+    obj.elementType.length <= 200 &&
     Array.isArray(obj.changes) &&
     obj.changes.length <= 100 &&
     obj.changes.every(isValidChangeEntry)
@@ -101,16 +102,24 @@ export function isCompletionReport(v: unknown): v is CompletionReport {
   const obj = v as Record<string, unknown>;
   if (
     !Array.isArray(obj.applied) ||
-    !obj.applied.every((n: unknown) => Number.isInteger(n)) ||
+    !obj.applied.every((n: unknown) => Number.isInteger(n) && (n as number) >= 0) ||
     !Array.isArray(obj.failed) ||
     !obj.failed.every((f: unknown) =>
       typeof f === 'object' && f !== null &&
       Number.isInteger((f as Record<string, unknown>).index) &&
-      typeof (f as Record<string, unknown>).reason === 'string'
+      ((f as Record<string, unknown>).index as number) >= 0 &&
+      typeof (f as Record<string, unknown>).reason === 'string' &&
+      ((f as Record<string, unknown>).reason as string).length <= 1000 &&
+      !/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test((f as Record<string, unknown>).reason as string)
     )
   ) return false;
-  // L17: applied and failed indices must be disjoint
+  // M-duplicates: reject duplicate applied indices
   const appliedSet = new Set(obj.applied as number[]);
+  if (appliedSet.size !== (obj.applied as number[]).length) return false;
+  // M-duplicates: reject duplicate failed indices
+  const failedIndices = (obj.failed as Array<{ index: number }>).map(f => f.index);
+  if (new Set(failedIndices).size !== failedIndices.length) return false;
+  // L17: applied and failed indices must be disjoint
   for (const f of obj.failed as Array<{ index: number }>) {
     if (appliedSet.has(f.index)) return false;
   }
@@ -138,6 +147,14 @@ export class StateConflictError extends Error {
   }
 }
 
+export class IndexOutOfBoundsError extends RangeError {
+  constructor(message: string) {
+    super(message);
+    Object.setPrototypeOf(this, IndexOutOfBoundsError.prototype);
+    this.name = 'IndexOutOfBoundsError';
+  }
+}
+
 // ─── StateManager ────────────────────────────────────────────────
 
 export interface StateManagerOptions {
@@ -150,15 +167,20 @@ export interface StateManagerOptions {
 const WAL_FILENAME = 'pending-diff.json';
 const DEFAULT_TIMEOUT_MS = 120_000;
 
-function isValidElementDiff(el: unknown): el is ElementDiff {
+export function isValidElementDiff(el: unknown): el is ElementDiff {
   if (typeof el !== 'object' || el === null) return false;
   const obj = el as Record<string, unknown>;
   return (
     typeof obj.elementSelector === 'string' &&
+    obj.elementSelector.length <= MAX_SELECTOR_LENGTH &&
+    SAFE_SELECTOR.test(obj.elementSelector as string) &&
     Array.isArray(obj.componentChain) &&
-    obj.componentChain.every((c: unknown) => typeof c === 'string') &&
+    obj.componentChain.length <= 50 &&
+    obj.componentChain.every((c: unknown) => typeof c === 'string' && (c as string).length <= 200) &&
     typeof obj.elementType === 'string' &&
+    obj.elementType.length <= 200 &&
     Array.isArray(obj.changes) &&
+    obj.changes.length <= 100 &&
     obj.changes.every(isValidChangeEntry)
   );
 }
@@ -232,10 +254,7 @@ export class StateManager {
     return diff;
   }
 
-  /** Atomically persist diff to WAL, verifying no symlink escape.
-   *  TODO(M2): Add SHA-256 checksum to WAL for corruption detection on recovery.
-   *  Currently recover() relies on JSON.parse succeeding, which doesn't detect
-   *  partial writes or bit-rot. Write checksum as trailing line, verify on read. */
+  /** Atomically persist diff to WAL, verifying no symlink escape. */
   private async writeWal(diff: AccumulatedDiff): Promise<void> {
     await mkdir(this.walDir, { recursive: true });
     const realWalDir = await realpath(this.walDir);
@@ -243,7 +262,9 @@ export class StateManager {
     if (!realWalDir.startsWith(parentReal + sep) && realWalDir !== parentReal) {
       throw new Error(`WAL directory symlink escape detected: ${realWalDir}`);
     }
-    const data = JSON.stringify(diff, null, 2);
+    const json = JSON.stringify(diff, null, 2);
+    const checksum = createHash('sha256').update(json).digest('hex');
+    const data = json + '\n' + checksum;
     const tmpPath = this.walPath + '.tmp';
     const fh = await open(tmpPath, 'w');
     try { await fh.writeFile(data); await fh.datasync(); } finally { await fh.close(); }
@@ -299,12 +320,20 @@ export class StateManager {
     // H8: Validate report indices against diff bounds
     const maxIdx = this.diff.elements.length - 1;
     for (const idx of report.applied) {
-      if (idx < 0 || idx > maxIdx) throw new RangeError(`applied index ${idx} out of bounds (0-${maxIdx})`);
+      if (idx < 0 || idx > maxIdx) throw new IndexOutOfBoundsError(`applied index ${idx} out of bounds (0-${maxIdx})`);
     }
     for (const { index: idx } of report.failed) {
-      if (idx < 0 || idx > maxIdx) throw new RangeError(`failed index ${idx} out of bounds (0-${maxIdx})`);
+      if (idx < 0 || idx > maxIdx) throw new IndexOutOfBoundsError(`failed index ${idx} out of bounds (0-${maxIdx})`);
     }
 
+    // H4: Verify all indices are accounted for — reject partial completion reports
+    const allIndices = new Set([...report.applied, ...report.failed.map(f => f.index)]);
+    if (allIndices.size !== this.diff.elements.length) {
+      throw new IndexOutOfBoundsError(`incomplete report: covers ${allIndices.size}/${this.diff.elements.length} elements`);
+    }
+
+    // Clear timeout only AFTER validation succeeds — the original claimDiff() timer
+    // enforces an absolute deadline that bad complete() calls cannot extend
     if (this.timeoutTimer) {
       clearTimeout(this.timeoutTimer);
       this.timeoutTimer = null;
@@ -329,7 +358,30 @@ export class StateManager {
 
     try {
       const raw = readFileSync(this.walPath, 'utf-8');
-      const parsed = JSON.parse(raw) as AccumulatedDiff;
+      // Checksum verification: new WAL files have a trailing SHA-256 line
+      const lastNewline = raw.lastIndexOf('\n');
+      let json: string;
+      if (lastNewline === -1) {
+        // Single-line file with no checksum — could be legacy or malformed
+        json = raw;
+      } else {
+        const storedChecksum = raw.substring(lastNewline + 1);
+        const isChecksummed = /^[0-9a-f]{64}$/.test(storedChecksum);
+        if (isChecksummed) {
+          json = raw.substring(0, lastNewline);
+          const expected = createHash('sha256').update(json).digest('hex');
+          if (storedChecksum !== expected) {
+            console.warn('[cortex] Corrupt WAL file (checksum mismatch), deleting');
+            try { unlinkSync(this.walPath); } catch { /* ignore */ }
+            return;
+          }
+        } else {
+          // Legacy WAL without checksum — parse the full content
+          console.warn('[cortex] Legacy WAL file without checksum detected — will require checksum in a future version');
+          json = raw;
+        }
+      }
+      const parsed = JSON.parse(json) as AccumulatedDiff;
       // Deep validation: version, elements shape, metadata, and sessionId update
       if (
         parsed.version === 1 &&
@@ -338,6 +390,18 @@ export class StateManager {
         parsed.metadata !== null && typeof parsed.metadata === 'object' &&
         typeof (parsed.metadata as Record<string, unknown>).createdAt === 'string'
       ) {
+        // M-staleness: Reject WAL with invalid, future, or stale timestamps
+        const createdAt = Date.parse((parsed.metadata as Record<string, unknown>).createdAt as string);
+        if (isNaN(createdAt) || createdAt > Date.now() + 60_000) {
+          console.warn('[cortex] WAL file has invalid or future timestamp, ignoring');
+          try { unlinkSync(this.walPath); } catch { /* ignore */ }
+          return;
+        }
+        if (Date.now() - createdAt > 24 * 60 * 60 * 1000) {
+          console.warn('[cortex] Stale WAL file (>24h old), ignoring');
+          try { unlinkSync(this.walPath); } catch { /* ignore */ }
+          return;
+        }
         parsed.sessionId = this.sessionId;
         this.diff = parsed;
         this.state = 'pending_diff';
@@ -347,14 +411,14 @@ export class StateManager {
         const tmpPath = this.walPath + '.tmp';
         if (existsSync(tmpPath)) unlinkSync(tmpPath);
       } catch { /* ignore */ }
-    } catch {
-      console.warn('[cortex] Corrupt WAL file found, ignoring');
+    } catch (err) {
+      console.warn('[cortex] Corrupt WAL file found, ignoring:', (err as Error).message?.replace(/[\r\n]/g, ' ') ?? String(err));
       // Stay idle
     }
   }
 
   dispose(opts?: { deleteWal?: boolean; force?: boolean }): void {
-    // H12: force=true deletes WAL unconditionally (graceful shutdown)
+    // H12: force=true deletes WAL unconditionally (used only in tests)
     // Without force, only delete WAL when idle — pending_diff/processing WAL survives for crash recovery
     if (opts?.deleteWal && (opts.force || this.state === 'idle')) {
       try { unlinkSync(this.walPath); } catch { /* ignore */ }
@@ -365,6 +429,7 @@ export class StateManager {
     }
     this.claimToken = null;
     this.claimedDiffHash = null;
+    this.claimEpoch = 0;
     this.state = 'idle';
     this.diff = null;
   }

@@ -7,11 +7,12 @@ import { createGunzip, createInflate, createBrotliDecompress } from 'node:zlib';
 
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { WebSocketServer, WebSocket } from 'ws';
+import { WebSocketServer, WebSocket, type RawData } from 'ws';
 import { createConnection, type Socket } from 'node:net';
 
 import { injectScripts } from './inject.js';
-import { StateManager, StateConflictError, isFinalizePayload, isCompletionReport } from './state.js';
+import { StateManager, StateConflictError, IndexOutOfBoundsError, isFinalizePayload, isCompletionReport } from './state.js';
+import { SAFE_NONCE } from './validation.js';
 
 // Works from both src/ (tsx) and dist/ (built)
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -21,7 +22,7 @@ const DEFAULT_HOST = 'localhost';
 const MAX_INJECT_SIZE = 5 * 1024 * 1024; // 5MB safety valve
 const HEARTBEAT_INTERVAL_MS = 30_000;
 // '[::1]' matches raw Host header; '::1' matches URL.hostname (WHATWG URL strips brackets)
-const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+const LOOPBACK_HOSTS = new Set(['localhost', 'localhost.', '127.0.0.1', '[::1]', '::1']);
 
 /** Extract hostname from a Host header, handling IPv6 brackets and port suffix. */
 function hostnameFromHostHeader(host: string): string {
@@ -41,22 +42,18 @@ function hostnameFromHostHeader(host: string): string {
 }
 
 function isLoopbackOrigin(origin: string): boolean {
-  try { return LOOPBACK_HOSTS.has(new URL(origin).hostname); }
+  try { return LOOPBACK_HOSTS.has(new URL(origin).hostname.toLowerCase()); }
   catch { return false; }
 }
 
 /** Check if a Host header value resolves to a loopback address. */
 function isAllowedHost(host: string): boolean {
-  return LOOPBACK_HOSTS.has(hostnameFromHostHeader(host));
+  return LOOPBACK_HOSTS.has(hostnameFromHostHeader(host).toLowerCase());
 }
 
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#x27;');
+/** Sanitize unknown error values for safe logging (no stack traces, no newlines). */
+function sanitizeErr(err: unknown): string {
+  return ((err as Error)?.message ?? String(err)).replace(/[\r\n]/g, ' ');
 }
 
 export function checkPidFile(pidPath: string): 'none' | 'stale' | 'alive' {
@@ -92,8 +89,6 @@ function rewriteScriptDirective(parts: string[], nonce: string): string[] {
   filtered.push(`'nonce-${nonce}'`);
   return filtered;
 }
-
-const SAFE_NONCE = /^[A-Za-z0-9+/=]+$/;
 
 export function rewriteCsp(csp: string, nonce: string): string {
   // M15: Reject nonces that could inject into CSP directives
@@ -214,12 +209,18 @@ function createApiRouter(deps: ApiRouterDeps): express.Router {
   });
 
   api.get('/ready', async (_req: Request, res: Response) => {
-    const targetReachable = await checkTargetReachable(targetPort);
-    res.status(targetReachable ? 200 : 503).json({ status: targetReachable ? 'ready' : 'not_ready', targetReachable });
+    try {
+      const targetReachable = await checkTargetReachable(targetPort);
+      res.status(targetReachable ? 200 : 503).json({ status: targetReachable ? 'ready' : 'not_ready', targetReachable });
+    } catch (err) {
+      console.error('[cortex] /ready check failed:', sanitizeErr(err));
+      res.status(503).json({ status: 'error', targetReachable: false });
+    }
   });
 
   api.get('/status', (_req: Request, res: Response) => {
     res.status(200).json({
+      sessionId,
       uptime: Math.floor((Date.now() - startedAt) / 1000),
       targetPort,
       pipelineState: stateManager.getState(),
@@ -247,11 +248,11 @@ function createApiRouter(deps: ApiRouterDeps): express.Router {
       res.status(status).json({ error: status === 403 ? 'forbidden' : 'conflict', state: err.currentState });
       return;
     }
-    if (err instanceof RangeError) {
-      res.status(400).json({ error: 'index out of bounds', message: err.message });
+    if (err instanceof IndexOutOfBoundsError) {
+      res.status(400).json({ error: 'index out of bounds' });
       return;
     }
-    console.error(`[cortex] Unexpected ${label} error:`, err);
+    console.error(`[cortex] Unexpected ${label} error:`, sanitizeErr(err));
     res.status(500).json({ error: 'internal' });
   }
 
@@ -290,9 +291,10 @@ function createApiRouter(deps: ApiRouterDeps): express.Router {
     }
   });
 
-  api.post('/shutdown', (_req: Request, res: Response) => {
-    // M13: Prevent shutdown during active editing pipeline
-    if (stateManager.getState() !== 'idle') {
+  api.post('/shutdown', (req: Request, res: Response) => {
+    const force = req.query.force === 'true';
+    // M13: Prevent shutdown during active editing pipeline (unless force)
+    if (!force && stateManager.getState() !== 'idle') {
       res.status(409).json({ error: 'conflict', state: stateManager.getState() });
       return;
     }
@@ -351,7 +353,7 @@ function setupWsHandler(deps: WsHandlerDeps): void {
     const heartbeatTimer = setInterval(() => {
       if (!isAlive) { clearInterval(heartbeatTimer); ws.terminate(); return; }
       isAlive = false;
-      try { ws.ping(); } catch { clearInterval(heartbeatTimer); }
+      try { ws.ping(); } catch { clearInterval(heartbeatTimer); ws.terminate(); }
     }, heartbeatMs);
     ws.on('close', () => {
       clearTimeout(authTimer);
@@ -360,13 +362,16 @@ function setupWsHandler(deps: WsHandlerDeps): void {
     });
 
     ws.on('error', (err) => {
-      console.error('[cortex] ws client error:', err.message);
+      console.error('[cortex] ws client error:', sanitizeErr(err));
     });
 
-    ws.on('message', async (data: Buffer) => {
+    ws.on('message', async (raw: RawData) => {
+      const data = Array.isArray(raw) ? Buffer.concat(raw)
+        : raw instanceof ArrayBuffer ? Buffer.from(raw)
+        : raw;
       try { await handleWsMessage(data); } catch (err) {
         // H13: Blanket catch prevents unhandled rejection from crashing the process
-        console.error('[cortex] Unexpected WS message handler error:', err);
+        console.error('[cortex] Unexpected WS message handler error:', sanitizeErr(err));
       }
     });
 
@@ -427,7 +432,7 @@ function setupWsHandler(deps: WsHandlerDeps): void {
             reply({ ok: false, error: 'conflict' });
             return;
           }
-          console.error('[cortex] Unexpected finalize error:', err);
+          console.error('[cortex] Unexpected finalize error:', sanitizeErr(err));
           reply({ ok: false, error: 'internal' });
         }
         return;
@@ -459,7 +464,10 @@ export function createApp(options: ServerOptions): AppContext {
     for (const client of authenticatedClients) {
       if (client.readyState === WebSocket.OPEN) {
         try { client.send(msg); } catch (err) {
-          console.warn('[cortex] WS send failed:', (err as Error).message);
+          console.warn('[cortex] WS send failed:', sanitizeErr(err));
+          // Safe: ES2015 spec allows delete of current element during Set for-of iteration
+          authenticatedClients.delete(client);
+          try { client.terminate(); } catch { /* already dead */ }
         }
       }
     }
@@ -494,6 +502,7 @@ export function createApp(options: ServerOptions): AppContext {
   } catch {
     shellHtml = readFileSync(join(PACKAGE_ROOT, 'src', 'client', 'shell.html'), 'utf-8');
   }
+  shellHtml = shellHtml.replace(/__SESSION_ID__/g, sessionId);
 
   // Security note: sessionId is embedded in unauthenticated script responses.
   // This is acceptable because the server is loopback-only — only local browser
@@ -522,6 +531,7 @@ export function createApp(options: ServerOptions): AppContext {
   // ── Shell serving ───────────────────────────────────────────
 
   app.get('/__zerofog/shell', (_req: Request, res: Response) => {
+    res.set('Cache-Control', 'no-cache');
     res.type('html').send(shellHtml);
   });
 
@@ -538,7 +548,8 @@ export function createApp(options: ServerOptions): AppContext {
       res.status(404).send('Not found');
       return;
     }
-    // Cache sidecar scripts: immutable within a session (embedded sessionId)
+    // Cache sidecar scripts: immutable within a session (embedded sessionId).
+    // Query param ?v=sessionId busts cache across restarts (see shell.html, inject.ts).
     res.set('Cache-Control', 'private, max-age=86400');
     res.type('application/javascript').send(content);
   });
@@ -583,6 +594,10 @@ export function createApp(options: ServerOptions): AppContext {
 
         res.statusCode = proxyRes.statusCode ?? 200;
 
+        // M-cspOversize: Capture stripped headers before the loop for restoration in oversize path
+        const cspReportOnly = proxyRes.headers['content-security-policy-report-only'];
+        const xFrameOptions = proxyRes.headers['x-frame-options'];
+
         // Copy headers, skipping ones we'll rewrite
         const skipHeaders = new Set([
           'content-encoding', 'transfer-encoding', 'content-length',
@@ -609,16 +624,27 @@ export function createApp(options: ServerOptions): AppContext {
         const rawEncoding = proxyRes.headers['content-encoding'];
         const encoding = Array.isArray(rawEncoding) ? rawEncoding[0] : rawEncoding;
         let source: NodeJS.ReadableStream = proxyRes;
-        // M6: Shared error handler for decompressor and source stream errors
-        const streamErr = (err: Error) => {
+        // H2/M-leakPaths: Double-end guard + no error message leak
+        let ended = false;
+        const streamErr = (err: unknown) => {
+          if (ended) return;
+          ended = true;
+          console.error('[cortex] Proxy stream error:', sanitizeErr(err));
+          // Prevent further data processing from source/upstream
+          if (source !== proxyRes && 'destroy' in source) {
+            (source as NodeJS.ReadableStream & { destroy(): void }).destroy();
+          }
+          proxyRes.destroy();
           if (!res.headersSent) {
             res.writeHead(502, { 'content-type': 'text/html; charset=utf-8' });
+            res.end('Error processing proxied response');
+          } else {
+            if (!res.writableEnded) { try { res.end(); } catch { /* stream already destroyed */ } }
           }
-          res.end(`Error processing proxied response: ${escapeHtml(err.message)}`);
         };
-        if (encoding === 'gzip') { source = proxyRes.pipe(createGunzip()); source.on('error', streamErr); }
-        else if (encoding === 'br') { source = proxyRes.pipe(createBrotliDecompress()); source.on('error', streamErr); }
-        else if (encoding === 'deflate') { source = proxyRes.pipe(createInflate()); source.on('error', streamErr); }
+        if (encoding === 'gzip') { source = proxyRes.pipe(createGunzip()); }
+        else if (encoding === 'br') { source = proxyRes.pipe(createBrotliDecompress()); }
+        else if (encoding === 'deflate') { source = proxyRes.pipe(createInflate()); }
         else if (encoding) {
           // Unsupported encoding — pass through without injection to avoid corruption
           res.writeHead(proxyRes.statusCode ?? 200, proxyRes.headers);
@@ -636,41 +662,91 @@ export function createApp(options: ServerOptions): AppContext {
         let totalSize = 0;
         let oversize = false;
 
+        if (source !== proxyRes) {
+          proxyRes.on('error', streamErr);
+        }
+        source.on('error', streamErr);
+
+        // R9-H1: Backpressure — pause source when res.write() returns false
+        let drainRegistered = false;
+        const registerDrain = () => {
+          if (drainRegistered) return;
+          drainRegistered = true;
+          res.on('drain', () => { if (!ended) source.resume(); });
+        };
+
         source.on('data', (chunk: Buffer) => {
-          if (oversize) { res.write(chunk); return; }
-          totalSize += chunk.length;
-          if (totalSize > MAX_INJECT_SIZE) {
-            oversize = true;
-            // M12: Restore original CSP since we're not injecting scripts
+          if (ended) return;
+          try {
+            if (oversize) {
+              if (!res.write(chunk)) { registerDrain(); source.pause(); }
+              return;
+            }
+            totalSize += chunk.length;
+            if (totalSize > MAX_INJECT_SIZE) {
+              oversize = true;
+              // M12: Restore original headers since we're not injecting scripts
+              if (existingCsp) {
+                res.setHeader('content-security-policy', existingCsp);
+              }
+              if (cspReportOnly) {
+                res.setHeader('content-security-policy-report-only', cspReportOnly);
+              }
+              if (xFrameOptions) {
+                res.setHeader('x-frame-options', xFrameOptions);
+              }
+              // Flush already-buffered chunks, then this chunk, directly to response
+              for (const c of chunks) {
+                if (!res.write(c)) { registerDrain(); source.pause(); }
+              }
+              if (!res.write(chunk)) { registerDrain(); source.pause(); }
+              chunks.length = 0;
+              return;
+            }
+            chunks.push(chunk);
+          } catch (err) {
+            streamErr(err);
+          }
+        });
+        source.on('end', () => {
+          if (ended) return;
+          ended = true;
+          if (oversize) { res.end(); return; }
+          const buffer = Buffer.concat(chunks);
+          try {
+            const body = Buffer.from(injectScripts(buffer.toString('utf-8'), nonce, sessionId), 'utf-8');
+            res.setHeader('content-length', Buffer.byteLength(body));
+            res.end(body);
+          } catch (err) {
+            console.error('[cortex] Script injection failed:', sanitizeErr(err));
+            // Restore original security headers since we're not injecting scripts
             if (existingCsp) {
               res.setHeader('content-security-policy', existingCsp);
             }
-            // Flush already-buffered chunks, then this chunk, directly to response
-            for (const c of chunks) res.write(c);
-            res.write(chunk);
-            chunks.length = 0;
-            return;
+            if (cspReportOnly) {
+              res.setHeader('content-security-policy-report-only', cspReportOnly);
+            }
+            if (xFrameOptions) {
+              res.setHeader('x-frame-options', xFrameOptions);
+            }
+            res.setHeader('content-length', buffer.byteLength);
+            res.end(buffer);
           }
-          chunks.push(chunk);
         });
-        source.on('end', () => {
-          if (oversize) { res.end(); return; }
-          const buffer = Buffer.concat(chunks);
-          const body = Buffer.from(injectScripts(buffer.toString('utf-8'), nonce), 'utf-8');
-          res.setHeader('content-length', Buffer.byteLength(body));
-          res.end(body);
-        });
-        source.on('error', streamErr);
       },
       error: (err: Error & { code?: string }, _req: IncomingMessage, res: unknown) => {
         // res may be a Socket for WS upgrades — only handle HTTP responses
         if (res && typeof res === 'object' && 'writeHead' in res) {
           const httpRes = res as import('node:http').ServerResponse;
+          if (httpRes.headersSent || httpRes.writableEnded) {
+            console.warn('[cortex] Proxy error after response started:', (err.message ?? '').replace(/[\r\n]/g, ' '));
+            return;
+          }
           const isConnRefused = err.code === 'ECONNREFUSED';
           httpRes.writeHead(502, { 'Content-Type': 'text/html; charset=utf-8' });
           httpRes.end(isConnRefused
             ? '<html><body><h1>Dev server restarting...</h1><script>setTimeout(()=>location.reload(),2000)</script></body></html>'
-            : `<html><body><h1>Proxy error</h1><pre>${escapeHtml(err.message)}</pre></body></html>`
+            : '<html><body><h1>Proxy error</h1><pre>An error occurred while proxying the request</pre></body></html>'
           );
         }
       },
@@ -682,9 +758,17 @@ export function createApp(options: ServerOptions): AppContext {
 
   // C2: Error handler AFTER proxy so it catches proxy errors too
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Express requires 4-param signature
-  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    console.error('[cortex] Unexpected error:', err);
-    res.status(500).json({ error: 'internal' });
+  app.use((err: Error & { status?: number; statusCode?: number }, _req: Request, res: Response, _next: NextFunction) => {
+    if (res.headersSent) {
+      console.warn('[cortex] Error after headers sent:', (err.message ?? '').replace(/[\r\n]/g, ' '));
+      if (!res.writableEnded) { try { res.end(); } catch { /* stream already destroyed */ } }
+      return;
+    }
+    const rawStatus = err.status ?? err.statusCode;
+    const status = (rawStatus && rawStatus >= 400 && rawStatus < 600) ? rawStatus : 500;
+    if (status >= 500) console.error('[cortex] Unexpected error:', sanitizeErr(err));
+    else console.warn('[cortex] Client error:', status, (err.message ?? '').replace(/[\r\n]/g, ' '));
+    res.status(status).json({ error: status < 500 ? 'client error' : 'internal' });
   });
 
   // ── Editor WebSocket ────────────────────────────────────────
@@ -731,10 +815,12 @@ export function attachUpgradeHandler(server: Server, context: AppContext): void 
 function checkTargetReachableOnce(port: number, host: string): Promise<boolean> {
   return new Promise((resolve) => {
     let done = false;
-    const finish = (result: boolean) => { if (done) return; done = true; clearTimeout(timer); sock.destroy(); resolve(result); };
+    const finish = (result: boolean) => {
+      if (done) return; done = true; clearTimeout(timer);
+      sock.on('error', () => {}); // suppress post-destroy errors
+      sock.destroy(); resolve(result);
+    };
     const sock = createConnection({ host, port });
-    // M22: blanket error handler to prevent unhandled errors
-    sock.on('error', () => {});
     const timer = setTimeout(() => finish(false), 500);
     sock.once('connect', () => finish(true));
     sock.once('error', () => finish(false));
@@ -810,7 +896,7 @@ export async function startServer(options: ServerOptions): Promise<ServerContext
         resolve();
       };
 
-      context.stateManager.dispose({ deleteWal: true, force: true });
+      context.stateManager.dispose({ deleteWal: true });
       for (const client of context.editorWss.clients) {
         try { client.terminate(); } catch { /* ignore */ }
       }

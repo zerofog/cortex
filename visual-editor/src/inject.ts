@@ -1,16 +1,19 @@
-const MARKER = '<!-- __zerofog_injected__ -->';
-const SAFE_NONCE = /^[A-Za-z0-9+/=]+$/;
+import { SAFE_NONCE } from './validation.js';
 
-function headScripts(nonce?: string): string {
+const MARKER = '<!-- __zerofog_injected__ -->';
+
+function headScripts(nonce?: string, cacheBuster?: string): string {
   if (nonce && !SAFE_NONCE.test(nonce)) throw new Error('Invalid nonce format');
   const attr = nonce ? ` nonce="${nonce}"` : '';
-  return `\n${MARKER}\n<script${attr} src="/__zerofog/client/nav-blocker.js"></script>\n`;
+  const qs = cacheBuster ? `?v=${cacheBuster}` : '';
+  return `\n${MARKER}\n<script${attr} src="/__zerofog/client/nav-blocker.js${qs}"></script>\n`;
 }
 
-function bodyScripts(nonce?: string): string {
+function bodyScripts(nonce?: string, cacheBuster?: string): string {
   if (nonce && !SAFE_NONCE.test(nonce)) throw new Error('Invalid nonce format');
   const attr = nonce ? ` nonce="${nonce}"` : '';
-  return `\n<script${attr} src="/__zerofog/client/inspector.js"></script>\n`;
+  const qs = cacheBuster ? `?v=${cacheBuster}` : '';
+  return `\n<script${attr} src="/__zerofog/client/inspector.js${qs}"></script>\n`;
 }
 
 /**
@@ -22,14 +25,14 @@ function bodyScripts(nonce?: string): string {
  * - Falls back to appending if tags not found
  * - Optional nonce: added to script tags for CSP compliance
  */
-export function injectScripts(html: string, nonce?: string): string {
+export function injectScripts(html: string, nonce?: string, cacheBuster?: string): string {
   if (html.includes(MARKER)) return html;
 
   const headIdx = html.search(/<\/head>/i);
   const bodyIdx = html.search(/<\/body>/i);
 
-  const head = headScripts(nonce);
-  const body = bodyScripts(nonce);
+  const head = headScripts(nonce, cacheBuster);
+  const body = bodyScripts(nonce, cacheBuster);
 
   let result = html;
 
