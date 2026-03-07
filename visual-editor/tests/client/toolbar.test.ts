@@ -745,6 +745,36 @@ describe('finalizeDiff', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((diff.changes[0] as any).previousToken).toBeNull();
   });
+
+  // ── C5-client: selector parameter ──────────────────────────
+
+  it('includes selector field when provided as 4th argument', () => {
+    const diff = finalizeDiff(
+      { testId: 'card-1', componentChain: ['Card'] },
+      [],
+      new Date(),
+      '[data-cortex-id="cx-5"]'
+    );
+    expect(diff.selector).toBe('[data-cortex-id="cx-5"]');
+    expect(diff.elementSelector).toBe('[data-cortex-id="cx-5"]');
+  });
+
+  it('uses testId for elementSelector when selector not provided', () => {
+    const diff = finalizeDiff({ testId: 'card-1' }, []);
+    expect(diff.elementSelector).toBe('[data-testid="card-1"]');
+    expect(diff.selector).toBeNull();
+  });
+
+  it('selector overrides testId for elementSelector', () => {
+    const diff = finalizeDiff(
+      { testId: 'card-1' },
+      [],
+      new Date(),
+      '[data-testid="card-1"]'
+    );
+    expect(diff.elementSelector).toBe('[data-testid="card-1"]');
+    expect(diff.selector).toBe('[data-testid="card-1"]');
+  });
 });
 
 // ── findReactFiberKeys ───────────────────────────────────────────
@@ -1025,5 +1055,29 @@ describe('detectStyleOrigin — CSS Module edge cases (M4)', () => {
   it('CSS module in multi-class string matches', () => {
     const element = createMockElement({ className: 'flex justify-center Card_abc12345 text-sm' });
     expect(detectStyleOrigin(element, 'padding', () => []).origin).toBe('css-module');
+  });
+});
+
+// ── H10: getComponentName depth increase ──────────────────────────
+
+describe('getComponentName — depth 6-10 via detectStyleOrigin', () => {
+  it('resolves component name through 7-deep type.type chain', () => {
+    // Build a type chain deeper than 5 but within 10
+    // type.type.type.type.type.type.type has displayName at depth 7
+    let deepType: Record<string, unknown> = { displayName: 'DeepCard' };
+    for (let i = 0; i < 7; i++) {
+      deepType = { type: deepType };
+    }
+    const ownerFiber = createMockFiber({
+      type: deepType,
+      memoizedProps: { p: 'lg' },
+    });
+    const domFiber = createMockFiber({ _debugOwner: ownerFiber });
+    const fiberKey = '__reactFiber$depth7';
+    const element = createMockElement();
+    (element as Record<string, unknown>)[fiberKey] = domFiber;
+
+    const result = detectStyleOrigin(element, 'padding', () => [fiberKey]);
+    expect(result.origin).toBe('mantine-prop');
   });
 });

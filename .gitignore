@@ -8,3 +8,8 @@ dist/
 CLAUDE.md
 manual-test.ts
 .cortex/
+
+# Local review/task/planning docs
+tasks/
+thoughts/
+visual-editor/tasks/

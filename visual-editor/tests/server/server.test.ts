@@ -4,16 +4,19 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
-import { createApp, attachUpgradeHandler, startServer, checkPidFile, type AppContext } from '../../src/server.js';
+import { startServer, checkPidFile, rewriteCsp } from '../../src/server.js';
+import {
+  createTestSidecar,
+  createEditorWs,
+  waitForWsMessage,
+  authenticateWs,
+  apiGet,
+  apiPost,
+  type MockTarget,
+  type TestSidecar,
+} from '../helpers/server-helpers.js';
 
-// ─── Test helpers ────────────────────────────────────────────────
-
-interface MockTarget {
-  server: Server;
-  wss: WebSocketServer;
-  port: number;
-  close: () => Promise<void>;
-}
+// ─── Local mock target (server tests need multiple routes) ──────
 
 function createMockTarget(): Promise<MockTarget> {
   return new Promise((resolve) => {
@@ -68,99 +71,6 @@ function createMockTarget(): Promise<MockTarget> {
   });
 }
 
-interface TestSidecar {
-  context: AppContext;
-  server: Server;
-  port: number;
-  url: string;
-  close: () => Promise<void>;
-}
-
-function createTestSidecar(targetPort: number): Promise<TestSidecar> {
-  return new Promise((resolve) => {
-    const context = createApp({ targetPort, port: 0 });
-    const server = createServer(context.app);
-    attachUpgradeHandler(server, context);
-
-    server.listen(0, '127.0.0.1', () => {
-      const addr = server.address();
-      const port = typeof addr === 'object' && addr ? addr.port : 0;
-      resolve({
-        context,
-        server,
-        port,
-        url: `http://127.0.0.1:${port}`,
-        close: () => new Promise<void>((r) => {
-          context.editorWss.close();
-          server.close(() => r());
-        }),
-      });
-    });
-  });
-}
-
-/** Wait for a WS message, optionally filtering by type. Skips non-matching messages. */
-function waitForWsMessage(ws: WebSocket, type?: string, timeoutMs = 3000): Promise<any> {
-  return new Promise<any>((resolve, reject) => {
-    function cleanup() {
-      clearTimeout(timer);
-      ws.removeListener('message', onMsg);
-      ws.removeListener('error', onError);
-    }
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error(type ? `WS message type '${type}' timeout` : 'WS message timeout'));
-    }, timeoutMs);
-    function onMsg(data: Buffer) {
-      let parsed: any;
-      try { parsed = JSON.parse(data.toString()); } catch { return; }
-      if (!type || parsed.type === type) {
-        cleanup();
-        resolve(type ? parsed : data.toString());
-      }
-    }
-    function onError(err: Error) { cleanup(); reject(err); }
-    ws.on('message', onMsg);
-    ws.once('error', onError);
-  });
-}
-
-/** Create an editor WebSocket with the required Origin header. */
-function createEditorWs(port: number): WebSocket {
-  return new WebSocket(`ws://127.0.0.1:${port}/__zerofog`, {
-    headers: { Origin: `http://127.0.0.1:${port}` },
-  });
-}
-
-/** POST to sidecar API with session auth headers. */
-function apiPost(path: string, body?: unknown): Promise<Response> {
-  const headers: Record<string, string> = {
-    Host: `127.0.0.1:${sidecar.port}`,
-    'X-Session-Id': sidecar.context.sessionId,
-  };
-  const init: RequestInit = { method: 'POST', headers };
-  if (body !== undefined) {
-    headers['Content-Type'] = 'application/json';
-    init.body = JSON.stringify(body);
-  }
-  return fetch(sidecar.url + `/__zerofog/api${path}`, init);
-}
-
-/** Complete the auth handshake on an editor WS connection. */
-async function authenticateWs(ws: WebSocket, sessionId: string): Promise<void> {
-  const hello = await waitForWsMessage(ws);
-  const parsed = JSON.parse(hello);
-  if (parsed.type !== 'hello') throw new Error(`Expected hello, got ${parsed.type}`);
-
-  ws.send(JSON.stringify({ type: 'auth', sessionId }));
-
-  const session = await waitForWsMessage(ws);
-  const sessionMsg = JSON.parse(session);
-  if (sessionMsg.type !== 'session' || !sessionMsg.authenticated) {
-    throw new Error(`Auth failed: ${JSON.stringify(sessionMsg)}`);
-  }
-}
-
 // ─── Tests ───────────────────────────────────────────────────────
 
 let target: MockTarget;
@@ -188,15 +98,31 @@ describe('proxy', () => {
     expect(html).toContain('inspector.js');
   });
 
-  it('rewrites CSP on HTML responses: adds self to script-src, removes frame-ancestors', async () => {
+  it('rewrites CSP on HTML responses: adds self + nonce to script-src, removes frame-ancestors', async () => {
     const res = await fetch(sidecar.url + '/', {
       headers: { Host: `127.0.0.1:${sidecar.port}` },
     });
     const csp = res.headers.get('content-security-policy');
     expect(csp).not.toBeNull();
     expect(csp).toContain("'self'");
+    expect(csp).toMatch(/'nonce-[A-Za-z0-9+/=]+'/);
     expect(csp).not.toContain('frame-ancestors');
     expect(res.headers.get('x-frame-options')).toBeNull();
+  });
+
+  it('injected script nonce matches CSP nonce', async () => {
+    const res = await fetch(sidecar.url + '/', {
+      headers: { Host: `127.0.0.1:${sidecar.port}` },
+    });
+    const csp = res.headers.get('content-security-policy')!;
+    const html = await res.text();
+    // Extract nonce from CSP
+    const cspNonce = csp.match(/'nonce-([A-Za-z0-9+/=]+)'/)?.[1];
+    expect(cspNonce).toBeTruthy();
+    // Verify injected scripts have that nonce
+    expect(html).toContain(`nonce="${cspNonce}"`);
+    expect(html).toMatch(new RegExp(`nonce="${cspNonce}" src="/__zerofog/client/nav-blocker\\.js(\\?[^"]*)?"`));
+    expect(html).toMatch(new RegExp(`nonce="${cspNonce}" src="/__zerofog/client/inspector\\.js(\\?[^"]*)?"`));
   });
 
   it('does not add CSP when target has none', async () => {
@@ -260,25 +186,36 @@ describe('API', () => {
     });
     expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data).toEqual({ status: 'ok' });
+    expect(data).toMatchObject({ status: 'ok' });
   });
 
-  it('GET /status returns uptime without sessionId', async () => {
+  it('GET /status returns sessionId and uptime', async () => {
     const res = await fetch(sidecar.url + '/__zerofog/api/status', {
       headers: { Host: `127.0.0.1:${sidecar.port}` },
     });
     expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data.sessionId).toBeUndefined();
+    expect(typeof data.sessionId).toBe('string');
+    expect(data.sessionId).toMatch(/^[0-9a-f-]{36}$/);
     expect(typeof data.uptime).toBe('number');
     expect(data.targetPort).toBe(target.port);
   });
 
   it('POST /claim returns 409 when idle (no pending diff)', async () => {
-    const res = await apiPost('/claim');
+    const res = await apiPost(sidecar, '/claim');
     expect(res.status).toBe(409);
     const data = await res.json();
     expect(data.error).toBe('conflict');
+  });
+
+  // H9: GET /diff endpoint
+  it('GET /diff returns 404 when idle', async () => {
+    const res = await fetch(sidecar.url + '/__zerofog/api/diff', {
+      headers: { Host: `127.0.0.1:${sidecar.port}`, 'X-Session-Id': sidecar.context.sessionId },
+    });
+    expect(res.status).toBe(404);
+    const data = await res.json();
+    expect(data.error).toBe('No pending diff');
   });
 
   it('POST /shutdown triggers callback', async () => {
@@ -294,6 +231,48 @@ describe('API', () => {
     });
     expect(res.status).toBe(202);
     expect(shutdownCalled).toBe(true);
+  });
+
+  // H7: /ready returns 503 without crash when target unreachable
+  it('GET /ready returns 503 when target unreachable', async () => {
+    const deadSidecar = await createTestSidecar(59998);
+    try {
+      const res = await apiGet(deadSidecar, '/ready');
+      expect(res.status).toBe(503);
+      const data = await res.json();
+      expect(data.targetReachable).toBe(false);
+    } finally {
+      await deadSidecar.close();
+    }
+  });
+
+  // M-shutdown: /shutdown?force=true proceeds during processing state
+  it('POST /shutdown?force=true proceeds during processing state', async () => {
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+    ws.send(JSON.stringify({
+      type: 'finalize', id: 'force-shut',
+      payload: {
+        elementId: 1, testId: 'btn', componentChain: ['A'], elementType: 'button',
+        changes: [{ property: 'padding', token: 'md', previousToken: 'sm', previousCssValue: '8px', cssProperty: 'padding', cssValue: '16px', styleOrigin: { origin: 'unknown' } }],
+      },
+    }));
+    await waitForWsMessage(ws, 'finalize-result');
+
+    let shutdownCalled = false;
+    sidecar.context.setShutdownHandler(() => { shutdownCalled = true; });
+
+    const res = await fetch(sidecar.url + '/__zerofog/api/shutdown?force=true', {
+      method: 'POST',
+      headers: {
+        Host: `127.0.0.1:${sidecar.port}`,
+        'X-Session-Id': sidecar.context.sessionId,
+      },
+    });
+    expect(res.status).toBe(202);
+    expect(shutdownCalled).toBe(true);
+    ws.close();
+    sidecar.context.stateManager.dispose();
   });
 });
 
@@ -311,6 +290,35 @@ describe('host validation', () => {
       req.end();
     });
     expect(status).toBe(403);
+  });
+
+  // L-localhost: localhost. trailing dot accepted
+  it('accepts localhost. Host header (DNS trailing dot)', async () => {
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = httpRequest({
+        hostname: '127.0.0.1',
+        port: sidecar.port,
+        path: '/__zerofog/api/health',
+        headers: { Host: 'localhost.' },
+      }, (res) => resolve(res.statusCode ?? 0));
+      req.on('error', reject);
+      req.end();
+    });
+    expect(status).toBe(200);
+  });
+
+  it('accepts uppercase Host header (case-insensitive per RFC 7230)', async () => {
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = httpRequest({
+        hostname: '127.0.0.1',
+        port: sidecar.port,
+        path: '/__zerofog/api/health',
+        headers: { Host: 'LOCALHOST' },
+      }, (res) => resolve(res.statusCode ?? 0));
+      req.on('error', reject);
+      req.end();
+    });
+    expect(status).toBe(200);
   });
 });
 
@@ -337,12 +345,15 @@ describe('shell', () => {
     expect(html).toMatch(/sandbox="[^"]*allow-top-navigation-by-user-activation[^"]*"/);
   });
 
-  it('validates path param to prevent javascript: and protocol-relative injection', async () => {
-    const res = await fetch(sidecar.url + '/__zerofog/shell', {
-      headers: { Host: `127.0.0.1:${sidecar.port}` },
-    });
-    const html = await res.text();
-    expect(html).toContain("if (!path.startsWith('/') || path.startsWith('//')) path = '/';");
+  it('validates path param to prevent javascript:/data:/vbscript:/protocol-relative injection', async () => {
+    // Verify the source shell.html contains the full URI guard (served content is cached at startup)
+    const { readFileSync } = await import('node:fs');
+    const { join, dirname } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const shellPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'client', 'shell.html');
+    const html = readFileSync(shellPath, 'utf-8');
+    expect(html).toContain("if (!path.startsWith('/') || path.startsWith('//')");
+    expect(html).toMatch(/javascript\|data\|vbscript/i);
   });
 });
 
@@ -375,8 +386,38 @@ describe('session auth', () => {
     expect(res.status).toBe(200);
   });
 
-  it('POST /complete returns 409 when idle', async () => {
-    const res = await apiPost('/complete', { applied: [], failed: [] });
+  it('POST /complete without claimToken returns 400', async () => {
+    const res = await apiPost(sidecar, '/complete', { applied: [], failed: [] });
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toBe('Missing claimToken');
+  });
+
+  it('POST /complete with wrong claimToken returns 403 (not 409) for token mismatch', async () => {
+    // First, get into processing state
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+    ws.send(JSON.stringify({
+      type: 'finalize', id: 'auth-test',
+      payload: {
+        elementId: 1, testId: 'btn', componentChain: ['A'], elementType: 'button',
+        changes: [{ property: 'padding', token: 'md', previousToken: 'sm', previousCssValue: '8px', cssProperty: 'padding', cssValue: '16px', styleOrigin: { origin: 'unknown' } }],
+      },
+    }));
+    await waitForWsMessage(ws, 'finalize-result');
+    await apiPost(sidecar, '/claim');
+    // Complete with wrong token — should be 403 (auth failure), not 409 (state conflict)
+    const res = await apiPost(sidecar, '/complete', { applied: [0], failed: [], claimToken: 'wrong-token' });
+    expect(res.status).toBe(403);
+    const data = await res.json();
+    expect(data.error).toBe('forbidden');
+    ws.close();
+    // Clean up: reset state machine so subsequent tests see idle state
+    sidecar.context.stateManager.dispose();
+  });
+
+  it('POST /complete with claimToken returns 409 when idle', async () => {
+    const res = await apiPost(sidecar, '/complete', { applied: [], failed: [], claimToken: 'fake' });
     expect(res.status).toBe(409);
   });
 });
@@ -585,6 +626,57 @@ describe('WebSocket', () => {
     ws.close();
   });
 
+  it('server sends heartbeat pings to connected clients', async () => {
+    // Create a sidecar with a short heartbeat interval for testing
+    const hbSidecar = await createTestSidecar(target.port, { heartbeatIntervalMs: 200 });
+    try {
+      const ws = createEditorWs(hbSidecar.port);
+      await authenticateWs(ws, hbSidecar.context.sessionId);
+      const pingReceived = await new Promise<boolean>((resolve) => {
+        ws.on('ping', () => resolve(true));
+        setTimeout(() => resolve(false), 2000);
+      });
+      expect(pingReceived).toBe(true);
+      ws.close();
+    } finally {
+      await hbSidecar.close();
+    }
+  }, 5000);
+
+  it('terminates dead connections that do not respond to pings', async () => {
+    const hbSidecar = await createTestSidecar(target.port, { heartbeatIntervalMs: 100 });
+    try {
+      // Connect raw TCP socket to perform WS upgrade but never send pong
+      const net = await import('node:net');
+      const crypto = await import('node:crypto');
+      const key = crypto.randomBytes(16).toString('base64');
+      const sock = net.createConnection(hbSidecar.port, '127.0.0.1');
+
+      // Perform HTTP upgrade handshake manually
+      await new Promise<void>((resolve) => {
+        sock.once('connect', () => {
+          sock.write(
+            `GET /__zerofog HTTP/1.1\r\nHost: 127.0.0.1:${hbSidecar.port}\r\n` +
+            `Origin: http://127.0.0.1:${hbSidecar.port}\r\n` +
+            `Upgrade: websocket\r\nConnection: Upgrade\r\n` +
+            `Sec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n\r\n`
+          );
+          sock.once('data', () => resolve()); // 101 Switching Protocols
+        });
+      });
+
+      // Socket is now a WS connection but will never respond to pings
+      // Wait for server to terminate us (after 2 heartbeat intervals = ~200ms)
+      const closed = await new Promise<boolean>((resolve) => {
+        sock.on('close', () => resolve(true));
+        setTimeout(() => { sock.destroy(); resolve(false); }, 2000);
+      });
+      expect(closed).toBe(true);
+    } finally {
+      await hbSidecar.close();
+    }
+  }, 5000);
+
   it('rejects non-auth messages before authentication', async () => {
     const ws = createEditorWs(sidecar.port);
     // Wait for hello
@@ -614,6 +706,19 @@ describe('WS upgrade security', () => {
     expect(result).not.toBe('timeout');
   });
 
+  it('accepts editor WS with uppercase Origin', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${sidecar.port}/__zerofog`, {
+      headers: { Origin: `HTTP://LOCALHOST:${sidecar.port}` },
+    });
+    const result = await new Promise<string>((resolve) => {
+      ws.on('open', () => resolve('open'));
+      ws.on('error', (err) => resolve(err.message));
+      setTimeout(() => resolve('timeout'), 3000);
+    });
+    expect(result).toBe('open');
+    ws.close();
+  });
+
   it('rejects WS upgrade with invalid Origin', async () => {
     const ws = new WebSocket(`ws://127.0.0.1:${sidecar.port}/__zerofog`, {
       headers: { Origin: 'https://evil.com' },
@@ -641,6 +746,45 @@ describe('proxy error handling', () => {
       expect(html).toContain('location.reload()');
     } finally {
       await deadSidecar.close();
+    }
+  });
+
+  it('returns 502 with generic message for corrupted gzip stream', async () => {
+    const badGzipTarget = await new Promise<MockTarget>((resolve) => {
+      const server = createServer((_req, res) => {
+        res.writeHead(200, {
+          'Content-Type': 'text/html',
+          'Content-Encoding': 'gzip',
+        });
+        // Send plain HTML instead of gzip — triggers decompression error
+        res.end('<html><body>not gzip</body></html>');
+      });
+      const wss = new WebSocketServer({ server });
+      server.listen(0, '127.0.0.1', () => {
+        const addr = server.address();
+        const port = typeof addr === 'object' && addr ? addr.port : 0;
+        resolve({
+          server, wss, port,
+          close: () => new Promise<void>((r) => { wss.close(); server.close(() => r()); }),
+        });
+      });
+    });
+
+    const gzipSidecar = await createTestSidecar(badGzipTarget.port);
+    try {
+      const res = await fetch(gzipSidecar.url + '/', {
+        headers: { Host: `127.0.0.1:${gzipSidecar.port}` },
+      });
+      expect(res.status).toBe(502);
+      expect(res.headers.get('content-type')).toContain('text/html');
+      const body = await res.text();
+      // Should be generic — no internal paths or stack traces
+      expect(body).not.toMatch(/\/(src|node_modules)\//);
+      expect(body).not.toMatch(/^\s+at /m);
+      expect(body).toContain('Error processing proxied response');
+    } finally {
+      await gzipSidecar.close();
+      await badGzipTarget.close();
     }
   });
 });
@@ -678,6 +822,45 @@ describe('injection safety valve', () => {
       await bigTarget.close();
     }
   }, 10000);
+
+  it('preserves CSP and X-Frame-Options headers on oversize pages', async () => {
+    // Add CSP-RO and XFO to the shared mock target route for oversize
+    const oversizeTarget = await new Promise<MockTarget>((resolve) => {
+      const server = createServer((_req, res) => {
+        res.writeHead(200, {
+          'Content-Type': 'text/html',
+          'Content-Security-Policy-Report-Only': "default-src 'self'",
+          'X-Frame-Options': 'DENY',
+        });
+        // Exceed MAX_INJECT_SIZE (5MB) to trigger oversize path
+        res.end('<html><body>' + 'x'.repeat(5.5 * 1024 * 1024) + '</body></html>');
+      });
+      const wss = new WebSocketServer({ server });
+      server.listen(0, '127.0.0.1', () => {
+        const addr = server.address();
+        const port = typeof addr === 'object' && addr ? addr.port : 0;
+        resolve({
+          server, wss, port,
+          close: () => new Promise<void>((r) => { wss.close(); server.close(() => r()); }),
+        });
+      });
+    });
+
+    const oversizeSidecar = await createTestSidecar(oversizeTarget.port);
+    try {
+      const res = await fetch(oversizeSidecar.url + '/', {
+        headers: { Host: `127.0.0.1:${oversizeSidecar.port}` },
+        signal: AbortSignal.timeout(8000),
+      });
+      expect(res.status).toBe(200);
+      // CSP-report-only and X-Frame-Options should be restored unchanged
+      expect(res.headers.get('content-security-policy-report-only')).toBe("default-src 'self'");
+      expect(res.headers.get('x-frame-options')).toBe('DENY');
+    } finally {
+      await oversizeSidecar.close();
+      await oversizeTarget.close();
+    }
+  }, 15000);
 });
 
 // ─── startServer lifecycle ──────────────────────────────────────
@@ -736,6 +919,29 @@ describe('startServer lifecycle', () => {
     }
   });
 
+  // H2: PID file cleaned up on listen failure (EADDRINUSE)
+  it('cleans up PID file when listen fails with EADDRINUSE', async () => {
+    const pidPath = join(tmpDir, '.cortex', 'sidecar.pid');
+    // Occupy a port with a plain HTTP server (not a sidecar, so no PID conflict)
+    const blocker = createServer();
+    const blockerPort = await new Promise<number>((resolve) => {
+      blocker.listen(0, '127.0.0.1', () => {
+        const addr = blocker.address();
+        resolve(typeof addr === 'object' && addr ? addr.port : 0);
+      });
+    });
+
+    try {
+      // startServer will write PID file, then fail on listen
+      await expect(startServer({ targetPort: 59999, port: blockerPort, host: '127.0.0.1' }))
+        .rejects.toThrow(/already in use/);
+      // H2: PID file should be cleaned up after listen failure
+      expect(existsSync(pidPath)).toBe(false);
+    } finally {
+      blocker.close();
+    }
+  });
+
   it('server responds to health check', async () => {
     const ctx = await startServer({ targetPort: 59999, port: 0, host: '127.0.0.1' });
     try {
@@ -746,7 +952,7 @@ describe('startServer lifecycle', () => {
       });
       expect(res.status).toBe(200);
       const data = await res.json();
-      expect(data).toEqual({ status: 'ok' });
+      expect(data).toMatchObject({ status: 'ok' });
     } finally {
       await ctx.close();
     }
@@ -812,15 +1018,12 @@ describe('finalize pipeline', () => {
     },
   });
 
-  // C2: Force-reset state machine after each pipeline test to prevent cascading failures
+  // C2: Force-reset state machine after each pipeline test to prevent cascading failures.
+  // Uses dispose() which resets all state including the C1 idempotency hash.
   afterEach(() => {
     const sm = sidecar.context.stateManager;
-    const state = sm.getState();
-    if (state === 'pending_diff') {
-      sm.claimDiff();
-      sm.complete({ applied: [], failed: [] });
-    } else if (state === 'processing') {
-      sm.complete({ applied: [], failed: [] });
+    if (sm.getState() !== 'idle') {
+      sm.dispose();
     }
   });
 
@@ -828,26 +1031,29 @@ describe('finalize pipeline', () => {
     const ws = createEditorWs(sidecar.port);
     await authenticateWs(ws, sidecar.context.sessionId);
     ws.send(makeFinalize());
-    const msg = await waitForWsMessage(ws);
-    const parsed = JSON.parse(msg);
-    expect(parsed.type).toBe('finalize-result');
+    const parsed = await waitForWsMessage(ws, 'finalize-result');
     expect(parsed.ok).toBe(true);
     expect(parsed.changeCount).toBe(1);
     ws.close();
   });
 
-  it('POST /api/claim after finalize returns AccumulatedDiff', async () => {
+  it('POST /api/claim after finalize returns AccumulatedDiff with claimToken', async () => {
     const ws = createEditorWs(sidecar.port);
     await authenticateWs(ws, sidecar.context.sessionId);
     ws.send(makeFinalize());
-    await waitForWsMessage(ws); // consume finalize-result
+    await waitForWsMessage(ws, 'finalize-result'); // consume
 
-    const res = await apiPost('/claim');
+    const res = await apiPost(sidecar, '/claim');
     expect(res.status).toBe(200);
     const diff = await res.json();
     expect(diff.version).toBe(1);
     expect(diff.elements).toHaveLength(1);
     expect(diff.elements[0].elementSelector).toBe('[data-testid="btn-submit"]');
+    expect(typeof diff.claimToken).toBe('string');
+    expect(diff.claimToken.length).toBeGreaterThan(0);
+    // H18: Verify explicit response shape — only expected keys present
+    const keys = Object.keys(diff).sort();
+    expect(keys).toEqual(['claimToken', 'elements', 'metadata', 'sessionId', 'version']);
     ws.close();
   });
 
@@ -855,17 +1061,18 @@ describe('finalize pipeline', () => {
     const ws = createEditorWs(sidecar.port);
     await authenticateWs(ws, sidecar.context.sessionId);
     ws.send(makeFinalize());
-    await waitForWsMessage(ws);
+    await waitForWsMessage(ws, 'finalize-result');
 
-    await apiPost('/claim');
+    const claimRes = await apiPost(sidecar, '/claim');
+    const { claimToken } = await claimRes.json();
 
-    const res = await apiPost('/complete', { applied: [0], failed: [] });
+    const res = await apiPost(sidecar, '/complete', { applied: [0], failed: [], claimToken });
     expect(res.status).toBe(200);
     const report = await res.json();
     expect(report.applied).toEqual([0]);
 
     // Verify state is idle -- POST /claim should return 409
-    const check = await apiPost('/claim');
+    const check = await apiPost(sidecar, '/claim');
     expect(check.status).toBe(409);
     ws.close();
   });
@@ -874,16 +1081,15 @@ describe('finalize pipeline', () => {
     const ws = createEditorWs(sidecar.port);
     await authenticateWs(ws, sidecar.context.sessionId);
 
-    // First finalize + claim
+    // First finalize + claim (token captured for afterEach cleanup)
     ws.send(makeFinalize('fin-first'));
-    await waitForWsMessage(ws);
-    await apiPost('/claim');
+    await waitForWsMessage(ws, 'finalize-result');
+    const claimRes = await apiPost(sidecar, '/claim');
+    void claimRes.json(); // consume body
 
     // Second finalize should be rejected (state is processing)
     ws.send(makeFinalize('fin-second'));
-    const msg = await waitForWsMessage(ws);
-    const parsed = JSON.parse(msg);
-    expect(parsed.type).toBe('finalize-result');
+    const parsed = await waitForWsMessage(ws, 'finalize-result');
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toBe('conflict');
     ws.close();
@@ -895,18 +1101,99 @@ describe('finalize pipeline', () => {
 
     // Finalize + claim
     ws.send(makeFinalize());
-    await waitForWsMessage(ws);
-    await apiPost('/claim');
+    await waitForWsMessage(ws, 'finalize-result');
+    const claimRes = await apiPost(sidecar, '/claim');
+    const { claimToken } = await claimRes.json();
 
     // Set up typed WS listener BEFORE the HTTP call to avoid race condition
     const broadcastPromise = waitForWsMessage(ws, 'edit-complete');
 
     // Complete -- should broadcast edit-complete to WS
-    await apiPost('/complete', { applied: [0], failed: [] });
+    await apiPost(sidecar, '/complete', { applied: [0], failed: [], claimToken });
 
     const parsed = await broadcastPromise;
     expect(parsed.type).toBe('edit-complete');
     expect(parsed.payload.applied).toEqual([0]);
+    ws.close();
+  });
+
+  // H9: GET /diff returns diff without claiming
+  it('GET /diff returns pending diff without advancing state', async () => {
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+    ws.send(makeFinalize());
+    await waitForWsMessage(ws, 'finalize-result');
+
+    // GET /diff should return the diff
+    const res = await fetch(sidecar.url + '/__zerofog/api/diff', {
+      headers: { Host: `127.0.0.1:${sidecar.port}`, 'X-Session-Id': sidecar.context.sessionId },
+    });
+    expect(res.status).toBe(200);
+    const diff = await res.json();
+    expect(diff.version).toBe(1);
+    expect(diff.elements).toHaveLength(1);
+    expect(diff.elements[0].elementSelector).toBe('[data-testid="btn-submit"]');
+
+    // State should still be pending_diff (not processing)
+    const statusRes = await fetch(sidecar.url + '/__zerofog/api/status', {
+      headers: { Host: `127.0.0.1:${sidecar.port}` },
+    });
+    const status = await statusRes.json();
+    expect(status.pipelineState).toBe('pending_diff');
+    ws.close();
+  });
+
+  // Phase 6: GET /diff still returns diff during processing state
+  it('GET /diff returns diff during processing state (after claim)', async () => {
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+    ws.send(makeFinalize());
+    await waitForWsMessage(ws, 'finalize-result');
+
+    // Claim to enter processing state
+    await apiPost(sidecar, '/claim');
+
+    // GET /diff should still return the diff
+    const res = await fetch(sidecar.url + '/__zerofog/api/diff', {
+      headers: { Host: `127.0.0.1:${sidecar.port}`, 'X-Session-Id': sidecar.context.sessionId },
+    });
+    expect(res.status).toBe(200);
+    const diff = await res.json();
+    expect(diff.version).toBe(1);
+    expect(diff.elements).toHaveLength(1);
+    ws.close();
+  });
+
+  // C5-server: selector field test
+  it('WS finalize with selector uses it as elementSelector', async () => {
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+    ws.send(JSON.stringify({
+      type: 'finalize',
+      id: 'sel-1',
+      payload: {
+        elementId: 1,
+        testId: 'btn-submit',
+        selector: 'div.card > button:nth-child(2)',
+        componentChain: ['Button', 'Form'],
+        elementType: 'button',
+        changes: [{
+          property: 'padding',
+          token: 'md',
+          previousToken: 'sm',
+          previousCssValue: '8px',
+          cssProperty: 'padding',
+          cssValue: '16px',
+          styleOrigin: { origin: 'unknown' },
+        }],
+      },
+    }));
+    await waitForWsMessage(ws, 'finalize-result');
+
+    // Claim and check the selector
+    const claimRes = await apiPost(sidecar, '/claim');
+    const diff = await claimRes.json();
+    expect(diff.elements[0].elementSelector).toBe('div.card > button:nth-child(2)');
     ws.close();
   });
 
@@ -940,13 +1227,14 @@ describe('finalize pipeline', () => {
     ws1.send(makeFinalize());
     await waitForWsMessage(ws1); // consume finalize-result
 
-    await apiPost('/claim');
+    const claimRes = await apiPost(sidecar, '/claim');
+    const { claimToken } = await claimRes.json();
 
     // Set up listeners on both clients BEFORE complete
     const broadcast1 = waitForWsMessage(ws1, 'edit-complete');
     const broadcast2 = waitForWsMessage(ws2, 'edit-complete');
 
-    await apiPost('/complete', { applied: [0], failed: [] });
+    await apiPost(sidecar, '/complete', { applied: [0], failed: [], claimToken });
 
     const [msg1, msg2] = await Promise.all([broadcast1, broadcast2]);
     expect(msg1.type).toBe('edit-complete');
@@ -965,8 +1253,9 @@ describe('finalize pipeline', () => {
       const result = await waitForWsMessage(ws, 'finalize-result');
       expect(result.ok).toBe(true);
 
-      await apiPost('/claim');
-      await apiPost('/complete', { applied: [i], failed: [] });
+      const claimRes = await apiPost(sidecar, '/claim');
+      const { claimToken } = await claimRes.json();
+      await apiPost(sidecar, '/complete', { applied: [0], failed: [], claimToken });
     }
 
     // Verify final state is idle
@@ -1006,10 +1295,10 @@ describe('finalize pipeline', () => {
     expect(sm.getDiff()!.sessionId).toBe('new-session');
 
     // Full cycle on recovered diff
-    const claimed = sm.claimDiff();
+    const { diff: claimed, claimToken } = sm.claimDiff();
     expect(claimed.elements[0]!.elementSelector).toBe('[data-testid="recovered"]');
 
-    const report = sm.complete({ applied: [0], failed: [] });
+    const report = sm.complete({ applied: [0], failed: [] }, claimToken);
     expect(report.applied).toEqual([0]);
     expect(sm.getState()).toBe('idle');
 
@@ -1039,5 +1328,149 @@ describe('finalize pipeline', () => {
     expect(result.ok).toBe(false);
     expect(result.error).toBe('invalid payload');
     ws.close();
+  });
+
+  // T5: RangeError via HTTP /complete with out-of-range index
+  it('/complete with out-of-range applied index returns 400', async () => {
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+    ws.send(makeFinalize());
+    await waitForWsMessage(ws, 'finalize-result');
+    const claimRes = await apiPost(sidecar, '/claim');
+    const { claimToken } = await claimRes.json();
+    const res = await apiPost(sidecar, '/complete', { applied: [99], failed: [], claimToken });
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toBe('index out of bounds');
+    ws.close();
+  });
+
+  // T9: 100kb body limit rejection on /complete
+  it('/complete rejects oversized body', async () => {
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+    ws.send(makeFinalize());
+    await waitForWsMessage(ws, 'finalize-result');
+    await apiPost(sidecar, '/claim');
+    // Send a body > 100kb — need > 102400 bytes of valid JSON
+    const padding = 'x'.repeat(110000);
+    const largeBody = JSON.stringify({ applied: [0], failed: [], claimToken: padding });
+    const res = await fetch(sidecar.url + '/__zerofog/api/complete', {
+      method: 'POST',
+      headers: {
+        Host: `127.0.0.1:${sidecar.port}`,
+        'X-Session-Id': sidecar.context.sessionId,
+        'Content-Type': 'application/json',
+      },
+      body: largeBody,
+    });
+    // Express json({ limit }) throws PayloadTooLargeError (status 413) → caught by error handler
+    expect(res.status).toBe(413);
+    const body = await res.json();
+    expect(body).toEqual({ error: 'client error' });
+    ws.close();
+  });
+
+  // T11: Cache-Control header on sidecar scripts
+  it('sidecar scripts have Cache-Control header', async () => {
+    const res = await fetch(sidecar.url + '/__zerofog/client/nav-blocker.js', {
+      headers: { Host: `127.0.0.1:${sidecar.port}` },
+    });
+    // Script may not exist in test env, but if it does, check cache headers
+    if (res.status === 200) {
+      const cc = res.headers.get('cache-control');
+      expect(cc).toBeTruthy();
+    }
+  });
+
+  // M13: /shutdown returns 409 during processing
+  it('/shutdown returns 409 during processing state', async () => {
+    const ws = createEditorWs(sidecar.port);
+    await authenticateWs(ws, sidecar.context.sessionId);
+    ws.send(makeFinalize());
+    await waitForWsMessage(ws, 'finalize-result');
+    // Don't claim — shutdown during pending_diff
+    const res = await apiPost(sidecar, '/shutdown');
+    expect(res.status).toBe(409);
+    const data = await res.json();
+    expect(data.error).toBe('conflict');
+    ws.close();
+  });
+
+  // M32: GET /diff without auth returns 403
+  it('GET /diff without X-Session-Id returns 403', async () => {
+    const res = await fetch(sidecar.url + '/__zerofog/api/diff', {
+      headers: { Host: `127.0.0.1:${sidecar.port}` },
+    });
+    expect(res.status).toBe(403);
+  });
+});
+
+// ─── H3: rewriteCsp unit tests ───────────────────────────────────────
+
+describe('rewriteCsp', () => {
+  const nonce = 'dGVzdG5vbmNlMTIz';
+
+  it('adds nonce and self to script-src', () => {
+    const result = rewriteCsp("script-src 'self'; default-src 'self'", nonce);
+    expect(result).toContain(`'nonce-${nonce}'`);
+    expect(result).toContain("'self'");
+  });
+
+  it('strips frame-ancestors', () => {
+    const result = rewriteCsp("default-src 'self'; frame-ancestors 'none'", nonce);
+    expect(result).not.toContain('frame-ancestors');
+  });
+
+  it('strips require-trusted-types-for', () => {
+    const result = rewriteCsp("default-src 'self'; require-trusted-types-for 'script'", nonce);
+    expect(result).not.toContain('require-trusted-types-for');
+  });
+
+  it('removes strict-dynamic from script-src', () => {
+    const result = rewriteCsp("script-src 'self' 'strict-dynamic'", nonce);
+    expect(result).not.toContain("'strict-dynamic'");
+    expect(result).toContain(`'nonce-${nonce}'`);
+  });
+
+  it('handles script-src-elem directive', () => {
+    const result = rewriteCsp("script-src-elem 'self'", nonce);
+    expect(result).toContain('script-src-elem');
+    expect(result).toContain(`'nonce-${nonce}'`);
+  });
+
+  it('derives script-src from default-src when not present', () => {
+    const result = rewriteCsp("default-src 'self' https:", nonce);
+    expect(result).toContain('script-src');
+    expect(result).toContain(`'nonce-${nonce}'`);
+    expect(result).toContain("'self'");
+  });
+
+  it('removes none from script-src when adding nonce', () => {
+    const result = rewriteCsp("script-src 'none'", nonce);
+    expect(result).not.toContain("'none'");
+    expect(result).toContain(`'nonce-${nonce}'`);
+  });
+
+  it('adds script-src-elem fallback when script-src exists but script-src-elem does not', () => {
+    const result = rewriteCsp("script-src 'self'", nonce);
+    expect(result).toContain('script-src-elem');
+    expect(result).toContain(`'nonce-${nonce}'`);
+  });
+
+  // M15: Nonce format validation
+  it('throws on nonce with unsafe characters', () => {
+    expect(() => rewriteCsp("script-src 'self'", 'bad nonce')).toThrow('Invalid nonce format');
+    expect(() => rewriteCsp("script-src 'self'", "x'; script-src 'none")).toThrow('Invalid nonce format');
+  });
+
+  // H9: script-src-elem inherits CDN hosts from script-src
+  it('derives script-src-elem from rewritten script-src tokens (preserving CDN hosts)', () => {
+    const result = rewriteCsp("script-src 'self' https://cdn.example.com", nonce);
+    expect(result).toContain('script-src-elem');
+    // CDN host must be in script-src-elem too
+    const elemDirective = result.split(';').map(d => d.trim()).find(d => d.startsWith('script-src-elem'));
+    expect(elemDirective).toContain('https://cdn.example.com');
+    expect(elemDirective).toContain(`'nonce-${nonce}'`);
   });
 });

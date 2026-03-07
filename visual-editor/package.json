@@ -1,5 +1,5 @@
 {
-  "name": "cortex-visual-editor",
+  "name": "cortex-editor",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -16,7 +16,7 @@
     "./client/nav-blocker.js": "./dist/client/nav-blocker.js"
   },
   "bin": {
-    "cortex-visual-editor": "dist/bin.js"
+    "cortex-editor": "dist/bin.js"
   },
   "scripts": {
     "prebuild": "rm -rf dist",

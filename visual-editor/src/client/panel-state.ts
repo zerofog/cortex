@@ -3,6 +3,13 @@
  *
  * All state transitions are handled by panelReducer. Side effects
  * (postMessage, WS sends) are handled by the component layer after dispatch.
+ *
+ * H8: Framework hardcoding constraint
+ * Token resolution (resolveTokenToCssValue, VAR_PREFIX) is Mantine-specific.
+ * ELEMENT_TYPE_CATEGORIES maps to Mantine component names. Multi-framework
+ * support is planned in the native rendering overrides spec (2026-03-01).
+ * When adding framework support, parameterize VAR_PREFIX and token resolution
+ * based on detected framework (e.g. Tailwind uses class swaps, not CSS vars).
  */
 
 import type { TokenMaps, StyleOrigin, ChangeEntry } from './toolbar.js';
@@ -46,7 +53,7 @@ export interface PanelState {
   pendingChanges: PendingChange[];
   undoStack: UndoEntry[];
   wsStatus: 'connecting' | 'connected' | 'disconnected';
-  pipelineStatus: string | null;
+  pipelineStatus: 'sending' | 'processing' | 'applied' | 'timeout' | `error: ${string}` | null;
 }
 
 export type PanelAction =
@@ -59,7 +66,9 @@ export type PanelAction =
   | { type: 'TOKEN_MAPS_LOADED'; tokenMaps: TokenMaps }
   | { type: 'WS_STATUS'; status: 'connecting' | 'connected' | 'disconnected' }
   | { type: 'FINALIZE_START' }
+  | { type: 'FINALIZE_QUEUED' }
   | { type: 'FINALIZE_SUCCESS' }
+  | { type: 'FINALIZE_TIMEOUT' }
   | { type: 'FINALIZE_ERROR'; error: string };
 
 // ── Constants ────────────────────────────────────────────────────
@@ -301,8 +310,17 @@ export function panelReducer(state: PanelState, action: PanelAction): PanelState
     case 'FINALIZE_START':
       return { ...state, pipelineStatus: 'sending' };
 
+    case 'FINALIZE_QUEUED':
+      // Server accepted diff — processing in progress. Keep changes for recovery.
+      return { ...state, pipelineStatus: 'processing' };
+
     case 'FINALIZE_SUCCESS':
+      // edit-complete received — source code actually changed. Safe to clear.
       return { ...state, pipelineStatus: 'applied', pendingChanges: [], undoStack: [] };
+
+    case 'FINALIZE_TIMEOUT':
+      // Processing timed out — preserve changes for retry.
+      return { ...state, pipelineStatus: 'timeout' };
 
     case 'FINALIZE_ERROR':
       return { ...state, pipelineStatus: `error: ${action.error}` };

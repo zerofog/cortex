@@ -111,4 +111,45 @@ describe('injectScripts', () => {
     const count = (twice.match(/__zerofog_injected__/g) ?? []).length;
     expect(count).toBe(1);
   });
+
+  // H3: nonce support
+  it('adds nonce attribute to script tags when provided', () => {
+    const html = '<html><head></head><body><p>hello</p></body></html>';
+    const result = injectScripts(html, 'abc123');
+    expect(result).toContain('nonce="abc123" src="/__zerofog/client/nav-blocker.js"');
+    expect(result).toContain('nonce="abc123" src="/__zerofog/client/inspector.js"');
+  });
+
+  it('omits nonce attribute when not provided', () => {
+    const html = '<html><head></head><body><p>hello</p></body></html>';
+    const result = injectScripts(html);
+    expect(result).not.toContain('nonce=');
+    expect(result).toContain('<script src="/__zerofog/client/nav-blocker.js">');
+    expect(result).toContain('<script src="/__zerofog/client/inspector.js">');
+  });
+
+  // Nonce format validation
+  it('rejects nonce with unsafe characters', () => {
+    const html = '<html><head></head><body></body></html>';
+    expect(() => injectScripts(html, 'bad"nonce')).toThrow('Invalid nonce format');
+    expect(() => injectScripts(html, 'has spaces')).toThrow('Invalid nonce format');
+    expect(() => injectScripts(html, 'has<script>')).toThrow('Invalid nonce format');
+  });
+
+  it('accepts valid base64 nonce', () => {
+    const html = '<html><head></head><body></body></html>';
+    const result = injectScripts(html, 'YWJjMTIz');
+    expect(result).toContain('nonce="YWJjMTIz"');
+  });
+
+  // T10: Nonce values differ across calls (uniqueness is actually at the server level,
+  // but we verify inject itself doesn't memoize/cache nonce)
+  it('different nonces produce different script tags', () => {
+    const html = '<html><head></head><body></body></html>';
+    const a = injectScripts(html, 'AAAA');
+    const b = injectScripts(html, 'BBBB');
+    expect(a).toContain('nonce="AAAA"');
+    expect(b).toContain('nonce="BBBB"');
+    expect(a).not.toEqual(b);
+  });
 });
