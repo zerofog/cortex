@@ -1,0 +1,24 @@
+visual-editor/templates/visual.md
+  7df165bd0535b537 42-43,129,142
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "e9f6b800a65ca75e35b916d2af3a2dbfa31edb91",
+  "prompts": {
+    "7df165bd0535b537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "345353ea-33a5-49fe-b32c-531de65a1bcb",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 3,
+      "accepted_lines": 4,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/7f4c74d8a6cef8daefdeeaf442bf35778bbcfb7d19f757b92096cbef2e65686f"
+    }
+  }
+}
