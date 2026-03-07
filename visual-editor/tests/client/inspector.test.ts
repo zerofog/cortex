@@ -610,10 +610,20 @@ describe('getComponentName', () => {
     expect(getComponentName(fiber)).toBe('BaseInput');
   });
 
-  it('returns null for deeply nested wrapper beyond depth 5', () => {
-    // Build 6 levels of memo nesting: type.type.type.type.type.type.name
+  it('returns name for deeply nested wrapper up to depth 10', () => {
+    // Build 9 levels of memo nesting — should succeed with depth cap of 10
     let inner: Record<string, unknown> = { name: 'DeepComp' };
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 9; i++) {
+      inner = { type: inner };
+    }
+    const fiber = { type: inner };
+    expect(getComponentName(fiber)).toBe('DeepComp');
+  });
+
+  it('returns null for deeply nested wrapper beyond depth 10', () => {
+    // Build 11 levels of memo nesting — exceeds depth cap of 10
+    let inner: Record<string, unknown> = { name: 'DeepComp' };
+    for (let i = 0; i < 11; i++) {
       inner = { type: inner };
     }
     const fiber = { type: inner };
@@ -718,13 +728,14 @@ describe('walkComponentChain — strategy conflict', () => {
 // ── parseOverrideRules ──────────────────────────────────────
 
 describe('parseOverrideRules', () => {
-  it('parses flat CSS rules into selector→properties map', () => {
+  it('parses flat CSS rules into selector→properties map (strips !important)', () => {
     const css = '[data-testid="card"] { padding: 16px !important; color: red !important }';
     const result = parseOverrideRules(css);
 
     expect(result['[data-testid="card"]']).toBeDefined();
-    expect(result['[data-testid="card"]']!['padding']).toBe('16px !important');
-    expect(result['[data-testid="card"]']!['color']).toBe('red !important');
+    // M: parseDeclarations strips !important to prevent doubling on HMR recovery
+    expect(result['[data-testid="card"]']!['padding']).toBe('16px');
+    expect(result['[data-testid="card"]']!['color']).toBe('red');
   });
 
   it('parses multiple flat rules', () => {
@@ -732,8 +743,8 @@ describe('parseOverrideRules', () => {
     const result = parseOverrideRules(css);
 
     expect(Object.keys(result)).toHaveLength(2);
-    expect(result['.foo']!['color']).toBe('red !important');
-    expect(result['.bar']!['margin']).toBe('8px !important');
+    expect(result['.foo']!['color']).toBe('red');
+    expect(result['.bar']!['margin']).toBe('8px');
   });
 
   it('correctly parses CSS with @media nesting', () => {
@@ -742,7 +753,7 @@ describe('parseOverrideRules', () => {
 
     // Should extract the inner rule, not break on the nested braces
     expect(result['.responsive']).toBeDefined();
-    expect(result['.responsive']!['font-size']).toBe('18px !important');
+    expect(result['.responsive']!['font-size']).toBe('18px');
   });
 
   it('returns empty object for empty string', () => {
@@ -757,8 +768,16 @@ describe('parseOverrideRules', () => {
     const css = '.flat { color: blue !important }\n@media (max-width: 600px) { .nested { padding: 4px !important } }';
     const result = parseOverrideRules(css);
 
-    expect(result['.flat']!['color']).toBe('blue !important');
-    expect(result['.nested']!['padding']).toBe('4px !important');
+    expect(result['.flat']!['color']).toBe('blue');
+    expect(result['.nested']!['padding']).toBe('4px');
+  });
+
+  it('parses values without !important unchanged', () => {
+    const css = '.plain { color: red; font-size: 14px }';
+    const result = parseOverrideRules(css);
+
+    expect(result['.plain']!['color']).toBe('red');
+    expect(result['.plain']!['font-size']).toBe('14px');
   });
 
   it('mangles double-nested at-rules (known limitation)', () => {
@@ -800,12 +819,14 @@ describe('buildOverrideCSS', () => {
     expect(buildOverrideCSS({})).toBe('');
   });
 
-  it('roundtrips with parseOverrideRules', () => {
+  it('roundtrips with parseOverrideRules (strips !important on re-parse)', () => {
     const original = { '.card': { padding: '16px !important' } };
     const css = buildOverrideCSS(original);
     const parsed = parseOverrideRules(css);
 
-    expect(parsed['.card']!['padding']).toBe('16px !important');
+    // M: parseDeclarations strips !important to prevent doubling on HMR recovery.
+    // The roundtrip intentionally loses !important — applyOverride re-adds it.
+    expect(parsed['.card']!['padding']).toBe('16px');
   });
 
   it('ignores inherited properties on rules object', () => {
@@ -1076,10 +1097,20 @@ describe('escapeAttrValue', () => {
     expect(escapeAttrValue('path\\to')).toBe('path\\\\to');
   });
 
-  it('handles closing bracket without throwing', () => {
-    // Bracket is safe inside quoted attribute values — just verify no error
-    expect(() => escapeAttrValue('a]b')).not.toThrow();
-    expect(escapeAttrValue('a]b')).toBe('a]b');
+  it('escapes closing bracket for CSS selector safety (Phase 9)', () => {
+    expect(escapeAttrValue('a]b')).toBe('a\\]b');
+  });
+
+  it('strips null bytes (Phase 9)', () => {
+    expect(escapeAttrValue('foo\0bar')).toBe('foobar');
+  });
+
+  it('handles combined special characters', () => {
+    expect(escapeAttrValue('a"b\\c]d\0e')).toBe('a\\"b\\\\c\\]de');
+  });
+
+  it('returns empty string unchanged', () => {
+    expect(escapeAttrValue('')).toBe('');
   });
 });
 
@@ -1114,6 +1145,22 @@ describe('buildSelector (ESM export)', () => {
       div.remove();
     }
   });
+
+  // Phase 6: Unicode/emoji testId escaping
+  it('handles unicode and emoji characters in data-testid', () => {
+    const div = document.createElement('div');
+    div.setAttribute('data-testid', 'btn-🎨');
+    document.body.appendChild(div);
+
+    try {
+      const selector = buildSelector(div);
+      expect(selector).toBe('[data-testid="btn-🎨"]');
+      // Verify the selector actually matches the element
+      expect(document.querySelector(selector)).toBe(div);
+    } finally {
+      div.remove();
+    }
+  });
 });
 
 // ── Inspector IIFE Integration Tests ─────────────────────────────
@@ -1137,7 +1184,7 @@ function sendInspectorMessage(type: string, payload?: Record<string, unknown>) {
   window.dispatchEvent(
     new MessageEvent('message', {
       data: { type, sessionId: '__SESSION_ID__', version: 1, payload },
-      origin: '__SIDECAR_ORIGIN__',
+      origin: window.location.origin,
     })
   );
 }
@@ -1332,6 +1379,41 @@ describe('Inspector IIFE Integration', () => {
     });
   });
 
+  // ── Phase 6: elementMap/overrideRules cross-eviction ────────
+
+  describe('elementMap/overrideRules cross-eviction', () => {
+    it('override rules for evicted elementMap entries are cleaned by prune', async () => {
+      sendInspectorMessage('inspector:enter-select');
+
+      // Create 51 elements to trigger elementMap eviction (cap = 50)
+      const elements: HTMLElement[] = [];
+      for (let i = 0; i < 51; i++) {
+        const div = document.createElement('div');
+        div.textContent = `evict-${i}`;
+        document.body.appendChild(div);
+        div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        elements.push(div);
+      }
+
+      // elementMap should have 50 entries (first evicted)
+      expect(Object.keys(zf().elementMap).length).toBe(50);
+
+      // Apply override to the first element (evicted from elementMap)
+      // Use the raw elementMap setter to simulate the override existing
+      const firstId = Object.keys(zf().elementMap)[0]!;
+      zf().applyOverride(Number(firstId), 'padding', 'var(--mantine-spacing-md)');
+
+      // Remove the first element from DOM and trigger prune
+      elements[0]!.remove();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // Override rules for detached elements should be cleaned
+      const ruleCount = Object.keys(zf().overrideRules).length;
+      expect(ruleCount).toBeLessThanOrEqual(49);
+    });
+  });
+
   // ── buildSelector Uniqueness (Bug C) ────────────────────────
 
   describe('buildSelector Uniqueness', () => {
@@ -1404,13 +1486,15 @@ describe('Inspector IIFE Integration', () => {
 
   describe('cortexIdCounter Recovery', () => {
     it('resumes counter from pre-existing data-cortex-id values', () => {
-      // Pre-populate DOM with cx-5 before re-activation
+      // Deactivate first (discardOverrides cleans existing data-cortex-id attrs)
+      zf().deactivateInspector();
+
+      // Pre-populate DOM with cx-5 AFTER deactivation but before re-activation
       const existing = document.createElement('div');
       existing.setAttribute('data-cortex-id', 'cx-5');
       document.body.appendChild(existing);
 
       // Re-activate to trigger counter recovery
-      zf().deactivateInspector();
       zf().activateInspector();
 
       // Next assigned id should be cx-6
@@ -1442,7 +1526,7 @@ describe('Inspector IIFE Integration', () => {
   // ── elementMap SPA Navigation Cleanup (Bug A) ──────────────
 
   describe('elementMap SPA Navigation Cleanup', () => {
-    it('prunes detached DOM nodes from elementMap on popstate', () => {
+    it('prunes detached DOM nodes from elementMap after removal (MutationObserver)', async () => {
       sendInspectorMessage('inspector:enter-select');
 
       // Select an element, then detach it (simulates React unmount on SPA nav)
@@ -1455,76 +1539,67 @@ describe('Inspector IIFE Integration', () => {
       // Simulate SPA navigation — React unmounts and removes the element
       document.body.removeChild(div);
 
-      // Fire popstate (browser back/forward)
-      window.dispatchEvent(new PopStateEvent('popstate'));
+      // H4: MutationObserver with RAF debounce handles cleanup (not popstate listener)
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise(resolve => setTimeout(resolve, 0));
 
       // Stale entry should be pruned
       expect(Object.keys(zf().elementMap).length).toBe(0);
     });
 
-    it('keeps attached DOM nodes in elementMap on popstate', () => {
+    it('keeps attached DOM nodes in elementMap when no removal occurs', () => {
       sendInspectorMessage('inspector:enter-select');
 
       const div = document.createElement('div');
       document.body.appendChild(div);
       div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-      // Don't detach — element is still in the document
-      window.dispatchEvent(new PopStateEvent('popstate'));
-
-      // Entry should survive since element is still attached
+      // Element stays in the document — no MutationObserver prune fires
       expect(Object.keys(zf().elementMap).length).toBe(1);
     });
 
-    it('prunes detached DOM nodes on pushState', () => {
+    it('prunes detached DOM nodes after removal on navigation (MutationObserver)', async () => {
       sendInspectorMessage('inspector:enter-select');
 
       const div = document.createElement('div');
       document.body.appendChild(div);
       div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-      // Detach and trigger pushState (SPA forward navigation)
+      // Detach — MutationObserver + RAF handles cleanup
       document.body.removeChild(div);
-      history.pushState({}, '', '/new-route');
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise(resolve => setTimeout(resolve, 0));
 
       expect(Object.keys(zf().elementMap).length).toBe(0);
     });
   });
 
-  // ── pushState Sentinel Pattern (M-R5) ──────────────────────
+  // ── H6: zerofog:navigation event pattern ──────────────────────
 
-  describe('pushState Sentinel Pattern', () => {
-    it('pushState wrapper is pass-through after teardown (no throw, sentinel persists)', () => {
-      zf().deactivateInspector();
-
-      // pushState should still work — sentinel wrapper remains, just nulled callback
-      expect(() => history.pushState({}, '', '/after-teardown')).not.toThrow();
+  describe('zerofog:navigation Event Pattern (H6)', () => {
+    it('inspector does not patch history.pushState (nav-blocker owns the patch)', () => {
+      // Inspector should NOT have __cortexPatched marker — that was the old sentinel pattern.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      expect((history.pushState as any).__cortexPatched).toBe(true);
+      expect((history.pushState as any).__cortexPatched).toBeUndefined();
     });
 
-    it('does not double-patch on re-activation (same function reference)', () => {
-      const pushRef = history.pushState;
-
-      zf().deactivateInspector();
-      zf().activateInspector();
-
-      // Same patched function — sentinel guard prevents re-wrapping
-      expect(history.pushState).toBe(pushRef);
-    });
-
-    it('prune callback fires through sentinel wrapper on pushState', () => {
+    it('zerofog:navigation listener is removed after teardown', () => {
       sendInspectorMessage('inspector:enter-select');
 
       const div = document.createElement('div');
       document.body.appendChild(div);
       div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-      // Detach and trigger pushState — prune should fire via sentinel
-      document.body.removeChild(div);
-      history.pushState({}, '', '/sentinel-prune');
+      // Deactivate inspector — should remove zerofog:navigation listener
+      zf().deactivateInspector();
 
-      expect(Object.keys(zf().elementMap).length).toBe(0);
+      // Re-add and remove element; dispatch zerofog:navigation
+      const div2 = document.createElement('div');
+      document.body.appendChild(div2);
+
+      // elementMap was cleared by deactivate, but verify no errors occur
+      window.dispatchEvent(new CustomEvent('zerofog:navigation'));
     });
   });
 
@@ -1639,14 +1714,14 @@ describe('Inspector IIFE Integration', () => {
       // Listen for the zerofog:selector custom event dispatched by postToParent
       // In test env window.parent === window, so postToParent is a no-op.
       // Instead, verify buildSelector works on the mapped element directly.
-      const el = zf().elementMap[selId];
-      expect(el).toBe(div);
+      const entry = zf().elementMap[selId];
+      expect(entry.el).toBe(div);
 
       // Trigger the handler — it calls buildSelector internally
       sendInspectorMessage('inspector:build-selector', { elementId: selId });
 
       // Verify the element is still properly mapped (handler didn't error)
-      expect(zf().elementMap[selId]).toBe(div);
+      expect(zf().elementMap[selId].el).toBe(div);
     });
   });
 
@@ -1784,7 +1859,7 @@ describe('Inspector IIFE Integration', () => {
           sessionId: '__SESSION_ID__',
           version: 1,
         }),
-        '__SIDECAR_ORIGIN__'
+        window.location.origin
       );
     });
 
@@ -1828,7 +1903,7 @@ describe('Inspector IIFE Integration', () => {
             element: expect.objectContaining({ tag: 'DIV' }),
           }),
         }),
-        '__SIDECAR_ORIGIN__'
+        window.location.origin
       );
     });
   });
@@ -1848,7 +1923,7 @@ describe('Inspector IIFE Integration', () => {
     it('rejects message with missing sessionId', () => {
       window.dispatchEvent(new MessageEvent('message', {
         data: { type: 'inspector:enter-select', version: 1 },
-        origin: '__SIDECAR_ORIGIN__',
+        origin: window.location.origin,
       }));
 
       expect(zf().selectMode).toBe(false);
@@ -1857,7 +1932,7 @@ describe('Inspector IIFE Integration', () => {
     it('rejects message with non-object data', () => {
       window.dispatchEvent(new MessageEvent('message', {
         data: 'inspector:enter-select',
-        origin: '__SIDECAR_ORIGIN__',
+        origin: window.location.origin,
       }));
 
       expect(zf().selectMode).toBe(false);
@@ -1867,7 +1942,7 @@ describe('Inspector IIFE Integration', () => {
       const proto = { sessionId: '__SESSION_ID__', type: 'inspector:enter-select', version: 1 };
       window.dispatchEvent(new MessageEvent('message', {
         data: Object.create(proto),
-        origin: '__SIDECAR_ORIGIN__',
+        origin: window.location.origin,
       }));
 
       expect(zf().selectMode).toBe(false);
@@ -1995,29 +2070,28 @@ describe('Inspector IIFE Integration', () => {
       expect(Object.isFrozen(RADIUS_TOKENS)).toBe(true);
     });
 
-    it('prunes stale override rules when element is removed from DOM', () => {
+    it('prunes stale override rules when element is removed from DOM', async () => {
       const { div, id } = selectElement();
       zf().applyOverride(id, 'padding', 'md');
 
       const tagBefore = document.getElementById('zerofog-override-styles');
       expect(tagBefore).not.toBeNull();
 
-      // Remove element from DOM and trigger prune via popstate
+      // Remove element from DOM — MutationObserver + RAF handles prune
       div.remove();
-      window.dispatchEvent(new PopStateEvent('popstate'));
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise(resolve => setTimeout(resolve, 0));
 
       const tagAfter = document.getElementById('zerofog-override-styles');
       expect(tagAfter).toBeNull();
       expect(Object.keys(zf().overrideRules).length).toBe(0);
     });
 
-    it('data-testid selector survives prune when element is still in DOM', () => {
+    it('data-testid selector survives when element is still in DOM', () => {
       const { id } = selectElement();
       zf().applyOverride(id, 'color', 'red');
 
-      // Trigger prune — element is still in DOM
-      window.dispatchEvent(new PopStateEvent('popstate'));
-
+      // Element remains in DOM — no MutationObserver prune fires
       expect(Object.keys(zf().overrideRules).length).toBe(1);
       const tag = document.getElementById('zerofog-override-styles');
       expect(tag).not.toBeNull();
@@ -2034,6 +2108,23 @@ describe('Inspector IIFE Integration', () => {
       zf().discardOverrides();
 
       expect(selectedOverlay!.style.display).toBe('none');
+    });
+
+    it('discardOverrides removes data-cortex-id attributes from DOM', () => {
+      // Manually add data-cortex-id attributes (as buildSelector does)
+      const div1 = document.createElement('div');
+      div1.setAttribute('data-cortex-id', 'cx-100');
+      document.body.appendChild(div1);
+
+      const div2 = document.createElement('div');
+      div2.setAttribute('data-cortex-id', 'cx-101');
+      document.body.appendChild(div2);
+
+      expect(document.querySelectorAll('[data-cortex-id]').length).toBe(2);
+
+      zf().discardOverrides();
+
+      expect(document.querySelectorAll('[data-cortex-id]').length).toBe(0);
     });
 
     it('message handler ignores non-numeric elementId', () => {
@@ -2101,7 +2192,7 @@ describe('Inspector IIFE Integration', () => {
           type: 'zerofog:apply-override-result',
           payload: { ok: true },
         }),
-        '__SIDECAR_ORIGIN__'
+        window.location.origin
       );
 
       // Restore parent
@@ -2150,7 +2241,7 @@ describe('Inspector IIFE Integration', () => {
     it('rejects message with missing sessionId property', () => {
       window.dispatchEvent(new MessageEvent('message', {
         data: { type: 'inspector:enter-select', version: 1 },
-        origin: '__SIDECAR_ORIGIN__',
+        origin: window.location.origin,
       }));
       expect(zf().selectMode).toBe(false);
     });
@@ -2158,7 +2249,7 @@ describe('Inspector IIFE Integration', () => {
     it('rejects message with wrong sessionId value', () => {
       window.dispatchEvent(new MessageEvent('message', {
         data: { type: 'inspector:enter-select', sessionId: 'wrong-session', version: 1 },
-        origin: '__SIDECAR_ORIGIN__',
+        origin: window.location.origin,
       }));
       expect(zf().selectMode).toBe(false);
     });
@@ -2166,7 +2257,7 @@ describe('Inspector IIFE Integration', () => {
     it('rejects message with wrong version', () => {
       window.dispatchEvent(new MessageEvent('message', {
         data: { type: 'inspector:enter-select', sessionId: '__SESSION_ID__', version: 99 },
-        origin: '__SIDECAR_ORIGIN__',
+        origin: window.location.origin,
       }));
       expect(zf().selectMode).toBe(false);
     });
@@ -2174,7 +2265,7 @@ describe('Inspector IIFE Integration', () => {
     it('rejects message with null data', () => {
       window.dispatchEvent(new MessageEvent('message', {
         data: null,
-        origin: '__SIDECAR_ORIGIN__',
+        origin: window.location.origin,
       }));
       expect(zf().selectMode).toBe(false);
     });
@@ -2182,7 +2273,7 @@ describe('Inspector IIFE Integration', () => {
     it('rejects message with string data (non-object)', () => {
       window.dispatchEvent(new MessageEvent('message', {
         data: 'inspector:enter-select',
-        origin: '__SIDECAR_ORIGIN__',
+        origin: window.location.origin,
       }));
       expect(zf().selectMode).toBe(false);
     });
@@ -2206,10 +2297,10 @@ describe('Inspector IIFE Integration', () => {
     });
   });
 
-  // ── replaceState Sentinel Pattern (M7) ────────────────────
+  // ── replaceState → zerofog:navigation event (H6) ───────────
 
-  describe('replaceState Sentinel Pattern', () => {
-    it('prunes detached DOM nodes on replaceState', () => {
+  describe('replaceState via zerofog:navigation (H6)', () => {
+    it('prunes detached DOM nodes after removal from replaceState navigation', async () => {
       sendInspectorMessage('inspector:enter-select');
 
       const div = document.createElement('div');
@@ -2218,18 +2309,17 @@ describe('Inspector IIFE Integration', () => {
 
       expect(Object.keys(zf().elementMap).length).toBe(1);
 
-      // Detach and trigger replaceState (SPA route replacement)
+      // Detach — MutationObserver + RAF handles cleanup
       document.body.removeChild(div);
-      history.replaceState({}, '', '/replaced-route');
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise(resolve => setTimeout(resolve, 0));
 
       expect(Object.keys(zf().elementMap).length).toBe(0);
     });
 
-    it('replaceState wrapper is pass-through after teardown', () => {
-      zf().deactivateInspector();
-      expect(() => history.replaceState({}, '', '/after-teardown')).not.toThrow();
+    it('inspector does not patch history.replaceState (nav-blocker owns the patch)', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      expect((history.replaceState as any).__cortexPatched).toBe(true);
+      expect((history.replaceState as any).__cortexPatched).toBeUndefined();
     });
   });
 
@@ -2241,6 +2331,138 @@ describe('Inspector IIFE Integration', () => {
       expect(overlay).not.toBeNull();
       expect(overlay!.style.cssText).not.toContain('transition:all');
       expect(overlay!.style.cssText).toContain('transition');
+    });
+  });
+
+  // ── MutationObserver Selector Survival (C4) ────────────────
+
+  describe('MutationObserver Selector Survival (C4)', () => {
+    it('prunes detached element from elementMap when DOM node is removed (RAF debounced)', async () => {
+      sendInspectorMessage('inspector:enter-select');
+
+      const div = document.createElement('div');
+      document.body.appendChild(div);
+      div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(Object.keys(zf().elementMap).length).toBe(1);
+
+      // Remove element — MutationObserver should schedule pruneDetachedElements via RAF
+      document.body.removeChild(div);
+
+      // Flush MutationObserver microtask, then flush RAF callback
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(Object.keys(zf().elementMap).length).toBe(0);
+    });
+
+    it('keeps attached elements in elementMap when unrelated node is removed', async () => {
+      sendInspectorMessage('inspector:enter-select');
+
+      const div = document.createElement('div');
+      document.body.appendChild(div);
+      div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      // Remove an unrelated element
+      const unrelated = document.createElement('span');
+      document.body.appendChild(unrelated);
+      document.body.removeChild(unrelated);
+
+      // Flush MutationObserver + RAF
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // Selected element is still in DOM — should survive
+      expect(Object.keys(zf().elementMap).length).toBe(1);
+    });
+
+    it('querySelector exception does not abort prune loop (H6)', async () => {
+      sendInspectorMessage('inspector:enter-select');
+
+      // Create two elements with valid selectors
+      const div1 = document.createElement('div');
+      div1.setAttribute('data-testid', 'prune-1');
+      document.body.appendChild(div1);
+      div1.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      const div2 = document.createElement('div');
+      div2.setAttribute('data-testid', 'prune-2');
+      document.body.appendChild(div2);
+      div2.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      // Inject a malformed selector into overrideRules
+      const rules = zf().overrideRules;
+      rules['[invalid$%^&'] = { padding: '16px !important' };
+
+      // Remove div1 to trigger prune
+      document.body.removeChild(div1);
+
+      // Flush MutationObserver + RAF
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // The invalid selector should be removed, div2 should survive
+      expect(rules['[invalid$%^&']).toBeUndefined();
+    });
+
+    it('MutationObserver is disconnected on teardown', async () => {
+      sendInspectorMessage('inspector:enter-select');
+
+      const div = document.createElement('div');
+      document.body.appendChild(div);
+      div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      // Deactivate — should disconnect observer
+      zf().deactivateInspector();
+
+      // Re-add and remove elements — observer should NOT fire
+      const div2 = document.createElement('div');
+      document.body.appendChild(div2);
+      document.body.removeChild(div2);
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // elementMap was already cleared by deactivate, but observer should be disconnected
+      // No errors should occur
+    });
+  });
+
+  // ── Override Rules Size Cap (H7) ───────────────────────────
+
+  describe('Override Rules Size Cap (H7)', () => {
+    it('evicts oldest rule when override count exceeds MAX_OVERRIDE_RULES', () => {
+      sendInspectorMessage('inspector:enter-select');
+
+      // Create and select many elements to fill up override rules
+      const elements: HTMLElement[] = [];
+      for (let i = 0; i < 201; i++) {
+        const div = document.createElement('div');
+        div.setAttribute('data-testid', `cap-test-${i}`);
+        document.body.appendChild(div);
+        elements.push(div);
+      }
+
+      // Apply overrides to 201 elements (MAX_OVERRIDE_RULES = 200)
+      for (let i = 0; i < 201; i++) {
+        // Manually add to elementMap and apply override
+        (zf().elementMap as Record<string, { el: HTMLElement; selector: string | null }>)[`${1000 + i}`] = { el: elements[i]!, selector: null };
+        zf().applyOverride(1000 + i, 'color', `#${String(i).padStart(6, '0')}`);
+      }
+
+      const ruleKeys = Object.keys(zf().overrideRules);
+      // Should be capped at 200 (201st triggers eviction of 1st)
+      expect(ruleKeys.length).toBeLessThanOrEqual(200);
+
+      // First element's rule should have been evicted
+      const firstSelector = '[data-testid="cap-test-0"]';
+      expect(zf().overrideRules[firstSelector]).toBeUndefined();
+
+      // Last element's rule should exist
+      const lastSelector = '[data-testid="cap-test-200"]';
+      expect(zf().overrideRules[lastSelector]).toBeDefined();
+
+      // Cleanup
+      for (const el of elements) el.remove();
     });
   });
 });

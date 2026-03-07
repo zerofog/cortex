@@ -1,6 +1,15 @@
-import { readFileSync, writeFileSync, unlinkSync, mkdirSync, existsSync, openSync, writeSync, fsyncSync, closeSync, renameSync, realpathSync } from 'node:fs';
+import { randomUUID, createHash } from 'node:crypto';
+import { readFileSync, unlinkSync, mkdirSync, existsSync, realpathSync } from 'node:fs';
+import { open, mkdir, rename, realpath } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import type { ChangeEntry } from './client/toolbar.js';
+import {
+  ALLOWED_CSS_PROPERTIES,
+  ALLOWED_TOKENS,
+  ALLOWED_ORIGINS,
+  CSS_VALUE_UNSAFE,
+  CSS_VALUE_MAX_LENGTH,
+} from './validation.js';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -23,6 +32,7 @@ export interface AccumulatedDiff {
 export interface FinalizePayload {
   elementId: number;
   testId: string | null;
+  selector?: string;
   componentChain: string[];
   elementType: string;
   changes: ChangeEntry[];
@@ -35,50 +45,113 @@ export interface CompletionReport {
 
 // ─── Runtime validators (trust-boundary guards) ─────────────────
 
+function isValidChangeEntry(c: unknown): boolean {
+  if (typeof c !== 'object' || c === null) return false;
+  const e = c as Record<string, unknown>;
+  if (
+    typeof e.property !== 'string' ||
+    typeof e.token !== 'string' ||
+    typeof e.cssProperty !== 'string' ||
+    typeof e.cssValue !== 'string' ||
+    typeof e.styleOrigin !== 'object' || e.styleOrigin === null
+  ) return false;
+
+  // H2: Validate values against allowlists (not just types)
+  if (!ALLOWED_CSS_PROPERTIES.has(e.cssProperty as string)) return false;
+  if (!ALLOWED_TOKENS.has(e.token as string)) return false;
+  const origin = (e.styleOrigin as Record<string, unknown>).origin;
+  if (typeof origin !== 'string' || !ALLOWED_ORIGINS.has(origin)) return false;
+  const cssValue = e.cssValue as string;
+  if (cssValue.length > CSS_VALUE_MAX_LENGTH || CSS_VALUE_UNSAFE.test(cssValue)) return false;
+  // H5: Validate previousToken (null or valid token) and previousCssValue
+  if (e.previousToken !== null && (typeof e.previousToken !== 'string' || !ALLOWED_TOKENS.has(e.previousToken as string))) return false;
+  const prevCss = e.previousCssValue;
+  if (typeof prevCss !== 'string') return false;
+  if ((prevCss as string).length > CSS_VALUE_MAX_LENGTH || CSS_VALUE_UNSAFE.test(prevCss as string)) return false;
+
+  return true;
+}
+
+/** Only allow safe CSS selector characters: word chars, spaces, brackets, quotes, dots, colons, combinators, hashes, hyphens, equals, parens. */
+const SAFE_SELECTOR = /^[\w\s\[\]="'.:>+~#()\-,*]+$/;
+const MAX_SELECTOR_LENGTH = 500;
+
 export function isFinalizePayload(v: unknown): v is FinalizePayload {
   if (typeof v !== 'object' || v === null) return false;
   const obj = v as Record<string, unknown>;
+  if ('selector' in obj) {
+    if (typeof obj.selector !== 'string') return false;
+    if (obj.selector.length > MAX_SELECTOR_LENGTH || !SAFE_SELECTOR.test(obj.selector)) return false;
+  }
   return (
-    typeof obj.elementId === 'number' &&
-    (obj.testId === null || typeof obj.testId === 'string') &&
+    Number.isInteger(obj.elementId) && (obj.elementId as number) >= 0 &&
+    (obj.testId === null || (typeof obj.testId === 'string' && obj.testId.length <= 200)) &&
     Array.isArray(obj.componentChain) &&
-    obj.componentChain.every((c: unknown) => typeof c === 'string') &&
+    obj.componentChain.length <= 50 &&
+    obj.componentChain.every((c: unknown) => typeof c === 'string' && (c as string).length <= 200) &&
     typeof obj.elementType === 'string' &&
-    Array.isArray(obj.changes)
+    obj.elementType.length <= 200 &&
+    Array.isArray(obj.changes) &&
+    obj.changes.length <= 100 &&
+    obj.changes.every(isValidChangeEntry)
   );
 }
 
 export function isCompletionReport(v: unknown): v is CompletionReport {
   if (typeof v !== 'object' || v === null) return false;
   const obj = v as Record<string, unknown>;
-  return (
-    Array.isArray(obj.applied) &&
-    obj.applied.every((n: unknown) => typeof n === 'number') &&
-    Array.isArray(obj.failed) &&
-    obj.failed.every((f: unknown) =>
+  if (
+    !Array.isArray(obj.applied) ||
+    !obj.applied.every((n: unknown) => Number.isInteger(n) && (n as number) >= 0) ||
+    !Array.isArray(obj.failed) ||
+    !obj.failed.every((f: unknown) =>
       typeof f === 'object' && f !== null &&
-      typeof (f as Record<string, unknown>).index === 'number' &&
-      typeof (f as Record<string, unknown>).reason === 'string'
+      Number.isInteger((f as Record<string, unknown>).index) &&
+      ((f as Record<string, unknown>).index as number) >= 0 &&
+      typeof (f as Record<string, unknown>).reason === 'string' &&
+      ((f as Record<string, unknown>).reason as string).length <= 1000 &&
+      !/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test((f as Record<string, unknown>).reason as string)
     )
-  );
+  ) return false;
+  // M-duplicates: reject duplicate applied indices
+  const appliedSet = new Set(obj.applied as number[]);
+  if (appliedSet.size !== (obj.applied as number[]).length) return false;
+  // M-duplicates: reject duplicate failed indices
+  const failedIndices = (obj.failed as Array<{ index: number }>).map(f => f.index);
+  if (new Set(failedIndices).size !== failedIndices.length) return false;
+  // L17: applied and failed indices must be disjoint
+  for (const f of obj.failed as Array<{ index: number }>) {
+    if (appliedSet.has(f.index)) return false;
+  }
+  return true;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────
 
 function escapeAttrValue(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return s.replace(/\0/g, '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/]/g, '\\]');
 }
 
 export class StateConflictError extends Error {
   currentState: MachineState;
   attemptedTransition: string;
+  kind: 'conflict' | 'token-mismatch';
 
-  constructor(currentState: MachineState, attemptedTransition: string) {
+  constructor(currentState: MachineState, attemptedTransition: string, kind: 'conflict' | 'token-mismatch' = 'conflict') {
     super(`Cannot ${attemptedTransition} in state '${currentState}'`);
     Object.setPrototypeOf(this, StateConflictError.prototype);
     this.name = 'StateConflictError';
     this.currentState = currentState;
     this.attemptedTransition = attemptedTransition;
+    this.kind = kind;
+  }
+}
+
+export class IndexOutOfBoundsError extends RangeError {
+  constructor(message: string) {
+    super(message);
+    Object.setPrototypeOf(this, IndexOutOfBoundsError.prototype);
+    this.name = 'IndexOutOfBoundsError';
   }
 }
 
@@ -94,16 +167,21 @@ export interface StateManagerOptions {
 const WAL_FILENAME = 'pending-diff.json';
 const DEFAULT_TIMEOUT_MS = 120_000;
 
-function isValidElementDiff(el: unknown): el is ElementDiff {
+export function isValidElementDiff(el: unknown): el is ElementDiff {
   if (typeof el !== 'object' || el === null) return false;
   const obj = el as Record<string, unknown>;
   return (
     typeof obj.elementSelector === 'string' &&
+    obj.elementSelector.length <= MAX_SELECTOR_LENGTH &&
+    SAFE_SELECTOR.test(obj.elementSelector as string) &&
     Array.isArray(obj.componentChain) &&
-    obj.componentChain.every((c: unknown) => typeof c === 'string') &&
+    obj.componentChain.length <= 50 &&
+    obj.componentChain.every((c: unknown) => typeof c === 'string' && (c as string).length <= 200) &&
     typeof obj.elementType === 'string' &&
+    obj.elementType.length <= 200 &&
     Array.isArray(obj.changes) &&
-    obj.changes.every((c: unknown) => typeof c === 'object' && c !== null)
+    obj.changes.length <= 100 &&
+    obj.changes.every(isValidChangeEntry)
   );
 }
 
@@ -112,6 +190,8 @@ export class StateManager {
   private diff: AccumulatedDiff | null = null;
   private timeoutTimer: ReturnType<typeof setTimeout> | null = null;
   private claimEpoch = 0;
+  private claimToken: string | null = null;
+  private claimedDiffHash: string | null = null;
   private readonly sessionId: string;
   private readonly walDir: string;
   private readonly walPath: string;
@@ -138,14 +218,15 @@ export class StateManager {
     return this.diff;
   }
 
-  receiveDiff(payload: FinalizePayload): AccumulatedDiff {
+  async receiveDiff(payload: FinalizePayload): Promise<AccumulatedDiff> {
     if (this.state !== 'idle') {
       throw new StateConflictError(this.state, 'receiveDiff');
     }
 
-    const elementSelector = payload.testId
-      ? `[data-testid="${escapeAttrValue(payload.testId)}"]`
-      : 'unknown';
+    const elementSelector = payload.selector
+      ?? (payload.testId
+        ? `[data-testid="${escapeAttrValue(payload.testId)}"]`
+        : 'unknown');
 
     const diff: AccumulatedDiff = {
       version: 1,
@@ -159,59 +240,112 @@ export class StateManager {
       metadata: { createdAt: new Date().toISOString() },
     };
 
-    this.writeWal(diff);
-    this.diff = diff;
+    // Set state synchronously to prevent concurrent receiveDiff calls
     this.state = 'pending_diff';
+    this.diff = diff;
+    try {
+      await this.writeWal(diff);
+    } catch (err) {
+      // Rollback on write failure
+      this.state = 'idle';
+      this.diff = null;
+      throw err;
+    }
     return diff;
   }
 
   /** Atomically persist diff to WAL, verifying no symlink escape. */
-  private writeWal(diff: AccumulatedDiff): void {
-    mkdirSync(this.walDir, { recursive: true });
-    const realWalDir = realpathSync(this.walDir);
-    const parentReal = this.walParentReal ?? realpathSync(resolve(this.walDir, '..'));
+  private async writeWal(diff: AccumulatedDiff): Promise<void> {
+    await mkdir(this.walDir, { recursive: true });
+    const realWalDir = await realpath(this.walDir);
+    const parentReal = this.walParentReal ?? await realpath(resolve(this.walDir, '..'));
     if (!realWalDir.startsWith(parentReal + sep) && realWalDir !== parentReal) {
       throw new Error(`WAL directory symlink escape detected: ${realWalDir}`);
     }
-    const data = JSON.stringify(diff, null, 2);
+    const json = JSON.stringify(diff, null, 2);
+    const checksum = createHash('sha256').update(json).digest('hex');
+    const data = json + '\n' + checksum;
     const tmpPath = this.walPath + '.tmp';
-    const fd = openSync(tmpPath, 'w');
-    try { writeSync(fd, data); fsyncSync(fd); } finally { closeSync(fd); }
-    renameSync(tmpPath, this.walPath);
-    // Fsync directory to ensure rename is durable across crash/power-loss
-    const dirFd = openSync(realWalDir, 'r');
-    try { fsyncSync(dirFd); } finally { closeSync(dirFd); }
+    const fh = await open(tmpPath, 'w');
+    try { await fh.writeFile(data); await fh.datasync(); } finally { await fh.close(); }
+    await rename(tmpPath, this.walPath);
+    // Datasync directory to ensure rename is durable across crash/power-loss
+    const dirFh = await open(realWalDir, 'r');
+    try { await dirFh.datasync(); } finally { await dirFh.close(); }
   }
 
-  claimDiff(): Readonly<AccumulatedDiff> {
+  claimDiff(): { diff: Readonly<AccumulatedDiff>; claimToken: string } {
     if (this.state !== 'pending_diff') {
       throw new StateConflictError(this.state, 'claimDiff');
     }
 
+    // Invariant: diff must exist in pending_diff state (set by receiveDiff/recover)
+    if (!this.diff) throw new Error('invariant: diff is null in pending_diff state');
+
+    // C1: Idempotency guard — reject re-claim of an already-claimed diff.
+    // After timeout→re-claim, the original claimer may have already applied source edits.
+    // Hashing the elements prevents double-application of the same edits.
+    const diffHash = createHash('sha256').update(JSON.stringify(this.diff.elements)).digest('hex');
+    if (this.claimedDiffHash === diffHash) {
+      throw new StateConflictError(this.state, 'claimDiff (already claimed)');
+    }
+
     this.state = 'processing';
+    this.claimedDiffHash = diffHash;
+    const token = randomUUID();
+    this.claimToken = token;
     const capturedEpoch = ++this.claimEpoch;
     this.timeoutTimer = setTimeout(() => {
       if (this.claimEpoch !== capturedEpoch) return;
+      this.claimToken = null;
+      this.claimedDiffHash = null;
       this.state = 'pending_diff';
       this.onTimeout?.();
     }, this.timeoutMs);
 
-    return this.diff!;
+    return { diff: this.diff, claimToken: token };
   }
 
-  complete(report: CompletionReport): CompletionReport {
+  complete(report: CompletionReport, claimToken: string): CompletionReport {
     if (this.state !== 'processing') {
       throw new StateConflictError(this.state, 'complete');
     }
+    if (this.claimToken !== claimToken) {
+      throw new StateConflictError(this.state, 'complete (token mismatch)', 'token-mismatch');
+    }
 
+    // Invariant: diff must exist in processing state (set by receiveDiff, guarded by claimDiff)
+    if (!this.diff) throw new Error('invariant: diff is null in processing state');
+
+    // H8: Validate report indices against diff bounds
+    const maxIdx = this.diff.elements.length - 1;
+    for (const idx of report.applied) {
+      if (idx < 0 || idx > maxIdx) throw new IndexOutOfBoundsError(`applied index ${idx} out of bounds (0-${maxIdx})`);
+    }
+    for (const { index: idx } of report.failed) {
+      if (idx < 0 || idx > maxIdx) throw new IndexOutOfBoundsError(`failed index ${idx} out of bounds (0-${maxIdx})`);
+    }
+
+    // H4: Verify all indices are accounted for — reject partial completion reports
+    const allIndices = new Set([...report.applied, ...report.failed.map(f => f.index)]);
+    if (allIndices.size !== this.diff.elements.length) {
+      throw new IndexOutOfBoundsError(`incomplete report: covers ${allIndices.size}/${this.diff.elements.length} elements`);
+    }
+
+    // Clear timeout only AFTER validation succeeds — the original claimDiff() timer
+    // enforces an absolute deadline that bad complete() calls cannot extend
     if (this.timeoutTimer) {
       clearTimeout(this.timeoutTimer);
       this.timeoutTimer = null;
     }
 
+    // C1: Clear claimedDiffHash on successful completion to allow new cycles
+    this.claimedDiffHash = null;
+
     // Delete WAL
     try { unlinkSync(this.walPath); } catch { /* ignore if already gone */ }
 
+    this.claimToken = null;
     this.diff = null;
     this.state = 'idle';
     return report;
@@ -224,13 +358,50 @@ export class StateManager {
 
     try {
       const raw = readFileSync(this.walPath, 'utf-8');
-      const parsed = JSON.parse(raw) as AccumulatedDiff;
-      // Deep validation: version, elements shape, and sessionId update
+      // Checksum verification: new WAL files have a trailing SHA-256 line
+      const lastNewline = raw.lastIndexOf('\n');
+      let json: string;
+      if (lastNewline === -1) {
+        // Single-line file with no checksum — could be legacy or malformed
+        json = raw;
+      } else {
+        const storedChecksum = raw.substring(lastNewline + 1);
+        const isChecksummed = /^[0-9a-f]{64}$/.test(storedChecksum);
+        if (isChecksummed) {
+          json = raw.substring(0, lastNewline);
+          const expected = createHash('sha256').update(json).digest('hex');
+          if (storedChecksum !== expected) {
+            console.warn('[cortex] Corrupt WAL file (checksum mismatch), deleting');
+            try { unlinkSync(this.walPath); } catch { /* ignore */ }
+            return;
+          }
+        } else {
+          // Legacy WAL without checksum — parse the full content
+          console.warn('[cortex] Legacy WAL file without checksum detected — will require checksum in a future version');
+          json = raw;
+        }
+      }
+      const parsed = JSON.parse(json) as AccumulatedDiff;
+      // Deep validation: version, elements shape, metadata, and sessionId update
       if (
         parsed.version === 1 &&
         Array.isArray(parsed.elements) &&
-        parsed.elements.every(isValidElementDiff)
+        parsed.elements.every(isValidElementDiff) &&
+        parsed.metadata !== null && typeof parsed.metadata === 'object' &&
+        typeof (parsed.metadata as Record<string, unknown>).createdAt === 'string'
       ) {
+        // M-staleness: Reject WAL with invalid, future, or stale timestamps
+        const createdAt = Date.parse((parsed.metadata as Record<string, unknown>).createdAt as string);
+        if (isNaN(createdAt) || createdAt > Date.now() + 60_000) {
+          console.warn('[cortex] WAL file has invalid or future timestamp, ignoring');
+          try { unlinkSync(this.walPath); } catch { /* ignore */ }
+          return;
+        }
+        if (Date.now() - createdAt > 24 * 60 * 60 * 1000) {
+          console.warn('[cortex] Stale WAL file (>24h old), ignoring');
+          try { unlinkSync(this.walPath); } catch { /* ignore */ }
+          return;
+        }
         parsed.sessionId = this.sessionId;
         this.diff = parsed;
         this.state = 'pending_diff';
@@ -240,17 +411,25 @@ export class StateManager {
         const tmpPath = this.walPath + '.tmp';
         if (existsSync(tmpPath)) unlinkSync(tmpPath);
       } catch { /* ignore */ }
-    } catch {
-      console.warn('[cortex] Corrupt WAL file found, ignoring');
+    } catch (err) {
+      console.warn('[cortex] Corrupt WAL file found, ignoring:', (err as Error).message?.replace(/[\r\n]/g, ' ') ?? String(err));
       // Stay idle
     }
   }
 
-  dispose(): void {
+  dispose(opts?: { deleteWal?: boolean; force?: boolean }): void {
+    // H12: force=true deletes WAL unconditionally (used only in tests)
+    // Without force, only delete WAL when idle — pending_diff/processing WAL survives for crash recovery
+    if (opts?.deleteWal && (opts.force || this.state === 'idle')) {
+      try { unlinkSync(this.walPath); } catch { /* ignore */ }
+    }
     if (this.timeoutTimer) {
       clearTimeout(this.timeoutTimer);
       this.timeoutTimer = null;
     }
+    this.claimToken = null;
+    this.claimedDiffHash = null;
+    this.claimEpoch = 0;
     this.state = 'idle';
     this.diff = null;
   }

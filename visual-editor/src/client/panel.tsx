@@ -89,10 +89,16 @@ export function PanelRoot({ sessionId, sidecarOrigin }: PanelRootProps): VNode {
   }
 
   function isTokenMaps(data: unknown): data is TokenMaps {
-    if (!data || typeof data !== 'object') return false;
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
     const d = data as Record<string, unknown>;
-    return d.spacing !== null && typeof d.spacing === 'object'
-      && d.radius !== null && typeof d.radius === 'object';
+    if (!d.spacing || typeof d.spacing !== 'object' || Array.isArray(d.spacing)) return false;
+    if (!d.radius || typeof d.radius !== 'object' || Array.isArray(d.radius)) return false;
+    // M7: Validate value types — all values must be strings (token names)
+    const spacing = d.spacing as Record<string, unknown>;
+    const radius = d.radius as Record<string, unknown>;
+    for (const v of Object.values(spacing)) { if (typeof v !== 'string') return false; }
+    for (const v of Object.values(radius)) { if (typeof v !== 'string') return false; }
+    return true;
   }
 
   // ── postMessage listener for inspector messages ────────────────
@@ -167,21 +173,32 @@ export function PanelRoot({ sessionId, sidecarOrigin }: PanelRootProps): VNode {
       const ws = new WebSocket(url);
       wsRef.current = ws;
 
+      ws.onopen = () => {
+        // retryCount reset moved to 'session' handler (H1: prevent infinite reconnect on auth failure)
+      };
+
       ws.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data as string) as { type: string; [k: string]: unknown };
           if (msg.type === 'hello') {
             ws.send(JSON.stringify({ type: 'auth', sessionId }));
           } else if (msg.type === 'session') {
-            retryCount = 0;
+            retryCount = 0; // H1: Only reset after auth confirmed (not on open)
             dispatch({ type: 'WS_STATUS', status: 'connected' });
           } else if (msg.type === 'finalize-result') {
             if (msg.ok) {
-              dispatch({ type: 'FINALIZE_SUCCESS' });
-              sendToInspector('nav-blocker-disable');
+              // Server accepted diff — now in processing queue. Don't clear changes yet.
+              dispatch({ type: 'FINALIZE_QUEUED' });
             } else {
               dispatch({ type: 'FINALIZE_ERROR', error: String(msg.error ?? 'unknown') });
             }
+          } else if (msg.type === 'edit-complete') {
+            // Downstream processing succeeded — source code changed. Safe to clear.
+            dispatch({ type: 'FINALIZE_SUCCESS' });
+            sendToInspector('nav-blocker-disable');
+          } else if (msg.type === 'processing-timeout') {
+            // Processing timed out — preserve changes for retry.
+            dispatch({ type: 'FINALIZE_TIMEOUT' });
           } else if (msg.type === 'error') {
             dispatch({ type: 'FINALIZE_ERROR', error: String(msg.message ?? 'unknown') });
           } else if (msg.type === 'ack') {
@@ -342,7 +359,8 @@ export function PanelRoot({ sessionId, sidecarOrigin }: PanelRootProps): VNode {
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   (function () {
     var SESSION_ID = '__SESSION_ID__';
-    var SIDECAR_ORIGIN = '__SIDECAR_ORIGIN__';
+    // H8: Derive origin at runtime — handles localhost/127.0.0.1/::1 variations
+    var SIDECAR_ORIGIN = window.location.origin;
 
     const mount = document.getElementById('panel-mount');
     if (!mount) return;

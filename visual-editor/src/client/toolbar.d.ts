@@ -26,6 +26,7 @@ export interface ChangeEntry {
 /** Result of finalizeDiff — accumulated style changes for an element. */
 export interface DiffResult {
   elementSelector: string;
+  selector?: string;
   componentChain: string[];
   elementType: string;
   changes: ChangeEntry[];
@@ -63,6 +64,7 @@ export declare function finalizeDiff(
   selection: { testId?: string | null; componentChain?: string[]; elementType?: string },
   changes: ChangeEntry[],
   _now?: Date,
+  selector?: string,
 ): DiffResult;
 
 /** Find __reactFiber$ keys on a DOM element. */
