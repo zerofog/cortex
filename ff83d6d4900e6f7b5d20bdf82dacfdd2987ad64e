@@ -1,0 +1,24 @@
+cortex-editor/src/adapters/types.ts
+  e32e475050f25083 51-52,54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.10",
+  "base_commit_sha": "ff83d6d4900e6f7b5d20bdf82dacfdd2987ad64e",
+  "prompts": {
+    "e32e475050f25083": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c4071a11-ea81-4109-b059-d80d63300ca6",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 3,
+      "accepted_lines": 3,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/cc26d75469415842dcd8cf0fca9618c75472d52022100fb18f5f41f1b32f81a8"
+    }
+  }
+}
