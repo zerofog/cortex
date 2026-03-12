@@ -48,10 +48,10 @@ export interface TransformResult {
 // === Server-side channel (adapter provides) ===
 
 export interface ServerChannel {
-  send(clientId: string, msg: ServerToBrowser): void
-  onMessage(handler: (msg: BrowserToServer, clientId: string) => void): void
+  send(msg: ServerToBrowser): void
+  onMessage(handler: (msg: BrowserToServer) => void): void
   broadcast(msg: ServerToBrowser): void
-  dispose(): void
+  dispose(): Promise<void>
 }
 
 // === Message protocol ===
