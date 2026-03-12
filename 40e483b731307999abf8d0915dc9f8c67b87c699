@@ -1,0 +1,24 @@
+docs/superpowers/specs/2026-03-11-phase-1b-adapters-transport-design.md
+  e32e475050f25083 36-37,41,43-45,49,54-55,63,69,71-74,79,90-92,94,99,101,107-123,125,129-130,149-158,162-164,166-170,172,176,184,190-193,212,216,222,224,227,229-247,251-254,274-276,282,285-288,291,297,302-305,309,311-312,314-316,321-324,328-331,338,340
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.10",
+  "base_commit_sha": "40e483b731307999abf8d0915dc9f8c67b87c699",
+  "prompts": {
+    "e32e475050f25083": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c4071a11-ea81-4109-b059-d80d63300ca6",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 138,
+      "total_deletions": 51,
+      "accepted_lines": 134,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/14b5f680eb243338dd5819f74dfd82780059ce011ec49616d9d17737904a2893"
+    }
+  }
+}
