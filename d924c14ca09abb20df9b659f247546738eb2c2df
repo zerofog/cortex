@@ -1,0 +1,26 @@
+cortex-editor/package.json
+  e32e475050f25083 20-39,42,71
+cortex-editor/tsup.config.ts
+  e32e475050f25083 3-5,7,14,16-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.10",
+  "base_commit_sha": "d924c14ca09abb20df9b659f247546738eb2c2df",
+  "prompts": {
+    "e32e475050f25083": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c4071a11-ea81-4109-b059-d80d63300ca6",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 61,
+      "total_deletions": 7,
+      "accepted_lines": 56,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/739f9fc8a4d3d00963cbed7c842e77c32f317777f6447b508e126447b8bd594a"
+    }
+  }
+}
