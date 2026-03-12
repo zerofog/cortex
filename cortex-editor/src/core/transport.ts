@@ -73,7 +73,14 @@ export class CortexTransport implements ServerChannel {
     })
 
     return new Promise<void>((resolve, reject) => {
-      const onError = (err: Error) => reject(err)
+      const onError = (err: Error) => {
+        // Clean up half-initialized state so the instance can be retried or disposed
+        this.wss?.close()
+        this.httpServer?.close()
+        this.wss = null
+        this.httpServer = null
+        reject(err)
+      }
       this.httpServer!.once('error', onError)
       this.httpServer!.listen(this.requestedPort, '127.0.0.1', () => {
         this.httpServer!.removeListener('error', onError)
@@ -135,6 +142,7 @@ export class CortexTransport implements ServerChannel {
       ws.terminate()
     }
     this.clients.clear()
+    this.messageHandlers.length = 0
 
     await new Promise<void>((resolve) => {
       if (wss) {

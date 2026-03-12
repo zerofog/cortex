@@ -58,7 +58,7 @@ Simplified interface:
 ```typescript
 export interface ServerChannel {
   send(msg: ServerToBrowser): void
-  onMessage(handler: (msg: BrowserToServer) => void): void
+  onMessage(handler: (msg: BrowserToServer) => void): () => void
   broadcast(msg: ServerToBrowser): void
   dispose(): Promise<void>
 }
