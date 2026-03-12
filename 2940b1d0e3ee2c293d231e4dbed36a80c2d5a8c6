@@ -1,0 +1,113 @@
+cortex-editor/src/browser/selection.ts
+  dd9c6e9ff470140e 1-34,38-41,44-77
+  e2189bfc6ee8e2ed 35-37,42-43
+cortex-editor/src/browser/channel.ts
+  e2189bfc6ee8e2ed 17-21,38-41,87,92-97,103-104,108-112,152
+  dd9c6e9ff470140e 1,3,7-16,22-28,30,35-37,42-47,49-56,58-59,62-68,71-72,74-86,88-91,98-102,105-106,113-127,132-134,136,141-143,159-161
+  f028dbbc9a01f0df 2,4-6,29,31-34,48,57,60-61,69-70,73,107,128-131,135,137-140,144-151,153-158
+cortex-editor/tests/browser/selection-overlay.test.tsx
+  dd9c6e9ff470140e 2-26,28-129,160
+  f028dbbc9a01f0df 1,130-159
+  e2189bfc6ee8e2ed 27
+cortex-editor/src/browser/components/HoverOverlay.tsx
+  dd9c6e9ff470140e 1,3-37
+  e2189bfc6ee8e2ed 2
+cortex-editor/src/browser/components/CortexApp.tsx
+  dd9c6e9ff470140e 1-35,37-42,44-56
+  f028dbbc9a01f0df 36,43
+cortex-editor/src/browser/types.ts
+  dd9c6e9ff470140e 1-11,14-17
+  f028dbbc9a01f0df 12-13
+cortex-editor/tests/browser/bootstrap.test.ts
+  dd9c6e9ff470140e 1-145
+cortex-editor/src/browser/styles.css.d.ts
+  dd9c6e9ff470140e 1-2
+cortex-editor/vitest.config.ts
+  dd9c6e9ff470140e 4-7
+cortex-editor/tests/browser/cortex-app.test.tsx
+  dd9c6e9ff470140e 1-141,157-177
+  f028dbbc9a01f0df 142-156
+cortex-editor/tests/browser/helpers.ts
+  f028dbbc9a01f0df 93-96
+  dd9c6e9ff470140e 1-92,97-124
+cortex-editor/src/browser/styles.css
+  dd9c6e9ff470140e 1-39
+cortex-editor/src/browser/index.tsx
+  dd9c6e9ff470140e 1,3-11,13-40,42-45,47-55,58-69
+  f028dbbc9a01f0df 2,12,41,46,56-57
+cortex-editor/src/adapters/types.ts
+  f028dbbc9a01f0df 86,88-89
+cortex-editor/tsup.config.ts
+  dd9c6e9ff470140e 47-60
+cortex-editor/tests/browser/channel.test.ts
+  f028dbbc9a01f0df 69-115,199,299-389
+  dd9c6e9ff470140e 1-68,147-198,200-298,390-392,426
+  e2189bfc6ee8e2ed 116-146,393-425
+cortex-editor/src/browser/components/SelectionOverlay.tsx
+  dd9c6e9ff470140e 1-2,4-20,26-28,31,38,44-45,47-53,55,57-61,69-75
+  f028dbbc9a01f0df 29-30
+  e2189bfc6ee8e2ed 3,21-25,32-37,39-43,46,54,56,62-68
+cortex-editor/tests/browser/selection.test.ts
+  dd9c6e9ff470140e 1-181
+cortex-editor/src/browser/label.ts
+  e2189bfc6ee8e2ed 1-52
+cortex-editor/tests/browser/hover-overlay.test.tsx
+  dd9c6e9ff470140e 1-148
+cortex-editor/src/browser/override.ts
+  dd9c6e9ff470140e 7-20,22,26-66,69-72
+  f028dbbc9a01f0df 1-3,23,25,67-68
+  e2189bfc6ee8e2ed 4-6,21,24
+cortex-editor/tests/browser/override.test.ts
+  dd9c6e9ff470140e 1-20,22,24-31,33-41,44-51,53-62,64-92,94,143,187
+  f028dbbc9a01f0df 21,23,32,42-43,52,63,93,95-142
+  e2189bfc6ee8e2ed 144-186
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.11",
+  "base_commit_sha": "2940b1d0e3ee2c293d231e4dbed36a80c2d5a8c6",
+  "prompts": {
+    "dd9c6e9ff470140e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f04971b1-56ce-4f1b-a934-e23b4a8fc5d7",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 1874,
+      "total_deletions": 112,
+      "accepted_lines": 1697,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/b006fa0acb3cfc5ce3b868b5b652626a49746544be75619834aef0d384198ef7"
+    },
+    "e2189bfc6ee8e2ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9183fdfd-4af2-4b4e-967a-6e0c5d9f81ee",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 239,
+      "total_deletions": 83,
+      "accepted_lines": 222,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/ec74ef5b7cb369624c432f8df9501034683c9e673724d0cd5b3ce3b100639d7d"
+    },
+    "f028dbbc9a01f0df": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c4141a9-5524-4ce5-b904-d19be06c9425",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 314,
+      "total_deletions": 22,
+      "accepted_lines": 307,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/b2e0eb4dd2f07892ecf3a0b5bb8813c722109511dbd7d35e278e7424f13a0422"
+    }
+  }
+}
