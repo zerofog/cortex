@@ -1,0 +1,26 @@
+cortex-editor/tests/adapters/vite.test.ts
+  e32e475050f25083 1-204
+cortex-editor/src/adapters/vite.ts
+  e32e475050f25083 1-120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.10",
+  "base_commit_sha": "fb87dbdf080c5bb72cb9c211c84a52e2070b57c5",
+  "prompts": {
+    "e32e475050f25083": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c4071a11-ea81-4109-b059-d80d63300ca6",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 344,
+      "total_deletions": 20,
+      "accepted_lines": 324,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/4fed5e9d4496de9e790df0f58ef0e507e394336488dd3404495661fd81c5146f"
+    }
+  }
+}
