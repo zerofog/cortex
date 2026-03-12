@@ -80,5 +80,8 @@
     "tailwindcss": {
       "optional": true
     }
+  },
+  "dependencies": {
+    "preact": "^10.29.0"
   }
 }

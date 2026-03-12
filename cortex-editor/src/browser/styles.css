@@ -1,0 +1,39 @@
+/* Cortex overlay styles — injected into Shadow DOM, fully isolated */
+
+.cortex-hover-overlay {
+  position: fixed;
+  pointer-events: none;
+  border: 2px solid rgba(59, 130, 246, 0.7);
+  box-sizing: border-box;
+}
+
+.cortex-selection-overlay {
+  position: fixed;
+  pointer-events: none;
+  border: 2.5px solid #3b82f6;
+  box-sizing: border-box;
+  transition: all 150ms ease-out;
+}
+
+.cortex-label {
+  position: absolute;
+  left: 0;
+  padding: 2px 6px;
+  background: #3b82f6;
+  color: #fff;
+  font: 11px/1.3 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: nowrap;
+  border-radius: 2px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  pointer-events: none;
+}
+
+.cortex-label--above {
+  bottom: 100%;
+  margin-bottom: 4px;
+}
+
+.cortex-label--below {
+  top: 100%;
+  margin-top: 4px;
+}
