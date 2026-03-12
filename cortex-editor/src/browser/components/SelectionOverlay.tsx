@@ -17,7 +17,7 @@ export function SelectionOverlay({ element }: SelectionOverlayProps): JSX.Elemen
   useEffect(() => {
     if (!element || !overlayRef.current) return
 
-    let rafId: number
+    let rafId = 0
     // Cache previous rect to skip redundant DOM writes
     let prevTop = ''
     let prevLeft = ''

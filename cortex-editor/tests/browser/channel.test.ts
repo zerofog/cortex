@@ -391,6 +391,14 @@ describe('createWebSocketChannel', () => {
     expect(mockInstances[0]!.url).toContain(':24678/cortex')
   })
 
+  it('uses wss: protocol when page is served over HTTPS', () => {
+    const original = location.protocol
+    Object.defineProperty(location, 'protocol', { value: 'https:', configurable: true })
+    createWebSocketChannel()
+    expect(mockInstances[0]!.url).toMatch(/^wss:/)
+    Object.defineProperty(location, 'protocol', { value: original, configurable: true })
+  })
+
   // Fix 8: handler unsub during dispatch does not skip remaining handlers
   it('handler unsub during dispatch does not skip remaining handlers', () => {
     const channel = createWebSocketChannel({ url: 'ws://test' })

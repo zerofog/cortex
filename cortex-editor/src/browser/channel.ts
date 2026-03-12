@@ -58,7 +58,8 @@ export interface WebSocketChannelOptions {
  */
 export function createWebSocketChannel(options?: WebSocketChannelOptions): CortexChannel {
   const port = window.__cortex_ws_port__ ?? 24678
-  const url = options?.url ?? `ws://${location.hostname}:${port}/cortex`
+  const defaultProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const url = options?.url ?? `${defaultProtocol}//${location.hostname}:${port}/cortex`
   const maxRetries = options?.maxRetries ?? 5
 
   const handlers: Array<(msg: ServerToBrowser) => void> = []
