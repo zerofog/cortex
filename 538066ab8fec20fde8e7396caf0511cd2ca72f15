@@ -1,0 +1,28 @@
+cortex-editor/src/browser/components/SelectionOverlay.tsx
+  e2189bfc6ee8e2ed 20
+cortex-editor/src/browser/channel.ts
+  e2189bfc6ee8e2ed 61-62
+cortex-editor/tests/browser/channel.test.ts
+  e2189bfc6ee8e2ed 394-401
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.11",
+  "base_commit_sha": "538066ab8fec20fde8e7396caf0511cd2ca72f15",
+  "prompts": {
+    "e2189bfc6ee8e2ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9183fdfd-4af2-4b4e-967a-6e0c5d9f81ee",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 11,
+      "total_deletions": 2,
+      "accepted_lines": 11,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/b8fda92a58c8bcb2cf63f2b1c6dc49a67efdc161da207977b23d915013bc88fa"
+    }
+  }
+}
