@@ -31,14 +31,11 @@ export interface CortexNextOptions {
 // Resolve loader path relative to this file's compiled location.
 // Both next.ts and next-source-loader.ts compile to the same dist/ directory.
 function resolveLoaderPath(): string {
-  try {
-    // ESM: use import.meta.url
-    const dir = path.dirname(fileURLToPath(import.meta.url))
-    return path.join(dir, 'next-source-loader.cjs')
-  } catch {
-    // CJS fallback: __dirname is available
+  // CJS: __dirname is reliable. ESM: use import.meta.url.
+  if (typeof __dirname !== 'undefined') {
     return path.join(__dirname, 'next-source-loader.cjs')
   }
+  return path.join(path.dirname(fileURLToPath(import.meta.url)), 'next-source-loader.cjs')
 }
 
 export function withCortex(nextConfig: NextConfig = {}, _options?: CortexNextOptions): NextConfig {
@@ -53,10 +50,14 @@ export function withCortex(nextConfig: NextConfig = {}, _options?: CortexNextOpt
         config = nextConfig.webpack(config, context)
       }
 
-      // Add source transform loader for .jsx/.tsx files
+      // Only instrument client-side builds — server bundle doesn't need source attributes
+      if (context.isServer) return config
+
+      // enforce: 'pre' ensures this runs before SWC/Babel strip JSX syntax
       config.module.rules.push({
         test: /\.[jt]sx$/,
         exclude: /\/node_modules\//,
+        enforce: 'pre' as const,
         use: [{
           loader: resolveLoaderPath(),
           options: { projectRoot: context.dir },

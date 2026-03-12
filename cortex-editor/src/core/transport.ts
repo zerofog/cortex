@@ -1,5 +1,5 @@
-import { WebSocketServer, WebSocket } from 'ws'
-import { createServer, type Server as HttpServer } from 'http'
+import { WebSocketServer, WebSocket, type RawData } from 'ws'
+import { createServer, type Server as HttpServer, type IncomingMessage } from 'http'
 import type { ServerChannel, BrowserToServer, ServerToBrowser } from '../adapters/types.js'
 
 export interface CortexTransportOptions {
@@ -7,10 +7,13 @@ export interface CortexTransportOptions {
   heartbeatInterval?: number
 }
 
+const ALLOWED_ORIGINS = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/
+
 export class CortexTransport implements ServerChannel {
   private httpServer: HttpServer | null = null
   private wss: WebSocketServer | null = null
   private clients = new Set<WebSocket>()
+  private aliveFlags = new WeakMap<WebSocket, boolean>()
   private messageHandlers: ((msg: BrowserToServer) => void)[] = []
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private readonly heartbeatInterval: number
@@ -28,17 +31,33 @@ export class CortexTransport implements ServerChannel {
 
   async start(): Promise<void> {
     if (this.httpServer) throw new Error('CortexTransport already started')
-    this.httpServer = createServer()
-    this.wss = new WebSocketServer({ server: this.httpServer })
 
-    this.wss.on('connection', (ws) => {
+    // Assign synchronously so concurrent start() calls hit the guard above
+    this.httpServer = createServer()
+    this.wss = new WebSocketServer({
+      server: this.httpServer,
+      maxPayload: 64 * 1024,
+      verifyClient: ({ origin }: { origin: string; req: IncomingMessage }, cb: (ok: boolean, code?: number, msg?: string) => void) => {
+        // Non-browser clients (CLI, tests) send no Origin header
+        const allowed = !origin || origin === 'null' || ALLOWED_ORIGINS.test(origin)
+        cb(allowed, allowed ? undefined : 403, allowed ? undefined : 'Forbidden')
+      },
+    })
+
+    this.wss.on('connection', (ws: WebSocket) => {
       this.clients.add(ws)
+      this.aliveFlags.set(ws, true)
+      ws.on('pong', () => this.aliveFlags.set(ws, true))
+      ws.on('error', () => this.clients.delete(ws))
       ws.on('close', () => this.clients.delete(ws))
-      ws.on('message', (raw) => {
+      ws.on('message', (raw: RawData) => {
         try {
           const parsed: unknown = JSON.parse(raw.toString())
           if (typeof parsed === 'object' && parsed !== null && 'type' in parsed) {
-            for (const h of this.messageHandlers) h(parsed as BrowserToServer)
+            const handlers = [...this.messageHandlers]
+            for (const h of handlers) {
+              try { h(parsed as BrowserToServer) } catch { /* handler errors must not abort fan-out */ }
+            }
           }
         } catch {
           // Ignore malformed messages
@@ -47,16 +66,20 @@ export class CortexTransport implements ServerChannel {
     })
 
     return new Promise<void>((resolve, reject) => {
-      this.httpServer!.on('error', reject)
-      this.httpServer!.listen(this.requestedPort, () => {
+      const onError = (err: Error) => reject(err)
+      this.httpServer!.once('error', onError)
+      this.httpServer!.listen(this.requestedPort, '127.0.0.1', () => {
+        this.httpServer!.removeListener('error', onError)
         const addr = this.httpServer!.address()
         this.actualPort = typeof addr === 'object' && addr ? addr.port : 0
         this.heartbeatTimer = setInterval(() => {
           for (const ws of this.clients) {
-            if (ws.readyState !== WebSocket.OPEN) {
+            if (!this.aliveFlags.get(ws)) {
+              ws.terminate()
               this.clients.delete(ws)
             } else {
-              ws.ping()
+              this.aliveFlags.set(ws, false)
+              try { ws.ping() } catch { this.clients.delete(ws) }
             }
           }
         }, this.heartbeatInterval)
@@ -73,37 +96,49 @@ export class CortexTransport implements ServerChannel {
     const data = JSON.stringify(msg)
     for (const ws of this.clients) {
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(data)
+        try { ws.send(data) } catch { this.clients.delete(ws) }
       }
     }
   }
 
-  onMessage(handler: (msg: BrowserToServer) => void): void {
+  onMessage(handler: (msg: BrowserToServer) => void): () => void {
     this.messageHandlers.push(handler)
+    return () => {
+      const idx = this.messageHandlers.indexOf(handler)
+      if (idx >= 0) this.messageHandlers.splice(idx, 1)
+    }
   }
 
   async dispose(): Promise<void> {
+    if (!this.httpServer) return // already disposed or never started
+
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer)
       this.heartbeatTimer = null
     }
 
+    // Capture refs and null out to guard against concurrent dispose
+    const wss = this.wss
+    const http = this.httpServer
+    this.wss = null
+    this.httpServer = null
+
     for (const ws of this.clients) {
-      ws.close()
+      ws.terminate()
     }
     this.clients.clear()
 
     await new Promise<void>((resolve) => {
-      if (this.wss) {
-        this.wss.close(() => {
-          if (this.httpServer) {
-            this.httpServer.close(() => resolve())
+      if (wss) {
+        wss.close(() => {
+          if (http) {
+            http.close(() => resolve())
           } else {
             resolve()
           }
         })
-      } else if (this.httpServer) {
-        this.httpServer.close(() => resolve())
+      } else if (http) {
+        http.close(() => resolve())
       } else {
         resolve()
       }

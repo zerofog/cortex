@@ -27,8 +27,8 @@ export function _resetForTesting(): void {
 }
 
 // Webpack loader function — `this` is the webpack LoaderContext.
-// Uses `export default` which tsup converts to `module.exports = exports.default`
-// in CJS output, making it compatible with webpack's loader resolution.
+// tsup emits `module.exports = { default: fn, ... }` in CJS; webpack's
+// loader-runner falls back to `module.default` when the export is not a function.
 export default function cortexSourceLoader(this: LoaderContext, source: string) {
   this.cacheable()
 

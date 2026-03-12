@@ -158,7 +158,7 @@ describe('cortexEditor Vite plugin', () => {
 
   describe('configureServer + getChannel', () => {
     it('getChannel() throws before configureServer is called', () => {
-      expect(() => getChannel()).toThrow('cortexEditor plugin not initialized')
+      expect(() => getChannel()).toThrow('getChannel() called before the Vite dev server started')
     })
 
     it('getChannel() returns ServerChannel after configureServer', () => {

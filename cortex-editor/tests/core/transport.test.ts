@@ -152,4 +152,72 @@ describe('CortexTransport', () => {
     })
     expect(error).toBeDefined()
   })
+
+  it('rejects WebSocket connections with non-localhost Origin', async () => {
+    transport = new CortexTransport({ port: 0 })
+    await transport.start()
+
+    const ws = new WebSocket(`ws://localhost:${transport.port}`, {
+      headers: { Origin: 'https://evil.com' },
+    })
+    const error = await new Promise<Error>((resolve) => {
+      ws.on('error', resolve)
+    })
+    expect(error).toBeDefined()
+  })
+
+  it('accepts WebSocket connections with localhost Origin', async () => {
+    transport = new CortexTransport({ port: 0 })
+    await transport.start()
+
+    const ws = new WebSocket(`ws://localhost:${transport.port}`, {
+      headers: { Origin: 'http://localhost:3000' },
+    })
+    await new Promise<void>((resolve, reject) => {
+      ws.on('open', resolve)
+      ws.on('error', reject)
+    })
+    expect(ws.readyState).toBe(WebSocket.OPEN)
+    ws.close()
+  })
+
+  it('onMessage returns unsubscribe function', async () => {
+    transport = new CortexTransport({ port: 0 })
+    await transport.start()
+
+    const received: unknown[] = []
+    const unsub = transport.onMessage((msg) => received.push(msg))
+
+    const ws = await connectClient(transport.port)
+    ws.send(JSON.stringify({ type: 'edit', editId: '1', property: 'p', value: 'v', source: 's', elementSelector: 'e' }))
+    await vi.waitFor(() => expect(received).toHaveLength(1))
+
+    unsub()
+    ws.send(JSON.stringify({ type: 'edit', editId: '2', property: 'p', value: 'v', source: 's', elementSelector: 'e' }))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(received).toHaveLength(1)
+    ws.close()
+  })
+
+  it('double dispose() does not throw', async () => {
+    transport = new CortexTransport({ port: 0 })
+    await transport.start()
+
+    await transport.dispose()
+    await transport.dispose() // should not throw
+  })
+
+  it('handler exception does not prevent other handlers from receiving', async () => {
+    transport = new CortexTransport({ port: 0 })
+    await transport.start()
+
+    const received: unknown[] = []
+    transport.onMessage(() => { throw new Error('boom') })
+    transport.onMessage((msg) => received.push(msg))
+
+    const ws = await connectClient(transport.port)
+    ws.send(JSON.stringify({ type: 'edit', editId: '1', property: 'p', value: 'v', source: 's', elementSelector: 'e' }))
+    await vi.waitFor(() => expect(received).toHaveLength(1))
+    ws.close()
+  })
 })

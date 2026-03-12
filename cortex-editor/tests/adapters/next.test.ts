@@ -65,4 +65,25 @@ describe('withCortex', () => {
     expect(typeof rule.use[0]!.loader).toBe('string')
     expect(rule.use[0]!.loader).toMatch(/next-source-loader/)
   })
+
+  it('skips adding loader for server-side builds', () => {
+    const config = withCortex({})
+    const webpackConfig = { module: { rules: [] as unknown[] } }
+    const context = { dir: '/project', dev: true, isServer: true }
+
+    config.webpack!(webpackConfig as any, context as any)
+
+    expect(webpackConfig.module.rules).toHaveLength(0)
+  })
+
+  it('sets enforce: "pre" on the loader rule', () => {
+    const config = withCortex({})
+    const webpackConfig = { module: { rules: [] as unknown[] } }
+    const context = { dir: '/project', dev: true, isServer: false }
+
+    config.webpack!(webpackConfig as any, context as any)
+
+    const rule = webpackConfig.module.rules[0] as { enforce: string }
+    expect(rule.enforce).toBe('pre')
+  })
 })
