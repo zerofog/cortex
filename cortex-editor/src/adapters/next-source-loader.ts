@@ -40,10 +40,15 @@ export default function cortexSourceLoader(this: LoaderContext, source: string) 
     cachedRoot = projectRoot
   }
 
-  const result = cachedTransform(source, this.resourcePath)
-  if (result) {
-    this.callback(null, result.code, result.map ?? undefined)
-  } else {
-    this.callback(null, source)
+  try {
+    const result = cachedTransform(source, this.resourcePath)
+    if (result) {
+      this.callback(null, result.code, result.map ?? undefined)
+    } else {
+      this.callback(null, source)
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    this.callback(new Error(`[cortex] Source transform failed for ${this.resourcePath}: ${message}`))
   }
 }

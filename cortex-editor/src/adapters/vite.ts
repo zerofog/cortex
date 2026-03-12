@@ -9,13 +9,14 @@ export interface CortexEditorOptions {
 
 const CORTEX_CLIENT_PATH = '/@cortex/client.js'
 const VIRTUAL_CORTEX_CLIENT = '\0cortex-client'
+const CORTEX_MSG_EVENT = 'cortex:msg'
 
 const CLIENT_SCRIPT = `\
 if (import.meta.hot) {
-  import.meta.hot.on('cortex:msg', (data) => {
+  import.meta.hot.on('${CORTEX_MSG_EVENT}', (data) => {
     window.__cortex_channel__?.handleServerMessage(data);
   });
-  window.__cortex_send__ = (msg) => import.meta.hot.send('cortex:msg', msg);
+  window.__cortex_send__ = (msg) => import.meta.hot.send('${CORTEX_MSG_EVENT}', msg);
 }
 `
 
@@ -96,27 +97,31 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
     configureServer(server) {
       // Dispose previous channel if configureServer is called again (server restart)
       if (channelInstance) {
-        channelInstance.dispose()
+        channelInstance.dispose().catch((err) => {
+          console.warn('[cortex] Failed to dispose previous channel:', err instanceof Error ? err.message : err)
+        })
       }
 
       // Vite 5.1+ API: server.hot replaces deprecated server.ws
       const hotHandler = (data: BrowserToServer) => {
         const handlers = [...messageHandlers]
         for (const h of handlers) {
-          try { h(data) } catch { /* handler errors must not abort fan-out */ }
+          try { h(data) } catch (err) {
+            console.warn('[cortex] Message handler error:', err instanceof Error ? err.message : err)
+          }
         }
       }
-      server.hot.on('cortex:msg', hotHandler)
+      server.hot.on(CORTEX_MSG_EVENT, hotHandler)
 
       // send() and broadcast() are identical because Vite's server.hot
       // has no per-client targeting — all messages go to all connected tabs.
       // Both retained for intent clarity in calling code.
       channelInstance = {
         send(msg: ServerToBrowser) {
-          server.hot.send('cortex:msg', msg)
+          server.hot.send(CORTEX_MSG_EVENT, msg)
         },
         broadcast(msg: ServerToBrowser) {
-          server.hot.send('cortex:msg', msg)
+          server.hot.send(CORTEX_MSG_EVENT, msg)
         },
         onMessage(handler: (msg: BrowserToServer) => void): () => void {
           messageHandlers.push(handler)
@@ -126,7 +131,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           }
         },
         async dispose() {
-          server.hot.off('cortex:msg', hotHandler)
+          server.hot.off(CORTEX_MSG_EVENT, hotHandler)
           messageHandlers.length = 0
         },
       }
@@ -136,10 +141,14 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       if (modules.length > 0) {
         const files = modules
           .map(m => m.file)
-          .filter((f): f is string => f != null && /\.[jt]sx?$/.test(f))
+          .filter((f): f is string => f != null && /\.[jt]sx$/.test(f))
         if (files.length > 0) {
           const cbs = [...hmrCallbacks]
-          for (const cb of cbs) cb(files)
+          for (const cb of cbs) {
+            try { cb(files) } catch (err) {
+              console.warn('[cortex] HMR callback error:', err instanceof Error ? err.message : err)
+            }
+          }
         }
       }
     },

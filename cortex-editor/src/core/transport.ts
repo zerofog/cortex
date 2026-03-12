@@ -38,8 +38,9 @@ export class CortexTransport implements ServerChannel {
       server: this.httpServer,
       maxPayload: 64 * 1024,
       verifyClient: ({ origin }: { origin: string; req: IncomingMessage }, cb: (ok: boolean, code?: number, msg?: string) => void) => {
-        // Non-browser clients (CLI, tests) send no Origin header
-        const allowed = !origin || origin === 'null' || ALLOWED_ORIGINS.test(origin)
+        // Non-browser clients (CLI, tests) send no Origin header.
+        // Reject origin === 'null' (sent by sandboxed iframes, data: URIs) to prevent CSWSH bypass.
+        const allowed = !origin || ALLOWED_ORIGINS.test(origin)
         cb(allowed, allowed ? undefined : 403, allowed ? undefined : 'Forbidden')
       },
     })
@@ -48,19 +49,25 @@ export class CortexTransport implements ServerChannel {
       this.clients.add(ws)
       this.aliveFlags.set(ws, true)
       ws.on('pong', () => this.aliveFlags.set(ws, true))
-      ws.on('error', () => this.clients.delete(ws))
+      ws.on('error', (err) => {
+        console.warn('[cortex] WebSocket client error:', err.message)
+        this.clients.delete(ws)
+      })
       ws.on('close', () => this.clients.delete(ws))
       ws.on('message', (raw: RawData) => {
+        let parsed: unknown
         try {
-          const parsed: unknown = JSON.parse(raw.toString())
-          if (typeof parsed === 'object' && parsed !== null && 'type' in parsed) {
-            const handlers = [...this.messageHandlers]
-            for (const h of handlers) {
-              try { h(parsed as BrowserToServer) } catch { /* handler errors must not abort fan-out */ }
+          parsed = JSON.parse(raw.toString())
+        } catch {
+          return // malformed JSON — nothing to do
+        }
+        if (typeof parsed === 'object' && parsed !== null && 'type' in parsed) {
+          const handlers = [...this.messageHandlers]
+          for (const h of handlers) {
+            try { h(parsed as BrowserToServer) } catch (err) {
+              console.warn('[cortex] Message handler error:', err instanceof Error ? err.message : err)
             }
           }
-        } catch {
-          // Ignore malformed messages
         }
       })
     })
@@ -83,6 +90,7 @@ export class CortexTransport implements ServerChannel {
             }
           }
         }, this.heartbeatInterval)
+        this.heartbeatTimer.unref()
         resolve()
       })
     })
