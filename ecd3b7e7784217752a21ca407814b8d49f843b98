@@ -1,0 +1,30 @@
+cortex-editor/src/browser/hooks/useDrag.ts
+  43ecff4cfaaa7f90 1-68
+cortex-editor/tests/browser/hooks/use-snap-to-edge.test.ts
+  43ecff4cfaaa7f90 1-103
+cortex-editor/src/browser/hooks/useSnapToEdge.ts
+  43ecff4cfaaa7f90 1-157
+cortex-editor/tests/browser/helpers.ts
+  43ecff4cfaaa7f90 104-195
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.11",
+  "base_commit_sha": "ecd3b7e7784217752a21ca407814b8d49f843b98",
+  "prompts": {
+    "43ecff4cfaaa7f90": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "58ace7d8-adcd-4588-acf4-ca72412627f0",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 524,
+      "total_deletions": 0,
+      "accepted_lines": 524,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/2c369268a088e449e64e3c48e92a87b29b499dfa6100994b1d984380f610e649"
+    }
+  }
+}
