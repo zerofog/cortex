@@ -2,6 +2,7 @@ export interface SourceInfo {
   componentName: string | null
   fileName: string
   line: string
+  filePath: string
 }
 
 /** Parse a data-cortex-source attribute into structured parts */
@@ -16,7 +17,7 @@ export function parseCortexSource(el: HTMLElement): SourceInfo | null {
   const baseName = fileName.replace(/\.\w+$/, '')
   const componentName = /^[A-Z]/.test(baseName) ? baseName : null
 
-  return { componentName, fileName, line }
+  return { componentName, fileName, line, filePath }
 }
 
 /** Get a compact label (hover overlay) */
