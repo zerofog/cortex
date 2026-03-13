@@ -101,6 +101,99 @@ export function createMockChannel(): CortexChannel & {
 }
 
 /**
+ * Mock getComputedStyle for a specific element.
+ * Returns a cleanup function that restores the original.
+ */
+export function mockGetComputedStyle(
+  el: Element,
+  styles: Record<string, string>,
+): () => void {
+  const original = window.getComputedStyle
+  window.getComputedStyle = ((target: Element) => {
+    if (target === el) {
+      return { ...original.call(window, target), ...styles } as CSSStyleDeclaration
+    }
+    return original.call(window, target)
+  }) as typeof window.getComputedStyle
+  return () => { window.getComputedStyle = original }
+}
+
+/**
+ * Mock IntersectionObserver for tab navigation tests.
+ * Supports multiple observer instances (stores all callbacks).
+ * Returns a trigger function to simulate intersection changes.
+ */
+export function mockIntersectionObserver(): {
+  trigger: (entries: Array<{ target: Element; isIntersecting: boolean; intersectionRatio: number }>) => void
+  cleanup: () => void
+} {
+  const callbacks: IntersectionObserverCallback[] = []
+  const original = window.IntersectionObserver
+
+  class MockIntersectionObserver {
+    constructor(cb: IntersectionObserverCallback) {
+      callbacks.push(cb)
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+
+  window.IntersectionObserver = MockIntersectionObserver as unknown as typeof IntersectionObserver
+
+  return {
+    trigger(entries) {
+      for (const cb of callbacks) {
+        cb(
+          entries as unknown as IntersectionObserverEntry[],
+          {} as IntersectionObserver,
+        )
+      }
+    },
+    cleanup() {
+      window.IntersectionObserver = original
+    },
+  }
+}
+
+/**
+ * Dispatch a pointer event with sensible defaults.
+ */
+export function dispatchPointerEvent(
+  target: EventTarget,
+  type: string,
+  opts?: Partial<PointerEventInit>,
+): PointerEvent {
+  const event = new PointerEvent(type, {
+    bubbles: true,
+    composed: true,
+    cancelable: true,
+    pointerId: 1,
+    ...opts,
+  })
+  target.dispatchEvent(event)
+  return event
+}
+
+/**
+ * Dispatch a keyboard event with sensible defaults.
+ */
+export function dispatchKeyboardEvent(
+  target: EventTarget,
+  type: string,
+  opts?: Partial<KeyboardEventInit>,
+): KeyboardEvent {
+  const event = new KeyboardEvent(type, {
+    bubbles: true,
+    composed: true,
+    cancelable: true,
+    ...opts,
+  })
+  target.dispatchEvent(event)
+  return event
+}
+
+/**
  * Render a Preact vnode into a shadow root for isolated component testing.
  * Returns the root element and a cleanup function.
  */
