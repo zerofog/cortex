@@ -83,6 +83,8 @@ export interface ElementContext {
 
 export interface CortexChannel {
   send(msg: BrowserToServer): void
-  onMessage(handler: (msg: ServerToBrowser) => void): void
+  onMessage(handler: (msg: ServerToBrowser) => void): () => void
   readonly connected: boolean
+  /** Clean up resources (WebSocket, timers). Optional — Vite channel has nothing to dispose. */
+  dispose?: () => void
 }

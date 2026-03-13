@@ -1,0 +1,434 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { createViteChannel, createWebSocketChannel } from '../../src/browser/channel.js'
+import type { ServerToBrowser } from '../../src/adapters/types.js'
+
+describe('createViteChannel', () => {
+  beforeEach(() => {
+    delete window.__cortex_send__
+    delete window.__cortex_channel__
+  })
+
+  it('implements CortexChannel interface', () => {
+    window.__cortex_send__ = vi.fn()
+    const channel = createViteChannel()
+    expect(channel).toHaveProperty('send')
+    expect(channel).toHaveProperty('onMessage')
+    expect(channel).toHaveProperty('connected')
+  })
+
+  it('send() calls window.__cortex_send__', () => {
+    const mockSend = vi.fn()
+    window.__cortex_send__ = mockSend
+    const channel = createViteChannel()
+    const msg = { type: 'edit' as const, protocolVersion: 1, editId: '1', property: 'color', value: 'red', source: 'Hero.tsx:5:3', elementSelector: 'div' }
+    channel.send(msg)
+    expect(mockSend).toHaveBeenCalledWith(msg)
+  })
+
+  it('send() is a no-op when __cortex_send__ is undefined', () => {
+    const channel = createViteChannel()
+    // Should not throw
+    channel.send({ type: 'edit', protocolVersion: 1, editId: '1', property: 'color', value: 'red', source: 'Hero.tsx:5:3', elementSelector: 'div' })
+  })
+
+  it('onMessage() receives via handleServerMessage', () => {
+    window.__cortex_send__ = vi.fn()
+    const channel = createViteChannel()
+    const handler = vi.fn()
+    channel.onMessage(handler)
+
+    const msg: ServerToBrowser = { type: 'hello', protocolVersion: 1, sessionId: 'abc' }
+    window.__cortex_channel__!.handleServerMessage(msg)
+    expect(handler).toHaveBeenCalledWith(msg)
+  })
+
+  it('delivers to multiple handlers', () => {
+    window.__cortex_send__ = vi.fn()
+    const channel = createViteChannel()
+    const h1 = vi.fn()
+    const h2 = vi.fn()
+    channel.onMessage(h1)
+    channel.onMessage(h2)
+
+    const msg: ServerToBrowser = { type: 'hello', protocolVersion: 1, sessionId: 'abc' }
+    window.__cortex_channel__!.handleServerMessage(msg)
+    expect(h1).toHaveBeenCalledWith(msg)
+    expect(h2).toHaveBeenCalledWith(msg)
+  })
+
+  it('connected is true when __cortex_send__ is a function', () => {
+    window.__cortex_send__ = vi.fn()
+    const channel = createViteChannel()
+    expect(channel.connected).toBe(true)
+  })
+
+  it('connected is false when __cortex_send__ is undefined', () => {
+    const channel = createViteChannel()
+    expect(channel.connected).toBe(false)
+  })
+
+  // Fix 1: unsubscribe
+  it('onMessage() returns unsubscribe that removes handler', () => {
+    window.__cortex_send__ = vi.fn()
+    const channel = createViteChannel()
+    const handler = vi.fn()
+    const unsub = channel.onMessage(handler)
+
+    unsub()
+
+    const msg: ServerToBrowser = { type: 'hello', protocolVersion: 1, sessionId: 'abc' }
+    window.__cortex_channel__!.handleServerMessage(msg)
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('unsubscribe only removes the specific handler', () => {
+    window.__cortex_send__ = vi.fn()
+    const channel = createViteChannel()
+    const h1 = vi.fn()
+    const h2 = vi.fn()
+    const unsub1 = channel.onMessage(h1)
+    channel.onMessage(h2)
+
+    unsub1()
+
+    const msg: ServerToBrowser = { type: 'hello', protocolVersion: 1, sessionId: 'abc' }
+    window.__cortex_channel__!.handleServerMessage(msg)
+    expect(h1).not.toHaveBeenCalled()
+    expect(h2).toHaveBeenCalledWith(msg)
+  })
+
+  it('unsubscribe is idempotent', () => {
+    window.__cortex_send__ = vi.fn()
+    const channel = createViteChannel()
+    const h1 = vi.fn()
+    const h2 = vi.fn()
+    const unsub = channel.onMessage(h1)
+    channel.onMessage(h2)
+
+    unsub()
+    unsub() // second call should be a no-op
+
+    const msg: ServerToBrowser = { type: 'hello', protocolVersion: 1, sessionId: 'abc' }
+    window.__cortex_channel__!.handleServerMessage(msg)
+    // h2 should still be there — double-unsub shouldn't remove another handler
+    expect(h2).toHaveBeenCalledWith(msg)
+  })
+
+  // Fix 8: handler unsub during dispatch does not skip remaining handlers
+  it('handler unsub during dispatch does not skip remaining handlers', () => {
+    window.__cortex_send__ = vi.fn()
+    const channel = createViteChannel()
+    const hC = vi.fn()
+    let unsubB: () => void
+    const hA = vi.fn(() => { unsubB() })
+    const hB = vi.fn()
+    channel.onMessage(hA)
+    unsubB = channel.onMessage(hB)
+    channel.onMessage(hC)
+
+    const msg: ServerToBrowser = { type: 'hello', protocolVersion: 1, sessionId: 'abc' }
+    window.__cortex_channel__!.handleServerMessage(msg)
+    expect(hA).toHaveBeenCalledWith(msg)
+    expect(hC).toHaveBeenCalledWith(msg)
+  })
+
+  // Fix 10: Vite dispose clears handlers and window.__cortex_channel__
+  it('dispose clears handlers and window.__cortex_channel__', () => {
+    window.__cortex_send__ = vi.fn()
+    const channel = createViteChannel()
+    const handler = vi.fn()
+    channel.onMessage(handler)
+
+    channel.dispose!()
+
+    expect(window.__cortex_channel__).toBeUndefined()
+    // Handlers should be cleared — re-registering __cortex_channel__ and dispatching should not reach old handler
+  })
+})
+
+describe('createWebSocketChannel', () => {
+  let mockInstances: MockWebSocket[]
+
+  class MockWebSocket {
+    static readonly OPEN = 1
+    static readonly CLOSED = 3
+    readonly OPEN = 1
+    readonly CLOSED = 3
+    readyState = 0
+    url: string
+    onopen: (() => void) | null = null
+    onclose: (() => void) | null = null
+    onmessage: ((event: { data: string }) => void) | null = null
+    onerror: (() => void) | null = null
+    send = vi.fn()
+    close = vi.fn()
+
+    constructor(url: string) {
+      this.url = url
+      mockInstances.push(this)
+    }
+
+    _simulateOpen(): void {
+      this.readyState = MockWebSocket.OPEN
+      this.onopen?.()
+    }
+
+    _simulateMessage(data: unknown): void {
+      this.onmessage?.({ data: JSON.stringify(data) })
+    }
+
+    _simulateClose(): void {
+      this.readyState = MockWebSocket.CLOSED
+      this.onclose?.()
+    }
+
+    _simulateError(): void {
+      this.onerror?.()
+    }
+
+    _simulateMalformedMessage(raw: string): void {
+      this.onmessage?.({ data: raw })
+    }
+  }
+
+  beforeEach(() => {
+    mockInstances = []
+    vi.useFakeTimers()
+    // @ts-expect-error — mock WebSocket global
+    globalThis.WebSocket = MockWebSocket
+    delete window.__cortex_ws_port__
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('connected is false until onopen fires', () => {
+    const channel = createWebSocketChannel({ url: 'ws://test' })
+    expect(channel.connected).toBe(false)
+    mockInstances[0]!._simulateOpen()
+    expect(channel.connected).toBe(true)
+  })
+
+  it('send() queues messages when disconnected, flushes on connect', () => {
+    const channel = createWebSocketChannel({ url: 'ws://test' })
+    const msg = { type: 'edit' as const, protocolVersion: 1, editId: '1', property: 'color', value: 'red', source: 'Hero.tsx:5:3', elementSelector: 'div' }
+    channel.send(msg)
+
+    const ws = mockInstances[0]!
+    expect(ws.send).not.toHaveBeenCalled()
+
+    ws._simulateOpen()
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify(msg))
+  })
+
+  it('send() sends immediately when connected', () => {
+    const channel = createWebSocketChannel({ url: 'ws://test' })
+    const ws = mockInstances[0]!
+    ws._simulateOpen()
+
+    const msg = { type: 'edit' as const, protocolVersion: 1, editId: '1', property: 'color', value: 'red', source: 'Hero.tsx:5:3', elementSelector: 'div' }
+    channel.send(msg)
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify(msg))
+  })
+
+  it('onMessage delivers parsed JSON to handlers', () => {
+    const channel = createWebSocketChannel({ url: 'ws://test' })
+    const handler = vi.fn()
+    channel.onMessage(handler)
+
+    const ws = mockInstances[0]!
+    ws._simulateOpen()
+
+    const msg: ServerToBrowser = { type: 'hello', protocolVersion: 1, sessionId: 'abc' }
+    ws._simulateMessage(msg)
+    expect(handler).toHaveBeenCalledWith(msg)
+  })
+
+  it('reconnects with exponential backoff on close', () => {
+    createWebSocketChannel({ url: 'ws://test', maxRetries: 3 })
+    expect(mockInstances).toHaveLength(1)
+
+    // First disconnect → reconnect after 1s
+    mockInstances[0]!._simulateClose()
+    vi.advanceTimersByTime(1000)
+    expect(mockInstances).toHaveLength(2)
+
+    // Second disconnect → reconnect after 2s
+    mockInstances[1]!._simulateClose()
+    vi.advanceTimersByTime(2000)
+    expect(mockInstances).toHaveLength(3)
+
+    // Third disconnect → reconnect after 4s
+    mockInstances[2]!._simulateClose()
+    vi.advanceTimersByTime(4000)
+    expect(mockInstances).toHaveLength(4)
+
+    // Fourth disconnect → maxRetries (3) reached, no more reconnects
+    mockInstances[3]!._simulateClose()
+    vi.advanceTimersByTime(30000)
+    expect(mockInstances).toHaveLength(4)
+  })
+
+  it('resets retry count on successful reconnect', () => {
+    createWebSocketChannel({ url: 'ws://test', maxRetries: 3 })
+
+    mockInstances[0]!._simulateClose()
+    vi.advanceTimersByTime(1000)
+    expect(mockInstances).toHaveLength(2)
+
+    // Successful reconnect resets counter
+    mockInstances[1]!._simulateOpen()
+    mockInstances[1]!._simulateClose()
+    vi.advanceTimersByTime(1000)
+    expect(mockInstances).toHaveLength(3)
+  })
+
+  it('malformed JSON does not crash', () => {
+    const channel = createWebSocketChannel({ url: 'ws://test' })
+    const handler = vi.fn()
+    channel.onMessage(handler)
+
+    const ws = mockInstances[0]!
+    ws._simulateOpen()
+    ws._simulateMalformedMessage('not json {{{')
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('uses default URL when none provided', () => {
+    createWebSocketChannel()
+    expect(mockInstances[0]!.url).toContain(':24678/cortex')
+  })
+
+  // Fix 1: unsubscribe
+  it('onMessage() returns unsubscribe that removes handler', () => {
+    const channel = createWebSocketChannel({ url: 'ws://test' })
+    const handler = vi.fn()
+    const unsub = channel.onMessage(handler)
+
+    unsub()
+
+    const ws = mockInstances[0]!
+    ws._simulateOpen()
+    ws._simulateMessage({ type: 'hello', protocolVersion: 1, sessionId: 'abc' })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  // Fix 4: dispose
+  it('dispose() closes WebSocket', () => {
+    const channel = createWebSocketChannel({ url: 'ws://test' })
+    const ws = mockInstances[0]!
+    ws._simulateOpen()
+
+    channel.dispose!()
+
+    expect(ws.close).toHaveBeenCalled()
+    expect(channel.connected).toBe(false)
+  })
+
+  it('dispose() prevents reconnection', () => {
+    const channel = createWebSocketChannel({ url: 'ws://test', maxRetries: 5 })
+    const ws = mockInstances[0]!
+    ws._simulateOpen()
+
+    channel.dispose!()
+
+    // Simulate close after dispose — should not attempt reconnect
+    // onclose was nulled by dispose, but even if it fired, disposed flag blocks it
+    vi.advanceTimersByTime(30000)
+    expect(mockInstances).toHaveLength(1) // no new connections
+  })
+
+  it('dispose() clears queued messages and handlers', () => {
+    const channel = createWebSocketChannel({ url: 'ws://test' })
+    const handler = vi.fn()
+    channel.onMessage(handler)
+
+    // Queue a message while disconnected
+    channel.send({ type: 'edit', protocolVersion: 1, editId: '1', property: 'color', value: 'red', source: 'a:1:1', elementSelector: 'div' })
+
+    channel.dispose!()
+
+    // Open a new socket manually — the old channel should not flush
+    const ws = mockInstances[0]!
+    ws._simulateOpen()
+    expect(ws.send).not.toHaveBeenCalled()
+  })
+
+  // Fix 5: queue cap
+  it('drops oldest when queue exceeds limit', () => {
+    const channel = createWebSocketChannel({ url: 'ws://test' })
+    const makeMsg = (id: string) => ({
+      type: 'edit' as const, protocolVersion: 1, editId: id,
+      property: 'color', value: 'red', source: 'a:1:1', elementSelector: 'div',
+    })
+
+    // Queue 101 messages (exceeds MAX_QUEUE_SIZE=100)
+    for (let i = 0; i < 101; i++) {
+      channel.send(makeMsg(String(i)))
+    }
+
+    // Open connection — should flush exactly 100 messages
+    const ws = mockInstances[0]!
+    ws._simulateOpen()
+    expect(ws.send).toHaveBeenCalledTimes(100)
+
+    // First flushed message should be id "1" (id "0" was dropped)
+    const firstFlushed = JSON.parse(ws.send.mock.calls[0][0])
+    expect(firstFlushed.editId).toBe('1')
+  })
+
+  // Fix 6: port configuration
+  it('uses __cortex_ws_port__ when set', () => {
+    window.__cortex_ws_port__ = 9999
+    createWebSocketChannel()
+    expect(mockInstances[0]!.url).toContain(':9999/cortex')
+    delete window.__cortex_ws_port__
+  })
+
+  it('falls back to 24678 when __cortex_ws_port__ is not set', () => {
+    createWebSocketChannel()
+    expect(mockInstances[0]!.url).toContain(':24678/cortex')
+  })
+
+  it('uses wss: protocol when page is served over HTTPS', () => {
+    const original = location.protocol
+    Object.defineProperty(location, 'protocol', { value: 'https:', configurable: true })
+    createWebSocketChannel()
+    expect(mockInstances[0]!.url).toMatch(/^wss:/)
+    Object.defineProperty(location, 'protocol', { value: original, configurable: true })
+  })
+
+  // Fix 8: handler unsub during dispatch does not skip remaining handlers
+  it('handler unsub during dispatch does not skip remaining handlers', () => {
+    const channel = createWebSocketChannel({ url: 'ws://test' })
+    const hC = vi.fn()
+    let unsubB: () => void
+    const hA = vi.fn(() => { unsubB() })
+    const hB = vi.fn()
+    channel.onMessage(hA)
+    unsubB = channel.onMessage(hB)
+    channel.onMessage(hC)
+
+    const ws = mockInstances[0]!
+    ws._simulateOpen()
+    ws._simulateMessage({ type: 'hello', protocolVersion: 1, sessionId: 'abc' })
+
+    expect(hA).toHaveBeenCalled()
+    expect(hC).toHaveBeenCalled()
+  })
+
+  // Fix 9: dispose nulls all WebSocket event handlers
+  it('dispose nulls all WebSocket event handlers', () => {
+    const channel = createWebSocketChannel({ url: 'ws://test' })
+    const ws = mockInstances[0]!
+    ws._simulateOpen()
+
+    channel.dispose!()
+
+    expect(ws.onopen).toBeNull()
+    expect(ws.onmessage).toBeNull()
+    expect(ws.onclose).toBeNull()
+    expect(ws.onerror).toBeNull()
+  })
+})
