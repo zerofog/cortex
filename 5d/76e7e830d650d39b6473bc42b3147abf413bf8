@@ -1,0 +1,26 @@
+cortex-editor/tests/core/hmr-verifier.test.ts
+  ea21d92925bf8ba2 1-114
+cortex-editor/src/core/hmr-verifier.ts
+  ea21d92925bf8ba2 1-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "5d76e7e830d650d39b6473bc42b3147abf413bf8",
+  "prompts": {
+    "ea21d92925bf8ba2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e9952fc8-a849-47c6-b62c-99ab16bf3b66",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 168,
+      "total_deletions": 0,
+      "accepted_lines": 168,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/ce7f70094e835bd796b5736cdae35c9ca06be6304f66d7a1084a531e03d0a94e"
+    }
+  }
+}
