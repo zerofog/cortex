@@ -1,0 +1,30 @@
+cortex-editor/src/browser/components/Panel.tsx
+  43ecff4cfaaa7f90 1-183
+cortex-editor/tests/browser/panel.test.tsx
+  43ecff4cfaaa7f90 1-87
+cortex-editor/src/browser/components/CortexApp.tsx
+  43ecff4cfaaa7f90 8,51-58,63-70
+cortex-editor/src/browser/styles.css
+  43ecff4cfaaa7f90 40-387
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.11",
+  "base_commit_sha": "82a5359af10b75c584510103c29b45063efbde47",
+  "prompts": {
+    "43ecff4cfaaa7f90": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "58ace7d8-adcd-4588-acf4-ca72412627f0",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 638,
+      "total_deletions": 3,
+      "accepted_lines": 635,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/449691e80f7c2879c2a5da05600ddf51b6c3aa7290dbe482d8433154c440496c"
+    }
+  }
+}
