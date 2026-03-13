@@ -1,0 +1,30 @@
+cortex-editor/src/browser/components/sections/SourceAttribution.tsx
+  4a12841f473721b1 28
+cortex-editor/src/browser/label.ts
+  4a12841f473721b1 52,54-55
+cortex-editor/tests/browser/label.test.ts
+  4a12841f473721b1 142-149
+cortex-editor/tests/browser/sections/spacing-section.test.tsx
+  4a12841f473721b1 55,60-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "72ad3bfc5947662f5ef1898b34bc871bdaa60fd8",
+  "prompts": {
+    "4a12841f473721b1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5d1389c8-435c-400d-99f3-6ff4fb5f0ca4",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 27,
+      "total_deletions": 10,
+      "accepted_lines": 19,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/e27f5fc859499c0692be4dd15a868a84762a282f7a11dd9935641329f483ab6c"
+    }
+  }
+}
