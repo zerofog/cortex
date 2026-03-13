@@ -27,6 +27,7 @@ describe('Panel', () => {
       remove: vi.fn(),
       clearAll: vi.fn(),
       dispose: vi.fn(),
+      flush: vi.fn(),
     }
 
     const result = renderInShadow(

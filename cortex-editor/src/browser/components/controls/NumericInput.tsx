@@ -102,7 +102,8 @@ export function NumericInput({
   }, [])
 
   const handleWheel = useCallback((e: WheelEvent) => {
-    if (document.activeElement !== inputRef.current) return
+    const root = inputRef.current?.getRootNode() as Document | ShadowRoot
+    if (root?.activeElement !== inputRef.current) return
     e.preventDefault()
     const step = getStep(e)
     const delta = e.deltaY < 0 ? step : -step

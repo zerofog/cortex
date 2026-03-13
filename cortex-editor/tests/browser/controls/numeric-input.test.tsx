@@ -1,16 +1,19 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
 import { NumericInput } from '../../../src/browser/components/controls/NumericInput.js'
-import { dispatchKeyboardEvent } from '../helpers.js'
+import { dispatchKeyboardEvent, createShadowHost } from '../helpers.js'
 
 describe('NumericInput', () => {
   let container: HTMLDivElement
+  let shadowCleanup: (() => void) | null = null
 
   afterEach(() => {
     if (container) {
       render(null, container)
       container.remove()
     }
+    shadowCleanup?.()
+    shadowCleanup = null
   })
 
   function setup(props?: Partial<Parameters<typeof NumericInput>[0]>) {
@@ -27,6 +30,23 @@ describe('NumericInput', () => {
       container,
     )
     return { onChange, input: container.querySelector('input') as HTMLInputElement }
+  }
+
+  function setupInShadow(props?: Partial<Parameters<typeof NumericInput>[0]>) {
+    const { host, shadow, root, cleanup } = createShadowHost()
+    shadowCleanup = cleanup
+    container = root
+    const onChange = vi.fn()
+    render(
+      <NumericInput
+        value={16}
+        unit="px"
+        onChange={onChange}
+        {...props}
+      />,
+      root,
+    )
+    return { onChange, input: root.querySelector('input') as HTMLInputElement, shadow }
   }
 
   it('renders with value and unit', () => {
@@ -85,5 +105,30 @@ describe('NumericInput', () => {
     const selectSpy = vi.spyOn(input, 'select')
     input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
     expect(selectSpy).toHaveBeenCalled()
+  })
+
+  it('wheel changes value when input is focused inside Shadow DOM', () => {
+    const { onChange, input } = setupInShadow()
+    // Focus the input so getRootNode().activeElement matches
+    input.focus()
+    const wheelEvent = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaY: -1,
+    })
+    input.dispatchEvent(wheelEvent)
+    expect(onChange).toHaveBeenCalledWith(17)
+  })
+
+  it('wheel is ignored when input is not focused inside Shadow DOM', () => {
+    const { onChange, input } = setupInShadow()
+    // Don't focus the input
+    const wheelEvent = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaY: -1,
+    })
+    input.dispatchEvent(wheelEvent)
+    expect(onChange).not.toHaveBeenCalled()
   })
 })

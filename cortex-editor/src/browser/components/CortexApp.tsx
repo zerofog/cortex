@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useState, useEffect, useRef } from 'preact/hooks'
+import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
 import type { CortexChannel } from '../../adapters/types.js'
 import { CSSOverrideManager } from '../override.js'
 import { initSelection } from '../selection.js'
@@ -48,13 +48,8 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
     }
   }, [channel, shadowRoot])
 
-  const handleClose = () => {
-    setSelectedElement(null)
-  }
-
-  const handleSelectElement = (el: HTMLElement | null) => {
-    setSelectedElement(el)
-  }
+  const handleClose = useCallback(() => setSelectedElement(null), [])
+  const handleSelectElement = useCallback((el: HTMLElement | null) => setSelectedElement(el), [])
 
   return (
     <>

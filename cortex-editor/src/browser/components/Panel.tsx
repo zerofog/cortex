@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks'
 import type { CSSOverrideManager } from '../override.js'
 import { parseCortexSource } from '../label.js'
 import { useDrag } from '../hooks/useDrag.js'
@@ -68,29 +68,38 @@ export function Panel({
     prevElementRef.current = element
   }, [element])
 
-  const handleSpacingChange = useCallback((change: SpacingChange) => {
+  // Sync strategy: bump counter on committed changes to force getComputedStyle re-read.
+  // During scrub, trust NumericInput local state (no re-render per frame).
+  const [styleVersion, setStyleVersion] = useState(0)
+
+  // C1: Cache getComputedStyle results — avoids forced layout on every drag frame
+  const computedStyles = useMemo(() => {
+    if (!element) return { spacing: parseSpacingValues({} as CSSStyleDeclaration), isFlexOrGrid: false }
+    const cs = getComputedStyle(element)
+    const d = cs.display
+    return {
+      spacing: parseSpacingValues(cs),
+      isFlexOrGrid: d === 'flex' || d === 'inline-flex' || d === 'grid' || d === 'inline-grid',
+    }
+  }, [element, styleVersion])
+
+  // M1+H-callbacks: Single helper for all spacing overrides
+  const applySpacingOverride = useCallback((change: SpacingChange, commitRender: boolean) => {
     if (!element) return
     const source = element.getAttribute('data-cortex-source')
     if (source) {
       overrideManager.set(source, change.property, `${change.value}px`)
+      if (commitRender) {
+        // Flush pending RAF so getComputedStyle reads the updated <style> tag
+        overrideManager.flush()
+        setStyleVersion(v => v + 1)
+      }
     }
   }, [element, overrideManager])
 
-  const handleScrub = useCallback((change: SpacingChange) => {
-    if (!element) return
-    const source = element.getAttribute('data-cortex-source')
-    if (source) {
-      overrideManager.set(source, change.property, `${change.value}px`)
-    }
-  }, [element, overrideManager])
-
-  const handleScrubEnd = useCallback((change: SpacingChange) => {
-    if (!element) return
-    const source = element.getAttribute('data-cortex-source')
-    if (source) {
-      overrideManager.set(source, change.property, `${change.value}px`)
-    }
-  }, [element, overrideManager])
+  const handleSpacingChange = useCallback((c: SpacingChange) => applySpacingOverride(c, true), [applySpacingOverride])
+  const handleScrub = useCallback((c: SpacingChange) => applySpacingOverride(c, false), [applySpacingOverride])
+  const handleScrubEnd = useCallback((c: SpacingChange) => applySpacingOverride(c, true), [applySpacingOverride])
 
   const handleSelectParent = useCallback(() => {
     if (!element) return
@@ -101,8 +110,9 @@ export function Panel({
 
   const handleSelectChild = useCallback(() => {
     if (!element) return
-    if (element.children.length > 0) {
-      onSelectElement(element.children[0] as HTMLElement)
+    const firstChild = element.children[0]
+    if (firstChild instanceof HTMLElement) {
+      onSelectElement(firstChild)
     }
   }, [element, onSelectElement])
 
@@ -124,11 +134,6 @@ export function Panel({
   const hasParent = element.parentElement !== null && element.parentElement !== document.documentElement
   const hasChildren = element.children.length > 0
 
-  const cs = getComputedStyle(element)
-  const spacing = parseSpacingValues(cs)
-  const display = cs.display
-  const isFlexOrGrid = display === 'flex' || display === 'inline-flex' || display === 'grid' || display === 'inline-grid'
-
   const panelClasses = [
     'cortex-panel',
     isEntering && 'cortex-panel--entering',
@@ -139,8 +144,7 @@ export function Panel({
     <div
       class={panelClasses}
       style={{
-        left: `${position.x}px`,
-        top: `${position.y}px`,
+        transform: `translate(${position.x}px, ${position.y}px)`,
         width: `${PANEL_WIDTH}px`,
       }}
     >
@@ -163,10 +167,10 @@ export function Panel({
       <TabNav activeTab={activeTab} onTabClick={handleTabClick} />
       <div class="cortex-panel__body" ref={bodyRef} key={contentKey}>
         <SpacingSection
-          padding={spacing.padding}
-          margin={spacing.margin}
-          gap={spacing.gap}
-          isFlexOrGrid={isFlexOrGrid}
+          padding={computedStyles.spacing.padding}
+          margin={computedStyles.spacing.margin}
+          gap={computedStyles.spacing.gap}
+          isFlexOrGrid={computedStyles.isFlexOrGrid}
           onChange={handleSpacingChange}
           onScrub={handleScrub}
           onScrubEnd={handleScrubEnd}

@@ -80,4 +80,18 @@ describe('PanelHeader', () => {
     const downBtn = container.querySelector('[data-action="child"]') as HTMLButtonElement
     expect(downBtn.disabled).toBe(true)
   })
+
+  it('does not render source link when filePath is null', () => {
+    setup({ sourceFile: 'Hero.tsx', sourceLine: '14', filePath: null })
+    const link = container.querySelector('.cortex-panel-header__source')
+    expect(link).toBeNull()
+  })
+
+  it('renders source link with encoded URI', () => {
+    setup({ sourceFile: 'Hero.tsx', sourceLine: '14', filePath: '/src/My Component/Hero.tsx' })
+    const link = container.querySelector('.cortex-panel-header__source') as HTMLAnchorElement
+    expect(link).not.toBeNull()
+    expect(link.href).toContain('vscode://file/')
+    expect(link.href).toContain('My%20Component')
+  })
 })

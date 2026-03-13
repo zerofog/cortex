@@ -18,6 +18,35 @@ export class CSSOverrideManager {
     document.head.appendChild(this.styleEl)
   }
 
+  private rebuildScheduled = false
+  private rafId: number | null = null
+
+  private scheduleRebuild(): void {
+    if (this.rebuildScheduled) return
+    this.rebuildScheduled = true
+    this.rafId = requestAnimationFrame(() => {
+      this.rebuildScheduled = false
+      this.rafId = null
+      this.rebuild()
+    })
+  }
+
+  private cancelPendingRebuild(): void {
+    if (this.rebuildScheduled && this.rafId !== null) {
+      cancelAnimationFrame(this.rafId)
+      this.rebuildScheduled = false
+      this.rafId = null
+    }
+  }
+
+  /** Force any pending RAF rebuild to execute synchronously. */
+  flush(): void {
+    if (this.rebuildScheduled) {
+      this.cancelPendingRebuild()
+      this.rebuild()
+    }
+  }
+
   /** Apply an override (instant preview). Rejects invalid property names or values. */
   set(source: string, property: string, value: string): void {
     if (!VALID_PROPERTY.test(property)) return
@@ -29,7 +58,7 @@ export class CSSOverrideManager {
       this.overrides.set(source, props)
     }
     props.set(property, value)
-    this.rebuild()
+    this.scheduleRebuild()
   }
 
   /** Remove an override. If property omitted, removes all overrides for source. */
@@ -43,17 +72,20 @@ export class CSSOverrideManager {
     } else {
       this.overrides.delete(source)
     }
+    this.cancelPendingRebuild()
     this.rebuild()
   }
 
   /** Clear all overrides (e.g. on SPA navigation) */
   clearAll(): void {
     this.overrides.clear()
+    this.cancelPendingRebuild()
     this.rebuild()
   }
 
   /** Remove the <style> element from the DOM */
   dispose(): void {
+    this.cancelPendingRebuild()
     this.overrides.clear()
     this.styleEl.remove()
   }

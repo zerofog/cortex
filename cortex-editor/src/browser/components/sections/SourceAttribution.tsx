@@ -1,4 +1,5 @@
 import type { JSX } from 'preact'
+import { encodeFilePath } from '../../label.js'
 
 export type AttributionState =
   | { type: 'static-class'; className: string; filePath?: string }
@@ -20,7 +21,7 @@ export function SourceAttribution({ attribution }: SourceAttributionProps): JSX.
   switch (attribution.type) {
     case 'static-class':
       return attribution.filePath ? (
-        <a class="cortex-attribution cortex-attribution--clickable" href={`vscode://file/${attribution.filePath}`}>
+        <a class="cortex-attribution cortex-attribution--clickable" href={`vscode://file/${encodeFilePath(attribution.filePath)}`}>
           {attribution.className}
         </a>
       ) : (

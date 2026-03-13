@@ -1,4 +1,5 @@
 import type { JSX } from 'preact'
+import { encodeFilePath } from '../label.js'
 
 export interface PanelHeaderProps {
   tagName: string
@@ -38,7 +39,7 @@ export function PanelHeader({
     : null
 
   const sourceHref = filePath
-    ? `vscode://file/${filePath}${sourceLine ? `:${sourceLine}` : ''}`
+    ? `vscode://file/${encodeFilePath(filePath)}${sourceLine ? `:${sourceLine}` : ''}`
     : null
 
   return (
@@ -53,10 +54,10 @@ export function PanelHeader({
         <span class="cortex-panel-header__tag">
           {componentName ?? `<${tagName}>`}
         </span>
-        {sourceText && (
+        {sourceText && sourceHref && (
           <a
             class="cortex-panel-header__source"
-            href={sourceHref!}
+            href={sourceHref}
             title={`Open in editor: ${sourceText}`}
           >
             {sourceText}
