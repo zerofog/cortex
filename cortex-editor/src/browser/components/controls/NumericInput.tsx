@@ -134,6 +134,8 @@ export function NumericInput({
     const handleMove = (me: PointerEvent) => {
       const delta = me.clientX - scrubStartX.current
       const next = clampValue(roundTenth(scrubStartValue.current + delta))
+      localValueRef.current = String(next)
+      setLocalValue(String(next))
       onScrub?.(next)
     }
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
 import { NumericInput } from '../../../src/browser/components/controls/NumericInput.js'
-import { dispatchKeyboardEvent, createShadowHost } from '../helpers.js'
+import { dispatchKeyboardEvent, dispatchPointerEvent, createShadowHost } from '../helpers.js'
 
 describe('NumericInput', () => {
   let container: HTMLDivElement
@@ -130,5 +130,25 @@ describe('NumericInput', () => {
     })
     input.dispatchEvent(wheelEvent)
     expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('scrub updates displayed value in real time', async () => {
+    const onScrub = vi.fn()
+    const { input } = setup({ onScrub })
+    const wrapper = input.closest('.cortex-numeric-input') as HTMLElement
+
+    // Start scrub at x=100
+    dispatchPointerEvent(wrapper, 'pointerdown', { clientX: 100 })
+    await new Promise(r => setTimeout(r, 0))
+
+    // Drag 20px right — value should be 16 + 20 = 36
+    dispatchPointerEvent(wrapper, 'pointermove', { clientX: 120 })
+    await new Promise(r => setTimeout(r, 0))
+
+    expect(input.value).toBe('36')
+    expect(onScrub).toHaveBeenCalledWith(36)
+
+    // Release
+    dispatchPointerEvent(wrapper, 'pointerup', { clientX: 120 })
   })
 })
