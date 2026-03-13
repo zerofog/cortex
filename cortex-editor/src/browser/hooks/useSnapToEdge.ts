@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
+import { useState, useRef, useCallback, useEffect } from 'preact/hooks'
 
 export const PANEL_WIDTH = 300
 export const PANEL_MAX_HEIGHT = 460
@@ -109,10 +109,6 @@ export function useSnapToEdge(): UseSnapToEdgeResult {
   const snapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const positionRef = useRef(position)
 
-  useEffect(() => {
-    positionRef.current = position
-  }, [position])
-
   const setPosition = useCallback((pos: Position) => {
     const clamped = normalizePosition(pos)
     positionRef.current = clamped
@@ -135,16 +131,23 @@ export function useSnapToEdge(): UseSnapToEdgeResult {
   }, [])
 
   useEffect(() => {
+    let saveTimer: ReturnType<typeof setTimeout> | null = null
     function handleResize() {
       setPositionState(prev => {
         const next = snapToEdge(prev)
         positionRef.current = next
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch {}
+        if (saveTimer) clearTimeout(saveTimer)
+        saveTimer = setTimeout(() => {
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch {}
+        }, 200)
         return next
       })
     }
     window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      if (saveTimer) clearTimeout(saveTimer)
+    }
   }, [])
 
   useEffect(() => {

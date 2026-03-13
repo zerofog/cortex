@@ -5,15 +5,17 @@ import type { JSX } from 'preact'
 import { useDrag } from '../../../src/browser/hooks/useDrag.js'
 import { dispatchPointerEvent } from '../helpers.js'
 
-function DragHarness({ onPositionChange }: {
+function DragHarness({ onPositionChange, onDragEnd }: {
   onPositionChange?: (x: number, y: number) => void
+  onDragEnd?: (x: number, y: number) => void
 }): JSX.Element {
   const [pos, setPos] = useState({ x: 100, y: 100 })
-  const { isDragging, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel } = useDrag({
+  const { handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel } = useDrag({
     onDrag(x, y) {
       setPos({ x, y })
       onPositionChange?.(x, y)
     },
+    onDragEnd,
   })
 
   return (
@@ -25,7 +27,6 @@ function DragHarness({ onPositionChange }: {
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
     >
-      <span data-testid="drag-status">{isDragging ? 'dragging' : 'idle'}</span>
       <button data-testid="interactive">Click me</button>
     </div>
   )
@@ -41,31 +42,39 @@ describe('useDrag', () => {
     }
   })
 
-  function setup(props?: { onPositionChange?: (x: number, y: number) => void }) {
+  function setup(props?: { onPositionChange?: (x: number, y: number) => void, onDragEnd?: (x: number, y: number) => void }) {
     container = document.createElement('div')
     document.body.appendChild(container)
     render(<DragHarness {...props} />, container)
     return container.querySelector('[data-testid="draggable"]') as HTMLElement
   }
 
-  it('starts in idle state', () => {
-    setup()
-    expect(container.querySelector('[data-testid="drag-status"]')?.textContent).toBe('idle')
+  it('does not call onDrag without pointerdown', () => {
+    const onPositionChange = vi.fn()
+    const el = setup({ onPositionChange })
+    dispatchPointerEvent(el, 'pointermove', { clientX: 200, clientY: 200 })
+    expect(onPositionChange).not.toHaveBeenCalled()
   })
 
-  it('enters dragging state on pointerdown', async () => {
-    const el = setup()
+  it('calls onDrag after pointerdown + pointermove', async () => {
+    const onPositionChange = vi.fn()
+    const el = setup({ onPositionChange })
     dispatchPointerEvent(el, 'pointerdown', { clientX: 150, clientY: 150 })
     await new Promise(r => setTimeout(r, 0))
-    expect(container.querySelector('[data-testid="drag-status"]')?.textContent).toBe('dragging')
+    dispatchPointerEvent(el, 'pointermove', { clientX: 200, clientY: 200 })
+    await new Promise(r => setTimeout(r, 0))
+    expect(onPositionChange).toHaveBeenCalled()
   })
 
   it('does not start drag on interactive elements', async () => {
-    setup()
-    const btn = container.querySelector('[data-testid="interactive"]') as HTMLElement
+    const onPositionChange = vi.fn()
+    const el = setup({ onPositionChange })
+    const btn = el.querySelector('[data-testid="interactive"]') as HTMLElement
     dispatchPointerEvent(btn, 'pointerdown', { clientX: 150, clientY: 150 })
     await new Promise(r => setTimeout(r, 0))
-    expect(container.querySelector('[data-testid="drag-status"]')?.textContent).toBe('idle')
+    dispatchPointerEvent(el, 'pointermove', { clientX: 200, clientY: 200 })
+    await new Promise(r => setTimeout(r, 0))
+    expect(onPositionChange).not.toHaveBeenCalled()
   })
 
   it('calls onDrag with new position during pointermove', async () => {
@@ -83,21 +92,41 @@ describe('useDrag', () => {
     expect(onPositionChange).toHaveBeenCalledWith(150, 150)
   })
 
-  it('exits dragging state on pointerup', async () => {
-    const el = setup()
+  it('stops drag on pointerup', async () => {
+    const onPositionChange = vi.fn()
+    const el = setup({ onPositionChange })
     dispatchPointerEvent(el, 'pointerdown', { clientX: 150, clientY: 150 })
     await new Promise(r => setTimeout(r, 0))
     dispatchPointerEvent(el, 'pointerup', { clientX: 200, clientY: 200 })
     await new Promise(r => setTimeout(r, 0))
-    expect(container.querySelector('[data-testid="drag-status"]')?.textContent).toBe('idle')
+    onPositionChange.mockClear()
+    dispatchPointerEvent(el, 'pointermove', { clientX: 250, clientY: 250 })
+    await new Promise(r => setTimeout(r, 0))
+    expect(onPositionChange).not.toHaveBeenCalled()
   })
 
-  it('exits dragging state on pointercancel', async () => {
-    const el = setup()
+  it('stops drag on pointercancel', async () => {
+    const onPositionChange = vi.fn()
+    const el = setup({ onPositionChange })
     dispatchPointerEvent(el, 'pointerdown', { clientX: 150, clientY: 150 })
     await new Promise(r => setTimeout(r, 0))
     dispatchPointerEvent(el, 'pointercancel')
     await new Promise(r => setTimeout(r, 0))
-    expect(container.querySelector('[data-testid="drag-status"]')?.textContent).toBe('idle')
+    onPositionChange.mockClear()
+    dispatchPointerEvent(el, 'pointermove', { clientX: 250, clientY: 250 })
+    await new Promise(r => setTimeout(r, 0))
+    expect(onPositionChange).not.toHaveBeenCalled()
+  })
+
+  it('calls onDragEnd on pointercancel', async () => {
+    const onDragEnd = vi.fn()
+    const el = setup({ onDragEnd })
+    dispatchPointerEvent(el, 'pointerdown', { clientX: 150, clientY: 150 })
+    await new Promise(r => setTimeout(r, 0))
+    dispatchPointerEvent(el, 'pointermove', { clientX: 200, clientY: 200 })
+    await new Promise(r => setTimeout(r, 0))
+    dispatchPointerEvent(el, 'pointercancel')
+    await new Promise(r => setTimeout(r, 0))
+    expect(onDragEnd).toHaveBeenCalled()
   })
 })

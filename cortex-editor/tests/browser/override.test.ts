@@ -39,6 +39,7 @@ describe('CSSOverrideManager', () => {
   it('multiple properties for the same source combine into one rule', () => {
     manager.set('Hero.tsx:5:3', 'color', 'red')
     manager.set('Hero.tsx:5:3', 'font-size', '16px')
+    manager.flush()
     const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
     expect(styleEl.textContent).toBe(
       '[data-cortex-source="Hero\\.tsx\\:5\\:3"] { color: red !important; font-size: 16px !important; }',
@@ -48,6 +49,7 @@ describe('CSSOverrideManager', () => {
   it('multiple sources produce separate rules', () => {
     manager.set('Hero.tsx:5:3', 'color', 'red')
     manager.set('Nav.tsx:10:1', 'margin', '0')
+    manager.flush()
     const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
     const rules = styleEl.textContent!.split('\n')
     expect(rules).toHaveLength(2)
@@ -100,6 +102,7 @@ describe('CSSOverrideManager', () => {
   it('set() overwrites existing value for same property', () => {
     manager.set('Hero.tsx:5:3', 'color', 'red')
     manager.set('Hero.tsx:5:3', 'color', 'blue')
+    manager.flush()
     const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
     expect(styleEl.textContent).toBe(
       '[data-cortex-source="Hero\\.tsx\\:5\\:3"] { color: blue !important; }',
@@ -324,6 +327,7 @@ describe('CSSOverrideManager', () => {
     manager.set('e:1:1', 'margin', '0')
     manager.set('f:1:1', 'padding', '10%')
     manager.set('g:1:1', 'color', '#ff0000')
+    manager.flush()
     const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
     expect(styleEl.textContent).toContain('color: red !important')
     expect(styleEl.textContent).toContain('font-size: 16px !important')

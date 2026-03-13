@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'preact/hooks'
+import { useRef, useCallback } from 'preact/hooks'
 
 const INTERACTIVE_SELECTOR = 'button, a, input, select, textarea, [role="button"]'
 
@@ -13,7 +13,6 @@ export interface UseDragOptions {
 }
 
 export interface UseDragResult {
-  isDragging: boolean
   handlePointerDown: (e: PointerEvent) => void
   handlePointerMove: (e: PointerEvent) => void
   handlePointerUp: (e: PointerEvent) => void
@@ -21,7 +20,6 @@ export interface UseDragResult {
 }
 
 export function useDrag({ onDrag, onDragEnd }: UseDragOptions): UseDragResult {
-  const [isDragging, setIsDragging] = useState(false)
   const draggingRef = useRef(false)
   const offsetRef = useRef<Position>({ x: 0, y: 0 })
   const lastPosRef = useRef<Position>({ x: 0, y: 0 })
@@ -37,7 +35,7 @@ export function useDrag({ onDrag, onDragEnd }: UseDragOptions): UseDragResult {
       y: e.clientY - rect.top,
     }
     draggingRef.current = true
-    setIsDragging(true)
+
     try { el.setPointerCapture(e.pointerId) } catch {}
   }, [])
 
@@ -52,7 +50,7 @@ export function useDrag({ onDrag, onDragEnd }: UseDragOptions): UseDragResult {
   const handlePointerUp = useCallback((e: PointerEvent) => {
     if (!draggingRef.current) return
     draggingRef.current = false
-    setIsDragging(false)
+
     try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch {}
     onDragEnd?.(lastPosRef.current.x, lastPosRef.current.y)
   }, [onDragEnd])
@@ -60,9 +58,10 @@ export function useDrag({ onDrag, onDragEnd }: UseDragOptions): UseDragResult {
   const handlePointerCancel = useCallback((e: PointerEvent) => {
     if (!draggingRef.current) return
     draggingRef.current = false
-    setIsDragging(false)
-    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch {}
-  }, [])
 
-  return { isDragging, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel }
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch {}
+    onDragEnd?.(lastPosRef.current.x, lastPosRef.current.y)
+  }, [onDragEnd])
+
+  return { handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel }
 }

@@ -47,8 +47,10 @@ export function Panel({
   const [activeTab, setActiveTab] = useState('spacing')
   const [contentKey, setContentKey] = useState(0)
   const [isEntering, setIsEntering] = useState(true)
+  const [isCrossFading, setIsCrossFading] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
   const prevElementRef = useRef<HTMLElement | null>(null)
+  const scrollingRef = useRef(false)
 
   const { position, isSnapping, setPosition, snap } = useSnapToEdge()
   const { handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel } = useDrag({
@@ -64,9 +66,58 @@ export function Panel({
   useEffect(() => {
     if (prevElementRef.current && prevElementRef.current !== element) {
       setContentKey(k => k + 1)
+      setIsCrossFading(true)
     }
     prevElementRef.current = element
   }, [element])
+
+  // M3: Clear cross-fade class after animation completes
+  useEffect(() => {
+    if (!isCrossFading) return
+    const timer = setTimeout(() => setIsCrossFading(false), 150)
+    return () => clearTimeout(timer)
+  }, [isCrossFading])
+
+  // A5: IntersectionObserver — update active tab on scroll
+  useEffect(() => {
+    const body = bodyRef.current
+    if (!body) return
+
+    const sections = body.querySelectorAll('[data-section-id]')
+    if (sections.length === 0) return
+
+    const visibleSections = new Map<string, number>()
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (scrollingRef.current) return
+
+        for (const entry of entries) {
+          const id = (entry.target as HTMLElement).dataset.sectionId
+          if (!id) continue
+          if (entry.isIntersecting) {
+            visibleSections.set(id, entry.intersectionRatio)
+          } else {
+            visibleSections.delete(id)
+          }
+        }
+
+        let bestId: string | null = null
+        let bestRatio = 0
+        for (const [id, ratio] of visibleSections) {
+          if (ratio > bestRatio) {
+            bestRatio = ratio
+            bestId = id
+          }
+        }
+        if (bestId) setActiveTab(bestId)
+      },
+      { root: body, threshold: [0, 0.25, 0.5, 0.75, 1] },
+    )
+
+    for (const section of sections) observer.observe(section)
+    return () => observer.disconnect()
+  }, [contentKey])
 
   // Sync strategy: bump counter on committed changes to force getComputedStyle re-read.
   // During scrub, trust NumericInput local state (no re-render per frame).
@@ -97,9 +148,8 @@ export function Panel({
     }
   }, [element, overrideManager])
 
-  const handleSpacingChange = useCallback((c: SpacingChange) => applySpacingOverride(c, true), [applySpacingOverride])
+  const handleSpacingCommit = useCallback((c: SpacingChange) => applySpacingOverride(c, true), [applySpacingOverride])
   const handleScrub = useCallback((c: SpacingChange) => applySpacingOverride(c, false), [applySpacingOverride])
-  const handleScrubEnd = useCallback((c: SpacingChange) => applySpacingOverride(c, true), [applySpacingOverride])
 
   const handleSelectParent = useCallback(() => {
     if (!element) return
@@ -117,9 +167,12 @@ export function Panel({
   }, [element, onSelectElement])
 
   const handleTabClick = useCallback((tabId: string) => {
+    scrollingRef.current = true
     setActiveTab(tabId)
     const section = bodyRef.current?.querySelector(`[data-section-id="${tabId}"]`)
     section?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    // Re-enable observer after smooth scroll settles
+    setTimeout(() => { scrollingRef.current = false }, 500)
   }, [])
 
   // Null guard AFTER all hooks
@@ -138,6 +191,7 @@ export function Panel({
     'cortex-panel',
     isEntering && 'cortex-panel--entering',
     isSnapping && 'cortex-panel--snapping',
+    isCrossFading && 'cortex-panel--cross-fade',
   ].filter(Boolean).join(' ')
 
   return (
@@ -171,9 +225,9 @@ export function Panel({
           margin={computedStyles.spacing.margin}
           gap={computedStyles.spacing.gap}
           isFlexOrGrid={computedStyles.isFlexOrGrid}
-          onChange={handleSpacingChange}
+          onChange={handleSpacingCommit}
           onScrub={handleScrub}
-          onScrubEnd={handleScrubEnd}
+          onScrubEnd={handleSpacingCommit}
         />
         <div data-section-id="layout" />
         <div data-section-id="type" />

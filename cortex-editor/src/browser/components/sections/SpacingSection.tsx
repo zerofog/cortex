@@ -50,32 +50,18 @@ function SpacingGroup({
   onScrub?: (change: SpacingChange) => void
   onScrubEnd?: (change: SpacingChange) => void
 }): JSX.Element {
-  const handleChange = useCallback(
-    (sides: string[], value: number) => {
-      for (const side of sides) {
-        onChange({ property: `${prefix}-${side}`, value })
-      }
-    },
-    [prefix, onChange],
+  const makeHandler = useCallback(
+    (cb?: (change: SpacingChange) => void) =>
+      (sides: string[], value: number) => {
+        if (!cb) return
+        for (const side of sides) cb({ property: `${prefix}-${side}`, value })
+      },
+    [prefix],
   )
 
-  const handleScrub = useCallback(
-    (sides: string[], value: number) => {
-      for (const side of sides) {
-        onScrub?.({ property: `${prefix}-${side}`, value })
-      }
-    },
-    [prefix, onScrub],
-  )
-
-  const handleScrubEnd = useCallback(
-    (sides: string[], value: number) => {
-      for (const side of sides) {
-        onScrubEnd?.({ property: `${prefix}-${side}`, value })
-      }
-    },
-    [prefix, onScrubEnd],
-  )
+  const handleChange = makeHandler(onChange)
+  const handleScrub = makeHandler(onScrub)
+  const handleScrubEnd = makeHandler(onScrubEnd)
 
   const horizontal = values.left === values.right ? values.left : null
   const vertical = values.top === values.bottom ? values.top : null

@@ -17,6 +17,10 @@ function getStep(e: KeyboardEvent | WheelEvent): number {
   return 1
 }
 
+function roundTenth(n: number): number {
+  return Math.round(n * 10) / 10
+}
+
 export function NumericInput({
   value,
   unit,
@@ -33,6 +37,12 @@ export function NumericInput({
   const localValueRef = useRef(String(value))
   const scrubStartX = useRef(0)
   const scrubStartValue = useRef(0)
+  const scrubCleanupRef = useRef<(() => void) | null>(null)
+
+  // Clean up scrub listeners if component unmounts mid-scrub
+  useEffect(() => {
+    return () => { scrubCleanupRef.current?.() }
+  }, [])
 
   // Keep ref in sync so event handlers always read the latest value
   localValueRef.current = localValue
@@ -52,7 +62,7 @@ export function NumericInput({
       e.preventDefault()
       const step = getStep(e)
       const delta = e.key === 'ArrowUp' ? step : -step
-      const next = clampValue(Math.round((value + delta) * 10) / 10)
+      const next = clampValue(roundTenth(value + delta))
       onChange(next)
     } else if (e.key === 'Enter') {
       e.preventDefault()
@@ -107,7 +117,7 @@ export function NumericInput({
     e.preventDefault()
     const step = getStep(e)
     const delta = e.deltaY < 0 ? step : -step
-    const next = clampValue(Math.round((value + delta) * 10) / 10)
+    const next = clampValue(roundTenth(value + delta))
     onChange(next)
   }, [value, onChange, clampValue])
 
@@ -123,11 +133,12 @@ export function NumericInput({
 
     const handleMove = (me: PointerEvent) => {
       const delta = me.clientX - scrubStartX.current
-      const next = clampValue(Math.round((scrubStartValue.current + delta) * 10) / 10)
+      const next = clampValue(roundTenth(scrubStartValue.current + delta))
       onScrub?.(next)
     }
 
     const cleanup = () => {
+      scrubCleanupRef.current = null
       setIsScrubbing(false)
       target.removeEventListener('pointermove', handleMove)
       target.removeEventListener('pointerup', handleUp)
@@ -137,7 +148,7 @@ export function NumericInput({
     const handleUp = (ue: PointerEvent) => {
       try { target.releasePointerCapture(ue.pointerId) } catch {}
       const delta = ue.clientX - scrubStartX.current
-      const next = clampValue(Math.round((scrubStartValue.current + delta) * 10) / 10)
+      const next = clampValue(roundTenth(scrubStartValue.current + delta))
       onScrubEnd?.(next)
       onChange(next)
       cleanup()
@@ -150,6 +161,7 @@ export function NumericInput({
     target.addEventListener('pointermove', handleMove)
     target.addEventListener('pointerup', handleUp)
     target.addEventListener('pointercancel', handleCancel)
+    scrubCleanupRef.current = cleanup
   }, [isEditing, value, onChange, onScrub, onScrubEnd, clampValue])
 
   return (

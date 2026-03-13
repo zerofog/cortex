@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useRef, useEffect, useCallback } from 'preact/hooks'
+import { useRef, useEffect } from 'preact/hooks'
 
 export interface Tab {
   id: string
@@ -32,17 +32,13 @@ export function TabNav({ activeTab, onTabClick }: TabNavProps): JSX.Element {
     }
   }, [activeTab])
 
-  const handleClick = useCallback((tabId: string) => {
-    onTabClick(tabId)
-  }, [onTabClick])
-
   return (
     <div class="cortex-tab-nav" ref={stripRef}>
       {TABS.map(tab => (
         <button
           key={tab.id}
           class={`cortex-tab ${tab.id === activeTab ? 'cortex-tab--active' : ''}`}
-          onClick={() => handleClick(tab.id)}
+          onClick={() => onTabClick(tab.id)}
         >
           {tab.label}
         </button>

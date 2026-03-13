@@ -18,30 +18,26 @@ export class CSSOverrideManager {
     document.head.appendChild(this.styleEl)
   }
 
-  private rebuildScheduled = false
   private rafId: number | null = null
 
   private scheduleRebuild(): void {
-    if (this.rebuildScheduled) return
-    this.rebuildScheduled = true
+    if (this.rafId !== null) return
     this.rafId = requestAnimationFrame(() => {
-      this.rebuildScheduled = false
       this.rafId = null
       this.rebuild()
     })
   }
 
   private cancelPendingRebuild(): void {
-    if (this.rebuildScheduled && this.rafId !== null) {
+    if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId)
-      this.rebuildScheduled = false
       this.rafId = null
     }
   }
 
   /** Force any pending RAF rebuild to execute synchronously. */
   flush(): void {
-    if (this.rebuildScheduled) {
+    if (this.rafId !== null) {
       this.cancelPendingRebuild()
       this.rebuild()
     }

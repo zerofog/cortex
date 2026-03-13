@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
 import { Panel } from '../../src/browser/components/Panel.js'
-import { renderInShadow } from './helpers.js'
+import { renderInShadow, mockIntersectionObserver } from './helpers.js'
 
 describe('Panel', () => {
   let cleanup: (() => void) | null = null
@@ -84,5 +84,136 @@ describe('Panel', () => {
     expect(container.querySelector('.cortex-panel')).toBeNull()
     render(null, container)
     container.remove()
+  })
+
+  // A5: IntersectionObserver updates active tab on scroll
+  it('updates active tab via IntersectionObserver', async () => {
+    const io = mockIntersectionObserver()
+    try {
+      const { root } = setup()
+      // Flush multiple microtask/macrotask cycles so useEffect runs and observer is created
+      await new Promise(r => setTimeout(r, 10))
+
+      // Find a section element to use as the intersection target
+      const layoutSection = root.querySelector('[data-section-id="layout"]')
+      expect(layoutSection).not.toBeNull()
+
+      // Simulate layout section becoming most visible
+      io.trigger([
+        { target: layoutSection!, isIntersecting: true, intersectionRatio: 0.75 },
+      ])
+      // Flush Preact re-render (setActiveTab called outside event context)
+      await new Promise(r => setTimeout(r, 10))
+
+      // The active tab should now be "Layout" — find it by the active class
+      const activeTab = root.querySelector('.cortex-tab--active')
+      expect(activeTab).not.toBeNull()
+      expect(activeTab?.textContent).toBe('Layout')
+    } finally {
+      io.cleanup()
+    }
+  })
+
+  // M3: Cross-fade class applied on element switch
+  it('adds cross-fade class when element changes', async () => {
+    const el1 = document.createElement('div')
+    el1.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    document.body.appendChild(el1)
+
+    const el2 = document.createElement('div')
+    el2.setAttribute('data-cortex-source', 'src/Card.tsx:8:3')
+    document.body.appendChild(el2)
+
+    const onClose = vi.fn()
+    const onSelectElement = vi.fn()
+    const overrideManager = {
+      set: vi.fn(), remove: vi.fn(), clearAll: vi.fn(),
+      dispose: vi.fn(), flush: vi.fn(),
+    }
+
+    // Render into a plain container so we can re-render with different props
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <Panel element={el1} overrideManager={overrideManager as any}
+        onClose={onClose} onSelectElement={onSelectElement} />,
+      container,
+    )
+    await new Promise(r => setTimeout(r, 0))
+
+    // No cross-fade on initial render
+    let panel = container.querySelector('.cortex-panel')
+    expect(panel?.classList.contains('cortex-panel--cross-fade')).toBe(false)
+
+    // Switch element — should trigger cross-fade
+    render(
+      <Panel element={el2} overrideManager={overrideManager as any}
+        onClose={onClose} onSelectElement={onSelectElement} />,
+      container,
+    )
+    await new Promise(r => setTimeout(r, 0))
+
+    panel = container.querySelector('.cortex-panel')
+    expect(panel?.classList.contains('cortex-panel--cross-fade')).toBe(true)
+
+    // Clean up
+    render(null, container)
+    container.remove()
+    el1.remove()
+    el2.remove()
+  })
+
+  // M3: Cross-fade class clears after timeout
+  it('clears cross-fade class after animation duration', async () => {
+    vi.useFakeTimers()
+
+    const el1 = document.createElement('div')
+    el1.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    document.body.appendChild(el1)
+
+    const el2 = document.createElement('div')
+    el2.setAttribute('data-cortex-source', 'src/Card.tsx:8:3')
+    document.body.appendChild(el2)
+
+    const overrideManager = {
+      set: vi.fn(), remove: vi.fn(), clearAll: vi.fn(),
+      dispose: vi.fn(), flush: vi.fn(),
+    }
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <Panel element={el1} overrideManager={overrideManager as any}
+        onClose={() => {}} onSelectElement={() => {}} />,
+      container,
+    )
+    // Advance enough for Preact's effect scheduling (>0ms needed under fake timers)
+    await vi.advanceTimersByTimeAsync(10)
+
+    // Switch element
+    render(
+      <Panel element={el2} overrideManager={overrideManager as any}
+        onClose={() => {}} onSelectElement={() => {}} />,
+      container,
+    )
+    // Flush effects — Preact needs macrotask cycles under fake timers
+    await vi.advanceTimersByTimeAsync(10)
+
+    let panel = container.querySelector('.cortex-panel')
+    expect(panel?.classList.contains('cortex-panel--cross-fade')).toBe(true)
+
+    // Advance past the 150ms animation duration (already at ~20ms, need 130+ more)
+    await vi.advanceTimersByTimeAsync(200)
+
+    panel = container.querySelector('.cortex-panel')
+    expect(panel?.classList.contains('cortex-panel--cross-fade')).toBe(false)
+
+    render(null, container)
+    container.remove()
+    el1.remove()
+    el2.remove()
+    vi.useRealTimers()
   })
 })
