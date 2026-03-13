@@ -1,0 +1,26 @@
+cortex-editor/tests/browser/controls/numeric-input.test.tsx
+  4a12841f473721b1 4,134-153
+cortex-editor/src/browser/components/controls/NumericInput.tsx
+  4a12841f473721b1 137-138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "091c4c001db0d3b9544521fbf2f6a84b8cdff265",
+  "prompts": {
+    "4a12841f473721b1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5d1389c8-435c-400d-99f3-6ff4fb5f0ca4",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 23,
+      "total_deletions": 1,
+      "accepted_lines": 23,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/5a207e95f2da9c90ed9e53fae993c9d722233eabd03840dd0a83dd24a66858ca"
+    }
+  }
+}
