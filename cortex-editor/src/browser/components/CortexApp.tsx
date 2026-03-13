@@ -5,6 +5,7 @@ import { CSSOverrideManager } from '../override.js'
 import { initSelection } from '../selection.js'
 import { HoverOverlay } from './HoverOverlay.js'
 import { SelectionOverlay } from './SelectionOverlay.js'
+import { Panel } from './Panel.js'
 
 export interface CortexAppProps {
   channel: CortexChannel
@@ -47,10 +48,26 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
     }
   }, [channel, shadowRoot])
 
+  const handleClose = () => {
+    setSelectedElement(null)
+  }
+
+  const handleSelectElement = (el: HTMLElement | null) => {
+    setSelectedElement(el)
+  }
+
   return (
     <>
       <HoverOverlay element={hoveredElement} />
       <SelectionOverlay element={selectedElement} />
+      {selectedElement && overrideRef.current && (
+        <Panel
+          element={selectedElement}
+          overrideManager={overrideRef.current}
+          onClose={handleClose}
+          onSelectElement={handleSelectElement}
+        />
+      )}
     </>
   )
 }
