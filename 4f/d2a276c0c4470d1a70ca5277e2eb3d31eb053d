@@ -1,0 +1,65 @@
+cortex-editor/src/browser/styles.css
+  4a12841f473721b1 45-47,71,79-80
+cortex-editor/src/browser/components/sections/SourceAttribution.tsx
+  4a12841f473721b1 2,24
+cortex-editor/src/browser/components/CortexApp.tsx
+  4a12841f473721b1 2,51-52
+cortex-editor/src/browser/components/Panel.tsx
+  4a12841f473721b1 2,73,75-82,84,86-87,92-96,100-102,113-115,147,170-173
+  43ecff4cfaaa7f90 71-72,74
+cortex-editor/src/browser/components/TabNav.tsx
+  4a12841f473721b1 2
+cortex-editor/tests/browser/controls/numeric-input.test.tsx
+  4a12841f473721b1 4,8,15-16,35-49,109-133
+cortex-editor/src/browser/components/controls/NumericInput.tsx
+  4a12841f473721b1 105-106
+cortex-editor/tests/browser/panel.test.tsx
+  4a12841f473721b1 30
+cortex-editor/tests/browser/label.test.ts
+  4a12841f473721b1 1-162
+cortex-editor/src/browser/override.ts
+  4a12841f473721b1 21-49,61,75,82,88
+cortex-editor/src/browser/components/PanelHeader.tsx
+  4a12841f473721b1 2,42,57
+cortex-editor/src/browser/label.ts
+  4a12841f473721b1 8-9,14-42,49-56
+cortex-editor/tests/browser/override.test.ts
+  4a12841f473721b1 1,6-7,10-14,20-22,182-318
+cortex-editor/tests/browser/panel-header.test.tsx
+  4a12841f473721b1 83-96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.11",
+  "base_commit_sha": "4fd2a276c0c4470d1a70ca5277e2eb3d31eb053d",
+  "prompts": {
+    "43ecff4cfaaa7f90": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "58ace7d8-adcd-4588-acf4-ca72412627f0",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 13,
+      "total_deletions": 7,
+      "accepted_lines": 3,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/157555dfa77eab6c73b7dbdf3fd9430d5d59e936bbc6ad9909d648777ea70631"
+    },
+    "4a12841f473721b1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5d1389c8-435c-400d-99f3-6ff4fb5f0ca4",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 517,
+      "total_deletions": 127,
+      "accepted_lines": 491,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/1c0c3a398f7cb34953e88c5f1ecfcf877ed56c106596a8b00b2310e116908c53"
+    }
+  }
+}
