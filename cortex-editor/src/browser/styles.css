@@ -37,3 +37,353 @@
   top: 100%;
   margin-top: 4px;
 }
+
+/* ── Panel shell ─────────────────────────────── */
+
+.cortex-panel {
+  position: fixed;
+  left: 0;
+  top: 0;
+  will-change: transform;
+  width: 300px;
+  max-height: 460px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.04);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #111827;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.cortex-panel--entering {
+  animation: cortex-slide-in 250ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.cortex-panel--snapping {
+  transition: transform 350ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.cortex-panel--cross-fade {
+  animation: cortex-cross-fade 150ms ease-out;
+}
+
+@keyframes cortex-slide-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes cortex-cross-fade {
+  from { opacity: 0.6; }
+  to   { opacity: 1; }
+}
+
+.cortex-panel__body {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+}
+
+.cortex-panel__body::-webkit-scrollbar {
+  width: 6px;
+}
+.cortex-panel__body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.cortex-panel__body::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+
+/* ── Panel header ────────────────────────────── */
+
+.cortex-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #f3f4f6;
+  cursor: grab;
+  min-height: 44px;
+}
+
+.cortex-panel-header:active {
+  cursor: grabbing;
+}
+
+.cortex-panel-header__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cortex-panel-header__tag {
+  font-size: 13px;
+  font-weight: 600;
+  color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cortex-panel-header__source {
+  font-size: 12px;
+  color: #6b7280;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cortex-panel-header__source:hover {
+  color: #3b82f6;
+  text-decoration: underline;
+}
+
+.cortex-panel-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.cortex-panel-header__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #6b7280;
+  font-size: 14px;
+  padding: 0;
+}
+
+.cortex-panel-header__btn:hover:not(:disabled) {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.cortex-panel-header__btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.cortex-panel-header__btn--close {
+  color: #9ca3af;
+}
+
+/* ── Tab navigation ──────────────────────────── */
+
+.cortex-tab-nav {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border-bottom: 1px solid #f3f4f6;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+
+.cortex-tab-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.cortex-tab {
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  color: #9ca3af;
+  cursor: pointer;
+  white-space: nowrap;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.cortex-tab:hover {
+  color: #6b7280;
+}
+
+.cortex-tab--active {
+  color: #111827;
+  font-weight: 500;
+}
+
+.cortex-tab--active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  background: #3b82f6;
+  border-radius: 1px;
+}
+
+/* ── Numeric input ───────────────────────────── */
+
+.cortex-numeric-input {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  background: #f3f4f6;
+  border-radius: 6px;
+  padding: 0 8px;
+  gap: 4px;
+  cursor: ew-resize;
+  user-select: none;
+}
+
+.cortex-numeric-input--scrubbing {
+  cursor: ew-resize;
+}
+
+.cortex-numeric-input__label {
+  font-size: 12px;
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+
+.cortex-numeric-input__value {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font: 13px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #111827;
+  padding: 0;
+  outline: none;
+  cursor: inherit;
+  -moz-appearance: textfield;
+}
+
+.cortex-numeric-input__value::-webkit-inner-spin-button,
+.cortex-numeric-input__value::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.cortex-numeric-input__value:focus {
+  cursor: text;
+}
+
+.cortex-numeric-input__unit {
+  font-size: 11px;
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+
+/* ── Spacing section ─────────────────────────── */
+
+.cortex-spacing-section {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cortex-spacing-group__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.cortex-section-label {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+}
+
+.cortex-spacing-group__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0;
+  font-size: 14px;
+}
+
+.cortex-spacing-group__toggle:hover {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.cortex-spacing-group__row {
+  display: flex;
+  gap: 6px;
+}
+
+.cortex-spacing-group__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+/* ── Source attribution ──────────────────────── */
+
+.cortex-attribution {
+  font-size: 11px;
+  color: #9ca3af;
+  text-align: right;
+  margin-top: 4px;
+}
+
+.cortex-attribution--clickable {
+  cursor: pointer;
+  color: #6b7280;
+}
+
+.cortex-attribution--clickable:hover {
+  color: #3b82f6;
+  text-decoration: underline;
+}
+
+.cortex-attribution--italic {
+  font-style: italic;
+}
+
+.cortex-attribution--writing {
+  color: #6b7280;
+}
+
+.cortex-attribution--processing {
+  color: #3b82f6;
+}
+
+.cortex-attribution--completed {
+  color: #22c55e;
+  animation: cortex-flash 500ms ease-out;
+}
+
+.cortex-attribution--error {
+  color: #f97316;
+  cursor: help;
+}
+
+@keyframes cortex-flash {
+  from { background: rgba(34, 197, 94, 0.15); }
+  to   { background: transparent; }
+}
