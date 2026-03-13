@@ -49,8 +49,12 @@ export function parseCortexSource(el: HTMLElement): SourceInfo | null {
 /** Encode a file path for use in vscode:// URIs.
  *  encodeURIComponent per segment preserves slashes but encodes #, ?, & etc. */
 export function encodeFilePath(filePath: string): string {
-  return filePath.split(/([/\\])/).map(seg =>
-    seg === '/' || seg === '\\' ? seg : encodeURIComponent(seg),
+  return filePath.split(/([/\\])/).map((seg, i) =>
+    seg === '/' || seg === '\\'
+      ? seg
+      : i === 0 && /^[A-Za-z]:$/.test(seg)
+        ? seg
+        : encodeURIComponent(seg),
   ).join('')
 }
 

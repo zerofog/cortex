@@ -52,12 +52,17 @@ describe('SpacingSection', () => {
     expect(paddingSection).not.toBeNull()
   })
 
-  it('toggles to 4-sided mode', () => {
+  it('toggles to 4-sided mode', async () => {
     setup()
     const toggleBtn = container.querySelector('[data-action="toggle-padding"]') as HTMLButtonElement
     expect(toggleBtn).not.toBeNull()
     toggleBtn.click()
-    // After toggle, should show 4 labels: T, R, B, L
+    await new Promise(r => setTimeout(r, 10))
+    // After toggle, padding section should show 4 labels: T, R, B, L
+    const paddingSection = container.querySelector('[data-section="padding"]')!
+    const labels = paddingSection.querySelectorAll('.cortex-numeric-input__label')
+    const labelTexts = Array.from(labels).map(l => l.textContent)
+    expect(labelTexts).toEqual(['T', 'R', 'B', 'L'])
   })
 
   it('hides gap section when isFlexOrGrid is false', () => {

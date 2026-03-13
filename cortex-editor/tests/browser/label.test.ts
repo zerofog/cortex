@@ -139,6 +139,14 @@ describe('encodeFilePath', () => {
   it('encodes spaces in path segments', () => {
     expect(encodeFilePath('src/My Component/Hero.tsx')).toBe('src/My%20Component/Hero.tsx')
   })
+
+  it('preserves Windows drive letter colon', () => {
+    expect(encodeFilePath('C:\\src\\Hero.tsx')).toBe('C:\\src\\Hero.tsx')
+  })
+
+  it('preserves drive letter with forward slashes', () => {
+    expect(encodeFilePath('C:/src/Hero.tsx')).toBe('C:/src/Hero.tsx')
+  })
 })
 
 describe('getSelectionLabel', () => {

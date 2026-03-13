@@ -25,7 +25,7 @@ export function SourceAttribution({ attribution }: SourceAttributionProps): JSX.
           {attribution.className}
         </a>
       ) : (
-        <span class="cortex-attribution cortex-attribution--clickable">
+        <span class="cortex-attribution">
           {attribution.className}
         </span>
       )
