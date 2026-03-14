@@ -1,0 +1,30 @@
+cortex-editor/tests/core/tailwind-rewriter.test.ts
+  ea21d92925bf8ba2 4,17
+cortex-editor/src/core/edit-pipeline.ts
+  ea21d92925bf8ba2 125
+cortex-editor/tests/core/edit-pipeline.test.ts
+  ea21d92925bf8ba2 442-481
+cortex-editor/tsup.config.ts
+  ea21d92925bf8ba2 3-4,14,24,34,44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "836108b901e54de258505b182ec182b2a95cf8b3",
+  "prompts": {
+    "ea21d92925bf8ba2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e9952fc8-a849-47c6-b62c-99ab16bf3b66",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 52,
+      "total_deletions": 12,
+      "accepted_lines": 49,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/c072f63b94e0e2b0b6c7578036fe567f203bdbf5c1a687914a0f0b8d24c90aa5"
+    }
+  }
+}
