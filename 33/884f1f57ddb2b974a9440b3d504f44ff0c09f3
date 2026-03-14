@@ -1,0 +1,24 @@
+docs/superpowers/plans/2026-03-14-phase-5a-layout-typography.md
+  06462c7e05ca7b0a 1-2246
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "33884f1f57ddb2b974a9440b3d504f44ff0c09f3",
+  "prompts": {
+    "06462c7e05ca7b0a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee528164-e092-453f-b658-5c5a4fe8f65a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 2246,
+      "total_deletions": 0,
+      "accepted_lines": 2246,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/ee984d027ae254c2eb0c6f6f1932b780f9433ec12a436b55b6ea3255b3b908c4"
+    }
+  }
+}
