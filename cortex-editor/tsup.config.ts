@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup'
 
-// All optional peer deps externalized across all configs
-const peerExternals = ['vite', 'next', 'webpack', 'tailwindcss']
+// Externalized packages: optional peer deps + heavy runtime deps (lazy-loaded)
+const externals = ['vite', 'next', 'webpack', 'tailwindcss', 'ts-morph']
 
 export default defineConfig([
   // Server-side: core types + source transform
@@ -11,7 +11,7 @@ export default defineConfig([
     target: 'node20',
     sourcemap: true,
     dts: true,
-    external: peerExternals,
+    external: externals,
   },
   // Vite adapter
   {
@@ -21,7 +21,7 @@ export default defineConfig([
     target: 'node20',
     sourcemap: true,
     dts: true,
-    external: peerExternals,
+    external: externals,
   },
   // Next.js adapter
   {
@@ -31,7 +31,7 @@ export default defineConfig([
     target: 'node20',
     sourcemap: true,
     dts: true,
-    external: peerExternals,
+    external: externals,
   },
   // Next.js webpack loader — CJS only (webpack requires CJS loaders)
   {
@@ -41,7 +41,7 @@ export default defineConfig([
     target: 'node20',
     sourcemap: true,
     dts: true,
-    external: peerExternals,
+    external: externals,
   },
   // Browser-side: Preact UI bundled as IIFE for Shadow DOM injection
   {
