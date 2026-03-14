@@ -563,3 +563,97 @@
   color: #9ca3af;
   text-align: center;
 }
+
+/* ── Layout section ─────────────────────────── */
+
+.cortex-layout-section {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cortex-layout-section__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cortex-layout-section__reveal {
+  transition: max-height 200ms ease-out, opacity 200ms ease-out;
+  overflow: hidden;
+}
+
+.cortex-layout-section__sizing {
+  display: flex;
+  gap: 6px;
+}
+
+/* ── Typography section ─────────────────────── */
+
+.cortex-typography-section {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cortex-typography-section__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cortex-typography-section__row {
+  display: flex;
+  gap: 6px;
+}
+
+.cortex-typography-section__field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cortex-typography-section__inline-label {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+  flex-shrink: 0;
+}
+
+/* ── Color input ────────────────────────────── */
+
+.cortex-color-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cortex-color-input__swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
+}
+
+.cortex-color-input__hex {
+  flex: 1;
+  height: 28px;
+  padding: 0 8px;
+  background: #f3f4f6;
+  border: none;
+  border-radius: 6px;
+  font: 13px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #111827;
+  outline: none;
+}
+
+.cortex-color-input__hex:focus {
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
