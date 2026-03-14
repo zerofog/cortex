@@ -20,6 +20,7 @@ export interface PendingEdit {
 export class HMRVerifier {
   private pending = new Map<string, PendingEdit>()
   private channel: ServerChannel
+  private disposed = false
 
   constructor(channel: ServerChannel) {
     this.channel = channel
@@ -27,12 +28,14 @@ export class HMRVerifier {
 
   /** Register an edit that's waiting for HMR confirmation. */
   trackEdit(edit: PendingEdit): void {
+    if (this.disposed) return
     const key = `${edit.filePath}:${edit.property}`
     this.pending.set(key, edit)
   }
 
   /** Called when HMR fires. Checks if any pending edits match. */
   onHMRUpdate(updatedFiles: string[]): void {
+    if (this.disposed) return
     const fileSet = new Set(updatedFiles)
 
     for (const [key, edit] of this.pending) {
@@ -49,6 +52,8 @@ export class HMRVerifier {
   }
 
   dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
     this.pending.clear()
   }
 }

@@ -68,7 +68,7 @@ describe('EditPipeline', () => {
     const verifier = mockVerifier()
     const writeFile = vi.fn().mockResolvedValue(undefined)
 
-    const pipeline = new EditPipeline({ channel, resolver, rewriter, verifier, writeFile })
+    const pipeline = new EditPipeline({ channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project' })
 
     // Establish baseline value (browser reads initial computed style)
     pipeline.handleEdit({
@@ -112,7 +112,7 @@ describe('EditPipeline', () => {
     const verifier = mockVerifier()
     const writeFile = vi.fn().mockResolvedValue(undefined)
 
-    const pipeline = new EditPipeline({ channel, resolver, rewriter, verifier, writeFile })
+    const pipeline = new EditPipeline({ channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project' })
 
     pipeline.handleEdit({
       editId: 'edit-1',
@@ -147,7 +147,7 @@ describe('EditPipeline', () => {
     const verifier = mockVerifier()
     const writeFile = vi.fn().mockResolvedValue(undefined)
 
-    const pipeline = new EditPipeline({ channel, resolver, rewriter, verifier, writeFile })
+    const pipeline = new EditPipeline({ channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project' })
 
     pipeline.handleEdit({
       editId: 'edit-1',
@@ -179,7 +179,7 @@ describe('EditPipeline', () => {
     const verifier = mockVerifier()
     const writeFile = vi.fn().mockResolvedValue(undefined)
 
-    const pipeline = new EditPipeline({ channel, resolver, rewriter, verifier, writeFile })
+    const pipeline = new EditPipeline({ channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project' })
 
     // Establish baseline
     pipeline.handleEdit({
@@ -220,7 +220,7 @@ describe('EditPipeline', () => {
     const verifier = mockVerifier()
     const writeFile = vi.fn().mockResolvedValue(undefined)
 
-    const pipeline = new EditPipeline({ channel, resolver, rewriter, verifier, writeFile })
+    const pipeline = new EditPipeline({ channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project' })
 
     // Establish baseline
     pipeline.handleEdit({
@@ -258,7 +258,7 @@ describe('EditPipeline', () => {
     const verifier = mockVerifier()
     const writeFile = vi.fn()
 
-    const pipeline = new EditPipeline({ channel, resolver, rewriter, verifier, writeFile })
+    const pipeline = new EditPipeline({ channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project' })
 
     // Establish baseline
     pipeline.handleEdit({
@@ -289,5 +289,91 @@ describe('EditPipeline', () => {
       m => m.type === 'edit_status' && (m as { status: string }).status === 'failed'
     )
     expect(failedStatus).toBeDefined()
+  })
+
+  it('rejects file paths outside project root', async () => {
+    const channel = mockChannel()
+    const resolver = mockResolver({
+      'padding-top': { '8px': 'pt-2', '16px': 'pt-4' },
+    })
+    const rewriter = mockRewriter()
+    const verifier = mockVerifier()
+    const writeFile = vi.fn()
+
+    const pipeline = new EditPipeline({ channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project' })
+
+    // Establish baseline with legitimate path
+    pipeline.handleEdit({
+      editId: 'edit-0',
+      source: '/etc/passwd:2:10',
+      property: 'padding-top',
+      value: '8px',
+      elementSelector: 'div',
+    })
+    vi.advanceTimersByTime(400)
+    await vi.runAllTimersAsync()
+    channel.sent.length = 0
+
+    pipeline.handleEdit({
+      editId: 'edit-1',
+      source: '/etc/passwd:2:10',
+      property: 'padding-top',
+      value: '16px',
+      elementSelector: 'div',
+    })
+
+    vi.advanceTimersByTime(400)
+    await vi.runAllTimersAsync()
+
+    expect(writeFile).not.toHaveBeenCalled()
+    expect(rewriter.calls).toHaveLength(0)
+
+    const failedStatus = channel.sent.find(
+      m => m.type === 'edit_status' && (m as { status: string }).status === 'failed'
+    )
+    expect(failedStatus).toBeDefined()
+    expect((failedStatus as { reason: string }).reason).toBe('File path outside project root')
+  })
+
+  it('rejects path traversal attempts', async () => {
+    const channel = mockChannel()
+    const resolver = mockResolver({
+      'padding-top': { '8px': 'pt-2', '16px': 'pt-4' },
+    })
+    const rewriter = mockRewriter()
+    const verifier = mockVerifier()
+    const writeFile = vi.fn()
+
+    const pipeline = new EditPipeline({ channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project' })
+
+    pipeline.handleEdit({
+      editId: 'edit-0',
+      source: '/project/../etc/passwd:2:10',
+      property: 'padding-top',
+      value: '8px',
+      elementSelector: 'div',
+    })
+    vi.advanceTimersByTime(400)
+    await vi.runAllTimersAsync()
+    channel.sent.length = 0
+
+    pipeline.handleEdit({
+      editId: 'edit-1',
+      source: '/project/../etc/passwd:2:10',
+      property: 'padding-top',
+      value: '16px',
+      elementSelector: 'div',
+    })
+
+    vi.advanceTimersByTime(400)
+    await vi.runAllTimersAsync()
+
+    expect(writeFile).not.toHaveBeenCalled()
+
+    const failedStatus = channel.sent.find(
+      m => m.type === 'edit_status' && (m as { status: string }).status === 'failed'
+    )
+    expect(failedStatus).toBeDefined()
+    expect((failedStatus as { reason: string }).reason).toBe('File path outside project root')
   })
 })

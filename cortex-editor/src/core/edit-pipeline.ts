@@ -1,3 +1,4 @@
+import { resolve } from 'path'
 import type { ServerChannel } from '../adapters/types.js'
 import type { TailwindResolver } from './tailwind-resolver.js'
 import type { TailwindRewriter } from './rewriter/tailwind.js'
@@ -22,6 +23,8 @@ export interface EditPipelineOptions {
   verifier: HMRVerifier
   /** Injected for testability. Default: fs.writeFile */
   writeFile: (path: string, content: string) => Promise<void>
+  /** Absolute path to project root. File writes are scoped to this directory. */
+  projectRoot: string
   /** Debounce delay in ms. Default: 400 */
   debounceMs?: number
 }
@@ -44,7 +47,9 @@ export class EditPipeline {
   private readonly rewriter: TailwindRewriter
   private readonly verifier: HMRVerifier
   private readonly writeFile: (path: string, content: string) => Promise<void>
+  private readonly projectRoot: string
   private readonly debounceMs: number
+  private disposed = false
 
   constructor(options: EditPipelineOptions) {
     this.channel = options.channel
@@ -52,10 +57,13 @@ export class EditPipeline {
     this.rewriter = options.rewriter
     this.verifier = options.verifier
     this.writeFile = options.writeFile
+    this.projectRoot = resolve(options.projectRoot)
     this.debounceMs = options.debounceMs ?? 400
   }
 
   handleEdit(edit: EditRequest): void {
+    if (this.disposed) return
+
     const debounceKey = `${edit.source}:${edit.property}`
 
     const existing = this.debounceTimers.get(debounceKey)
@@ -82,13 +90,32 @@ export class EditPipeline {
   }
 
   private async executeEdit(edit: EditRequest, previousValue: string | undefined): Promise<void> {
-    const [filePath, lineStr, colStr] = edit.source.split(':')
-    if (!filePath || !lineStr || !colStr) {
+    // Parse source as "filePath:line:col" — parse from right to handle
+    // Windows drive letters (e.g. "C:\Users\foo\App.tsx:2:10")
+    const lastColon = edit.source.lastIndexOf(':')
+    const secondLastColon = edit.source.lastIndexOf(':', lastColon - 1)
+    if (lastColon === -1 || secondLastColon === -1 || secondLastColon === 0) {
       this.channel.send({
         type: 'edit_status',
         editId: edit.editId,
         status: 'failed',
         reason: `Invalid source format: ${edit.source}`,
+      })
+      return
+    }
+
+    const filePath = edit.source.slice(0, secondLastColon)
+    const lineStr = edit.source.slice(secondLastColon + 1, lastColon)
+    const colStr = edit.source.slice(lastColon + 1)
+
+    // Prevent path traversal — resolved file must be within project root
+    const resolvedPath = resolve(filePath)
+    if (!resolvedPath.startsWith(this.projectRoot)) {
+      this.channel.send({
+        type: 'edit_status',
+        editId: edit.editId,
+        status: 'failed',
+        reason: 'File path outside project root',
       })
       return
     }
@@ -109,7 +136,7 @@ export class EditPipeline {
     }
 
     const result = await this.rewriter.rewrite({
-      filePath,
+      filePath: resolvedPath,
       line: parseInt(lineStr, 10),
       col: parseInt(colStr, 10),
       property: edit.property,
@@ -127,11 +154,11 @@ export class EditPipeline {
       return
     }
 
-    await this.writeFile(filePath, result.newContent)
+    await this.writeFile(resolvedPath, result.newContent)
 
     this.verifier.trackEdit({
       editId: edit.editId,
-      filePath,
+      filePath: resolvedPath,
       expectedValue: edit.value,
       property: edit.property,
     })
@@ -145,6 +172,8 @@ export class EditPipeline {
   }
 
   dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
     for (const timer of this.debounceTimers.values()) {
       clearTimeout(timer)
     }

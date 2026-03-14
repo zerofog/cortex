@@ -1,6 +1,16 @@
-import { Project, SyntaxKind, type SourceFile, type JsxOpeningElement, type JsxSelfClosingElement, type Node } from 'ts-morph'
+import type { Project, SourceFile, JsxOpeningElement, JsxSelfClosingElement, Node, SyntaxKind as SyntaxKindEnum } from 'ts-morph'
 import { readFile } from 'fs/promises'
 import type { RewriteRequest, RewriteResult } from './types.js'
+
+/** Lazily loaded ts-morph exports. Cold path — only loaded on first rewrite (~200ms). */
+let _tsMorph: typeof import('ts-morph') | null = null
+
+async function ensureTsMorph(): Promise<typeof import('ts-morph')> {
+  if (!_tsMorph) {
+    _tsMorph = await import('ts-morph')
+  }
+  return _tsMorph
+}
 
 /**
  * Rewrites Tailwind className tokens in JSX source files using ts-morph.
@@ -14,16 +24,19 @@ import type { RewriteRequest, RewriteResult } from './types.js'
  */
 export class TailwindRewriter {
   private project: Project | null = null
+  private SK: typeof SyntaxKindEnum | null = null
 
-  private getProject(): Project {
-    if (!this.project) {
-      this.project = new Project({
+  private async ensureReady(): Promise<{ project: Project; SK: typeof SyntaxKindEnum }> {
+    if (!this.project || !this.SK) {
+      const mod = await ensureTsMorph()
+      this.SK = mod.SyntaxKind
+      this.project = new mod.Project({
         useInMemoryFileSystem: false,
         compilerOptions: { jsx: 4 /* JsxEmit.ReactJSX */, allowJs: true },
         skipAddingFilesFromTsConfig: true,
       })
     }
-    return this.project
+    return { project: this.project, SK: this.SK }
   }
 
   async rewrite(request: RewriteRequest): Promise<RewriteResult> {
@@ -36,7 +49,7 @@ export class TailwindRewriter {
       return { success: false, filePath, reason: `Cannot read file: ${err instanceof Error ? err.message : err}` }
     }
 
-    const project = this.getProject()
+    const { project, SK } = await this.ensureReady()
 
     let sourceFile: SourceFile
     const existing = project.getSourceFile(filePath)
@@ -47,13 +60,13 @@ export class TailwindRewriter {
       sourceFile = project.createSourceFile(filePath, oldContent, { overwrite: true })
     }
 
-    const jsxElement = this.findJsxElementAt(sourceFile, line, col)
+    const jsxElement = this.findJsxElementAt(sourceFile, line, col, SK)
     if (!jsxElement) {
       return { success: false, filePath, reason: `No JSX element found at ${line}:${col}` }
     }
 
     const classAttrRaw = jsxElement.getAttribute('className') ?? jsxElement.getAttribute('class')
-    const classAttr = classAttrRaw?.asKind(SyntaxKind.JsxAttribute)
+    const classAttr = classAttrRaw?.asKind(SK.JsxAttribute)
     if (!classAttr) {
       return { success: false, filePath, reason: 'No className attribute found on element' }
     }
@@ -65,27 +78,27 @@ export class TailwindRewriter {
 
     const kind = initializer.getKind()
 
-    if (kind === SyntaxKind.StringLiteral) {
-      return this.rewriteStringLiteral(initializer, oldToken, newToken, filePath, oldContent, sourceFile)
+    if (kind === SK.StringLiteral) {
+      return this.rewriteStringLiteral(initializer, oldToken, newToken, filePath, oldContent, sourceFile, SK)
     }
 
-    if (kind === SyntaxKind.JsxExpression) {
-      const expression = initializer.asKind(SyntaxKind.JsxExpression)?.getExpression()
+    if (kind === SK.JsxExpression) {
+      const expression = initializer.asKind(SK.JsxExpression)?.getExpression()
       if (!expression) {
         return { success: false, filePath, reason: 'Empty JSX expression in className' }
       }
 
       const exprKind = expression.getKind()
 
-      if (exprKind === SyntaxKind.ConditionalExpression) {
-        return this.rewriteTernary(expression, oldToken, newToken, filePath, oldContent, sourceFile)
+      if (exprKind === SK.ConditionalExpression) {
+        return this.rewriteTernary(expression, oldToken, newToken, filePath, oldContent, sourceFile, SK)
       }
 
-      if (exprKind === SyntaxKind.CallExpression) {
-        return this.rewriteCallExpression(expression, oldToken, newToken, filePath, oldContent, sourceFile)
+      if (exprKind === SK.CallExpression) {
+        return this.rewriteCallExpression(expression, oldToken, newToken, filePath, oldContent, sourceFile, SK)
       }
 
-      if (exprKind === SyntaxKind.TemplateExpression || exprKind === SyntaxKind.NoSubstitutionTemplateLiteral) {
+      if (exprKind === SK.TemplateExpression || exprKind === SK.NoSubstitutionTemplateLiteral) {
         return { success: false, filePath, reason: 'Template literal in className — route to AI' }
       }
 
@@ -99,12 +112,13 @@ export class TailwindRewriter {
     sourceFile: SourceFile,
     line: number,
     col: number,
+    SK: typeof SyntaxKindEnum,
   ): JsxOpeningElement | JsxSelfClosingElement | null {
     const pos = sourceFile.compilerNode.getPositionOfLineAndCharacter(line - 1, col - 1)
 
     const jsxElements = [
-      ...sourceFile.getDescendantsOfKind(SyntaxKind.JsxOpeningElement),
-      ...sourceFile.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement),
+      ...sourceFile.getDescendantsOfKind(SK.JsxOpeningElement),
+      ...sourceFile.getDescendantsOfKind(SK.JsxSelfClosingElement),
     ]
 
     let best: JsxOpeningElement | JsxSelfClosingElement | null = null
@@ -132,8 +146,9 @@ export class TailwindRewriter {
     filePath: string,
     oldContent: string,
     sourceFile: SourceFile,
+    SK: typeof SyntaxKindEnum,
   ): RewriteResult {
-    const literal = node.asKind(SyntaxKind.StringLiteral)
+    const literal = node.asKind(SK.StringLiteral)
     if (!literal) {
       return { success: false, filePath, reason: 'Expected string literal' }
     }
@@ -157,8 +172,9 @@ export class TailwindRewriter {
     filePath: string,
     oldContent: string,
     sourceFile: SourceFile,
+    SK: typeof SyntaxKindEnum,
   ): RewriteResult {
-    const conditional = expression.asKind(SyntaxKind.ConditionalExpression)
+    const conditional = expression.asKind(SK.ConditionalExpression)
     if (!conditional) {
       return { success: false, filePath, reason: 'Expected conditional expression' }
     }
@@ -167,7 +183,7 @@ export class TailwindRewriter {
     const whenFalse = conditional.getWhenFalse()
 
     for (const branch of [whenTrue, whenFalse]) {
-      const literal = branch.asKind(SyntaxKind.StringLiteral)
+      const literal = branch.asKind(SK.StringLiteral)
       if (!literal) continue
 
       const text = literal.getLiteralText()
@@ -190,8 +206,9 @@ export class TailwindRewriter {
     filePath: string,
     oldContent: string,
     sourceFile: SourceFile,
+    SK: typeof SyntaxKindEnum,
   ): RewriteResult {
-    const call = expression.asKind(SyntaxKind.CallExpression)
+    const call = expression.asKind(SK.CallExpression)
     if (!call) {
       return { success: false, filePath, reason: 'Expected call expression' }
     }
@@ -202,11 +219,11 @@ export class TailwindRewriter {
     }
 
     for (const arg of call.getArguments()) {
-      if (arg.getKind() === SyntaxKind.ObjectLiteralExpression) {
+      if (arg.getKind() === SK.ObjectLiteralExpression) {
         return { success: false, filePath, reason: 'Conditional object in className call — route to AI' }
       }
 
-      const literal = arg.asKind(SyntaxKind.StringLiteral)
+      const literal = arg.asKind(SK.StringLiteral)
       if (!literal) continue
 
       const text = literal.getLiteralText()
@@ -236,5 +253,6 @@ export class TailwindRewriter {
 
   dispose(): void {
     this.project = null
+    this.SK = null
   }
 }

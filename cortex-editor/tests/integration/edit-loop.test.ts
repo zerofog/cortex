@@ -57,6 +57,7 @@ describe('Edit loop integration', () => {
         rewriter,
         verifier,
         writeFile: (path, content) => fsWriteFile(path, content, 'utf-8'),
+        projectRoot: tempDir,
         debounceMs: 50, // Short debounce for test speed
       })
 
