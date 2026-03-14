@@ -80,6 +80,7 @@ export class TailwindResolver {
    */
   static async fromConfig(projectRoot: string): Promise<TailwindResolver | null> {
     try {
+      // @ts-expect-error — tailwindcss is an optional peer dep; import fails gracefully at runtime
       const { default: resolveConfig } = await import('tailwindcss/resolveConfig')
       const config = await TailwindResolver.loadConfig(projectRoot)
       if (!config) return null
