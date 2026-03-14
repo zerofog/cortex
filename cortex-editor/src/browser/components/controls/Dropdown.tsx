@@ -33,19 +33,25 @@ export function Dropdown({
     ? options.filter((o) => o.label.toLowerCase().includes(filter.toLowerCase()))
     : options
 
-  // Position popover when opened
+  // Position popover when opened — only on open, not on filter changes
   useEffect(() => {
     if (!isOpen || !triggerRef.current || !popoverRef.current) return
-    computePosition(triggerRef.current, popoverRef.current, {
+    let cancelled = false
+    const trigger = triggerRef.current
+    const popover = popoverRef.current
+    // Set popover width to match trigger (position:fixed ignores relative parent)
+    popover.style.width = `${trigger.offsetWidth}px`
+    computePosition(trigger, popover, {
       placement: 'bottom-start',
       middleware: [flip(), shift()],
     }).then(({ x, y }) => {
-      if (popoverRef.current) {
+      if (!cancelled && popoverRef.current) {
         popoverRef.current.style.left = `${x}px`
         popoverRef.current.style.top = `${y}px`
       }
     })
-  }, [isOpen, filter])
+    return () => { cancelled = true }
+  }, [isOpen])
 
   // Focus filter input when opened
   useEffect(() => {
@@ -104,6 +110,9 @@ export function Dropdown({
       <button
         ref={triggerRef}
         class="cortex-dropdown__trigger"
+        role="combobox"
+        aria-expanded={isOpen ? 'true' : 'false'}
+        aria-haspopup="listbox"
         onClick={isOpen ? close : open}
       >
         <span class="cortex-dropdown__value">
@@ -130,7 +139,7 @@ export function Dropdown({
               onKeyDown={handleKeyDown}
               placeholder="Filter..."
             />
-            <div class="cortex-dropdown__list">
+            <div class="cortex-dropdown__list" role="listbox">
               {filtered.length === 0 ? (
                 <div class="cortex-dropdown__empty">No matches</div>
               ) : (
@@ -144,6 +153,8 @@ export function Dropdown({
                     ]
                       .filter(Boolean)
                       .join(' ')}
+                    role="option"
+                    aria-selected={opt.value === value ? 'true' : 'false'}
                     onClick={() => select(opt.value)}
                   >
                     {opt.label}

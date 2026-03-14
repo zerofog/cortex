@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useState, useCallback } from 'preact/hooks'
+import { useState, useCallback, useMemo } from 'preact/hooks'
 import { SegmentedControl } from '../controls/SegmentedControl.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { Dropdown } from '../controls/Dropdown.js'
@@ -119,37 +119,39 @@ export function TypographySection({
   onScrubEnd,
 }: TypographySectionProps): JSX.Element {
   const hexColor = rgbToHex(values.color) ?? values.color
-  const [localHex, setLocalHex] = useState(hexColor)
-  const [isEditingHex, setIsEditingHex] = useState(false)
+  // Nullable editing state: null = not editing (show computed hexColor), string = user's input
+  const [editingHex, setEditingHex] = useState<string | null>(null)
+  const displayedHex = editingHex !== null ? editingHex : hexColor
 
-  // Sync localHex from computed value when not editing
-  if (!isEditingHex && localHex !== hexColor) {
-    setLocalHex(hexColor)
-  }
-
-  // Build font options — always include current font
+  // Build font options — always include current font (memoized to avoid re-creating on every render)
   const currentFontClean = values.fontFamily.replace(/^["']|["']$/g, '').split(',')[0]?.trim() ?? ''
-  const fontOptions = (() => {
+  const fontOptions = useMemo(() => {
     const fonts = new Set(availableFonts)
     fonts.add(currentFontClean)
     return [...fonts].sort().map((f) => ({ value: f, label: f }))
-  })()
+  }, [availableFonts, currentFontClean])
 
-  const weightOptions = availableWeights.map((w) => ({
-    value: w,
-    label: WEIGHT_LABELS[w] ?? w,
-  }))
-
-  // Always include current weight
-  if (!availableWeights.includes(values.fontWeight)) {
-    weightOptions.push({
-      value: values.fontWeight,
-      label: WEIGHT_LABELS[values.fontWeight] ?? values.fontWeight,
-    })
-  }
+  const weightOptions = useMemo(() => {
+    const opts = availableWeights.map((w) => ({
+      value: w,
+      label: WEIGHT_LABELS[w] ?? w,
+    }))
+    // Always include current weight
+    if (!availableWeights.includes(values.fontWeight)) {
+      opts.push({
+        value: values.fontWeight,
+        label: WEIGHT_LABELS[values.fontWeight] ?? values.fontWeight,
+      })
+    }
+    return opts
+  }, [availableWeights, values.fontWeight])
 
   const handleFontChange = useCallback(
-    (v: string) => onChange({ property: 'font-family', value: v }),
+    (v: string) => {
+      // Quote multi-word font families — `font-family: Open Sans` is invalid CSS
+      const quoted = v.includes(' ') && !v.startsWith('"') ? `"${v}"` : v
+      onChange({ property: 'font-family', value: quoted })
+    },
     [onChange],
   )
   const handleWeightChange = useCallback(
@@ -200,21 +202,19 @@ export function TypographySection({
   )
 
   const handleHexInput = useCallback((e: Event) => {
-    setLocalHex((e.target as HTMLInputElement).value)
+    setEditingHex((e.target as HTMLInputElement).value)
   }, [])
 
   const handleHexFocus = useCallback(() => {
-    setIsEditingHex(true)
-  }, [])
+    setEditingHex(hexColor)
+  }, [hexColor])
 
   const handleHexBlur = useCallback(() => {
-    setIsEditingHex(false)
-    if (HEX_REGEX.test(localHex)) {
-      onChange({ property: 'color', value: localHex })
-    } else {
-      setLocalHex(hexColor)
+    if (editingHex !== null && HEX_REGEX.test(editingHex)) {
+      onChange({ property: 'color', value: editingHex })
     }
-  }, [localHex, hexColor, onChange])
+    setEditingHex(null)
+  }, [editingHex, onChange])
 
   return (
     <div class="cortex-typography-section" data-section-id="type">
@@ -292,7 +292,7 @@ export function TypographySection({
           <input
             class="cortex-color-input__hex"
             type="text"
-            value={localHex}
+            value={displayedHex}
             onInput={handleHexInput}
             onFocus={handleHexFocus}
             onBlur={handleHexBlur}

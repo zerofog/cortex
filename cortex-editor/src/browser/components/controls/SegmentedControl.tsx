@@ -29,7 +29,7 @@ export function SegmentedControl({
     const indicator = indicatorRef.current
     if (!track || !indicator) return
 
-    const activeBtn = track.querySelector(`[data-value="${value}"]`) as HTMLElement | null
+    const activeBtn = track.querySelector(`[data-value="${CSS.escape(value)}"]`) as HTMLElement | null
     if (activeBtn) {
       indicator.style.transform = `translateX(${activeBtn.offsetLeft}px)`
       indicator.style.width = `${activeBtn.offsetWidth}px`

@@ -48,7 +48,7 @@ export function Panel({
   onSelectElement,
 }: PanelProps): JSX.Element | null {
   // ALL hooks first — no conditional returns before hooks
-  const [activeTab, setActiveTab] = useState('spacing')
+  const [activeTab, setActiveTab] = useState('layout')
   const [contentKey, setContentKey] = useState(0)
   const [isEntering, setIsEntering] = useState(true)
   const [isCrossFading, setIsCrossFading] = useState(false)
@@ -210,7 +210,7 @@ export function Panel({
   const handleTabClick = useCallback((tabId: string) => {
     scrollingRef.current = true
     setActiveTab(tabId)
-    const section = bodyRef.current?.querySelector(`[data-section-id="${tabId}"]`)
+    const section = bodyRef.current?.querySelector(`[data-section-id="${CSS.escape(tabId)}"]`)
     section?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     // Re-enable observer after smooth scroll settles
     setTimeout(() => { scrollingRef.current = false }, 500)
