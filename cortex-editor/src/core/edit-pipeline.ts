@@ -78,7 +78,7 @@ export class EditPipeline {
       setTimeout(() => {
         this.debounceTimers.delete(debounceKey)
         this.executeEdit(edit, previousValue).catch(err => {
-          console.warn('[cortex] Edit pipeline error:', err instanceof Error ? err.message : err)
+          console.error('[cortex] Edit pipeline error for editId=%s source=%s:', edit.editId, edit.source, err)
           this.channel.send({
             type: 'edit_status',
             editId: edit.editId,
@@ -133,8 +133,6 @@ export class EditPipeline {
       return
     }
 
-    this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
-
     const newToken = this.resolver.findClass(edit.property, edit.value)
     const oldToken = previousValue ? this.resolver.findClass(edit.property, previousValue) : null
 
@@ -147,6 +145,9 @@ export class EditPipeline {
       })
       return
     }
+
+    // Signal writing only after all validation passes
+    this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
 
     // Serialize rewrite + write per file to prevent concurrent TOCTOU races
     await this.withFileLock(resolvedPath, async () => {

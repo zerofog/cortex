@@ -66,6 +66,12 @@ export class HMRVerifier {
     const now = Date.now()
     for (const [key, entry] of this.pending) {
       if (now - entry.timestamp > PENDING_TTL_MS) {
+        this.channel.send({
+          type: 'hmr_verified',
+          editId: entry.editId,
+          match: false,
+          expected: entry.expectedValue,
+        })
         this.pending.delete(key)
       }
     }

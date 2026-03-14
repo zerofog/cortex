@@ -124,7 +124,7 @@ describe('HMRVerifier', () => {
       // Advance past TTL
       vi.advanceTimersByTime(31_000)
 
-      // New trackEdit triggers eviction of stale entries
+      // New trackEdit triggers eviction of stale entries (sends match: false)
       v.trackEdit({
         editId: 'edit-new',
         filePath: 'src/Page.tsx',
@@ -132,14 +132,23 @@ describe('HMRVerifier', () => {
         property: 'margin-top',
       })
 
+      // Eviction should have sent match: false for the stale entry
+      expect(ch.sent).toHaveLength(1)
+      expect(ch.sent[0]).toEqual({
+        type: 'hmr_verified',
+        editId: 'edit-old',
+        match: false,
+        expected: '16px',
+      })
+
       // HMR for stale file — should NOT match (was evicted)
       v.onHMRUpdate(['src/App.tsx'])
-      expect(ch.sent).toHaveLength(0)
+      expect(ch.sent).toHaveLength(1) // no new message
 
       // HMR for fresh file — should match
       v.onHMRUpdate(['src/Page.tsx'])
-      expect(ch.sent).toHaveLength(1)
-      expect((ch.sent[0] as { editId: string }).editId).toBe('edit-new')
+      expect(ch.sent).toHaveLength(2)
+      expect((ch.sent[1] as { editId: string }).editId).toBe('edit-new')
 
       v.dispose()
     })

@@ -69,7 +69,15 @@ export class TailwindRewriter {
       return { success: false, filePath, reason: `Cannot read file: ${err instanceof Error ? err.message : err}` }
     }
 
-    const { project, SK } = await this.ensureReady()
+    let project: Project
+    let SK: typeof SyntaxKindEnum
+    try {
+      const ready = await this.ensureReady()
+      project = ready.project
+      SK = ready.SK
+    } catch (err) {
+      return { success: false, filePath, reason: `Rewriter init failed: ${err instanceof Error ? err.message : err}` }
+    }
 
     let sourceFile: SourceFile
     const existing = project.getSourceFile(filePath)
@@ -134,7 +142,12 @@ export class TailwindRewriter {
     col: number,
     SK: typeof SyntaxKindEnum,
   ): JsxOpeningElement | JsxSelfClosingElement | null {
-    const pos = sourceFile.compilerNode.getPositionOfLineAndCharacter(line - 1, col - 1)
+    let pos: number
+    try {
+      pos = sourceFile.compilerNode.getPositionOfLineAndCharacter(line - 1, col - 1)
+    } catch {
+      return null
+    }
 
     const jsxElements = [
       ...sourceFile.getDescendantsOfKind(SK.JsxOpeningElement),

@@ -79,16 +79,27 @@ export class TailwindResolver {
    * Returns null if tailwindcss is not installed.
    */
   static async fromConfig(projectRoot: string): Promise<TailwindResolver | null> {
+    const { isAbsolute } = await import('path')
+    if (!isAbsolute(projectRoot)) {
+      throw new Error(`projectRoot must be an absolute path, got: ${projectRoot}`)
+    }
+
+    let resolveConfig: (config: unknown) => { theme?: ResolvedTheme }
     try {
       // @ts-expect-error — tailwindcss is an optional peer dep; import fails gracefully at runtime
-      const { default: resolveConfig } = await import('tailwindcss/resolveConfig')
-      const config = await TailwindResolver.loadConfig(projectRoot)
-      if (!config) return null
-      const resolved = resolveConfig(config)
-      return TailwindResolver.fromTheme(resolved.theme ?? {})
-    } catch {
-      return null
+      const mod = await import('tailwindcss/resolveConfig')
+      resolveConfig = mod.default
+    } catch (err: unknown) {
+      if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === 'ERR_MODULE_NOT_FOUND') {
+        return null // tailwindcss not installed — expected
+      }
+      throw err
     }
+
+    const config = await TailwindResolver.loadConfig(projectRoot)
+    if (!config) return null
+    const resolved = resolveConfig(config)
+    return TailwindResolver.fromTheme(resolved.theme ?? {})
   }
 
   private static async loadConfig(projectRoot: string): Promise<Record<string, unknown> | null> {
@@ -106,8 +117,11 @@ export class TailwindResolver {
         const configPath = join(projectRoot, name)
         const mod = await import(configPath)
         return mod.default ?? mod
-      } catch {
-        continue
+      } catch (err: unknown) {
+        if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === 'ERR_MODULE_NOT_FOUND') {
+          continue // file doesn't exist, try next
+        }
+        throw err // file exists but is broken — surface the error
       }
     }
     return null
