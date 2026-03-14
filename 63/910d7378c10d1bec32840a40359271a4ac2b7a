@@ -1,0 +1,30 @@
+cortex-editor/src/browser/components/controls/SegmentedControl.tsx
+  06462c7e05ca7b0a 32
+cortex-editor/src/browser/components/controls/Dropdown.tsx
+  06462c7e05ca7b0a 36,39-44,48,53-54,113-115,142,156-157
+cortex-editor/src/browser/components/sections/TypographySection.tsx
+  06462c7e05ca7b0a 2,122-124,126,128,132,134-135,141,146-147,150-154,205,209-210,213-214,216-217,295
+cortex-editor/src/browser/components/Panel.tsx
+  06462c7e05ca7b0a 51,213
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "63910d7378c10d1bec32840a40359271a4ac2b7a",
+  "prompts": {
+    "06462c7e05ca7b0a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee528164-e092-453f-b658-5c5a4fe8f65a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 58,
+      "total_deletions": 48,
+      "accepted_lines": 44,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/9f8da4f7c924a28f596ad247446d95a0b240fa395074f165a8c04b7aaf1d4031"
+    }
+  }
+}
