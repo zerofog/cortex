@@ -1,0 +1,28 @@
+cortex-editor/src/browser/styles.css
+  06462c7e05ca7b0a 390-452
+cortex-editor/src/browser/components/controls/SegmentedControl.tsx
+  06462c7e05ca7b0a 1-92
+cortex-editor/tests/browser/controls/segmented-control.test.tsx
+  06462c7e05ca7b0a 1-129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "27bb9db0567ac06024ec09aa1c8f39ce160feb6e",
+  "prompts": {
+    "06462c7e05ca7b0a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee528164-e092-453f-b658-5c5a4fe8f65a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 284,
+      "total_deletions": 0,
+      "accepted_lines": 284,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/d3fc266ea32fbc743bf776162aeba765c27f0c76ed6c23f57131e968617469fa"
+    }
+  }
+}
