@@ -579,7 +579,6 @@
 }
 
 .cortex-layout-section__reveal {
-  transition: max-height 200ms ease-out, opacity 200ms ease-out;
   overflow: hidden;
 }
 

@@ -25,10 +25,18 @@ export interface LayoutSectionProps {
   onScrubEnd?: (change: LayoutChange) => void
 }
 
+/** Normalize computed display values to SegmentedControl options. */
+function normalizeDisplay(display: string): string {
+  if (display === 'inline-flex') return 'flex'
+  if (display === 'inline-grid') return 'grid'
+  if (display === 'inline-block') return 'inline'
+  return display
+}
+
 /** Extract layout-related values from a CSSStyleDeclaration. */
 export function parseLayoutValues(cs: CSSStyleDeclaration): LayoutValues {
   return {
-    display: cs.display ?? 'block',
+    display: normalizeDisplay(cs.display ?? 'block'),
     visibility: cs.visibility ?? 'visible',
     flexDirection: cs.flexDirection ?? 'row',
     justifyContent: cs.justifyContent ?? 'flex-start',

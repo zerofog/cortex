@@ -144,17 +144,16 @@ export function Panel({
     }
   }, [element, styleVersion])
 
-  // Derive isFlexOrGrid from layout display (avoids duplicating check)
+  // Derive isFlexOrGrid from normalized layout display
   const layoutDisplay = computedStyles.layout.display
-  const isFlexOrGrid = layoutDisplay === 'flex' || layoutDisplay === 'inline-flex'
-    || layoutDisplay === 'grid' || layoutDisplay === 'inline-grid'
+  const isFlexOrGrid = layoutDisplay === 'flex' || layoutDisplay === 'grid'
 
   // Font detection — fonts don't change mid-session, scan once
   const availableFonts = useMemo(() => getAvailableFonts(), [])
   const availableWeights = useMemo(
     () => {
       const family = computedStyles.typography.fontFamily ?? ''
-      return getWeightsForFamily(stripCSSQuotes(family).split(',')[0]?.trim() ?? '')
+      return getWeightsForFamily(stripCSSQuotes(family.split(',')[0]?.trim() ?? ''))
     },
     [computedStyles.typography.fontFamily],
   )
