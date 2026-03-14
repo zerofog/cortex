@@ -159,40 +159,28 @@ export function Panel({
     [computedStyles.typography.fontFamily],
   )
 
-  // M1+H-callbacks: Single helper for all spacing overrides
-  const applySpacingOverride = useCallback((change: SpacingChange, commitRender: boolean) => {
+  // Shared override application — warns if element lacks source attribution
+  const applyOverride = useCallback((property: string, value: string, commitRender: boolean) => {
     if (!element) return
     const source = element.getAttribute('data-cortex-source')
-    if (source) {
-      overrideManager.set(source, change.property, `${change.value}px`)
-      if (commitRender) {
-        // Flush pending RAF so getComputedStyle reads the updated <style> tag
-        overrideManager.flush()
-        setStyleVersion(v => v + 1)
-      }
+    if (!source) {
+      console.warn('[cortex] Cannot apply override: element missing data-cortex-source')
+      return
+    }
+    overrideManager.set(source, property, value)
+    if (commitRender) {
+      overrideManager.flush()
+      setStyleVersion(v => v + 1)
     }
   }, [element, overrideManager])
 
-  const handleSpacingCommit = useCallback((c: SpacingChange) => applySpacingOverride(c, true), [applySpacingOverride])
-  const handleScrub = useCallback((c: SpacingChange) => applySpacingOverride(c, false), [applySpacingOverride])
+  const handleSpacingCommit = useCallback((c: SpacingChange) => applyOverride(c.property, `${c.value}px`, true), [applyOverride])
+  const handleScrub = useCallback((c: SpacingChange) => applyOverride(c.property, `${c.value}px`, false), [applyOverride])
 
-  // Layout + Typography overrides — same pattern as spacing
-  const applyGenericOverride = useCallback((change: LayoutChange | TypographyChange, commitRender: boolean) => {
-    if (!element) return
-    const source = element.getAttribute('data-cortex-source')
-    if (source) {
-      overrideManager.set(source, change.property, change.value)
-      if (commitRender) {
-        overrideManager.flush()
-        setStyleVersion(v => v + 1)
-      }
-    }
-  }, [element, overrideManager])
-
-  const handleLayoutCommit = useCallback((c: LayoutChange) => applyGenericOverride(c, true), [applyGenericOverride])
-  const handleLayoutScrub = useCallback((c: LayoutChange) => applyGenericOverride(c, false), [applyGenericOverride])
-  const handleTypographyCommit = useCallback((c: TypographyChange) => applyGenericOverride(c, true), [applyGenericOverride])
-  const handleTypographyScrub = useCallback((c: TypographyChange) => applyGenericOverride(c, false), [applyGenericOverride])
+  const handleLayoutCommit = useCallback((c: LayoutChange) => applyOverride(c.property, c.value, true), [applyOverride])
+  const handleLayoutScrub = useCallback((c: LayoutChange) => applyOverride(c.property, c.value, false), [applyOverride])
+  const handleTypographyCommit = useCallback((c: TypographyChange) => applyOverride(c.property, c.value, true), [applyOverride])
+  const handleTypographyScrub = useCallback((c: TypographyChange) => applyOverride(c.property, c.value, false), [applyOverride])
 
   const handleSelectParent = useCallback(() => {
     if (!element) return

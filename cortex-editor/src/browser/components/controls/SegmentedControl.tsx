@@ -46,6 +46,7 @@ export function SegmentedControl({
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       const idx = options.findIndex((o) => o.value === value)
+      if (idx === -1) return
       let next = -1
       if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
         e.preventDefault()

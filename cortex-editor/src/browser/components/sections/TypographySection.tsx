@@ -135,7 +135,7 @@ export function TypographySection({
   )
   const fontOptions = useMemo(() => {
     const fonts = new Set(availableFonts)
-    fonts.add(currentFontClean)
+    if (currentFontClean) fonts.add(currentFontClean)
     return [...fonts].sort().map((f) => ({ value: f, label: f }))
   }, [availableFonts, currentFontClean])
 
@@ -157,7 +157,9 @@ export function TypographySection({
   const handleFontChange = useCallback(
     (v: string) => {
       // Quote multi-word font families — `font-family: Open Sans` is invalid CSS
-      const quoted = v.includes(' ') && !v.startsWith('"') ? `"${v}"` : v
+      // Escape embedded quotes to prevent CSS declaration breakout
+      const escaped = v.replace(/"/g, '\\"')
+      const quoted = v.includes(' ') && !v.startsWith('"') ? `"${escaped}"` : escaped
       onChange({ property: 'font-family', value: quoted })
     },
     [onChange],

@@ -51,6 +51,16 @@ export function Dropdown({
         popoverRef.current.style.left = `${x}px`
         popoverRef.current.style.top = `${y}px`
       }
+    }).catch((err) => {
+      if (!cancelled) {
+        console.warn('[cortex] Dropdown positioning failed:', err instanceof Error ? err.message : err)
+        // Fallback: position directly below trigger
+        const rect = trigger.getBoundingClientRect()
+        if (popoverRef.current) {
+          popoverRef.current.style.left = `${rect.left}px`
+          popoverRef.current.style.top = `${rect.bottom}px`
+        }
+      }
     })
     return () => { cancelled = true }
   }, [isOpen])
