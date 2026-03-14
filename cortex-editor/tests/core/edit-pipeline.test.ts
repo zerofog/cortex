@@ -1,20 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { EditPipeline } from '../../src/core/edit-pipeline.js'
-import type { ServerChannel, ServerToBrowser, BrowserToServer } from '../../src/adapters/types.js'
 import type { TailwindResolver } from '../../src/core/tailwind-resolver.js'
 import type { TailwindRewriter } from '../../src/core/rewriter/tailwind.js'
 import type { HMRVerifier } from '../../src/core/hmr-verifier.js'
-
-function mockChannel(): ServerChannel & { sent: ServerToBrowser[] } {
-  const sent: ServerToBrowser[] = []
-  return {
-    sent,
-    send(msg: ServerToBrowser) { sent.push(msg) },
-    broadcast(msg: ServerToBrowser) { sent.push(msg) },
-    onMessage(_handler: (msg: BrowserToServer) => void) { return () => {} },
-    async dispose() {},
-  }
-}
+import { mockChannel } from '../helpers/mock-channel.js'
 
 function mockResolver(mapping: Record<string, Record<string, string>> = {}): TailwindResolver {
   return {

@@ -2,6 +2,9 @@ import type { Project, SourceFile, JsxOpeningElement, JsxSelfClosingElement, Nod
 import { readFile } from 'fs/promises'
 import type { RewriteRequest, RewriteResult } from './types.js'
 
+/** Recognized className helper functions (clsx, classnames, cn, cx). */
+const CLASSNAME_HELPERS = new Set(['clsx', 'classnames', 'cn', 'cx'])
+
 /** Lazily loaded ts-morph exports. Cold path — only loaded on first rewrite (~200ms). */
 let _tsMorph: typeof import('ts-morph') | null = null
 
@@ -229,7 +232,7 @@ export class TailwindRewriter {
     }
 
     const callee = call.getExpression().getText()
-    if (!['clsx', 'classnames', 'cn', 'cx'].includes(callee)) {
+    if (!CLASSNAME_HELPERS.has(callee)) {
       return { success: false, filePath, reason: `Unknown className function: ${callee}` }
     }
 

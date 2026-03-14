@@ -92,7 +92,6 @@ export class TailwindResolver {
   }
 
   private static async loadConfig(projectRoot: string): Promise<Record<string, unknown> | null> {
-    const { readFile } = await import('fs/promises')
     const { join } = await import('path')
 
     const configNames = [
@@ -105,7 +104,6 @@ export class TailwindResolver {
     for (const name of configNames) {
       try {
         const configPath = join(projectRoot, name)
-        await readFile(configPath)
         const mod = await import(configPath)
         return mod.default ?? mod
       } catch {

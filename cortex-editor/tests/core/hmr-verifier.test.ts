@@ -1,17 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { HMRVerifier } from '../../src/core/hmr-verifier.js'
-import type { ServerChannel, ServerToBrowser, BrowserToServer } from '../../src/adapters/types.js'
-
-function mockChannel(): ServerChannel & { sent: ServerToBrowser[] } {
-  const sent: ServerToBrowser[] = []
-  return {
-    sent,
-    send(msg: ServerToBrowser) { sent.push(msg) },
-    broadcast(msg: ServerToBrowser) { sent.push(msg) },
-    onMessage(_handler: (msg: BrowserToServer) => void) { return () => {} },
-    async dispose() {},
-  }
-}
+import { mockChannel } from '../helpers/mock-channel.js'
 
 describe('HMRVerifier', () => {
   let channel: ReturnType<typeof mockChannel>

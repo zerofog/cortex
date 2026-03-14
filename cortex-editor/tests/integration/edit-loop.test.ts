@@ -3,22 +3,11 @@ import { EditPipeline } from '../../src/core/edit-pipeline.js'
 import { TailwindResolver } from '../../src/core/tailwind-resolver.js'
 import { TailwindRewriter } from '../../src/core/rewriter/tailwind.js'
 import { HMRVerifier } from '../../src/core/hmr-verifier.js'
-import type { ServerChannel, ServerToBrowser, BrowserToServer } from '../../src/adapters/types.js'
+import { mockChannel } from '../helpers/mock-channel.js'
 import { writeFileSync, readFileSync, mkdirSync, rmSync } from 'fs'
 import { writeFile as fsWriteFile } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
-
-function mockChannel(): ServerChannel & { sent: ServerToBrowser[] } {
-  const sent: ServerToBrowser[] = []
-  return {
-    sent,
-    send(msg: ServerToBrowser) { sent.push(msg) },
-    broadcast(msg: ServerToBrowser) { sent.push(msg) },
-    onMessage(_handler: (msg: BrowserToServer) => void) { return () => {} },
-    async dispose() {},
-  }
-}
 
 /** Wait for a condition to become true, with timeout */
 async function waitFor(fn: () => boolean, timeoutMs = 2000): Promise<void> {
