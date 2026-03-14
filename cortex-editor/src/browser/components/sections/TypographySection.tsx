@@ -47,7 +47,7 @@ export function getAvailableFonts(): string[] {
   if (!document.fonts?.[Symbol.iterator]) return []
   const families = new Set<string>()
   for (const face of document.fonts) {
-    families.add((face as FontFace).family.replace(/^["']|["']$/g, ''))
+    families.add(stripCSSQuotes((face as FontFace).family))
   }
   return [...families].sort()
 }
@@ -58,7 +58,7 @@ export function getWeightsForFamily(family: string): string[] {
   const weights = new Set<string>()
   for (const face of document.fonts) {
     const f = face as FontFace
-    const faceName = f.family.replace(/^["']|["']$/g, '')
+    const faceName = stripCSSQuotes(f.family)
     if (faceName === family) {
       const w = f.weight
       // Variable fonts report ranges like "100 900"
@@ -98,6 +98,11 @@ const ALIGN_OPTIONS = [
   { value: 'justify', icon: '≡↔', title: 'Justify' },
 ]
 
+/** Strip surrounding quotes from CSS values like font-family. */
+export function stripCSSQuotes(s: string): string {
+  return s.replace(/^["']|["']$/g, '')
+}
+
 const HEX_REGEX = /^#[0-9a-fA-F]{6}$/
 
 /** Parse any CSS color format to #RRGGBB. Returns null if unparseable. */
@@ -123,8 +128,11 @@ export function TypographySection({
   const [editingHex, setEditingHex] = useState<string | null>(null)
   const displayedHex = editingHex !== null ? editingHex : hexColor
 
-  // Build font options — always include current font (memoized to avoid re-creating on every render)
-  const currentFontClean = values.fontFamily.replace(/^["']|["']$/g, '').split(',')[0]?.trim() ?? ''
+  // Build font options — always include current font
+  const currentFontClean = useMemo(
+    () => stripCSSQuotes(values.fontFamily).split(',')[0]?.trim() ?? '',
+    [values.fontFamily],
+  )
   const fontOptions = useMemo(() => {
     const fonts = new Set(availableFonts)
     fonts.add(currentFontClean)

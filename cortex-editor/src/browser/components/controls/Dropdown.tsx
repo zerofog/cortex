@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useState, useRef, useCallback, useEffect } from 'preact/hooks'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'preact/hooks'
 import { computePosition, flip, shift } from '@floating-ui/dom'
 
 export interface DropdownOption {
@@ -29,9 +29,11 @@ export function Dropdown({
 
   const selectedLabel = options.find((o) => o.value === value)?.label ?? ''
 
-  const filtered = filter
-    ? options.filter((o) => o.label.toLowerCase().includes(filter.toLowerCase()))
-    : options
+  const filtered = useMemo(() => {
+    if (!filter) return options
+    const lc = filter.toLowerCase()
+    return options.filter((o) => o.label.toLowerCase().includes(lc))
+  }, [options, filter])
 
   // Position popover when opened — only on open, not on filter changes
   useEffect(() => {

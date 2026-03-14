@@ -10,7 +10,7 @@ import { SpacingSection } from './sections/SpacingSection.js'
 import type { SpacingChange } from './sections/SpacingSection.js'
 import { LayoutSection, parseLayoutValues } from './sections/LayoutSection.js'
 import type { LayoutChange } from './sections/LayoutSection.js'
-import { TypographySection, parseTypographyValues, getAvailableFonts, getWeightsForFamily } from './sections/TypographySection.js'
+import { TypographySection, parseTypographyValues, getAvailableFonts, getWeightsForFamily, stripCSSQuotes } from './sections/TypographySection.js'
 import type { TypographyChange } from './sections/TypographySection.js'
 
 export interface PanelProps {
@@ -132,27 +132,29 @@ export function Panel({
     if (!element) {
       return {
         spacing: parseSpacingValues({} as CSSStyleDeclaration),
-        isFlexOrGrid: false,
         layout: parseLayoutValues({} as CSSStyleDeclaration),
         typography: parseTypographyValues({} as CSSStyleDeclaration),
       }
     }
     const cs = getComputedStyle(element)
-    const d = cs.display
     return {
       spacing: parseSpacingValues(cs),
-      isFlexOrGrid: d === 'flex' || d === 'inline-flex' || d === 'grid' || d === 'inline-grid',
       layout: parseLayoutValues(cs),
       typography: parseTypographyValues(cs),
     }
   }, [element, styleVersion])
 
-  // Font detection — only re-scan when element changes (fonts don't change mid-session)
-  const availableFonts = useMemo(() => getAvailableFonts(), [element])
+  // Derive isFlexOrGrid from layout display (avoids duplicating check)
+  const layoutDisplay = computedStyles.layout.display
+  const isFlexOrGrid = layoutDisplay === 'flex' || layoutDisplay === 'inline-flex'
+    || layoutDisplay === 'grid' || layoutDisplay === 'inline-grid'
+
+  // Font detection — fonts don't change mid-session, scan once
+  const availableFonts = useMemo(() => getAvailableFonts(), [])
   const availableWeights = useMemo(
     () => {
       const family = computedStyles.typography.fontFamily ?? ''
-      return getWeightsForFamily(family.replace(/^["']|["']$/g, '').split(',')[0]?.trim() ?? '')
+      return getWeightsForFamily(stripCSSQuotes(family).split(',')[0]?.trim() ?? '')
     },
     [computedStyles.typography.fontFamily],
   )
@@ -271,7 +273,7 @@ export function Panel({
           padding={computedStyles.spacing.padding}
           margin={computedStyles.spacing.margin}
           gap={computedStyles.spacing.gap}
-          isFlexOrGrid={computedStyles.isFlexOrGrid}
+          isFlexOrGrid={isFlexOrGrid}
           onChange={handleSpacingCommit}
           onScrub={handleScrub}
           onScrubEnd={handleSpacingCommit}
