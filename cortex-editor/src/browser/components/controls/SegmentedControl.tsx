@@ -54,7 +54,8 @@ export function SegmentedControl({
         e.preventDefault()
         next = (idx - 1 + options.length) % options.length
       }
-      if (next >= 0) onChange(options[next].value)
+      const target = next >= 0 ? options[next] : undefined
+      if (target) onChange(target.value)
     },
     [options, value, onChange],
   )

@@ -32,13 +32,13 @@ export interface TypographySectionProps {
 export function parseTypographyValues(cs: CSSStyleDeclaration): TypographyValues {
   const fontSize = parseFloat(cs.fontSize) || 16
   return {
-    fontFamily: cs.fontFamily,
+    fontFamily: cs.fontFamily ?? '',
     fontSize,
-    fontWeight: cs.fontWeight,
-    lineHeight: cs.lineHeight === 'normal' ? 1.5 : parseFloat(cs.lineHeight) / fontSize,
-    letterSpacing: cs.letterSpacing === 'normal' ? 0 : parseFloat(cs.letterSpacing),
-    textAlign: cs.textAlign,
-    color: cs.color,
+    fontWeight: cs.fontWeight ?? '400',
+    lineHeight: cs.lineHeight === 'normal' ? 1.5 : (parseFloat(cs.lineHeight) / fontSize) || 1.5,
+    letterSpacing: cs.letterSpacing === 'normal' ? 0 : parseFloat(cs.letterSpacing) || 0,
+    textAlign: cs.textAlign ?? 'left',
+    color: cs.color ?? 'rgb(0, 0, 0)',
   }
 }
 
@@ -128,7 +128,7 @@ export function TypographySection({
   }
 
   // Build font options — always include current font
-  const currentFontClean = values.fontFamily.replace(/^["']|["']$/g, '').split(',')[0].trim()
+  const currentFontClean = values.fontFamily.replace(/^["']|["']$/g, '').split(',')[0]?.trim() ?? ''
   const fontOptions = (() => {
     const fonts = new Set(availableFonts)
     fonts.add(currentFontClean)

@@ -8,6 +8,10 @@ import { PanelHeader } from './PanelHeader.js'
 import { TabNav } from './TabNav.js'
 import { SpacingSection } from './sections/SpacingSection.js'
 import type { SpacingChange } from './sections/SpacingSection.js'
+import { LayoutSection, parseLayoutValues } from './sections/LayoutSection.js'
+import type { LayoutChange } from './sections/LayoutSection.js'
+import { TypographySection, parseTypographyValues, getAvailableFonts, getWeightsForFamily } from './sections/TypographySection.js'
+import type { TypographyChange } from './sections/TypographySection.js'
 
 export interface PanelProps {
   element: HTMLElement
@@ -125,14 +129,33 @@ export function Panel({
 
   // C1: Cache getComputedStyle results — avoids forced layout on every drag frame
   const computedStyles = useMemo(() => {
-    if (!element) return { spacing: parseSpacingValues({} as CSSStyleDeclaration), isFlexOrGrid: false }
+    if (!element) {
+      return {
+        spacing: parseSpacingValues({} as CSSStyleDeclaration),
+        isFlexOrGrid: false,
+        layout: parseLayoutValues({} as CSSStyleDeclaration),
+        typography: parseTypographyValues({} as CSSStyleDeclaration),
+      }
+    }
     const cs = getComputedStyle(element)
     const d = cs.display
     return {
       spacing: parseSpacingValues(cs),
       isFlexOrGrid: d === 'flex' || d === 'inline-flex' || d === 'grid' || d === 'inline-grid',
+      layout: parseLayoutValues(cs),
+      typography: parseTypographyValues(cs),
     }
   }, [element, styleVersion])
+
+  // Font detection — only re-scan when element changes (fonts don't change mid-session)
+  const availableFonts = useMemo(() => getAvailableFonts(), [element])
+  const availableWeights = useMemo(
+    () => {
+      const family = computedStyles.typography.fontFamily ?? ''
+      return getWeightsForFamily(family.replace(/^["']|["']$/g, '').split(',')[0]?.trim() ?? '')
+    },
+    [computedStyles.typography.fontFamily],
+  )
 
   // M1+H-callbacks: Single helper for all spacing overrides
   const applySpacingOverride = useCallback((change: SpacingChange, commitRender: boolean) => {
@@ -150,6 +173,24 @@ export function Panel({
 
   const handleSpacingCommit = useCallback((c: SpacingChange) => applySpacingOverride(c, true), [applySpacingOverride])
   const handleScrub = useCallback((c: SpacingChange) => applySpacingOverride(c, false), [applySpacingOverride])
+
+  // Layout + Typography overrides — same pattern as spacing
+  const applyGenericOverride = useCallback((change: LayoutChange | TypographyChange, commitRender: boolean) => {
+    if (!element) return
+    const source = element.getAttribute('data-cortex-source')
+    if (source) {
+      overrideManager.set(source, change.property, change.value)
+      if (commitRender) {
+        overrideManager.flush()
+        setStyleVersion(v => v + 1)
+      }
+    }
+  }, [element, overrideManager])
+
+  const handleLayoutCommit = useCallback((c: LayoutChange) => applyGenericOverride(c, true), [applyGenericOverride])
+  const handleLayoutScrub = useCallback((c: LayoutChange) => applyGenericOverride(c, false), [applyGenericOverride])
+  const handleTypographyCommit = useCallback((c: TypographyChange) => applyGenericOverride(c, true), [applyGenericOverride])
+  const handleTypographyScrub = useCallback((c: TypographyChange) => applyGenericOverride(c, false), [applyGenericOverride])
 
   const handleSelectParent = useCallback(() => {
     if (!element) return
@@ -220,6 +261,12 @@ export function Panel({
       />
       <TabNav activeTab={activeTab} onTabClick={handleTabClick} />
       <div class="cortex-panel__body" ref={bodyRef} key={contentKey}>
+        <LayoutSection
+          values={computedStyles.layout}
+          onChange={handleLayoutCommit}
+          onScrub={handleLayoutScrub}
+          onScrubEnd={handleLayoutCommit}
+        />
         <SpacingSection
           padding={computedStyles.spacing.padding}
           margin={computedStyles.spacing.margin}
@@ -229,8 +276,14 @@ export function Panel({
           onScrub={handleScrub}
           onScrubEnd={handleSpacingCommit}
         />
-        <div data-section-id="layout" />
-        <div data-section-id="type" />
+        <TypographySection
+          values={computedStyles.typography}
+          availableFonts={availableFonts}
+          availableWeights={availableWeights}
+          onChange={handleTypographyCommit}
+          onScrub={handleTypographyScrub}
+          onScrubEnd={handleTypographyCommit}
+        />
         <div data-section-id="fill" />
         <div data-section-id="border" />
         <div data-section-id="shadow" />

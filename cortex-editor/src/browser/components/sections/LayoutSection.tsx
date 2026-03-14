@@ -28,13 +28,13 @@ export interface LayoutSectionProps {
 /** Extract layout-related values from a CSSStyleDeclaration. */
 export function parseLayoutValues(cs: CSSStyleDeclaration): LayoutValues {
   return {
-    display: cs.display,
-    visibility: cs.visibility,
-    flexDirection: cs.flexDirection,
-    justifyContent: cs.justifyContent,
-    alignItems: cs.alignItems,
-    width: cs.width,
-    height: cs.height,
+    display: cs.display ?? 'block',
+    visibility: cs.visibility ?? 'visible',
+    flexDirection: cs.flexDirection ?? 'row',
+    justifyContent: cs.justifyContent ?? 'flex-start',
+    alignItems: cs.alignItems ?? 'stretch',
+    width: cs.width ?? 'auto',
+    height: cs.height ?? 'auto',
   }
 }
 
