@@ -7,6 +7,12 @@ export interface PendingEdit {
   property: string
 }
 
+interface PendingEntry extends PendingEdit {
+  timestamp: number
+}
+
+const PENDING_TTL_MS = 30_000
+
 /**
  * Tracks pending edits and matches them against HMR update events.
  *
@@ -16,9 +22,12 @@ export interface PendingEdit {
  *
  * The browser then reads the computed value and decides whether to remove
  * the CSS override (match) or keep it (mismatch).
+ *
+ * Pending entries expire after 30s to prevent memory accumulation from
+ * edits where HMR never fires (e.g., dev server disconnects).
  */
 export class HMRVerifier {
-  private pending = new Map<string, PendingEdit>()
+  private pending = new Map<string, PendingEntry>()
   private channel: ServerChannel
   private disposed = false
 
@@ -29,13 +38,15 @@ export class HMRVerifier {
   /** Register an edit that's waiting for HMR confirmation. */
   trackEdit(edit: PendingEdit): void {
     if (this.disposed) return
+    this.evictStale()
     const key = `${edit.filePath}:${edit.property}`
-    this.pending.set(key, edit)
+    this.pending.set(key, { ...edit, timestamp: Date.now() })
   }
 
   /** Called when HMR fires. Checks if any pending edits match. */
   onHMRUpdate(updatedFiles: string[]): void {
     if (this.disposed) return
+    this.evictStale()
     const fileSet = new Set(updatedFiles)
 
     for (const [key, edit] of this.pending) {
@@ -46,6 +57,15 @@ export class HMRVerifier {
           match: true,
           expected: edit.expectedValue,
         })
+        this.pending.delete(key)
+      }
+    }
+  }
+
+  private evictStale(): void {
+    const now = Date.now()
+    for (const [key, entry] of this.pending) {
+      if (now - entry.timestamp > PENDING_TTL_MS) {
         this.pending.delete(key)
       }
     }

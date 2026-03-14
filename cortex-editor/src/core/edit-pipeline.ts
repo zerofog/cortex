@@ -1,4 +1,4 @@
-import { resolve } from 'path'
+import { resolve, sep } from 'path'
 import type { ServerChannel } from '../adapters/types.js'
 import type { TailwindResolver } from './tailwind-resolver.js'
 import type { TailwindRewriter } from './rewriter/tailwind.js'
@@ -42,6 +42,7 @@ export interface EditPipelineOptions {
 export class EditPipeline {
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private lastValues = new Map<string, string>()
+  private fileLocks = new Map<string, Promise<void>>()
   private readonly channel: ServerChannel
   private readonly resolver: TailwindResolver
   private readonly rewriter: TailwindRewriter
@@ -108,9 +109,21 @@ export class EditPipeline {
     const lineStr = edit.source.slice(secondLastColon + 1, lastColon)
     const colStr = edit.source.slice(lastColon + 1)
 
+    const line = parseInt(lineStr, 10)
+    const col = parseInt(colStr, 10)
+    if (Number.isNaN(line) || Number.isNaN(col)) {
+      this.channel.send({
+        type: 'edit_status',
+        editId: edit.editId,
+        status: 'failed',
+        reason: `Invalid line/col in source: ${edit.source}`,
+      })
+      return
+    }
+
     // Prevent path traversal — resolved file must be within project root
     const resolvedPath = resolve(filePath)
-    if (!resolvedPath.startsWith(this.projectRoot)) {
+    if (resolvedPath !== this.projectRoot && !resolvedPath.startsWith(this.projectRoot + sep)) {
       this.channel.send({
         type: 'edit_status',
         editId: edit.editId,
@@ -135,40 +148,58 @@ export class EditPipeline {
       return
     }
 
-    const result = await this.rewriter.rewrite({
-      filePath: resolvedPath,
-      line: parseInt(lineStr, 10),
-      col: parseInt(colStr, 10),
-      property: edit.property,
-      oldToken,
-      newToken,
-    })
+    // Serialize rewrite + write per file to prevent concurrent TOCTOU races
+    await this.withFileLock(resolvedPath, async () => {
+      const result = await this.rewriter.rewrite({
+        filePath: resolvedPath,
+        line,
+        col,
+        property: edit.property,
+        oldToken,
+        newToken,
+      })
 
-    if (!result.success) {
+      if (!result.success) {
+        this.channel.send({
+          type: 'edit_status',
+          editId: edit.editId,
+          status: 'failed',
+          reason: result.reason,
+        })
+        return
+      }
+
+      // Track HMR BEFORE write — HMR may fire immediately after fs write
+      this.verifier.trackEdit({
+        editId: edit.editId,
+        filePath: resolvedPath,
+        expectedValue: edit.value,
+        property: edit.property,
+      })
+
+      await this.writeFile(resolvedPath, result.newContent)
+
       this.channel.send({
         type: 'edit_status',
         editId: edit.editId,
-        status: 'failed',
-        reason: result.reason,
+        status: 'done',
+        newToken,
       })
-      return
+    })
+  }
+
+  /** Serialize async operations per file to prevent concurrent TOCTOU races. */
+  private async withFileLock(filePath: string, fn: () => Promise<void>): Promise<void> {
+    const prev = this.fileLocks.get(filePath) ?? Promise.resolve()
+    const next = prev.then(fn, fn)
+    this.fileLocks.set(filePath, next)
+    try {
+      await next
+    } finally {
+      if (this.fileLocks.get(filePath) === next) {
+        this.fileLocks.delete(filePath)
+      }
     }
-
-    await this.writeFile(resolvedPath, result.newContent)
-
-    this.verifier.trackEdit({
-      editId: edit.editId,
-      filePath: resolvedPath,
-      expectedValue: edit.value,
-      property: edit.property,
-    })
-
-    this.channel.send({
-      type: 'edit_status',
-      editId: edit.editId,
-      status: 'done',
-      newToken,
-    })
   }
 
   dispose(): void {
@@ -179,5 +210,6 @@ export class EditPipeline {
     }
     this.debounceTimers.clear()
     this.lastValues.clear()
+    this.fileLocks.clear()
   }
 }

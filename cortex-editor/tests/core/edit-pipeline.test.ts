@@ -335,6 +335,80 @@ describe('EditPipeline', () => {
     expect((failedStatus as { reason: string }).reason).toBe('File path outside project root')
   })
 
+  it('rejects sibling directory with matching prefix', async () => {
+    const channel = mockChannel()
+    const resolver = mockResolver({
+      'padding-top': { '8px': 'pt-2', '16px': 'pt-4' },
+    })
+    const rewriter = mockRewriter()
+    const verifier = mockVerifier()
+    const writeFile = vi.fn()
+
+    const pipeline = new EditPipeline({ channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project' })
+
+    pipeline.handleEdit({
+      editId: 'edit-0',
+      source: '/project-evil/src/App.tsx:2:10',
+      property: 'padding-top',
+      value: '8px',
+      elementSelector: 'div',
+    })
+    vi.advanceTimersByTime(400)
+    await vi.runAllTimersAsync()
+    channel.sent.length = 0
+
+    pipeline.handleEdit({
+      editId: 'edit-1',
+      source: '/project-evil/src/App.tsx:2:10',
+      property: 'padding-top',
+      value: '16px',
+      elementSelector: 'div',
+    })
+
+    vi.advanceTimersByTime(400)
+    await vi.runAllTimersAsync()
+
+    expect(writeFile).not.toHaveBeenCalled()
+    expect(rewriter.calls).toHaveLength(0)
+
+    const failedStatus = channel.sent.find(
+      m => m.type === 'edit_status' && (m as { status: string }).status === 'failed'
+    )
+    expect(failedStatus).toBeDefined()
+    expect((failedStatus as { reason: string }).reason).toBe('File path outside project root')
+  })
+
+  it('rejects NaN line/col values', async () => {
+    const channel = mockChannel()
+    const resolver = mockResolver({
+      'padding-top': { '8px': 'pt-2', '16px': 'pt-4' },
+    })
+    const rewriter = mockRewriter()
+    const verifier = mockVerifier()
+    const writeFile = vi.fn()
+
+    const pipeline = new EditPipeline({ channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project' })
+
+    pipeline.handleEdit({
+      editId: 'edit-1',
+      source: '/project/src/App.tsx:abc:def',
+      property: 'padding-top',
+      value: '16px',
+      elementSelector: 'div',
+    })
+
+    vi.advanceTimersByTime(400)
+    await vi.runAllTimersAsync()
+
+    expect(writeFile).not.toHaveBeenCalled()
+
+    const failedStatus = channel.sent.find(
+      m => m.type === 'edit_status' && (m as { status: string }).status === 'failed'
+    )
+    expect(failedStatus).toBeDefined()
+    expect((failedStatus as { reason: string }).reason).toContain('Invalid line/col')
+  })
+
   it('rejects path traversal attempts', async () => {
     const channel = mockChannel()
     const resolver = mockResolver({

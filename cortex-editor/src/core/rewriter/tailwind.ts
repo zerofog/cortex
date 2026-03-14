@@ -21,25 +21,42 @@ async function ensureTsMorph(): Promise<typeof import('ts-morph')> {
  *
  * Handles: static strings, ternary expressions, static clsx/classnames/cn/cx args.
  * Returns success=false for: template literals, conditional objects.
+ *
+ * Not concurrent-safe for the same file — callers must serialize per-file access.
  */
 export class TailwindRewriter {
   private project: Project | null = null
   private SK: typeof SyntaxKindEnum | null = null
+  private _readyPromise: Promise<{ project: Project; SK: typeof SyntaxKindEnum }> | null = null
+  private disposed = false
 
-  private async ensureReady(): Promise<{ project: Project; SK: typeof SyntaxKindEnum }> {
-    if (!this.project || !this.SK) {
-      const mod = await ensureTsMorph()
-      this.SK = mod.SyntaxKind
-      this.project = new mod.Project({
-        useInMemoryFileSystem: false,
-        compilerOptions: { jsx: 4 /* JsxEmit.ReactJSX */, allowJs: true },
-        skipAddingFilesFromTsConfig: true,
+  private ensureReady(): Promise<{ project: Project; SK: typeof SyntaxKindEnum }> {
+    if (this.disposed) return Promise.reject(new Error('TailwindRewriter is disposed'))
+    if (!this._readyPromise) {
+      this._readyPromise = this._initialize().catch(err => {
+        this._readyPromise = null // allow retry on failure
+        throw err
       })
     }
+    return this._readyPromise
+  }
+
+  private async _initialize(): Promise<{ project: Project; SK: typeof SyntaxKindEnum }> {
+    const mod = await ensureTsMorph()
+    this.SK = mod.SyntaxKind
+    this.project = new mod.Project({
+      useInMemoryFileSystem: false,
+      compilerOptions: { jsx: 4 /* JsxEmit.ReactJSX */, allowJs: true },
+      skipAddingFilesFromTsConfig: true,
+    })
     return { project: this.project, SK: this.SK }
   }
 
   async rewrite(request: RewriteRequest): Promise<RewriteResult> {
+    if (this.disposed) {
+      return { success: false, filePath: request.filePath, reason: 'Rewriter is disposed' }
+    }
+
     const { filePath, line, col, oldToken, newToken } = request
 
     let oldContent: string
@@ -161,7 +178,6 @@ export class TailwindRewriter {
 
     literal.setLiteralValue(replaced)
     const newContent = sourceFile.getFullText()
-    sourceFile.replaceWithText(oldContent)
     return { success: true, filePath, oldContent, newContent }
   }
 
@@ -191,7 +207,6 @@ export class TailwindRewriter {
       if (replaced !== null) {
         literal.setLiteralValue(replaced)
         const newContent = sourceFile.getFullText()
-        sourceFile.replaceWithText(oldContent)
         return { success: true, filePath, oldContent, newContent }
       }
     }
@@ -231,7 +246,6 @@ export class TailwindRewriter {
       if (replaced !== null) {
         literal.setLiteralValue(replaced)
         const newContent = sourceFile.getFullText()
-        sourceFile.replaceWithText(oldContent)
         return { success: true, filePath, oldContent, newContent }
       }
     }
@@ -252,7 +266,10 @@ export class TailwindRewriter {
   }
 
   dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
     this.project = null
     this.SK = null
+    this._readyPromise = null
   }
 }
