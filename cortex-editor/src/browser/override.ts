@@ -2,7 +2,7 @@
 const VALID_PROPERTY = /^-{0,2}[a-zA-Z][a-zA-Z0-9-]*$/
 
 /** Allowlist for CSS values — design tokens, colors, units. Fails closed against injection. */
-const VALID_VALUE = /^[a-zA-Z0-9#()\s,.\-_%]+$/
+const VALID_VALUE = /^[a-zA-Z0-9#()\s,.\-_'"/%]+$/
 
 /**
  * Manages a <style> tag in document.head for CSS override previews.
