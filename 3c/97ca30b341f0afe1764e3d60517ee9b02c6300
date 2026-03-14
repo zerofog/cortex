@@ -1,0 +1,24 @@
+docs/superpowers/specs/2026-03-14-phase-5a-layout-typography-design.md
+  06462c7e05ca7b0a 1-586
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "3c97ca30b341f0afe1764e3d60517ee9b02c6300",
+  "prompts": {
+    "06462c7e05ca7b0a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee528164-e092-453f-b658-5c5a4fe8f65a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 617,
+      "total_deletions": 31,
+      "accepted_lines": 586,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/94b9f71695e9209f28d6880cb55dd20df31f4be5d816b262298bb16cf60c21ff"
+    }
+  }
+}
