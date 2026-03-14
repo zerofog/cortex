@@ -1,0 +1,28 @@
+cortex-editor/src/index.ts
+  ea21d92925bf8ba2 15-24
+cortex-editor/tests/integration/edit-loop.test.ts
+  ea21d92925bf8ba2 1-117
+cortex-editor/src/core/tailwind-resolver.ts
+  ea21d92925bf8ba2 83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "1ea14fa63584cca5c08df18543c8e1816bdb0103",
+  "prompts": {
+    "ea21d92925bf8ba2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e9952fc8-a849-47c6-b62c-99ab16bf3b66",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 211,
+      "total_deletions": 83,
+      "accepted_lines": 128,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/d7f262a68e86545b66fce0d7ccdf74f9e87117af5335a5d591aabdf0825529db"
+    }
+  }
+}
