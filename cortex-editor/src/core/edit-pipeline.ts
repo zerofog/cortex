@@ -122,7 +122,7 @@ export class EditPipeline {
     }
 
     // Prevent path traversal — resolved file must be within project root
-    const resolvedPath = resolve(filePath)
+    const resolvedPath = resolve(this.projectRoot, filePath)
     if (resolvedPath !== this.projectRoot && !resolvedPath.startsWith(this.projectRoot + sep)) {
       this.channel.send({
         type: 'edit_status',

@@ -439,4 +439,44 @@ describe('EditPipeline', () => {
     expect(failedStatus).toBeDefined()
     expect((failedStatus as { reason: string }).reason).toBe('File path outside project root')
   })
+
+  it('resolves relative source paths against projectRoot', async () => {
+    const channel = mockChannel()
+    const resolver = mockResolver({
+      'padding-top': { '8px': 'pt-2', '16px': 'pt-4' },
+    })
+    const rewriter = mockRewriter()
+    const verifier = mockVerifier()
+    const writeFile = vi.fn()
+
+    const pipeline = new EditPipeline({ channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project' })
+
+    // Baseline with relative path (as source-transform emits)
+    pipeline.handleEdit({
+      editId: 'edit-0',
+      source: 'src/App.tsx:2:10',
+      property: 'padding-top',
+      value: '8px',
+      elementSelector: 'div',
+    })
+    vi.advanceTimersByTime(400)
+    await vi.runAllTimersAsync()
+    channel.sent.length = 0
+
+    pipeline.handleEdit({
+      editId: 'edit-1',
+      source: 'src/App.tsx:2:10',
+      property: 'padding-top',
+      value: '16px',
+      elementSelector: 'div',
+    })
+
+    vi.advanceTimersByTime(400)
+    await vi.runAllTimersAsync()
+
+    // Should resolve relative path against projectRoot, not reject it
+    expect(writeFile).toHaveBeenCalled()
+    expect(rewriter.calls).toHaveLength(1)
+    expect(rewriter.calls[0]).toMatchObject({ filePath: '/project/src/App.tsx' })
+  })
 })

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { TailwindRewriter } from '../../src/core/rewriter/tailwind.js'
 import { writeFileSync, mkdirSync, rmSync } from 'fs'
-import { join } from 'path'
+import { join, dirname } from 'path'
 import { tmpdir } from 'os'
 
 function createTempFile(content: string): string {
@@ -14,7 +14,7 @@ function createTempFile(content: string): string {
 
 function cleanupTempFile(filePath: string): void {
   try { rmSync(filePath) } catch {}
-  try { rmSync(join(filePath, '..'), { recursive: true }) } catch {}
+  try { rmSync(dirname(filePath), { recursive: true }) } catch {}
 }
 
 describe('TailwindRewriter', () => {
