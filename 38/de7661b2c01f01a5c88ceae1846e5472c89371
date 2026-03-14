@@ -1,0 +1,30 @@
+cortex-editor/src/browser/components/sections/LayoutSection.tsx
+  06462c7e05ca7b0a 31-37
+cortex-editor/src/browser/components/controls/SegmentedControl.tsx
+  06462c7e05ca7b0a 57-58
+cortex-editor/src/browser/components/sections/TypographySection.tsx
+  06462c7e05ca7b0a 35,37-41,131
+cortex-editor/src/browser/components/Panel.tsx
+  06462c7e05ca7b0a 11-14,132,135-138,145-146,150-158,177-194,264-269,279-285
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "38de7661b2c01f01a5c88ceae1846e5472c89371",
+  "prompts": {
+    "06462c7e05ca7b0a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee528164-e092-453f-b658-5c5a4fe8f65a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 75,
+      "total_deletions": 21,
+      "accepted_lines": 69,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/0dfd64d49016b84ea3fee35c7644ecaa1006cf92c27dde0890bc305411d62e03"
+    }
+  }
+}
