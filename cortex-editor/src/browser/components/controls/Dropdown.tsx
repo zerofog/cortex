@@ -103,10 +103,10 @@ export function Dropdown({
         close()
       } else if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setHighlightIdx((i) => Math.min(i + 1, filtered.length - 1))
+        if (filtered.length > 0) setHighlightIdx((i) => Math.min(i + 1, filtered.length - 1))
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
-        setHighlightIdx((i) => Math.max(i - 1, 0))
+        if (filtered.length > 0) setHighlightIdx((i) => Math.max(i - 1, 0))
       } else if (e.key === 'Enter') {
         e.preventDefault()
         if (filtered[highlightIdx]) {
@@ -122,6 +122,7 @@ export function Dropdown({
       <button
         ref={triggerRef}
         class="cortex-dropdown__trigger"
+        type="button"
         role="combobox"
         aria-expanded={isOpen ? 'true' : 'false'}
         aria-haspopup="listbox"

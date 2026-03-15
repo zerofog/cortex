@@ -111,7 +111,7 @@ export function TypographySection({
   onScrub,
   onScrubEnd,
 }: TypographySectionProps): JSX.Element {
-  const hexColor = rgbToHex(values.color) ?? values.color
+  const hexColor = rgbToHex(values.color) ?? '#000000'
   const colorInputRef = useRef<HTMLInputElement>(null)
   // Nullable editing state: null = not editing (show computed hexColor), string = user's input
   const [editingHex, setEditingHex] = useState<string | null>(null)

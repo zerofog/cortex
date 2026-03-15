@@ -77,6 +77,7 @@ export function SegmentedControl({
           <button
             key={opt.value}
             class={`cortex-segmented__option${isActive ? ' cortex-segmented__option--active' : ''}`}
+            type="button"
             role="radio"
             aria-checked={isActive ? 'true' : 'false'}
             tabindex={isActive ? 0 : -1}

@@ -29,7 +29,7 @@ export interface LayoutSectionProps {
 function normalizeDisplay(display: string): string {
   if (display === 'inline-flex') return 'flex'
   if (display === 'inline-grid') return 'grid'
-  if (display === 'inline-block') return 'inline'
+  if (display === 'inline-block') return 'block'
   return display
 }
 
