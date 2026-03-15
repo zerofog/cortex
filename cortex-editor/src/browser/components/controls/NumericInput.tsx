@@ -5,6 +5,7 @@ export interface NumericInputProps {
   value: number
   unit?: string
   label?: string
+  tooltip?: string
   min?: number
   onChange: (value: number) => void
   onScrub?: (value: number) => void
@@ -25,6 +26,7 @@ export function NumericInput({
   value,
   unit,
   label,
+  tooltip,
   min,
   onChange,
   onScrub,
@@ -171,7 +173,7 @@ export function NumericInput({
       class={`cortex-numeric-input ${isScrubbing ? 'cortex-numeric-input--scrubbing' : ''}`}
       onPointerDown={handleScrubDown}
     >
-      {label && <span class="cortex-numeric-input__label">{label}</span>}
+      {label && <span class="cortex-numeric-input__label" data-tooltip={tooltip}>{label}</span>}
       <input
         ref={inputRef}
         class="cortex-numeric-input__value"
