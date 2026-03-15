@@ -1,5 +1,30 @@
 /* Cortex overlay styles — injected into Shadow DOM, fully isolated */
 
+/* ── Tooltip (CSS-only, instant) ─────────────── */
+
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  background: #1f2937;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.3;
+  white-space: nowrap;
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 10;
+}
+
 .cortex-hover-overlay {
   position: fixed;
   pointer-events: none;
@@ -46,7 +71,7 @@
   top: 0;
   will-change: transform;
   width: 300px;
-  max-height: 460px;
+  max-height: calc(100vh - 32px);
   background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -184,55 +209,6 @@
 
 .cortex-panel-header__btn--close {
   color: #9ca3af;
-}
-
-/* ── Tab navigation ──────────────────────────── */
-
-.cortex-tab-nav {
-  display: flex;
-  align-items: center;
-  height: 32px;
-  padding: 0 12px;
-  border-bottom: 1px solid #f3f4f6;
-  overflow-x: auto;
-  scrollbar-width: none;
-  flex-shrink: 0;
-}
-
-.cortex-tab-nav::-webkit-scrollbar {
-  display: none;
-}
-
-.cortex-tab {
-  padding: 6px 8px;
-  border: none;
-  background: transparent;
-  font-size: 12px;
-  color: #9ca3af;
-  cursor: pointer;
-  white-space: nowrap;
-  position: relative;
-  flex-shrink: 0;
-}
-
-.cortex-tab:hover {
-  color: #6b7280;
-}
-
-.cortex-tab--active {
-  color: #111827;
-  font-weight: 500;
-}
-
-.cortex-tab--active::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 8px;
-  right: 8px;
-  height: 2px;
-  background: #3b82f6;
-  border-radius: 1px;
 }
 
 /* ── Numeric input ───────────────────────────── */
@@ -386,4 +362,310 @@
 @keyframes cortex-flash {
   from { background: rgba(34, 197, 94, 0.15); }
   to   { background: transparent; }
+}
+
+/* ── Segmented control ──────────────────────── */
+
+.cortex-segmented {
+  display: flex;
+  align-items: center;
+  position: relative;
+  background: #f3f4f6;
+  border-radius: 6px;
+  padding: 2px;
+  gap: 0;
+}
+
+.cortex-segmented__indicator {
+  position: absolute;
+  top: 2px;
+  left: 0;
+  height: calc(100% - 4px);
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  transition: transform 150ms ease-out, width 150ms ease-out;
+  pointer-events: none;
+}
+
+.cortex-segmented__option {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  color: #6b7280;
+  cursor: pointer;
+  white-space: nowrap;
+  border-radius: 4px;
+  flex: 1;
+}
+
+.cortex-segmented__option:hover:not(.cortex-segmented__option--active) {
+  color: #374151;
+}
+
+.cortex-segmented__option--active {
+  color: #111827;
+  font-weight: 500;
+}
+
+.cortex-segmented--sm .cortex-segmented__option {
+  padding: 0 6px;
+  min-width: 28px;
+  flex: 0;
+}
+
+.cortex-segmented__icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* ── Dropdown ───────────────────────────────── */
+
+.cortex-dropdown {
+  position: relative;
+  width: 100%;
+}
+
+.cortex-dropdown__trigger {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  background: #f3f4f6;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #111827;
+  text-align: left;
+}
+
+.cortex-dropdown__trigger:hover {
+  background: #e5e7eb;
+}
+
+.cortex-dropdown__value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cortex-dropdown__chevron {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: #9ca3af;
+  margin-left: 4px;
+  transition: transform 150ms ease-out;
+}
+
+.cortex-dropdown__chevron--open {
+  transform: rotate(180deg);
+}
+
+.cortex-dropdown__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+}
+
+.cortex-dropdown__popover {
+  z-index: 2;
+  min-width: 120px;
+  max-height: 200px;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1), 0 1px 4px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.cortex-dropdown__filter {
+  padding: 6px 8px;
+  border: none;
+  border-bottom: 1px solid #f3f4f6;
+  font-size: 13px;
+  color: #111827;
+  background: transparent;
+  outline: none;
+}
+
+.cortex-dropdown__filter::placeholder {
+  color: #9ca3af;
+}
+
+.cortex-dropdown__list {
+  overflow-y: auto;
+  max-height: 160px;
+  padding: 4px 0;
+}
+
+.cortex-dropdown__option {
+  padding: 6px 8px;
+  font-size: 13px;
+  color: #374151;
+  cursor: pointer;
+}
+
+.cortex-dropdown__option:hover,
+.cortex-dropdown__option--active {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.cortex-dropdown__option--selected {
+  font-weight: 500;
+  color: #3b82f6;
+}
+
+.cortex-dropdown__empty {
+  padding: 8px;
+  font-size: 12px;
+  color: #9ca3af;
+  text-align: center;
+}
+
+/* ── Layout section ─────────────────────────── */
+
+.cortex-layout-section {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cortex-layout-section__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cortex-layout-section__reveal {
+  /* no overflow: hidden — sections are conditionally rendered, not animated */
+}
+
+.cortex-layout-section__sizing {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.cortex-lock-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+  border-radius: 4px;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.cortex-lock-btn:hover {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.cortex-lock-btn--active {
+  color: #3b82f6;
+}
+
+.cortex-lock-btn--active:hover {
+  color: #2563eb;
+}
+
+/* ── Typography section ─────────────────────── */
+
+.cortex-typography-section {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cortex-typography-section__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cortex-typography-section__row {
+  display: flex;
+  gap: 6px;
+}
+
+.cortex-typography-section__field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cortex-typography-section__inline-label {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+  flex-shrink: 0;
+}
+
+/* ── Color input ────────────────────────────── */
+
+.cortex-color-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cortex-color-input__swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.cortex-color-input__native {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.cortex-color-input__hex {
+  flex: 1;
+  height: 28px;
+  padding: 0 8px;
+  background: #f3f4f6;
+  border: none;
+  border-radius: 6px;
+  font: 13px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #111827;
+  outline: none;
+}
+
+.cortex-color-input__hex:focus {
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
 }

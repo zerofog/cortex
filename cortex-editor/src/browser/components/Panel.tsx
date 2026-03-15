@@ -5,9 +5,12 @@ import { parseCortexSource } from '../label.js'
 import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge, PANEL_WIDTH } from '../hooks/useSnapToEdge.js'
 import { PanelHeader } from './PanelHeader.js'
-import { TabNav } from './TabNav.js'
 import { SpacingSection } from './sections/SpacingSection.js'
 import type { SpacingChange } from './sections/SpacingSection.js'
+import { LayoutSection, parseLayoutValues } from './sections/LayoutSection.js'
+import type { LayoutChange } from './sections/LayoutSection.js'
+import { TypographySection, parseTypographyValues, getWeightsForFamily, stripCSSQuotes } from './sections/TypographySection.js'
+import type { TypographyChange } from './sections/TypographySection.js'
 
 export interface PanelProps {
   element: HTMLElement
@@ -44,13 +47,12 @@ export function Panel({
   onSelectElement,
 }: PanelProps): JSX.Element | null {
   // ALL hooks first — no conditional returns before hooks
-  const [activeTab, setActiveTab] = useState('spacing')
   const [contentKey, setContentKey] = useState(0)
   const [isEntering, setIsEntering] = useState(true)
   const [isCrossFading, setIsCrossFading] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
   const prevElementRef = useRef<HTMLElement | null>(null)
-  const scrollingRef = useRef(false)
+
 
   const { position, isSnapping, setPosition, snap } = useSnapToEdge()
   const { handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel } = useDrag({
@@ -78,78 +80,60 @@ export function Panel({
     return () => clearTimeout(timer)
   }, [isCrossFading])
 
-  // A5: IntersectionObserver — update active tab on scroll
-  useEffect(() => {
-    const body = bodyRef.current
-    if (!body) return
-
-    const sections = body.querySelectorAll('[data-section-id]')
-    if (sections.length === 0) return
-
-    const visibleSections = new Map<string, number>()
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (scrollingRef.current) return
-
-        for (const entry of entries) {
-          const id = (entry.target as HTMLElement).dataset.sectionId
-          if (!id) continue
-          if (entry.isIntersecting) {
-            visibleSections.set(id, entry.intersectionRatio)
-          } else {
-            visibleSections.delete(id)
-          }
-        }
-
-        let bestId: string | null = null
-        let bestRatio = 0
-        for (const [id, ratio] of visibleSections) {
-          if (ratio > bestRatio) {
-            bestRatio = ratio
-            bestId = id
-          }
-        }
-        if (bestId) setActiveTab(bestId)
-      },
-      { root: body, threshold: [0, 0.25, 0.5, 0.75, 1] },
-    )
-
-    for (const section of sections) observer.observe(section)
-    return () => observer.disconnect()
-  }, [contentKey])
-
   // Sync strategy: bump counter on committed changes to force getComputedStyle re-read.
   // During scrub, trust NumericInput local state (no re-render per frame).
   const [styleVersion, setStyleVersion] = useState(0)
 
   // C1: Cache getComputedStyle results — avoids forced layout on every drag frame
   const computedStyles = useMemo(() => {
-    if (!element) return { spacing: parseSpacingValues({} as CSSStyleDeclaration), isFlexOrGrid: false }
+    if (!element) {
+      return {
+        spacing: parseSpacingValues({} as CSSStyleDeclaration),
+        layout: parseLayoutValues({} as CSSStyleDeclaration),
+        typography: parseTypographyValues({} as CSSStyleDeclaration),
+      }
+    }
     const cs = getComputedStyle(element)
-    const d = cs.display
     return {
       spacing: parseSpacingValues(cs),
-      isFlexOrGrid: d === 'flex' || d === 'inline-flex' || d === 'grid' || d === 'inline-grid',
+      layout: parseLayoutValues(cs),
+      typography: parseTypographyValues(cs),
     }
   }, [element, styleVersion])
 
-  // M1+H-callbacks: Single helper for all spacing overrides
-  const applySpacingOverride = useCallback((change: SpacingChange, commitRender: boolean) => {
+  // Derive isFlexOrGrid from normalized layout display
+  const layoutDisplay = computedStyles.layout.display
+  const isFlexOrGrid = layoutDisplay === 'flex' || layoutDisplay === 'grid'
+  const availableWeights = useMemo(
+    () => {
+      const family = computedStyles.typography.fontFamily ?? ''
+      return getWeightsForFamily(stripCSSQuotes(family.split(',')[0]?.trim() ?? ''))
+    },
+    [computedStyles.typography.fontFamily],
+  )
+
+  // Shared override application — warns if element lacks source attribution
+  const applyOverride = useCallback((property: string, value: string, commitRender: boolean) => {
     if (!element) return
     const source = element.getAttribute('data-cortex-source')
-    if (source) {
-      overrideManager.set(source, change.property, `${change.value}px`)
-      if (commitRender) {
-        // Flush pending RAF so getComputedStyle reads the updated <style> tag
-        overrideManager.flush()
-        setStyleVersion(v => v + 1)
-      }
+    if (!source) {
+      console.warn('[cortex] Cannot apply override: element missing data-cortex-source')
+      return
+    }
+    overrideManager.set(source, property, value)
+    if (commitRender) {
+      overrideManager.flush()
+      setStyleVersion(v => v + 1)
     }
   }, [element, overrideManager])
 
-  const handleSpacingCommit = useCallback((c: SpacingChange) => applySpacingOverride(c, true), [applySpacingOverride])
-  const handleScrub = useCallback((c: SpacingChange) => applySpacingOverride(c, false), [applySpacingOverride])
+  const handleSpacingCommit = useCallback((c: SpacingChange) => applyOverride(c.property, `${c.value}px`, true), [applyOverride])
+  const handleScrub = useCallback((c: SpacingChange) => applyOverride(c.property, `${c.value}px`, false), [applyOverride])
+
+  const handleLayoutCommit = useCallback((c: LayoutChange) => applyOverride(c.property, c.value, true), [applyOverride])
+  const handleLayoutScrub = useCallback((c: LayoutChange) => applyOverride(c.property, c.value, false), [applyOverride])
+  const handleTypographyCommit = useCallback((c: TypographyChange) => applyOverride(c.property, c.value, true), [applyOverride])
+  const handleTypographyScrub = useCallback((c: TypographyChange) => applyOverride(c.property, c.value, false), [applyOverride])
 
   const handleSelectParent = useCallback(() => {
     if (!element) return
@@ -165,15 +149,6 @@ export function Panel({
       onSelectElement(firstChild)
     }
   }, [element, onSelectElement])
-
-  const handleTabClick = useCallback((tabId: string) => {
-    scrollingRef.current = true
-    setActiveTab(tabId)
-    const section = bodyRef.current?.querySelector(`[data-section-id="${tabId}"]`)
-    section?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    // Re-enable observer after smooth scroll settles
-    setTimeout(() => { scrollingRef.current = false }, 500)
-  }, [])
 
   // Null guard AFTER all hooks
   if (!element) return null
@@ -218,23 +193,29 @@ export function Panel({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
       />
-      <TabNav activeTab={activeTab} onTabClick={handleTabClick} />
       <div class="cortex-panel__body" ref={bodyRef} key={contentKey}>
+        <LayoutSection
+          values={computedStyles.layout}
+          onChange={handleLayoutCommit}
+          onScrub={handleLayoutScrub}
+          onScrubEnd={handleLayoutCommit}
+        />
         <SpacingSection
           padding={computedStyles.spacing.padding}
           margin={computedStyles.spacing.margin}
           gap={computedStyles.spacing.gap}
-          isFlexOrGrid={computedStyles.isFlexOrGrid}
+          isFlexOrGrid={isFlexOrGrid}
           onChange={handleSpacingCommit}
           onScrub={handleScrub}
           onScrubEnd={handleSpacingCommit}
         />
-        <div data-section-id="layout" />
-        <div data-section-id="type" />
-        <div data-section-id="fill" />
-        <div data-section-id="border" />
-        <div data-section-id="shadow" />
-        <div data-section-id="effects" />
+        <TypographySection
+          values={computedStyles.typography}
+          availableWeights={availableWeights}
+          onChange={handleTypographyCommit}
+          onScrub={handleTypographyScrub}
+          onScrubEnd={handleTypographyCommit}
+        />
       </div>
     </div>
   )

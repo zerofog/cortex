@@ -215,3 +215,30 @@ export function renderInShadow(vnode: ComponentChild): {
     },
   }
 }
+
+/**
+ * Mock document.fonts (FontFaceSet) for testing font detection.
+ * happy-dom does not implement FontFaceSet as iterable.
+ * Returns a cleanup function that restores the original.
+ */
+export function mockDocumentFonts(
+  faces: Array<{ family: string; weight: string }>,
+): () => void {
+  const original = Object.getOwnPropertyDescriptor(document, 'fonts')
+  const mockFonts = {
+    [Symbol.iterator]: function* () {
+      for (const face of faces) yield face
+    },
+  }
+  Object.defineProperty(document, 'fonts', {
+    value: mockFonts,
+    configurable: true,
+  })
+  return () => {
+    if (original) {
+      Object.defineProperty(document, 'fonts', original)
+    } else {
+      delete (document as any).fonts
+    }
+  }
+}

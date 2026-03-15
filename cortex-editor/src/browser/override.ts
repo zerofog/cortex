@@ -2,7 +2,9 @@
 const VALID_PROPERTY = /^-{0,2}[a-zA-Z][a-zA-Z0-9-]*$/
 
 /** Allowlist for CSS values — design tokens, colors, units. Fails closed against injection. */
-const VALID_VALUE = /^[a-zA-Z0-9#()\s,.\-_%]+$/
+const VALID_VALUE = /^[a-zA-Z0-9#()\s,.\-_'"/%]+$/
+/** Reject url() values to prevent external resource exfiltration via CSS. */
+const REJECT_URL = /url\s*\(/i
 
 /**
  * Manages a <style> tag in document.head for CSS override previews.
@@ -45,8 +47,14 @@ export class CSSOverrideManager {
 
   /** Apply an override (instant preview). Rejects invalid property names or values. */
   set(source: string, property: string, value: string): void {
-    if (!VALID_PROPERTY.test(property)) return
-    if (!VALID_VALUE.test(value)) return
+    if (!VALID_PROPERTY.test(property)) {
+      console.warn('[cortex] Override rejected: invalid property name:', property)
+      return
+    }
+    if (!VALID_VALUE.test(value) || REJECT_URL.test(value)) {
+      console.warn('[cortex] Override rejected: invalid value for', property, ':', value)
+      return
+    }
 
     let props = this.overrides.get(source)
     if (!props) {

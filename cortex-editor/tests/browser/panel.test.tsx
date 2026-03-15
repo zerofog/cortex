@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
 import { Panel } from '../../src/browser/components/Panel.js'
-import { renderInShadow, mockIntersectionObserver } from './helpers.js'
+import { renderInShadow } from './helpers.js'
 
 describe('Panel', () => {
   let cleanup: (() => void) | null = null
@@ -56,10 +56,11 @@ describe('Panel', () => {
     expect(root.textContent).toContain('Hero')
   })
 
-  it('renders tab navigation', () => {
+  it('renders section labels', () => {
     const { root } = setup()
-    expect(root.textContent).toContain('Spacing')
-    expect(root.textContent).toContain('Layout')
+    expect(root.textContent).toContain('Display')
+    expect(root.textContent).toContain('Padding')
+    expect(root.textContent).toContain('Font')
   })
 
   it('calls onClose when close button clicked', () => {
@@ -84,34 +85,6 @@ describe('Panel', () => {
     expect(container.querySelector('.cortex-panel')).toBeNull()
     render(null, container)
     container.remove()
-  })
-
-  // A5: IntersectionObserver updates active tab on scroll
-  it('updates active tab via IntersectionObserver', async () => {
-    const io = mockIntersectionObserver()
-    try {
-      const { root } = setup()
-      // Flush multiple microtask/macrotask cycles so useEffect runs and observer is created
-      await new Promise(r => setTimeout(r, 10))
-
-      // Find a section element to use as the intersection target
-      const layoutSection = root.querySelector('[data-section-id="layout"]')
-      expect(layoutSection).not.toBeNull()
-
-      // Simulate layout section becoming most visible
-      io.trigger([
-        { target: layoutSection!, isIntersecting: true, intersectionRatio: 0.75 },
-      ])
-      // Flush Preact re-render (setActiveTab called outside event context)
-      await new Promise(r => setTimeout(r, 10))
-
-      // The active tab should now be "Layout" — find it by the active class
-      const activeTab = root.querySelector('.cortex-tab--active')
-      expect(activeTab).not.toBeNull()
-      expect(activeTab?.textContent).toBe('Layout')
-    } finally {
-      io.cleanup()
-    }
   })
 
   // M3: Cross-fade class applied on element switch

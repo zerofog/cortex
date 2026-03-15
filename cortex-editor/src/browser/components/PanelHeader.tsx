@@ -72,7 +72,9 @@ export function PanelHeader({
           title="Select parent element"
           onClick={onSelectParent}
         >
-          &#8963;
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3.5,8.5 7,5 10.5,8.5" />
+          </svg>
         </button>
         <button
           class="cortex-panel-header__btn"
@@ -81,7 +83,9 @@ export function PanelHeader({
           title="Select child element"
           onClick={onSelectChild}
         >
-          &#8964;
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3.5,5.5 7,9 10.5,5.5" />
+          </svg>
         </button>
         <button
           class="cortex-panel-header__btn cortex-panel-header__btn--close"
@@ -89,7 +93,10 @@ export function PanelHeader({
           title="Close panel"
           onClick={onClose}
         >
-          &#10005;
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="3.5" y1="3.5" x2="10.5" y2="10.5" />
+            <line x1="10.5" y1="3.5" x2="3.5" y2="10.5" />
+          </svg>
         </button>
       </div>
     </div>

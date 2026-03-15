@@ -82,6 +82,7 @@
     }
   },
   "dependencies": {
+    "@floating-ui/dom": "^1.7.6",
     "preact": "^10.29.0",
     "ts-morph": "^27.0.2"
   }
