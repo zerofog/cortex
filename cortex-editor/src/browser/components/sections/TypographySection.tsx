@@ -65,7 +65,7 @@ export function getWeightsForFamily(family: string): string[] {
   }
   return weights.size > 0
     ? [...weights].sort((a, b) => Number(a) - Number(b))
-    : ['400']
+    : ['100', '200', '300', '400', '500', '600', '700', '800', '900']
 }
 
 const WEIGHT_LABELS: Record<string, string> = {
