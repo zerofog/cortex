@@ -1,0 +1,26 @@
+cortex-editor/src/browser/components/sections/TypographySection.tsx
+  06462c7e05ca7b0a 37-38
+cortex-editor/src/browser/styles.css
+  06462c7e05ca7b0a 557
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "c1a2adaa906822c89fd8b54575e861ffe9347b0f",
+  "prompts": {
+    "06462c7e05ca7b0a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee528164-e092-453f-b658-5c5a4fe8f65a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 3,
+      "accepted_lines": 3,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/0111e2d7e10d2703e07f5e5c1460399a05e5248debc1ab23e6352f454c19dcd2"
+    }
+  }
+}
