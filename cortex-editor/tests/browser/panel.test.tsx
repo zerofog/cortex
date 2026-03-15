@@ -60,7 +60,7 @@ describe('Panel', () => {
     const { root } = setup()
     expect(root.textContent).toContain('Display')
     expect(root.textContent).toContain('Padding')
-    expect(root.textContent).toContain('SZ')
+    expect(root.textContent).toContain('Font')
   })
 
   it('calls onClose when close button clicked', () => {

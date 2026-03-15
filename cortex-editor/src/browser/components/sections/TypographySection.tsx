@@ -205,6 +205,7 @@ export function TypographySection({
 
   return (
     <div class="cortex-typography-section" data-section-id="type">
+      <span class="cortex-section-label">Font</span>
       <div class="cortex-typography-section__row">
         <div class="cortex-typography-section__field">
           <NumericInput
