@@ -554,7 +554,7 @@
 }
 
 .cortex-layout-section__reveal {
-  overflow: hidden;
+  /* no overflow: hidden — sections are conditionally rendered, not animated */
 }
 
 .cortex-layout-section__sizing {

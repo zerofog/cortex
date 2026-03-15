@@ -34,8 +34,8 @@ export function parseTypographyValues(cs: CSSStyleDeclaration): TypographyValues
     fontFamily: cs.fontFamily ?? '',
     fontSize,
     fontWeight: cs.fontWeight ?? '400',
-    lineHeight: cs.lineHeight === 'normal' ? 1.5 : (parseFloat(cs.lineHeight) / fontSize) || 1.5,
-    letterSpacing: cs.letterSpacing === 'normal' ? 0 : parseFloat(cs.letterSpacing) || 0,
+    lineHeight: cs.lineHeight === 'normal' ? 1.5 : Math.round(((parseFloat(cs.lineHeight) / fontSize) || 1.5) * 100) / 100,
+    letterSpacing: cs.letterSpacing === 'normal' ? 0 : Math.round((parseFloat(cs.letterSpacing) || 0) * 100) / 100,
     textAlign: cs.textAlign ?? 'left',
     color: cs.color ?? 'rgb(0, 0, 0)',
   }
