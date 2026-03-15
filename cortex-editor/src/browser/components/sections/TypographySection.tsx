@@ -120,13 +120,13 @@ export function TypographySection({
   const weightOptions = useMemo(() => {
     const opts = availableWeights.map((w) => ({
       value: w,
-      label: WEIGHT_LABELS[w] ?? w,
+      label: WEIGHT_LABELS[w] ? `${w} - ${WEIGHT_LABELS[w]}` : w,
     }))
     // Always include current weight
     if (!availableWeights.includes(values.fontWeight)) {
       opts.push({
         value: values.fontWeight,
-        label: WEIGHT_LABELS[values.fontWeight] ?? values.fontWeight,
+        label: WEIGHT_LABELS[values.fontWeight] ? `${values.fontWeight} - ${WEIGHT_LABELS[values.fontWeight]}` : values.fontWeight,
       })
     }
     return opts

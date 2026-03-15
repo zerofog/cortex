@@ -196,7 +196,7 @@ describe('TypographySection', () => {
   it('renders weight dropdown with named label', () => {
     setup()
     const trigger = container.querySelector('.cortex-dropdown__trigger')
-    expect(trigger?.textContent).toContain('Regular')
+    expect(trigger?.textContent).toContain('400 - Regular')
   })
 
   it('color swatch shows computed color', () => {
