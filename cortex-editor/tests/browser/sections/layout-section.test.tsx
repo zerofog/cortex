@@ -99,9 +99,8 @@ describe('LayoutSection', () => {
 
   it('emits display change on segmented control click', () => {
     const { onChange } = setup()
-    const buttons = container.querySelectorAll('[role="radio"]')
-    const flexBtn = Array.from(buttons).find((b) => b.textContent?.includes('flex'))
-    ;(flexBtn as HTMLElement)?.click()
+    const flexBtn = container.querySelector('[data-value="flex"]') as HTMLElement
+    flexBtn?.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'display', value: 'flex' })
   })
 

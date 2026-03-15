@@ -5,12 +5,11 @@ import { parseCortexSource } from '../label.js'
 import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge, PANEL_WIDTH } from '../hooks/useSnapToEdge.js'
 import { PanelHeader } from './PanelHeader.js'
-import { TabNav } from './TabNav.js'
 import { SpacingSection } from './sections/SpacingSection.js'
 import type { SpacingChange } from './sections/SpacingSection.js'
 import { LayoutSection, parseLayoutValues } from './sections/LayoutSection.js'
 import type { LayoutChange } from './sections/LayoutSection.js'
-import { TypographySection, parseTypographyValues, getAvailableFonts, getWeightsForFamily, stripCSSQuotes } from './sections/TypographySection.js'
+import { TypographySection, parseTypographyValues, getWeightsForFamily, stripCSSQuotes } from './sections/TypographySection.js'
 import type { TypographyChange } from './sections/TypographySection.js'
 
 export interface PanelProps {
@@ -48,13 +47,12 @@ export function Panel({
   onSelectElement,
 }: PanelProps): JSX.Element | null {
   // ALL hooks first — no conditional returns before hooks
-  const [activeTab, setActiveTab] = useState('layout')
   const [contentKey, setContentKey] = useState(0)
   const [isEntering, setIsEntering] = useState(true)
   const [isCrossFading, setIsCrossFading] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
   const prevElementRef = useRef<HTMLElement | null>(null)
-  const scrollingRef = useRef(false)
+
 
   const { position, isSnapping, setPosition, snap } = useSnapToEdge()
   const { handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel } = useDrag({
@@ -82,47 +80,6 @@ export function Panel({
     return () => clearTimeout(timer)
   }, [isCrossFading])
 
-  // A5: IntersectionObserver — update active tab on scroll
-  useEffect(() => {
-    const body = bodyRef.current
-    if (!body) return
-
-    const sections = body.querySelectorAll('[data-section-id]')
-    if (sections.length === 0) return
-
-    const visibleSections = new Map<string, number>()
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (scrollingRef.current) return
-
-        for (const entry of entries) {
-          const id = (entry.target as HTMLElement).dataset.sectionId
-          if (!id) continue
-          if (entry.isIntersecting) {
-            visibleSections.set(id, entry.intersectionRatio)
-          } else {
-            visibleSections.delete(id)
-          }
-        }
-
-        let bestId: string | null = null
-        let bestRatio = 0
-        for (const [id, ratio] of visibleSections) {
-          if (ratio > bestRatio) {
-            bestRatio = ratio
-            bestId = id
-          }
-        }
-        if (bestId) setActiveTab(bestId)
-      },
-      { root: body, threshold: [0, 0.25, 0.5, 0.75, 1] },
-    )
-
-    for (const section of sections) observer.observe(section)
-    return () => observer.disconnect()
-  }, [contentKey])
-
   // Sync strategy: bump counter on committed changes to force getComputedStyle re-read.
   // During scrub, trust NumericInput local state (no re-render per frame).
   const [styleVersion, setStyleVersion] = useState(0)
@@ -147,9 +104,6 @@ export function Panel({
   // Derive isFlexOrGrid from normalized layout display
   const layoutDisplay = computedStyles.layout.display
   const isFlexOrGrid = layoutDisplay === 'flex' || layoutDisplay === 'grid'
-
-  // Font detection — fonts don't change mid-session, scan once
-  const availableFonts = useMemo(() => getAvailableFonts(), [])
   const availableWeights = useMemo(
     () => {
       const family = computedStyles.typography.fontFamily ?? ''
@@ -196,15 +150,6 @@ export function Panel({
     }
   }, [element, onSelectElement])
 
-  const handleTabClick = useCallback((tabId: string) => {
-    scrollingRef.current = true
-    setActiveTab(tabId)
-    const section = bodyRef.current?.querySelector(`[data-section-id="${CSS.escape(tabId)}"]`)
-    section?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    // Re-enable observer after smooth scroll settles
-    setTimeout(() => { scrollingRef.current = false }, 500)
-  }, [])
-
   // Null guard AFTER all hooks
   if (!element) return null
 
@@ -248,7 +193,6 @@ export function Panel({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
       />
-      <TabNav activeTab={activeTab} onTabClick={handleTabClick} />
       <div class="cortex-panel__body" ref={bodyRef} key={contentKey}>
         <LayoutSection
           values={computedStyles.layout}
@@ -267,16 +211,11 @@ export function Panel({
         />
         <TypographySection
           values={computedStyles.typography}
-          availableFonts={availableFonts}
           availableWeights={availableWeights}
           onChange={handleTypographyCommit}
           onScrub={handleTypographyScrub}
           onScrubEnd={handleTypographyCommit}
         />
-        <div data-section-id="fill" />
-        <div data-section-id="border" />
-        <div data-section-id="shadow" />
-        <div data-section-id="effects" />
       </div>
     </div>
   )

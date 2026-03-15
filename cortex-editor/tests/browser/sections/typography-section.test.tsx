@@ -37,7 +37,6 @@ describe('TypographySection', () => {
     render(
       <TypographySection
         values={DEFAULT_VALUES}
-        availableFonts={['Inter', 'Roboto', 'Open Sans']}
         availableWeights={['400', '500', '700']}
         onChange={onChange}
         {...overrides}
@@ -51,12 +50,6 @@ describe('TypographySection', () => {
     setup()
     const root = container.querySelector('[data-section-id="type"]')
     expect(root).not.toBeNull()
-  })
-
-  it('renders font dropdown with current font', () => {
-    setup()
-    const trigger = container.querySelector('.cortex-dropdown__trigger')
-    expect(trigger?.textContent).toContain('Inter')
   })
 
   it('renders SZ label with font-size value', () => {
@@ -202,9 +195,8 @@ describe('TypographySection', () => {
 
   it('renders weight dropdown with named label', () => {
     setup()
-    const triggers = container.querySelectorAll('.cortex-dropdown__trigger')
-    const weightTrigger = triggers[1]
-    expect(weightTrigger?.textContent).toContain('Regular')
+    const trigger = container.querySelector('.cortex-dropdown__trigger')
+    expect(trigger?.textContent).toContain('Regular')
   })
 
   it('color swatch shows computed color', () => {
@@ -212,11 +204,5 @@ describe('TypographySection', () => {
     const swatch = container.querySelector('.cortex-color-input__swatch') as HTMLElement
     expect(swatch).not.toBeNull()
     expect(swatch.style.backgroundColor).toBeTruthy()
-  })
-
-  it('handles empty availableFonts gracefully', () => {
-    setup({ availableFonts: [] })
-    const trigger = container.querySelector('.cortex-dropdown__trigger')
-    expect(trigger?.textContent).toContain('Inter')
   })
 })

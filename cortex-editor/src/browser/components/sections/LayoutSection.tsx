@@ -47,11 +47,11 @@ export function parseLayoutValues(cs: CSSStyleDeclaration): LayoutValues {
 }
 
 const DISPLAY_OPTIONS = [
-  { value: 'block', label: 'block', icon: '□', title: 'Block' },
-  { value: 'flex', label: 'flex', icon: '⇔', title: 'Flex' },
-  { value: 'grid', label: 'grid', icon: '⊞', title: 'Grid' },
-  { value: 'inline', label: 'inline', icon: '↔', title: 'Inline' },
-  { value: 'none', label: 'none', icon: '⊘', title: 'None' },
+  { value: 'block', icon: '□', title: 'Block' },
+  { value: 'flex', icon: '⇔', title: 'Flex' },
+  { value: 'grid', icon: '⊞', title: 'Grid' },
+  { value: 'inline', icon: '↔', title: 'Inline' },
+  { value: 'none', icon: '⊘', title: 'None' },
 ]
 
 const VISIBILITY_OPTIONS = [
@@ -153,6 +153,7 @@ export function LayoutSection({
           options={DISPLAY_OPTIONS}
           value={values.display}
           onChange={handleDisplayChange}
+          size="sm"
         />
       </div>
 

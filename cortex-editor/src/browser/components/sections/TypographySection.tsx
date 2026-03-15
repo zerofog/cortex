@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useState, useCallback, useMemo } from 'preact/hooks'
+import { useState, useRef, useCallback, useMemo } from 'preact/hooks'
 import { SegmentedControl } from '../controls/SegmentedControl.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { Dropdown } from '../controls/Dropdown.js'
@@ -21,7 +21,6 @@ export interface TypographyValues {
 
 export interface TypographySectionProps {
   values: TypographyValues
-  availableFonts: string[]
   availableWeights: string[]
   onChange: (change: TypographyChange) => void
   onScrub?: (change: TypographyChange) => void
@@ -40,16 +39,6 @@ export function parseTypographyValues(cs: CSSStyleDeclaration): TypographyValues
     textAlign: cs.textAlign ?? 'left',
     color: cs.color ?? 'rgb(0, 0, 0)',
   }
-}
-
-/** Detect font families available in the current document. */
-export function getAvailableFonts(): string[] {
-  if (!document.fonts?.[Symbol.iterator]) return []
-  const families = new Set<string>()
-  for (const face of document.fonts) {
-    families.add(stripCSSQuotes((face as FontFace).family))
-  }
-  return [...families].sort()
 }
 
 /** Get available weights for a font family from document.fonts. */
@@ -117,27 +106,16 @@ function rgbToHex(color: string): string | null {
 
 export function TypographySection({
   values,
-  availableFonts,
   availableWeights,
   onChange,
   onScrub,
   onScrubEnd,
 }: TypographySectionProps): JSX.Element {
   const hexColor = rgbToHex(values.color) ?? values.color
+  const colorInputRef = useRef<HTMLInputElement>(null)
   // Nullable editing state: null = not editing (show computed hexColor), string = user's input
   const [editingHex, setEditingHex] = useState<string | null>(null)
   const displayedHex = editingHex !== null ? editingHex : hexColor
-
-  // Build font options — always include current font
-  const currentFontClean = useMemo(
-    () => stripCSSQuotes(values.fontFamily.split(',')[0]?.trim() ?? ''),
-    [values.fontFamily],
-  )
-  const fontOptions = useMemo(() => {
-    const fonts = new Set(availableFonts)
-    if (currentFontClean) fonts.add(currentFontClean)
-    return [...fonts].sort().map((f) => ({ value: f, label: f }))
-  }, [availableFonts, currentFontClean])
 
   const weightOptions = useMemo(() => {
     const opts = availableWeights.map((w) => ({
@@ -154,14 +132,6 @@ export function TypographySection({
     return opts
   }, [availableWeights, values.fontWeight])
 
-  const handleFontChange = useCallback(
-    (v: string) => {
-      // Quote multi-word font families — `font-family: Open Sans` is invalid CSS
-      const quoted = v.includes(' ') ? `"${v}"` : v
-      onChange({ property: 'font-family', value: quoted })
-    },
-    [onChange],
-  )
   const handleWeightChange = useCallback(
     (v: string) => onChange({ property: 'font-weight', value: v }),
     [onChange],
@@ -209,6 +179,15 @@ export function TypographySection({
     [onScrubEnd],
   )
 
+  const handleSwatchClick = useCallback(() => {
+    colorInputRef.current?.click()
+  }, [])
+
+  const handleColorPick = useCallback((e: Event) => {
+    const hex = (e.target as HTMLInputElement).value
+    onChange({ property: 'color', value: hex })
+  }, [onChange])
+
   const handleHexInput = useCallback((e: Event) => {
     setEditingHex((e.target as HTMLInputElement).value)
   }, [])
@@ -226,16 +205,6 @@ export function TypographySection({
 
   return (
     <div class="cortex-typography-section" data-section-id="type">
-      <div class="cortex-typography-section__group">
-        <span class="cortex-section-label">Font</span>
-        <Dropdown
-          options={fontOptions}
-          value={currentFontClean}
-          onChange={handleFontChange}
-          placeholder="Select font..."
-        />
-      </div>
-
       <div class="cortex-typography-section__row">
         <div class="cortex-typography-section__field">
           <NumericInput
@@ -296,6 +265,14 @@ export function TypographySection({
           <div
             class="cortex-color-input__swatch"
             style={{ backgroundColor: values.color }}
+            onClick={handleSwatchClick}
+          />
+          <input
+            ref={colorInputRef}
+            class="cortex-color-input__native"
+            type="color"
+            value={hexColor}
+            onInput={handleColorPick}
           />
           <input
             class="cortex-color-input__hex"

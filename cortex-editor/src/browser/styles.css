@@ -46,7 +46,7 @@
   top: 0;
   will-change: transform;
   width: 300px;
-  max-height: 460px;
+  max-height: calc(100vh - 32px);
   background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -184,55 +184,6 @@
 
 .cortex-panel-header__btn--close {
   color: #9ca3af;
-}
-
-/* ── Tab navigation ──────────────────────────── */
-
-.cortex-tab-nav {
-  display: flex;
-  align-items: center;
-  height: 32px;
-  padding: 0 12px;
-  border-bottom: 1px solid #f3f4f6;
-  overflow-x: auto;
-  scrollbar-width: none;
-  flex-shrink: 0;
-}
-
-.cortex-tab-nav::-webkit-scrollbar {
-  display: none;
-}
-
-.cortex-tab {
-  padding: 6px 8px;
-  border: none;
-  background: transparent;
-  font-size: 12px;
-  color: #9ca3af;
-  cursor: pointer;
-  white-space: nowrap;
-  position: relative;
-  flex-shrink: 0;
-}
-
-.cortex-tab:hover {
-  color: #6b7280;
-}
-
-.cortex-tab--active {
-  color: #111827;
-  font-weight: 500;
-}
-
-.cortex-tab--active::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 8px;
-  right: 8px;
-  height: 2px;
-  background: #3b82f6;
-  border-radius: 1px;
 }
 
 /* ── Numeric input ───────────────────────────── */
@@ -638,6 +589,15 @@
   border-radius: 3px;
   border: 1px solid rgba(0, 0, 0, 0.1);
   flex-shrink: 0;
+  cursor: pointer;
+}
+
+.cortex-color-input__native {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
 }
 
 .cortex-color-input__hex {
