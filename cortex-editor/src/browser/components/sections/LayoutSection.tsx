@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useCallback } from 'preact/hooks'
+import { useState, useCallback } from 'preact/hooks'
 import { SegmentedControl } from '../controls/SegmentedControl.js'
 import { NumericInput } from '../controls/NumericInput.js'
 
@@ -92,6 +92,7 @@ export function LayoutSection({
   const isGrid = values.display === 'grid' || values.display === 'inline-grid'
   const isFlexOrGrid = isFlex || isGrid
   const isNone = values.display === 'none'
+  const [aspectLocked, setAspectLocked] = useState(false)
 
   const handleDisplayChange = useCallback(
     (v: string) => onChange({ property: 'display', value: v }),
@@ -119,31 +120,66 @@ export function LayoutSection({
   const isAutoWidth = isNaN(widthNum)
   const isAutoHeight = isNaN(heightNum)
 
-  // Review finding 2b: plain functions instead of misleading useCallback factory
+  const aspectRatio = (!isAutoWidth && !isAutoHeight && heightNum > 0)
+    ? widthNum / heightNum
+    : 1
+
   const handleWidthChange = useCallback(
-    (v: number) => onChange({ property: 'width', value: `${v}px` }),
-    [onChange],
+    (v: number) => {
+      onChange({ property: 'width', value: `${v}px` })
+      if (aspectLocked && aspectRatio > 0) {
+        onChange({ property: 'height', value: `${Math.round(v / aspectRatio)}px` })
+      }
+    },
+    [onChange, aspectLocked, aspectRatio],
   )
   const handleWidthScrub = useCallback(
-    (v: number) => { if (onScrub) onScrub({ property: 'width', value: `${v}px` }) },
-    [onScrub],
+    (v: number) => {
+      if (onScrub) onScrub({ property: 'width', value: `${v}px` })
+      if (aspectLocked && aspectRatio > 0 && onScrub) {
+        onScrub({ property: 'height', value: `${Math.round(v / aspectRatio)}px` })
+      }
+    },
+    [onScrub, aspectLocked, aspectRatio],
   )
   const handleWidthScrubEnd = useCallback(
-    (v: number) => { if (onScrubEnd) onScrubEnd({ property: 'width', value: `${v}px` }) },
-    [onScrubEnd],
+    (v: number) => {
+      if (onScrubEnd) onScrubEnd({ property: 'width', value: `${v}px` })
+      if (aspectLocked && aspectRatio > 0 && onScrubEnd) {
+        onScrubEnd({ property: 'height', value: `${Math.round(v / aspectRatio)}px` })
+      }
+    },
+    [onScrubEnd, aspectLocked, aspectRatio],
   )
   const handleHeightChange = useCallback(
-    (v: number) => onChange({ property: 'height', value: `${v}px` }),
-    [onChange],
+    (v: number) => {
+      onChange({ property: 'height', value: `${v}px` })
+      if (aspectLocked && aspectRatio > 0) {
+        onChange({ property: 'width', value: `${Math.round(v * aspectRatio)}px` })
+      }
+    },
+    [onChange, aspectLocked, aspectRatio],
   )
   const handleHeightScrub = useCallback(
-    (v: number) => { if (onScrub) onScrub({ property: 'height', value: `${v}px` }) },
-    [onScrub],
+    (v: number) => {
+      if (onScrub) onScrub({ property: 'height', value: `${v}px` })
+      if (aspectLocked && aspectRatio > 0 && onScrub) {
+        onScrub({ property: 'width', value: `${Math.round(v * aspectRatio)}px` })
+      }
+    },
+    [onScrub, aspectLocked, aspectRatio],
   )
   const handleHeightScrubEnd = useCallback(
-    (v: number) => { if (onScrubEnd) onScrubEnd({ property: 'height', value: `${v}px` }) },
-    [onScrubEnd],
+    (v: number) => {
+      if (onScrubEnd) onScrubEnd({ property: 'height', value: `${v}px` })
+      if (aspectLocked && aspectRatio > 0 && onScrubEnd) {
+        onScrubEnd({ property: 'width', value: `${Math.round(v * aspectRatio)}px` })
+      }
+    },
+    [onScrubEnd, aspectLocked, aspectRatio],
   )
+
+  const handleToggleLock = useCallback(() => setAspectLocked((v) => !v), [])
 
   return (
     <div class="cortex-layout-section" data-section-id="layout">
@@ -213,6 +249,7 @@ export function LayoutSection({
             value={isAutoWidth ? 0 : widthNum}
             unit={isAutoWidth ? 'auto' : 'px'}
             label="W"
+            tooltip="Width"
             min={0}
             onChange={handleWidthChange}
             onScrub={handleWidthScrub}
@@ -222,11 +259,31 @@ export function LayoutSection({
             value={isAutoHeight ? 0 : heightNum}
             unit={isAutoHeight ? 'auto' : 'px'}
             label="H"
+            tooltip="Height"
             min={0}
             onChange={handleHeightChange}
             onScrub={handleHeightScrub}
             onScrubEnd={handleHeightScrubEnd}
           />
+          <button
+            class={`cortex-lock-btn${aspectLocked ? ' cortex-lock-btn--active' : ''}`}
+            data-tooltip={aspectLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
+            onClick={handleToggleLock}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              {aspectLocked ? (
+                <>
+                  <rect x="3" y="6.5" width="8" height="5.5" rx="1" />
+                  <path d="M4.5,6.5 V4.5 a2.5,2.5 0 0 1 5,0 V6.5" />
+                </>
+              ) : (
+                <>
+                  <rect x="3" y="6.5" width="8" height="5.5" rx="1" />
+                  <path d="M4.5,6.5 V4.5 a2.5,2.5 0 0 1 5,0" />
+                </>
+              )}
+            </svg>
+          </button>
         </div>
       </div>
     </div>

@@ -110,7 +110,7 @@ describe('SegmentedControl', () => {
       size: 'sm',
     })
     const buttons = container.querySelectorAll('[role="radio"]')
-    expect(buttons[0].getAttribute('title')).toBe('Row')
+    expect(buttons[0].getAttribute('data-tooltip')).toBe('Row')
     expect(buttons[0].textContent).toContain('→')
   })
 

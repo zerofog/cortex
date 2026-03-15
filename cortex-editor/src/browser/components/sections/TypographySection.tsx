@@ -212,6 +212,7 @@ export function TypographySection({
             value={values.fontSize}
             unit="px"
             label="SZ"
+            tooltip="Font Size"
             min={1}
             onChange={handleFontSizeChange}
             onScrub={handleFontSizeScrub}
@@ -219,7 +220,7 @@ export function TypographySection({
           />
         </div>
         <div class="cortex-typography-section__field">
-          <span class="cortex-typography-section__inline-label">WT</span>
+          <span class="cortex-typography-section__inline-label" data-tooltip="Font Weight">WT</span>
           <Dropdown
             options={weightOptions}
             value={values.fontWeight}
@@ -233,6 +234,7 @@ export function TypographySection({
           <NumericInput
             value={values.lineHeight}
             label="LH"
+            tooltip="Line Height"
             onChange={handleLineHeightChange}
             onScrub={handleLineHeightScrub}
             onScrubEnd={handleLineHeightScrubEnd}
@@ -243,6 +245,7 @@ export function TypographySection({
             value={values.letterSpacing}
             unit="px"
             label="LS"
+            tooltip="Letter Spacing"
             onChange={handleLetterSpacingChange}
             onScrub={handleLetterSpacingScrub}
             onScrubEnd={handleLetterSpacingScrubEnd}
