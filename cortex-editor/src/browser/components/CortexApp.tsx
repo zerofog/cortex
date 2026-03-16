@@ -19,6 +19,7 @@ export interface CortexAppProps {
 export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element {
   const [hoveredElement, setHoveredElement] = useState<HTMLElement | null>(null)
   const [selectedElement, setSelectedElement] = useState<HTMLElement | null>(null)
+  const [swatches, setSwatches] = useState<string[] | undefined>(undefined)
   const overrideRef = useRef<CSSOverrideManager | null>(null)
 
   useEffect(() => {
@@ -36,7 +37,9 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
     // Subscribe to server messages
     const unsubscribe = channel.onMessage((msg) => {
       if (msg.type === 'hello') {
-        // Connection established
+        if (msg.swatches && msg.swatches.length > 0) {
+          setSwatches(msg.swatches)
+        }
       }
     })
 
@@ -61,6 +64,7 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
           overrideManager={overrideRef.current}
           onClose={handleClose}
           onSelectElement={handleSelectElement}
+          swatches={swatches}
         />
       )}
     </>

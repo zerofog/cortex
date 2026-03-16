@@ -5,6 +5,7 @@ import { ColorPicker } from './ColorPicker.js'
 export interface ColorInputProps {
   value: string
   onChange: (hex: string) => void
+  swatches?: string[]
 }
 
 export const HEX_REGEX = /^#[0-9a-fA-F]{6}$/
@@ -20,7 +21,7 @@ export function rgbToHex(color: string): string {
   return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`
 }
 
-export function ColorInput({ value, onChange }: ColorInputProps): JSX.Element {
+export function ColorInput({ value, onChange, swatches }: ColorInputProps): JSX.Element {
   const hexColor = rgbToHex(value)
   const [editingHex, setEditingHex] = useState<string | null>(null)
   const editingHexRef = useRef<string | null>(null)
@@ -81,6 +82,7 @@ export function ColorInput({ value, onChange }: ColorInputProps): JSX.Element {
           onChange={handlePickerChange}
           onClose={handlePickerClose}
           anchor={swatchRef.current}
+          swatches={swatches}
         />
       )}
     </div>

@@ -25,6 +25,7 @@ export interface PanelProps {
   overrideManager: CSSOverrideManager
   onClose: () => void
   onSelectElement: (el: HTMLElement | null) => void
+  swatches?: string[]
 }
 
 function parseSpacingValues(cs: CSSStyleDeclaration) {
@@ -53,6 +54,7 @@ export function Panel({
   overrideManager,
   onClose,
   onSelectElement,
+  swatches,
 }: PanelProps): JSX.Element | null {
   // ALL hooks first — no conditional returns before hooks
   const [contentKey, setContentKey] = useState(0)
@@ -241,12 +243,14 @@ export function Panel({
         <FillSection
           values={computedStyles.fill}
           onChange={handleFillCommit}
+          swatches={swatches}
         />
         <BorderSection
           values={computedStyles.border}
           onChange={handleBorderCommit}
           onScrub={handleBorderScrub}
           onScrubEnd={handleBorderCommit}
+          swatches={swatches}
         />
         <ShadowSection
           values={computedStyles.shadow}

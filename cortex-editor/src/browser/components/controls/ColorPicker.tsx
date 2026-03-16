@@ -10,6 +10,7 @@ export interface ColorPickerProps {
   anchor: HTMLElement
   alpha?: number
   onAlphaChange?: (alpha: number) => void
+  swatches?: string[]
 }
 
 const HEX_REGEX = /^#[0-9a-fA-F]{6}$/
@@ -29,7 +30,9 @@ export function ColorPicker({
   anchor,
   alpha = 100,
   onAlphaChange,
+  swatches: swatchesProp,
 }: ColorPickerProps): JSX.Element {
+  const displaySwatches = swatchesProp ?? SWATCHES
   const popoverRef = useRef<HTMLDivElement>(null)
   const pickerRef = useRef<HTMLElement>(null)
 
@@ -159,7 +162,7 @@ export function ColorPicker({
         </div>
 
         <div class="cortex-color-picker__swatches">
-          {SWATCHES.map((hex) => (
+          {displaySwatches.map((hex) => (
             <button
               key={hex}
               class={`cortex-color-picker__swatch${hex === color ? ' cortex-color-picker__swatch--active' : ''}`}

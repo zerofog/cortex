@@ -25,6 +25,7 @@ export interface BorderSectionProps {
   onChange: (change: BorderChange) => void
   onScrub?: (change: BorderChange) => void
   onScrubEnd?: (change: BorderChange) => void
+  swatches?: string[]
 }
 
 /** Extract border-related values from a CSSStyleDeclaration. */
@@ -53,6 +54,7 @@ export function BorderSection({
   onChange,
   onScrub,
   onScrubEnd,
+  swatches,
 }: BorderSectionProps): JSX.Element {
   const [perCorner, setPerCorner] = useState(false)
 
@@ -132,6 +134,7 @@ export function BorderSection({
         <ColorInput
           value={values.borderColor}
           onChange={handleColorChange}
+          swatches={swatches}
         />
       </div>
 

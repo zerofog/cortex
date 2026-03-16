@@ -14,6 +14,7 @@ export interface FillValues {
 export interface FillSectionProps {
   values: FillValues
   onChange: (change: FillChange) => void
+  swatches?: string[]
 }
 
 /** Extract fill-related values from a CSSStyleDeclaration. */
@@ -26,6 +27,7 @@ export function parseFillValues(cs: CSSStyleDeclaration): FillValues {
 export function FillSection({
   values,
   onChange,
+  swatches,
 }: FillSectionProps): JSX.Element {
   const handleBackgroundColorChange = useCallback(
     (hex: string) => onChange({ property: 'background-color', value: hex }),
@@ -39,6 +41,7 @@ export function FillSection({
         <ColorInput
           value={values.backgroundColor}
           onChange={handleBackgroundColorChange}
+          swatches={swatches}
         />
       </div>
     </div>
