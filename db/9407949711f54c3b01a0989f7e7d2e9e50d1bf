@@ -1,0 +1,26 @@
+cortex-editor/tests/browser/controls/color-input.test.tsx
+  98f8a19d1727f86a 1-110
+cortex-editor/src/browser/components/controls/ColorInput.tsx
+  98f8a19d1727f86a 1-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "db9407949711f54c3b01a0989f7e7d2e9e50d1bf",
+  "prompts": {
+    "98f8a19d1727f86a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b07d52ac-c5e3-4047-8339-5e722827860b",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 174,
+      "total_deletions": 6,
+      "accepted_lines": 168,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/df58e503b086753d84203901160e97b49928d3096362a619f4031f1a218c35e9"
+    }
+  }
+}
