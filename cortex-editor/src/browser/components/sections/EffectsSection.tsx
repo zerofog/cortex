@@ -26,7 +26,7 @@ export interface EffectsSectionProps {
 
 function parseBlurValue(filter: string): number {
   const m = filter.match(/blur\(([\d.]+)px\)/)
-  return m ? parseFloat(m[1]) : 0
+  return m?.[1] ? parseFloat(m[1]) : 0
 }
 
 /** Extract effects-related values from a CSSStyleDeclaration. */

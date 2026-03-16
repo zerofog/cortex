@@ -74,7 +74,7 @@ function parseSingleShadow(raw: string): Shadow {
   )
   let color = 'rgba(0, 0, 0, 0.1)'
   if (colorMatch && colorMatch.index !== undefined) {
-    color = colorMatch[1]
+    color = colorMatch[1] ?? color
     s = s.slice(0, colorMatch.index).trim()
   }
 
