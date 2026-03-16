@@ -1,0 +1,24 @@
+docs/superpowers/specs/2026-03-15-phase-5b-fill-border-shadow-effects-design.md
+  98f8a19d1727f86a 1-122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "3c855c216110d43d133b2b17c66ebf644cf94cfb",
+  "prompts": {
+    "98f8a19d1727f86a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b07d52ac-c5e3-4047-8339-5e722827860b",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 122,
+      "total_deletions": 0,
+      "accepted_lines": 122,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/c1565c9ba2acb829a3a6755c75ad3de9386f1c27d0f0da3adb9a4444cc7ce5e7"
+    }
+  }
+}
