@@ -15,6 +15,8 @@ export interface EffectsValues {
   cursor: string
   blur: number         // px
   backdropBlur: number // px
+  filterRaw: string    // raw filter string for non-destructive editing
+  backdropFilterRaw: string // raw backdrop-filter string
 }
 
 export interface EffectsSectionProps {
@@ -29,6 +31,14 @@ function parseBlurValue(filter: string): number {
   return m?.[1] ? parseFloat(m[1]) : 0
 }
 
+/** Replace or insert a blur() function in a filter string, preserving other functions. */
+export function replaceBlurInFilter(existing: string, newBlur: number): string {
+  const normalized = (!existing || existing === 'none') ? '' : existing
+  const withoutBlur = normalized.replace(/blur\([^)]*\)/g, '').trim()
+  if (newBlur === 0) return withoutBlur || 'none'
+  return withoutBlur ? `${withoutBlur} blur(${newBlur}px)` : `blur(${newBlur}px)`
+}
+
 /** Extract effects-related values from a CSSStyleDeclaration. */
 export function parseEffectsValues(cs: CSSStyleDeclaration): EffectsValues {
   return {
@@ -39,6 +49,8 @@ export function parseEffectsValues(cs: CSSStyleDeclaration): EffectsValues {
     backdropBlur: parseBlurValue(
       cs.backdropFilter ?? (cs as any).webkitBackdropFilter ?? '',
     ),
+    filterRaw: cs.filter ?? '',
+    backdropFilterRaw: cs.backdropFilter ?? (cs as any).webkitBackdropFilter ?? '',
   }
 }
 
@@ -93,32 +105,32 @@ export function EffectsSection({
     [onChange],
   )
 
-  // Blur handlers
+  // Blur handlers — preserve existing non-blur filter functions
   const handleBlurChange = useCallback(
-    (v: number) => onChange({ property: 'filter', value: v > 0 ? `blur(${v}px)` : 'none' }),
-    [onChange],
+    (v: number) => onChange({ property: 'filter', value: replaceBlurInFilter(values.filterRaw, v) }),
+    [onChange, values.filterRaw],
   )
   const handleBlurScrub = useCallback(
-    (v: number) => { if (onScrub) onScrub({ property: 'filter', value: v > 0 ? `blur(${v}px)` : 'none' }) },
-    [onScrub],
+    (v: number) => { if (onScrub) onScrub({ property: 'filter', value: replaceBlurInFilter(values.filterRaw, v) }) },
+    [onScrub, values.filterRaw],
   )
   const handleBlurScrubEnd = useCallback(
-    (v: number) => { if (onScrubEnd) onScrubEnd({ property: 'filter', value: v > 0 ? `blur(${v}px)` : 'none' }) },
-    [onScrubEnd],
+    (v: number) => { if (onScrubEnd) onScrubEnd({ property: 'filter', value: replaceBlurInFilter(values.filterRaw, v) }) },
+    [onScrubEnd, values.filterRaw],
   )
 
-  // Backdrop blur handlers
+  // Backdrop blur handlers — preserve existing non-blur backdrop-filter functions
   const handleBackdropBlurChange = useCallback(
-    (v: number) => onChange({ property: 'backdrop-filter', value: v > 0 ? `blur(${v}px)` : 'none' }),
-    [onChange],
+    (v: number) => onChange({ property: 'backdrop-filter', value: replaceBlurInFilter(values.backdropFilterRaw, v) }),
+    [onChange, values.backdropFilterRaw],
   )
   const handleBackdropBlurScrub = useCallback(
-    (v: number) => { if (onScrub) onScrub({ property: 'backdrop-filter', value: v > 0 ? `blur(${v}px)` : 'none' }) },
-    [onScrub],
+    (v: number) => { if (onScrub) onScrub({ property: 'backdrop-filter', value: replaceBlurInFilter(values.backdropFilterRaw, v) }) },
+    [onScrub, values.backdropFilterRaw],
   )
   const handleBackdropBlurScrubEnd = useCallback(
-    (v: number) => { if (onScrubEnd) onScrubEnd({ property: 'backdrop-filter', value: v > 0 ? `blur(${v}px)` : 'none' }) },
-    [onScrubEnd],
+    (v: number) => { if (onScrubEnd) onScrubEnd({ property: 'backdrop-filter', value: replaceBlurInFilter(values.backdropFilterRaw, v) }) },
+    [onScrubEnd, values.backdropFilterRaw],
   )
 
   return (

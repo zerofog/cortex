@@ -151,7 +151,6 @@ export function Panel({
   const handleTypographyCommit = useCallback((c: TypographyChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleTypographyScrub = useCallback((c: TypographyChange) => applyOverride(c.property, c.value, false), [applyOverride])
   const handleFillCommit = useCallback((c: FillChange) => applyOverride(c.property, c.value, true), [applyOverride])
-  const handleFillScrub = useCallback((c: FillChange) => applyOverride(c.property, c.value, false), [applyOverride])
   const handleBorderCommit = useCallback((c: BorderChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleBorderScrub = useCallback((c: BorderChange) => applyOverride(c.property, c.value, false), [applyOverride])
   const handleShadowCommit = useCallback((c: ShadowChange) => applyOverride(c.property, c.value, true), [applyOverride])
@@ -242,8 +241,6 @@ export function Panel({
         <FillSection
           values={computedStyles.fill}
           onChange={handleFillCommit}
-          onScrub={handleFillScrub}
-          onScrubEnd={handleFillCommit}
         />
         <BorderSection
           values={computedStyles.border}

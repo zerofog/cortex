@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
-import { EffectsSection, parseEffectsValues } from '../../../src/browser/components/sections/EffectsSection.js'
+import { EffectsSection, parseEffectsValues, replaceBlurInFilter } from '../../../src/browser/components/sections/EffectsSection.js'
 import type { EffectsValues } from '../../../src/browser/components/sections/EffectsSection.js'
 
 // Mock @floating-ui/dom for Dropdown
@@ -82,6 +82,45 @@ describe('parseEffectsValues', () => {
     const result = parseEffectsValues(cs)
     expect(result.blur).toBe(4)
   })
+
+  it('includes raw filter strings', () => {
+    const cs = {
+      opacity: '1',
+      overflow: 'visible',
+      cursor: 'auto',
+      filter: 'blur(4px) grayscale(50%)',
+      backdropFilter: 'blur(8px)',
+    } as unknown as CSSStyleDeclaration
+    const result = parseEffectsValues(cs)
+    expect(result.filterRaw).toBe('blur(4px) grayscale(50%)')
+    expect(result.backdropFilterRaw).toBe('blur(8px)')
+  })
+})
+
+describe('replaceBlurInFilter', () => {
+  it('replaces blur in combined filter, preserving other functions', () => {
+    expect(replaceBlurInFilter('grayscale(50%) blur(4px)', 8)).toBe('grayscale(50%) blur(8px)')
+  })
+
+  it('adds blur to filter that has no blur', () => {
+    expect(replaceBlurInFilter('grayscale(50%)', 4)).toBe('grayscale(50%) blur(4px)')
+  })
+
+  it('removes blur when set to 0, preserving other functions', () => {
+    expect(replaceBlurInFilter('grayscale(50%) blur(4px)', 0)).toBe('grayscale(50%)')
+  })
+
+  it('returns none when removing blur from blur-only filter', () => {
+    expect(replaceBlurInFilter('blur(4px)', 0)).toBe('none')
+  })
+
+  it('handles none input', () => {
+    expect(replaceBlurInFilter('none', 4)).toBe('blur(4px)')
+  })
+
+  it('handles empty input', () => {
+    expect(replaceBlurInFilter('', 4)).toBe('blur(4px)')
+  })
 })
 
 describe('EffectsSection', () => {
@@ -100,6 +139,8 @@ describe('EffectsSection', () => {
     cursor: 'auto',
     blur: 4,
     backdropBlur: 0,
+    filterRaw: 'blur(4px)',
+    backdropFilterRaw: '',
   }
 
   function setup(overrides?: Partial<Parameters<typeof EffectsSection>[0]>) {

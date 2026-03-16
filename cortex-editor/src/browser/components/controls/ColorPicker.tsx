@@ -1,6 +1,7 @@
 import type { JSX } from 'preact'
 import { useState, useRef, useCallback, useEffect } from 'preact/hooks'
 import { computePosition, flip, shift } from '@floating-ui/dom'
+import 'vanilla-colorful/hex-color-picker.js'
 
 export interface ColorPickerProps {
   color: string
@@ -33,6 +34,7 @@ export function ColorPicker({
   const pickerRef = useRef<HTMLElement>(null)
 
   const [editingHex, setEditingHex] = useState<string | null>(null)
+  const editingHexRef = useRef<string | null>(null)
   const displayedHex = editingHex !== null ? editingHex : color
 
   // Position popover via floating-ui
@@ -62,37 +64,51 @@ export function ColorPicker({
     }
   }, [anchor])
 
-  // Set initial color on web component and listen for changes
+  // Sync color prop to web component
   useEffect(() => {
     const picker = pickerRef.current
     if (!picker) return
     ;(picker as any).color = color
+  }, [color])
+
+  // Subscribe to color-changed event once (use ref for onChange to avoid re-subscribing)
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
+
+  useEffect(() => {
+    const picker = pickerRef.current
+    if (!picker) return
     const handleColorChanged = (e: Event) => {
       const detail = (e as CustomEvent).detail
       if (detail && typeof detail.value === 'string') {
-        onChange(detail.value)
+        onChangeRef.current(detail.value)
       }
     }
     picker.addEventListener('color-changed', handleColorChanged)
     return () => {
       picker.removeEventListener('color-changed', handleColorChanged)
     }
-  }, [color, onChange])
+  }, [])
 
   const handleHexFocus = useCallback(() => {
+    editingHexRef.current = color
     setEditingHex(color)
   }, [color])
 
   const handleHexInput = useCallback((e: Event) => {
-    setEditingHex((e.target as HTMLInputElement).value)
+    const v = (e.target as HTMLInputElement).value
+    editingHexRef.current = v
+    setEditingHex(v)
   }, [])
 
   const handleHexBlur = useCallback(() => {
-    if (editingHex !== null && HEX_REGEX.test(editingHex)) {
-      onChange(editingHex)
+    const current = editingHexRef.current
+    if (current !== null && HEX_REGEX.test(current)) {
+      onChange(current)
     }
+    editingHexRef.current = null
     setEditingHex(null)
-  }, [editingHex, onChange])
+  }, [onChange])
 
   const handleSwatchClick = useCallback(
     (hex: string) => {

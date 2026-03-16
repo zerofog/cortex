@@ -1,12 +1,13 @@
 import type { JSX } from 'preact'
-import { useState, useCallback } from 'preact/hooks'
+import { useState, useRef, useCallback } from 'preact/hooks'
+import { ColorPicker } from './ColorPicker.js'
 
 export interface ColorInputProps {
   value: string
   onChange: (hex: string) => void
 }
 
-const HEX_REGEX = /^#[0-9a-fA-F]{6}$/
+export const HEX_REGEX = /^#[0-9a-fA-F]{6}$/
 
 /** Convert any CSS color string to #RRGGBB. Returns #000000 if unparseable. */
 export function rgbToHex(color: string): string {
@@ -22,28 +23,49 @@ export function rgbToHex(color: string): string {
 export function ColorInput({ value, onChange }: ColorInputProps): JSX.Element {
   const hexColor = rgbToHex(value)
   const [editingHex, setEditingHex] = useState<string | null>(null)
+  const editingHexRef = useRef<string | null>(null)
   const displayedHex = editingHex !== null ? editingHex : hexColor
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const swatchRef = useRef<HTMLDivElement>(null)
 
   const handleHexInput = useCallback((e: Event) => {
-    setEditingHex((e.target as HTMLInputElement).value)
+    const v = (e.target as HTMLInputElement).value
+    editingHexRef.current = v
+    setEditingHex(v)
   }, [])
 
   const handleHexFocus = useCallback(() => {
+    editingHexRef.current = hexColor
     setEditingHex(hexColor)
   }, [hexColor])
 
   const handleHexBlur = useCallback(() => {
-    if (editingHex !== null && HEX_REGEX.test(editingHex)) {
-      onChange(editingHex)
+    const current = editingHexRef.current
+    if (current !== null && HEX_REGEX.test(current)) {
+      onChange(current)
     }
+    editingHexRef.current = null
     setEditingHex(null)
-  }, [editingHex, onChange])
+  }, [onChange])
+
+  const handleSwatchClick = useCallback(() => {
+    setPickerOpen(true)
+  }, [])
+
+  const handlePickerClose = useCallback(() => {
+    setPickerOpen(false)
+  }, [])
+
+  const handlePickerChange = useCallback((hex: string) => {
+    onChange(hex)
+  }, [onChange])
 
   return (
-    <div class="cortex-color-input">
+    <div class="cortex-color-input" ref={swatchRef}>
       <div
         class="cortex-color-input__swatch"
         style={{ backgroundColor: value }}
+        onClick={handleSwatchClick}
       />
       <input
         class="cortex-color-input__hex"
@@ -53,6 +75,14 @@ export function ColorInput({ value, onChange }: ColorInputProps): JSX.Element {
         onFocus={handleHexFocus}
         onBlur={handleHexBlur}
       />
+      {pickerOpen && swatchRef.current && (
+        <ColorPicker
+          color={hexColor}
+          onChange={handlePickerChange}
+          onClose={handlePickerClose}
+          anchor={swatchRef.current}
+        />
+      )}
     </div>
   )
 }
