@@ -31,11 +31,11 @@ Full color picker popover using vanilla-colorful Web Component + hand-written ad
 - Styled via `::part()` CSS Shadow Parts
 
 **Hand-written:**
-- Alpha/opacity slider (NumericInput, 0-100%)
-- Hex/RGB/HSL text input mode tabs
-- Tailwind design system color swatches (grid of preset colors)
+- Optional alpha number input (shown when `onAlphaChange` prop provided)
+- Hex text input with validation
+- Tailwind design system color swatches (resolved from project's tailwind.config, falls back to default palette)
 - Popover wrapper using `@floating-ui/dom` (computePosition, flip, shift)
-- Single-picker-open-at-a-time behavior (opening one closes others)
+- ColorInput manages picker open/close state internally
 
 **Popover behavior:**
 - Opens on swatch click, positioned via floating-ui below the trigger
@@ -57,7 +57,8 @@ All sections follow the established pattern:
 | Property | Control | CSS Property |
 |---|---|---|
 | Background Color | ColorInput + ColorPicker | `background-color` |
-| Opacity | NumericInput (0-100, %) | `opacity` |
+
+*Note: Element opacity is in EffectsSection to avoid dual-control conflicts.*
 
 #### BorderSection (`sections/BorderSection.tsx`, `data-section-id="border"`)
 

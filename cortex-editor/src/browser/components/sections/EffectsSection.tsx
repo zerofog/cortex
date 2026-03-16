@@ -34,7 +34,7 @@ function parseBlurValue(filter: string): number {
 /** Replace or insert a blur() function in a filter string, preserving other functions. */
 export function replaceBlurInFilter(existing: string, newBlur: number): string {
   const normalized = (!existing || existing === 'none') ? '' : existing
-  const withoutBlur = normalized.replace(/blur\([^)]*\)/g, '').trim()
+  const withoutBlur = normalized.replace(/blur\([^)]*\)/g, '').replace(/\s{2,}/g, ' ').trim()
   if (newBlur === 0) return withoutBlur || 'none'
   return withoutBlur ? `${withoutBlur} blur(${newBlur}px)` : `blur(${newBlur}px)`
 }

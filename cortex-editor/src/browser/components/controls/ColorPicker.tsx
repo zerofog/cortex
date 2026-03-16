@@ -83,7 +83,7 @@ export function ColorPicker({
     if (!picker) return
     const handleColorChanged = (e: Event) => {
       const detail = (e as CustomEvent).detail
-      if (detail && typeof detail.value === 'string') {
+      if (detail && typeof detail.value === 'string' && HEX_REGEX.test(detail.value)) {
         onChangeRef.current(detail.value)
       }
     }
@@ -169,6 +169,7 @@ export function ColorPicker({
               style={{ backgroundColor: hex }}
               onClick={() => handleSwatchClick(hex)}
               type="button"
+              aria-label={`Set color to ${hex}`}
             />
           ))}
         </div>

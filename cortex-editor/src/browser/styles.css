@@ -644,6 +644,7 @@
   border: 1px solid rgba(0, 0, 0, 0.1);
   flex-shrink: 0;
   cursor: pointer;
+  padding: 0;
 }
 
 .cortex-color-input__native {

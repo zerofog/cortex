@@ -63,10 +63,12 @@ export function ColorInput({ value, onChange, swatches }: ColorInputProps): JSX.
 
   return (
     <div class="cortex-color-input" ref={swatchRef}>
-      <div
+      <button
+        type="button"
         class="cortex-color-input__swatch"
         style={{ backgroundColor: value }}
         onClick={handleSwatchClick}
+        aria-label="Open color picker"
       />
       <input
         class="cortex-color-input__hex"
