@@ -63,7 +63,7 @@ export type BrowserToServer =
   | { type: 'comment'; protocolVersion?: number; elementSource: string; text: string; elementContext?: ElementContext; currentStyles?: Record<string, string> }
 
 export type ServerToBrowser =
-  | { type: 'hello'; protocolVersion: number; sessionId: string }
+  | { type: 'hello'; protocolVersion: number; sessionId: string; swatches?: string[] }
   | { type: 'error'; code: string; message: string; editId?: string }
   | { type: 'edit_status'; editId: string; status: 'writing' | 'done' | 'failed'; newToken?: string; reason?: string }
   | { type: 'undo_status'; status: 'done'; restoredFile: string }

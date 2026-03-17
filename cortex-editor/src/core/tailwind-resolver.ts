@@ -59,6 +59,36 @@ function toPx(value: string): string | null {
   return null
 }
 
+/**
+ * Flatten a resolved Tailwind colors object into an array of hex strings.
+ * Picks shade-500 as the representative for each color family,
+ * includes flat custom colors, and skips non-color values.
+ */
+export function flattenColors(colors: Record<string, unknown>): string[] {
+  const HEX = /^#[0-9a-fA-F]{3,8}$/
+  const result: string[] = []
+
+  for (const [key, value] of Object.entries(colors)) {
+    // Skip special values
+    if (key === 'inherit' || key === 'current' || key === 'transparent') continue
+
+    if (typeof value === 'string') {
+      // Flat color (e.g., brand: '#1a73e8')
+      if (HEX.test(value)) result.push(value)
+    } else if (value && typeof value === 'object') {
+      // Color family (e.g., red: { 50: '...', 500: '...', 900: '...' })
+      const shades = value as Record<string, unknown>
+      // Prefer 500 shade, fall back to first available
+      const representative = shades['500'] ?? shades['DEFAULT'] ?? Object.values(shades).find(v => typeof v === 'string' && HEX.test(v))
+      if (typeof representative === 'string' && HEX.test(representative)) {
+        result.push(representative)
+      }
+    }
+  }
+
+  return result
+}
+
 export class TailwindResolver {
   private lookup = new Map<string, Map<string, string>>()
 
@@ -125,6 +155,31 @@ export class TailwindResolver {
       }
     }
     return null
+  }
+
+  /**
+   * Resolve color swatches from the project's Tailwind config.
+   * Returns representative hex colors (shade 500 per family + flat customs).
+   * Returns null if tailwindcss is not installed or no config found.
+   */
+  static async resolveColors(projectRoot: string): Promise<string[] | null> {
+    let resolveConfig: (config: unknown) => { theme?: Record<string, unknown> }
+    try {
+      // @ts-expect-error — tailwindcss is an optional peer dep
+      const mod = await import('tailwindcss/resolveConfig')
+      resolveConfig = mod.default
+    } catch {
+      return null
+    }
+
+    const config = await TailwindResolver.loadConfig(projectRoot)
+    if (!config) return null
+
+    const resolved = resolveConfig(config)
+    const colors = (resolved.theme as Record<string, unknown>)?.colors
+    if (!colors || typeof colors !== 'object') return null
+
+    return flattenColors(colors as Record<string, unknown>)
   }
 
   /** Find the Tailwind class for a CSS property + computed value (in px). */
