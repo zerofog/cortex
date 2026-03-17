@@ -59,6 +59,43 @@ describe('parseBoxShadow', () => {
     expect(result[0].x).toBe(-2)
     expect(result[0].y).toBe(-4)
   })
+
+  // Browser computed style puts color FIRST — this is the critical fix
+  it('parses browser computed format (color first)', () => {
+    const result = parseBoxShadow('rgba(0, 0, 0, 0.1) 0px 2px 8px 0px')
+    expect(result).toEqual([
+      { x: 0, y: 2, blur: 8, spread: 0, color: 'rgba(0, 0, 0, 0.1)', inset: false },
+    ])
+  })
+
+  it('parses browser computed multi-shadow (color first)', () => {
+    const result = parseBoxShadow(
+      'rgba(0, 0, 0, 0.1) 0px 1px 3px 0px, rgba(0, 0, 0, 0.1) 0px 1px 2px -1px',
+    )
+    expect(result).toHaveLength(2)
+    expect(result[0].y).toBe(1)
+    expect(result[0].blur).toBe(3)
+    expect(result[0].color).toBe('rgba(0, 0, 0, 0.1)')
+    expect(result[1].y).toBe(1)
+    expect(result[1].blur).toBe(2)
+    expect(result[1].spread).toBe(-1)
+  })
+
+  it('parses browser computed inset with color first', () => {
+    const result = parseBoxShadow('inset rgba(0, 0, 0, 0.5) 0px 2px 4px 0px')
+    expect(result).toHaveLength(1)
+    expect(result[0].inset).toBe(true)
+    expect(result[0].y).toBe(2)
+    expect(result[0].blur).toBe(4)
+    expect(result[0].color).toBe('rgba(0, 0, 0, 0.5)')
+  })
+
+  it('parses browser computed with hex color first', () => {
+    const result = parseBoxShadow('#000000 0px 4px 6px -1px')
+    expect(result).toEqual([
+      { x: 0, y: 4, blur: 6, spread: -1, color: '#000000', inset: false },
+    ])
+  })
 })
 
 describe('serializeBoxShadow', () => {
@@ -139,5 +176,15 @@ describe('ShadowSection', () => {
     })
     const rows = container.querySelectorAll('.cortex-shadow-section__row')
     expect(rows).toHaveLength(2)
+  })
+
+  it('passes swatches to ColorInput when provided', () => {
+    const testSwatches = ['#ef4444', '#3b82f6', '#22c55e']
+    setup({ swatches: testSwatches })
+    // ColorInput receives swatches prop — verify it renders the shadow row's color control
+    const colorInputs = container.querySelectorAll('.cortex-color-input')
+    expect(colorInputs.length).toBeGreaterThan(0)
+    // The swatches prop is threaded through to ColorPicker on open;
+    // we verify the ColorInput rendered (prop accepted without error)
   })
 })

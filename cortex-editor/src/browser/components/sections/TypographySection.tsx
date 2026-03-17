@@ -26,6 +26,7 @@ export interface TypographySectionProps {
   onChange: (change: TypographyChange) => void
   onScrub?: (change: TypographyChange) => void
   onScrubEnd?: (change: TypographyChange) => void
+  swatches?: string[]
 }
 
 /** Extract typography-related values from a CSSStyleDeclaration. */
@@ -99,6 +100,7 @@ export function TypographySection({
   onChange,
   onScrub,
   onScrubEnd,
+  swatches,
 }: TypographySectionProps): JSX.Element {
   const weightOptions = useMemo(() => {
     const opts = availableWeights.map((w) => ({
@@ -229,7 +231,7 @@ export function TypographySection({
 
       <div class="cortex-typography-section__group">
         <span class="cortex-section-label">COL</span>
-        <ColorInput value={values.color} onChange={handleColorChange} />
+        <ColorInput value={values.color} onChange={handleColorChange} swatches={swatches} />
       </div>
     </div>
   )

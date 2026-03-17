@@ -162,9 +162,9 @@ export function ColorPicker({
         </div>
 
         <div class="cortex-color-picker__swatches">
-          {displaySwatches.map((hex) => (
+          {displaySwatches.map((hex, idx) => (
             <button
-              key={hex}
+              key={`${hex}-${idx}`}
               class={`cortex-color-picker__swatch${hex === color ? ' cortex-color-picker__swatch--active' : ''}`}
               style={{ backgroundColor: hex }}
               onClick={() => handleSwatchClick(hex)}
