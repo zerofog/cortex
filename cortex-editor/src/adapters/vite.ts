@@ -2,6 +2,7 @@ import type { Plugin, ResolvedConfig, HmrContext } from 'vite'
 import type { SourceMapInput } from 'rollup'
 import { createSourceTransform } from './source-transform.js'
 import type { ServerChannel, BrowserToServer, ServerToBrowser } from './types.js'
+import { TailwindResolver } from '../core/tailwind-resolver.js'
 
 export interface CortexEditorOptions {
   // Reserved for future options
@@ -102,8 +103,25 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         })
       }
 
+      // Resolve Tailwind colors at server start for sending to browser
+      let resolvedSwatches: string[] | undefined
+      TailwindResolver.resolveColors(config.root).then((colors) => {
+        if (colors && colors.length > 0) resolvedSwatches = colors
+      }).catch(() => { /* tailwindcss not available, use default swatches */ })
+
       // Vite 5.1+ API: server.hot replaces deprecated server.ws
+      let helloSent = false
       const hotHandler = (data: BrowserToServer) => {
+        // Send hello with swatches on first message from browser
+        if (!helloSent && channelInstance) {
+          helloSent = true
+          channelInstance.send({
+            type: 'hello',
+            protocolVersion: 1,
+            sessionId: crypto.randomUUID(),
+            swatches: resolvedSwatches,
+          })
+        }
         const handlers = [...messageHandlers]
         for (const h of handlers) {
           try { h(data) } catch (err) {

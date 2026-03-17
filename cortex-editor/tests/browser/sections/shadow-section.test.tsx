@@ -1,0 +1,143 @@
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { render } from 'preact'
+import {
+  ShadowSection,
+  parseBoxShadow,
+  serializeBoxShadow,
+  parseShadowValues,
+} from '../../../src/browser/components/sections/ShadowSection.js'
+import type { ShadowValues } from '../../../src/browser/components/sections/ShadowSection.js'
+
+// Mock @floating-ui/dom for ColorPicker (transitively used by ColorInput)
+vi.mock('@floating-ui/dom', () => ({
+  computePosition: vi.fn().mockResolvedValue({ x: 0, y: 30 }),
+  flip: vi.fn().mockReturnValue({}),
+  shift: vi.fn().mockReturnValue({}),
+}))
+
+describe('parseBoxShadow', () => {
+  it('returns empty array for "none"', () => {
+    expect(parseBoxShadow('none')).toEqual([])
+  })
+
+  it('parses a single shadow', () => {
+    const result = parseBoxShadow('2px 4px 8px rgba(0, 0, 0, 0.1)')
+    expect(result).toEqual([
+      { x: 2, y: 4, blur: 8, spread: 0, color: 'rgba(0, 0, 0, 0.1)', inset: false },
+    ])
+  })
+
+  it('parses shadow with spread', () => {
+    const result = parseBoxShadow('2px 4px 8px 2px #000')
+    expect(result).toHaveLength(1)
+    expect(result[0].spread).toBe(2)
+  })
+
+  it('parses inset shadow', () => {
+    const result = parseBoxShadow('inset 0px 2px 4px rgba(0, 0, 0, 0.06)')
+    expect(result).toHaveLength(1)
+    expect(result[0].inset).toBe(true)
+    expect(result[0].x).toBe(0)
+    expect(result[0].y).toBe(2)
+    expect(result[0].blur).toBe(4)
+  })
+
+  it('parses multiple shadows (comma-separated, respecting rgba() parens)', () => {
+    const result = parseBoxShadow(
+      '2px 4px 8px rgba(0, 0, 0, 0.1), inset 0px 1px 2px rgba(255, 255, 255, 0.5)',
+    )
+    expect(result).toHaveLength(2)
+    expect(result[0].x).toBe(2)
+    expect(result[0].inset).toBe(false)
+    expect(result[1].inset).toBe(true)
+    expect(result[1].y).toBe(1)
+  })
+
+  it('handles negative offsets', () => {
+    const result = parseBoxShadow('-2px -4px 8px #000')
+    expect(result).toHaveLength(1)
+    expect(result[0].x).toBe(-2)
+    expect(result[0].y).toBe(-4)
+  })
+})
+
+describe('serializeBoxShadow', () => {
+  it('serializes empty array to "none"', () => {
+    expect(serializeBoxShadow([])).toBe('none')
+  })
+
+  it('serializes a single shadow', () => {
+    const result = serializeBoxShadow([
+      { x: 2, y: 4, blur: 8, spread: 0, color: 'rgba(0, 0, 0, 0.1)', inset: false },
+    ])
+    expect(result).toBe('2px 4px 8px 0px rgba(0, 0, 0, 0.1)')
+  })
+
+  it('serializes inset shadow with "inset" prefix', () => {
+    const result = serializeBoxShadow([
+      { x: 0, y: 2, blur: 4, spread: 0, color: 'rgba(0, 0, 0, 0.06)', inset: true },
+    ])
+    expect(result).toBe('inset 0px 2px 4px 0px rgba(0, 0, 0, 0.06)')
+  })
+})
+
+describe('ShadowSection', () => {
+  let container: HTMLDivElement
+
+  afterEach(() => {
+    if (container) {
+      render(null, container)
+      container.remove()
+    }
+  })
+
+  const DEFAULT_VALUES: ShadowValues = {
+    boxShadow: '2px 4px 8px rgba(0, 0, 0, 0.1)',
+  }
+
+  function setup(overrides?: Partial<Parameters<typeof ShadowSection>[0]>) {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    const onChange = vi.fn()
+    render(
+      <ShadowSection values={DEFAULT_VALUES} onChange={onChange} {...overrides} />,
+      container,
+    )
+    return { onChange }
+  }
+
+  it('has data-section-id="shadow"', () => {
+    setup()
+    const root = container.querySelector('[data-section-id="shadow"]')
+    expect(root).not.toBeNull()
+  })
+
+  it('renders shadow rows for each parsed shadow', () => {
+    setup()
+    const rows = container.querySelectorAll('.cortex-shadow-section__row')
+    expect(rows).toHaveLength(1)
+  })
+
+  it('renders add shadow button', () => {
+    setup()
+    const addBtn = container.querySelector('.cortex-shadow-section__add')
+    expect(addBtn).not.toBeNull()
+  })
+
+  it('shows no shadow rows when box-shadow is none', () => {
+    setup({ values: { boxShadow: 'none' } })
+    const rows = container.querySelectorAll('.cortex-shadow-section__row')
+    expect(rows).toHaveLength(0)
+  })
+
+  it('renders multiple shadow rows for multi-shadow values', () => {
+    setup({
+      values: {
+        boxShadow:
+          '2px 4px 8px rgba(0, 0, 0, 0.1), inset 0px 1px 2px rgba(255, 255, 255, 0.5)',
+      },
+    })
+    const rows = container.querySelectorAll('.cortex-shadow-section__row')
+    expect(rows).toHaveLength(2)
+  })
+})

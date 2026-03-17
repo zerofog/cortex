@@ -63,6 +63,14 @@ describe('Panel', () => {
     expect(root.textContent).toContain('Font')
   })
 
+  it('renders Phase 5b sections', () => {
+    const { root } = setup()
+    expect(root.querySelector('[data-section-id="fill"]')).not.toBeNull()
+    expect(root.querySelector('[data-section-id="border"]')).not.toBeNull()
+    expect(root.querySelector('[data-section-id="shadow"]')).not.toBeNull()
+    expect(root.querySelector('[data-section-id="effects"]')).not.toBeNull()
+  })
+
   it('calls onClose when close button clicked', () => {
     const { root, onClose } = setup()
     const closeBtn = root.querySelector('[data-action="close"]') as HTMLButtonElement

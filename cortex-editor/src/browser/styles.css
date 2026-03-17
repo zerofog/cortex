@@ -644,6 +644,7 @@
   border: 1px solid rgba(0, 0, 0, 0.1);
   flex-shrink: 0;
   cursor: pointer;
+  padding: 0;
 }
 
 .cortex-color-input__native {
@@ -668,4 +669,271 @@
 
 .cortex-color-input__hex:focus {
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
+
+/* ── Color picker popover ──────────────────── */
+
+.cortex-color-picker__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+}
+
+.cortex-color-picker__popover {
+  z-index: 11;
+  width: 220px;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cortex-color-picker__popover hex-color-picker {
+  width: 100%;
+  height: 150px;
+}
+
+.cortex-color-picker__popover hex-color-picker::part(saturation) {
+  border-radius: 6px 6px 0 0;
+}
+
+.cortex-color-picker__popover hex-color-picker::part(hue) {
+  height: 12px;
+  border-radius: 6px;
+}
+
+.cortex-color-picker__popover hex-color-picker::part(saturation-pointer) {
+  width: 16px;
+  height: 16px;
+  border: 2px solid white;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
+}
+
+.cortex-color-picker__popover hex-color-picker::part(hue-pointer) {
+  width: 14px;
+  height: inherit;
+  border-radius: 3px;
+  border: 2px solid white;
+}
+
+.cortex-color-picker__inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cortex-color-picker__hex-row,
+.cortex-color-picker__alpha-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cortex-color-picker__label {
+  font-size: 11px;
+  color: #6b7280;
+  width: 32px;
+  flex-shrink: 0;
+}
+
+.cortex-color-picker__hex-input,
+.cortex-color-picker__alpha-input {
+  flex: 1;
+  height: 26px;
+  padding: 0 6px;
+  background: #f3f4f6;
+  border: none;
+  border-radius: 4px;
+  font: 12px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #111827;
+  outline: none;
+}
+
+.cortex-color-picker__hex-input:focus,
+.cortex-color-picker__alpha-input:focus {
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
+
+.cortex-color-picker__unit {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.cortex-color-picker__swatches {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 3px;
+}
+
+.cortex-color-picker__swatch {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+}
+
+.cortex-color-picker__swatch:hover {
+  border-color: rgba(0, 0, 0, 0.2);
+  transform: scale(1.15);
+}
+
+.cortex-color-picker__swatch--active {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px #3b82f6;
+}
+
+/* ── Fill section ──────────────────────────── */
+
+.cortex-fill-section {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cortex-fill-section__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cortex-fill-section__color-row {
+  position: relative;
+}
+
+/* ── Border section ────────────────────────── */
+
+.cortex-border-section {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cortex-border-section__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cortex-border-section__color-row {
+  position: relative;
+}
+
+.cortex-border-section__radius-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.cortex-border-section__corner-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+  border-radius: 4px;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.cortex-border-section__corner-toggle:hover {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.cortex-border-section__corner-toggle--active {
+  color: #3b82f6;
+}
+
+.cortex-border-section__corners {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+/* ── Shadow section ────────────────────────── */
+
+.cortex-shadow-section {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cortex-shadow-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cortex-shadow-section__add,
+.cortex-shadow-section__remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.cortex-shadow-section__add:hover,
+.cortex-shadow-section__remove:hover {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.cortex-shadow-section__row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: #f9fafb;
+  border-radius: 6px;
+}
+
+.cortex-shadow-section__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.cortex-shadow-section__controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── Effects section ───────────────────────── */
+
+.cortex-effects-section {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cortex-effects-section__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { TailwindResolver } from '../../src/core/tailwind-resolver.js'
+import { TailwindResolver, flattenColors } from '../../src/core/tailwind-resolver.js'
 
 function defaultSpacingTheme() {
   return {
@@ -111,5 +111,56 @@ describe('TailwindResolver', () => {
       const resolver = TailwindResolver.fromTheme(defaultSpacingTheme())
       expect(resolver.findClass('padding-top', '1px')).toBe('pt-px')
     })
+  })
+})
+
+describe('flattenColors', () => {
+  it('extracts shade-500 from color families', () => {
+    const colors = {
+      red: { 100: '#fee2e2', 500: '#ef4444', 900: '#7f1d1d' },
+      blue: { 100: '#dbeafe', 500: '#3b82f6', 900: '#1e3a8a' },
+    }
+    expect(flattenColors(colors)).toEqual(['#ef4444', '#3b82f6'])
+  })
+
+  it('extracts flat custom colors', () => {
+    const colors = {
+      brand: '#1a73e8',
+      accent: '#34a853',
+    }
+    expect(flattenColors(colors)).toEqual(['#1a73e8', '#34a853'])
+  })
+
+  it('skips inherit, current, transparent', () => {
+    const colors = {
+      inherit: 'inherit',
+      current: 'currentColor',
+      transparent: 'transparent',
+      red: { 500: '#ef4444' },
+    }
+    expect(flattenColors(colors)).toEqual(['#ef4444'])
+  })
+
+  it('falls back to DEFAULT shade when 500 missing', () => {
+    const colors = {
+      primary: { DEFAULT: '#1a73e8', light: '#4a9af5' },
+    }
+    expect(flattenColors(colors)).toEqual(['#1a73e8'])
+  })
+
+  it('falls back to first hex shade when 500 and DEFAULT missing', () => {
+    const colors = {
+      custom: { 50: '#fafafa', 100: '#f5f5f5' },
+    }
+    expect(flattenColors(colors)).toEqual(['#fafafa'])
+  })
+
+  it('handles mixed flat and family colors', () => {
+    const colors = {
+      brand: '#1a73e8',
+      red: { 500: '#ef4444' },
+      transparent: 'transparent',
+    }
+    expect(flattenColors(colors)).toEqual(['#1a73e8', '#ef4444'])
   })
 })

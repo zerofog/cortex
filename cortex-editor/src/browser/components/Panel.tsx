@@ -11,12 +11,21 @@ import { LayoutSection, parseLayoutValues } from './sections/LayoutSection.js'
 import type { LayoutChange } from './sections/LayoutSection.js'
 import { TypographySection, parseTypographyValues, getWeightsForFamily, stripCSSQuotes } from './sections/TypographySection.js'
 import type { TypographyChange } from './sections/TypographySection.js'
+import { FillSection, parseFillValues } from './sections/FillSection.js'
+import type { FillChange } from './sections/FillSection.js'
+import { BorderSection, parseBorderValues } from './sections/BorderSection.js'
+import type { BorderChange } from './sections/BorderSection.js'
+import { ShadowSection, parseShadowValues } from './sections/ShadowSection.js'
+import type { ShadowChange } from './sections/ShadowSection.js'
+import { EffectsSection, parseEffectsValues } from './sections/EffectsSection.js'
+import type { EffectsChange } from './sections/EffectsSection.js'
 
 export interface PanelProps {
   element: HTMLElement
   overrideManager: CSSOverrideManager
   onClose: () => void
   onSelectElement: (el: HTMLElement | null) => void
+  swatches?: string[]
 }
 
 function parseSpacingValues(cs: CSSStyleDeclaration) {
@@ -45,6 +54,7 @@ export function Panel({
   overrideManager,
   onClose,
   onSelectElement,
+  swatches,
 }: PanelProps): JSX.Element | null {
   // ALL hooks first — no conditional returns before hooks
   const [contentKey, setContentKey] = useState(0)
@@ -91,6 +101,10 @@ export function Panel({
         spacing: parseSpacingValues({} as CSSStyleDeclaration),
         layout: parseLayoutValues({} as CSSStyleDeclaration),
         typography: parseTypographyValues({} as CSSStyleDeclaration),
+        fill: parseFillValues({} as CSSStyleDeclaration),
+        border: parseBorderValues({} as CSSStyleDeclaration),
+        shadow: parseShadowValues({} as CSSStyleDeclaration),
+        effects: parseEffectsValues({} as CSSStyleDeclaration),
       }
     }
     const cs = getComputedStyle(element)
@@ -98,6 +112,10 @@ export function Panel({
       spacing: parseSpacingValues(cs),
       layout: parseLayoutValues(cs),
       typography: parseTypographyValues(cs),
+      fill: parseFillValues(cs),
+      border: parseBorderValues(cs),
+      shadow: parseShadowValues(cs),
+      effects: parseEffectsValues(cs),
     }
   }, [element, styleVersion])
 
@@ -134,6 +152,12 @@ export function Panel({
   const handleLayoutScrub = useCallback((c: LayoutChange) => applyOverride(c.property, c.value, false), [applyOverride])
   const handleTypographyCommit = useCallback((c: TypographyChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleTypographyScrub = useCallback((c: TypographyChange) => applyOverride(c.property, c.value, false), [applyOverride])
+  const handleFillCommit = useCallback((c: FillChange) => applyOverride(c.property, c.value, true), [applyOverride])
+  const handleBorderCommit = useCallback((c: BorderChange) => applyOverride(c.property, c.value, true), [applyOverride])
+  const handleBorderScrub = useCallback((c: BorderChange) => applyOverride(c.property, c.value, false), [applyOverride])
+  const handleShadowCommit = useCallback((c: ShadowChange) => applyOverride(c.property, c.value, true), [applyOverride])
+  const handleEffectsCommit = useCallback((c: EffectsChange) => applyOverride(c.property, c.value, true), [applyOverride])
+  const handleEffectsScrub = useCallback((c: EffectsChange) => applyOverride(c.property, c.value, false), [applyOverride])
 
   const handleSelectParent = useCallback(() => {
     if (!element) return
@@ -215,6 +239,28 @@ export function Panel({
           onChange={handleTypographyCommit}
           onScrub={handleTypographyScrub}
           onScrubEnd={handleTypographyCommit}
+        />
+        <FillSection
+          values={computedStyles.fill}
+          onChange={handleFillCommit}
+          swatches={swatches}
+        />
+        <BorderSection
+          values={computedStyles.border}
+          onChange={handleBorderCommit}
+          onScrub={handleBorderScrub}
+          onScrubEnd={handleBorderCommit}
+          swatches={swatches}
+        />
+        <ShadowSection
+          values={computedStyles.shadow}
+          onChange={handleShadowCommit}
+        />
+        <EffectsSection
+          values={computedStyles.effects}
+          onChange={handleEffectsCommit}
+          onScrub={handleEffectsScrub}
+          onScrubEnd={handleEffectsCommit}
         />
       </div>
     </div>

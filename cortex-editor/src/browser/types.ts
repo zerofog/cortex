@@ -14,4 +14,14 @@ declare global {
   }
 }
 
+/** Declare vanilla-colorful Web Component for JSX/TSX usage */
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace preact.JSX {
+    interface IntrinsicElements {
+      'hex-color-picker': preact.JSX.HTMLAttributes & { color?: string }
+    }
+  }
+}
+
 export {}

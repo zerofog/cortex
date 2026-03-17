@@ -1,8 +1,9 @@
 import type { JSX } from 'preact'
-import { useState, useRef, useCallback, useMemo } from 'preact/hooks'
+import { useCallback, useMemo } from 'preact/hooks'
 import { SegmentedControl } from '../controls/SegmentedControl.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { Dropdown } from '../controls/Dropdown.js'
+import { ColorInput } from '../controls/ColorInput.js'
 
 export interface TypographyChange {
   property: string
@@ -92,18 +93,6 @@ export function stripCSSQuotes(s: string): string {
   return s.replace(/^["']|["']$/g, '')
 }
 
-const HEX_REGEX = /^#[0-9a-fA-F]{6}$/
-
-/** Parse any CSS color format to #RRGGBB. Returns null if unparseable. */
-function rgbToHex(color: string): string | null {
-  const m = color.match(/rgba?\((\d+)[,\s]+(\d+)[,\s]+(\d+)/)
-  if (!m) return null
-  const r = Number(m[1])
-  const g = Number(m[2])
-  const b = Number(m[3])
-  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`
-}
-
 export function TypographySection({
   values,
   availableWeights,
@@ -111,12 +100,6 @@ export function TypographySection({
   onScrub,
   onScrubEnd,
 }: TypographySectionProps): JSX.Element {
-  const hexColor = rgbToHex(values.color) ?? '#000000'
-  const colorInputRef = useRef<HTMLInputElement>(null)
-  // Nullable editing state: null = not editing (show computed hexColor), string = user's input
-  const [editingHex, setEditingHex] = useState<string | null>(null)
-  const displayedHex = editingHex !== null ? editingHex : hexColor
-
   const weightOptions = useMemo(() => {
     const opts = availableWeights.map((w) => ({
       value: w,
@@ -179,29 +162,10 @@ export function TypographySection({
     [onScrubEnd],
   )
 
-  const handleSwatchClick = useCallback(() => {
-    colorInputRef.current?.click()
-  }, [])
-
-  const handleColorPick = useCallback((e: Event) => {
-    const hex = (e.target as HTMLInputElement).value
-    onChange({ property: 'color', value: hex })
-  }, [onChange])
-
-  const handleHexInput = useCallback((e: Event) => {
-    setEditingHex((e.target as HTMLInputElement).value)
-  }, [])
-
-  const handleHexFocus = useCallback(() => {
-    setEditingHex(hexColor)
-  }, [hexColor])
-
-  const handleHexBlur = useCallback(() => {
-    if (editingHex !== null && HEX_REGEX.test(editingHex)) {
-      onChange({ property: 'color', value: editingHex })
-    }
-    setEditingHex(null)
-  }, [editingHex, onChange])
+  const handleColorChange = useCallback(
+    (hex: string) => onChange({ property: 'color', value: hex }),
+    [onChange],
+  )
 
   return (
     <div class="cortex-typography-section" data-section-id="type">
@@ -265,28 +229,7 @@ export function TypographySection({
 
       <div class="cortex-typography-section__group">
         <span class="cortex-section-label">COL</span>
-        <div class="cortex-color-input">
-          <div
-            class="cortex-color-input__swatch"
-            style={{ backgroundColor: values.color }}
-            onClick={handleSwatchClick}
-          />
-          <input
-            ref={colorInputRef}
-            class="cortex-color-input__native"
-            type="color"
-            value={hexColor}
-            onInput={handleColorPick}
-          />
-          <input
-            class="cortex-color-input__hex"
-            type="text"
-            value={displayedHex}
-            onInput={handleHexInput}
-            onFocus={handleHexFocus}
-            onBlur={handleHexBlur}
-          />
-        </div>
+        <ColorInput value={values.color} onChange={handleColorChange} />
       </div>
     </div>
   )
