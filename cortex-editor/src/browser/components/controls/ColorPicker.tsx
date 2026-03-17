@@ -106,12 +106,12 @@ export function ColorPicker({
 
   const handleHexBlur = useCallback(() => {
     const current = editingHexRef.current
-    if (current !== null && HEX_REGEX.test(current)) {
+    if (current !== null && HEX_REGEX.test(current) && current.toLowerCase() !== color.toLowerCase()) {
       onChange(current)
     }
     editingHexRef.current = null
     setEditingHex(null)
-  }, [onChange])
+  }, [onChange, color])
 
   const handleSwatchClick = useCallback(
     (hex: string) => {

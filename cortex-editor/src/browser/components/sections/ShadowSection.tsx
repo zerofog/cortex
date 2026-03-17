@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useCallback, useMemo } from 'preact/hooks'
+import { useCallback, useMemo, useRef } from 'preact/hooks'
 import { NumericInput } from '../controls/NumericInput.js'
 import { ColorInput } from '../controls/ColorInput.js'
 import { parseBoxShadow, serializeBoxShadow } from '../../../core/shadow-utils.js'
@@ -40,22 +40,32 @@ const DEFAULT_SHADOW: Shadow = {
   color: 'rgba(0, 0, 0, 0.1)',
 }
 
+/** Shadow with a stable key for list rendering. */
+interface KeyedShadow extends Shadow {
+  _key: number
+}
+
 export function ShadowSection({
   values,
   onChange,
   swatches,
 }: ShadowSectionProps): JSX.Element {
-  const shadows = useMemo(() => parseBoxShadow(values.boxShadow), [values.boxShadow])
+  const nextKeyRef = useRef(0)
+
+  const shadows = useMemo(() => {
+    const parsed = parseBoxShadow(values.boxShadow)
+    return parsed.map((s): KeyedShadow => ({ ...s, _key: nextKeyRef.current++ }))
+  }, [values.boxShadow])
 
   const emitChange = useCallback(
-    (updated: Shadow[]) => {
+    (updated: KeyedShadow[]) => {
       onChange({ property: 'box-shadow', value: serializeBoxShadow(updated) })
     },
     [onChange],
   )
 
   const handleAdd = useCallback(() => {
-    emitChange([...shadows, { ...DEFAULT_SHADOW }])
+    emitChange([...shadows, { ...DEFAULT_SHADOW, _key: nextKeyRef.current++ }])
   }, [shadows, emitChange])
 
   const handleRemove = useCallback(
@@ -90,7 +100,7 @@ export function ShadowSection({
       </div>
 
       {shadows.map((shadow, index) => (
-        <div class="cortex-shadow-section__row" key={index}>
+        <div class="cortex-shadow-section__row" key={shadow._key}>
           <div class="cortex-shadow-section__grid">
             <NumericInput
               value={shadow.x}

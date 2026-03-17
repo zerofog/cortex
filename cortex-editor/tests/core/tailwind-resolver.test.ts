@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { TailwindResolver, flattenColors, type ResolvedTheme } from '../../src/core/tailwind-resolver.js'
+import { TailwindResolver, flattenColors, normalizeHex, type ResolvedTheme } from '../../src/core/tailwind-resolver.js'
 
 function defaultSpacingTheme() {
   return {
@@ -566,6 +566,55 @@ describe('flattenColors', () => {
       transparent: 'transparent',
     }
     expect(flattenColors(colors)).toEqual(['#1a73e8', '#ef4444'])
+  })
+
+  it('normalizes 3-digit hex to 6-digit', () => {
+    const colors = { brand: '#f00', accent: '#0af' }
+    expect(flattenColors(colors)).toEqual(['#ff0000', '#00aaff'])
+  })
+
+  it('normalizes uppercase hex to lowercase', () => {
+    const colors = { brand: '#FF0000' }
+    expect(flattenColors(colors)).toEqual(['#ff0000'])
+  })
+
+  it('strips alpha from 8-digit hex', () => {
+    const colors = { brand: '#ff000080' }
+    expect(flattenColors(colors)).toEqual(['#ff0000'])
+  })
+
+  it('de-duplicates identical colors after normalization', () => {
+    const colors = { brand: '#ff0000', primary: '#FF0000', accent: '#f00' }
+    expect(flattenColors(colors)).toEqual(['#ff0000'])
+  })
+})
+
+describe('normalizeHex (exported)', () => {
+  it('passes through 6-digit hex lowercase', () => {
+    expect(normalizeHex('#abcdef')).toBe('#abcdef')
+  })
+
+  it('lowercases 6-digit hex', () => {
+    expect(normalizeHex('#ABCDEF')).toBe('#abcdef')
+  })
+
+  it('expands 3-digit hex', () => {
+    expect(normalizeHex('#f00')).toBe('#ff0000')
+    expect(normalizeHex('#abc')).toBe('#aabbcc')
+  })
+
+  it('strips alpha from 8-digit hex', () => {
+    expect(normalizeHex('#ff000080')).toBe('#ff0000')
+  })
+
+  it('strips alpha from 4-digit hex', () => {
+    expect(normalizeHex('#f00a')).toBe('#ff0000')
+  })
+
+  it('returns null for invalid input', () => {
+    expect(normalizeHex('red')).toBeNull()
+    expect(normalizeHex('rgb(0,0,0)')).toBeNull()
+    expect(normalizeHex('#gg0000')).toBeNull()
   })
 })
 

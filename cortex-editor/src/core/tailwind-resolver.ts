@@ -160,8 +160,8 @@ function identity(value: string): string | null {
   return value
 }
 
-/** Normalize hex to canonical 6-digit lowercase form for theme-side color values. */
-function normalizeHex(value: string): string | null {
+/** Normalize hex to canonical 6-digit lowercase form. Handles #rgb, #rrggbb, #rgba, #rrggbbaa. */
+export function normalizeHex(value: string): string | null {
   // 6-digit hex → lowercase
   if (/^#[0-9a-fA-F]{6}$/.test(value)) return value.toLowerCase()
   // 3-digit short hex → expand (#abc → #aabbcc)
@@ -237,10 +237,20 @@ function applyNormalizer(normalizer: ValueNormalizer, value: string, remPx: numb
  * Flatten a resolved Tailwind colors object into an array of hex strings.
  * Picks shade-500 as the representative for each color family,
  * includes flat custom colors, and skips non-color values.
+ * All values normalized to lowercase 6-digit hex and de-duplicated.
  */
 export function flattenColors(colors: Record<string, unknown>): string[] {
   const HEX = /^#[0-9a-fA-F]{3,8}$/
   const result: string[] = []
+  const seen = new Set<string>()
+
+  function addColor(raw: string): void {
+    const normalized = normalizeHex(raw)
+    if (normalized && !seen.has(normalized)) {
+      seen.add(normalized)
+      result.push(normalized)
+    }
+  }
 
   for (const [key, value] of Object.entries(colors)) {
     // Skip special values
@@ -248,14 +258,14 @@ export function flattenColors(colors: Record<string, unknown>): string[] {
 
     if (typeof value === 'string') {
       // Flat color (e.g., brand: '#1a73e8')
-      if (HEX.test(value)) result.push(value)
+      if (HEX.test(value)) addColor(value)
     } else if (value && typeof value === 'object') {
       // Color family (e.g., red: { 50: '...', 500: '...', 900: '...' })
       const shades = value as Record<string, unknown>
       // Prefer 500 shade, fall back to first available
       const representative = shades['500'] ?? shades['DEFAULT'] ?? Object.values(shades).find(v => typeof v === 'string' && HEX.test(v))
       if (typeof representative === 'string' && HEX.test(representative)) {
-        result.push(representative)
+        addColor(representative)
       }
     }
   }
