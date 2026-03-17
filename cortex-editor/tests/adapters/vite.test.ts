@@ -1,8 +1,22 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting } from '../../src/adapters/vite.js'
 import type { Plugin } from 'vite'
 
+// Mock TailwindResolver so tests control when/how swatches resolve
+vi.mock('../../src/core/tailwind-resolver.js', () => ({
+  TailwindResolver: {
+    resolveColors: vi.fn().mockResolvedValue(null),
+  },
+}))
+
+// Import the mock for per-test control
+import { TailwindResolver } from '../../src/core/tailwind-resolver.js'
+const mockResolveColors = vi.mocked(TailwindResolver.resolveColors)
+
 // Reset module-level state between tests so ordering doesn't matter
+beforeEach(() => {
+  mockResolveColors.mockResolvedValue(null)
+})
 afterEach(() => {
   _resetForTesting()
 })
@@ -25,13 +39,17 @@ function initPlugin(overrides?: { command?: 'serve' | 'build'; root?: string }) 
 // Mock Vite server with server.hot API
 function mockServer() {
   const handlers = new Map<string, Function>()
+  const offHandlers = new Map<string, Function>()
+  const sent: { event: string; data: unknown }[] = []
   return {
     hot: {
       on(event: string, handler: Function) { handlers.set(event, handler) },
-      send(_event: string, _data: unknown) { /* noop in test */ },
+      off(event: string, handler: Function) { offHandlers.set(event, handler) },
+      send(event: string, data: unknown) { sent.push({ event, data }) },
       _trigger(event: string, data: unknown) { handlers.get(event)?.(data) },
     },
     _handlers: handlers,
+    _sent: sent,
   }
 }
 
@@ -184,6 +202,105 @@ describe('cortexEditor Vite plugin', () => {
       server.hot._trigger('cortex:msg', testMsg)
       expect(received).toHaveLength(1)
       expect(received[0]).toEqual(testMsg)
+    })
+  })
+
+  describe('handshake (init → hello)', () => {
+    it('sends hello with swatches after browser init message', async () => {
+      mockResolveColors.mockResolvedValue(['#ef4444', '#3b82f6', '#22c55e'])
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+
+      // Browser sends init
+      server.hot._trigger('cortex:msg', { type: 'init' })
+
+      // hello is sent async via .then() — flush microtasks
+      await vi.waitFor(() => {
+        expect(server._sent.length).toBeGreaterThan(0)
+      })
+
+      const hello = server._sent[0]
+      expect(hello.event).toBe('cortex:msg')
+      expect((hello.data as any).type).toBe('hello')
+      expect((hello.data as any).protocolVersion).toBe(1)
+      expect((hello.data as any).swatches).toEqual(['#ef4444', '#3b82f6', '#22c55e'])
+    })
+
+    it('hello awaits tailwind resolution before sending', async () => {
+      // Create a promise we control
+      let resolveSwatches!: (val: string[] | null) => void
+      const pending = new Promise<string[] | null>((r) => { resolveSwatches = r })
+      mockResolveColors.mockReturnValue(pending)
+
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+
+      // Browser sends init while tailwind is still resolving
+      server.hot._trigger('cortex:msg', { type: 'init' })
+
+      // Nothing sent yet — swatches haven't resolved
+      expect(server._sent).toHaveLength(0)
+
+      // Now resolve swatches
+      resolveSwatches(['#000000'])
+      await vi.waitFor(() => {
+        expect(server._sent.length).toBeGreaterThan(0)
+      })
+
+      expect((server._sent[0].data as any).swatches).toEqual(['#000000'])
+    })
+
+    it('hello has undefined swatches when tailwind resolution fails', async () => {
+      mockResolveColors.mockRejectedValue(new Error('no tailwindcss'))
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+
+      server.hot._trigger('cortex:msg', { type: 'init' })
+
+      await vi.waitFor(() => {
+        expect(server._sent.length).toBeGreaterThan(0)
+      })
+
+      expect((server._sent[0].data as any).swatches).toBeUndefined()
+    })
+
+    it('does not send hello twice on multiple messages', async () => {
+      mockResolveColors.mockResolvedValue(null)
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+
+      server.hot._trigger('cortex:msg', { type: 'init' })
+      server.hot._trigger('cortex:msg', { type: 'edit', editId: '1', property: 'p', value: 'v', source: 's', elementSelector: 'e' })
+
+      await vi.waitFor(() => {
+        expect(server._sent.length).toBeGreaterThan(0)
+      })
+
+      const hellos = server._sent.filter((s) => (s.data as any).type === 'hello')
+      expect(hellos).toHaveLength(1)
+    })
+
+    it('does not forward init to application message handlers', async () => {
+      mockResolveColors.mockResolvedValue(null)
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+
+      const received: unknown[] = []
+      getChannel().onMessage((msg) => received.push(msg))
+
+      server.hot._trigger('cortex:msg', { type: 'init' })
+
+      await vi.waitFor(() => {
+        expect(server._sent.length).toBeGreaterThan(0)
+      })
+
+      // init should NOT be forwarded to application handlers
+      expect(received).toHaveLength(0)
     })
   })
 

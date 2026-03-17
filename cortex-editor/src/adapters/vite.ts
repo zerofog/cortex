@@ -103,25 +103,27 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         })
       }
 
-      // Resolve Tailwind colors at server start for sending to browser
-      let resolvedSwatches: string[] | undefined
-      TailwindResolver.resolveColors(config.root).then((colors) => {
-        if (colors && colors.length > 0) resolvedSwatches = colors
-      }).catch(() => { /* tailwindcss not available, use default swatches */ })
+      // Resolve Tailwind colors at server start — promise awaited in hotHandler
+      const swatchesPromise = TailwindResolver.resolveColors(config.root).catch(() => null)
 
       // Vite 5.1+ API: server.hot replaces deprecated server.ws
       let helloSent = false
       const hotHandler = (data: BrowserToServer) => {
-        // Send hello with swatches on first message from browser
+        // Send hello with swatches on first message (typically 'init') from browser
         if (!helloSent && channelInstance) {
-          helloSent = true
-          channelInstance.send({
-            type: 'hello',
-            protocolVersion: 1,
-            sessionId: crypto.randomUUID(),
-            swatches: resolvedSwatches,
+          helloSent = true // synchronous guard prevents duplicate sends
+          const channel = channelInstance
+          swatchesPromise.then((colors) => {
+            channel.send({
+              type: 'hello',
+              protocolVersion: 1,
+              sessionId: crypto.randomUUID(),
+              swatches: colors && colors.length > 0 ? colors : undefined,
+            })
           })
         }
+        // Don't forward 'init' to application message handlers
+        if (data.type === 'init') return
         const handlers = [...messageHandlers]
         for (const h of handlers) {
           try { h(data) } catch (err) {

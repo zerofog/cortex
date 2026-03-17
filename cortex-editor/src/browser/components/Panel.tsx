@@ -239,6 +239,7 @@ export function Panel({
           onChange={handleTypographyCommit}
           onScrub={handleTypographyScrub}
           onScrubEnd={handleTypographyCommit}
+          swatches={swatches}
         />
         <FillSection
           values={computedStyles.fill}
@@ -255,6 +256,7 @@ export function Panel({
         <ShadowSection
           values={computedStyles.shadow}
           onChange={handleShadowCommit}
+          swatches={swatches}
         />
         <EffectsSection
           values={computedStyles.effects}

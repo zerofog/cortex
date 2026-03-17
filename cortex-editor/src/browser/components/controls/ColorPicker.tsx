@@ -106,12 +106,12 @@ export function ColorPicker({
 
   const handleHexBlur = useCallback(() => {
     const current = editingHexRef.current
-    if (current !== null && HEX_REGEX.test(current)) {
+    if (current !== null && HEX_REGEX.test(current) && current.toLowerCase() !== color.toLowerCase()) {
       onChange(current)
     }
     editingHexRef.current = null
     setEditingHex(null)
-  }, [onChange])
+  }, [onChange, color])
 
   const handleSwatchClick = useCallback(
     (hex: string) => {
@@ -162,9 +162,9 @@ export function ColorPicker({
         </div>
 
         <div class="cortex-color-picker__swatches">
-          {displaySwatches.map((hex) => (
+          {displaySwatches.map((hex, idx) => (
             <button
-              key={hex}
+              key={`${hex}-${idx}`}
               class={`cortex-color-picker__swatch${hex === color ? ' cortex-color-picker__swatch--active' : ''}`}
               style={{ backgroundColor: hex }}
               onClick={() => handleSwatchClick(hex)}

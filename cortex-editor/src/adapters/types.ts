@@ -57,6 +57,7 @@ export interface ServerChannel {
 // === Message protocol ===
 
 export type BrowserToServer =
+  | { type: 'init' }
   | { type: 'edit'; protocolVersion?: number; editId: string; property: string; value: string; source: string; elementSelector: string }
   | { type: 'undo'; protocolVersion?: number; editId?: string }
   | { type: 'redo'; protocolVersion?: number; editId?: string }
