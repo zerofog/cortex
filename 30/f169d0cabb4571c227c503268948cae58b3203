@@ -1,0 +1,24 @@
+docs/superpowers/plans/2026-03-17-phase-5c-interaction-states-pseudo-library-layout-shift.md
+  32cf762adb1a2b21 1-1421
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "30f169d0cabb4571c227c503268948cae58b3203",
+  "prompts": {
+    "32cf762adb1a2b21": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "05d54e6d-47dd-4d92-9b5c-55a38b5114b3",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 1485,
+      "total_deletions": 64,
+      "accepted_lines": 1421,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/14066df40f15ea568fedddc94247e6fd1532f95601200813496666937738d4fb"
+    }
+  }
+}
