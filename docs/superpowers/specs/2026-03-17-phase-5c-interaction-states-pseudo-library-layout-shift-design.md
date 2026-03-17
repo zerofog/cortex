@@ -6,11 +6,13 @@
 
 ## Overview
 
-Four features that extend the editor panel to handle advanced CSS scenarios: interaction state toggling (:hover/:focus/:active), pseudo-element editing (::before/::after), third-party library component detection with (library) attribution, and layout shift tracking with auto-scroll.
+Four features that extend the editor to handle advanced CSS scenarios: interaction state toggling via a "state lens" on the selection overlay (:hover/:focus/:active), pseudo-element editing tabs in the panel (::before/::after), third-party library component detection with (library) attribution, and layout shift tracking with auto-scroll.
 
 **Dependency:** Phase 5b (ZF0-889) — Done.
 
-## Feature 1: Interaction State Toggles
+**Core UX principle:** State viewing happens where the element is (the lens overlay). Property editing happens in the panel. Don't mix viewing and editing controls — meet the user where they are.
+
+## Feature 1: Interaction State Toggles — The State Lens
 
 ### State Detection — CSSOM Inspection (`state-detector.ts`)
 
@@ -41,28 +43,129 @@ export function detectStates(element: HTMLElement): StateDeclarations
 - `CSSSupportsRule.cssRules` — feature queries (e.g., `@supports (display: grid) { .btn:hover { ... } }`)
 
 **Compound pseudo-class handling:**
-- `.btn:hover:focus` → classified as both `:hover` AND `:focus`. Stripping `:hover` yields `.btn:focus`, stripping `:focus` yields `.btn:hover`. Both tested via `element.matches()`. Since neither pseudo-class is actually active, `element.matches('.btn:focus')` returns false, so only the compound rule's declarations land in whichever state's stripped selector matches. In practice this means compound state rules may appear in individual state maps even though they were authored for the combined case. This is an acceptable simplification — tracking compound state combinations adds significant complexity with minimal user benefit.
+- `.btn:hover:focus` → stripped twice: once for `:hover` (yields `.btn:focus`), once for `:focus` (yields `.btn:hover`). Each stripped selector is tested via `element.matches()`. **Declarations are only added to a state map if the stripped selector matches.** Since the element isn't actually in `:focus` or `:hover` state, `element.matches('.btn:focus')` and `element.matches('.btn:hover')` both return `false` — the declarations are dropped. This is correct behavior: compound state rules are for combined states, and we force one state at a time. The simplification is acceptable for the MVP.
 - `.parent:hover .child` → stripping `:hover` yields `.parent .child`. `element.matches('.parent .child')` is true only if the DOM structure matches. This correctly detects state rules that depend on ancestor relationships. Note: the ancestor's hover state isn't being simulated — only the declarations are extracted and applied to the target element.
 
 **Test expectations for compound selectors:**
 - `.btn:hover` on matching `.btn` → hover map gets declarations
-- `.btn:hover:focus` on matching `.btn` → hover map gets declarations (from `.btn:focus` match — only if element has focus), focus map gets declarations (from `.btn:hover` match — only if element has hover). In practice, neither matches since the element isn't in either state, so declarations are dropped. This is correct — compound state rules are for combined states, and we force one state at a time.
+- `.btn:hover:focus` on matching `.btn` → strip `:hover` yields `.btn:focus`, `element.matches('.btn:focus')` = `false` → **not added to hover map**. Strip `:focus` yields `.btn:hover`, `element.matches('.btn:hover')` = `false` → **not added to focus map**. Result: declarations dropped entirely. This is correct — compound state rules require both states active simultaneously.
 - `.parent:hover .child` on matching `.child` with `.parent` ancestor → hover map gets declarations
 - `.btn:hover::before` → skipped entirely (pseudo-element in selector)
 
+### State Lens UI (SelectionOverlay)
+
+The state toggles live on the selection overlay — not in the panel. The element itself is the preview. Clicking a state forces the element to show that state's appearance in-place in the app.
+
+**Layout — standard element:**
+```
+     Default  :hover  :focus  :active     ← lens controls (above element)
+    ┌──────────────────────────────────┐
+    │                                  │   ← selection outline
+    │   [ element showing forced       │
+    │     state in-place ]             │
+    │                                  │
+    └──────────────────────────────────┘
+     Card — Card.tsx:22                    ← label (below element)
+```
+
+**Layout — small element (controls wider than element):**
+```
+          Default  :hover  :focus
+               ┌──────┐
+               │  ★   │    ← 24x24 icon
+               └──────┘
+                 svg
+```
+Controls centered above element, extending beyond element width. Selection outline stays tight to the element.
+
+**Layout — near top of viewport (no room above):**
+```
+     Card — Card.tsx:22                    ← label flips to top
+    ┌──────────────────────────────────┐
+    │                                  │
+    │   [ element ]                    │
+    │                                  │
+    └──────────────────────────────────┘
+     Default  :hover  :focus  :active     ← controls flip to bottom
+```
+Label and controls swap positions — always keep both visible within the viewport.
+
+**Vertical positioning threshold:** The existing label threshold (`r.top > 30`) must be updated to account for the lens bar height. When both lens and label are above the element, they need ~54px of clearance (24px lens + 4px gap + 20px label + 6px gap). The threshold becomes:
+- `r.top > 54` → both lens (above) and label (below) fit in default positions
+- `r.top <= 54` → flip: label above element, lens below element
+- If no state lens is shown (no available states), revert to original `r.top > 30` threshold
+
+**Horizontal repositioning:** If controls extend beyond viewport left/right edges, shift horizontally to stay within the viewport while remaining as close to centered as possible.
+
+**Visibility rules:**
+- Controls only appear when at least one state has declarations (from `detectStates`)
+- `Default` is always shown when any other state is available
+- Active state pill has highlight styling: `background: rgba(59, 130, 246, 0.15); color: #3b82f6`
+- Inactive pills: `color: #9ca3af` (muted)
+
+**CSS classes:**
+- `cortex-state-lens` — container for the toggle row, positioned absolutely relative to the selection overlay
+- `cortex-state-lens__btn` — pill button, 11px font
+- `cortex-state-lens__btn--active` — active state highlight
+
+### SelectionOverlay Props Extension
+
+```typescript
+export interface SelectionOverlayProps {
+  element: HTMLElement | null
+  availableStates?: StateDeclarations
+  activeState?: 'default' | 'hover' | 'focus' | 'active'
+  onStateChange?: (state: 'default' | 'hover' | 'focus' | 'active') => void
+}
+```
+
+CortexApp orchestrates state:
+1. On element selection → runs `detectStates(element)` → stores as `availableStates`
+2. Passes `availableStates`, `activeState`, `onStateChange` to SelectionOverlay
+3. Passes `activeState` to Panel (for computed style reading + dimming)
+4. On state change callback from lens → updates `activeState`, applies/clears state overrides via `CSSOverrideManager`
+
+SelectionOverlay remains primarily a display component — it renders the lens controls and emits state change events, but the state management lives in CortexApp.
+
+**Click handling:** The lens control buttons are inside the shadow DOM (part of CortexApp's render tree). The existing `isOwnUI(event)` check in the selection system — which inspects `event.composedPath()` for `data-cortex-host` — already prevents lens clicks from triggering element selection. No change needed to the selection system.
+
 ### State Forcing Mechanism
 
-When the user clicks a state toggle (e.g., `:hover`):
-1. Retrieve `StateDeclarations` for the element (cached per selection, invalidated on element change)
-2. Apply all declarations from the selected state's map via `CSSOverrideManager.setStateOverrides(source, declarations)`
-3. Bump `styleVersion` to force panel `getComputedStyle` re-read
-4. Panel displays the forced state's computed values
+When the user clicks a state toggle (e.g., `:hover`) on the lens:
+1. CortexApp receives `onStateChange('hover')`
+2. Retrieves `StateDeclarations` for the element (cached per selection, invalidated on element change)
+3. Applies all declarations from the selected state's map via `CSSOverrideManager.setStateOverrides(source, declarations)`
+4. Updates `activeState` → triggers Panel re-render
+5. Panel's `computedStyles` useMemo re-runs (depends on `[element, styleVersion, activeState]`) → re-reads `getComputedStyle` → shows forced state values
+6. The element in the app visually shows its hover appearance (CSS overrides applied)
+
+**Critical implementation detail:** Panel's `computedStyles` useMemo **must include `activeState` in its dependency array**:
+```typescript
+const computedStyles = useMemo(() => {
+  if (!element) return { /* ... defaults ... */ }
+  const cs = getComputedStyle(element)  // or getComputedStyle(element, activePseudo)
+  return { spacing: parseSpacingValues(cs), /* ... */ }
+}, [element, styleVersion, activeState, activePseudo])
+```
+Without `activeState` in the deps, the state override is applied to the `<style>` tag but Panel's memoized `computedStyles` won't re-run — the panel would show stale default values despite the element visually changing. This is because `getComputedStyle()` returns a live reference, but `useMemo` only re-evaluates when deps change.
 
 When switching back to `Default`:
-1. Call `CSSOverrideManager.clearStateOverrides()` — removes all state-forced declarations
-2. Bump `styleVersion`
+1. CortexApp receives `onStateChange('default')`
+2. Calls `CSSOverrideManager.clearStateOverrides()` — removes all state-forced declarations
+3. Updates `activeState` → Panel's `computedStyles` useMemo re-runs
+4. Element returns to default appearance
 
-**Override separation architecture:** State overrides are stored in a **separate internal map** inside `CSSOverrideManager`, distinct from user edit overrides. During `rebuild()`, both maps are merged per-source — declarations from both maps targeting the same `data-cortex-source` value are combined into a single CSS rule. This avoids the key-prefix scheme (which would produce selectors that don't match any DOM element) and ensures state overrides and user edits coexist under the same `[data-cortex-source="..."]` selector.
+**ESC / click-out behavior:**
+1. User forces `:hover` → element shows hover state, lens shows `:hover` active
+2. User edits a value while in hover state → CSS override from edit applied + edit sent to source
+3. User presses ESC or clicks outside → **element deselects**, lens disappears, forced state removed
+4. CSS overrides from user edits **persist** (they're user edits, not state overrides)
+5. User re-selects the same element → lens appears with `Default` active, element shows default appearance (with persisted user edit overrides)
+6. User clicks `:hover` on lens → element shows hover state **including previously edited values** (from persisted overrides or from source edit via HMR)
+
+### Override Separation Architecture
+
+State overrides are stored in a **separate internal map** inside `CSSOverrideManager`, distinct from user edit overrides. During `rebuild()`, both maps are merged per-source — declarations from both maps targeting the same `data-cortex-source` value are combined into a single CSS rule.
 
 ```typescript
 // CSSOverrideManager internal structure
@@ -71,11 +174,9 @@ private stateOverrides = new Map<string, Map<string, string>>()  // forced state
 
 // New public API
 setStateOverrides(source: string, declarations: Map<string, string>): void
-clearStateOverrides(): void
-
-// New methods
-setStateOverrides(source: string, declarations: Map<string, string>): void
-// CSSOM-sourced declarations — no injection risk, skip VALID_PROPERTY/VALID_VALUE validation.
+// Validates each entry against VALID_PROPERTY/VALID_VALUE/REJECT_URL before storing.
+// Although declarations are CSSOM-sourced, compromised npm package CSS or MITM on dev
+// server could inject malicious values. The validation cost is negligible.
 // Stores in stateOverrides map keyed by raw source (never pseudo-suffixed).
 // Calls scheduleRebuild().
 
@@ -85,7 +186,6 @@ clearStateOverrides(): void
 
 // rebuild() merges both maps, splitting pseudo suffixes from override keys
 private rebuild(): void {
-  // Collect all sources from both maps
   const allSources = new Set([...this.overrides.keys(), ...this.stateOverrides.keys()])
   const rules: string[] = []
   for (const compositeKey of allSources) {
@@ -114,23 +214,26 @@ private rebuild(): void {
 }
 ```
 
-### State Bar UI (PanelHeader)
-
-```
-[Default]  :hover  :focus  :active
-```
-
-- Rendered as a row of pill buttons below the existing header info
-- Only states with non-empty declaration maps are shown
-- Active state has `background: rgba(59, 130, 246, 0.15); color: #3b82f6` styling
-- `Default` is always shown when any other state is available
-- CSS class: `cortex-state-bar`, buttons: `cortex-state-bar__btn`, active: `cortex-state-bar__btn--active`
-
 ### Dimming Unchanged Properties
 
-When a non-default state is active, properties whose computed value matches the default state get `opacity: 0.5`. This highlights what actually changes in the forced state.
+When a non-default state is active, properties whose computed value matches the default state get `opacity: 0.5` in the panel. This highlights what actually changes in the forced state.
 
-**Implementation:** Panel computes `defaultComputedStyles` (stored once on element selection, before any state forcing) and re-reads computed styles after state forcing. Diff produces a `Set<string>` of changed CSS property names.
+**Implementation:** Panel stores a `defaultComputedStyles` **snapshot** when the element is first selected (before any state forcing). This must be a plain object snapshot, NOT a live `CSSStyleDeclaration` reference (which would change as overrides are applied, making the diff meaningless).
+
+```typescript
+// Snapshot stored as a ref, updated only on element change
+const defaultStylesRef = useRef<Record<string, string> | null>(null)
+useEffect(() => {
+  if (!element) { defaultStylesRef.current = null; return }
+  const cs = getComputedStyle(element)
+  // Snapshot the specific properties we need for dimming comparison
+  const snapshot: Record<string, string> = {}
+  for (const prop of ALL_DIMMING_PROPERTIES) snapshot[prop] = cs.getPropertyValue(prop)
+  defaultStylesRef.current = snapshot
+}, [element])  // only on element change, NOT on styleVersion or activeState
+```
+
+After state forcing, Panel re-reads computed styles and diffs against the snapshot to produce a `Set<string>` of changed CSS property names.
 
 **Per-section property mapping:** Each section declares which CSS properties it manages, enabling the dimming system to target the correct controls:
 
@@ -157,16 +260,28 @@ const hasAfter = getComputedStyle(element, '::after').content !== 'none'
 
 Performed once per element selection (alongside state detection).
 
-### Pseudo Tab UI (PanelHeader)
+### Pseudo Tab UI (Panel)
+
+Pseudo-element tabs live in the panel — they switch which part of the element the user is editing. This is an editing concern, not a viewing concern.
 
 ```
-[element]  ::before  ::after
+┌─────────────────────────────────┐
+│  <h2> · section-title           │
+│  SectionTitle — Hero.tsx:15     │
+│                                 │
+│  [element]  ::before  ::after   │  ← pseudo tabs in panel
+│─────────────────────────────────│
+│  Font Size    16                │
+│  ...                            │
+└─────────────────────────────────┘
 ```
 
-- Rendered as a row of tabs below the state bar (or below header info if no state bar)
+- Rendered as a row of tabs below the panel header info
 - Only tabs for detected pseudo-elements are shown; `element` tab always shown when any pseudo exists
 - Active tab: underline style (2px bottom border, `#3b82f6`)
 - CSS class: `cortex-pseudo-tabs`, tabs: `cortex-pseudo-tab`, active: `cortex-pseudo-tab--active`
+
+**Panel state:** `activePseudo: 'element' | '::before' | '::after'` managed in Panel.
 
 ### CSSOverrideManager Extension
 
@@ -187,13 +302,13 @@ The pseudo suffix (`::before` / `::after`) is only appended to the selector, nev
 When a pseudo tab is active:
 - `getComputedStyle(element, '::before')` or `getComputedStyle(element, '::after')` used instead of `getComputedStyle(element)`
 - Override writes include the `pseudo` parameter
-- State toggles remain visible on pseudo tabs (per UX spec)
+- The state lens on the overlay remains functional — state toggles and pseudo tabs work independently
 
-**State + pseudo interaction:** When both a state and pseudo tab are active (e.g., `:hover` + `::before`):
+**State + pseudo interaction:** When both a state (on the lens) and pseudo tab (in the panel) are active (e.g., `:hover` + `::before`):
 - State forcing applies element-level hover overrides (affects the element's styling context)
 - Panel reads `getComputedStyle(element, '::before')` which may reflect changes from the forced state
 - Override writes for pseudo properties include the `pseudo` parameter
-- **Limitation:** Rules like `.btn:hover::before { content: "hover!" }` are skipped by `detectStates` (pseudo-element in selector). These rules won't be directly forced because the `:hover` pseudo-class isn't actually activated — we only copy declarations as overrides. Full state simulation would require CDP `CSS.forcePseudoState` (not available from page JS). This is a known limitation documented in the "Known Limitations" section.
+- **Limitation:** Rules like `.btn:hover::before { content: "hover!" }` are skipped by `detectStates` (pseudo-element in selector). These rules won't be directly forced because the `:hover` pseudo-class isn't actually activated — we only copy declarations as overrides. Full state simulation would require CDP `CSS.forcePseudoState` (not available from page JS). This is a known limitation.
 
 **Limitation:** Not all CSS properties are readable from pseudo-element computed styles. The panel gracefully handles missing/empty values (same as current behavior for unsupported properties).
 
@@ -253,8 +368,10 @@ Extend the existing RAF loop with position stability tracking using **document-r
 let stableDocTop: number | null = null  // null = not yet initialized
 let stableDocLeft: number | null = null
 let lastChangeTime = 0
+let scrollCooldownUntil = 0  // prevents re-entrancy after scrollIntoView
 const STABLE_THRESHOLD_MS = 400  // matches edit pipeline debounce
 const SHIFT_THRESHOLD_PX = 50
+const SCROLL_COOLDOWN_MS = 1000  // ignore shifts during smooth scroll animation
 
 function update(): void {
   if (!element || !overlayRef.current) return
@@ -275,6 +392,14 @@ function update(): void {
     return
   }
 
+  // During scroll cooldown: keep baseline current but skip shift detection
+  if (performance.now() < scrollCooldownUntil) {
+    stableDocTop = docTop
+    stableDocLeft = docLeft
+    rafId = requestAnimationFrame(update)
+    return
+  }
+
   const dTop = docTop - stableDocTop
   const dLeft = docLeft - stableDocLeft
   const shifted = Math.abs(dTop) > 2 || Math.abs(dLeft) > 2  // ignore sub-pixel jitter
@@ -288,6 +413,7 @@ function update(): void {
     const totalShift = Math.hypot(docTop - stableDocTop, docLeft - stableDocLeft)
     if (totalShift > SHIFT_THRESHOLD_PX) {
       element.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      scrollCooldownUntil = performance.now() + SCROLL_COOLDOWN_MS
     }
     stableDocTop = docTop
     stableDocLeft = docLeft
@@ -305,6 +431,7 @@ function update(): void {
 - After scrub release: rect stabilizes → 400ms passes → auto-scroll if shifted >50px
 - Sub-pixel jitter (< 2px) ignored to prevent false triggers from browser rounding
 - `performance.now()` for timing — monotonic, high-resolution
+- **Scroll cooldown (1000ms):** After calling `scrollIntoView`, shift detection is suspended for 1 second. During cooldown, the stable baseline tracks the current position but no shift comparison runs. This prevents re-entrancy from async smooth scroll animation (which changes viewport positions frame-by-frame) or layout side effects (sticky headers, sibling reflow).
 
 ### Panel Auto-Reposition
 
@@ -324,67 +451,128 @@ useEffect(() => {
 recheckOverlap(elementRect: DOMRect): void
 ```
 
-Implementation: compute the panel's current viewport rect from `position` + `PANEL_WIDTH` + panel height. If rects intersect (standard AABB intersection test), call `snap()` with a forced target edge opposite to the current position. The hook already has access to `position` and `window.innerWidth`/`innerHeight`.
+Implementation: compute the panel's current viewport rect from `position` + `PANEL_WIDTH` + panel height. `PANEL_MAX_HEIGHT` (460px) is used as a **conservative upper bound** for the panel height — the actual rendered panel may be shorter when fewer sections are visible, but false-positive repositioning (moving the panel when it doesn't strictly overlap) is preferable to missing an actual overlap. If rects intersect (standard AABB intersection test), call `snap()` with a forced target edge opposite to the current position. The hook already has access to `position` and `window.innerWidth`/`innerHeight`.
 
 **Overlap detection:** Standard rect intersection: `!(A.right < B.left || A.left > B.right || A.bottom < B.top || A.top > B.bottom)`.
+
+## Component Architecture
+
+### Data Flow
+
+```
+CortexApp (state orchestrator)
+  ├─ detectStates(element) → availableStates
+  ├─ activeState: 'default' | 'hover' | 'focus' | 'active'
+  ├─ CSSOverrideManager (setStateOverrides / clearStateOverrides)
+  │
+  ├─→ SelectionOverlay
+  │     ├─ element, availableStates, activeState, onStateChange
+  │     ├─ Renders: outline + label + state lens controls
+  │     └─ Layout shift tracking (RAF loop)
+  │
+  └─→ Panel
+        ├─ element, overrideManager, activeState
+        ├─ Reads getComputedStyle (respects activeState for dimming)
+        ├─ Pseudo-element tabs (activePseudo — panel-internal state)
+        ├─ Library badge (isLibraryComponent check)
+        └─ All property sections with dimmedProperties
+```
+
+### Component Boundary Summary
+
+| New/Modified | Responsibility |
+|---|---|
+| **NEW** `state-detector.ts` | CSSOM inspection, state declaration extraction |
+| **MOD** `SelectionOverlay.tsx` | State lens controls UI, layout shift tracking, label/controls positioning |
+| **MOD** `PanelHeader.tsx` | Pseudo-element tabs, library badge (state toggles removed) |
+| **MOD** `override.ts` | State override storage + merge, pseudo-element selector support |
+| **MOD** `label.ts` | `isLibraryComponent()` + `findUserAncestor()` |
+| **MOD** `Panel.tsx` | Pseudo-element state management, dimming logic, activeState prop for computed styles |
+| **MOD** `CortexApp.tsx` | State detection orchestration, activeState management, wiring lens ↔ panel |
+| **MOD** `useSnapToEdge.ts` | `recheckOverlap()` for panel repositioning |
+| **MOD** `styles.css` | State lens, pseudo tabs, library badge, dimmed property styling |
 
 ## CSS Classes (styles.css additions)
 
 ```
-/* State bar */
-.cortex-state-bar              — flex row, gap: 4px, padding: 4px 12px
-.cortex-state-bar__btn         — pill button, 11px font, #9ca3af text
-.cortex-state-bar__btn--active — blue bg/text highlight
+/* State lens (on selection overlay) */
+.cortex-state-lens              — flex row, gap: 4px, padding: 2px 8px,
+                                  background: rgba(0, 0, 0, 0.75), border-radius: 6px,
+                                  positioned absolutely above/below selection outline
+.cortex-state-lens__btn         — pill button, 11px font, #9ca3af text,
+                                  padding: 2px 8px, border-radius: 4px, cursor: pointer
+.cortex-state-lens__btn--active — background: rgba(59, 130, 246, 0.15), color: #3b82f6
 
-/* Pseudo tabs */
-.cortex-pseudo-tabs            — flex row, border-bottom: 1px solid rgba(255,255,255,0.06)
-.cortex-pseudo-tab             — tab button, 11px font, padding: 6px 12px
-.cortex-pseudo-tab--active     — 2px bottom border #3b82f6
+/* Pseudo tabs (in panel) */
+.cortex-pseudo-tabs             — flex row, border-bottom: 1px solid rgba(255,255,255,0.06)
+.cortex-pseudo-tab              — tab button, 11px font, padding: 6px 12px
+.cortex-pseudo-tab--active      — 2px bottom border #3b82f6
 
-/* Library badge */
-.cortex-panel-header__library  — italic, color: #9ca3af, font-size: 10px
+/* Library badge (in panel header) */
+.cortex-panel-header__library   — italic, color: #9ca3af, font-size: 10px
 
-/* Dimmed properties */
-.cortex-dimmed                 — opacity: 0.5, transition: opacity 150ms
+/* Dimmed properties (in panel sections) */
+.cortex-dimmed                  — opacity: 0.5, transition: opacity 150ms
 ```
 
 ## State Flow Summary
 
 ```
 Element selected
-  → parseCortexSource() → sourceInfo
-  → isLibraryComponent() → library badge (only if node_modules source)
-  → findUserAncestor() → header source (if library)
-  → detectStates() → available states → state bar
-  → detect ::before/::after → pseudo tabs
-  → getComputedStyle(element) → default values → all sections
-  → store defaultComputedStyles for dimming comparison
-  → initialize layout shift stable position (null → first rect)
+  → CortexApp: parseCortexSource() → sourceInfo
+  → CortexApp: detectStates(element) → availableStates (cached)
+  → CortexApp: detect ::before/::after (passed to Panel)
+  → CortexApp: activeState = 'default'
+  → SelectionOverlay: render outline + label + state lens (if states available)
+  → Panel: isLibraryComponent() → library badge
+  → Panel: findUserAncestor() → header source (if library)
+  → Panel: getComputedStyle(element) → default values → all sections
+  → Panel: store defaultComputedStyles for dimming comparison
+  → SelectionOverlay: initialize layout shift stable position (null → first rect)
 
-User clicks :hover
-  → overrideManager.setStateOverrides(source, hover declarations)
-  → bump styleVersion → re-read computed styles
-  → diff defaultComputedStyles vs current → dimmedProperties set
-  → sections render with dimming
+User clicks :hover on lens
+  → SelectionOverlay: onStateChange('hover') → CortexApp
+  → CortexApp: overrideManager.setStateOverrides(source, hover declarations)
+  → CortexApp: setActiveState('hover') → triggers re-render
+  → Element in app: visually shows hover appearance
+  → Panel: bumps styleVersion → re-reads computed styles
+  → Panel: diff defaultComputedStyles vs current → dimmedProperties set
+  → Panel: sections render with dimming on unchanged properties
 
-User clicks ::before tab
-  → getComputedStyle(element, '::before') → pseudo values → sections
-  → override writes include pseudo parameter
+User clicks ::before tab in panel
+  → Panel: setActivePseudo('::before')
+  → Panel: getComputedStyle(element, '::before') → pseudo values → sections
+  → Panel: override writes include pseudo parameter
+  → Lens on overlay: state toggles remain functional (independent of pseudo tab)
 
-User clicks :hover while on ::before tab
-  → apply element-level hover overrides (setStateOverrides)
-  → re-read getComputedStyle(element, '::before') (may reflect cascade changes)
-  → dimming based on pseudo values comparison
+User clicks :hover on lens while panel shows ::before
+  → CortexApp: setStateOverrides(source, hover declarations)
+  → Element in app: visually shows hover appearance
+  → Panel: re-reads getComputedStyle(element, '::before') (may reflect cascade changes)
+  → Panel: dimming based on pseudo values comparison
 
-User edits a value (in any state/pseudo)
-  → applyOverride(property, value, commitRender, pseudo?)
+User edits a value in panel (in any state/pseudo)
+  → Panel: applyOverride(property, value, commitRender, pseudo?)
   → CSSOverrideManager generates correct selector (with pseudo if set)
-  → edit message sent to server with state/pseudo context
+  → Edit message sent to server with state/pseudo context
+
+User presses ESC or clicks outside element
+  → CortexApp: setSelectedElement(null)
+  → CortexApp: clearStateOverrides() — forced state removed
+  → CortexApp: setActiveState('default')
+  → SelectionOverlay: unmounts (lens disappears)
+  → CSS overrides from user edits persist in CSSOverrideManager
+  → Element returns to default appearance (plus any persisted user edits)
+
+User re-selects same element
+  → CortexApp: detectStates() re-run, activeState = 'default'
+  → Lens appears with Default active
+  → User clicks :hover → sees hover state including previously edited values
 
 Element moves after edit
-  → RAF detects document-relative position change
+  → SelectionOverlay RAF: detects document-relative position change
   → After 400ms stable: auto-scroll if >50px shift
-  → Panel useEffect on styleVersion: recheckOverlap → reposition if needed
+  → Panel: useEffect on styleVersion → recheckOverlap → reposition if needed
 ```
 
 ## Known Limitations
@@ -403,10 +591,11 @@ Element moves after edit
 | Test File | What's Tested |
 |---|---|
 | `state-detector.test.ts` | CSSOM inspection with mock stylesheets, cross-origin safety, @media/@supports/@layer recursion, compound selectors (`.btn:hover`, `.parent:hover .child`, `.btn:hover:focus`, `.btn:hover::before` skip), element matching |
-| `panel-header.test.tsx` | State bar rendering (conditional on available states), pseudo tabs (conditional on detection), library badge, state/pseudo click handlers, combined state+pseudo UI |
+| `selection-overlay.test.tsx` | **State lens:** conditional rendering (shown only when states available), active state highlight, state change callback emission, positioning (above/below/horizontal shift), small element centering. **Layout shift:** timing (400ms debounce), >50px threshold, no scroll during continuous movement, sub-pixel jitter filtering, null initialization, document-relative coordinates |
+| `panel-header.test.tsx` | Pseudo-element tabs (conditional on detection), library badge, pseudo tab click handlers |
 | `override.test.ts` | Pseudo-element selector generation, state override merge with user edits (user wins), `setStateOverrides`/`clearStateOverrides`, mixed state+pseudo overrides in rebuild |
 | `label.test.ts` | `isLibraryComponent` (no source → false, node_modules source → true, user source → false), `findUserAncestor` (chain walk, skip node_modules ancestors, no ancestor → null) |
-| `selection-overlay.test.tsx` | Shift detection timing (400ms debounce), >50px threshold, no scroll during continuous movement, sub-pixel jitter filtering, null initialization (no false trigger on selection), document-relative coordinates (scroll doesn't re-trigger) |
+| `cortex-app.test.tsx` | State orchestration: detectStates on selection, activeState management, state override apply/clear lifecycle, ESC/deselect clears state but preserves user edits |
 
 ## Out of Scope
 
