@@ -42,6 +42,9 @@ export function bootstrap(): void {
     ? createViteChannel()
     : createWebSocketChannel()
 
+  // Trigger server handshake — server responds with hello + swatches
+  activeChannel.send({ type: 'init' })
+
   // Render Preact app into shadow root
   render(<CortexApp channel={activeChannel} shadowRoot={shadowRoot} />, rootElement)
 }

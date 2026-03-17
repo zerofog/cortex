@@ -10,14 +10,20 @@ export interface ColorInputProps {
 
 export const HEX_REGEX = /^#[0-9a-fA-F]{6}$/
 
-/** Convert any CSS color string to #RRGGBB. Returns #000000 if unparseable. */
+/** Convert any CSS color string to #rrggbb. Handles #rgb, #rrggbb, rgb(), rgba() (comma or space syntax). Returns #000000 if unparseable. */
 export function rgbToHex(color: string): string {
-  if (HEX_REGEX.test(color)) return color.toLowerCase()
-  const m = color.match(/rgba?\((\d+)[,\s]+(\d+)[,\s]+(\d+)/)
+  const trimmed = color.trim()
+  // 6-digit hex
+  if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) return trimmed.toLowerCase()
+  // 3-digit hex → expand
+  const short = trimmed.match(/^#([0-9a-fA-F])([0-9a-fA-F])([0-9a-fA-F])$/)
+  if (short) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`.toLowerCase()
+  // rgb/rgba — comma or space-separated, possibly with decimals
+  const m = trimmed.match(/rgba?\(\s*(-?[\d.]+)[,\s]+(-?[\d.]+)[,\s]+(-?[\d.]+)/)
   if (!m) return '#000000'
-  const r = Number(m[1])
-  const g = Number(m[2])
-  const b = Number(m[3])
+  const r = Math.round(Math.min(255, Math.max(0, parseFloat(m[1]!))))
+  const g = Math.round(Math.min(255, Math.max(0, parseFloat(m[2]!))))
+  const b = Math.round(Math.min(255, Math.max(0, parseFloat(m[3]!))))
   return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`
 }
 
@@ -42,12 +48,12 @@ export function ColorInput({ value, onChange, swatches }: ColorInputProps): JSX.
 
   const handleHexBlur = useCallback(() => {
     const current = editingHexRef.current
-    if (current !== null && HEX_REGEX.test(current)) {
+    if (current !== null && HEX_REGEX.test(current) && current.toLowerCase() !== hexColor.toLowerCase()) {
       onChange(current)
     }
     editingHexRef.current = null
     setEditingHex(null)
-  }, [onChange])
+  }, [onChange, hexColor])
 
   const handleSwatchClick = useCallback(() => {
     setPickerOpen(true)

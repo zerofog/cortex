@@ -107,4 +107,21 @@ describe('rgbToHex', () => {
     expect(rgbToHex('transparent')).toBe('#000000')
     expect(rgbToHex('hsl(200, 50%, 50%)')).toBe('#000000')
   })
+
+  it('expands 3-digit hex', () => {
+    expect(rgbToHex('#f00')).toBe('#ff0000')
+    expect(rgbToHex('#abc')).toBe('#aabbcc')
+  })
+
+  it('handles space-separated rgb (modern syntax)', () => {
+    expect(rgbToHex('rgb(59 130 246)')).toBe('#3b82f6')
+  })
+
+  it('handles decimal channel values with rounding', () => {
+    expect(rgbToHex('rgb(59.4, 130.6, 246.1)')).toBe('#3b83f6')
+  })
+
+  it('clamps out-of-range values', () => {
+    expect(rgbToHex('rgb(300, -10, 128)')).toBe('#ff0080')
+  })
 })
