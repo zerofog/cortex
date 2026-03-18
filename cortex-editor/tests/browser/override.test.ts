@@ -337,4 +337,119 @@ describe('CSSOverrideManager', () => {
     expect(styleEl.textContent).toContain('padding: 10% !important')
     expect(styleEl.textContent).toContain('color: #ff0000 !important')
   })
+
+  describe('state overrides', () => {
+    it('setStateOverrides generates a rule merged with user overrides', () => {
+      manager.set('Hero.tsx:5:3', 'color', 'red')
+      manager.flush()
+      manager.setStateOverrides('Hero.tsx:5:3', new Map([['background', 'blue']]))
+      manager.flush()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      // Both declarations in one rule — user edit 'color' + state override 'background'
+      expect(styleEl.textContent).toContain('color: red !important')
+      expect(styleEl.textContent).toContain('background: blue !important')
+    })
+
+    it('user edits win over state overrides for same property', () => {
+      manager.set('Hero.tsx:5:3', 'color', 'red')
+      manager.setStateOverrides('Hero.tsx:5:3', new Map([['color', 'blue']]))
+      manager.flush()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('color: red !important')
+      expect(styleEl.textContent).not.toContain('color: blue')
+    })
+
+    it('clearStateOverrides removes state overrides but keeps user edits', () => {
+      manager.set('Hero.tsx:5:3', 'color', 'red')
+      manager.setStateOverrides('Hero.tsx:5:3', new Map([['background', 'blue']]))
+      manager.flush()
+      manager.clearStateOverrides()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('color: red !important')
+      expect(styleEl.textContent).not.toContain('background')
+    })
+
+    it('clearStateOverrides calls rebuild synchronously', () => {
+      manager.setStateOverrides('Hero.tsx:5:3', new Map([['color', 'blue']]))
+      manager.flush()
+      // clearStateOverrides should update the style tag immediately (not via RAF)
+      manager.clearStateOverrides()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toBe('')
+    })
+
+    it('setStateOverrides validates property names and values', () => {
+      manager.setStateOverrides('Hero.tsx:5:3', new Map([
+        ['color', 'red'],
+        ['invalid;prop', 'value'],          // invalid property
+        ['background', 'url(http://evil)'],  // url() rejected
+      ]))
+      manager.flush()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('color: red')
+      expect(styleEl.textContent).not.toContain('invalid')
+      expect(styleEl.textContent).not.toContain('url')
+    })
+
+    it('state overrides only for element (not pseudo) selectors', () => {
+      manager.set('Hero.tsx:5:3', 'color', 'red')
+      manager.set('Hero.tsx:5:3', 'width', '100px', '::before')
+      manager.setStateOverrides('Hero.tsx:5:3', new Map([['background', 'blue']]))
+      manager.flush()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      // State override only merges with element rule, not pseudo rule
+      const rules = styleEl.textContent!
+      expect(rules).toContain('background: blue')
+      // Pseudo rule should NOT have background
+      const pseudoRuleMatch = rules.match(/::before\s*\{[^}]+\}/)
+      expect(pseudoRuleMatch?.[0]).not.toContain('background')
+    })
+  })
+
+  describe('pseudo-element selectors', () => {
+    it('set with pseudo generates a pseudo-element selector', () => {
+      manager.set('Hero.tsx:5:3', 'width', '100px', '::before')
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toBe(
+        '[data-cortex-source="Hero\\.tsx\\:5\\:3"]::before { width: 100px !important; }',
+      )
+    })
+
+    it('set with ::after generates correct selector', () => {
+      manager.set('Hero.tsx:5:3', 'content', '"hello"', '::after')
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('::after')
+      expect(styleEl.textContent).toContain('content: "hello" !important')
+    })
+
+    it('element and pseudo overrides for same source produce separate rules', () => {
+      manager.set('Hero.tsx:5:3', 'color', 'red')
+      manager.set('Hero.tsx:5:3', 'width', '100px', '::before')
+      manager.flush()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      const text = styleEl.textContent!
+      expect(text.split('\n').length).toBe(2) // two separate rules
+      expect(text).toContain('color: red')
+      expect(text).toContain('::before')
+    })
+
+    it('remove with pseudo only removes the pseudo override', () => {
+      manager.set('Hero.tsx:5:3', 'color', 'red')
+      manager.set('Hero.tsx:5:3', 'width', '100px', '::before')
+      manager.flush()
+      manager.remove('Hero.tsx:5:3', 'width', '::before')
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('color: red')
+      expect(styleEl.textContent).not.toContain('::before')
+    })
+
+    it('remove without property clears all overrides for source+pseudo', () => {
+      manager.set('Hero.tsx:5:3', 'width', '100px', '::before')
+      manager.set('Hero.tsx:5:3', 'height', '50px', '::before')
+      manager.flush()
+      manager.remove('Hero.tsx:5:3', undefined, '::before')
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toBe('')
+    })
+  })
 })
