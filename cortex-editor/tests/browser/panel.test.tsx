@@ -199,6 +199,81 @@ describe('Panel', () => {
   })
 })
 
+describe('Panel — library detection wiring', () => {
+  it('passes isLibrary and ancestor info to PanelHeader for node_modules element', async () => {
+    // Create a library element (path includes /node_modules/)
+    const libEl = document.createElement('div')
+    libEl.setAttribute('data-cortex-source', '/project/node_modules/@ui/Button.tsx:10:3')
+    document.body.appendChild(libEl)
+
+    // Create a user-space ancestor
+    const parent = document.createElement('div')
+    parent.setAttribute('data-cortex-source', 'src/App.tsx:5:1')
+    parent.appendChild(libEl)
+    document.body.appendChild(parent)
+
+    const overrideManager = {
+      set: vi.fn(), remove: vi.fn(), clearAll: vi.fn(),
+      dispose: vi.fn(), flush: vi.fn(),
+    }
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <Panel
+        element={libEl}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+      />,
+      container,
+    )
+    await new Promise(r => setTimeout(r, 0))
+
+    // PanelHeader should show "(library)" badge
+    const badge = container.querySelector('.cortex-panel-header__library')
+    expect(badge).not.toBeNull()
+    expect(badge?.textContent).toContain('library')
+
+    render(null, container)
+    container.remove()
+    parent.remove()
+  })
+
+  it('does not show library badge for user-space elements', async () => {
+    const userEl = document.createElement('div')
+    userEl.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    document.body.appendChild(userEl)
+
+    const overrideManager = {
+      set: vi.fn(), remove: vi.fn(), clearAll: vi.fn(),
+      dispose: vi.fn(), flush: vi.fn(),
+    }
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <Panel
+        element={userEl}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+      />,
+      container,
+    )
+    await new Promise(r => setTimeout(r, 0))
+
+    const badge = container.querySelector('.cortex-panel-header__library')
+    expect(badge).toBeNull()
+
+    render(null, container)
+    container.remove()
+    userEl.remove()
+  })
+})
+
 describe('Panel — activeState + activePseudo + dimming', () => {
   function createTarget(): HTMLElement {
     const el = document.createElement('div')

@@ -1,7 +1,7 @@
 import type { JSX } from 'preact'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks'
 import type { CSSOverrideManager } from '../override.js'
-import { parseCortexSource } from '../label.js'
+import { parseCortexSource, isLibraryComponent, findUserAncestor } from '../label.js'
 import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge, PANEL_WIDTH } from '../hooks/useSnapToEdge.js'
 import { PanelHeader } from './PanelHeader.js'
@@ -102,7 +102,7 @@ export function Panel({
     defaultStylesRef.current = snapshot
   }, [element]) // only on element change, NOT on styleVersion or activeState
 
-  const { position, isSnapping, setPosition, snap } = useSnapToEdge()
+  const { position, isSnapping, setPosition, snap, recheckOverlap } = useSnapToEdge()
   const { handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel } = useDrag({
     onDrag(x, y) { setPosition({ x, y }) },
     onDragEnd() { snap() },
@@ -133,24 +133,32 @@ export function Panel({
   // During scrub, trust NumericInput local state (no re-render per frame).
   const [styleVersion, setStyleVersion] = useState(0)
 
-  // C1: Cache getComputedStyle results — avoids forced layout on every drag frame.
-  // CRITICAL: activeState + activePseudo in deps so useMemo re-runs after state forcing
-  // (getComputedStyle returns a live reference — without these deps, memo stays stale).
-  const computedStyles = useMemo(() => {
+  useEffect(() => {
+    if (!element) return
+    recheckOverlap(element.getBoundingClientRect())
+  }, [styleVersion, element, recheckOverlap])
+
+  // C1: Cache getComputedStyle results + compute dimmed properties in a single useMemo
+  // to avoid double forced layout. CRITICAL: activeState + activePseudo in deps so
+  // useMemo re-runs after state forcing (getComputedStyle returns a live reference).
+  const { computedStyles, dimmedProperties } = useMemo(() => {
     if (!element) {
       return {
-        spacing: parseSpacingValues({} as CSSStyleDeclaration),
-        layout: parseLayoutValues({} as CSSStyleDeclaration),
-        typography: parseTypographyValues({} as CSSStyleDeclaration),
-        fill: parseFillValues({} as CSSStyleDeclaration),
-        border: parseBorderValues({} as CSSStyleDeclaration),
-        shadow: parseShadowValues({} as CSSStyleDeclaration),
-        effects: parseEffectsValues({} as CSSStyleDeclaration),
+        computedStyles: {
+          spacing: parseSpacingValues({} as CSSStyleDeclaration),
+          layout: parseLayoutValues({} as CSSStyleDeclaration),
+          typography: parseTypographyValues({} as CSSStyleDeclaration),
+          fill: parseFillValues({} as CSSStyleDeclaration),
+          border: parseBorderValues({} as CSSStyleDeclaration),
+          shadow: parseShadowValues({} as CSSStyleDeclaration),
+          effects: parseEffectsValues({} as CSSStyleDeclaration),
+        },
+        dimmedProperties: undefined as Set<string> | undefined,
       }
     }
     const pseudo = activePseudo !== 'element' ? activePseudo : undefined
     const cs = getComputedStyle(element, pseudo)
-    return {
+    const parsed = {
       spacing: parseSpacingValues(cs),
       layout: parseLayoutValues(cs),
       typography: parseTypographyValues(cs),
@@ -159,20 +167,20 @@ export function Panel({
       shadow: parseShadowValues(cs),
       effects: parseEffectsValues(cs),
     }
-  }, [element, styleVersion, activeState, activePseudo])
 
-  // Compute which CSS properties changed between default state and current forced state.
-  // Sections use this to dim unchanged properties (opacity: 0.5).
-  const dimmedProperties = useMemo(() => {
-    if (!element || activeState === 'default' || !defaultStylesRef.current) return undefined
-    const changed = new Set<string>()
-    const cs = getComputedStyle(element)
-    if (typeof cs.getPropertyValue !== 'function') return undefined
-    for (const prop of ALL_DIMMING_PROPERTIES) {
-      if (cs.getPropertyValue(prop) !== defaultStylesRef.current[prop]) changed.add(prop)
+    let dimmed: Set<string> | undefined
+    if (activeState !== 'default' && defaultStylesRef.current) {
+      dimmed = new Set<string>()
+      const defaultCs = pseudo ? getComputedStyle(element) : cs
+      if (typeof defaultCs.getPropertyValue === 'function') {
+        for (const prop of ALL_DIMMING_PROPERTIES) {
+          if (defaultCs.getPropertyValue(prop) !== defaultStylesRef.current[prop]) dimmed.add(prop)
+        }
+      }
     }
-    return changed
-  }, [element, activeState, styleVersion])
+
+    return { computedStyles: parsed, dimmedProperties: dimmed }
+  }, [element, styleVersion, activeState, activePseudo])
 
   // Derive isFlexOrGrid from normalized layout display
   const layoutDisplay = computedStyles.layout.display
@@ -240,6 +248,8 @@ export function Panel({
   const sourceFile = sourceInfo?.fileName ?? null
   const sourceLine = sourceInfo?.line ?? null
   const filePath = sourceInfo?.filePath ?? null
+  const isLibrary = isLibraryComponent(element)
+  const ancestor = isLibrary ? findUserAncestor(element) : null
   const hasParent = element.parentElement !== null && element.parentElement !== document.documentElement
   const hasChildren = element.children.length > 0
 
@@ -277,6 +287,9 @@ export function Panel({
         hasAfter={hasAfter}
         activePseudo={activePseudo}
         onPseudoChange={setActivePseudo}
+        isLibrary={isLibrary}
+        ancestorSource={ancestor?.source.fileName ?? null}
+        ancestorLine={ancestor?.source.line ?? null}
       />
       <div class="cortex-panel__body" ref={bodyRef} key={contentKey}>
         <LayoutSection
