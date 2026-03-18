@@ -103,7 +103,7 @@ export function Panel({
     defaultStylesRef.current = snapshot
   }, [element]) // only on element change, NOT on styleVersion or activeState
 
-  const { position, isSnapping, setPosition, snap, recheckOverlap } = useSnapToEdge()
+  const { position, isSnapping, setPosition, snap } = useSnapToEdge()
   const { handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel } = useDrag({
     onDrag(x, y) { setPosition({ x, y }) },
     onDragEnd() { snap() },
@@ -133,11 +133,6 @@ export function Panel({
   // Sync strategy: bump counter on committed changes to force getComputedStyle re-read.
   // During scrub, trust NumericInput local state (no re-render per frame).
   const [styleVersion, setStyleVersion] = useState(0)
-
-  useEffect(() => {
-    if (!element) return
-    recheckOverlap(element.getBoundingClientRect())
-  }, [styleVersion, element, recheckOverlap])
 
   // C1: Cache getComputedStyle results + compute dimmed properties in a single useMemo
   // to avoid double forced layout. CRITICAL: activeState + activePseudo in deps so

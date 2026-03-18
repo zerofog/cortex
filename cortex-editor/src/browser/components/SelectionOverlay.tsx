@@ -74,9 +74,9 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
         const hasStates = !!(states && (
           states.hover.size > 0 || states.focus.size > 0 || states.active.size > 0
         ))
-        const threshold = hasStates ? 54 : 30
+        const threshold = hasStates ? 58 : 30
         const lensAbove = r.top > threshold
-        const lensTop = lensAbove ? r.top - 28 : r.top + r.height + 4
+        const lensTop = lensAbove ? r.top - 32 : r.top + r.height + 8
         const lensLeft = r.left + r.width / 2 - lensRef.current.offsetWidth / 2
         const clampedLeft = Math.max(4, Math.min(lensLeft, window.innerWidth - 4 - lensRef.current.offsetWidth))
         lensRef.current.style.top = `${lensTop}px`
@@ -156,9 +156,9 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
   ))
 
   // Positioning threshold depends on whether the lens is shown
-  // With lens: need ~54px above (24px lens + 4px gap + 20px label + 6px gap)
+  // With lens: need ~58px above (24px lens + 8px gap + 20px label + 6px gap)
   // Without lens: original 30px threshold for the label alone
-  const labelAbove = showLens ? r.top > 54 : r.top > 30
+  const labelAbove = showLens ? r.top > 58 : r.top > 30
 
   // Build the list of available state buttons
   const stateButtons: Array<{ label: string; state: InteractionState }> = []

@@ -109,7 +109,7 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
 
   return (
     <>
-      <HoverOverlay element={hoveredElement} />
+      <HoverOverlay element={hoveredElement === selectedElement ? null : hoveredElement} />
       <SelectionOverlay
         element={selectedElement}
         availableStates={availableStates}
