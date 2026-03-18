@@ -24,6 +24,17 @@ export function SelectionOverlay({ element }: SelectionOverlayProps): JSX.Elemen
     let prevWidth = ''
     let prevHeight = ''
 
+    // Layout shift tracking — document-relative coordinates
+    let stableDocTop: number | null = null // baseline for total shift threshold
+    let stableDocLeft: number | null = null
+    let prevDocTop: number | null = null // previous frame for movement detection
+    let prevDocLeft: number | null = null
+    let lastChangeTime = 0
+    let scrollCooldownUntil = 0
+    const STABLE_THRESHOLD_MS = 400
+    const SHIFT_THRESHOLD_PX = 50
+    const SCROLL_COOLDOWN_MS = 1000
+
     function update(): void {
       if (!element || !overlayRef.current) return
       // Stop RAF loop when element is detached from DOM (e.g. HMR, navigation)
@@ -40,6 +51,57 @@ export function SelectionOverlay({ element }: SelectionOverlayProps): JSX.Elemen
       if (left !== prevLeft) { el.style.left = left; prevLeft = left }
       if (width !== prevWidth) { el.style.width = width; prevWidth = width }
       if (height !== prevHeight) { el.style.height = height; prevHeight = height }
+
+      // Shift detection uses document-relative coordinates
+      const docTop = r.top + window.scrollY
+      const docLeft = r.left + window.scrollX
+
+      // Initialize on first read — no shift detection until second frame
+      if (stableDocTop === null) {
+        stableDocTop = docTop
+        stableDocLeft = docLeft
+        prevDocTop = docTop
+        prevDocLeft = docLeft
+        rafId = requestAnimationFrame(update)
+        return
+      }
+
+      // During scroll cooldown: keep baseline current but skip shift detection
+      if (performance.now() < scrollCooldownUntil) {
+        stableDocTop = docTop
+        stableDocLeft = docLeft
+        prevDocTop = docTop
+        prevDocLeft = docLeft
+        rafId = requestAnimationFrame(update)
+        return
+      }
+
+      // Detect frame-to-frame movement (> 2px jitter filter)
+      const dTop = docTop - (prevDocTop as number)
+      const dLeft = docLeft - (prevDocLeft as number)
+      const shifted = Math.abs(dTop) > 2 || Math.abs(dLeft) > 2
+
+      if (shifted) {
+        lastChangeTime = performance.now()
+      }
+      prevDocTop = docTop
+      prevDocLeft = docLeft
+
+      // After position stabilizes for STABLE_THRESHOLD_MS, check total shift from baseline
+      const timeSinceChange = performance.now() - lastChangeTime
+      if (timeSinceChange > STABLE_THRESHOLD_MS && lastChangeTime > 0) {
+        const totalShift = Math.hypot(
+          docTop - (stableDocTop as number),
+          docLeft - (stableDocLeft as number),
+        )
+        if (totalShift > SHIFT_THRESHOLD_PX) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+          scrollCooldownUntil = performance.now() + SCROLL_COOLDOWN_MS
+        }
+        stableDocTop = docTop
+        stableDocLeft = docLeft
+        lastChangeTime = 0 // reset — don't re-trigger
+      }
 
       rafId = requestAnimationFrame(update)
     }

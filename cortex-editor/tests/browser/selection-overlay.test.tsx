@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render } from 'preact'
 import { SelectionOverlay } from '../../src/browser/components/SelectionOverlay.js'
 import { createShadowHost, mockGetBoundingClientRect } from './helpers.js'
@@ -156,5 +156,151 @@ describe('SelectionOverlay', () => {
 
     restore()
     spy.mockRestore()
+  })
+})
+
+describe('layout shift tracking', () => {
+  let element: HTMLElement
+  let container: HTMLDivElement
+  let rafCallbacks: FrameRequestCallback[]
+  let now: number
+  const originalRAF = window.requestAnimationFrame
+  const originalCAF = window.cancelAnimationFrame
+  const originalPerf = performance.now
+
+  beforeEach(() => {
+    now = 1000
+    rafCallbacks = []
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+
+    element = document.createElement('div')
+    element.scrollIntoView = vi.fn()
+    document.body.appendChild(element)
+    container = document.createElement('div')
+    document.body.appendChild(container)
+  })
+
+  afterEach(() => {
+    window.requestAnimationFrame = originalRAF
+    window.cancelAnimationFrame = originalCAF
+    performance.now = originalPerf
+    element.remove()
+    render(null, container)
+    container.remove()
+  })
+
+  /** Flush Preact's microtask-scheduled effects */
+  function flush(): Promise<void> {
+    return new Promise(r => setTimeout(r, 0))
+  }
+
+  function installRAFMock() {
+    rafCallbacks = []
+    window.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+      rafCallbacks.push(cb)
+      return rafCallbacks.length
+    }) as typeof requestAnimationFrame
+    window.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame
+  }
+
+  function stepRAF(count = 1) {
+    for (let i = 0; i < count; i++) {
+      const cb = rafCallbacks.shift()
+      if (cb) cb(now)
+    }
+  }
+
+  function moveElement(top: number, left: number) {
+    mockGetBoundingClientRect(element, { top, left, width: 100, height: 50, right: left + 100, bottom: top + 50 })
+  }
+
+  /**
+   * Render the component and wait for useEffect to fire + initial update() to seed
+   * stableDocTop. Then install the RAF mock for controlled stepping.
+   */
+  async function renderAndInit(top: number, left: number) {
+    moveElement(top, left)
+    render(<SelectionOverlay element={element} />, container)
+    // Let Preact's useEffect fire (scheduled via real RAF + setTimeout)
+    await flush()
+    // useEffect called update() synchronously → seeded stableDocTop → enqueued RAF
+    // Wait for the real RAF to fire the second update() (position unchanged, no shift)
+    await new Promise<void>(r => originalRAF(() => { r() }))
+    await flush()
+    // Now install mock RAF so we can control stepping
+    installRAFMock()
+    // The last update() enqueued a real RAF callback that will fire later;
+    // we need to capture the next loop iteration. Trigger one more real RAF
+    // to let the pending callback push into our mock.
+    // Actually, at this point the pending RAF from update() is with the real RAF.
+    // We need to intercept it. Let's wait for it to fire, which will push
+    // the next requestAnimationFrame call into our mock.
+    await new Promise<void>(r => setTimeout(r, 20))
+    // Now any pending real RAF has fired and the next update() call pushed into our mock
+  }
+
+  it('does not auto-scroll on initial selection', async () => {
+    await renderAndInit(200, 100)
+    now += 500
+    stepRAF(1) // frame after init — no shift
+    expect(element.scrollIntoView).not.toHaveBeenCalled()
+  })
+
+  it('auto-scrolls when element shifts >50px after 400ms stable', async () => {
+    await renderAndInit(100, 100)
+
+    moveElement(200, 100) // shift 100px down
+    now += 16
+    stepRAF(1) // detect shift, set lastChangeTime
+
+    now += 500 // 500ms later, position stable
+    stepRAF(1) // should trigger scrollIntoView
+    expect(element.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'nearest' })
+  })
+
+  it('does not auto-scroll when shift < 50px', async () => {
+    await renderAndInit(100, 100)
+
+    moveElement(130, 100) // shift 30px — below threshold
+    now += 16
+    stepRAF(1)
+    now += 500
+    stepRAF(1)
+    expect(element.scrollIntoView).not.toHaveBeenCalled()
+  })
+
+  it('does not auto-scroll during continuous movement (scrub)', async () => {
+    await renderAndInit(100, 100)
+
+    // Move element every frame for 600ms — never stabilizes
+    for (let i = 0; i < 36; i++) { // 36 frames * ~16ms = ~600ms
+      moveElement(100 + i * 5, 100)
+      now += 16
+      stepRAF(1)
+    }
+    expect(element.scrollIntoView).not.toHaveBeenCalled()
+  })
+
+  it('respects 1s cooldown after scrollIntoView', async () => {
+    await renderAndInit(100, 100)
+
+    // Trigger first auto-scroll
+    moveElement(300, 100) // shift 200px
+    now += 16; stepRAF(1)
+    now += 500; stepRAF(1)
+    expect(element.scrollIntoView).toHaveBeenCalledTimes(1)
+
+    // Immediately shift again — within 1s cooldown
+    moveElement(500, 100)
+    now += 16; stepRAF(1)
+    now += 500; stepRAF(1) // 500ms after second shift, but still within 1s cooldown
+    expect(element.scrollIntoView).toHaveBeenCalledTimes(1) // NOT called again
+
+    // After cooldown expires
+    now += 600 // total ~1.1s since first scroll
+    moveElement(700, 100)
+    now += 16; stepRAF(1)
+    now += 500; stepRAF(1)
+    expect(element.scrollIntoView).toHaveBeenCalledTimes(2) // now called again
   })
 })
