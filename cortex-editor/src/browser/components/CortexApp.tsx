@@ -61,13 +61,14 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
 
   // Detect interaction states and pseudo-elements on element selection change
   useEffect(() => {
+    // Always clear state overrides when selection changes (even to another element)
+    overrideRef.current?.clearStateOverrides()
+
     if (!selectedElement) {
       setAvailableStates(undefined)
       setActiveState('default')
       setHasBefore(false)
       setHasAfter(false)
-      // Clear state overrides when deselecting (user edits persist)
-      overrideRef.current?.clearStateOverrides()
       return
     }
 
