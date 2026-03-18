@@ -89,16 +89,19 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
 
     if (state === 'default') {
       manager.clearStateOverrides()
+      setActiveState(state)
     } else if (availableStates) {
       const declarations = availableStates[state]
       if (declarations.size > 0) {
         const source = selectedElement.getAttribute('data-cortex-source')
         if (source) {
           manager.setStateOverrides(source, declarations)
+          setActiveState(state)
+        } else {
+          console.warn('[cortex] Cannot force state: element missing data-cortex-source')
         }
       }
     }
-    setActiveState(state)
   }, [selectedElement, availableStates])
 
   const handleClose = useCallback(() => setSelectedElement(null), [])

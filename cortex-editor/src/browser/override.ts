@@ -87,7 +87,7 @@ export class CSSOverrideManager {
 
   /**
    * Apply state-forced declarations (e.g. from :hover CSSOM inspection).
-   * Validates each entry against VALID_PROPERTY/VALID_VALUE/REJECT_URL.
+   * Validates each entry against VALID_PROPERTY/VALID_VALUE/REJECT_URL/REJECT_COMMENT.
    * State overrides are keyed by raw source (no pseudo suffix) — they only
    * merge with element-level rules, not pseudo-element rules.
    */
@@ -95,12 +95,15 @@ export class CSSOverrideManager {
     const validated = new Map<string, string>()
     for (const [prop, val] of declarations) {
       if (!VALID_PROPERTY.test(prop)) continue
-      if (!VALID_VALUE.test(val) || REJECT_URL.test(val)) continue
+      if (!VALID_VALUE.test(val) || REJECT_URL.test(val) || REJECT_COMMENT.test(val)) continue
       validated.set(prop, val)
     }
     if (validated.size > 0) {
       this.stateOverrides.set(source, validated)
     } else {
+      if (declarations.size > 0) {
+        console.warn(`[cortex] setStateOverrides: all ${declarations.size} declarations rejected for source "${source}"`)
+      }
       this.stateOverrides.delete(source)
     }
     this.cancelPendingRebuild()
