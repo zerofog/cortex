@@ -211,6 +211,10 @@
   color: #9ca3af;
 }
 
+.cortex-panel-header__btn--toggled-off {
+  opacity: 0.4;
+}
+
 /* ── Numeric input ───────────────────────────── */
 
 .cortex-numeric-input {

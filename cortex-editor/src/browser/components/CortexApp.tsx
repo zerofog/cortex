@@ -26,6 +26,7 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
   const [availableStates, setAvailableStates] = useState<StateDeclarations | undefined>(undefined)
   const [hasBefore, setHasBefore] = useState(false)
   const [hasAfter, setHasAfter] = useState(false)
+  const [hoverEnabled, setHoverEnabled] = useState(true)
   const overrideRef = useRef<CSSOverrideManager | null>(null)
 
   useEffect(() => {
@@ -106,10 +107,11 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
 
   const handleClose = useCallback(() => setSelectedElement(null), [])
   const handleSelectElement = useCallback((el: HTMLElement | null) => setSelectedElement(el), [])
+  const handleToggleHover = useCallback(() => setHoverEnabled(v => !v), [])
 
   return (
     <>
-      <HoverOverlay element={hoveredElement === selectedElement ? null : hoveredElement} />
+      <HoverOverlay element={hoverEnabled ? hoveredElement : null} />
       <SelectionOverlay
         element={selectedElement}
         availableStates={availableStates}
@@ -126,6 +128,8 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
           activeState={activeState}
           hasBefore={hasBefore}
           hasAfter={hasAfter}
+          hoverEnabled={hoverEnabled}
+          onToggleHover={handleToggleHover}
         />
       )}
     </>

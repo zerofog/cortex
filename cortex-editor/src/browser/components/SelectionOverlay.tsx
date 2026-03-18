@@ -68,15 +68,25 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
         if (br !== prevBorderRadius) { el.style.borderRadius = br; prevBorderRadius = br }
       }
 
-      // Update lens position in sync with overlay
+      // Update lens position in sync with overlay.
+      // Default: lens above element, label below. When stacked, label nearest to element.
       if (lensRef.current) {
-        const states = availableStatesRef.current
-        const hasStates = !!(states && (
-          states.hover.size > 0 || states.focus.size > 0 || states.active.size > 0
-        ))
-        const threshold = hasStates ? 58 : 30
-        const lensAbove = r.top > threshold
-        const lensTop = lensAbove ? r.top - 32 : r.top + r.height + 8
+        const lensH = lensRef.current.offsetHeight || 24
+        const labelH = 20 // approximate label height
+        const gap = 8
+        const isAbove = r.top > (lensH + gap) // enough room above for lens
+        const isLabelBelow = (window.innerHeight - r.bottom) > (labelH + gap)
+
+        let lensTop: number
+        if (isAbove) {
+          // Lens above — check if label is also above (stacked)
+          lensTop = !isLabelBelow
+            ? r.top - labelH - gap - lensH - 4 // both above: lens above label
+            : r.top - lensH - gap               // default: lens above, label below
+        } else {
+          // Lens below — label is also below (stacked): label nearest, lens outside
+          lensTop = r.bottom + labelH + gap + 4
+        }
         const lensLeft = r.left + r.width / 2 - lensRef.current.offsetWidth / 2
         const clampedLeft = Math.max(4, Math.min(lensLeft, window.innerWidth - 4 - lensRef.current.offsetWidth))
         lensRef.current.style.top = `${lensTop}px`
@@ -155,10 +165,9 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
     availableStates.active.size > 0
   ))
 
-  // Positioning threshold depends on whether the lens is shown
-  // With lens: need ~58px above (24px lens + 8px gap + 20px label + 6px gap)
-  // Without lens: original 30px threshold for the label alone
-  const labelAbove = showLens ? r.top > 58 : r.top > 30
+  // Label prefers below element; lens positioning handled in RAF loop.
+  // When stacked on one side: label nearest to element, lens outside.
+  const labelBelow = (window.innerHeight - r.bottom) > 30
 
   // Build the list of available state buttons
   const stateButtons: Array<{ label: string; state: InteractionState }> = []
@@ -180,7 +189,7 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
         height: `${r.height}px`,
       }}
     >
-      <span class={`cortex-label ${labelAbove ? 'cortex-label--above' : 'cortex-label--below'}`}>
+      <span class={`cortex-label ${labelBelow ? 'cortex-label--below' : 'cortex-label--above'}`}>
         {label}
       </span>
       {showLens && (

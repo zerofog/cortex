@@ -23,6 +23,8 @@ export interface PanelHeaderProps {
   isLibrary?: boolean
   ancestorSource?: string | null
   ancestorLine?: string | null
+  hoverEnabled?: boolean
+  onToggleHover?: () => void
 }
 
 export function PanelHeader({
@@ -47,6 +49,8 @@ export function PanelHeader({
   isLibrary,
   ancestorSource,
   ancestorLine,
+  hoverEnabled = true,
+  onToggleHover,
 }: PanelHeaderProps): JSX.Element {
   // When library with ancestor source, show ancestor source instead of element source
   const displaySource = isLibrary && ancestorSource ? ancestorSource : sourceFile
@@ -112,6 +116,24 @@ export function PanelHeader({
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="3.5,5.5 7,9 10.5,5.5" />
           </svg>
+        </button>
+        <button
+          class={`cortex-panel-header__btn${hoverEnabled ? '' : ' cortex-panel-header__btn--toggled-off'}`}
+          data-action="toggle-hover"
+          title={hoverEnabled ? 'Hide hover overlay' : 'Show hover overlay'}
+          onClick={onToggleHover}
+        >
+          {hoverEnabled ? (
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1 7s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z" />
+              <circle cx="7" cy="7" r="1.5" />
+            </svg>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1 7s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z" />
+              <line x1="2" y1="2" x2="12" y2="12" />
+            </svg>
+          )}
         </button>
         <button
           class="cortex-panel-header__btn cortex-panel-header__btn--close"

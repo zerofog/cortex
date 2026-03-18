@@ -45,6 +45,8 @@ export interface PanelProps {
   activeState?: InteractionState
   hasBefore?: boolean
   hasAfter?: boolean
+  hoverEnabled?: boolean
+  onToggleHover?: () => void
 }
 
 function parseSpacingValues(cs: CSSStyleDeclaration) {
@@ -77,6 +79,8 @@ export function Panel({
   activeState = 'default',
   hasBefore = false,
   hasAfter = false,
+  hoverEnabled = true,
+  onToggleHover,
 }: PanelProps): JSX.Element | null {
   // ALL hooks first — no conditional returns before hooks
   const [contentKey, setContentKey] = useState(0)
@@ -286,6 +290,8 @@ export function Panel({
         isLibrary={isLibrary}
         ancestorSource={ancestor?.source.fileName ?? null}
         ancestorLine={ancestor?.source.line ?? null}
+        hoverEnabled={hoverEnabled}
+        onToggleHover={onToggleHover}
       />
       <div class="cortex-panel__body" ref={bodyRef} key={contentKey}>
         <LayoutSection
