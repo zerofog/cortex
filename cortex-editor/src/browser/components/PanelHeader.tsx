@@ -130,6 +130,7 @@ export function PanelHeader({
           <button
             class={`cortex-pseudo-tab${activePseudo === 'element' ? ' cortex-pseudo-tab--active' : ''}`}
             data-action="pseudo-element"
+            data-pseudo="element"
             onClick={() => onPseudoChange?.('element')}
           >
             element
@@ -138,6 +139,7 @@ export function PanelHeader({
             <button
               class={`cortex-pseudo-tab${activePseudo === '::before' ? ' cortex-pseudo-tab--active' : ''}`}
               data-action="pseudo-before"
+              data-pseudo="::before"
               onClick={() => onPseudoChange?.('::before')}
             >
               ::before
@@ -147,6 +149,7 @@ export function PanelHeader({
             <button
               class={`cortex-pseudo-tab${activePseudo === '::after' ? ' cortex-pseudo-tab--active' : ''}`}
               data-action="pseudo-after"
+              data-pseudo="::after"
               onClick={() => onPseudoChange?.('::after')}
             >
               ::after

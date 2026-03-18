@@ -23,6 +23,8 @@ export interface LayoutSectionProps {
   onChange: (change: LayoutChange) => void
   onScrub?: (change: LayoutChange) => void
   onScrubEnd?: (change: LayoutChange) => void
+  /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
+  dimmedProperties?: Set<string>
 }
 
 /** Normalize computed display values to SegmentedControl options. */

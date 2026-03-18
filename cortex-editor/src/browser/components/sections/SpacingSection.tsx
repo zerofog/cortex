@@ -27,6 +27,8 @@ export interface SpacingSectionProps {
   onChange: (change: SpacingChange) => void
   onScrub?: (change: SpacingChange) => void
   onScrubEnd?: (change: SpacingChange) => void
+  /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
+  dimmedProperties?: Set<string>
 }
 
 function SpacingGroup({

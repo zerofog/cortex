@@ -24,6 +24,8 @@ export interface EffectsSectionProps {
   onChange: (change: EffectsChange) => void
   onScrub?: (change: EffectsChange) => void
   onScrubEnd?: (change: EffectsChange) => void
+  /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
+  dimmedProperties?: Set<string>
 }
 
 function parseBlurValue(filter: string): number {

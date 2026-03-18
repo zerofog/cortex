@@ -15,6 +15,8 @@ export interface FillSectionProps {
   values: FillValues
   onChange: (change: FillChange) => void
   swatches?: string[]
+  /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
+  dimmedProperties?: Set<string>
 }
 
 /** Extract fill-related values from a CSSStyleDeclaration. */
