@@ -1,0 +1,26 @@
+cortex-editor/src/browser/label.ts
+  32cf762adb1a2b21 61-82
+cortex-editor/tests/browser/label.test.ts
+  32cf762adb1a2b21 2,171-239
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "67bcf93eed7633f54e849e4f0f51cfa1c5d0ff2e",
+  "prompts": {
+    "32cf762adb1a2b21": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "05d54e6d-47dd-4d92-9b5c-55a38b5114b3",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 92,
+      "total_deletions": 1,
+      "accepted_lines": 92,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/dd09331b91fb8d720328e149829f1f4c12dbcbd0526f8b65d961673ea0c8e235"
+    }
+  }
+}
