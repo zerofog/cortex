@@ -1,0 +1,26 @@
+cortex-editor/src/browser/components/CortexApp.tsx
+  32cf762adb1a2b21 6-7,12,27-30,62-104,113-115,124-126
+cortex-editor/src/browser/state-detector.ts
+  32cf762adb1a2b21 100
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "c27c63ddc02ad0dae5ab62c946068b3a13a959e6",
+  "prompts": {
+    "32cf762adb1a2b21": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "05d54e6d-47dd-4d92-9b5c-55a38b5114b3",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 61,
+      "total_deletions": 2,
+      "accepted_lines": 58,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/1697264ffe5e33fd5c88b609353d095ff48f2dadacf2abbb6c4393f877606600"
+    }
+  }
+}
