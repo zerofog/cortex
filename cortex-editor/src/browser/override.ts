@@ -1,12 +1,4 @@
-/** Allowlist for CSS property names — letters, hyphens, and custom properties (--*) */
-const VALID_PROPERTY = /^-{0,2}[a-zA-Z][a-zA-Z0-9-]*$/
-
-/** Allowlist for CSS values — design tokens, colors, units. Fails closed against injection. */
-const VALID_VALUE = /^[a-zA-Z0-9#()\s,.\-_'"/%+*]+$/
-/** Reject url() values to prevent external resource exfiltration via CSS. */
-const REJECT_URL = /url\s*\(/i
-/** Reject CSS comment markers to prevent comment injection. */
-const REJECT_COMMENT = /\/\*/
+import { VALID_PROPERTY, VALID_VALUE, REJECT_URL, REJECT_COMMENT } from './css-validation.js'
 
 /**
  * Manages a <style> tag in document.head for CSS override previews.

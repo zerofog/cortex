@@ -1,9 +1,7 @@
 import type { JSX } from 'preact'
 import { useEffect, useRef } from 'preact/hooks'
 import { getSelectionLabel } from '../label.js'
-import type { StateDeclarations } from '../state-detector.js'
-
-type InteractionState = 'default' | 'hover' | 'focus' | 'active'
+import type { StateDeclarations, InteractionState } from '../state-detector.js'
 
 export interface SelectionOverlayProps {
   element: HTMLElement | null
@@ -20,6 +18,10 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
   const overlayRef = useRef<HTMLDivElement>(null)
   const lensRef = useRef<HTMLDivElement>(null)
 
+  // Keep a ref to availableStates so the RAF loop can read it without restarting
+  const availableStatesRef = useRef(availableStates)
+  availableStatesRef.current = availableStates
+
   // RAF-based continuous position tracking for the selected element
   useEffect(() => {
     if (!element || !overlayRef.current) return
@@ -30,6 +32,7 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
     let prevLeft = ''
     let prevWidth = ''
     let prevHeight = ''
+    let prevBorderRadius = ''
 
     // Layout shift tracking — document-relative coordinates
     let stableDocTop: number | null = null // baseline for total shift threshold
@@ -59,18 +62,19 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
       if (width !== prevWidth) { el.style.width = width; prevWidth = width }
       if (height !== prevHeight) { el.style.height = height; prevHeight = height }
 
-      // Update borderRadius from computed style (piggybacks on existing layout)
-      const cs = getComputedStyle(element)
-      el.style.borderRadius = cs.borderRadius || '0px'
+      // Update borderRadius only when dimensions change (avoids per-frame getComputedStyle)
+      if (width !== prevWidth || height !== prevHeight || prevBorderRadius === '') {
+        const br = getComputedStyle(element).borderRadius || '0px'
+        if (br !== prevBorderRadius) { el.style.borderRadius = br; prevBorderRadius = br }
+      }
 
       // Update lens position in sync with overlay
       if (lensRef.current) {
-        const showLens = !!(availableStates && (
-          availableStates.hover.size > 0 ||
-          availableStates.focus.size > 0 ||
-          availableStates.active.size > 0
+        const states = availableStatesRef.current
+        const hasStates = !!(states && (
+          states.hover.size > 0 || states.focus.size > 0 || states.active.size > 0
         ))
-        const threshold = showLens ? 54 : 30
+        const threshold = hasStates ? 54 : 30
         const lensAbove = r.top > threshold
         const lensTop = lensAbove ? r.top - 28 : r.top + r.height + 4
         const lensLeft = r.left + r.width / 2 - lensRef.current.offsetWidth / 2
@@ -137,7 +141,7 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
 
     update()
     return () => cancelAnimationFrame(rafId)
-  }, [element, availableStates])
+  }, [element])
 
   if (!element) return null
 

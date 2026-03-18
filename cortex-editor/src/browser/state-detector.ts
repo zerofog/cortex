@@ -1,11 +1,4 @@
-/** Allowlist for CSS property names (same as override.ts) */
-const VALID_PROPERTY = /^-{0,2}[a-zA-Z][a-zA-Z0-9-]*$/
-/** Allowlist for CSS values */
-const VALID_VALUE = /^[a-zA-Z0-9#()\s,.\-_'"/%+*]+$/
-/** Reject url() values */
-const REJECT_URL = /url\s*\(/i
-/** Reject CSS comment markers */
-const REJECT_COMMENT = /\/\*/
+import { VALID_PROPERTY, VALID_VALUE, REJECT_URL, REJECT_COMMENT } from './css-validation.js'
 
 export interface StateDeclarations {
   hover: Map<string, string>
@@ -13,7 +6,10 @@ export interface StateDeclarations {
   active: Map<string, string>
 }
 
-type StateName = 'hover' | 'focus' | 'active'
+export type StateName = 'hover' | 'focus' | 'active'
+
+/** Interaction state including 'default' (no forced state). */
+export type InteractionState = 'default' | StateName
 
 const STATE_PSEUDOS: readonly StateName[] = ['hover', 'focus', 'active'] as const
 

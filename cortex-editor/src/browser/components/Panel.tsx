@@ -19,6 +19,7 @@ import { ShadowSection, parseShadowValues } from './sections/ShadowSection.js'
 import type { ShadowChange } from './sections/ShadowSection.js'
 import { EffectsSection, parseEffectsValues } from './sections/EffectsSection.js'
 import type { EffectsChange } from './sections/EffectsSection.js'
+import type { InteractionState } from '../state-detector.js'
 
 /**
  * All CSS properties checked for dimming (default vs forced-state comparison).
@@ -41,7 +42,7 @@ export interface PanelProps {
   onClose: () => void
   onSelectElement: (el: HTMLElement | null) => void
   swatches?: string[]
-  activeState?: 'default' | 'hover' | 'focus' | 'active'
+  activeState?: InteractionState
   hasBefore?: boolean
   hasAfter?: boolean
 }

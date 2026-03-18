@@ -4,12 +4,10 @@ import type { CortexChannel } from '../../adapters/types.js'
 import { CSSOverrideManager } from '../override.js'
 import { initSelection } from '../selection.js'
 import { detectStates } from '../state-detector.js'
-import type { StateDeclarations } from '../state-detector.js'
+import type { StateDeclarations, InteractionState } from '../state-detector.js'
 import { HoverOverlay } from './HoverOverlay.js'
 import { SelectionOverlay } from './SelectionOverlay.js'
 import { Panel } from './Panel.js'
-
-type InteractionState = 'default' | 'hover' | 'focus' | 'active'
 
 export interface CortexAppProps {
   channel: CortexChannel
