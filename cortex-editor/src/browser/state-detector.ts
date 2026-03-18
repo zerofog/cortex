@@ -98,11 +98,26 @@ function processStyleRule(
       // Strip the pseudo-class and test if the base selector matches
       const baseSelector = selector.replace(STATE_REGEX[state], '').trim()
       if (!baseSelector) continue
-
-      try {
-        if (!element.matches(baseSelector)) continue
-      } catch {
-        continue // invalid selector after stripping
+      // CSS nesting: if stripping leaves just '&' or starts with '&',
+      // resolve against the parent rule's selectorText
+      if (baseSelector === '&' || baseSelector.startsWith('& ')) {
+        const parentSelector = rule.parentRule instanceof CSSStyleRule
+          ? rule.parentRule.selectorText : null
+        if (!parentSelector) continue
+        const resolved = baseSelector === '&'
+          ? parentSelector
+          : parentSelector + baseSelector.slice(1) // '& .foo' → '.parent .foo'
+        try {
+          if (!element.matches(resolved)) continue
+        } catch {
+          continue
+        }
+      } else {
+        try {
+          if (!element.matches(baseSelector)) continue
+        } catch {
+          continue // invalid selector after stripping
+        }
       }
 
       // Extract declarations
