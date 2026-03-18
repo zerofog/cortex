@@ -117,6 +117,7 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
         availableStates={availableStates}
         activeState={activeState}
         onStateChange={handleStateChange}
+        overlaysVisible={hoverEnabled}
       />
       {selectedElement && overrideRef.current && (
         <Panel

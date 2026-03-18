@@ -8,13 +8,14 @@ export interface SelectionOverlayProps {
   availableStates?: StateDeclarations
   activeState?: InteractionState
   onStateChange?: (state: InteractionState) => void
+  overlaysVisible?: boolean
 }
 
 /**
  * Persistent selection outline with transition. Uses RAF to track position
  * continuously (element may move from scroll/resize while selected).
  */
-export function SelectionOverlay({ element, availableStates, activeState, onStateChange }: SelectionOverlayProps): JSX.Element | null {
+export function SelectionOverlay({ element, availableStates, activeState, onStateChange, overlaysVisible = true }: SelectionOverlayProps): JSX.Element | null {
   const overlayRef = useRef<HTMLDivElement>(null)
   const lensRef = useRef<HTMLDivElement>(null)
 
@@ -187,6 +188,7 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
         left: `${r.left}px`,
         width: `${r.width}px`,
         height: `${r.height}px`,
+        visibility: overlaysVisible ? 'visible' : 'hidden',
       }}
     >
       <span class={`cortex-label ${labelBelow ? 'cortex-label--below' : 'cortex-label--above'}`}>
