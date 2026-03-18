@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render } from 'preact'
 import { SelectionOverlay } from '../../src/browser/components/SelectionOverlay.js'
 import { createShadowHost, mockGetBoundingClientRect } from './helpers.js'
+import type { StateDeclarations } from '../../src/browser/state-detector.js'
 
 describe('SelectionOverlay', () => {
   let root: HTMLDivElement
@@ -302,5 +303,86 @@ describe('layout shift tracking', () => {
     now += 16; stepRAF(1)
     now += 500; stepRAF(1)
     expect(element.scrollIntoView).toHaveBeenCalledTimes(2) // now called again
+  })
+})
+
+describe('state lens', () => {
+  let element: HTMLElement
+  let container: HTMLDivElement
+  const emptyStates: StateDeclarations = {
+    hover: new Map(), focus: new Map(), active: new Map(),
+  }
+  const hoverOnlyStates: StateDeclarations = {
+    hover: new Map([['background', 'blue']]),
+    focus: new Map(),
+    active: new Map(),
+  }
+  const allStates: StateDeclarations = {
+    hover: new Map([['background', 'blue']]),
+    focus: new Map([['outline', '2px solid']]),
+    active: new Map([['transform', 'scale(0.95)']]),
+  }
+
+  beforeEach(() => {
+    element = document.createElement('div')
+    mockGetBoundingClientRect(element, { top: 200, left: 100, width: 300, height: 50 })
+    document.body.appendChild(element)
+    container = document.createElement('div')
+    document.body.appendChild(container)
+  })
+
+  afterEach(() => {
+    element.remove()
+    render(null, container); container.remove()
+  })
+
+  it('does not render lens when no states available', () => {
+    render(<SelectionOverlay element={element} availableStates={emptyStates} />, container)
+    expect(container.querySelector('.cortex-state-lens')).toBe(null)
+  })
+
+  it('renders lens with available states only', () => {
+    render(<SelectionOverlay element={element} availableStates={hoverOnlyStates} activeState="default" />, container)
+    const btns = container.querySelectorAll('.cortex-state-lens__btn')
+    expect(btns.length).toBe(2) // Default + :hover
+    expect(btns[0].textContent).toBe('Default')
+    expect(btns[1].textContent).toBe(':hover')
+  })
+
+  it('renders all state buttons when all states available', () => {
+    render(<SelectionOverlay element={element} availableStates={allStates} activeState="default" />, container)
+    const btns = container.querySelectorAll('.cortex-state-lens__btn')
+    expect(btns.length).toBe(4) // Default + :hover + :focus + :active
+  })
+
+  it('highlights active state', () => {
+    render(<SelectionOverlay element={element} availableStates={hoverOnlyStates} activeState="hover" />, container)
+    const hoverBtn = container.querySelectorAll('.cortex-state-lens__btn')[1]
+    expect(hoverBtn.classList.contains('cortex-state-lens__btn--active')).toBe(true)
+  })
+
+  it('calls onStateChange when a state button is clicked', () => {
+    const onStateChange = vi.fn()
+    render(<SelectionOverlay element={element} availableStates={hoverOnlyStates} activeState="default" onStateChange={onStateChange} />, container)
+    const hoverBtn = container.querySelectorAll('.cortex-state-lens__btn')[1] as HTMLElement
+    hoverBtn.click()
+    expect(onStateChange).toHaveBeenCalledWith('hover')
+  })
+
+  it('clicking Default calls onStateChange with default', () => {
+    const onStateChange = vi.fn()
+    render(<SelectionOverlay element={element} availableStates={hoverOnlyStates} activeState="hover" onStateChange={onStateChange} />, container)
+    const defaultBtn = container.querySelectorAll('.cortex-state-lens__btn')[0] as HTMLElement
+    defaultBtn.click()
+    expect(onStateChange).toHaveBeenCalledWith('default')
+  })
+
+  it('positions lens below element when near top of viewport', () => {
+    mockGetBoundingClientRect(element, { top: 20, left: 100, width: 300, height: 50 })
+    render(<SelectionOverlay element={element} availableStates={hoverOnlyStates} activeState="default" />, container)
+    const lens = container.querySelector('.cortex-state-lens') as HTMLElement
+    // Lens should be below the element (top > element bottom)
+    const lensTop = parseFloat(lens.style.top)
+    expect(lensTop).toBeGreaterThan(70) // below element bottom (20 + 50)
   })
 })
