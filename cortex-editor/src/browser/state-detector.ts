@@ -97,7 +97,7 @@ function processStyleRule(
     // Extract declarations
     const style = rule.style
     for (let i = 0; i < style.length; i++) {
-      const prop = style[i]
+      const prop = style[i] as string
       const val = style.getPropertyValue(prop).trim()
       if (!prop || !val) continue
       // Skip 'initial' values — these are noise from shorthand expansion
