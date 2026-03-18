@@ -1,0 +1,26 @@
+cortex-editor/src/browser/selection.ts
+  70fcb07a1d6c1d5c 40-45,47
+cortex-editor/src/browser/state-detector.ts
+  70fcb07a1d6c1d5c 101-116,120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "2bcf8c81486d55aec5187e16bdf893996c0b1932",
+  "prompts": {
+    "70fcb07a1d6c1d5c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c1cc1224-a13c-4c7c-870f-30e9312a6187",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 28,
+      "total_deletions": 6,
+      "accepted_lines": 24,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/9a01a3f158bf7860bf79f47453ddaf4e8721aec4315d1a994f4a02691d1f7728"
+    }
+  }
+}
