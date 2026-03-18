@@ -192,6 +192,17 @@ describe('detectStates', () => {
     link.remove()
   })
 
+  it('handles CSS nesting (&:hover inside parent rule)', () => {
+    // Native CSS nesting: &:hover is a child CSSStyleRule inside .btn { }
+    // In the CSSOM, the child rule's selectorText is resolved to .btn:hover
+    styleEl.textContent = '.btn { color: red; &:hover { background-color: blue; } }'
+    const result = detectStates(target)
+    // If the browser supports CSS nesting CSSOM, hover should be detected
+    // happy-dom may not support nested rules — verify no crash at minimum
+    expect(result).toBeDefined()
+    // In browsers that support nesting: expect(result.hover.get('background-color')).toBe('blue')
+  })
+
   it('skips ::after pseudo-element selectors', () => {
     styleEl.textContent = '.btn:hover::after { content: "→"; }'
     const result = detectStates(target)

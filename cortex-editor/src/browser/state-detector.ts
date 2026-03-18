@@ -57,6 +57,10 @@ function collectFromRules(
   for (const rule of rules) {
     if (rule instanceof CSSStyleRule) {
       processStyleRule(rule, element, result)
+      // CSS nesting: a CSSStyleRule can contain nested child rules (e.g. &:hover)
+      if (rule.cssRules && rule.cssRules.length > 0) {
+        collectFromRules(rule.cssRules, element, result)
+      }
     } else if (
       rule instanceof CSSMediaRule ||
       rule instanceof CSSSupportsRule ||
