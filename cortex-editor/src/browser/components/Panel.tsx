@@ -20,12 +20,30 @@ import type { ShadowChange } from './sections/ShadowSection.js'
 import { EffectsSection, parseEffectsValues } from './sections/EffectsSection.js'
 import type { EffectsChange } from './sections/EffectsSection.js'
 
+/**
+ * All CSS properties checked for dimming (default vs forced-state comparison).
+ * Covers every section's managed properties.
+ */
+export const ALL_DIMMING_PROPERTIES = [
+  'display', 'visibility', 'flex-direction', 'justify-content', 'align-items', 'width', 'height',
+  'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+  'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'row-gap', 'column-gap',
+  'font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'color', 'text-align',
+  'background-color',
+  'border-width', 'border-style', 'border-color', 'border-radius',
+  'box-shadow',
+  'opacity', 'overflow', 'cursor', 'filter', 'backdrop-filter',
+] as const
+
 export interface PanelProps {
   element: HTMLElement
   overrideManager: CSSOverrideManager
   onClose: () => void
   onSelectElement: (el: HTMLElement | null) => void
   swatches?: string[]
+  activeState?: 'default' | 'hover' | 'focus' | 'active'
+  hasBefore?: boolean
+  hasAfter?: boolean
 }
 
 function parseSpacingValues(cs: CSSStyleDeclaration) {
@@ -55,6 +73,9 @@ export function Panel({
   onClose,
   onSelectElement,
   swatches,
+  activeState = 'default',
+  hasBefore = false,
+  hasAfter = false,
 }: PanelProps): JSX.Element | null {
   // ALL hooks first — no conditional returns before hooks
   const [contentKey, setContentKey] = useState(0)
@@ -63,6 +84,23 @@ export function Panel({
   const bodyRef = useRef<HTMLDivElement>(null)
   const prevElementRef = useRef<HTMLElement | null>(null)
 
+  // Pseudo-element tab state — internal to Panel
+  const [activePseudo, setActivePseudo] = useState<'element' | '::before' | '::after'>('element')
+
+  // Default computed styles snapshot for dimming comparison.
+  // Plain object snapshot (NOT a live CSSStyleDeclaration) — taken once per element.
+  const defaultStylesRef = useRef<Record<string, string> | null>(null)
+  useEffect(() => {
+    if (!element) { defaultStylesRef.current = null; return }
+    const cs = getComputedStyle(element)
+    const snapshot: Record<string, string> = {}
+    for (const prop of ALL_DIMMING_PROPERTIES) {
+      snapshot[prop] = typeof cs.getPropertyValue === 'function'
+        ? cs.getPropertyValue(prop)
+        : ''
+    }
+    defaultStylesRef.current = snapshot
+  }, [element]) // only on element change, NOT on styleVersion or activeState
 
   const { position, isSnapping, setPosition, snap } = useSnapToEdge()
   const { handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel } = useDrag({
@@ -79,6 +117,7 @@ export function Panel({
     if (prevElementRef.current && prevElementRef.current !== element) {
       setContentKey(k => k + 1)
       setIsCrossFading(true)
+      setActivePseudo('element') // reset pseudo tab on element change
     }
     prevElementRef.current = element
   }, [element])
@@ -94,7 +133,9 @@ export function Panel({
   // During scrub, trust NumericInput local state (no re-render per frame).
   const [styleVersion, setStyleVersion] = useState(0)
 
-  // C1: Cache getComputedStyle results — avoids forced layout on every drag frame
+  // C1: Cache getComputedStyle results — avoids forced layout on every drag frame.
+  // CRITICAL: activeState + activePseudo in deps so useMemo re-runs after state forcing
+  // (getComputedStyle returns a live reference — without these deps, memo stays stale).
   const computedStyles = useMemo(() => {
     if (!element) {
       return {
@@ -107,7 +148,8 @@ export function Panel({
         effects: parseEffectsValues({} as CSSStyleDeclaration),
       }
     }
-    const cs = getComputedStyle(element)
+    const pseudo = activePseudo !== 'element' ? activePseudo : undefined
+    const cs = getComputedStyle(element, pseudo)
     return {
       spacing: parseSpacingValues(cs),
       layout: parseLayoutValues(cs),
@@ -117,7 +159,20 @@ export function Panel({
       shadow: parseShadowValues(cs),
       effects: parseEffectsValues(cs),
     }
-  }, [element, styleVersion])
+  }, [element, styleVersion, activeState, activePseudo])
+
+  // Compute which CSS properties changed between default state and current forced state.
+  // Sections use this to dim unchanged properties (opacity: 0.5).
+  const dimmedProperties = useMemo(() => {
+    if (!element || activeState === 'default' || !defaultStylesRef.current) return undefined
+    const changed = new Set<string>()
+    const cs = getComputedStyle(element)
+    if (typeof cs.getPropertyValue !== 'function') return undefined
+    for (const prop of ALL_DIMMING_PROPERTIES) {
+      if (cs.getPropertyValue(prop) !== defaultStylesRef.current[prop]) changed.add(prop)
+    }
+    return changed
+  }, [element, activeState, styleVersion])
 
   // Derive isFlexOrGrid from normalized layout display
   const layoutDisplay = computedStyles.layout.display
@@ -130,7 +185,8 @@ export function Panel({
     [computedStyles.typography.fontFamily],
   )
 
-  // Shared override application — warns if element lacks source attribution
+  // Shared override application — warns if element lacks source attribution.
+  // Passes pseudo parameter to CSSOverrideManager when editing a pseudo-element.
   const applyOverride = useCallback((property: string, value: string, commitRender: boolean) => {
     if (!element) return
     const source = element.getAttribute('data-cortex-source')
@@ -138,12 +194,13 @@ export function Panel({
       console.warn('[cortex] Cannot apply override: element missing data-cortex-source')
       return
     }
-    overrideManager.set(source, property, value)
+    const pseudo = activePseudo !== 'element' ? activePseudo : undefined
+    overrideManager.set(source, property, value, pseudo)
     if (commitRender) {
       overrideManager.flush()
       setStyleVersion(v => v + 1)
     }
-  }, [element, overrideManager])
+  }, [element, overrideManager, activePseudo])
 
   const handleSpacingCommit = useCallback((c: SpacingChange) => applyOverride(c.property, `${c.value}px`, true), [applyOverride])
   const handleScrub = useCallback((c: SpacingChange) => applyOverride(c.property, `${c.value}px`, false), [applyOverride])
@@ -216,6 +273,10 @@ export function Panel({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
+        hasBefore={hasBefore}
+        hasAfter={hasAfter}
+        activePseudo={activePseudo}
+        onPseudoChange={setActivePseudo}
       />
       <div class="cortex-panel__body" ref={bodyRef} key={contentKey}>
         <LayoutSection
@@ -223,6 +284,7 @@ export function Panel({
           onChange={handleLayoutCommit}
           onScrub={handleLayoutScrub}
           onScrubEnd={handleLayoutCommit}
+          dimmedProperties={dimmedProperties}
         />
         <SpacingSection
           padding={computedStyles.spacing.padding}
@@ -232,6 +294,7 @@ export function Panel({
           onChange={handleSpacingCommit}
           onScrub={handleScrub}
           onScrubEnd={handleSpacingCommit}
+          dimmedProperties={dimmedProperties}
         />
         <TypographySection
           values={computedStyles.typography}
@@ -240,11 +303,13 @@ export function Panel({
           onScrub={handleTypographyScrub}
           onScrubEnd={handleTypographyCommit}
           swatches={swatches}
+          dimmedProperties={dimmedProperties}
         />
         <FillSection
           values={computedStyles.fill}
           onChange={handleFillCommit}
           swatches={swatches}
+          dimmedProperties={dimmedProperties}
         />
         <BorderSection
           values={computedStyles.border}
@@ -252,17 +317,20 @@ export function Panel({
           onScrub={handleBorderScrub}
           onScrubEnd={handleBorderCommit}
           swatches={swatches}
+          dimmedProperties={dimmedProperties}
         />
         <ShadowSection
           values={computedStyles.shadow}
           onChange={handleShadowCommit}
           swatches={swatches}
+          dimmedProperties={dimmedProperties}
         />
         <EffectsSection
           values={computedStyles.effects}
           onChange={handleEffectsCommit}
           onScrub={handleEffectsScrub}
           onScrubEnd={handleEffectsCommit}
+          dimmedProperties={dimmedProperties}
         />
       </div>
     </div>
