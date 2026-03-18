@@ -58,6 +58,28 @@ export function encodeFilePath(filePath: string): string {
   ).join('')
 }
 
+/** Check if an element comes from a third-party library (node_modules). */
+export function isLibraryComponent(el: HTMLElement): boolean {
+  const info = parseCortexSource(el)
+  if (!info) return false
+  return info.filePath.includes('/node_modules/')
+}
+
+/** Walk up the DOM to find the closest ancestor with a user-space source. */
+export function findUserAncestor(
+  el: HTMLElement,
+): { source: SourceInfo; element: HTMLElement } | null {
+  let current = el.parentElement
+  while (current) {
+    const source = parseCortexSource(current)
+    if (source && !source.filePath.includes('/node_modules/')) {
+      return { source, element: current }
+    }
+    current = current.parentElement
+  }
+  return null
+}
+
 /** Get a compact label (hover overlay) */
 export function getLabel(el: HTMLElement): string {
   const info = parseCortexSource(el)
