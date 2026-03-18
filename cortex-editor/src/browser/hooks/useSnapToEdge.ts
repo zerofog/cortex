@@ -101,6 +101,7 @@ export interface UseSnapToEdgeResult {
   isSnapping: boolean
   setPosition: (pos: Position) => void
   snap: () => void
+  recheckOverlap: (elementRect: DOMRect) => void
 }
 
 export function useSnapToEdge(): UseSnapToEdgeResult {
@@ -150,11 +151,35 @@ export function useSnapToEdge(): UseSnapToEdgeResult {
     }
   }, [])
 
+  const recheckOverlap = useCallback((elementRect: DOMRect): void => {
+    // Read from positionRef (not state) to avoid stale closure
+    const pos = positionRef.current
+    const panelRight = pos.x + PANEL_WIDTH
+    const panelBottom = pos.y + PANEL_MAX_HEIGHT // conservative upper bound
+
+    const overlaps = !(
+      panelRight < elementRect.left ||
+      pos.x > elementRect.right ||
+      panelBottom < elementRect.top ||
+      pos.y > elementRect.bottom
+    )
+
+    if (overlaps) {
+      // Move to opposite horizontal edge, then snap to clean position
+      const viewportCenter = window.innerWidth / 2
+      const targetX = pos.x < viewportCenter
+        ? window.innerWidth - PANEL_WIDTH - PANEL_MARGIN
+        : PANEL_MARGIN
+      positionRef.current = { x: targetX, y: pos.y }
+      snap()
+    }
+  }, [snap])
+
   useEffect(() => {
     return () => {
       if (snapTimerRef.current) clearTimeout(snapTimerRef.current)
     }
   }, [])
 
-  return { position, isSnapping, setPosition, snap }
+  return { position, isSnapping, setPosition, snap, recheckOverlap }
 }
