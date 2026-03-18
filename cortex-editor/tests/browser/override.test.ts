@@ -292,6 +292,35 @@ describe('CSSOverrideManager', () => {
       expect(styleEl.textContent).toBe(afterRemove)
     })
 
+    it('clearAll() clears state overrides too', () => {
+      manager.set('a:1:1', 'color', 'red')
+      manager.setStateOverrides('a:1:1', new Map([['background', 'blue']]))
+      flushRAF()
+
+      manager.clearAll()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toBe('')
+    })
+
+    it('setStateOverrides with all-invalid entries clears previous entry for that source', () => {
+      manager.setStateOverrides('a:1:1', new Map([['color', 'red']]))
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('color: red')
+
+      // All entries invalid — should delete the previous state override
+      manager.setStateOverrides('a:1:1', new Map([['invalid;prop', 'value']]))
+      expect(styleEl.textContent).toBe('')
+    })
+
+    it('setStateOverrides rebuilds synchronously', () => {
+      manager.setStateOverrides('a:1:1', new Map([['color', 'red']]))
+      // Should be visible immediately (not deferred to RAF)
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('color: red')
+      // No pending RAF
+      expect(rafCallbacks.size).toBe(0)
+    })
+
     it('clearAll() cancels pending RAF so stale rebuild does not fire', () => {
       manager.set('a:1:1', 'color', 'red')
       expect(rafCallbacks.size).toBe(1)
@@ -317,6 +346,17 @@ describe('CSSOverrideManager', () => {
       const styleEl = document.head.querySelector('[data-cortex-override]')
       expect(styleEl).toBeNull()
     })
+  })
+
+  it('set() accepts calc() expressions with + and *', () => {
+    manager.set('a:1:1', 'width', 'calc(100% - 20px)')
+    manager.set('b:1:1', 'height', 'calc(50% + 10px)')
+    manager.set('c:1:1', 'font-size', 'calc(1rem * 1.5)')
+    manager.flush()
+    const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+    expect(styleEl.textContent).toContain('width: calc(100% - 20px) !important')
+    expect(styleEl.textContent).toContain('height: calc(50% + 10px) !important')
+    expect(styleEl.textContent).toContain('font-size: calc(1rem * 1.5) !important')
   })
 
   it('accepts normal CSS values', () => {

@@ -157,6 +157,41 @@ describe('detectStates', () => {
     expect(result.active.get('color')).toBe('green')
   })
 
+  it('handles comma-separated selectors correctly (.btn, .link:hover)', () => {
+    // Only .link:hover has a :hover pseudo — .btn should NOT get hover declarations
+    const link = document.createElement('a')
+    link.className = 'link'
+    document.body.appendChild(link)
+
+    styleEl.textContent = '.btn, .link:hover { color: red; }'
+    const btnResult = detectStates(target) // target is .btn
+    const linkResult = detectStates(link)
+
+    // .btn should NOT have hover declarations (it's in a comma-separated
+    // selector but has no :hover pseudo on its segment)
+    expect(btnResult.hover.size).toBe(0)
+
+    // .link should have hover declarations
+    expect(linkResult.hover.get('color')).toBe('red')
+
+    link.remove()
+  })
+
+  it('handles comma-separated selectors where both segments have :hover', () => {
+    const link = document.createElement('a')
+    link.className = 'link'
+    document.body.appendChild(link)
+
+    styleEl.textContent = '.btn:hover, .link:hover { background-color: blue; }'
+    const btnResult = detectStates(target)
+    const linkResult = detectStates(link)
+
+    expect(btnResult.hover.get('background-color')).toBe('blue')
+    expect(linkResult.hover.get('background-color')).toBe('blue')
+
+    link.remove()
+  })
+
   it('skips ::after pseudo-element selectors', () => {
     styleEl.textContent = '.btn:hover::after { content: "→"; }'
     const result = detectStates(target)

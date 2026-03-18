@@ -1,9 +1,11 @@
 /** Allowlist for CSS property names (same as override.ts) */
 const VALID_PROPERTY = /^-{0,2}[a-zA-Z][a-zA-Z0-9-]*$/
 /** Allowlist for CSS values */
-const VALID_VALUE = /^[a-zA-Z0-9#()\s,.\-_'"/%]+$/
+const VALID_VALUE = /^[a-zA-Z0-9#()\s,.\-_'"/%+*]+$/
 /** Reject url() values */
 const REJECT_URL = /url\s*\(/i
+/** Reject CSS comment markers */
+const REJECT_COMMENT = /\/\*/
 
 export interface StateDeclarations {
   hover: Map<string, string>
@@ -14,6 +16,13 @@ export interface StateDeclarations {
 type StateName = 'hover' | 'focus' | 'active'
 
 const STATE_PSEUDOS: readonly StateName[] = ['hover', 'focus', 'active'] as const
+
+/** Pre-compiled regex for stripping state pseudo-classes from selectors. */
+const STATE_REGEX: Record<StateName, RegExp> = {
+  hover: /:hover/g,
+  focus: /:focus/g,
+  active: /:active/g,
+}
 
 /**
  * Inspect all document stylesheets to find :hover/:focus/:active rules
@@ -75,36 +84,39 @@ function processStyleRule(
   element: HTMLElement,
   result: StateDeclarations,
 ): void {
-  const selector = rule.selectorText
+  // Split comma-separated selectors and process each independently
+  const selectors = rule.selectorText.split(',').map(s => s.trim())
 
-  // Skip rules with pseudo-elements
-  if (selector.includes('::before') || selector.includes('::after')) return
+  for (const selector of selectors) {
+    // Skip rules with pseudo-elements
+    if (selector.includes('::before') || selector.includes('::after')) continue
 
-  for (const state of STATE_PSEUDOS) {
-    const pseudo = `:${state}`
-    if (!selector.includes(pseudo)) continue
+    for (const state of STATE_PSEUDOS) {
+      const pseudo = `:${state}`
+      if (!selector.includes(pseudo)) continue
 
-    // Strip the pseudo-class and test if the base selector matches
-    const baseSelector = selector.replace(new RegExp(`:${state}`, 'g'), '').trim()
-    if (!baseSelector) continue
+      // Strip the pseudo-class and test if the base selector matches
+      const baseSelector = selector.replace(STATE_REGEX[state], '').trim()
+      if (!baseSelector) continue
 
-    try {
-      if (!element.matches(baseSelector)) continue
-    } catch {
-      continue // invalid selector after stripping
-    }
+      try {
+        if (!element.matches(baseSelector)) continue
+      } catch {
+        continue // invalid selector after stripping
+      }
 
-    // Extract declarations
-    const style = rule.style
-    for (let i = 0; i < style.length; i++) {
-      const prop = style[i] as string
-      const val = style.getPropertyValue(prop).trim()
-      if (!prop || !val) continue
-      // Skip 'initial' values — these are noise from shorthand expansion
-      if (val === 'initial') continue
-      if (!VALID_PROPERTY.test(prop)) continue
-      if (!VALID_VALUE.test(val) || REJECT_URL.test(val)) continue
-      result[state].set(prop, val)
+      // Extract declarations
+      const style = rule.style
+      for (let i = 0; i < style.length; i++) {
+        const prop = style[i] as string
+        const val = style.getPropertyValue(prop).trim()
+        if (!prop || !val) continue
+        // Skip 'initial' values — these are noise from shorthand expansion
+        if (val === 'initial') continue
+        if (!VALID_PROPERTY.test(prop)) continue
+        if (!VALID_VALUE.test(val) || REJECT_URL.test(val) || REJECT_COMMENT.test(val)) continue
+        result[state].set(prop, val)
+      }
     }
   }
 }
