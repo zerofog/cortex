@@ -18,6 +18,7 @@ export interface SelectionOverlayProps {
  */
 export function SelectionOverlay({ element, availableStates, activeState, onStateChange }: SelectionOverlayProps): JSX.Element | null {
   const overlayRef = useRef<HTMLDivElement>(null)
+  const lensRef = useRef<HTMLDivElement>(null)
 
   // RAF-based continuous position tracking for the selected element
   useEffect(() => {
@@ -57,6 +58,26 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
       if (left !== prevLeft) { el.style.left = left; prevLeft = left }
       if (width !== prevWidth) { el.style.width = width; prevWidth = width }
       if (height !== prevHeight) { el.style.height = height; prevHeight = height }
+
+      // Update borderRadius from computed style (piggybacks on existing layout)
+      const cs = getComputedStyle(element)
+      el.style.borderRadius = cs.borderRadius || '0px'
+
+      // Update lens position in sync with overlay
+      if (lensRef.current) {
+        const showLens = !!(availableStates && (
+          availableStates.hover.size > 0 ||
+          availableStates.focus.size > 0 ||
+          availableStates.active.size > 0
+        ))
+        const threshold = showLens ? 54 : 30
+        const lensAbove = r.top > threshold
+        const lensTop = lensAbove ? r.top - 28 : r.top + r.height + 4
+        const lensLeft = r.left + r.width / 2 - lensRef.current.offsetWidth / 2
+        const clampedLeft = Math.max(4, Math.min(lensLeft, window.innerWidth - 4 - lensRef.current.offsetWidth))
+        lensRef.current.style.top = `${lensTop}px`
+        lensRef.current.style.left = `${clampedLeft}px`
+      }
 
       // Shift detection uses document-relative coordinates
       const docTop = r.top + window.scrollY
@@ -100,7 +121,9 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
           docTop - (stableDocTop as number),
           docLeft - (stableDocLeft as number),
         )
-        if (totalShift > SHIFT_THRESHOLD_PX) {
+        const offScreen = r.top < 0 || r.bottom > window.innerHeight ||
+                          r.left < 0 || r.right > window.innerWidth
+        if (totalShift > SHIFT_THRESHOLD_PX && offScreen) {
           element.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
           scrollCooldownUntil = performance.now() + SCROLL_COOLDOWN_MS
         }
@@ -114,13 +137,12 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
 
     update()
     return () => cancelAnimationFrame(rafId)
-  }, [element])
+  }, [element, availableStates])
 
   if (!element) return null
 
   const label = getSelectionLabel(element)
   const r = element.getBoundingClientRect()
-  const cs = getComputedStyle(element)
 
   // Determine if the state lens should be shown
   const showLens = !!(availableStates && (
@@ -143,25 +165,6 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
     if (availableStates!.active.size > 0) stateButtons.push({ label: ':active', state: 'active' })
   }
 
-  // Lens positioning: above element by default, below when flipped
-  // Center horizontally relative to element, clamp to viewport edges
-  const lensAbove = labelAbove // lens above when there's room, below when flipped
-  const elementCenterX = r.left + r.width / 2
-  const viewportWidth = window.innerWidth
-
-  // Estimate lens width (rough: ~60px per button + padding)
-  const estimatedLensWidth = stateButtons.length * 60 + 16
-  let lensLeft = elementCenterX - estimatedLensWidth / 2
-  // Clamp to viewport edges
-  if (lensLeft < 4) lensLeft = 4
-  if (lensLeft + estimatedLensWidth > viewportWidth - 4) {
-    lensLeft = viewportWidth - 4 - estimatedLensWidth
-  }
-
-  const lensTop = lensAbove
-    ? r.top - 28 // above element (24px height + 4px gap)
-    : r.top + r.height + 4 // below element
-
   return (
     <div
       ref={overlayRef}
@@ -171,7 +174,6 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
         left: `${r.left}px`,
         width: `${r.width}px`,
         height: `${r.height}px`,
-        borderRadius: cs.borderRadius || '0px',
       }}
     >
       <span class={`cortex-label ${labelAbove ? 'cortex-label--above' : 'cortex-label--below'}`}>
@@ -179,12 +181,9 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
       </span>
       {showLens && (
         <div
+          ref={lensRef}
           class="cortex-state-lens"
-          style={{
-            position: 'fixed',
-            top: `${lensTop}px`,
-            left: `${lensLeft}px`,
-          }}
+          style={{ position: 'fixed' }}
         >
           {stateButtons.map(({ label: btnLabel, state }) => (
             <button

@@ -37,7 +37,7 @@
   pointer-events: none;
   border: 2.5px solid #3b82f6;
   box-sizing: border-box;
-  transition: all 150ms ease-out;
+  transition: border-radius 150ms ease-out;
 }
 
 .cortex-label {

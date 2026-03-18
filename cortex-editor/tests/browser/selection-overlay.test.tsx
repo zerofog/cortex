@@ -247,16 +247,29 @@ describe('layout shift tracking', () => {
     expect(element.scrollIntoView).not.toHaveBeenCalled()
   })
 
-  it('auto-scrolls when element shifts >50px after 400ms stable', async () => {
+  it('auto-scrolls when element shifts >50px after 400ms stable AND is off-screen', async () => {
     await renderAndInit(100, 100)
 
-    moveElement(200, 100) // shift 100px down
+    // Move element off-screen (top becomes negative)
+    moveElement(-100, 100) // shift 200px up, now off-screen
     now += 16
     stepRAF(1) // detect shift, set lastChangeTime
 
     now += 500 // 500ms later, position stable
-    stepRAF(1) // should trigger scrollIntoView
+    stepRAF(1) // should trigger scrollIntoView (off-screen)
     expect(element.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'nearest' })
+  })
+
+  it('does not auto-scroll when element moves >50px but stays on screen', async () => {
+    await renderAndInit(100, 100)
+
+    moveElement(200, 100) // shift 100px down, but still on screen
+    now += 16
+    stepRAF(1) // detect shift, set lastChangeTime
+
+    now += 500 // 500ms later, position stable
+    stepRAF(1) // should NOT trigger scrollIntoView (still visible)
+    expect(element.scrollIntoView).not.toHaveBeenCalled()
   })
 
   it('does not auto-scroll when shift < 50px', async () => {
@@ -285,21 +298,21 @@ describe('layout shift tracking', () => {
   it('respects 1s cooldown after scrollIntoView', async () => {
     await renderAndInit(100, 100)
 
-    // Trigger first auto-scroll
-    moveElement(300, 100) // shift 200px
+    // Trigger first auto-scroll (element goes off-screen)
+    moveElement(-100, 100) // shift 200px up, off-screen
     now += 16; stepRAF(1)
     now += 500; stepRAF(1)
     expect(element.scrollIntoView).toHaveBeenCalledTimes(1)
 
-    // Immediately shift again — within 1s cooldown
-    moveElement(500, 100)
+    // Immediately shift again — within 1s cooldown (still off-screen)
+    moveElement(-300, 100)
     now += 16; stepRAF(1)
     now += 500; stepRAF(1) // 500ms after second shift, but still within 1s cooldown
     expect(element.scrollIntoView).toHaveBeenCalledTimes(1) // NOT called again
 
     // After cooldown expires
     now += 600 // total ~1.1s since first scroll
-    moveElement(700, 100)
+    moveElement(-500, 100) // still off-screen
     now += 16; stepRAF(1)
     now += 500; stepRAF(1)
     expect(element.scrollIntoView).toHaveBeenCalledTimes(2) // now called again
@@ -377,9 +390,40 @@ describe('state lens', () => {
     expect(onStateChange).toHaveBeenCalledWith('default')
   })
 
-  it('positions lens below element when near top of viewport', () => {
-    mockGetBoundingClientRect(element, { top: 20, left: 100, width: 300, height: 50 })
+  it('updates lens position when element rect changes (scroll simulation)', async () => {
+    // Initial position
+    mockGetBoundingClientRect(element, { top: 200, left: 100, width: 300, height: 50 })
+    const onStateChange = vi.fn()
+    render(<SelectionOverlay element={element} availableStates={hoverOnlyStates} activeState="default" onStateChange={onStateChange} />, container)
+
+    // Wait for initial RAF to fire
+    await new Promise(r => requestAnimationFrame(() => r(undefined)))
+    await new Promise(r => setTimeout(r, 0))
+
+    const lens = container.querySelector('.cortex-state-lens') as HTMLElement
+    expect(lens).not.toBeNull()
+    const initialTop = lens?.style.top
+
+    // Simulate scroll — element moves up
+    mockGetBoundingClientRect(element, { top: 50, left: 100, width: 300, height: 50 })
+
+    // Wait for RAF update
+    await new Promise(r => requestAnimationFrame(() => r(undefined)))
+    await new Promise(r => setTimeout(r, 0))
+
+    // Lens position should have updated
+    // (The exact value depends on the positioning logic, but it should differ from initial)
+    expect(lens?.style.top).not.toBe(initialTop)
+  })
+
+  it('positions lens below element when near top of viewport', async () => {
+    mockGetBoundingClientRect(element, { top: 20, left: 100, width: 300, height: 50, bottom: 70 })
     render(<SelectionOverlay element={element} availableStates={hoverOnlyStates} activeState="default" />, container)
+
+    // Wait for RAF to update lens position
+    await new Promise(r => requestAnimationFrame(() => r(undefined)))
+    await new Promise(r => setTimeout(r, 0))
+
     const lens = container.querySelector('.cortex-state-lens') as HTMLElement
     // Lens should be below the element (top > element bottom)
     const lensTop = parseFloat(lens.style.top)
