@@ -94,4 +94,65 @@ describe('PanelHeader', () => {
     expect(link.href).toContain('vscode://file/')
     expect(link.href).toContain('My%20Component')
   })
+
+  describe('pseudo-element tabs', () => {
+    it('does not render tabs when no pseudo-elements detected', () => {
+      setup({ hasBefore: false, hasAfter: false })
+      expect(container.querySelector('.cortex-pseudo-tabs')).toBe(null)
+    })
+
+    it('renders element + ::before tabs when hasBefore is true', () => {
+      setup({ hasBefore: true, hasAfter: false })
+      const tabs = container.querySelectorAll('.cortex-pseudo-tab')
+      expect(tabs.length).toBe(2)
+      expect(tabs[0].textContent).toBe('element')
+      expect(tabs[1].textContent).toBe('::before')
+    })
+
+    it('renders all three tabs when both pseudo-elements detected', () => {
+      setup({ hasBefore: true, hasAfter: true })
+      const tabs = container.querySelectorAll('.cortex-pseudo-tab')
+      expect(tabs.length).toBe(3)
+    })
+
+    it('calls onPseudoChange when a pseudo tab is clicked', () => {
+      const onPseudoChange = vi.fn()
+      setup({ hasBefore: true, hasAfter: false, onPseudoChange })
+      const beforeTab = container.querySelectorAll('.cortex-pseudo-tab')[1] as HTMLElement
+      beforeTab.click()
+      expect(onPseudoChange).toHaveBeenCalledWith('::before')
+    })
+
+    it('highlights active pseudo tab', () => {
+      setup({ hasBefore: true, hasAfter: false, activePseudo: '::before' })
+      const tabs = container.querySelectorAll('.cortex-pseudo-tab')
+      expect(tabs[1].classList.contains('cortex-pseudo-tab--active')).toBe(true)
+    })
+  })
+
+  describe('library badge', () => {
+    it('does not show badge for non-library elements', () => {
+      setup({ isLibrary: false })
+      expect(container.querySelector('.cortex-panel-header__library')).toBe(null)
+    })
+
+    it('shows (library) badge for library elements', () => {
+      setup({ isLibrary: true })
+      const badge = container.querySelector('.cortex-panel-header__library')
+      expect(badge).not.toBe(null)
+      expect(badge!.textContent).toBe('(library)')
+    })
+
+    it('shows ancestor source when library element has user ancestor', () => {
+      setup({
+        isLibrary: true,
+        ancestorSource: 'LoginForm.tsx',
+        ancestorLine: '42',
+        tagName: 'button',
+      })
+      const infoText = container.querySelector('.cortex-panel-header__info')!.textContent
+      expect(infoText).toContain('LoginForm.tsx:42')
+      expect(infoText).toContain('<button>')
+    })
+  })
 })
