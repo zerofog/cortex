@@ -1,0 +1,26 @@
+cortex-editor/src/browser/override.ts
+  32cf762adb1a2b21 12-17,22,56-57,67-68,71,77-80,82,84-85,88,94-122,134,139,141-160,163-165
+cortex-editor/tests/browser/override.test.ts
+  32cf762adb1a2b21 340-454
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "5639eba9e8c9f70046e33ee43ad037f6c575c8f3",
+  "prompts": {
+    "32cf762adb1a2b21": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "05d54e6d-47dd-4d92-9b5c-55a38b5114b3",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 380,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/3d535816f66a6a7153e8df04fc52d006c5ea24101fe762d0539c5e7144edc95f"
+    }
+  }
+}
