@@ -937,3 +937,83 @@
   flex-direction: column;
   gap: 6px;
 }
+
+/* ── State Lens (on selection overlay) ─────── */
+
+.cortex-state-lens {
+  display: flex;
+  gap: 4px;
+  padding: 2px 8px;
+  background: rgba(0, 0, 0, 0.75);
+  border-radius: 6px;
+  position: fixed;
+  pointer-events: auto;
+  z-index: 1;
+  white-space: nowrap;
+}
+
+.cortex-state-lens__btn {
+  font-size: 11px;
+  font-family: inherit;
+  padding: 2px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.cortex-state-lens__btn:hover {
+  color: #d1d5db;
+}
+
+.cortex-state-lens__btn--active {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+/* ── Pseudo tabs (in panel) ────────────────── */
+
+.cortex-pseudo-tabs {
+  display: flex;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 0 12px;
+}
+
+.cortex-pseudo-tab {
+  font-size: 11px;
+  font-family: inherit;
+  padding: 6px 12px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+}
+
+.cortex-pseudo-tab:hover {
+  color: #d1d5db;
+}
+
+.cortex-pseudo-tab--active {
+  color: #3b82f6;
+  border-bottom-color: #3b82f6;
+}
+
+/* ── Library badge (in panel header) ───────── */
+
+.cortex-panel-header__library {
+  font-style: italic;
+  color: #9ca3af;
+  font-size: 10px;
+  margin-left: 4px;
+}
+
+/* ── Dimmed properties (in panel sections) ─── */
+
+.cortex-dimmed {
+  opacity: 0.5;
+  transition: opacity 150ms ease;
+}
