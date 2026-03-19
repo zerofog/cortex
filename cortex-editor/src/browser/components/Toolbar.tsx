@@ -1,5 +1,4 @@
 import type { JSX } from 'preact'
-import { useCallback } from 'preact/hooks'
 import { useDrag } from '../hooks/useDrag.js'
 import { useToolbarDock, TOOLBAR_LENGTH, TOOLBAR_THICKNESS } from '../hooks/useToolbarDock.js'
 
@@ -26,10 +25,6 @@ export function Toolbar({
     onDrag(x, y) { setPosition({ x, y }) },
     onDragEnd() { snap() },
   })
-
-  const handleModeClick = useCallback((newMode: CortexMode) => {
-    onModeChange(newMode)
-  }, [onModeChange])
 
   const classes = [
     'cortex-toolbar',
@@ -61,7 +56,7 @@ export function Toolbar({
       <button
         class={`cortex-toolbar__btn${mode === 'select' ? ' cortex-toolbar__btn--active' : ''}`}
         data-mode="select"
-        onClick={() => handleModeClick('select')}
+        onClick={() => onModeChange('select')}
         data-tooltip="Select (V)"
       >
         ↖
@@ -70,7 +65,7 @@ export function Toolbar({
       <button
         class={`cortex-toolbar__btn${mode === 'comment' ? ' cortex-toolbar__btn--active' : ''}`}
         data-mode="comment"
-        onClick={() => handleModeClick('comment')}
+        onClick={() => onModeChange('comment')}
         data-tooltip="Comment (C)"
       >
         💬
@@ -79,7 +74,7 @@ export function Toolbar({
       <button
         class={`cortex-toolbar__btn${canvasActive ? ' cortex-toolbar__btn--active' : ''}`}
         data-mode="canvas"
-        onClick={() => handleModeClick('canvas')}
+        onClick={() => onModeChange('canvas')}
         data-tooltip="Canvas (⌘0)"
       >
         ⊞
