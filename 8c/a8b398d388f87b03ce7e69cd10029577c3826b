@@ -1,0 +1,38 @@
+docs/superpowers/plans/2026-03-18-phase-6-toolbar-viewport.md
+  efb2043a8a239fe1 1-1497
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "8ca8b398d388f87b03ce7e69cd10029577c3826b",
+  "prompts": {
+    "7d9d05d4ec46cc6f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d30273a1-0807-4755-a8ea-bfb821bdde95",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 270,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/f4056ce80b2d8a81a7e958c3aea016a9f7b46ff2fee096d51c814f60782aa3b0"
+    },
+    "efb2043a8a239fe1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6b8a03c0-f968-4780-b4e7-5b8af56c5b7c",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 1564,
+      "total_deletions": 67,
+      "accepted_lines": 1497,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/546ece1747af07fe3deaa4b72311afaf5272fcaf7c49a2df7ab6298e66b6f682"
+    }
+  }
+}
