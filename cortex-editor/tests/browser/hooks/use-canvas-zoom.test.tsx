@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { render } from 'preact'
 import { useCanvasZoom } from '../../../src/browser/hooks/useCanvasZoom.js'
 
@@ -83,6 +83,50 @@ describe('useCanvasZoom', () => {
     const { result, unmount } = renderHook(() => useCanvasZoom(true))
     expect(result.current.scale).toBeGreaterThanOrEqual(0.5)
     expect(result.current.scale).toBeLessThanOrEqual(1.0)
+    unmount()
+  })
+
+  // Helper: happy-dom's WheelEvent may not propagate metaKey from init,
+  // so we set it explicitly via Object.defineProperty
+  function dispatchWheel(deltaY: number, metaKey: boolean): void {
+    const event = new WheelEvent('wheel', { deltaY, bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'metaKey', { value: metaKey })
+    window.dispatchEvent(event)
+  }
+
+  it('Cmd+scroll down decreases scale', async () => {
+    const { result, rerender, unmount } = renderHook(() => useCanvasZoom(true))
+    await new Promise(r => setTimeout(r, 10))
+    const initialScale = result.current.scale
+    dispatchWheel(100, true)
+    await new Promise(r => setTimeout(r, 10))
+    rerender(() => useCanvasZoom(true))
+    expect(result.current.scale).toBeLessThan(initialScale)
+    unmount()
+  })
+
+  it('Cmd+scroll up increases scale', async () => {
+    const { result, rerender, unmount } = renderHook(() => useCanvasZoom(true))
+    await new Promise(r => setTimeout(r, 10))
+    dispatchWheel(100, true) // zoom out first
+    await new Promise(r => setTimeout(r, 10))
+    rerender(() => useCanvasZoom(true))
+    const zoomedOut = result.current.scale
+    dispatchWheel(-100, true) // zoom back in
+    await new Promise(r => setTimeout(r, 10))
+    rerender(() => useCanvasZoom(true))
+    expect(result.current.scale).toBeGreaterThan(zoomedOut)
+    unmount()
+  })
+
+  it('regular scroll without Cmd does not change scale', async () => {
+    const { result, rerender, unmount } = renderHook(() => useCanvasZoom(true))
+    await new Promise(r => setTimeout(r, 10))
+    const initialScale = result.current.scale
+    dispatchWheel(100, false)
+    await new Promise(r => setTimeout(r, 10))
+    rerender(() => useCanvasZoom(true))
+    expect(result.current.scale).toBe(initialScale)
     unmount()
   })
 })

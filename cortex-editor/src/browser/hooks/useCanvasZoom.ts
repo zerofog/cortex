@@ -18,23 +18,15 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
       ? clamp((window.innerWidth - 320) / window.innerWidth, MIN_ZOOM, MAX_ZOOM)
       : 0.8
   )
-  const prevEnabledRef = useRef(false)
   const spaceHeldRef = useRef(false)
   const panStartRef = useRef<{ x: number; y: number; scrollX: number; scrollY: number } | null>(null)
 
-  // Apply/remove CSS transform on body. Also resets scale when re-enabled.
-  // useLayoutEffect ensures DOM mutations are visible synchronously after render
-  // (same as how React/Preact layout effects fire before browser paint).
+  // Apply/remove CSS transform on body.
+  // useLayoutEffect fires synchronously after DOM mutations, before paint —
+  // avoids flash of un-scaled content when entering canvas mode.
   useLayoutEffect(() => {
     if (enabled) {
-      // Reset scale on fresh enable (not on scale change within same session)
-      if (!prevEnabledRef.current) {
-        const fresh = clamp((window.innerWidth - 320) / window.innerWidth, MIN_ZOOM, MAX_ZOOM)
-        setScale(fresh)
-        document.body.style.transform = `scale(${fresh})`
-      } else {
-        document.body.style.transform = `scale(${scale})`
-      }
+      document.body.style.transform = `scale(${scale})`
       document.body.style.transformOrigin = '0 0'
       document.documentElement.style.backgroundColor = '#f5f5f5'
     } else {
@@ -42,7 +34,6 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
       document.body.style.transformOrigin = ''
       document.documentElement.style.backgroundColor = ''
     }
-    prevEnabledRef.current = enabled
     return () => {
       document.body.style.transform = ''
       document.body.style.transformOrigin = ''
@@ -105,12 +96,14 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
     window.addEventListener('pointerdown', handlePointerDown)
     window.addEventListener('pointermove', handlePointerMove)
     window.addEventListener('pointerup', handlePointerUp)
+    window.addEventListener('pointercancel', handlePointerUp)
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
       window.removeEventListener('pointerdown', handlePointerDown)
       window.removeEventListener('pointermove', handlePointerMove)
       window.removeEventListener('pointerup', handlePointerUp)
+      window.removeEventListener('pointercancel', handlePointerUp)
       spaceHeldRef.current = false
       panStartRef.current = null
     }
