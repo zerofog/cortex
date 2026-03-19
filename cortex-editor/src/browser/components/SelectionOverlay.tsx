@@ -9,13 +9,15 @@ export interface SelectionOverlayProps {
   activeState?: InteractionState
   onStateChange?: (state: InteractionState) => void
   overlaysVisible?: boolean
+  /** Canvas zoom scale factor — divide rect values by this to correct coordinates */
+  scale?: number
 }
 
 /**
  * Persistent selection outline with transition. Uses RAF to track position
  * continuously (element may move from scroll/resize while selected).
  */
-export function SelectionOverlay({ element, availableStates, activeState, onStateChange, overlaysVisible = true }: SelectionOverlayProps): JSX.Element | null {
+export function SelectionOverlay({ element, availableStates, activeState, onStateChange, overlaysVisible = true, scale = 1 }: SelectionOverlayProps): JSX.Element | null {
   const overlayRef = useRef<HTMLDivElement>(null)
   const lensRef = useRef<HTMLDivElement>(null)
   const labelRef = useRef<HTMLSpanElement>(null)
@@ -47,7 +49,12 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
       if (!element || !overlayRef.current) return
       // Stop RAF loop when element is detached from DOM (e.g. HMR, navigation)
       if (!element.isConnected) return
-      const r = element.getBoundingClientRect()
+      const raw = element.getBoundingClientRect()
+      // Correct for CSS transform scale on body during canvas zoom
+      const r = scale !== 1
+        ? { top: raw.top / scale, left: raw.left / scale, width: raw.width / scale, height: raw.height / scale,
+            bottom: raw.bottom / scale, right: raw.right / scale, x: raw.x / scale, y: raw.y / scale }
+        : raw
       const top = `${r.top}px`
       const left = `${r.left}px`
       const width = `${r.width}px`
@@ -168,12 +175,15 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
 
     update()
     return () => cancelAnimationFrame(rafId)
-  }, [element])
+  }, [element, scale])
 
   if (!element) return null
 
   const label = getSelectionLabel(element)
-  const r = element.getBoundingClientRect()
+  const raw = element.getBoundingClientRect()
+  const r = scale !== 1
+    ? { top: raw.top / scale, left: raw.left / scale, width: raw.width / scale, height: raw.height / scale }
+    : raw
 
   // Determine if the state lens should be shown
   const showLens = !!(availableStates && (

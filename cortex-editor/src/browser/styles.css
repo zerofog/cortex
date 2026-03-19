@@ -1127,12 +1127,7 @@
   color: #6b7280;
   padding: 0 8px;
   white-space: nowrap;
-  cursor: pointer;
   flex-shrink: 0;
-}
-
-.cortex-toolbar__badge:hover {
-  color: #3b82f6;
 }
 
 /* Vertical toolbar: tooltips appear to the right instead of above */

@@ -31,7 +31,7 @@ function loadStored(): StoredDock | null {
     if (!raw) return null
     const parsed = JSON.parse(raw)
     const VALID_EDGES = new Set<string>(['top', 'bottom', 'left', 'right'])
-    if (parsed && VALID_EDGES.has(parsed.edge) && typeof parsed.offset === 'number') {
+    if (parsed && VALID_EDGES.has(parsed.edge) && typeof parsed.offset === 'number' && Number.isFinite(parsed.offset)) {
       return parsed as StoredDock
     }
   } catch { /* corrupt data */ }
@@ -103,12 +103,14 @@ function findNearestEdge(pos: Position, currentEdge: DockEdge): { edge: DockEdge
 }
 
 export function useToolbarDock(): UseToolbarDockResult {
-  const init = getDefaultPosition()
-  const [position, setPositionState] = useState<Position>(init.position)
-  const [edge, setEdge] = useState<DockEdge>(init.edge)
+  // Lazy initializer — avoids localStorage reads on every render
+  const initRef = useRef<{ position: Position; edge: DockEdge } | null>(null)
+  if (!initRef.current) initRef.current = getDefaultPosition()
+  const [position, setPositionState] = useState<Position>(initRef.current.position)
+  const [edge, setEdge] = useState<DockEdge>(initRef.current.edge)
   const [isSnapping, setIsSnapping] = useState(false)
-  const positionRef = useRef(init.position)
-  const edgeRef = useRef(init.edge)
+  const positionRef = useRef(initRef.current.position)
+  const edgeRef = useRef(initRef.current.edge)
   const snapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const setPosition = useCallback((pos: Position) => {

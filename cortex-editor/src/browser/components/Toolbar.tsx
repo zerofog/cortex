@@ -54,6 +54,7 @@ export function Toolbar({
       </div>
 
       <button
+        type="button"
         class={`cortex-toolbar__btn${mode === 'select' ? ' cortex-toolbar__btn--active' : ''}`}
         data-mode="select"
         onClick={() => onModeChange('select')}
@@ -63,6 +64,7 @@ export function Toolbar({
       </button>
 
       <button
+        type="button"
         class={`cortex-toolbar__btn${mode === 'comment' ? ' cortex-toolbar__btn--active' : ''}`}
         data-mode="comment"
         onClick={() => onModeChange('comment')}
@@ -72,6 +74,7 @@ export function Toolbar({
       </button>
 
       <button
+        type="button"
         class={`cortex-toolbar__btn${canvasActive ? ' cortex-toolbar__btn--active' : ''}`}
         data-mode="canvas"
         onClick={() => onModeChange('canvas')}
@@ -87,6 +90,7 @@ export function Toolbar({
       )}
 
       <button
+        type="button"
         class="cortex-toolbar__btn cortex-toolbar__btn--close"
         data-action="close"
         onClick={onClose}

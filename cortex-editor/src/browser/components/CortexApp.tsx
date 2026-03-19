@@ -51,11 +51,9 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
     onDragEnd() { panelSnap() },
   })
 
-  // Phase 6: Canvas zoom
+  // Phase 6: Canvas zoom — canvasScale used to correct coordinates in overlays
   const canvasActive = mode === 'canvas'
   const { scale: canvasScale } = useCanvasZoom(canvasActive)
-  // canvasScale available for future use (e.g. coordinate transforms)
-  void canvasScale
 
   useEffect(() => {
     // Initialize CSS override manager
@@ -157,14 +155,13 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
   const handleSelectElement = useCallback((el: HTMLElement | null) => setSelectedElement(el), [])
   const handleToggleHover = useCallback(() => setHoverEnabled(v => !v), [])
 
-  // Phase 6: Mode change handler
+  // Phase 6: Mode change handler (functional updater avoids stale closure)
   const handleModeChange = useCallback((newMode: CortexMode) => {
-    if (newMode === mode) {
-      if (newMode === 'canvas') setMode('select')
-      return
-    }
-    setMode(newMode)
-  }, [mode])
+    setMode(prev => {
+      if (newMode === prev && newMode === 'canvas') return 'select'
+      return newMode
+    })
+  }, [])
 
   // Phase 6: Exit handler
   const handleExit = useCallback(() => {
@@ -181,18 +178,23 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
       if (tag === 'input' || tag === 'textarea' || tag === 'select') return
       if (target?.isContentEditable) return
 
-      if (e.key === 'v' || e.key === 'V') {
-        if (!e.metaKey && !e.ctrlKey && !e.altKey) setMode('select')
+      const noModifiers = !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey
+      if (e.key === 'v' && noModifiers) {
+        setMode('select')
+        e.stopPropagation()
       }
-      if (e.key === 'c' || e.key === 'C') {
-        if (!e.metaKey && !e.ctrlKey && !e.altKey) setMode('comment')
+      if (e.key === 'c' && noModifiers) {
+        setMode('comment')
+        e.stopPropagation()
       }
       if (e.key === '0' && e.metaKey) {
         e.preventDefault()
+        e.stopPropagation()
         setMode(prev => prev === 'canvas' ? 'select' : 'canvas')
       }
       if (e.key === 'Escape' && !selectedElementRef.current) {
         handleExit()
+        e.stopPropagation()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
@@ -203,13 +205,14 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
 
   return (
     <>
-      <HoverOverlay element={hoverEnabled ? hoveredElement : null} />
+      <HoverOverlay element={hoverEnabled ? hoveredElement : null} scale={canvasActive ? canvasScale : 1} />
       <SelectionOverlay
         element={selectedElement}
         availableStates={availableStates}
         activeState={activeState}
         onStateChange={handleStateChange}
         overlaysVisible={hoverEnabled}
+        scale={canvasActive ? canvasScale : 1}
       />
       {selectedElement && overrideRef.current && (
         <Panel
