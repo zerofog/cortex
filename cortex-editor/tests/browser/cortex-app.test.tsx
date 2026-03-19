@@ -215,4 +215,24 @@ describe('CortexApp', () => {
     const styleEl = document.head.querySelector('[data-cortex-override]')
     expect(styleEl).toBeNull()
   })
+
+  it('renders toolbar even without selection', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+    const toolbar = root.querySelector('.cortex-toolbar')
+    expect(toolbar).not.toBeNull()
+  })
+
+  it('tracks activity count from edit_status done messages', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+    channel._simulateMessage({ type: 'edit_status', editId: 'e1', status: 'done' })
+    await new Promise(r => setTimeout(r, 10))
+    const badge = root.querySelector('.cortex-toolbar__badge')
+    expect(badge?.textContent).toContain('1')
+  })
 })
