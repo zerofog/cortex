@@ -329,6 +329,27 @@ describe('transformSource', () => {
     it('still filters node_modules with query params', () => {
       expect(transformSource('<div />', '/project/node_modules/pkg/App.tsx?v=abc')).toBeNull()
     })
+
+    it('transforms included node_modules packages', () => {
+      const t = createSourceTransform('/project', { includeNodeModules: ['@test-lib'] })
+      const result = t('<div />', '/project/node_modules/@test-lib/Button.tsx')
+      expect(result).not.toBeNull()
+      expect(result!.code).toContain('data-cortex-source')
+    })
+
+    it('still skips non-included node_modules when includeNodeModules is set', () => {
+      const t = createSourceTransform('/project', { includeNodeModules: ['@test-lib'] })
+      expect(t('<div />', '/project/node_modules/other-pkg/App.tsx')).toBeNull()
+    })
+
+    it('uses segment matching for includeNodeModules (no substring false positives)', () => {
+      const t = createSourceTransform('/project', { includeNodeModules: ['lib'] })
+      // 'my-lib' contains 'lib' as substring but not as a path segment
+      expect(t('<div />', '/project/node_modules/my-lib/App.tsx')).toBeNull()
+      // 'lib' as exact segment should match
+      const result = t('<div />', '/project/node_modules/lib/App.tsx')
+      expect(result).not.toBeNull()
+    })
   })
 
   describe('source location accuracy', () => {

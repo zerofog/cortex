@@ -3,8 +3,9 @@ import { useState, useRef, useCallback, useEffect } from 'preact/hooks'
 export const PANEL_WIDTH = 300
 export const PANEL_MAX_HEIGHT = 460
 export const PANEL_MARGIN = 12
-const STORAGE_KEY = 'cortex-panel-position'
 const SNAP_DURATION = 350
+/** Distance from viewport edge at which the panel magnetically snaps. */
+const SNAP_THRESHOLD = 80
 
 interface Position { x: number; y: number }
 
@@ -34,66 +35,33 @@ export function normalizePosition(position: Position): Position {
 
 export function snapToEdge(position: Position): Position {
   const { minX, maxX, minY, maxY } = getPanelBounds()
-  const centerX = position.x + PANEL_WIDTH / 2
-  const centerY = position.y + PANEL_MAX_HEIGHT / 2
-  const vw = window.innerWidth
-  const vh = window.innerHeight
-
-  const distances = {
-    top: centerY,
-    bottom: vh - centerY,
-    left: centerX,
-    right: vw - centerX,
-  }
-
-  let nearest: 'top' | 'bottom' | 'left' | 'right' = 'right'
-  let min = Infinity
-  for (const [edge, dist] of Object.entries(distances) as ['top' | 'bottom' | 'left' | 'right', number][]) {
-    if (dist < min) {
-      min = dist
-      nearest = edge
-    }
-  }
-
-  const freeX = clamp(position.x, minX, maxX)
   const freeY = clamp(position.y, minY, maxY)
 
-  switch (nearest) {
-    case 'top':    return { x: freeX, y: minY }
-    case 'bottom': return { x: freeX, y: maxY }
-    case 'left':   return { x: minX, y: freeY }
-    case 'right':  return { x: maxX, y: freeY }
-  }
-}
+  // Magnetic snap: only snap X when near left or right edge.
+  // Otherwise the panel stays wherever the user dropped it.
+  const distLeft = position.x - minX
+  const distRight = maxX - position.x
 
-function parseStoredPosition(raw: string): Position | null {
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return null
-    const candidate = parsed as { x?: unknown; y?: unknown }
-    if (typeof candidate.x !== 'number' || !Number.isFinite(candidate.x)) return null
-    if (typeof candidate.y !== 'number' || !Number.isFinite(candidate.y)) return null
-    return { x: candidate.x, y: candidate.y }
-  } catch {
-    return null
+  let x: number
+  if (distLeft <= SNAP_THRESHOLD) {
+    x = minX
+  } else if (distRight <= SNAP_THRESHOLD) {
+    x = maxX
+  } else {
+    x = clamp(position.x, minX, maxX)
   }
+
+  return { x, y: freeY }
 }
 
 export function getInitialPosition(): Position {
   if (typeof window === 'undefined') return { x: 0, y: 0 }
 
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored) {
-      const parsed = parseStoredPosition(stored)
-      if (parsed) return snapToEdge(parsed)
-    }
-  } catch {}
-
-  return snapToEdge({
-    x: window.innerWidth - PANEL_WIDTH - PANEL_MARGIN,
+  // Always start at top-right on fresh load — no localStorage persistence.
+  return {
+    x: Math.max(0, window.innerWidth - PANEL_WIDTH - PANEL_MARGIN),
     y: PANEL_MARGIN,
-  })
+  }
 }
 
 export interface UseSnapToEdgeResult {
@@ -101,6 +69,7 @@ export interface UseSnapToEdgeResult {
   isSnapping: boolean
   setPosition: (pos: Position) => void
   snap: () => void
+  recheckOverlap: (elementRect: DOMRect) => void
 }
 
 export function useSnapToEdge(): UseSnapToEdgeResult {
@@ -126,29 +95,43 @@ export function useSnapToEdge(): UseSnapToEdgeResult {
       snapTimerRef.current = null
       setIsSnapping(false)
     }, SNAP_DURATION)
-
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(snapped)) } catch {}
   }, [])
 
   useEffect(() => {
-    let saveTimer: ReturnType<typeof setTimeout> | null = null
     function handleResize() {
       setPositionState(prev => {
-        const next = snapToEdge(prev)
+        const next = normalizePosition(prev)
         positionRef.current = next
-        if (saveTimer) clearTimeout(saveTimer)
-        saveTimer = setTimeout(() => {
-          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch {}
-        }, 200)
         return next
       })
     }
     window.addEventListener('resize', handleResize)
-    return () => {
-      window.removeEventListener('resize', handleResize)
-      if (saveTimer) clearTimeout(saveTimer)
-    }
+    return () => window.removeEventListener('resize', handleResize)
   }, [])
+
+  const recheckOverlap = useCallback((elementRect: DOMRect): void => {
+    // Read from positionRef (not state) to avoid stale closure
+    const pos = positionRef.current
+    const panelRight = pos.x + PANEL_WIDTH
+    const panelBottom = pos.y + PANEL_MAX_HEIGHT // conservative upper bound
+
+    const overlaps = !(
+      panelRight < elementRect.left ||
+      pos.x > elementRect.right ||
+      panelBottom < elementRect.top ||
+      pos.y > elementRect.bottom
+    )
+
+    if (overlaps) {
+      // Move to opposite horizontal edge, then snap to clean position
+      const viewportCenter = window.innerWidth / 2
+      const targetX = pos.x < viewportCenter
+        ? window.innerWidth - PANEL_WIDTH - PANEL_MARGIN
+        : PANEL_MARGIN
+      positionRef.current = { x: targetX, y: pos.y }
+      snap()
+    }
+  }, [snap])
 
   useEffect(() => {
     return () => {
@@ -156,5 +139,5 @@ export function useSnapToEdge(): UseSnapToEdgeResult {
     }
   }, [])
 
-  return { position, isSnapping, setPosition, snap }
+  return { position, isSnapping, setPosition, snap, recheckOverlap }
 }

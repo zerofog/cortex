@@ -26,6 +26,8 @@ export interface BorderSectionProps {
   onScrub?: (change: BorderChange) => void
   onScrubEnd?: (change: BorderChange) => void
   swatches?: string[]
+  /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
+  dimmedProperties?: Set<string>
 }
 
 /** Extract border-related values from a CSSStyleDeclaration. */

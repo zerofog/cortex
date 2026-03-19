@@ -102,18 +102,38 @@ export function createMockChannel(): CortexChannel & {
 
 /**
  * Mock getComputedStyle for a specific element.
+ * Supports pseudo-element parameter — pass `pseudoStyles` to return different
+ * values for `getComputedStyle(el, '::before')` / `getComputedStyle(el, '::after')`.
  * Returns a cleanup function that restores the original.
  */
 export function mockGetComputedStyle(
   el: Element,
   styles: Record<string, string>,
+  pseudoStyles?: Record<string, Record<string, string>>,
 ): () => void {
   const original = window.getComputedStyle
-  window.getComputedStyle = ((target: Element) => {
+  window.getComputedStyle = ((target: Element, pseudo?: string | null) => {
     if (target === el) {
+      if (pseudo && pseudoStyles?.[pseudo]) {
+        const base = original.call(window, target) as CSSStyleDeclaration
+        const merged = { ...base, ...pseudoStyles[pseudo] }
+        // Support getPropertyValue for pseudo styles
+        const result = new Proxy(merged, {
+          get(obj, prop) {
+            if (prop === 'getPropertyValue') {
+              return (p: string) => {
+                const camel = p.replace(/-([a-z])/g, (_, c) => c.toUpperCase())
+                return (obj as any)[camel] ?? (obj as any)[p] ?? ''
+              }
+            }
+            return (obj as any)[prop]
+          }
+        })
+        return result as unknown as CSSStyleDeclaration
+      }
       return { ...original.call(window, target), ...styles } as CSSStyleDeclaration
     }
-    return original.call(window, target)
+    return original.call(window, target, pseudo)
   }) as typeof window.getComputedStyle
   return () => { window.getComputedStyle = original }
 }

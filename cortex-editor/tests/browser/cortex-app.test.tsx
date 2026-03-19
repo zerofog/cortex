@@ -154,6 +154,47 @@ describe('CortexApp', () => {
     expect(unsubscribe).toHaveBeenCalled()
   })
 
+  it('switching elements clears state overrides', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+
+    const { _getCallbacks } = await import('../../src/browser/selection.js') as unknown as {
+      _getCallbacks: () => { selectCb: (el: HTMLElement | null) => void }
+    }
+    const { selectCb } = _getCallbacks()
+
+    // Select element A
+    const elA = document.createElement('div')
+    elA.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+    document.body.appendChild(elA)
+    mockGetBoundingClientRect(elA, { top: 50, left: 50, width: 100, height: 40 })
+
+    selectCb(elA)
+    await new Promise(r => setTimeout(r, 10))
+
+    // Verify CSSOverrideManager style element exists
+    const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+    expect(styleEl).not.toBeNull()
+
+    // Select element B — state overrides from A should be cleared
+    const elB = document.createElement('div')
+    elB.setAttribute('data-cortex-source', 'Card.tsx:10:1')
+    document.body.appendChild(elB)
+    mockGetBoundingClientRect(elB, { top: 150, left: 50, width: 100, height: 40 })
+
+    selectCb(elB)
+    await new Promise(r => setTimeout(r, 10))
+
+    // Style tag should not contain stale state overrides from element A
+    // (clearStateOverrides was called unconditionally on selection change)
+    expect(styleEl.textContent).toBe('')
+
+    elA.remove()
+    elB.remove()
+  })
+
   it('cleans up on unmount', async () => {
     setup()
     const channel = createMockChannel()

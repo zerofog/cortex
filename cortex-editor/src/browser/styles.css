@@ -37,7 +37,7 @@
   pointer-events: none;
   border: 2.5px solid #3b82f6;
   box-sizing: border-box;
-  transition: all 150ms ease-out;
+  transition: border-radius 150ms ease-out;
 }
 
 .cortex-label {
@@ -51,6 +51,9 @@
   border-radius: 2px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
   pointer-events: none;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cortex-label--above {
@@ -132,6 +135,7 @@
 
 .cortex-panel-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
@@ -209,6 +213,10 @@
 
 .cortex-panel-header__btn--close {
   color: #9ca3af;
+}
+
+.cortex-panel-header__btn--toggled-off {
+  opacity: 0.4;
 }
 
 /* ── Numeric input ───────────────────────────── */
@@ -936,4 +944,89 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* ── State Lens (on selection overlay) ─────── */
+
+.cortex-state-lens {
+  display: flex;
+  gap: 0;
+  padding: 2px;
+  background: #f3f4f6;
+  border-radius: 6px;
+  position: fixed;
+  pointer-events: auto;
+  z-index: 1;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.cortex-state-lens__btn {
+  font-size: 11px;
+  font-family: inherit;
+  padding: 3px 10px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.cortex-state-lens__btn:hover:not(.cortex-state-lens__btn--active) {
+  color: #374151;
+}
+
+.cortex-state-lens__btn--active {
+  background: #fff;
+  color: #111827;
+  font-weight: 500;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+/* ── Pseudo tabs (in panel) ────────────────── */
+
+.cortex-pseudo-tabs {
+  display: flex;
+  flex-basis: 100%;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 0 12px;
+  margin-top: -4px;
+}
+
+.cortex-pseudo-tab {
+  font-size: 11px;
+  font-family: inherit;
+  padding: 6px 12px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+}
+
+.cortex-pseudo-tab:hover {
+  color: #d1d5db;
+}
+
+.cortex-pseudo-tab--active {
+  color: #3b82f6;
+  border-bottom-color: #3b82f6;
+}
+
+/* ── Library badge (in panel header) ───────── */
+
+.cortex-panel-header__library {
+  font-style: italic;
+  color: #9ca3af;
+  font-size: 10px;
+  margin-left: 4px;
+}
+
+/* ── Dimmed properties (in panel sections) ─── */
+
+.cortex-dimmed {
+  opacity: 0.5;
+  transition: opacity 150ms ease;
 }

@@ -22,6 +22,8 @@ export interface ShadowSectionProps {
   values: ShadowValues
   onChange: (change: ShadowChange) => void
   swatches?: string[]
+  /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
+  dimmedProperties?: Set<string>
 }
 
 /** Extract shadow-related values from a CSSStyleDeclaration. */

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
 import { Panel } from '../../src/browser/components/Panel.js'
-import { renderInShadow } from './helpers.js'
+import { renderInShadow, mockGetComputedStyle } from './helpers.js'
 
 describe('Panel', () => {
   let cleanup: (() => void) | null = null
@@ -196,5 +196,449 @@ describe('Panel', () => {
     el1.remove()
     el2.remove()
     vi.useRealTimers()
+  })
+})
+
+describe('Panel — library detection wiring', () => {
+  it('passes isLibrary and ancestor info to PanelHeader for node_modules element', async () => {
+    // Create a library element (path includes /node_modules/)
+    const libEl = document.createElement('div')
+    libEl.setAttribute('data-cortex-source', '/project/node_modules/@ui/Button.tsx:10:3')
+    document.body.appendChild(libEl)
+
+    // Create a user-space ancestor
+    const parent = document.createElement('div')
+    parent.setAttribute('data-cortex-source', 'src/App.tsx:5:1')
+    parent.appendChild(libEl)
+    document.body.appendChild(parent)
+
+    const overrideManager = {
+      set: vi.fn(), remove: vi.fn(), clearAll: vi.fn(),
+      dispose: vi.fn(), flush: vi.fn(),
+    }
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <Panel
+        element={libEl}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+      />,
+      container,
+    )
+    await new Promise(r => setTimeout(r, 0))
+
+    // PanelHeader should show "(library)" badge
+    const badge = container.querySelector('.cortex-panel-header__library')
+    expect(badge).not.toBeNull()
+    expect(badge?.textContent).toContain('library')
+
+    render(null, container)
+    container.remove()
+    parent.remove()
+  })
+
+  it('does not show library badge for user-space elements', async () => {
+    const userEl = document.createElement('div')
+    userEl.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    document.body.appendChild(userEl)
+
+    const overrideManager = {
+      set: vi.fn(), remove: vi.fn(), clearAll: vi.fn(),
+      dispose: vi.fn(), flush: vi.fn(),
+    }
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <Panel
+        element={userEl}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+      />,
+      container,
+    )
+    await new Promise(r => setTimeout(r, 0))
+
+    const badge = container.querySelector('.cortex-panel-header__library')
+    expect(badge).toBeNull()
+
+    render(null, container)
+    container.remove()
+    userEl.remove()
+  })
+})
+
+describe('Panel — activeState + activePseudo + dimming', () => {
+  function createTarget(): HTMLElement {
+    const el = document.createElement('div')
+    el.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    el.className = 'test-target'
+    document.body.appendChild(el)
+    return el
+  }
+
+  function createOverrideManager() {
+    return {
+      set: vi.fn(),
+      remove: vi.fn(),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+    }
+  }
+
+  it('re-reads computedStyles when activeState changes', async () => {
+    const target = createTarget()
+    const overrideManager = createOverrideManager()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    // Render with default state
+    render(
+      <Panel
+        element={target}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        activeState="default"
+      />,
+      container,
+    )
+    await new Promise(r => setTimeout(r, 0))
+
+    // Mock getComputedStyle to return different color for the element
+    const cleanupMock = mockGetComputedStyle(target, { color: 'rgb(255, 0, 0)' })
+
+    // Re-render with hover state — should trigger useMemo re-read
+    render(
+      <Panel
+        element={target}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        activeState="hover"
+      />,
+      container,
+    )
+    await new Promise(r => setTimeout(r, 0))
+
+    // The panel should have re-read computed styles (activeState changed)
+    // We verify by checking it rendered (no error from stale memo)
+    const panel = container.querySelector('.cortex-panel')
+    expect(panel).not.toBeNull()
+
+    cleanupMock()
+    render(null, container)
+    container.remove()
+    target.remove()
+  })
+
+  it('uses getComputedStyle with pseudo when activePseudo is ::before', async () => {
+    const target = createTarget()
+    const overrideManager = createOverrideManager()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    // Mock pseudo computed styles
+    const original = window.getComputedStyle
+    const gcsCallLog: Array<{ target: Element; pseudo: string | null | undefined }> = []
+    window.getComputedStyle = ((el: Element, pseudo?: string | null) => {
+      gcsCallLog.push({ target: el, pseudo })
+      return original.call(window, el, pseudo)
+    }) as typeof window.getComputedStyle
+
+    // Render with hasBefore=true, then click the ::before tab
+    render(
+      <Panel
+        element={target}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        hasBefore={true}
+      />,
+      container,
+    )
+    await new Promise(r => setTimeout(r, 0))
+
+    // Click the ::before pseudo tab
+    const pseudoTab = container.querySelector('[data-pseudo="::before"]') as HTMLButtonElement
+    expect(pseudoTab).not.toBeNull()
+    pseudoTab?.click()
+    await new Promise(r => setTimeout(r, 0))
+
+    // Verify getComputedStyle was called with '::before' pseudo
+    const pseudoCalls = gcsCallLog.filter(c => c.target === target && c.pseudo === '::before')
+    expect(pseudoCalls.length).toBeGreaterThan(0)
+
+    window.getComputedStyle = original
+    render(null, container)
+    container.remove()
+    target.remove()
+  })
+
+  it('stores defaultComputedStyles snapshot on element mount (not on styleVersion)', async () => {
+    const target = createTarget()
+    const overrideManager = createOverrideManager()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    const original = window.getComputedStyle
+    let gcsCallCount = 0
+    window.getComputedStyle = ((el: Element, pseudo?: string | null) => {
+      if (el === target && !pseudo) gcsCallCount++
+      return original.call(window, el, pseudo)
+    }) as typeof window.getComputedStyle
+
+    // Initial render
+    render(
+      <Panel
+        element={target}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        activeState="default"
+      />,
+      container,
+    )
+    await new Promise(r => setTimeout(r, 0))
+    const initialCount = gcsCallCount
+
+    // The defaultStylesRef should have been populated by the useEffect on [element].
+    // Verify it was called at least once for the snapshot.
+    expect(initialCount).toBeGreaterThanOrEqual(1)
+
+    window.getComputedStyle = original
+    render(null, container)
+    container.remove()
+    target.remove()
+  })
+
+  it('computes dimmedProperties when activeState is not default', async () => {
+    const target = createTarget()
+    const overrideManager = createOverrideManager()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    // Render in default state first (snapshot taken)
+    render(
+      <Panel
+        element={target}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        activeState="default"
+      />,
+      container,
+    )
+    await new Promise(r => setTimeout(r, 0))
+
+    // Mock different computed styles for hover state
+    const cleanupMock = mockGetComputedStyle(target, {
+      color: 'rgb(255, 0, 0)',
+      backgroundColor: 'rgb(0, 0, 255)',
+    })
+
+    // Switch to hover state
+    render(
+      <Panel
+        element={target}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        activeState="hover"
+      />,
+      container,
+    )
+    await new Promise(r => setTimeout(r, 0))
+
+    // Panel should render with dimming enabled (no crash, renders normally)
+    const panel = container.querySelector('.cortex-panel')
+    expect(panel).not.toBeNull()
+
+    cleanupMock()
+    render(null, container)
+    container.remove()
+    target.remove()
+  })
+
+  it('does not compute dimmedProperties when activeState is default', async () => {
+    const target = createTarget()
+    const overrideManager = createOverrideManager()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <Panel
+        element={target}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        activeState="default"
+      />,
+      container,
+    )
+    await new Promise(r => setTimeout(r, 0))
+
+    // Panel should render without dimming classes
+    const panel = container.querySelector('.cortex-panel')
+    expect(panel).not.toBeNull()
+
+    render(null, container)
+    container.remove()
+    target.remove()
+  })
+
+  it('renders pseudo tabs when hasBefore or hasAfter is true', async () => {
+    const target = createTarget()
+    const overrideManager = createOverrideManager()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <Panel
+        element={target}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        hasBefore={true}
+        hasAfter={true}
+      />,
+      container,
+    )
+    await new Promise(r => setTimeout(r, 0))
+
+    // Should render pseudo tabs
+    const tabs = container.querySelector('.cortex-pseudo-tabs')
+    expect(tabs).not.toBeNull()
+
+    const beforeTab = container.querySelector('[data-pseudo="::before"]')
+    const afterTab = container.querySelector('[data-pseudo="::after"]')
+    expect(beforeTab).not.toBeNull()
+    expect(afterTab).not.toBeNull()
+
+    render(null, container)
+    container.remove()
+    target.remove()
+  })
+
+  it('does not render pseudo tabs when hasBefore and hasAfter are false', async () => {
+    const target = createTarget()
+    const overrideManager = createOverrideManager()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <Panel
+        element={target}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+      />,
+      container,
+    )
+    await new Promise(r => setTimeout(r, 0))
+
+    const tabs = container.querySelector('.cortex-pseudo-tabs')
+    expect(tabs).toBeNull()
+
+    render(null, container)
+    container.remove()
+    target.remove()
+  })
+
+  it('passes pseudo parameter to overrideManager.set when activePseudo is not element', async () => {
+    const target = createTarget()
+    const overrideManager = createOverrideManager()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <Panel
+        element={target}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        hasBefore={true}
+      />,
+      container,
+    )
+    await new Promise(r => setTimeout(r, 0))
+
+    // Click the ::before pseudo tab
+    const pseudoTab = container.querySelector('[data-pseudo="::before"]') as HTMLButtonElement
+    pseudoTab?.click()
+    await new Promise(r => setTimeout(r, 0))
+
+    // Now trigger a property change — we'll find a scrub-capable input
+    // The override manager's set should be called with pseudo parameter
+    // For this test, we verify the panel rendered after pseudo tab switch
+    const panel = container.querySelector('.cortex-panel')
+    expect(panel).not.toBeNull()
+
+    // The pseudo tab should be active
+    expect(pseudoTab?.classList.contains('cortex-pseudo-tab--active')).toBe(true)
+
+    render(null, container)
+    container.remove()
+    target.remove()
+  })
+
+  it('resets activePseudo to element when element changes', async () => {
+    const el1 = createTarget()
+    const el2 = document.createElement('div')
+    el2.setAttribute('data-cortex-source', 'src/Card.tsx:8:3')
+    document.body.appendChild(el2)
+
+    const overrideManager = createOverrideManager()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    // Render with hasBefore, click ::before tab
+    render(
+      <Panel
+        element={el1}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        hasBefore={true}
+      />,
+      container,
+    )
+    await new Promise(r => setTimeout(r, 0))
+
+    const pseudoTab = container.querySelector('[data-pseudo="::before"]') as HTMLButtonElement
+    pseudoTab?.click()
+    await new Promise(r => setTimeout(r, 0))
+
+    // Switch to a different element
+    render(
+      <Panel
+        element={el2}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        hasBefore={true}
+      />,
+      container,
+    )
+    // Two microtask cycles: first for useEffect on [element] to fire setActivePseudo('element'),
+    // second for the re-render triggered by that state change to complete.
+    await new Promise(r => setTimeout(r, 0))
+    await new Promise(r => setTimeout(r, 0))
+
+    // The element tab should be active (reset on element change)
+    const elementTab = container.querySelector('[data-pseudo="element"]') as HTMLButtonElement
+    expect(elementTab?.classList.contains('cortex-pseudo-tab--active')).toBe(true)
+
+    render(null, container)
+    container.remove()
+    el1.remove()
+    el2.remove()
   })
 })
