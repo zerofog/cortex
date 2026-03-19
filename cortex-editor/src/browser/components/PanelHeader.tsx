@@ -16,6 +16,15 @@ export interface PanelHeaderProps {
   onPointerMove?: (e: PointerEvent) => void
   onPointerUp?: (e: PointerEvent) => void
   onPointerCancel?: (e: PointerEvent) => void
+  hasBefore?: boolean
+  hasAfter?: boolean
+  activePseudo?: 'element' | '::before' | '::after'
+  onPseudoChange?: (pseudo: 'element' | '::before' | '::after') => void
+  isLibrary?: boolean
+  ancestorSource?: string | null
+  ancestorLine?: string | null
+  hoverEnabled?: boolean
+  onToggleHover?: () => void
 }
 
 export function PanelHeader({
@@ -33,14 +42,32 @@ export function PanelHeader({
   onPointerMove,
   onPointerUp,
   onPointerCancel,
+  hasBefore,
+  hasAfter,
+  activePseudo = 'element',
+  onPseudoChange,
+  isLibrary,
+  ancestorSource,
+  ancestorLine,
+  hoverEnabled = true,
+  onToggleHover,
 }: PanelHeaderProps): JSX.Element {
-  const sourceText = sourceFile
-    ? sourceLine ? `${sourceFile}:${sourceLine}` : sourceFile
+  // When library with ancestor source, show ancestor source instead of element source
+  const displaySource = isLibrary && ancestorSource ? ancestorSource : sourceFile
+  const displayLine = isLibrary && ancestorSource ? (ancestorLine ?? null) : sourceLine
+
+  const sourceText = displaySource
+    ? displayLine ? `${displaySource}:${displayLine}` : displaySource
     : null
 
   const sourceHref = filePath
     ? `vscode://file/${encodeFilePath(filePath)}${sourceLine ? `:${sourceLine}` : ''}`
     : null
+
+  // For library elements with ancestor source, show "<tagName>" instead of componentName
+  const displayTag = isLibrary && ancestorSource ? `<${tagName}>` : (componentName ?? `<${tagName}>`)
+
+  const showPseudoTabs = hasBefore || hasAfter
 
   return (
     <div
@@ -52,7 +79,7 @@ export function PanelHeader({
     >
       <div class="cortex-panel-header__info">
         <span class="cortex-panel-header__tag">
-          {componentName ?? `<${tagName}>`}
+          {displayTag}
         </span>
         {sourceText && sourceHref && (
           <a
@@ -62,6 +89,9 @@ export function PanelHeader({
           >
             {sourceText}
           </a>
+        )}
+        {isLibrary && (
+          <span class="cortex-panel-header__library">(library)</span>
         )}
       </div>
       <div class="cortex-panel-header__actions">
@@ -88,6 +118,24 @@ export function PanelHeader({
           </svg>
         </button>
         <button
+          class={`cortex-panel-header__btn${hoverEnabled ? '' : ' cortex-panel-header__btn--toggled-off'}`}
+          data-action="toggle-hover"
+          title={hoverEnabled ? 'Hide hover overlay' : 'Show hover overlay'}
+          onClick={onToggleHover}
+        >
+          {hoverEnabled ? (
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1 7s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z" />
+              <circle cx="7" cy="7" r="1.5" />
+            </svg>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1 7s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z" />
+              <line x1="2" y1="2" x2="12" y2="12" />
+            </svg>
+          )}
+        </button>
+        <button
           class="cortex-panel-header__btn cortex-panel-header__btn--close"
           data-action="close"
           title="Close panel"
@@ -99,6 +147,38 @@ export function PanelHeader({
           </svg>
         </button>
       </div>
+      {showPseudoTabs && (
+        <div class="cortex-pseudo-tabs">
+          <button
+            class={`cortex-pseudo-tab${activePseudo === 'element' ? ' cortex-pseudo-tab--active' : ''}`}
+            data-action="pseudo-element"
+            data-pseudo="element"
+            onClick={() => onPseudoChange?.('element')}
+          >
+            element
+          </button>
+          {hasBefore && (
+            <button
+              class={`cortex-pseudo-tab${activePseudo === '::before' ? ' cortex-pseudo-tab--active' : ''}`}
+              data-action="pseudo-before"
+              data-pseudo="::before"
+              onClick={() => onPseudoChange?.('::before')}
+            >
+              ::before
+            </button>
+          )}
+          {hasAfter && (
+            <button
+              class={`cortex-pseudo-tab${activePseudo === '::after' ? ' cortex-pseudo-tab--active' : ''}`}
+              data-action="pseudo-after"
+              data-pseudo="::after"
+              onClick={() => onPseudoChange?.('::after')}
+            >
+              ::after
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

@@ -27,6 +27,8 @@ export interface TypographySectionProps {
   onScrub?: (change: TypographyChange) => void
   onScrubEnd?: (change: TypographyChange) => void
   swatches?: string[]
+  /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
+  dimmedProperties?: Set<string>
 }
 
 /** Extract typography-related values from a CSSStyleDeclaration. */

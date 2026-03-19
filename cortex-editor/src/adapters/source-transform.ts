@@ -139,7 +139,10 @@ export function createSourceTransform(
     // Strip Vite HMR query params (e.g. ?v=abc123) before extension check
     const cleanId = id.split('?')[0]!
     if (!/\.[jt]sx$/.test(cleanId)) return null
-    if (cleanId.includes('/node_modules/')) return null
+    if (cleanId.includes('/node_modules/')) {
+      const included = options?.includeNodeModules ?? []
+      if (!included.some(pkg => cleanId.includes(`/node_modules/${pkg}/`))) return null
+    }
 
     const relativePath = path.relative(projectRoot, cleanId).replace(/\\/g, '/')
     const safePath = relativePath.startsWith('..')

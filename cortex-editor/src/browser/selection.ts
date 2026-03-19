@@ -37,7 +37,14 @@ export function initSelection(
 
   function handleMouseMove(event: MouseEvent): void {
     if (!designMode) return
-    if (isOwnUI(event)) return
+    if (isOwnUI(event)) {
+      // Mouse is over Cortex UI — clear hover to prevent distracting overlay
+      if (lastHovered !== null) {
+        lastHovered = null
+        onHover(null)
+      }
+      return
+    }
     const el = getTargetElement(event)
     if (el === lastHovered) return
     lastHovered = el
