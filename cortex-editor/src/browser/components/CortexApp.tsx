@@ -52,7 +52,7 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
   })
 
   // Phase 6: Canvas zoom — canvasScale used to correct coordinates in overlays
-  const canvasActive = mode === 'canvas'
+  const canvasActive = active && mode === 'canvas'
   const { scale: canvasScale } = useCanvasZoom(canvasActive)
 
   useEffect(() => {
@@ -193,7 +193,12 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
         setMode(prev => prev === 'canvas' ? 'select' : 'canvas')
       }
       if (e.key === 'Escape' && !selectedElementRef.current) {
-        handleExit()
+        // In canvas/comment mode: return to select first. Second Escape exits.
+        setMode(prev => {
+          if (prev !== 'select') return 'select'
+          handleExit()
+          return prev
+        })
         e.stopPropagation()
       }
     }

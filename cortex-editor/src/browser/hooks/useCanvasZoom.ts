@@ -45,7 +45,7 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
   useEffect(() => {
     if (!enabled) return
     function handleWheel(e: WheelEvent): void {
-      if (!e.metaKey) return
+      if (!e.metaKey && !e.ctrlKey) return
       e.preventDefault()
       const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP
       setScale(s => clamp(s + delta, MIN_ZOOM, MAX_ZOOM))
