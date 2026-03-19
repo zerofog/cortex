@@ -30,7 +30,8 @@ function loadStored(): StoredDock | null {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw)
-    if (parsed && typeof parsed.edge === 'string' && typeof parsed.offset === 'number') {
+    const VALID_EDGES = new Set<string>(['top', 'bottom', 'left', 'right'])
+    if (parsed && VALID_EDGES.has(parsed.edge) && typeof parsed.offset === 'number') {
       return parsed as StoredDock
     }
   } catch { /* corrupt data */ }
@@ -50,18 +51,21 @@ function clamp(value: number, min: number, max: number): number {
 function computePosition(edge: DockEdge, offset: number): Position {
   const vw = window.innerWidth
   const vh = window.innerHeight
+  // Floor clamp maxes to prevent negative values at narrow viewports
+  const maxX = Math.max(TOOLBAR_MARGIN, vw - TOOLBAR_LENGTH - TOOLBAR_MARGIN)
+  const maxY = Math.max(TOOLBAR_MARGIN, vh - TOOLBAR_LENGTH - TOOLBAR_MARGIN)
 
   if (edge === 'top') {
-    return { x: clamp(offset, TOOLBAR_MARGIN, vw - TOOLBAR_LENGTH - TOOLBAR_MARGIN), y: TOOLBAR_MARGIN }
+    return { x: clamp(offset, TOOLBAR_MARGIN, maxX), y: TOOLBAR_MARGIN }
   }
   if (edge === 'bottom') {
-    return { x: clamp(offset, TOOLBAR_MARGIN, vw - TOOLBAR_LENGTH - TOOLBAR_MARGIN), y: vh - TOOLBAR_THICKNESS - TOOLBAR_MARGIN }
+    return { x: clamp(offset, TOOLBAR_MARGIN, maxX), y: vh - TOOLBAR_THICKNESS - TOOLBAR_MARGIN }
   }
   if (edge === 'left') {
-    return { x: TOOLBAR_MARGIN, y: clamp(offset, TOOLBAR_MARGIN, vh - TOOLBAR_LENGTH - TOOLBAR_MARGIN) }
+    return { x: TOOLBAR_MARGIN, y: clamp(offset, TOOLBAR_MARGIN, maxY) }
   }
   // right
-  return { x: vw - TOOLBAR_THICKNESS - TOOLBAR_MARGIN, y: clamp(offset, TOOLBAR_MARGIN, vh - TOOLBAR_LENGTH - TOOLBAR_MARGIN) }
+  return { x: vw - TOOLBAR_THICKNESS - TOOLBAR_MARGIN, y: clamp(offset, TOOLBAR_MARGIN, maxY) }
 }
 
 function getDefaultPosition(): { position: Position; edge: DockEdge } {
@@ -94,7 +98,8 @@ function findNearestEdge(pos: Position, currentEdge: DockEdge): { edge: DockEdge
   ]
 
   distances.sort((a, b) => a.dist - b.dist)
-  return { edge: distances[0].edge, offset: distances[0].offset }
+  const nearest = distances[0]!
+  return { edge: nearest.edge, offset: nearest.offset }
 }
 
 export function useToolbarDock(): UseToolbarDockResult {
