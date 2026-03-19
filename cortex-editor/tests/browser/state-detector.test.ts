@@ -208,4 +208,36 @@ describe('detectStates', () => {
     const result = detectStates(target)
     expect(result.hover.size).toBe(0)
   })
+
+  it('does not corrupt :focus-visible when stripping :focus', () => {
+    // :focus-visible should NOT be detected as a :focus rule.
+    // The old regex /:focus/g would match inside :focus-visible, strip it,
+    // leaving '-visible' which is an invalid selector.
+    styleEl.textContent = '.btn:focus-visible { outline-color: blue; outline-style: solid; outline-width: 2px; }'
+    const result = detectStates(target)
+    expect(result.focus.size).toBe(0)
+  })
+
+  it('does not corrupt :focus-within when stripping :focus', () => {
+    const wrapper = document.createElement('div')
+    wrapper.className = 'wrapper'
+    wrapper.appendChild(target)
+    document.body.appendChild(wrapper)
+
+    styleEl.textContent = '.wrapper:focus-within { border-color: blue; }'
+    const result = detectStates(wrapper)
+    expect(result.focus.size).toBe(0)
+
+    wrapper.remove()
+  })
+
+  it('handles &.modifier:hover in nested CSS (no crash)', () => {
+    // Native CSS nesting: .btn { &.primary:hover { color: white } }
+    // happy-dom doesn't support CSS nesting CSSOM, so this verifies no crash.
+    // In real browsers, the nested rule resolves to .btn.primary:hover.
+    styleEl.textContent = '.btn { &.primary:hover { color: white; } }'
+    const result = detectStates(target)
+    // happy-dom won't produce nested CSSOM — just verify no crash
+    expect(result).toBeDefined()
+  })
 })

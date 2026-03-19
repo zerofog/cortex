@@ -101,24 +101,27 @@ describe('useSnapToEdge utilities', () => {
   })
 
   describe('snapToEdge', () => {
-    it('snaps to right edge when panel is near right', () => {
-      const result = snapToEdge({ x: 600, y: 200 })
+    it('snaps to right edge when within threshold of right', () => {
+      // x=660 → distance to right edge (712) = 52 < 80 threshold
+      const result = snapToEdge({ x: 660, y: 200 })
       expect(result.x).toBe(1024 - PANEL_WIDTH - PANEL_MARGIN)
       expect(result.y).toBe(200)
     })
 
-    it('snaps to left edge when panel is near left', () => {
+    it('snaps to left edge when within threshold of left', () => {
       const result = snapToEdge({ x: 50, y: 200 })
       expect(result.x).toBe(PANEL_MARGIN)
       expect(result.y).toBe(200)
     })
 
-    it('snaps to top edge when panel is near top', () => {
-      const result = snapToEdge({ x: 400, y: 20 })
-      expect(result.y).toBe(PANEL_MARGIN)
+    it('stays in place when not near any edge (magnetic snap)', () => {
+      // x=400 → distLeft=388, distRight=312 — both > 80 threshold
+      const result = snapToEdge({ x: 400, y: 200 })
+      expect(result.x).toBe(400) // stays where dropped
+      expect(result.y).toBe(200)
     })
 
-    it('snaps to bottom edge when panel is near bottom', () => {
+    it('clamps Y to bounds', () => {
       const result = snapToEdge({ x: 400, y: 600 })
       const bounds = getPanelBounds()
       expect(result.y).toBe(bounds.maxY)
@@ -126,25 +129,18 @@ describe('useSnapToEdge utilities', () => {
   })
 
   describe('getInitialPosition', () => {
-    afterEach(() => {
-      localStorage.clear()
-    })
-
-    it('returns default top-right position with no stored value', () => {
+    it('always returns top-right on fresh load', () => {
       const pos = getInitialPosition()
       expect(pos.x).toBe(1024 - PANEL_WIDTH - PANEL_MARGIN)
+      expect(pos.y).toBe(PANEL_MARGIN)
     })
 
-    it('restores and snaps stored position', () => {
+    it('ignores any stored position in localStorage', () => {
       localStorage.setItem('cortex-panel-position', JSON.stringify({ x: 100, y: 200 }))
       const pos = getInitialPosition()
-      expect(pos.x).toBe(PANEL_MARGIN)
-    })
-
-    it('falls back to default on invalid stored JSON', () => {
-      localStorage.setItem('cortex-panel-position', 'not-json')
-      const pos = getInitialPosition()
+      // Should still be top-right, not restored from storage
       expect(pos.x).toBe(1024 - PANEL_WIDTH - PANEL_MARGIN)
+      localStorage.clear()
     })
   })
 

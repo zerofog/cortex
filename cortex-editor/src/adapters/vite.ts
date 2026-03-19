@@ -5,7 +5,8 @@ import type { ServerChannel, BrowserToServer, ServerToBrowser } from './types.js
 import { TailwindResolver } from '../core/tailwind-resolver.js'
 
 export interface CortexEditorOptions {
-  // Reserved for future options
+  /** Package names in node_modules to instrument (for library component detection). */
+  includeNodeModules?: string[]
 }
 
 const CORTEX_CLIENT_PATH = '/@cortex/client.js'
@@ -62,7 +63,9 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
 
     configResolved(resolved) {
       config = resolved
-      transformSource = createSourceTransform(config.root)
+      transformSource = createSourceTransform(config.root, {
+        includeNodeModules: _options?.includeNodeModules,
+      })
     },
 
     resolveId(id) {

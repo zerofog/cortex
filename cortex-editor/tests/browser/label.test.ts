@@ -193,6 +193,12 @@ describe('isLibraryComponent', () => {
     el.setAttribute('data-cortex-source', '/app/src/not_node_modules/thing.tsx:1:1')
     expect(isLibraryComponent(el)).toBe(false)
   })
+
+  it('detects library component with relative path (no leading slash)', () => {
+    const el = document.createElement('div')
+    el.setAttribute('data-cortex-source', 'node_modules/@test-lib/card/index.tsx:3:5')
+    expect(isLibraryComponent(el)).toBe(true)
+  })
 })
 
 describe('findUserAncestor', () => {

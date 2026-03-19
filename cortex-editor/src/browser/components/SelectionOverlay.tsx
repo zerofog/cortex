@@ -18,6 +18,7 @@ export interface SelectionOverlayProps {
 export function SelectionOverlay({ element, availableStates, activeState, onStateChange, overlaysVisible = true }: SelectionOverlayProps): JSX.Element | null {
   const overlayRef = useRef<HTMLDivElement>(null)
   const lensRef = useRef<HTMLDivElement>(null)
+  const labelRef = useRef<HTMLSpanElement>(null)
 
   // Keep a ref to availableStates so the RAF loop can read it without restarting
   const availableStatesRef = useRef(availableStates)
@@ -69,14 +70,32 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
         if (br !== prevBorderRadius) { el.style.borderRadius = br; prevBorderRadius = br }
       }
 
+      // Update label position via ref — RAF is the single source of truth.
+      // This avoids disagreement between render-time and RAF-time thresholds.
+      const labelH = 20 // approximate label height
+      const gap = 8
+      const isLabelBelow = (window.innerHeight - r.bottom) > (labelH + gap)
+      if (labelRef.current) {
+        const cls = isLabelBelow
+          ? 'cortex-label cortex-label--below'
+          : 'cortex-label cortex-label--above'
+        if (labelRef.current.className !== cls) labelRef.current.className = cls
+      }
+
       // Update lens position in sync with overlay.
       // Default: lens above element, label below. When stacked, label nearest to element.
       if (lensRef.current) {
+        const lensW = lensRef.current.offsetWidth
+        // Hide lens until it has a valid width (prevents first-frame flash).
+        // Still compute position so it's correct when visibility flips.
+        if (lensW === 0) {
+          lensRef.current.style.visibility = 'hidden'
+        } else {
+          lensRef.current.style.visibility = 'visible'
+        }
+        const effectiveLensW = lensW || 120 // fallback for first frame / test env
         const lensH = lensRef.current.offsetHeight || 24
-        const labelH = 20 // approximate label height
-        const gap = 8
         const isAbove = r.top > (lensH + gap) // enough room above for lens
-        const isLabelBelow = (window.innerHeight - r.bottom) > (labelH + gap)
 
         let lensTop: number
         if (isAbove) {
@@ -88,8 +107,8 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
           // Lens below — label is also below (stacked): label nearest, lens outside
           lensTop = r.bottom + labelH + gap + 4
         }
-        const lensLeft = r.left + r.width / 2 - lensRef.current.offsetWidth / 2
-        const clampedLeft = Math.max(4, Math.min(lensLeft, window.innerWidth - 4 - lensRef.current.offsetWidth))
+        const lensLeft = r.left + r.width / 2 - effectiveLensW / 2
+        const clampedLeft = Math.max(4, Math.min(lensLeft, window.innerWidth - 4 - effectiveLensW))
         lensRef.current.style.top = `${lensTop}px`
         lensRef.current.style.left = `${clampedLeft}px`
       }
@@ -166,10 +185,6 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
     availableStates.active.size > 0
   ))
 
-  // Label prefers below element; lens positioning handled in RAF loop.
-  // When stacked on one side: label nearest to element, lens outside.
-  const labelBelow = (window.innerHeight - r.bottom) > 30
-
   // Build the list of available state buttons
   const stateButtons: Array<{ label: string; state: InteractionState }> = []
   if (showLens) {
@@ -191,7 +206,7 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
         visibility: overlaysVisible ? 'visible' : 'hidden',
       }}
     >
-      <span class={`cortex-label ${labelBelow ? 'cortex-label--below' : 'cortex-label--above'}`}>
+      <span ref={labelRef} class="cortex-label cortex-label--below">
         {label}
       </span>
       {showLens && (

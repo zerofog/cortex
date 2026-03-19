@@ -38,6 +38,8 @@ export interface SourceTransformOptions {
   mode?: 'development' | 'production'
   /** Called when the parser fails to parse a file. */
   onParseError?: (id: string, error: unknown) => void
+  /** Package names in node_modules to instrument (for library component detection). */
+  includeNodeModules?: string[]
 }
 
 export interface TransformResult {

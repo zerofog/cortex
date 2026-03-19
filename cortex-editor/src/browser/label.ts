@@ -58,11 +58,16 @@ export function encodeFilePath(filePath: string): string {
   ).join('')
 }
 
+/** Check if a file path refers to a node_modules package (handles relative paths). */
+function isNodeModulesPath(filePath: string): boolean {
+  return filePath.includes('/node_modules/') || filePath.startsWith('node_modules/')
+}
+
 /** Check if an element comes from a third-party library (node_modules). */
 export function isLibraryComponent(el: HTMLElement): boolean {
   const info = parseCortexSource(el)
   if (!info) return false
-  return info.filePath.includes('/node_modules/')
+  return isNodeModulesPath(info.filePath)
 }
 
 /** Walk up the DOM to find the closest ancestor with a user-space source. */
@@ -72,7 +77,7 @@ export function findUserAncestor(
   let current = el.parentElement
   while (current) {
     const source = parseCortexSource(current)
-    if (source && !source.filePath.includes('/node_modules/')) {
+    if (source && !isNodeModulesPath(source.filePath)) {
       return { source, element: current }
     }
     current = current.parentElement

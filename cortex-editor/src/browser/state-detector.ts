@@ -15,9 +15,16 @@ const STATE_PSEUDOS: readonly StateName[] = ['hover', 'focus', 'active'] as cons
 
 /** Pre-compiled regex for stripping state pseudo-classes from selectors. */
 const STATE_REGEX: Record<StateName, RegExp> = {
-  hover: /:hover/g,
-  focus: /:focus/g,
-  active: /:active/g,
+  hover: /:hover(?![\w-])/g,
+  focus: /:focus(?![\w-])/g,
+  active: /:active(?![\w-])/g,
+}
+
+/** Non-global regex for checking if a selector contains the exact pseudo-class. */
+const STATE_INCLUDES: Record<StateName, RegExp> = {
+  hover: /:hover(?![\w-])/,
+  focus: /:focus(?![\w-])/,
+  active: /:active(?![\w-])/,
 }
 
 /**
@@ -79,6 +86,30 @@ function collectFromRules(
   }
 }
 
+/**
+ * Walk up the parentRule chain to resolve nested `&` placeholders.
+ * Returns the fully-resolved parent selector, or null if no nesting.
+ *
+ * Business logic: CSS nesting allows rules like `.card { &.primary { &:hover {} } }`.
+ * Each `&` refers to the parent selector. This function resolves the full chain
+ * so we can test `element.matches()` against the final flat selector.
+ */
+function resolveNestingSelector(rule: CSSStyleRule): string | null {
+  const parts: string[] = []
+  let current: CSSRule | null = rule.parentRule
+  while (current instanceof CSSStyleRule) {
+    parts.unshift(current.selectorText)
+    current = current.parentRule
+  }
+  if (parts.length === 0) return null
+  // Resolve from outermost to innermost
+  let resolved = parts[0]!
+  for (let i = 1; i < parts.length; i++) {
+    resolved = parts[i]!.replaceAll('&', resolved)
+  }
+  return resolved
+}
+
 function processStyleRule(
   rule: CSSStyleRule,
   element: HTMLElement,
@@ -92,32 +123,24 @@ function processStyleRule(
     if (selector.includes('::before') || selector.includes('::after')) continue
 
     for (const state of STATE_PSEUDOS) {
-      const pseudo = `:${state}`
-      if (!selector.includes(pseudo)) continue
+      if (!STATE_INCLUDES[state].test(selector)) continue
 
       // Strip the pseudo-class and test if the base selector matches
       const baseSelector = selector.replace(STATE_REGEX[state], '').trim()
       if (!baseSelector) continue
-      // CSS nesting: if stripping leaves just '&' or starts with '&',
-      // resolve against the parent rule's selectorText
-      if (baseSelector === '&' || baseSelector.startsWith('& ')) {
-        const parentSelector = rule.parentRule instanceof CSSStyleRule
-          ? rule.parentRule.selectorText : null
+
+      // CSS nesting: resolve `&` against parent rule chain
+      if (baseSelector.includes('&')) {
+        const parentSelector = resolveNestingSelector(rule)
         if (!parentSelector) continue
-        const resolved = baseSelector === '&'
-          ? parentSelector
-          : parentSelector + baseSelector.slice(1) // '& .foo' → '.parent .foo'
+        const resolved = baseSelector.replaceAll('&', parentSelector)
         try {
           if (!element.matches(resolved)) continue
-        } catch {
-          continue
-        }
+        } catch { continue }
       } else {
         try {
           if (!element.matches(baseSelector)) continue
-        } catch {
-          continue // invalid selector after stripping
-        }
+        } catch { continue }
       }
 
       // Extract declarations
