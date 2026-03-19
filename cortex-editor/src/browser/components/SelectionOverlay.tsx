@@ -20,10 +20,6 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
   const lensRef = useRef<HTMLDivElement>(null)
   const labelRef = useRef<HTMLSpanElement>(null)
 
-  // Keep a ref to availableStates so the RAF loop can read it without restarting
-  const availableStatesRef = useRef(availableStates)
-  availableStatesRef.current = availableStates
-
   // RAF-based continuous position tracking for the selected element
   useEffect(() => {
     if (!element || !overlayRef.current) return
@@ -59,13 +55,14 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
 
       // Only write to DOM when values changed
       const el = overlayRef.current
+      const sizeChanged = width !== prevWidth || height !== prevHeight
       if (top !== prevTop) { el.style.top = top; prevTop = top }
       if (left !== prevLeft) { el.style.left = left; prevLeft = left }
       if (width !== prevWidth) { el.style.width = width; prevWidth = width }
       if (height !== prevHeight) { el.style.height = height; prevHeight = height }
 
       // Update borderRadius only when dimensions change (avoids per-frame getComputedStyle)
-      if (width !== prevWidth || height !== prevHeight || prevBorderRadius === '') {
+      if (sizeChanged || prevBorderRadius === '') {
         const br = getComputedStyle(element).borderRadius || '0px'
         if (br !== prevBorderRadius) { el.style.borderRadius = br; prevBorderRadius = br }
       }
