@@ -5,6 +5,8 @@ const MIN_ZOOM = 0.75
 const MAX_ZOOM = 1.0
 const ZOOM_STEP = 0.05
 const CANVAS_MIN_MARGIN = 48
+const FRICTION = 0.75
+const STOP_THRESHOLD = 0.1
 const LINE_HEIGHT = 40 // px — CSS standard approximation for deltaMode=1
 
 function normalizeDelta(e: WheelEvent): { dx: number; dy: number } {

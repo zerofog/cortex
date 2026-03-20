@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render } from 'preact'
 import { useCanvasZoom } from '../../../src/browser/hooks/useCanvasZoom.js'
 
@@ -33,6 +33,42 @@ describe('useCanvasZoom', () => {
     document.body.style.transform = ''
     document.body.style.transformOrigin = ''
   })
+
+  afterEach(() => {
+    document.body.style.cursor = ''
+  })
+
+  // --- rAF mock infrastructure (matches selection-overlay.test.tsx pattern) ---
+  let rafCallbacks: FrameRequestCallback[]
+  let mockNow: number
+  const originalRAF = window.requestAnimationFrame
+  const originalCAF = window.cancelAnimationFrame
+  const originalPerfNow = performance.now
+
+  function installRAFMock() {
+    rafCallbacks = []
+    mockNow = 1000
+    vi.spyOn(performance, 'now').mockImplementation(() => mockNow)
+    window.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+      rafCallbacks.push(cb)
+      return rafCallbacks.length
+    }) as typeof requestAnimationFrame
+    window.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame
+  }
+
+  function restoreRAFMock() {
+    window.requestAnimationFrame = originalRAF
+    window.cancelAnimationFrame = originalCAF
+    performance.now = originalPerfNow
+  }
+
+  function stepRAF(count = 1, dtMs = 16.667) {
+    for (let i = 0; i < count; i++) {
+      mockNow += dtMs
+      const cb = rafCallbacks.shift()
+      if (cb) cb(mockNow)
+    }
+  }
 
   it('does not apply transform when disabled', () => {
     const { unmount } = renderHook(() => useCanvasZoom(false))
