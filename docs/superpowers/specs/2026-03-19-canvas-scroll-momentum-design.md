@@ -94,7 +94,7 @@ The momentum logic uses only `requestAnimationFrame`, `cancelAnimationFrame`, an
 
 ### Test strategy
 
-Use `vi.useFakeTimers()` and `vi.advanceTimersByTime(16)` to simulate individual rAF frames, consistent with existing test patterns in the codebase (see `use-toolbar-dock.test.tsx`, `channel.test.ts`).
+Use manual rAF mocks with callback capture arrays (`installRAFMock`/`stepRAF`/`restoreRAFMock`), matching the established pattern from `selection-overlay.test.tsx` and `override.test.ts`. Do NOT use `vi.useFakeTimers()` + `vi.advanceTimersByTime(16)` — happy-dom's rAF may not be triggered reliably by fake timer advancement.
 
 ### New tests
 - **"wheel-to-pan has momentum after scroll stops"**: dispatch wheel, advance rAF frames, verify transform changed beyond the immediate delta
