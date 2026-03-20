@@ -79,6 +79,16 @@ describe('useCanvasZoom', () => {
     unmount()
   })
 
+  it('static canvas styles are applied when enabled', () => {
+    const { unmount } = renderHook(() => useCanvasZoom(true))
+    expect(document.body.style.transformOrigin).toBe('50% 0')
+    expect(document.body.style.boxShadow).toContain('rgba(0,0,0,0.06)')
+    expect(document.documentElement.style.overflow).toBe('hidden')
+    expect(document.documentElement.style.backgroundColor).toBe('#e5e5e5')
+    expect(document.body.style.backgroundColor).toBe('#ffffff')
+    unmount()
+  })
+
   // Helper: happy-dom's WheelEvent may not propagate metaKey from init,
   // so we set it explicitly via Object.defineProperty
   function dispatchWheel(deltaY: number, metaKey: boolean, deltaX = 0): void {

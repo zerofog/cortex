@@ -43,23 +43,25 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
     }
   }
 
-  function applyTransform(s: number): void {
-    const { x, y } = panRef.current
-    // Center body vertically when scaled content is shorter than viewport;
-    // fall back to minimum margin for long pages
-    const scaledBodyH = document.body.scrollHeight * s
-    const vpH = window.innerHeight
-    const topMargin = Math.max(CANVAS_MIN_MARGIN, (vpH - scaledBodyH) / 2)
-    const ty = y + topMargin
-    document.body.style.transform = `translate(${x}px, ${ty}px) scale(${s})`
+  const cachedBodyH = useRef(0)
+
+  function updateCachedBodyH(s: number): void {
+    cachedBodyH.current = document.body.scrollHeight * s
+  }
+
+  function applyStaticStyles(): void {
     document.body.style.transformOrigin = '50% 0'
     document.body.style.boxShadow = '0 0 0 1px rgba(0,0,0,0.06), 0 2px 16px rgba(0,0,0,0.1)'
-    // Disable native scroll — pan via Space+drag only (eliminates scroll/visual mismatch)
     document.documentElement.style.overflow = 'hidden'
-    // Gray artboard surround on html, white page on body — both needed
-    // to prevent html background from propagating through transparent body
     document.documentElement.style.backgroundColor = '#e5e5e5'
     document.body.style.backgroundColor = '#ffffff'
+  }
+
+  function applyTransformPosition(s: number): void {
+    const { x, y } = panRef.current
+    const vpH = window.innerHeight
+    const topMargin = Math.max(CANVAS_MIN_MARGIN, (vpH - cachedBodyH.current) / 2)
+    document.body.style.transform = `translate(${x}px, ${y + topMargin}px) scale(${s})`
   }
 
   // Save/restore styles — only depends on [enabled]
@@ -73,6 +75,7 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
       savedOverflowRef.current = document.documentElement.style.overflow
       wasEnabledRef.current = true
       panRef.current = { x: 0, y: 0 }
+      applyStaticStyles()
     } else if (!enabled) {
       restoreSavedStyles()
     }
@@ -81,13 +84,16 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
 
   // Apply transform — depends on [enabled, scale]
   useLayoutEffect(() => {
-    if (enabled) applyTransform(scale)
+    if (enabled) {
+      updateCachedBodyH(scale)
+      applyTransformPosition(scale)
+    }
   }, [enabled, scale])
 
   // Recalculate margins on viewport resize
   useEffect(() => {
     if (!enabled) return
-    function handleResize() { applyTransform(scaleRef.current) }
+    function handleResize() { updateCachedBodyH(scaleRef.current); applyTransformPosition(scaleRef.current) }
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [enabled])
@@ -105,7 +111,7 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
           x: panRef.current.x - e.deltaX,
           y: panRef.current.y - e.deltaY,
         }
-        applyTransform(scaleRef.current)
+        applyTransformPosition(scaleRef.current)
       }
     }
     window.addEventListener('wheel', handleWheel, { passive: false })
@@ -154,7 +160,7 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
         x: panStartRef.current.panX + dx,
         y: panStartRef.current.panY + dy,
       }
-      applyTransform(scaleRef.current)
+      applyTransformPosition(scaleRef.current)
     }
     function handlePointerUp(): void {
       if (panStartRef.current && spaceHeldRef.current) {
