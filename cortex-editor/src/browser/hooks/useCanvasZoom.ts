@@ -106,25 +106,60 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
     return () => window.removeEventListener('resize', handleResize)
   }, [enabled])
 
-  // Cmd+scroll to zoom, regular scroll to pan
+  // Cmd+scroll to zoom, regular scroll to pan with momentum
   useEffect(() => {
     if (!enabled) return
+    let velocity = { x: 0, y: 0 }
+    let rafId = 0
+    let lastTs = 0
+    let disposed = false
+
+    function coastLoop(ts: number): void {
+      if (disposed) return
+      const dt = Math.min(ts - lastTs, 50) / 16.667 // normalize to 60fps basis
+      lastTs = ts
+      const friction = Math.pow(FRICTION, dt)
+      velocity.x *= friction
+      velocity.y *= friction
+      panRef.current.x += velocity.x
+      panRef.current.y += velocity.y
+      applyTransformPosition(scaleRef.current)
+      if (Math.abs(velocity.x) + Math.abs(velocity.y) < STOP_THRESHOLD) {
+        rafId = 0
+        return
+      }
+      rafId = requestAnimationFrame(coastLoop)
+    }
+
     function handleWheel(e: WheelEvent): void {
       e.preventDefault()
+      // Cancel any running momentum
+      if (rafId) { cancelAnimationFrame(rafId); rafId = 0 }
+
       if (e.metaKey || e.ctrlKey) {
         const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP
         setScale(s => clamp(s + delta, MIN_ZOOM, MAX_ZOOM))
       } else {
         const { dx, dy } = normalizeDelta(e)
-        panRef.current = {
-          x: panRef.current.x - dx,
-          y: panRef.current.y - dy,
-        }
+        // Apply immediate pan
+        panRef.current.x -= dx
+        panRef.current.y -= dy
         applyTransformPosition(scaleRef.current)
+        // Set velocity and start momentum coast
+        // (velocity = negative delta, same direction as the pan)
+        velocity.x = -dx
+        velocity.y = -dy
+        lastTs = performance.now()
+        rafId = requestAnimationFrame(coastLoop)
       }
     }
+
     window.addEventListener('wheel', handleWheel, { passive: false })
-    return () => window.removeEventListener('wheel', handleWheel)
+    return () => {
+      disposed = true
+      if (rafId) cancelAnimationFrame(rafId)
+      window.removeEventListener('wheel', handleWheel)
+    }
   }, [enabled])
 
   // Space+drag to pan via transform translate

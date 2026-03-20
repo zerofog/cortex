@@ -45,15 +45,29 @@ describe('useCanvasZoom', () => {
   const originalCAF = window.cancelAnimationFrame
   const originalPerfNow = performance.now
 
+  let rafIdMap: Map<number, FrameRequestCallback>
+  let nextRafId: number
+
   function installRAFMock() {
     rafCallbacks = []
+    rafIdMap = new Map()
+    nextRafId = 1
     mockNow = 1000
     vi.spyOn(performance, 'now').mockImplementation(() => mockNow)
     window.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+      const id = nextRafId++
       rafCallbacks.push(cb)
-      return rafCallbacks.length
+      rafIdMap.set(id, cb)
+      return id
     }) as typeof requestAnimationFrame
-    window.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame
+    window.cancelAnimationFrame = ((id: number) => {
+      const cb = rafIdMap.get(id)
+      if (cb) {
+        const idx = rafCallbacks.indexOf(cb)
+        if (idx !== -1) rafCallbacks.splice(idx, 1)
+        rafIdMap.delete(id)
+      }
+    }) as typeof cancelAnimationFrame
   }
 
   function restoreRAFMock() {
@@ -343,5 +357,114 @@ describe('useCanvasZoom', () => {
 
     cortexHost.remove()
     unmount()
+  })
+
+  describe('momentum', () => {
+    afterEach(() => restoreRAFMock())
+
+    it('wheel-to-pan has momentum after scroll stops', async () => {
+      const { unmount } = renderHook(() => useCanvasZoom(true))
+      await new Promise(r => setTimeout(r, 10))
+      installRAFMock()
+
+      const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
+      const beforeWheel = getY(document.body.style.transform)
+
+      // Dispatch wheel (applies immediate delta + starts momentum)
+      dispatchWheel(100, false)
+      const afterWheel = getY(document.body.style.transform)
+
+      // Step a few rAF frames — position should keep changing (momentum)
+      stepRAF(3)
+      const afterMomentum = getY(document.body.style.transform)
+
+      expect(afterWheel).toBeLessThan(beforeWheel) // immediate pan
+      expect(afterMomentum).toBeLessThan(afterWheel) // momentum continued
+      unmount()
+    })
+
+    it('momentum stops within expected frame count', async () => {
+      const { unmount } = renderHook(() => useCanvasZoom(true))
+      await new Promise(r => setTimeout(r, 10))
+      installRAFMock()
+
+      const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
+
+      dispatchWheel(10, false) // 10px delta
+      stepRAF(25) // well beyond expected ~17 frames
+      const settled = getY(document.body.style.transform)
+
+      stepRAF(10) // 10 more frames
+      const afterSettle = getY(document.body.style.transform)
+
+      expect(afterSettle).toBe(settled) // no more movement
+      unmount()
+    })
+
+    it('new wheel event cancels existing momentum', async () => {
+      const { unmount } = renderHook(() => useCanvasZoom(true))
+      await new Promise(r => setTimeout(r, 10))
+      installRAFMock()
+
+      const getX = (t: string) => parseFloat(t.match(/translate\(([^p]+)px/)![1])
+
+      // Scroll right (negative deltaX = pan right = x increases)
+      dispatchWheel(0, false, -100)
+      stepRAF(3)
+      const midCoast = getX(document.body.style.transform)
+
+      // Now scroll left (positive deltaX = pan left = x decreases)
+      dispatchWheel(0, false, 100)
+      stepRAF(5)
+      const afterReverse = getX(document.body.style.transform)
+
+      expect(afterReverse).toBeLessThan(midCoast) // reversed direction
+      unmount()
+    })
+
+    it('Cmd+scroll cancels momentum and changes scale', async () => {
+      const { result, rerender, unmount } = renderHook(() => useCanvasZoom(true))
+      await new Promise(r => setTimeout(r, 10))
+      installRAFMock()
+
+      const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
+
+      dispatchWheel(100, false) // start momentum
+      stepRAF(2)
+
+      // Cmd+scroll to zoom — should cancel momentum
+      dispatchWheel(100, true)
+
+      // Verify momentum stopped: position shouldn't change on further frames
+      const afterZoom = getY(document.body.style.transform)
+      stepRAF(5)
+      const afterMore = getY(document.body.style.transform)
+      expect(afterMore).toBe(afterZoom) // momentum is dead
+
+      // Verify scale changed
+      restoreRAFMock()
+      await new Promise(r => setTimeout(r, 10))
+      rerender(() => useCanvasZoom(true))
+      expect(result.current.scale).toBeLessThan(0.85)
+      unmount()
+    })
+
+    it('disabling canvas mode during momentum stops animation', async () => {
+      const { rerender, unmount } = renderHook(() => useCanvasZoom(true))
+      await new Promise(r => setTimeout(r, 10))
+      installRAFMock()
+
+      dispatchWheel(100, false) // start momentum
+      stepRAF(2) // a couple frames of coast
+
+      // Disable canvas mode
+      restoreRAFMock()
+      rerender(() => useCanvasZoom(false))
+      await new Promise(r => setTimeout(r, 0))
+
+      // Styles should be restored, not still animating
+      expect(document.body.style.transform).toBe('')
+      unmount()
+    })
   })
 })
