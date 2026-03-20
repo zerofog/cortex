@@ -1,23 +1,28 @@
 import type { JSX } from 'preact'
 import { useDrag } from '../hooks/useDrag.js'
-import { useToolbarDock, TOOLBAR_LENGTH, TOOLBAR_THICKNESS } from '../hooks/useToolbarDock.js'
-
-export type CortexMode = 'select' | 'comment' | 'canvas'
+import { useToolbarDock } from '../hooks/useToolbarDock.js'
 
 export interface ToolbarProps {
-  mode: CortexMode
-  onModeChange: (mode: CortexMode) => void
   activityCount: number
   onClose: () => void
-  canvasActive?: boolean
+}
+
+// Inline SVG icons — 16×16 viewBox, stroke-based, 1.5px stroke
+const iconSize = 16
+const svgProps = { width: iconSize, height: iconSize, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round' as const, 'stroke-linejoin': 'round' as const }
+
+function IconGrip(): JSX.Element {
+  // 2×3 grip dots — universal drag handle indicator
+  return <svg {...svgProps}><circle cx="6" cy="4" r="1.2" fill="currentColor" stroke="none" /><circle cx="10" cy="4" r="1.2" fill="currentColor" stroke="none" /><circle cx="6" cy="8" r="1.2" fill="currentColor" stroke="none" /><circle cx="10" cy="8" r="1.2" fill="currentColor" stroke="none" /><circle cx="6" cy="12" r="1.2" fill="currentColor" stroke="none" /><circle cx="10" cy="12" r="1.2" fill="currentColor" stroke="none" /></svg>
+}
+
+function IconClose(): JSX.Element {
+  return <svg {...svgProps}><path d="M4 4 L12 12 M12 4 L4 12" /></svg>
 }
 
 export function Toolbar({
-  mode,
-  onModeChange,
   activityCount,
   onClose,
-  canvasActive = false,
 }: ToolbarProps): JSX.Element {
   const { position, isHorizontal, isSnapping, setPosition, snap } = useToolbarDock()
 
@@ -32,56 +37,21 @@ export function Toolbar({
     isSnapping && 'cortex-toolbar--snapping',
   ].filter(Boolean).join(' ')
 
-  const width = isHorizontal ? TOOLBAR_LENGTH : TOOLBAR_THICKNESS
-  const height = isHorizontal ? TOOLBAR_THICKNESS : TOOLBAR_LENGTH
-
   return (
     <div
       class={classes}
       style={{
         transform: `translate(${position.x}px, ${position.y}px)`,
-        width: `${width}px`,
-        height: `${height}px`,
       }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
     >
-      {/* Logo — drag handle (not a button, so useDrag allows drag from here) */}
-      <div class="cortex-toolbar__logo" aria-label="Cortex — drag to reposition">
-        ◇
+      {/* Grip — drag handle (smaller, visually distinct from action buttons) */}
+      <div class="cortex-toolbar__grip" aria-label="Drag to reposition">
+        <IconGrip />
       </div>
-
-      <button
-        type="button"
-        class={`cortex-toolbar__btn${mode === 'select' ? ' cortex-toolbar__btn--active' : ''}`}
-        data-mode="select"
-        onClick={() => onModeChange('select')}
-        data-tooltip="Select (V)"
-      >
-        ↖
-      </button>
-
-      <button
-        type="button"
-        class={`cortex-toolbar__btn${mode === 'comment' ? ' cortex-toolbar__btn--active' : ''}`}
-        data-mode="comment"
-        onClick={() => onModeChange('comment')}
-        data-tooltip="Comment (C)"
-      >
-        💬
-      </button>
-
-      <button
-        type="button"
-        class={`cortex-toolbar__btn${canvasActive ? ' cortex-toolbar__btn--active' : ''}`}
-        data-mode="canvas"
-        onClick={() => onModeChange('canvas')}
-        data-tooltip="Canvas (⌘0)"
-      >
-        ⊞
-      </button>
 
       {activityCount > 0 && (
         <span class="cortex-toolbar__badge">
@@ -96,7 +66,7 @@ export function Toolbar({
         onClick={onClose}
         data-tooltip="Close Cortex"
       >
-        ✕
+        <IconClose />
       </button>
     </div>
   )

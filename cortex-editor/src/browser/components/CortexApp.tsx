@@ -10,10 +10,12 @@ import { HoverOverlay } from './HoverOverlay.js'
 import { SelectionOverlay } from './SelectionOverlay.js'
 import { Panel } from './Panel.js'
 import { Toolbar } from './Toolbar.js'
-import type { CortexMode } from './Toolbar.js'
 import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
 import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
+
+// TODO(Task 3): Remove when mode logic is stripped from CortexApp
+type CortexMode = 'select' | 'comment' | 'canvas'
 
 export interface CortexAppProps {
   channel: CortexChannel
@@ -45,15 +47,15 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
   selectedElementRef.current = selectedElement
 
   // Phase 6: Panel positioning (lifted from Panel)
-  const { position: panelPosition, isSnapping: panelSnapping, setPosition: setPanelPosition, snap: panelSnap, recheckOverlap } = useSnapToEdge()
+  const { position: panelPosition, isSnapping: panelSnapping, setPosition: setPanelPosition, snap: panelSnap } = useSnapToEdge()
   const { handlePointerDown: panelPointerDown, handlePointerMove: panelPointerMove, handlePointerUp: panelPointerUp, handlePointerCancel: panelPointerCancel } = useDrag({
     onDrag(x, y) { setPanelPosition({ x, y }) },
     onDragEnd() { panelSnap() },
   })
 
-  // Phase 6: Canvas zoom — canvasScale used to correct coordinates in overlays
+  // Phase 6: Canvas zoom
   const canvasActive = active && mode === 'canvas'
-  const { scale: canvasScale } = useCanvasZoom(canvasActive)
+  useCanvasZoom(canvasActive)
 
   useEffect(() => {
     // Initialize CSS override manager
@@ -113,21 +115,14 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
     setHasBefore(beforeContent !== 'none' && beforeContent !== '')
     setHasAfter(afterContent !== 'none' && afterContent !== '')
 
-    // 6.2: Auto-position — check if panel overlaps newly selected element (20px margin per spec)
-    const rect = selectedElement.getBoundingClientRect()
-    const OVERLAP_MARGIN = 20
-    recheckOverlap(new DOMRect(
-      rect.x - OVERLAP_MARGIN, rect.y - OVERLAP_MARGIN,
-      rect.width + OVERLAP_MARGIN * 2, rect.height + OVERLAP_MARGIN * 2,
-    ))
-
     // 6.3: Auto-scroll — bring off-viewport elements into view
+    const rect = selectedElement.getBoundingClientRect()
     const offScreen = rect.top < 0 || rect.bottom > window.innerHeight ||
                       rect.left < 0 || rect.right > window.innerWidth
     if (offScreen) {
       selectedElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     }
-  }, [selectedElement, recheckOverlap])
+  }, [selectedElement])
 
   // Handle state changes from the lens overlay
   const handleStateChange = useCallback((state: InteractionState) => {
@@ -170,6 +165,17 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
     setActive(false)
   }, [])
 
+  // Click interception stays active in all modes — users can select elements
+  // even while zoomed out in canvas mode
+
+  // Phase 6: Comment mode cursor — crosshair on body while in comment mode
+  useEffect(() => {
+    if (mode !== 'comment') return
+    const prev = document.body.style.cursor
+    document.body.style.cursor = 'crosshair'
+    return () => { document.body.style.cursor = prev }
+  }, [mode])
+
   // Phase 6: Keyboard shortcuts
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent): void {
@@ -183,15 +189,8 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
         setMode('select')
         e.stopPropagation()
       }
-      if (e.key === 'c' && noModifiers) {
-        setMode('comment')
-        e.stopPropagation()
-      }
-      if (e.key === '0' && e.metaKey) {
-        e.preventDefault()
-        e.stopPropagation()
-        setMode(prev => prev === 'canvas' ? 'select' : 'canvas')
-      }
+      // 'c' for comment mode — disabled until Phase 7
+      // Cmd+0 for canvas mode — disabled until canvas mode is stable
       if (e.key === 'Escape' && !selectedElementRef.current) {
         // In canvas/comment mode: return to select first. Second Escape exits.
         setMode(prev => {
@@ -210,14 +209,13 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
 
   return (
     <>
-      <HoverOverlay element={hoverEnabled ? hoveredElement : null} scale={canvasActive ? canvasScale : 1} />
+      <HoverOverlay element={hoverEnabled ? hoveredElement : null} />
       <SelectionOverlay
         element={selectedElement}
         availableStates={availableStates}
         activeState={activeState}
         onStateChange={handleStateChange}
         overlaysVisible={hoverEnabled}
-        scale={canvasActive ? canvasScale : 1}
       />
       {selectedElement && overrideRef.current && (
         <Panel
@@ -240,11 +238,8 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
         />
       )}
       <Toolbar
-        mode={mode}
-        onModeChange={handleModeChange}
         activityCount={activityCount}
         onClose={handleExit}
-        canvasActive={canvasActive}
       />
     </>
   )

@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { Toolbar } from '../../src/browser/components/Toolbar.js'
-import type { CortexMode } from '../../src/browser/components/Toolbar.js'
 import { renderInShadow } from './helpers.js'
 
 describe('Toolbar', () => {
@@ -11,19 +10,10 @@ describe('Toolbar', () => {
     cleanup = null
   })
 
-  function setup(overrides: Partial<{
-    mode: CortexMode
-    onModeChange: (m: CortexMode) => void
-    activityCount: number
-    onClose: () => void
-    canvasActive: boolean
-  }> = {}) {
+  function setup(overrides: Partial<{ activityCount: number; onClose: () => void }> = {}) {
     const props = {
-      mode: 'select' as CortexMode,
-      onModeChange: vi.fn(),
       activityCount: 0,
       onClose: vi.fn(),
-      canvasActive: false,
       ...overrides,
     }
     const result = renderInShadow(<Toolbar {...props} />)
@@ -36,33 +26,22 @@ describe('Toolbar', () => {
     expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
   })
 
-  it('renders all toolbar buttons', () => {
+  it('does not render a select mode button', () => {
+    const { root } = setup()
+    expect(root.querySelector('[data-mode="select"]')).toBeNull()
+  })
+
+  it('renders grip, badge, and close button', () => {
+    const { root } = setup({ activityCount: 3 })
+    expect(root.querySelector('.cortex-toolbar__grip')).not.toBeNull()
+    expect(root.querySelector('[data-action="close"]')).not.toBeNull()
+    expect(root.querySelector('.cortex-toolbar__badge')).not.toBeNull()
+  })
+
+  it('renders only close button (no mode buttons)', () => {
     const { root } = setup()
     const buttons = root.querySelectorAll('button')
-    // Select, Comment, Canvas, Close = 4 buttons
-    expect(buttons.length).toBe(4)
-  })
-
-  it('select button has active class when mode is select', () => {
-    const { root } = setup({ mode: 'select' })
-    const selectBtn = root.querySelector('[data-mode="select"]')
-    expect(selectBtn?.classList.contains('cortex-toolbar__btn--active')).toBe(true)
-  })
-
-  it('clicking comment button calls onModeChange with comment', () => {
-    const onModeChange = vi.fn()
-    const { root } = setup({ onModeChange })
-    const commentBtn = root.querySelector('[data-mode="comment"]') as HTMLButtonElement
-    commentBtn.click()
-    expect(onModeChange).toHaveBeenCalledWith('comment')
-  })
-
-  it('clicking canvas button calls onModeChange with canvas', () => {
-    const onModeChange = vi.fn()
-    const { root } = setup({ onModeChange })
-    const canvasBtn = root.querySelector('[data-mode="canvas"]') as HTMLButtonElement
-    canvasBtn.click()
-    expect(onModeChange).toHaveBeenCalledWith('canvas')
+    expect(buttons.length).toBe(1)
   })
 
   it('clicking close calls onClose', () => {
@@ -85,16 +64,10 @@ describe('Toolbar', () => {
     expect(badge).toBeNull()
   })
 
-  it('canvas button shows active state when canvasActive', () => {
-    const { root } = setup({ canvasActive: true })
-    const canvasBtn = root.querySelector('[data-mode="canvas"]')
-    expect(canvasBtn?.classList.contains('cortex-toolbar__btn--active')).toBe(true)
-  })
-
-  it('renders logo drag handle as non-button div', () => {
+  it('renders grip drag handle as non-button div', () => {
     const { root } = setup()
-    const logo = root.querySelector('.cortex-toolbar__logo')
-    expect(logo).not.toBeNull()
-    expect(logo?.tagName.toLowerCase()).not.toBe('button')
+    const grip = root.querySelector('.cortex-toolbar__grip')
+    expect(grip).not.toBeNull()
+    expect(grip?.tagName.toLowerCase()).not.toBe('button')
   })
 })
