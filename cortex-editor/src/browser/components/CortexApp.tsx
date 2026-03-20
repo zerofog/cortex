@@ -21,8 +21,9 @@ export interface CortexAppProps {
 
 /**
  * Root component. Wires selection events, overlay rendering,
- * CSS override manager, channel message handling, toolbar modes,
- * auto-position, auto-scroll, canvas zoom, and keyboard shortcuts.
+ * CSS override manager, channel message handling, and panel
+ * drag/snap positioning. Canvas zoom hook is wired but currently
+ * disabled — preserved for future re-enablement.
  */
 export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element | null {
   const [hoveredElement, setHoveredElement] = useState<HTMLElement | null>(null)

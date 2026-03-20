@@ -1,4 +1,5 @@
 import type { JSX } from 'preact'
+import { useCallback } from 'preact/hooks'
 import { useDrag } from '../hooks/useDrag.js'
 import { useToolbarDock } from '../hooks/useToolbarDock.js'
 
@@ -26,10 +27,16 @@ export function Toolbar({
 }: ToolbarProps): JSX.Element {
   const { position, isHorizontal, isSnapping, setPosition, snap } = useToolbarDock()
 
-  const { handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel } = useDrag({
+  const { handlePointerDown: dragPointerDown, handlePointerMove, handlePointerUp, handlePointerCancel } = useDrag({
     onDrag(x, y) { setPosition({ x, y }) },
     onDragEnd() { snap() },
   })
+
+  // Only start drag from the grip handle — not badge or other toolbar areas
+  const handlePointerDown = useCallback((e: PointerEvent) => {
+    if (!(e.target as HTMLElement).closest('.cortex-toolbar__grip')) return
+    dragPointerDown(e)
+  }, [dragPointerDown])
 
   const classes = [
     'cortex-toolbar',

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { Toolbar } from '../../src/browser/components/Toolbar.js'
-import { renderInShadow } from './helpers.js'
+import { renderInShadow, dispatchPointerEvent } from './helpers.js'
 
 describe('Toolbar', () => {
   let cleanup: (() => void) | null = null
@@ -69,5 +69,19 @@ describe('Toolbar', () => {
     const grip = root.querySelector('.cortex-toolbar__grip')
     expect(grip).not.toBeNull()
     expect(grip?.tagName.toLowerCase()).not.toBe('button')
+  })
+
+  it('ignores pointerdown on badge area (drag restricted to grip)', () => {
+    const { root } = setup({ activityCount: 3 })
+    const toolbar = root.querySelector('.cortex-toolbar') as HTMLElement
+    const badge = root.querySelector('.cortex-toolbar__badge') as HTMLElement
+
+    const initialTransform = toolbar.style.transform
+
+    // Simulate pointerdown on badge — should NOT start drag
+    dispatchPointerEvent(badge, 'pointerdown', { clientX: 100, clientY: 100 })
+    dispatchPointerEvent(toolbar, 'pointermove', { clientX: 200, clientY: 200 })
+
+    expect(toolbar.style.transform).toBe(initialTransform)
   })
 })
