@@ -1,0 +1,113 @@
+cortex-editor/src/browser/transform-bus.ts
+  fd830b2e56cf6363 1-16
+cortex-editor/tests/browser/hover-overlay.test.tsx
+  fd830b2e56cf6363 1,4,148-179
+  ae37a7122902c246 40
+cortex-editor/tests/browser/bootstrap.test.ts
+  fd830b2e56cf6363 67,73-74,77-81,87-89
+cortex-editor/tests/browser/transform-bus.test.ts
+  fd830b2e56cf6363 1-44
+cortex-editor/src/adapters/vite.ts
+  c2489f1e2362dd2d 3-5,16,20,28,39-42,46,127-128,130,132,135,139-140
+  fd830b2e56cf6363 21-27,34-37,43-45,129,131,133-134,136-138
+cortex-editor/src/browser/components/SelectionOverlay.tsx
+  ae37a7122902c246 24-33,40-41,60-64,72,100-115,120,133-135,256
+  c2489f1e2362dd2d 196-197,199,201,203-204,210-212,216
+  fd830b2e56cf6363 4,39,46-49,70,76-78,143-145,152-153,159-160,166,172-173,181,185-186,190-192,198,200,202,205-209,213-215,244-245
+cortex-editor/src/browser/index.tsx
+  c2489f1e2362dd2d 19-20,42-47
+  fd830b2e56cf6363 28-29
+cortex-editor/src/browser/components/HoverOverlay.tsx
+  ae37a7122902c246 13-16,18-22,32-39,47,50
+  fd830b2e56cf6363 2,4,23-29
+cortex-editor/tests/browser/hooks/use-canvas-zoom.test.tsx
+  c2489f1e2362dd2d 137-139,258-260
+cortex-editor/src/browser/hooks/useCanvasZoom.ts
+  c2489f1e2362dd2d 43,46-55,78,80,82,85-94,101,132,165-167,189,193-194
+  fd830b2e56cf6363 3,33-34,36-42,44-45,106,109,140-144,170,173,179,196,203,232,251,284-287
+cortex-editor/src/browser/channel.ts
+  fd830b2e56cf6363 15-21,23-27
+cortex-editor/tests/browser/selection-overlay.test.tsx
+  ae37a7122902c246 43,407,416-417,429-431
+  fd830b2e56cf6363 28,39-42,223,230,240-242
+cortex-editor/tests/adapters/vite.test.ts
+  fd830b2e56cf6363 146-159,223-250
+  c2489f1e2362dd2d 45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.17",
+  "base_commit_sha": "955d9fc136497510adf396a763268aadcd3e0192",
+  "prompts": {
+    "7d9d05d4ec46cc6f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d30273a1-0807-4755-a8ea-bfb821bdde95",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 270,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/f4056ce80b2d8a81a7e958c3aea016a9f7b46ff2fee096d51c814f60782aa3b0"
+    },
+    "ae37a7122902c246": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "438e0a59-dbe8-43b6-8748-538ba51d40e1",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 266,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/819a80ceddae74fd568456a6192fefb323b964b0d87534a70dcc186541913cca"
+    },
+    "c2489f1e2362dd2d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f1d3034f-c385-4bad-9051-3e451cf345e7",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 504,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/d1569174f96485785e7e0829e802a6234c3910c02818de04863be6d6cf0bd706"
+    },
+    "efb2043a8a239fe1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6b8a03c0-f968-4780-b4e7-5b8af56c5b7c",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 63,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/5ac8f9ff775c0a9ede7b0b190411f94c920e43e89c84a589484b17c6bd4ed904"
+    },
+    "fd830b2e56cf6363": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6dcefd61-c56f-4ab2-b03f-c408a6d12153",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 3,
+      "accepted_lines": 270,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/bef24b343e2d56536d681b2792e89b0b14d15df3365b9683052b0188652975f5"
+    }
+  }
+}
