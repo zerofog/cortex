@@ -37,7 +37,7 @@ each frame:
 
 | Constant | Value | Rationale |
 |---|---|---|
-| `FRICTION` | `0.85` | `0.85^15 ≈ 0.087` — 91% decay in 15 frames (~250ms at 60fps). For a typical trackpad delta of 10px, velocity drops below threshold in ~14 frames (~233ms). For a large flick (30px), ~18 frames (~300ms). Matches the 200-300ms design goal. |
+| `FRICTION` | `0.75` | For a typical trackpad delta of 10px: `10 × 0.75^16 ≈ 0.1` → stops in ~16 frames (**267ms**). For a large flick (30px): `30 × 0.75^20 ≈ 0.1` → stops in ~20 frames (**333ms**). Matches the 200-300ms design goal for typical inputs. |
 | `STOP_THRESHOLD` | `0.1` | Stop when total velocity < 0.1px/frame (6px/s at 60fps). Below perceptual threshold for discrete stopping on a static canvas. |
 
 ### Velocity capture
@@ -50,7 +50,7 @@ Wheel `deltaX`/`deltaY` represent scroll distance per event, not true velocity. 
 
 ### Why exponential, not linear
 
-Linear decay (`velocity -= constant`) creates a sudden stop. Exponential (`velocity *= 0.85`) asymptotically approaches zero, producing a natural ease-out curve matching the project's existing `150ms ease-out` CSS timing convention.
+Linear decay (`velocity -= constant`) creates a sudden stop. Exponential (`velocity *= 0.75`) asymptotically approaches zero, producing a natural ease-out curve matching the project's existing `150ms ease-out` CSS timing convention.
 
 ## Integration
 
@@ -109,6 +109,6 @@ Use `vi.useFakeTimers()` and `vi.advanceTimersByTime(16)` to simulate individual
 ## Risks
 
 - **Timer sensitivity in tests**: rAF-based tests can be flaky. Use `vi.useFakeTimers()` with `vi.advanceTimersByTime(16)` per frame.
-- **Tuning**: `FRICTION = 0.85` is calculated for ~250ms coast but may need adjustment after manual testing. Constants are named and top-level for easy tuning.
+- **Tuning**: `FRICTION = 0.75` is calculated for ~267-333ms coast (10-30px deltas). May need adjustment after manual testing. Constants are named and top-level for easy tuning.
 - **Velocity from deltas**: Wheel `deltaX`/`deltaY` are displacement per event, not true velocity. May feel inconsistent on very fast flicks. See "Velocity capture caveat" above. Start simple, upgrade to rolling estimator if needed.
 - **Background tabs**: Browsers throttle rAF to ~1fps or pause entirely in background tabs. Momentum may appear to freeze and resume on tab switch. Acceptable for a sub-second animation; no mitigation needed.
