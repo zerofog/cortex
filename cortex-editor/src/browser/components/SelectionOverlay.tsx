@@ -1,6 +1,7 @@
 import type { JSX } from 'preact'
 import { useEffect, useRef } from 'preact/hooks'
 import { getSelectionLabel } from '../label.js'
+import { onTransformUpdate } from '../transform-bus.js'
 import type { StateDeclarations, InteractionState } from '../state-detector.js'
 
 export interface SelectionOverlayProps {
@@ -9,36 +10,43 @@ export interface SelectionOverlayProps {
   activeState?: InteractionState
   onStateChange?: (state: InteractionState) => void
   overlaysVisible?: boolean
-  /** Canvas zoom scale factor — divide rect values by this to correct coordinates */
-  scale?: number
 }
 
 /**
  * Persistent selection outline with transition. Uses RAF to track position
  * continuously (element may move from scroll/resize while selected).
  */
-export function SelectionOverlay({ element, availableStates, activeState, onStateChange, overlaysVisible = true, scale = 1 }: SelectionOverlayProps): JSX.Element | null {
+export function SelectionOverlay({ element, availableStates, activeState, onStateChange, overlaysVisible = true }: SelectionOverlayProps): JSX.Element | null {
   const overlayRef = useRef<HTMLDivElement>(null)
   const lensRef = useRef<HTMLDivElement>(null)
   const labelRef = useRef<HTMLSpanElement>(null)
+
+  // Cached lens dimensions — only re-measured when availableStates changes
+  const cachedLensWRef = useRef(120)
+  const cachedLensHRef = useRef(24)
+  const lensNeedsMeasureRef = useRef(true)
+
+  // Re-measure lens when available states change (buttons added/removed)
+  useEffect(() => {
+    lensNeedsMeasureRef.current = true
+  }, [availableStates])
 
   // RAF-based continuous position tracking for the selected element
   useEffect(() => {
     if (!element || !overlayRef.current) return
 
     let rafId = 0
-    // Cache previous rect to skip redundant DOM writes
-    let prevTop = ''
-    let prevLeft = ''
+    let idleFrames = 0
+    // Cache previous values to skip redundant DOM writes
+    let prevTransform = ''
     let prevWidth = ''
     let prevHeight = ''
     let prevBorderRadius = ''
 
-    // Layout shift tracking — document-relative coordinates
-    let stableDocTop: number | null = null // baseline for total shift threshold
-    let stableDocLeft: number | null = null
-    let prevDocTop: number | null = null // previous frame for movement detection
-    let prevDocLeft: number | null = null
+    // Layout shift tracking — document-relative coordinates (bundled structs)
+    interface DocPos { top: number; left: number }
+    let stableDoc: DocPos | null = null // baseline for total shift threshold
+    let prevDoc: DocPos | null = null   // previous frame for movement detection
     let lastChangeTime = 0
     let scrollCooldownUntil = 0
     const STABLE_THRESHOLD_MS = 400
@@ -49,24 +57,24 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
       if (!element || !overlayRef.current) return
       // Stop RAF loop when element is detached from DOM (e.g. HMR, navigation)
       if (!element.isConnected) return
-      const raw = element.getBoundingClientRect()
-      // Correct for CSS transform scale on body during canvas zoom
-      const r = scale !== 1
-        ? { top: raw.top / scale, left: raw.left / scale, width: raw.width / scale, height: raw.height / scale,
-            bottom: raw.bottom / scale, right: raw.right / scale, x: raw.x / scale, y: raw.y / scale }
-        : raw
-      const top = `${r.top}px`
-      const left = `${r.left}px`
+      // Overlays live in Shadow DOM on documentElement (outside body),
+      // so getBoundingClientRect already returns correct visual coordinates
+      // even when body has a CSS transform (canvas zoom).
+      const r = element.getBoundingClientRect()
+      const transform = `translate(${r.left}px, ${r.top}px)`
       const width = `${r.width}px`
       const height = `${r.height}px`
 
       // Only write to DOM when values changed
       const el = overlayRef.current
+      const changed = transform !== prevTransform || width !== prevWidth || height !== prevHeight
       const sizeChanged = width !== prevWidth || height !== prevHeight
-      if (top !== prevTop) { el.style.top = top; prevTop = top }
-      if (left !== prevLeft) { el.style.left = left; prevLeft = left }
+      if (transform !== prevTransform) { el.style.transform = transform; prevTransform = transform }
       if (width !== prevWidth) { el.style.width = width; prevWidth = width }
       if (height !== prevHeight) { el.style.height = height; prevHeight = height }
+
+      // Idle frame detection — stop RAF after 3 unchanged frames
+      if (changed) { idleFrames = 0 } else { idleFrames++ }
 
       // Update borderRadius only when dimensions change (avoids per-frame getComputedStyle)
       if (sizeChanged || prevBorderRadius === '') {
@@ -89,16 +97,27 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
       // Update lens position in sync with overlay.
       // Default: lens above element, label below. When stacked, label nearest to element.
       if (lensRef.current) {
-        const lensW = lensRef.current.offsetWidth
-        // Hide lens until it has a valid width (prevents first-frame flash).
-        // Still compute position so it's correct when visibility flips.
-        if (lensW === 0) {
+        // Only read offsetWidth/offsetHeight when lens content changed
+        if (lensNeedsMeasureRef.current) {
+          const measuredW = lensRef.current.offsetWidth
+          const measuredH = lensRef.current.offsetHeight
+          if (measuredW > 0) {
+            cachedLensWRef.current = measuredW
+            cachedLensHRef.current = measuredH || 24
+            lensNeedsMeasureRef.current = false // only clear when measurement succeeds
+          }
+        }
+
+        const lensW = cachedLensWRef.current
+        const lensH = cachedLensHRef.current
+
+        // Hide lens until it has a valid measurement (prevents first-frame flash).
+        if (lensW <= 0) {
           lensRef.current.style.visibility = 'hidden'
         } else {
           lensRef.current.style.visibility = 'visible'
         }
-        const effectiveLensW = lensW || 120 // fallback for first frame / test env
-        const lensH = lensRef.current.offsetHeight || 24
+
         const isAbove = r.top > (lensH + gap) // enough room above for lens
 
         let lensTop: number
@@ -111,10 +130,9 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
           // Lens below — label is also below (stacked): label nearest, lens outside
           lensTop = r.bottom + labelH + gap + 4
         }
-        const lensLeft = r.left + r.width / 2 - effectiveLensW / 2
-        const clampedLeft = Math.max(4, Math.min(lensLeft, window.innerWidth - 4 - effectiveLensW))
-        lensRef.current.style.top = `${lensTop}px`
-        lensRef.current.style.left = `${clampedLeft}px`
+        const lensLeft = r.left + r.width / 2 - lensW / 2
+        const clampedLeft = Math.max(4, Math.min(lensLeft, window.innerWidth - 4 - lensW))
+        lensRef.current.style.transform = `translate(${clampedLeft}px, ${lensTop}px)`
       }
 
       // Shift detection uses document-relative coordinates
@@ -122,42 +140,37 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
       const docLeft = r.left + window.scrollX
 
       // Initialize on first read — no shift detection until second frame
-      if (stableDocTop === null) {
-        stableDocTop = docTop
-        stableDocLeft = docLeft
-        prevDocTop = docTop
-        prevDocLeft = docLeft
+      if (stableDoc === null) {
+        stableDoc = { top: docTop, left: docLeft }
+        prevDoc = { top: docTop, left: docLeft }
         rafId = requestAnimationFrame(update)
         return
       }
 
       // During scroll cooldown: keep baseline current but skip shift detection
       if (performance.now() < scrollCooldownUntil) {
-        stableDocTop = docTop
-        stableDocLeft = docLeft
-        prevDocTop = docTop
-        prevDocLeft = docLeft
+        stableDoc = { top: docTop, left: docLeft }
+        prevDoc = { top: docTop, left: docLeft }
         rafId = requestAnimationFrame(update)
         return
       }
 
       // Detect frame-to-frame movement (> 2px jitter filter)
-      const dTop = docTop - (prevDocTop as number)
-      const dLeft = docLeft - (prevDocLeft as number)
+      const dTop = docTop - prevDoc!.top
+      const dLeft = docLeft - prevDoc!.left
       const shifted = Math.abs(dTop) > 2 || Math.abs(dLeft) > 2
 
       if (shifted) {
         lastChangeTime = performance.now()
       }
-      prevDocTop = docTop
-      prevDocLeft = docLeft
+      prevDoc = { top: docTop, left: docLeft }
 
       // After position stabilizes for STABLE_THRESHOLD_MS, check total shift from baseline
       const timeSinceChange = performance.now() - lastChangeTime
       if (timeSinceChange > STABLE_THRESHOLD_MS && lastChangeTime > 0) {
         const totalShift = Math.hypot(
-          docTop - (stableDocTop as number),
-          docLeft - (stableDocLeft as number),
+          docTop - stableDoc.top,
+          docLeft - stableDoc.left,
         )
         const offScreen = r.top < 0 || r.bottom > window.innerHeight ||
                           r.left < 0 || r.right > window.innerWidth
@@ -165,25 +178,47 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
           element.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
           scrollCooldownUntil = performance.now() + SCROLL_COOLDOWN_MS
         }
-        stableDocTop = docTop
-        stableDocLeft = docLeft
+        stableDoc = { top: docTop, left: docLeft }
         lastChangeTime = 0 // reset — don't re-trigger
       }
 
+      // Stop loop after 3 idle frames — restartLoop wakes it on external events
+      if (idleFrames >= 3) { rafId = 0; return }
       rafId = requestAnimationFrame(update)
     }
 
+    // Restart RAF loop from idle — called by scroll, resize, and transform events
+    function restartLoop() {
+      if (!rafId) { idleFrames = 0; update() }
+    }
+
     update()
-    return () => cancelAnimationFrame(rafId)
-  }, [element, scale])
+
+    // Synchronize overlay position with canvas transform writes.
+    // emitTransformUpdate fires after every body.style.transform write,
+    // so we re-read getBoundingClientRect in the same JS task — no 1-frame lag.
+    function handleTransformUpdate() {
+      if (rafId) { cancelAnimationFrame(rafId); rafId = 0 }
+      idleFrames = 0
+      update()
+    }
+    const unsubTransform = onTransformUpdate(handleTransformUpdate)
+
+    // Restart loop on scroll/resize (element may have moved)
+    window.addEventListener('scroll', restartLoop, { capture: true, passive: true })
+    window.addEventListener('resize', restartLoop)
+
+    return () => {
+      cancelAnimationFrame(rafId)
+      unsubTransform()
+      window.removeEventListener('scroll', restartLoop, { capture: true })
+      window.removeEventListener('resize', restartLoop)
+    }
+  }, [element])
 
   if (!element) return null
 
   const label = getSelectionLabel(element)
-  const raw = element.getBoundingClientRect()
-  const r = scale !== 1
-    ? { top: raw.top / scale, left: raw.left / scale, width: raw.width / scale, height: raw.height / scale }
-    : raw
 
   // Determine if the state lens should be shown
   const showLens = !!(availableStates && (
@@ -206,10 +241,8 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
       ref={overlayRef}
       class="cortex-selection-overlay"
       style={{
-        top: `${r.top}px`,
-        left: `${r.left}px`,
-        width: `${r.width}px`,
-        height: `${r.height}px`,
+        width: '0px',
+        height: '0px',
         visibility: overlaysVisible ? 'visible' : 'hidden',
       }}
     >
@@ -220,7 +253,7 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
         <div
           ref={lensRef}
           class="cortex-state-lens"
-          style={{ position: 'fixed' }}
+          style={{ position: 'fixed', left: 0, top: 0 }}
         >
           {stateButtons.map(({ label: btnLabel, state }) => (
             <button

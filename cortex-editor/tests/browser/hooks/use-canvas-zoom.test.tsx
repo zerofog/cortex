@@ -134,8 +134,9 @@ describe('useCanvasZoom', () => {
     expect(document.body.style.transformOrigin).toBe('50% 0')
     expect(document.body.style.boxShadow).toContain('rgba(0,0,0,0.06)')
     expect(document.documentElement.style.overflow).toBe('hidden')
-    expect(document.documentElement.style.backgroundColor).toBe('#e5e5e5')
-    expect(document.body.style.backgroundColor).toBe('#ffffff')
+    // Artboard color is theme-adaptive (light or dark), not hardcoded
+    expect(document.documentElement.style.backgroundColor).toMatch(/^#(e5e5e5|2a2a2a)$/)
+    // body.backgroundColor is NOT touched — preserves app's theme
     unmount()
   })
 
@@ -254,8 +255,9 @@ describe('useCanvasZoom', () => {
     await new Promise(r => setTimeout(r, 10))
     const x = getX(document.body.style.transform)
 
-    // Should be clamped — not 50000px
-    expect(Math.abs(x)).toBeLessThan(10000)
+    // Dynamic bounds: maxX = (max(vpW, scaledBodyW) + vpW) / 2
+    // With vpW=1440, this is at most a few thousand px, never 50000
+    expect(Math.abs(x)).toBeLessThan(5000)
     unmount()
   })
 

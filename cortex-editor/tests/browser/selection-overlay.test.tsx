@@ -25,7 +25,7 @@ describe('SelectionOverlay', () => {
     expect(root.querySelector('.cortex-selection-overlay')).toBeNull()
   })
 
-  it('renders positioned div with correct class', () => {
+  it('renders positioned div with correct class after RAF', async () => {
     setup()
     const target = document.createElement('div')
     document.body.appendChild(target)
@@ -36,8 +36,11 @@ describe('SelectionOverlay', () => {
     render(<SelectionOverlay element={target} />, root)
     const overlay = root.querySelector('.cortex-selection-overlay') as HTMLElement
     expect(overlay).not.toBeNull()
-    expect(overlay.style.top).toBe('100px')
-    expect(overlay.style.left).toBe('200px')
+
+    // Initial render uses static placeholders; RAF sets real position
+    await new Promise(r => requestAnimationFrame(() => r(undefined)))
+    await new Promise(r => setTimeout(r, 0))
+    expect(overlay.style.transform).toBe('translate(200px, 100px)')
     expect(overlay.style.width).toBe('300px')
     expect(overlay.style.height).toBe('50px')
 
@@ -217,14 +220,14 @@ describe('layout shift tracking', () => {
 
   /**
    * Render the component and wait for useEffect to fire + initial update() to seed
-   * stableDocTop. Then install the RAF mock for controlled stepping.
+   * stableDoc. Then install the RAF mock for controlled stepping.
    */
   async function renderAndInit(top: number, left: number) {
     moveElement(top, left)
     render(<SelectionOverlay element={element} />, container)
     // Let Preact's useEffect fire (scheduled via real RAF + setTimeout)
     await flush()
-    // useEffect called update() synchronously → seeded stableDocTop → enqueued RAF
+    // useEffect called update() synchronously → seeded stableDoc → enqueued RAF
     // Wait for the real RAF to fire the second update() (position unchanged, no shift)
     await new Promise<void>(r => originalRAF(() => { r() }))
     await flush()
@@ -233,11 +236,10 @@ describe('layout shift tracking', () => {
     // The last update() enqueued a real RAF callback that will fire later;
     // we need to capture the next loop iteration. Trigger one more real RAF
     // to let the pending callback push into our mock.
-    // Actually, at this point the pending RAF from update() is with the real RAF.
-    // We need to intercept it. Let's wait for it to fire, which will push
-    // the next requestAnimationFrame call into our mock.
     await new Promise<void>(r => setTimeout(r, 20))
-    // Now any pending real RAF has fired and the next update() call pushed into our mock
+    // The idle RAF stopping feature may have paused the loop after unchanged frames.
+    // Fire a scroll event to restart it, ensuring stepRAF has a callback to execute.
+    window.dispatchEvent(new Event('scroll'))
   }
 
   it('does not auto-scroll on initial selection', async () => {
@@ -402,7 +404,7 @@ describe('state lens', () => {
 
     const lens = container.querySelector('.cortex-state-lens') as HTMLElement
     expect(lens).not.toBeNull()
-    const initialTop = lens?.style.top
+    const initialTransform = lens?.style.transform
 
     // Simulate scroll — element moves up
     mockGetBoundingClientRect(element, { top: 50, left: 100, width: 300, height: 50 })
@@ -411,9 +413,8 @@ describe('state lens', () => {
     await new Promise(r => requestAnimationFrame(() => r(undefined)))
     await new Promise(r => setTimeout(r, 0))
 
-    // Lens position should have updated
-    // (The exact value depends on the positioning logic, but it should differ from initial)
-    expect(lens?.style.top).not.toBe(initialTop)
+    // Lens position should have updated (transform value changed)
+    expect(lens?.style.transform).not.toBe(initialTransform)
   })
 
   it('positions lens below element when near top of viewport', async () => {
@@ -425,8 +426,9 @@ describe('state lens', () => {
     await new Promise(r => setTimeout(r, 0))
 
     const lens = container.querySelector('.cortex-state-lens') as HTMLElement
-    // Lens should be below the element (top > element bottom)
-    const lensTop = parseFloat(lens.style.top)
+    // Lens should be below the element — extract Y from translate(Xpx, Ypx)
+    const match = lens.style.transform.match(/translate\([^,]+,\s*([^)]+)px\)/)
+    const lensTop = match ? parseFloat(match[1]) : 0
     expect(lensTop).toBeGreaterThan(70) // below element bottom (20 + 50)
   })
 })

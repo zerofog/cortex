@@ -1,6 +1,7 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
 import { HoverOverlay } from '../../src/browser/components/HoverOverlay.js'
+import { emitTransformUpdate } from '../../src/browser/transform-bus.js'
 import { createShadowHost, mockGetBoundingClientRect } from './helpers.js'
 
 describe('HoverOverlay', () => {
@@ -36,8 +37,7 @@ describe('HoverOverlay', () => {
 
     const overlay = root.querySelector('.cortex-hover-overlay') as HTMLElement
     expect(overlay).not.toBeNull()
-    expect(overlay.style.top).toBe('100px')
-    expect(overlay.style.left).toBe('200px')
+    expect(overlay.style.transform).toBe('translate(200px, 100px)')
     expect(overlay.style.width).toBe('300px')
     expect(overlay.style.height).toBe('50px')
 
@@ -143,6 +143,38 @@ describe('HoverOverlay', () => {
     expect(label?.classList.contains('cortex-label--above')).toBe(true)
 
     restore()
+    target.remove()
+  })
+
+  it('re-renders on transform bus update to refresh position', async () => {
+    setup()
+    const target = document.createElement('div')
+    document.body.appendChild(target)
+    mockGetBoundingClientRect(target, {
+      top: 100, left: 200, width: 300, height: 50,
+    })
+
+    render(<HoverOverlay element={target} />, root)
+
+    // Wait for Preact effects to initialize (useEffect fires on microtask)
+    await new Promise(r => setTimeout(r, 10))
+
+    // Verify initial position
+    let overlay = root.querySelector('.cortex-hover-overlay') as HTMLElement
+    expect(overlay.style.transform).toBe('translate(200px, 100px)')
+
+    // Simulate canvas transform — element position changes
+    mockGetBoundingClientRect(target, {
+      top: 150, left: 250, width: 300, height: 50,
+    })
+    emitTransformUpdate()
+
+    // Preact batches setState; wait for re-render flush
+    await vi.waitFor(() => {
+      overlay = root.querySelector('.cortex-hover-overlay') as HTMLElement
+      expect(overlay.style.transform).toBe('translate(250px, 150px)')
+    })
+
     target.remove()
   })
 })

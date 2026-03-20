@@ -1,5 +1,8 @@
 import type { Plugin, ResolvedConfig, HmrContext } from 'vite'
 import type { SourceMapInput } from 'rollup'
+import fs from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
 import { createSourceTransform } from './source-transform.js'
 import type { ServerChannel, BrowserToServer, ServerToBrowser } from './types.js'
 import { TailwindResolver } from '../core/tailwind-resolver.js'
@@ -10,15 +13,37 @@ export interface CortexEditorOptions {
 }
 
 const CORTEX_CLIENT_PATH = '/@cortex/client.js'
+const CORTEX_BROWSER_PATH = '/@cortex/browser.js'
 const VIRTUAL_CORTEX_CLIENT = '\0cortex-client'
 const CORTEX_MSG_EVENT = 'cortex:msg'
+
+// Resolve browser IIFE path relative to this file (dist/vite/vite.js → dist/browser/index.js)
+// CJS: __dirname is reliable. ESM: use import.meta.url.
+function resolveBrowserIIFEPath(): string {
+  if (typeof __dirname !== 'undefined') {
+    return path.join(__dirname, '..', 'browser', 'index.js')
+  }
+  return path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'browser', 'index.js')
+}
 
 const CLIENT_SCRIPT = `\
 if (import.meta.hot) {
   import.meta.hot.on('${CORTEX_MSG_EVENT}', (data) => {
     window.__cortex_channel__?.handleServerMessage(data);
   });
-  window.__cortex_send__ = (msg) => import.meta.hot.send('${CORTEX_MSG_EVENT}', msg);
+  Object.defineProperty(window, '__cortex_send__', {
+    value: (msg) => import.meta.hot.send('${CORTEX_MSG_EVENT}', msg),
+    writable: false, configurable: false,
+  });
+}
+// Load cortex editor browser UI (skip if already loaded via manual script tag)
+if (!document.querySelector('[data-cortex-host]')) {
+  const __cortexScript = document.createElement('script');
+  __cortexScript.src = '${CORTEX_BROWSER_PATH}';
+  __cortexScript.onerror = () => console.error(
+    '[cortex] Failed to load browser UI from ${CORTEX_BROWSER_PATH}. Is the package built?'
+  );
+  document.head.appendChild(__cortexScript);
 }
 `
 
@@ -99,6 +124,20 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
     },
 
     configureServer(server) {
+      // Serve browser IIFE — read fresh on each request so rebuilds take effect without restart
+      server.middlewares.use(CORTEX_BROWSER_PATH, (_req, res, next) => {
+        let content: string
+        try {
+          content = fs.readFileSync(resolveBrowserIIFEPath(), 'utf8')
+        } catch (e) {
+          console.error(`[cortex] Browser bundle not found: ${resolveBrowserIIFEPath()}`)
+          return next(e instanceof Error ? e : new Error(String(e)))
+        }
+        res.setHeader('Content-Type', 'application/javascript; charset=utf-8')
+        res.setHeader('Cache-Control', 'no-store')
+        res.end(content)
+      })
+
       // Dispose previous channel if configureServer is called again (server restart)
       if (channelInstance) {
         channelInstance.dispose().catch((err) => {

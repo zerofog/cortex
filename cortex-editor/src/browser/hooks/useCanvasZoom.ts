@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'preact/hooks'
 import { isOwnUI } from '../selection.js'
+import { emitTransformUpdate } from '../transform-bus.js'
 
 const MIN_ZOOM = 0.75
 const MAX_ZOOM = 1.0
@@ -8,7 +9,6 @@ const CANVAS_MIN_MARGIN = 48
 const FRICTION = 0.75
 const STOP_THRESHOLD = 0.1
 const LINE_HEIGHT = 40 // px — CSS standard approximation for deltaMode=1
-const MAX_PAN = 5000 // px — generous bound, prevents off-screen loss
 
 function normalizeDelta(e: WheelEvent): { dx: number; dy: number } {
   const mult = e.deltaMode === 1 ? LINE_HEIGHT : e.deltaMode === 2 ? window.innerHeight : 1
@@ -30,10 +30,29 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
   const spaceHeldRef = useRef(false)
   const panRef = useRef({ x: 0, y: 0 })
   const panStartRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
+  const vpRef = useRef({ w: window.innerWidth, h: window.innerHeight })
+  const momentumRafRef = useRef(0)
 
-  function clampPan(): void {
-    panRef.current.x = clamp(panRef.current.x, -MAX_PAN, MAX_PAN)
-    panRef.current.y = clamp(panRef.current.y, -MAX_PAN, MAX_PAN)
+  function cancelMomentum(): void {
+    if (momentumRafRef.current) {
+      cancelAnimationFrame(momentumRafRef.current)
+      momentumRafRef.current = 0
+    }
+  }
+
+  function clampPan(): { clampedX: boolean; clampedY: boolean } {
+    const vpW = vpRef.current.w
+    const vpH = vpRef.current.h
+    const topMargin = Math.max(CANVAS_MIN_MARGIN, (vpH - cachedBodyH.current) / 2)
+    // X: symmetric — content edge can reach the opposite viewport edge
+    const maxX = (cachedBodyW.current + vpW) / 2
+    const prevX = panRef.current.x
+    const prevY = panRef.current.y
+    panRef.current.x = clamp(panRef.current.x, -maxX, maxX)
+    // Y: asymmetric — up limited by content top reaching viewport bottom,
+    //    down limited by content bottom reaching viewport top
+    panRef.current.y = clamp(panRef.current.y, -(cachedBodyH.current + topMargin), vpH - topMargin)
+    return { clampedX: panRef.current.x !== prevX, clampedY: panRef.current.y !== prevY }
   }
 
   // Save original body/html styles on the false→true transition of `enabled`
@@ -41,7 +60,6 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
   const savedTransformRef = useRef('')
   const savedOriginRef = useRef('')
   const savedBoxShadowRef = useRef('')
-  const savedBodyBgRef = useRef('')
   const savedHtmlBgRef = useRef('')
   const savedOverflowRef = useRef('')
 
@@ -50,7 +68,6 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
       document.body.style.transform = savedTransformRef.current
       document.body.style.transformOrigin = savedOriginRef.current
       document.body.style.boxShadow = savedBoxShadowRef.current
-      document.body.style.backgroundColor = savedBodyBgRef.current
       document.documentElement.style.backgroundColor = savedHtmlBgRef.current
       document.documentElement.style.overflow = savedOverflowRef.current
       wasEnabledRef.current = false
@@ -58,24 +75,38 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
   }
 
   const cachedBodyH = useRef(0)
+  const cachedBodyW = useRef(0)
 
-  function updateCachedBodyH(s: number): void {
+  function updateCachedDimensions(s: number): void {
     cachedBodyH.current = document.body.scrollHeight * s
+    cachedBodyW.current = document.body.scrollWidth * s
+  }
+
+  function getArtboardColor(): string {
+    // Check body first; if transparent (common when bg is on :root), fall back to documentElement
+    let bg = getComputedStyle(document.body).backgroundColor
+    if (bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)') {
+      bg = getComputedStyle(document.documentElement).backgroundColor
+    }
+    const match = bg.match(/(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/)
+    if (!match) return '#e5e5e5'
+    const luminance = (0.299 * Number(match[1]) + 0.587 * Number(match[2]) + 0.114 * Number(match[3])) / 255
+    return luminance > 0.5 ? '#e5e5e5' : '#2a2a2a'
   }
 
   function applyStaticStyles(): void {
     document.body.style.transformOrigin = '50% 0'
     document.body.style.boxShadow = '0 0 0 1px rgba(0,0,0,0.06), 0 2px 16px rgba(0,0,0,0.1)'
     document.documentElement.style.overflow = 'hidden'
-    document.documentElement.style.backgroundColor = '#e5e5e5'
-    document.body.style.backgroundColor = '#ffffff'
+    document.documentElement.style.backgroundColor = getArtboardColor()
   }
 
   function applyTransformPosition(s: number): void {
     const { x, y } = panRef.current
-    const vpH = window.innerHeight
+    const vpH = vpRef.current.h
     const topMargin = Math.max(CANVAS_MIN_MARGIN, (vpH - cachedBodyH.current) / 2)
     document.body.style.transform = `translate(${x}px, ${y + topMargin}px) scale(${s})`
+    emitTransformUpdate()
   }
 
   // Save/restore styles — only depends on [enabled]
@@ -84,7 +115,6 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
       savedTransformRef.current = document.body.style.transform
       savedOriginRef.current = document.body.style.transformOrigin
       savedBoxShadowRef.current = document.body.style.boxShadow
-      savedBodyBgRef.current = document.body.style.backgroundColor
       savedHtmlBgRef.current = document.documentElement.style.backgroundColor
       savedOverflowRef.current = document.documentElement.style.overflow
       wasEnabledRef.current = true
@@ -99,7 +129,7 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
   // Apply transform — depends on [enabled, scale]
   useLayoutEffect(() => {
     if (enabled) {
-      updateCachedBodyH(scale)
+      updateCachedDimensions(scale)
       applyTransformPosition(scale)
     }
   }, [enabled, scale])
@@ -107,7 +137,11 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
   // Recalculate margins on viewport resize
   useEffect(() => {
     if (!enabled) return
-    function handleResize() { updateCachedBodyH(scaleRef.current); applyTransformPosition(scaleRef.current) }
+    function handleResize() {
+      vpRef.current = { w: window.innerWidth, h: window.innerHeight }
+      updateCachedDimensions(scaleRef.current)
+      applyTransformPosition(scaleRef.current)
+    }
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [enabled])
@@ -116,7 +150,6 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
   useEffect(() => {
     if (!enabled) return
     let velocity = { x: 0, y: 0 }
-    let rafId = 0
     let lastTs = 0
     let disposed = false
 
@@ -129,19 +162,21 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
       velocity.y *= friction
       panRef.current.x += velocity.x
       panRef.current.y += velocity.y
-      clampPan()
+      const coast = clampPan()
+      if (coast.clampedX) velocity.x = 0
+      if (coast.clampedY) velocity.y = 0
       applyTransformPosition(scaleRef.current)
       if (Math.abs(velocity.x) + Math.abs(velocity.y) < STOP_THRESHOLD) {
-        rafId = 0
+        momentumRafRef.current = 0
         return
       }
-      rafId = requestAnimationFrame(coastLoop)
+      momentumRafRef.current = requestAnimationFrame(coastLoop)
     }
 
     function handleWheel(e: WheelEvent): void {
       e.preventDefault()
       // Cancel any running momentum
-      if (rafId) { cancelAnimationFrame(rafId); rafId = 0 }
+      cancelMomentum()
 
       if (e.metaKey || e.ctrlKey) {
         const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP
@@ -151,21 +186,21 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
         // Apply immediate pan
         panRef.current.x -= dx
         panRef.current.y -= dy
-        clampPan()
+        const wheel = clampPan()
         applyTransformPosition(scaleRef.current)
         // Set velocity and start momentum coast
         // (velocity = negative delta, same direction as the pan)
-        velocity.x = -dx
-        velocity.y = -dy
+        velocity.x = wheel.clampedX ? 0 : -dx
+        velocity.y = wheel.clampedY ? 0 : -dy
         lastTs = performance.now()
-        rafId = requestAnimationFrame(coastLoop)
+        momentumRafRef.current = requestAnimationFrame(coastLoop)
       }
     }
 
     window.addEventListener('wheel', handleWheel, { passive: false })
     return () => {
       disposed = true
-      if (rafId) cancelAnimationFrame(rafId)
+      cancelMomentum()
       window.removeEventListener('wheel', handleWheel)
     }
   }, [enabled])
@@ -194,6 +229,7 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
       if (spaceHeldRef.current) {
         // Don't intercept events from Cortex's own Shadow DOM — let panel/toolbar work
         if (isOwnUI(e)) return
+        cancelMomentum() // Stop any coasting wheel momentum before drag starts
         panStartRef.current = {
           x: e.clientX,
           y: e.clientY,
@@ -212,7 +248,7 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
         x: panStartRef.current.panX + dx,
         y: panStartRef.current.panY + dy,
       }
-      clampPan()
+      void clampPan()
       applyTransformPosition(scaleRef.current)
     }
     function handlePointerUp(): void {
@@ -245,8 +281,8 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
 }
 
 function isInputFocused(): boolean {
-  const el = document.activeElement as HTMLElement | null
-  if (!el) return false
-  const tag = el.tagName?.toLowerCase()
-  return tag === 'input' || tag === 'textarea' || tag === 'select' || !!el.isContentEditable
+  const el = document.activeElement
+  if (!(el instanceof HTMLElement)) return false
+  const tag = el.tagName.toLowerCase()
+  return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable
 }

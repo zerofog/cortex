@@ -42,6 +42,7 @@ function mockServer() {
   const offHandlers = new Map<string, Function>()
   const sent: { event: string; data: unknown }[] = []
   return {
+    middlewares: { use: vi.fn() },
     hot: {
       on(event: string, handler: Function) { handlers.set(event, handler) },
       off(event: string, handler: Function) { offHandlers.set(event, handler) },
@@ -142,6 +143,20 @@ describe('cortexEditor Vite plugin', () => {
       expect(source).toContain('__cortex_send__')
     })
 
+    it('client script defines __cortex_send__ as non-writable', () => {
+      const plugin = initPlugin()
+      const source = (plugin.load as Function)('\0cortex-client')
+      expect(source).toContain('Object.defineProperty(window, \'__cortex_send__\'')
+      expect(source).toContain('writable: false')
+    })
+
+    it('client script includes onerror on browser script tag', () => {
+      const plugin = initPlugin()
+      const source = (plugin.load as Function)('\0cortex-client')
+      expect(source).toContain('__cortexScript.onerror')
+      expect(source).toContain('Failed to load browser UI')
+    })
+
     it('does not load other module IDs', () => {
       const plugin = initPlugin()
       const source = (plugin.load as Function)('./other.js')
@@ -202,6 +217,34 @@ describe('cortexEditor Vite plugin', () => {
       server.hot._trigger('cortex:msg', testMsg)
       expect(received).toHaveLength(1)
       expect(received[0]).toEqual(testMsg)
+    })
+  })
+
+  describe('middleware error handling', () => {
+    it('middleware calls next(error) when browser bundle is not found', () => {
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+
+      // Extract the middleware handler
+      const [, handler] = server.middlewares.use.mock.calls[0]
+      const res = {
+        setHeader: vi.fn(),
+        end: vi.fn(),
+      }
+      const next = vi.fn()
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      // Handler should call next with error since the file won't exist in test env
+      handler({}, res, next)
+
+      expect(next).toHaveBeenCalledTimes(1)
+      expect(next.mock.calls[0][0]).toBeInstanceOf(Error)
+      expect(errorSpy).toHaveBeenCalled()
+      // Headers should NOT have been set (read-before-headers pattern)
+      expect(res.setHeader).not.toHaveBeenCalled()
+
+      errorSpy.mockRestore()
     })
   })
 
