@@ -37,13 +37,13 @@ function computePosition(edge: DockEdge, offset: number): Position {
     return { x: clamp(offset, TOOLBAR_MARGIN, maxX), y: TOOLBAR_MARGIN }
   }
   if (edge === 'bottom') {
-    return { x: clamp(offset, TOOLBAR_MARGIN, maxX), y: vh - TOOLBAR_THICKNESS - TOOLBAR_MARGIN }
+    return { x: clamp(offset, TOOLBAR_MARGIN, maxX), y: Math.max(TOOLBAR_MARGIN, vh - TOOLBAR_THICKNESS - TOOLBAR_MARGIN) }
   }
   if (edge === 'left') {
     return { x: TOOLBAR_MARGIN, y: clamp(offset, TOOLBAR_MARGIN, maxY) }
   }
   // right
-  return { x: vw - TOOLBAR_THICKNESS - TOOLBAR_MARGIN, y: clamp(offset, TOOLBAR_MARGIN, maxY) }
+  return { x: Math.max(TOOLBAR_MARGIN, vw - TOOLBAR_THICKNESS - TOOLBAR_MARGIN), y: clamp(offset, TOOLBAR_MARGIN, maxY) }
 }
 
 function getDefaultPosition(): { position: Position; edge: DockEdge } {
@@ -77,7 +77,7 @@ function findNearestEdge(pos: Position, currentEdge: DockEdge): { edge: DockEdge
 }
 
 export function useToolbarDock(): UseToolbarDockResult {
-  // Lazy initializer — avoids localStorage reads on every render
+  // Lazy initializer — avoids recomputing the default position on every render
   const initRef = useRef<{ position: Position; edge: DockEdge } | null>(null)
   if (!initRef.current) initRef.current = getDefaultPosition()
   const [position, setPositionState] = useState<Position>(initRef.current.position)

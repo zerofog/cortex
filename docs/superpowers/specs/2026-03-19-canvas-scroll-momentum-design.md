@@ -108,7 +108,7 @@ Use manual rAF mocks with callback capture arrays (`installRAFMock`/`stepRAF`/`r
 
 ## Risks
 
-- **Timer sensitivity in tests**: rAF-based tests can be flaky. Use `vi.useFakeTimers()` with `vi.advanceTimersByTime(16)` per frame.
+- **Timer sensitivity in tests**: rAF-based tests can be flaky. Use the manual `requestAnimationFrame` mock pattern described above and advance frames via the mock API (one call per 16ms frame).
 - **Tuning**: `FRICTION = 0.75` is calculated for ~283-333ms coast (10-30px deltas). May need adjustment after manual testing. Constants are named and top-level for easy tuning.
 - **Velocity from deltas**: Wheel `deltaX`/`deltaY` are displacement per event, not true velocity. May feel inconsistent on very fast flicks. See "Velocity capture caveat" above. Start simple, upgrade to rolling estimator if needed.
 - **Background tabs**: Browsers throttle rAF to ~1fps or pause entirely in background tabs. Momentum may appear to freeze and resume on tab switch. Acceptable for a sub-second animation; no mitigation needed.

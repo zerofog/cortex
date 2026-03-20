@@ -63,7 +63,7 @@ export function initSelection(
     if (!designMode) return
     // Clear hover on scroll — the element the user was hovering moved away.
     // Next mousemove will pick up whatever is under the cursor.
-    if (lastHovered !== null) {
+    if (lastHovered != null) {
       lastHovered = null
       onHover(null)
     }

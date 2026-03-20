@@ -63,11 +63,14 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
       setHoveredElement,
       setSelectedElement,
     )
+    // Start with design mode disabled — don't intercept events until activated
+    selectionHandle.setDesignMode(false)
     selectionRef.current = selectionHandle
 
     // Subscribe to server messages
     const unsubscribe = channel.onMessage((msg) => {
       if (msg.type === 'cortex') {
+        selectionRef.current?.setDesignMode(true)
         setActive(true)
       }
       if (msg.type === 'hello') {

@@ -31,10 +31,12 @@ if (import.meta.hot) {
   import.meta.hot.on('${CORTEX_MSG_EVENT}', (data) => {
     window.__cortex_channel__?.handleServerMessage(data);
   });
-  Object.defineProperty(window, '__cortex_send__', {
-    value: (msg) => import.meta.hot.send('${CORTEX_MSG_EVENT}', msg),
-    writable: false, configurable: false,
-  });
+  if (!Object.prototype.hasOwnProperty.call(window, '__cortex_send__')) {
+    Object.defineProperty(window, '__cortex_send__', {
+      value: (msg) => import.meta.hot.send('${CORTEX_MSG_EVENT}', msg),
+      writable: false, configurable: false,
+    });
+  }
 }
 // Load cortex editor browser UI (skip if already loaded via manual script tag)
 if (!document.querySelector('[data-cortex-host]')) {
