@@ -14,9 +14,6 @@ import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
 import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
 
-// TODO(Task 3): Remove when mode logic is stripped from CortexApp
-type CortexMode = 'select' | 'comment' | 'canvas'
-
 export interface CortexAppProps {
   channel: CortexChannel
   shadowRoot: ShadowRoot
@@ -38,10 +35,9 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
   const [hoverEnabled, setHoverEnabled] = useState(true)
   const overrideRef = useRef<CSSOverrideManager | null>(null)
 
-  // Phase 6: Mode, activity, active state, refs
-  const [mode, setMode] = useState<CortexMode>('select')
+  // Phase 6: Activity, active state, refs
   const [activityCount, setActivityCount] = useState(0)
-  const [active, setActive] = useState(true)
+  const [active, setActive] = useState(false)
   const selectionRef = useRef<SelectionHandle | null>(null)
   const selectedElementRef = useRef<HTMLElement | null>(null)
   selectedElementRef.current = selectedElement
@@ -53,9 +49,8 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
     onDragEnd() { panelSnap() },
   })
 
-  // Phase 6: Canvas zoom
-  const canvasActive = active && mode === 'canvas'
-  useCanvasZoom(canvasActive)
+  // Phase 6: Canvas zoom (disabled — preserved for future re-enablement)
+  useCanvasZoom(false)
 
   useEffect(() => {
     // Initialize CSS override manager
@@ -72,6 +67,9 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
 
     // Subscribe to server messages
     const unsubscribe = channel.onMessage((msg) => {
+      if (msg.type === 'cortex') {
+        setActive(true)
+      }
       if (msg.type === 'hello') {
         if (msg.swatches && msg.swatches.length > 0) {
           setSwatches(msg.swatches)
@@ -150,60 +148,37 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
   const handleSelectElement = useCallback((el: HTMLElement | null) => setSelectedElement(el), [])
   const handleToggleHover = useCallback(() => setHoverEnabled(v => !v), [])
 
-  // Phase 6: Mode change handler (functional updater avoids stale closure)
-  const handleModeChange = useCallback((newMode: CortexMode) => {
-    setMode(prev => {
-      if (newMode === prev && newMode === 'canvas') return 'select'
-      return newMode
-    })
-  }, [])
-
-  // Phase 6: Exit handler
+  // Phase 6: Exit handler — notify server, deactivate
   const handleExit = useCallback(() => {
     selectionRef.current?.setDesignMode(false)
     setSelectedElement(null)
     setActive(false)
-  }, [])
+    channel.send({ type: 'cortex-closed' })
+  }, [channel])
 
-  // Click interception stays active in all modes — users can select elements
-  // even while zoomed out in canvas mode
-
-  // Phase 6: Comment mode cursor — crosshair on body while in comment mode
+  // Phase 6: Keyboard shortcuts — Escape to deselect or exit
   useEffect(() => {
-    if (mode !== 'comment') return
-    const prev = document.body.style.cursor
-    document.body.style.cursor = 'crosshair'
-    return () => { document.body.style.cursor = prev }
-  }, [mode])
-
-  // Phase 6: Keyboard shortcuts
-  useEffect(() => {
+    if (!active) return
     function handleKeyDown(e: KeyboardEvent): void {
       const target = e.target as HTMLElement
       const tag = target?.tagName?.toLowerCase()
       if (tag === 'input' || tag === 'textarea' || tag === 'select') return
       if (target?.isContentEditable) return
 
-      const noModifiers = !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey
-      if (e.key === 'v' && noModifiers) {
-        setMode('select')
-        e.stopPropagation()
-      }
-      // 'c' for comment mode — disabled until Phase 7
-      // Cmd+0 for canvas mode — disabled until canvas mode is stable
-      if (e.key === 'Escape' && !selectedElementRef.current) {
-        // In canvas/comment mode: return to select first. Second Escape exits.
-        setMode(prev => {
-          if (prev !== 'select') return 'select'
+      if (e.key === 'Escape') {
+        if (selectedElementRef.current) {
+          // Deselect — stay active
+          setSelectedElement(null)
+        } else {
+          // No selection — exit editor
           handleExit()
-          return prev
-        })
+        }
         e.stopPropagation()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleExit])
+  }, [active, handleExit])
 
   if (!active) return null
 

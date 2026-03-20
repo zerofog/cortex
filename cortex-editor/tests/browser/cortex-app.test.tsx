@@ -7,6 +7,7 @@ import { createShadowHost, createMockChannel, mockGetBoundingClientRect } from '
 vi.mock('../../src/browser/selection.js', () => {
   const cleanupFn = vi.fn()
   const setDesignModeFn = vi.fn()
+  const setInterceptClicksFn = vi.fn()
   let hoverCb: ((el: HTMLElement | null) => void) | null = null
   let selectCb: ((el: HTMLElement | null) => void) | null = null
 
@@ -14,7 +15,7 @@ vi.mock('../../src/browser/selection.js', () => {
     initSelection: vi.fn((_shadow: ShadowRoot, onHover: (el: HTMLElement | null) => void, onSelect: (el: HTMLElement | null) => void) => {
       hoverCb = onHover
       selectCb = onSelect
-      return { cleanup: cleanupFn, setDesignMode: setDesignModeFn }
+      return { cleanup: cleanupFn, setDesignMode: setDesignModeFn, setInterceptClicks: setInterceptClicksFn }
     }),
     _getCallbacks: () => ({ hoverCb, selectCb }),
     _cleanup: cleanupFn,
@@ -41,6 +42,11 @@ describe('CortexApp', () => {
     shadow = sh.shadow
     cleanupHost = sh.cleanup
     return sh
+  }
+
+  async function activateEditor(channel: ReturnType<typeof createMockChannel>) {
+    channel._simulateMessage({ type: 'cortex' } as any)
+    await new Promise(r => setTimeout(r, 10))
   }
 
   it('renders without crash', () => {
@@ -71,6 +77,7 @@ describe('CortexApp', () => {
     const channel = createMockChannel()
     render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
     await new Promise(r => setTimeout(r, 10))
+    await activateEditor(channel)
 
     // Get the hover callback passed to initSelection
     const { _getCallbacks } = await import('../../src/browser/selection.js') as unknown as {
@@ -100,6 +107,7 @@ describe('CortexApp', () => {
     const channel = createMockChannel()
     render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
     await new Promise(r => setTimeout(r, 10))
+    await activateEditor(channel)
 
     const { _getCallbacks } = await import('../../src/browser/selection.js') as unknown as {
       _getCallbacks: () => { selectCb: (el: HTMLElement | null) => void }
@@ -159,6 +167,7 @@ describe('CortexApp', () => {
     const channel = createMockChannel()
     render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
     await new Promise(r => setTimeout(r, 10))
+    await activateEditor(channel)
 
     const { _getCallbacks } = await import('../../src/browser/selection.js') as unknown as {
       _getCallbacks: () => { selectCb: (el: HTMLElement | null) => void }
@@ -221,6 +230,7 @@ describe('CortexApp', () => {
     const channel = createMockChannel()
     render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
     await new Promise(r => setTimeout(r, 10))
+    await activateEditor(channel)
     const toolbar = root.querySelector('.cortex-toolbar')
     expect(toolbar).not.toBeNull()
   })
@@ -230,9 +240,89 @@ describe('CortexApp', () => {
     const channel = createMockChannel()
     render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
     await new Promise(r => setTimeout(r, 10))
+    await activateEditor(channel)
     channel._simulateMessage({ type: 'edit_status', editId: 'e1', status: 'done' })
     await new Promise(r => setTimeout(r, 10))
     const badge = root.querySelector('.cortex-toolbar__badge')
     expect(badge?.textContent).toContain('1')
+  })
+
+  it('starts inactive — no toolbar or overlays rendered', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+    expect(root.querySelector('.cortex-toolbar')).toBeNull()
+  })
+
+  it('activates when receiving cortex message', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+    channel._simulateMessage({ type: 'cortex' } as any)
+    await new Promise(r => setTimeout(r, 10))
+    expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
+  })
+
+  it('ignores duplicate cortex message when already active', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+    channel._simulateMessage({ type: 'cortex' } as any)
+    channel._simulateMessage({ type: 'cortex' } as any)
+    await new Promise(r => setTimeout(r, 10))
+    // Should still have exactly one toolbar
+    const toolbars = root.querySelectorAll('.cortex-toolbar')
+    expect(toolbars.length).toBe(1)
+  })
+
+  it('sends cortex-closed when user exits via Escape', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+
+    // Activate
+    channel._simulateMessage({ type: 'cortex' } as any)
+    await new Promise(r => setTimeout(r, 10))
+
+    // Exit via Escape (no element selected)
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await new Promise(r => setTimeout(r, 10))
+
+    expect(channel._lastSent).toContainEqual({ type: 'cortex-closed' })
+    expect(root.querySelector('.cortex-toolbar')).toBeNull()
+  })
+
+  it('Escape with selection deselects but does not exit', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+
+    // Activate
+    channel._simulateMessage({ type: 'cortex' } as any)
+    await new Promise(r => setTimeout(r, 10))
+
+    // Simulate element selection
+    const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+    const { selectCb } = _getCallbacks()
+    const target = document.createElement('div')
+    document.body.appendChild(target)
+    mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
+    selectCb(target)
+    await new Promise(r => setTimeout(r, 10))
+
+    // Escape deselects, not exits
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await new Promise(r => setTimeout(r, 10))
+
+    expect(root.querySelector('.cortex-toolbar')).not.toBeNull() // still active
+    expect(root.querySelector('.cortex-selection-overlay')).toBeNull() // deselected
+    expect(channel._lastSent).not.toContainEqual({ type: 'cortex-closed' })
+
+    target.remove()
   })
 })
