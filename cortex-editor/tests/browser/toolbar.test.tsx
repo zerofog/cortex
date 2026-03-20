@@ -70,4 +70,22 @@ describe('Toolbar', () => {
     expect(grip).not.toBeNull()
     expect(grip?.tagName.toLowerCase()).not.toBe('button')
   })
+
+  it('ignores pointerdown on badge area (drag restricted to grip)', () => {
+    const { root } = setup({ activityCount: 3 })
+    const toolbar = root.querySelector('.cortex-toolbar') as HTMLElement
+    const badge = root.querySelector('.cortex-toolbar__badge') as HTMLElement
+
+    // Simulate pointerdown on badge — should NOT start drag
+    const downEvent = new PointerEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 100, pointerId: 1 })
+    badge.dispatchEvent(downEvent)
+
+    // Move pointer — toolbar should NOT have moved from initial position
+    const moveEvent = new PointerEvent('pointermove', { bubbles: true, clientX: 200, clientY: 200, pointerId: 1 })
+    toolbar.dispatchEvent(moveEvent)
+
+    const transform = toolbar.style.transform
+    // Should still be at initial position (bottom-center), not at 200,200
+    expect(transform).not.toContain('200px')
+  })
 })
