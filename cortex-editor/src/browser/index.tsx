@@ -16,7 +16,8 @@ let activeChannel: CortexChannel | null = null
  * Exported for testability — auto-activation is handled by the IIFE wrapper below.
  */
 export function bootstrap(): void {
-  if (hostElement) return // Already bootstrapped
+  if (hostElement) return // Already bootstrapped (same script instance)
+  if (document.querySelector('[data-cortex-host]')) return // Already bootstrapped (another script instance)
 
   // Create host element — fixed overlay, pointer-events:none, max z-index
   hostElement = document.createElement('div')
@@ -24,8 +25,8 @@ export function bootstrap(): void {
   hostElement.style.cssText = 'position:fixed;inset:0;z-index:2147483646;pointer-events:none'
   document.documentElement.appendChild(hostElement)
 
-  // Attach Shadow DOM (open for devtools inspection)
-  shadowRoot = hostElement.attachShadow({ mode: 'open' })
+  // Attach closed Shadow DOM — prevents host-page scripts from accessing editor internals
+  shadowRoot = hostElement.attachShadow({ mode: 'closed' })
 
   // Inject isolated CSS
   const style = document.createElement('style')
@@ -38,9 +39,12 @@ export function bootstrap(): void {
   shadowRoot.appendChild(rootElement)
 
   // Detect adapter type and create appropriate channel
-  activeChannel = typeof window.__cortex_send__ === 'function'
-    ? createViteChannel()
-    : createWebSocketChannel()
+  if (typeof window.__cortex_send__ === 'function') {
+    activeChannel = createViteChannel()
+  } else {
+    console.warn('[cortex] __cortex_send__ not found — using WebSocket fallback. If you are using the Vite plugin, remove any manual <script> tags for cortex-browser.js from your index.html.')
+    activeChannel = createWebSocketChannel()
+  }
 
   // Trigger server handshake — server responds with hello + swatches
   activeChannel.send({ type: 'init' })

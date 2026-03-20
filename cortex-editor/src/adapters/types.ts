@@ -60,12 +60,14 @@ export interface ServerChannel {
 
 export type BrowserToServer =
   | { type: 'init' }
+  | { type: 'cortex-closed' }
   | { type: 'edit'; protocolVersion?: number; editId: string; property: string; value: string; source: string; elementSelector: string }
   | { type: 'undo'; protocolVersion?: number; editId?: string }
   | { type: 'redo'; protocolVersion?: number; editId?: string }
   | { type: 'comment'; protocolVersion?: number; elementSource: string; text: string; elementContext?: ElementContext; currentStyles?: Record<string, string> }
 
 export type ServerToBrowser =
+  | { type: 'cortex' }
   | { type: 'hello'; protocolVersion: number; sessionId: string; swatches?: string[] }
   | { type: 'error'; code: string; message: string; editId?: string }
   | { type: 'edit_status'; editId: string; status: 'writing' | 'done' | 'failed'; newToken?: string; reason?: string }

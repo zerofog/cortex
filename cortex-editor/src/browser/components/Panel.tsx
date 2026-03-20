@@ -2,8 +2,7 @@ import type { JSX } from 'preact'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks'
 import type { CSSOverrideManager } from '../override.js'
 import { parseCortexSource, isLibraryComponent, findUserAncestor } from '../label.js'
-import { useDrag } from '../hooks/useDrag.js'
-import { useSnapToEdge, PANEL_WIDTH } from '../hooks/useSnapToEdge.js'
+import { PANEL_WIDTH } from '../hooks/useSnapToEdge.js'
 import { PanelHeader } from './PanelHeader.js'
 import { SpacingSection } from './sections/SpacingSection.js'
 import type { SpacingChange } from './sections/SpacingSection.js'
@@ -47,6 +46,12 @@ export interface PanelProps {
   hasAfter?: boolean
   hoverEnabled?: boolean
   onToggleHover?: () => void
+  position: { x: number; y: number }
+  isSnapping: boolean
+  panelPointerDown: (e: PointerEvent) => void
+  panelPointerMove: (e: PointerEvent) => void
+  panelPointerUp: (e: PointerEvent) => void
+  panelPointerCancel: (e: PointerEvent) => void
 }
 
 function parseSpacingValues(cs: CSSStyleDeclaration) {
@@ -81,6 +86,12 @@ export function Panel({
   hasAfter = false,
   hoverEnabled = true,
   onToggleHover,
+  position,
+  isSnapping,
+  panelPointerDown,
+  panelPointerMove,
+  panelPointerUp,
+  panelPointerCancel,
 }: PanelProps): JSX.Element | null {
   // ALL hooks first — no conditional returns before hooks
   const [contentKey, setContentKey] = useState(0)
@@ -106,12 +117,6 @@ export function Panel({
     }
     defaultStylesRef.current = snapshot
   }, [element]) // only on element change, NOT on styleVersion or activeState
-
-  const { position, isSnapping, setPosition, snap } = useSnapToEdge()
-  const { handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel } = useDrag({
-    onDrag(x, y) { setPosition({ x, y }) },
-    onDragEnd() { snap() },
-  })
 
   useEffect(() => {
     const timer = setTimeout(() => setIsEntering(false), 250)
@@ -279,10 +284,10 @@ export function Panel({
         onClose={onClose}
         onSelectParent={handleSelectParent}
         onSelectChild={handleSelectChild}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerCancel}
+        onPointerDown={panelPointerDown}
+        onPointerMove={panelPointerMove}
+        onPointerUp={panelPointerUp}
+        onPointerCancel={panelPointerCancel}
         hasBefore={hasBefore}
         hasAfter={hasAfter}
         activePseudo={activePseudo}
