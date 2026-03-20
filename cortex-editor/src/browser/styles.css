@@ -27,6 +27,8 @@
 
 .cortex-hover-overlay {
   position: fixed;
+  left: 0;
+  top: 0;
   pointer-events: none;
   border: 2px solid rgba(59, 130, 246, 0.7);
   box-sizing: border-box;
@@ -34,6 +36,8 @@
 
 .cortex-selection-overlay {
   position: fixed;
+  left: 0;
+  top: 0;
   pointer-events: none;
   border: 2.5px solid #3b82f6;
   box-sizing: border-box;
@@ -72,7 +76,6 @@
   position: fixed;
   left: 0;
   top: 0;
-  will-change: transform;
   width: 300px;
   max-height: calc(100vh - 32px);
   background: rgba(255, 255, 255, 0.92);
@@ -96,6 +99,7 @@
 }
 
 .cortex-panel--snapping {
+  will-change: transform;
   transition: transform 350ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
@@ -955,6 +959,8 @@
   background: #f3f4f6;
   border-radius: 6px;
   position: fixed;
+  left: 0;
+  top: 0;
   pointer-events: auto;
   z-index: 1;
   white-space: nowrap;
@@ -1037,7 +1043,6 @@
   position: fixed;
   left: 0;
   top: 0;
-  will-change: transform;
   display: flex;
   align-items: center;
   gap: 0;
@@ -1068,22 +1073,27 @@
 }
 
 .cortex-toolbar--snapping {
+  will-change: transform;
   transition: transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.cortex-toolbar__logo {
+.cortex-toolbar__grip {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
+  width: 20px;
   height: 32px;
   cursor: grab;
-  font-size: 16px;
+  color: #c9cdd3;
   flex-shrink: 0;
   user-select: none;
 }
 
-.cortex-toolbar__logo:active {
+.cortex-toolbar__grip:hover {
+  color: #9ca3af;
+}
+
+.cortex-toolbar__grip:active {
   cursor: grabbing;
 }
 

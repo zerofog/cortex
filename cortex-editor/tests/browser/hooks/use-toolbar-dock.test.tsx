@@ -37,20 +37,18 @@ const flush = (rerender?: () => void) =>
 
 describe('useToolbarDock', () => {
   beforeEach(() => {
-    localStorage.clear()
     Object.defineProperty(window, 'innerWidth', { value: 1440, configurable: true })
     Object.defineProperty(window, 'innerHeight', { value: 900, configurable: true })
   })
 
   afterEach(() => {
-    localStorage.clear()
     vi.useRealTimers()
   })
 
   it('defaults to bottom-center', () => {
     const { result } = renderHook(() => useToolbarDock())
     expect(result.current.edge).toBe('bottom')
-    expect(result.current.position.x).toBe(600) // (1440 - 240) / 2
+    expect(result.current.position.x).toBe(632) // (1440 - 176) / 2
     expect(result.current.position.y).toBe(844) // 900 - 40 - 16
   })
 
@@ -89,21 +87,10 @@ describe('useToolbarDock', () => {
     expect(result.current.isHorizontal).toBe(false)
   })
 
-  it('persists edge to localStorage on snap', async () => {
-    const { result, rerender } = renderHook(() => useToolbarDock())
-    result.current.setPosition({ x: 600, y: 30 })
-    await flush(rerender)
-    result.current.snap()
-    await flush(rerender)
-    const stored = JSON.parse(localStorage.getItem('cortex-toolbar-position') ?? '{}')
-    expect(stored.edge).toBe('top')
-  })
-
-  it('restores edge from localStorage', () => {
-    localStorage.setItem('cortex-toolbar-position', JSON.stringify({ edge: 'left', offset: 400 }))
+  it('does not persist position — resets to bottom-center on fresh mount', () => {
     const { result } = renderHook(() => useToolbarDock())
-    expect(result.current.edge).toBe('left')
-    expect(result.current.isHorizontal).toBe(false)
+    expect(result.current.edge).toBe('bottom')
+    expect(result.current.isHorizontal).toBe(true)
   })
 
   it('isSnapping is true during snap animation', async () => {

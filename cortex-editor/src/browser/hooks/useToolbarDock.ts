@@ -1,16 +1,13 @@
 import { useState, useRef, useCallback, useEffect } from 'preact/hooks'
 
 export const TOOLBAR_THICKNESS = 40
-export const TOOLBAR_LENGTH = 240
+export const TOOLBAR_LENGTH = 176
 export const TOOLBAR_MARGIN = 16
 const SNAP_DURATION = 300
-const STORAGE_KEY = 'cortex-toolbar-position'
 
 export type DockEdge = 'top' | 'bottom' | 'left' | 'right'
 
 interface Position { x: number; y: number }
-
-interface StoredDock { edge: DockEdge; offset: number }
 
 export interface UseToolbarDockResult {
   position: Position
@@ -23,25 +20,6 @@ export interface UseToolbarDockResult {
 
 function isHorizontalEdge(edge: DockEdge): boolean {
   return edge === 'top' || edge === 'bottom'
-}
-
-function loadStored(): StoredDock | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    const VALID_EDGES = new Set<string>(['top', 'bottom', 'left', 'right'])
-    if (parsed && VALID_EDGES.has(parsed.edge) && typeof parsed.offset === 'number' && Number.isFinite(parsed.offset)) {
-      return parsed as StoredDock
-    }
-  } catch { /* corrupt data */ }
-  return null
-}
-
-function saveStored(dock: StoredDock): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(dock))
-  } catch { /* storage full */ }
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -70,11 +48,7 @@ function computePosition(edge: DockEdge, offset: number): Position {
 
 function getDefaultPosition(): { position: Position; edge: DockEdge } {
   if (typeof window === 'undefined') return { position: { x: 0, y: 0 }, edge: 'bottom' }
-
-  const stored = loadStored()
-  if (stored) {
-    return { position: computePosition(stored.edge, stored.offset), edge: stored.edge }
-  }
+  // Default: bottom edge, horizontally centered
   const edge: DockEdge = 'bottom'
   const offset = (window.innerWidth - TOOLBAR_LENGTH) / 2
   return { position: computePosition(edge, offset), edge }
@@ -127,8 +101,6 @@ export function useToolbarDock(): UseToolbarDockResult {
     setEdge(newEdge)
     setIsSnapping(true)
 
-    saveStored({ edge: newEdge, offset })
-
     if (snapTimerRef.current) clearTimeout(snapTimerRef.current)
     snapTimerRef.current = setTimeout(() => {
       snapTimerRef.current = null
@@ -139,9 +111,11 @@ export function useToolbarDock(): UseToolbarDockResult {
   useEffect(() => {
     function handleResize() {
       const currentEdge = edgeRef.current
-      const currentPos = positionRef.current
-      const offset = isHorizontalEdge(currentEdge) ? currentPos.x : currentPos.y
-      const newPos = computePosition(currentEdge, offset)
+      // Re-center on the current edge — don't preserve old offset, it was for the old viewport size
+      const centered = isHorizontalEdge(currentEdge)
+        ? (window.innerWidth - TOOLBAR_LENGTH) / 2
+        : (window.innerHeight - TOOLBAR_LENGTH) / 2
+      const newPos = computePosition(currentEdge, centered)
       positionRef.current = newPos
       setPositionState(newPos)
     }
