@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'preact/hooks'
+import { isOwnUI } from '../selection.js'
 
-const MIN_ZOOM = 0.5
+const MIN_ZOOM = 0.75
 const MAX_ZOOM = 1.0
 const ZOOM_STEP = 0.05
+const CANVAS_MIN_MARGIN = 48
 
 export interface UseCanvasZoomResult {
   scale: number
@@ -13,54 +15,113 @@ function clamp(v: number, min: number, max: number): number {
 }
 
 export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
-  const [scale, setScale] = useState(() =>
-    typeof window !== 'undefined'
-      ? clamp((window.innerWidth - 320) / window.innerWidth, MIN_ZOOM, MAX_ZOOM)
-      : 0.8
-  )
+  const [scale, setScale] = useState(() => 0.85)
+  const scaleRef = useRef(scale)
+  scaleRef.current = scale
   const spaceHeldRef = useRef(false)
-  const panStartRef = useRef<{ x: number; y: number; scrollX: number; scrollY: number } | null>(null)
+  const panRef = useRef({ x: 0, y: 0 })
+  const panStartRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
 
-  // Apply/remove CSS transform on body.
-  // useLayoutEffect fires synchronously after DOM mutations, before paint —
-  // avoids flash of un-scaled content when entering canvas mode.
+  // Save original body/html styles on the false→true transition of `enabled`
+  const wasEnabledRef = useRef(false)
+  const savedTransformRef = useRef('')
+  const savedOriginRef = useRef('')
+  const savedBoxShadowRef = useRef('')
+  const savedBodyBgRef = useRef('')
+  const savedHtmlBgRef = useRef('')
+  const savedOverflowRef = useRef('')
+
+  function restoreSavedStyles(): void {
+    if (wasEnabledRef.current) {
+      document.body.style.transform = savedTransformRef.current
+      document.body.style.transformOrigin = savedOriginRef.current
+      document.body.style.boxShadow = savedBoxShadowRef.current
+      document.body.style.backgroundColor = savedBodyBgRef.current
+      document.documentElement.style.backgroundColor = savedHtmlBgRef.current
+      document.documentElement.style.overflow = savedOverflowRef.current
+      wasEnabledRef.current = false
+    }
+  }
+
+  function applyTransform(s: number): void {
+    const { x, y } = panRef.current
+    // Center body vertically when scaled content is shorter than viewport;
+    // fall back to minimum margin for long pages
+    const scaledBodyH = document.body.scrollHeight * s
+    const vpH = window.innerHeight
+    const topMargin = Math.max(CANVAS_MIN_MARGIN, (vpH - scaledBodyH) / 2)
+    const ty = y + topMargin
+    document.body.style.transform = `translate(${x}px, ${ty}px) scale(${s})`
+    document.body.style.transformOrigin = '50% 0'
+    document.body.style.boxShadow = '0 0 0 1px rgba(0,0,0,0.06), 0 2px 16px rgba(0,0,0,0.1)'
+    // Disable native scroll — pan via Space+drag only (eliminates scroll/visual mismatch)
+    document.documentElement.style.overflow = 'hidden'
+    // Gray artboard surround on html, white page on body — both needed
+    // to prevent html background from propagating through transparent body
+    document.documentElement.style.backgroundColor = '#e5e5e5'
+    document.body.style.backgroundColor = '#ffffff'
+  }
+
+  // Save/restore styles — only depends on [enabled]
   useLayoutEffect(() => {
-    if (enabled) {
-      document.body.style.transform = `scale(${scale})`
-      document.body.style.transformOrigin = '0 0'
-      document.documentElement.style.backgroundColor = '#f5f5f5'
-    } else {
-      document.body.style.transform = ''
-      document.body.style.transformOrigin = ''
-      document.documentElement.style.backgroundColor = ''
+    if (enabled && !wasEnabledRef.current) {
+      savedTransformRef.current = document.body.style.transform
+      savedOriginRef.current = document.body.style.transformOrigin
+      savedBoxShadowRef.current = document.body.style.boxShadow
+      savedBodyBgRef.current = document.body.style.backgroundColor
+      savedHtmlBgRef.current = document.documentElement.style.backgroundColor
+      savedOverflowRef.current = document.documentElement.style.overflow
+      wasEnabledRef.current = true
+      panRef.current = { x: 0, y: 0 }
+    } else if (!enabled) {
+      restoreSavedStyles()
     }
-    return () => {
-      document.body.style.transform = ''
-      document.body.style.transformOrigin = ''
-      document.documentElement.style.backgroundColor = ''
-    }
+    return () => { if (!enabled) return; restoreSavedStyles() }
+  }, [enabled])
+
+  // Apply transform — depends on [enabled, scale]
+  useLayoutEffect(() => {
+    if (enabled) applyTransform(scale)
   }, [enabled, scale])
 
-  // Cmd+scroll to adjust zoom
+  // Recalculate margins on viewport resize
+  useEffect(() => {
+    if (!enabled) return
+    function handleResize() { applyTransform(scaleRef.current) }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [enabled])
+
+  // Cmd+scroll to zoom, regular scroll to pan
   useEffect(() => {
     if (!enabled) return
     function handleWheel(e: WheelEvent): void {
-      if (!e.metaKey && !e.ctrlKey) return
       e.preventDefault()
-      const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP
-      setScale(s => clamp(s + delta, MIN_ZOOM, MAX_ZOOM))
+      if (e.metaKey || e.ctrlKey) {
+        const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP
+        setScale(s => clamp(s + delta, MIN_ZOOM, MAX_ZOOM))
+      } else {
+        panRef.current = {
+          x: panRef.current.x - e.deltaX,
+          y: panRef.current.y - e.deltaY,
+        }
+        applyTransform(scaleRef.current)
+      }
     }
     window.addEventListener('wheel', handleWheel, { passive: false })
     return () => window.removeEventListener('wheel', handleWheel)
   }, [enabled])
 
-  // Space+drag to pan
+  // Space+drag to pan via transform translate
   useEffect(() => {
     if (!enabled) return
+    let savedCursor = ''
 
     function handleKeyDown(e: KeyboardEvent): void {
       if (e.code === 'Space' && !spaceHeldRef.current && !isInputFocused()) {
         spaceHeldRef.current = true
+        savedCursor = document.body.style.cursor
+        document.body.style.cursor = 'grab'
         e.preventDefault()
       }
     }
@@ -68,16 +129,20 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
       if (e.code === 'Space') {
         spaceHeldRef.current = false
         panStartRef.current = null
+        document.body.style.cursor = savedCursor
       }
     }
     function handlePointerDown(e: PointerEvent): void {
       if (spaceHeldRef.current) {
+        // Don't intercept events from Cortex's own Shadow DOM — let panel/toolbar work
+        if (isOwnUI(e)) return
         panStartRef.current = {
           x: e.clientX,
           y: e.clientY,
-          scrollX: window.scrollX,
-          scrollY: window.scrollY,
+          panX: panRef.current.x,
+          panY: panRef.current.y,
         }
+        document.body.style.cursor = 'grabbing'
         e.preventDefault()
       }
     }
@@ -85,9 +150,16 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
       if (!panStartRef.current) return
       const dx = e.clientX - panStartRef.current.x
       const dy = e.clientY - panStartRef.current.y
-      window.scrollTo(panStartRef.current.scrollX - dx, panStartRef.current.scrollY - dy)
+      panRef.current = {
+        x: panStartRef.current.panX + dx,
+        y: panStartRef.current.panY + dy,
+      }
+      applyTransform(scaleRef.current)
     }
     function handlePointerUp(): void {
+      if (panStartRef.current && spaceHeldRef.current) {
+        document.body.style.cursor = 'grab'
+      }
       panStartRef.current = null
     }
 
@@ -104,6 +176,7 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
       window.removeEventListener('pointermove', handlePointerMove)
       window.removeEventListener('pointerup', handlePointerUp)
       window.removeEventListener('pointercancel', handlePointerUp)
+      document.body.style.cursor = savedCursor
       spaceHeldRef.current = false
       panStartRef.current = null
     }
