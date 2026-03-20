@@ -243,6 +243,22 @@ describe('useCanvasZoom', () => {
     unmount()
   })
 
+  it('pan offset is clamped to prevent canvas from going off-screen', async () => {
+    const { unmount } = renderHook(() => useCanvasZoom(true))
+    await new Promise(r => setTimeout(r, 10))
+
+    const getX = (t: string) => parseFloat(t.match(/translate\(([^p]+)px/)![1])
+
+    // Try to pan 50000px to the right
+    dispatchWheel(0, false, -50000)
+    await new Promise(r => setTimeout(r, 10))
+    const x = getX(document.body.style.transform)
+
+    // Should be clamped — not 50000px
+    expect(Math.abs(x)).toBeLessThan(10000)
+    unmount()
+  })
+
   it('Space hold shows grab cursor', async () => {
     const { unmount } = renderHook(() => useCanvasZoom(true))
     await new Promise(r => setTimeout(r, 10))

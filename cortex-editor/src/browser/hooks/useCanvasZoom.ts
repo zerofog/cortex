@@ -8,6 +8,7 @@ const CANVAS_MIN_MARGIN = 48
 const FRICTION = 0.75
 const STOP_THRESHOLD = 0.1
 const LINE_HEIGHT = 40 // px — CSS standard approximation for deltaMode=1
+const MAX_PAN = 5000 // px — generous bound, prevents off-screen loss
 
 function normalizeDelta(e: WheelEvent): { dx: number; dy: number } {
   const mult = e.deltaMode === 1 ? LINE_HEIGHT : e.deltaMode === 2 ? window.innerHeight : 1
@@ -29,6 +30,11 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
   const spaceHeldRef = useRef(false)
   const panRef = useRef({ x: 0, y: 0 })
   const panStartRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
+
+  function clampPan(): void {
+    panRef.current.x = clamp(panRef.current.x, -MAX_PAN, MAX_PAN)
+    panRef.current.y = clamp(panRef.current.y, -MAX_PAN, MAX_PAN)
+  }
 
   // Save original body/html styles on the false→true transition of `enabled`
   const wasEnabledRef = useRef(false)
@@ -123,6 +129,7 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
       velocity.y *= friction
       panRef.current.x += velocity.x
       panRef.current.y += velocity.y
+      clampPan()
       applyTransformPosition(scaleRef.current)
       if (Math.abs(velocity.x) + Math.abs(velocity.y) < STOP_THRESHOLD) {
         rafId = 0
@@ -144,6 +151,7 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
         // Apply immediate pan
         panRef.current.x -= dx
         panRef.current.y -= dy
+        clampPan()
         applyTransformPosition(scaleRef.current)
         // Set velocity and start momentum coast
         // (velocity = negative delta, same direction as the pan)
@@ -204,6 +212,7 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
         x: panStartRef.current.panX + dx,
         y: panStartRef.current.panY + dy,
       }
+      clampPan()
       applyTransformPosition(scaleRef.current)
     }
     function handlePointerUp(): void {
