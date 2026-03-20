@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { Toolbar } from '../../src/browser/components/Toolbar.js'
-import { renderInShadow } from './helpers.js'
+import { renderInShadow, dispatchPointerEvent } from './helpers.js'
 
 describe('Toolbar', () => {
   let cleanup: (() => void) | null = null
@@ -76,16 +76,12 @@ describe('Toolbar', () => {
     const toolbar = root.querySelector('.cortex-toolbar') as HTMLElement
     const badge = root.querySelector('.cortex-toolbar__badge') as HTMLElement
 
+    const initialTransform = toolbar.style.transform
+
     // Simulate pointerdown on badge — should NOT start drag
-    const downEvent = new PointerEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 100, pointerId: 1 })
-    badge.dispatchEvent(downEvent)
+    dispatchPointerEvent(badge, 'pointerdown', { clientX: 100, clientY: 100 })
+    dispatchPointerEvent(toolbar, 'pointermove', { clientX: 200, clientY: 200 })
 
-    // Move pointer — toolbar should NOT have moved from initial position
-    const moveEvent = new PointerEvent('pointermove', { bubbles: true, clientX: 200, clientY: 200, pointerId: 1 })
-    toolbar.dispatchEvent(moveEvent)
-
-    const transform = toolbar.style.transform
-    // Should still be at initial position (bottom-center), not at 200,200
-    expect(transform).not.toContain('200px')
+    expect(toolbar.style.transform).toBe(initialTransform)
   })
 })
