@@ -5,6 +5,12 @@ const MIN_ZOOM = 0.75
 const MAX_ZOOM = 1.0
 const ZOOM_STEP = 0.05
 const CANVAS_MIN_MARGIN = 48
+const LINE_HEIGHT = 40 // px — CSS standard approximation for deltaMode=1
+
+function normalizeDelta(e: WheelEvent): { dx: number; dy: number } {
+  const mult = e.deltaMode === 1 ? LINE_HEIGHT : e.deltaMode === 2 ? window.innerHeight : 1
+  return { dx: e.deltaX * mult, dy: e.deltaY * mult }
+}
 
 export interface UseCanvasZoomResult {
   scale: number
@@ -107,9 +113,10 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
         const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP
         setScale(s => clamp(s + delta, MIN_ZOOM, MAX_ZOOM))
       } else {
+        const { dx, dy } = normalizeDelta(e)
         panRef.current = {
-          x: panRef.current.x - e.deltaX,
-          y: panRef.current.y - e.deltaY,
+          x: panRef.current.x - dx,
+          y: panRef.current.y - dy,
         }
         applyTransformPosition(scaleRef.current)
       }

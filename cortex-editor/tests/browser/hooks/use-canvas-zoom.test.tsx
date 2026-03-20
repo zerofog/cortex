@@ -91,9 +91,10 @@ describe('useCanvasZoom', () => {
 
   // Helper: happy-dom's WheelEvent may not propagate metaKey from init,
   // so we set it explicitly via Object.defineProperty
-  function dispatchWheel(deltaY: number, metaKey: boolean, deltaX = 0): void {
+  function dispatchWheel(deltaY: number, metaKey: boolean, deltaX = 0, deltaMode = 0): void {
     const event = new WheelEvent('wheel', { deltaY, deltaX, bubbles: true, cancelable: true })
     Object.defineProperty(event, 'metaKey', { value: metaKey })
+    if (deltaMode !== 0) Object.defineProperty(event, 'deltaMode', { value: deltaMode })
     window.dispatchEvent(event)
   }
 
@@ -256,6 +257,23 @@ describe('useCanvasZoom', () => {
 
     // The y-offset should reflect the pan, not be reset to the default margin
     expect(Math.abs(zoomY - panY)).toBeLessThan(50) // allows for margin recalc on scale change
+    unmount()
+  })
+
+  it('normalizes line-based deltaMode for Firefox mouse', async () => {
+    const { unmount } = renderHook(() => useCanvasZoom(true))
+    await new Promise(r => setTimeout(r, 10))
+    const before = document.body.style.transform
+    const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
+
+    // Simulate Firefox mouse: deltaMode=1 (lines), deltaY=3
+    dispatchWheel(3, false, 0, 1) // deltaMode=1 (DOM_DELTA_LINE)
+    await new Promise(r => setTimeout(r, 10))
+
+    const after = document.body.style.transform
+    // 3 lines * ~40px/line = ~120px of pan, not 3px
+    const deltaY = getY(before) - getY(after)
+    expect(deltaY).toBeGreaterThan(50)
     unmount()
   })
 
