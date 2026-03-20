@@ -3,6 +3,15 @@ import { render } from 'preact'
 import { Panel } from '../../src/browser/components/Panel.js'
 import { renderInShadow, mockGetComputedStyle } from './helpers.js'
 
+const panelPositionProps = {
+  position: { x: 1000, y: 12 },
+  isSnapping: false,
+  panelPointerDown: vi.fn(),
+  panelPointerMove: vi.fn(),
+  panelPointerUp: vi.fn(),
+  panelPointerCancel: vi.fn(),
+}
+
 describe('Panel', () => {
   let cleanup: (() => void) | null = null
 
@@ -36,6 +45,7 @@ describe('Panel', () => {
         overrideManager={overrideManager as any}
         onClose={onClose}
         onSelectElement={onSelectElement}
+        {...panelPositionProps}
       />
     )
     cleanup = () => {
@@ -87,6 +97,7 @@ describe('Panel', () => {
         overrideManager={{} as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        {...panelPositionProps}
       />,
       container,
     )
@@ -118,7 +129,7 @@ describe('Panel', () => {
 
     render(
       <Panel element={el1} overrideManager={overrideManager as any}
-        onClose={onClose} onSelectElement={onSelectElement} />,
+        onClose={onClose} onSelectElement={onSelectElement} {...panelPositionProps} />,
       container,
     )
     await new Promise(r => setTimeout(r, 0))
@@ -130,7 +141,7 @@ describe('Panel', () => {
     // Switch element — should trigger cross-fade
     render(
       <Panel element={el2} overrideManager={overrideManager as any}
-        onClose={onClose} onSelectElement={onSelectElement} />,
+        onClose={onClose} onSelectElement={onSelectElement} {...panelPositionProps} />,
       container,
     )
     await new Promise(r => setTimeout(r, 0))
@@ -167,7 +178,7 @@ describe('Panel', () => {
 
     render(
       <Panel element={el1} overrideManager={overrideManager as any}
-        onClose={() => {}} onSelectElement={() => {}} />,
+        onClose={() => {}} onSelectElement={() => {}} {...panelPositionProps} />,
       container,
     )
     // Advance enough for Preact's effect scheduling (>0ms needed under fake timers)
@@ -176,7 +187,7 @@ describe('Panel', () => {
     // Switch element
     render(
       <Panel element={el2} overrideManager={overrideManager as any}
-        onClose={() => {}} onSelectElement={() => {}} />,
+        onClose={() => {}} onSelectElement={() => {}} {...panelPositionProps} />,
       container,
     )
     // Flush effects — Preact needs macrotask cycles under fake timers
@@ -226,6 +237,7 @@ describe('Panel — library detection wiring', () => {
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        {...panelPositionProps}
       />,
       container,
     )
@@ -260,6 +272,7 @@ describe('Panel — library detection wiring', () => {
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        {...panelPositionProps}
       />,
       container,
     )
@@ -307,6 +320,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         activeState="default"
+        {...panelPositionProps}
       />,
       container,
     )
@@ -323,6 +337,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         activeState="hover"
+        {...panelPositionProps}
       />,
       container,
     )
@@ -361,6 +376,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         hasBefore={true}
+        {...panelPositionProps}
       />,
       container,
     )
@@ -403,6 +419,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         activeState="default"
+        {...panelPositionProps}
       />,
       container,
     )
@@ -433,6 +450,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         activeState="default"
+        {...panelPositionProps}
       />,
       container,
     )
@@ -452,6 +470,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         activeState="hover"
+        {...panelPositionProps}
       />,
       container,
     )
@@ -480,6 +499,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         activeState="default"
+        {...panelPositionProps}
       />,
       container,
     )
@@ -508,6 +528,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onSelectElement={() => {}}
         hasBefore={true}
         hasAfter={true}
+        {...panelPositionProps}
       />,
       container,
     )
@@ -539,6 +560,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        {...panelPositionProps}
       />,
       container,
     )
@@ -565,6 +587,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         hasBefore={true}
+        {...panelPositionProps}
       />,
       container,
     )
@@ -607,6 +630,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         hasBefore={true}
+        {...panelPositionProps}
       />,
       container,
     )
@@ -624,6 +648,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         hasBefore={true}
+        {...panelPositionProps}
       />,
       container,
     )

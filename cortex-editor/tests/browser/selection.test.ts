@@ -178,4 +178,52 @@ describe('initSelection', () => {
     handle.cleanup()
     restoreEfp()
   })
+
+  it('setInterceptClicks(false) allows clicks through without interception', () => {
+    const target = document.createElement('div')
+    document.body.appendChild(target)
+    const restoreEfp = mockElementFromPoint(target)
+    const handle = initSelection(shadow, onHover, onSelect)
+
+    handle.setInterceptClicks(false)
+    const event = dispatchMouseEvent(target, 'click', { clientX: 50, clientY: 50 })
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(event.defaultPrevented).toBe(false)
+
+    handle.cleanup()
+    restoreEfp()
+    target.remove()
+  })
+
+  it('hover still works when setInterceptClicks(false)', () => {
+    const target = document.createElement('div')
+    document.body.appendChild(target)
+    const restoreEfp = mockElementFromPoint(target)
+    const handle = initSelection(shadow, onHover, onSelect)
+
+    handle.setInterceptClicks(false)
+    dispatchMouseEvent(target, 'mousemove', { clientX: 50, clientY: 50 })
+    expect(onHover).toHaveBeenCalledWith(target)
+
+    handle.cleanup()
+    restoreEfp()
+    target.remove()
+  })
+
+  it('setInterceptClicks(true) re-enables click interception', () => {
+    const target = document.createElement('div')
+    document.body.appendChild(target)
+    const restoreEfp = mockElementFromPoint(target)
+    const handle = initSelection(shadow, onHover, onSelect)
+
+    handle.setInterceptClicks(false)
+    handle.setInterceptClicks(true)
+    const event = dispatchMouseEvent(target, 'click', { clientX: 50, clientY: 50 })
+    expect(onSelect).toHaveBeenCalledWith(target)
+    expect(event.defaultPrevented).toBe(true)
+
+    handle.cleanup()
+    restoreEfp()
+    target.remove()
+  })
 })

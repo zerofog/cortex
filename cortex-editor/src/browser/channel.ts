@@ -12,15 +12,19 @@ export function createViteChannel(): CortexChannel {
   const handlers: Array<(msg: ServerToBrowser) => void> = []
 
   // Register receiver — Vite adapter calls handleServerMessage when server sends data
-  window.__cortex_channel__ = {
-    handleServerMessage(data: ServerToBrowser) {
-      for (const h of [...handlers]) {
-        try { h(data) } catch (err) {
-          console.warn('[cortex] Message handler error:', err instanceof Error ? err.message : err)
+  Object.defineProperty(window, '__cortex_channel__', {
+    value: Object.freeze({
+      handleServerMessage(data: ServerToBrowser) {
+        for (const h of [...handlers]) {
+          try { h(data) } catch (err) {
+            console.warn('[cortex] Message handler error:', err instanceof Error ? err.message : err)
+          }
         }
-      }
-    },
-  }
+      },
+    }),
+    writable: false,
+    configurable: true, // configurable so dispose() can clean up
+  })
 
   return {
     send(msg: BrowserToServer): void {

@@ -3,11 +3,16 @@ import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
 import type { CortexChannel } from '../../adapters/types.js'
 import { CSSOverrideManager } from '../override.js'
 import { initSelection } from '../selection.js'
+import type { SelectionHandle } from '../selection.js'
 import { detectStates } from '../state-detector.js'
 import type { StateDeclarations, InteractionState } from '../state-detector.js'
 import { HoverOverlay } from './HoverOverlay.js'
 import { SelectionOverlay } from './SelectionOverlay.js'
 import { Panel } from './Panel.js'
+import { Toolbar } from './Toolbar.js'
+import { useDrag } from '../hooks/useDrag.js'
+import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
+import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
 
 export interface CortexAppProps {
   channel: CortexChannel
@@ -16,9 +21,10 @@ export interface CortexAppProps {
 
 /**
  * Root component. Wires selection events, overlay rendering,
- * CSS override manager, and channel message handling.
+ * CSS override manager, channel message handling, toolbar modes,
+ * auto-position, auto-scroll, canvas zoom, and keyboard shortcuts.
  */
-export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element {
+export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element | null {
   const [hoveredElement, setHoveredElement] = useState<HTMLElement | null>(null)
   const [selectedElement, setSelectedElement] = useState<HTMLElement | null>(null)
   const [swatches, setSwatches] = useState<string[] | undefined>(undefined)
@@ -29,30 +35,58 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
   const [hoverEnabled, setHoverEnabled] = useState(true)
   const overrideRef = useRef<CSSOverrideManager | null>(null)
 
+  // Phase 6: Activity, active state, refs
+  const [activityCount, setActivityCount] = useState(0)
+  const [active, setActive] = useState(false)
+  const selectionRef = useRef<SelectionHandle | null>(null)
+  const selectedElementRef = useRef<HTMLElement | null>(null)
+  selectedElementRef.current = selectedElement
+
+  // Phase 6: Panel positioning (lifted from Panel)
+  const { position: panelPosition, isSnapping: panelSnapping, setPosition: setPanelPosition, snap: panelSnap } = useSnapToEdge()
+  const { handlePointerDown: panelPointerDown, handlePointerMove: panelPointerMove, handlePointerUp: panelPointerUp, handlePointerCancel: panelPointerCancel } = useDrag({
+    onDrag(x, y) { setPanelPosition({ x, y }) },
+    onDragEnd() { panelSnap() },
+  })
+
+  // Phase 6: Canvas zoom (disabled — preserved for future re-enablement)
+  useCanvasZoom(false)
+
   useEffect(() => {
     // Initialize CSS override manager
     const overrideManager = new CSSOverrideManager()
     overrideRef.current = overrideManager
 
     // Initialize selection system
-    const { cleanup: cleanupSelection } = initSelection(
+    const selectionHandle = initSelection(
       shadowRoot,
       setHoveredElement,
       setSelectedElement,
     )
+    // Start with design mode disabled — don't intercept events until activated
+    selectionHandle.setDesignMode(false)
+    selectionRef.current = selectionHandle
 
     // Subscribe to server messages
     const unsubscribe = channel.onMessage((msg) => {
+      if (msg.type === 'cortex') {
+        selectionRef.current?.setDesignMode(true)
+        setActive(true)
+      }
       if (msg.type === 'hello') {
         if (msg.swatches && msg.swatches.length > 0) {
           setSwatches(msg.swatches)
         }
       }
+      if (msg.type === 'edit_status' && msg.status === 'done') {
+        setActivityCount(c => c + 1)
+      }
     })
 
     return () => {
       unsubscribe()
-      cleanupSelection()
+      selectionHandle.cleanup()
+      selectionRef.current = null
       overrideManager.dispose()
       overrideRef.current = null
     }
@@ -81,6 +115,14 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
     const afterContent = getComputedStyle(selectedElement, '::after').content
     setHasBefore(beforeContent !== 'none' && beforeContent !== '')
     setHasAfter(afterContent !== 'none' && afterContent !== '')
+
+    // 6.3: Auto-scroll — bring off-viewport elements into view
+    const rect = selectedElement.getBoundingClientRect()
+    const offScreen = rect.top < 0 || rect.bottom > window.innerHeight ||
+                      rect.left < 0 || rect.right > window.innerWidth
+    if (offScreen) {
+      selectedElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
   }, [selectedElement])
 
   // Handle state changes from the lens overlay
@@ -109,6 +151,40 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
   const handleSelectElement = useCallback((el: HTMLElement | null) => setSelectedElement(el), [])
   const handleToggleHover = useCallback(() => setHoverEnabled(v => !v), [])
 
+  // Phase 6: Exit handler — notify server, deactivate
+  const handleExit = useCallback(() => {
+    selectionRef.current?.setDesignMode(false)
+    setSelectedElement(null)
+    setActive(false)
+    channel.send({ type: 'cortex-closed' })
+  }, [channel])
+
+  // Phase 6: Keyboard shortcuts — Escape to deselect or exit
+  useEffect(() => {
+    if (!active) return
+    function handleKeyDown(e: KeyboardEvent): void {
+      const target = e.target as HTMLElement
+      const tag = target?.tagName?.toLowerCase()
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return
+      if (target?.isContentEditable) return
+
+      if (e.key === 'Escape') {
+        if (selectedElementRef.current) {
+          // Deselect — stay active
+          setSelectedElement(null)
+        } else {
+          // No selection — exit editor
+          handleExit()
+        }
+        e.stopPropagation()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [active, handleExit])
+
+  if (!active) return null
+
   return (
     <>
       <HoverOverlay element={hoverEnabled ? hoveredElement : null} />
@@ -131,8 +207,18 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
           hasAfter={hasAfter}
           hoverEnabled={hoverEnabled}
           onToggleHover={handleToggleHover}
+          position={panelPosition}
+          isSnapping={panelSnapping}
+          panelPointerDown={panelPointerDown}
+          panelPointerMove={panelPointerMove}
+          panelPointerUp={panelPointerUp}
+          panelPointerCancel={panelPointerCancel}
         />
       )}
+      <Toolbar
+        activityCount={activityCount}
+        onClose={handleExit}
+      />
     </>
   )
 }

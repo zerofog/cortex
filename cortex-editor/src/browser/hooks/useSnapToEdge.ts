@@ -99,8 +99,14 @@ export function useSnapToEdge(): UseSnapToEdgeResult {
 
   useEffect(() => {
     function handleResize() {
+      // Snap to nearest horizontal edge unconditionally on resize — no threshold.
+      // Without this, expanding the viewport leaves the panel stranded in the middle
+      // because it's too far from the new edge to trigger the 80px snap threshold.
       setPositionState(prev => {
-        const next = normalizePosition(prev)
+        const { minX, maxX, minY, maxY } = getPanelBounds()
+        const y = clamp(prev.y, minY, maxY)
+        const x = Math.abs(prev.x - minX) <= Math.abs(prev.x - maxX) ? minX : maxX
+        const next = { x, y }
         positionRef.current = next
         return next
       })
