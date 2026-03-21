@@ -52,8 +52,13 @@ if (command === 'mcp') {
     process.exit(1)
   }
 } else if (command === 'init') {
-  console.error('cortex init is not yet implemented. See ZF0-912.')
-  process.exit(1)
+  try {
+    const { runInit } = await import('./init.js')
+    await runInit()
+  } catch (err) {
+    console.error(`[cortex] ${err instanceof Error ? err.message : String(err)}`)
+    process.exit(1)
+  }
 } else {
   console.error(`Unknown command: ${command}`)
   process.exit(1)
