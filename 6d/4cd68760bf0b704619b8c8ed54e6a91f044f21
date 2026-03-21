@@ -1,0 +1,40 @@
+cortex-editor/tests/cli/init.test.ts
+  b3ccfe4c6f7ddd65 1-168
+cortex-editor/src/cli/init.ts
+  b3ccfe4c6f7ddd65 1-94
+cortex-editor/src/cli/index.ts
+  b3ccfe4c6f7ddd65 55-61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.17",
+  "base_commit_sha": "6d4cd68760bf0b704619b8c8ed54e6a91f044f21",
+  "prompts": {
+    "b3ccfe4c6f7ddd65": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f0fd65dc-e084-431c-a438-c200edfff516",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 274,
+      "total_deletions": 7,
+      "accepted_lines": 269,
+      "overriden_lines": 0
+    },
+    "c2489f1e2362dd2d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f1d3034f-c385-4bad-9051-3e451cf345e7",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 401,
+      "overriden_lines": 0
+    }
+  }
+}
