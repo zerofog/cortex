@@ -43,6 +43,16 @@ export default defineConfig([
     dts: true,
     external: externals,
   },
+  // CLI entry — cortex mcp / cortex init
+  {
+    entry: ['src/cli/index.ts'],
+    outDir: 'dist/cli',
+    format: ['esm'],
+    target: 'node20',
+    sourcemap: true,
+    banner: { js: '#!/usr/bin/env node' },
+    external: [...externals, '@modelcontextprotocol/sdk', 'zod'],
+  },
   // Browser-side: Preact UI bundled as IIFE for Shadow DOM injection
   {
     entry: ['src/browser/index.tsx'],
