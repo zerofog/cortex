@@ -1,8 +1,11 @@
 import type { Plugin, ResolvedConfig, HmrContext } from 'vite'
 import type { SourceMapInput } from 'rollup'
+import type { IncomingMessage } from 'http'
+import type { Duplex } from 'stream'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { WebSocketServer, WebSocket } from 'ws'
 import { createSourceTransform } from './source-transform.js'
 import type { ServerChannel, BrowserToServer, ServerToBrowser } from './types.js'
 import { TailwindResolver } from '../core/tailwind-resolver.js'
@@ -16,6 +19,12 @@ const CORTEX_CLIENT_PATH = '/@cortex/client.js'
 const CORTEX_BROWSER_PATH = '/@cortex/browser.js'
 const VIRTUAL_CORTEX_CLIENT = '\0cortex-client'
 const CORTEX_MSG_EVENT = 'cortex:msg'
+
+// CLI WebSocket bridge constants
+const ALLOWED_ORIGINS = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/
+const CLI_ALLOWED_TYPES = new Set(['cortex'])
+const HEARTBEAT_INTERVAL = 30_000
+const MAX_CLI_CONNECTIONS = 5
 
 // Resolve browser IIFE path relative to this file (dist/vite/vite.js → dist/browser/index.js)
 // CJS: __dirname is reliable. ESM: use import.meta.url.
@@ -52,6 +61,31 @@ if (!document.querySelector('[data-cortex-host]')) {
 let channelInstance: ServerChannel | null = null
 const hmrCallbacks: ((files: string[]) => void)[] = []
 
+// CLI WebSocket bridge state
+let cliWss: InstanceType<typeof WebSocketServer> | null = null
+const cliClients = new Set<InstanceType<typeof WebSocket>>()
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+const aliveFlags = new WeakMap<InstanceType<typeof WebSocket>, boolean>()
+let upgradeHandlerRef: ((req: IncomingMessage, socket: Duplex, head: Buffer) => void) | null = null
+let portFilePath: string | null = null
+let editorActive = false
+let browserConnected = false
+
+/** Forward a message to all connected CLI WebSocket clients. */
+function forwardToCLI(msg: unknown): void {
+  if (cliClients.size === 0) return
+  try {
+    const data = JSON.stringify(msg)
+    for (const client of cliClients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(data)
+      }
+    }
+  } catch {
+    // Don't crash on serialize failure — matches CortexTransport.broadcast()
+  }
+}
+
 export function getChannel(): ServerChannel {
   if (!channelInstance) {
     throw new Error(
@@ -77,6 +111,18 @@ export function onHMRUpdate(cb: (files: string[]) => void): () => void {
 export function _resetForTesting(): void {
   channelInstance = null
   hmrCallbacks.length = 0
+  // CLI bridge cleanup
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null }
+  for (const client of cliClients) client.terminate()
+  cliClients.clear()
+  if (cliWss) { cliWss.close(); cliWss = null }
+  editorActive = false
+  browserConnected = false
+  if (portFilePath) {
+    try { fs.unlinkSync(portFilePath) } catch {}
+    portFilePath = null
+  }
+  upgradeHandlerRef = null
 }
 
 export function cortexEditor(_options?: CortexEditorOptions): Plugin {
@@ -126,6 +172,19 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
     },
 
     configureServer(server) {
+      // Clean up CLI connections from a previous configureServer() call (Vite restart)
+      if (cliClients.size > 0) {
+        for (const client of cliClients) client.terminate()
+        cliClients.clear()
+      }
+      if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null }
+      if (cliWss) { cliWss.close(); cliWss = null }
+      if (upgradeHandlerRef && server.httpServer) {
+        server.httpServer.removeListener('upgrade', upgradeHandlerRef)
+      }
+      editorActive = false
+      browserConnected = false
+
       // Serve browser IIFE — read fresh on each request so rebuilds take effect without restart
       server.middlewares.use(CORTEX_BROWSER_PATH, (_req, res, next) => {
         let content: string
@@ -153,6 +212,12 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       // Vite 5.1+ API: server.hot replaces deprecated server.ws
       let helloSent = false
       const hotHandler = (data: BrowserToServer) => {
+        // Forward ALL browser messages to CLI clients (before init guard)
+        forwardToCLI(data)
+
+        // Track state from browser messages
+        if (data.type === 'cortex-closed') editorActive = false
+
         // Send hello with swatches on first message (typically 'init') from browser
         if (!helloSent && channelInstance) {
           helloSent = true // synchronous guard prevents duplicate sends
@@ -166,8 +231,13 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             })
           })
         }
-        // Don't forward 'init' to application message handlers
-        if (data.type === 'init') return
+
+        // Track browser connection + don't forward 'init' to application handlers
+        if (data.type === 'init') {
+          browserConnected = true
+          return
+        }
+
         const handlers = [...messageHandlers]
         for (const h of handlers) {
           try { h(data) } catch (err) {
@@ -180,12 +250,15 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       // send() and broadcast() are identical because Vite's server.hot
       // has no per-client targeting — all messages go to all connected tabs.
       // Both retained for intent clarity in calling code.
+      // forwardToCLI echoes server→browser messages to connected CLI clients.
       channelInstance = {
         send(msg: ServerToBrowser) {
           server.hot.send(CORTEX_MSG_EVENT, msg)
+          forwardToCLI(msg)
         },
         broadcast(msg: ServerToBrowser) {
           server.hot.send(CORTEX_MSG_EVENT, msg)
+          forwardToCLI(msg)
         },
         onMessage(handler: (msg: BrowserToServer) => void): () => void {
           messageHandlers.push(handler)
@@ -197,7 +270,122 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         async dispose() {
           server.hot.off(CORTEX_MSG_EVENT, hotHandler)
           messageHandlers.length = 0
+
+          // CLI WebSocket bridge cleanup
+          if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null }
+          for (const client of cliClients) client.terminate()
+          cliClients.clear()
+          if (cliWss) { cliWss.close(); cliWss = null }
+          if (upgradeHandlerRef && server.httpServer) {
+            server.httpServer.removeListener('upgrade', upgradeHandlerRef)
+            upgradeHandlerRef = null
+          }
+          if (portFilePath) {
+            try { fs.unlinkSync(portFilePath) } catch {}
+            portFilePath = null
+          }
         },
+      }
+
+      // --- CLI WebSocket bridge ---
+      cliWss = new WebSocketServer({
+        noServer: true,
+        maxPayload: 64 * 1024,
+        verifyClient: ({ origin }: { origin: string }) => {
+          if (!origin) return true // non-browser clients (CLI) don't send Origin
+          return ALLOWED_ORIGINS.test(origin)
+        },
+      })
+
+      cliWss.on('connection', (ws) => {
+        if (cliClients.size >= MAX_CLI_CONNECTIONS) {
+          ws.close(1013, 'Too many CLI connections')
+          return
+        }
+
+        cliClients.add(ws)
+        aliveFlags.set(ws, true)
+
+        // Send current status on connect (untyped JSON — not part of ServerToBrowser protocol)
+        ws.send(JSON.stringify({ type: 'cortex-status', editorActive, browserConnected }))
+
+        ws.on('pong', () => { aliveFlags.set(ws, true) })
+
+        ws.on('message', (raw) => {
+          let parsed: unknown
+          try { parsed = JSON.parse(raw.toString()) } catch { return }
+          if (typeof parsed !== 'object' || parsed === null || !('type' in parsed)) return
+          const type = (parsed as { type: unknown }).type
+          if (typeof type !== 'string') return
+
+          // Track state from CLI commands
+          if (type === 'cortex') editorActive = true
+
+          // Only forward allowed message types to browser
+          // Reconstruct message — don't forward arbitrary properties from CLI
+          if (!CLI_ALLOWED_TYPES.has(type)) return
+          if (type === 'cortex' && channelInstance) {
+            channelInstance.send({ type: 'cortex' })
+          }
+        })
+
+        ws.on('close', () => cliClients.delete(ws))
+        ws.on('error', () => cliClients.delete(ws))
+      })
+
+      // Heartbeat — 30s ping/pong, matching CortexTransport pattern
+      heartbeatTimer = setInterval(() => {
+        for (const client of cliClients) {
+          if (!aliveFlags.get(client)) {
+            client.terminate()
+            cliClients.delete(client)
+            continue
+          }
+          aliveFlags.set(client, false)
+          try { client.ping() } catch { cliClients.delete(client) }
+        }
+      }, HEARTBEAT_INTERVAL)
+      heartbeatTimer.unref()
+
+      // WebSocket upgrade handler — route /@cortex/ws to CLI WSS
+      upgradeHandlerRef = (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+        if (req.url !== '/@cortex/ws') return
+        // Do NOT close the socket for non-matching paths — Vite's HMR handler needs them
+
+        // Host header validation — DNS rebinding defense
+        // WebSocket upgrades are HTTP/1.1 (required by spec) so Host must be present.
+        // Reject missing or non-localhost Host to prevent DNS rebinding attacks.
+        const host = req.headers.host
+        if (!host || !ALLOWED_ORIGINS.test(`http://${host}`)) {
+          socket.destroy()
+          return
+        }
+
+        if (!cliWss) { socket.destroy(); return }
+        cliWss.handleUpgrade(req, socket, head, (ws: InstanceType<typeof WebSocket>) => {
+          if (!cliWss) { ws.terminate(); return }
+          cliWss.emit('connection', ws, req)
+        })
+      }
+
+      if (server.httpServer) {
+        server.httpServer.on('upgrade', upgradeHandlerRef)
+
+        // Write port file for MCP discovery (non-fatal — convenience for auto-discovery)
+        portFilePath = path.join(config.root, '.cortex', 'port')
+        server.httpServer.on('listening', () => {
+          const addr = server.httpServer!.address()
+          if (addr && typeof addr === 'object') {
+            try {
+              fs.mkdirSync(path.dirname(portFilePath!), { recursive: true })
+              fs.writeFileSync(portFilePath!, String(addr.port))
+            } catch (err) {
+              console.warn('[cortex] Could not write port file for CLI auto-discovery:', err instanceof Error ? err.message : err)
+            }
+          }
+        })
+      } else {
+        console.warn('[cortex] No httpServer — running in middleware mode. CLI connections unavailable.')
       }
     },
 
