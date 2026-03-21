@@ -1,4 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createServer, type Server as HttpServer } from 'http'
+import fs from 'fs'
+import os from 'os'
+import pathMod from 'path'
+import WebSocket from 'ws'
 import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting } from '../../src/adapters/vite.js'
 import type { Plugin } from 'vite'
 
@@ -373,5 +378,360 @@ describe('cortexEditor Vite plugin', () => {
       ;(plugin.handleHotUpdate as Function)(hmrContext)
       expect(files).toHaveLength(0)
     })
+  })
+})
+
+// --- CLI WebSocket bridge tests ---
+// These use a real HTTP server + WebSocket clients (matching transport.test.ts pattern)
+
+describe('CLI WebSocket bridge', () => {
+  let httpServer: HttpServer
+  let serverPort: number
+  let tmpDir: string
+  const openClients: WebSocket[] = []
+
+  function mockServerWithHttp(http: HttpServer) {
+    const handlers = new Map<string, Function>()
+    const offHandlers = new Map<string, Function>()
+    const sent: { event: string; data: unknown }[] = []
+    return {
+      middlewares: { use: vi.fn() },
+      httpServer: http,
+      hot: {
+        on(event: string, handler: Function) { handlers.set(event, handler) },
+        off(event: string, handler: Function) { offHandlers.set(event, handler) },
+        send(event: string, data: unknown) { sent.push({ event, data }) },
+        _trigger(event: string, data: unknown) { handlers.get(event)?.(data) },
+      },
+      _handlers: handlers,
+      _offHandlers: offHandlers,
+      _sent: sent,
+    }
+  }
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'cortex-ws-test-'))
+  })
+
+  async function setupServer() {
+    const plugin = initPlugin({ root: tmpDir })
+    httpServer = createServer()
+    const server = mockServerWithHttp(httpServer)
+    ;(plugin.configureServer as Function)(server)
+
+    await new Promise<void>((resolve) => {
+      httpServer.listen(0, '127.0.0.1', () => resolve())
+    })
+    const addr = httpServer.address()
+    serverPort = (addr as any).port
+
+    return { plugin, server }
+  }
+
+  type CLIConnection = { ws: WebSocket; nextMessage: () => Promise<any> }
+
+  async function connectCLI(opts?: { headers?: Record<string, string> }): Promise<CLIConnection> {
+    const ws = new WebSocket(`ws://127.0.0.1:${serverPort}/@cortex/ws`, {
+      headers: opts?.headers,
+    })
+
+    // Attach message queue BEFORE open to catch cortex-status without race
+    const queue: any[] = []
+    const waiters: ((msg: any) => void)[] = []
+    ws.on('message', (raw) => {
+      const msg = JSON.parse(raw.toString())
+      const waiter = waiters.shift()
+      if (waiter) waiter(msg)
+      else queue.push(msg)
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      ws.on('open', resolve)
+      ws.on('error', reject)
+    })
+    openClients.push(ws)
+
+    return {
+      ws,
+      nextMessage(): Promise<any> {
+        const buffered = queue.shift()
+        if (buffered !== undefined) return Promise.resolve(buffered)
+        return new Promise((resolve) => waiters.push(resolve))
+      },
+    }
+  }
+
+  afterEach(async () => {
+    for (const ws of openClients) {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.terminate()
+      }
+    }
+    openClients.length = 0
+    _resetForTesting()
+    if (httpServer?.listening) {
+      await new Promise<void>((resolve) => httpServer.close(() => resolve()))
+    }
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('accepts WebSocket upgrade at /@cortex/ws path', async () => {
+    await setupServer()
+    const { ws } = await connectCLI()
+    expect(ws.readyState).toBe(WebSocket.OPEN)
+  })
+
+  it('sends cortex-status on CLI connect', async () => {
+    await setupServer()
+    const { nextMessage } = await connectCLI()
+    const msg = await nextMessage()
+    expect(msg).toEqual({
+      type: 'cortex-status',
+      editorActive: false,
+      browserConnected: false,
+    })
+  })
+
+  it('sends cortex-status with browserConnected after init', async () => {
+    const { server } = await setupServer()
+    server.hot._trigger('cortex:msg', { type: 'init' })
+
+    const { nextMessage } = await connectCLI()
+    const msg = await nextMessage()
+    expect(msg.browserConnected).toBe(true)
+  })
+
+  it('forwards allowed CLI messages to browser channel', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain status
+
+    ws.send(JSON.stringify({ type: 'cortex' }))
+
+    await vi.waitFor(() => {
+      const cortexMsgs = server._sent.filter((s) => (s.data as any).type === 'cortex')
+      expect(cortexMsgs.length).toBeGreaterThan(0)
+    })
+  })
+
+  it('rejects CLI messages not in allowlist', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain status
+
+    ws.send(JSON.stringify({ type: 'edit_status', editId: '1', status: 'done' }))
+    await new Promise((r) => setTimeout(r, 50))
+
+    const editMsgs = server._sent.filter((s) => (s.data as any).type === 'edit_status')
+    expect(editMsgs).toHaveLength(0)
+  })
+
+  it('forwards browser messages to CLI clients', async () => {
+    const { server } = await setupServer()
+    const { nextMessage } = await connectCLI()
+    await nextMessage() // drain status
+
+    const msgPromise = nextMessage()
+    server.hot._trigger('cortex:msg', { type: 'cortex-closed' })
+    const msg = await msgPromise
+    expect(msg.type).toBe('cortex-closed')
+  })
+
+  it('forwards server-generated messages to CLI clients', async () => {
+    await setupServer()
+    const { nextMessage } = await connectCLI()
+    await nextMessage() // drain status
+
+    const msgPromise = nextMessage()
+    const channel = getChannel()
+    channel.send({ type: 'edit_status', editId: '1', status: 'done' })
+    const msg = await msgPromise
+    expect(msg.type).toBe('edit_status')
+    expect(msg.editId).toBe('1')
+  })
+
+  it('rejects connections with invalid Origin header', async () => {
+    await setupServer()
+    const ws = new WebSocket(`ws://127.0.0.1:${serverPort}/@cortex/ws`, {
+      headers: { Origin: 'https://evil.com' },
+    })
+    openClients.push(ws)
+    const error = await new Promise<Event | Error>((resolve) => {
+      ws.on('error', resolve)
+      ws.on('close', () => resolve(new Error('closed')))
+    })
+    expect(error).toBeDefined()
+  })
+
+  it('rejects connections with invalid Host header (DNS rebinding)', async () => {
+    await setupServer()
+    const ws = new WebSocket(`ws://127.0.0.1:${serverPort}/@cortex/ws`, {
+      headers: { Host: 'evil.com:5173' },
+    })
+    openClients.push(ws)
+    const closed = await new Promise<boolean>((resolve) => {
+      ws.on('error', () => resolve(true))
+      ws.on('close', () => resolve(true))
+    })
+    expect(closed).toBe(true)
+  })
+
+  it('caps concurrent connections at 5', async () => {
+    await setupServer()
+
+    for (let i = 0; i < 5; i++) {
+      await connectCLI()
+    }
+
+    const ws6 = new WebSocket(`ws://127.0.0.1:${serverPort}/@cortex/ws`)
+    openClients.push(ws6)
+    const closeCode = await new Promise<number>((resolve) => {
+      ws6.on('close', (code) => resolve(code))
+    })
+    expect(closeCode).toBe(1013)
+  })
+
+  it('handles CLI disconnect gracefully', async () => {
+    await setupServer()
+    const { ws } = await connectCLI()
+
+    ws.close()
+    await new Promise<void>((resolve) => ws.on('close', resolve))
+
+    const channel = getChannel()
+    expect(() => channel.send({ type: 'cortex' })).not.toThrow()
+  })
+
+  it('cleans up CLI connections on server dispose', async () => {
+    await setupServer()
+    const { ws } = await connectCLI()
+
+    const closePromise = new Promise<void>((resolve) => ws.on('close', resolve))
+    const channel = getChannel()
+    await channel.dispose()
+    await closePromise
+  })
+
+  it('removes upgrade listener on dispose', async () => {
+    await setupServer()
+    const channel = getChannel()
+    await channel.dispose()
+
+    const ws = new WebSocket(`ws://127.0.0.1:${serverPort}/@cortex/ws`)
+    openClients.push(ws)
+    const result = await new Promise<string>((resolve) => {
+      ws.on('error', () => resolve('error'))
+      ws.on('open', () => resolve('open'))
+      setTimeout(() => resolve('timeout'), 1000)
+    })
+    expect(result).not.toBe('open')
+    ws.terminate()
+  })
+
+  it('tracks editorActive from CLI cortex message', async () => {
+    await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    const status1 = await nextMessage()
+    expect(status1.editorActive).toBe(false)
+
+    ws.send(JSON.stringify({ type: 'cortex' }))
+    await new Promise((r) => setTimeout(r, 50))
+
+    const { nextMessage: nextMessage2 } = await connectCLI()
+    const status2 = await nextMessage2()
+    expect(status2.editorActive).toBe(true)
+  })
+
+  it('tracks editorActive from browser cortex-closed message', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain status
+
+    ws.send(JSON.stringify({ type: 'cortex' }))
+    await new Promise((r) => setTimeout(r, 50))
+
+    server.hot._trigger('cortex:msg', { type: 'cortex-closed' })
+    await new Promise((r) => setTimeout(r, 50))
+
+    const { nextMessage: nextMessage2 } = await connectCLI()
+    const status = await nextMessage2()
+    expect(status.editorActive).toBe(false)
+  })
+
+  it('warns when no httpServer (middleware mode)', () => {
+    const plugin = initPlugin()
+    const server = mockServer()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    ;(plugin.configureServer as Function)(server)
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[cortex] No httpServer — running in middleware mode. CLI connections unavailable.'
+    )
+    warnSpy.mockRestore()
+  })
+})
+
+describe('port file', () => {
+  let httpServer: HttpServer
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'cortex-port-test-'))
+  })
+
+  afterEach(async () => {
+    _resetForTesting()
+    if (httpServer?.listening) {
+      await new Promise<void>((resolve) => httpServer.close(() => resolve()))
+    }
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  function setupPortFileServer() {
+    const plugin = initPlugin({ root: tmpDir })
+    httpServer = createServer()
+    const handlers = new Map<string, Function>()
+    const server = {
+      middlewares: { use: vi.fn() },
+      httpServer,
+      hot: {
+        on(event: string, handler: Function) { handlers.set(event, handler) },
+        off: vi.fn(),
+        send: vi.fn(),
+        _trigger(event: string, data: unknown) { handlers.get(event)?.(data) },
+      },
+    }
+    ;(plugin.configureServer as Function)(server)
+    return server
+  }
+
+  it('writes .cortex/port on server start', async () => {
+    setupPortFileServer()
+
+    await new Promise<void>((resolve) => {
+      httpServer.listen(0, '127.0.0.1', () => resolve())
+    })
+
+    const portFile = pathMod.join(tmpDir, '.cortex', 'port')
+    const port = (httpServer.address() as any).port
+    const content = fs.readFileSync(portFile, 'utf8')
+    expect(content).toBe(String(port))
+  })
+
+  it('cleans up .cortex/port on dispose', async () => {
+    setupPortFileServer()
+
+    await new Promise<void>((resolve) => {
+      httpServer.listen(0, '127.0.0.1', () => resolve())
+    })
+
+    const portFile = pathMod.join(tmpDir, '.cortex', 'port')
+    expect(fs.existsSync(portFile)).toBe(true)
+
+    await getChannel().dispose()
+    expect(fs.existsSync(portFile)).toBe(false)
   })
 })
