@@ -17,12 +17,16 @@ export interface MCPServerHandle {
 }
 
 export function discoverPort(): number | null {
+  const portFile = path.join(process.cwd(), '.cortex', 'port')
   try {
-    const portFile = path.join(process.cwd(), '.cortex', 'port')
     const content = fs.readFileSync(portFile, 'utf8').trim()
-    const port = Number(content)
-    return Number.isFinite(port) ? port : null
-  } catch {
+    const port = Math.trunc(Number(content))
+    return Number.isFinite(port) && port >= 1 && port <= 65535 ? port : null
+  } catch (err) {
+    if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null
+    }
+    process.stderr.write(`[cortex] Failed to read port file: ${err instanceof Error ? err.message : String(err)}\n`)
     return null
   }
 }
@@ -95,7 +99,14 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
           isError: true,
         }
       }
-      ws.send(JSON.stringify({ type: 'cortex' }))
+      try {
+        ws.send(JSON.stringify({ type: 'cortex' }))
+      } catch (err) {
+        return {
+          content: [{ type: 'text' as const, text: `Failed to send activation command: ${err instanceof Error ? err.message : String(err)}` }],
+          isError: true,
+        }
+      }
       return {
         content: [{ type: 'text' as const, text: 'Activation command sent. The editor should appear in the browser shortly.' }],
       }
@@ -112,7 +123,14 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
           isError: true,
         }
       }
-      ws.send(JSON.stringify({ type: 'cortex-close' }))
+      try {
+        ws.send(JSON.stringify({ type: 'cortex-close' }))
+      } catch (err) {
+        return {
+          content: [{ type: 'text' as const, text: `Failed to send deactivation command: ${err instanceof Error ? err.message : String(err)}` }],
+          isError: true,
+        }
+      }
       return {
         content: [{ type: 'text' as const, text: 'Deactivation command sent.' }],
       }
@@ -143,7 +161,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
       closed = true
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (ws) ws.close()
-      server.close()
+      server.close().catch(() => {})
     },
   }
 }

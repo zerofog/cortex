@@ -36,16 +36,21 @@ Options:
 if (command === 'mcp') {
   let port: number | undefined
   if (values.port) {
-    port = Number(values.port)
-    if (!Number.isFinite(port) || port < 1 || port > 65535) {
+    port = Math.trunc(Number(values.port))
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
       console.error(`Invalid port: ${values.port}`)
       process.exit(1)
     }
   }
-  const { startMCPServer } = await import('./mcp.js')
-  const handle = await startMCPServer({ port })
-  process.on('SIGINT', () => { handle.close(); process.exit(0) })
-  process.on('SIGTERM', () => { handle.close(); process.exit(0) })
+  try {
+    const { startMCPServer } = await import('./mcp.js')
+    const handle = await startMCPServer({ port })
+    process.on('SIGINT', () => { handle.close(); process.exit(0) })
+    process.on('SIGTERM', () => { handle.close(); process.exit(0) })
+  } catch (err) {
+    console.error(`[cortex] Failed to start MCP server: ${err instanceof Error ? err.message : String(err)}`)
+    process.exit(1)
+  }
 } else if (command === 'init') {
   console.error('cortex init is not yet implemented. See ZF0-912.')
   process.exit(1)
