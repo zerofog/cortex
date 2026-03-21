@@ -33,7 +33,7 @@ export function discoverPort(): number | null {
 
 export async function startMCPServer(options: MCPServerOptions = {}): Promise<MCPServerHandle> {
   const port = options.port ?? discoverPort() ?? 5173
-  const wsUrl = `ws://127.0.0.1:${port}/@cortex/ws`
+  const wsUrl = `ws://localhost:${port}/@cortex/ws`
 
   let ws: WebSocket | null = null
   let connected = false
@@ -149,7 +149,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
           devServerConnected: connected,
           browserConnected,
           editorActive,
-          devServerUrl: `http://127.0.0.1:${port}`,
+          devServerUrl: `http://localhost:${port}`,
         }, null, 2),
       }],
     }),

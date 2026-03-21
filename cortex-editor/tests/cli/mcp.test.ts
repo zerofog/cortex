@@ -186,7 +186,7 @@ describe('cortex mcp', () => {
     expect(status.devServerConnected).toBe(true)
     expect(status.browserConnected).toBe(true)
     expect(status.editorActive).toBe(false)
-    expect(status.devServerUrl).toBe(`http://127.0.0.1:${mockVite.port}`)
+    expect(status.devServerUrl).toBe(`http://localhost:${mockVite.port}`)
   })
 
   it('tracks editor active state only from server messages (not optimistically)', async () => {
@@ -284,7 +284,7 @@ describe('cortex mcp', () => {
       const result = await client.callTool({ name: 'cortex_status' })
       const status = JSON.parse((result.content as Array<{ text: string }>)[0].text)
       // The URL should use the explicitly provided port, not 3000
-      expect(status.devServerUrl).toBe(`http://127.0.0.1:${mockVite.port}`)
+      expect(status.devServerUrl).toBe(`http://localhost:${mockVite.port}`)
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
