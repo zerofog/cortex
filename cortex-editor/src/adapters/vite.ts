@@ -74,15 +74,19 @@ let browserConnected = false
 /** Forward a message to all connected CLI WebSocket clients. */
 function forwardToCLI(msg: unknown): void {
   if (cliClients.size === 0) return
+  let data: string
   try {
-    const data = JSON.stringify(msg)
-    for (const client of cliClients) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(data)
-      }
-    }
+    data = JSON.stringify(msg)
   } catch {
-    // Don't crash on serialize failure — matches CortexTransport.broadcast()
+    return
+  }
+  for (const client of cliClients) {
+    if (client.readyState !== WebSocket.OPEN) continue
+    try {
+      client.send(data)
+    } catch {
+      cliClients.delete(client)
+    }
   }
 }
 
@@ -288,87 +292,99 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       }
 
       // --- CLI WebSocket bridge ---
-      cliWss = new WebSocketServer({
-        noServer: true,
-        maxPayload: 64 * 1024,
-        verifyClient: ({ origin }: { origin: string }) => {
-          if (!origin) return true // non-browser clients (CLI) don't send Origin
-          return ALLOWED_ORIGINS.test(origin)
-        },
-      })
-
-      cliWss.on('connection', (ws) => {
-        if (cliClients.size >= MAX_CLI_CONNECTIONS) {
-          ws.close(1013, 'Too many CLI connections')
-          return
-        }
-
-        cliClients.add(ws)
-        aliveFlags.set(ws, true)
-
-        // Send current status on connect (untyped JSON — not part of ServerToBrowser protocol)
-        ws.send(JSON.stringify({ type: 'cortex-status', editorActive, browserConnected }))
-
-        ws.on('pong', () => { aliveFlags.set(ws, true) })
-
-        ws.on('message', (raw) => {
-          let parsed: unknown
-          try { parsed = JSON.parse(raw.toString()) } catch { return }
-          if (typeof parsed !== 'object' || parsed === null || !('type' in parsed)) return
-          const type = (parsed as { type: unknown }).type
-          if (typeof type !== 'string') return
-
-          // Track state from CLI commands
-          if (type === 'cortex') editorActive = true
-
-          // Only forward allowed message types to browser
-          // Reconstruct message — don't forward arbitrary properties from CLI
-          if (!CLI_ALLOWED_TYPES.has(type)) return
-          if (type === 'cortex' && channelInstance) {
-            channelInstance.send({ type: 'cortex' })
-          }
-        })
-
-        ws.on('close', () => cliClients.delete(ws))
-        ws.on('error', () => cliClients.delete(ws))
-      })
-
-      // Heartbeat — 30s ping/pong, matching CortexTransport pattern
-      heartbeatTimer = setInterval(() => {
-        for (const client of cliClients) {
-          if (!aliveFlags.get(client)) {
-            client.terminate()
-            cliClients.delete(client)
-            continue
-          }
-          aliveFlags.set(client, false)
-          try { client.ping() } catch { cliClients.delete(client) }
-        }
-      }, HEARTBEAT_INTERVAL)
-      heartbeatTimer.unref()
-
-      // WebSocket upgrade handler — route /@cortex/ws to CLI WSS
-      upgradeHandlerRef = (req: IncomingMessage, socket: Duplex, head: Buffer) => {
-        if (req.url !== '/@cortex/ws') return
-        // Do NOT close the socket for non-matching paths — Vite's HMR handler needs them
-
-        // Host header validation — DNS rebinding defense
-        // WebSocket upgrades are HTTP/1.1 (required by spec) so Host must be present.
-        // Reject missing or non-localhost Host to prevent DNS rebinding attacks.
-        const host = req.headers.host
-        if (!host || !ALLOWED_ORIGINS.test(`http://${host}`)) {
-          socket.destroy()
-          return
-        }
-
-        if (!cliWss) { socket.destroy(); return }
-        cliWss.handleUpgrade(req, socket, head, (ws: InstanceType<typeof WebSocket>) => {
-          if (!cliWss) { ws.terminate(); return }
-          cliWss.emit('connection', ws, req)
-        })
-      }
-
+      // Only set up when httpServer is available (not in middleware mode)
       if (server.httpServer) {
+        cliWss = new WebSocketServer({
+          noServer: true,
+          maxPayload: 64 * 1024,
+          verifyClient: ({ origin }: { origin: string }) => {
+            if (!origin) return true // non-browser clients (CLI) don't send Origin
+            return ALLOWED_ORIGINS.test(origin)
+          },
+        })
+
+        cliWss.on('connection', (ws) => {
+          if (cliClients.size >= MAX_CLI_CONNECTIONS) {
+            ws.close(1013, 'Too many CLI connections')
+            return
+          }
+
+          cliClients.add(ws)
+          aliveFlags.set(ws, true)
+
+          // Send current status on connect (untyped JSON — not part of ServerToBrowser protocol)
+          try {
+            ws.send(JSON.stringify({ type: 'cortex-status', editorActive, browserConnected }))
+          } catch {
+            cliClients.delete(ws)
+            ws.terminate()
+            return
+          }
+
+          ws.on('pong', () => { aliveFlags.set(ws, true) })
+
+          ws.on('message', (raw) => {
+            let parsed: unknown
+            try { parsed = JSON.parse(raw.toString()) } catch { return }
+            if (typeof parsed !== 'object' || parsed === null || !('type' in parsed)) return
+            const type = (parsed as { type: unknown }).type
+            if (typeof type !== 'string') return
+
+            // Track state from CLI commands
+            if (type === 'cortex') editorActive = true
+
+            // Only forward allowed message types to browser
+            // Reconstruct message — don't forward arbitrary properties from CLI
+            if (!CLI_ALLOWED_TYPES.has(type)) return
+            if (type === 'cortex' && channelInstance) {
+              channelInstance.send({ type: 'cortex' })
+            }
+          })
+
+          ws.on('close', () => cliClients.delete(ws))
+          ws.on('error', () => cliClients.delete(ws))
+        })
+
+        // Heartbeat — 30s ping/pong, matching CortexTransport pattern
+        heartbeatTimer = setInterval(() => {
+          for (const client of cliClients) {
+            if (!aliveFlags.get(client)) {
+              client.terminate()
+              cliClients.delete(client)
+              continue
+            }
+            aliveFlags.set(client, false)
+            try { client.ping() } catch { cliClients.delete(client) }
+          }
+        }, HEARTBEAT_INTERVAL)
+        heartbeatTimer.unref()
+
+        // WebSocket upgrade handler — route /@cortex/ws to CLI WSS
+        upgradeHandlerRef = (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+          if (req.url !== '/@cortex/ws') return
+          // Do NOT close the socket for non-matching paths — Vite's HMR handler needs them
+
+          // Loopback enforcement — reject non-local connections (defense-in-depth for --host mode)
+          const remote = req.socket.remoteAddress
+          if (!remote || !(remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1')) {
+            socket.destroy()
+            return
+          }
+
+          // Host header validation — DNS rebinding defense
+          const host = req.headers.host
+          if (!host || !ALLOWED_ORIGINS.test(`http://${host}`)) {
+            socket.destroy()
+            return
+          }
+
+          if (!cliWss) { socket.destroy(); return }
+          cliWss.handleUpgrade(req, socket, head, (ws: InstanceType<typeof WebSocket>) => {
+            if (!cliWss) { ws.terminate(); return }
+            cliWss.emit('connection', ws, req)
+          })
+        }
+
         server.httpServer.on('upgrade', upgradeHandlerRef)
 
         // Write port file for MCP discovery (non-fatal — convenience for auto-discovery)
