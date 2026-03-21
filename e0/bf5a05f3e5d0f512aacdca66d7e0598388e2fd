@@ -1,0 +1,51 @@
+cortex-editor/src/cli/mcp.ts
+  285aff68c2203664 36,152
+cortex-editor/tests/cli/mcp.test.ts
+  285aff68c2203664 189,287
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.17",
+  "base_commit_sha": "e0bf5a05f3e5d0f512aacdca66d7e0598388e2fd",
+  "prompts": {
+    "285aff68c2203664": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "65151bf5-0e06-4b8e-8f64-79fd598df9b8",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 4,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    },
+    "7d9d05d4ec46cc6f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d30273a1-0807-4755-a8ea-bfb821bdde95",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 270,
+      "overriden_lines": 0
+    },
+    "c2489f1e2362dd2d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f1d3034f-c385-4bad-9051-3e451cf345e7",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 401,
+      "overriden_lines": 0
+    }
+  }
+}
