@@ -22,7 +22,7 @@ const CORTEX_MSG_EVENT = 'cortex:msg'
 
 // CLI WebSocket bridge constants
 const ALLOWED_ORIGINS = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/
-const CLI_ALLOWED_TYPES = new Set(['cortex'])
+const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close'])
 const HEARTBEAT_INTERVAL = 30_000
 const MAX_CLI_CONNECTIONS = 5
 
@@ -332,12 +332,16 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
 
             // Track state from CLI commands
             if (type === 'cortex') editorActive = true
+            if (type === 'cortex-close') editorActive = false
 
             // Only forward allowed message types to browser
             // Reconstruct message — don't forward arbitrary properties from CLI
             if (!CLI_ALLOWED_TYPES.has(type)) return
             if (type === 'cortex' && channelInstance) {
               channelInstance.send({ type: 'cortex' })
+            }
+            if (type === 'cortex-close' && channelInstance) {
+              channelInstance.send({ type: 'cortex-close' })
             }
           })
 
