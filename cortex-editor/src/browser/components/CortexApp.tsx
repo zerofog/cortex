@@ -74,6 +74,12 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
         selectionRef.current?.setDesignMode(true)
         setActive(true)
       }
+      if (msg.type === 'cortex-close') {
+        selectionRef.current?.setDesignMode(false)
+        setSelectedElement(null)
+        setActive(false)
+        channel.send({ type: 'cortex-closed' })
+      }
       if (msg.type === 'hello') {
         if (msg.swatches && msg.swatches.length > 0) {
           setSwatches(msg.swatches)

@@ -68,6 +68,7 @@ export type BrowserToServer =
 
 export type ServerToBrowser =
   | { type: 'cortex' }
+  | { type: 'cortex-close' }
   | { type: 'hello'; protocolVersion: number; sessionId: string; swatches?: string[] }
   | { type: 'error'; code: string; message: string; editId?: string }
   | { type: 'edit_status'; editId: string; status: 'writing' | 'done' | 'failed'; newToken?: string; reason?: string }
