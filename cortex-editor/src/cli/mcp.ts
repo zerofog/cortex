@@ -68,6 +68,8 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
 
     ws.on('close', () => {
       connected = false
+      editorActive = false
+      browserConnected = false
       if (closed) return
       const clampedRetry = Math.min(retryCount, 15)
       const delay = Math.min(1000 * 2 ** clampedRetry, 30_000)
