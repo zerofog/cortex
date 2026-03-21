@@ -37,6 +37,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
   let browserConnected = false
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let retryCount = 0
+  let closed = false
 
   function connect(): void {
     ws = new WebSocket(wsUrl)
@@ -63,7 +64,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
 
     ws.on('close', () => {
       connected = false
-      // Always retry — Claude Code manages process lifecycle
+      if (closed) return
       const clampedRetry = Math.min(retryCount, 15)
       const delay = Math.min(1000 * 2 ** clampedRetry, 30_000)
       retryCount++
@@ -139,8 +140,10 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
 
   return {
     close() {
+      closed = true
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (ws) ws.close()
+      server.close()
     },
   }
 }

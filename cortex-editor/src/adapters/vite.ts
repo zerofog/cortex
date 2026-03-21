@@ -334,14 +334,10 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             if (type === 'cortex') editorActive = true
             if (type === 'cortex-close') editorActive = false
 
-            // Only forward allowed message types to browser
             // Reconstruct message — don't forward arbitrary properties from CLI
             if (!CLI_ALLOWED_TYPES.has(type)) return
-            if (type === 'cortex' && channelInstance) {
-              channelInstance.send({ type: 'cortex' })
-            }
-            if (type === 'cortex-close' && channelInstance) {
-              channelInstance.send({ type: 'cortex-close' })
+            if (channelInstance) {
+              channelInstance.send({ type } as ServerToBrowser)
             }
           })
 
