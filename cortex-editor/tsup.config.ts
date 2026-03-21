@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup'
 
 // Externalized packages: optional peer deps + heavy runtime deps (lazy-loaded)
-const externals = ['vite', 'next', 'webpack', 'tailwindcss', 'ts-morph']
+const externals = ['vite', 'next', 'webpack', 'tailwindcss', 'ts-morph', 'ws']
 
 export default defineConfig([
   // Server-side: core types + source transform

@@ -62,8 +62,7 @@
     "magic-string": "^0.30.21",
     "tsup": "^8.3.5",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0",
-    "ws": "^8.19.0"
+    "vitest": "^3.0.0"
   },
   "peerDependencies": {
     "next": ">=13.0.0",
@@ -85,6 +84,7 @@
     "@floating-ui/dom": "^1.7.6",
     "preact": "^10.29.0",
     "ts-morph": "^27.0.2",
-    "vanilla-colorful": "^0.7.2"
+    "vanilla-colorful": "^0.7.2",
+    "ws": "^8.19.0"
   }
 }
