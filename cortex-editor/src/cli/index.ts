@@ -30,7 +30,7 @@ Options:
   --port  Vite dev server port (overrides .cortex/port auto-discovery)
   -h, --help     Show this help message
   -v, --version  Show version`)
-  process.exit(command ? 0 : 1)
+  process.exit(values.help ? 0 : 1)
 }
 
 if (command === 'mcp') {
