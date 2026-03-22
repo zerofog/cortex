@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useState, useEffect, useCallback, useRef } from 'preact/hooks'
+import { useState, useEffect, useCallback } from 'preact/hooks'
 import type { Annotation, CortexChannel } from '../../adapters/types.js'
 import { CommentThread } from './CommentThread.js'
 
@@ -14,11 +14,14 @@ export function CommentPin({ annotations, commentMode, channel, onReply }: Comme
   const [selectedPinId, setSelectedPinId] = useState<string | null>(null)
   const [pinInput, setPinInput] = useState<{ x: number; y: number; elementSource: string } | null>(null)
   const [pinText, setPinText] = useState('')
-  const positionsRef = useRef<Map<string, { x: number; y: number }>>(new Map())
+  const [positions, setPositions] = useState<Map<string, { x: number; y: number }>>(new Map())
 
-  // Re-compute pin positions on scroll/resize
+  // Re-compute pin positions on mount, annotation change, scroll, resize
   useEffect(() => {
-    if (annotations.length === 0) return
+    if (annotations.length === 0) {
+      setPositions(new Map())
+      return
+    }
 
     function updatePositions(): void {
       const newPositions = new Map<string, { x: number; y: number }>()
@@ -33,7 +36,7 @@ export function CommentPin({ annotations, commentMode, channel, onReply }: Comme
           y: rect.top + ann.pinPosition.y * rect.height,
         })
       }
-      positionsRef.current = newPositions
+      setPositions(newPositions)
     }
 
     updatePositions()
@@ -99,7 +102,7 @@ export function CommentPin({ annotations, commentMode, channel, onReply }: Comme
       {commentMode && <div class="cortex-pin--mode" />}
 
       {pinnedAnnotations.map(ann => {
-        const pos = positionsRef.current.get(ann.id)
+        const pos = positions.get(ann.id)
         if (!pos) return null
         return (
           <div
@@ -113,8 +116,8 @@ export function CommentPin({ annotations, commentMode, channel, onReply }: Comme
 
       {selectedAnnotation && (
         <div class="cortex-pin__thread" style={{
-          left: `${(positionsRef.current.get(selectedAnnotation.id)?.x ?? 0) + 16}px`,
-          top: `${(positionsRef.current.get(selectedAnnotation.id)?.y ?? 0) - 6}px`,
+          left: `${(positions.get(selectedAnnotation.id)?.x ?? 0) + 16}px`,
+          top: `${(positions.get(selectedAnnotation.id)?.y ?? 0) - 6}px`,
         }}>
           <CommentThread annotation={selectedAnnotation} onReply={onReply} />
         </div>
