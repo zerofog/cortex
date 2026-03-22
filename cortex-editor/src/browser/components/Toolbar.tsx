@@ -6,6 +6,8 @@ import { useToolbarDock } from '../hooks/useToolbarDock.js'
 export interface ToolbarProps {
   activityCount: number
   onClose: () => void
+  commentMode?: boolean
+  onCommentMode?: () => void
 }
 
 // Inline SVG icons — 16×16 viewBox, stroke-based, 1.5px stroke
@@ -21,9 +23,15 @@ function IconClose(): JSX.Element {
   return <svg {...svgProps}><path d="M4 4 L12 12 M12 4 L4 12" /></svg>
 }
 
+function IconComment(): JSX.Element {
+  return <svg {...svgProps}><path d="M2 4a1 1 0 011-1h10a1 1 0 011 1v6a1 1 0 01-1 1H6l-3 3V4z" /></svg>
+}
+
 export function Toolbar({
   activityCount,
   onClose,
+  commentMode,
+  onCommentMode,
 }: ToolbarProps): JSX.Element {
   const { position, isHorizontal, isSnapping, setPosition, snap } = useToolbarDock()
 
@@ -65,6 +73,16 @@ export function Toolbar({
           {activityCount} {activityCount === 1 ? 'change' : 'changes'}
         </span>
       )}
+
+      <button
+        type="button"
+        class={`cortex-toolbar__btn ${commentMode ? 'cortex-toolbar__btn--active' : ''}`}
+        data-tooltip="Comment"
+        data-action="comment"
+        onClick={onCommentMode}
+      >
+        <IconComment />
+      </button>
 
       <button
         type="button"
