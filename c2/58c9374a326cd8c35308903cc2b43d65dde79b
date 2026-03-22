@@ -1,0 +1,24 @@
+cortex-editor/src/browser/components/CortexApp.tsx
+  ff4055e3cf367ea7 45-46,213-216,220
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.17",
+  "base_commit_sha": "c258c9374a326cd8c35308903cc2b43d65dde79b",
+  "prompts": {
+    "ff4055e3cf367ea7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d2da1c56-b966-49ca-b852-d7929793c8d1",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 7,
+      "total_deletions": 2,
+      "accepted_lines": 7,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/58adde899a3d8ae9bcdd71185c9c45a3c84c7b23763095d671c2286849f990fa"
+    }
+  }
+}
