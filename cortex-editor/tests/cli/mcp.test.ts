@@ -122,7 +122,17 @@ describe('cortex mcp', () => {
 
     const { tools } = await client.listTools()
     const names = tools.map(t => t.name).sort()
-    expect(names).toEqual(['cortex_activate', 'cortex_deactivate', 'cortex_status'])
+    expect(names).toEqual([
+      'cortex_acknowledge',
+      'cortex_activate',
+      'cortex_deactivate',
+      'cortex_dismiss',
+      'cortex_get_details',
+      'cortex_get_pending',
+      'cortex_resolve',
+      'cortex_respond',
+      'cortex_status',
+    ])
   })
 
   it('cortex_activate returns error when not connected to dev server', async () => {
@@ -305,5 +315,144 @@ describe('cortex mcp', () => {
     } finally {
       stderrSpy.mockRestore()
     }
+  })
+
+  describe('annotation tools', () => {
+    function installRPCHandler(mock: MockViteServer): void {
+      const annotations = new Map<string, Record<string, unknown>>()
+      annotations.set('test-ann-1', {
+        id: 'test-ann-1', status: 'pending', elementSource: 'App.tsx:10:5',
+        text: 'Make this blue', createdAt: Date.now(), updatedAt: Date.now(), thread: [],
+      })
+
+      mock.wss.on('connection', (ws) => {
+        ws.on('message', (raw) => {
+          let msg: Record<string, unknown>
+          try { msg = JSON.parse(raw.toString()) } catch { return }
+          if (msg.type !== 'cortex-rpc') return
+
+          const requestId = msg.requestId as string
+          const method = msg.method as string
+          const params = (msg.params || {}) as Record<string, unknown>
+
+          try {
+            let result: unknown
+            if (method === 'getPending') {
+              result = [...annotations.values()].filter(a => a.status === 'pending')
+            } else if (method === 'getDetails') {
+              result = annotations.get(params.annotationId as string) ?? null
+            } else if (method === 'acknowledge') {
+              const ann = annotations.get(params.annotationId as string)
+              if (ann) { ann.status = 'acknowledged'; result = ann } else { result = null }
+            } else if (method === 'resolve') {
+              const ann = annotations.get(params.annotationId as string)
+              if (ann) { ann.status = 'resolved'; ann.resolution = { summary: params.summary }; result = ann } else { result = null }
+            } else if (method === 'dismiss') {
+              const ann = annotations.get(params.annotationId as string)
+              if (ann) { ann.status = 'dismissed'; result = ann } else { result = null }
+            } else if (method === 'respond') {
+              const ann = annotations.get(params.annotationId as string)
+              if (ann) {
+                const thread = ann.thread as unknown[]
+                thread.push({ from: 'agent', text: params.text })
+                result = ann
+              } else { result = null }
+            } else {
+              throw new Error(`Unknown method: ${method}`)
+            }
+            ws.send(JSON.stringify({ type: 'cortex-rpc-result', requestId, result }))
+          } catch (err) {
+            ws.send(JSON.stringify({ type: 'cortex-rpc-error', requestId, error: (err as Error).message }))
+          }
+        })
+      })
+    }
+
+    it('cortex_get_pending returns annotations', async () => {
+      installRPCHandler(mockVite)
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      await new Promise(r => setTimeout(r, 50))
+      const result = await client.callTool({ name: 'cortex_get_pending' })
+      expect(result.isError).toBeFalsy()
+      const text = (result.content as Array<{ text: string }>)[0].text
+      const parsed = JSON.parse(text)
+      expect(parsed).toHaveLength(1)
+      expect(parsed[0].text).toBe('Make this blue')
+    })
+
+    it('cortex_get_details returns annotation by id', async () => {
+      installRPCHandler(mockVite)
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      await new Promise(r => setTimeout(r, 50))
+      const result = await client.callTool({ name: 'cortex_get_details', arguments: { annotationId: 'test-ann-1' } })
+      expect(result.isError).toBeFalsy()
+      const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+      expect(parsed.id).toBe('test-ann-1')
+    })
+
+    it('cortex_acknowledge transitions annotation', async () => {
+      installRPCHandler(mockVite)
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      await new Promise(r => setTimeout(r, 50))
+      const result = await client.callTool({ name: 'cortex_acknowledge', arguments: { annotationId: 'test-ann-1' } })
+      expect(result.isError).toBeFalsy()
+      const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+      expect(parsed.status).toBe('acknowledged')
+    })
+
+    it('cortex_resolve transitions annotation', async () => {
+      installRPCHandler(mockVite)
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      await new Promise(r => setTimeout(r, 50))
+      await client.callTool({ name: 'cortex_acknowledge', arguments: { annotationId: 'test-ann-1' } })
+      const result = await client.callTool({ name: 'cortex_resolve', arguments: { annotationId: 'test-ann-1', summary: 'Changed to blue' } })
+      expect(result.isError).toBeFalsy()
+      const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+      expect(parsed.status).toBe('resolved')
+    })
+
+    it('cortex_dismiss transitions annotation', async () => {
+      installRPCHandler(mockVite)
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      await new Promise(r => setTimeout(r, 50))
+      const result = await client.callTool({ name: 'cortex_dismiss', arguments: { annotationId: 'test-ann-1', reason: 'Not needed' } })
+      expect(result.isError).toBeFalsy()
+      const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+      expect(parsed.status).toBe('dismissed')
+    })
+
+    it('cortex_respond adds thread message', async () => {
+      installRPCHandler(mockVite)
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      await new Promise(r => setTimeout(r, 50))
+      const result = await client.callTool({ name: 'cortex_respond', arguments: { annotationId: 'test-ann-1', text: 'What color exactly?' } })
+      expect(result.isError).toBeFalsy()
+      const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+      expect(parsed.thread).toHaveLength(1)
+    })
+
+    it('returns null gracefully when annotation not found', async () => {
+      installRPCHandler(mockVite)
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      await new Promise(r => setTimeout(r, 50))
+      const result = await client.callTool({ name: 'cortex_get_details', arguments: { annotationId: 'nonexistent' } })
+      expect(result.isError).toBeFalsy()
+      const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+      expect(parsed).toBeNull()
+    })
+
+    it('returns error when not connected', async () => {
+      const client = await startTestServer(59999)
+      await new Promise(r => setTimeout(r, 500))
+      const result = await client.callTool({ name: 'cortex_get_pending' })
+      expect(result.isError).toBe(true)
+    })
   })
 })
