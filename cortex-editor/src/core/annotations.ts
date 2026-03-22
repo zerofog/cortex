@@ -64,6 +64,7 @@ export class AnnotationStore {
   addMessage(id: string, msg: Omit<ThreadMessage, 'id' | 'timestamp'>): Annotation | null {
     const ann = this.annotations.get(id)
     if (!ann || ann.status === 'resolved' || ann.status === 'dismissed') return null
+    if (ann.thread.length >= 100) return null
     ann.thread.push({
       id: randomUUID(),
       from: msg.from,

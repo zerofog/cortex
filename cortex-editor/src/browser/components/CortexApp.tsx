@@ -180,8 +180,11 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
     if (!showActivity) setActivityCount(0) // reset badge on open
   }, [showActivity])
   const handleCommentReply = useCallback((annotationId: string, text: string) => {
-    channel.send({ type: 'comment', elementSource: annotationId, text })
-  }, [channel])
+    const ann = annotations.get(annotationId)
+    if (ann) {
+      channel.send({ type: 'comment', elementSource: ann.elementSource, text })
+    }
+  }, [channel, annotations])
 
   const handleClose = useCallback(() => setSelectedElement(null), [])
   const handleSelectElement = useCallback((el: HTMLElement | null) => setSelectedElement(el), [])

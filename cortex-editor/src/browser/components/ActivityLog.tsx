@@ -17,6 +17,7 @@ function entryIcon(type: ActivityEntry['type']): string {
     case 'edit': return '✎'
     case 'comment': return '💬'
     case 'status-change': return '→'
+    default: return '•'
   }
 }
 

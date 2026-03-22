@@ -1278,7 +1278,7 @@
   border: 2px solid white;
   cursor: pointer;
   pointer-events: auto;
-  z-index: 2147483645;
+  z-index: 2147483643;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
@@ -1291,7 +1291,7 @@
   inset: 0;
   cursor: crosshair;
   pointer-events: auto;
-  z-index: 2147483644;
+  z-index: 2147483642;
 }
 
 .cortex-pin__thread {
@@ -1301,7 +1301,7 @@
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   pointer-events: auto;
-  z-index: 2147483645;
+  z-index: 2147483644;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
@@ -1333,7 +1333,7 @@
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   pointer-events: auto;
-  z-index: 2147483645;
+  z-index: 2147483643;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   overflow: hidden;
 }

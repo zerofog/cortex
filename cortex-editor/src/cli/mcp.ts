@@ -200,7 +200,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
 
   server.registerTool(
     'cortex_get_pending',
-    { description: 'List all pending annotations (comments awaiting agent action).' },
+    { description: 'List all pending annotations (comments awaiting agent action). Workflow: get_pending → acknowledge → (optional respond for clarification) → resolve or dismiss.' },
     async () => {
       try {
         const result = await rpc('getPending', {})
@@ -230,7 +230,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
   server.registerTool(
     'cortex_acknowledge',
     {
-      description: 'Mark an annotation as "working on it".',
+      description: 'Mark an annotation as "working on it" (pending → acknowledged). Must be called before cortex_resolve. Returns null if annotation is not in pending state.',
       inputSchema: { annotationId: z.string().describe('Annotation ID') },
     },
     async ({ annotationId }) => {
@@ -246,7 +246,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
   server.registerTool(
     'cortex_resolve',
     {
-      description: 'Mark an annotation as applied with a change summary.',
+      description: 'Mark an annotation as resolved/applied (acknowledged → resolved). Requires cortex_acknowledge first. Returns null if not in acknowledged state. Terminal — no further updates possible.',
       inputSchema: {
         annotationId: z.string().describe('Annotation ID'),
         summary: z.string().describe('Summary of the change that was applied'),
@@ -265,7 +265,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
   server.registerTool(
     'cortex_dismiss',
     {
-      description: 'Skip an annotation with an optional reason.',
+      description: 'Skip an annotation without implementing it (pending/acknowledged → dismissed). Can be called before or after acknowledge. Returns null if already resolved/dismissed. Terminal state.',
       inputSchema: {
         annotationId: z.string().describe('Annotation ID'),
         reason: z.string().optional().describe('Reason for dismissing'),
@@ -284,7 +284,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
   server.registerTool(
     'cortex_respond',
     {
-      description: 'Send a clarification or reply to an annotation thread.',
+      description: 'Send a clarification or reply to an annotation thread. Only works for pending/acknowledged annotations. Returns null if annotation is resolved/dismissed or thread is full (100 messages max).',
       inputSchema: {
         annotationId: z.string().describe('Annotation ID'),
         text: z.string().describe('Message text'),
