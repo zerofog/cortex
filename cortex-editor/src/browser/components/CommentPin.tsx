@@ -71,8 +71,15 @@ export function CommentPin({ annotations, commentMode, channel, onReply }: Comme
       if (rect.width === 0 || rect.height === 0) return
       e.preventDefault()
       e.stopPropagation()
-      // Anchor input to element's top-right corner; store click coords for pin position
-      setPinInput({ x: rect.right + 8, y: rect.top, clickX: e.clientX, clickY: e.clientY, elementSource: source })
+      // Center input below element; store click coords for pin position
+      const inputWidth = 200
+      setPinInput({
+        x: rect.left + (rect.width - inputWidth) / 2,
+        y: rect.bottom + 8,
+        clickX: e.clientX,
+        clickY: e.clientY,
+        elementSource: source,
+      })
     }
 
     window.addEventListener('click', handleClick, true)
@@ -131,7 +138,7 @@ export function CommentPin({ annotations, commentMode, channel, onReply }: Comme
       )}
 
       {pinInput && (
-        <div class="cortex-pin__input" style={{ left: `${pinInput.x + 16}px`, top: `${pinInput.y - 12}px` }}>
+        <div class="cortex-pin__input" style={{ left: `${pinInput.x}px`, top: `${pinInput.y}px` }}>
           <input
             type="text"
             class="cortex-pin__input-field"
