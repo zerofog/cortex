@@ -9,6 +9,8 @@ import { WebSocketServer, WebSocket } from 'ws'
 import { createSourceTransform } from './source-transform.js'
 import type { ServerChannel, BrowserToServer, ServerToBrowser } from './types.js'
 import { TailwindResolver } from '../core/tailwind-resolver.js'
+import { AnnotationStore } from '../core/annotations.js'
+import { ActivityLog } from '../core/session/activity-log.js'
 
 export interface CortexEditorOptions {
   /** Package names in node_modules to instrument (for library component detection). */
@@ -60,6 +62,8 @@ if (!document.querySelector('[data-cortex-host]')) {
 
 let channelInstance: ServerChannel | null = null
 const hmrCallbacks: ((files: string[]) => void)[] = []
+let annotationStore = new AnnotationStore()
+let activityLog = new ActivityLog()
 
 // CLI WebSocket bridge state
 let cliWss: InstanceType<typeof WebSocketServer> | null = null
@@ -70,6 +74,55 @@ let upgradeHandlerRef: ((req: IncomingMessage, socket: Duplex, head: Buffer) => 
 let portFilePath: string | null = null
 let editorActive = false
 let browserConnected = false
+
+// Annotation RPC dispatch
+const ALLOWED_RPC_METHODS = new Set(['getPending', 'getDetails', 'acknowledge', 'resolve', 'dismiss', 'respond'])
+
+function handleAnnotationRPC(method: string, params: Record<string, unknown>): unknown {
+  const id = typeof params.annotationId === 'string' ? params.annotationId : ''
+  switch (method) {
+    case 'getPending': return annotationStore.getPending()
+    case 'getDetails': return annotationStore.getById(id)
+    case 'acknowledge': {
+      const result = annotationStore.acknowledge(id)
+      if (result && channelInstance) {
+        channelInstance.send({ type: 'annotation-updated', annotation: result })
+        const entry = activityLog.add({ type: 'status-change', description: `Acknowledged: ${result.text}`, elementSource: result.elementSource })
+        channelInstance.send({ type: 'activity-entry', entry })
+      }
+      return result
+    }
+    case 'resolve': {
+      const summary = typeof params.summary === 'string' ? params.summary : ''
+      const result = annotationStore.resolve(id, summary)
+      if (result && channelInstance) {
+        channelInstance.send({ type: 'annotation-updated', annotation: result })
+        const entry = activityLog.add({ type: 'status-change', description: `Resolved: ${summary}`, elementSource: result.elementSource })
+        channelInstance.send({ type: 'activity-entry', entry })
+      }
+      return result
+    }
+    case 'dismiss': {
+      const reason = typeof params.reason === 'string' ? params.reason : undefined
+      const result = annotationStore.dismiss(id, reason)
+      if (result && channelInstance) {
+        channelInstance.send({ type: 'annotation-updated', annotation: result })
+        const entry = activityLog.add({ type: 'status-change', description: `Dismissed: ${result.text}`, elementSource: result.elementSource })
+        channelInstance.send({ type: 'activity-entry', entry })
+      }
+      return result
+    }
+    case 'respond': {
+      const text = typeof params.text === 'string' ? params.text : ''
+      const result = annotationStore.addMessage(id, { from: 'agent', text })
+      if (result && channelInstance) {
+        channelInstance.send({ type: 'annotation-updated', annotation: result })
+      }
+      return result
+    }
+    default: throw new Error(`Unknown RPC method: ${method}`)
+  }
+}
 
 /** Forward a message to all connected CLI WebSocket clients. */
 function forwardToCLI(msg: unknown): void {
@@ -127,6 +180,8 @@ export function _resetForTesting(): void {
     portFilePath = null
   }
   upgradeHandlerRef = null
+  annotationStore = new AnnotationStore()
+  activityLog = new ActivityLog()
 }
 
 export function cortexEditor(_options?: CortexEditorOptions): Plugin {
@@ -236,6 +291,21 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           })
         }
 
+        if (data.type === 'comment') {
+          const ann = annotationStore.create({
+            elementSource: data.elementSource,
+            text: data.text,
+            elementContext: data.elementContext,
+            currentStyles: data.currentStyles,
+            pinPosition: data.pinPosition,
+          })
+          const entry = activityLog.add({ type: 'comment', description: data.text, elementSource: data.elementSource })
+          if (channelInstance) {
+            channelInstance.send({ type: 'annotation-created', annotation: ann })
+            channelInstance.send({ type: 'activity-entry', entry })
+          }
+        }
+
         // Track browser connection + don't forward 'init' to application handlers
         if (data.type === 'init') {
           browserConnected = true
@@ -321,6 +391,9 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             return
           }
 
+          // Notify browser that an agent connected
+          if (channelInstance) channelInstance.send({ type: 'agent-status', connected: true })
+
           ws.on('pong', () => { aliveFlags.set(ws, true) })
 
           ws.on('message', (raw) => {
@@ -329,6 +402,24 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             if (typeof parsed !== 'object' || parsed === null || !('type' in parsed)) return
             const type = (parsed as { type: unknown }).type
             if (typeof type !== 'string') return
+
+            // Handle RPC requests from CLI (annotation queries)
+            if (type === 'cortex-rpc') {
+              const requestId = (parsed as Record<string, unknown>).requestId as string
+              const method = (parsed as Record<string, unknown>).method as string
+              const params = ((parsed as Record<string, unknown>).params || {}) as Record<string, unknown>
+              if (!ALLOWED_RPC_METHODS.has(method)) {
+                try { ws.send(JSON.stringify({ type: 'cortex-rpc-error', requestId, error: `Unknown RPC method: ${method}` })) } catch {}
+                return
+              }
+              try {
+                const result = handleAnnotationRPC(method, params)
+                ws.send(JSON.stringify({ type: 'cortex-rpc-result', requestId, result }))
+              } catch (err) {
+                ws.send(JSON.stringify({ type: 'cortex-rpc-error', requestId, error: err instanceof Error ? err.message : String(err) }))
+              }
+              return
+            }
 
             // Track state from CLI commands
             if (type === 'cortex') editorActive = true
@@ -341,7 +432,10 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             }
           })
 
-          ws.on('close', () => cliClients.delete(ws))
+          ws.on('close', () => {
+            cliClients.delete(ws)
+            if (channelInstance) channelInstance.send({ type: 'agent-status', connected: cliClients.size > 0 })
+          })
           ws.on('error', () => cliClients.delete(ws))
         })
 
