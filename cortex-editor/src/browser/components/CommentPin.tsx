@@ -12,7 +12,8 @@ export interface CommentPinProps {
 
 export function CommentPin({ annotations, commentMode, channel, onReply }: CommentPinProps): JSX.Element {
   const [selectedPinId, setSelectedPinId] = useState<string | null>(null)
-  const [pinInput, setPinInput] = useState<{ x: number; y: number; clickX: number; clickY: number; elementSource: string } | null>(null)
+  const [pinTarget, setPinTarget] = useState<{ clickX: number; clickY: number; elementSource: string } | null>(null)
+  const [pinInputPos, setPinInputPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [pinText, setPinText] = useState('')
   const [positions, setPositions] = useState<Map<string, { x: number; y: number }>>(new Map())
 
@@ -50,10 +51,52 @@ export function CommentPin({ annotations, commentMode, channel, onReply }: Comme
     }
   }, [annotations])
 
+  // Pin input follows element on scroll, clamps to viewport, avoids panel (right 320px)
+  useEffect(() => {
+    if (!pinTarget) return
+    const INPUT_W = 200
+    const INPUT_H = 32
+    const PANEL_W = 320
+    const GAP = 8
+
+    function reposition(): void {
+      const el = document.querySelector(`[data-cortex-source="${pinTarget!.elementSource}"]`)
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const vw = window.innerWidth
+      const vh = window.innerHeight
+
+      // Ideal: centered below element
+      let x = rect.left + (rect.width - INPUT_W) / 2
+      let y = rect.bottom + GAP
+
+      // If element is above viewport, stick to top
+      if (rect.bottom < 0) y = GAP
+      // If element is below viewport, stick to bottom
+      if (rect.top > vh) y = vh - INPUT_H - GAP
+
+      // Clamp to viewport edges
+      x = Math.max(GAP, Math.min(x, vw - INPUT_W - PANEL_W - GAP))
+      y = Math.max(GAP, Math.min(y, vh - INPUT_H - GAP))
+
+      setPinInputPos({ x, y })
+    }
+
+    reposition()
+    const onScroll = () => requestAnimationFrame(reposition)
+    const onResize = () => requestAnimationFrame(reposition)
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', onResize)
+    return () => {
+      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', onResize)
+    }
+  }, [pinTarget])
+
   // Comment mode: crosshair cursor + click handler
   useEffect(() => {
     if (!commentMode) {
-      setPinInput(null)
+      setPinTarget(null)
       document.body.style.cursor = ''
       return
     }
@@ -71,15 +114,7 @@ export function CommentPin({ annotations, commentMode, channel, onReply }: Comme
       if (rect.width === 0 || rect.height === 0) return
       e.preventDefault()
       e.stopPropagation()
-      // Center input below element; store click coords for pin position
-      const inputWidth = 200
-      setPinInput({
-        x: rect.left + (rect.width - inputWidth) / 2,
-        y: rect.bottom + 8,
-        clickX: e.clientX,
-        clickY: e.clientY,
-        elementSource: source,
-      })
+      setPinTarget({ clickX: e.clientX, clickY: e.clientY, elementSource: source })
     }
 
     window.addEventListener('click', handleClick, true)
@@ -90,23 +125,23 @@ export function CommentPin({ annotations, commentMode, channel, onReply }: Comme
   }, [commentMode])
 
   const handlePinSubmit = useCallback((e: KeyboardEvent) => {
-    if (e.key !== 'Enter' || !pinText.trim() || !pinInput) return
-    const el = document.querySelector(`[data-cortex-source="${pinInput.elementSource}"]`)
+    if (e.key !== 'Enter' || !pinText.trim() || !pinTarget) return
+    const el = document.querySelector(`[data-cortex-source="${pinTarget.elementSource}"]`)
     if (!el) return
     const rect = el.getBoundingClientRect()
     if (rect.width === 0 || rect.height === 0) return
     channel.send({
       type: 'comment',
-      elementSource: pinInput.elementSource,
+      elementSource: pinTarget.elementSource,
       text: pinText.trim(),
       pinPosition: {
-        x: (pinInput.clickX - rect.left) / rect.width,
-        y: (pinInput.clickY - rect.top) / rect.height,
+        x: (pinTarget.clickX - rect.left) / rect.width,
+        y: (pinTarget.clickY - rect.top) / rect.height,
       },
     })
     setPinText('')
-    setPinInput(null)
-  }, [pinText, pinInput, channel])
+    setPinTarget(null)
+  }, [pinText, pinTarget, channel])
 
   const pinnedAnnotations = annotations.filter(a => a.pinPosition)
   const selectedAnnotation = selectedPinId ? annotations.find(a => a.id === selectedPinId) : null
@@ -137,8 +172,8 @@ export function CommentPin({ annotations, commentMode, channel, onReply }: Comme
         </div>
       )}
 
-      {pinInput && (
-        <div class="cortex-pin__input" style={{ left: `${pinInput.x}px`, top: `${pinInput.y}px` }}>
+      {pinTarget && (
+        <div class="cortex-pin__input" style={{ left: `${pinInputPos.x}px`, top: `${pinInputPos.y}px` }}>
           <input
             type="text"
             class="cortex-pin__input-field"
