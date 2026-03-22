@@ -12,7 +12,7 @@ export interface CommentPinProps {
 
 export function CommentPin({ annotations, commentMode, channel, onReply }: CommentPinProps): JSX.Element {
   const [selectedPinId, setSelectedPinId] = useState<string | null>(null)
-  const [pinInput, setPinInput] = useState<{ x: number; y: number; elementSource: string } | null>(null)
+  const [pinInput, setPinInput] = useState<{ x: number; y: number; clickX: number; clickY: number; elementSource: string } | null>(null)
   const [pinText, setPinText] = useState('')
   const [positions, setPositions] = useState<Map<string, { x: number; y: number }>>(new Map())
 
@@ -71,7 +71,8 @@ export function CommentPin({ annotations, commentMode, channel, onReply }: Comme
       if (rect.width === 0 || rect.height === 0) return
       e.preventDefault()
       e.stopPropagation()
-      setPinInput({ x: e.clientX, y: e.clientY, elementSource: source })
+      // Anchor input to element's top-right corner; store click coords for pin position
+      setPinInput({ x: rect.right + 8, y: rect.top, clickX: e.clientX, clickY: e.clientY, elementSource: source })
     }
 
     window.addEventListener('click', handleClick, true)
@@ -92,8 +93,8 @@ export function CommentPin({ annotations, commentMode, channel, onReply }: Comme
       elementSource: pinInput.elementSource,
       text: pinText.trim(),
       pinPosition: {
-        x: (pinInput.x - rect.left) / rect.width,
-        y: (pinInput.y - rect.top) / rect.height,
+        x: (pinInput.clickX - rect.left) / rect.width,
+        y: (pinInput.clickY - rect.top) / rect.height,
       },
     })
     setPinText('')
