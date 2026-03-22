@@ -1,6 +1,6 @@
 import type { JSX } from 'preact'
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
-import type { CortexChannel } from '../../adapters/types.js'
+import type { CortexChannel, Annotation, ActivityEntry } from '../../adapters/types.js'
 import { CSSOverrideManager } from '../override.js'
 import { initSelection } from '../selection.js'
 import type { SelectionHandle } from '../selection.js'
@@ -10,6 +10,8 @@ import { HoverOverlay } from './HoverOverlay.js'
 import { SelectionOverlay } from './SelectionOverlay.js'
 import { Panel } from './Panel.js'
 import { Toolbar } from './Toolbar.js'
+import { CommentPin } from './CommentPin.js'
+import { ActivityLog } from './ActivityLog.js'
 import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
 import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
@@ -35,6 +37,11 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
   const [hasAfter, setHasAfter] = useState(false)
   const [hoverEnabled, setHoverEnabled] = useState(true)
   const overrideRef = useRef<CSSOverrideManager | null>(null)
+  const [annotations, setAnnotations] = useState<Map<string, Annotation>>(new Map())
+  const [agentConnected, setAgentConnected] = useState(false)
+  const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
+  const [commentMode, setCommentMode] = useState(false)
+  const [showActivity, setShowActivity] = useState(false)
 
   // Phase 6: Activity, active state, refs
   const [activityCount, setActivityCount] = useState(0)
@@ -86,6 +93,19 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
         }
       }
       if (msg.type === 'edit_status' && msg.status === 'done') {
+        setActivityCount(c => c + 1)
+      }
+      if (msg.type === 'annotation-created') {
+        setAnnotations(prev => new Map(prev).set(msg.annotation.id, msg.annotation))
+      }
+      if (msg.type === 'annotation-updated') {
+        setAnnotations(prev => new Map(prev).set(msg.annotation.id, msg.annotation))
+      }
+      if (msg.type === 'agent-status') {
+        setAgentConnected(msg.connected)
+      }
+      if (msg.type === 'activity-entry') {
+        setActivityEntries(prev => [...prev, msg.entry])
         setActivityCount(c => c + 1)
       }
     })
@@ -154,6 +174,15 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
     }
   }, [selectedElement, availableStates])
 
+  const handleCommentMode = useCallback(() => setCommentMode(m => !m), [])
+  const handleActivityToggle = useCallback(() => {
+    setShowActivity(v => !v)
+    if (!showActivity) setActivityCount(0) // reset badge on open
+  }, [showActivity])
+  const handleCommentReply = useCallback((annotationId: string, text: string) => {
+    channel.send({ type: 'comment', elementSource: annotationId, text })
+  }, [channel])
+
   const handleClose = useCallback(() => setSelectedElement(null), [])
   const handleSelectElement = useCallback((el: HTMLElement | null) => setSelectedElement(el), [])
   const handleToggleHover = useCallback(() => setHoverEnabled(v => !v), [])
@@ -220,11 +249,26 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
           panelPointerMove={panelPointerMove}
           panelPointerUp={panelPointerUp}
           panelPointerCancel={panelPointerCancel}
+          channel={channel}
+          agentConnected={agentConnected}
         />
       )}
       <Toolbar
         activityCount={activityCount}
         onClose={handleExit}
+        commentMode={commentMode}
+        onCommentMode={handleCommentMode}
+      />
+      <CommentPin
+        annotations={[...annotations.values()]}
+        commentMode={commentMode}
+        channel={channel}
+        onReply={handleCommentReply}
+      />
+      <ActivityLog
+        entries={activityEntries}
+        visible={showActivity}
+        onClose={handleActivityToggle}
       />
     </>
   )
