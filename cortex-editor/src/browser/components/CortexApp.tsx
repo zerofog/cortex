@@ -42,6 +42,8 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
   const [commentMode, setCommentMode] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
+  const commentModeRef = useRef(false)
+  commentModeRef.current = commentMode
 
   // Phase 6: Activity, active state, refs
   const [activityCount, setActivityCount] = useState(0)
@@ -208,11 +210,14 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
       if (target?.isContentEditable) return
 
       if (e.key === 'Escape') {
-        if (selectedElementRef.current) {
+        if (commentModeRef.current) {
+          // Exit comment mode — stay active
+          setCommentMode(false)
+        } else if (selectedElementRef.current) {
           // Deselect — stay active
           setSelectedElement(null)
         } else {
-          // No selection — exit editor
+          // No selection, no comment mode — exit editor
           handleExit()
         }
         e.stopPropagation()
