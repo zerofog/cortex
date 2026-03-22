@@ -45,6 +45,12 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
   let retryCount = 0
   let closed = false
 
+  // RPC infrastructure for annotation tool queries
+  const pendingRequests = new Map<string, {
+    resolve: (value: unknown) => void
+    reject: (reason: Error) => void
+  }>()
+
   function connect(): void {
     ws = new WebSocket(wsUrl)
 
@@ -102,12 +108,6 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
   }
 
   connect()
-
-  // RPC infrastructure for annotation tool queries
-  const pendingRequests = new Map<string, {
-    resolve: (value: unknown) => void
-    reject: (reason: Error) => void
-  }>()
 
   function rpc(method: string, params: Record<string, unknown>): Promise<unknown> {
     const socket = ws
