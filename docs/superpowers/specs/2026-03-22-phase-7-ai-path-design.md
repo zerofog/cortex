@@ -59,6 +59,37 @@ pending → acknowledged → resolved (with summary)
                        → dismissed (with optional reason)
 ```
 
+### Valid State Transitions
+
+| From | To | Method | Notes |
+|------|-----|--------|-------|
+| `pending` | `acknowledged` | `acknowledge()` | Agent claims the annotation |
+| `acknowledged` | `resolved` | `resolve()` | Agent applied the change |
+| `acknowledged` | `dismissed` | `dismiss()` | Agent skipped the annotation |
+| `pending` | `dismissed` | `dismiss()` | Agent skips without acknowledging first |
+
+**Invalid transitions** (return `null`):
+- `resolved` → any state (terminal)
+- `dismissed` → any state (terminal)
+- `pending` → `resolved` (must acknowledge first)
+- Any repeated transition to current state (not idempotent — return `null`)
+
+Thread messages can be added in any non-terminal state (`pending` or `acknowledged`). Adding messages to `resolved`/`dismissed` annotations returns `null`.
+
+### CreateAnnotationParams
+
+```typescript
+export interface CreateAnnotationParams {
+  elementSource: string
+  text: string
+  elementContext?: ElementContext
+  currentStyles?: Record<string, string>
+  pinPosition?: { x: number; y: number }
+}
+```
+
+All other `Annotation` fields (`id`, `status`, `createdAt`, `updatedAt`, `thread`, etc.) are set by the store at creation time.
+
 ### Annotation Type
 
 ```typescript
@@ -102,7 +133,7 @@ class AnnotationStore {
 }
 ```
 
-Pure class, `Map<id, Annotation>` internally. No transport dependencies — fully unit-testable.
+Mutable class with `Map<id, Annotation>` internally. This is a deliberate trade-off: the store lives in a single-threaded Node.js Vite server process, so mutable state is safe and simpler than an immutable approach. No transport dependencies — fully unit-testable.
 
 ## MCP Tools
 
@@ -120,11 +151,17 @@ Six tools registered via `server.registerTool()` in `mcp.ts`:
 ### RPC Helper (in mcp.ts)
 
 ```typescript
-const pendingRequests = new Map<string, { resolve: Function; reject: Function }>()
+import { randomUUID } from 'node:crypto'
+
+const pendingRequests = new Map<string, {
+  resolve: (value: unknown) => void
+  reject: (reason: Error) => void
+}>()
 
 function rpc(method: string, params: Record<string, unknown>): Promise<unknown> {
-  if (!connected || !ws) throw new Error('Not connected to Vite server')
-  const requestId = crypto.randomUUID()
+  const socket = ws
+  if (!connected || !socket) throw new Error('Not connected to Vite server')
+  const requestId = randomUUID()
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pendingRequests.delete(requestId)
@@ -134,7 +171,7 @@ function rpc(method: string, params: Record<string, unknown>): Promise<unknown> 
       resolve: (v: unknown) => { clearTimeout(timer); resolve(v) },
       reject: (e: Error) => { clearTimeout(timer); reject(e) },
     })
-    ws!.send(JSON.stringify({ type: 'cortex-rpc', requestId, method, params }))
+    socket.send(JSON.stringify({ type: 'cortex-rpc', requestId, method, params }))
   })
 }
 ```
@@ -152,42 +189,57 @@ if (msg.type === 'cortex-rpc-result' || msg.type === 'cortex-rpc-error') {
 
 ### RPC Handler (in vite.ts)
 
-In the per-client `ws.on('message')` handler:
+**Must be inserted BEFORE the `CLI_ALLOWED_TYPES` guard** in the per-client `ws.on('message')` handler, so RPC messages are intercepted before the allowlist rejects them:
+
 ```typescript
+const ALLOWED_RPC_METHODS = new Set(['getPending', 'getDetails', 'acknowledge', 'resolve', 'dismiss', 'respond'])
+
+// In ws.on('message') handler — BEFORE the CLI_ALLOWED_TYPES check:
 if (type === 'cortex-rpc') {
   const { requestId, method, params } = parsed as { requestId: string; method: string; params: Record<string, unknown> }
+  if (!ALLOWED_RPC_METHODS.has(method)) {
+    ws.send(JSON.stringify({ type: 'cortex-rpc-error', requestId, error: `Unknown RPC method: ${method}` }))
+    return
+  }
   try {
     const result = handleAnnotationRPC(method, params)
     ws.send(JSON.stringify({ type: 'cortex-rpc-result', requestId, result }))
   } catch (err) {
     ws.send(JSON.stringify({ type: 'cortex-rpc-error', requestId, error: err instanceof Error ? err.message : String(err) }))
   }
-  return  // don't forward RPC to browser
+  return  // don't forward RPC to browser or hit CLI_ALLOWED_TYPES check
 }
 ```
 
-`handleAnnotationRPC` dispatches to `AnnotationStore` methods and broadcasts `annotation-updated` to browser when state changes.
+`handleAnnotationRPC` validates params per-method (e.g., `annotationId` must be a non-empty string for `acknowledge`) and dispatches to `AnnotationStore` methods. On state-changing operations, it broadcasts `annotation-updated` to browser via `channelInstance.send()`.
 
 ## Message Protocol Extensions
 
-### New ServerToBrowser types
+These types must be added to the discriminated unions in `src/adapters/types.ts`.
+
+### ServerToBrowser — add 4 variants
 
 ```typescript
-| { type: 'annotation-created'; annotation: Annotation }
-| { type: 'annotation-updated'; annotation: Annotation }
-| { type: 'agent-status'; connected: boolean }
-| { type: 'activity-entry'; entry: ActivityEntry }
+export type ServerToBrowser =
+  | ... existing 8 variants ...
+  | { type: 'annotation-created'; annotation: Annotation }
+  | { type: 'annotation-updated'; annotation: Annotation }
+  | { type: 'agent-status'; connected: boolean }
+  | { type: 'activity-entry'; entry: ActivityEntry }
 ```
 
-### Extended BrowserToServer `comment` type
+### BrowserToServer — extend `comment` variant with `pinPosition`
 
 ```typescript
+// Replace the existing comment variant:
 | { type: 'comment'; protocolVersion?: number; elementSource: string; text: string;
     elementContext?: ElementContext; currentStyles?: Record<string, string>;
     pinPosition?: { x: number; y: number } }
 ```
 
 When `pinPosition` is present → pin comment (blue dot). Otherwise → panel comment.
+
+The `Annotation`, `ThreadMessage`, `AnnotationStatus`, `CreateAnnotationParams`, and `ActivityEntry` types are also exported from `types.ts` so both server and browser code share the same contracts.
 
 ## Data Flows
 
@@ -220,9 +272,11 @@ When `pinPosition` is present → pin comment (blue dot). Otherwise → panel co
 
 ### Agent Connection Tracking
 
-1. CLI WebSocket connects → Vite sends `{ type: 'agent-status', connected: true }` to browser
-2. CLI WebSocket disconnects → Vite sends `{ type: 'agent-status', connected: false }` to browser
+1. CLI WebSocket connects → Vite checks `cliClients.size > 0` → sends `{ type: 'agent-status', connected: true }` to browser
+2. CLI WebSocket disconnects → Vite checks `cliClients.size > 0` → sends `{ type: 'agent-status', connected: cliClients.size > 0 }` to browser
 3. Browser toggles CommentInput enabled/disabled state
+
+`connected` reflects whether **any** CLI client is connected (not a specific one). Multiple CLI connections are supported (up to `MAX_CLI_CONNECTIONS = 5`); disconnecting one while another is still connected keeps the UI enabled.
 
 ## Activity Log
 
@@ -240,6 +294,7 @@ export interface ActivityEntry {
 
 export class ActivityLog {
   private entries: ActivityEntry[] = []
+  private readonly maxEntries = 500  // oldest-first eviction
 
   add(entry: Omit<ActivityEntry, 'id' | 'timestamp'>): ActivityEntry
   getAll(): ActivityEntry[]
@@ -254,6 +309,28 @@ export class ActivityLog {
 - Annotation creation → `activityLog.add({ type: 'comment', ... })`
 - Annotation status change → `activityLog.add({ type: 'status-change', ... })`
 - Each add sends `{ type: 'activity-entry', entry }` to browser
+
+## Browser State Management
+
+Annotation state in the browser is managed in `CortexApp.tsx` (the root component), following the existing pattern for `selectedElement` and `activityCount`:
+
+```typescript
+const [annotations, setAnnotations] = useState<Map<string, Annotation>>(new Map())
+const [agentConnected, setAgentConnected] = useState(false)
+
+// In channel.onMessage subscription:
+if (msg.type === 'annotation-created') {
+  setAnnotations(prev => new Map(prev).set(msg.annotation.id, msg.annotation))
+}
+if (msg.type === 'annotation-updated') {
+  setAnnotations(prev => new Map(prev).set(msg.annotation.id, msg.annotation))
+}
+if (msg.type === 'agent-status') {
+  setAgentConnected(msg.connected)
+}
+```
+
+This state is passed down to `CommentInput`, `CommentPin`, `CommentThread`, and `ActivityLog` as props. No separate state hook needed — the root component is already the state hub.
 
 ## Browser Components
 
@@ -271,7 +348,7 @@ Location: Bottom of Panel, below property sections.
 
 Location: Overlay layer (sibling to SelectionOverlay).
 
-- **Pin mode** activated by toolbar comment button (existing button)
+- **Pin mode** activated by a new toolbar comment button (added in this phase)
 - Crosshair cursor (`cursor: crosshair`) when in pin mode
 - Click on element → inline text input appears at click position
 - Submit → creates annotation with `pinPosition` (relative to element bbox, 0-1 range)
@@ -308,6 +385,8 @@ pinPosition: {
 
 Rendering: `element.getBoundingClientRect()` + relative offset → viewport coordinates. Re-computed on scroll/resize via `requestAnimationFrame`. Invariant to scroll, resize, and minor layout shifts.
 
+**Zero-size element guard:** If `rect.width === 0 || rect.height === 0` (element has `display: none` or is removed from layout), hide the pin dot rather than rendering at `NaN`/`Infinity` coordinates. During creation, reject pin placement on zero-size elements.
+
 ## Not In Scope
 
 - SPA navigation handling for pins (Phase 8b)
@@ -329,3 +408,4 @@ Rendering: `element.getBoundingClientRect()` + relative offset → viewport coor
 | CommentThread | `tests/browser/comment-thread.test.tsx` | Status transitions, reply flow, agent message rendering |
 | CommentPin | `tests/browser/comment-pin.test.tsx` | Pin creation, position calculation, dot rendering |
 | ActivityLog UI | `tests/browser/activity-log.test.tsx` | Entry rendering, badge count, popover toggle |
+| Round-trip | `tests/integration/annotation-lifecycle.test.ts` | Full flow: comment → create → getPending → acknowledge → resolve → browser update, concurrent clients |
