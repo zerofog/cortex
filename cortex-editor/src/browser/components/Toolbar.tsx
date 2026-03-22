@@ -8,6 +8,7 @@ export interface ToolbarProps {
   onClose: () => void
   commentMode?: boolean
   onCommentMode?: () => void
+  onActivityToggle?: () => void
 }
 
 // Inline SVG icons — 16×16 viewBox, stroke-based, 1.5px stroke
@@ -32,6 +33,7 @@ export function Toolbar({
   onClose,
   commentMode,
   onCommentMode,
+  onActivityToggle,
 }: ToolbarProps): JSX.Element {
   const { position, isHorizontal, isSnapping, setPosition, snap } = useToolbarDock()
 
@@ -69,9 +71,13 @@ export function Toolbar({
       </div>
 
       {activityCount > 0 && (
-        <span class="cortex-toolbar__badge">
+        <button
+          type="button"
+          class="cortex-toolbar__badge"
+          onClick={onActivityToggle}
+        >
           {activityCount} {activityCount === 1 ? 'change' : 'changes'}
-        </span>
+        </button>
       )}
 
       <button

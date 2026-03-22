@@ -266,6 +266,7 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
         onClose={handleExit}
         commentMode={commentMode}
         onCommentMode={handleCommentMode}
+        onActivityToggle={handleActivityToggle}
       />
       <CommentPin
         annotations={[...annotations.values()]}
