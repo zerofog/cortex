@@ -50,12 +50,15 @@ export function CommentPin({ annotations, commentMode, channel, onReply }: Comme
     }
   }, [annotations])
 
-  // Comment mode click handler
+  // Comment mode: crosshair cursor + click handler
   useEffect(() => {
     if (!commentMode) {
       setPinInput(null)
+      document.body.style.cursor = ''
       return
     }
+
+    document.body.style.cursor = 'crosshair'
 
     function handleClick(e: MouseEvent): void {
       const target = e.target as HTMLElement
@@ -72,7 +75,10 @@ export function CommentPin({ annotations, commentMode, channel, onReply }: Comme
     }
 
     window.addEventListener('click', handleClick, true)
-    return () => window.removeEventListener('click', handleClick, true)
+    return () => {
+      window.removeEventListener('click', handleClick, true)
+      document.body.style.cursor = ''
+    }
   }, [commentMode])
 
   const handlePinSubmit = useCallback((e: KeyboardEvent) => {
