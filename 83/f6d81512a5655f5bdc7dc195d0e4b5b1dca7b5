@@ -1,0 +1,26 @@
+cortex-editor/src/browser/components/CommentPin.tsx
+  ff4055e3cf367ea7 53,57,61,78-81
+cortex-editor/src/browser/styles.css
+  ff4055e3cf367ea7 1300
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.17",
+  "base_commit_sha": "83f6d81512a5655f5bdc7dc195d0e4b5b1dca7b5",
+  "prompts": {
+    "ff4055e3cf367ea7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d2da1c56-b966-49ca-b852-d7929793c8d1",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 9,
+      "total_deletions": 4,
+      "accepted_lines": 9,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/7937461fa3aa02f437cdca5ff5b83a8075794d0470c24ca20bcc12338af14f51"
+    }
+  }
+}
