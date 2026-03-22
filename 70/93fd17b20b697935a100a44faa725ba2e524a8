@@ -1,0 +1,50 @@
+cortex-editor/tests/browser/activity-log.test.tsx
+  ff4055e3cf367ea7 1-54
+cortex-editor/tests/browser/comment-pin.test.tsx
+  ff4055e3cf367ea7 1-43
+cortex-editor/src/browser/components/ActivityLog.tsx
+  ff4055e3cf367ea7 1-48
+cortex-editor/src/browser/components/Toolbar.tsx
+  ff4055e3cf367ea7 9-10,26-29,33-34,79-86
+cortex-editor/src/browser/styles.css
+  ff4055e3cf367ea7 1269-1401
+cortex-editor/src/browser/components/CommentPin.tsx
+  ff4055e3cf367ea7 1-138
+cortex-editor/tests/browser/toolbar.test.tsx
+  ff4055e3cf367ea7 41,44-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.17",
+  "base_commit_sha": "7093fd17b20b697935a100a44faa725ba2e524a8",
+  "prompts": {
+    "c2489f1e2362dd2d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f1d3034f-c385-4bad-9051-3e451cf345e7",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 401,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/d1569174f96485785e7e0829e802a6234c3910c02818de04863be6d6cf0bd706"
+    },
+    "ff4055e3cf367ea7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d2da1c56-b966-49ca-b852-d7929793c8d1",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 438,
+      "total_deletions": 2,
+      "accepted_lines": 438,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/f13b7030bbc66abc9eec97e5a91795c45c0ee52f5c796f6e67c58978454b4d14"
+    }
+  }
+}
