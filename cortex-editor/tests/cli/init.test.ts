@@ -165,4 +165,16 @@ describe('cortex init', () => {
       cleanup(dir)
     }
   })
+
+  it('errors when .mcp.json root is not a plain object', async () => {
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test"}',
+      '.mcp.json': '[]',
+    })
+    try {
+      await expect(runInit(dir)).rejects.toThrow('root value must be a JSON object')
+    } finally {
+      cleanup(dir)
+    }
+  })
 })

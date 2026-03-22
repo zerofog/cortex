@@ -37,6 +37,9 @@ export async function runInit(cwd: string = process.cwd()): Promise<InitResult> 
         'Fix the JSON syntax and re-run cortex init.'
       )
     }
+    if (typeof mcpConfig !== 'object' || mcpConfig === null || Array.isArray(mcpConfig)) {
+      throw new Error('.mcp.json: root value must be a JSON object.')
+    }
   }
 
   // Validate mcpServers is an object if present
