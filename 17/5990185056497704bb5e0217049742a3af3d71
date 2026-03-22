@@ -1,0 +1,17 @@
+cortex-editor/src/browser/components/CortexApp.tsx
+  ff4055e3cf367ea7 183-187
+cortex-editor/src/browser/styles.css
+  ff4055e3cf367ea7 1281,1294,1304,1336
+cortex-editor/src/cli/mcp.ts
+  ff4055e3cf367ea7 203,233,249,268,287
+cortex-editor/src/core/annotations.ts
+  ff4055e3cf367ea7 67
+cortex-editor/src/browser/components/ActivityLog.tsx
+  ff4055e3cf367ea7 20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.17",
+  "base_commit_sha": "175990185056497704bb5e0217049742a3af3d71",
+  "prompts": {}
+}
