@@ -1153,16 +1153,16 @@
 
 .cortex-comment-input {
   padding: 8px 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 .cortex-comment-input__field {
   width: 100%;
   padding: 6px 8px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 4px;
-  color: #e5e7eb;
+  color: #111827;
   font-size: 12px;
   outline: none;
   box-sizing: border-box;
@@ -1178,14 +1178,14 @@
 }
 
 .cortex-comment-input__field::placeholder {
-  color: rgba(255, 255, 255, 0.3);
+  color: rgba(0, 0, 0, 0.4);
 }
 
 /* ── Comment Thread ──────────────────────────── */
 
 .cortex-thread {
   padding: 8px 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 .cortex-thread__header {
@@ -1207,7 +1207,7 @@
 
 .cortex-thread__text {
   font-size: 12px;
-  color: #e5e7eb;
+  color: #111827;
   line-height: 18px;
 }
 
@@ -1241,8 +1241,8 @@
 }
 
 .cortex-thread__message--user {
-  color: #e5e7eb;
-  background: rgba(255, 255, 255, 0.06);
+  color: #111827;
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .cortex-thread__message--agent {
@@ -1254,10 +1254,10 @@
   width: 100%;
   padding: 4px 6px;
   margin-top: 6px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 4px;
-  color: #e5e7eb;
+  color: #111827;
   font-size: 11px;
   outline: none;
   box-sizing: border-box;
