@@ -1,0 +1,24 @@
+docs/superpowers/specs/2026-03-23-agent-module-embedded-ai-chat-design.md
+  f5742a259c20375e 1-384
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.17",
+  "base_commit_sha": "e5d1db3013448fd52226b18140819eeaba443238",
+  "prompts": {
+    "f5742a259c20375e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d339fbf8-7a71-4da0-9c99-9ee3b150bdae",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 390,
+      "total_deletions": 3,
+      "accepted_lines": 389,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/b65dafbdc71ed436a9527439b058fb4f166bc0d6d7476adbb7bcdffb0733763c"
+    }
+  }
+}
