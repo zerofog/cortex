@@ -38,10 +38,12 @@ describe('Toolbar', () => {
     expect(root.querySelector('.cortex-toolbar__badge')).not.toBeNull()
   })
 
-  it('renders only close button (no mode buttons)', () => {
+  it('renders comment and close buttons', () => {
     const { root } = setup()
     const buttons = root.querySelectorAll('button')
-    expect(buttons.length).toBe(1)
+    expect(buttons.length).toBe(2)
+    expect(root.querySelector('[data-action="comment"]')).not.toBeNull()
+    expect(root.querySelector('[data-action="close"]')).not.toBeNull()
   })
 
   it('clicking close calls onClose', () => {

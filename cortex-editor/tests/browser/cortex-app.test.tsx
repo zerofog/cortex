@@ -297,6 +297,147 @@ describe('CortexApp', () => {
     expect(root.querySelector('.cortex-toolbar')).toBeNull()
   })
 
+  it('annotation-created message renders pin dot for pinned annotation', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+    await activateEditor(channel)
+
+    // Create a DOM element the pin can find
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+    document.body.appendChild(target)
+    mockGetBoundingClientRect(target, { top: 100, left: 100, width: 200, height: 50 })
+
+    const annotation = {
+      id: 'ann-1',
+      status: 'pending' as const,
+      elementSource: 'Hero.tsx:5:3',
+      text: 'Make this bigger',
+      pinPosition: { x: 0.5, y: 0.5 },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      thread: [],
+    }
+    channel._simulateMessage({ type: 'annotation-created', annotation })
+    await new Promise(r => setTimeout(r, 50))
+
+    // Pin dot should render
+    const pinDot = root.querySelector('.cortex-pin')
+    expect(pinDot).not.toBeNull()
+
+    target.remove()
+  })
+
+  it('annotation-updated replaces existing annotation state', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+    await activateEditor(channel)
+
+    // Create target element
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+    document.body.appendChild(target)
+    mockGetBoundingClientRect(target, { top: 100, left: 100, width: 200, height: 50 })
+
+    const annotation = {
+      id: 'ann-1',
+      status: 'pending' as const,
+      elementSource: 'Hero.tsx:5:3',
+      text: 'Make this bigger',
+      pinPosition: { x: 0.5, y: 0.5 },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      thread: [],
+    }
+    channel._simulateMessage({ type: 'annotation-created', annotation })
+    await new Promise(r => setTimeout(r, 50))
+
+    // Click pin to open thread
+    const pinDot = root.querySelector('.cortex-pin') as HTMLDivElement
+    expect(pinDot).not.toBeNull()
+    pinDot.click()
+    await new Promise(r => setTimeout(r, 10))
+
+    // Thread should show pending status
+    expect(root.querySelector('.cortex-thread__status--pending')).not.toBeNull()
+
+    // Update annotation to resolved
+    const updated = {
+      ...annotation,
+      status: 'resolved' as const,
+      resolution: { summary: 'Increased font-size to xl' },
+      updatedAt: Date.now() + 1000,
+    }
+    channel._simulateMessage({ type: 'annotation-updated', annotation: updated })
+    await new Promise(r => setTimeout(r, 10))
+
+    // Thread should now show resolved status
+    expect(root.querySelector('.cortex-thread__status--resolved')).not.toBeNull()
+    expect(root.textContent).toContain('Increased font-size to xl')
+
+    target.remove()
+  })
+
+  it('agent-status connected=false disables comment input in panel', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+    await activateEditor(channel)
+
+    // Select an element to show the panel (which contains CommentInput)
+    const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+    const { selectCb } = _getCallbacks()
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+    document.body.appendChild(target)
+    mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
+    selectCb(target)
+    await new Promise(r => setTimeout(r, 50))
+
+    // Panel should be visible with CommentInput
+    const commentInput = root.querySelector('.cortex-comment-input__field') as HTMLInputElement
+    expect(commentInput).not.toBeNull()
+
+    // Agent disconnected — input should be disabled
+    channel._simulateMessage({ type: 'agent-status', connected: false })
+    await new Promise(r => setTimeout(r, 10))
+    expect(commentInput.disabled).toBe(true)
+    expect(commentInput.placeholder).toContain('No agent')
+
+    // Agent connected — input should be enabled
+    channel._simulateMessage({ type: 'agent-status', connected: true })
+    await new Promise(r => setTimeout(r, 10))
+    expect(commentInput.disabled).toBe(false)
+
+    target.remove()
+  })
+
+  it('activity-entry increments badge count', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+    await activateEditor(channel)
+
+    const entry = {
+      id: 'act-1',
+      type: 'comment' as const,
+      timestamp: Date.now(),
+      description: 'User commented on Hero',
+    }
+    channel._simulateMessage({ type: 'activity-entry', entry })
+    await new Promise(r => setTimeout(r, 10))
+
+    // activity-entry also increments activityCount, so badge should update
+    const badge = root.querySelector('.cortex-toolbar__badge')
+    expect(badge?.textContent).toContain('1')
+  })
+
   it('Escape with selection deselects but does not exit', async () => {
     setup()
     const channel = createMockChannel()
