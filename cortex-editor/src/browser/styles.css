@@ -1162,6 +1162,7 @@
 .cortex-comment-input {
   padding: 8px 12px;
   border-top: 1px solid rgba(0, 0, 0, 0.08);
+  position: relative;
 }
 
 .cortex-comment-input__field {
@@ -1187,6 +1188,32 @@
 
 .cortex-comment-input__field::placeholder {
   color: rgba(0, 0, 0, 0.4);
+}
+
+@keyframes cortex-spin {
+  to { transform: rotate(360deg); }
+}
+
+.cortex-comment-input__spinner {
+  position: absolute;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(59, 130, 246, 0.2);
+  border-top-color: rgba(59, 130, 246, 0.8);
+  border-radius: 50%;
+  animation: cortex-spin 600ms linear infinite;
+  pointer-events: none;
+}
+
+.cortex-comment-input--error .cortex-comment-input__field {
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.cortex-comment-input--error .cortex-comment-input__field::placeholder {
+  color: rgba(239, 68, 68, 0.6);
 }
 
 /* ── Comment Thread ──────────────────────────── */

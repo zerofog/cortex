@@ -112,6 +112,11 @@ export function Panel({
   // Default computed styles snapshot for dimming comparison.
   // Plain object snapshot (NOT a live CSSStyleDeclaration) — taken once per element.
   const defaultStylesRef = useRef<Record<string, string> | null>(null)
+
+  // Cleanup for pending comment subscription + timeout
+  const commentCleanupRef = useRef<(() => void) | null>(null)
+  useEffect(() => () => { commentCleanupRef.current?.() }, [])
+  useEffect(() => { commentCleanupRef.current?.() }, [element])
   useEffect(() => {
     if (!element) { defaultStylesRef.current = null; return }
     const cs = getComputedStyle(element)
@@ -250,6 +255,54 @@ export function Panel({
     }
   }, [element, onSelectElement])
 
+  const handleCommentSubmit = useCallback(async (text: string): Promise<void> => {
+    const source = element?.getAttribute('data-cortex-source')
+    if (!source || !channel) return
+
+    commentCleanupRef.current?.()
+    channel.send({ type: 'comment', elementSource: source, text })
+
+    return new Promise<void>((resolve, reject) => {
+      let annotationId: string | null = null
+      let settled = false
+      const timeout = setTimeout(() => {
+        if (settled) return
+        settle()
+        reject(new Error('timeout'))
+      }, 15_000)
+
+      const unsubscribe = channel.onMessage((msg) => {
+        if (settled) return
+        if (!annotationId && msg.type === 'annotation-created') {
+          const ann = msg.annotation
+          if (ann.text === text && ann.elementSource === source && !ann.pinPosition) {
+            annotationId = ann.id
+            if (ann.status !== 'pending') { settle(); resolve() }
+          }
+        }
+        if (annotationId && msg.type === 'annotation-updated') {
+          if (msg.annotation.id === annotationId && msg.annotation.status !== 'pending') {
+            settle()
+            if (msg.annotation.status === 'dismissed') {
+              reject(new Error('dismissed'))
+            } else {
+              resolve()
+            }
+          }
+        }
+      })
+
+      function settle() {
+        settled = true
+        clearTimeout(timeout)
+        unsubscribe()
+        if (commentCleanupRef.current === settleRef) commentCleanupRef.current = null
+      }
+      const settleRef = settle
+      commentCleanupRef.current = settle
+    })
+  }, [element, channel])
+
   // Null guard AFTER all hooks
   if (!element) return null
 
@@ -361,16 +414,7 @@ export function Panel({
         {channel && (
           <CommentInput
             agentConnected={agentConnected ?? false}
-            onSubmit={(text) => {
-              const source = element.getAttribute('data-cortex-source')
-              if (source && channel) {
-                channel.send({
-                  type: 'comment',
-                  elementSource: source,
-                  text,
-                })
-              }
-            }}
+            onSubmit={handleCommentSubmit}
           />
         )}
       </div>
