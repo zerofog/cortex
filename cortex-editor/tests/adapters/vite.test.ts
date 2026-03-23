@@ -263,14 +263,13 @@ describe('cortexEditor Vite plugin', () => {
       // Browser sends init
       server.hot._trigger('cortex:msg', { type: 'init' })
 
-      // hello is sent async via .then() — flush microtasks
+      // hello is sent async via .then() — wait for it specifically (agent-status arrives first)
       await vi.waitFor(() => {
-        expect(server._sent.length).toBeGreaterThan(0)
+        expect(server._sent.find((s) => (s.data as any).type === 'hello')).toBeDefined()
       })
 
-      const hello = server._sent[0]
+      const hello = server._sent.find((s) => (s.data as any).type === 'hello')!
       expect(hello.event).toBe('cortex:msg')
-      expect((hello.data as any).type).toBe('hello')
       expect((hello.data as any).protocolVersion).toBe(1)
       expect((hello.data as any).swatches).toEqual(['#ef4444', '#3b82f6', '#22c55e'])
     })
@@ -288,16 +287,19 @@ describe('cortexEditor Vite plugin', () => {
       // Browser sends init while tailwind is still resolving
       server.hot._trigger('cortex:msg', { type: 'init' })
 
-      // Nothing sent yet — swatches haven't resolved
-      expect(server._sent).toHaveLength(0)
+      // Only agent-status sent — hello hasn't sent yet (swatches still pending)
+      const hellosBeforeResolve = server._sent.filter((s) => (s.data as any).type === 'hello')
+      expect(hellosBeforeResolve).toHaveLength(0)
 
       // Now resolve swatches
       resolveSwatches(['#000000'])
       await vi.waitFor(() => {
-        expect(server._sent.length).toBeGreaterThan(0)
+        const hellos = server._sent.filter((s) => (s.data as any).type === 'hello')
+        expect(hellos.length).toBeGreaterThan(0)
       })
 
-      expect((server._sent[0].data as any).swatches).toEqual(['#000000'])
+      const hello = server._sent.find((s) => (s.data as any).type === 'hello')
+      expect((hello!.data as any).swatches).toEqual(['#000000'])
     })
 
     it('hello has undefined swatches when tailwind resolution fails', async () => {
@@ -325,7 +327,7 @@ describe('cortexEditor Vite plugin', () => {
       server.hot._trigger('cortex:msg', { type: 'edit', editId: '1', property: 'p', value: 'v', source: 's', elementSelector: 'e' })
 
       await vi.waitFor(() => {
-        expect(server._sent.length).toBeGreaterThan(0)
+        expect(server._sent.find((s) => (s.data as any).type === 'hello')).toBeDefined()
       })
 
       const hellos = server._sent.filter((s) => (s.data as any).type === 'hello')
@@ -531,7 +533,8 @@ describe('CLI WebSocket bridge', () => {
   it('forwards browser messages to CLI clients', async () => {
     const { server } = await setupServer()
     const { nextMessage } = await connectCLI()
-    await nextMessage() // drain status
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status (connected: true)
 
     const msgPromise = nextMessage()
     server.hot._trigger('cortex:msg', { type: 'cortex-closed' })
@@ -542,7 +545,8 @@ describe('CLI WebSocket bridge', () => {
   it('forwards server-generated messages to CLI clients', async () => {
     await setupServer()
     const { nextMessage } = await connectCLI()
-    await nextMessage() // drain status
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status (connected: true)
 
     const msgPromise = nextMessage()
     const channel = getChannel()
@@ -671,6 +675,260 @@ describe('CLI WebSocket bridge', () => {
       '[cortex] No httpServer — running in middleware mode. CLI connections unavailable.'
     )
     warnSpy.mockRestore()
+  })
+})
+
+describe('annotation RPC', () => {
+  let httpServer: HttpServer
+  let serverPort: number
+  let tmpDir: string
+  const openClients: WebSocket[] = []
+
+  function mockServerWithHttp(http: HttpServer) {
+    const handlers = new Map<string, Function>()
+    const offHandlers = new Map<string, Function>()
+    const sent: { event: string; data: unknown }[] = []
+    return {
+      middlewares: { use: vi.fn() },
+      httpServer: http,
+      hot: {
+        on(event: string, handler: Function) { handlers.set(event, handler) },
+        off(event: string, handler: Function) { offHandlers.set(event, handler) },
+        send(event: string, data: unknown) { sent.push({ event, data }) },
+        _trigger(event: string, data: unknown) { handlers.get(event)?.(data) },
+      },
+      _handlers: handlers,
+      _offHandlers: offHandlers,
+      _sent: sent,
+    }
+  }
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'cortex-rpc-test-'))
+  })
+
+  async function setupServer() {
+    const plugin = initPlugin({ root: tmpDir })
+    httpServer = createServer()
+    const server = mockServerWithHttp(httpServer)
+    ;(plugin.configureServer as Function)(server)
+
+    await new Promise<void>((resolve) => {
+      httpServer.listen(0, '127.0.0.1', () => resolve())
+    })
+    const addr = httpServer.address()
+    serverPort = (addr as any).port
+
+    return { plugin, server }
+  }
+
+  type CLIConnection = { ws: WebSocket; nextMessage: () => Promise<any> }
+
+  async function connectCLI(): Promise<CLIConnection> {
+    const ws = new WebSocket(`ws://127.0.0.1:${serverPort}/@cortex/ws`)
+
+    const queue: any[] = []
+    const waiters: ((msg: any) => void)[] = []
+    ws.on('message', (raw) => {
+      const msg = JSON.parse(raw.toString())
+      const waiter = waiters.shift()
+      if (waiter) waiter(msg)
+      else queue.push(msg)
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      ws.on('open', resolve)
+      ws.on('error', reject)
+    })
+    openClients.push(ws)
+
+    return {
+      ws,
+      nextMessage(): Promise<any> {
+        const buffered = queue.shift()
+        if (buffered !== undefined) return Promise.resolve(buffered)
+        return new Promise((resolve) => waiters.push(resolve))
+      },
+    }
+  }
+
+  afterEach(async () => {
+    for (const ws of openClients) {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.terminate()
+      }
+    }
+    openClients.length = 0
+    _resetForTesting()
+    if (httpServer?.listening) {
+      await new Promise<void>((resolve) => httpServer.close(() => resolve()))
+    }
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('getPending returns empty list initially', async () => {
+    await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status (connected: true)
+
+    ws.send(JSON.stringify({
+      type: 'cortex-rpc',
+      requestId: 'r1',
+      method: 'getPending',
+      params: {},
+    }))
+    const reply = await nextMessage()
+    expect(reply.type).toBe('cortex-rpc-result')
+    expect(reply.requestId).toBe('r1')
+    expect(reply.result).toEqual([])
+  })
+
+  it('comment message creates annotation, getPending returns it', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+
+    // Browser sends a comment via HMR
+    server.hot._trigger('cortex:msg', {
+      type: 'comment',
+      elementSource: 'src/App.tsx:5:3',
+      text: 'Make this blue',
+    })
+
+    // Drain the forwarded messages (comment + annotation-created + activity-entry come via CLI echo)
+    // We need to consume any messages that arrive before our RPC response
+    await new Promise((r) => setTimeout(r, 50))
+
+    ws.send(JSON.stringify({
+      type: 'cortex-rpc',
+      requestId: 'r2',
+      method: 'getPending',
+      params: {},
+    }))
+
+    // Read messages until we get the RPC result
+    let reply: any
+    for (let i = 0; i < 20; i++) {
+      reply = await nextMessage()
+      if (reply.type === 'cortex-rpc-result' && reply.requestId === 'r2') break
+    }
+
+    expect(reply.type).toBe('cortex-rpc-result')
+    expect(reply.requestId).toBe('r2')
+    expect(reply.result).toHaveLength(1)
+    expect(reply.result[0].text).toBe('Make this blue')
+    expect(reply.result[0].elementSource).toBe('src/App.tsx:5:3')
+    expect(reply.result[0].status).toBe('pending')
+  })
+
+  it('acknowledge RPC changes status and sends annotation-updated to browser', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+
+    // Create an annotation via browser comment
+    server.hot._trigger('cortex:msg', {
+      type: 'comment',
+      elementSource: 'src/App.tsx:10:5',
+      text: 'Fix spacing',
+    })
+
+    // Wait for processing
+    await new Promise((r) => setTimeout(r, 50))
+
+    // Get the annotation ID via getPending
+    ws.send(JSON.stringify({
+      type: 'cortex-rpc',
+      requestId: 'get1',
+      method: 'getPending',
+      params: {},
+    }))
+
+    let getReply: any
+    for (let i = 0; i < 20; i++) {
+      getReply = await nextMessage()
+      if (getReply.type === 'cortex-rpc-result' && getReply.requestId === 'get1') break
+    }
+    const annotationId = getReply.result[0].id
+
+    // Acknowledge it
+    ws.send(JSON.stringify({
+      type: 'cortex-rpc',
+      requestId: 'ack1',
+      method: 'acknowledge',
+      params: { annotationId },
+    }))
+
+    let ackReply: any
+    for (let i = 0; i < 20; i++) {
+      ackReply = await nextMessage()
+      if (ackReply.type === 'cortex-rpc-result' && ackReply.requestId === 'ack1') break
+    }
+
+    expect(ackReply.result.status).toBe('acknowledged')
+    expect(ackReply.result.id).toBe(annotationId)
+
+    // Verify browser received annotation-updated via HMR
+    const annotationUpdated = server._sent.find(
+      (s) => (s.data as any).type === 'annotation-updated' && (s.data as any).annotation?.status === 'acknowledged'
+    )
+    expect(annotationUpdated).toBeDefined()
+    expect((annotationUpdated!.data as any).annotation.id).toBe(annotationId)
+  })
+
+  it('unknown RPC method returns error', async () => {
+    await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status (connected: true)
+
+    ws.send(JSON.stringify({
+      type: 'cortex-rpc',
+      requestId: 'bad1',
+      method: 'deleteEverything',
+      params: {},
+    }))
+    const reply = await nextMessage()
+    expect(reply.type).toBe('cortex-rpc-error')
+    expect(reply.requestId).toBe('bad1')
+    expect(reply.error).toContain('Unknown RPC method')
+  })
+
+  it('agent-status sent on CLI connect', async () => {
+    const { server } = await setupServer()
+    const { nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    // The CLI also receives the agent-status echoed via forwardToCLI
+    const agentMsg = await nextMessage()
+    expect(agentMsg.type).toBe('agent-status')
+    expect(agentMsg.connected).toBe(true)
+
+    // Also verify browser received it via HMR
+    const allAgentStatus = server._sent.filter((s) => (s.data as any).type === 'agent-status')
+    expect(allAgentStatus.length).toBeGreaterThan(0)
+    const connectStatus = allAgentStatus.find((s) => (s.data as any).connected === true)
+    expect(connectStatus).toBeDefined()
+  })
+
+  it('agent-status sent on CLI disconnect', async () => {
+    const { server } = await setupServer()
+    const { ws } = await connectCLI()
+
+    // Clear previous sent messages
+    server._sent.length = 0
+
+    ws.close()
+    await new Promise<void>((resolve) => ws.on('close', resolve))
+
+    // Wait for close handler to fire
+    await new Promise((r) => setTimeout(r, 50))
+
+    const agentStatus = server._sent.find((s) => (s.data as any).type === 'agent-status')
+    expect(agentStatus).toBeDefined()
+    expect((agentStatus!.data as any).connected).toBe(false)
   })
 })
 

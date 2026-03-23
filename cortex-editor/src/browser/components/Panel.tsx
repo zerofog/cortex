@@ -19,6 +19,8 @@ import type { ShadowChange } from './sections/ShadowSection.js'
 import { EffectsSection, parseEffectsValues } from './sections/EffectsSection.js'
 import type { EffectsChange } from './sections/EffectsSection.js'
 import type { InteractionState } from '../state-detector.js'
+import { CommentInput } from './CommentInput.js'
+import type { CortexChannel } from '../../adapters/types.js'
 
 /**
  * All CSS properties checked for dimming (default vs forced-state comparison).
@@ -52,6 +54,8 @@ export interface PanelProps {
   panelPointerMove: (e: PointerEvent) => void
   panelPointerUp: (e: PointerEvent) => void
   panelPointerCancel: (e: PointerEvent) => void
+  channel?: CortexChannel
+  agentConnected?: boolean
 }
 
 function parseSpacingValues(cs: CSSStyleDeclaration) {
@@ -92,6 +96,8 @@ export function Panel({
   panelPointerMove,
   panelPointerUp,
   panelPointerCancel,
+  channel,
+  agentConnected,
 }: PanelProps): JSX.Element | null {
   // ALL hooks first — no conditional returns before hooks
   const [contentKey, setContentKey] = useState(0)
@@ -352,6 +358,21 @@ export function Panel({
           onScrubEnd={handleEffectsCommit}
           dimmedProperties={dimmedProperties}
         />
+        {channel && (
+          <CommentInput
+            agentConnected={agentConnected ?? false}
+            onSubmit={(text) => {
+              const source = element.getAttribute('data-cortex-source')
+              if (source && channel) {
+                channel.send({
+                  type: 'comment',
+                  elementSource: source,
+                  text,
+                })
+              }
+            }}
+          />
+        )}
       </div>
     </div>
   )

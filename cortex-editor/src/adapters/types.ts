@@ -64,7 +64,7 @@ export type BrowserToServer =
   | { type: 'edit'; protocolVersion?: number; editId: string; property: string; value: string; source: string; elementSelector: string }
   | { type: 'undo'; protocolVersion?: number; editId?: string }
   | { type: 'redo'; protocolVersion?: number; editId?: string }
-  | { type: 'comment'; protocolVersion?: number; elementSource: string; text: string; elementContext?: ElementContext; currentStyles?: Record<string, string> }
+  | { type: 'comment'; protocolVersion?: number; elementSource: string; text: string; elementContext?: ElementContext; currentStyles?: Record<string, string>; pinPosition?: { x: number; y: number } }
 
 export type ServerToBrowser =
   | { type: 'cortex' }
@@ -75,12 +75,57 @@ export type ServerToBrowser =
   | { type: 'undo_status'; status: 'done'; restoredFile: string }
   | { type: 'redo_status'; status: 'done'; restoredFile: string }
   | { type: 'hmr_verified'; editId: string; match: boolean; expected?: string; actual?: string }
+  | { type: 'annotation-created'; annotation: Annotation }
+  | { type: 'annotation-updated'; annotation: Annotation }
+  | { type: 'agent-status'; connected: boolean }
+  | { type: 'activity-entry'; entry: ActivityEntry }
 
 export interface ElementContext {
   tagName: string
   componentName: string | null
   domSelector: string
   textPreview: string
+}
+
+export type AnnotationStatus = 'pending' | 'acknowledged' | 'resolved' | 'dismissed'
+
+export interface Annotation {
+  id: string
+  status: AnnotationStatus
+  elementSource: string
+  text: string
+  elementContext?: ElementContext
+  currentStyles?: Record<string, string>
+  pinPosition?: { x: number; y: number }
+  createdAt: number
+  updatedAt: number
+  resolution?: { summary: string }
+  dismissReason?: string
+  thread: ThreadMessage[]
+}
+
+export interface ThreadMessage {
+  id: string
+  from: 'user' | 'agent'
+  text: string
+  timestamp: number
+}
+
+export interface CreateAnnotationParams {
+  elementSource: string
+  text: string
+  elementContext?: ElementContext
+  currentStyles?: Record<string, string>
+  pinPosition?: { x: number; y: number }
+}
+
+export interface ActivityEntry {
+  id: string
+  type: 'edit' | 'comment' | 'status-change'
+  timestamp: number
+  elementSource?: string
+  description: string
+  details?: Record<string, unknown>
 }
 
 // === Browser-side channel (injected by adapter) ===
