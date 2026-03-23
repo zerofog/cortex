@@ -30,7 +30,7 @@ export function ActivityLog({ entries, visible, onClose }: ActivityLogProps): JS
     <div class="cortex-activity-log">
       <div class="cortex-activity-log__header">
         <span>Activity</span>
-        <button class="cortex-activity-log__close" onClick={onClose}>✕</button>
+        <button type="button" class="cortex-activity-log__close" onClick={onClose}>✕</button>
       </div>
       <div class="cortex-activity-log__list">
         {display.length === 0 && (

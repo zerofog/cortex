@@ -2,6 +2,11 @@ import type { JSX } from 'preact'
 import { useState, useEffect, useCallback } from 'preact/hooks'
 import type { Annotation, CortexChannel } from '../../adapters/types.js'
 import { CommentThread } from './CommentThread.js'
+import { PANEL_WIDTH } from '../hooks/useSnapToEdge.js'
+
+function sourceSelector(source: string): string {
+  return `[data-cortex-source="${CSS.escape(source)}"]`
+}
 
 export interface CommentPinProps {
   annotations: Annotation[]
@@ -28,7 +33,7 @@ export function CommentPin({ annotations, commentMode, channel, onReply }: Comme
       const newPositions = new Map<string, { x: number; y: number }>()
       for (const ann of annotations) {
         if (!ann.pinPosition) continue
-        const el = document.querySelector(`[data-cortex-source="${ann.elementSource}"]`)
+        const el = document.querySelector(sourceSelector(ann.elementSource))
         if (!el) continue
         const rect = el.getBoundingClientRect()
         if (rect.width === 0 || rect.height === 0) continue
@@ -56,11 +61,11 @@ export function CommentPin({ annotations, commentMode, channel, onReply }: Comme
     if (!pinTarget) return
     const INPUT_W = 200
     const INPUT_H = 32
-    const PANEL_W = 320
+    const PANEL_W = PANEL_WIDTH + 20 // panel width + margin
     const GAP = 8
 
     function reposition(): void {
-      const el = document.querySelector(`[data-cortex-source="${pinTarget!.elementSource}"]`)
+      const el = document.querySelector(sourceSelector(pinTarget!.elementSource))
       if (!el) return
       const rect = el.getBoundingClientRect()
       const vw = window.innerWidth
@@ -108,7 +113,7 @@ export function CommentPin({ annotations, commentMode, channel, onReply }: Comme
       if (!target || target.closest('[data-cortex-host]')) return
       const source = target.getAttribute('data-cortex-source') || target.closest('[data-cortex-source]')?.getAttribute('data-cortex-source')
       if (!source) return
-      const el = document.querySelector(`[data-cortex-source="${source}"]`)
+      const el = document.querySelector(sourceSelector(source))
       if (!el) return
       const rect = el.getBoundingClientRect()
       if (rect.width === 0 || rect.height === 0) return
@@ -126,7 +131,7 @@ export function CommentPin({ annotations, commentMode, channel, onReply }: Comme
 
   const handlePinSubmit = useCallback((e: KeyboardEvent) => {
     if (e.key !== 'Enter' || !pinText.trim() || !pinTarget) return
-    const el = document.querySelector(`[data-cortex-source="${pinTarget.elementSource}"]`)
+    const el = document.querySelector(sourceSelector(pinTarget.elementSource))
     if (!el) return
     const rect = el.getBoundingClientRect()
     if (rect.width === 0 || rect.height === 0) return

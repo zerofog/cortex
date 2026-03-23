@@ -124,9 +124,9 @@ describe('AnnotationStore', () => {
     const ann = store.create({
       elementSource: 'App.tsx:5:3',
       text: 'move this',
-      pinPosition: { x: 120, y: 340 },
+      pinPosition: { x: 0.5, y: 0.3 },
     })
-    expect(ann.pinPosition).toEqual({ x: 120, y: 340 })
+    expect(ann.pinPosition).toEqual({ x: 0.5, y: 0.3 })
   })
 
   it('getAll returns all annotations', () => {

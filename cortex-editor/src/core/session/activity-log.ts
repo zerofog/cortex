@@ -20,15 +20,15 @@ export class ActivityLog {
   }
 
   getAll(): ActivityEntry[] {
-    return this.entries
+    return this.entries.map(e => ({ ...e }))
   }
 
   getRecent(count: number): ActivityEntry[] {
-    return this.entries.slice(-count)
+    return this.entries.slice(-count).map(e => ({ ...e }))
   }
 
   getSince(timestamp: number): ActivityEntry[] {
-    return this.entries.filter(e => e.timestamp > timestamp)
+    return this.entries.filter(e => e.timestamp > timestamp).map(e => ({ ...e }))
   }
 
   get count(): number {
