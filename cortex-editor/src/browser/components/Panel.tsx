@@ -273,12 +273,9 @@ export function Panel({
 
       const unsubscribe = channel.onMessage((msg) => {
         if (settled) return
-        if (!annotationId && msg.type === 'annotation-created') {
-          const ann = msg.annotation
-          if (ann.text === text && ann.elementSource === source && !ann.pinPosition) {
-            annotationId = ann.id
-            if (ann.status !== 'pending') { settle(); resolve() }
-          }
+        if (!annotationId && msg.type === 'annotation-created' && !msg.annotation.pinPosition) {
+          annotationId = msg.annotation.id
+          if (msg.annotation.status !== 'pending') { settle(); resolve() }
         }
         if (annotationId && msg.type === 'annotation-updated') {
           if (msg.annotation.id === annotationId && msg.annotation.status !== 'pending') {

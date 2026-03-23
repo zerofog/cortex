@@ -1197,11 +1197,10 @@
 .cortex-comment-input__spinner {
   position: absolute;
   right: 20px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(59, 130, 246, 0.2);
+  top: calc(50% - 6px);
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid rgba(59, 130, 246, 0.2);
   border-top-color: rgba(59, 130, 246, 0.8);
   border-radius: 50%;
   animation: cortex-spin 600ms linear infinite;
