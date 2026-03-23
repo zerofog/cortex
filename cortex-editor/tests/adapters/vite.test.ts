@@ -263,14 +263,13 @@ describe('cortexEditor Vite plugin', () => {
       // Browser sends init
       server.hot._trigger('cortex:msg', { type: 'init' })
 
-      // hello is sent async via .then() — flush microtasks
+      // hello is sent async via .then() — wait for it specifically (agent-status arrives first)
       await vi.waitFor(() => {
-        expect(server._sent.length).toBeGreaterThan(0)
+        expect(server._sent.find((s) => (s.data as any).type === 'hello')).toBeDefined()
       })
 
-      const hello = server._sent[0]
+      const hello = server._sent.find((s) => (s.data as any).type === 'hello')!
       expect(hello.event).toBe('cortex:msg')
-      expect((hello.data as any).type).toBe('hello')
       expect((hello.data as any).protocolVersion).toBe(1)
       expect((hello.data as any).swatches).toEqual(['#ef4444', '#3b82f6', '#22c55e'])
     })
@@ -288,16 +287,19 @@ describe('cortexEditor Vite plugin', () => {
       // Browser sends init while tailwind is still resolving
       server.hot._trigger('cortex:msg', { type: 'init' })
 
-      // Nothing sent yet — swatches haven't resolved
-      expect(server._sent).toHaveLength(0)
+      // Only agent-status sent — hello hasn't sent yet (swatches still pending)
+      const hellosBeforeResolve = server._sent.filter((s) => (s.data as any).type === 'hello')
+      expect(hellosBeforeResolve).toHaveLength(0)
 
       // Now resolve swatches
       resolveSwatches(['#000000'])
       await vi.waitFor(() => {
-        expect(server._sent.length).toBeGreaterThan(0)
+        const hellos = server._sent.filter((s) => (s.data as any).type === 'hello')
+        expect(hellos.length).toBeGreaterThan(0)
       })
 
-      expect((server._sent[0].data as any).swatches).toEqual(['#000000'])
+      const hello = server._sent.find((s) => (s.data as any).type === 'hello')
+      expect((hello!.data as any).swatches).toEqual(['#000000'])
     })
 
     it('hello has undefined swatches when tailwind resolution fails', async () => {
@@ -325,7 +327,7 @@ describe('cortexEditor Vite plugin', () => {
       server.hot._trigger('cortex:msg', { type: 'edit', editId: '1', property: 'p', value: 'v', source: 's', elementSelector: 'e' })
 
       await vi.waitFor(() => {
-        expect(server._sent.length).toBeGreaterThan(0)
+        expect(server._sent.find((s) => (s.data as any).type === 'hello')).toBeDefined()
       })
 
       const hellos = server._sent.filter((s) => (s.data as any).type === 'hello')

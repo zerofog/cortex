@@ -306,9 +306,12 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           }
         }
 
-        // Track browser connection + don't forward 'init' to application handlers
+        // Track browser connection + send current agent status on init
         if (data.type === 'init') {
           browserConnected = true
+          if (channelInstance) {
+            channelInstance.send({ type: 'agent-status', connected: cliClients.size > 0 })
+          }
           return
         }
 
