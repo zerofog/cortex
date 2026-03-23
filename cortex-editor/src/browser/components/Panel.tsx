@@ -296,10 +296,11 @@ export function Panel({
         settled = true
         clearTimeout(timeout)
         unsubscribe()
-        if (commentCleanupRef.current === settleRef) commentCleanupRef.current = null
+        if (commentCleanupRef.current === cancelRef) commentCleanupRef.current = null
       }
-      const settleRef = settle
-      commentCleanupRef.current = settle
+      function cancel() { settle(); reject(new Error('cancelled')) }
+      const cancelRef = cancel
+      commentCleanupRef.current = cancel
     })
   }, [element, channel])
 

@@ -29,8 +29,9 @@ export function CommentInput({ onSubmit, agentConnected }: CommentInputProps): J
       }
       onSubmit(submitted).then(
         () => { if (mountedRef.current) setPending(false) },
-        () => {
+        (err: unknown) => {
           if (!mountedRef.current) return
+          console.warn('[cortex] Comment submission failed:', err instanceof Error ? err.message : err)
           setPending(false)
           setError(true)
           errorTimerRef.current = setTimeout(() => { setError(false) }, 3000)
