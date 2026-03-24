@@ -65,6 +65,7 @@ export type BrowserToServer =
   | { type: 'undo'; protocolVersion?: number; editId?: string }
   | { type: 'redo'; protocolVersion?: number; editId?: string }
   | { type: 'comment'; protocolVersion?: number; elementSource: string; text: string; elementContext?: ElementContext; currentStyles?: Record<string, string>; pinPosition?: { x: number; y: number } }
+  | { type: 'comment-reply'; annotationId: string; text: string }
 
 export type ServerToBrowser =
   | { type: 'cortex' }
