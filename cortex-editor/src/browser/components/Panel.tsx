@@ -38,7 +38,7 @@ export const ALL_DIMMING_PROPERTIES = [
 ] as const
 
 export interface PanelProps {
-  element: HTMLElement
+  element: HTMLElement | null
   overrideManager: CSSOverrideManager
   onClose: () => void
   onSelectElement: (el: HTMLElement | null) => void
@@ -301,8 +301,44 @@ export function Panel({
     })
   }, [element, channel])
 
-  // Null guard AFTER all hooks
-  if (!element) return null
+  const panelClasses = [
+    'cortex-panel',
+    isEntering && 'cortex-panel--entering',
+    isSnapping && 'cortex-panel--snapping',
+    isCrossFading && 'cortex-panel--cross-fade',
+  ].filter(Boolean).join(' ')
+
+  // Empty state: panel shell visible, no sections
+  if (!element) {
+    return (
+      <div
+        class={panelClasses}
+        style={{ transform: `translate(${position.x}px, ${position.y}px)`, width: `${PANEL_WIDTH}px` }}
+      >
+        <PanelHeader
+          tagName=""
+          componentName="Cortex"
+          sourceFile={null}
+          sourceLine={null}
+          filePath={null}
+          hasParent={false}
+          hasChildren={false}
+          onClose={onClose}
+          onSelectParent={() => {}}
+          onSelectChild={() => {}}
+          onPointerDown={panelPointerDown}
+          onPointerMove={panelPointerMove}
+          onPointerUp={panelPointerUp}
+          onPointerCancel={panelPointerCancel}
+          hoverEnabled={hoverEnabled}
+          onToggleHover={onToggleHover}
+        />
+        <div class="cortex-panel__body">
+          <p class="cortex-panel__empty">Click an element to inspect its properties</p>
+        </div>
+      </div>
+    )
+  }
 
   const sourceInfo = parseCortexSource(element)
   const tagName = element.tagName.toLowerCase()
@@ -314,13 +350,6 @@ export function Panel({
   const ancestor = isLibrary ? findUserAncestor(element) : null
   const hasParent = element.parentElement !== null && element.parentElement !== document.documentElement
   const hasChildren = element.children.length > 0
-
-  const panelClasses = [
-    'cortex-panel',
-    isEntering && 'cortex-panel--entering',
-    isSnapping && 'cortex-panel--snapping',
-    isCrossFading && 'cortex-panel--cross-fade',
-  ].filter(Boolean).join(' ')
 
   return (
     <div

@@ -664,6 +664,38 @@ describe('CLI WebSocket bridge', () => {
     expect(status.editorActive).toBe(false)
   })
 
+  it('re-sends cortex to browser on init when editorActive is true', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+
+    // Activate editor via CLI
+    ws.send(JSON.stringify({ type: 'cortex' }))
+    await new Promise((r) => setTimeout(r, 50))
+
+    // Record sent count after activation
+    const sentBefore = server._sent.length
+
+    // Simulate browser refresh — browser sends init
+    server.hot._trigger('cortex:msg', { type: 'init' })
+    await new Promise((r) => setTimeout(r, 50))
+
+    const newMessages = server._sent.slice(sentBefore)
+    expect(newMessages.some((s) => (s.data as any).type === 'cortex')).toBe(true)
+    expect(newMessages.some((s) => (s.data as any).type === 'agent-status')).toBe(true)
+  })
+
+  it('does not send cortex on init when editorActive is false', async () => {
+    const { server } = await setupServer()
+
+    // Browser sends init without editor being active
+    server.hot._trigger('cortex:msg', { type: 'init' })
+    await new Promise((r) => setTimeout(r, 50))
+
+    expect(server._sent.some((s) => (s.data as any).type === 'agent-status')).toBe(true)
+    expect(server._sent.some((s) => (s.data as any).type === 'cortex')).toBe(false)
+  })
+
   it('warns when no httpServer (middleware mode)', () => {
     const plugin = initPlugin()
     const server = mockServer()

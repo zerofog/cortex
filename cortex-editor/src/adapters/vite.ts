@@ -320,6 +320,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           browserConnected = true
           if (channelInstance) {
             channelInstance.send({ type: 'agent-status', connected: cliClients.size > 0 })
+            if (editorActive) channelInstance.send({ type: 'cortex' })
           }
           return
         }
