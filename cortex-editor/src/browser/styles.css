@@ -134,6 +134,12 @@
   background: #d1d5db;
   border-radius: 3px;
 }
+.cortex-panel__empty {
+  padding: 24px 16px;
+  color: #9ca3af;
+  font-size: 13px;
+  text-align: center;
+}
 
 /* ── Panel header ────────────────────────────── */
 

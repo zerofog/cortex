@@ -88,12 +88,12 @@ describe('Panel', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
-  it('does not render when element is null', () => {
+  it('renders empty state panel when element is null', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
     render(
       <Panel
-        element={null as any}
+        element={null}
         overrideManager={{} as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -101,7 +101,10 @@ describe('Panel', () => {
       />,
       container,
     )
-    expect(container.querySelector('.cortex-panel')).toBeNull()
+    expect(container.querySelector('.cortex-panel')).not.toBeNull()
+    expect(container.textContent).toContain('Click an element to inspect')
+    // Sections should NOT render in empty state
+    expect(container.querySelector('[data-section-id]')).toBeNull()
     render(null, container)
     container.remove()
   })
