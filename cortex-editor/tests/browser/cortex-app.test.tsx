@@ -467,4 +467,68 @@ describe('CortexApp', () => {
 
     target.remove()
   })
+
+  it('comment input shows spinner until annotation is acknowledged', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+    await activateEditor(channel)
+
+    // Connect agent so input is enabled
+    channel._simulateMessage({ type: 'agent-status', connected: true })
+    await new Promise(r => setTimeout(r, 10))
+
+    // Select an element to show the panel
+    const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+    const { selectCb } = _getCallbacks()
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+    document.body.appendChild(target)
+    mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
+    selectCb(target)
+    await new Promise(r => setTimeout(r, 50))
+
+    // Type and submit a comment
+    const input = root.querySelector('.cortex-comment-input__field') as HTMLInputElement
+    expect(input).not.toBeNull()
+    input.value = 'Make this blue'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await new Promise(r => setTimeout(r, 10))
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await new Promise(r => setTimeout(r, 10))
+
+    // Spinner should be visible
+    expect(root.querySelector('.cortex-comment-input__spinner')).not.toBeNull()
+    expect(input.disabled).toBe(true)
+
+    // Simulate server creating the annotation
+    const annotation = {
+      id: 'ann-1',
+      status: 'pending' as const,
+      elementSource: 'Hero.tsx:5:3',
+      text: 'Make this blue',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      thread: [],
+    }
+    channel._simulateMessage({ type: 'annotation-created', annotation })
+    await new Promise(r => setTimeout(r, 10))
+
+    // Spinner should still be visible (waiting for acknowledge)
+    expect(root.querySelector('.cortex-comment-input__spinner')).not.toBeNull()
+
+    // Simulate agent acknowledging
+    channel._simulateMessage({
+      type: 'annotation-updated',
+      annotation: { ...annotation, status: 'acknowledged' as const, updatedAt: Date.now() },
+    })
+    await new Promise(r => setTimeout(r, 10))
+
+    // Spinner should be gone, input re-enabled
+    expect(root.querySelector('.cortex-comment-input__spinner')).toBeNull()
+    expect(input.disabled).toBe(false)
+
+    target.remove()
+  })
 })
