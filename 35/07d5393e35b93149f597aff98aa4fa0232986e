@@ -1,0 +1,69 @@
+cortex-editor/src/core/agent/prompts/system-v1.md
+  4460e443d7296ea4 1-64
+docs/superpowers/specs/2026-03-23-agent-module-embedded-ai-chat-design.md
+  4460e443d7296ea4 1,4,6-7,14,18,20,39,46,51,53,56,59,61,63,66,75,77,79,94,103,107,111,113,117,132-133,135,140-141,143,146-168,171-186,192-196,200,202,204,206,210-211,214,226,231,234-245,247,249,251-253,255,257-259,261,271-272,278-280,295,297,299,307,309-315,321-322,324-325,329,334-335,338,348,352,354,356,358-416,426,428-431,433,437,439,441-444,446,452-456,462,464,468-488
+  f5742a259c20375e 8,40,129-131,169-170,198,212-213,225,230,246,248,250,254,256,291,323
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.17",
+  "base_commit_sha": "3507d5393e35b93149f597aff98aa4fa0232986e",
+  "prompts": {
+    "4460e443d7296ea4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b144db8d-31bb-4082-b252-71689d2ea543",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 512,
+      "total_deletions": 444,
+      "accepted_lines": 323,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/0cfdc45af4ac4329167d50a76d2a51c615cb786fe454d4cb1d28e6e0cf187dd6"
+    },
+    "6642388ef172148b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "63eda457-26f5-4b1a-b902-9239780611bc",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 139,
+      "total_deletions": 0,
+      "accepted_lines": 7,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/6f3849b4a25e8f73b9dad813df1fb1da118bd4096594946c1e4d595d22376e92"
+    },
+    "b0061cb27eaf9504": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d1cee-852d-7191-98f5-9e2cfb60daa8",
+        "model": "gpt-5.4"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 132,
+      "accepted_lines": 0,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/c2e2abc2c0152b037fe85ba574c3342d5bbe9f68df223c9e2fcc9076b1533cec"
+    },
+    "f5742a259c20375e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d339fbf8-7a71-4da0-9c99-9ee3b150bdae",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 125,
+      "total_deletions": 36,
+      "accepted_lines": 24,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/b8484431fd75301321115866665200efd8588bd8289d9654874c0eb9243d017c"
+    }
+  }
+}
