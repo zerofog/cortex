@@ -116,7 +116,7 @@ describe('CommentInput', () => {
     expect(container.querySelector('.cortex-comment-input__spinner')).toBeFalsy()
     const wrapper = container.querySelector('.cortex-comment-input')
     expect(wrapper?.classList.contains('cortex-comment-input--error')).toBe(true)
-    expect(input.placeholder).toBe('Failed to send')
+    expect(input.placeholder).toBe('No response')
   })
 
   it('error state auto-clears after 3 seconds', async () => {

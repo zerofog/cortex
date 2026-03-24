@@ -51,7 +51,7 @@ export function CommentInput({ onSubmit, agentConnected }: CommentInputProps): J
   const placeholder = pending
     ? 'Sending...'
     : error
-      ? 'Failed to send'
+      ? 'No response'
       : agentConnected
         ? 'Ask the AI agent...'
         : 'No agent connected'
