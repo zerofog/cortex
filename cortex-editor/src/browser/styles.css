@@ -1280,8 +1280,8 @@
 }
 
 .cortex-thread__message--agent {
-  color: #93c5fd;
-  background: rgba(59, 130, 246, 0.1);
+  color: #2563eb;
+  background: rgba(59, 130, 246, 0.08);
 }
 
 .cortex-thread__reply {
