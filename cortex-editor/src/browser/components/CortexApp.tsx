@@ -236,7 +236,7 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
         onStateChange={handleStateChange}
         overlaysVisible={hoverEnabled}
       />
-      {selectedElement && overrideRef.current && (
+      {overrideRef.current && (
         <Panel
           element={selectedElement}
           overrideManager={overrideRef.current}
