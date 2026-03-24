@@ -1,0 +1,26 @@
+cortex-editor/src/core/agent/prompts/system-v1.md
+  4460e443d7296ea4 1-64
+.gitignore
+  4460e443d7296ea4 16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.17",
+  "base_commit_sha": "550408cffad4f7da5afddd54f5edea87e99732c2",
+  "prompts": {
+    "4460e443d7296ea4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b144db8d-31bb-4082-b252-71689d2ea543",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 65,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/a07f782f575e963170382082f639c2a7c63e5e6075eb660b89c0fe2b119debc1"
+    }
+  }
+}
