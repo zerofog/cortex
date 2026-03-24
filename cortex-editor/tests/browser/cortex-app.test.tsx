@@ -468,6 +468,64 @@ describe('CortexApp', () => {
     target.remove()
   })
 
+  it('thread reply sends comment-reply with annotationId, not a new comment', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+    await activateEditor(channel)
+
+    // Create target element with pin
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+    document.body.appendChild(target)
+    mockGetBoundingClientRect(target, { top: 100, left: 100, width: 200, height: 50 })
+
+    const annotation = {
+      id: 'ann-reply-test',
+      status: 'pending' as const,
+      elementSource: 'Hero.tsx:5:3',
+      text: 'Make this bigger',
+      pinPosition: { x: 0.5, y: 0.5 },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      thread: [],
+    }
+    channel._simulateMessage({ type: 'annotation-created', annotation })
+    await new Promise(r => setTimeout(r, 50))
+
+    // Click pin to open thread
+    const pinDot = root.querySelector('.cortex-pin') as HTMLDivElement
+    expect(pinDot).not.toBeNull()
+    pinDot.click()
+    await new Promise(r => setTimeout(r, 10))
+
+    // Type reply in thread input
+    const replyInput = root.querySelector('.cortex-thread__reply') as HTMLInputElement
+    expect(replyInput).not.toBeNull()
+    replyInput.value = 'How much bigger?'
+    replyInput.dispatchEvent(new Event('input', { bubbles: true }))
+    await new Promise(r => setTimeout(r, 10))
+
+    // Clear sent messages to isolate the reply
+    channel._lastSent.length = 0
+
+    // Press Enter to submit reply
+    replyInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await new Promise(r => setTimeout(r, 10))
+
+    // Verify it sends comment-reply, NOT comment
+    expect(channel._lastSent).toHaveLength(1)
+    const msg = channel._lastSent[0] as any
+    expect(msg.type).toBe('comment-reply')
+    expect(msg.annotationId).toBe('ann-reply-test')
+    expect(msg.text).toBe('How much bigger?')
+    // Should NOT have elementSource (that's the old comment pattern)
+    expect(msg.elementSource).toBeUndefined()
+
+    target.remove()
+  })
+
   it('comment input shows spinner until annotation is acknowledged', async () => {
     setup()
     const channel = createMockChannel()

@@ -897,6 +897,89 @@ describe('annotation RPC', () => {
     expect(reply.error).toContain('Unknown RPC method')
   })
 
+  it('comment-reply appends to existing annotation thread', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+
+    // Create an annotation via browser comment
+    server.hot._trigger('cortex:msg', {
+      type: 'comment',
+      elementSource: 'src/App.tsx:5:3',
+      text: 'Make this blue',
+    })
+    await new Promise((r) => setTimeout(r, 50))
+
+    // Get the annotation ID via getPending
+    ws.send(JSON.stringify({
+      type: 'cortex-rpc',
+      requestId: 'get1',
+      method: 'getPending',
+      params: {},
+    }))
+    let getReply: any
+    for (let i = 0; i < 20; i++) {
+      getReply = await nextMessage()
+      if (getReply.type === 'cortex-rpc-result' && getReply.requestId === 'get1') break
+    }
+    const annotationId = getReply.result[0].id
+
+    // Clear sent messages to isolate comment-reply effects
+    server._sent.length = 0
+
+    // Browser sends a comment-reply via HMR
+    server.hot._trigger('cortex:msg', {
+      type: 'comment-reply',
+      annotationId,
+      text: 'What shade of blue?',
+    })
+    await new Promise((r) => setTimeout(r, 50))
+
+    // Verify browser received annotation-updated (not annotation-created)
+    const updated = server._sent.find(
+      (s) => (s.data as any).type === 'annotation-updated'
+    )
+    expect(updated).toBeDefined()
+    expect((updated!.data as any).annotation.id).toBe(annotationId)
+    expect((updated!.data as any).annotation.thread).toHaveLength(1)
+    expect((updated!.data as any).annotation.thread[0].from).toBe('user')
+    expect((updated!.data as any).annotation.thread[0].text).toBe('What shade of blue?')
+
+    // Verify no annotation-created was sent (reply should NOT create a new annotation)
+    const created = server._sent.find(
+      (s) => (s.data as any).type === 'annotation-created'
+    )
+    expect(created).toBeUndefined()
+
+    // Verify activity log entry was sent
+    const activityEntry = server._sent.find(
+      (s) => (s.data as any).type === 'activity-entry'
+    )
+    expect(activityEntry).toBeDefined()
+    expect((activityEntry!.data as any).entry.type).toBe('comment')
+  })
+
+  it('comment-reply to nonexistent annotation is silently ignored', async () => {
+    const { server } = await setupServer()
+    await connectCLI()
+
+    server._sent.length = 0
+
+    // Send reply to a nonexistent annotation
+    server.hot._trigger('cortex:msg', {
+      type: 'comment-reply',
+      annotationId: 'nonexistent-id',
+      text: 'This should be ignored',
+    })
+    await new Promise((r) => setTimeout(r, 50))
+
+    // No annotation-updated or annotation-created should be sent
+    const annotationMsg = server._sent.find(
+      (s) => (s.data as any).type === 'annotation-updated' || (s.data as any).type === 'annotation-created'
+    )
+    expect(annotationMsg).toBeUndefined()
+  })
+
   it('agent-status sent on CLI connect', async () => {
     const { server } = await setupServer()
     const { nextMessage } = await connectCLI()

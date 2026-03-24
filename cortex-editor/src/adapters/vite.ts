@@ -306,6 +306,15 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           }
         }
 
+        if (data.type === 'comment-reply') {
+          const ann = annotationStore.addMessage(data.annotationId, { from: 'user', text: data.text })
+          if (ann && channelInstance) {
+            const entry = activityLog.add({ type: 'comment', description: data.text, elementSource: ann.elementSource })
+            channelInstance.send({ type: 'annotation-updated', annotation: ann })
+            channelInstance.send({ type: 'activity-entry', entry })
+          }
+        }
+
         // Track browser connection + send current agent status on init
         if (data.type === 'init') {
           browserConnected = true
