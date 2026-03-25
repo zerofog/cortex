@@ -211,6 +211,8 @@ export function Panel({
 
   // Shared override application — warns if element lacks source attribution.
   // Passes pseudo parameter to CSSOverrideManager when editing a pseudo-element.
+  // When commitRender is true (committed change, not scrub preview), also dispatches
+  // an edit message to the server for source file writing.
   const applyOverride = useCallback((property: string, value: string, commitRender: boolean) => {
     if (!element) return
     const source = element.getAttribute('data-cortex-source')
@@ -223,8 +225,21 @@ export function Panel({
     if (commitRender) {
       overrideManager.flush()
       setStyleVersion(v => v + 1)
+
+      // Dispatch edit to server for source file writing
+      if (channel) {
+        channel.send({
+          type: 'edit',
+          editId: crypto.randomUUID(),
+          source,
+          property,
+          value,
+          elementSelector: element.tagName.toLowerCase(),
+          cssMapping: element.getAttribute('data-cortex-css') ?? undefined,
+        })
+      }
     }
-  }, [element, overrideManager, activePseudo])
+  }, [element, overrideManager, activePseudo, channel])
 
   const handleSpacingCommit = useCallback((c: SpacingChange) => applyOverride(c.property, `${c.value}px`, true), [applyOverride])
   const handleScrub = useCallback((c: SpacingChange) => applyOverride(c.property, `${c.value}px`, false), [applyOverride])

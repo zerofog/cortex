@@ -669,3 +669,156 @@ describe('path traversal safety', () => {
     expect(result!.code).toContain('data-cortex-source="src/deep/Component.tsx:')
   })
 })
+
+// ---------------------------------------------------------------------------
+// CSS Module annotation
+// ---------------------------------------------------------------------------
+
+describe('CSS Module annotation', () => {
+  it('annotates styles.hero with data-cortex-css', () => {
+    const result = transform(
+      `import styles from './Hero.module.css'\nconst C = () => <div className={styles.hero}>test</div>`,
+      '/project/src/Hero.tsx',
+    )
+    expect(result).toContain('data-cortex-css="src/Hero.module.css:.hero"')
+  })
+
+  it('does not annotate static string classNames', () => {
+    const result = transform(
+      `import styles from './Hero.module.css'\nconst C = () => <div className="static">test</div>`,
+      '/project/src/Hero.tsx',
+    )
+    expect(result).not.toContain('data-cortex-css')
+  })
+
+  it('annotates bracket access styles["hero"]', () => {
+    const result = transform(
+      `import styles from './Hero.module.css'\nconst C = () => <div className={styles['hero']}>test</div>`,
+      '/project/src/Hero.tsx',
+    )
+    expect(result).toContain('data-cortex-css="src/Hero.module.css:.hero"')
+  })
+
+  it('annotates dynamic access styles[variant] as wildcard', () => {
+    const result = transform(
+      `import styles from './Hero.module.css'\nconst C = () => <div className={styles[variant]}>test</div>`,
+      '/project/src/Hero.tsx',
+    )
+    expect(result).toContain('data-cortex-css="src/Hero.module.css:*"')
+  })
+
+  it('annotates clsx(styles.a, styles.b) with multiple selectors', () => {
+    const result = transform(
+      `import styles from './Hero.module.css'\nconst C = () => <div className={clsx(styles.a, styles.b)}>test</div>`,
+      '/project/src/Hero.tsx',
+    )
+    expect(result).toContain('data-cortex-css="src/Hero.module.css:.a,.b"')
+  })
+
+  it('annotates clsx with object syntax { [styles.active]: isActive }', () => {
+    const result = transform(
+      `import styles from './Hero.module.css'\nconst C = () => <div className={clsx(styles.hero, { [styles.active]: isActive })}>test</div>`,
+      '/project/src/Hero.tsx',
+    )
+    expect(result).toContain('data-cortex-css="src/Hero.module.css:.hero,.active"')
+  })
+
+  it('does not annotate className={computeClass()} without binding reference', () => {
+    const result = transform(
+      `import styles from './Hero.module.css'\nconst C = () => <div className={computeClass()}>test</div>`,
+      '/project/src/Hero.tsx',
+    )
+    expect(result).not.toContain('data-cortex-css')
+  })
+
+  it('handles named default import { default as s }', () => {
+    const result = transform(
+      `import { default as s } from './Hero.module.css'\nconst C = () => <div className={s.hero}>test</div>`,
+      '/project/src/Hero.tsx',
+    )
+    expect(result).toContain('data-cortex-css="src/Hero.module.css:.hero"')
+  })
+
+  it('resolves relative paths from importing file directory', () => {
+    const result = transform(
+      `import styles from '../styles/Hero.module.css'\nconst C = () => <div className={styles.hero}>test</div>`,
+      '/project/src/pages/Hero.tsx',
+    )
+    expect(result).toContain('data-cortex-css="src/styles/Hero.module.css:.hero"')
+  })
+
+  it('skips elements that already have data-cortex-css (idempotency)', () => {
+    const result = transform(
+      `import styles from './Hero.module.css'\nconst C = () => <div data-cortex-css="existing" className={styles.hero}>test</div>`,
+      '/project/src/Hero.tsx',
+    )
+    // Should have the existing one, but not a second one
+    const matches = result.match(/data-cortex-css/g)
+    expect(matches?.length).toBe(1)
+  })
+
+  it('does not annotate non-CSS-module imports', () => {
+    const result = transform(
+      `import styles from './Hero.module.scss'\nconst C = () => <div className={styles.hero}>test</div>`,
+      '/project/src/Hero.tsx',
+    )
+    expect(result).not.toContain('data-cortex-css')
+  })
+
+  it('handles aliased imports via resolveAlias callback', () => {
+    const t = createSourceTransform('/project', {
+      resolveAlias: (spec) => {
+        if (spec.startsWith('@/')) return spec.replace('@/', 'src/')
+        return null
+      },
+    })
+    const result = t(
+      `import styles from '@/styles/Hero.module.css'\nconst C = () => <div className={styles.hero}>test</div>`,
+      '/project/src/Hero.tsx',
+    )
+    expect(result).not.toBeNull()
+    expect(result!.code).toContain('data-cortex-css="src/styles/Hero.module.css:.hero"')
+  })
+
+  it('deduplicates selectors from the same binding', () => {
+    const result = transform(
+      `import styles from './Hero.module.css'\nconst C = () => <div className={clsx(styles.hero, styles.hero)}>test</div>`,
+      '/project/src/Hero.tsx',
+    )
+    // Should contain just .hero once, not .hero,.hero
+    expect(result).toContain('data-cortex-css="src/Hero.module.css:.hero"')
+  })
+
+  it('still adds data-cortex-source alongside data-cortex-css', () => {
+    const result = transform(
+      `import styles from './Hero.module.css'\nconst C = () => <div className={styles.hero}>test</div>`,
+      '/project/src/Hero.tsx',
+    )
+    expect(result).toContain('data-cortex-source="src/Hero.tsx:')
+    expect(result).toContain('data-cortex-css="src/Hero.module.css:.hero"')
+  })
+
+  it('annotates cn() wrapper the same as clsx()', () => {
+    const result = transform(
+      `import styles from './Hero.module.css'\nconst C = () => <div className={cn(styles.hero)}>test</div>`,
+      '/project/src/Hero.tsx',
+    )
+    expect(result).toContain('data-cortex-css="src/Hero.module.css:.hero"')
+  })
+
+  it('handles template literal with CSS module reference', () => {
+    const result = transform(
+      `import styles from './Hero.module.css'\nconst C = () => <div className={\`\${styles.hero} extra\`}>test</div>`,
+      '/project/src/Hero.tsx',
+    )
+    expect(result).toContain('data-cortex-css="src/Hero.module.css:.hero"')
+  })
+
+  it('ignores side-effect-only CSS module imports', () => {
+    const result = transform(
+      `import './Hero.module.css'\nconst C = () => <div className="static">test</div>`,
+      '/project/src/Hero.tsx',
+    )
+    expect(result).not.toContain('data-cortex-css')
+  })
+})
