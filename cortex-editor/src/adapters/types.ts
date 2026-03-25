@@ -38,6 +38,8 @@ export interface SourceTransformOptions {
   mode?: 'development' | 'production'
   /** Called when the parser fails to parse a file. */
   onParseError?: (id: string, error: unknown) => void
+  /** Resolve import aliases (e.g., @/ → src/) synchronously. Return null if unresolvable. */
+  resolveAlias?: (specifier: string) => string | null
   /** Package names in node_modules to instrument (for library component detection). */
   includeNodeModules?: string[]
 }
@@ -61,7 +63,7 @@ export interface ServerChannel {
 export type BrowserToServer =
   | { type: 'init' }
   | { type: 'cortex-closed' }
-  | { type: 'edit'; protocolVersion?: number; editId: string; property: string; value: string; source: string; elementSelector: string }
+  | { type: 'edit'; protocolVersion?: number; editId: string; property: string; value: string; source: string; elementSelector: string; cssMapping?: string }
   | { type: 'undo'; protocolVersion?: number; editId?: string }
   | { type: 'redo'; protocolVersion?: number; editId?: string }
   | { type: 'comment'; protocolVersion?: number; elementSource: string; text: string; elementContext?: ElementContext; currentStyles?: Record<string, string>; pinPosition?: { x: number; y: number } }
@@ -72,9 +74,11 @@ export type ServerToBrowser =
   | { type: 'cortex-close' }
   | { type: 'hello'; protocolVersion: number; sessionId: string; swatches?: string[] }
   | { type: 'error'; code: string; message: string; editId?: string }
-  | { type: 'edit_status'; editId: string; status: 'writing' | 'done' | 'failed'; newToken?: string; reason?: string }
+  | { type: 'edit_status'; editId: string; status: 'writing' | 'done' | 'failed' | 'cancelled'; newToken?: string; reason?: string }
   | { type: 'undo_status'; status: 'done'; restoredFile: string }
+  | { type: 'undo_status'; status: 'failed'; restoredFile: string; reason: string }
   | { type: 'redo_status'; status: 'done'; restoredFile: string }
+  | { type: 'redo_status'; status: 'failed'; restoredFile: string; reason: string }
   | { type: 'hmr_verified'; editId: string; match: boolean; expected?: string; actual?: string }
   | { type: 'annotation-created'; annotation: Annotation }
   | { type: 'annotation-updated'; annotation: Annotation }
