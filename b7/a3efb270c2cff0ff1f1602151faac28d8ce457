@@ -1,0 +1,52 @@
+docs/superpowers/specs/2026-03-25-phase-8b-shortcuts-persistence-webpack-design.md
+  1c8b9611a4669f06 540-706
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "b7a3efb270c2cff0ff1f1602151faac28d8ce457",
+  "prompts": {
+    "1c8b9611a4669f06": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bf8c8a14-541b-4549-98e3-e397a37d6ce2",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 167,
+      "total_deletions": 0,
+      "accepted_lines": 167,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/24fb6858343f202cfa86dd5f8d8adfbca90ef8d4dde124d1eb3cf61cf4c42db9"
+    },
+    "4a8fe0b05b4905c7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d1dd7-9ef2-7e01-988b-77c1f37c74d0",
+        "model": "gpt-5.4"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 401,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/a758edc854074672ef4e6c2a2cd5ca0ec86203e6d0b950f8769bd0c37823955b"
+    },
+    "beb9fab4b96b767b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d272d-2624-7d03-a316-7666c66c8244",
+        "model": "gpt-5.4"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/38929513c8d156268aca8da804f5a08d065d40eb9f3851995608398338405165"
+    }
+  }
+}
