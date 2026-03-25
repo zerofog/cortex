@@ -84,6 +84,7 @@ export class EditPipeline {
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private lastValues = new Map<string, string>()
   private fileLocks = new Map<string, Promise<void>>()
+  private tailwindFailNotified = false
   private readonly channel: ServerChannel
   private readonly resolver: TailwindResolver
   private readonly rewriter: TailwindRewriter
@@ -237,12 +238,16 @@ export class EditPipeline {
     const oldToken = previousValue ? this.resolver.findClass(edit.property, previousValue) : null
 
     if (!newToken || !oldToken) {
-      this.channel.send({
-        type: 'edit_status',
-        editId: edit.editId,
-        status: 'failed',
-        reason: 'Cannot resolve Tailwind class — AI path required',
-      })
+      // Only notify once per session to avoid error flood on every property change
+      if (!this.tailwindFailNotified) {
+        this.tailwindFailNotified = true
+        this.channel.send({
+          type: 'edit_status',
+          editId: edit.editId,
+          status: 'failed',
+          reason: 'Tailwind class editing not available for this project. Connect Claude Code for AI-assisted editing.',
+        })
+      }
       return
     }
 
