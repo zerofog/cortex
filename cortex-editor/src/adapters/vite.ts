@@ -83,6 +83,7 @@ let portFilePath: string | null = null
 let editorActive = false
 let browserConnected = false
 let pipelineInstance: EditPipeline | null = null
+let hmrUnsubscribe: (() => void) | null = null
 
 // Annotation RPC dispatch
 const ALLOWED_RPC_METHODS = new Set(['getPending', 'getDetails', 'acknowledge', 'resolve', 'dismiss', 'respond'])
@@ -226,7 +227,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         includeNodeModules: _options?.includeNodeModules,
         resolveAlias: (spec) => {
           for (const [k, v] of Object.entries(aliasMap)) {
-            if (spec.startsWith(k)) return spec.replace(k, v)
+            if (spec === k || spec.startsWith(k + '/')) return v + spec.slice(k.length)
           }
           return null
         },
@@ -348,10 +349,19 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           }
         }
 
-        // Route edit/undo/redo to EditPipeline
-        if (data.type === 'edit' && pipelineInstance) pipelineInstance.handleEdit(data as EditRequest)
-        if (data.type === 'undo' && pipelineInstance) pipelineInstance.handleUndo()
-        if (data.type === 'redo' && pipelineInstance) pipelineInstance.handleRedo()
+        // Route edit/undo/redo to EditPipeline (or notify if still initializing)
+        if (data.type === 'edit') {
+          if (pipelineInstance) pipelineInstance.handleEdit(data as EditRequest)
+          else channelInstance?.send({ type: 'edit_status', editId: (data as EditRequest).editId, status: 'failed', reason: 'Editor is still initializing. Please try again.' })
+        }
+        if (data.type === 'undo') {
+          if (pipelineInstance) pipelineInstance.handleUndo()
+          else channelInstance?.send({ type: 'undo_status', status: 'failed', restoredFile: '', reason: 'Editor is still initializing.' })
+        }
+        if (data.type === 'redo') {
+          if (pipelineInstance) pipelineInstance.handleRedo()
+          else channelInstance?.send({ type: 'redo_status', status: 'failed', restoredFile: '', reason: 'Editor is still initializing.' })
+        }
 
         // Track browser connection + send current agent status on init
         if (data.type === 'init') {
@@ -435,14 +445,17 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         return null
       })
 
+      const channel = channelInstance
       Promise.all([detectionPromise, resolverPromise]).then(([detection, resolver]) => {
-        if (!channelInstance) return // server was disposed before promises resolved
+        // Abort if server was disposed or channel was replaced during async init
+        if (!channelInstance || channelInstance !== channel) return
 
-        // Dispose any previous pipeline (e.g., from server restart)
+        // Dispose previous pipeline + HMR callback (e.g., from server restart)
         if (pipelineInstance) pipelineInstance.dispose()
+        if (hmrUnsubscribe) hmrUnsubscribe()
 
         pipelineInstance = new EditPipeline({
-          channel: channelInstance,
+          channel,
           resolver: resolver ?? TailwindResolver.fromTheme({}),
           rewriter,
           verifier,
@@ -455,8 +468,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           projectRoot,
         })
 
-        // Wire HMR verifier to HMR update callbacks
-        onHMRUpdate((files) => verifier.onHMRUpdate(files))
+        hmrUnsubscribe = onHMRUpdate((files) => verifier.onHMRUpdate(files))
       }).catch((err) => {
         console.error('[cortex] Failed to initialize edit pipeline:', err instanceof Error ? err.message : err)
       })

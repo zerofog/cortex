@@ -214,7 +214,9 @@ export class EditPipeline {
           return
         }
 
-        await this.commitCSSModulesRewrite(edit, resolvedCssPath, mapping.selectors.join(','))
+        // Try each selector individually — first match wins (handles clsx(styles.a, styles.b))
+        const selector = mapping.selectors.length === 1 ? mapping.selectors[0]! : mapping.selectors.find(s => s === '*') ?? mapping.selectors[0]!
+        await this.commitCSSModulesRewrite(edit, resolvedCssPath, selector)
         return
       }
     }

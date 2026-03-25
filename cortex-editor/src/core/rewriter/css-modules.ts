@@ -34,8 +34,11 @@ function escapeRegex(s: string): string {
 }
 
 function selectorMatchesClass(ruleSelector: string, targetClass: string): boolean {
+  // targetClass starts with "." (e.g., ".hero"), so the dot is its own boundary.
+  // Only need lookahead to prevent ".hero" matching ".heroImage".
+  // No lookbehind — compound selectors like ".foo.hero" must match ".hero".
   const escaped = escapeRegex(targetClass)
-  const classRe = new RegExp(`(?<![\\w-])${escaped}(?![\\w-])`)
+  const classRe = new RegExp(`${escaped}(?![\\w-])`)
   const parts = ruleSelector.split(',')
   for (const part of parts) {
     if (classRe.test(part.trim())) return true
