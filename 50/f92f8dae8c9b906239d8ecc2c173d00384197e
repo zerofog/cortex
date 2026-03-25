@@ -1,0 +1,84 @@
+cortex-editor/src/core/edit-pipeline.ts
+  414b0fdeb7c2a283 1,6-8,20-21,35-44,47-70,94-99,110-114,177,187-235,273-275,297-370,374-399
+cortex-editor/tests/core/shorthand.test.ts
+  414b0fdeb7c2a283 1-238
+cortex-editor/src/core/session/undo-stack.ts
+  414b0fdeb7c2a283 1-108
+cortex-editor/tests/core/runtime-resolver.test.ts
+  414b0fdeb7c2a283 1-211
+cortex-editor/src/core/rewriter/css-modules.ts
+  414b0fdeb7c2a283 1-215
+cortex-editor/tests/adapters/source-transform.test.ts
+  414b0fdeb7c2a283 672-824
+cortex-editor/tests/integration/edit-loop.test.ts
+  414b0fdeb7c2a283 6-7,10,110-379
+cortex-editor/src/browser/components/ErrorToast.tsx
+  414b0fdeb7c2a283 1-81
+cortex-editor/src/adapters/types.ts
+  414b0fdeb7c2a283 41-42,66,77,79,81
+cortex-editor/src/core/rewriter/detector.ts
+  414b0fdeb7c2a283 1-110
+cortex-editor/tests/adapters/vite.test.ts
+  414b0fdeb7c2a283 14-15,17-75
+cortex-editor/src/core/rewriter/shorthand.ts
+  414b0fdeb7c2a283 1-141
+cortex-editor/package.json
+  414b0fdeb7c2a283 73,86-87
+cortex-editor/tsup.config.ts
+  414b0fdeb7c2a283 4
+cortex-editor/tests/core/css-modules-rewriter.test.ts
+  414b0fdeb7c2a283 1-278
+cortex-editor/src/browser/components/CortexApp.tsx
+  414b0fdeb7c2a283 15,232
+cortex-editor/tests/core/session/undo-stack.test.ts
+  414b0fdeb7c2a283 1-166
+cortex-editor/src/adapters/vite.ts
+  414b0fdeb7c2a283 12-19,85,194,201,209-224,227-232,351-355,412,416-462,606
+cortex-editor/src/index.ts
+  414b0fdeb7c2a283 25-36
+cortex-editor/src/core/rewriter/runtime-resolver.ts
+  414b0fdeb7c2a283 1-202
+cortex-editor/tests/core/detector.test.ts
+  414b0fdeb7c2a283 1-172
+cortex-editor/src/browser/components/Panel.tsx
+  414b0fdeb7c2a283 214-215,228-240,242
+cortex-editor/tests/core/edit-pipeline.test.ts
+  414b0fdeb7c2a283 6,43-50,491-1113
+cortex-editor/src/adapters/source-transform.ts
+  414b0fdeb7c2a283 111-241,297-301,330-376
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "50f92f8dae8c9b906239d8ecc2c173d00384197e",
+  "prompts": {
+    "414b0fdeb7c2a283": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ffd82b64-2f56-4a6c-ba90-32d9d73ebfbe",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 3854,
+      "total_deletions": 295,
+      "accepted_lines": 3566,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/c571cc6e8de0ddcfe02b958893dc0a0fd6f9b2b8636e0d3203e92a2177d04511"
+    },
+    "4a8fe0b05b4905c7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d1dd7-9ef2-7e01-988b-77c1f37c74d0",
+        "model": "gpt-5.4"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 401,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/a758edc854074672ef4e6c2a2cd5ca0ec86203e6d0b950f8769bd0c37823955b"
+    }
+  }
+}
