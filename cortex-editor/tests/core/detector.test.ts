@@ -62,6 +62,20 @@ describe('StyleDetector', () => {
       const result = await detector.detect(tmpDir)
       expect(result.hasTailwind).toBe(true)
     })
+
+    it('detects Tailwind v4 @import "tailwindcss" in CSS file', async () => {
+      writeFixture('src/index.css', '@import "tailwindcss";\n\n:root { color: red; }')
+      const result = await detector.detect(tmpDir)
+      expect(result.hasTailwind).toBe(true)
+    })
+
+    it('detects @tailwindcss/vite in package.json devDependencies', async () => {
+      writeFixture('package.json', JSON.stringify({
+        devDependencies: { '@tailwindcss/vite': '^4.0.0', vite: '^6.0.0' },
+      }))
+      const result = await detector.detect(tmpDir)
+      expect(result.hasTailwind).toBe(true)
+    })
   })
 
   describe('CSS Modules detection', () => {

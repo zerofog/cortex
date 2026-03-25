@@ -55,6 +55,14 @@ export class StyleDetector {
   }
 
   private async detectTailwind(root: string, allFiles: string[]): Promise<boolean> {
+    // Check for Tailwind v4 Vite plugin in package.json
+    try {
+      const pkg = await fs.promises.readFile(path.join(root, 'package.json'), 'utf-8')
+      const parsed = JSON.parse(pkg) as Record<string, Record<string, string>>
+      const allDeps = { ...parsed.dependencies, ...parsed.devDependencies }
+      if ('@tailwindcss/vite' in allDeps || '@tailwindcss/postcss' in allDeps) return true
+    } catch { /* no package.json or parse error */ }
+
     for (const name of TAILWIND_CONFIG_NAMES) {
       try {
         await fs.promises.access(path.join(root, name))
@@ -66,7 +74,7 @@ export class StyleDetector {
     for (const file of cssFiles) {
       try {
         const content = await fs.promises.readFile(file, 'utf-8')
-        if (/@tailwind\b/.test(content) || /@config\s+["']/.test(content)) return true
+        if (/@tailwind\b/.test(content) || /@config\s+["']/.test(content) || /@import\s+["']tailwindcss["']/.test(content)) return true
       } catch { /* skip unreadable */ }
     }
 
