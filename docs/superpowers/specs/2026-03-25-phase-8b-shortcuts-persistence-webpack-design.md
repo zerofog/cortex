@@ -537,3 +537,170 @@ export function isCortexUIFocused(): boolean {
 - **Keyboard shortcut help overlay** — optional stretch goal, not in core scope
 - **CSS-in-JS rewriting** — future phase
 - **3-way merge for stale undo** — future phase
+
+---
+
+## Architecture Review Findings (2026-03-25)
+
+Review team: frontend, security, mts, performance, jsts, design, dx (7 personas)
+Mode: both (native + clink). 7 native succeeded, 4/7 clink succeeded (3 claude clink parsing failures — covered by native).
+
+### Cross-Reviewer Consensus
+
+| Issue | Flagged By | Severity |
+|---|---|---|
+| `isCortexUIFocused()` fails for nested/closed Shadow DOM | frontend, mts, jsts, design (native+clink) | CRITICAL |
+| `toggleShortcut` injection needs validation (XSS vector) | security (native+clink), dx (native+clink), mts | CRITICAL |
+| Cascading Escape: bubble vs capture phase priority inversion | frontend, mts, performance, design | CRITICAL |
+| Webpack adapter grossly underspecified | mts, frontend, dx (native+clink) | CRITICAL |
+| localStorage `get<T>()` unsafe cast, no schema validation | security (native+clink), jsts, mts, frontend | HIGH |
+| `getSnapPoints` cache returns mutable array reference | mts, performance, frontend, jsts | HIGH |
+| localStorage namespace collision across projects | frontend, dx, design, security, mts | HIGH |
+| `isInputFocused()` missing ARIA roles (`role="textbox"`) | design, security, dx | HIGH |
+| Priority 4 (close editor) is destructive on accidental Escape | design (native+clink), dx | HIGH |
+| `parseKeybinding()` doesn't produce display strings (wrong API claim) | jsts, mts, dx | MEDIUM |
+| In-app shortcuts (V, C) not configurable — WCAG 2.1.4 risk | design (clink), mts (clink) | MEDIUM |
+| `event.isTrusted` check missing for synthetic event injection | security (clink) | MEDIUM |
+
+### Consolidated Findings by Severity
+
+#### CRITICAL — Must fix before implementation
+
+**C1. `isCortexUIFocused()` Shadow DOM traversal is fundamentally broken**
+(frontend, mts, jsts, design — 5+ reviewers)
+
+The function checks `document.activeElement.getRootNode()` for one level only. With Cortex's **closed** Shadow DOM (`mode: 'closed'` in `index.tsx:29`), `document.activeElement` returns the shadow host (`<div data-cortex-host>`), whose `getRootNode()` is the Document — not a ShadowRoot. The function returns `false` when focus IS inside Cortex UI.
+
+Additionally, nested Shadow DOM components (e.g., `vanilla-colorful` color picker, already a dependency) create their own shadow roots that this check cannot traverse.
+
+**Fix:** Check if `document.activeElement` IS the cortex host element (reference equality, not attribute check). Store the host element reference at bootstrap time. For nested shadow roots, walk up via `host.getRootNode()` chain:
+```ts
+function isCortexUIFocused(): boolean {
+  const el = document.activeElement
+  if (!el) return false
+  if (el === cortexHostRef) return true
+  let root: Node = el.getRootNode()
+  while (root instanceof ShadowRoot) {
+    if (root.host === cortexHostRef) return true
+    root = root.host.getRootNode()
+  }
+  return false
+}
+```
+
+**C2. `toggleShortcut` config enables script injection (XSS)**
+(security native+clink, dx native+clink, mts — 5 reviewers)
+
+The `toggleShortcut` string flows from adapter config into `getClientScript()` and is interpolated into injected JavaScript. No validation exists. A malicious value like `"'; alert(1); //"` escapes the string context.
+
+**Fix:**
+1. Validate against strict regex: `/^\$mod\+(?:Shift\+)?(?:Key[A-Z]|Digit\d|Period|Comma|Slash|...)$/`
+2. Never interpolate into template literals. Use `JSON.stringify()` to serialize config, read at runtime via `JSON.parse(document.currentScript.dataset.cortexConfig)`.
+
+**C3. Cascading Escape in bubble phase — host app capture-phase handlers will eat it**
+(frontend, mts, performance — 4 reviewers)
+
+tinykeys registers in bubble phase by default. Any host app with capture-phase Escape handlers (modal managers, SPAs) will intercept Escape before the cascade fires. The toggle shortcut (Section 2) correctly uses capture phase, but the Escape cascade does not.
+
+**Fix:** Register the Escape handler separately from tinykeys, in capture phase. tinykeys handles V, C, Cmd+Z, Cmd+0 (bubble phase is fine for these — they don't conflict). Escape gets its own `window.addEventListener('keydown', ..., { capture: true })`.
+
+**C4. Webpack adapter is specified at the wrong level of abstraction**
+(mts, frontend, dx — 4 reviewers)
+
+The Vite adapter is 630 lines. The spec says "~150 lines, reuses next-source-loader.ts." Key gaps:
+- Script injection: HtmlWebpackPlugin is optional, no fallback specified
+- Browser channel: How does the browser connect to CortexTransport? `window.__cortex_ws_port__` must be set in the injected script, requiring port to be known at injection time
+- CSS Module features: `next-source-loader.ts` doesn't pass `resolveAlias` or `includeNodeModules` — CSS Module annotation is broken
+- Port conflicts: No automatic port scanning specified
+- webpack 4 vs 5: `compiler.hooks.shutdown` doesn't exist in webpack < 5.80
+- Framework collision: No detection if used in a Next.js project alongside `withCortex()`
+
+**Fix:** Either expand Section 6 significantly or split it into its own design doc. At minimum: specify injection fallback for non-HtmlWebpackPlugin setups, require webpack 5, and address the browser channel wiring.
+
+#### HIGH — Should fix in v1
+
+**H1. localStorage `get<T>()` performs unsafe `JSON.parse() as T`**
+(security native+clink, jsts, mts, frontend — 5 reviewers)
+
+No runtime shape validation. Corrupt/malicious data produces wrong-typed objects that propagate `NaN` through positioning math (panel rendered off-screen, unrecoverable without clearing localStorage).
+
+**Fix:** Accept a validator function: `get<T>(key, fallback, validate?: (v: unknown) => v is T)`. Validate positions are finite numbers within viewport bounds. Clamp after reading.
+
+**H2. `getSnapPoints` cache returns mutable array — silent corruption risk**
+(mts, performance, frontend, jsts — 4 reviewers)
+
+The cached array is returned by reference. Any caller mutating it corrupts the cache for all subsequent calls.
+
+**Fix:** `return Object.freeze(sorted)` — zero allocation cost, fails loud in strict mode on mutation attempts.
+
+**H3. localStorage namespace collision across projects**
+(frontend, dx, design, security, mts — 5 reviewers)
+
+The `cortex:` prefix is shared across all projects on the same `localhost` origin. Panel position from Project A loads in Project B.
+
+**Fix:** Include dev server port: `cortex:${location.port}:panel-position`. This naturally scopes per project.
+
+**H4. `isInputFocused()` missing ARIA roles**
+(design, security, dx — 3 reviewers)
+
+Doesn't detect `role="textbox"` (Slate, ProseMirror, TipTap rich text editors) or `role="searchbox"`. Shortcuts fire while user types in host app rich text editors.
+
+**Fix:** Add `el.getAttribute('role') === 'textbox' || el.getAttribute('role') === 'searchbox'`.
+
+**H5. Priority 4 (close editor) is destructive on accidental Escape**
+(design native+clink, dx — 3 reviewers)
+
+One extra Escape press closes the entire editor, losing spatial context. Figma's Escape at top of hierarchy does nothing. VS Code's Escape doesn't close files.
+
+**Fix:** Remove Priority 4 — let `Cmd+Shift+.` be the only way to close. Or require double-Escape at the top level (with visual hint).
+
+**H6. `data-cortex-active` attribute is unimplemented**
+(dx, mts — 2 reviewers)
+
+The toggle shortcut checks `document.documentElement.hasAttribute('data-cortex-active')` but this attribute is never set anywhere in the codebase. The toggle cannot determine editor state.
+
+**Fix:** Spec must define who sets/removes this attribute. CortexApp's `active` effect should mirror to the DOM attribute.
+
+**H7. Escape handler migration must be atomic**
+(frontend, performance, mts — 3 reviewers)
+
+If selection.ts Escape removal and cascade addition are separate commits, there's either no Escape handler (gap) or double-handling (both fire). Must be a single atomic commit.
+
+#### MEDIUM
+
+- **`event.isTrusted` check missing** — synthetic events can trigger shortcuts (security clink)
+- **`parseKeybinding()` doesn't produce display strings** — tinykeys returns AST, not formatted text. Need a custom `formatShortcut()` utility (jsts, mts, dx)
+- **In-app shortcuts not configurable** — WCAG 2.1.4 requires single-character shortcuts be remappable or disable-able (design clink, mts clink)
+- **HMR re-registration of toggle listener** — virtual module re-evaluation adds duplicate capture-phase listeners. Need idempotency guard (frontend)
+- **Resize handler may overwrite persisted position** — browser fires resize on load, snapping to edge before user sees persisted position (mts)
+- **No `stopPropagation` in cascade handler** — host app Escape handlers fire after cascade acts (security, jsts)
+- **Escape in host app input closes editor** — user focused on host app search box, presses Escape, editor closes (frontend)
+- **`next-source-loader.ts` name misleading for webpack users** — stack traces show "next-source-loader" in non-Next.js projects (dx)
+- **No schema versioning for localStorage** — future schema changes silently produce wrong data (frontend, jsts)
+
+#### LOW
+
+- SNAP_DURATION inconsistency (350ms vs 300ms) — unify to single constant
+- `maxPayload: 64 * 1024` duplicated between vite.ts and transport.ts — extract shared constant
+- No bundle size budget in CI
+- `clear()` iterates all localStorage keys — O(n) with host app storage
+- `select` in `isInputFocused()` may over-suppress shortcuts for non-text inputs (range, checkbox)
+- Unbounded `activityEntries` array growth in CortexApp (performance)
+
+### Positive Practices — Preserve These
+
+1. **Hybrid keyboard architecture** — bootstrap capture-phase toggle + Preact-scoped tinykeys is the correct separation
+2. **Shadow DOM `composedPath()` usage** — correctly identifies cross-boundary event origins
+3. **Per-concern localStorage with fallback** — each key independent, corrupt data degrades gracefully
+4. **Resolver cache strategy** — getSnapPoints optimization is well-targeted (immutable lookup Map)
+5. **CortexTransport reuse** — standalone WebSocket channel shared across non-Vite adapters
+6. **`getDeepActiveElement()` traversal** — Shadow DOM-aware focus detection fills a real platform gap
+7. **Configurable toggle shortcut** — anticipates and mitigates host app conflicts
+
+### Review Methodology Note
+
+**Both mode** deployed 7 native Claude agents with full codebase access + 7 clink calls (rotated across codex, gemini, claude CLIs). 3 claude clink calls failed (CLI parsing issue); all 7 native agents completed successfully.
+
+**Native agents** provided deeper findings by reading implementation files directly — they caught the closed Shadow DOM issue (C1), the `data-cortex-active` gap (H6), and the webpack `hooks.shutdown` version issue that clink reviewers missed because they only had the spec file.
+
+**Clink reviewers** provided complementary breadth — the `event.isTrusted` check (security/gemini), WCAG 2.1.4 character key shortcut requirement (design/codex), and the stack-based Escape suggestion (MTS/gemini) were unique clink contributions.
