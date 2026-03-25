@@ -108,6 +108,138 @@ function walkJSX(root: Record<string, unknown>, visitor: (el: Record<string, unk
 }
 
 // ---------------------------------------------------------------------------
+// CSS Module annotation helpers
+// ---------------------------------------------------------------------------
+
+interface CSSModuleBinding {
+  localName: string
+  cssPath: string  // Relative to project root, forward slashes
+}
+
+/**
+ * Collect CSS module import bindings from the AST.
+ * Walks ImportDeclaration nodes and collects default imports of .module.css files.
+ */
+function collectCSSModuleImports(
+  ast: Record<string, unknown>,
+  cleanId: string,
+  projectRoot: string,
+  resolveAlias?: (specifier: string) => string | null,
+): CSSModuleBinding[] {
+  const program = ast.program as Record<string, unknown> | undefined
+  const body = program?.body as Array<Record<string, unknown>> | undefined
+  if (!body) return []
+
+  const bindings: CSSModuleBinding[] = []
+  for (const node of body) {
+    if (node.type !== 'ImportDeclaration') continue
+    const source = node.source as Record<string, unknown> | undefined
+    const specifier = source?.value as string | undefined
+    if (!specifier || !specifier.endsWith('.module.css')) continue
+
+    let resolvedPath: string | null = null
+    if (specifier.startsWith('./') || specifier.startsWith('../')) {
+      // Relative import — resolve relative to importing file's directory
+      resolvedPath = path.resolve(path.dirname(cleanId), specifier)
+    } else if (resolveAlias) {
+      // Aliased import — resolve via bundler alias map
+      const aliasResolved = resolveAlias(specifier)
+      if (aliasResolved) {
+        if (path.isAbsolute(aliasResolved)) {
+          resolvedPath = aliasResolved
+        } else {
+          resolvedPath = path.resolve(projectRoot, aliasResolved)
+        }
+      }
+    }
+    if (!resolvedPath) continue
+
+    // Make relative to project root with forward slashes
+    const cssPath = path.relative(projectRoot, resolvedPath).replace(/\\/g, '/')
+
+    const specifiers = node.specifiers as Array<Record<string, unknown>> | undefined
+    if (!specifiers) continue
+    for (const spec of specifiers) {
+      if (spec.type === 'ImportDefaultSpecifier') {
+        const local = spec.local as Record<string, unknown> | undefined
+        const name = local?.name as string | undefined
+        if (name) bindings.push({ localName: name, cssPath })
+      } else if (spec.type === 'ImportSpecifier') {
+        // import { default as s } from './X.module.css'
+        const imported = spec.imported as Record<string, unknown> | undefined
+        const importedName = imported?.type === 'Identifier'
+          ? (imported.name as string)
+          : imported?.type === 'StringLiteral' ? (imported.value as string) : null
+        if (importedName === 'default') {
+          const local = spec.local as Record<string, unknown> | undefined
+          const name = local?.name as string | undefined
+          if (name) bindings.push({ localName: name, cssPath })
+        }
+      }
+    }
+  }
+  return bindings
+}
+
+/**
+ * Extract CSS module selectors from a className expression by walking for
+ * MemberExpression nodes whose object matches a CSS module binding.
+ */
+function extractCSSSelectors(
+  expr: Record<string, unknown>,
+  bindingMap: Map<string, string>,
+): { cssPath: string; selector: string }[] {
+  const results: { cssPath: string; selector: string }[] = []
+  walkExprForBindings(expr, bindingMap, results)
+  return results
+}
+
+function walkExprForBindings(
+  node: Record<string, unknown>,
+  bindingMap: Map<string, string>,
+  results: { cssPath: string; selector: string }[],
+): void {
+  if (!node || typeof node !== 'object' || !node.type) return
+
+  if (node.type === 'MemberExpression') {
+    const obj = node.object as Record<string, unknown> | undefined
+    if (obj?.type === 'Identifier') {
+      const cssPath = bindingMap.get(obj.name as string)
+      if (cssPath) {
+        const computed = node.computed as boolean | undefined
+        const prop = node.property as Record<string, unknown> | undefined
+        if (computed) {
+          if (prop?.type === 'StringLiteral') {
+            results.push({ cssPath, selector: `.${prop.value as string}` })
+          } else {
+            // Dynamic access: styles[variant] → wildcard
+            results.push({ cssPath, selector: '*' })
+          }
+        } else if (prop?.type === 'Identifier') {
+          results.push({ cssPath, selector: `.${prop.name as string}` })
+        }
+        return  // Don't recurse into already-matched MemberExpression
+      }
+    }
+  }
+
+  // Recurse into child nodes (covers CallExpression args, ObjectExpression keys, etc.)
+  for (const key of Object.keys(node)) {
+    if (SKIP_KEYS.has(key) || key === 'type') continue
+    const val = node[key]
+    if (Array.isArray(val)) {
+      for (const item of val) {
+        if (item && typeof item === 'object') {
+          walkExprForBindings(item as Record<string, unknown>, bindingMap, results)
+        }
+      }
+    } else if (val && typeof val === 'object') {
+      walkExprForBindings(val as Record<string, unknown>, bindingMap, results)
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -162,6 +294,11 @@ export function createSourceTransform(
       return null
     }
 
+    // Pre-pass: collect CSS module import bindings
+    const cssBindings = collectCSSModuleImports(ast, cleanId, projectRoot, options?.resolveAlias)
+    const bindingMap = new Map<string, string>()
+    for (const b of cssBindings) bindingMap.set(b.localName, b.cssPath)
+
     let s = null as MagicString | null
 
     walkJSX(ast, (el) => {
@@ -190,6 +327,53 @@ export function createSourceTransform(
 
       if (!s) s = new MagicString(code)
       s.appendLeft(resolved.endPos, ` data-cortex-source="${escapedPath}:${line}:${col}"`)
+
+      // CSS Module annotation: check className for CSS module binding references
+      if (bindingMap.size > 0 && attrs) {
+        // Skip if element already has data-cortex-css
+        if (attrs.some(a => a.type === 'JSXAttribute' &&
+          (a.name as Record<string, unknown>)?.name === 'data-cortex-css')) return
+
+        for (const attr of attrs) {
+          if (attr.type !== 'JSXAttribute') continue
+          const attrName = attr.name as Record<string, unknown> | undefined
+          if (attrName?.name !== 'className') continue
+
+          const attrValue = attr.value as Record<string, unknown> | undefined
+          if (!attrValue) continue
+
+          // className="static" → no annotation (StringLiteral, not CSS Modules)
+          if (attrValue.type === 'StringLiteral') continue
+
+          // className={expression} → walk expression for CSS module bindings
+          let expr: Record<string, unknown> | undefined
+          if (attrValue.type === 'JSXExpressionContainer') {
+            expr = attrValue.expression as Record<string, unknown> | undefined
+          }
+          if (!expr || expr.type === 'JSXEmptyExpression') continue
+
+          const selectors = extractCSSSelectors(expr, bindingMap)
+          if (selectors.length === 0) continue
+
+          // Group selectors by CSS file path
+          const grouped = new Map<string, string[]>()
+          for (const sel of selectors) {
+            const existing = grouped.get(sel.cssPath) ?? []
+            existing.push(sel.selector)
+            grouped.set(sel.cssPath, existing)
+          }
+
+          // Build annotation: "cssPath:selector1,selector2"
+          // Use first CSS file path (most common case: one CSS module per element)
+          const [cssPath, sels] = grouped.entries().next().value!
+          const uniqueSels = [...new Set(sels)]
+          const annotation = `${cssPath}:${uniqueSels.join(',')}`
+
+          if (!s) s = new MagicString(code)
+          s.appendLeft(resolved.endPos, ` data-cortex-css="${escapeAttr(annotation)}"`)
+          break  // Only one className attribute per element
+        }
+      }
     })
 
     if (s == null || !s.hasChanged()) return null

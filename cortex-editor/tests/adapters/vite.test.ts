@@ -11,6 +11,68 @@ import type { Plugin } from 'vite'
 vi.mock('../../src/core/tailwind-resolver.js', () => ({
   TailwindResolver: {
     resolveColors: vi.fn().mockResolvedValue(null),
+    fromConfig: vi.fn().mockResolvedValue(null),
+    fromTheme: vi.fn().mockReturnValue({ findClass: vi.fn() }),
+  },
+}))
+
+// Mock new dependencies so they don't perform real I/O during tests
+vi.mock('../../src/core/rewriter/tailwind.js', () => ({
+  TailwindRewriter: function() {
+    this.rewrite = () => Promise.resolve({ success: false, filePath: '', reason: 'mock' })
+    this.dispose = () => {}
+  },
+}))
+
+vi.mock('../../src/core/hmr-verifier.js', () => ({
+  HMRVerifier: function(_channel?: unknown) {
+    this.trackEdit = () => {}
+    this.onHMRUpdate = () => {}
+    this.dispose = () => {}
+  },
+}))
+
+vi.mock('../../src/core/edit-pipeline.js', () => ({
+  EditPipeline: function() {
+    this.handleEdit = () => {}
+    this.handleUndo = () => {}
+    this.handleRedo = () => {}
+    this.dispose = () => {}
+  },
+}))
+
+vi.mock('../../src/core/rewriter/detector.js', () => ({
+  StyleDetector: function() {
+    this.detect = () => Promise.resolve({
+      hasCSSModules: false, hasTailwind: false, hasCSSInJS: false, hasPlainCSS: true, summary: 'No style system detected',
+    })
+  },
+}))
+
+vi.mock('../../src/core/rewriter/css-modules.js', () => ({
+  CSSModulesRewriter: function() {
+    this.rewrite = () => Promise.resolve({ success: false, filePath: '', reason: 'mock' })
+    this.dispose = () => {}
+  },
+}))
+
+vi.mock('../../src/core/rewriter/runtime-resolver.js', () => ({
+  RuntimeCSSResolver: function() {
+    this.resolve = () => Promise.resolve(null)
+    this.dispose = () => {}
+  },
+}))
+
+vi.mock('../../src/core/session/undo-stack.js', () => ({
+  UndoStack: function() {
+    this.push = () => {}
+    this.undo = () => {}
+    this.redo = () => {}
+    this.peekUndo = () => null
+    this.removeStaleEntry = () => false
+    this.clear = () => {}
+    this.canUndo = false
+    this.canRedo = false
   },
 }))
 

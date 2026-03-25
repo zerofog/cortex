@@ -1,8 +1,11 @@
-import { resolve, sep } from 'path'
+import { resolve, relative, sep } from 'path'
 import type { ServerChannel } from '../adapters/types.js'
 import type { TailwindResolver } from './tailwind-resolver.js'
 import type { TailwindRewriter } from './rewriter/tailwind.js'
 import type { HMRVerifier } from './hmr-verifier.js'
+import type { CSSModulesRewriter } from './rewriter/css-modules.js'
+import type { RuntimeCSSResolver } from './rewriter/runtime-resolver.js'
+import type { UndoStack } from './session/undo-stack.js'
 
 export interface EditRequest {
   editId: string
@@ -14,6 +17,8 @@ export interface EditRequest {
   value: string
   /** DOM selector for the element */
   elementSelector: string
+  /** From data-cortex-css annotation, e.g. "src/Hero.module.css:.hero,.heroTitle" */
+  cssMapping?: string
 }
 
 export interface EditPipelineOptions {
@@ -27,6 +32,42 @@ export interface EditPipelineOptions {
   projectRoot: string
   /** Debounce delay in ms. Default: 400 */
   debounceMs?: number
+  /** CSS Modules rewriter for Layer 1/2 routing */
+  cssModulesRewriter?: CSSModulesRewriter
+  /** Style detection result for routing decisions */
+  detector?: { hasCSSModules: boolean; hasTailwind: boolean }
+  /** Runtime CSS resolver for Layer 2 (unannotated elements) */
+  runtimeResolver?: RuntimeCSSResolver
+  /** Undo/redo stack for tracking file changes */
+  undoStack?: UndoStack
+  /** Injected for testability. Used by undo to verify file hasn't changed. */
+  readFile?: (path: string) => Promise<string>
+}
+
+const VALID_PROPERTY = /^-{0,2}[a-zA-Z][a-zA-Z0-9-]*$/
+const VALID_VALUE = /^[a-zA-Z0-9#()\s,.\-_'"/%+*]+$/
+const REJECT_URL = /url\s*\(/i
+const REJECT_COMMENT = /\/\*/
+
+function isValidCSSProperty(property: string): boolean {
+  return VALID_PROPERTY.test(property)
+}
+
+function isValidCSSValue(value: string): boolean {
+  return VALID_VALUE.test(value) && !REJECT_URL.test(value) && !REJECT_COMMENT.test(value)
+}
+
+function parseCssMapping(raw: string): { cssFilePath: string; selectors: string[] } | null {
+  // Anchor to known CSS module extensions to find the path/selector delimiter
+  const extMatch = raw.match(/\.module\.(css|scss|less|sass)/)
+  if (!extMatch) return null
+  const delimIdx = raw.indexOf(':', extMatch.index! + extMatch[0].length)
+  if (delimIdx === -1) return null
+  const cssPath = raw.slice(0, delimIdx)
+  const selectorStr = raw.slice(delimIdx + 1)
+  const selectors = selectorStr.split(',').map(s => s.trim()).filter(Boolean)
+  if (selectors.length === 0) return null
+  return { cssFilePath: cssPath, selectors }
 }
 
 /**
@@ -50,6 +91,12 @@ export class EditPipeline {
   private readonly writeFile: (path: string, content: string) => Promise<void>
   private readonly projectRoot: string
   private readonly debounceMs: number
+  private readonly cssModulesRewriter?: CSSModulesRewriter
+  private readonly detector?: { hasCSSModules: boolean; hasTailwind: boolean }
+  private readonly runtimeResolver?: RuntimeCSSResolver
+  private readonly undoStack?: UndoStack
+  private readonly readFile?: (path: string) => Promise<string>
+  private undoLock = Promise.resolve()
   private disposed = false
 
   constructor(options: EditPipelineOptions) {
@@ -60,6 +107,11 @@ export class EditPipeline {
     this.writeFile = options.writeFile
     this.projectRoot = resolve(options.projectRoot)
     this.debounceMs = options.debounceMs ?? 400
+    this.cssModulesRewriter = options.cssModulesRewriter
+    this.detector = options.detector
+    this.runtimeResolver = options.runtimeResolver
+    this.undoStack = options.undoStack
+    this.readFile = options.readFile
   }
 
   handleEdit(edit: EditRequest): void {
@@ -121,9 +173,8 @@ export class EditPipeline {
       return
     }
 
-    // Prevent path traversal — resolved file must be within project root
     const resolvedPath = resolve(this.projectRoot, filePath)
-    if (resolvedPath !== this.projectRoot && !resolvedPath.startsWith(this.projectRoot + sep)) {
+    if (!this.isInsideProjectRoot(resolvedPath)) {
       this.channel.send({
         type: 'edit_status',
         editId: edit.editId,
@@ -133,6 +184,55 @@ export class EditPipeline {
       return
     }
 
+    // Server-side CSS property + value validation
+    if (!isValidCSSProperty(edit.property)) {
+      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'Invalid CSS property name' })
+      return
+    }
+    if (!isValidCSSValue(edit.value)) {
+      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'Invalid CSS value' })
+      return
+    }
+
+    // Layer 1: CSS Modules routing via annotation
+    if (edit.cssMapping && this.cssModulesRewriter) {
+      const mapping = parseCssMapping(edit.cssMapping)
+      if (mapping) {
+        const resolvedCssPath = resolve(this.projectRoot, mapping.cssFilePath)
+        if (!this.isInsideProjectRoot(resolvedCssPath)) {
+          this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'CSS file path outside project root' })
+          return
+        }
+        // Extension check
+        if (!resolvedCssPath.endsWith('.module.css')) {
+          if (resolvedCssPath.match(/\.module\.(scss|less|sass)$/)) {
+            this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `${resolvedCssPath.match(/\.(scss|less|sass)$/)?.[0]} Modules editing not yet supported. Connect Claude Code for AI-assisted editing.` })
+          } else {
+            this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'CSS mapping must target a CSS Module file' })
+          }
+          return
+        }
+
+        await this.commitCSSModulesRewrite(edit, resolvedCssPath, mapping.selectors.join(','))
+        return
+      }
+    }
+
+    // Layer 2: Runtime CSS resolver (fallback for unannotated elements when CSS Modules detected)
+    if (!edit.cssMapping && this.detector?.hasCSSModules && this.runtimeResolver && this.cssModulesRewriter) {
+      const resolved = await this.runtimeResolver.resolve(edit.source, this.projectRoot)
+      if (resolved && this.isInsideProjectRoot(resolved.cssFilePath)) {
+        await this.commitCSSModulesRewrite(edit, resolved.cssFilePath, resolved.selector)
+        return
+      }
+      // CSS Modules-only project → don't fall through to Tailwind
+      if (!this.detector.hasTailwind) {
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'Could not resolve CSS module mapping for this element. Connect Claude Code for AI-assisted editing.' })
+        return
+      }
+    }
+
+    // Layer 3: Tailwind path
     const newToken = this.resolver.findClass(edit.property, edit.value)
     const oldToken = previousValue ? this.resolver.findClass(edit.property, previousValue) : null
 
@@ -170,6 +270,11 @@ export class EditPipeline {
         return
       }
 
+      // Push to undo stack
+      if (this.undoStack) {
+        this.undoStack.push({ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent })
+      }
+
       // Track HMR BEFORE write — HMR may fire immediately after fs write
       this.verifier.trackEdit({
         editId: edit.editId,
@@ -189,7 +294,109 @@ export class EditPipeline {
     })
   }
 
-  /** Serialize async operations per file to prevent concurrent TOCTOU races. */
+  async handleUndo(): Promise<void> {
+    if (this.disposed || !this.undoStack) return
+    this.undoLock = this.undoLock.then(
+      () => this._doUndo(),
+      (err) => { console.error('[cortex] Prior undo error:', err); return this._doUndo() },
+    )
+    try {
+      await this.undoLock
+    } catch (err) {
+      console.error('[cortex] Undo failed:', err)
+      this.channel.send({ type: 'undo_status', status: 'failed', restoredFile: '', reason: err instanceof Error ? err.message : 'Undo failed' })
+    }
+  }
+
+  private async _doUndo(): Promise<void> {
+    for (const timer of this.debounceTimers.values()) clearTimeout(timer)
+    this.debounceTimers.clear()
+
+    const entry = this.undoStack!.peekUndo()
+    if (!entry) return
+
+    await this.withFileLock(entry.filePath, async () => {
+      const current = this.undoStack!.peekUndo()
+      if (!current || current.id !== entry.id) return
+
+      if (this.readFile) {
+        const fileContent = await this.readFile(current.filePath)
+        if (fileContent !== current.currentContent) {
+          this.undoStack!.removeStaleEntry(current.id)
+          this.channel.send({ type: 'undo_status', status: 'failed', restoredFile: relative(this.projectRoot, current.filePath), reason: 'File was modified outside cortex. Undo not available for this change.' })
+          return
+        }
+      }
+
+      this.verifier.trackEdit({ editId: `undo-${current.id}`, filePath: current.filePath, expectedValue: '', property: '__undo__' })
+      await this.writeFile(current.filePath, current.previousContent)
+      this.undoStack!.undo()
+      this.channel.send({ type: 'undo_status', status: 'done', restoredFile: relative(this.projectRoot, current.filePath) })
+    })
+  }
+
+  async handleRedo(): Promise<void> {
+    if (this.disposed || !this.undoStack) return
+    this.undoLock = this.undoLock.then(
+      () => this._doRedo(),
+      (err) => { console.error('[cortex] Prior redo error:', err); return this._doRedo() },
+    )
+    try {
+      await this.undoLock
+    } catch (err) {
+      console.error('[cortex] Redo failed:', err)
+      this.channel.send({ type: 'redo_status', status: 'failed', restoredFile: '', reason: err instanceof Error ? err.message : 'Redo failed' })
+    }
+  }
+
+  private async _doRedo(): Promise<void> {
+    const entry = this.undoStack!.peekRedo()
+    if (!entry) return
+
+    await this.withFileLock(entry.filePath, async () => {
+      if (this.readFile) {
+        const fileContent = await this.readFile(entry.filePath)
+        if (fileContent !== entry.previousContent) {
+          this.undoStack!.clear()
+          this.channel.send({ type: 'redo_status', status: 'failed', restoredFile: relative(this.projectRoot, entry.filePath), reason: 'File was modified outside cortex. Redo not available.' })
+          return
+        }
+      }
+
+      const result = this.undoStack!.redo()
+      if (!result) return
+      this.verifier.trackEdit({ editId: `redo-${entry.id}`, filePath: result.filePath, expectedValue: '', property: '__redo__' })
+      await this.writeFile(result.filePath, result.content)
+      this.channel.send({ type: 'redo_status', status: 'done', restoredFile: relative(this.projectRoot, result.filePath) })
+    })
+  }
+
+  private isInsideProjectRoot(filePath: string): boolean {
+    return filePath === this.projectRoot || filePath.startsWith(this.projectRoot + sep)
+  }
+
+  private async commitCSSModulesRewrite(edit: EditRequest, resolvedCssPath: string, selector: string): Promise<void> {
+    this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
+    await this.withFileLock(resolvedCssPath, async () => {
+      const result = await this.cssModulesRewriter!.rewrite({
+        cssFilePath: resolvedCssPath,
+        selector,
+        property: edit.property,
+        newValue: edit.value,
+      })
+      if (!result.success) {
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: result.reason })
+        return
+      }
+      if (this.undoStack) {
+        this.undoStack.push({ filePath: resolvedCssPath, previousContent: result.oldContent, currentContent: result.newContent })
+      }
+      this.verifier.trackEdit({ editId: edit.editId, filePath: resolvedCssPath, expectedValue: edit.value, property: edit.property })
+      await this.writeFile(resolvedCssPath, result.newContent)
+      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done' })
+    })
+  }
+
   private async withFileLock(filePath: string, fn: () => Promise<void>): Promise<void> {
     const prev = this.fileLocks.get(filePath) ?? Promise.resolve()
     const next = prev.then(fn, fn)

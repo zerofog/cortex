@@ -9,6 +9,14 @@ import { WebSocketServer, WebSocket } from 'ws'
 import { createSourceTransform } from './source-transform.js'
 import type { ServerChannel, BrowserToServer, ServerToBrowser } from './types.js'
 import { TailwindResolver } from '../core/tailwind-resolver.js'
+import { TailwindRewriter } from '../core/rewriter/tailwind.js'
+import { HMRVerifier } from '../core/hmr-verifier.js'
+import { EditPipeline } from '../core/edit-pipeline.js'
+import type { EditRequest } from '../core/edit-pipeline.js'
+import { StyleDetector } from '../core/rewriter/detector.js'
+import { CSSModulesRewriter } from '../core/rewriter/css-modules.js'
+import { RuntimeCSSResolver } from '../core/rewriter/runtime-resolver.js'
+import { UndoStack } from '../core/session/undo-stack.js'
 import { AnnotationStore } from '../core/annotations.js'
 import { ActivityLog } from '../core/session/activity-log.js'
 
@@ -74,6 +82,7 @@ let upgradeHandlerRef: ((req: IncomingMessage, socket: Duplex, head: Buffer) => 
 let portFilePath: string | null = null
 let editorActive = false
 let browserConnected = false
+let pipelineInstance: EditPipeline | null = null
 
 // Annotation RPC dispatch
 const ALLOWED_RPC_METHODS = new Set(['getPending', 'getDetails', 'acknowledge', 'resolve', 'dismiss', 'respond'])
@@ -182,12 +191,14 @@ export function _resetForTesting(): void {
   upgradeHandlerRef = null
   annotationStore = new AnnotationStore()
   activityLog = new ActivityLog()
+  if (pipelineInstance) { pipelineInstance.dispose(); pipelineInstance = null }
 }
 
 export function cortexEditor(_options?: CortexEditorOptions): Plugin {
   let config: ResolvedConfig
   let transformSource: ReturnType<typeof createSourceTransform>
   const messageHandlers: ((msg: BrowserToServer) => void)[] = []
+  let aliasMap: Record<string, string> = {}
 
   return {
     name: 'cortex-editor',
@@ -195,8 +206,30 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
 
     configResolved(resolved) {
       config = resolved
+
+      // Extract aliases for source transform (CSS Module import resolution)
+      aliasMap = {}
+      const aliases = config.resolve?.alias
+      if (Array.isArray(aliases)) {
+        for (const a of aliases) {
+          if (typeof a.find === 'string' && typeof a.replacement === 'string') {
+            aliasMap[a.find] = a.replacement
+          }
+        }
+      } else if (aliases && typeof aliases === 'object') {
+        for (const [key, val] of Object.entries(aliases)) {
+          if (typeof val === 'string') aliasMap[key] = val
+        }
+      }
+
       transformSource = createSourceTransform(config.root, {
         includeNodeModules: _options?.includeNodeModules,
+        resolveAlias: (spec) => {
+          for (const [k, v] of Object.entries(aliasMap)) {
+            if (spec.startsWith(k)) return spec.replace(k, v)
+          }
+          return null
+        },
       })
     },
 
@@ -315,6 +348,11 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           }
         }
 
+        // Route edit/undo/redo to EditPipeline
+        if (data.type === 'edit' && pipelineInstance) pipelineInstance.handleEdit(data as EditRequest)
+        if (data.type === 'undo' && pipelineInstance) pipelineInstance.handleUndo()
+        if (data.type === 'redo' && pipelineInstance) pipelineInstance.handleRedo()
+
         // Track browser connection + send current agent status on init
         if (data.type === 'init') {
           browserConnected = true
@@ -371,8 +409,57 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             try { fs.unlinkSync(portFilePath) } catch {}
             portFilePath = null
           }
+          if (pipelineInstance) { pipelineInstance.dispose(); pipelineInstance = null }
         },
       }
+
+      // --- Edit pipeline construction ---
+      // Build the edit pipeline with all deps. Tailwind deps are lazy/optional.
+      const projectRoot = config.root
+      const rewriter = new TailwindRewriter()
+      const verifier = new HMRVerifier(channelInstance)
+      const cssModulesRewriter = new CSSModulesRewriter({
+        readFile: (p) => fs.promises.readFile(p, 'utf-8'),
+      })
+      const runtimeResolver = new RuntimeCSSResolver()
+      const undoStack = new UndoStack()
+
+      // Style detection + Tailwind resolver are async — kick off in parallel
+      const detector = new StyleDetector()
+      const detectionPromise = detector.detect(projectRoot).catch((err) => {
+        console.warn('[cortex] Style detection failed:', err instanceof Error ? err.message : err)
+        return { hasCSSModules: false, hasTailwind: false, hasCSSInJS: false, hasPlainCSS: true, summary: 'Detection failed' }
+      })
+      const resolverPromise = TailwindResolver.fromConfig(projectRoot).catch((err) => {
+        console.warn('[cortex] Tailwind config resolution failed:', err instanceof Error ? err.message : err)
+        return null
+      })
+
+      Promise.all([detectionPromise, resolverPromise]).then(([detection, resolver]) => {
+        if (!channelInstance) return // server was disposed before promises resolved
+
+        // Dispose any previous pipeline (e.g., from server restart)
+        if (pipelineInstance) pipelineInstance.dispose()
+
+        pipelineInstance = new EditPipeline({
+          channel: channelInstance,
+          resolver: resolver ?? TailwindResolver.fromTheme({}),
+          rewriter,
+          verifier,
+          cssModulesRewriter,
+          detector: detection,
+          runtimeResolver,
+          undoStack,
+          writeFile: (p, c) => fs.promises.writeFile(p, c, 'utf-8'),
+          readFile: (p) => fs.promises.readFile(p, 'utf-8'),
+          projectRoot,
+        })
+
+        // Wire HMR verifier to HMR update callbacks
+        onHMRUpdate((files) => verifier.onHMRUpdate(files))
+      }).catch((err) => {
+        console.error('[cortex] Failed to initialize edit pipeline:', err instanceof Error ? err.message : err)
+      })
 
       // --- CLI WebSocket bridge ---
       // Only set up when httpServer is available (not in middleware mode)
@@ -516,7 +603,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       if (modules.length > 0) {
         const files = modules
           .map(m => m.file)
-          .filter((f): f is string => f != null && /\.[jt]sx$/.test(f))
+          .filter((f): f is string => f != null && (/\.[jt]sx$/.test(f) || /\.module\.css$/.test(f)))
         if (files.length > 0) {
           const cbs = [...hmrCallbacks]
           for (const cb of cbs) {
