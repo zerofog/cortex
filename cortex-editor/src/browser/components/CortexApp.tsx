@@ -108,6 +108,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (msg.type === 'edit_status' && msg.status === 'done') {
         setActivityCount(c => c + 1)
       }
+      // Clear CSS overrides on undo/redo — file content reverted, overrides are stale
+      if ((msg.type === 'undo_status' || msg.type === 'redo_status') && msg.status === 'done') {
+        overrideRef.current?.clearAll()
+      }
       if (msg.type === 'annotation-created') {
         setAnnotations(prev => new Map(prev).set(msg.annotation.id, msg.annotation))
       }
