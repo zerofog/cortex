@@ -496,6 +496,7 @@ describe('CSSOverrideManager', () => {
       manager.set('Hero.tsx:5:3', 'padding', '24px')
       manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'padding')
       manager.handleHMRVerified('edit-1', true)
+      manager.onHMRApplied()
       manager.flush()
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
       expect(styleEl.textContent).toBe('')
@@ -529,6 +530,7 @@ describe('CSSOverrideManager', () => {
       manager.set('Hero.tsx:5:3', 'width', '100px', '::before')
       manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'width', '::before')
       manager.handleHMRVerified('edit-1', true)
+      manager.onHMRApplied()
       manager.flush()
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
       expect(styleEl.textContent).toBe('')
@@ -539,6 +541,7 @@ describe('CSSOverrideManager', () => {
       manager.set('Hero.tsx:5:3', 'width', '100px', '::before')
       manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'width', '::before')
       manager.handleHMRVerified('edit-1', true)
+      manager.onHMRApplied()
       manager.flush()
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
       expect(styleEl.textContent).toContain('width: 200px')
@@ -550,6 +553,7 @@ describe('CSSOverrideManager', () => {
       manager.set('Hero.tsx:5:3', 'width', '100px', '::before')
       manager.trackPendingEdit('edit-2', 'Hero.tsx:5:3', 'width')
       manager.handleHMRVerified('edit-2', true)
+      manager.onHMRApplied()
       manager.flush()
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
       expect(styleEl.textContent).toContain('::before')
@@ -561,10 +565,12 @@ describe('CSSOverrideManager', () => {
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
       manager.trackPendingEdit('edit-2', 'a:1:1', 'color')
       manager.handleHMRVerified('edit-1', true)
+      manager.onHMRApplied()
       manager.flush()
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
       expect(styleEl.textContent).toContain('color')
       manager.handleHMRVerified('edit-2', true)
+      manager.onHMRApplied()
       manager.flush()
       expect(styleEl.textContent).toBe('')
     })
@@ -576,6 +582,7 @@ describe('CSSOverrideManager', () => {
       manager.trackPendingEdit('edit-2', 'a:1:1', 'margin')
       manager.handleHMRVerified('edit-1', true)
       manager.handleHMRVerified('edit-2', true)
+      manager.onHMRApplied()
       manager.flush()
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
       expect(styleEl.textContent).toBe('')
@@ -586,6 +593,7 @@ describe('CSSOverrideManager', () => {
       manager.trackPendingEdit('edit-1', 'a:1:1', 'width', '::before')
       manager.trackPendingEdit('edit-2', 'a:1:1', 'width', '::before')
       manager.handleHMRVerified('edit-1', true)
+      manager.onHMRApplied()
       manager.flush()
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
       expect(styleEl.textContent).toContain('width')
@@ -598,6 +606,7 @@ describe('CSSOverrideManager', () => {
       manager.trackPendingEdit('edit-2', 'a:1:1', 'width', '::before')
       manager.handleHMRVerified('edit-1', true)
       manager.handleHMRVerified('edit-2', true)
+      manager.onHMRApplied()
       manager.flush()
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
       expect(styleEl.textContent).toBe('')
@@ -637,8 +646,7 @@ describe('CSSOverrideManager', () => {
         // Trigger eviction — edit-1 is within TTL, should survive
         manager.trackPendingEdit('edit-2', 'a:1:1', 'margin')
         manager.handleHMRVerified('edit-1', true)
-        // handleHMRVerified defers remove to next RAF
-        vi.advanceTimersByTime(16)
+        manager.onHMRApplied()
         manager.flush()
         const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
         expect(styleEl.textContent).not.toContain('color')

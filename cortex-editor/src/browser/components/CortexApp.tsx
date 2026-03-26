@@ -108,14 +108,17 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (msg.type === 'edit_status' && msg.status === 'done') {
         setActivityCount(c => c + 1)
       }
-      // Clear individual override once HMR confirms the edit landed in the stylesheet
+      // Queue override removal — actual clearing deferred to hmr-applied
+      // (hmr_verified/undo_status arrive BEFORE the browser applies the HMR stylesheet)
       if (msg.type === 'hmr_verified') {
         overrideRef.current?.handleHMRVerified(msg.editId, msg.match)
       }
-      // Clear ALL overrides on undo/redo — file reverted, remaining overrides are stale.
-      // Deferred to next frame: undo_status arrives before HMR updates the stylesheet.
       if ((msg.type === 'undo_status' || msg.type === 'redo_status') && msg.status === 'done') {
-        requestAnimationFrame(() => overrideRef.current?.clearAll())
+        overrideRef.current?.queueClearAll()
+      }
+      // Flush queued override removals — HMR stylesheet is now applied in the browser
+      if (msg.type === 'hmr-applied') {
+        overrideRef.current?.onHMRApplied()
       }
       if (msg.type === 'annotation-created') {
         setAnnotations(prev => new Map(prev).set(msg.annotation.id, msg.annotation))

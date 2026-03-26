@@ -81,6 +81,7 @@ export type ServerToBrowser =
   | { type: 'redo_status'; status: 'done'; restoredFile: string }
   | { type: 'redo_status'; status: 'failed'; restoredFile: string; reason: string }
   | { type: 'hmr_verified'; editId: string; match: boolean; expected?: string; actual?: string }
+  | { type: 'hmr-applied' }
   | { type: 'annotation-created'; annotation: Annotation }
   | { type: 'annotation-updated'; annotation: Annotation }
   | { type: 'agent-status'; connected: boolean }

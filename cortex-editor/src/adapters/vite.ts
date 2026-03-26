@@ -74,6 +74,11 @@ if (import.meta.hot) {
   import.meta.hot.on('${CORTEX_MSG_EVENT}', (data) => {
     window.__cortex_channel__?.handleServerMessage(data);
   });
+  // Notify browser when HMR stylesheet update is applied — override clearing
+  // must wait for this to avoid flash (hmr_verified arrives before HMR applies).
+  import.meta.hot.on('vite:afterUpdate', () => {
+    window.__cortex_channel__?.handleServerMessage({ type: 'hmr-applied' });
+  });
   if (!Object.prototype.hasOwnProperty.call(window, '__cortex_send__')) {
     Object.defineProperty(window, '__cortex_send__', {
       value: (msg) => import.meta.hot.send('${CORTEX_MSG_EVENT}', msg),

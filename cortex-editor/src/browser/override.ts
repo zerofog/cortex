@@ -139,17 +139,41 @@ export class CSSOverrideManager {
     this.pendingEdits.set(editId, { source, property, pseudo, timestamp: Date.now() })
   }
 
-  /** Called when the server confirms an edit landed via HMR. Clears the override on match.
-   *  Defers removal to the next frame — hmr_verified arrives via WebSocket BEFORE the
-   *  HMR stylesheet update is applied. Removing immediately would show the old stylesheet
-   *  value for one frame (flicker). */
+  private pendingRemovals: Array<{ source: string; property: string; pseudo?: '::before' | '::after' }> = []
+  private pendingClearAll = false
+
+  /** Called when the server confirms an edit landed via HMR. Queues the override
+   *  for removal — actual clearing happens in onHMRApplied() after the browser
+   *  has applied the HMR stylesheet update. */
   handleHMRVerified(editId: string, match: boolean): void {
     this.evictStalePendingEdits()
     const pending = this.pendingEdits.get(editId)
     if (!pending) return
     this.pendingEdits.delete(editId)
     if (match) {
-      requestAnimationFrame(() => this.remove(pending.source, pending.property, pending.pseudo))
+      this.pendingRemovals.push({ source: pending.source, property: pending.property, pseudo: pending.pseudo })
+    }
+  }
+
+  /** Queue a clearAll to run when the next HMR update lands in the browser. */
+  queueClearAll(): void {
+    this.pendingClearAll = true
+  }
+
+  /** Called when the browser confirms HMR stylesheet update has been applied.
+   *  Now safe to remove overrides without flicker. */
+  onHMRApplied(): void {
+    if (this.pendingClearAll) {
+      this.pendingClearAll = false
+      this.pendingRemovals.length = 0
+      this.clearAll()
+      return
+    }
+    if (this.pendingRemovals.length > 0) {
+      const removals = this.pendingRemovals.splice(0)
+      for (const r of removals) {
+        this.remove(r.source, r.property, r.pseudo)
+      }
     }
   }
 
