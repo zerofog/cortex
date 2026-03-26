@@ -4,6 +4,7 @@ import type { CortexChannel, Annotation, ActivityEntry } from '../../adapters/ty
 import { CSSOverrideManager } from '../override.js'
 import { initSelection } from '../selection.js'
 import type { SelectionHandle } from '../selection.js'
+import { tinykeys } from 'tinykeys'
 import { getDeepActiveElement, isInputFocused, isCortexUIFocused, isRealEvent } from '../focus-utils.js'
 import { detectStates } from '../state-detector.js'
 import type { StateDeclarations, InteractionState } from '../state-detector.js'
@@ -262,6 +263,37 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     window.addEventListener('keydown', handleEscape, { capture: true })
     return () => window.removeEventListener('keydown', handleEscape, { capture: true })
   }, [active])
+
+  // Phase 8b: tinykeys keyboard shortcuts — bubble phase, guarded
+  useEffect(() => {
+    if (!active) return
+
+    function guardSingleKey(handler: () => void): (e: KeyboardEvent) => void {
+      return (e: KeyboardEvent) => {
+        if (!isRealEvent(e)) return
+        if (isInputFocused() || isCortexUIFocused()) return
+        handler()
+      }
+    }
+
+    function guardModifier(handler: () => void): (e: KeyboardEvent) => void {
+      return (e: KeyboardEvent) => {
+        if (!isRealEvent(e)) return
+        if (isInputFocused()) return
+        handler()
+      }
+    }
+
+    const unsubscribe = tinykeys(window, {
+      'v': guardSingleKey(() => setCommentMode(false)),
+      'c': guardSingleKey(() => setCommentMode(m => !m)),
+      '$mod+0': guardModifier(() => { /* canvas zoom reset — wired for future */ }),
+      '$mod+z': guardModifier(() => { channel.send({ type: 'undo' }) }),
+      '$mod+Shift+z': guardModifier(() => { channel.send({ type: 'redo' }) }),
+    })
+
+    return unsubscribe
+  }, [active, channel])
 
   // Sync selection mode with active state (R4 fix: initialActive must enable selection)
   useEffect(() => {

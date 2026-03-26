@@ -92,6 +92,7 @@
     "@floating-ui/dom": "^1.7.6",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "preact": "^10.29.0",
+    "tinykeys": "file:tinykeys-3.0.0.tgz",
     "ts-morph": "^27.0.2",
     "vanilla-colorful": "^0.7.2",
     "ws": "^8.19.0",
