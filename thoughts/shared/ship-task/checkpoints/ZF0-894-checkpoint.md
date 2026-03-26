@@ -1,10 +1,10 @@
 ---
 ticket: ZF0-894
-step: 3
-substep: not-started
+step: 8
+substep: step-8-complete
 branch: zf0-894
 linear-url: https://linear.app/zerofog/issue/ZF0-894/phase-8b-keyboard-shortcuts-localstorage-persistence-webpack-adapter
-timestamp: 2026-03-26T02:35:00Z
+timestamp: 2026-03-25T12:00:00Z
 ---
 
 ## Gates
@@ -41,13 +41,13 @@ Batch 5 (can run after Batch 1):
 
 | Task | Linear ID | Status | Commit |
 |------|-----------|--------|--------|
-| 1. Focus utilities | ZF0-935 | pending | — |
-| 2. Persistence utility | ZF0-936 | pending | — |
-| 3. Escape cascade | ZF0-937 | pending | — |
-| 4. Toggle shortcut | ZF0-938 | pending | — |
-| 5. tinykeys shortcuts | ZF0-939 | pending | — |
-| 6. Persistence integration | ZF0-940 | pending | — |
-| 7. Resolver cache | ZF0-941 | pending | — |
+| 1. Focus utilities | ZF0-935 | done | b915281+77b05bc |
+| 2. Persistence utility | ZF0-936 | done | ab38d45 |
+| 3. Escape cascade | ZF0-937 | done | d17c59e+1c38110 |
+| 4. Toggle shortcut | ZF0-938 | done | 6f5ca07+8a58ee5 |
+| 5. tinykeys shortcuts | ZF0-939 | done | 7af4147+55c8963+243c3a5 |
+| 6. Persistence integration | ZF0-940 | done | adeb38b+1c38110 |
+| 7. Resolver cache | ZF0-941 | done | 2a483ba+77b05bc |
 
 ### Per-Task Subagent Instructions
 
