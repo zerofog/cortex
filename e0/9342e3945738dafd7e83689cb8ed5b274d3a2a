@@ -1,0 +1,52 @@
+docs/superpowers/plans/2026-03-25-phase-8b-shortcuts-persistence-polish.md
+  1c8b9611a4669f06 7,15-38,44,47,49,54-58,61-67,77,79,81-83,85-101,103,107-110,114-115,134-139,142,144-145,152,182,188,196,205-211,214,219,224,226,228-229,231,234-237,240-244,278-285,287,289,294,296,301,304,310,316,318,322-324,337,341,344-347,357,362,367,371-376,383,395-397,400-401,424-427,429,431,434-435,443,453,461-465,482,487-489,491,493,498-499,501-507,509-510,513-514,520,523-527,532-533,536,538-541,543,545,547,550,553,557,574,593-596,604-606,608-616,618,620-622,624-625,627-635,637-642,646-647,650-652,660-664,666,668-671,673-676,679,681,683-684,686,689,691,694,698,703,705,714,721-725,727,730,744-752,755,763-764,770-773,778,780,787,789,792,801-802,813-820,822,830-831,833,835-837,846,848,855,857,860-873,875-879,884-885,890-891,903-905,912-913,922,930,939-941,948,950,952,954-955,973-976,996-1001,1007-1009,1011,1016,1018,1020,1022,1024,1029,1036-1037,1048,1066,1069-1073,1078,1082,1089,1102,1105,1107,1114,1130-1139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "e09342e3945738dafd7e83689cb8ed5b274d3a2a",
+  "prompts": {
+    "1c8b9611a4669f06": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bf8c8a14-541b-4549-98e3-e397a37d6ce2",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 421,
+      "total_deletions": 379,
+      "accepted_lines": 418,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/772a1afb527c704322a9b8e23ebb5f0f0f7a7da62c34ffe476394aee3967fdff"
+    },
+    "4a8fe0b05b4905c7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d1dd7-9ef2-7e01-988b-77c1f37c74d0",
+        "model": "gpt-5.4"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 401,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/a758edc854074672ef4e6c2a2cd5ca0ec86203e6d0b950f8769bd0c37823955b"
+    },
+    "dd188453ccfddb73": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d2764-fff0-7d21-8267-e6f7ea3eee42",
+        "model": "gpt-5.4"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/858cee381620a0f9517ee70bc89b2d3a451e8d553e1de57063440f7d50cf2206"
+    }
+  }
+}
