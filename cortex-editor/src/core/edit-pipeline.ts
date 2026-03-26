@@ -320,7 +320,10 @@ export class EditPipeline {
     this.debounceTimers.clear()
 
     const entry = this.undoStack!.peekUndo()
-    if (!entry) return
+    if (!entry) {
+      this.channel.send({ type: 'undo_status', status: 'failed', restoredFile: '', reason: 'Nothing to undo.' })
+      return
+    }
 
     await this.withFileLock(entry.filePath, async () => {
       const current = this.undoStack!.peekUndo()
@@ -358,7 +361,10 @@ export class EditPipeline {
 
   private async _doRedo(): Promise<void> {
     const entry = this.undoStack!.peekRedo()
-    if (!entry) return
+    if (!entry) {
+      this.channel.send({ type: 'redo_status', status: 'failed', restoredFile: '', reason: 'Nothing to redo.' })
+      return
+    }
 
     await this.withFileLock(entry.filePath, async () => {
       if (this.readFile) {

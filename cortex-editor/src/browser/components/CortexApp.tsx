@@ -202,7 +202,6 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     channel.send({ type: 'comment-reply', annotationId, text })
   }, [channel])
 
-  const handleClose = useCallback(() => setSelectedElement(null), [])
   const handleSelectElement = useCallback((el: HTMLElement | null) => setSelectedElement(el), [])
   const handleToggleHover = useCallback(() => setHoverEnabled(v => !v), [])
 
@@ -323,7 +322,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         <Panel
           element={selectedElement}
           overrideManager={overrideRef.current}
-          onClose={handleClose}
+          onClose={handleExit}
           onSelectElement={handleSelectElement}
           swatches={swatches}
           activeState={activeState}
