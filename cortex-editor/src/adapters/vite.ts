@@ -98,6 +98,7 @@ if (!Object.prototype.hasOwnProperty.call(window, '__cortex_toggle_registered__'
     if (__cortexNeedShift && !e.shiftKey) return;
     if (!__cortexNeedShift && e.shiftKey) return;
     if (__cortexNeedAlt && !e.altKey) return;
+    if (!__cortexNeedAlt && e.altKey) return;
     if (e.code !== __cortexCode) return;
     e.preventDefault();
     e.stopPropagation();
