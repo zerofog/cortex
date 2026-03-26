@@ -394,6 +394,7 @@ export class EditPipeline {
         selector,
         property: edit.property,
         newValue: edit.value,
+        elementSelector: edit.elementSelector,
       })
       if (!result.success) {
         this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: result.reason })
