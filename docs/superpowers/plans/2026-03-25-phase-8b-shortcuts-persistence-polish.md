@@ -810,13 +810,26 @@ if (msg.type === 'cortex-toggle') {
 }
 ```
 
-In `bootstrap()` in `index.tsx`, replay pending toggle after channel creation:
-```ts
-// After channel creation and before render:
+Pass initial active state to CortexApp as a prop (do NOT use `activeChannel.send()` — that's browser→server, wrong direction):
+
+```tsx
+// In bootstrap(), before render:
+const initialActive = document.documentElement.hasAttribute('data-cortex-active')
+
+render(
+  <CortexApp channel={activeChannel} shadowRoot={shadowRoot} initialActive={initialActive} />,
+  rootElement,
+)
+
+// Clean up pending toggle flag
 if (window.__cortex_pending_toggle__) {
-  activeChannel.send(window.__cortex_pending_toggle__ as any)
   delete window.__cortex_pending_toggle__
 }
+```
+
+In `CortexApp`, accept `initialActive` prop and use it as the initial value for `active` state:
+```ts
+const [active, setActive] = useState(props.initialActive ?? false)
 ```
 
 - [ ] **Step 5: Run tests**
