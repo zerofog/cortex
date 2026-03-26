@@ -32,6 +32,7 @@ This plan incorporates fixes from two review rounds (22 reviewers total across n
 | Empty getSnapPoints return frozen | R2-High | Consistent immutability contract |
 | Cap `activityEntries` at 200 | R1-Perf, R2-Medium | Prevents unbounded memory growth |
 | Priority 4 (close editor) removed | R1-H5 | Escape stops at "deselect" |
+| `initialActive` syncs to `setDesignMode` | R4-High | useEffect derives selection mode from `active` state |
 | Prefix cached at module level | R2-Low | No repeated string allocation |
 
 ---
@@ -600,6 +601,17 @@ useEffect(() => {
   return () => window.removeEventListener('keydown', handleEscape, { capture: true })
 }, [active])
 ```
+
+Add a useEffect that syncs `active` state to `setDesignMode` — this replaces the manual `setDesignMode(true)` call in individual message handlers and ensures `initialActive={true}` correctly enables selection:
+
+```ts
+// Sync selection mode with active state (R4 fix: initialActive must enable selection)
+useEffect(() => {
+  selectionRef.current?.setDesignMode(active)
+}, [active])
+```
+
+Remove the manual `selectionHandle.setDesignMode(true)` call from the `cortex` message handler — it's now handled by the effect above.
 
 Also cap `activityEntries` growth in the message handler:
 ```ts
