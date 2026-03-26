@@ -14,6 +14,7 @@ export class CSSOverrideManager {
   private styleEl: HTMLStyleElement
   private overrides = new Map<string, Map<string, string>>()
   private stateOverrides = new Map<string, Map<string, string>>()
+  private pendingEdits = new Map<string, { source: string; property: string }>()
 
   constructor() {
     this.styleEl = document.createElement('style')
@@ -120,10 +121,26 @@ export class CSSOverrideManager {
     this.rebuild()
   }
 
-  /** Clear all overrides (e.g. on SPA navigation) */
+  /** Track a pending edit so handleHMRVerified can clear the right override. */
+  trackPendingEdit(editId: string, source: string, property: string): void {
+    this.pendingEdits.set(editId, { source, property })
+  }
+
+  /** Called when the server confirms an edit landed via HMR. Clears the override on match. */
+  handleHMRVerified(editId: string, match: boolean): void {
+    const pending = this.pendingEdits.get(editId)
+    if (!pending) return
+    this.pendingEdits.delete(editId)
+    if (match) {
+      this.remove(pending.source, pending.property)
+    }
+  }
+
+  /** Clear all overrides (e.g. on SPA navigation or undo) */
   clearAll(): void {
     this.overrides.clear()
     this.stateOverrides.clear()
+    this.pendingEdits.clear()
     this.cancelPendingRebuild()
     this.rebuild()
   }

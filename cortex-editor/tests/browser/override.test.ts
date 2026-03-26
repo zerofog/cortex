@@ -492,4 +492,39 @@ describe('CSSOverrideManager', () => {
       expect(styleEl.textContent).toBe('')
     })
   })
+
+  describe('HMR verified override clearing', () => {
+    it('trackPendingEdit + handleHMRVerified(match=true) removes the override', () => {
+      manager.set('Hero.tsx:5:3', 'padding', '24px')
+      manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'padding')
+      manager.handleHMRVerified('edit-1', true)
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toBe('')
+    })
+
+    it('handleHMRVerified(match=false) keeps the override', () => {
+      manager.set('Hero.tsx:5:3', 'padding', '24px')
+      manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'padding')
+      manager.handleHMRVerified('edit-1', false)
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('padding')
+    })
+
+    it('handleHMRVerified with unknown editId is a no-op', () => {
+      manager.set('Hero.tsx:5:3', 'padding', '24px')
+      manager.handleHMRVerified('unknown-id', true)
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('padding')
+    })
+
+    it('clearAll also clears pending edits', () => {
+      manager.set('Hero.tsx:5:3', 'padding', '24px')
+      manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'padding')
+      manager.clearAll()
+      // After clearAll, verified should be no-op (pending was cleared)
+      manager.handleHMRVerified('edit-1', true)
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toBe('')
+    })
+  })
 })

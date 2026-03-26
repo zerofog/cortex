@@ -228,9 +228,11 @@ export function Panel({
 
       // Dispatch edit to server for source file writing
       if (channel) {
+        const editId = crypto.randomUUID()
+        overrideManager.trackPendingEdit(editId, source, property)
         channel.send({
           type: 'edit',
-          editId: crypto.randomUUID(),
+          editId,
           source,
           property,
           value,
