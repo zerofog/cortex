@@ -304,7 +304,12 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       'v': guardSingleKey(() => setCommentMode(false)),
       'c': guardSingleKey(() => setCommentMode(m => !m)),
       // guardModifier omits isCortexUIFocused — Cmd+Z/Shift+Z should work inside Cortex panels
-      '$mod+z': guardModifier(() => { channel.send({ type: 'undo' }) }),
+      '$mod+z': guardModifier(() => {
+        // Optimistic undo: clear overrides immediately (no server round-trip delay).
+        // The stylesheet already has the pre-edit value (forward edit HMR was suppressed).
+        overrideRef.current?.clearAll()
+        channel.send({ type: 'undo' })
+      }),
       '$mod+Shift+z': guardModifier(() => { channel.send({ type: 'redo' }) }),
     })
 
