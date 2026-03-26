@@ -2,6 +2,7 @@ import { render } from 'preact'
 import type { CortexChannel } from '../adapters/types.js'
 import { CortexApp } from './components/CortexApp.js'
 import { createViteChannel, createWebSocketChannel } from './channel.js'
+import { _setCortexHost } from './focus-utils.js'
 
 // tsup's text loader imports CSS as a string
 import cortexStyles from './styles.css'
@@ -27,6 +28,7 @@ export function bootstrap(): void {
 
   // Attach closed Shadow DOM — prevents host-page scripts from accessing editor internals
   shadowRoot = hostElement.attachShadow({ mode: 'closed' })
+  _setCortexHost(hostElement, shadowRoot)
 
   // Inject isolated CSS
   const style = document.createElement('style')
@@ -66,6 +68,7 @@ export function _resetForTesting(): void {
   hostElement = null
   shadowRoot = null
   rootElement = null
+  _setCortexHost(null, null)
 }
 
 // Auto-activate on page load
