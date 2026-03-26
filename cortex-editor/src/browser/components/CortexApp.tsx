@@ -4,6 +4,7 @@ import type { CortexChannel, Annotation, ActivityEntry } from '../../adapters/ty
 import { CSSOverrideManager } from '../override.js'
 import { initSelection } from '../selection.js'
 import type { SelectionHandle } from '../selection.js'
+import { getDeepActiveElement, isInputFocused, isCortexUIFocused, isRealEvent } from '../focus-utils.js'
 import { detectStates } from '../state-detector.js'
 import type { StateDeclarations, InteractionState } from '../state-detector.js'
 import { HoverOverlay } from './HoverOverlay.js'
@@ -17,9 +18,12 @@ import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
 import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
 
+const MAX_ACTIVITY_ENTRIES = 200
+
 export interface CortexAppProps {
   channel: CortexChannel
   shadowRoot: ShadowRoot
+  initialActive?: boolean
 }
 
 /**
@@ -28,7 +32,7 @@ export interface CortexAppProps {
  * drag/snap positioning. Canvas zoom hook is wired but currently
  * disabled — preserved for future re-enablement.
  */
-export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element | null {
+export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps): JSX.Element | null {
   const [hoveredElement, setHoveredElement] = useState<HTMLElement | null>(null)
   const [selectedElement, setSelectedElement] = useState<HTMLElement | null>(null)
   const [swatches, setSwatches] = useState<string[] | undefined>(undefined)
@@ -48,7 +52,7 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
 
   // Phase 6: Activity, active state, refs
   const [activityCount, setActivityCount] = useState(0)
-  const [active, setActive] = useState(false)
+  const [active, setActive] = useState(initialActive ?? false)
   const selectionRef = useRef<SelectionHandle | null>(null)
   const selectedElementRef = useRef<HTMLElement | null>(null)
   selectedElementRef.current = selectedElement
@@ -81,7 +85,6 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
     // Subscribe to server messages
     const unsubscribe = channel.onMessage((msg) => {
       if (msg.type === 'cortex') {
-        selectionRef.current?.setDesignMode(true)
         setActive(true)
       }
       if (msg.type === 'cortex-close') {
@@ -108,7 +111,11 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
         setAgentConnected(msg.connected)
       }
       if (msg.type === 'activity-entry') {
-        setActivityEntries(prev => [...prev, msg.entry])
+        setActivityEntries(prev =>
+          prev.length >= MAX_ACTIVITY_ENTRIES
+            ? [...prev.slice(-(MAX_ACTIVITY_ENTRIES - 1)), msg.entry]
+            : [...prev, msg.entry]
+        )
         setActivityCount(c => c + 1)
       }
     })
@@ -198,32 +205,60 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
     channel.send({ type: 'cortex-closed' })
   }, [channel])
 
-  // Phase 6: Keyboard shortcuts — Escape to deselect or exit
+  // Phase 8b: Cascading Escape — capture phase for host app compat
   useEffect(() => {
     if (!active) return
-    function handleKeyDown(e: KeyboardEvent): void {
-      const target = e.target as HTMLElement
-      const tag = target?.tagName?.toLowerCase()
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') return
-      if (target?.isContentEditable) return
+    function handleEscape(e: KeyboardEvent): void {
+      if (!isRealEvent(e)) return
+      if (e.key !== 'Escape') return
 
-      if (e.key === 'Escape') {
-        if (commentModeRef.current) {
-          // Exit comment mode — stay active
-          setCommentMode(false)
-        } else if (selectedElementRef.current) {
-          // Deselect — stay active
-          setSelectedElement(null)
-        } else {
-          // No selection, no comment mode — exit editor
-          handleExit()
+      // Priority 1: Blur focused input inside Cortex UI
+      if (isCortexUIFocused()) {
+        const focused = getDeepActiveElement()
+        if (focused instanceof HTMLElement) {
+          const tag = focused.tagName.toLowerCase()
+          if (tag === 'input' || tag === 'textarea' || tag === 'select' || focused.isContentEditable) {
+            focused.blur()
+            e.stopPropagation()
+            e.preventDefault()
+            return
+          }
         }
-        e.stopPropagation()
       }
+
+      // Skip if user is focused on a host app input — let browser/host handle it
+      if (isInputFocused() && !isCortexUIFocused()) return
+
+      // Priority 2: Exit comment mode
+      if (commentModeRef.current) {
+        setCommentMode(false)
+        e.stopPropagation()
+        e.preventDefault()
+        return
+      }
+
+      // Priority 3: Deselect element
+      if (selectedElementRef.current) {
+        setSelectedElement(null)
+        e.stopPropagation()
+        e.preventDefault()
+        return
+      }
+
+      // No Priority 4 — Cmd+Shift+. and X button are the only close mechanisms.
+      // This intentionally deviates from the spec's Section 4 cascade which included
+      // a close step. Removed per architecture review finding H5 to prevent accidental
+      // editor close on extra Escape press.
     }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [active, handleExit])
+
+    window.addEventListener('keydown', handleEscape, { capture: true })
+    return () => window.removeEventListener('keydown', handleEscape, { capture: true })
+  }, [active])
+
+  // Sync selection mode with active state (R4 fix: initialActive must enable selection)
+  useEffect(() => {
+    selectionRef.current?.setDesignMode(active)
+  }, [active])
 
   if (!active) return null
 
