@@ -59,6 +59,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const selectedElementRef = useRef<HTMLElement | null>(null)
   selectedElementRef.current = selectedElement
   const handleExitRef = useRef<(() => void) | null>(null)
+  const undoRedoInFlight = useRef(false)
 
   // Panel positioning
   const { position: panelPosition, isSnapping: panelSnapping, setPosition: setPanelPosition, snap: panelSnap } = useSnapToEdge()
@@ -116,10 +117,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (msg.type === 'hmr_verified') {
         overrideRef.current?.handleHMRVerified(msg.editId, msg.match)
       }
-      // Undo visual is handled optimistically by Cmd+Z handler (undoOverride).
-      // Redo visual is handled by redo_status → redoOverride.
-      if (msg.type === 'redo_status' && msg.status === 'done') {
-        overrideRef.current?.redoOverride()
+      // Unlock undo/redo serialization when server acknowledges
+      if (msg.type === 'undo_status' || msg.type === 'redo_status') {
+        undoRedoInFlight.current = false
       }
       // Flush queued override removals — HMR stylesheet is now applied in the browser
       if (msg.type === 'hmr-applied') {
@@ -306,11 +306,17 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       'c': guardSingleKey(() => setCommentMode(m => !m)),
       // guardModifier omits isCortexUIFocused — Cmd+Z/Shift+Z should work inside Cortex panels
       '$mod+z': guardModifier(() => {
-        // Optimistic undo: restore previous override state immediately.
+        if (undoRedoInFlight.current) return // Wait for previous to resolve
         overrideRef.current?.undoOverride()
+        undoRedoInFlight.current = true
         channel.send({ type: 'undo' })
       }),
-      '$mod+Shift+z': guardModifier(() => { channel.send({ type: 'redo' }) }),
+      '$mod+Shift+z': guardModifier(() => {
+        if (undoRedoInFlight.current) return
+        overrideRef.current?.redoOverride()
+        undoRedoInFlight.current = true
+        channel.send({ type: 'redo' })
+      }),
     })
 
     return unsubscribe
