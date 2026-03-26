@@ -234,7 +234,12 @@ export class CSSOverrideManager {
       const selector = `[data-cortex-source="${CSS.escape(rawSource)}"]${pseudoSuffix}`
       rules.push(`${selector} { ${declarations}; }`)
     }
-    this.styleEl.textContent = rules.join('\n')
-    emitOverrideChange()
+    // Skip no-op writes — CSSOM teardown/rebuild can trigger host-app CSS
+    // transitions even when the final computed value is identical.
+    const newContent = rules.join('\n')
+    if (this.styleEl.textContent !== newContent) {
+      this.styleEl.textContent = newContent
+      emitOverrideChange()
+    }
   }
 }
