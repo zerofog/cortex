@@ -1,0 +1,42 @@
+cortex-editor/tests/browser/keyboard-shortcuts.test.tsx
+  ade863baa1a12437 24-25
+cortex-editor/src/browser/hooks/useSnapToEdge.ts
+  ade863baa1a12437 77-78
+cortex-editor/src/browser/hooks/useToolbarDock.ts
+  ade863baa1a12437 75,77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "1c3811027abb36d240ddbdf29322eec67f1eba38",
+  "prompts": {
+    "4a8fe0b05b4905c7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d1dd7-9ef2-7e01-988b-77c1f37c74d0",
+        "model": "gpt-5.4"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 401,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/a758edc854074672ef4e6c2a2cd5ca0ec86203e6d0b950f8769bd0c37823955b"
+    },
+    "ade863baa1a12437": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a89f0b55-a8b8-48d6-a8e5-ca3302888ca9",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 9,
+      "total_deletions": 15,
+      "accepted_lines": 13,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/7cfc9a24f2e1f9a09b7e303f6db3488245027d1ce9139fdbeb2910176bf34fc4"
+    }
+  }
+}
