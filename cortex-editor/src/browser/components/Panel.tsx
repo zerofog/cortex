@@ -237,9 +237,9 @@ export function Panel({
       overrideManager.flush()
       setStyleVersion(v => v + 1)
 
-      // Dispatch edit to server for source file writing
+      // Dispatch edit to server — commitEdit() is called on edit_status:done
+      // to sync browser undo stack with server's debounced undo stack.
       if (channel) {
-        overrideManager.commitEdit() // Push pre-edit snapshot to undo stack
         const editId = crypto.randomUUID()
         overrideManager.trackPendingEdit(editId, source, property, pseudo)
         channel.send({

@@ -107,6 +107,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       }
       if (msg.type === 'edit_status' && msg.status === 'done') {
         setActivityCount(c => c + 1)
+        // Commit the browser undo snapshot — syncs with server's undo stack.
+        // The server debounces edits, so this fires once per debounced write.
+        overrideRef.current?.commitEdit()
       }
       // Queue override removal — actual clearing deferred to hmr-applied
       // (hmr_verified/undo_status arrive BEFORE the browser applies the HMR stylesheet)

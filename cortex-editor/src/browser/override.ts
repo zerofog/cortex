@@ -197,6 +197,7 @@ export class CSSOverrideManager {
   beginEdit(): void {
     if (!this.preEditSnapshot) {
       this.preEditSnapshot = this.cloneOverrides()
+      console.log('[cortex] beginEdit: snapshot with', this.preEditSnapshot.size, 'entries')
     }
   }
 
@@ -206,26 +207,33 @@ export class CSSOverrideManager {
       this.overrideUndoStack.push(this.preEditSnapshot)
       this.preEditSnapshot = null
       this.overrideRedoStack.length = 0 // new edit clears redo
+      console.log('[cortex] commitEdit: undoStack depth =', this.overrideUndoStack.length)
+    } else {
+      console.log('[cortex] commitEdit: NO preEditSnapshot!')
     }
   }
 
   /** Undo: restore previous override state (one edit back). */
   undoOverride(): void {
+    console.log('[cortex] undoOverride: undoStack depth =', this.overrideUndoStack.length, ', current overrides =', this.overrides.size)
     this.overrideRedoStack.push(this.cloneOverrides())
     const prev = this.overrideUndoStack.pop()
     this.overrides = prev ?? new Map()
     this.pendingEdits.clear()
     this.cancelPendingRebuild()
     this.rebuild()
+    console.log('[cortex] undoOverride: restored to', this.overrides.size, 'overrides')
   }
 
   /** Redo: restore next override state (one edit forward). */
   redoOverride(): void {
+    console.log('[cortex] redoOverride: redoStack depth =', this.overrideRedoStack.length)
     if (this.overrideRedoStack.length === 0) return
     this.overrideUndoStack.push(this.cloneOverrides())
     this.overrides = this.overrideRedoStack.pop()!
     this.cancelPendingRebuild()
     this.rebuild()
+    console.log('[cortex] redoOverride: restored to', this.overrides.size, 'overrides')
   }
 
   private cloneOverrides(): Map<string, Map<string, string>> {
