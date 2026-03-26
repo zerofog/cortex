@@ -201,6 +201,12 @@ export class CSSOverrideManager {
     }
   }
 
+  /** Cancel the current edit — clears pre-edit snapshot without creating an undo entry.
+   *  Called on edit_status:failed/cancelled. */
+  cancelEdit(): void {
+    this.preEditSnapshot = null
+  }
+
   /** Commit the current edit — pushes the pre-edit snapshot to the undo stack. */
   commitEdit(): void {
     if (this.preEditSnapshot) {

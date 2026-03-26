@@ -4,7 +4,7 @@ import type { CortexChannel, Annotation, ActivityEntry } from '../../adapters/ty
 import { CSSOverrideManager } from '../override.js'
 import { initSelection } from '../selection.js'
 import type { SelectionHandle } from '../selection.js'
-// @ts-expect-error — tinykeys has types but exports field doesn't include a "types" condition
+// @ts-ignore — tinykeys has types but exports field doesn't include a "types" condition (TODO: add declare module shim when tinykeys updates)
 import { tinykeys } from 'tinykeys'
 import { getDeepActiveElement, isInputFocused, isCortexUIFocused, isRealEvent } from '../focus-utils.js'
 import { detectStates } from '../state-detector.js'
@@ -107,11 +107,16 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           setSwatches(msg.swatches)
         }
       }
-      if (msg.type === 'edit_status' && msg.status === 'done') {
-        setActivityCount(c => c + 1)
-        // Commit the browser undo snapshot — syncs with server's undo stack.
-        // The server debounces edits, so this fires once per debounced write.
-        overrideRef.current?.commitEdit()
+      if (msg.type === 'edit_status') {
+        if (msg.status === 'done') {
+          setActivityCount(c => c + 1)
+          // Commit the browser undo snapshot — syncs with server's undo stack.
+          overrideRef.current?.commitEdit()
+        } else if (msg.status === 'failed' || msg.status === 'cancelled') {
+          // Edit failed — clear the pending snapshot so the next edit starts clean.
+          // The override stays (user sees the preview value) but no undo entry is created.
+          overrideRef.current?.cancelEdit()
+        }
       }
       // Queue override removal — actual clearing deferred to hmr-applied
       // (hmr_verified/undo_status arrive BEFORE the browser applies the HMR stylesheet)
