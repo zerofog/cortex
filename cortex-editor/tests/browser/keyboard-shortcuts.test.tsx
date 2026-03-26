@@ -21,16 +21,8 @@ describe('selection.ts Escape removal', () => {
     cleanup()
   })
 
-  it('selection.ts click still works with isOwnUI guard', async () => {
-    const { initSelection } = await import('../../src/browser/selection.js')
-    const onSelect = vi.fn()
-    const shadow = document.createElement('div').attachShadow({ mode: 'open' })
-    const { cleanup } = initSelection(shadow, vi.fn(), onSelect)
-    // Click on non-cortex element should select
-    dispatchKeyboardEvent(window, 'click', {})
-    // (full click test would need elementFromPoint mock — covered by existing tests)
-    cleanup()
-  })
+  // Click behavior is covered by existing tests in selection.test.ts
+  // (requires elementFromPoint mock not available here)
 })
 
 // Cascade priority tests will be integration tests added in Task 5

@@ -72,8 +72,9 @@ function getDefaultPosition(): { position: Position; edge: DockEdge } {
   const storedPos = cortexStorage.get<Position | null>('toolbar-position', null, (v): v is Position => isValidPosition(v))
 
   // Only restore if both edge and position are valid and present
+  // Clamp to current viewport — stored position may be from a different window size
   if (storedEdge !== null && storedPos !== null) {
-    return { position: storedPos, edge: storedEdge }
+    return { position: computePosition(storedEdge, storedEdge === 'top' || storedEdge === 'bottom' ? storedPos.x : storedPos.y), edge: storedEdge }
   }
 
   // Default: bottom edge, horizontally centered

@@ -74,7 +74,8 @@ export function getInitialPosition(): Position {
     y: PANEL_MARGIN,
   }
 
-  return cortexStorage.get('panel-position', defaultPos, isValidPosition)
+  // Clamp to current viewport — stored position may be from a wider/taller window
+  return normalizePosition(cortexStorage.get('panel-position', defaultPos, isValidPosition))
 }
 
 export interface UseSnapToEdgeResult {
