@@ -58,6 +58,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const selectionRef = useRef<SelectionHandle | null>(null)
   const selectedElementRef = useRef<HTMLElement | null>(null)
   selectedElementRef.current = selectedElement
+  const handleExitRef = useRef<(() => void) | null>(null)
 
   // Phase 6: Panel positioning (lifted from Panel)
   const { position: panelPosition, isSnapping: panelSnapping, setPosition: setPanelPosition, snap: panelSnap } = useSnapToEdge()
@@ -90,17 +91,13 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         setActive(true)
       }
       if (msg.type === 'cortex-close') {
-        selectionRef.current?.setDesignMode(false)
-        setSelectedElement(null)
-        setActive(false)
-        channel.send({ type: 'cortex-closed' })
+        handleExitRef.current?.()
       }
       if (msg.type === 'cortex-toggle') {
         if (msg.active) {
-          selectionRef.current?.setDesignMode(true)
           setActive(true)
         } else {
-          handleExit()
+          handleExitRef.current?.()
         }
       }
       if (msg.type === 'hello') {
@@ -209,11 +206,12 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
 
   // Phase 6: Exit handler — notify server, deactivate
   const handleExit = useCallback(() => {
-    selectionRef.current?.setDesignMode(false)
+    setCommentMode(false)
     setSelectedElement(null)
     setActive(false)
     channel.send({ type: 'cortex-closed' })
   }, [channel])
+  handleExitRef.current = handleExit
 
   // Phase 8b: Cascading Escape — capture phase for host app compat
   useEffect(() => {
