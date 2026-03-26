@@ -23,6 +23,10 @@ import { ActivityLog } from '../core/session/activity-log.js'
 export interface CortexEditorOptions {
   /** Package names in node_modules to instrument (for library component detection). */
   includeNodeModules?: string[]
+  /** Keyboard shortcut for toggling the editor. Uses KeyboardEvent.code values.
+   *  Default: '$mod+Shift+Period' (Cmd+Shift+. on Mac, Ctrl+Shift+. on Windows/Linux).
+   *  See https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/code */
+  toggleShortcut?: string
 }
 
 const CORTEX_CLIENT_PATH = '/@cortex/client.js'
@@ -45,7 +49,27 @@ function resolveBrowserIIFEPath(): string {
   return path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'browser', 'index.js')
 }
 
-const CLIENT_SCRIPT = `\
+const VALID_SHORTCUT = /^\$mod\+(?:Shift\+)?(?:Alt\+)?(?:Key[A-Z]|Digit\d|Period|Comma|Slash|Backslash|BracketLeft|BracketRight|Semicolon|Quote|Backquote|Minus|Equal)$/
+
+export function validateToggleShortcut(shortcut: string): string {
+  if (!VALID_SHORTCUT.test(shortcut)) {
+    throw new Error(
+      `[cortex] Invalid toggleShortcut: "${shortcut}". ` +
+      `Expected format: "$mod+Shift+KeyCode" (e.g., "$mod+Shift+Period"). ` +
+      `See https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/code`
+    )
+  }
+  return shortcut
+}
+
+/** Escape JSON for safe embedding in <script> context. */
+function safeJSONForScript(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, '\\u003c')
+}
+
+function getClientScript(options: { toggleShortcut: string }): string {
+  const config = safeJSONForScript({ toggleShortcut: options.toggleShortcut })
+  return `\
 if (import.meta.hot) {
   import.meta.hot.on('${CORTEX_MSG_EVENT}', (data) => {
     window.__cortex_channel__?.handleServerMessage(data);
@@ -57,16 +81,48 @@ if (import.meta.hot) {
     });
   }
 }
-// Load cortex editor browser UI (skip if already loaded via manual script tag)
+// Toggle shortcut — capture phase, always active
+if (!Object.prototype.hasOwnProperty.call(window, '__cortex_toggle_registered__')) {
+  Object.defineProperty(window, '__cortex_toggle_registered__', {
+    value: true, writable: false, configurable: false,
+  });
+  var __cortexConfig = ${config};
+  var __cortexParts = __cortexConfig.toggleShortcut.split('+');
+  var __cortexCode = __cortexParts[__cortexParts.length - 1];
+  var __cortexNeedShift = __cortexParts.includes('Shift');
+  var __cortexNeedAlt = __cortexParts.includes('Alt');
+  window.addEventListener('keydown', function(e) {
+    if (!e.isTrusted) return;
+    var mod = /Mac|iPod|iPhone|iPad/.test(navigator.platform) ? e.metaKey : e.ctrlKey;
+    if (!mod) return;
+    if (__cortexNeedShift && !e.shiftKey) return;
+    if (!__cortexNeedShift && e.shiftKey) return;
+    if (__cortexNeedAlt && !e.altKey) return;
+    if (e.code !== __cortexCode) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var active = document.documentElement.hasAttribute('data-cortex-active');
+    var msg = { type: 'cortex-toggle', active: !active };
+    if (active) {
+      document.documentElement.removeAttribute('data-cortex-active');
+    } else {
+      document.documentElement.setAttribute('data-cortex-active', '');
+    }
+    if (window.__cortex_channel__) {
+      window.__cortex_channel__.handleServerMessage(msg);
+    } else {
+      window.__cortex_pending_toggle__ = msg;
+    }
+  }, { capture: true });
+}
 if (!document.querySelector('[data-cortex-host]')) {
-  const __cortexScript = document.createElement('script');
+  var __cortexScript = document.createElement('script');
   __cortexScript.src = '${CORTEX_BROWSER_PATH}';
-  __cortexScript.onerror = () => console.error(
-    '[cortex] Failed to load browser UI from ${CORTEX_BROWSER_PATH}. Is the package built?'
-  );
+  __cortexScript.onerror = function() { console.error('[cortex] Failed to load browser UI.'); };
   document.head.appendChild(__cortexScript);
 }
 `
+}
 
 let channelInstance: ServerChannel | null = null
 const hmrCallbacks: ((files: string[]) => void)[] = []
@@ -200,6 +256,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
   let transformSource: ReturnType<typeof createSourceTransform>
   const messageHandlers: ((msg: BrowserToServer) => void)[] = []
   let aliasMap: Record<string, string> = {}
+  const validatedToggleShortcut = validateToggleShortcut(_options?.toggleShortcut ?? '$mod+Shift+Period')
 
   return {
     name: 'cortex-editor',
@@ -239,7 +296,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
     },
 
     load(id) {
-      if (id === VIRTUAL_CORTEX_CLIENT) return CLIENT_SCRIPT
+      if (id === VIRTUAL_CORTEX_CLIENT) return getClientScript({ toggleShortcut: validatedToggleShortcut })
     },
 
     transformIndexHtml: {

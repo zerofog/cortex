@@ -51,8 +51,19 @@ export function bootstrap(): void {
   // Trigger server handshake — server responds with hello + swatches
   activeChannel.send({ type: 'init' })
 
+  // Read initial active state from DOM attribute (set by toggle shortcut before bootstrap)
+  const initialActive = document.documentElement.hasAttribute('data-cortex-active')
+
   // Render Preact app into shadow root
-  render(<CortexApp channel={activeChannel} shadowRoot={shadowRoot} />, rootElement)
+  render(
+    <CortexApp channel={activeChannel} shadowRoot={shadowRoot} initialActive={initialActive} />,
+    rootElement,
+  )
+
+  // Clean up pending toggle flag (consumed by initialActive)
+  if (window.__cortex_pending_toggle__) {
+    delete window.__cortex_pending_toggle__
+  }
 }
 
 /**

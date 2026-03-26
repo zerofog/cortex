@@ -93,6 +93,14 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         setActive(false)
         channel.send({ type: 'cortex-closed' })
       }
+      if (msg.type === 'cortex-toggle') {
+        if (msg.active) {
+          selectionRef.current?.setDesignMode(true)
+          setActive(true)
+        } else {
+          handleExit()
+        }
+      }
       if (msg.type === 'hello') {
         if (msg.swatches && msg.swatches.length > 0) {
           setSwatches(msg.swatches)
@@ -258,6 +266,15 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // Sync selection mode with active state (R4 fix: initialActive must enable selection)
   useEffect(() => {
     selectionRef.current?.setDesignMode(active)
+  }, [active])
+
+  // Mirror active state to DOM attribute (read by toggle shortcut script)
+  useEffect(() => {
+    if (active) {
+      document.documentElement.setAttribute('data-cortex-active', '')
+    } else {
+      document.documentElement.removeAttribute('data-cortex-active')
+    }
   }, [active])
 
   if (!active) return null
