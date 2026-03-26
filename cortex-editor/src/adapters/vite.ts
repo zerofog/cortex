@@ -264,6 +264,10 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
   let aliasMap: Record<string, string> = {}
   const validatedToggleShortcut = validateToggleShortcut(_options?.toggleShortcut ?? '$mod+Shift+Period')
   const clientScript = getClientScript({ toggleShortcut: validatedToggleShortcut })
+  // Suppress HMR for forward edits (not undo/redo) — the override preview is sufficient.
+  // Undo/redo writes are NOT suppressed because they need HMR to update the stylesheet.
+  const recentEditWrites = new Set<string>()
+  let suppressHMRForNextWrite = false
 
   return {
     name: 'cortex-editor',
@@ -414,7 +418,9 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         }
 
         // Route edit/undo/redo to EditPipeline (or notify if still initializing)
+        // Mark forward edits for HMR suppression — the override preview is sufficient
         if (data.type === 'edit') {
+          suppressHMRForNextWrite = true
           if (pipelineInstance) pipelineInstance.handleEdit(data as EditRequest)
           else channelInstance?.send({ type: 'edit_status', editId: (data as EditRequest).editId, status: 'failed', reason: 'Editor is still initializing. Please try again.' })
         }
@@ -527,7 +533,14 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           detector: detection,
           runtimeResolver,
           undoStack,
-          writeFile: (p, c) => fs.promises.writeFile(p, c, 'utf-8'),
+          writeFile: async (p, c) => {
+            if (suppressHMRForNextWrite) {
+              recentEditWrites.add(p)
+              suppressHMRForNextWrite = false
+              setTimeout(() => recentEditWrites.delete(p), 500)
+            }
+            await fs.promises.writeFile(p, c, 'utf-8')
+          },
           readFile: (p) => fs.promises.readFile(p, 'utf-8'),
           projectRoot,
         })
@@ -676,18 +689,30 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
     },
 
     handleHotUpdate({ modules }: HmrContext) {
-      if (modules.length > 0) {
-        const files = modules
-          .map(m => m.file)
-          .filter((f): f is string => f != null && (/\.[jt]sx$/.test(f) || /\.module\.css$/.test(f)))
-        if (files.length > 0) {
-          const cbs = [...hmrCallbacks]
-          for (const cb of cbs) {
-            try { cb(files) } catch (err) {
-              console.warn('[cortex] HMR callback error:', err instanceof Error ? err.message : err)
-            }
+      if (modules.length === 0) return
+
+      const files = modules
+        .map(m => m.file)
+        .filter((f): f is string => f != null && (/\.[jt]sx$/.test(f) || /\.module\.css$/.test(f)))
+
+      if (files.length > 0) {
+        const cbs = [...hmrCallbacks]
+        for (const cb of cbs) {
+          try { cb(files) } catch (err) {
+            console.warn('[cortex] HMR callback error:', err instanceof Error ? err.message : err)
           }
         }
+      }
+
+      // Suppress HMR for files cortex just wrote — the override is already
+      // showing the correct value. HMR would cause a full-page style recalc
+      // + repaint visible as a flash. The override stays until hmr_verified
+      // clears it (which is now a no-op since we handled verification above).
+      const cortexFiles = modules.filter(m => m.file && recentEditWrites.has(m.file))
+      if (cortexFiles.length > 0) {
+        // Return only non-cortex modules — suppresses HMR for cortex-written files
+        const kept = modules.filter(m => !m.file || !recentEditWrites.has(m.file))
+        return kept
       }
     },
   }
