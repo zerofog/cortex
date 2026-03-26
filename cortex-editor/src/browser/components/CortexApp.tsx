@@ -4,6 +4,7 @@ import type { CortexChannel, Annotation, ActivityEntry } from '../../adapters/ty
 import { CSSOverrideManager } from '../override.js'
 import { initSelection } from '../selection.js'
 import type { SelectionHandle } from '../selection.js'
+// @ts-expect-error — tinykeys has types but exports field doesn't include a "types" condition
 import { tinykeys } from 'tinykeys'
 import { getDeepActiveElement, isInputFocused, isCortexUIFocused, isRealEvent } from '../focus-utils.js'
 import { detectStates } from '../state-detector.js'
