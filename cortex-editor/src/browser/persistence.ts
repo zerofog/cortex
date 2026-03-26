@@ -1,5 +1,3 @@
-// src/browser/persistence.ts
-
 // Cache prefix at module level — port does not change during page lifetime
 const PREFIX = typeof location !== 'undefined'
   ? `cortex:${location.port || '0'}:`
@@ -35,3 +33,17 @@ function clear(): void {
 }
 
 export const cortexStorage = { get, set, clear } as const
+
+/** Validates a stored {x, y} position — used by useSnapToEdge and useToolbarDock. */
+export function isValidPosition(v: unknown): v is { x: number; y: number } {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    'x' in v &&
+    'y' in v &&
+    typeof (v as { x: unknown }).x === 'number' &&
+    Number.isFinite((v as { x: number }).x) &&
+    typeof (v as { y: unknown }).y === 'number' &&
+    Number.isFinite((v as { y: number }).y)
+  )
+}

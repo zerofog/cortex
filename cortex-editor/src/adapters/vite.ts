@@ -258,6 +258,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
   const messageHandlers: ((msg: BrowserToServer) => void)[] = []
   let aliasMap: Record<string, string> = {}
   const validatedToggleShortcut = validateToggleShortcut(_options?.toggleShortcut ?? '$mod+Shift+Period')
+  const clientScript = getClientScript({ toggleShortcut: validatedToggleShortcut })
 
   return {
     name: 'cortex-editor',
@@ -297,7 +298,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
     },
 
     load(id) {
-      if (id === VIRTUAL_CORTEX_CLIENT) return getClientScript({ toggleShortcut: validatedToggleShortcut })
+      if (id === VIRTUAL_CORTEX_CLIENT) return clientScript
     },
 
     transformIndexHtml: {

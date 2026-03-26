@@ -1,4 +1,3 @@
-// src/browser/format-shortcut.ts
 const isMac = typeof navigator !== 'undefined' &&
   /Mac|iPod|iPhone|iPad/.test(navigator.platform)
 

@@ -52,7 +52,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const commentModeRef = useRef(false)
   commentModeRef.current = commentMode
 
-  // Phase 6: Activity, active state, refs
+  // Activity, active state, refs
   const [activityCount, setActivityCount] = useState(0)
   const [active, setActive] = useState(initialActive ?? false)
   const selectionRef = useRef<SelectionHandle | null>(null)
@@ -60,14 +60,14 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   selectedElementRef.current = selectedElement
   const handleExitRef = useRef<(() => void) | null>(null)
 
-  // Phase 6: Panel positioning (lifted from Panel)
+  // Panel positioning
   const { position: panelPosition, isSnapping: panelSnapping, setPosition: setPanelPosition, snap: panelSnap } = useSnapToEdge()
   const { handlePointerDown: panelPointerDown, handlePointerMove: panelPointerMove, handlePointerUp: panelPointerUp, handlePointerCancel: panelPointerCancel } = useDrag({
     onDrag(x, y) { setPanelPosition({ x, y }) },
     onDragEnd() { panelSnap() },
   })
 
-  // Phase 6: Canvas zoom (disabled — preserved for future re-enablement)
+  // Canvas zoom (disabled — preserved for future re-enablement)
   useCanvasZoom(false)
 
   useEffect(() => {
@@ -193,9 +193,11 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
 
   const handleCommentMode = useCallback(() => setCommentMode(m => !m), [])
   const handleActivityToggle = useCallback(() => {
-    setShowActivity(v => !v)
-    if (!showActivity) setActivityCount(0) // reset badge on open
-  }, [showActivity])
+    setShowActivity(prev => {
+      if (!prev) setActivityCount(0) // reset badge on open
+      return !prev
+    })
+  }, [])
   const handleCommentReply = useCallback((annotationId: string, text: string) => {
     channel.send({ type: 'comment-reply', annotationId, text })
   }, [channel])
@@ -204,7 +206,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const handleSelectElement = useCallback((el: HTMLElement | null) => setSelectedElement(el), [])
   const handleToggleHover = useCallback(() => setHoverEnabled(v => !v), [])
 
-  // Phase 6: Exit handler — notify server, deactivate
+  // Exit handler — notify server, deactivate
   const handleExit = useCallback(() => {
     setCommentMode(false)
     setSelectedElement(null)
@@ -213,7 +215,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   }, [channel])
   handleExitRef.current = handleExit
 
-  // Phase 8b: Cascading Escape — capture phase for host app compat
+  // Cascading Escape — capture phase for host app compat
   useEffect(() => {
     if (!active) return
     function handleEscape(e: KeyboardEvent): void {
@@ -263,7 +265,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     return () => window.removeEventListener('keydown', handleEscape, { capture: true })
   }, [active])
 
-  // Phase 8b: tinykeys keyboard shortcuts — bubble phase, guarded
+  // tinykeys keyboard shortcuts — bubble phase, guarded
   useEffect(() => {
     if (!active) return
 
@@ -286,7 +288,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     const unsubscribe = tinykeys(window, {
       'v': guardSingleKey(() => setCommentMode(false)),
       'c': guardSingleKey(() => setCommentMode(m => !m)),
-      '$mod+0': guardModifier(() => { /* canvas zoom reset — wired for future */ }),
+      // guardModifier omits isCortexUIFocused — Cmd+Z/Shift+Z should work inside Cortex panels
       '$mod+z': guardModifier(() => { channel.send({ type: 'undo' }) }),
       '$mod+Shift+z': guardModifier(() => { channel.send({ type: 'redo' }) }),
     })
@@ -294,13 +296,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     return unsubscribe
   }, [active, channel])
 
-  // Sync selection mode with active state (R4 fix: initialActive must enable selection)
+  // setDesignMode must track active — selection events are otherwise unblocked when inactive
   useEffect(() => {
     selectionRef.current?.setDesignMode(active)
-  }, [active])
-
-  // Mirror active state to DOM attribute (read by toggle shortcut script)
-  useEffect(() => {
     if (active) {
       document.documentElement.setAttribute('data-cortex-active', '')
     } else {

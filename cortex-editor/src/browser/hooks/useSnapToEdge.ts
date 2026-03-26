@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'preact/hooks'
-import { cortexStorage } from '../persistence.js'
+import { cortexStorage, isValidPosition } from '../persistence.js'
 
 export const PANEL_WIDTH = 300
 export const PANEL_MAX_HEIGHT = 460
@@ -9,17 +9,6 @@ const SNAP_DURATION = 350
 const SNAP_THRESHOLD = 80
 
 interface Position { x: number; y: number }
-
-function isValidPosition(v: unknown): v is Position {
-  return (
-    typeof v === 'object' &&
-    v !== null &&
-    'x' in v &&
-    'y' in v &&
-    Number.isFinite((v as Position).x) &&
-    Number.isFinite((v as Position).y)
-  )
-}
 
 export function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min

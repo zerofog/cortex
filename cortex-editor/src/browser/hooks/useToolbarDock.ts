@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'preact/hooks'
-import { cortexStorage } from '../persistence.js'
+import { cortexStorage, isValidPosition } from '../persistence.js'
 
 export const TOOLBAR_THICKNESS = 40
 export const TOOLBAR_LENGTH = 176
@@ -9,17 +9,6 @@ const SNAP_DURATION = 300
 export type DockEdge = 'top' | 'bottom' | 'left' | 'right'
 
 interface Position { x: number; y: number }
-
-function isValidPosition(v: unknown): v is Position {
-  return (
-    typeof v === 'object' &&
-    v !== null &&
-    'x' in v &&
-    'y' in v &&
-    Number.isFinite((v as Position).x) &&
-    Number.isFinite((v as Position).y)
-  )
-}
 
 const VALID_EDGES = new Set<string>(['top', 'bottom', 'left', 'right'])
 
