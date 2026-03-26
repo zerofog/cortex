@@ -396,7 +396,10 @@ export class TailwindResolver {
     if (cached) return cached
 
     const propertyMap = this.lookup.get(property)
-    if (!propertyMap) return TailwindResolver.EMPTY_FROZEN
+    if (!propertyMap) {
+      this.snapCache.set(property, TailwindResolver.EMPTY_FROZEN)
+      return TailwindResolver.EMPTY_FROZEN
+    }
 
     const keys = Array.from(propertyMap.keys())
     const sorted = keys.length > 0 && Number.isNaN(parseFloat(keys[0]!))

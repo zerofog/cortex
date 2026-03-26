@@ -85,6 +85,20 @@ describe('isCortexUIFocused', () => {
     host.remove()
   })
 
+  it('returns true when focus is inside cortex shadow root', () => {
+    const host = document.createElement('div')
+    host.setAttribute('tabindex', '0')
+    document.body.appendChild(host)
+    const shadow = host.attachShadow({ mode: 'open' })
+    _setCortexHost(host, shadow)
+    const btn = document.createElement('button')
+    btn.setAttribute('tabindex', '0')
+    shadow.appendChild(btn)
+    btn.focus()
+    expect(isCortexUIFocused()).toBe(true)
+    host.remove()
+  })
+
   it('returns false when focus is on a non-cortex element', () => {
     const host = document.createElement('div')
     _setCortexHost(host, null)
