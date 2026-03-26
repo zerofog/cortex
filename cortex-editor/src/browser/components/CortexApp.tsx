@@ -114,12 +114,13 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         overrideRef.current?.handleHMRVerified(msg.editId, msg.match)
       }
       if (msg.type === 'undo_status' && msg.status === 'done') {
-        // Clear immediately — forward edit HMR is suppressed, so the stylesheet
-        // already has the pre-edit value. No concurrent HMR to race with.
-        overrideRef.current?.clearAll()
+        // Snapshot is already taken by optimistic clearAllForUndo in the Cmd+Z handler.
+        // This handler is a no-op for the override — the visual already reverted.
       }
-      // Redo: don't clearAll — redo restores the edit, HMR will update the stylesheet.
-      // No override to clear (undo already cleared them).
+      if (msg.type === 'redo_status' && msg.status === 'done') {
+        // Restore the override snapshot — instant visual redo without HMR.
+        overrideRef.current?.restoreForRedo()
+      }
       // Flush queued override removals — HMR stylesheet is now applied in the browser
       if (msg.type === 'hmr-applied') {
         overrideRef.current?.onHMRApplied()
@@ -305,9 +306,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       'c': guardSingleKey(() => setCommentMode(m => !m)),
       // guardModifier omits isCortexUIFocused — Cmd+Z/Shift+Z should work inside Cortex panels
       '$mod+z': guardModifier(() => {
-        // Optimistic undo: clear overrides immediately (no server round-trip delay).
+        // Optimistic undo: snapshot overrides then clear immediately.
         // The stylesheet already has the pre-edit value (forward edit HMR was suppressed).
-        overrideRef.current?.clearAll()
+        // Snapshot is stored so redo can restore it instantly.
+        overrideRef.current?.clearAllForUndo()
         channel.send({ type: 'undo' })
       }),
       '$mod+Shift+z': guardModifier(() => { channel.send({ type: 'redo' }) }),

@@ -187,8 +187,34 @@ export class CSSOverrideManager {
     }
   }
 
-  /** Clear all overrides (e.g. on SPA navigation or undo) */
+  private undoSnapshot: Map<string, Map<string, string>> | null = null
+
+  /** Snapshot current overrides, then clear all. Used for undo — redo can restore. */
+  clearAllForUndo(): void {
+    // Deep-clone overrides so redo can restore them
+    this.undoSnapshot = new Map()
+    for (const [key, props] of this.overrides) {
+      this.undoSnapshot.set(key, new Map(props))
+    }
+    this.overrides.clear()
+    this.stateOverrides.clear()
+    this.pendingEdits.clear()
+    this.cancelPendingRebuild()
+    this.rebuild()
+  }
+
+  /** Restore overrides from the last undo snapshot (for redo). */
+  restoreForRedo(): void {
+    if (!this.undoSnapshot) return
+    this.overrides = this.undoSnapshot
+    this.undoSnapshot = null
+    this.cancelPendingRebuild()
+    this.rebuild()
+  }
+
+  /** Clear all overrides (e.g. on SPA navigation) */
   clearAll(): void {
+    this.undoSnapshot = null
     this.overrides.clear()
     this.stateOverrides.clear()
     this.pendingEdits.clear()

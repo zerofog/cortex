@@ -430,7 +430,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           else channelInstance?.send({ type: 'undo_status', status: 'failed', restoredFile: '', reason: 'Editor is still initializing.' })
         }
         if (data.type === 'redo') {
-          suppressHMRForNextWrite = false // Redo writes must NOT be suppressed
+          suppressHMRForNextWrite = true // Suppress redo HMR — override is restored client-side
           if (pipelineInstance) pipelineInstance.handleRedo()
           else channelInstance?.send({ type: 'redo_status', status: 'failed', restoredFile: '', reason: 'Editor is still initializing.' })
         }
