@@ -113,11 +113,13 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (msg.type === 'hmr_verified') {
         overrideRef.current?.handleHMRVerified(msg.editId, msg.match)
       }
-      if ((msg.type === 'undo_status' || msg.type === 'redo_status') && msg.status === 'done') {
+      if (msg.type === 'undo_status' && msg.status === 'done') {
         // Clear immediately — forward edit HMR is suppressed, so the stylesheet
         // already has the pre-edit value. No concurrent HMR to race with.
         overrideRef.current?.clearAll()
       }
+      // Redo: don't clearAll — redo restores the edit, HMR will update the stylesheet.
+      // No override to clear (undo already cleared them).
       // Flush queued override removals — HMR stylesheet is now applied in the browser
       if (msg.type === 'hmr-applied') {
         overrideRef.current?.onHMRApplied()
