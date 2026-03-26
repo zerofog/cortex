@@ -228,18 +228,14 @@ describe('CSSOverrideManager', () => {
       expect(styleEl.textContent).toContain('margin: 0 !important')
     })
 
-    it('remove() batches rebuild via RAF', () => {
+    it('remove() rebuilds synchronously to prevent flicker', () => {
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
       manager.set('a:1:1', 'font-size', '16px')
       flushRAF()
 
       manager.remove('a:1:1', 'font-size')
-      // Not yet visible — scheduled for next RAF
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toContain('font-size')
-
-      flushRAF()
       expect(styleEl.textContent).toBe(
         '[data-cortex-source="a\\:1\\:1"] { color: red !important; }',
       )
@@ -277,42 +273,21 @@ describe('CSSOverrideManager', () => {
       expect(styleEl.textContent).toBe(before)
     })
 
-    it('remove() coalesces with pending set() RAF', () => {
+    it('remove() cancels pending RAF so stale rebuild does not fire', () => {
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
 
       manager.set('a:1:1', 'font-size', '16px')
       expect(rafCallbacks.size).toBe(1)
 
-      // remove() scheduleRebuild is a no-op since RAF already pending
+      // remove() cancels the pending RAF and rebuilds synchronously
       manager.remove('a:1:1', 'font-size')
-      expect(rafCallbacks.size).toBe(1)
+      expect(rafCallbacks.size).toBe(0)
 
-      flushRAF()
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toBe(
-        '[data-cortex-source="a\\:1\\:1"] { color: red !important; }',
-      )
-    })
-
-    it('multiple handleHMRVerified calls batch into one rebuild', () => {
-      manager.set('a:1:1', 'color', 'red')
-      manager.set('a:1:1', 'font-size', '16px')
-      manager.set('a:1:1', 'margin', '0')
+      const afterRemove = styleEl.textContent
       flushRAF()
-
-      manager.trackPendingEdit('e1', 'a:1:1', 'color')
-      manager.trackPendingEdit('e2', 'a:1:1', 'font-size')
-      manager.trackPendingEdit('e3', 'a:1:1', 'margin')
-
-      manager.handleHMRVerified('e1', true)
-      manager.handleHMRVerified('e2', true)
-      manager.handleHMRVerified('e3', true)
-      expect(rafCallbacks.size).toBe(1) // one pending RAF, not 3 synchronous rebuilds
-
-      flushRAF()
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toBe('')
+      expect(styleEl.textContent).toBe(afterRemove)
     })
 
     it('clearAll() clears state overrides too', () => {

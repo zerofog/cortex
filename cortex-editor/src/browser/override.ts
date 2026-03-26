@@ -85,7 +85,10 @@ export class CSSOverrideManager {
     } else {
       this.overrides.delete(key)
     }
-    this.scheduleRebuild()
+    // Synchronous rebuild — prevents one-frame flicker when HMR clears overrides.
+    // RAF batching would show the old override for one extra frame before removal.
+    this.cancelPendingRebuild()
+    this.rebuild()
   }
 
   /**
