@@ -79,23 +79,14 @@ export function initSelection(
     onSelect(el)
   }
 
-  function handleKeyDown(event: KeyboardEvent): void {
-    if (!designMode) return
-    if (event.key === 'Escape') {
-      onSelect(null)
-    }
-  }
-
   window.addEventListener('mousemove', handleMouseMove, { capture: true })
   window.addEventListener('click', handleClick, { capture: true })
-  window.addEventListener('keydown', handleKeyDown, { capture: true })
   window.addEventListener('scroll', handleScroll, { capture: true, passive: true })
 
   return {
     cleanup() {
       window.removeEventListener('mousemove', handleMouseMove, { capture: true })
       window.removeEventListener('click', handleClick, { capture: true })
-      window.removeEventListener('keydown', handleKeyDown, { capture: true })
       window.removeEventListener('scroll', handleScroll, { capture: true })
     },
     setDesignMode(enabled: boolean) {

@@ -1170,3 +1170,22 @@ describe('port file', () => {
     expect(fs.existsSync(portFile)).toBe(false)
   })
 })
+
+describe('validateToggleShortcut', () => {
+  it('rejects XSS payload', async () => {
+    const { validateToggleShortcut } = await import('../../src/adapters/vite.js')
+    expect(() => validateToggleShortcut("'; alert(1);//")).toThrow(/Invalid toggleShortcut/)
+  })
+
+  it('rejects </script> payload', async () => {
+    const { validateToggleShortcut } = await import('../../src/adapters/vite.js')
+    expect(() => validateToggleShortcut("</script><script>alert(1)")).toThrow()
+  })
+
+  it('accepts valid shortcuts', async () => {
+    const { validateToggleShortcut } = await import('../../src/adapters/vite.js')
+    expect(validateToggleShortcut('$mod+Shift+Period')).toBe('$mod+Shift+Period')
+    expect(validateToggleShortcut('$mod+Shift+KeyE')).toBe('$mod+Shift+KeyE')
+    expect(validateToggleShortcut('$mod+KeyK')).toBe('$mod+KeyK')
+  })
+})

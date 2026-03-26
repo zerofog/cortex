@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render } from 'preact'
 import { CortexApp } from '../../src/browser/components/CortexApp.js'
-import { createShadowHost, createMockChannel, mockGetBoundingClientRect } from './helpers.js'
+import { createShadowHost, createMockChannel, mockGetBoundingClientRect, dispatchKeyboardEvent } from './helpers.js'
+import * as focusUtils from '../../src/browser/focus-utils.js'
 
 // Mock the selection module to verify it's called correctly
 vi.mock('../../src/browser/selection.js', () => {
@@ -279,7 +280,7 @@ describe('CortexApp', () => {
     expect(toolbars.length).toBe(1)
   })
 
-  it('sends cortex-closed when user exits via Escape', async () => {
+  it('Escape with no selection and no comment mode does nothing (no close)', async () => {
     setup()
     const channel = createMockChannel()
     render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
@@ -289,12 +290,16 @@ describe('CortexApp', () => {
     channel._simulateMessage({ type: 'cortex' } as any)
     await new Promise(r => setTimeout(r, 10))
 
-    // Exit via Escape (no element selected)
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    // Escape with no selection, no comment mode — should NOT close
+    vi.spyOn(focusUtils, 'isRealEvent').mockReturnValue(true)
+    dispatchKeyboardEvent(window, 'keydown', { key: 'Escape' })
     await new Promise(r => setTimeout(r, 10))
 
-    expect(channel._lastSent).toContainEqual({ type: 'cortex-closed' })
-    expect(root.querySelector('.cortex-toolbar')).toBeNull()
+    // Should NOT send cortex-closed
+    expect(channel._lastSent).not.toContainEqual({ type: 'cortex-closed' })
+    // Editor should still be active (toolbar visible)
+    expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
+    vi.restoreAllMocks()
   })
 
   it('annotation-created message renders pin dot for pinned annotation', async () => {
@@ -457,14 +462,16 @@ describe('CortexApp', () => {
     selectCb(target)
     await new Promise(r => setTimeout(r, 10))
 
-    // Escape deselects, not exits
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    // Escape deselects, not exits (mock isRealEvent for cascading handler)
+    vi.spyOn(focusUtils, 'isRealEvent').mockReturnValue(true)
+    dispatchKeyboardEvent(window, 'keydown', { key: 'Escape' })
     await new Promise(r => setTimeout(r, 10))
 
     expect(root.querySelector('.cortex-toolbar')).not.toBeNull() // still active
     expect(root.querySelector('.cortex-selection-overlay')).toBeNull() // deselected
     expect(channel._lastSent).not.toContainEqual({ type: 'cortex-closed' })
 
+    vi.restoreAllMocks()
     target.remove()
   })
 

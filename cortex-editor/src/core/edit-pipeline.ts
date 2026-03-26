@@ -320,7 +320,10 @@ export class EditPipeline {
     this.debounceTimers.clear()
 
     const entry = this.undoStack!.peekUndo()
-    if (!entry) return
+    if (!entry) {
+      this.channel.send({ type: 'undo_status', status: 'failed', restoredFile: '', reason: 'Nothing to undo.' })
+      return
+    }
 
     await this.withFileLock(entry.filePath, async () => {
       const current = this.undoStack!.peekUndo()
@@ -335,7 +338,6 @@ export class EditPipeline {
         }
       }
 
-      this.verifier.trackEdit({ editId: `undo-${current.id}`, filePath: current.filePath, expectedValue: '', property: '__undo__' })
       await this.writeFile(current.filePath, current.previousContent)
       this.undoStack!.undo()
       this.channel.send({ type: 'undo_status', status: 'done', restoredFile: relative(this.projectRoot, current.filePath) })
@@ -358,7 +360,10 @@ export class EditPipeline {
 
   private async _doRedo(): Promise<void> {
     const entry = this.undoStack!.peekRedo()
-    if (!entry) return
+    if (!entry) {
+      this.channel.send({ type: 'redo_status', status: 'failed', restoredFile: '', reason: 'Nothing to redo.' })
+      return
+    }
 
     await this.withFileLock(entry.filePath, async () => {
       if (this.readFile) {
@@ -372,7 +377,6 @@ export class EditPipeline {
 
       const result = this.undoStack!.redo()
       if (!result) return
-      this.verifier.trackEdit({ editId: `redo-${entry.id}`, filePath: result.filePath, expectedValue: '', property: '__redo__' })
       await this.writeFile(result.filePath, result.content)
       this.channel.send({ type: 'redo_status', status: 'done', restoredFile: relative(this.projectRoot, result.filePath) })
     })
@@ -390,6 +394,7 @@ export class EditPipeline {
         selector,
         property: edit.property,
         newValue: edit.value,
+        elementSelector: edit.elementSelector,
       })
       if (!result.success) {
         this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: result.reason })

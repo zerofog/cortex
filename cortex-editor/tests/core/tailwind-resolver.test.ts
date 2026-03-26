@@ -518,6 +518,39 @@ describe('TailwindResolver', () => {
   })
 })
 
+describe('getSnapPoints caching', () => {
+  it('returns frozen array', () => {
+    const resolver = TailwindResolver.fromTheme({
+      spacing: { '1': '0.25rem', '2': '0.5rem', '4': '1rem' },
+    })
+    const points = resolver.getSnapPoints('padding')
+    expect(Object.isFrozen(points)).toBe(true)
+  })
+
+  it('returns same reference on second call', () => {
+    const resolver = TailwindResolver.fromTheme({
+      spacing: { '1': '0.25rem', '2': '0.5rem' },
+    })
+    const first = resolver.getSnapPoints('padding')
+    const second = resolver.getSnapPoints('padding')
+    expect(first).toBe(second)
+  })
+
+  it('returns frozen empty array for unknown properties', () => {
+    const resolver = TailwindResolver.fromTheme({})
+    const points = resolver.getSnapPoints('unknown')
+    expect(Object.isFrozen(points)).toBe(true)
+    expect(points).toHaveLength(0)
+  })
+
+  it('returns same reference on second call for unknown property', () => {
+    const resolver = TailwindResolver.fromTheme({})
+    const first = resolver.getSnapPoints('unknown')
+    const second = resolver.getSnapPoints('unknown')
+    expect(first).toBe(second)
+  })
+})
+
 describe('flattenColors', () => {
   it('extracts shade-500 from color families', () => {
     const colors = {

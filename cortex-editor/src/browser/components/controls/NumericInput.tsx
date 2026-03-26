@@ -153,8 +153,14 @@ export function NumericInput({
       try { target.releasePointerCapture(ue.pointerId) } catch {}
       const delta = ue.clientX - scrubStartX.current
       const next = clampValue(roundTenth(scrubStartValue.current + delta))
-      onScrubEnd?.(next)
-      onChange(next)
+      // onScrubEnd triggers the commit (applyOverride + edit dispatch).
+      // Don't also call onChange — it would double-commit, causing a visual flash.
+      // The value propagates back via getComputedStyle → styleVersion re-render.
+      if (onScrubEnd) {
+        onScrubEnd(next)
+      } else {
+        onChange(next)
+      }
       cleanup()
     }
 

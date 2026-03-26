@@ -2,6 +2,7 @@ import type { JSX } from 'preact'
 import { useCallback } from 'preact/hooks'
 import { useDrag } from '../hooks/useDrag.js'
 import { useToolbarDock } from '../hooks/useToolbarDock.js'
+import { formatShortcut } from '../format-shortcut.js'
 
 export interface ToolbarProps {
   activityCount: number
@@ -83,7 +84,7 @@ export function Toolbar({
       <button
         type="button"
         class={`cortex-toolbar__btn ${commentMode ? 'cortex-toolbar__btn--active' : ''}`}
-        data-tooltip="Comment"
+        data-tooltip={`Comment (${formatShortcut('c')})`}
         data-action="comment"
         onClick={onCommentMode}
       >

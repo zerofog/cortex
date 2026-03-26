@@ -275,6 +275,8 @@ export function flattenColors(colors: Record<string, unknown>): string[] {
 
 export class TailwindResolver {
   private lookup = new Map<string, Map<string, string>>()
+  private snapCache = new Map<string, readonly string[]>()
+  private static readonly EMPTY_FROZEN: readonly string[] = Object.freeze([] as string[])
   private readonly remPx: number
 
   private constructor(remPx: number = 16) {
@@ -389,13 +391,24 @@ export class TailwindResolver {
   }
 
   /** Get all snap point values for a CSS property. Sorted numerically when possible. */
-  getSnapPoints(property: string): string[] {
+  getSnapPoints(property: string): readonly string[] {
+    const cached = this.snapCache.get(property)
+    if (cached) return cached
+
     const propertyMap = this.lookup.get(property)
-    if (!propertyMap) return []
+    if (!propertyMap) {
+      this.snapCache.set(property, TailwindResolver.EMPTY_FROZEN)
+      return TailwindResolver.EMPTY_FROZEN
+    }
+
     const keys = Array.from(propertyMap.keys())
-    // Guard: if first key isn't numeric, return insertion order
-    if (keys.length > 0 && Number.isNaN(parseFloat(keys[0]!))) return keys
-    return keys.sort((a, b) => parseFloat(a) - parseFloat(b))
+    const sorted = keys.length > 0 && Number.isNaN(parseFloat(keys[0]!))
+      ? keys
+      : keys.sort((a, b) => parseFloat(a) - parseFloat(b))
+
+    const frozen = Object.freeze(sorted)
+    this.snapCache.set(property, frozen)
+    return frozen
   }
 
   /**

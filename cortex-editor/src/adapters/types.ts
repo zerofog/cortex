@@ -72,6 +72,7 @@ export type BrowserToServer =
 export type ServerToBrowser =
   | { type: 'cortex' }
   | { type: 'cortex-close' }
+  | { type: 'cortex-toggle'; active: boolean }
   | { type: 'hello'; protocolVersion: number; sessionId: string; swatches?: string[] }
   | { type: 'error'; code: string; message: string; editId?: string }
   | { type: 'edit_status'; editId: string; status: 'writing' | 'done' | 'failed' | 'cancelled'; newToken?: string; reason?: string }
@@ -80,6 +81,7 @@ export type ServerToBrowser =
   | { type: 'redo_status'; status: 'done'; restoredFile: string }
   | { type: 'redo_status'; status: 'failed'; restoredFile: string; reason: string }
   | { type: 'hmr_verified'; editId: string; match: boolean; expected?: string; actual?: string }
+  | { type: 'hmr-applied' }
   | { type: 'annotation-created'; annotation: Annotation }
   | { type: 'annotation-updated'; annotation: Annotation }
   | { type: 'agent-status'; connected: boolean }

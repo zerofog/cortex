@@ -126,15 +126,6 @@ describe('initSelection', () => {
     target.remove()
   })
 
-  it('Escape key calls onSelect(null)', () => {
-    const handle = initSelection(shadow, onHover, onSelect)
-
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true }))
-    expect(onSelect).toHaveBeenCalledWith(null)
-
-    handle.cleanup()
-  })
-
   it('cleanup removes all listeners', () => {
     const target = document.createElement('div')
     document.body.appendChild(target)
@@ -145,7 +136,6 @@ describe('initSelection', () => {
 
     dispatchMouseEvent(target, 'mousemove', { clientX: 50, clientY: 50 })
     dispatchMouseEvent(target, 'click', { clientX: 50, clientY: 50 })
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
 
     expect(onHover).not.toHaveBeenCalled()
     expect(onSelect).not.toHaveBeenCalled()
