@@ -229,6 +229,9 @@ export function Panel({
       return
     }
     const pseudo = activePseudo !== 'element' ? activePseudo : undefined
+    // Snapshot BEFORE any set() — captures pre-edit state for undo.
+    // beginEdit() is idempotent (only snapshots once per gesture).
+    overrideManager.beginEdit()
     overrideManager.set(source, property, value, pseudo)
     if (commitRender) {
       overrideManager.flush()
@@ -236,7 +239,7 @@ export function Panel({
 
       // Dispatch edit to server for source file writing
       if (channel) {
-        overrideManager.snapshotForEdit() // Save state for undo/redo
+        overrideManager.commitEdit() // Push pre-edit snapshot to undo stack
         const editId = crypto.randomUUID()
         overrideManager.trackPendingEdit(editId, source, property, pseudo)
         channel.send({

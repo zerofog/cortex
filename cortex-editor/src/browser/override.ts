@@ -190,10 +190,23 @@ export class CSSOverrideManager {
   private overrideUndoStack: Map<string, Map<string, string>>[] = []
   private overrideRedoStack: Map<string, Map<string, string>>[] = []
 
-  /** Snapshot current overrides before an edit so undo can restore them. */
-  snapshotForEdit(): void {
-    this.overrideUndoStack.push(this.cloneOverrides())
-    this.overrideRedoStack.length = 0 // new edit clears redo
+  private preEditSnapshot: Map<string, Map<string, string>> | null = null
+
+  /** Mark the start of a new edit gesture (scrub or direct commit).
+   *  Takes a snapshot of the current state BEFORE any set() calls for this edit. */
+  beginEdit(): void {
+    if (!this.preEditSnapshot) {
+      this.preEditSnapshot = this.cloneOverrides()
+    }
+  }
+
+  /** Commit the current edit — pushes the pre-edit snapshot to the undo stack. */
+  commitEdit(): void {
+    if (this.preEditSnapshot) {
+      this.overrideUndoStack.push(this.preEditSnapshot)
+      this.preEditSnapshot = null
+      this.overrideRedoStack.length = 0 // new edit clears redo
+    }
   }
 
   /** Undo: restore previous override state (one edit back). */
