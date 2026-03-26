@@ -637,6 +637,8 @@ describe('CSSOverrideManager', () => {
         // Trigger eviction — edit-1 is within TTL, should survive
         manager.trackPendingEdit('edit-2', 'a:1:1', 'margin')
         manager.handleHMRVerified('edit-1', true)
+        // handleHMRVerified defers remove to next RAF
+        vi.advanceTimersByTime(16)
         manager.flush()
         const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
         expect(styleEl.textContent).not.toContain('color')

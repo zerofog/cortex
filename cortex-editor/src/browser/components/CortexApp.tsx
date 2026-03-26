@@ -112,9 +112,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (msg.type === 'hmr_verified') {
         overrideRef.current?.handleHMRVerified(msg.editId, msg.match)
       }
-      // Clear ALL overrides on undo/redo — file reverted, remaining overrides are stale
+      // Clear ALL overrides on undo/redo — file reverted, remaining overrides are stale.
+      // Deferred to next frame: undo_status arrives before HMR updates the stylesheet.
       if ((msg.type === 'undo_status' || msg.type === 'redo_status') && msg.status === 'done') {
-        overrideRef.current?.clearAll()
+        requestAnimationFrame(() => overrideRef.current?.clearAll())
       }
       if (msg.type === 'annotation-created') {
         setAnnotations(prev => new Map(prev).set(msg.annotation.id, msg.annotation))

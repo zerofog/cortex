@@ -139,14 +139,17 @@ export class CSSOverrideManager {
     this.pendingEdits.set(editId, { source, property, pseudo, timestamp: Date.now() })
   }
 
-  /** Called when the server confirms an edit landed via HMR. Clears the override on match. */
+  /** Called when the server confirms an edit landed via HMR. Clears the override on match.
+   *  Defers removal to the next frame — hmr_verified arrives via WebSocket BEFORE the
+   *  HMR stylesheet update is applied. Removing immediately would show the old stylesheet
+   *  value for one frame (flicker). */
   handleHMRVerified(editId: string, match: boolean): void {
     this.evictStalePendingEdits()
     const pending = this.pendingEdits.get(editId)
     if (!pending) return
     this.pendingEdits.delete(editId)
     if (match) {
-      this.remove(pending.source, pending.property, pending.pseudo)
+      requestAnimationFrame(() => this.remove(pending.source, pending.property, pending.pseudo))
     }
   }
 
