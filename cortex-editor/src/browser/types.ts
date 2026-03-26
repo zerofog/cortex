@@ -11,6 +11,10 @@ declare global {
     }
     /** WebSocket port injected by server adapter. Falls back to 24678. */
     __cortex_ws_port__?: number
+    /** Idempotency guard: toggle shortcut keydown listener already registered */
+    __cortex_toggle_registered__?: boolean
+    /** Queued toggle message when channel is not yet created */
+    __cortex_pending_toggle__?: { type: 'cortex-toggle'; active: boolean }
   }
 }
 

@@ -4,6 +4,9 @@ import type { CortexChannel, Annotation, ActivityEntry } from '../../adapters/ty
 import { CSSOverrideManager } from '../override.js'
 import { initSelection } from '../selection.js'
 import type { SelectionHandle } from '../selection.js'
+// @ts-ignore — tinykeys has types but exports field doesn't include a "types" condition (TODO: add declare module shim when tinykeys updates)
+import { tinykeys } from 'tinykeys'
+import { getDeepActiveElement, isInputFocused, isCortexUIFocused, isRealEvent } from '../focus-utils.js'
 import { detectStates } from '../state-detector.js'
 import type { StateDeclarations, InteractionState } from '../state-detector.js'
 import { HoverOverlay } from './HoverOverlay.js'
@@ -17,9 +20,12 @@ import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
 import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
 
+const MAX_ACTIVITY_ENTRIES = 200
+
 export interface CortexAppProps {
   channel: CortexChannel
   shadowRoot: ShadowRoot
+  initialActive?: boolean
 }
 
 /**
@@ -28,7 +34,7 @@ export interface CortexAppProps {
  * drag/snap positioning. Canvas zoom hook is wired but currently
  * disabled — preserved for future re-enablement.
  */
-export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element | null {
+export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps): JSX.Element | null {
   const [hoveredElement, setHoveredElement] = useState<HTMLElement | null>(null)
   const [selectedElement, setSelectedElement] = useState<HTMLElement | null>(null)
   const [swatches, setSwatches] = useState<string[] | undefined>(undefined)
@@ -46,21 +52,24 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
   const commentModeRef = useRef(false)
   commentModeRef.current = commentMode
 
-  // Phase 6: Activity, active state, refs
+  // Activity, active state, refs
   const [activityCount, setActivityCount] = useState(0)
-  const [active, setActive] = useState(false)
+  const [active, setActive] = useState(initialActive ?? false)
   const selectionRef = useRef<SelectionHandle | null>(null)
   const selectedElementRef = useRef<HTMLElement | null>(null)
   selectedElementRef.current = selectedElement
+  const handleExitRef = useRef<(() => void) | null>(null)
+  const undoRedoInFlight = useRef(false)
+  const undoRedoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Phase 6: Panel positioning (lifted from Panel)
+  // Panel positioning
   const { position: panelPosition, isSnapping: panelSnapping, setPosition: setPanelPosition, snap: panelSnap } = useSnapToEdge()
   const { handlePointerDown: panelPointerDown, handlePointerMove: panelPointerMove, handlePointerUp: panelPointerUp, handlePointerCancel: panelPointerCancel } = useDrag({
     onDrag(x, y) { setPanelPosition({ x, y }) },
     onDragEnd() { panelSnap() },
   })
 
-  // Phase 6: Canvas zoom (disabled — preserved for future re-enablement)
+  // Canvas zoom (disabled — preserved for future re-enablement)
   useCanvasZoom(false)
 
   useEffect(() => {
@@ -81,22 +90,50 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
     // Subscribe to server messages
     const unsubscribe = channel.onMessage((msg) => {
       if (msg.type === 'cortex') {
-        selectionRef.current?.setDesignMode(true)
         setActive(true)
       }
       if (msg.type === 'cortex-close') {
-        selectionRef.current?.setDesignMode(false)
-        setSelectedElement(null)
-        setActive(false)
-        channel.send({ type: 'cortex-closed' })
+        handleExitRef.current?.()
+      }
+      if (msg.type === 'cortex-toggle') {
+        if (msg.active) {
+          setActive(true)
+        } else {
+          handleExitRef.current?.()
+        }
       }
       if (msg.type === 'hello') {
         if (msg.swatches && msg.swatches.length > 0) {
           setSwatches(msg.swatches)
         }
       }
-      if (msg.type === 'edit_status' && msg.status === 'done') {
-        setActivityCount(c => c + 1)
+      if (msg.type === 'edit_status') {
+        if (msg.status === 'done') {
+          setActivityCount(c => c + 1)
+          // Commit the browser undo snapshot — syncs with server's undo stack.
+          overrideRef.current?.commitEdit()
+        } else if (msg.status === 'failed' || msg.status === 'cancelled') {
+          // Edit failed — clear the pending snapshot so the next edit starts clean.
+          // The override stays (user sees the preview value) but no undo entry is created.
+          overrideRef.current?.cancelEdit()
+        }
+      }
+      // Queue override removal — actual clearing deferred to hmr-applied
+      // (hmr_verified/undo_status arrive BEFORE the browser applies the HMR stylesheet)
+      if (msg.type === 'hmr_verified') {
+        overrideRef.current?.handleHMRVerified(msg.editId, msg.match)
+      }
+      // Unlock undo/redo serialization when server acknowledges
+      if (msg.type === 'undo_status' || msg.type === 'redo_status') {
+        undoRedoInFlight.current = false
+        if (undoRedoTimeoutRef.current) {
+          clearTimeout(undoRedoTimeoutRef.current)
+          undoRedoTimeoutRef.current = null
+        }
+      }
+      // Flush queued override removals — HMR stylesheet is now applied in the browser
+      if (msg.type === 'hmr-applied') {
+        overrideRef.current?.onHMRApplied()
       }
       if (msg.type === 'annotation-created') {
         setAnnotations(prev => new Map(prev).set(msg.annotation.id, msg.annotation))
@@ -108,7 +145,11 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
         setAgentConnected(msg.connected)
       }
       if (msg.type === 'activity-entry') {
-        setActivityEntries(prev => [...prev, msg.entry])
+        setActivityEntries(prev =>
+          prev.length >= MAX_ACTIVITY_ENTRIES
+            ? [...prev.slice(-(MAX_ACTIVITY_ENTRIES - 1)), msg.entry]
+            : [...prev, msg.entry]
+        )
         setActivityCount(c => c + 1)
       }
     })
@@ -179,51 +220,135 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
 
   const handleCommentMode = useCallback(() => setCommentMode(m => !m), [])
   const handleActivityToggle = useCallback(() => {
-    setShowActivity(v => !v)
-    if (!showActivity) setActivityCount(0) // reset badge on open
-  }, [showActivity])
+    setShowActivity(prev => {
+      if (!prev) setActivityCount(0) // reset badge on open
+      return !prev
+    })
+  }, [])
   const handleCommentReply = useCallback((annotationId: string, text: string) => {
     channel.send({ type: 'comment-reply', annotationId, text })
   }, [channel])
 
-  const handleClose = useCallback(() => setSelectedElement(null), [])
   const handleSelectElement = useCallback((el: HTMLElement | null) => setSelectedElement(el), [])
   const handleToggleHover = useCallback(() => setHoverEnabled(v => !v), [])
 
-  // Phase 6: Exit handler — notify server, deactivate
+  // Exit handler — notify server, deactivate
   const handleExit = useCallback(() => {
-    selectionRef.current?.setDesignMode(false)
+    setCommentMode(false)
     setSelectedElement(null)
     setActive(false)
     channel.send({ type: 'cortex-closed' })
   }, [channel])
+  handleExitRef.current = handleExit
 
-  // Phase 6: Keyboard shortcuts — Escape to deselect or exit
+  // Cascading Escape — capture phase for host app compat
   useEffect(() => {
     if (!active) return
-    function handleKeyDown(e: KeyboardEvent): void {
-      const target = e.target as HTMLElement
-      const tag = target?.tagName?.toLowerCase()
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') return
-      if (target?.isContentEditable) return
+    function handleEscape(e: KeyboardEvent): void {
+      if (!isRealEvent(e)) return
+      if (e.key !== 'Escape') return
 
-      if (e.key === 'Escape') {
-        if (commentModeRef.current) {
-          // Exit comment mode — stay active
-          setCommentMode(false)
-        } else if (selectedElementRef.current) {
-          // Deselect — stay active
-          setSelectedElement(null)
-        } else {
-          // No selection, no comment mode — exit editor
-          handleExit()
+      // Priority 1: Blur focused input inside Cortex UI
+      if (isCortexUIFocused()) {
+        const focused = getDeepActiveElement()
+        if (focused instanceof HTMLElement) {
+          const tag = focused.tagName.toLowerCase()
+          if (tag === 'input' || tag === 'textarea' || tag === 'select' || focused.isContentEditable) {
+            focused.blur()
+            e.stopPropagation()
+            e.preventDefault()
+            return
+          }
         }
+      }
+
+      // Skip if user is focused on a host app input — let browser/host handle it
+      if (isInputFocused() && !isCortexUIFocused()) return
+
+      // Priority 2: Exit comment mode
+      if (commentModeRef.current) {
+        setCommentMode(false)
         e.stopPropagation()
+        e.preventDefault()
+        return
+      }
+
+      // Priority 3: Deselect element
+      if (selectedElementRef.current) {
+        setSelectedElement(null)
+        e.stopPropagation()
+        e.preventDefault()
+        return
+      }
+
+      // No Priority 4 — Cmd+Shift+. and X button are the only close mechanisms.
+      // This intentionally deviates from the spec's Section 4 cascade which included
+      // a close step. Removed per architecture review finding H5 to prevent accidental
+      // editor close on extra Escape press.
+    }
+
+    window.addEventListener('keydown', handleEscape, { capture: true })
+    return () => window.removeEventListener('keydown', handleEscape, { capture: true })
+  }, [active])
+
+  // tinykeys keyboard shortcuts — bubble phase, guarded
+  useEffect(() => {
+    if (!active) return
+
+    function guardSingleKey(handler: () => void): (e: KeyboardEvent) => void {
+      return (e: KeyboardEvent) => {
+        if (!isRealEvent(e)) return
+        if (isInputFocused() || isCortexUIFocused()) return
+        handler()
       }
     }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [active, handleExit])
+
+    function guardModifier(handler: () => void): (e: KeyboardEvent) => void {
+      return (e: KeyboardEvent) => {
+        if (!isRealEvent(e)) return
+        if (isInputFocused()) return
+        handler()
+      }
+    }
+
+    const unsubscribe = tinykeys(window, {
+      'v': guardSingleKey(() => setCommentMode(false)),
+      'c': guardSingleKey(() => setCommentMode(m => !m)),
+      // guardModifier omits isCortexUIFocused — Cmd+Z/Shift+Z should work inside Cortex panels
+      '$mod+z': guardModifier(() => {
+        if (undoRedoInFlight.current) return
+        overrideRef.current?.undoOverride()
+        undoRedoInFlight.current = true
+        undoRedoTimeoutRef.current = setTimeout(() => {
+          undoRedoInFlight.current = false
+          undoRedoTimeoutRef.current = null
+        }, 10_000)
+        channel.send({ type: 'undo' })
+      }),
+      '$mod+Shift+z': guardModifier(() => {
+        if (undoRedoInFlight.current) return
+        overrideRef.current?.redoOverride()
+        undoRedoInFlight.current = true
+        undoRedoTimeoutRef.current = setTimeout(() => {
+          undoRedoInFlight.current = false
+          undoRedoTimeoutRef.current = null
+        }, 10_000)
+        channel.send({ type: 'redo' })
+      }),
+    })
+
+    return unsubscribe
+  }, [active, channel])
+
+  // setDesignMode must track active — selection events are otherwise unblocked when inactive
+  useEffect(() => {
+    selectionRef.current?.setDesignMode(active)
+    if (active) {
+      document.documentElement.setAttribute('data-cortex-active', '')
+    } else {
+      document.documentElement.removeAttribute('data-cortex-active')
+    }
+  }, [active])
 
   if (!active) return null
 
@@ -242,7 +367,7 @@ export function CortexApp({ channel, shadowRoot }: CortexAppProps): JSX.Element 
         <Panel
           element={selectedElement}
           overrideManager={overrideRef.current}
-          onClose={handleClose}
+          onClose={handleExit}
           onSelectElement={handleSelectElement}
           swatches={swatches}
           activeState={activeState}

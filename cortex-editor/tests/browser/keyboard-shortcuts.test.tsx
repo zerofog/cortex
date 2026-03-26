@@ -1,0 +1,367 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render } from 'preact'
+import * as focusUtils from '../../src/browser/focus-utils.js'
+import { dispatchKeyboardEvent, createShadowHost, createMockChannel, mockGetBoundingClientRect } from './helpers.js'
+
+// tinykeys maps $mod to Meta on Mac, Control elsewhere.
+// happy-dom navigator.platform is not Mac, so $mod → Control.
+const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform)
+const modKey = isMac ? 'metaKey' : 'ctrlKey'
+
+// happy-dom does not implement getModifierState on KeyboardEvent.
+// tinykeys relies on it, so polyfill it to reflect the event's modifier properties.
+if (!KeyboardEvent.prototype.getModifierState) {
+  KeyboardEvent.prototype.getModifierState = function (key: string): boolean {
+    switch (key) {
+      case 'Control': return this.ctrlKey
+      case 'Shift': return this.shiftKey
+      case 'Alt': return this.altKey
+      case 'Meta': return this.metaKey
+      default: return false
+    }
+  }
+}
+
+// Mock the selection module (same pattern as cortex-app.test.tsx)
+vi.mock('../../src/browser/selection.js', () => {
+  const cleanupFn = vi.fn()
+  const setDesignModeFn = vi.fn()
+  const setInterceptClicksFn = vi.fn()
+  let hoverCb: ((el: HTMLElement | null) => void) | null = null
+  let selectCb: ((el: HTMLElement | null) => void) | null = null
+
+  return {
+    initSelection: vi.fn((_shadow: ShadowRoot, onHover: (el: HTMLElement | null) => void, onSelect: (el: HTMLElement | null) => void) => {
+      hoverCb = onHover
+      selectCb = onSelect
+      return { cleanup: cleanupFn, setDesignMode: setDesignModeFn, setInterceptClicks: setInterceptClicksFn }
+    }),
+    _getCallbacks: () => ({ hoverCb, selectCb }),
+    _cleanup: cleanupFn,
+  }
+})
+
+// Allow synthetic events to pass the isTrusted check in tests
+beforeEach(() => {
+  vi.spyOn(focusUtils, 'isRealEvent').mockReturnValue(true)
+})
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+describe('selection.ts Escape removal', () => {
+  it('selection.ts does NOT handle Escape', async () => {
+    const { initSelection } = await import('../../src/browser/selection.js')
+    const onSelect = vi.fn()
+    const shadow = document.createElement('div').attachShadow({ mode: 'open' })
+    const { cleanup } = initSelection(shadow, vi.fn(), onSelect)
+    dispatchKeyboardEvent(window, 'keydown', { key: 'Escape' })
+    expect(onSelect).not.toHaveBeenCalled()
+    cleanup()
+  })
+
+  // Click behavior is covered by existing tests in selection.test.ts
+  // (requires elementFromPoint mock not available here)
+})
+
+// --- CortexApp integration tests for cascade + shortcuts ---
+
+import { CortexApp } from '../../src/browser/components/CortexApp.js'
+
+// Settle time for Preact useEffect to fire and tinykeys to register
+const SETTLE = 30
+
+describe('cascade priorities (integration)', () => {
+  let root: HTMLDivElement
+  let shadow: ShadowRoot
+  let cleanupHost: () => void
+
+  afterEach(async () => {
+    if (root) render(null, root)
+    await new Promise(r => setTimeout(r, SETTLE))
+    if (cleanupHost) cleanupHost()
+    vi.clearAllMocks()
+    vi.spyOn(focusUtils, 'isRealEvent').mockReturnValue(true)
+  })
+
+  function setup() {
+    const sh = createShadowHost()
+    root = sh.root
+    shadow = sh.shadow
+    cleanupHost = sh.cleanup
+    return sh
+  }
+
+  // Priority 2: Exit comment mode
+  it('Escape exits comment mode when comment mode is active', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    // Enter comment mode by clicking the comment button
+    const commentBtn = root.querySelector('[data-action="comment"]') as HTMLButtonElement
+    expect(commentBtn).not.toBeNull()
+    commentBtn.click()
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    // Verify comment mode is active
+    expect(commentBtn.classList.contains('cortex-toolbar__btn--active')).toBe(true)
+
+    // Press Escape
+    dispatchKeyboardEvent(window, 'keydown', { key: 'Escape' })
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    // Comment mode should be off, editor should still be active
+    expect(commentBtn.classList.contains('cortex-toolbar__btn--active')).toBe(false)
+    expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
+  })
+
+  // Priority 3: Deselect element
+  it('Escape deselects when element is selected and no comment mode', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    // Select an element
+    const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+    const { selectCb } = _getCallbacks()
+    const target = document.createElement('div')
+    document.body.appendChild(target)
+    mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
+    selectCb(target)
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    // Should have selection overlay
+    expect(root.querySelector('.cortex-selection-overlay')).not.toBeNull()
+
+    // Press Escape
+    dispatchKeyboardEvent(window, 'keydown', { key: 'Escape' })
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    // Selection should be cleared, editor still active
+    expect(root.querySelector('.cortex-selection-overlay')).toBeNull()
+    expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
+    expect(channel._lastSent).not.toContainEqual({ type: 'cortex-closed' })
+
+    target.remove()
+  })
+
+  // No Priority 4: Escape does nothing at top level
+  it('Escape does nothing when no selection and no comment mode', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    // Press Escape with nothing active
+    dispatchKeyboardEvent(window, 'keydown', { key: 'Escape' })
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    // Editor should still be active, no cortex-closed sent
+    expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
+    expect(channel._lastSent).not.toContainEqual({ type: 'cortex-closed' })
+  })
+})
+
+describe('tinykeys shortcut integration', () => {
+  let root: HTMLDivElement
+  let shadow: ShadowRoot
+  let cleanupHost: () => void
+
+  afterEach(async () => {
+    if (root) render(null, root)
+    // Allow Preact cleanup (useEffect destructors incl. tinykeys unsubscribe) to run
+    await new Promise(r => setTimeout(r, SETTLE))
+    if (cleanupHost) cleanupHost()
+    vi.clearAllMocks()
+    vi.spyOn(focusUtils, 'isRealEvent').mockReturnValue(true)
+  })
+
+  function setup() {
+    const sh = createShadowHost()
+    root = sh.root
+    shadow = sh.shadow
+    cleanupHost = sh.cleanup
+    return sh
+  }
+
+  it('V key exits comment mode (activates select mode)', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    // Enter comment mode
+    const commentBtn = root.querySelector('[data-action="comment"]') as HTMLButtonElement
+    commentBtn.click()
+    await new Promise(r => setTimeout(r, SETTLE))
+    expect(commentBtn.classList.contains('cortex-toolbar__btn--active')).toBe(true)
+
+    // Press V — should exit comment mode
+    dispatchKeyboardEvent(window, 'keydown', { key: 'v' })
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    expect(commentBtn.classList.contains('cortex-toolbar__btn--active')).toBe(false)
+  })
+
+  it('C key toggles comment mode on', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    const commentBtn = root.querySelector('[data-action="comment"]') as HTMLButtonElement
+    expect(commentBtn.classList.contains('cortex-toolbar__btn--active')).toBe(false)
+
+    // Press C — should toggle comment mode on
+    dispatchKeyboardEvent(window, 'keydown', { key: 'c' })
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    expect(commentBtn.classList.contains('cortex-toolbar__btn--active')).toBe(true)
+  })
+
+  it('C key toggles comment mode off when already on', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    // Enter comment mode
+    const commentBtn = root.querySelector('[data-action="comment"]') as HTMLButtonElement
+    commentBtn.click()
+    await new Promise(r => setTimeout(r, SETTLE))
+    expect(commentBtn.classList.contains('cortex-toolbar__btn--active')).toBe(true)
+
+    // Press C — should toggle comment mode off
+    dispatchKeyboardEvent(window, 'keydown', { key: 'c' })
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    expect(commentBtn.classList.contains('cortex-toolbar__btn--active')).toBe(false)
+  })
+
+  it('Cmd+Z sends undo message', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    // Clear any sent messages from activation
+    channel._lastSent.length = 0
+
+    // Press Cmd+Z (metaKey on Mac, ctrlKey on other platforms)
+    dispatchKeyboardEvent(window, 'keydown', { key: 'z', [modKey]: true })
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    expect(channel._lastSent).toContainEqual({ type: 'undo' })
+  })
+
+  it('Cmd+Shift+Z sends redo message', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    // Clear any sent messages from activation
+    channel._lastSent.length = 0
+
+    // Press Cmd+Shift+Z
+    dispatchKeyboardEvent(window, 'keydown', { key: 'z', [modKey]: true, shiftKey: true })
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    expect(channel._lastSent).toContainEqual({ type: 'redo' })
+  })
+
+  it('single-key shortcuts are blocked when input is focused', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    // Mock isInputFocused to return true
+    vi.spyOn(focusUtils, 'isInputFocused').mockReturnValue(true)
+
+    const commentBtn = root.querySelector('[data-action="comment"]') as HTMLButtonElement
+    expect(commentBtn.classList.contains('cortex-toolbar__btn--active')).toBe(false)
+
+    // Press C — should NOT toggle comment mode because input is focused
+    dispatchKeyboardEvent(window, 'keydown', { key: 'c' })
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    expect(commentBtn.classList.contains('cortex-toolbar__btn--active')).toBe(false)
+  })
+
+  it('single-key shortcuts are blocked when Cortex UI is focused', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    // Mock isCortexUIFocused to return true
+    vi.spyOn(focusUtils, 'isCortexUIFocused').mockReturnValue(true)
+
+    const commentBtn = root.querySelector('[data-action="comment"]') as HTMLButtonElement
+    expect(commentBtn.classList.contains('cortex-toolbar__btn--active')).toBe(false)
+
+    // Press C — should NOT toggle comment mode because Cortex UI is focused
+    dispatchKeyboardEvent(window, 'keydown', { key: 'c' })
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    expect(commentBtn.classList.contains('cortex-toolbar__btn--active')).toBe(false)
+  })
+
+  it('modifier shortcuts are blocked when input is focused', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    // Mock isInputFocused to return true
+    vi.spyOn(focusUtils, 'isInputFocused').mockReturnValue(true)
+
+    // Clear sent messages
+    channel._lastSent.length = 0
+
+    // Press Cmd+Z — should NOT send undo because input is focused
+    dispatchKeyboardEvent(window, 'keydown', { key: 'z', [modKey]: true })
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    expect(channel._lastSent).not.toContainEqual({ type: 'undo' })
+  })
+
+  it('modifier shortcuts work when Cortex UI is focused (not blocked)', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    // Mock: Cortex UI is focused but NOT a text input
+    vi.spyOn(focusUtils, 'isCortexUIFocused').mockReturnValue(true)
+    vi.spyOn(focusUtils, 'isInputFocused').mockReturnValue(false)
+
+    // Clear sent messages
+    channel._lastSent.length = 0
+
+    // Press Cmd+Z — should send undo because only isCortexUIFocused, not isInputFocused
+    dispatchKeyboardEvent(window, 'keydown', { key: 'z', [modKey]: true })
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    expect(channel._lastSent).toContainEqual({ type: 'undo' })
+  })
+
+  it('shortcuts are inactive when editor is not active', async () => {
+    setup()
+    const channel = createMockChannel()
+    // Explicitly NOT active
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    // Press C — should not do anything (editor not active)
+    dispatchKeyboardEvent(window, 'keydown', { key: 'c' })
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    // Editor is not active, so no toolbar to check
+    expect(root.querySelector('.cortex-toolbar')).toBeNull()
+  })
+})

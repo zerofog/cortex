@@ -1,4 +1,8 @@
 import { VALID_PROPERTY, VALID_VALUE, REJECT_URL, REJECT_COMMENT } from './css-validation.js'
+import { emitOverrideChange } from './override-bus.js'
+
+/** Client-side TTL for pending edits — slightly longer than server's 30s to account for transit */
+const PENDING_EDIT_TTL_MS = 35_000
 
 /**
  * Manages a <style> tag in document.head for CSS override previews.
@@ -11,9 +15,11 @@ import { VALID_PROPERTY, VALID_VALUE, REJECT_URL, REJECT_COMMENT } from './css-v
  * During rebuild(), both maps merge per-source. User edits win over state overrides.
  */
 export class CSSOverrideManager {
+  private static readonly MAX_UNDO_DEPTH = 50
   private styleEl: HTMLStyleElement
   private overrides = new Map<string, Map<string, string>>()
   private stateOverrides = new Map<string, Map<string, string>>()
+  private pendingEdits = new Map<string, { source: string; property: string; pseudo?: '::before' | '::after'; timestamp: number }>()
 
   constructor() {
     this.styleEl = document.createElement('style')
@@ -81,6 +87,8 @@ export class CSSOverrideManager {
     } else {
       this.overrides.delete(key)
     }
+    // Synchronous rebuild — prevents one-frame flicker when HMR clears overrides.
+    // RAF batching would show the old override for one extra frame before removal.
     this.cancelPendingRebuild()
     this.rebuild()
   }
@@ -120,19 +128,149 @@ export class CSSOverrideManager {
     this.rebuild()
   }
 
+  /** Track a pending edit so handleHMRVerified can clear the right override. */
+  trackPendingEdit(editId: string, source: string, property: string, pseudo?: '::before' | '::after'): void {
+    this.evictStalePendingEdits()
+    // Supersede any prior pending edit for the same target
+    for (const [existingId, entry] of this.pendingEdits) {
+      if (entry.source === source && entry.property === property && entry.pseudo === pseudo) {
+        this.pendingEdits.delete(existingId)
+        break
+      }
+    }
+    this.pendingEdits.set(editId, { source, property, pseudo, timestamp: Date.now() })
+  }
+
+  private pendingRemovals: Array<{ source: string; property: string; pseudo?: '::before' | '::after' }> = []
+  private pendingClearAll = false
+
+  /** Called when the server confirms an edit landed via HMR. Queues the override
+   *  for removal — actual clearing happens in onHMRApplied() after the browser
+   *  has applied the HMR stylesheet update. */
+  handleHMRVerified(editId: string, match: boolean): void {
+    this.evictStalePendingEdits()
+    const pending = this.pendingEdits.get(editId)
+    if (!pending) return
+    this.pendingEdits.delete(editId)
+    if (match) {
+      this.pendingRemovals.push({ source: pending.source, property: pending.property, pseudo: pending.pseudo })
+    }
+  }
+
+  /** Queue a clearAll to run when the next HMR update lands in the browser. */
+  queueClearAll(): void {
+    this.pendingClearAll = true
+  }
+
+  /** Called when the browser confirms HMR stylesheet update has been applied.
+   *  Now safe to remove overrides without flicker. */
+  onHMRApplied(): void {
+    if (this.pendingClearAll) {
+      this.pendingClearAll = false
+      this.pendingRemovals.length = 0
+      this.clearAll()
+      return
+    }
+    if (this.pendingRemovals.length > 0) {
+      const removals = this.pendingRemovals.splice(0)
+      for (const r of removals) {
+        this.remove(r.source, r.property, r.pseudo)
+      }
+    }
+  }
+
+  private evictStalePendingEdits(): void {
+    const now = Date.now()
+    for (const [id, entry] of this.pendingEdits) {
+      if (now - entry.timestamp > PENDING_EDIT_TTL_MS) {
+        this.pendingEdits.delete(id)
+      }
+    }
+  }
+
+  private overrideUndoStack: Map<string, Map<string, string>>[] = []
+  private overrideRedoStack: Map<string, Map<string, string>>[] = []
+
+  private preEditSnapshot: Map<string, Map<string, string>> | null = null
+
+  /** Mark the start of a new edit gesture (scrub or direct commit).
+   *  Takes a snapshot of the current state BEFORE any set() calls for this edit. */
+  beginEdit(): void {
+    if (!this.preEditSnapshot) {
+      this.preEditSnapshot = this.cloneOverrides()
+    }
+  }
+
+  /** Cancel the current edit — clears pre-edit snapshot without creating an undo entry.
+   *  Called on edit_status:failed/cancelled. */
+  cancelEdit(): void {
+    this.preEditSnapshot = null
+  }
+
+  /** Commit the current edit — pushes the pre-edit snapshot to the undo stack. */
+  commitEdit(): void {
+    if (this.preEditSnapshot) {
+      this.overrideUndoStack.push(this.preEditSnapshot)
+      this.preEditSnapshot = null
+      this.overrideRedoStack.length = 0
+      // Evict oldest entries beyond max depth (matches server's UndoStack.maxDepth)
+      while (this.overrideUndoStack.length > CSSOverrideManager.MAX_UNDO_DEPTH) {
+        this.overrideUndoStack.shift()
+      }
+    }
+  }
+
+  /** Undo: restore previous override state (one edit back). */
+  undoOverride(): void {
+    if (this.overrideUndoStack.length === 0) return
+    this.overrideRedoStack.push(this.cloneOverrides())
+    this.overrides = this.overrideUndoStack.pop()!
+    this.pendingEdits.clear()
+    this.pendingRemovals.length = 0
+    this.cancelPendingRebuild()
+    this.rebuild()
+  }
+
+  /** Redo: restore next override state (one edit forward). */
+  redoOverride(): void {
+    if (this.overrideRedoStack.length === 0) return
+    this.overrideUndoStack.push(this.cloneOverrides())
+    this.overrides = this.overrideRedoStack.pop()!
+    this.pendingEdits.clear()
+    this.pendingRemovals.length = 0
+    this.cancelPendingRebuild()
+    this.rebuild()
+  }
+
+  private cloneOverrides(): Map<string, Map<string, string>> {
+    const clone = new Map<string, Map<string, string>>()
+    for (const [k, v] of this.overrides) clone.set(k, new Map(v))
+    return clone
+  }
+
   /** Clear all overrides (e.g. on SPA navigation) */
   clearAll(): void {
+    this.preEditSnapshot = null
+    this.overrideUndoStack.length = 0
+    this.overrideRedoStack.length = 0
+    this.pendingRemovals.length = 0
     this.overrides.clear()
     this.stateOverrides.clear()
+    this.pendingEdits.clear()
     this.cancelPendingRebuild()
     this.rebuild()
   }
 
   /** Remove the <style> element from the DOM */
   dispose(): void {
+    this.preEditSnapshot = null
+    this.overrideUndoStack.length = 0
+    this.overrideRedoStack.length = 0
+    this.pendingRemovals.length = 0
     this.cancelPendingRebuild()
     this.overrides.clear()
     this.stateOverrides.clear()
+    this.pendingEdits.clear()
     this.styleEl.remove()
   }
 
@@ -165,6 +303,12 @@ export class CSSOverrideManager {
       const selector = `[data-cortex-source="${CSS.escape(rawSource)}"]${pseudoSuffix}`
       rules.push(`${selector} { ${declarations}; }`)
     }
-    this.styleEl.textContent = rules.join('\n')
+    // Skip no-op writes — CSSOM teardown/rebuild can trigger host-app CSS
+    // transitions even when the final computed value is identical.
+    const newContent = rules.join('\n')
+    if (this.styleEl.textContent !== newContent) {
+      this.styleEl.textContent = newContent
+      emitOverrideChange()
+    }
   }
 }

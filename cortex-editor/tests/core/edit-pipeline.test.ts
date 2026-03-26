@@ -521,6 +521,7 @@ describe('EditPipeline', () => {
       selector: '.hero',
       property: 'padding-top',
       newValue: '16px',
+      elementSelector: 'div',
     })
     expect(writeFile).toHaveBeenCalledWith('/project/src/Hero.module.css', 'new-css')
     const doneStatus = channel.sent.find(
@@ -725,6 +726,7 @@ describe('EditPipeline', () => {
       selector: '.hero',
       property: 'padding-top',
       newValue: '16px',
+      elementSelector: 'div',
     })
     expect(writeFile).toHaveBeenCalledWith('/project/src/Hero.module.css', 'new-css')
   })

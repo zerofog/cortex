@@ -78,9 +78,7 @@
   top: 0;
   width: 300px;
   max-height: calc(100vh - 32px);
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: rgba(255, 255, 255, 0.97);
   border: 1px solid rgba(0, 0, 0, 0.06);
   border-radius: 12px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.04);
@@ -502,8 +500,7 @@
   min-width: 120px;
   max-height: 200px;
   background: rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  /* backdrop-filter removed — causes full-page re-composite on every HMR repaint */
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1), 0 1px 4px rgba(0, 0, 0, 0.06);
@@ -701,8 +698,7 @@
   z-index: 11;
   width: 220px;
   background: rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  /* backdrop-filter removed — causes full-page re-composite on every HMR repaint */
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
@@ -1052,9 +1048,7 @@
   display: flex;
   align-items: center;
   gap: 0;
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(255, 255, 255, 0.97);
   border-radius: 20px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04);
   pointer-events: auto;
@@ -1336,9 +1330,8 @@
 .cortex-pin__thread {
   position: fixed;
   width: 240px;
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: rgba(255, 255, 255, 0.98);
+  /* backdrop-filter removed — causes full-page re-composite on every HMR repaint */
   border: 1px solid rgba(0, 0, 0, 0.06);
   border-radius: 12px;
   pointer-events: auto;
@@ -1358,9 +1351,8 @@
 .cortex-pin__input-field {
   width: 200px;
   padding: 6px 8px;
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: rgba(255, 255, 255, 0.98);
+  /* backdrop-filter removed — causes full-page re-composite on every HMR repaint */
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 4px;
   color: #111827;
@@ -1382,8 +1374,7 @@
   width: 280px;
   max-height: 320px;
   background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  /* backdrop-filter removed — causes full-page re-composite on every HMR repaint */
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   pointer-events: auto;

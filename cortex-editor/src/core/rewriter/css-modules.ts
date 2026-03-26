@@ -19,6 +19,9 @@ export interface CSSModulesRewriteRequest {
   selector: string
   property: string
   newValue: string
+  /** The selected element's tag name (e.g., 'h3'). Used to prefer descendant
+   *  selectors like `.card h3` over the base `.card` rule. */
+  elementSelector?: string
 }
 
 export type CSSModulesRewriteResult =
@@ -105,7 +108,7 @@ export class CSSModulesRewriter {
       return { success: false, filePath: cssFilePath, reason: `CSS parse error: ${msg}` }
     }
 
-    const matchedRule = this.findRule(root, selector, property)
+    const matchedRule = this.findRule(root, selector, property, request.elementSelector)
     if (!matchedRule.success) {
       this.astCache.delete(cssFilePath)
       return { success: false, filePath: cssFilePath, reason: matchedRule.reason }
@@ -163,6 +166,7 @@ export class CSSModulesRewriter {
     root: Root,
     selector: string,
     property: string,
+    elementSelector?: string,
   ): { success: true; rule: Rule } | { success: false; reason: string } {
     const candidates: Rule[] = []
 
@@ -197,6 +201,18 @@ export class CSSModulesRewriter {
 
     const baseRules = candidates.filter(r => !ruleIsInsideAtRule(r))
     if (baseRules.length > 0) {
+      // Prefer descendant selectors that include the element's tag name
+      // (e.g., prefer `.card h3` over `.card` when editing an <h3>)
+      if (elementSelector && baseRules.length > 1) {
+        const tagMatch = baseRules.find(r =>
+          r.selector.split(',').some(part => {
+            const trimmed = part.trim()
+            // Match "selector tag" pattern (e.g., ".card h3")
+            return trimmed !== selector && new RegExp(`\\b${elementSelector}\\b`).test(trimmed)
+          }),
+        )
+        if (tagMatch) return { success: true, rule: tagMatch }
+      }
       return { success: true, rule: baseRules[0]! }
     }
     return { success: true, rule: candidates[0]! }

@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render } from 'preact'
 import type { JSX } from 'preact'
 import {
@@ -129,18 +129,43 @@ describe('useSnapToEdge utilities', () => {
   })
 
   describe('getInitialPosition', () => {
-    it('always returns top-right on fresh load', () => {
+    it('returns top-right when localStorage is empty', () => {
       const pos = getInitialPosition()
       expect(pos.x).toBe(1024 - PANEL_WIDTH - PANEL_MARGIN)
       expect(pos.y).toBe(PANEL_MARGIN)
     })
+  })
 
-    it('ignores any stored position in localStorage', () => {
-      localStorage.setItem('cortex-panel-position', JSON.stringify({ x: 100, y: 200 }))
-      const pos = getInitialPosition()
-      // Should still be top-right, not restored from storage
-      expect(pos.x).toBe(1024 - PANEL_WIDTH - PANEL_MARGIN)
-      localStorage.clear()
+  describe('localStorage persistence', () => {
+    beforeEach(() => localStorage.clear())
+
+    it('restores position from localStorage on init', async () => {
+      // Use dynamic import to get fresh module evaluation
+      vi.resetModules()
+      const PORT = location.port || '0'
+      localStorage.setItem(`cortex:${PORT}:panel-position`, JSON.stringify({ x: 100, y: 200 }))
+      const { getInitialPosition: freshGetInitialPosition } = await import('../../../src/browser/hooks/useSnapToEdge.js')
+      const pos = freshGetInitialPosition()
+      expect(pos.x).toBe(100)
+      expect(pos.y).toBe(200)
+    })
+
+    it('falls back to default when localStorage is empty', async () => {
+      vi.resetModules()
+      const { getInitialPosition: freshGetInitialPosition } = await import('../../../src/browser/hooks/useSnapToEdge.js')
+      const pos = freshGetInitialPosition()
+      expect(pos.x).toBeGreaterThan(0)
+    })
+
+    it('falls back to default when stored value is invalid', async () => {
+      vi.resetModules()
+      const PORT = location.port || '0'
+      localStorage.setItem(`cortex:${PORT}:panel-position`, JSON.stringify({ x: 'bad', y: 200 }))
+      const { getInitialPosition: freshGetInitialPosition } = await import('../../../src/browser/hooks/useSnapToEdge.js')
+      const pos = freshGetInitialPosition()
+      // Should be default top-right, not the invalid stored value
+      expect(typeof pos.x).toBe('number')
+      expect(Number.isFinite(pos.x)).toBe(true)
     })
   })
 

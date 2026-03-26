@@ -39,6 +39,7 @@ describe('useToolbarDock', () => {
   beforeEach(() => {
     Object.defineProperty(window, 'innerWidth', { value: 1440, configurable: true })
     Object.defineProperty(window, 'innerHeight', { value: 900, configurable: true })
+    localStorage.clear()
   })
 
   afterEach(() => {
@@ -87,10 +88,44 @@ describe('useToolbarDock', () => {
     expect(result.current.isHorizontal).toBe(false)
   })
 
-  it('does not persist position — resets to bottom-center on fresh mount', () => {
+  it('defaults to bottom edge on fresh mount', () => {
     const { result } = renderHook(() => useToolbarDock())
     expect(result.current.edge).toBe('bottom')
     expect(result.current.isHorizontal).toBe(true)
+  })
+
+  describe('localStorage persistence', () => {
+    beforeEach(() => localStorage.clear())
+
+    it('restores toolbar position from localStorage on init', async () => {
+      vi.resetModules()
+      const PORT = location.port || '0'
+      localStorage.setItem(`cortex:${PORT}:toolbar-position`, JSON.stringify({ x: 300, y: 16 }))
+      localStorage.setItem(`cortex:${PORT}:toolbar-edge`, JSON.stringify('top'))
+      const { useToolbarDock: freshUseToolbarDock } = await import('../../../src/browser/hooks/useToolbarDock.js')
+      const { result } = renderHook(() => freshUseToolbarDock())
+      expect(result.current.edge).toBe('top')
+      expect(result.current.position.x).toBe(300)
+      expect(result.current.position.y).toBe(16)
+    })
+
+    it('falls back to default when localStorage is empty', async () => {
+      vi.resetModules()
+      const { useToolbarDock: freshUseToolbarDock } = await import('../../../src/browser/hooks/useToolbarDock.js')
+      const { result } = renderHook(() => freshUseToolbarDock())
+      expect(result.current.edge).toBe('bottom')
+    })
+
+    it('falls back to default when stored value is invalid', async () => {
+      vi.resetModules()
+      const PORT = location.port || '0'
+      localStorage.setItem(`cortex:${PORT}:toolbar-position`, JSON.stringify({ x: 'bad', y: 16 }))
+      localStorage.setItem(`cortex:${PORT}:toolbar-edge`, JSON.stringify('top'))
+      const { useToolbarDock: freshUseToolbarDock } = await import('../../../src/browser/hooks/useToolbarDock.js')
+      const { result } = renderHook(() => freshUseToolbarDock())
+      // Invalid position falls back to default edge
+      expect(result.current.edge).toBe('bottom')
+    })
   })
 
   it('isSnapping is true during snap animation', async () => {

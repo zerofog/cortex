@@ -53,7 +53,7 @@ export function dispatchMouseEvent(
 /**
  * Create a Shadow DOM host similar to what Cortex bootstrap creates.
  */
-export function createShadowHost(): {
+export function createShadowHost(opts?: { mode?: 'open' | 'closed' }): {
   host: HTMLDivElement
   shadow: ShadowRoot
   root: HTMLDivElement
@@ -62,16 +62,11 @@ export function createShadowHost(): {
   const host = document.createElement('div')
   host.setAttribute('data-cortex-host', '')
   document.body.appendChild(host)
-  const shadow = host.attachShadow({ mode: 'open' })
+  const shadow = host.attachShadow({ mode: opts?.mode ?? 'open' })
   const root = document.createElement('div')
   root.setAttribute('data-cortex-root', '')
   shadow.appendChild(root)
-  return {
-    host,
-    shadow,
-    root,
-    cleanup: () => { host.remove() },
-  }
+  return { host, shadow, root, cleanup: () => { host.remove() } }
 }
 
 /**

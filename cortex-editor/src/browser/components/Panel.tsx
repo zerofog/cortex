@@ -1,6 +1,7 @@
 import type { JSX } from 'preact'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks'
 import type { CSSOverrideManager } from '../override.js'
+import { onOverrideChange } from '../override-bus.js'
 import { parseCortexSource, isLibraryComponent, findUserAncestor } from '../label.js'
 import { PANEL_WIDTH } from '../hooks/useSnapToEdge.js'
 import { PanelHeader } from './PanelHeader.js'
@@ -154,6 +155,13 @@ export function Panel({
   // During scrub, trust NumericInput local state (no re-render per frame).
   const [styleVersion, setStyleVersion] = useState(0)
 
+  // Re-read computed styles whenever overrides change externally (undo/redo clearAll,
+  // hmr_verified removal). Without this, Panel shows stale values after undo because
+  // clearAll doesn't bump styleVersion — only applyOverride does.
+  useEffect(() => {
+    return onOverrideChange(() => setStyleVersion(v => v + 1))
+  }, [])
+
   // C1: Cache getComputedStyle results + compute dimmed properties in a single useMemo
   // to avoid double forced layout. CRITICAL: activeState + activePseudo in deps so
   // useMemo re-runs after state forcing (getComputedStyle returns a live reference).
@@ -221,16 +229,22 @@ export function Panel({
       return
     }
     const pseudo = activePseudo !== 'element' ? activePseudo : undefined
+    // Snapshot BEFORE any set() — captures pre-edit state for undo.
+    // beginEdit() is idempotent (only snapshots once per gesture).
+    overrideManager.beginEdit()
     overrideManager.set(source, property, value, pseudo)
     if (commitRender) {
       overrideManager.flush()
       setStyleVersion(v => v + 1)
 
-      // Dispatch edit to server for source file writing
+      // Dispatch edit to server — commitEdit() is called on edit_status:done
+      // to sync browser undo stack with server's debounced undo stack.
       if (channel) {
+        const editId = crypto.randomUUID()
+        overrideManager.trackPendingEdit(editId, source, property, pseudo)
         channel.send({
           type: 'edit',
-          editId: crypto.randomUUID(),
+          editId,
           source,
           property,
           value,

@@ -23,6 +23,10 @@ import { ActivityLog } from '../core/session/activity-log.js'
 export interface CortexEditorOptions {
   /** Package names in node_modules to instrument (for library component detection). */
   includeNodeModules?: string[]
+  /** Keyboard shortcut for toggling the editor. Uses KeyboardEvent.code values.
+   *  Default: '$mod+Shift+Period' (Cmd+Shift+. on Mac, Ctrl+Shift+. on Windows/Linux).
+   *  See https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/code */
+  toggleShortcut?: string
 }
 
 const CORTEX_CLIENT_PATH = '/@cortex/client.js'
@@ -45,10 +49,35 @@ function resolveBrowserIIFEPath(): string {
   return path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'browser', 'index.js')
 }
 
-const CLIENT_SCRIPT = `\
+const VALID_SHORTCUT = /^\$mod\+(?:Shift\+)?(?:Alt\+)?(?:Key[A-Z]|Digit\d|Period|Comma|Slash|Backslash|BracketLeft|BracketRight|Semicolon|Quote|Backquote|Minus|Equal)$/
+
+export function validateToggleShortcut(shortcut: string): string {
+  if (!VALID_SHORTCUT.test(shortcut)) {
+    throw new Error(
+      `[cortex] Invalid toggleShortcut: "${shortcut}". ` +
+      `Expected format: "$mod+Shift+KeyCode" (e.g., "$mod+Shift+Period"). ` +
+      `See https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/code`
+    )
+  }
+  return shortcut
+}
+
+/** Escape JSON for safe embedding in <script> context. */
+function safeJSONForScript(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, '\\u003c')
+}
+
+function getClientScript(options: { toggleShortcut: string }): string {
+  const config = safeJSONForScript({ toggleShortcut: options.toggleShortcut })
+  return `\
 if (import.meta.hot) {
   import.meta.hot.on('${CORTEX_MSG_EVENT}', (data) => {
     window.__cortex_channel__?.handleServerMessage(data);
+  });
+  // Notify browser when HMR stylesheet update is applied — override clearing
+  // must wait for this to avoid flash (hmr_verified arrives before HMR applies).
+  import.meta.hot.on('vite:afterUpdate', () => {
+    window.__cortex_channel__?.handleServerMessage({ type: 'hmr-applied' });
   });
   if (!Object.prototype.hasOwnProperty.call(window, '__cortex_send__')) {
     Object.defineProperty(window, '__cortex_send__', {
@@ -57,16 +86,49 @@ if (import.meta.hot) {
     });
   }
 }
-// Load cortex editor browser UI (skip if already loaded via manual script tag)
+// Toggle shortcut — capture phase, always active
+if (!Object.prototype.hasOwnProperty.call(window, '__cortex_toggle_registered__')) {
+  Object.defineProperty(window, '__cortex_toggle_registered__', {
+    value: true, writable: false, configurable: false,
+  });
+  var __cortexConfig = ${config};
+  var __cortexParts = __cortexConfig.toggleShortcut.split('+');
+  var __cortexCode = __cortexParts[__cortexParts.length - 1];
+  var __cortexNeedShift = __cortexParts.includes('Shift');
+  var __cortexNeedAlt = __cortexParts.includes('Alt');
+  window.addEventListener('keydown', function(e) {
+    if (!e.isTrusted) return;
+    var mod = /Mac|iPod|iPhone|iPad/.test(navigator.platform) ? e.metaKey : e.ctrlKey;
+    if (!mod) return;
+    if (__cortexNeedShift && !e.shiftKey) return;
+    if (!__cortexNeedShift && e.shiftKey) return;
+    if (__cortexNeedAlt && !e.altKey) return;
+    if (!__cortexNeedAlt && e.altKey) return;
+    if (e.code !== __cortexCode) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var active = document.documentElement.hasAttribute('data-cortex-active');
+    var msg = { type: 'cortex-toggle', active: !active };
+    if (active) {
+      document.documentElement.removeAttribute('data-cortex-active');
+    } else {
+      document.documentElement.setAttribute('data-cortex-active', '');
+    }
+    if (window.__cortex_channel__) {
+      window.__cortex_channel__.handleServerMessage(msg);
+    } else {
+      window.__cortex_pending_toggle__ = msg;
+    }
+  }, { capture: true });
+}
 if (!document.querySelector('[data-cortex-host]')) {
-  const __cortexScript = document.createElement('script');
+  var __cortexScript = document.createElement('script');
   __cortexScript.src = '${CORTEX_BROWSER_PATH}';
-  __cortexScript.onerror = () => console.error(
-    '[cortex] Failed to load browser UI from ${CORTEX_BROWSER_PATH}. Is the package built?'
-  );
+  __cortexScript.onerror = function() { console.error('[cortex] Failed to load browser UI.'); };
   document.head.appendChild(__cortexScript);
 }
 `
+}
 
 let channelInstance: ServerChannel | null = null
 const hmrCallbacks: ((files: string[]) => void)[] = []
@@ -200,6 +262,13 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
   let transformSource: ReturnType<typeof createSourceTransform>
   const messageHandlers: ((msg: BrowserToServer) => void)[] = []
   let aliasMap: Record<string, string> = {}
+  const validatedToggleShortcut = validateToggleShortcut(_options?.toggleShortcut ?? '$mod+Shift+Period')
+  const clientScript = getClientScript({ toggleShortcut: validatedToggleShortcut })
+  // Suppress HMR for ALL cortex writes (edit, undo, redo). The override layer
+  // owns all visuals during the editing session. Files are saved correctly on
+  // disk for git/deployment. The stylesheet stays at page-load values.
+  const recentEditWrites = new Set<string>()
+  let suppressHMRForNextWrite = false
 
   return {
     name: 'cortex-editor',
@@ -239,7 +308,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
     },
 
     load(id) {
-      if (id === VIRTUAL_CORTEX_CLIENT) return CLIENT_SCRIPT
+      if (id === VIRTUAL_CORTEX_CLIENT) return clientScript
     },
 
     transformIndexHtml: {
@@ -350,15 +419,19 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         }
 
         // Route edit/undo/redo to EditPipeline (or notify if still initializing)
+        // Mark forward edits for HMR suppression — the override preview is sufficient
         if (data.type === 'edit') {
+          suppressHMRForNextWrite = true
           if (pipelineInstance) pipelineInstance.handleEdit(data as EditRequest)
           else channelInstance?.send({ type: 'edit_status', editId: (data as EditRequest).editId, status: 'failed', reason: 'Editor is still initializing. Please try again.' })
         }
         if (data.type === 'undo') {
+          suppressHMRForNextWrite = true // Suppress — override undo handles the visual
           if (pipelineInstance) pipelineInstance.handleUndo()
           else channelInstance?.send({ type: 'undo_status', status: 'failed', restoredFile: '', reason: 'Editor is still initializing.' })
         }
         if (data.type === 'redo') {
+          suppressHMRForNextWrite = true // Suppress redo HMR — override is restored client-side
           if (pipelineInstance) pipelineInstance.handleRedo()
           else channelInstance?.send({ type: 'redo_status', status: 'failed', restoredFile: '', reason: 'Editor is still initializing.' })
         }
@@ -463,7 +536,14 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           detector: detection,
           runtimeResolver,
           undoStack,
-          writeFile: (p, c) => fs.promises.writeFile(p, c, 'utf-8'),
+          writeFile: async (p, c) => {
+            if (suppressHMRForNextWrite) {
+              recentEditWrites.add(p)
+              suppressHMRForNextWrite = false
+              setTimeout(() => recentEditWrites.delete(p), 500)
+            }
+            await fs.promises.writeFile(p, c, 'utf-8')
+          },
           readFile: (p) => fs.promises.readFile(p, 'utf-8'),
           projectRoot,
         })
@@ -612,18 +692,30 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
     },
 
     handleHotUpdate({ modules }: HmrContext) {
-      if (modules.length > 0) {
-        const files = modules
-          .map(m => m.file)
-          .filter((f): f is string => f != null && (/\.[jt]sx$/.test(f) || /\.module\.css$/.test(f)))
-        if (files.length > 0) {
-          const cbs = [...hmrCallbacks]
-          for (const cb of cbs) {
-            try { cb(files) } catch (err) {
-              console.warn('[cortex] HMR callback error:', err instanceof Error ? err.message : err)
-            }
+      if (modules.length === 0) return
+
+      const files = modules
+        .map(m => m.file)
+        .filter((f): f is string => f != null && (/\.[jt]sx$/.test(f) || /\.module\.css$/.test(f)))
+
+      if (files.length > 0) {
+        const cbs = [...hmrCallbacks]
+        for (const cb of cbs) {
+          try { cb(files) } catch (err) {
+            console.warn('[cortex] HMR callback error:', err instanceof Error ? err.message : err)
           }
         }
+      }
+
+      // Suppress HMR for files cortex just wrote — the override is already
+      // showing the correct value. HMR would cause a full-page style recalc
+      // + repaint visible as a flash. The override stays until hmr_verified
+      // clears it (which is now a no-op since we handled verification above).
+      const cortexFiles = modules.filter(m => m.file && recentEditWrites.has(m.file))
+      if (cortexFiles.length > 0) {
+        // Return only non-cortex modules — suppresses HMR for cortex-written files
+        const kept = modules.filter(m => !m.file || !recentEditWrites.has(m.file))
+        return kept
       }
     },
   }
