@@ -264,8 +264,9 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
   let aliasMap: Record<string, string> = {}
   const validatedToggleShortcut = validateToggleShortcut(_options?.toggleShortcut ?? '$mod+Shift+Period')
   const clientScript = getClientScript({ toggleShortcut: validatedToggleShortcut })
-  // Suppress HMR for forward edits (not undo/redo) — the override preview is sufficient.
-  // Undo/redo writes are NOT suppressed because they need HMR to update the stylesheet.
+  // Suppress HMR for ALL cortex writes (edit, undo, redo). The override layer
+  // owns all visuals during the editing session. Files are saved correctly on
+  // disk for git/deployment. The stylesheet stays at page-load values.
   const recentEditWrites = new Set<string>()
   let suppressHMRForNextWrite = false
 

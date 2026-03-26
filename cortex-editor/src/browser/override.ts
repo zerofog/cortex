@@ -15,6 +15,7 @@ const PENDING_EDIT_TTL_MS = 35_000
  * During rebuild(), both maps merge per-source. User edits win over state overrides.
  */
 export class CSSOverrideManager {
+  private static readonly MAX_UNDO_DEPTH = 50
   private styleEl: HTMLStyleElement
   private overrides = new Map<string, Map<string, string>>()
   private stateOverrides = new Map<string, Map<string, string>>()
@@ -205,7 +206,11 @@ export class CSSOverrideManager {
     if (this.preEditSnapshot) {
       this.overrideUndoStack.push(this.preEditSnapshot)
       this.preEditSnapshot = null
-      this.overrideRedoStack.length = 0 // new edit clears redo
+      this.overrideRedoStack.length = 0
+      // Evict oldest entries beyond max depth (matches server's UndoStack.maxDepth)
+      while (this.overrideUndoStack.length > CSSOverrideManager.MAX_UNDO_DEPTH) {
+        this.overrideUndoStack.shift()
+      }
     }
   }
 
@@ -215,6 +220,7 @@ export class CSSOverrideManager {
     this.overrideRedoStack.push(this.cloneOverrides())
     this.overrides = this.overrideUndoStack.pop()!
     this.pendingEdits.clear()
+    this.pendingRemovals.length = 0
     this.cancelPendingRebuild()
     this.rebuild()
   }
@@ -224,6 +230,8 @@ export class CSSOverrideManager {
     if (this.overrideRedoStack.length === 0) return
     this.overrideUndoStack.push(this.cloneOverrides())
     this.overrides = this.overrideRedoStack.pop()!
+    this.pendingEdits.clear()
+    this.pendingRemovals.length = 0
     this.cancelPendingRebuild()
     this.rebuild()
   }
@@ -236,8 +244,10 @@ export class CSSOverrideManager {
 
   /** Clear all overrides (e.g. on SPA navigation) */
   clearAll(): void {
+    this.preEditSnapshot = null
     this.overrideUndoStack.length = 0
     this.overrideRedoStack.length = 0
+    this.pendingRemovals.length = 0
     this.overrides.clear()
     this.stateOverrides.clear()
     this.pendingEdits.clear()
@@ -247,6 +257,10 @@ export class CSSOverrideManager {
 
   /** Remove the <style> element from the DOM */
   dispose(): void {
+    this.preEditSnapshot = null
+    this.overrideUndoStack.length = 0
+    this.overrideRedoStack.length = 0
+    this.pendingRemovals.length = 0
     this.cancelPendingRebuild()
     this.overrides.clear()
     this.stateOverrides.clear()

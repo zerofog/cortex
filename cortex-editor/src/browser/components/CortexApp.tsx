@@ -60,6 +60,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   selectedElementRef.current = selectedElement
   const handleExitRef = useRef<(() => void) | null>(null)
   const undoRedoInFlight = useRef(false)
+  const undoRedoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Panel positioning
   const { position: panelPosition, isSnapping: panelSnapping, setPosition: setPanelPosition, snap: panelSnap } = useSnapToEdge()
@@ -120,6 +121,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       // Unlock undo/redo serialization when server acknowledges
       if (msg.type === 'undo_status' || msg.type === 'redo_status') {
         undoRedoInFlight.current = false
+        if (undoRedoTimeoutRef.current) {
+          clearTimeout(undoRedoTimeoutRef.current)
+          undoRedoTimeoutRef.current = null
+        }
       }
       // Flush queued override removals — HMR stylesheet is now applied in the browser
       if (msg.type === 'hmr-applied') {
@@ -306,15 +311,23 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       'c': guardSingleKey(() => setCommentMode(m => !m)),
       // guardModifier omits isCortexUIFocused — Cmd+Z/Shift+Z should work inside Cortex panels
       '$mod+z': guardModifier(() => {
-        if (undoRedoInFlight.current) return // Wait for previous to resolve
+        if (undoRedoInFlight.current) return
         overrideRef.current?.undoOverride()
         undoRedoInFlight.current = true
+        undoRedoTimeoutRef.current = setTimeout(() => {
+          undoRedoInFlight.current = false
+          undoRedoTimeoutRef.current = null
+        }, 10_000)
         channel.send({ type: 'undo' })
       }),
       '$mod+Shift+z': guardModifier(() => {
         if (undoRedoInFlight.current) return
         overrideRef.current?.redoOverride()
         undoRedoInFlight.current = true
+        undoRedoTimeoutRef.current = setTimeout(() => {
+          undoRedoInFlight.current = false
+          undoRedoTimeoutRef.current = null
+        }, 10_000)
         channel.send({ type: 'redo' })
       }),
     })

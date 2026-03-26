@@ -655,4 +655,129 @@ describe('CSSOverrideManager', () => {
       }
     })
   })
+
+  describe('override undo/redo stack', () => {
+    it('beginEdit + commitEdit creates one undo entry', () => {
+      manager.beginEdit()
+      manager.set('a:1:1', 'color', 'red')
+      manager.commitEdit()
+      manager.undoOverride()
+      manager.flush()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toBe('')
+    })
+
+    it('undoOverride restores previous state', () => {
+      manager.beginEdit()
+      manager.set('a:1:1', 'color', 'red')
+      manager.commitEdit()
+      manager.beginEdit()
+      manager.set('a:1:1', 'font-size', '16px')
+      manager.commitEdit()
+      manager.undoOverride()
+      manager.flush()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('color')
+      expect(styleEl.textContent).not.toContain('font-size')
+    })
+
+    it('redoOverride re-applies after undo', () => {
+      manager.beginEdit()
+      manager.set('a:1:1', 'color', 'red')
+      manager.commitEdit()
+      manager.undoOverride()
+      manager.redoOverride()
+      manager.flush()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('color: red')
+    })
+
+    it('multiple undo levels (3 edits, 3 undos)', () => {
+      manager.beginEdit()
+      manager.set('a:1:1', 'color', 'red')
+      manager.commitEdit()
+      manager.beginEdit()
+      manager.set('b:1:1', 'margin', '0')
+      manager.commitEdit()
+      manager.beginEdit()
+      manager.set('c:1:1', 'padding', '8px')
+      manager.commitEdit()
+
+      manager.undoOverride()
+      manager.flush()
+      let styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).not.toContain('padding')
+      expect(styleEl.textContent).toContain('margin')
+
+      manager.undoOverride()
+      manager.flush()
+      styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).not.toContain('margin')
+      expect(styleEl.textContent).toContain('color')
+
+      manager.undoOverride()
+      manager.flush()
+      styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toBe('')
+    })
+
+    it('new edit clears redo stack', () => {
+      manager.beginEdit()
+      manager.set('a:1:1', 'color', 'red')
+      manager.commitEdit()
+      manager.undoOverride()
+
+      // New edit should clear redo
+      manager.beginEdit()
+      manager.set('b:1:1', 'margin', '0')
+      manager.commitEdit()
+
+      // Redo should be empty
+      manager.redoOverride()
+      manager.flush()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('margin')
+      expect(styleEl.textContent).not.toContain('color')
+    })
+
+    it('undo stack caps at MAX_UNDO_DEPTH (50)', () => {
+      for (let i = 0; i < 55; i++) {
+        manager.beginEdit()
+        manager.set(`src:${i}:1`, 'color', `#${String(i).padStart(6, '0')}`)
+        manager.commitEdit()
+      }
+      // Undo 50 times should work, 51st should be no-op
+      for (let i = 0; i < 50; i++) {
+        manager.undoOverride()
+      }
+      manager.flush()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      // 55 edits - 50 undos = 5 remaining overrides (oldest 5 were evicted from undo stack)
+      expect(styleEl.textContent).toContain('color')
+    })
+
+    it('beginEdit is idempotent during scrub gesture', () => {
+      manager.beginEdit()
+      manager.set('a:1:1', 'color', 'red')
+      manager.beginEdit() // second call — should not create new snapshot
+      manager.set('a:1:1', 'color', 'blue')
+      manager.commitEdit()
+
+      manager.undoOverride()
+      manager.flush()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      // Should restore to BEFORE the first set, not between
+      expect(styleEl.textContent).toBe('')
+    })
+
+    it('commitEdit without beginEdit is a no-op', () => {
+      manager.set('a:1:1', 'color', 'red')
+      manager.commitEdit() // no beginEdit — should not crash or create entry
+      manager.undoOverride()
+      manager.flush()
+      // Override still present since no undo entry was created
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('color')
+    })
+  })
 })
