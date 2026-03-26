@@ -2,6 +2,7 @@ import type { JSX } from 'preact'
 import { useEffect, useRef } from 'preact/hooks'
 import { getSelectionLabel } from '../label.js'
 import { onTransformUpdate } from '../transform-bus.js'
+import { onOverrideChange } from '../override-bus.js'
 import type { StateDeclarations, InteractionState } from '../state-detector.js'
 
 export interface SelectionOverlayProps {
@@ -204,6 +205,10 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
     }
     const unsubTransform = onTransformUpdate(handleTransformUpdate)
 
+    // Wake RAF loop when CSS overrides change element geometry (e.g. padding scrub-end).
+    // Without this, the overlay stays at the old position/size after idle timeout.
+    const unsubOverride = onOverrideChange(restartLoop)
+
     // Restart loop on scroll/resize (element may have moved)
     window.addEventListener('scroll', restartLoop, { capture: true, passive: true })
     window.addEventListener('resize', restartLoop)
@@ -211,6 +216,7 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
     return () => {
       cancelAnimationFrame(rafId)
       unsubTransform()
+      unsubOverride()
       window.removeEventListener('scroll', restartLoop, { capture: true })
       window.removeEventListener('resize', restartLoop)
     }
@@ -241,8 +247,9 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
       ref={overlayRef}
       class="cortex-selection-overlay"
       style={{
-        width: '0px',
-        height: '0px',
+        // width/height intentionally omitted — set by the RAF position-tracking loop
+        // at lines 73-75. Including them here causes Preact re-renders to overwrite
+        // RAF-set values with 0, producing a one-frame flash.
         visibility: overlaysVisible ? 'visible' : 'hidden',
       }}
     >
