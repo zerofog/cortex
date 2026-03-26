@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'preact/hooks'
+import { cortexStorage } from '../persistence.js'
 
 export const TOOLBAR_THICKNESS = 40
 export const TOOLBAR_LENGTH = 176
@@ -8,6 +9,23 @@ const SNAP_DURATION = 300
 export type DockEdge = 'top' | 'bottom' | 'left' | 'right'
 
 interface Position { x: number; y: number }
+
+function isValidPosition(v: unknown): v is Position {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    'x' in v &&
+    'y' in v &&
+    Number.isFinite((v as Position).x) &&
+    Number.isFinite((v as Position).y)
+  )
+}
+
+const VALID_EDGES = new Set<string>(['top', 'bottom', 'left', 'right'])
+
+function isValidEdge(v: unknown): v is DockEdge {
+  return typeof v === 'string' && VALID_EDGES.has(v)
+}
 
 export interface UseToolbarDockResult {
   position: Position
@@ -48,6 +66,16 @@ function computePosition(edge: DockEdge, offset: number): Position {
 
 function getDefaultPosition(): { position: Position; edge: DockEdge } {
   if (typeof window === 'undefined') return { position: { x: 0, y: 0 }, edge: 'bottom' }
+
+  // Attempt to restore from localStorage — null sentinel detects missing/invalid keys
+  const storedEdge = cortexStorage.get<DockEdge | null>('toolbar-edge', null, (v): v is DockEdge => isValidEdge(v))
+  const storedPos = cortexStorage.get<Position | null>('toolbar-position', null, (v): v is Position => isValidPosition(v))
+
+  // Only restore if both edge and position are valid and present
+  if (storedEdge !== null && storedPos !== null) {
+    return { position: storedPos, edge: storedEdge }
+  }
+
   // Default: bottom edge, horizontally centered
   const edge: DockEdge = 'bottom'
   const offset = (window.innerWidth - TOOLBAR_LENGTH) / 2
@@ -100,6 +128,8 @@ export function useToolbarDock(): UseToolbarDockResult {
     setPositionState(newPos)
     setEdge(newEdge)
     setIsSnapping(true)
+    cortexStorage.set('toolbar-position', newPos)
+    cortexStorage.set('toolbar-edge', newEdge)
 
     if (snapTimerRef.current) clearTimeout(snapTimerRef.current)
     snapTimerRef.current = setTimeout(() => {
