@@ -1,5 +1,8 @@
 import { VALID_PROPERTY, VALID_VALUE, REJECT_URL, REJECT_COMMENT } from './css-validation.js'
 
+/** Client-side TTL for pending edits — slightly longer than server's 30s to account for transit */
+const PENDING_EDIT_TTL_MS = 35_000
+
 /**
  * Manages a <style> tag in document.head for CSS override previews.
  * Uses [data-cortex-source] selectors (stable across HMR) with !important.
@@ -14,7 +17,7 @@ export class CSSOverrideManager {
   private styleEl: HTMLStyleElement
   private overrides = new Map<string, Map<string, string>>()
   private stateOverrides = new Map<string, Map<string, string>>()
-  private pendingEdits = new Map<string, { source: string; property: string }>()
+  private pendingEdits = new Map<string, { source: string; property: string; pseudo?: '::before' | '::after'; timestamp: number }>()
 
   constructor() {
     this.styleEl = document.createElement('style')
@@ -82,8 +85,7 @@ export class CSSOverrideManager {
     } else {
       this.overrides.delete(key)
     }
-    this.cancelPendingRebuild()
-    this.rebuild()
+    this.scheduleRebuild()
   }
 
   /**
@@ -122,17 +124,35 @@ export class CSSOverrideManager {
   }
 
   /** Track a pending edit so handleHMRVerified can clear the right override. */
-  trackPendingEdit(editId: string, source: string, property: string): void {
-    this.pendingEdits.set(editId, { source, property })
+  trackPendingEdit(editId: string, source: string, property: string, pseudo?: '::before' | '::after'): void {
+    this.evictStalePendingEdits()
+    // Supersede any prior pending edit for the same target
+    for (const [existingId, entry] of this.pendingEdits) {
+      if (entry.source === source && entry.property === property && entry.pseudo === pseudo) {
+        this.pendingEdits.delete(existingId)
+        break
+      }
+    }
+    this.pendingEdits.set(editId, { source, property, pseudo, timestamp: Date.now() })
   }
 
   /** Called when the server confirms an edit landed via HMR. Clears the override on match. */
   handleHMRVerified(editId: string, match: boolean): void {
+    this.evictStalePendingEdits()
     const pending = this.pendingEdits.get(editId)
     if (!pending) return
     this.pendingEdits.delete(editId)
     if (match) {
-      this.remove(pending.source, pending.property)
+      this.remove(pending.source, pending.property, pending.pseudo)
+    }
+  }
+
+  private evictStalePendingEdits(): void {
+    const now = Date.now()
+    for (const [id, entry] of this.pendingEdits) {
+      if (now - entry.timestamp > PENDING_EDIT_TTL_MS) {
+        this.pendingEdits.delete(id)
+      }
     }
   }
 
@@ -150,6 +170,7 @@ export class CSSOverrideManager {
     this.cancelPendingRebuild()
     this.overrides.clear()
     this.stateOverrides.clear()
+    this.pendingEdits.clear()
     this.styleEl.remove()
   }
 

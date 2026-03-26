@@ -61,6 +61,7 @@ describe('CSSOverrideManager', () => {
     manager.set('Hero.tsx:5:3', 'color', 'red')
     manager.set('Hero.tsx:5:3', 'font-size', '16px')
     manager.remove('Hero.tsx:5:3', 'color')
+    manager.flush()
     const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
     expect(styleEl.textContent).toBe(
       '[data-cortex-source="Hero\\.tsx\\:5\\:3"] { font-size: 16px !important; }',
@@ -72,6 +73,7 @@ describe('CSSOverrideManager', () => {
     manager.set('Hero.tsx:5:3', 'font-size', '16px')
     manager.set('Nav.tsx:10:1', 'margin', '0')
     manager.remove('Hero.tsx:5:3')
+    manager.flush()
     const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
     expect(styleEl.textContent).toBe(
       '[data-cortex-source="Nav\\.tsx\\:10\\:1"] { margin: 0 !important; }',
@@ -81,6 +83,7 @@ describe('CSSOverrideManager', () => {
   it('remove() single prop cleans up empty source entry', () => {
     manager.set('Hero.tsx:5:3', 'color', 'red')
     manager.remove('Hero.tsx:5:3', 'color')
+    manager.flush()
     const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
     expect(styleEl.textContent).toBe('')
   })
@@ -225,17 +228,18 @@ describe('CSSOverrideManager', () => {
       expect(styleEl.textContent).toContain('margin: 0 !important')
     })
 
-    it('remove() rebuilds synchronously (user-initiated)', () => {
-      // First, add and flush
+    it('remove() batches rebuild via RAF', () => {
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-
       manager.set('a:1:1', 'font-size', '16px')
       flushRAF()
 
-      // Now remove — should be synchronous
       manager.remove('a:1:1', 'font-size')
+      // Not yet visible — scheduled for next RAF
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('font-size')
+
+      flushRAF()
       expect(styleEl.textContent).toBe(
         '[data-cortex-source="a\\:1\\:1"] { color: red !important; }',
       )
@@ -273,23 +277,42 @@ describe('CSSOverrideManager', () => {
       expect(styleEl.textContent).toBe(before)
     })
 
-    it('remove() cancels pending RAF so stale rebuild does not fire', () => {
+    it('remove() coalesces with pending set() RAF', () => {
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
 
-      // set() schedules a new RAF
       manager.set('a:1:1', 'font-size', '16px')
       expect(rafCallbacks.size).toBe(1)
 
-      // remove() should cancel the pending RAF
+      // remove() scheduleRebuild is a no-op since RAF already pending
       manager.remove('a:1:1', 'font-size')
-      expect(rafCallbacks.size).toBe(0)
+      expect(rafCallbacks.size).toBe(1)
 
-      // Flushing RAF should be a no-op — no stale rebuild
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      const afterRemove = styleEl.textContent
       flushRAF()
-      expect(styleEl.textContent).toBe(afterRemove)
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toBe(
+        '[data-cortex-source="a\\:1\\:1"] { color: red !important; }',
+      )
+    })
+
+    it('multiple handleHMRVerified calls batch into one rebuild', () => {
+      manager.set('a:1:1', 'color', 'red')
+      manager.set('a:1:1', 'font-size', '16px')
+      manager.set('a:1:1', 'margin', '0')
+      flushRAF()
+
+      manager.trackPendingEdit('e1', 'a:1:1', 'color')
+      manager.trackPendingEdit('e2', 'a:1:1', 'font-size')
+      manager.trackPendingEdit('e3', 'a:1:1', 'margin')
+
+      manager.handleHMRVerified('e1', true)
+      manager.handleHMRVerified('e2', true)
+      manager.handleHMRVerified('e3', true)
+      expect(rafCallbacks.size).toBe(1) // one pending RAF, not 3 synchronous rebuilds
+
+      flushRAF()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toBe('')
     })
 
     it('clearAll() clears state overrides too', () => {
@@ -498,6 +521,7 @@ describe('CSSOverrideManager', () => {
       manager.set('Hero.tsx:5:3', 'padding', '24px')
       manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'padding')
       manager.handleHMRVerified('edit-1', true)
+      manager.flush()
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
       expect(styleEl.textContent).toBe('')
     })
@@ -521,10 +545,129 @@ describe('CSSOverrideManager', () => {
       manager.set('Hero.tsx:5:3', 'padding', '24px')
       manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'padding')
       manager.clearAll()
-      // After clearAll, verified should be no-op (pending was cleared)
       manager.handleHMRVerified('edit-1', true)
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
       expect(styleEl.textContent).toBe('')
+    })
+
+    it('pseudo override cleared by handleHMRVerified with matching pseudo', () => {
+      manager.set('Hero.tsx:5:3', 'width', '100px', '::before')
+      manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'width', '::before')
+      manager.handleHMRVerified('edit-1', true)
+      manager.flush()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toBe('')
+    })
+
+    it('pseudo verification does not remove element-level override', () => {
+      manager.set('Hero.tsx:5:3', 'width', '200px')
+      manager.set('Hero.tsx:5:3', 'width', '100px', '::before')
+      manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'width', '::before')
+      manager.handleHMRVerified('edit-1', true)
+      manager.flush()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('width: 200px')
+      expect(styleEl.textContent).not.toContain('::before')
+    })
+
+    it('element verification does not remove pseudo override', () => {
+      manager.set('Hero.tsx:5:3', 'width', '200px')
+      manager.set('Hero.tsx:5:3', 'width', '100px', '::before')
+      manager.trackPendingEdit('edit-2', 'Hero.tsx:5:3', 'width')
+      manager.handleHMRVerified('edit-2', true)
+      manager.flush()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('::before')
+      expect(styleEl.textContent).toContain('width: 100px')
+    })
+
+    it('trackPendingEdit supersedes prior entry for same source+property', () => {
+      manager.set('a:1:1', 'color', 'red')
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.trackPendingEdit('edit-2', 'a:1:1', 'color')
+      manager.handleHMRVerified('edit-1', true)
+      manager.flush()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('color')
+      manager.handleHMRVerified('edit-2', true)
+      manager.flush()
+      expect(styleEl.textContent).toBe('')
+    })
+
+    it('trackPendingEdit does not supersede different property', () => {
+      manager.set('a:1:1', 'color', 'red')
+      manager.set('a:1:1', 'margin', '0')
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.trackPendingEdit('edit-2', 'a:1:1', 'margin')
+      manager.handleHMRVerified('edit-1', true)
+      manager.handleHMRVerified('edit-2', true)
+      manager.flush()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toBe('')
+    })
+
+    it('trackPendingEdit supersedes with matching pseudo', () => {
+      manager.set('a:1:1', 'width', '100px', '::before')
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'width', '::before')
+      manager.trackPendingEdit('edit-2', 'a:1:1', 'width', '::before')
+      manager.handleHMRVerified('edit-1', true)
+      manager.flush()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('width')
+    })
+
+    it('trackPendingEdit does not supersede different pseudo', () => {
+      manager.set('a:1:1', 'width', '100px')
+      manager.set('a:1:1', 'width', '200px', '::before')
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'width')
+      manager.trackPendingEdit('edit-2', 'a:1:1', 'width', '::before')
+      manager.handleHMRVerified('edit-1', true)
+      manager.handleHMRVerified('edit-2', true)
+      manager.flush()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toBe('')
+    })
+
+    it('dispose clears pending edits', () => {
+      manager.set('Hero.tsx:5:3', 'padding', '24px')
+      manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'padding')
+      manager.dispose()
+      // After dispose, handleHMRVerified should be a no-op (not throw)
+      expect(() => manager.handleHMRVerified('edit-1', true)).not.toThrow()
+    })
+
+    it('stale pending edits are evicted after TTL', () => {
+      vi.useFakeTimers()
+      try {
+        manager.set('a:1:1', 'color', 'red')
+        manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+        vi.advanceTimersByTime(36_000)
+        // Trigger eviction via a new trackPendingEdit
+        manager.trackPendingEdit('edit-2', 'a:1:1', 'margin')
+        // edit-1 should have been evicted — handleHMRVerified is a no-op
+        manager.handleHMRVerified('edit-1', true)
+        const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+        expect(styleEl.textContent).toContain('color')
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('pending edits within TTL survive eviction', () => {
+      vi.useFakeTimers()
+      try {
+        manager.set('a:1:1', 'color', 'red')
+        manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+        vi.advanceTimersByTime(20_000)
+        // Trigger eviction — edit-1 is within TTL, should survive
+        manager.trackPendingEdit('edit-2', 'a:1:1', 'margin')
+        manager.handleHMRVerified('edit-1', true)
+        manager.flush()
+        const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+        expect(styleEl.textContent).not.toContain('color')
+      } finally {
+        vi.useRealTimers()
+      }
     })
   })
 })

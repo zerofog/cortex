@@ -338,7 +338,6 @@ export class EditPipeline {
         }
       }
 
-      this.verifier.trackEdit({ editId: `undo-${current.id}`, filePath: current.filePath, expectedValue: '', property: '__undo__' })
       await this.writeFile(current.filePath, current.previousContent)
       this.undoStack!.undo()
       this.channel.send({ type: 'undo_status', status: 'done', restoredFile: relative(this.projectRoot, current.filePath) })
@@ -378,7 +377,6 @@ export class EditPipeline {
 
       const result = this.undoStack!.redo()
       if (!result) return
-      this.verifier.trackEdit({ editId: `redo-${entry.id}`, filePath: result.filePath, expectedValue: '', property: '__redo__' })
       await this.writeFile(result.filePath, result.content)
       this.channel.send({ type: 'redo_status', status: 'done', restoredFile: relative(this.projectRoot, result.filePath) })
     })
