@@ -23,7 +23,7 @@ export function bootstrap(): void {
   // Create host element — fixed overlay, pointer-events:none, max z-index
   hostElement = document.createElement('div')
   hostElement.setAttribute('data-cortex-host', '')
-  hostElement.style.cssText = 'position:fixed;inset:0;z-index:2147483646;pointer-events:none'
+  hostElement.style.cssText = 'position:fixed;inset:0;z-index:2147483646;pointer-events:none;will-change:transform'
   document.documentElement.appendChild(hostElement)
 
   // Attach closed Shadow DOM — prevents host-page scripts from accessing editor internals

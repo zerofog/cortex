@@ -188,9 +188,13 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
       rafId = requestAnimationFrame(update)
     }
 
-    // Restart RAF loop from idle — called by scroll, resize, and transform events
+    // Restart RAF loop from idle — called by scroll, resize, override changes, etc.
+    // MUST schedule via RAF, not call update() directly — calling update() synchronously
+    // during a stylesheet write forces the browser to recalculate styles for all
+    // [data-cortex-source] elements before getBoundingClientRect() can return,
+    // causing a full-page flash.
     function restartLoop() {
-      if (!rafId) { idleFrames = 0; update() }
+      if (!rafId) { idleFrames = 0; rafId = requestAnimationFrame(update) }
     }
 
     update()
