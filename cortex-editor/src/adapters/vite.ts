@@ -425,10 +425,12 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           else channelInstance?.send({ type: 'edit_status', editId: (data as EditRequest).editId, status: 'failed', reason: 'Editor is still initializing. Please try again.' })
         }
         if (data.type === 'undo') {
+          suppressHMRForNextWrite = false // Undo writes must NOT be suppressed
           if (pipelineInstance) pipelineInstance.handleUndo()
           else channelInstance?.send({ type: 'undo_status', status: 'failed', restoredFile: '', reason: 'Editor is still initializing.' })
         }
         if (data.type === 'redo') {
+          suppressHMRForNextWrite = false // Redo writes must NOT be suppressed
           if (pipelineInstance) pipelineInstance.handleRedo()
           else channelInstance?.send({ type: 'redo_status', status: 'failed', restoredFile: '', reason: 'Editor is still initializing.' })
         }
