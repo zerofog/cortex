@@ -187,34 +187,44 @@ export class CSSOverrideManager {
     }
   }
 
-  private undoSnapshot: Map<string, Map<string, string>> | null = null
+  private overrideUndoStack: Map<string, Map<string, string>>[] = []
+  private overrideRedoStack: Map<string, Map<string, string>>[] = []
 
-  /** Snapshot current overrides, then clear all. Used for undo — redo can restore. */
-  clearAllForUndo(): void {
-    // Deep-clone overrides so redo can restore them
-    this.undoSnapshot = new Map()
-    for (const [key, props] of this.overrides) {
-      this.undoSnapshot.set(key, new Map(props))
-    }
-    this.overrides.clear()
-    this.stateOverrides.clear()
+  /** Snapshot current overrides before an edit so undo can restore them. */
+  snapshotForEdit(): void {
+    this.overrideUndoStack.push(this.cloneOverrides())
+    this.overrideRedoStack.length = 0 // new edit clears redo
+  }
+
+  /** Undo: restore previous override state (one edit back). */
+  undoOverride(): void {
+    this.overrideRedoStack.push(this.cloneOverrides())
+    const prev = this.overrideUndoStack.pop()
+    this.overrides = prev ?? new Map()
     this.pendingEdits.clear()
     this.cancelPendingRebuild()
     this.rebuild()
   }
 
-  /** Restore overrides from the last undo snapshot (for redo). */
-  restoreForRedo(): void {
-    if (!this.undoSnapshot) return
-    this.overrides = this.undoSnapshot
-    this.undoSnapshot = null
+  /** Redo: restore next override state (one edit forward). */
+  redoOverride(): void {
+    if (this.overrideRedoStack.length === 0) return
+    this.overrideUndoStack.push(this.cloneOverrides())
+    this.overrides = this.overrideRedoStack.pop()!
     this.cancelPendingRebuild()
     this.rebuild()
   }
 
+  private cloneOverrides(): Map<string, Map<string, string>> {
+    const clone = new Map<string, Map<string, string>>()
+    for (const [k, v] of this.overrides) clone.set(k, new Map(v))
+    return clone
+  }
+
   /** Clear all overrides (e.g. on SPA navigation) */
   clearAll(): void {
-    this.undoSnapshot = null
+    this.overrideUndoStack.length = 0
+    this.overrideRedoStack.length = 0
     this.overrides.clear()
     this.stateOverrides.clear()
     this.pendingEdits.clear()

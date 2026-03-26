@@ -236,6 +236,7 @@ export function Panel({
 
       // Dispatch edit to server for source file writing
       if (channel) {
+        overrideManager.snapshotForEdit() // Save state for undo/redo
         const editId = crypto.randomUUID()
         overrideManager.trackPendingEdit(editId, source, property, pseudo)
         channel.send({
