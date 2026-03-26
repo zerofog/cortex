@@ -1,6 +1,7 @@
 import type { JSX } from 'preact'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks'
 import type { CSSOverrideManager } from '../override.js'
+import { onOverrideChange } from '../override-bus.js'
 import { parseCortexSource, isLibraryComponent, findUserAncestor } from '../label.js'
 import { PANEL_WIDTH } from '../hooks/useSnapToEdge.js'
 import { PanelHeader } from './PanelHeader.js'
@@ -153,6 +154,13 @@ export function Panel({
   // Sync strategy: bump counter on committed changes to force getComputedStyle re-read.
   // During scrub, trust NumericInput local state (no re-render per frame).
   const [styleVersion, setStyleVersion] = useState(0)
+
+  // Re-read computed styles whenever overrides change externally (undo/redo clearAll,
+  // hmr_verified removal). Without this, Panel shows stale values after undo because
+  // clearAll doesn't bump styleVersion — only applyOverride does.
+  useEffect(() => {
+    return onOverrideChange(() => setStyleVersion(v => v + 1))
+  }, [])
 
   // C1: Cache getComputedStyle results + compute dimmed properties in a single useMemo
   // to avoid double forced layout. CRITICAL: activeState + activePseudo in deps so

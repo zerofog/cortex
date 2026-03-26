@@ -1,4 +1,5 @@
 import { VALID_PROPERTY, VALID_VALUE, REJECT_URL, REJECT_COMMENT } from './css-validation.js'
+import { emitOverrideChange } from './override-bus.js'
 
 /** Client-side TTL for pending edits — slightly longer than server's 30s to account for transit */
 const PENDING_EDIT_TTL_MS = 35_000
@@ -234,5 +235,6 @@ export class CSSOverrideManager {
       rules.push(`${selector} { ${declarations}; }`)
     }
     this.styleEl.textContent = rules.join('\n')
+    emitOverrideChange()
   }
 }
