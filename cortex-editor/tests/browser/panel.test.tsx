@@ -81,11 +81,12 @@ describe('Panel', () => {
     expect(root.querySelector('[data-section-id="effects"]')).not.toBeNull()
   })
 
-  it('renders three section groups with correct data-group attributes', () => {
+  it('renders four section groups with correct data-group attributes', () => {
     const { root } = setup()
     const groups = root.querySelectorAll('.cortex-section-group')
-    expect(groups.length).toBe(3)
+    expect(groups.length).toBe(4)
     expect(root.querySelector('[data-group="layout"]')).not.toBeNull()
+    expect(root.querySelector('[data-group="position"]')).not.toBeNull()
     expect(root.querySelector('[data-group="typography"]')).not.toBeNull()
     expect(root.querySelector('[data-group="style"]')).not.toBeNull()
   })
@@ -94,7 +95,7 @@ describe('Panel', () => {
     const { root } = setup()
     const titles = root.querySelectorAll('.cortex-section-group__title')
     const labels = Array.from(titles).map(t => t.textContent)
-    expect(labels).toEqual(['Layout', 'Typography', 'Style'])
+    expect(labels).toEqual(['Layout', 'Position', 'Typography', 'Style'])
   })
 
   it('groups sections under correct parent groups', () => {
@@ -102,6 +103,9 @@ describe('Panel', () => {
     const layoutGroup = root.querySelector('[data-group="layout"]')!
     expect(layoutGroup.querySelector('[data-section-id="layout"]')).not.toBeNull()
     expect(layoutGroup.querySelector('[data-section-id="spacing"]')).not.toBeNull()
+
+    const positionGroup = root.querySelector('[data-group="position"]')!
+    expect(positionGroup.querySelector('[data-section-id="position"]')).not.toBeNull()
 
     const typographyGroup = root.querySelector('[data-group="typography"]')!
     expect(typographyGroup.querySelector('[data-section-id="type"]')).not.toBeNull()

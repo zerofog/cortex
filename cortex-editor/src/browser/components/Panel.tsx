@@ -19,6 +19,8 @@ import { ShadowSection, parseShadowValues } from './sections/ShadowSection.js'
 import type { ShadowChange } from './sections/ShadowSection.js'
 import { EffectsSection, parseEffectsValues } from './sections/EffectsSection.js'
 import type { EffectsChange } from './sections/EffectsSection.js'
+import { PositionSection, parsePositionValues } from './sections/PositionSection.js'
+import type { PositionChange } from './sections/PositionSection.js'
 import type { InteractionState } from '../state-detector.js'
 import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
@@ -37,6 +39,8 @@ export const ALL_DIMMING_PROPERTIES = [
   'border-width', 'border-style', 'border-color', 'border-radius',
   'box-shadow',
   'opacity', 'overflow', 'cursor', 'filter', 'backdrop-filter',
+  'position', 'left', 'top', 'z-index', 'rotate', 'scale',
+  'min-width', 'max-width', 'min-height', 'max-height',
 ] as const
 
 export interface PanelProps {
@@ -177,6 +181,7 @@ export function Panel({
           border: parseBorderValues({} as CSSStyleDeclaration),
           shadow: parseShadowValues({} as CSSStyleDeclaration),
           effects: parseEffectsValues({} as CSSStyleDeclaration),
+          position: parsePositionValues({} as CSSStyleDeclaration),
         },
         dimmedProperties: undefined as Set<string> | undefined,
       }
@@ -191,6 +196,7 @@ export function Panel({
       border: parseBorderValues(cs),
       shadow: parseShadowValues(cs),
       effects: parseEffectsValues(cs),
+      position: parsePositionValues(cs),
     }
 
     let dimmed: Set<string> | undefined
@@ -269,6 +275,8 @@ export function Panel({
   const handleShadowCommit = useCallback((c: ShadowChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleEffectsCommit = useCallback((c: EffectsChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleEffectsScrub = useCallback((c: EffectsChange) => applyOverride(c.property, c.value, false), [applyOverride])
+  const handlePositionCommit = useCallback((c: PositionChange) => applyOverride(c.property, c.value, true), [applyOverride])
+  const handlePositionScrub = useCallback((c: PositionChange) => applyOverride(c.property, c.value, false), [applyOverride])
 
   const handleSelectParent = useCallback(() => {
     if (!element) return
@@ -431,6 +439,15 @@ export function Panel({
             onChange={handleSpacingCommit}
             onScrub={handleScrub}
             onScrubEnd={handleSpacingCommit}
+            dimmedProperties={dimmedProperties}
+          />
+        </SectionGroup>
+        <SectionGroup label="Position" groupId="position">
+          <PositionSection
+            values={computedStyles.position}
+            onChange={handlePositionCommit}
+            onScrub={handlePositionScrub}
+            onScrubEnd={handlePositionCommit}
             dimmedProperties={dimmedProperties}
           />
         </SectionGroup>
