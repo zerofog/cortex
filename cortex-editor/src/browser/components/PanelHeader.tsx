@@ -85,7 +85,7 @@ export function PanelHeader({
           <a
             class="cortex-panel-header__source"
             href={sourceHref}
-            title={`Open in editor: ${sourceText}`}
+            data-tooltip={`Open in editor: ${sourceText}`}
           >
             {sourceText}
           </a>
@@ -99,7 +99,8 @@ export function PanelHeader({
           class="cortex-panel-header__btn"
           data-action="parent"
           disabled={!hasParent}
-          title="Select parent element"
+          data-tooltip="Select parent element"
+          aria-label="Select parent element"
           onClick={onSelectParent}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -110,7 +111,8 @@ export function PanelHeader({
           class="cortex-panel-header__btn"
           data-action="child"
           disabled={!hasChildren}
-          title="Select child element"
+          data-tooltip="Select child element"
+          aria-label="Select child element"
           onClick={onSelectChild}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -120,7 +122,8 @@ export function PanelHeader({
         <button
           class={`cortex-panel-header__btn${hoverEnabled ? '' : ' cortex-panel-header__btn--toggled-off'}`}
           data-action="toggle-hover"
-          title={hoverEnabled ? 'Hide hover overlay' : 'Show hover overlay'}
+          data-tooltip={hoverEnabled ? 'Hide hover overlay' : 'Show hover overlay'}
+          aria-label={hoverEnabled ? 'Hide hover overlay' : 'Show hover overlay'}
           onClick={onToggleHover}
         >
           {hoverEnabled ? (
@@ -138,7 +141,8 @@ export function PanelHeader({
         <button
           class="cortex-panel-header__btn cortex-panel-header__btn--close"
           data-action="close"
-          title="Close panel"
+          data-tooltip="Close panel"
+          aria-label="Close panel"
           onClick={onClose}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">

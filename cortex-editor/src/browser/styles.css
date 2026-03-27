@@ -4,65 +4,119 @@
 /* ── Design tokens ──────────────────────────── */
 
 :host {
-  /* Text — ink hierarchy: values are darkest, labels recede */
-  --cortex-text: #111827;
-  --cortex-text-secondary: #6b7280;
-  --cortex-text-tertiary: #9ca3af;
-  --cortex-text-group: #111827;
+  /* Ink hierarchy — values are darkest, labels recede */
+  --ink: #111827;
+  --ink-secondary: #6b7280;
+  --ink-tertiary: #a3a3a3;
+  --ink-ghost: #b0b0b0;
+  --ink-faint: #d4d4d4;
 
   /* Surfaces — drafting-paper whites */
-  --cortex-surface: rgba(255, 255, 255, 0.97);
-  --cortex-surface-raised: #f5f5f5;
-  --cortex-surface-sunken: #fafafa;
-  --cortex-surface-inset: inset 0 1px 2px rgba(0, 0, 0, 0.03);
+  --paper: #fff;
+  --vellum: #fafafa;
+  --well: #f5f5f5;
+  --well-hover: #efefef;
+  --well-active: #ebebeb;
+  --well-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
 
-  /* Borders — pencil-line separation */
-  --cortex-border: #f0f0f0;
-  --cortex-border-subtle: rgba(0, 0, 0, 0.06);
+  /* Pencil lines */
+  --rule: #f0f0f0;
+  --rule-soft: rgba(0, 0, 0, 0.04);
 
-  /* Accent — selection blue, used sparingly */
-  --cortex-accent: #3b82f6;
-  --cortex-accent-hover: #2563eb;
-  --cortex-accent-muted: rgba(59, 130, 246, 0.3);
+  /* Selection anchor — one accent, earned placement */
+  --select: #3b82f6;
+  --select-hover: #2563eb;
+  --select-muted: rgba(59, 130, 246, 0.3);
 
   /* Status */
-  --cortex-success: #22c55e;
-  --cortex-error: #ef4444;
-  --cortex-warning: #f97316;
+  --success: #22c55e;
+  --destructive: #ef4444;
+  --destructive-surface: rgba(239, 68, 68, 0.06);
+  --warning: #f97316;
 
   /* Scrollbar */
-  --cortex-scrollbar: #d1d5db;
+  --scrollbar: #d4d4d4;
 
   /* Tooltip */
-  --cortex-tooltip-bg: #1f2937;
+  --tooltip-bg: #1f2937;
+
+  /* Monospace for values */
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Spacing scale — 4px base */
+  --sp-1: 2px;
+  --sp-2: 4px;
+  --sp-3: 6px;
+  --sp-4: 8px;
+  --sp-5: 12px;
+
+  /* Radius scale */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-lg-inner: 5px;
+
+  /* Type scale */
+  --text-sm: 11px;
+  --text-md: 12px;
+  --text-lg: 13px;
+
+  /* Type weights */
+  --weight-label: 400;
+  --weight-value: 500;
+  --weight-title: 700;
 
   /* Typography */
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
-/* ── Tooltip (CSS-only, instant) ─────────────── */
+/* ── Tooltip (CSS-only, animated) ──────────── */
 
 [data-tooltip] {
   position: relative;
 }
 
-[data-tooltip]:hover::after,
-[data-tooltip]:focus-visible::after {
+[data-tooltip]::after {
   content: attr(data-tooltip);
   position: absolute;
   bottom: calc(100% + 6px);
   left: 50%;
-  transform: translateX(-50%);
-  padding: 4px 8px;
-  background: var(--cortex-tooltip-bg);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 400;
+  transform: translateX(-50%) translateY(4px);
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--tooltip-bg);
+  color: var(--paper);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-label);
   line-height: 1.3;
   white-space: nowrap;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   pointer-events: none;
   z-index: 10;
+  opacity: 0;
+  transition: opacity 150ms ease-out, transform 150ms ease-out;
+}
+
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Tooltip below for panel header (avoids overflow:hidden clipping) */
+.cortex-panel-header [data-tooltip]::after {
+  bottom: auto;
+  top: calc(100% + 6px);
+  transform: translateX(-50%) translateY(-4px);
+}
+
+.cortex-panel-header [data-tooltip]:hover::after,
+.cortex-panel-header [data-tooltip]:focus-visible::after {
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Hide tooltip on disabled buttons */
+[data-tooltip]:disabled::after {
+  display: none;
 }
 
 .cortex-hover-overlay {
@@ -79,7 +133,7 @@
   left: 0;
   top: 0;
   pointer-events: none;
-  border: 2.5px solid var(--cortex-accent);
+  border: 2.5px solid var(--select);
   box-sizing: border-box;
   transition: border-radius 150ms ease-out;
 }
@@ -88,7 +142,7 @@
   position: absolute;
   left: 0;
   padding: 2px 6px;
-  background: var(--cortex-accent);
+  background: var(--select);
   color: #fff;
   font: 11px/1.3 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   white-space: nowrap;
@@ -118,16 +172,16 @@
   top: 0;
   width: 300px;
   max-height: calc(100vh - 32px);
-  background: rgba(255, 255, 255, 0.97);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 12px;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-lg);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
   pointer-events: auto;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  color: var(--cortex-text);
-  font-size: 13px;
+  color: var(--ink);
+  font-size: var(--text-lg);
   line-height: 1.4;
 }
 
@@ -141,7 +195,8 @@
 }
 
 .cortex-panel--cross-fade {
-  animation: cortex-cross-fade 150ms ease-out;
+  /* Intentionally empty — cross-fade removed to prevent flicker on element switch.
+     Class kept to avoid breaking Panel.tsx toggle logic. */
 }
 
 @keyframes cortex-slide-in {
@@ -154,11 +209,16 @@
   to   { opacity: 1; }
 }
 
+@keyframes cortex-group-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 .cortex-panel__body {
   flex: 1;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--cortex-scrollbar) transparent;
+  scrollbar-color: var(--ink-faint) transparent;
 }
 
 .cortex-panel__body::-webkit-scrollbar {
@@ -168,12 +228,12 @@
   background: transparent;
 }
 .cortex-panel__body::-webkit-scrollbar-thumb {
-  background: var(--cortex-scrollbar);
+  background: var(--ink-faint);
   border-radius: 3px;
 }
 .cortex-panel__empty {
   padding: 24px 16px;
-  color: var(--cortex-text-tertiary);
+  color: var(--ink-tertiary);
   font-size: 13px;
   text-align: center;
 }
@@ -184,12 +244,13 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--cortex-border);
-  background: var(--cortex-surface-sunken);
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--rule);
+  background: var(--vellum);
   cursor: grab;
-  min-height: 44px;
+  min-height: 40px;
+  flex-shrink: 0;
 }
 
 .cortex-panel-header:active {
@@ -205,26 +266,30 @@
 }
 
 .cortex-panel-header__tag {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--cortex-text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-title);
+  color: var(--ink);
+  letter-spacing: -0.02em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .cortex-panel-header__source {
-  font-size: 12px;
-  color: var(--cortex-text-secondary);
+  font-size: var(--text-sm);
+  font-family: var(--mono);
+  font-weight: var(--weight-label);
+  color: var(--ink-tertiary);
   text-decoration: none;
+  letter-spacing: -0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: color 150ms ease-out;
 }
 
 .cortex-panel-header__source:hover {
-  color: var(--cortex-accent);
-  text-decoration: underline;
+  color: var(--select);
 }
 
 .cortex-panel-header__actions {
@@ -238,21 +303,27 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border: none;
   background: transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  color: var(--cortex-text-secondary);
-  font-size: 14px;
+  color: var(--ink-ghost);
+  font-size: var(--text-md);
   padding: 0;
-  transition: background 150ms ease-out, color 150ms ease-out, opacity 150ms ease-out;
+  transition: background 150ms ease-out, color 150ms ease-out, opacity 150ms ease-out, outline-color 150ms ease-out;
+  outline: 2px solid transparent;
+  outline-offset: 1px;
 }
 
 .cortex-panel-header__btn:hover:not(:disabled) {
-  background: var(--cortex-surface-raised);
-  color: var(--cortex-text);
+  background: var(--well);
+  color: var(--ink-secondary);
+}
+
+.cortex-panel-header__btn:focus-visible {
+  outline-color: var(--select-muted);
 }
 
 .cortex-panel-header__btn:disabled {
@@ -260,8 +331,9 @@
   cursor: not-allowed;
 }
 
-.cortex-panel-header__btn--close {
-  color: var(--cortex-text-tertiary);
+.cortex-panel-header__btn--close:hover {
+  background: var(--destructive-surface);
+  color: var(--destructive);
 }
 
 .cortex-panel-header__btn--toggled-off {
@@ -273,29 +345,49 @@
 .cortex-numeric-input {
   display: flex;
   align-items: center;
-  height: 28px;
-  background: var(--cortex-surface-raised);
-  border-radius: 6px;
-  padding: 0 8px;
-  gap: 4px;
+  height: 26px;
+  background: var(--well);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--sp-4);
+  gap: var(--sp-2);
   cursor: ew-resize;
   user-select: none;
-  box-shadow: var(--cortex-surface-inset);
+  box-shadow: var(--well-shadow);
   transition: background 150ms ease-out, box-shadow 150ms ease-out;
 }
 
 .cortex-numeric-input:hover {
-  background: #efefef;
+  background: var(--well-hover);
+}
+
+/* Scrub affordance — subtle drag hint on hover */
+.cortex-numeric-input::before {
+  content: '\21D4';
+  font-size: 8px;
+  color: transparent;
+  transition: color 200ms ease-out;
+  order: 99;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.cortex-numeric-input:hover::before {
+  color: var(--ink-ghost);
 }
 
 .cortex-numeric-input--scrubbing {
   cursor: ew-resize;
-  background: #ebebeb;
+  background: var(--well-active);
+  box-shadow: var(--well-shadow), 0 0 0 1.5px var(--select-muted);
+}
+
+.cortex-numeric-input:focus-within {
+  box-shadow: var(--well-shadow), 0 0 0 1.5px var(--select-muted);
 }
 
 .cortex-numeric-input__label {
-  font-size: 12px;
-  color: var(--cortex-text-tertiary);
+  font-size: var(--text-sm);
+  color: var(--ink-ghost);
   flex-shrink: 0;
 }
 
@@ -303,8 +395,13 @@
   width: 100%;
   border: none;
   background: transparent;
-  font: 13px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  color: var(--cortex-text);
+  font-size: var(--text-md);
+  font-family: var(--mono);
+  font-weight: var(--weight-value);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--ink);
   padding: 0;
   outline: none;
   cursor: inherit;
@@ -322,18 +419,33 @@
 }
 
 .cortex-numeric-input__unit {
-  font-size: 11px;
-  color: var(--cortex-text-tertiary);
+  font-size: var(--text-sm);
+  color: var(--ink-ghost);
   flex-shrink: 0;
+}
+
+/* Override indicator — value turns blue when changed from default */
+.cortex-numeric-input--overridden .cortex-numeric-input__value {
+  color: var(--select-hover);
+  transition: color 300ms ease-out;
+}
+
+.cortex-color-input--overridden .cortex-color-input__hex {
+  color: var(--select-hover);
+  transition: color 300ms ease-out;
+}
+
+.cortex-dropdown--overridden .cortex-dropdown__value {
+  color: var(--select-hover);
+  transition: color 300ms ease-out;
 }
 
 /* ── Spacing section ─────────────────────────── */
 
 .cortex-spacing-section {
-  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 }
 
 .cortex-spacing-group__header {
@@ -344,11 +456,10 @@
 }
 
 .cortex-section-label {
-  font-size: 11px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--cortex-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-label);
+  letter-spacing: 0.01em;
+  color: var(--ink-tertiary);
 }
 
 /* ── Section group (category wrapper) ────────── */
@@ -358,24 +469,37 @@
   flex-direction: column;
 }
 
+.cortex-panel--entering .cortex-section-group {
+  animation: cortex-group-enter 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.cortex-panel--entering .cortex-section-group:nth-child(1) { animation-delay: 100ms; }
+.cortex-panel--entering .cortex-section-group:nth-child(2) { animation-delay: 200ms; }
+.cortex-panel--entering .cortex-section-group:nth-child(3) { animation-delay: 300ms; }
+.cortex-panel--entering .cortex-section-group:nth-child(4) { animation-delay: 400ms; }
+.cortex-panel--entering .cortex-section-group:nth-child(5) { animation-delay: 500ms; }
+
 /* Divider between groups — not before the first one */
 .cortex-section-group + .cortex-section-group {
-  border-top: 1px solid var(--cortex-border);
+  border-top: 1px solid var(--rule);
 }
 
 .cortex-section-group__header {
-  padding: 10px 12px 2px;
+  padding: var(--sp-4) var(--sp-5) var(--sp-1);
 }
 
 .cortex-section-group__title {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--cortex-text-group);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-title);
+  color: var(--ink);
+  letter-spacing: -0.02em;
 }
 
 .cortex-section-group__content {
   display: flex;
   flex-direction: column;
+  padding: var(--sp-3) var(--sp-5) var(--sp-5);
+  gap: 16px;
 }
 
 .cortex-spacing-group__toggle {
@@ -386,46 +510,46 @@
   height: 20px;
   border: none;
   background: transparent;
-  color: var(--cortex-text-tertiary);
+  color: var(--ink-tertiary);
   cursor: pointer;
   border-radius: 4px;
   padding: 0;
   font-size: 14px;
-  transition: background 150ms ease-out, color 150ms ease-out;
+  transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out, transform 100ms ease-out;
 }
 
 .cortex-spacing-group__toggle:hover {
-  background: var(--cortex-surface-raised);
-  color: var(--cortex-text-secondary);
+  background: var(--well);
+  color: var(--ink-secondary);
 }
 
 .cortex-spacing-group__row {
   display: flex;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 .cortex-spacing-group__grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 /* ── Source attribution ──────────────────────── */
 
 .cortex-attribution {
   font-size: 11px;
-  color: var(--cortex-text-tertiary);
+  color: var(--ink-tertiary);
   text-align: right;
   margin-top: 4px;
 }
 
 .cortex-attribution--clickable {
   cursor: pointer;
-  color: var(--cortex-text-secondary);
+  color: var(--ink-secondary);
 }
 
 .cortex-attribution--clickable:hover {
-  color: var(--cortex-accent);
+  color: var(--select);
   text-decoration: underline;
 }
 
@@ -434,20 +558,20 @@
 }
 
 .cortex-attribution--writing {
-  color: var(--cortex-text-secondary);
+  color: var(--ink-secondary);
 }
 
 .cortex-attribution--processing {
-  color: var(--cortex-accent);
+  color: var(--select);
 }
 
 .cortex-attribution--completed {
-  color: var(--cortex-success);
+  color: var(--success);
   animation: cortex-flash 500ms ease-out;
 }
 
 .cortex-attribution--error {
-  color: var(--cortex-warning);
+  color: var(--warning);
   cursor: help;
 }
 
@@ -462,11 +586,11 @@
   display: flex;
   align-items: center;
   position: relative;
-  background: var(--cortex-surface-raised);
+  background: var(--well);
   border-radius: 6px;
   padding: 2px;
   gap: 0;
-  box-shadow: var(--cortex-surface-inset);
+  box-shadow: var(--well-shadow);
 }
 
 .cortex-segmented__indicator {
@@ -492,8 +616,9 @@
   padding: 0 10px;
   border: none;
   background: transparent;
-  font-size: 12px;
-  color: var(--cortex-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-value);
+  color: var(--ink-tertiary);
   cursor: pointer;
   white-space: nowrap;
   border-radius: 4px;
@@ -502,12 +627,12 @@
 }
 
 .cortex-segmented__option:hover:not(.cortex-segmented__option--active) {
-  color: var(--cortex-text-group);
+  color: var(--ink);
 }
 
 .cortex-segmented__option--active {
-  color: var(--cortex-text);
-  font-weight: 500;
+  color: var(--ink);
+  font-weight: var(--weight-value);
 }
 
 .cortex-segmented--sm .cortex-segmented__option {
@@ -534,19 +659,20 @@
   width: 100%;
   height: 28px;
   padding: 0 8px;
-  background: var(--cortex-surface-raised);
+  background: var(--well);
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 13px;
-  color: var(--cortex-text);
+  font-size: var(--text-md);
+  font-weight: var(--weight-value);
+  color: var(--ink);
   text-align: left;
-  box-shadow: var(--cortex-surface-inset);
+  box-shadow: var(--well-shadow);
   transition: background 150ms ease-out;
 }
 
 .cortex-dropdown__trigger:hover {
-  background: #efefef;
+  background: var(--well-hover);
 }
 
 .cortex-dropdown__value {
@@ -559,8 +685,8 @@
 
 .cortex-dropdown__chevron {
   flex-shrink: 0;
-  font-size: 10px;
-  color: var(--cortex-text-tertiary);
+  font-size: var(--text-md);
+  color: var(--ink-tertiary);
   margin-left: 4px;
   transition: transform 150ms ease-out;
 }
@@ -591,15 +717,15 @@
 .cortex-dropdown__filter {
   padding: 6px 8px;
   border: none;
-  border-bottom: 1px solid var(--cortex-surface-raised);
+  border-bottom: 1px solid var(--well);
   font-size: 13px;
-  color: var(--cortex-text);
+  color: var(--ink);
   background: transparent;
   outline: none;
 }
 
 .cortex-dropdown__filter::placeholder {
-  color: var(--cortex-text-tertiary);
+  color: var(--ink-tertiary);
 }
 
 .cortex-dropdown__list {
@@ -611,41 +737,40 @@
 .cortex-dropdown__option {
   padding: 6px 8px;
   font-size: 13px;
-  color: var(--cortex-text-group);
+  color: var(--ink);
   cursor: pointer;
 }
 
 .cortex-dropdown__option:hover,
 .cortex-dropdown__option--active {
-  background: var(--cortex-surface-raised);
-  color: var(--cortex-text);
+  background: var(--well);
+  color: var(--ink);
 }
 
 .cortex-dropdown__option--selected {
   font-weight: 500;
-  color: var(--cortex-accent);
+  color: var(--select);
 }
 
 .cortex-dropdown__empty {
   padding: 8px;
   font-size: 12px;
-  color: var(--cortex-text-tertiary);
+  color: var(--ink-tertiary);
   text-align: center;
 }
 
 /* ── Layout section ─────────────────────────── */
 
 .cortex-layout-section {
-  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 }
 
 .cortex-layout-section__group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 .cortex-layout-section__reveal {
@@ -654,7 +779,7 @@
 
 .cortex-layout-section__sizing {
   display: flex;
-  gap: 6px;
+  gap: var(--sp-3);
   align-items: center;
 }
 
@@ -666,45 +791,44 @@
   height: 24px;
   border: none;
   background: transparent;
-  color: var(--cortex-text-tertiary);
+  color: var(--ink-tertiary);
   cursor: pointer;
   border-radius: 4px;
   flex-shrink: 0;
   padding: 0;
-  transition: background 150ms ease-out, color 150ms ease-out;
+  transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out, transform 100ms ease-out;
 }
 
 .cortex-lock-btn:hover {
-  background: var(--cortex-surface-raised);
-  color: var(--cortex-text-secondary);
+  background: var(--well);
+  color: var(--ink-secondary);
 }
 
 .cortex-lock-btn--active {
-  color: var(--cortex-accent);
+  color: var(--select);
 }
 
 .cortex-lock-btn--active:hover {
-  color: var(--cortex-accent-hover);
+  color: var(--select-hover);
 }
 
 /* ── Typography section ─────────────────────── */
 
 .cortex-typography-section {
-  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 }
 
 .cortex-typography-section__group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 .cortex-typography-section__row {
   display: flex;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 .cortex-typography-section__field {
@@ -712,15 +836,14 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--sp-2);
 }
 
 .cortex-typography-section__inline-label {
-  font-size: 11px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--cortex-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-label);
+  letter-spacing: 0.01em;
+  color: var(--ink-tertiary);
   flex-shrink: 0;
 }
 
@@ -729,7 +852,7 @@
 .cortex-color-input {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 .cortex-color-input__swatch {
@@ -748,7 +871,7 @@
 }
 
 .cortex-color-input__swatch:focus-visible {
-  box-shadow: 0 0 0 2px var(--cortex-accent-muted);
+  box-shadow: 0 0 0 2px var(--select-muted);
 }
 
 .cortex-color-input__native {
@@ -763,18 +886,18 @@
   flex: 1;
   height: 28px;
   padding: 0 8px;
-  background: var(--cortex-surface-raised);
+  background: var(--well);
   border: none;
   border-radius: 6px;
   font: 13px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  color: var(--cortex-text);
-  box-shadow: var(--cortex-surface-inset);
+  color: var(--ink);
+  box-shadow: var(--well-shadow);
   outline: none;
   transition: box-shadow 150ms ease-out;
 }
 
 .cortex-color-input__hex:focus {
-  box-shadow: 0 0 0 2px var(--cortex-accent-muted);
+  box-shadow: 0 0 0 2px var(--select-muted);
 }
 
 /* ── Color picker popover ──────────────────── */
@@ -842,7 +965,7 @@
 
 .cortex-color-picker__label {
   font-size: 11px;
-  color: var(--cortex-text-secondary);
+  color: var(--ink-secondary);
   width: 32px;
   flex-shrink: 0;
 }
@@ -852,23 +975,23 @@
   flex: 1;
   height: 26px;
   padding: 0 6px;
-  background: var(--cortex-surface-raised);
+  background: var(--well);
   border: none;
   border-radius: 4px;
   font: 12px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  color: var(--cortex-text);
+  color: var(--ink);
   outline: none;
-  box-shadow: var(--cortex-surface-inset);
+  box-shadow: var(--well-shadow);
 }
 
 .cortex-color-picker__hex-input:focus,
 .cortex-color-picker__alpha-input:focus {
-  box-shadow: 0 0 0 2px var(--cortex-accent-muted);
+  box-shadow: 0 0 0 2px var(--select-muted);
 }
 
 .cortex-color-picker__unit {
   font-size: 11px;
-  color: var(--cortex-text-tertiary);
+  color: var(--ink-tertiary);
 }
 
 .cortex-color-picker__swatches {
@@ -891,23 +1014,22 @@
 }
 
 .cortex-color-picker__swatch--active {
-  border-color: var(--cortex-accent);
-  box-shadow: 0 0 0 1px var(--cortex-accent);
+  border-color: var(--select);
+  box-shadow: 0 0 0 1px var(--select);
 }
 
 /* ── Fill section ──────────────────────────── */
 
 .cortex-fill-section {
-  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 }
 
 .cortex-fill-section__group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 .cortex-fill-section__color-row {
@@ -917,16 +1039,15 @@
 /* ── Border section ────────────────────────── */
 
 .cortex-border-section {
-  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 }
 
 .cortex-border-section__group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 .cortex-border-section__color-row {
@@ -935,7 +1056,7 @@
 
 .cortex-border-section__radius-row {
   display: flex;
-  gap: 6px;
+  gap: var(--sp-3);
   align-items: center;
 }
 
@@ -947,36 +1068,35 @@
   height: 24px;
   border: none;
   background: transparent;
-  color: var(--cortex-text-tertiary);
+  color: var(--ink-tertiary);
   cursor: pointer;
   border-radius: 4px;
   flex-shrink: 0;
   padding: 0;
-  transition: background 150ms ease-out, color 150ms ease-out;
+  transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out, transform 100ms ease-out;
 }
 
 .cortex-border-section__corner-toggle:hover {
-  background: var(--cortex-surface-raised);
-  color: var(--cortex-text-secondary);
+  background: var(--well);
+  color: var(--ink-secondary);
 }
 
 .cortex-border-section__corner-toggle--active {
-  color: var(--cortex-accent);
+  color: var(--select);
 }
 
 .cortex-border-section__corners {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 /* ── Shadow section ────────────────────────── */
 
 .cortex-shadow-section {
-  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 }
 
 .cortex-shadow-section__header {
@@ -994,19 +1114,19 @@
   height: 20px;
   border: none;
   background: transparent;
-  color: var(--cortex-text-tertiary);
+  color: var(--ink-tertiary);
   cursor: pointer;
   border-radius: 4px;
   padding: 0;
   font-size: 16px;
-  transition: background 150ms ease-out, color 150ms ease-out;
+  transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out, transform 100ms ease-out;
   line-height: 1;
 }
 
 .cortex-shadow-section__add:hover,
 .cortex-shadow-section__remove:hover {
-  background: var(--cortex-surface-raised);
-  color: var(--cortex-text-secondary);
+  background: var(--well);
+  color: var(--ink-secondary);
 }
 
 .cortex-shadow-section__row {
@@ -1014,35 +1134,34 @@
   flex-direction: column;
   gap: 6px;
   padding: 8px;
-  background: var(--cortex-surface-sunken);
+  background: var(--vellum);
   border-radius: 6px;
 }
 
 .cortex-shadow-section__grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 4px;
+  gap: var(--sp-3);
 }
 
 .cortex-shadow-section__controls {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 /* ── Effects section ───────────────────────── */
 
 .cortex-effects-section {
-  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 }
 
 .cortex-effects-section__group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 /* ── State Lens (on selection overlay) ─────── */
@@ -1051,7 +1170,7 @@
   display: flex;
   gap: 0;
   padding: 2px;
-  background: var(--cortex-surface-raised);
+  background: var(--well);
   border-radius: 6px;
   position: fixed;
   left: 0;
@@ -1069,19 +1188,19 @@
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: var(--cortex-text-secondary);
+  color: var(--ink-secondary);
   cursor: pointer;
   white-space: nowrap;
   line-height: 1.4;
 }
 
 .cortex-state-lens__btn:hover:not(.cortex-state-lens__btn--active) {
-  color: var(--cortex-text-group);
+  color: var(--ink);
 }
 
 .cortex-state-lens__btn--active {
   background: #fff;
-  color: var(--cortex-text);
+  color: var(--ink);
   font-weight: 500;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
@@ -1103,25 +1222,25 @@
   border: none;
   border-bottom: 2px solid transparent;
   background: transparent;
-  color: var(--cortex-text-secondary);
+  color: var(--ink-secondary);
   cursor: pointer;
   transition: color 150ms ease-out, border-color 150ms ease-out;
 }
 
 .cortex-pseudo-tab:hover {
-  color: var(--cortex-text-group);
+  color: var(--ink);
 }
 
 .cortex-pseudo-tab--active {
-  color: var(--cortex-accent);
-  border-bottom-color: var(--cortex-accent);
+  color: var(--select);
+  border-bottom-color: var(--select);
 }
 
 /* ── Library badge (in panel header) ───────── */
 
 .cortex-panel-header__library {
   font-style: italic;
-  color: var(--cortex-text-tertiary);
+  color: var(--ink-tertiary);
   font-size: 10px;
   margin-left: 4px;
 }
@@ -1139,16 +1258,16 @@
   position: fixed;
   left: 0;
   top: 0;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0;
-  background: rgba(255, 255, 255, 0.97);
-  border-radius: 20px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  gap: var(--sp-2);
+  background: var(--paper);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07), 0 0 0 1px var(--rule-soft);
   pointer-events: auto;
-  font-size: 13px;
-  color: var(--cortex-text);
-  padding: 4px;
+  font-size: var(--text-lg);
+  color: var(--ink);
+  padding: var(--sp-2);
   animation: cortex-toolbar-fade-in 200ms ease-out;
 }
 
@@ -1174,87 +1293,177 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 32px;
+  width: 16px;
+  height: 36px;
   cursor: grab;
-  color: #c9cdd3;
+  color: var(--ink-faint);
   flex-shrink: 0;
   user-select: none;
+  transition: color 150ms ease-out;
 }
 
 .cortex-toolbar__grip:hover {
-  color: var(--cortex-text-tertiary);
+  color: var(--ink-ghost);
 }
 
 .cortex-toolbar__grip:active {
   cursor: grabbing;
+  color: var(--ink-tertiary);
 }
 
 .cortex-toolbar__btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border: none;
   background: transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-lg-inner);
   cursor: pointer;
-  font-size: 14px;
-  color: var(--cortex-text-secondary);
+  color: var(--ink-secondary);
   padding: 0;
   flex-shrink: 0;
-  transition: background 150ms ease-out, color 150ms ease-out;
+  transition: background 150ms ease-out, color 150ms ease-out, transform 100ms ease-out, outline-color 150ms ease-out;
+  outline: 2px solid transparent;
+  outline-offset: 1px;
 }
 
-.cortex-toolbar__btn:hover:not(.cortex-toolbar__btn--active) {
-  background: rgba(0, 0, 0, 0.04);
-  color: var(--cortex-text-group);
+.cortex-toolbar__btn:hover {
+  background: var(--well);
+  color: var(--ink);
 }
 
-.cortex-toolbar__btn--active {
-  background: var(--cortex-accent);
-  color: #fff;
+.cortex-toolbar__btn:active {
+  transform: scale(0.95);
+}
+
+.cortex-toolbar__btn:focus-visible {
+  outline-color: var(--select-muted);
 }
 
 .cortex-toolbar__btn--close {
-  color: var(--cortex-text-tertiary);
+  color: var(--ink-tertiary);
 }
 
 .cortex-toolbar__btn--close:hover {
-  background: rgba(239, 68, 68, 0.1);
-  color: var(--cortex-error);
+  background: var(--destructive-surface);
+  color: var(--destructive);
 }
 
 .cortex-toolbar__badge {
-  font-size: 11px;
-  color: var(--cortex-text-secondary);
-  padding: 0 8px;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-value);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  padding: 0 var(--sp-4);
+  height: 28px;
+  line-height: 28px;
+  background: var(--well);
+  border-radius: var(--radius-sm);
   white-space: nowrap;
-  flex-shrink: 0;
-  background: none;
   border: none;
   cursor: pointer;
-  font-family: inherit;
+  transition: background 150ms ease-out, transform 100ms ease-out;
 }
 
 .cortex-toolbar__badge:hover {
-  color: var(--cortex-text);
+  background: var(--well-hover);
+}
+
+.cortex-toolbar__badge:active {
+  background: var(--well-active);
+  transform: scale(0.97);
 }
 
 .cortex-toolbar__badge:focus-visible {
-  outline: 2px solid rgba(59, 130, 246, 0.4);
-  outline-offset: -2px;
-  border-radius: 4px;
+  outline: 2px solid var(--select-muted);
+  outline-offset: 1px;
 }
 
-/* Vertical toolbar: tooltips appear to the right instead of above */
-.cortex-toolbar--vertical [data-tooltip]:hover::after,
-.cortex-toolbar--vertical [data-tooltip]:focus-visible::after {
+/* Mode switcher — segmented select/comment */
+.cortex-toolbar__modes {
+  display: flex;
+  align-items: center;
+  position: relative;
+  background: var(--well);
+  border-radius: var(--radius-lg-inner);
+  padding: 2px;
+  gap: 0;
+  box-shadow: var(--well-shadow);
+}
+
+.cortex-toolbar__modes-indicator {
+  position: absolute;
+  top: 2px;
+  left: 0;
+  height: calc(100% - 4px);
+  background: var(--paper);
+  border-radius: var(--radius-md);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), width 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+
+.cortex-toolbar__mode {
+  width: 36px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--ink-tertiary);
+  position: relative;
+  z-index: 1;
+  transition: color 150ms ease-out, transform 100ms ease-out, outline-color 150ms ease-out;
+  outline: 2px solid transparent;
+  outline-offset: 1px;
+}
+
+.cortex-toolbar__mode svg {
+  width: 14px;
+  height: 14px;
+}
+
+.cortex-toolbar__mode:hover {
+  color: var(--ink-secondary);
+}
+
+.cortex-toolbar__mode:active:not(.cortex-toolbar__mode--active) {
+  color: var(--ink);
+  transform: scale(0.92);
+}
+
+.cortex-toolbar__mode--active {
+  color: var(--ink);
+}
+
+.cortex-toolbar__mode:focus-visible {
+  outline-color: var(--select-muted);
+}
+
+.cortex-toolbar__divider {
+  width: 1px;
+  height: 20px;
+  background: var(--rule);
+  flex-shrink: 0;
+}
+
+/* Vertical toolbar: tooltips appear to the right */
+.cortex-toolbar--vertical [data-tooltip]::after {
   bottom: auto;
   left: calc(100% + 6px);
   top: 50%;
-  transform: translateY(-50%);
+  transform: translateY(-50%) translateX(-4px);
+}
+
+.cortex-toolbar--vertical [data-tooltip]:hover::after,
+.cortex-toolbar--vertical [data-tooltip]:focus-visible::after {
+  transform: translateY(-50%) translateX(0);
 }
 
 /* ── Comment Input ───────────────────────────── */
@@ -1271,7 +1480,7 @@
   background: rgba(0, 0, 0, 0.04);
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 4px;
-  color: var(--cortex-text);
+  color: var(--ink);
   font-size: 12px;
   outline: none;
   box-sizing: border-box;
@@ -1279,7 +1488,7 @@
 }
 
 .cortex-comment-input__field:focus {
-  border-color: var(--cortex-accent-muted);
+  border-color: var(--select-muted);
 }
 
 .cortex-comment-input__field:disabled {
@@ -1335,32 +1544,32 @@
   line-height: 18px;
 }
 
-.cortex-thread__status--pending { color: var(--cortex-text-tertiary); }
-.cortex-thread__status--acknowledged { color: var(--cortex-accent); }
-.cortex-thread__status--resolved { color: var(--cortex-success); }
-.cortex-thread__status--dismissed { color: var(--cortex-error); }
+.cortex-thread__status--pending { color: var(--ink-tertiary); }
+.cortex-thread__status--acknowledged { color: var(--select); }
+.cortex-thread__status--resolved { color: var(--success); }
+.cortex-thread__status--dismissed { color: var(--destructive); }
 
 .cortex-thread__text {
   font-size: 12px;
-  color: var(--cortex-text);
+  color: var(--ink);
   line-height: 18px;
 }
 
 .cortex-thread__working {
   font-size: 11px;
-  color: var(--cortex-accent);
+  color: var(--select);
   padding: 4px 0 0 18px;
 }
 
 .cortex-thread__resolution {
   font-size: 11px;
-  color: var(--cortex-success);
+  color: var(--success);
   padding: 4px 0 0 18px;
 }
 
 .cortex-thread__dismiss-reason {
   font-size: 11px;
-  color: var(--cortex-error);
+  color: var(--destructive);
   padding: 4px 0 0 18px;
 }
 
@@ -1376,12 +1585,12 @@
 }
 
 .cortex-thread__message--user {
-  color: var(--cortex-text);
+  color: var(--ink);
   background: rgba(0, 0, 0, 0.04);
 }
 
 .cortex-thread__message--agent {
-  color: var(--cortex-accent-hover);
+  color: var(--select-hover);
   background: rgba(59, 130, 246, 0.08);
 }
 
@@ -1392,14 +1601,14 @@
   background: rgba(0, 0, 0, 0.04);
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 4px;
-  color: var(--cortex-text);
+  color: var(--ink);
   font-size: 11px;
   outline: none;
   box-sizing: border-box;
 }
 
 .cortex-thread__reply:focus {
-  border-color: var(--cortex-accent-muted);
+  border-color: var(--select-muted);
 }
 
 /* ── Comment Pin ─────────────────────────────── */
@@ -1408,7 +1617,7 @@
   position: fixed;
   width: 12px;
   height: 12px;
-  background: var(--cortex-accent);
+  background: var(--select);
   border-radius: 50%;
   border: 2px solid white;
   cursor: pointer;
@@ -1438,7 +1647,7 @@
   z-index: 2147483644;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.04);
   font-size: 13px;
-  color: var(--cortex-text);
+  color: var(--ink);
 }
 
 .cortex-pin__input {
@@ -1453,13 +1662,13 @@
   background: rgba(255, 255, 255, 0.98);
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 4px;
-  color: var(--cortex-text);
+  color: var(--ink);
   font-size: 12px;
   outline: none;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.04);
 }
 .cortex-pin__input-field:focus {
-  border-color: var(--cortex-accent-muted);
+  border-color: var(--select-muted);
 }
 
 /* ── Activity Log ────────────────────────────── */
@@ -1487,20 +1696,20 @@
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
   font-size: 12px;
   font-weight: 600;
-  color: var(--cortex-text);
+  color: var(--ink);
 }
 
 .cortex-activity-log__close {
   background: none;
   border: none;
-  color: var(--cortex-text-secondary);
+  color: var(--ink-secondary);
   cursor: pointer;
   font-size: 12px;
   padding: 2px 4px;
 }
 
 .cortex-activity-log__close:hover {
-  color: var(--cortex-text);
+  color: var(--ink);
 }
 
 .cortex-activity-log__list {
@@ -1511,7 +1720,7 @@
 .cortex-activity-log__empty {
   padding: 24px 12px;
   text-align: center;
-  color: var(--cortex-text-secondary);
+  color: var(--ink-secondary);
   font-size: 12px;
 }
 
@@ -1532,13 +1741,57 @@
 
 .cortex-activity-log__desc {
   flex: 1;
-  color: var(--cortex-text-group);
+  color: var(--ink);
   word-break: break-word;
 }
 
 .cortex-activity-log__time {
   flex-shrink: 0;
-  color: var(--cortex-text-secondary);
+  color: var(--ink-secondary);
+}
+
+/* ── Focus-visible rings ──────────────────── */
+
+.cortex-segmented__option,
+.cortex-dropdown__trigger,
+.cortex-color-input__swatch,
+.cortex-shadow-section__add,
+.cortex-shadow-section__remove,
+.cortex-spacing-group__toggle,
+.cortex-lock-btn,
+.cortex-border-section__corner-toggle {
+  outline: 2px solid transparent;
+  outline-offset: 1px;
+}
+
+.cortex-segmented__option:focus-visible,
+.cortex-dropdown__trigger:focus-visible,
+.cortex-color-input__swatch:focus-visible,
+.cortex-shadow-section__add:focus-visible,
+.cortex-shadow-section__remove:focus-visible,
+.cortex-spacing-group__toggle:focus-visible,
+.cortex-lock-btn:focus-visible,
+.cortex-border-section__corner-toggle:focus-visible {
+  outline-color: var(--select-muted);
+}
+
+/* ── Active press feedback ────────────────── */
+
+.cortex-panel-header__btn:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.cortex-color-input__swatch:active {
+  transform: scale(0.92);
+}
+
+.cortex-shadow-section__add:active,
+.cortex-shadow-section__remove:active {
+  transform: scale(0.9);
+}
+
+.cortex-spacing-group__toggle:active {
+  transform: scale(0.92);
 }
 
 /* ── Reduced motion ─────────────────────────── */

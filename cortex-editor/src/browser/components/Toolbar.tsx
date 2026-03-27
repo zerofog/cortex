@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useCallback } from 'preact/hooks'
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { useDrag } from '../hooks/useDrag.js'
 import { useToolbarDock } from '../hooks/useToolbarDock.js'
 import { formatShortcut } from '../format-shortcut.js'
@@ -29,6 +29,10 @@ function IconComment(): JSX.Element {
   return <svg {...svgProps}><path d="M2 4a1 1 0 011-1h10a1 1 0 011 1v6a1 1 0 01-1 1H6l-3 3V4z" /></svg>
 }
 
+function IconSelect(): JSX.Element {
+  return <svg {...svgProps}><path d="M4 2l8 6.5-3.5.5 2 4.5-2 .8-2-4.5L4 12V2z" /></svg>
+}
+
 export function Toolbar({
   activityCount,
   onClose,
@@ -49,6 +53,22 @@ export function Toolbar({
     dragPointerDown(e)
   }, [dragPointerDown])
 
+  const modesRef = useRef<HTMLDivElement>(null)
+  const [indicatorStyle, setIndicatorStyle] = useState({ transform: 'translateX(0)', width: '36px' })
+
+  useEffect(() => {
+    const container = modesRef.current
+    if (!container) return
+    const buttons = container.querySelectorAll('.cortex-toolbar__mode') as NodeListOf<HTMLElement>
+    const activeIdx = commentMode ? 1 : 0
+    const btn = buttons[activeIdx]
+    if (!btn) return
+    setIndicatorStyle({
+      transform: `translateX(${btn.offsetLeft - 2}px)`,
+      width: `${btn.offsetWidth}px`,
+    })
+  }, [commentMode])
+
   const classes = [
     'cortex-toolbar',
     isHorizontal ? 'cortex-toolbar--horizontal' : 'cortex-toolbar--vertical',
@@ -66,7 +86,6 @@ export function Toolbar({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
     >
-      {/* Grip — drag handle (smaller, visually distinct from action buttons) */}
       <div class="cortex-toolbar__grip" aria-label="Drag to reposition">
         <IconGrip />
       </div>
@@ -76,20 +95,41 @@ export function Toolbar({
           type="button"
           class="cortex-toolbar__badge"
           onClick={onActivityToggle}
+          data-tooltip={`${activityCount} ${activityCount === 1 ? 'change' : 'changes'}`}
         >
-          {activityCount} {activityCount === 1 ? 'change' : 'changes'}
+          {activityCount}
         </button>
       )}
 
-      <button
-        type="button"
-        class={`cortex-toolbar__btn ${commentMode ? 'cortex-toolbar__btn--active' : ''}`}
-        data-tooltip={`Comment (${formatShortcut('c')})`}
-        data-action="comment"
-        onClick={onCommentMode}
-      >
-        <IconComment />
-      </button>
+      <div class="cortex-toolbar__modes" ref={modesRef} role="radiogroup" aria-label="Editor mode">
+        <div class="cortex-toolbar__modes-indicator" style={indicatorStyle} />
+        <button
+          type="button"
+          class={`cortex-toolbar__mode${!commentMode ? ' cortex-toolbar__mode--active' : ''}`}
+          role="radio"
+          aria-checked={!commentMode ? 'true' : 'false'}
+          aria-label="Select mode"
+          data-mode="select"
+          data-tooltip={`Select (${formatShortcut('v')})`}
+          onClick={commentMode ? onCommentMode : undefined}
+        >
+          <IconSelect />
+        </button>
+        <button
+          type="button"
+          class={`cortex-toolbar__mode${commentMode ? ' cortex-toolbar__mode--active' : ''}`}
+          role="radio"
+          aria-checked={commentMode ? 'true' : 'false'}
+          aria-label="Comment mode"
+          data-mode="comment"
+          data-tooltip={`Comment (${formatShortcut('c')})`}
+          onClick={!commentMode ? onCommentMode : undefined}
+        >
+          <IconComment />
+        </button>
+      </div>
+
+      <div class="cortex-toolbar__divider" />
 
       <button
         type="button"

@@ -26,9 +26,14 @@ describe('Toolbar', () => {
     expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
   })
 
-  it('does not render a select mode button', () => {
+  it('renders select and comment mode buttons', () => {
     const { root } = setup()
-    expect(root.querySelector('[data-mode="select"]')).toBeNull()
+    const selectBtn = root.querySelector('[data-mode="select"]')
+    const commentBtn = root.querySelector('[data-mode="comment"]')
+    expect(selectBtn).not.toBeNull()
+    expect(commentBtn).not.toBeNull()
+    expect(selectBtn!.classList.contains('cortex-toolbar__mode--active')).toBe(true)
+    expect(commentBtn!.classList.contains('cortex-toolbar__mode--active')).toBe(false)
   })
 
   it('renders grip, badge, and close button', () => {
@@ -38,11 +43,10 @@ describe('Toolbar', () => {
     expect(root.querySelector('.cortex-toolbar__badge')).not.toBeNull()
   })
 
-  it('renders comment and close buttons', () => {
+  it('renders mode switcher and close button', () => {
     const { root } = setup()
-    const buttons = root.querySelectorAll('button')
-    expect(buttons.length).toBe(2)
-    expect(root.querySelector('[data-action="comment"]')).not.toBeNull()
+    expect(root.querySelector('.cortex-toolbar__modes')).not.toBeNull()
+    expect(root.querySelectorAll('.cortex-toolbar__mode').length).toBe(2)
     expect(root.querySelector('[data-action="close"]')).not.toBeNull()
   })
 
