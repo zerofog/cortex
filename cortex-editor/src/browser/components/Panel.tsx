@@ -132,7 +132,7 @@ export function Panel({
   }, [element]) // only on element change, NOT on styleVersion or activeState
 
   useEffect(() => {
-    const timer = setTimeout(() => setIsEntering(false), 500)
+    const timer = setTimeout(() => setIsEntering(false), 250)
     return () => clearTimeout(timer)
   }, [])
 

@@ -186,7 +186,7 @@
 }
 
 .cortex-panel--entering {
-  animation: cortex-slide-in 500ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: cortex-slide-in 250ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .cortex-panel--snapping {
@@ -199,8 +199,8 @@
 }
 
 @keyframes cortex-slide-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 @keyframes cortex-cross-fade {
