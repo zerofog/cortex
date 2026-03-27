@@ -70,29 +70,53 @@
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
-/* ── Tooltip (CSS-only, instant) ─────────────── */
+/* ── Tooltip (CSS-only, animated) ──────────── */
 
 [data-tooltip] {
   position: relative;
 }
 
-[data-tooltip]:hover::after,
-[data-tooltip]:focus-visible::after {
+[data-tooltip]::after {
   content: attr(data-tooltip);
   position: absolute;
   bottom: calc(100% + 6px);
   left: 50%;
-  transform: translateX(-50%);
-  padding: 4px 8px;
+  transform: translateX(-50%) translateY(4px);
+  padding: var(--sp-2) var(--sp-4);
   background: var(--tooltip-bg);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 400;
+  color: var(--paper);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-label);
   line-height: 1.3;
   white-space: nowrap;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   pointer-events: none;
   z-index: 10;
+  opacity: 0;
+  transition: opacity 150ms ease-out, transform 150ms ease-out;
+}
+
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Tooltip below for panel header (avoids overflow:hidden clipping) */
+.cortex-panel-header [data-tooltip]::after {
+  bottom: auto;
+  top: calc(100% + 6px);
+  transform: translateX(-50%) translateY(-4px);
+}
+
+.cortex-panel-header [data-tooltip]:hover::after,
+.cortex-panel-header [data-tooltip]:focus-visible::after {
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Hide tooltip on disabled buttons */
+[data-tooltip]:disabled::after {
+  display: none;
 }
 
 .cortex-hover-overlay {
@@ -148,16 +172,16 @@
   top: 0;
   width: 300px;
   max-height: calc(100vh - 32px);
-  background: rgba(255, 255, 255, 0.97);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 12px;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-lg);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
   pointer-events: auto;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--text-lg);
   line-height: 1.4;
 }
 
@@ -188,7 +212,7 @@
   flex: 1;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar) transparent;
+  scrollbar-color: var(--ink-faint) transparent;
 }
 
 .cortex-panel__body::-webkit-scrollbar {
@@ -198,7 +222,7 @@
   background: transparent;
 }
 .cortex-panel__body::-webkit-scrollbar-thumb {
-  background: var(--scrollbar);
+  background: var(--ink-faint);
   border-radius: 3px;
 }
 .cortex-panel__empty {
@@ -214,12 +238,13 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
   border-bottom: 1px solid var(--rule);
   background: var(--vellum);
   cursor: grab;
-  min-height: 44px;
+  min-height: 40px;
+  flex-shrink: 0;
 }
 
 .cortex-panel-header:active {
@@ -235,26 +260,30 @@
 }
 
 .cortex-panel-header__tag {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-title);
   color: var(--ink);
+  letter-spacing: -0.02em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .cortex-panel-header__source {
-  font-size: 12px;
-  color: var(--ink-secondary);
+  font-size: var(--text-sm);
+  font-family: var(--mono);
+  font-weight: var(--weight-label);
+  color: var(--ink-tertiary);
   text-decoration: none;
+  letter-spacing: -0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: color 150ms ease-out;
 }
 
 .cortex-panel-header__source:hover {
   color: var(--select);
-  text-decoration: underline;
 }
 
 .cortex-panel-header__actions {
@@ -268,21 +297,27 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border: none;
   background: transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  color: var(--ink-secondary);
-  font-size: 14px;
+  color: var(--ink-ghost);
+  font-size: var(--text-md);
   padding: 0;
-  transition: background 150ms ease-out, color 150ms ease-out, opacity 150ms ease-out;
+  transition: background 150ms ease-out, color 150ms ease-out, opacity 150ms ease-out, outline-color 150ms ease-out;
+  outline: 2px solid transparent;
+  outline-offset: 1px;
 }
 
 .cortex-panel-header__btn:hover:not(:disabled) {
   background: var(--well);
-  color: var(--ink);
+  color: var(--ink-secondary);
+}
+
+.cortex-panel-header__btn:focus-visible {
+  outline-color: var(--select-muted);
 }
 
 .cortex-panel-header__btn:disabled {
@@ -290,8 +325,9 @@
   cursor: not-allowed;
 }
 
-.cortex-panel-header__btn--close {
-  color: var(--ink-tertiary);
+.cortex-panel-header__btn--close:hover {
+  background: var(--destructive-surface);
+  color: var(--destructive);
 }
 
 .cortex-panel-header__btn--toggled-off {
@@ -303,11 +339,11 @@
 .cortex-numeric-input {
   display: flex;
   align-items: center;
-  height: 28px;
+  height: 26px;
   background: var(--well);
-  border-radius: 6px;
-  padding: 0 8px;
-  gap: 4px;
+  border-radius: var(--radius-sm);
+  padding: 0 var(--sp-4);
+  gap: var(--sp-2);
   cursor: ew-resize;
   user-select: none;
   box-shadow: var(--well-shadow);
@@ -318,14 +354,34 @@
   background: var(--well-hover);
 }
 
+/* Scrub affordance — subtle drag hint on hover */
+.cortex-numeric-input::before {
+  content: '\21D4';
+  font-size: 8px;
+  color: transparent;
+  transition: color 200ms ease-out;
+  order: 99;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.cortex-numeric-input:hover::before {
+  color: var(--ink-ghost);
+}
+
 .cortex-numeric-input--scrubbing {
   cursor: ew-resize;
   background: var(--well-active);
+  box-shadow: var(--well-shadow), 0 0 0 1.5px var(--select-muted);
+}
+
+.cortex-numeric-input:focus-within {
+  box-shadow: var(--well-shadow), 0 0 0 1.5px var(--select-muted);
 }
 
 .cortex-numeric-input__label {
-  font-size: 12px;
-  color: var(--ink-tertiary);
+  font-size: var(--text-sm);
+  color: var(--ink-ghost);
   flex-shrink: 0;
 }
 
@@ -333,7 +389,12 @@
   width: 100%;
   border: none;
   background: transparent;
-  font: 13px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--text-md);
+  font-family: var(--mono);
+  font-weight: var(--weight-value);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1;
   color: var(--ink);
   padding: 0;
   outline: none;
@@ -352,18 +413,33 @@
 }
 
 .cortex-numeric-input__unit {
-  font-size: 11px;
-  color: var(--ink-tertiary);
+  font-size: var(--text-sm);
+  color: var(--ink-ghost);
   flex-shrink: 0;
+}
+
+/* Override indicator — value turns blue when changed from default */
+.cortex-numeric-input--overridden .cortex-numeric-input__value {
+  color: var(--select-hover);
+  transition: color 300ms ease-out;
+}
+
+.cortex-color-input--overridden .cortex-color-input__hex {
+  color: var(--select-hover);
+  transition: color 300ms ease-out;
+}
+
+.cortex-dropdown--overridden .cortex-dropdown__value {
+  color: var(--select-hover);
+  transition: color 300ms ease-out;
 }
 
 /* ── Spacing section ─────────────────────────── */
 
 .cortex-spacing-section {
-  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 }
 
 .cortex-spacing-group__header {
@@ -374,11 +450,10 @@
 }
 
 .cortex-section-label {
-  font-size: 11px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--ink-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-label);
+  letter-spacing: 0.01em;
+  color: var(--ink-tertiary);
 }
 
 /* ── Section group (category wrapper) ────────── */
@@ -394,18 +469,21 @@
 }
 
 .cortex-section-group__header {
-  padding: 10px 12px 2px;
+  padding: var(--sp-4) var(--sp-5) var(--sp-1);
 }
 
 .cortex-section-group__title {
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-title);
   color: var(--ink);
+  letter-spacing: -0.02em;
 }
 
 .cortex-section-group__content {
   display: flex;
   flex-direction: column;
+  padding: var(--sp-3) var(--sp-5) var(--sp-5);
+  gap: 16px;
 }
 
 .cortex-spacing-group__toggle {
@@ -421,7 +499,7 @@
   border-radius: 4px;
   padding: 0;
   font-size: 14px;
-  transition: background 150ms ease-out, color 150ms ease-out;
+  transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out, transform 100ms ease-out;
 }
 
 .cortex-spacing-group__toggle:hover {
@@ -431,13 +509,13 @@
 
 .cortex-spacing-group__row {
   display: flex;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 .cortex-spacing-group__grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 /* ── Source attribution ──────────────────────── */
@@ -522,8 +600,9 @@
   padding: 0 10px;
   border: none;
   background: transparent;
-  font-size: 12px;
-  color: var(--ink-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-value);
+  color: var(--ink-tertiary);
   cursor: pointer;
   white-space: nowrap;
   border-radius: 4px;
@@ -537,7 +616,7 @@
 
 .cortex-segmented__option--active {
   color: var(--ink);
-  font-weight: 500;
+  font-weight: var(--weight-value);
 }
 
 .cortex-segmented--sm .cortex-segmented__option {
@@ -568,7 +647,8 @@
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--text-md);
+  font-weight: var(--weight-value);
   color: var(--ink);
   text-align: left;
   box-shadow: var(--well-shadow);
@@ -589,7 +669,7 @@
 
 .cortex-dropdown__chevron {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: var(--text-md);
   color: var(--ink-tertiary);
   margin-left: 4px;
   transition: transform 150ms ease-out;
@@ -666,16 +746,15 @@
 /* ── Layout section ─────────────────────────── */
 
 .cortex-layout-section {
-  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 }
 
 .cortex-layout-section__group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 .cortex-layout-section__reveal {
@@ -684,7 +763,7 @@
 
 .cortex-layout-section__sizing {
   display: flex;
-  gap: 6px;
+  gap: var(--sp-3);
   align-items: center;
 }
 
@@ -701,7 +780,7 @@
   border-radius: 4px;
   flex-shrink: 0;
   padding: 0;
-  transition: background 150ms ease-out, color 150ms ease-out;
+  transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out, transform 100ms ease-out;
 }
 
 .cortex-lock-btn:hover {
@@ -720,37 +799,35 @@
 /* ── Typography section ─────────────────────── */
 
 .cortex-typography-section {
-  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 }
 
 .cortex-typography-section__group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 .cortex-typography-section__row {
   display: flex;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 .cortex-typography-section__field {
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: center;
-  gap: 4px;
+  flex-direction: column;
+  gap: var(--sp-1);
 }
 
 .cortex-typography-section__inline-label {
-  font-size: 11px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--ink-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-label);
+  letter-spacing: 0.01em;
+  color: var(--ink-tertiary);
   flex-shrink: 0;
 }
 
@@ -759,7 +836,7 @@
 .cortex-color-input {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 .cortex-color-input__swatch {
@@ -928,16 +1005,15 @@
 /* ── Fill section ──────────────────────────── */
 
 .cortex-fill-section {
-  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 }
 
 .cortex-fill-section__group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 .cortex-fill-section__color-row {
@@ -947,16 +1023,15 @@
 /* ── Border section ────────────────────────── */
 
 .cortex-border-section {
-  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 }
 
 .cortex-border-section__group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 .cortex-border-section__color-row {
@@ -965,7 +1040,7 @@
 
 .cortex-border-section__radius-row {
   display: flex;
-  gap: 6px;
+  gap: var(--sp-3);
   align-items: center;
 }
 
@@ -982,7 +1057,7 @@
   border-radius: 4px;
   flex-shrink: 0;
   padding: 0;
-  transition: background 150ms ease-out, color 150ms ease-out;
+  transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out, transform 100ms ease-out;
 }
 
 .cortex-border-section__corner-toggle:hover {
@@ -997,16 +1072,15 @@
 .cortex-border-section__corners {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 /* ── Shadow section ────────────────────────── */
 
 .cortex-shadow-section {
-  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 }
 
 .cortex-shadow-section__header {
@@ -1029,7 +1103,7 @@
   border-radius: 4px;
   padding: 0;
   font-size: 16px;
-  transition: background 150ms ease-out, color 150ms ease-out;
+  transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out, transform 100ms ease-out;
   line-height: 1;
 }
 
@@ -1051,28 +1125,27 @@
 .cortex-shadow-section__grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 4px;
+  gap: var(--sp-3);
 }
 
 .cortex-shadow-section__controls {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 /* ── Effects section ───────────────────────── */
 
 .cortex-effects-section {
-  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 }
 
 .cortex-effects-section__group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 /* ── State Lens (on selection overlay) ─────── */
@@ -1278,13 +1351,17 @@
   border-radius: 4px;
 }
 
-/* Vertical toolbar: tooltips appear to the right instead of above */
-.cortex-toolbar--vertical [data-tooltip]:hover::after,
-.cortex-toolbar--vertical [data-tooltip]:focus-visible::after {
+/* Vertical toolbar: tooltips appear to the right */
+.cortex-toolbar--vertical [data-tooltip]::after {
   bottom: auto;
   left: calc(100% + 6px);
   top: 50%;
-  transform: translateY(-50%);
+  transform: translateY(-50%) translateX(-4px);
+}
+
+.cortex-toolbar--vertical [data-tooltip]:hover::after,
+.cortex-toolbar--vertical [data-tooltip]:focus-visible::after {
+  transform: translateY(-50%) translateX(0);
 }
 
 /* ── Comment Input ───────────────────────────── */
@@ -1569,6 +1646,50 @@
 .cortex-activity-log__time {
   flex-shrink: 0;
   color: var(--ink-secondary);
+}
+
+/* ── Focus-visible rings ──────────────────── */
+
+.cortex-segmented__option,
+.cortex-dropdown__trigger,
+.cortex-color-input__swatch,
+.cortex-shadow-section__add,
+.cortex-shadow-section__remove,
+.cortex-spacing-group__toggle,
+.cortex-lock-btn,
+.cortex-border-section__corner-toggle {
+  outline: 2px solid transparent;
+  outline-offset: 1px;
+}
+
+.cortex-segmented__option:focus-visible,
+.cortex-dropdown__trigger:focus-visible,
+.cortex-color-input__swatch:focus-visible,
+.cortex-shadow-section__add:focus-visible,
+.cortex-shadow-section__remove:focus-visible,
+.cortex-spacing-group__toggle:focus-visible,
+.cortex-lock-btn:focus-visible,
+.cortex-border-section__corner-toggle:focus-visible {
+  outline-color: var(--select-muted);
+}
+
+/* ── Active press feedback ────────────────── */
+
+.cortex-panel-header__btn:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.cortex-color-input__swatch:active {
+  transform: scale(0.92);
+}
+
+.cortex-shadow-section__add:active,
+.cortex-shadow-section__remove:active {
+  transform: scale(0.9);
+}
+
+.cortex-spacing-group__toggle:active {
+  transform: scale(0.92);
 }
 
 /* ── Reduced motion ─────────────────────────── */
