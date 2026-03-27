@@ -79,6 +79,7 @@ export function ColorInput({ value, onChange, swatches }: ColorInputProps): JSX.
       <input
         class="cortex-color-input__hex"
         type="text"
+        aria-label="Hex color value"
         value={displayedHex}
         onInput={handleHexInput}
         onFocus={handleHexFocus}

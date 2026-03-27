@@ -21,6 +21,7 @@ import { EffectsSection, parseEffectsValues } from './sections/EffectsSection.js
 import type { EffectsChange } from './sections/EffectsSection.js'
 import type { InteractionState } from '../state-detector.js'
 import { CommentInput } from './CommentInput.js'
+import { SectionGroup } from './SectionGroup.js'
 import type { CortexChannel } from '../../adapters/types.js'
 
 /**
@@ -414,59 +415,65 @@ export function Panel({
         onToggleHover={onToggleHover}
       />
       <div class="cortex-panel__body" ref={bodyRef} key={contentKey}>
-        <LayoutSection
-          values={computedStyles.layout}
-          onChange={handleLayoutCommit}
-          onScrub={handleLayoutScrub}
-          onScrubEnd={handleLayoutCommit}
-          dimmedProperties={dimmedProperties}
-        />
-        <SpacingSection
-          padding={computedStyles.spacing.padding}
-          margin={computedStyles.spacing.margin}
-          gap={computedStyles.spacing.gap}
-          isFlexOrGrid={isFlexOrGrid}
-          onChange={handleSpacingCommit}
-          onScrub={handleScrub}
-          onScrubEnd={handleSpacingCommit}
-          dimmedProperties={dimmedProperties}
-        />
-        <TypographySection
-          values={computedStyles.typography}
-          availableWeights={availableWeights}
-          onChange={handleTypographyCommit}
-          onScrub={handleTypographyScrub}
-          onScrubEnd={handleTypographyCommit}
-          swatches={swatches}
-          dimmedProperties={dimmedProperties}
-        />
-        <FillSection
-          values={computedStyles.fill}
-          onChange={handleFillCommit}
-          swatches={swatches}
-          dimmedProperties={dimmedProperties}
-        />
-        <BorderSection
-          values={computedStyles.border}
-          onChange={handleBorderCommit}
-          onScrub={handleBorderScrub}
-          onScrubEnd={handleBorderCommit}
-          swatches={swatches}
-          dimmedProperties={dimmedProperties}
-        />
-        <ShadowSection
-          values={computedStyles.shadow}
-          onChange={handleShadowCommit}
-          swatches={swatches}
-          dimmedProperties={dimmedProperties}
-        />
-        <EffectsSection
-          values={computedStyles.effects}
-          onChange={handleEffectsCommit}
-          onScrub={handleEffectsScrub}
-          onScrubEnd={handleEffectsCommit}
-          dimmedProperties={dimmedProperties}
-        />
+        <SectionGroup label="Layout" groupId="layout">
+          <LayoutSection
+            values={computedStyles.layout}
+            onChange={handleLayoutCommit}
+            onScrub={handleLayoutScrub}
+            onScrubEnd={handleLayoutCommit}
+            dimmedProperties={dimmedProperties}
+          />
+          <SpacingSection
+            padding={computedStyles.spacing.padding}
+            margin={computedStyles.spacing.margin}
+            gap={computedStyles.spacing.gap}
+            isFlexOrGrid={isFlexOrGrid}
+            onChange={handleSpacingCommit}
+            onScrub={handleScrub}
+            onScrubEnd={handleSpacingCommit}
+            dimmedProperties={dimmedProperties}
+          />
+        </SectionGroup>
+        <SectionGroup label="Typography" groupId="typography">
+          <TypographySection
+            values={computedStyles.typography}
+            availableWeights={availableWeights}
+            onChange={handleTypographyCommit}
+            onScrub={handleTypographyScrub}
+            onScrubEnd={handleTypographyCommit}
+            swatches={swatches}
+            dimmedProperties={dimmedProperties}
+          />
+        </SectionGroup>
+        <SectionGroup label="Style" groupId="style">
+          <FillSection
+            values={computedStyles.fill}
+            onChange={handleFillCommit}
+            swatches={swatches}
+            dimmedProperties={dimmedProperties}
+          />
+          <BorderSection
+            values={computedStyles.border}
+            onChange={handleBorderCommit}
+            onScrub={handleBorderScrub}
+            onScrubEnd={handleBorderCommit}
+            swatches={swatches}
+            dimmedProperties={dimmedProperties}
+          />
+          <ShadowSection
+            values={computedStyles.shadow}
+            onChange={handleShadowCommit}
+            swatches={swatches}
+            dimmedProperties={dimmedProperties}
+          />
+          <EffectsSection
+            values={computedStyles.effects}
+            onChange={handleEffectsCommit}
+            onScrub={handleEffectsScrub}
+            onScrubEnd={handleEffectsCommit}
+            dimmedProperties={dimmedProperties}
+          />
+        </SectionGroup>
         {channel && (
           <CommentInput
             agentConnected={agentConnected ?? false}

@@ -1,4 +1,44 @@
 /* Cortex overlay styles — injected into Shadow DOM, fully isolated */
+/* Note: backdrop-filter intentionally avoided — causes full-page re-composite on every HMR repaint */
+
+/* ── Design tokens ──────────────────────────── */
+
+:host {
+  /* Text — ink hierarchy: values are darkest, labels recede */
+  --cortex-text: #111827;
+  --cortex-text-secondary: #6b7280;
+  --cortex-text-tertiary: #9ca3af;
+  --cortex-text-group: #111827;
+
+  /* Surfaces — drafting-paper whites */
+  --cortex-surface: rgba(255, 255, 255, 0.97);
+  --cortex-surface-raised: #f5f5f5;
+  --cortex-surface-sunken: #fafafa;
+  --cortex-surface-inset: inset 0 1px 2px rgba(0, 0, 0, 0.03);
+
+  /* Borders — pencil-line separation */
+  --cortex-border: #f0f0f0;
+  --cortex-border-subtle: rgba(0, 0, 0, 0.06);
+
+  /* Accent — selection blue, used sparingly */
+  --cortex-accent: #3b82f6;
+  --cortex-accent-hover: #2563eb;
+  --cortex-accent-muted: rgba(59, 130, 246, 0.3);
+
+  /* Status */
+  --cortex-success: #22c55e;
+  --cortex-error: #ef4444;
+  --cortex-warning: #f97316;
+
+  /* Scrollbar */
+  --cortex-scrollbar: #d1d5db;
+
+  /* Tooltip */
+  --cortex-tooltip-bg: #1f2937;
+
+  /* Typography */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
 
 /* ── Tooltip (CSS-only, instant) ─────────────── */
 
@@ -14,7 +54,7 @@
   left: 50%;
   transform: translateX(-50%);
   padding: 4px 8px;
-  background: #1f2937;
+  background: var(--cortex-tooltip-bg);
   color: #fff;
   font-size: 11px;
   font-weight: 400;
@@ -39,7 +79,7 @@
   left: 0;
   top: 0;
   pointer-events: none;
-  border: 2.5px solid #3b82f6;
+  border: 2.5px solid var(--cortex-accent);
   box-sizing: border-box;
   transition: border-radius 150ms ease-out;
 }
@@ -48,7 +88,7 @@
   position: absolute;
   left: 0;
   padding: 2px 6px;
-  background: #3b82f6;
+  background: var(--cortex-accent);
   color: #fff;
   font: 11px/1.3 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   white-space: nowrap;
@@ -81,13 +121,12 @@
   background: rgba(255, 255, 255, 0.97);
   border: 1px solid rgba(0, 0, 0, 0.06);
   border-radius: 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
   pointer-events: auto;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  color: #111827;
+  color: var(--cortex-text);
   font-size: 13px;
   line-height: 1.4;
 }
@@ -119,7 +158,7 @@
   flex: 1;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: #d1d5db transparent;
+  scrollbar-color: var(--cortex-scrollbar) transparent;
 }
 
 .cortex-panel__body::-webkit-scrollbar {
@@ -129,12 +168,12 @@
   background: transparent;
 }
 .cortex-panel__body::-webkit-scrollbar-thumb {
-  background: #d1d5db;
+  background: var(--cortex-scrollbar);
   border-radius: 3px;
 }
 .cortex-panel__empty {
   padding: 24px 16px;
-  color: #9ca3af;
+  color: var(--cortex-text-tertiary);
   font-size: 13px;
   text-align: center;
 }
@@ -147,7 +186,8 @@
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--cortex-border);
+  background: var(--cortex-surface-sunken);
   cursor: grab;
   min-height: 44px;
 }
@@ -167,7 +207,7 @@
 .cortex-panel-header__tag {
   font-size: 13px;
   font-weight: 600;
-  color: #111827;
+  color: var(--cortex-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -175,7 +215,7 @@
 
 .cortex-panel-header__source {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--cortex-text-secondary);
   text-decoration: none;
   white-space: nowrap;
   overflow: hidden;
@@ -183,7 +223,7 @@
 }
 
 .cortex-panel-header__source:hover {
-  color: #3b82f6;
+  color: var(--cortex-accent);
   text-decoration: underline;
 }
 
@@ -204,14 +244,15 @@
   background: transparent;
   border-radius: 6px;
   cursor: pointer;
-  color: #6b7280;
+  color: var(--cortex-text-secondary);
   font-size: 14px;
   padding: 0;
+  transition: background 150ms ease-out, color 150ms ease-out, opacity 150ms ease-out;
 }
 
 .cortex-panel-header__btn:hover:not(:disabled) {
-  background: #f3f4f6;
-  color: #111827;
+  background: var(--cortex-surface-raised);
+  color: var(--cortex-text);
 }
 
 .cortex-panel-header__btn:disabled {
@@ -220,7 +261,7 @@
 }
 
 .cortex-panel-header__btn--close {
-  color: #9ca3af;
+  color: var(--cortex-text-tertiary);
 }
 
 .cortex-panel-header__btn--toggled-off {
@@ -233,21 +274,28 @@
   display: flex;
   align-items: center;
   height: 28px;
-  background: #f3f4f6;
+  background: var(--cortex-surface-raised);
   border-radius: 6px;
   padding: 0 8px;
   gap: 4px;
   cursor: ew-resize;
   user-select: none;
+  box-shadow: var(--cortex-surface-inset);
+  transition: background 150ms ease-out, box-shadow 150ms ease-out;
+}
+
+.cortex-numeric-input:hover {
+  background: #efefef;
 }
 
 .cortex-numeric-input--scrubbing {
   cursor: ew-resize;
+  background: #ebebeb;
 }
 
 .cortex-numeric-input__label {
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--cortex-text-tertiary);
   flex-shrink: 0;
 }
 
@@ -256,7 +304,7 @@
   border: none;
   background: transparent;
   font: 13px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  color: #111827;
+  color: var(--cortex-text);
   padding: 0;
   outline: none;
   cursor: inherit;
@@ -275,7 +323,7 @@
 
 .cortex-numeric-input__unit {
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--cortex-text-tertiary);
   flex-shrink: 0;
 }
 
@@ -300,7 +348,34 @@
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #6b7280;
+  color: var(--cortex-text-secondary);
+}
+
+/* ── Section group (category wrapper) ────────── */
+
+.cortex-section-group {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Divider between groups — not before the first one */
+.cortex-section-group + .cortex-section-group {
+  border-top: 1px solid var(--cortex-border);
+}
+
+.cortex-section-group__header {
+  padding: 10px 12px 2px;
+}
+
+.cortex-section-group__title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--cortex-text-group);
+}
+
+.cortex-section-group__content {
+  display: flex;
+  flex-direction: column;
 }
 
 .cortex-spacing-group__toggle {
@@ -311,16 +386,17 @@
   height: 20px;
   border: none;
   background: transparent;
-  color: #9ca3af;
+  color: var(--cortex-text-tertiary);
   cursor: pointer;
   border-radius: 4px;
   padding: 0;
   font-size: 14px;
+  transition: background 150ms ease-out, color 150ms ease-out;
 }
 
 .cortex-spacing-group__toggle:hover {
-  background: #f3f4f6;
-  color: #6b7280;
+  background: var(--cortex-surface-raised);
+  color: var(--cortex-text-secondary);
 }
 
 .cortex-spacing-group__row {
@@ -338,18 +414,18 @@
 
 .cortex-attribution {
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--cortex-text-tertiary);
   text-align: right;
   margin-top: 4px;
 }
 
 .cortex-attribution--clickable {
   cursor: pointer;
-  color: #6b7280;
+  color: var(--cortex-text-secondary);
 }
 
 .cortex-attribution--clickable:hover {
-  color: #3b82f6;
+  color: var(--cortex-accent);
   text-decoration: underline;
 }
 
@@ -358,20 +434,20 @@
 }
 
 .cortex-attribution--writing {
-  color: #6b7280;
+  color: var(--cortex-text-secondary);
 }
 
 .cortex-attribution--processing {
-  color: #3b82f6;
+  color: var(--cortex-accent);
 }
 
 .cortex-attribution--completed {
-  color: #22c55e;
+  color: var(--cortex-success);
   animation: cortex-flash 500ms ease-out;
 }
 
 .cortex-attribution--error {
-  color: #f97316;
+  color: var(--cortex-warning);
   cursor: help;
 }
 
@@ -386,10 +462,11 @@
   display: flex;
   align-items: center;
   position: relative;
-  background: #f3f4f6;
+  background: var(--cortex-surface-raised);
   border-radius: 6px;
   padding: 2px;
   gap: 0;
+  box-shadow: var(--cortex-surface-inset);
 }
 
 .cortex-segmented__indicator {
@@ -399,7 +476,7 @@
   height: calc(100% - 4px);
   background: #fff;
   border-radius: 4px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
   transition: transform 150ms ease-out, width 150ms ease-out;
   pointer-events: none;
 }
@@ -416,19 +493,20 @@
   border: none;
   background: transparent;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--cortex-text-secondary);
   cursor: pointer;
   white-space: nowrap;
   border-radius: 4px;
   flex: 1;
+  transition: color 150ms ease-out;
 }
 
 .cortex-segmented__option:hover:not(.cortex-segmented__option--active) {
-  color: #374151;
+  color: var(--cortex-text-group);
 }
 
 .cortex-segmented__option--active {
-  color: #111827;
+  color: var(--cortex-text);
   font-weight: 500;
 }
 
@@ -456,17 +534,19 @@
   width: 100%;
   height: 28px;
   padding: 0 8px;
-  background: #f3f4f6;
+  background: var(--cortex-surface-raised);
   border: none;
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
-  color: #111827;
+  color: var(--cortex-text);
   text-align: left;
+  box-shadow: var(--cortex-surface-inset);
+  transition: background 150ms ease-out;
 }
 
 .cortex-dropdown__trigger:hover {
-  background: #e5e7eb;
+  background: #efefef;
 }
 
 .cortex-dropdown__value {
@@ -480,7 +560,7 @@
 .cortex-dropdown__chevron {
   flex-shrink: 0;
   font-size: 10px;
-  color: #9ca3af;
+  color: var(--cortex-text-tertiary);
   margin-left: 4px;
   transition: transform 150ms ease-out;
 }
@@ -500,7 +580,6 @@
   min-width: 120px;
   max-height: 200px;
   background: rgba(255, 255, 255, 0.96);
-  /* backdrop-filter removed — causes full-page re-composite on every HMR repaint */
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1), 0 1px 4px rgba(0, 0, 0, 0.06);
@@ -512,15 +591,15 @@
 .cortex-dropdown__filter {
   padding: 6px 8px;
   border: none;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--cortex-surface-raised);
   font-size: 13px;
-  color: #111827;
+  color: var(--cortex-text);
   background: transparent;
   outline: none;
 }
 
 .cortex-dropdown__filter::placeholder {
-  color: #9ca3af;
+  color: var(--cortex-text-tertiary);
 }
 
 .cortex-dropdown__list {
@@ -532,25 +611,25 @@
 .cortex-dropdown__option {
   padding: 6px 8px;
   font-size: 13px;
-  color: #374151;
+  color: var(--cortex-text-group);
   cursor: pointer;
 }
 
 .cortex-dropdown__option:hover,
 .cortex-dropdown__option--active {
-  background: #f3f4f6;
-  color: #111827;
+  background: var(--cortex-surface-raised);
+  color: var(--cortex-text);
 }
 
 .cortex-dropdown__option--selected {
   font-weight: 500;
-  color: #3b82f6;
+  color: var(--cortex-accent);
 }
 
 .cortex-dropdown__empty {
   padding: 8px;
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--cortex-text-tertiary);
   text-align: center;
 }
 
@@ -587,24 +666,25 @@
   height: 24px;
   border: none;
   background: transparent;
-  color: #9ca3af;
+  color: var(--cortex-text-tertiary);
   cursor: pointer;
   border-radius: 4px;
   flex-shrink: 0;
   padding: 0;
+  transition: background 150ms ease-out, color 150ms ease-out;
 }
 
 .cortex-lock-btn:hover {
-  background: #f3f4f6;
-  color: #6b7280;
+  background: var(--cortex-surface-raised);
+  color: var(--cortex-text-secondary);
 }
 
 .cortex-lock-btn--active {
-  color: #3b82f6;
+  color: var(--cortex-accent);
 }
 
 .cortex-lock-btn--active:hover {
-  color: #2563eb;
+  color: var(--cortex-accent-hover);
 }
 
 /* ── Typography section ─────────────────────── */
@@ -640,7 +720,7 @@
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #6b7280;
+  color: var(--cortex-text-secondary);
   flex-shrink: 0;
 }
 
@@ -660,6 +740,15 @@
   flex-shrink: 0;
   cursor: pointer;
   padding: 0;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+
+.cortex-color-input__swatch:hover {
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+.cortex-color-input__swatch:focus-visible {
+  box-shadow: 0 0 0 2px var(--cortex-accent-muted);
 }
 
 .cortex-color-input__native {
@@ -674,16 +763,18 @@
   flex: 1;
   height: 28px;
   padding: 0 8px;
-  background: #f3f4f6;
+  background: var(--cortex-surface-raised);
   border: none;
   border-radius: 6px;
   font: 13px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  color: #111827;
+  color: var(--cortex-text);
+  box-shadow: var(--cortex-surface-inset);
   outline: none;
+  transition: box-shadow 150ms ease-out;
 }
 
 .cortex-color-input__hex:focus {
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 0 2px var(--cortex-accent-muted);
 }
 
 /* ── Color picker popover ──────────────────── */
@@ -698,7 +789,6 @@
   z-index: 11;
   width: 220px;
   background: rgba(255, 255, 255, 0.96);
-  /* backdrop-filter removed — causes full-page re-composite on every HMR repaint */
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
@@ -752,7 +842,7 @@
 
 .cortex-color-picker__label {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--cortex-text-secondary);
   width: 32px;
   flex-shrink: 0;
 }
@@ -762,22 +852,23 @@
   flex: 1;
   height: 26px;
   padding: 0 6px;
-  background: #f3f4f6;
+  background: var(--cortex-surface-raised);
   border: none;
   border-radius: 4px;
   font: 12px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  color: #111827;
+  color: var(--cortex-text);
   outline: none;
+  box-shadow: var(--cortex-surface-inset);
 }
 
 .cortex-color-picker__hex-input:focus,
 .cortex-color-picker__alpha-input:focus {
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 0 2px var(--cortex-accent-muted);
 }
 
 .cortex-color-picker__unit {
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--cortex-text-tertiary);
 }
 
 .cortex-color-picker__swatches {
@@ -800,8 +891,8 @@
 }
 
 .cortex-color-picker__swatch--active {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 1px #3b82f6;
+  border-color: var(--cortex-accent);
+  box-shadow: 0 0 0 1px var(--cortex-accent);
 }
 
 /* ── Fill section ──────────────────────────── */
@@ -856,20 +947,21 @@
   height: 24px;
   border: none;
   background: transparent;
-  color: #9ca3af;
+  color: var(--cortex-text-tertiary);
   cursor: pointer;
   border-radius: 4px;
   flex-shrink: 0;
   padding: 0;
+  transition: background 150ms ease-out, color 150ms ease-out;
 }
 
 .cortex-border-section__corner-toggle:hover {
-  background: #f3f4f6;
-  color: #6b7280;
+  background: var(--cortex-surface-raised);
+  color: var(--cortex-text-secondary);
 }
 
 .cortex-border-section__corner-toggle--active {
-  color: #3b82f6;
+  color: var(--cortex-accent);
 }
 
 .cortex-border-section__corners {
@@ -902,18 +994,19 @@
   height: 20px;
   border: none;
   background: transparent;
-  color: #9ca3af;
+  color: var(--cortex-text-tertiary);
   cursor: pointer;
   border-radius: 4px;
   padding: 0;
   font-size: 16px;
+  transition: background 150ms ease-out, color 150ms ease-out;
   line-height: 1;
 }
 
 .cortex-shadow-section__add:hover,
 .cortex-shadow-section__remove:hover {
-  background: #f3f4f6;
-  color: #6b7280;
+  background: var(--cortex-surface-raised);
+  color: var(--cortex-text-secondary);
 }
 
 .cortex-shadow-section__row {
@@ -921,7 +1014,7 @@
   flex-direction: column;
   gap: 6px;
   padding: 8px;
-  background: #f9fafb;
+  background: var(--cortex-surface-sunken);
   border-radius: 6px;
 }
 
@@ -958,7 +1051,7 @@
   display: flex;
   gap: 0;
   padding: 2px;
-  background: #f3f4f6;
+  background: var(--cortex-surface-raised);
   border-radius: 6px;
   position: fixed;
   left: 0;
@@ -976,19 +1069,19 @@
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: #6b7280;
+  color: var(--cortex-text-secondary);
   cursor: pointer;
   white-space: nowrap;
   line-height: 1.4;
 }
 
 .cortex-state-lens__btn:hover:not(.cortex-state-lens__btn--active) {
-  color: #374151;
+  color: var(--cortex-text-group);
 }
 
 .cortex-state-lens__btn--active {
   background: #fff;
-  color: #111827;
+  color: var(--cortex-text);
   font-weight: 500;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
@@ -1010,24 +1103,25 @@
   border: none;
   border-bottom: 2px solid transparent;
   background: transparent;
-  color: #9ca3af;
+  color: var(--cortex-text-secondary);
   cursor: pointer;
+  transition: color 150ms ease-out, border-color 150ms ease-out;
 }
 
 .cortex-pseudo-tab:hover {
-  color: #d1d5db;
+  color: var(--cortex-text-group);
 }
 
 .cortex-pseudo-tab--active {
-  color: #3b82f6;
-  border-bottom-color: #3b82f6;
+  color: var(--cortex-accent);
+  border-bottom-color: var(--cortex-accent);
 }
 
 /* ── Library badge (in panel header) ───────── */
 
 .cortex-panel-header__library {
   font-style: italic;
-  color: #9ca3af;
+  color: var(--cortex-text-tertiary);
   font-size: 10px;
   margin-left: 4px;
 }
@@ -1052,9 +1146,8 @@
   border-radius: 20px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04);
   pointer-events: auto;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 13px;
-  color: #111827;
+  color: var(--cortex-text);
   padding: 4px;
   animation: cortex-toolbar-fade-in 200ms ease-out;
 }
@@ -1090,7 +1183,7 @@
 }
 
 .cortex-toolbar__grip:hover {
-  color: #9ca3af;
+  color: var(--cortex-text-tertiary);
 }
 
 .cortex-toolbar__grip:active {
@@ -1108,33 +1201,34 @@
   border-radius: 8px;
   cursor: pointer;
   font-size: 14px;
-  color: #6b7280;
+  color: var(--cortex-text-secondary);
   padding: 0;
   flex-shrink: 0;
+  transition: background 150ms ease-out, color 150ms ease-out;
 }
 
 .cortex-toolbar__btn:hover:not(.cortex-toolbar__btn--active) {
   background: rgba(0, 0, 0, 0.04);
-  color: #374151;
+  color: var(--cortex-text-group);
 }
 
 .cortex-toolbar__btn--active {
-  background: #3b82f6;
+  background: var(--cortex-accent);
   color: #fff;
 }
 
 .cortex-toolbar__btn--close {
-  color: #9ca3af;
+  color: var(--cortex-text-tertiary);
 }
 
 .cortex-toolbar__btn--close:hover {
   background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
+  color: var(--cortex-error);
 }
 
 .cortex-toolbar__badge {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--cortex-text-secondary);
   padding: 0 8px;
   white-space: nowrap;
   flex-shrink: 0;
@@ -1145,7 +1239,13 @@
 }
 
 .cortex-toolbar__badge:hover {
-  color: #111827;
+  color: var(--cortex-text);
+}
+
+.cortex-toolbar__badge:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.4);
+  outline-offset: -2px;
+  border-radius: 4px;
 }
 
 /* Vertical toolbar: tooltips appear to the right instead of above */
@@ -1171,14 +1271,15 @@
   background: rgba(0, 0, 0, 0.04);
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 4px;
-  color: #111827;
+  color: var(--cortex-text);
   font-size: 12px;
   outline: none;
   box-sizing: border-box;
+  transition: border-color 150ms ease-out;
 }
 
 .cortex-comment-input__field:focus {
-  border-color: rgba(59, 130, 246, 0.5);
+  border-color: var(--cortex-accent-muted);
 }
 
 .cortex-comment-input__field:disabled {
@@ -1234,32 +1335,32 @@
   line-height: 18px;
 }
 
-.cortex-thread__status--pending { color: #9ca3af; }
-.cortex-thread__status--acknowledged { color: #3b82f6; }
-.cortex-thread__status--resolved { color: #22c55e; }
-.cortex-thread__status--dismissed { color: #ef4444; }
+.cortex-thread__status--pending { color: var(--cortex-text-tertiary); }
+.cortex-thread__status--acknowledged { color: var(--cortex-accent); }
+.cortex-thread__status--resolved { color: var(--cortex-success); }
+.cortex-thread__status--dismissed { color: var(--cortex-error); }
 
 .cortex-thread__text {
   font-size: 12px;
-  color: #111827;
+  color: var(--cortex-text);
   line-height: 18px;
 }
 
 .cortex-thread__working {
   font-size: 11px;
-  color: #3b82f6;
+  color: var(--cortex-accent);
   padding: 4px 0 0 18px;
 }
 
 .cortex-thread__resolution {
   font-size: 11px;
-  color: #22c55e;
+  color: var(--cortex-success);
   padding: 4px 0 0 18px;
 }
 
 .cortex-thread__dismiss-reason {
   font-size: 11px;
-  color: #ef4444;
+  color: var(--cortex-error);
   padding: 4px 0 0 18px;
 }
 
@@ -1275,12 +1376,12 @@
 }
 
 .cortex-thread__message--user {
-  color: #111827;
+  color: var(--cortex-text);
   background: rgba(0, 0, 0, 0.04);
 }
 
 .cortex-thread__message--agent {
-  color: #2563eb;
+  color: var(--cortex-accent-hover);
   background: rgba(59, 130, 246, 0.08);
 }
 
@@ -1291,14 +1392,14 @@
   background: rgba(0, 0, 0, 0.04);
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 4px;
-  color: #111827;
+  color: var(--cortex-text);
   font-size: 11px;
   outline: none;
   box-sizing: border-box;
 }
 
 .cortex-thread__reply:focus {
-  border-color: rgba(59, 130, 246, 0.5);
+  border-color: var(--cortex-accent-muted);
 }
 
 /* ── Comment Pin ─────────────────────────────── */
@@ -1307,7 +1408,7 @@
   position: fixed;
   width: 12px;
   height: 12px;
-  background: #3b82f6;
+  background: var(--cortex-accent);
   border-radius: 50%;
   border: 2px solid white;
   cursor: pointer;
@@ -1331,15 +1432,13 @@
   position: fixed;
   width: 240px;
   background: rgba(255, 255, 255, 0.98);
-  /* backdrop-filter removed — causes full-page re-composite on every HMR repaint */
   border: 1px solid rgba(0, 0, 0, 0.06);
   border-radius: 12px;
   pointer-events: auto;
   z-index: 2147483644;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.04);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 13px;
-  color: #111827;
+  color: var(--cortex-text);
 }
 
 .cortex-pin__input {
@@ -1352,17 +1451,15 @@
   width: 200px;
   padding: 6px 8px;
   background: rgba(255, 255, 255, 0.98);
-  /* backdrop-filter removed — causes full-page re-composite on every HMR repaint */
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 4px;
-  color: #111827;
+  color: var(--cortex-text);
   font-size: 12px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   outline: none;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.04);
 }
 .cortex-pin__input-field:focus {
-  border-color: rgba(59, 130, 246, 0.5);
+  border-color: var(--cortex-accent-muted);
 }
 
 /* ── Activity Log ────────────────────────────── */
@@ -1374,7 +1471,6 @@
   width: 280px;
   max-height: 320px;
   background: rgba(255, 255, 255, 0.95);
-  /* backdrop-filter removed — causes full-page re-composite on every HMR repaint */
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   pointer-events: auto;
@@ -1391,20 +1487,20 @@
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
   font-size: 12px;
   font-weight: 600;
-  color: #111827;
+  color: var(--cortex-text);
 }
 
 .cortex-activity-log__close {
   background: none;
   border: none;
-  color: #6b7280;
+  color: var(--cortex-text-secondary);
   cursor: pointer;
   font-size: 12px;
   padding: 2px 4px;
 }
 
 .cortex-activity-log__close:hover {
-  color: #111827;
+  color: var(--cortex-text);
 }
 
 .cortex-activity-log__list {
@@ -1415,7 +1511,7 @@
 .cortex-activity-log__empty {
   padding: 24px 12px;
   text-align: center;
-  color: #6b7280;
+  color: var(--cortex-text-secondary);
   font-size: 12px;
 }
 
@@ -1436,11 +1532,23 @@
 
 .cortex-activity-log__desc {
   flex: 1;
-  color: #374151;
+  color: var(--cortex-text-group);
   word-break: break-word;
 }
 
 .cortex-activity-log__time {
   flex-shrink: 0;
-  color: #6b7280;
+  color: var(--cortex-text-secondary);
+}
+
+/* ── Reduced motion ─────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
