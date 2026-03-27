@@ -186,7 +186,7 @@
 }
 
 .cortex-panel--entering {
-  animation: cortex-slide-in 250ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: cortex-slide-in 500ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .cortex-panel--snapping {
@@ -199,13 +199,18 @@
 }
 
 @keyframes cortex-slide-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes cortex-cross-fade {
   from { opacity: 0.6; }
   to   { opacity: 1; }
+}
+
+@keyframes cortex-group-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .cortex-panel__body {
@@ -461,7 +466,14 @@
 .cortex-section-group {
   display: flex;
   flex-direction: column;
+  animation: cortex-group-enter 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
+
+.cortex-section-group:nth-child(1) { animation-delay: 200ms; }
+.cortex-section-group:nth-child(2) { animation-delay: 300ms; }
+.cortex-section-group:nth-child(3) { animation-delay: 400ms; }
+.cortex-section-group:nth-child(4) { animation-delay: 500ms; }
+.cortex-section-group:nth-child(5) { animation-delay: 600ms; }
 
 /* Divider between groups — not before the first one */
 .cortex-section-group + .cortex-section-group {
@@ -1256,8 +1268,8 @@
 }
 
 @keyframes cortex-toolbar-fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
 }
 
 .cortex-toolbar--horizontal {
