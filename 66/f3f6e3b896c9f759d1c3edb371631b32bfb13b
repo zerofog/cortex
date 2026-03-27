@@ -1,0 +1,52 @@
+cortex-editor/src/browser/styles.css
+  0e794a68f7733583 73,84-85,87-89,92,95-119,175-177,184,215,225,241-242,246-247,263-264,266,273-276,278,282,300-301,304,306-307,309-311,316-320,328-330,342,344-346,357-371,375-379,383-384,392-397,416-417,421-436,442,453-456,472,476-477,479,485-486,502,512,518,603-605,619,650-651,672,751,757,766,783,804,810,815,822-823,827-830,839,1010,1016,1028,1034,1043,1060,1075,1083,1106,1128,1134,1142,1148,1354,1359-1364,1651-1694
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.20",
+  "base_commit_sha": "66f3f6e3b896c9f759d1c3edb371631b32bfb13b",
+  "prompts": {
+    "0e794a68f7733583": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7d5b8504-ae8f-4697-8233-bc1510bb9da1",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 201,
+      "total_deletions": 85,
+      "accepted_lines": 216,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/f2c3b4721eb1fa25e7200b2982e9083f79e20e64224a963ea09cca6d8f17e98f"
+    },
+    "4a8fe0b05b4905c7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d1dd7-9ef2-7e01-988b-77c1f37c74d0",
+        "model": "gpt-5.4"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 401,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/a758edc854074672ef4e6c2a2cd5ca0ec86203e6d0b950f8769bd0c37823955b"
+    },
+    "a8485bba2cf420ff": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "07dece8c-6779-4323-ae48-ccdfe06234e3",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1260,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/69ccad7dce0f7e710e0c19d6d4765c510142ba1547e26ec6ea211398f64abf0f"
+    }
+  }
+}
