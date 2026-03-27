@@ -1,0 +1,54 @@
+cortex-editor/tests/browser/toolbar.test.tsx
+  0e794a68f7733583 41,43-44
+cortex-editor/tests/browser/keyboard-shortcuts.test.tsx
+  0e794a68f7733583 103,109,116,197,200,206,215-216,222,232,235,241,285-286,292,304-305,311
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.20",
+  "base_commit_sha": "c3e96edc72db0e50550614eeb6640d7f9243f014",
+  "prompts": {
+    "0e794a68f7733583": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7d5b8504-ae8f-4697-8233-bc1510bb9da1",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 21,
+      "total_deletions": 22,
+      "accepted_lines": 21,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/ed4f2eada959f2b578f8afe5384766f9867bedb7fd2061c0ddb2d727b70f60c4"
+    },
+    "4a8fe0b05b4905c7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d1dd7-9ef2-7e01-988b-77c1f37c74d0",
+        "model": "gpt-5.4"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 401,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/a758edc854074672ef4e6c2a2cd5ca0ec86203e6d0b950f8769bd0c37823955b"
+    },
+    "a8485bba2cf420ff": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "07dece8c-6779-4323-ae48-ccdfe06234e3",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1260,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/69ccad7dce0f7e710e0c19d6d4765c510142ba1547e26ec6ea211398f64abf0f"
+    }
+  }
+}
