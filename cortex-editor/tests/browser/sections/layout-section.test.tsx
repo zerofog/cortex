@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
-import { LayoutSection } from '../../../src/browser/components/sections/LayoutSection.js'
+import { LayoutSection, parseLayoutValues } from '../../../src/browser/components/sections/LayoutSection.js'
 import type { LayoutValues } from '../../../src/browser/components/sections/LayoutSection.js'
+
+vi.mock('@floating-ui/dom', () => ({
+  computePosition: vi.fn().mockResolvedValue({ x: 0, y: 30 }),
+  flip: vi.fn().mockReturnValue({}),
+  shift: vi.fn().mockReturnValue({}),
+}))
 
 describe('LayoutSection', () => {
   let container: HTMLDivElement
@@ -21,6 +27,10 @@ describe('LayoutSection', () => {
     alignItems: 'stretch',
     width: '320',
     height: '48',
+    minWidth: '0px',
+    maxWidth: 'none',
+    minHeight: '0px',
+    maxHeight: 'none',
   }
 
   function setup(overrides?: Partial<Parameters<typeof LayoutSection>[0]>) {
@@ -135,5 +145,65 @@ describe('LayoutSection', () => {
     setup({ values: { ...DEFAULT_VALUES, width: 'auto' } })
     const inputs = container.querySelectorAll('.cortex-numeric-input')
     expect(inputs.length).toBeGreaterThan(0)
+  })
+
+  it('renders sizing dropdown triggers for W and H', () => {
+    setup()
+    const triggers = container.querySelectorAll('.cortex-sizing-trigger')
+    expect(triggers.length).toBe(2)
+  })
+
+  it('emits fit-content when width mode changed to fit', async () => {
+    const { onChange } = setup()
+    const triggers = container.querySelectorAll('.cortex-sizing-trigger')
+    ;(triggers[0] as HTMLElement).click()
+    await new Promise((r) => setTimeout(r, 10))
+    const fitOption = container.querySelector('[data-value="fit"]') as HTMLElement
+    expect(fitOption).not.toBeNull()
+    fitOption.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'width', value: 'fit-content' })
+  })
+
+  it('emits 100% when width mode changed to fill', async () => {
+    const { onChange } = setup()
+    const triggers = container.querySelectorAll('.cortex-sizing-trigger')
+    ;(triggers[0] as HTMLElement).click()
+    await new Promise((r) => setTimeout(r, 10))
+    const fillOption = container.querySelector('[data-value="fill"]') as HTMLElement
+    expect(fillOption).not.toBeNull()
+    fillOption.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'width', value: '100%' })
+  })
+
+  it('shows min-width input when toggled on', async () => {
+    setup()
+    const triggers = container.querySelectorAll('.cortex-sizing-trigger')
+    ;(triggers[0] as HTMLElement).click()
+    await new Promise((r) => setTimeout(r, 10))
+    const minToggle = container.querySelector('[data-action="toggle-min"]') as HTMLElement
+    expect(minToggle).not.toBeNull()
+    minToggle.click()
+    await new Promise((r) => setTimeout(r, 10))
+    // Re-render should show Min label
+    expect(container.textContent).toContain('Min')
+  })
+
+  it('parseLayoutValues includes min/max fields', () => {
+    const cs = {
+      display: 'block',
+      visibility: 'visible',
+      flexDirection: 'row',
+      justifyContent: 'flex-start',
+      alignItems: 'stretch',
+      width: '320px',
+      height: '48px',
+      minWidth: '100px',
+      maxWidth: '500px',
+      minHeight: '0px',
+      maxHeight: 'none',
+    } as unknown as CSSStyleDeclaration
+    const result = parseLayoutValues(cs)
+    expect(result.minWidth).toBe('100px')
+    expect(result.maxWidth).toBe('500px')
   })
 })
