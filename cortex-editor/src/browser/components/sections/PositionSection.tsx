@@ -104,6 +104,38 @@ export function PositionSection({
     [onScrubEnd],
   )
 
+  const rotateNum = values.rotate === 'none' ? 0 : parseFloat(values.rotate)
+  const isFlippedH = values.scaleX === '-1'
+  const isFlippedV = values.scaleY === '-1'
+
+  const handleRotateChange = useCallback(
+    (v: number) => onChange({ property: 'rotate', value: `${v}deg` }),
+    [onChange],
+  )
+  const handleRotateScrub = useCallback(
+    (v: number) => { if (onScrub) onScrub({ property: 'rotate', value: `${v}deg` }) },
+    [onScrub],
+  )
+  const handleRotateScrubEnd = useCallback(
+    (v: number) => { if (onScrubEnd) onScrubEnd({ property: 'rotate', value: `${v}deg` }) },
+    [onScrubEnd],
+  )
+  const handleRotate90 = useCallback(() => {
+    const current = values.rotate === 'none' ? 0 : parseFloat(values.rotate)
+    const next = (current + 90) % 360
+    onChange({ property: 'rotate', value: `${next}deg` })
+  }, [values.rotate, onChange])
+
+  const handleFlipH = useCallback(() => {
+    const newX = isFlippedH ? '1' : '-1'
+    onChange({ property: 'scale', value: `${newX} ${values.scaleY}` })
+  }, [isFlippedH, values.scaleY, onChange])
+
+  const handleFlipV = useCallback(() => {
+    const newY = isFlippedV ? '1' : '-1'
+    onChange({ property: 'scale', value: `${values.scaleX} ${newY}` })
+  }, [isFlippedV, values.scaleX, onChange])
+
   const xValue = parseFloat(values.left) || 0
   const yValue = parseFloat(values.top) || 0
   const zValue = parseFloat(values.zIndex) || 0
@@ -122,6 +154,53 @@ export function PositionSection({
         <NumericInput value={xValue} unit="px" label="X" tooltip="Left offset" onChange={handleXChange} onScrub={handleXScrub} onScrubEnd={handleXScrubEnd} />
         <NumericInput value={yValue} unit="px" label="Y" tooltip="Top offset" onChange={handleYChange} onScrub={handleYScrub} onScrubEnd={handleYScrubEnd} />
         <NumericInput value={zValue} label="Z" tooltip="Z-index" onChange={handleZChange} />
+      </div>
+      <div class="cortex-position-section__rotate-row">
+        <NumericInput
+          value={rotateNum}
+          unit="deg"
+          label="∠"
+          tooltip="Rotation"
+          onChange={handleRotateChange}
+          onScrub={handleRotateScrub}
+          onScrubEnd={handleRotateScrubEnd}
+        />
+        <button
+          class="cortex-position-section__toggle"
+          type="button"
+          data-tooltip="Rotate 90°"
+          aria-label="Rotate 90 degrees"
+          onClick={handleRotate90}
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 7a5 5 0 0 1 9-3" />
+            <polyline points="11,1 11,4.5 7.5,4.5" />
+          </svg>
+        </button>
+        <button
+          class={`cortex-position-section__toggle${isFlippedH ? ' cortex-position-section__toggle--active' : ''}`}
+          type="button"
+          data-tooltip="Flip horizontal"
+          aria-label="Flip horizontal"
+          aria-pressed={isFlippedH ? 'true' : 'false'}
+          onClick={handleFlipH}
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M7 1v12M3 4l-2 3 2 3M11 4l2 3-2 3" />
+          </svg>
+        </button>
+        <button
+          class={`cortex-position-section__toggle${isFlippedV ? ' cortex-position-section__toggle--active' : ''}`}
+          type="button"
+          data-tooltip="Flip vertical"
+          aria-label="Flip vertical"
+          aria-pressed={isFlippedV ? 'true' : 'false'}
+          onClick={handleFlipV}
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M1 7h12M4 3L7 1l3 2M4 11l3 2 3-2" />
+          </svg>
+        </button>
       </div>
     </div>
   )

@@ -168,4 +168,82 @@ describe('PositionSection', () => {
     expect(xyRow).not.toBeNull()
     expect(xyRow!.classList.contains('cortex-position-section__xy-row--disabled')).toBe(true)
   })
+
+  it('renders rotation input with deg unit', () => {
+    setup({ values: { ...DEFAULT_VALUES, rotate: '45deg' } })
+    expect(container.textContent).toContain('deg')
+  })
+
+  it('emits rotate change', () => {
+    const { onChange } = setup({ values: { ...DEFAULT_VALUES, position: 'relative', rotate: '0deg' } })
+    const inputs = container.querySelectorAll('.cortex-numeric-input input')
+    // Rotation is the 4th numeric input (after X, Y, Z)
+    const rotInput = inputs[3] as HTMLInputElement
+    expect(rotInput).toBeDefined()
+    rotInput.focus()
+    rotInput.value = '90'
+    rotInput.dispatchEvent(new Event('input', { bubbles: true }))
+    rotInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    const rotCall = onChange.mock.calls.find((c: any) => c[0]?.property === 'rotate')
+    expect(rotCall).toBeDefined()
+    expect(rotCall![0].value).toBe('90deg')
+  })
+
+  it('rotate 90 button increments by 90', () => {
+    const { onChange } = setup({ values: { ...DEFAULT_VALUES, rotate: '45deg' } })
+    const rotateBtn = container.querySelector('[data-tooltip="Rotate 90°"]') as HTMLElement
+    expect(rotateBtn).not.toBeNull()
+    rotateBtn.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'rotate', value: '135deg' })
+  })
+
+  it('rotate 90 wraps at 360', () => {
+    const { onChange } = setup({ values: { ...DEFAULT_VALUES, rotate: '315deg' } })
+    const rotateBtn = container.querySelector('[data-tooltip="Rotate 90°"]') as HTMLElement
+    rotateBtn.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'rotate', value: '45deg' })
+  })
+
+  it('renders flip H and flip V buttons', () => {
+    setup()
+    const flipH = container.querySelector('[data-tooltip="Flip horizontal"]')
+    const flipV = container.querySelector('[data-tooltip="Flip vertical"]')
+    expect(flipH).not.toBeNull()
+    expect(flipV).not.toBeNull()
+  })
+
+  it('flip H toggle emits scale: -1 1', () => {
+    const { onChange } = setup({ values: { ...DEFAULT_VALUES, scaleX: '1', scaleY: '1' } })
+    const flipH = container.querySelector('[data-tooltip="Flip horizontal"]') as HTMLElement
+    flipH.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'scale', value: '-1 1' })
+  })
+
+  it('flip H toggle off emits scale: 1 1', () => {
+    const { onChange } = setup({ values: { ...DEFAULT_VALUES, scaleX: '-1', scaleY: '1' } })
+    const flipH = container.querySelector('[data-tooltip="Flip horizontal"]') as HTMLElement
+    flipH.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'scale', value: '1 1' })
+  })
+
+  it('flip V preserves existing flip H state', () => {
+    const { onChange } = setup({ values: { ...DEFAULT_VALUES, scaleX: '-1', scaleY: '1' } })
+    const flipV = container.querySelector('[data-tooltip="Flip vertical"]') as HTMLElement
+    flipV.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'scale', value: '-1 -1' })
+  })
+
+  it('flip H shows active style when scaleX is -1', () => {
+    setup({ values: { ...DEFAULT_VALUES, scaleX: '-1', scaleY: '1' } })
+    const flipH = container.querySelector('[data-tooltip="Flip horizontal"]') as HTMLElement
+    expect(flipH.classList.contains('cortex-position-section__toggle--active')).toBe(true)
+  })
+
+  it('flip buttons have aria-pressed', () => {
+    setup({ values: { ...DEFAULT_VALUES, scaleX: '-1', scaleY: '1' } })
+    const flipH = container.querySelector('[data-tooltip="Flip horizontal"]') as HTMLElement
+    const flipV = container.querySelector('[data-tooltip="Flip vertical"]') as HTMLElement
+    expect(flipH.getAttribute('aria-pressed')).toBe('true')
+    expect(flipV.getAttribute('aria-pressed')).toBe('false')
+  })
 })
