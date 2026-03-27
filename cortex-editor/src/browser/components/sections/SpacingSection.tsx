@@ -77,6 +77,7 @@ function SpacingGroup({
             class="cortex-spacing-group__toggle"
             data-action={`toggle-${prefix}`}
             data-tooltip="Switch to 2-axis mode"
+            aria-label="Switch to 2-axis mode"
             onClick={onToggle}
           >
             &#8862;
@@ -104,6 +105,7 @@ function SpacingGroup({
           class="cortex-spacing-group__toggle"
           data-action={`toggle-${prefix}`}
           data-tooltip="Switch to 4-sided mode"
+          aria-label="Switch to 4-sided mode"
           onClick={onToggle}
         >
           &#8862;

@@ -100,6 +100,7 @@ export function PanelHeader({
           data-action="parent"
           disabled={!hasParent}
           data-tooltip="Select parent element"
+          aria-label="Select parent element"
           onClick={onSelectParent}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -111,6 +112,7 @@ export function PanelHeader({
           data-action="child"
           disabled={!hasChildren}
           data-tooltip="Select child element"
+          aria-label="Select child element"
           onClick={onSelectChild}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -121,6 +123,7 @@ export function PanelHeader({
           class={`cortex-panel-header__btn${hoverEnabled ? '' : ' cortex-panel-header__btn--toggled-off'}`}
           data-action="toggle-hover"
           data-tooltip={hoverEnabled ? 'Hide hover overlay' : 'Show hover overlay'}
+          aria-label={hoverEnabled ? 'Hide hover overlay' : 'Show hover overlay'}
           onClick={onToggleHover}
         >
           {hoverEnabled ? (
@@ -139,6 +142,7 @@ export function PanelHeader({
           class="cortex-panel-header__btn cortex-panel-header__btn--close"
           data-action="close"
           data-tooltip="Close panel"
+          aria-label="Close panel"
           onClick={onClose}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">

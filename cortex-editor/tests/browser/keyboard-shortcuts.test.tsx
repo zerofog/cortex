@@ -100,7 +100,7 @@ describe('cascade priorities (integration)', () => {
     await new Promise(r => setTimeout(r, SETTLE))
 
     // Enter comment mode by clicking the comment button
-    const commentBtn = root.querySelectorAll('.cortex-toolbar__mode')[1] as HTMLButtonElement
+    const commentBtn = root.querySelector('[data-mode="comment"]') as HTMLButtonElement
     expect(commentBtn).not.toBeNull()
     commentBtn.click()
     await new Promise(r => setTimeout(r, SETTLE))
@@ -194,7 +194,7 @@ describe('tinykeys shortcut integration', () => {
     await new Promise(r => setTimeout(r, SETTLE))
 
     // Enter comment mode
-    const commentBtn = root.querySelectorAll('.cortex-toolbar__mode')[1] as HTMLButtonElement
+    const commentBtn = root.querySelector('[data-mode="comment"]') as HTMLButtonElement
     commentBtn.click()
     await new Promise(r => setTimeout(r, SETTLE))
     expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(true)
@@ -212,7 +212,7 @@ describe('tinykeys shortcut integration', () => {
     render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
     await new Promise(r => setTimeout(r, SETTLE))
 
-    const commentBtn = root.querySelectorAll('.cortex-toolbar__mode')[1] as HTMLButtonElement
+    const commentBtn = root.querySelector('[data-mode="comment"]') as HTMLButtonElement
     expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(false)
 
     // Press C — should toggle comment mode on
@@ -229,7 +229,7 @@ describe('tinykeys shortcut integration', () => {
     await new Promise(r => setTimeout(r, SETTLE))
 
     // Enter comment mode
-    const commentBtn = root.querySelectorAll('.cortex-toolbar__mode')[1] as HTMLButtonElement
+    const commentBtn = root.querySelector('[data-mode="comment"]') as HTMLButtonElement
     commentBtn.click()
     await new Promise(r => setTimeout(r, SETTLE))
     expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(true)
@@ -282,7 +282,7 @@ describe('tinykeys shortcut integration', () => {
     // Mock isInputFocused to return true
     vi.spyOn(focusUtils, 'isInputFocused').mockReturnValue(true)
 
-    const commentBtn = root.querySelectorAll('.cortex-toolbar__mode')[1] as HTMLButtonElement
+    const commentBtn = root.querySelector('[data-mode="comment"]') as HTMLButtonElement
     expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(false)
 
     // Press C — should NOT toggle comment mode because input is focused
@@ -301,7 +301,7 @@ describe('tinykeys shortcut integration', () => {
     // Mock isCortexUIFocused to return true
     vi.spyOn(focusUtils, 'isCortexUIFocused').mockReturnValue(true)
 
-    const commentBtn = root.querySelectorAll('.cortex-toolbar__mode')[1] as HTMLButtonElement
+    const commentBtn = root.querySelector('[data-mode="comment"]') as HTMLButtonElement
     expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(false)
 
     // Press C — should NOT toggle comment mode because Cortex UI is focused

@@ -108,6 +108,8 @@ export function Toolbar({
           class={`cortex-toolbar__mode${!commentMode ? ' cortex-toolbar__mode--active' : ''}`}
           role="radio"
           aria-checked={!commentMode ? 'true' : 'false'}
+          aria-label="Select mode"
+          data-mode="select"
           data-tooltip={`Select (${formatShortcut('v')})`}
           onClick={commentMode ? onCommentMode : undefined}
         >
@@ -118,6 +120,8 @@ export function Toolbar({
           class={`cortex-toolbar__mode${commentMode ? ' cortex-toolbar__mode--active' : ''}`}
           role="radio"
           aria-checked={commentMode ? 'true' : 'false'}
+          aria-label="Comment mode"
+          data-mode="comment"
           data-tooltip={`Comment (${formatShortcut('c')})`}
           onClick={!commentMode ? onCommentMode : undefined}
         >
