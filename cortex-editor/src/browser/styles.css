@@ -1254,22 +1254,22 @@
   position: fixed;
   left: 0;
   top: 0;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0;
-  background: rgba(255, 255, 255, 0.97);
-  border-radius: 20px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  gap: var(--sp-2);
+  background: var(--paper);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07), 0 0 0 1px var(--rule-soft);
   pointer-events: auto;
-  font-size: 13px;
+  font-size: var(--text-lg);
   color: var(--ink);
-  padding: 4px;
+  padding: var(--sp-2);
   animation: cortex-toolbar-fade-in 200ms ease-out;
 }
 
 @keyframes cortex-toolbar-fade-in {
-  from { opacity: 0; transform: scale(0.95); }
-  to   { opacity: 1; transform: scale(1); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 .cortex-toolbar--horizontal {
@@ -1289,47 +1289,53 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 32px;
+  width: 16px;
+  height: 36px;
   cursor: grab;
   color: var(--ink-faint);
   flex-shrink: 0;
   user-select: none;
+  transition: color 150ms ease-out;
 }
 
 .cortex-toolbar__grip:hover {
-  color: var(--ink-tertiary);
+  color: var(--ink-ghost);
 }
 
 .cortex-toolbar__grip:active {
   cursor: grabbing;
+  color: var(--ink-tertiary);
 }
 
 .cortex-toolbar__btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border: none;
   background: transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-lg-inner);
   cursor: pointer;
-  font-size: 14px;
   color: var(--ink-secondary);
   padding: 0;
   flex-shrink: 0;
-  transition: background 150ms ease-out, color 150ms ease-out;
+  transition: background 150ms ease-out, color 150ms ease-out, transform 100ms ease-out, outline-color 150ms ease-out;
+  outline: 2px solid transparent;
+  outline-offset: 1px;
 }
 
-.cortex-toolbar__btn:hover:not(.cortex-toolbar__btn--active) {
-  background: rgba(0, 0, 0, 0.04);
+.cortex-toolbar__btn:hover {
+  background: var(--well);
   color: var(--ink);
 }
 
-.cortex-toolbar__btn--active {
-  background: var(--select);
-  color: #fff;
+.cortex-toolbar__btn:active {
+  transform: scale(0.95);
+}
+
+.cortex-toolbar__btn:focus-visible {
+  outline-color: var(--select-muted);
 }
 
 .cortex-toolbar__btn--close {
@@ -1342,25 +1348,108 @@
 }
 
 .cortex-toolbar__badge {
-  font-size: 11px;
-  color: var(--ink-secondary);
-  padding: 0 8px;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-value);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  padding: 0 var(--sp-4);
+  height: 28px;
+  line-height: 28px;
+  background: var(--well);
+  border-radius: var(--radius-sm);
   white-space: nowrap;
-  flex-shrink: 0;
-  background: none;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   border: none;
   cursor: pointer;
-  font-family: inherit;
+  transition: background 150ms ease-out, transform 100ms ease-out;
 }
 
 .cortex-toolbar__badge:hover {
-  color: var(--ink);
+  background: var(--well-hover);
+}
+
+.cortex-toolbar__badge:active {
+  background: var(--well-active);
+  transform: scale(0.97);
 }
 
 .cortex-toolbar__badge:focus-visible {
-  outline: 2px solid rgba(59, 130, 246, 0.4);
-  outline-offset: -2px;
-  border-radius: 4px;
+  outline: 2px solid var(--select-muted);
+  outline-offset: 1px;
+}
+
+/* Mode switcher — segmented select/comment */
+.cortex-toolbar__modes {
+  display: flex;
+  align-items: center;
+  position: relative;
+  background: var(--well);
+  border-radius: var(--radius-lg-inner);
+  padding: 2px;
+  gap: 0;
+  box-shadow: var(--well-shadow);
+}
+
+.cortex-toolbar__modes-indicator {
+  position: absolute;
+  top: 2px;
+  left: 0;
+  height: calc(100% - 4px);
+  background: var(--paper);
+  border-radius: var(--radius-md);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), width 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+
+.cortex-toolbar__mode {
+  width: 36px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--ink-tertiary);
+  position: relative;
+  z-index: 1;
+  transition: color 150ms ease-out, transform 100ms ease-out, outline-color 150ms ease-out;
+  outline: 2px solid transparent;
+  outline-offset: 1px;
+}
+
+.cortex-toolbar__mode svg {
+  width: 14px;
+  height: 14px;
+}
+
+.cortex-toolbar__mode:hover {
+  color: var(--ink-secondary);
+}
+
+.cortex-toolbar__mode:active:not(.cortex-toolbar__mode--active) {
+  color: var(--ink);
+  transform: scale(0.92);
+}
+
+.cortex-toolbar__mode--active {
+  color: var(--ink);
+}
+
+.cortex-toolbar__mode:focus-visible {
+  outline-color: var(--select-muted);
+}
+
+.cortex-toolbar__divider {
+  width: 1px;
+  height: 20px;
+  background: var(--rule);
+  flex-shrink: 0;
 }
 
 /* Vertical toolbar: tooltips appear to the right */
