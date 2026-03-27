@@ -185,6 +185,7 @@ export function NumericInput({
         class="cortex-numeric-input__value"
         type="text"
         inputMode="numeric"
+        aria-label={tooltip ?? label}
         value={localValue}
         onInput={handleInput}
         onKeyDown={handleKeyDown}
