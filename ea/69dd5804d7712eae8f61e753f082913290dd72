@@ -1,0 +1,54 @@
+cortex-editor/src/browser/components/controls/Dropdown.tsx
+  a8485bba2cf420ff 150-153,159,166
+cortex-editor/src/browser/components/SectionGroup.tsx
+  a8485bba2cf420ff 1-20
+cortex-editor/tests/browser/panel.test.tsx
+  a8485bba2cf420ff 84-115
+cortex-editor/src/browser/styles.css
+  a8485bba2cf420ff 2,4-41,57,82,91,124,129,161,171,176,189-190,210,218,226,247,250,254-255,264,277,283-284,287-288,293,298,307,326,351,354-378,389,394,398-399,417,424,428,437,441,445,450,465,469,479,496,501,505,509,537,542,544-545,549,563,594,596,602,614,620-621,626,632,669,674,678-679,683,687,723,743-747,750-751,766,770-771,773,777,845,855,859,861,866,871,894-895,950,955,959-960,964,997,1002,1008-1009,1017,1054,1072,1079,1084,1106,1108,1112,1116-1117,1124,1150,1186,1204,1207,1212,1216,1221,1226,1231,1242,1245-1248,1274,1278,1282,1338-1341,1345,1351,1357,1363,1379,1384,1395,1402,1411,1441,1456,1462,1490,1496,1503,1514,1535,1541,1543-1553
+cortex-editor/tests/browser/section-group.test.tsx
+  a8485bba2cf420ff 1-65
+cortex-editor/src/browser/components/Panel.tsx
+  a8485bba2cf420ff 24,418-476
+cortex-editor/src/browser/components/CommentInput.tsx
+  a8485bba2cf420ff 64
+cortex-editor/src/browser/components/controls/ColorInput.tsx
+  a8485bba2cf420ff 82
+cortex-editor/src/browser/components/controls/NumericInput.tsx
+  a8485bba2cf420ff 188
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "ea69dd5804d7712eae8f61e753f082913290dd72",
+  "prompts": {
+    "4a8fe0b05b4905c7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d1dd7-9ef2-7e01-988b-77c1f37c74d0",
+        "model": "gpt-5.4"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 401,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/a758edc854074672ef4e6c2a2cd5ca0ec86203e6d0b950f8769bd0c37823955b"
+    },
+    "a8485bba2cf420ff": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "07dece8c-6779-4323-ae48-ccdfe06234e3",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 3041,
+      "total_deletions": 1541,
+      "accepted_lines": 1677,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/69ccad7dce0f7e710e0c19d6d4765c510142ba1547e26ec6ea211398f64abf0f"
+    }
+  }
+}
