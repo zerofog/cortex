@@ -195,7 +195,8 @@
 }
 
 .cortex-panel--cross-fade {
-  animation: cortex-cross-fade 150ms ease-out;
+  /* Intentionally empty — cross-fade removed to prevent flicker on element switch.
+     Class kept to avoid breaking Panel.tsx toggle logic. */
 }
 
 @keyframes cortex-slide-in {
@@ -1362,9 +1363,6 @@
   background: var(--well);
   border-radius: var(--radius-sm);
   white-space: nowrap;
-  max-width: 100px;
-  overflow: hidden;
-  text-overflow: ellipsis;
   border: none;
   cursor: pointer;
   transition: background 150ms ease-out, transform 100ms ease-out;

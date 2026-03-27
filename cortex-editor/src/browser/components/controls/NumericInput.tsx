@@ -184,8 +184,9 @@ export function NumericInput({
         overridden && 'cortex-numeric-input--overridden',
       ].filter(Boolean).join(' ')}
       onPointerDown={handleScrubDown}
+      data-tooltip={tooltip}
     >
-      {label && <span class="cortex-numeric-input__label" data-tooltip={tooltip}>{label}</span>}
+      {label && <span class="cortex-numeric-input__label">{label}</span>}
       <input
         ref={inputRef}
         class="cortex-numeric-input__value"
