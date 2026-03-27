@@ -38,11 +38,10 @@ describe('Toolbar', () => {
     expect(root.querySelector('.cortex-toolbar__badge')).not.toBeNull()
   })
 
-  it('renders comment and close buttons', () => {
+  it('renders mode switcher and close button', () => {
     const { root } = setup()
-    const buttons = root.querySelectorAll('button')
-    expect(buttons.length).toBe(2)
-    expect(root.querySelector('[data-action="comment"]')).not.toBeNull()
+    expect(root.querySelector('.cortex-toolbar__modes')).not.toBeNull()
+    expect(root.querySelectorAll('.cortex-toolbar__mode').length).toBe(2)
     expect(root.querySelector('[data-action="close"]')).not.toBeNull()
   })
 
