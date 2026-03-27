@@ -10,6 +10,7 @@ export interface NumericInputProps {
   onChange: (value: number) => void
   onScrub?: (value: number) => void
   onScrubEnd?: (value: number) => void
+  overridden?: boolean
 }
 
 function getStep(e: KeyboardEvent | WheelEvent): number {
@@ -31,6 +32,7 @@ export function NumericInput({
   onChange,
   onScrub,
   onScrubEnd,
+  overridden,
 }: NumericInputProps): JSX.Element {
   const [localValue, setLocalValue] = useState(String(value))
   const [isEditing, setIsEditing] = useState(false)
@@ -176,10 +178,15 @@ export function NumericInput({
 
   return (
     <div
-      class={`cortex-numeric-input ${isScrubbing ? 'cortex-numeric-input--scrubbing' : ''}`}
+      class={[
+        'cortex-numeric-input',
+        isScrubbing && 'cortex-numeric-input--scrubbing',
+        overridden && 'cortex-numeric-input--overridden',
+      ].filter(Boolean).join(' ')}
       onPointerDown={handleScrubDown}
+      data-tooltip={tooltip}
     >
-      {label && <span class="cortex-numeric-input__label" data-tooltip={tooltip}>{label}</span>}
+      {label && <span class="cortex-numeric-input__label">{label}</span>}
       <input
         ref={inputRef}
         class="cortex-numeric-input__value"
