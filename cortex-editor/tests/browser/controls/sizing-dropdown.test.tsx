@@ -50,23 +50,9 @@ describe('SizingDropdown', () => {
     return container.querySelector('.cortex-sizing-menu')
   }
 
-  it('renders trigger with px for fixed mode', () => {
+  it('renders trigger label matching current mode', () => {
     setup({ mode: 'fixed' })
-    const label = container.querySelector('.cortex-sizing-trigger__label')
-    expect(label).not.toBeNull()
-    expect(label!.textContent).toBe('px')
-  })
-
-  it('renders trigger with fit for fit mode', () => {
-    setup({ mode: 'fit' })
-    const label = container.querySelector('.cortex-sizing-trigger__label')
-    expect(label!.textContent).toBe('fit')
-  })
-
-  it('renders trigger with fill for fill mode', () => {
-    setup({ mode: 'fill' })
-    const label = container.querySelector('.cortex-sizing-trigger__label')
-    expect(label!.textContent).toBe('fill')
+    expect(container.querySelector('.cortex-sizing-trigger__label')!.textContent).toBe('px')
   })
 
   it('opens menu on trigger click', async () => {

@@ -109,7 +109,7 @@ export function SizingDropdown({
         onClick={isOpen ? close : open}
       >
         <span class="cortex-sizing-trigger__label">{MODE_LABELS[mode]}</span>
-        <span class="cortex-sizing-trigger__chevron">&#9662;</span>
+        <span class={`cortex-sizing-trigger__chevron${isOpen ? ' cortex-sizing-trigger__chevron--open' : ''}`}>&#9662;</span>
       </button>
       {isOpen && (
         <>

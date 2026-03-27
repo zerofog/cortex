@@ -1884,7 +1884,7 @@
 
 /* ── Sizing Dropdown ────────────────────────── */
 
-.cortex-sizing-dropdown {
+.cortex-sizing {
   flex-shrink: 0;
 }
 
@@ -1958,6 +1958,14 @@
 
 .cortex-sizing-menu__item:hover {
   background: var(--well);
+}
+
+.cortex-sizing-menu__item--active .cortex-sizing-menu__indicator {
+  color: var(--select);
+}
+
+.cortex-sizing-menu__item--checked .cortex-sizing-menu__indicator {
+  color: var(--select);
 }
 
 .cortex-sizing-menu__indicator {

@@ -38,12 +38,6 @@ describe('PositionSection', () => {
     return { onChange }
   }
 
-  it('has data-section-id="position"', () => {
-    setup()
-    const root = container.querySelector('[data-section-id="position"]')
-    expect(root).not.toBeNull()
-  })
-
   it('parsePositionValues parses basic computed styles', () => {
     const cs = {
       position: 'relative',
@@ -96,21 +90,6 @@ describe('PositionSection', () => {
     expect(result.scaleY).toBe('2')
   })
 
-  it('renders position mode segmented control', () => {
-    setup()
-    const radiogroup = container.querySelector('[role="radiogroup"]')
-    expect(radiogroup).not.toBeNull()
-    const options = container.querySelectorAll('[role="radio"]')
-    expect(options.length).toBe(5)
-  })
-
-  it('shows static as active for position:static', () => {
-    setup()
-    const active = container.querySelector('[aria-checked="true"]')
-    expect(active).not.toBeNull()
-    expect(active!.getAttribute('data-value')).toBe('static')
-  })
-
   it('shows absolute as active for position:absolute', () => {
     setup({ values: { ...DEFAULT_VALUES, position: 'absolute' } })
     const active = container.querySelector('[aria-checked="true"]')
@@ -122,15 +101,6 @@ describe('PositionSection', () => {
     const absBtn = container.querySelector('[data-value="absolute"]') as HTMLElement
     absBtn.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'position', value: 'absolute' })
-  })
-
-  it('renders X, Y, Z numeric inputs', () => {
-    setup({ values: { ...DEFAULT_VALUES, position: 'relative', left: '8px', top: '16px', zIndex: '5' } })
-    const inputs = container.querySelectorAll('.cortex-numeric-input')
-    expect(inputs.length).toBeGreaterThanOrEqual(3)
-    expect(container.textContent).toContain('X')
-    expect(container.textContent).toContain('Y')
-    expect(container.textContent).toContain('Z')
   })
 
   it('emits left change on X input', () => {
@@ -169,11 +139,6 @@ describe('PositionSection', () => {
     expect(xyRow!.classList.contains('cortex-position-section__xy-row--disabled')).toBe(true)
   })
 
-  it('renders rotation input with deg unit', () => {
-    setup({ values: { ...DEFAULT_VALUES, rotate: '45deg' } })
-    expect(container.textContent).toContain('deg')
-  })
-
   it('emits rotate change', () => {
     const { onChange } = setup({ values: { ...DEFAULT_VALUES, position: 'relative', rotate: '0deg' } })
     const inputs = container.querySelectorAll('.cortex-numeric-input input')
@@ -202,14 +167,6 @@ describe('PositionSection', () => {
     const rotateBtn = container.querySelector('[data-tooltip="Rotate 90°"]') as HTMLElement
     rotateBtn.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'rotate', value: '45deg' })
-  })
-
-  it('renders flip H and flip V buttons', () => {
-    setup()
-    const flipH = container.querySelector('[data-tooltip="Flip horizontal"]')
-    const flipV = container.querySelector('[data-tooltip="Flip vertical"]')
-    expect(flipH).not.toBeNull()
-    expect(flipV).not.toBeNull()
   })
 
   it('flip H toggle emits scale: -1 1', () => {

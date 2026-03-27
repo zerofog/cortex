@@ -106,10 +106,14 @@ export function LayoutSection({
   const isNone = values.display === 'none'
   const [aspectLocked, setAspectLocked] = useState(false)
   const [widthMode, setWidthMode] = useState<SizingMode>(
-    values.width === 'fit-content' ? 'fit' : 'fixed'
+    values.width === 'fit-content' ? 'fit'
+    : values.width === '100%' ? 'fill'
+    : 'fixed'
   )
   const [heightMode, setHeightMode] = useState<SizingMode>(
-    values.height === 'fit-content' ? 'fit' : 'fixed'
+    values.height === 'fit-content' ? 'fit'
+    : values.height === '100%' ? 'fill'
+    : 'fixed'
   )
   const [minWidthEnabled, setMinWidthEnabled] = useState(false)
   const [maxWidthEnabled, setMaxWidthEnabled] = useState(false)
@@ -142,7 +146,8 @@ export function LayoutSection({
   const isAutoWidth = isNaN(widthNum)
   const isAutoHeight = isNaN(heightNum)
 
-  const aspectRatio = (!isAutoWidth && !isAutoHeight && heightNum > 0)
+  const canLockAspect = widthMode === 'fixed' && heightMode === 'fixed'
+  const aspectRatio = (canLockAspect && !isAutoWidth && !isAutoHeight && heightNum > 0)
     ? widthNum / heightNum
     : 1
 
