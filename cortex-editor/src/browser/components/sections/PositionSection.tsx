@@ -48,13 +48,81 @@ export function parsePositionValues(cs: CSSStyleDeclaration): PositionValues {
   }
 }
 
+const POSITION_MODE_OPTIONS = [
+  { value: 'static', label: 'stat', title: 'Static' },
+  { value: 'relative', label: 'rel', title: 'Relative' },
+  { value: 'absolute', label: 'abs', title: 'Absolute' },
+  { value: 'fixed', label: 'fix', title: 'Fixed' },
+  { value: 'sticky', label: 'stky', title: 'Sticky' },
+]
+
 export function PositionSection({
   values,
   onChange,
   onScrub,
   onScrubEnd,
 }: PositionSectionProps): JSX.Element {
+  const isStatic = values.position === 'static'
+
+  const handlePositionMode = useCallback(
+    (v: string) => onChange({ property: 'position', value: v }),
+    [onChange],
+  )
+
+  const handleXChange = useCallback(
+    (v: number) => onChange({ property: 'left', value: `${v}px` }),
+    [onChange],
+  )
+
+  const handleYChange = useCallback(
+    (v: number) => onChange({ property: 'top', value: `${v}px` }),
+    [onChange],
+  )
+
+  const handleZChange = useCallback(
+    (v: number) => onChange({ property: 'z-index', value: `${v}` }),
+    [onChange],
+  )
+
+  const handleXScrub = useCallback(
+    (v: number) => onScrub?.({ property: 'left', value: `${v}px` }),
+    [onScrub],
+  )
+
+  const handleYScrub = useCallback(
+    (v: number) => onScrub?.({ property: 'top', value: `${v}px` }),
+    [onScrub],
+  )
+
+  const handleXScrubEnd = useCallback(
+    (v: number) => onScrubEnd?.({ property: 'left', value: `${v}px` }),
+    [onScrubEnd],
+  )
+
+  const handleYScrubEnd = useCallback(
+    (v: number) => onScrubEnd?.({ property: 'top', value: `${v}px` }),
+    [onScrubEnd],
+  )
+
+  const xValue = parseFloat(values.left) || 0
+  const yValue = parseFloat(values.top) || 0
+  const zValue = parseFloat(values.zIndex) || 0
+
   return (
-    <div class="cortex-position-section" data-section-id="position"></div>
+    <div class="cortex-position-section" data-section-id="position">
+      <div class="cortex-position-section__group">
+        <SegmentedControl
+          options={POSITION_MODE_OPTIONS}
+          value={values.position}
+          onChange={handlePositionMode}
+          size="sm"
+        />
+      </div>
+      <div class={`cortex-position-section__xy-row${isStatic ? ' cortex-position-section__xy-row--disabled' : ''}`}>
+        <NumericInput value={xValue} unit="px" label="X" tooltip="Left offset" onChange={handleXChange} onScrub={handleXScrub} onScrubEnd={handleXScrubEnd} />
+        <NumericInput value={yValue} unit="px" label="Y" tooltip="Top offset" onChange={handleYChange} onScrub={handleYScrub} onScrubEnd={handleYScrubEnd} />
+        <NumericInput value={zValue} label="Z" tooltip="Z-index" onChange={handleZChange} />
+      </div>
+    </div>
   )
 }
