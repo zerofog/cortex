@@ -147,18 +147,23 @@ export function Dropdown({
               ref={filterRef}
               class="cortex-dropdown__filter"
               type="text"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-controls="cortex-dropdown-listbox"
+              aria-activedescendant={filtered[highlightIdx] ? `cortex-opt-${filtered[highlightIdx].value}` : undefined}
               value={filter}
               onInput={handleFilterInput}
               onKeyDown={handleKeyDown}
               placeholder="Filter..."
             />
-            <div class="cortex-dropdown__list" role="listbox">
+            <div class="cortex-dropdown__list" role="listbox" id="cortex-dropdown-listbox">
               {filtered.length === 0 ? (
                 <div class="cortex-dropdown__empty">No matches</div>
               ) : (
                 filtered.map((opt, i) => (
                   <div
                     key={opt.value}
+                    id={`cortex-opt-${opt.value}`}
                     class={[
                       'cortex-dropdown__option',
                       i === highlightIdx && 'cortex-dropdown__option--active',

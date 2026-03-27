@@ -81,6 +81,38 @@ describe('Panel', () => {
     expect(root.querySelector('[data-section-id="effects"]')).not.toBeNull()
   })
 
+  it('renders three section groups with correct data-group attributes', () => {
+    const { root } = setup()
+    const groups = root.querySelectorAll('.cortex-section-group')
+    expect(groups.length).toBe(3)
+    expect(root.querySelector('[data-group="layout"]')).not.toBeNull()
+    expect(root.querySelector('[data-group="typography"]')).not.toBeNull()
+    expect(root.querySelector('[data-group="style"]')).not.toBeNull()
+  })
+
+  it('renders group headers with correct labels', () => {
+    const { root } = setup()
+    const titles = root.querySelectorAll('.cortex-section-group__title')
+    const labels = Array.from(titles).map(t => t.textContent)
+    expect(labels).toEqual(['Layout', 'Typography', 'Style'])
+  })
+
+  it('groups sections under correct parent groups', () => {
+    const { root } = setup()
+    const layoutGroup = root.querySelector('[data-group="layout"]')!
+    expect(layoutGroup.querySelector('[data-section-id="layout"]')).not.toBeNull()
+    expect(layoutGroup.querySelector('[data-section-id="spacing"]')).not.toBeNull()
+
+    const typographyGroup = root.querySelector('[data-group="typography"]')!
+    expect(typographyGroup.querySelector('[data-section-id="type"]')).not.toBeNull()
+
+    const styleGroup = root.querySelector('[data-group="style"]')!
+    expect(styleGroup.querySelector('[data-section-id="fill"]')).not.toBeNull()
+    expect(styleGroup.querySelector('[data-section-id="border"]')).not.toBeNull()
+    expect(styleGroup.querySelector('[data-section-id="shadow"]')).not.toBeNull()
+    expect(styleGroup.querySelector('[data-section-id="effects"]')).not.toBeNull()
+  })
+
   it('calls onClose when close button clicked', () => {
     const { root, onClose } = setup()
     const closeBtn = root.querySelector('[data-action="close"]') as HTMLButtonElement

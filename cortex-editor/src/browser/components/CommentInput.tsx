@@ -61,6 +61,7 @@ export function CommentInput({ onSubmit, agentConnected }: CommentInputProps): J
       <input
         type="text"
         class="cortex-comment-input__field"
+        aria-label="Comment to AI agent"
         placeholder={placeholder}
         value={text}
         onInput={handleInput}
