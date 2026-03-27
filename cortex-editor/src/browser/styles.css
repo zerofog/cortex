@@ -466,14 +466,17 @@
 .cortex-section-group {
   display: flex;
   flex-direction: column;
+}
+
+.cortex-panel--entering .cortex-section-group {
   animation: cortex-group-enter 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-.cortex-section-group:nth-child(1) { animation-delay: 200ms; }
-.cortex-section-group:nth-child(2) { animation-delay: 300ms; }
-.cortex-section-group:nth-child(3) { animation-delay: 400ms; }
-.cortex-section-group:nth-child(4) { animation-delay: 500ms; }
-.cortex-section-group:nth-child(5) { animation-delay: 600ms; }
+.cortex-panel--entering .cortex-section-group:nth-child(1) { animation-delay: 100ms; }
+.cortex-panel--entering .cortex-section-group:nth-child(2) { animation-delay: 200ms; }
+.cortex-panel--entering .cortex-section-group:nth-child(3) { animation-delay: 300ms; }
+.cortex-panel--entering .cortex-section-group:nth-child(4) { animation-delay: 400ms; }
+.cortex-panel--entering .cortex-section-group:nth-child(5) { animation-delay: 500ms; }
 
 /* Divider between groups — not before the first one */
 .cortex-section-group + .cortex-section-group {
@@ -831,8 +834,8 @@
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
+  align-items: center;
+  gap: var(--sp-2);
 }
 
 .cortex-typography-section__inline-label {
