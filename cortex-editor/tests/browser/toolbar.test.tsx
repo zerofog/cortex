@@ -26,9 +26,13 @@ describe('Toolbar', () => {
     expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
   })
 
-  it('does not render a select mode button', () => {
+  it('renders select and comment mode buttons', () => {
     const { root } = setup()
-    expect(root.querySelector('[data-mode="select"]')).toBeNull()
+    const modes = root.querySelectorAll('.cortex-toolbar__mode')
+    expect(modes.length).toBe(2)
+    // First mode is select (default active), second is comment
+    expect(modes[0].classList.contains('cortex-toolbar__mode--active')).toBe(true)
+    expect(modes[1].classList.contains('cortex-toolbar__mode--active')).toBe(false)
   })
 
   it('renders grip, badge, and close button', () => {
