@@ -52,50 +52,29 @@ describe('SpacingSection', () => {
     expect(paddingSection).not.toBeNull()
   })
 
-  it('renders lock toggle in locked state by default', () => {
+  it('renders lock toggle in unlocked state by default', () => {
     setup({ padding: { top: 16, right: 16, bottom: 16, left: 16 } })
     const paddingSection = container.querySelector('[data-section="padding"]')!
     const lockBtn = paddingSection.querySelector('.cortex-lock-btn') as HTMLButtonElement
     expect(lockBtn).not.toBeNull()
-    expect(lockBtn.getAttribute('aria-pressed')).toBe('true')
-    expect(lockBtn.getAttribute('data-tooltip')).toBe('Unlock axes')
+    expect(lockBtn.getAttribute('aria-pressed')).toBe('false')
+    expect(lockBtn.getAttribute('data-tooltip')).toBe('Lock axes')
   })
 
-  it('toggles to unlocked state on click', async () => {
+  it('toggles to locked state on click', async () => {
     setup({ padding: { top: 16, right: 16, bottom: 16, left: 16 } })
     const paddingSection = container.querySelector('[data-section="padding"]')!
     const lockBtn = paddingSection.querySelector('.cortex-lock-btn') as HTMLButtonElement
     lockBtn.click()
     await new Promise(r => setTimeout(r, 10))
-    expect(lockBtn.getAttribute('aria-pressed')).toBe('false')
-    expect(lockBtn.getAttribute('data-tooltip')).toBe('Lock axes')
-    expect(lockBtn.classList.contains('cortex-lock-btn--active')).toBe(false)
+    expect(lockBtn.getAttribute('aria-pressed')).toBe('true')
+    expect(lockBtn.getAttribute('data-tooltip')).toBe('Unlock axes')
+    expect(lockBtn.classList.contains('cortex-lock-btn--active')).toBe(true)
   })
 
-  it('syncs axes when locked — changing horizontal updates vertical', async () => {
+  it('does not sync axes when unlocked (default)', async () => {
     const { onChange } = setup({ padding: { top: 16, right: 16, bottom: 16, left: 16 } })
     const paddingSection = container.querySelector('[data-section="padding"]')!
-    const inputs = paddingSection.querySelectorAll('.cortex-numeric-input input') as NodeListOf<HTMLInputElement>
-    // First input is horizontal (↔)
-    inputs[0].focus()
-    inputs[0].value = '24'
-    inputs[0].dispatchEvent(new Event('input', { bubbles: true }))
-    inputs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    // Should emit changes for all 4 sides
-    const properties = onChange.mock.calls.map((call: any[]) => call[0].property)
-    expect(properties).toContain('padding-left')
-    expect(properties).toContain('padding-right')
-    expect(properties).toContain('padding-top')
-    expect(properties).toContain('padding-bottom')
-  })
-
-  it('does not sync axes when unlocked', async () => {
-    const { onChange } = setup({ padding: { top: 16, right: 16, bottom: 16, left: 16 } })
-    const paddingSection = container.querySelector('[data-section="padding"]')!
-    const lockBtn = paddingSection.querySelector('.cortex-lock-btn') as HTMLButtonElement
-    lockBtn.click()
-    await new Promise(r => setTimeout(r, 10))
-    onChange.mockClear()
     const inputs = paddingSection.querySelectorAll('.cortex-numeric-input input') as NodeListOf<HTMLInputElement>
     inputs[0].focus()
     inputs[0].value = '24'
@@ -106,6 +85,27 @@ describe('SpacingSection', () => {
     expect(properties).toContain('padding-right')
     expect(properties).not.toContain('padding-top')
     expect(properties).not.toContain('padding-bottom')
+  })
+
+  it('syncs axes when locked — changing horizontal updates vertical', async () => {
+    const { onChange } = setup({ padding: { top: 16, right: 16, bottom: 16, left: 16 } })
+    const paddingSection = container.querySelector('[data-section="padding"]')!
+    // Lock first
+    const lockBtn = paddingSection.querySelector('.cortex-lock-btn') as HTMLButtonElement
+    lockBtn.click()
+    await new Promise(r => setTimeout(r, 10))
+    onChange.mockClear()
+    const inputs = paddingSection.querySelectorAll('.cortex-numeric-input input') as NodeListOf<HTMLInputElement>
+    inputs[0].focus()
+    inputs[0].value = '24'
+    inputs[0].dispatchEvent(new Event('input', { bubbles: true }))
+    inputs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    // Should emit changes for all 4 sides
+    const properties = onChange.mock.calls.map((call: any[]) => call[0].property)
+    expect(properties).toContain('padding-left')
+    expect(properties).toContain('padding-right')
+    expect(properties).toContain('padding-top')
+    expect(properties).toContain('padding-bottom')
   })
 
   it('toggles to 4-sided mode via expand button', async () => {
@@ -133,15 +133,15 @@ describe('SpacingSection', () => {
     expect(container.textContent).not.toContain('Gap')
   })
 
-  it('gap lock button renders locked by default', () => {
+  it('gap lock button renders unlocked by default', () => {
     setup()
     const gapSection = container.querySelector('[data-section="gap"]')!
     const lockBtn = gapSection.querySelector('.cortex-lock-btn') as HTMLButtonElement
     expect(lockBtn).not.toBeNull()
-    expect(lockBtn.getAttribute('aria-pressed')).toBe('true')
+    expect(lockBtn.getAttribute('aria-pressed')).toBe('false')
   })
 
-  it('gap lock syncs column and row when locked', async () => {
+  it('gap lock does not sync when unlocked (default)', async () => {
     const { onChange } = setup()
     const gapSection = container.querySelector('[data-section="gap"]')!
     const inputs = gapSection.querySelectorAll('.cortex-numeric-input input') as NodeListOf<HTMLInputElement>
@@ -151,10 +151,10 @@ describe('SpacingSection', () => {
     inputs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
     const properties = onChange.mock.calls.map((call: any[]) => call[0].property)
     expect(properties).toContain('column-gap')
-    expect(properties).toContain('row-gap')
+    expect(properties).not.toContain('row-gap')
   })
 
-  it('gap lock does not sync when unlocked', async () => {
+  it('gap lock syncs column and row when locked', async () => {
     const { onChange } = setup()
     const gapSection = container.querySelector('[data-section="gap"]')!
     const lockBtn = gapSection.querySelector('.cortex-lock-btn') as HTMLButtonElement
@@ -168,7 +168,7 @@ describe('SpacingSection', () => {
     inputs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
     const properties = onChange.mock.calls.map((call: any[]) => call[0].property)
     expect(properties).toContain('column-gap')
-    expect(properties).not.toContain('row-gap')
+    expect(properties).toContain('row-gap')
   })
 
   it('renders sizing segmented control when boxSizing prop provided', () => {

@@ -207,9 +207,9 @@ export function SpacingSection({
   onScrub,
   onScrubEnd,
 }: SpacingSectionProps): JSX.Element {
-  const [paddingLocked, setPaddingLocked] = useState(true)
-  const [marginLocked, setMarginLocked] = useState(true)
-  const [gapLocked, setGapLocked] = useState(true)
+  const [paddingLocked, setPaddingLocked] = useState(false)
+  const [marginLocked, setMarginLocked] = useState(false)
+  const [gapLocked, setGapLocked] = useState(false)
   const [paddingExpanded, setPaddingExpanded] = useState(false)
   const [marginExpanded, setMarginExpanded] = useState(false)
 

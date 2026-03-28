@@ -102,15 +102,15 @@
   transform: translateX(-50%) translateY(0);
 }
 
-/* Tooltip below for panel header (avoids overflow:hidden clipping) */
-.cortex-panel-header [data-tooltip]::after {
+/* Tooltip below for panel (avoids overflow clipping from panel body scroll) */
+.cortex-panel [data-tooltip]::after {
   bottom: auto;
   top: calc(100% + 6px);
   transform: translateX(-50%) translateY(-4px);
 }
 
-.cortex-panel-header [data-tooltip]:hover::after,
-.cortex-panel-header [data-tooltip]:focus-visible::after {
+.cortex-panel [data-tooltip]:hover::after,
+.cortex-panel [data-tooltip]:focus-visible::after {
   transform: translateX(-50%) translateY(0);
 }
 
@@ -1809,18 +1809,6 @@
 
 .cortex-spacing-group__toggle:active {
   transform: scale(0.92);
-}
-
-/* Sizing toggle tooltips: show below to avoid panel overflow clipping */
-.cortex-spacing-section__toggles [data-tooltip]::after {
-  bottom: auto;
-  top: calc(100% + 6px);
-  transform: translateX(-50%) translateY(-4px);
-}
-
-.cortex-spacing-section__toggles [data-tooltip]:hover::after,
-.cortex-spacing-section__toggles [data-tooltip]:focus-visible::after {
-  transform: translateX(-50%) translateY(0);
 }
 
 /* ── Position Section ───────────────────────── */
