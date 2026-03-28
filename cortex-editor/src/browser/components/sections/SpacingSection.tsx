@@ -183,7 +183,7 @@ const SIZING_OPTIONS = [
         <rect x="4" y="4" width="6" height="6" rx="0.5" />
       </svg>
     ),
-    title: 'Content box \u2014 width excludes padding',
+    title: 'Content box',
   },
   {
     value: 'border-box',
@@ -193,7 +193,7 @@ const SIZING_OPTIONS = [
         <rect x="4" y="4" width="6" height="6" rx="0.5" stroke-dasharray="2 1" />
       </svg>
     ),
-    title: 'Border box \u2014 width includes padding + border',
+    title: 'Border box',
   },
 ]
 
