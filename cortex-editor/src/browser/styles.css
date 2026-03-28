@@ -913,6 +913,11 @@
   box-shadow: 0 0 0 2px var(--select-muted);
 }
 
+.cortex-color-input__opacity {
+  width: 52px;
+  flex-shrink: 0;
+}
+
 /* ── Color picker popover ──────────────────── */
 
 .cortex-color-picker__backdrop {
@@ -1047,6 +1052,47 @@
 
 .cortex-fill-section__color-row {
   position: relative;
+}
+
+.cortex-fill-section__type-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.cortex-fill-section__gradient-preview {
+  height: 24px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule);
+  cursor: pointer;
+}
+
+.cortex-fill-section__gradient-stops {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.cortex-fill-section__gradient-stop {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.cortex-fill-section__gradient-stop-label {
+  font-size: var(--text-sm);
+  color: var(--ink-ghost);
+  letter-spacing: 0.01em;
+}
+
+.cortex-fill-section__angle-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.cortex-fill-section__angle-row .cortex-numeric-input {
+  flex: 1;
 }
 
 /* ── Border section ────────────────────────── */

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
-import { ColorInput, rgbToHex } from '../../../src/browser/components/controls/ColorInput.js'
+import { ColorInput, rgbToHex, parseColor, formatColor } from '../../../src/browser/components/controls/ColorInput.js'
 
 describe('ColorInput', () => {
   let container: HTMLDivElement
@@ -123,5 +123,78 @@ describe('rgbToHex', () => {
 
   it('clamps out-of-range values', () => {
     expect(rgbToHex('rgb(300, -10, 128)')).toBe('#ff0080')
+  })
+})
+
+describe('parseColor', () => {
+  it('parses 6-digit hex as full opacity', () => {
+    expect(parseColor('#3b82f6')).toEqual({ hex: '#3b82f6', alpha: 100 })
+  })
+
+  it('parses 8-digit hex with alpha', () => {
+    expect(parseColor('#3b82f680')).toEqual({ hex: '#3b82f6', alpha: 50 })
+  })
+
+  it('parses 8-digit hex fully opaque', () => {
+    expect(parseColor('#3b82f6ff')).toEqual({ hex: '#3b82f6', alpha: 100 })
+  })
+
+  it('parses 8-digit hex fully transparent', () => {
+    expect(parseColor('#3b82f600')).toEqual({ hex: '#3b82f6', alpha: 0 })
+  })
+
+  it('parses rgba with decimal alpha', () => {
+    expect(parseColor('rgba(59, 130, 246, 0.5)')).toEqual({ hex: '#3b82f6', alpha: 50 })
+  })
+
+  it('parses rgba with alpha = 1', () => {
+    expect(parseColor('rgba(59, 130, 246, 1)')).toEqual({ hex: '#3b82f6', alpha: 100 })
+  })
+
+  it('parses rgba with alpha = 0', () => {
+    expect(parseColor('rgba(59, 130, 246, 0)')).toEqual({ hex: '#3b82f6', alpha: 0 })
+  })
+
+  it('parses rgba with space-separated syntax', () => {
+    expect(parseColor('rgba(59 130 246 / 0.75)')).toEqual({ hex: '#3b82f6', alpha: 75 })
+  })
+
+  it('parses transparent', () => {
+    expect(parseColor('transparent')).toEqual({ hex: '#000000', alpha: 0 })
+  })
+
+  it('parses rgb (no alpha) as full opacity', () => {
+    expect(parseColor('rgb(59, 130, 246)')).toEqual({ hex: '#3b82f6', alpha: 100 })
+  })
+
+  it('parses 3-digit hex as full opacity', () => {
+    expect(parseColor('#f00')).toEqual({ hex: '#ff0000', alpha: 100 })
+  })
+
+  it('handles unparseable as black full opacity', () => {
+    expect(parseColor('invalid')).toEqual({ hex: '#000000', alpha: 100 })
+  })
+})
+
+describe('formatColor', () => {
+  it('returns hex when alpha is 100', () => {
+    expect(formatColor('#3b82f6', 100)).toBe('#3b82f6')
+  })
+
+  it('returns rgba when alpha < 100', () => {
+    expect(formatColor('#3b82f6', 50)).toBe('rgba(59, 130, 246, 0.5)')
+  })
+
+  it('returns rgba with 0 alpha', () => {
+    expect(formatColor('#3b82f6', 0)).toBe('rgba(59, 130, 246, 0)')
+  })
+
+  it('returns rgba with 75% alpha', () => {
+    expect(formatColor('#ff0000', 75)).toBe('rgba(255, 0, 0, 0.75)')
+  })
+
+  it('returns hex for alpha >= 100', () => {
+    expect(formatColor('#3b82f6', 100)).toBe('#3b82f6')
+    expect(formatColor('#3b82f6', 101)).toBe('#3b82f6')
   })
 })
