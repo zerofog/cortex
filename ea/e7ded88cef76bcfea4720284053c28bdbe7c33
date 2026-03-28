@@ -1,0 +1,24 @@
+cortex-editor/src/browser/styles.css
+  5582bbf690afe12e 1831-1833
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.20",
+  "base_commit_sha": "eae7ded88cef76bcfea4720284053c28bdbe7c33",
+  "prompts": {
+    "5582bbf690afe12e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fd106e46-6a56-42be-ad81-3b4ae712413d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 0,
+      "accepted_lines": 3,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/e0bb4f81693f68e567d4317e6f35b9ef2671cf57f44ee89bb9bd2723321bf839"
+    }
+  }
+}
