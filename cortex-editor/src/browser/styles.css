@@ -1759,7 +1759,9 @@
 .cortex-shadow-section__remove,
 .cortex-spacing-group__toggle,
 .cortex-lock-btn,
-.cortex-border-section__corner-toggle {
+.cortex-border-section__corner-toggle,
+.cortex-position-section__toggle,
+.cortex-sizing-trigger {
   outline: 2px solid transparent;
   outline-offset: 1px;
 }
@@ -1771,7 +1773,9 @@
 .cortex-shadow-section__remove:focus-visible,
 .cortex-spacing-group__toggle:focus-visible,
 .cortex-lock-btn:focus-visible,
-.cortex-border-section__corner-toggle:focus-visible {
+.cortex-border-section__corner-toggle:focus-visible,
+.cortex-position-section__toggle:focus-visible,
+.cortex-sizing-trigger:focus-visible {
   outline-color: var(--select-muted);
 }
 
@@ -1792,6 +1796,245 @@
 
 .cortex-spacing-group__toggle:active {
   transform: scale(0.92);
+}
+
+/* ── Position Section ───────────────────────── */
+
+.cortex-position-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cortex-position-section__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.cortex-position-section__xy-row {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.cortex-position-section__xy-row > .cortex-numeric-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.cortex-position-section__xy-row > .cortex-numeric-input:last-child {
+  flex: 0 0 56px;
+}
+
+.cortex-position-section__xy-row--disabled {
+  opacity: 0.4;
+}
+
+.cortex-position-section__xy-row--disabled > * {
+  pointer-events: none;
+}
+
+.cortex-position-section__rotate-row {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+}
+
+.cortex-position-section__rotate-row > .cortex-numeric-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.cortex-position-section__toggle {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--ink-ghost);
+  flex-shrink: 0;
+  transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out;
+  outline: 2px solid transparent;
+  outline-offset: 1px;
+}
+
+.cortex-position-section__toggle:hover {
+  background: var(--well);
+  color: var(--ink-secondary);
+}
+
+.cortex-position-section__toggle:active {
+  background: var(--well-hover);
+}
+
+.cortex-position-section__toggle:focus-visible {
+  outline-color: var(--select-muted);
+}
+
+.cortex-position-section__toggle--active {
+  background: var(--well);
+  color: var(--ink);
+  box-shadow: var(--well-shadow);
+}
+
+.cortex-position-section__toggle--active:hover {
+  background: var(--well-hover);
+}
+
+/* ── Sizing Dropdown ────────────────────────── */
+
+.cortex-sizing {
+  flex-shrink: 0;
+}
+
+.cortex-sizing-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 0 var(--sp-3);
+  height: 26px;
+  background: var(--well);
+  border: none;
+  border-left: 1px solid var(--rule-soft);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-value);
+  color: var(--ink-ghost);
+  box-shadow: var(--well-shadow);
+  transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out;
+  outline: 2px solid transparent;
+  outline-offset: 1px;
+}
+
+.cortex-sizing-trigger:hover {
+  background: var(--well-hover);
+  color: var(--ink-secondary);
+}
+
+.cortex-sizing-trigger:focus-visible {
+  outline-color: var(--select-muted);
+}
+
+.cortex-sizing-trigger__chevron {
+  font-size: 8px;
+  color: var(--ink-tertiary);
+  transition: transform 200ms ease-out;
+}
+
+.cortex-sizing-trigger__chevron--open {
+  transform: rotate(180deg);
+}
+
+.cortex-sizing-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+}
+
+.cortex-sizing-menu {
+  z-index: 100;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
+  padding: var(--sp-1) 0;
+  overflow: hidden;
+}
+
+.cortex-sizing-menu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--text-md);
+  font-weight: var(--weight-value);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 150ms ease-out;
+  white-space: nowrap;
+}
+
+.cortex-sizing-menu__item:hover {
+  background: var(--well);
+}
+
+.cortex-sizing-menu__item--active .cortex-sizing-menu__indicator {
+  color: var(--select);
+}
+
+.cortex-sizing-menu__item--checked .cortex-sizing-menu__indicator {
+  color: var(--select);
+}
+
+.cortex-sizing-menu__indicator {
+  width: 14px;
+  font-size: var(--text-sm);
+  color: var(--ink-tertiary);
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.cortex-sizing-menu__separator {
+  height: 1px;
+  background: var(--rule);
+  margin: var(--sp-1) 0;
+}
+
+/* ── Layout Section: sizing field (NumericInput + SizingDropdown pair) ── */
+
+.cortex-layout-section__sizing-field {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.cortex-layout-section__sizing-field > .cortex-numeric-input {
+  flex: 1;
+  min-width: 0;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.cortex-layout-section__minmax {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.cortex-layout-section__minmax-field {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.cortex-layout-section__minmax-field > .cortex-numeric-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.cortex-layout-section__minmax-dismiss {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--ink-faint);
+  flex-shrink: 0;
+  transition: background 150ms ease-out, color 150ms ease-out;
+}
+
+.cortex-layout-section__minmax-dismiss:hover {
+  background: var(--destructive-surface);
+  color: var(--destructive);
 }
 
 /* ── Reduced motion ─────────────────────────── */

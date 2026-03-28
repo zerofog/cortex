@@ -7,6 +7,7 @@ export interface NumericInputProps {
   label?: string
   tooltip?: string
   min?: number
+  disabled?: boolean
   onChange: (value: number) => void
   onScrub?: (value: number) => void
   onScrubEnd?: (value: number) => void
@@ -29,6 +30,7 @@ export function NumericInput({
   label,
   tooltip,
   min,
+  disabled,
   onChange,
   onScrub,
   onScrubEnd,
@@ -183,8 +185,9 @@ export function NumericInput({
         isScrubbing && 'cortex-numeric-input--scrubbing',
         overridden && 'cortex-numeric-input--overridden',
       ].filter(Boolean).join(' ')}
-      onPointerDown={handleScrubDown}
+      onPointerDown={disabled ? undefined : handleScrubDown}
       data-tooltip={tooltip}
+      aria-disabled={disabled ? 'true' : undefined}
     >
       {label && <span class="cortex-numeric-input__label">{label}</span>}
       <input
@@ -194,6 +197,8 @@ export function NumericInput({
         inputMode="numeric"
         aria-label={tooltip ?? label}
         value={localValue}
+        disabled={disabled}
+        tabIndex={disabled ? -1 : undefined}
         onInput={handleInput}
         onKeyDown={handleKeyDown}
         onFocus={handleFocus}
