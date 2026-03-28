@@ -22,6 +22,10 @@ export default defineConfig([
     sourcemap: true,
     dts: true,
     external: externals,
+    esbuildOptions(options) {
+      // import.meta.url is guarded by __dirname check — CJS branch never reaches it
+      options.logOverride = { 'empty-import-meta': 'silent' }
+    },
   },
   // Next.js adapter
   {
@@ -32,6 +36,9 @@ export default defineConfig([
     sourcemap: true,
     dts: true,
     external: externals,
+    esbuildOptions(options) {
+      options.logOverride = { 'empty-import-meta': 'silent' }
+    },
   },
   // Next.js webpack loader — CJS only (webpack requires CJS loaders)
   {

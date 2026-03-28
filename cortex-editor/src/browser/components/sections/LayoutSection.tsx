@@ -2,6 +2,8 @@ import type { JSX } from 'preact'
 import { useState, useCallback } from 'preact/hooks'
 import { SegmentedControl } from '../controls/SegmentedControl.js'
 import { NumericInput } from '../controls/NumericInput.js'
+import { SizingDropdown } from '../controls/SizingDropdown.js'
+import type { SizingMode } from '../controls/SizingDropdown.js'
 
 export interface LayoutChange {
   property: string
@@ -16,6 +18,10 @@ export interface LayoutValues {
   alignItems: string
   width: string
   height: string
+  minWidth: string
+  maxWidth: string
+  minHeight: string
+  maxHeight: string
 }
 
 export interface LayoutSectionProps {
@@ -45,6 +51,10 @@ export function parseLayoutValues(cs: CSSStyleDeclaration): LayoutValues {
     alignItems: cs.alignItems ?? 'stretch',
     width: cs.width ?? 'auto',
     height: cs.height ?? 'auto',
+    minWidth: cs.minWidth ?? '0px',
+    maxWidth: cs.maxWidth ?? 'none',
+    minHeight: cs.minHeight ?? '0px',
+    maxHeight: cs.maxHeight ?? 'none',
   }
 }
 
@@ -95,6 +105,20 @@ export function LayoutSection({
   const isFlexOrGrid = isFlex || isGrid
   const isNone = values.display === 'none'
   const [aspectLocked, setAspectLocked] = useState(false)
+  const [widthMode, setWidthMode] = useState<SizingMode>(
+    values.width === 'fit-content' ? 'fit'
+    : values.width === '100%' ? 'fill'
+    : 'fixed'
+  )
+  const [heightMode, setHeightMode] = useState<SizingMode>(
+    values.height === 'fit-content' ? 'fit'
+    : values.height === '100%' ? 'fill'
+    : 'fixed'
+  )
+  const [minWidthEnabled, setMinWidthEnabled] = useState(false)
+  const [maxWidthEnabled, setMaxWidthEnabled] = useState(false)
+  const [minHeightEnabled, setMinHeightEnabled] = useState(false)
+  const [maxHeightEnabled, setMaxHeightEnabled] = useState(false)
 
   const handleDisplayChange = useCallback(
     (v: string) => onChange({ property: 'display', value: v }),
@@ -122,7 +146,8 @@ export function LayoutSection({
   const isAutoWidth = isNaN(widthNum)
   const isAutoHeight = isNaN(heightNum)
 
-  const aspectRatio = (!isAutoWidth && !isAutoHeight && heightNum > 0)
+  const canLockAspect = widthMode === 'fixed' && heightMode === 'fixed'
+  const aspectRatio = (canLockAspect && !isAutoWidth && !isAutoHeight && heightNum > 0)
     ? widthNum / heightNum
     : 1
 
@@ -182,6 +207,62 @@ export function LayoutSection({
   )
 
   const handleToggleLock = useCallback(() => setAspectLocked((v) => !v), [])
+
+  const handleWidthModeChange = useCallback((mode: SizingMode) => {
+    setWidthMode(mode)
+    if (mode === 'fit') onChange({ property: 'width', value: 'fit-content' })
+    else if (mode === 'fill') onChange({ property: 'width', value: '100%' })
+    else onChange({ property: 'width', value: `${isAutoWidth ? 0 : widthNum}px` })
+  }, [onChange, isAutoWidth, widthNum])
+
+  const handleHeightModeChange = useCallback((mode: SizingMode) => {
+    setHeightMode(mode)
+    if (mode === 'fit') onChange({ property: 'height', value: 'fit-content' })
+    else if (mode === 'fill') onChange({ property: 'height', value: '100%' })
+    else onChange({ property: 'height', value: `${isAutoHeight ? 0 : heightNum}px` })
+  }, [onChange, isAutoHeight, heightNum])
+
+  const handleMinWidthChange = useCallback(
+    (v: number) => onChange({ property: 'min-width', value: `${v}px` }),
+    [onChange],
+  )
+  const handleMaxWidthChange = useCallback(
+    (v: number) => onChange({ property: 'max-width', value: `${v}px` }),
+    [onChange],
+  )
+  const handleMinHeightChange = useCallback(
+    (v: number) => onChange({ property: 'min-height', value: `${v}px` }),
+    [onChange],
+  )
+  const handleMaxHeightChange = useCallback(
+    (v: number) => onChange({ property: 'max-height', value: `${v}px` }),
+    [onChange],
+  )
+
+  const handleToggleMinWidth = useCallback(() => {
+    setMinWidthEnabled(v => {
+      if (v) onChange({ property: 'min-width', value: '0px' })
+      return !v
+    })
+  }, [onChange])
+  const handleToggleMaxWidth = useCallback(() => {
+    setMaxWidthEnabled(v => {
+      if (v) onChange({ property: 'max-width', value: 'none' })
+      return !v
+    })
+  }, [onChange])
+  const handleToggleMinHeight = useCallback(() => {
+    setMinHeightEnabled(v => {
+      if (v) onChange({ property: 'min-height', value: '0px' })
+      return !v
+    })
+  }, [onChange])
+  const handleToggleMaxHeight = useCallback(() => {
+    setMaxHeightEnabled(v => {
+      if (v) onChange({ property: 'max-height', value: 'none' })
+      return !v
+    })
+  }, [onChange])
 
   return (
     <div class="cortex-layout-section" data-section-id="layout">
@@ -247,26 +328,46 @@ export function LayoutSection({
       <div class="cortex-layout-section__group">
         <span class="cortex-section-label">Sizing</span>
         <div class="cortex-layout-section__sizing">
-          <NumericInput
-            value={isAutoWidth ? 0 : widthNum}
-            unit={isAutoWidth ? 'auto' : 'px'}
-            label="W"
-            tooltip="Width"
-            min={0}
-            onChange={handleWidthChange}
-            onScrub={handleWidthScrub}
-            onScrubEnd={handleWidthScrubEnd}
-          />
-          <NumericInput
-            value={isAutoHeight ? 0 : heightNum}
-            unit={isAutoHeight ? 'auto' : 'px'}
-            label="H"
-            tooltip="Height"
-            min={0}
-            onChange={handleHeightChange}
-            onScrub={handleHeightScrub}
-            onScrubEnd={handleHeightScrubEnd}
-          />
+          <div class="cortex-layout-section__sizing-field">
+            <NumericInput
+              value={isAutoWidth ? 0 : widthNum}
+              label="W"
+              tooltip="Width"
+              min={0}
+              onChange={handleWidthChange}
+              onScrub={handleWidthScrub}
+              onScrubEnd={handleWidthScrubEnd}
+            />
+            <SizingDropdown
+              mode={widthMode}
+              minEnabled={minWidthEnabled}
+              maxEnabled={maxWidthEnabled}
+              onModeChange={handleWidthModeChange}
+              onToggleMin={handleToggleMinWidth}
+              onToggleMax={handleToggleMaxWidth}
+              dimension="Width"
+            />
+          </div>
+          <div class="cortex-layout-section__sizing-field">
+            <NumericInput
+              value={isAutoHeight ? 0 : heightNum}
+              label="H"
+              tooltip="Height"
+              min={0}
+              onChange={handleHeightChange}
+              onScrub={handleHeightScrub}
+              onScrubEnd={handleHeightScrubEnd}
+            />
+            <SizingDropdown
+              mode={heightMode}
+              minEnabled={minHeightEnabled}
+              maxEnabled={maxHeightEnabled}
+              onModeChange={handleHeightModeChange}
+              onToggleMin={handleToggleMinHeight}
+              onToggleMax={handleToggleMaxHeight}
+              dimension="Height"
+            />
+          </div>
           <button
             class={`cortex-lock-btn${aspectLocked ? ' cortex-lock-btn--active' : ''}`}
             data-tooltip={aspectLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
@@ -287,6 +388,94 @@ export function LayoutSection({
             </svg>
           </button>
         </div>
+        {(minWidthEnabled || maxWidthEnabled || minHeightEnabled || maxHeightEnabled) && (
+          <div class="cortex-layout-section__minmax">
+            {minWidthEnabled && (
+              <div class="cortex-layout-section__minmax-field">
+                <NumericInput
+                  value={parseFloat(values.minWidth) || 0}
+                  unit="px"
+                  label="Min"
+                  tooltip="Min Width"
+                  min={0}
+                  onChange={handleMinWidthChange}
+                />
+                <button
+                  class="cortex-layout-section__minmax-dismiss"
+                  type="button"
+                  data-tooltip="Remove Min Width"
+                  aria-label="Remove Min Width"
+                  onClick={handleToggleMinWidth}
+                >
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg>
+                </button>
+              </div>
+            )}
+            {maxWidthEnabled && (
+              <div class="cortex-layout-section__minmax-field">
+                <NumericInput
+                  value={values.maxWidth === 'none' ? 0 : parseFloat(values.maxWidth) || 0}
+                  unit="px"
+                  label="Max"
+                  tooltip="Max Width"
+                  min={0}
+                  onChange={handleMaxWidthChange}
+                />
+                <button
+                  class="cortex-layout-section__minmax-dismiss"
+                  type="button"
+                  data-tooltip="Remove Max Width"
+                  aria-label="Remove Max Width"
+                  onClick={handleToggleMaxWidth}
+                >
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg>
+                </button>
+              </div>
+            )}
+            {minHeightEnabled && (
+              <div class="cortex-layout-section__minmax-field">
+                <NumericInput
+                  value={parseFloat(values.minHeight) || 0}
+                  unit="px"
+                  label="Min"
+                  tooltip="Min Height"
+                  min={0}
+                  onChange={handleMinHeightChange}
+                />
+                <button
+                  class="cortex-layout-section__minmax-dismiss"
+                  type="button"
+                  data-tooltip="Remove Min Height"
+                  aria-label="Remove Min Height"
+                  onClick={handleToggleMinHeight}
+                >
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg>
+                </button>
+              </div>
+            )}
+            {maxHeightEnabled && (
+              <div class="cortex-layout-section__minmax-field">
+                <NumericInput
+                  value={values.maxHeight === 'none' ? 0 : parseFloat(values.maxHeight) || 0}
+                  unit="px"
+                  label="Max"
+                  tooltip="Max Height"
+                  min={0}
+                  onChange={handleMaxHeightChange}
+                />
+                <button
+                  class="cortex-layout-section__minmax-dismiss"
+                  type="button"
+                  data-tooltip="Remove Max Height"
+                  aria-label="Remove Max Height"
+                  onClick={handleToggleMaxHeight}
+                >
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
