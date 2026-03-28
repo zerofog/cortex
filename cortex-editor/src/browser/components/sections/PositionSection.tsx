@@ -161,8 +161,8 @@ export function PositionSection({
         class={`cortex-position-section__xy-row${isStatic ? ' cortex-position-section__xy-row--disabled' : ''}`}
         data-tooltip={isStatic ? 'Set position mode to enable' : undefined}
       >
-        <NumericInput value={xValue} unit={isStatic ? 'auto' : 'px'} label="X" tooltip={xTooltip} onChange={handleXChange} onScrub={handleXScrub} onScrubEnd={handleXScrubEnd} />
-        <NumericInput value={yValue} unit={isStatic ? 'auto' : 'px'} label="Y" tooltip={yTooltip} onChange={handleYChange} onScrub={handleYScrub} onScrubEnd={handleYScrubEnd} />
+        <NumericInput value={xValue} unit={isStatic ? 'auto' : 'px'} label="X" tooltip={xTooltip} disabled={isStatic} onChange={handleXChange} onScrub={handleXScrub} onScrubEnd={handleXScrubEnd} />
+        <NumericInput value={yValue} unit={isStatic ? 'auto' : 'px'} label="Y" tooltip={yTooltip} disabled={isStatic} onChange={handleYChange} onScrub={handleYScrub} onScrubEnd={handleYScrubEnd} />
         <NumericInput value={zValue} label="Z" tooltip="Z-index" onChange={handleZChange} />
       </div>
       <div class="cortex-position-section__rotate-row">
