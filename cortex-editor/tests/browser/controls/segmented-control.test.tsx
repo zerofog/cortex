@@ -114,6 +114,20 @@ describe('SegmentedControl', () => {
     expect(buttons[0].textContent).toContain('→')
   })
 
+  it('renders JSX elements as icons', async () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    const svgIcon = <svg data-testid="svg-icon" width="14" height="14"><rect x="2" y="2" width="10" height="10" /></svg>
+    const options = [
+      { value: 'a', icon: svgIcon, title: 'Option A' },
+      { value: 'b', icon: svgIcon, title: 'Option B' },
+    ]
+    const onChange = vi.fn()
+    render(<SegmentedControl options={options} value="a" onChange={onChange} />, container)
+    const icons = container.querySelectorAll('[data-testid="svg-icon"]')
+    expect(icons.length).toBe(2)
+  })
+
   it('renders sliding indicator element', () => {
     setup()
     const indicator = container.querySelector('.cortex-segmented__indicator')
