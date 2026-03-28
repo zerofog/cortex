@@ -1828,6 +1828,9 @@
 
 .cortex-position-section__xy-row--disabled {
   opacity: 0.4;
+}
+
+.cortex-position-section__xy-row--disabled > * {
   pointer-events: none;
 }
 
