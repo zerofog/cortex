@@ -1,0 +1,28 @@
+cortex-editor/src/browser/components/Panel.tsx
+  0b28aac81c1518cb 265-266
+cortex-editor/tests/browser/sections/spacing-section.test.tsx
+  0b28aac81c1518cb 72-88
+cortex-editor/src/browser/components/sections/SpacingSection.tsx
+  0b28aac81c1518cb 19,59,151-153,155-157
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "e2168bd4f4b7fd89983041529c25c0c9eaf4474c",
+  "prompts": {
+    "0b28aac81c1518cb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51ead870-5488-4815-8c94-7b322ce7d3ea",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 30,
+      "total_deletions": 13,
+      "accepted_lines": 694,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/e7fdd194876eaebef9275b88072c72644d726cdbbf857119ee2b5e86b25ea640"
+    }
+  }
+}
