@@ -1,0 +1,24 @@
+cortex-editor/tsup.config.ts
+  5582bbf690afe12e 25-28,39-41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.20",
+  "base_commit_sha": "0d674fe2c070270b73fd647ce0c2d1d834b4e48b",
+  "prompts": {
+    "5582bbf690afe12e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fd106e46-6a56-42be-ad81-3b4ae712413d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 7,
+      "total_deletions": 0,
+      "accepted_lines": 7,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/aa96e09ad1ca1a98973719b1d27815c70cf61b2bc18f87f19c0bd68af063ed34"
+    }
+  }
+}
