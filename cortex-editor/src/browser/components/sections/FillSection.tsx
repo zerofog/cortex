@@ -116,10 +116,13 @@ export function FillSection({
       const currentHex = rgbToHex(values.backgroundColor)
       onChange({ property: 'background-image', value: `linear-gradient(180deg, ${currentHex} 0%, transparent 100%)` })
     } else if (type === 'solid' && isGradient) {
-      // Switch to solid: extract first stop color, clear gradient
+      // Switch to solid: extract first stop color, clear gradient.
+      // Use parseColor/formatColor to preserve alpha — rgbToHex strips it,
+      // turning rgba(0,0,0,0) (transparent) into #000000 (black).
       const firstColor = gradient?.stops[0]?.color ?? values.backgroundColor
+      const { hex, alpha } = parseColor(firstColor)
       onChange({ property: 'background-image', value: 'none' })
-      onChange({ property: 'background-color', value: rgbToHex(firstColor) })
+      onChange({ property: 'background-color', value: formatColor(hex, alpha) })
     }
   }, [isGradient, gradient, values.backgroundColor, onChange])
 
@@ -162,7 +165,6 @@ export function FillSection({
           options={FILL_TYPE_OPTIONS}
           value={fillType}
           onChange={handleFillTypeChange}
-          size="sm"
         />
       </div>
 
