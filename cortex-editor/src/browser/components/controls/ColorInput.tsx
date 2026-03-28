@@ -110,15 +110,12 @@ export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, s
     emitColor(hex, alphaRef.current)
   }, [emitColor])
 
+  // Alpha changes are dispatched solely by the parent's onAlphaChange handler
+  // (which calls applyOverride with the formatted color). We do NOT also call
+  // emitColor here — that would double-dispatch the edit.
   const handleAlphaChange = useCallback((a: number) => {
     onAlphaChange?.(a)
-    emitColor(hexColor, a)
-  }, [onAlphaChange, emitColor, hexColor])
-
-  const handlePickerAlphaChange = useCallback((a: number) => {
-    onAlphaChange?.(a)
-    emitColor(hexColor, a)
-  }, [onAlphaChange, emitColor, hexColor])
+  }, [onAlphaChange])
 
   return (
     <div class="cortex-color-input" ref={swatchRef}>
@@ -156,7 +153,7 @@ export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, s
           onClose={handlePickerClose}
           anchor={swatchRef.current}
           alpha={onAlphaChange ? currentAlpha : undefined}
-          onAlphaChange={onAlphaChange ? handlePickerAlphaChange : undefined}
+          onAlphaChange={onAlphaChange ? handleAlphaChange : undefined}
           swatches={swatches}
         />
       )}
