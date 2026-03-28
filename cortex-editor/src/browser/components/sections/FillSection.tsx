@@ -166,19 +166,7 @@ export function FillSection({
         />
       </div>
 
-      {fillType === 'solid' && (
-        <div class="cortex-fill-section__group">
-          <ColorInput
-            value={values.backgroundColor}
-            onChange={handleBackgroundColorChange}
-            alpha={solidAlpha}
-            onAlphaChange={handleSolidAlphaChange}
-            swatches={swatches}
-          />
-        </div>
-      )}
-
-      {fillType === 'gradient' && gradient && (
+      {fillType === 'gradient' && gradient ? (
         <div class="cortex-fill-section__group">
           <div
             class="cortex-fill-section__gradient-preview"
@@ -208,9 +196,7 @@ export function FillSection({
             ))}
           </div>
         </div>
-      )}
-
-      {fillType === 'gradient' && !gradient && (
+      ) : (
         <div class="cortex-fill-section__group">
           <ColorInput
             value={values.backgroundColor}
