@@ -157,6 +157,44 @@ describe('SpacingSection', () => {
     expect(properties).not.toContain('row-gap')
   })
 
+  it('renders overflow segmented control when overflow prop provided', () => {
+    setup({ overflow: 'visible' })
+    const overflowGroup = container.querySelector('[data-section="overflow"]')
+    expect(overflowGroup).not.toBeNull()
+    const radiogroup = overflowGroup!.querySelector('[role="radiogroup"]')
+    expect(radiogroup).not.toBeNull()
+  })
+
+  it('renders sizing segmented control when boxSizing prop provided', () => {
+    setup({ boxSizing: 'content-box' })
+    const sizingGroup = container.querySelector('[data-section="sizing"]')
+    expect(sizingGroup).not.toBeNull()
+  })
+
+  it('emits overflow: hidden when clip option selected', async () => {
+    const { onChange } = setup({ overflow: 'visible' })
+    const overflowGroup = container.querySelector('[data-section="overflow"]')!
+    const hiddenBtn = overflowGroup.querySelector('[data-value="hidden"]') as HTMLButtonElement
+    hiddenBtn.click()
+    await new Promise(r => setTimeout(r, 10))
+    expect(onChange).toHaveBeenCalledWith({ property: 'overflow', value: 'hidden' })
+  })
+
+  it('emits box-sizing: border-box when border-box option selected', async () => {
+    const { onChange } = setup({ boxSizing: 'content-box' })
+    const sizingGroup = container.querySelector('[data-section="sizing"]')!
+    const borderBoxBtn = sizingGroup.querySelector('[data-value="border-box"]') as HTMLButtonElement
+    borderBoxBtn.click()
+    await new Promise(r => setTimeout(r, 10))
+    expect(onChange).toHaveBeenCalledWith({ property: 'box-sizing', value: 'border-box' })
+  })
+
+  it('does not render overflow/sizing when props not provided', () => {
+    setup()
+    expect(container.querySelector('[data-section="overflow"]')).toBeNull()
+    expect(container.querySelector('[data-section="sizing"]')).toBeNull()
+  })
+
   it('emits SpacingChange with string value including unit', () => {
     const { onChange } = setup({ padding: { top: 8, right: 8, bottom: 8, left: 8 } })
     const paddingSection = container.querySelector('[data-section="padding"]')!

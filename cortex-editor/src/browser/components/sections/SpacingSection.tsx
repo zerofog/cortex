@@ -1,6 +1,7 @@
 import type { JSX } from 'preact'
 import { useState, useCallback } from 'preact/hooks'
 import { NumericInput } from '../controls/NumericInput.js'
+import { SegmentedControl } from '../controls/SegmentedControl.js'
 
 export interface SpacingValues {
   top: number
@@ -24,6 +25,8 @@ export interface SpacingSectionProps {
   margin: SpacingValues
   gap: GapValues
   isFlexOrGrid?: boolean
+  overflow?: string
+  boxSizing?: string
   onChange: (change: SpacingChange) => void
   onScrub?: (change: SpacingChange) => void
   onScrubEnd?: (change: SpacingChange) => void
@@ -132,11 +135,59 @@ function SpacingGroup({
   )
 }
 
+const OVERFLOW_OPTIONS = [
+  {
+    value: 'visible',
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2">
+        <rect x="2" y="2" width="10" height="10" rx="1.5" stroke-dasharray="2 1" />
+        <rect x="5" y="4" width="7" height="6" rx="0.5" opacity="0.4" />
+      </svg>
+    ),
+    title: 'Show overflow',
+  },
+  {
+    value: 'hidden',
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2">
+        <rect x="2" y="2" width="10" height="10" rx="1.5" />
+        <rect x="4" y="4" width="6" height="6" rx="0.5" fill="currentColor" opacity="0.15" />
+      </svg>
+    ),
+    title: 'Clip content \u2014 hide overflow',
+  },
+]
+
+const SIZING_OPTIONS = [
+  {
+    value: 'content-box',
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2">
+        <rect x="2" y="2" width="10" height="10" rx="1.5" stroke-dasharray="2 1" />
+        <rect x="4" y="4" width="6" height="6" rx="0.5" />
+      </svg>
+    ),
+    title: 'Content box \u2014 width excludes padding',
+  },
+  {
+    value: 'border-box',
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2">
+        <rect x="2" y="2" width="10" height="10" rx="1.5" />
+        <rect x="4" y="4" width="6" height="6" rx="0.5" stroke-dasharray="2 1" />
+      </svg>
+    ),
+    title: 'Border box \u2014 width includes padding + border',
+  },
+]
+
 export function SpacingSection({
   padding,
   margin,
   gap,
   isFlexOrGrid = true,
+  overflow,
+  boxSizing,
   onChange,
   onScrub,
   onScrubEnd,
@@ -150,6 +201,32 @@ export function SpacingSection({
       <SpacingGroup label="Padding" values={padding} prefix="padding" allowNegative={false}
         locked={paddingLocked} onToggleLock={() => setPaddingLocked(p => !p)}
         onChange={onChange} onScrub={onScrub} onScrubEnd={onScrubEnd} />
+      {(overflow !== undefined || boxSizing !== undefined) && (
+        <div class="cortex-spacing-section__toggles">
+          {overflow !== undefined && (
+            <div class="cortex-spacing-section__toggle-group" data-section="overflow">
+              <span class="cortex-section-label">Overflow</span>
+              <SegmentedControl
+                options={OVERFLOW_OPTIONS}
+                value={overflow === 'hidden' ? 'hidden' : 'visible'}
+                onChange={(v) => onChange({ property: 'overflow', value: v })}
+                size="sm"
+              />
+            </div>
+          )}
+          {boxSizing !== undefined && (
+            <div class="cortex-spacing-section__toggle-group" data-section="sizing">
+              <span class="cortex-section-label">Sizing</span>
+              <SegmentedControl
+                options={SIZING_OPTIONS}
+                value={boxSizing === 'border-box' ? 'border-box' : 'content-box'}
+                onChange={(v) => onChange({ property: 'box-sizing', value: v })}
+                size="sm"
+              />
+            </div>
+          )}
+        </div>
+      )}
       <SpacingGroup label="Margin" values={margin} prefix="margin" allowNegative={true}
         locked={marginLocked} onToggleLock={() => setMarginLocked(p => !p)}
         onChange={onChange} onScrub={onScrub} onScrubEnd={onScrubEnd} />

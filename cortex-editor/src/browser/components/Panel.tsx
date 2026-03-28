@@ -38,7 +38,7 @@ export const ALL_DIMMING_PROPERTIES = [
   'background-color',
   'border-width', 'border-style', 'border-color', 'border-radius',
   'box-shadow',
-  'opacity', 'overflow', 'cursor', 'filter', 'backdrop-filter',
+  'opacity', 'overflow', 'box-sizing', 'cursor', 'filter', 'backdrop-filter',
   'position', 'left', 'top', 'z-index', 'rotate', 'scale',
   'min-width', 'max-width', 'min-height', 'max-height',
 ] as const
@@ -82,6 +82,8 @@ function parseSpacingValues(cs: CSSStyleDeclaration) {
       row: parseFloat(cs.rowGap) || 0,
       column: parseFloat(cs.columnGap) || 0,
     },
+    overflow: cs.overflow || 'visible',
+    boxSizing: cs.boxSizing || 'content-box',
   }
 }
 
@@ -436,6 +438,8 @@ export function Panel({
             margin={computedStyles.spacing.margin}
             gap={computedStyles.spacing.gap}
             isFlexOrGrid={isFlexOrGrid}
+            overflow={computedStyles.spacing.overflow}
+            boxSizing={computedStyles.spacing.boxSizing}
             onChange={handleSpacingCommit}
             onScrub={handleScrub}
             onScrubEnd={handleSpacingCommit}
