@@ -1,10 +1,10 @@
-import type { JSX } from 'preact'
+import type { JSX, ComponentChild } from 'preact'
 import { useRef, useEffect, useCallback } from 'preact/hooks'
 
 export interface SegmentedOption {
   value: string
   label?: string
-  icon?: string
+  icon?: ComponentChild
   title?: string
 }
 
