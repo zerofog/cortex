@@ -69,4 +69,21 @@ describe('SpacingSection', () => {
     setup({ isFlexOrGrid: false })
     expect(container.textContent).not.toContain('Gap')
   })
+
+  it('emits SpacingChange with string value including unit', () => {
+    const { onChange } = setup({ padding: { top: 8, right: 8, bottom: 8, left: 8 } })
+    const paddingSection = container.querySelector('[data-section="padding"]')!
+    const input = paddingSection.querySelector('.cortex-numeric-input input') as HTMLInputElement
+    expect(input).not.toBeNull()
+    input.focus()
+    input.value = '20'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    const call = onChange.mock.calls.find(
+      ([c]: [{ property: string; value: string }]) => c.property.startsWith('padding-')
+    )
+    expect(call).toBeDefined()
+    expect(typeof call![0].value).toBe('string')
+    expect(call![0].value).toMatch(/px$/)
+  })
 })

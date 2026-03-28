@@ -16,7 +16,7 @@ export interface GapValues {
 
 export interface SpacingChange {
   property: string
-  value: number
+  value: string
 }
 
 export interface SpacingSectionProps {
@@ -56,7 +56,7 @@ function SpacingGroup({
     (cb?: (change: SpacingChange) => void) =>
       (sides: string[], value: number) => {
         if (!cb) return
-        for (const side of sides) cb({ property: `${prefix}-${side}`, value })
+        for (const side of sides) cb({ property: `${prefix}-${side}`, value: `${value}px` })
       },
     [prefix],
   )
@@ -148,13 +148,13 @@ export function SpacingSection({
           </div>
           <div class="cortex-spacing-group__row">
             <NumericInput value={gap.column} unit="px" label={"\u2194"} tooltip="Column Gap" min={0}
-              onChange={(v) => onChange({ property: 'column-gap', value: v })}
-              onScrub={(v) => onScrub?.({ property: 'column-gap', value: v })}
-              onScrubEnd={(v) => onScrubEnd?.({ property: 'column-gap', value: v })} />
+              onChange={(v) => onChange({ property: 'column-gap', value: `${v}px` })}
+              onScrub={(v) => onScrub?.({ property: 'column-gap', value: `${v}px` })}
+              onScrubEnd={(v) => onScrubEnd?.({ property: 'column-gap', value: `${v}px` })} />
             <NumericInput value={gap.row} unit="px" label={"\u2195"} tooltip="Row Gap" min={0}
-              onChange={(v) => onChange({ property: 'row-gap', value: v })}
-              onScrub={(v) => onScrub?.({ property: 'row-gap', value: v })}
-              onScrubEnd={(v) => onScrubEnd?.({ property: 'row-gap', value: v })} />
+              onChange={(v) => onChange({ property: 'row-gap', value: `${v}px` })}
+              onScrub={(v) => onScrub?.({ property: 'row-gap', value: `${v}px` })}
+              onScrubEnd={(v) => onScrubEnd?.({ property: 'row-gap', value: `${v}px` })} />
           </div>
         </div>
       )}
