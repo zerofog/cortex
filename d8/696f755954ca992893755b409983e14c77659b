@@ -1,0 +1,26 @@
+cortex-editor/src/browser/components/controls/SegmentedControl.tsx
+  0b28aac81c1518cb 1,7
+cortex-editor/tests/browser/controls/segmented-control.test.tsx
+  0b28aac81c1518cb 117-130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.20",
+  "base_commit_sha": "d8696f755954ca992893755b409983e14c77659b",
+  "prompts": {
+    "0b28aac81c1518cb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51ead870-5488-4815-8c94-7b322ce7d3ea",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 683,
+      "total_deletions": 2,
+      "accepted_lines": 683,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/cc806ea5a6f18ada8e95174652e42fb9445d4a627c17bdfd01ed2fc4ecbf7b8c"
+    }
+  }
+}
