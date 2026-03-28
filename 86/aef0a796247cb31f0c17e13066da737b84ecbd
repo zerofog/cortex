@@ -1,0 +1,26 @@
+cortex-editor/src/browser/components/controls/NumericInput.tsx
+  5582bbf690afe12e 10,33,188,190,200-201
+cortex-editor/src/browser/components/sections/PositionSection.tsx
+  5582bbf690afe12e 164-165
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.20",
+  "base_commit_sha": "86aef0a796247cb31f0c17e13066da737b84ecbd",
+  "prompts": {
+    "5582bbf690afe12e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fd106e46-6a56-42be-ad81-3b4ae712413d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 8,
+      "total_deletions": 3,
+      "accepted_lines": 8,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/eba320c9f14ec27c9a1d41e9d9bc9ecf5bffabdca43e69b4fdc00390f3cd575d"
+    }
+  }
+}
