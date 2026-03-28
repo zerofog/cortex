@@ -82,7 +82,6 @@ function parseSpacingValues(cs: CSSStyleDeclaration) {
       row: parseFloat(cs.rowGap) || 0,
       column: parseFloat(cs.columnGap) || 0,
     },
-    overflow: cs.overflow || 'visible',
     boxSizing: cs.boxSizing || 'content-box',
   }
 }
@@ -438,7 +437,6 @@ export function Panel({
             margin={computedStyles.spacing.margin}
             gap={computedStyles.spacing.gap}
             isFlexOrGrid={isFlexOrGrid}
-            overflow={computedStyles.spacing.overflow}
             boxSizing={computedStyles.spacing.boxSizing}
             onChange={handleSpacingCommit}
             onScrub={handleScrub}
