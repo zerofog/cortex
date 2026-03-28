@@ -1,0 +1,23 @@
+cortex-editor/src/browser/styles.css
+  0b28aac81c1518cb 105-106,110-111,113-115,188-189,226-227
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "ef462d4e6a9c0628b31d16bef332a03f49c5ef12",
+  "prompts": {
+    "0b28aac81c1518cb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51ead870-5488-4815-8c94-7b322ce7d3ea",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 13,
+      "total_deletions": 4,
+      "accepted_lines": 726,
+      "overriden_lines": 0
+    }
+  }
+}
