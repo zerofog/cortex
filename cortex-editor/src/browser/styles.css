@@ -2001,9 +2001,37 @@
   gap: var(--sp-2);
 }
 
-.cortex-layout-section__minmax > .cortex-numeric-input {
+.cortex-layout-section__minmax-field {
+  display: flex;
   flex: 1;
   min-width: 0;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.cortex-layout-section__minmax-field > .cortex-numeric-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.cortex-layout-section__minmax-dismiss {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--ink-faint);
+  flex-shrink: 0;
+  transition: background 150ms ease-out, color 150ms ease-out;
+}
+
+.cortex-layout-section__minmax-dismiss:hover {
+  background: var(--destructive-surface);
+  color: var(--destructive);
 }
 
 /* ── Reduced motion ─────────────────────────── */

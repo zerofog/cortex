@@ -136,8 +136,10 @@ export function PositionSection({
     onChange({ property: 'scale', value: `${values.scaleX} ${newY}` })
   }, [isFlippedV, values.scaleX, onChange])
 
-  const xValue = parseFloat(values.left) || 0
-  const yValue = parseFloat(values.top) || 0
+  const leftNum = parseFloat(values.left)
+  const topNum = parseFloat(values.top)
+  const xValue = isStatic ? 0 : (isNaN(leftNum) ? 0 : leftNum)
+  const yValue = isStatic ? 0 : (isNaN(topNum) ? 0 : topNum)
   const zValue = parseFloat(values.zIndex) || 0
 
   return (
@@ -151,8 +153,8 @@ export function PositionSection({
         />
       </div>
       <div class={`cortex-position-section__xy-row${isStatic ? ' cortex-position-section__xy-row--disabled' : ''}`}>
-        <NumericInput value={xValue} unit="px" label="X" tooltip="Left offset" onChange={handleXChange} onScrub={handleXScrub} onScrubEnd={handleXScrubEnd} />
-        <NumericInput value={yValue} unit="px" label="Y" tooltip="Top offset" onChange={handleYChange} onScrub={handleYScrub} onScrubEnd={handleYScrubEnd} />
+        <NumericInput value={xValue} unit={isStatic ? 'auto' : 'px'} label="X" tooltip="Left offset" onChange={handleXChange} onScrub={handleXScrub} onScrubEnd={handleXScrubEnd} />
+        <NumericInput value={yValue} unit={isStatic ? 'auto' : 'px'} label="Y" tooltip="Top offset" onChange={handleYChange} onScrub={handleYScrub} onScrubEnd={handleYScrubEnd} />
         <NumericInput value={zValue} label="Z" tooltip="Z-index" onChange={handleZChange} />
       </div>
       <div class="cortex-position-section__rotate-row">

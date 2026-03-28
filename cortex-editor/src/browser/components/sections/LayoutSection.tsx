@@ -391,44 +391,88 @@ export function LayoutSection({
         {(minWidthEnabled || maxWidthEnabled || minHeightEnabled || maxHeightEnabled) && (
           <div class="cortex-layout-section__minmax">
             {minWidthEnabled && (
-              <NumericInput
-                value={parseFloat(values.minWidth) || 0}
-                unit="px"
-                label="Min"
-                tooltip="Min Width"
-                min={0}
-                onChange={handleMinWidthChange}
-              />
+              <div class="cortex-layout-section__minmax-field">
+                <NumericInput
+                  value={parseFloat(values.minWidth) || 0}
+                  unit="px"
+                  label="Min"
+                  tooltip="Min Width"
+                  min={0}
+                  onChange={handleMinWidthChange}
+                />
+                <button
+                  class="cortex-layout-section__minmax-dismiss"
+                  type="button"
+                  data-tooltip="Remove Min Width"
+                  aria-label="Remove Min Width"
+                  onClick={handleToggleMinWidth}
+                >
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg>
+                </button>
+              </div>
             )}
             {maxWidthEnabled && (
-              <NumericInput
-                value={values.maxWidth === 'none' ? 0 : parseFloat(values.maxWidth) || 0}
-                unit="px"
-                label="Max"
-                tooltip="Max Width"
-                min={0}
-                onChange={handleMaxWidthChange}
-              />
+              <div class="cortex-layout-section__minmax-field">
+                <NumericInput
+                  value={values.maxWidth === 'none' ? 0 : parseFloat(values.maxWidth) || 0}
+                  unit="px"
+                  label="Max"
+                  tooltip="Max Width"
+                  min={0}
+                  onChange={handleMaxWidthChange}
+                />
+                <button
+                  class="cortex-layout-section__minmax-dismiss"
+                  type="button"
+                  data-tooltip="Remove Max Width"
+                  aria-label="Remove Max Width"
+                  onClick={handleToggleMaxWidth}
+                >
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg>
+                </button>
+              </div>
             )}
             {minHeightEnabled && (
-              <NumericInput
-                value={parseFloat(values.minHeight) || 0}
-                unit="px"
-                label="Min"
-                tooltip="Min Height"
-                min={0}
-                onChange={handleMinHeightChange}
-              />
+              <div class="cortex-layout-section__minmax-field">
+                <NumericInput
+                  value={parseFloat(values.minHeight) || 0}
+                  unit="px"
+                  label="Min"
+                  tooltip="Min Height"
+                  min={0}
+                  onChange={handleMinHeightChange}
+                />
+                <button
+                  class="cortex-layout-section__minmax-dismiss"
+                  type="button"
+                  data-tooltip="Remove Min Height"
+                  aria-label="Remove Min Height"
+                  onClick={handleToggleMinHeight}
+                >
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg>
+                </button>
+              </div>
             )}
             {maxHeightEnabled && (
-              <NumericInput
-                value={values.maxHeight === 'none' ? 0 : parseFloat(values.maxHeight) || 0}
-                unit="px"
-                label="Max"
-                tooltip="Max Height"
-                min={0}
-                onChange={handleMaxHeightChange}
-              />
+              <div class="cortex-layout-section__minmax-field">
+                <NumericInput
+                  value={values.maxHeight === 'none' ? 0 : parseFloat(values.maxHeight) || 0}
+                  unit="px"
+                  label="Max"
+                  tooltip="Max Height"
+                  min={0}
+                  onChange={handleMaxHeightChange}
+                />
+                <button
+                  class="cortex-layout-section__minmax-dismiss"
+                  type="button"
+                  data-tooltip="Remove Max Height"
+                  aria-label="Remove Max Height"
+                  onClick={handleToggleMaxHeight}
+                >
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg>
+                </button>
+              </div>
             )}
           </div>
         )}
