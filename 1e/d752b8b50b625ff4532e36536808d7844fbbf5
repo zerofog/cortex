@@ -1,0 +1,37 @@
+cortex-editor/src/browser/components/sections/FillSection.tsx
+  b16732d2dfc34aed 169,199
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "1ed752b8b50b625ff4532e36536808d7844fbbf5",
+  "prompts": {
+    "0b28aac81c1518cb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51ead870-5488-4815-8c94-7b322ce7d3ea",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 667,
+      "overriden_lines": 0
+    },
+    "b16732d2dfc34aed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "54b5e03b-8ffb-47d7-ab13-b15c341c1121",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 16,
+      "accepted_lines": 2,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/2048310f86771bb87bdc84589ef5ab35b240fa39b01ca95cbd05b26b047dd645"
+    }
+  }
+}
