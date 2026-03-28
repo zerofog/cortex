@@ -38,7 +38,7 @@ export const ALL_DIMMING_PROPERTIES = [
   'background-color',
   'border-width', 'border-style', 'border-color', 'border-radius',
   'box-shadow',
-  'opacity', 'overflow', 'cursor', 'filter', 'backdrop-filter',
+  'opacity', 'overflow', 'box-sizing', 'cursor', 'filter', 'backdrop-filter',
   'position', 'left', 'top', 'z-index', 'rotate', 'scale',
   'min-width', 'max-width', 'min-height', 'max-height',
 ] as const
@@ -82,6 +82,7 @@ function parseSpacingValues(cs: CSSStyleDeclaration) {
       row: parseFloat(cs.rowGap) || 0,
       column: parseFloat(cs.columnGap) || 0,
     },
+    boxSizing: cs.boxSizing || 'content-box',
   }
 }
 
@@ -262,8 +263,8 @@ export function Panel({
     }
   }, [element, overrideManager, activePseudo, channel])
 
-  const handleSpacingCommit = useCallback((c: SpacingChange) => applyOverride(c.property, `${c.value}px`, true), [applyOverride])
-  const handleScrub = useCallback((c: SpacingChange) => applyOverride(c.property, `${c.value}px`, false), [applyOverride])
+  const handleSpacingCommit = useCallback((c: SpacingChange) => applyOverride(c.property, c.value, true), [applyOverride])
+  const handleScrub = useCallback((c: SpacingChange) => applyOverride(c.property, c.value, false), [applyOverride])
 
   const handleLayoutCommit = useCallback((c: LayoutChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleLayoutScrub = useCallback((c: LayoutChange) => applyOverride(c.property, c.value, false), [applyOverride])
@@ -436,6 +437,7 @@ export function Panel({
             margin={computedStyles.spacing.margin}
             gap={computedStyles.spacing.gap}
             isFlexOrGrid={isFlexOrGrid}
+            boxSizing={computedStyles.spacing.boxSizing}
             onChange={handleSpacingCommit}
             onScrub={handleScrub}
             onScrubEnd={handleSpacingCommit}
