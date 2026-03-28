@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Visual refinement editor for web applications — Vite & Next.js plugin",
   "type": "module",
-  "sideEffects": false,
+  "sideEffects": ["src/browser/types.ts"],
   "engines": {
     "node": ">=20"
   },
