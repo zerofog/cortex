@@ -113,6 +113,20 @@ describe('BorderSection', () => {
     expect(labels).toContain('BL')
   })
 
+  it('per-corner toggle has aria-pressed="false" by default', () => {
+    setup()
+    const toggle = container.querySelector('.cortex-border-section__corner-toggle') as HTMLButtonElement
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('per-corner toggle has aria-pressed="true" when expanded', async () => {
+    setup()
+    const toggle = container.querySelector('.cortex-border-section__corner-toggle') as HTMLButtonElement
+    toggle.click()
+    await new Promise(r => setTimeout(r, 10))
+    expect(toggle.getAttribute('aria-pressed')).toBe('true')
+  })
+
   describe('parseBorderValues', () => {
     it('parses border properties from computed style', () => {
       const cs = {

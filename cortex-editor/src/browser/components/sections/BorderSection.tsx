@@ -158,6 +158,8 @@ export function BorderSection({
           <button
             class={`cortex-border-section__corner-toggle${perCorner ? ' cortex-border-section__corner-toggle--active' : ''}`}
             type="button"
+            aria-pressed={perCorner ? 'true' : 'false'}
+            aria-label={perCorner ? 'Uniform radius' : 'Per-corner radius'}
             data-tooltip={perCorner ? 'Uniform radius' : 'Per-corner radius'}
             onClick={handleToggleCorners}
           >
