@@ -1,6 +1,6 @@
 import type { JSX } from 'preact'
 import { useCallback, useMemo } from 'preact/hooks'
-import { ColorInput, parseColor, formatColor, rgbToHex } from '../controls/ColorInput.js'
+import { ColorInput, parseColor, formatColor } from '../controls/ColorInput.js'
 import { SegmentedControl } from '../controls/SegmentedControl.js'
 import { NumericInput } from '../controls/NumericInput.js'
 
@@ -112,17 +112,19 @@ export function FillSection({
 
   const handleFillTypeChange = useCallback((type: string) => {
     if (type === 'gradient' && !isGradient) {
-      // Switch to gradient: use current bg color as first stop
-      const currentHex = rgbToHex(values.backgroundColor)
-      onChange({ property: 'background-image', value: `linear-gradient(180deg, ${currentHex} 0%, transparent 100%)` })
+      // Switch to gradient: use current bg color as first stop.
+      // If backgroundColor is transparent (alpha=0), use a neutral gray
+      // instead of black — rgbToHex would strip the alpha channel.
+      const { hex, alpha } = parseColor(values.backgroundColor)
+      const startColor = alpha > 0 ? formatColor(hex, alpha) : '#9ca3af'
+      onChange({ property: 'background-image', value: `linear-gradient(180deg, ${startColor} 0%, transparent 100%)` })
     } else if (type === 'solid' && isGradient) {
-      // Switch to solid: extract first stop color, clear gradient.
-      // Use parseColor/formatColor to preserve alpha — rgbToHex strips it,
-      // turning rgba(0,0,0,0) (transparent) into #000000 (black).
+      // Switch to solid: clear gradient and revert background-color.
+      // Use parseColor/formatColor to preserve alpha — rgbToHex strips it.
       const firstColor = gradient?.stops[0]?.color ?? values.backgroundColor
-      const { hex, alpha } = parseColor(firstColor)
+      const parsed = parseColor(firstColor)
       onChange({ property: 'background-image', value: 'none' })
-      onChange({ property: 'background-color', value: formatColor(hex, alpha) })
+      onChange({ property: 'background-color', value: formatColor(parsed.hex, parsed.alpha) })
     }
   }, [isGradient, gradient, values.backgroundColor, onChange])
 
