@@ -1,0 +1,26 @@
+cortex-editor/src/browser/components/sections/PositionSection.tsx
+  5582bbf690afe12e 162
+cortex-editor/package.json
+  5582bbf690afe12e 6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.20",
+  "base_commit_sha": "e98aee80d9c389eb2577162c4ec5328a157d41ef",
+  "prompts": {
+    "5582bbf690afe12e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fd106e46-6a56-42be-ad81-3b4ae712413d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 6,
+      "total_deletions": 3,
+      "accepted_lines": 6,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/b0ddf6db8eea7d5ea001fb50d89ac6558abb9be020d46ef18656a95725ddf951"
+    }
+  }
+}
