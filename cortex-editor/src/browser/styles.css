@@ -502,10 +502,37 @@
   gap: 16px;
 }
 
+.cortex-spacing-group__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--ink-tertiary);
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0;
+  font-size: 14px;
+  transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out, transform 100ms ease-out;
+}
+
+.cortex-spacing-group__toggle:hover {
+  background: var(--well);
+  color: var(--ink-secondary);
+}
+
 .cortex-spacing-group__row {
   display: flex;
   gap: var(--sp-3);
   align-items: center;
+}
+
+.cortex-spacing-group__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
 }
 
 .cortex-spacing-section__toggles {
@@ -1743,6 +1770,7 @@
 .cortex-color-input__swatch,
 .cortex-shadow-section__add,
 .cortex-shadow-section__remove,
+.cortex-spacing-group__toggle,
 .cortex-lock-btn,
 .cortex-border-section__corner-toggle,
 .cortex-position-section__toggle,
@@ -1756,6 +1784,7 @@
 .cortex-color-input__swatch:focus-visible,
 .cortex-shadow-section__add:focus-visible,
 .cortex-shadow-section__remove:focus-visible,
+.cortex-spacing-group__toggle:focus-visible,
 .cortex-lock-btn:focus-visible,
 .cortex-border-section__corner-toggle:focus-visible,
 .cortex-position-section__toggle:focus-visible,
@@ -1776,6 +1805,22 @@
 .cortex-shadow-section__add:active,
 .cortex-shadow-section__remove:active {
   transform: scale(0.9);
+}
+
+.cortex-spacing-group__toggle:active {
+  transform: scale(0.92);
+}
+
+/* Sizing toggle tooltips: show below to avoid panel overflow clipping */
+.cortex-spacing-section__toggles [data-tooltip]::after {
+  bottom: auto;
+  top: calc(100% + 6px);
+  transform: translateX(-50%) translateY(-4px);
+}
+
+.cortex-spacing-section__toggles [data-tooltip]:hover::after,
+.cortex-spacing-section__toggles [data-tooltip]:focus-visible::after {
+  transform: translateX(-50%) translateY(0);
 }
 
 /* ── Position Section ───────────────────────── */

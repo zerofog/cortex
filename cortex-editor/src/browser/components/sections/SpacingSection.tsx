@@ -40,6 +40,8 @@ function SpacingGroup({
   allowNegative,
   locked,
   onToggleLock,
+  expanded,
+  onToggleExpand,
   onChange,
   onScrub,
   onScrubEnd,
@@ -50,6 +52,8 @@ function SpacingGroup({
   allowNegative: boolean
   locked: boolean
   onToggleLock: () => void
+  expanded: boolean
+  onToggleExpand: () => void
   onChange: (change: SpacingChange) => void
   onScrub?: (change: SpacingChange) => void
   onScrubEnd?: (change: SpacingChange) => void
@@ -87,10 +91,46 @@ function SpacingGroup({
   const horizontal = values.left === values.right ? values.left : null
   const vertical = values.top === values.bottom ? values.top : null
 
+  if (expanded) {
+    return (
+      <div class="cortex-spacing-group" data-section={prefix}>
+        <div class="cortex-spacing-group__header">
+          <span class="cortex-section-label">{label}</span>
+          <button
+            class="cortex-spacing-group__toggle"
+            data-tooltip="Switch to 2-axis mode"
+            aria-label="Switch to 2-axis mode"
+            onClick={onToggleExpand}
+          >
+            &#8862;
+          </button>
+        </div>
+        <div class="cortex-spacing-group__grid">
+          <NumericInput value={values.top} unit="px" label="T" tooltip="Top" min={allowNegative ? undefined : 0}
+            onChange={(v) => handleChange(['top'], v)} onScrub={(v) => handleScrub(['top'], v)} onScrubEnd={(v) => handleScrubEnd(['top'], v)} />
+          <NumericInput value={values.right} unit="px" label="R" tooltip="Right" min={allowNegative ? undefined : 0}
+            onChange={(v) => handleChange(['right'], v)} onScrub={(v) => handleScrub(['right'], v)} onScrubEnd={(v) => handleScrubEnd(['right'], v)} />
+          <NumericInput value={values.bottom} unit="px" label="B" tooltip="Bottom" min={allowNegative ? undefined : 0}
+            onChange={(v) => handleChange(['bottom'], v)} onScrub={(v) => handleScrub(['bottom'], v)} onScrubEnd={(v) => handleScrubEnd(['bottom'], v)} />
+          <NumericInput value={values.left} unit="px" label="L" tooltip="Left" min={allowNegative ? undefined : 0}
+            onChange={(v) => handleChange(['left'], v)} onScrub={(v) => handleScrub(['left'], v)} onScrubEnd={(v) => handleScrubEnd(['left'], v)} />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div class="cortex-spacing-group" data-section={prefix}>
       <div class="cortex-spacing-group__header">
         <span class="cortex-section-label">{label}</span>
+        <button
+          class="cortex-spacing-group__toggle"
+          data-tooltip="Switch to 4-sided mode"
+          aria-label="Switch to 4-sided mode"
+          onClick={onToggleExpand}
+        >
+          &#8862;
+        </button>
       </div>
       <div class="cortex-spacing-group__row">
         <NumericInput
@@ -170,11 +210,14 @@ export function SpacingSection({
   const [paddingLocked, setPaddingLocked] = useState(true)
   const [marginLocked, setMarginLocked] = useState(true)
   const [gapLocked, setGapLocked] = useState(true)
+  const [paddingExpanded, setPaddingExpanded] = useState(false)
+  const [marginExpanded, setMarginExpanded] = useState(false)
 
   return (
     <div class="cortex-spacing-section" data-section-id="spacing">
       <SpacingGroup label="Padding" values={padding} prefix="padding" allowNegative={false}
         locked={paddingLocked} onToggleLock={() => setPaddingLocked(p => !p)}
+        expanded={paddingExpanded} onToggleExpand={() => setPaddingExpanded(p => !p)}
         onChange={onChange} onScrub={onScrub} onScrubEnd={onScrubEnd} />
       {boxSizing !== undefined && (
         <div class="cortex-spacing-section__toggles">
@@ -191,6 +234,7 @@ export function SpacingSection({
       )}
       <SpacingGroup label="Margin" values={margin} prefix="margin" allowNegative={true}
         locked={marginLocked} onToggleLock={() => setMarginLocked(p => !p)}
+        expanded={marginExpanded} onToggleExpand={() => setMarginExpanded(p => !p)}
         onChange={onChange} onScrub={onScrub} onScrubEnd={onScrubEnd} />
       {isFlexOrGrid && (
         <div class="cortex-spacing-group" data-section="gap">

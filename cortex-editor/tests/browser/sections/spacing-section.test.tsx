@@ -108,10 +108,24 @@ describe('SpacingSection', () => {
     expect(properties).not.toContain('padding-bottom')
   })
 
-  it('does not render 4-sided grid (removed)', () => {
+  it('toggles to 4-sided mode via expand button', async () => {
     setup()
-    expect(container.querySelector('.cortex-spacing-group__grid')).toBeNull()
-    expect(container.querySelector('[data-action="toggle-padding"]')).toBeNull()
+    const paddingSection = container.querySelector('[data-section="padding"]')!
+    const expandBtn = paddingSection.querySelector('.cortex-spacing-group__toggle') as HTMLButtonElement
+    expect(expandBtn).not.toBeNull()
+    expandBtn.click()
+    await new Promise(r => setTimeout(r, 10))
+    const labels = paddingSection.querySelectorAll('.cortex-numeric-input__label')
+    const labelTexts = Array.from(labels).map(l => l.textContent)
+    expect(labelTexts).toEqual(['T', 'R', 'B', 'L'])
+  })
+
+  it('starts in 2-axis mode with expand toggle and lock toggle', () => {
+    setup()
+    const paddingSection = container.querySelector('[data-section="padding"]')!
+    expect(paddingSection.querySelector('.cortex-spacing-group__toggle')).not.toBeNull()
+    expect(paddingSection.querySelector('.cortex-lock-btn')).not.toBeNull()
+    expect(paddingSection.querySelector('.cortex-spacing-group__grid')).toBeNull()
   })
 
   it('hides gap section when isFlexOrGrid is false', () => {
