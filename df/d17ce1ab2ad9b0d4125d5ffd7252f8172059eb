@@ -1,0 +1,28 @@
+cortex-editor/tests/browser/sections/border-section.test.tsx
+  0b28aac81c1518cb 116-129
+cortex-editor/src/browser/styles.css
+  0b28aac81c1518cb 1045
+cortex-editor/src/browser/components/sections/BorderSection.tsx
+  0b28aac81c1518cb 161-162
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "dfd17ce1ab2ad9b0d4125d5ffd7252f8172059eb",
+  "prompts": {
+    "0b28aac81c1518cb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51ead870-5488-4815-8c94-7b322ce7d3ea",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 17,
+      "total_deletions": 1,
+      "accepted_lines": 684,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/f649507fec08a1ed10fa52517c02c7bf87c90bb94dd673710115ef7100489482"
+    }
+  }
+}
