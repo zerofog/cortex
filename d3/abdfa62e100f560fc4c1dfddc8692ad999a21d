@@ -1,0 +1,25 @@
+cortex-editor/src/browser/components/sections/SpacingSection.tsx
+  0b28aac81c1518cb 186,196
+cortex-editor/src/browser/styles.css
+  0b28aac81c1518cb 105-106,112-113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "d3abdfa62e100f560fc4c1dfddc8692ad999a21d",
+  "prompts": {
+    "0b28aac81c1518cb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51ead870-5488-4815-8c94-7b322ce7d3ea",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 20,
+      "total_deletions": 20,
+      "accepted_lines": 903,
+      "overriden_lines": 0
+    }
+  }
+}
