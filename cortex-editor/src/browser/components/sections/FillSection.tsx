@@ -35,8 +35,6 @@ const FILL_TYPE_OPTIONS = [
   { value: 'gradient', label: 'Gradient' },
 ]
 
-const GRADIENT_RE = /^(linear|radial|conic)-gradient/
-
 /** Parse a linear-gradient CSS value into angle + color stops. */
 export function parseLinearGradient(css: string): { angle: number; stops: Array<{ color: string; position: number }> } | null {
   if (!css.startsWith('linear-gradient(')) return null
@@ -62,13 +60,24 @@ export function parseLinearGradient(css: string): { angle: number; stops: Array<
   let angle = 180
   let stopStart = 0
   const angleMatch = parts[0]!.match(/^(-?[\d.]+)deg$/)
-  const dirMatch = parts[0]!.match(/^to\s+(top|bottom|left|right)/)
+  const dirMatch = parts[0]!.match(/^to\s+(top|bottom|left|right)(?:\s+(top|bottom|left|right))?$/)
   if (angleMatch) {
     angle = parseFloat(angleMatch[1]!)
     stopStart = 1
   } else if (dirMatch) {
-    const dirs: Record<string, number> = { top: 0, right: 90, bottom: 180, left: 270 }
-    angle = dirs[dirMatch[1]!] ?? 180
+    const primary = dirMatch[1]!
+    const secondary = dirMatch[2]
+    if (!secondary) {
+      const dirs: Record<string, number> = { top: 0, right: 90, bottom: 180, left: 270 }
+      angle = dirs[primary] ?? 180
+    } else {
+      const pair = new Set([primary, secondary])
+      if (pair.has('top') && pair.has('right')) angle = 45
+      else if (pair.has('bottom') && pair.has('right')) angle = 135
+      else if (pair.has('bottom') && pair.has('left')) angle = 225
+      else if (pair.has('top') && pair.has('left')) angle = 315
+      else return null // contradictory (e.g. "to top bottom")
+    }
     stopStart = 1
   }
 
@@ -97,18 +106,18 @@ export function FillSection({
   onChange,
   swatches,
 }: FillSectionProps): JSX.Element {
-  const isGradient = values.backgroundImage !== 'none' && GRADIENT_RE.test(values.backgroundImage)
+  // Gradient mode: base detection on successful parse (linear-gradient only).
+  // Radial/conic gradients fall through to solid mode since we can't edit them.
+  const gradient = useMemo(
+    () => parseLinearGradient(values.backgroundImage),
+    [values.backgroundImage],
+  )
+  const isGradient = gradient !== null
   const fillType = isGradient ? 'gradient' : 'solid'
 
   // Solid mode: parse color + alpha from backgroundColor
   const solidParsed = parseColor(values.backgroundColor)
   const solidAlpha = solidParsed.alpha
-
-  // Gradient mode: parse into editable structure
-  const gradient = useMemo(
-    () => isGradient ? parseLinearGradient(values.backgroundImage) : null,
-    [isGradient, values.backgroundImage],
-  )
 
   const handleFillTypeChange = useCallback((type: string) => {
     if (type === 'gradient' && !isGradient) {

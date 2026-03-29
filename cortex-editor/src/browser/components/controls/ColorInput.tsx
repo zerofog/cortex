@@ -114,7 +114,7 @@ export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, s
   // (which calls applyOverride with the formatted color). We do NOT also call
   // emitColor here — that would double-dispatch the edit.
   const handleAlphaChange = useCallback((a: number) => {
-    onAlphaChange?.(a)
+    onAlphaChange?.(Math.round(Math.max(0, Math.min(100, a))))
   }, [onAlphaChange])
 
   return (
