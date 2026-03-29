@@ -1,7 +1,8 @@
 import type { JSX } from 'preact'
-import { useCallback, useMemo, useRef } from 'preact/hooks'
+import { useState, useCallback, useMemo, useRef } from 'preact/hooks'
 import { NumericInput } from '../controls/NumericInput.js'
 import { ColorInput } from '../controls/ColorInput.js'
+import { Dropdown } from '../controls/Dropdown.js'
 import { parseBoxShadow, serializeBoxShadow } from '../../../core/shadow-utils.js'
 import type { Shadow } from '../../../core/shadow-utils.js'
 
@@ -54,6 +55,11 @@ export function addShadow(currentBoxShadow: string): string {
   return serializeBoxShadow([...shadows, { ...DEFAULT_SHADOW }])
 }
 
+const SHADOW_TYPE_OPTIONS = [
+  { value: 'drop', label: 'Drop shadow' },
+  { value: 'inset', label: 'Inner shadow' },
+]
+
 /** Shadow with a stable key for list rendering. */
 interface KeyedShadow extends Shadow {
   _key: number
@@ -65,6 +71,7 @@ export function ShadowSection({
   swatches,
 }: ShadowSectionProps): JSX.Element {
   const nextKeyRef = useRef(0)
+  const [expandedKey, setExpandedKey] = useState<number | null>(null)
 
   const shadows = useMemo(() => {
     const parsed = parseBoxShadow(values.boxShadow)
@@ -96,60 +103,89 @@ export function ShadowSection({
     [shadows, emitChange],
   )
 
+  const handleTypeChange = useCallback(
+    (index: number, type: string) => {
+      handleFieldChange(index, 'inset', type === 'inset')
+    },
+    [handleFieldChange],
+  )
+
+  const toggleExpand = useCallback((key: number) => {
+    setExpandedKey(prev => prev === key ? null : key)
+  }, [])
+
   return (
     <div class="cortex-shadow-section" data-section-id="shadow">
-      {shadows.map((shadow, index) => (
-        <div class="cortex-shadow-section__row" key={shadow._key}>
-          <div class="cortex-shadow-section__row-header">
-            <span class="cortex-section-label">Shadow {shadows.length > 1 ? index + 1 : ''}</span>
-            <button
-              class="cortex-shadow-section__remove"
-              data-tooltip="Remove shadow"
-              onClick={() => handleRemove(index)}
+      {shadows.map((shadow, index) => {
+        const isExpanded = expandedKey === shadow._key
+        return (
+          <div class="cortex-shadow-section__row" key={shadow._key} data-expanded={String(isExpanded)}>
+            <div
+              class="cortex-shadow-section__row-header"
+              onClick={() => toggleExpand(shadow._key)}
             >
-              ×
-            </button>
+              <div
+                class="cortex-shadow-section__swatch"
+                style={{ backgroundColor: shadow.color }}
+              />
+              <div class="cortex-shadow-section__type" onClick={(e: Event) => e.stopPropagation()}>
+                <Dropdown
+                  options={SHADOW_TYPE_OPTIONS}
+                  value={shadow.inset ? 'inset' : 'drop'}
+                  onChange={(v: string) => handleTypeChange(index, v)}
+                />
+              </div>
+              <button
+                class="cortex-shadow-section__remove"
+                data-tooltip="Remove shadow"
+                onClick={(e: Event) => { e.stopPropagation(); handleRemove(index) }}
+              >
+                ×
+              </button>
+            </div>
+            {isExpanded && (
+              <div class="cortex-shadow-section__detail">
+                <div class="cortex-shadow-section__grid">
+                  <NumericInput
+                    value={shadow.x}
+                    unit="px"
+                    label="X"
+                    tooltip="Horizontal offset"
+                    onChange={(v: number) => handleFieldChange(index, 'x', v)}
+                  />
+                  <NumericInput
+                    value={shadow.y}
+                    unit="px"
+                    label="Y"
+                    tooltip="Vertical offset"
+                    onChange={(v: number) => handleFieldChange(index, 'y', v)}
+                  />
+                  <NumericInput
+                    value={shadow.blur}
+                    unit="px"
+                    label="B"
+                    tooltip="Blur radius"
+                    min={0}
+                    onChange={(v: number) => handleFieldChange(index, 'blur', v)}
+                  />
+                  <NumericInput
+                    value={shadow.spread}
+                    unit="px"
+                    label="S"
+                    tooltip="Spread radius"
+                    onChange={(v: number) => handleFieldChange(index, 'spread', v)}
+                  />
+                </div>
+                <ColorInput
+                  value={shadow.color}
+                  onChange={(hex: string) => handleFieldChange(index, 'color', hex)}
+                  swatches={swatches}
+                />
+              </div>
+            )}
           </div>
-          <div class="cortex-shadow-section__grid">
-            <NumericInput
-              value={shadow.x}
-              unit="px"
-              label="X"
-              tooltip="Horizontal offset"
-              onChange={(v: number) => handleFieldChange(index, 'x', v)}
-            />
-            <NumericInput
-              value={shadow.y}
-              unit="px"
-              label="Y"
-              tooltip="Vertical offset"
-              onChange={(v: number) => handleFieldChange(index, 'y', v)}
-            />
-            <NumericInput
-              value={shadow.blur}
-              unit="px"
-              label="B"
-              tooltip="Blur radius"
-              min={0}
-              onChange={(v: number) => handleFieldChange(index, 'blur', v)}
-            />
-            <NumericInput
-              value={shadow.spread}
-              unit="px"
-              label="S"
-              tooltip="Spread radius"
-              onChange={(v: number) => handleFieldChange(index, 'spread', v)}
-            />
-          </div>
-          <div class="cortex-shadow-section__controls">
-            <ColorInput
-              value={shadow.color}
-              onChange={(hex: string) => handleFieldChange(index, 'color', hex)}
-              swatches={swatches}
-            />
-          </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

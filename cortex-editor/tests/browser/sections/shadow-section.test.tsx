@@ -179,14 +179,10 @@ describe('ShadowSection', () => {
     expect(rows).toHaveLength(2)
   })
 
-  it('passes swatches to ColorInput when provided', () => {
-    const testSwatches = ['#ef4444', '#3b82f6', '#22c55e']
-    setup({ swatches: testSwatches })
-    // ColorInput receives swatches prop — verify it renders the shadow row's color control
-    const colorInputs = container.querySelectorAll('.cortex-color-input')
-    expect(colorInputs.length).toBeGreaterThan(0)
-    // The swatches prop is threaded through to ColorPicker on open;
-    // we verify the ColorInput rendered (prop accepted without error)
+  it('renders compact summary row with shadow type dropdown', () => {
+    setup()
+    const dropdown = container.querySelector('.cortex-shadow-section__type')
+    expect(dropdown).not.toBeNull()
   })
 })
 

@@ -1237,10 +1237,30 @@
   gap: 16px;
 }
 
+.cortex-shadow-section__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
 .cortex-shadow-section__row-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: var(--sp-2);
+  cursor: pointer;
+}
+
+.cortex-shadow-section__swatch {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-soft);
+}
+
+.cortex-shadow-section__type {
+  flex: 1;
+  min-width: 0;
 }
 
 .cortex-shadow-section__remove {
@@ -1249,6 +1269,7 @@
   justify-content: center;
   width: 20px;
   height: 20px;
+  flex-shrink: 0;
   border: none;
   background: transparent;
   color: var(--ink-ghost);
@@ -1265,24 +1286,18 @@
   color: var(--destructive);
 }
 
-.cortex-shadow-section__row {
+.cortex-shadow-section__detail {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
   background: var(--vellum);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .cortex-shadow-section__grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--sp-3);
-}
-
-.cortex-shadow-section__controls {
-  display: flex;
-  align-items: center;
   gap: var(--sp-3);
 }
 
