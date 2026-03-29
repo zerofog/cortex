@@ -35,7 +35,7 @@ export const ALL_DIMMING_PROPERTIES = [
   'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
   'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'row-gap', 'column-gap',
   'font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'color', 'text-align',
-  'background-color',
+  'background-color', 'background-image',
   'border-width', 'border-style', 'border-color', 'border-radius',
   'box-shadow',
   'opacity', 'overflow', 'box-sizing', 'cursor', 'filter', 'backdrop-filter',

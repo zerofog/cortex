@@ -3,7 +3,7 @@ import { useCallback, useMemo } from 'preact/hooks'
 import { SegmentedControl } from '../controls/SegmentedControl.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { Dropdown } from '../controls/Dropdown.js'
-import { ColorInput } from '../controls/ColorInput.js'
+import { ColorInput, parseColor, formatColor } from '../controls/ColorInput.js'
 
 export interface TypographyChange {
   property: string
@@ -167,8 +167,14 @@ export function TypographySection({
   )
 
   const handleColorChange = useCallback(
-    (hex: string) => onChange({ property: 'color', value: hex }),
+    (color: string) => onChange({ property: 'color', value: color }),
     [onChange],
+  )
+
+  const colorParsed = parseColor(values.color)
+  const handleColorAlphaChange = useCallback(
+    (alpha: number) => onChange({ property: 'color', value: formatColor(colorParsed.hex, alpha) }),
+    [onChange, colorParsed.hex],
   )
 
   return (
@@ -233,7 +239,13 @@ export function TypographySection({
 
       <div class="cortex-typography-section__group">
         <span class="cortex-section-label">COL</span>
-        <ColorInput value={values.color} onChange={handleColorChange} swatches={swatches} />
+        <ColorInput
+          value={values.color}
+          onChange={handleColorChange}
+          alpha={colorParsed.alpha}
+          onAlphaChange={handleColorAlphaChange}
+          swatches={swatches}
+        />
       </div>
     </div>
   )
