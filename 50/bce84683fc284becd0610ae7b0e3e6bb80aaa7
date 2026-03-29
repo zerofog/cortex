@@ -1,0 +1,59 @@
+cortex-editor/src/browser/persistence.ts
+  f7a253a66d507200 37-60
+cortex-editor/src/browser/components/sections/EffectsSection.tsx
+  f7a253a66d507200 44-52
+cortex-editor/src/browser/styles.css
+  f7a253a66d507200 505-597
+cortex-editor/src/browser/components/Panel.tsx
+  f7a253a66d507200 14,16,18,20,27,283-295,482-529
+cortex-editor/tests/browser/sections/border-section.test.tsx
+  f7a253a66d507200 3,162-175
+cortex-editor/tests/browser/sections/effects-section.test.tsx
+  f7a253a66d507200 3,221-234
+cortex-editor/src/browser/components/sections/ShadowSection.tsx
+  f7a253a66d507200 36,45-48
+cortex-editor/src/browser/components/CollapsibleSection.tsx
+  f7a253a66d507200 1-67
+cortex-editor/src/browser/components/sections/BorderSection.tsx
+  f7a253a66d507200 47-51,116
+cortex-editor/tests/browser/sections/shadow-section.test.tsx
+  f7a253a66d507200 7,158,191-204
+cortex-editor/src/browser/components/sections/FillSection.tsx
+  f7a253a66d507200 33-39
+cortex-editor/tests/browser/sections/fill-section.test.tsx
+  f7a253a66d507200 3,160-173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "50bce84683fc284becd0610ae7b0e3e6bb80aaa7",
+  "prompts": {
+    "0b28aac81c1518cb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51ead870-5488-4815-8c94-7b322ce7d3ea",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 667,
+      "overriden_lines": 0
+    },
+    "f7a253a66d507200": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1952b196-3351-4153-a3ac-6132c681c0a7",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 367,
+      "total_deletions": 87,
+      "accepted_lines": 340,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/0b92b75a2089d075b18d24ea136b6ce0f6789369d59cf480489babf5ebe949c5"
+    }
+  }
+}
