@@ -120,15 +120,22 @@ export function ShadowSection({
         const isExpanded = expandedKey === shadow._key
         return (
           <div class="cortex-shadow-section__row" key={shadow._key} data-expanded={String(isExpanded)}>
-            <div
-              class="cortex-shadow-section__row-header"
-              onClick={() => toggleExpand(shadow._key)}
-            >
+            <div class="cortex-shadow-section__row-header">
               <div
-                class="cortex-shadow-section__swatch"
-                style={{ backgroundColor: shadow.color }}
-              />
-              <div class="cortex-shadow-section__type" onClick={(e: Event) => e.stopPropagation()}>
+                class="cortex-shadow-section__swatch-btn"
+                role="button"
+                tabindex={0}
+                aria-label={isExpanded ? 'Collapse shadow controls' : 'Expand shadow controls'}
+                aria-expanded={isExpanded}
+                onClick={() => toggleExpand(shadow._key)}
+                onKeyDown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpand(shadow._key) } }}
+              >
+                <div
+                  class="cortex-shadow-section__swatch-preview"
+                  style={{ backgroundColor: shadow.color }}
+                />
+              </div>
+              <div class="cortex-shadow-section__type">
                 <Dropdown
                   options={SHADOW_TYPE_OPTIONS}
                   value={shadow.inset ? 'inset' : 'drop'}
@@ -138,7 +145,7 @@ export function ShadowSection({
               <button
                 class="cortex-shadow-section__remove"
                 data-tooltip="Remove shadow"
-                onClick={(e: Event) => { e.stopPropagation(); handleRemove(index) }}
+                onClick={() => handleRemove(index)}
               >
                 ×
               </button>
