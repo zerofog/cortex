@@ -502,7 +502,7 @@
   gap: 16px;
 }
 
-/* ── Collapsible section wrapper ────────────── */
+/* ── Property section wrapper ──────────────── */
 
 .cortex-collapsible {
   display: flex;
@@ -514,47 +514,6 @@
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-}
-
-.cortex-collapsible__toggle {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  flex: 1;
-  min-width: 0;
-  padding: 0;
-  border: none;
-  background: none;
-  cursor: pointer;
-  user-select: none;
-  font-family: inherit;
-  text-align: left;
-  outline: none;
-}
-
-.cortex-collapsible__toggle:focus-visible {
-  /* transparent base ensures outline exists for forced-colors/high-contrast mode */
-  outline: 2px solid transparent;
-  outline-color: var(--select-muted);
-  border-radius: var(--radius-sm);
-}
-
-.cortex-collapsible__chevron {
-  width: 10px;
-  height: 10px;
-  flex-shrink: 0;
-  color: var(--ink-ghost);
-  opacity: 0;
-  transition: opacity 150ms ease-out, transform 150ms ease-out;
-  transform: rotate(0deg);
-}
-
-.cortex-collapsible[data-expanded="true"] .cortex-collapsible__chevron {
-  transform: rotate(90deg);
-}
-
-.cortex-collapsible:hover .cortex-collapsible__chevron {
-  opacity: 1;
 }
 
 .cortex-collapsible__label {
@@ -577,8 +536,37 @@
   max-width: 140px;
 }
 
-.cortex-collapsible__action {
+.cortex-collapsible__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--ink-tertiary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  font-size: 14px;
+  transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out;
+}
+
+.cortex-collapsible__btn:hover {
+  background: var(--well);
+  color: var(--ink-secondary);
+}
+
+.cortex-collapsible__btn--remove:hover {
+  color: var(--destructive);
+  background: var(--destructive-surface);
+}
+
+.cortex-collapsible__btn:focus-visible {
+  outline: 2px solid transparent;
+  outline-color: var(--select-muted);
 }
 
 .cortex-collapsible__body {
@@ -587,7 +575,7 @@
   transition: grid-template-rows 150ms ease-out;
 }
 
-.cortex-collapsible[data-expanded="false"] .cortex-collapsible__body {
+.cortex-collapsible[data-has-value="false"] .cortex-collapsible__body {
   grid-template-rows: 0fr;
 }
 

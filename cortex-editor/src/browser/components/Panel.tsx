@@ -17,7 +17,7 @@ import { BorderSection, parseBorderValues, summarizeBorder } from './sections/Bo
 import type { BorderChange } from './sections/BorderSection.js'
 import { ShadowSection, parseShadowValues, summarizeShadow, addShadow } from './sections/ShadowSection.js'
 import type { ShadowChange } from './sections/ShadowSection.js'
-import { EffectsSection, parseEffectsValues, summarizeEffects } from './sections/EffectsSection.js'
+import { EffectsSection, parseEffectsValues } from './sections/EffectsSection.js'
 import type { EffectsChange } from './sections/EffectsSection.js'
 import { PositionSection, parsePositionValues } from './sections/PositionSection.js'
 import type { PositionChange } from './sections/PositionSection.js'
@@ -280,12 +280,30 @@ export function Panel({
   const handlePositionCommit = useCallback((c: PositionChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handlePositionScrub = useCallback((c: PositionChange) => applyOverride(c.property, c.value, false), [applyOverride])
 
-  // Collapsible section summaries — computed from existing parsed values
+  // Property section state — driven by computed values, not user toggle
   const fillSummary = useMemo(() => summarizeFill(computedStyles.fill), [computedStyles.fill])
+  const fillHasValue = fillSummary !== 'transparent'
   const borderSummary = useMemo(() => summarizeBorder(computedStyles.border), [computedStyles.border])
+  const borderHasValue = borderSummary !== 'none'
   const shadowSummary = useMemo(() => summarizeShadow(computedStyles.shadow), [computedStyles.shadow])
-  const effectsSummary = useMemo(() => summarizeEffects(computedStyles.effects), [computedStyles.effects])
+  const shadowHasValue = shadowSummary !== 'none'
 
+  const handleFillAdd = useCallback(() => {
+    applyOverride('background-color', '#ffffff', true)
+  }, [applyOverride])
+  const handleFillRemove = useCallback(() => {
+    applyOverride('background-color', 'transparent', true)
+    applyOverride('background-image', 'none', true)
+  }, [applyOverride])
+  const handleBorderAdd = useCallback(() => {
+    applyOverride('border-width', '1px', true)
+    applyOverride('border-style', 'solid', true)
+    applyOverride('border-color', '#000000', true)
+  }, [applyOverride])
+  const handleBorderRemove = useCallback(() => {
+    applyOverride('border-style', 'none', true)
+    applyOverride('border-width', '0px', true)
+  }, [applyOverride])
   const handleShadowAdd = useCallback(() => {
     applyOverride('box-shadow', addShadow(computedStyles.shadow.boxShadow), true)
   }, [computedStyles.shadow.boxShadow, applyOverride])
@@ -476,7 +494,7 @@ export function Panel({
           />
         </SectionGroup>
         <SectionGroup label="Style" groupId="style">
-          <CollapsibleSection sectionId="fill" label="Fill" summary={fillSummary}>
+          <CollapsibleSection sectionId="fill" label="Fill" summary={fillSummary} hasValue={fillHasValue} onAdd={handleFillAdd} onRemove={handleFillRemove}>
             <FillSection
               values={computedStyles.fill}
               onChange={handleFillCommit}
@@ -484,7 +502,7 @@ export function Panel({
               dimmedProperties={dimmedProperties}
             />
           </CollapsibleSection>
-          <CollapsibleSection sectionId="border" label="Border" summary={borderSummary}>
+          <CollapsibleSection sectionId="border" label="Border" summary={borderSummary} hasValue={borderHasValue} onAdd={handleBorderAdd} onRemove={handleBorderRemove}>
             <BorderSection
               values={computedStyles.border}
               onChange={handleBorderCommit}
@@ -494,20 +512,7 @@ export function Panel({
               dimmedProperties={dimmedProperties}
             />
           </CollapsibleSection>
-          <CollapsibleSection
-            sectionId="shadow"
-            label="Shadow"
-            summary={shadowSummary}
-            headerAction={
-              <button
-                class="cortex-shadow-section__add"
-                data-tooltip="Add shadow"
-                onClick={handleShadowAdd}
-              >
-                +
-              </button>
-            }
-          >
+          <CollapsibleSection sectionId="shadow" label="Shadow" summary={shadowSummary} hasValue={shadowHasValue} onAdd={handleShadowAdd} canAddMore>
             <ShadowSection
               values={computedStyles.shadow}
               onChange={handleShadowCommit}
@@ -515,7 +520,7 @@ export function Panel({
               dimmedProperties={dimmedProperties}
             />
           </CollapsibleSection>
-          <CollapsibleSection sectionId="effects" label="Effects" summary={effectsSummary}>
+          <CollapsibleSection sectionId="effects" label="Effects" hasValue={true}>
             <EffectsSection
               values={computedStyles.effects}
               onChange={handleEffectsCommit}

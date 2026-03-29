@@ -1,15 +1,13 @@
 import type { JSX, ComponentChildren } from 'preact'
-import { useState, useCallback } from 'preact/hooks'
-import { cortexSessionStorage } from '../persistence.js'
-
-function isBoolean(v: unknown): v is boolean { return typeof v === 'boolean' }
 
 export interface CollapsibleSectionProps {
   sectionId: string
   label: string
   summary?: string
-  headerAction?: ComponentChildren
-  defaultExpanded?: boolean
+  hasValue: boolean
+  onAdd?: () => void
+  onRemove?: () => void
+  canAddMore?: boolean
   children: ComponentChildren
 }
 
@@ -17,47 +15,44 @@ export function CollapsibleSection({
   sectionId,
   label,
   summary,
-  headerAction,
-  defaultExpanded = true,
+  hasValue,
+  onAdd,
+  onRemove,
+  canAddMore,
   children,
 }: CollapsibleSectionProps): JSX.Element {
-  const [expanded, setExpanded] = useState(
-    () => cortexSessionStorage.get(`expanded:${sectionId}`, defaultExpanded, isBoolean),
-  )
-
-  const toggle = useCallback(() => {
-    setExpanded(prev => {
-      const next = !prev
-      cortexSessionStorage.set(`expanded:${sectionId}`, next)
-      return next
-    })
-  }, [sectionId])
+  const showAdd = onAdd && (!hasValue || canAddMore)
+  const showRemove = hasValue && onRemove && !canAddMore
 
   return (
-    <div class="cortex-collapsible" data-expanded={String(expanded)}>
+    <div class="cortex-collapsible" data-section-id={sectionId} data-has-value={String(hasValue)}>
       <div class="cortex-collapsible__header">
-        <button
-          class="cortex-collapsible__toggle"
-          type="button"
-          aria-expanded={expanded}
-          aria-controls={`collapsible-${sectionId}`}
-          onClick={toggle}
-        >
-          <svg class="cortex-collapsible__chevron" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 2l4 3-4 3" />
-          </svg>
-          <span class="cortex-collapsible__label">{label}</span>
-          {!expanded && summary && (
-            <span class="cortex-collapsible__summary">{summary}</span>
-          )}
-        </button>
-        {headerAction && (
-          <span class="cortex-collapsible__action">
-            {headerAction}
-          </span>
+        <span class="cortex-collapsible__label">{label}</span>
+        {!hasValue && summary && (
+          <span class="cortex-collapsible__summary">{summary}</span>
+        )}
+        {showAdd && (
+          <button
+            class="cortex-collapsible__btn"
+            type="button"
+            data-tooltip={`Add ${label.toLowerCase()}`}
+            onClick={onAdd}
+          >
+            +
+          </button>
+        )}
+        {showRemove && (
+          <button
+            class="cortex-collapsible__btn cortex-collapsible__btn--remove"
+            type="button"
+            data-tooltip={`Remove ${label.toLowerCase()}`}
+            onClick={onRemove}
+          >
+            ×
+          </button>
         )}
       </div>
-      <div class="cortex-collapsible__body" id={`collapsible-${sectionId}`}>
+      <div class="cortex-collapsible__body">
         <div class="cortex-collapsible__body-inner">
           {children}
         </div>

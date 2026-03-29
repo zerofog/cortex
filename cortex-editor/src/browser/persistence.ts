@@ -34,30 +34,6 @@ function clear(): void {
 
 export const cortexStorage = { get, set, clear } as const
 
-// Session-scoped persistence — same API shape, uses sessionStorage.
-// Collapsed section state persists within a browser session but resets on tab close.
-function sessionGet<T>(key: string, fallback: T, validate: (v: unknown) => v is T): T {
-  try {
-    const raw = sessionStorage.getItem(PREFIX + key)
-    if (raw === null) return fallback
-    const parsed: unknown = JSON.parse(raw)
-    if (!validate(parsed)) return fallback
-    return parsed
-  } catch {
-    return fallback
-  }
-}
-
-function sessionSet(key: string, value: unknown): void {
-  try {
-    sessionStorage.setItem(PREFIX + key, JSON.stringify(value))
-  } catch {
-    // Quota exceeded or private browsing — silently degrade
-  }
-}
-
-export const cortexSessionStorage = { get: sessionGet, set: sessionSet } as const
-
 /** Validates a stored {x, y} position — used by useSnapToEdge and useToolbarDock. */
 export function isValidPosition(v: unknown): v is { x: number; y: number } {
   return (
