@@ -5,6 +5,7 @@ import {
   parseBoxShadow,
   serializeBoxShadow,
   summarizeShadow,
+  addShadow,
 } from '../../../src/browser/components/sections/ShadowSection.js'
 import type { ShadowValues } from '../../../src/browser/components/sections/ShadowSection.js'
 
@@ -200,5 +201,19 @@ describe('summarizeShadow', () => {
 
   it('returns count for multiple shadows', () => {
     expect(summarizeShadow({ boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.1), inset 0px 1px 2px rgba(0, 0, 0, 0.05)' })).toBe('2 shadows')
+  })
+})
+
+describe('addShadow', () => {
+  it('adds a default shadow to "none"', () => {
+    const result = parseBoxShadow(addShadow('none'))
+    expect(result).toHaveLength(1)
+    expect(result[0]!.y).toBe(2)
+    expect(result[0]!.blur).toBe(8)
+  })
+
+  it('appends to existing shadows', () => {
+    const result = parseBoxShadow(addShadow('0px 4px 16px rgba(0, 0, 0, 0.2)'))
+    expect(result).toHaveLength(2)
   })
 })

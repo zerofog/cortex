@@ -533,6 +533,7 @@
 }
 
 .cortex-collapsible__toggle:focus-visible {
+  /* transparent base ensures outline exists for forced-colors/high-contrast mode */
   outline: 2px solid transparent;
   outline-color: var(--select-muted);
   border-radius: var(--radius-sm);

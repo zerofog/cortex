@@ -15,7 +15,7 @@ import { FillSection, parseFillValues, summarizeFill } from './sections/FillSect
 import type { FillChange } from './sections/FillSection.js'
 import { BorderSection, parseBorderValues, summarizeBorder } from './sections/BorderSection.js'
 import type { BorderChange } from './sections/BorderSection.js'
-import { ShadowSection, parseShadowValues, summarizeShadow, parseBoxShadow, serializeBoxShadow, DEFAULT_SHADOW } from './sections/ShadowSection.js'
+import { ShadowSection, parseShadowValues, summarizeShadow, addShadow } from './sections/ShadowSection.js'
 import type { ShadowChange } from './sections/ShadowSection.js'
 import { EffectsSection, parseEffectsValues, summarizeEffects } from './sections/EffectsSection.js'
 import type { EffectsChange } from './sections/EffectsSection.js'
@@ -286,11 +286,8 @@ export function Panel({
   const shadowSummary = useMemo(() => summarizeShadow(computedStyles.shadow), [computedStyles.shadow])
   const effectsSummary = useMemo(() => summarizeEffects(computedStyles.effects), [computedStyles.effects])
 
-  // Shadow add handler — lifted from ShadowSection so the "+" button can live in CollapsibleSection's header
   const handleShadowAdd = useCallback(() => {
-    const shadows = parseBoxShadow(computedStyles.shadow.boxShadow)
-    const value = serializeBoxShadow([...shadows, { ...DEFAULT_SHADOW }])
-    applyOverride('box-shadow', value, true)
+    applyOverride('box-shadow', addShadow(computedStyles.shadow.boxShadow), true)
   }, [computedStyles.shadow.boxShadow, applyOverride])
 
   const handleSelectParent = useCallback(() => {

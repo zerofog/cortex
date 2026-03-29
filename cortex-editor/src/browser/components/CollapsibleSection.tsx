@@ -22,13 +22,13 @@ export function CollapsibleSection({
   children,
 }: CollapsibleSectionProps): JSX.Element {
   const [expanded, setExpanded] = useState(
-    () => cortexSessionStorage.get(`collapsed:${sectionId}`, defaultExpanded, isBoolean),
+    () => cortexSessionStorage.get(`expanded:${sectionId}`, defaultExpanded, isBoolean),
   )
 
   const toggle = useCallback(() => {
     setExpanded(prev => {
       const next = !prev
-      cortexSessionStorage.set(`collapsed:${sectionId}`, next)
+      cortexSessionStorage.set(`expanded:${sectionId}`, next)
       return next
     })
   }, [sectionId])

@@ -48,6 +48,12 @@ export function summarizeShadow(values: ShadowValues): string {
   return shadows.length === 1 ? '1 shadow' : `${shadows.length} shadows`
 }
 
+/** Append a default shadow to the current box-shadow value. Returns the new CSS value. */
+export function addShadow(currentBoxShadow: string): string {
+  const shadows = parseBoxShadow(currentBoxShadow)
+  return serializeBoxShadow([...shadows, { ...DEFAULT_SHADOW }])
+}
+
 /** Shadow with a stable key for list rendering. */
 interface KeyedShadow extends Shadow {
   _key: number
