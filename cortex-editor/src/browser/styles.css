@@ -1237,10 +1237,13 @@
   gap: 16px;
 }
 
+.cortex-shadow-section__row-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .cortex-shadow-section__remove {
-  position: absolute;
-  top: var(--sp-2);
-  right: var(--sp-2);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1250,7 +1253,7 @@
   background: transparent;
   color: var(--ink-ghost);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0;
   font-size: 14px;
   transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out, transform 100ms ease-out;
@@ -1263,7 +1266,6 @@
 }
 
 .cortex-shadow-section__row {
-  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;

@@ -100,13 +100,16 @@ export function ShadowSection({
     <div class="cortex-shadow-section" data-section-id="shadow">
       {shadows.map((shadow, index) => (
         <div class="cortex-shadow-section__row" key={shadow._key}>
-          <button
-            class="cortex-shadow-section__remove"
-            data-tooltip="Remove shadow"
-            onClick={() => handleRemove(index)}
-          >
-            ×
-          </button>
+          <div class="cortex-shadow-section__row-header">
+            <span class="cortex-section-label">Shadow {shadows.length > 1 ? index + 1 : ''}</span>
+            <button
+              class="cortex-shadow-section__remove"
+              data-tooltip="Remove shadow"
+              onClick={() => handleRemove(index)}
+            >
+              ×
+            </button>
+          </div>
           <div class="cortex-shadow-section__grid">
             <NumericInput
               value={shadow.x}
