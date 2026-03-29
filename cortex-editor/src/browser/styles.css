@@ -1249,26 +1249,34 @@
   gap: var(--sp-2);
 }
 
-.cortex-shadow-section__swatch-btn {
+.cortex-shadow-section__expand-btn {
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--ink-ghost);
   cursor: pointer;
-  padding: 2px;
+  padding: 0;
   border-radius: var(--radius-sm);
-  transition: background 150ms ease-out;
+  transition: background 150ms ease-out, color 150ms ease-out, transform 150ms ease-out;
 }
 
-.cortex-shadow-section__swatch-btn:hover {
+.cortex-shadow-section__expand-btn svg {
+  width: 10px;
+  height: 10px;
+}
+
+.cortex-shadow-section__expand-btn:hover {
   background: var(--well);
+  color: var(--ink-secondary);
 }
 
-.cortex-shadow-section__swatch-preview {
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
-  border: 1px solid var(--rule-soft);
+.cortex-shadow-section__row[data-expanded="true"] .cortex-shadow-section__expand-btn {
+  transform: rotate(90deg);
 }
 
 .cortex-shadow-section__type {

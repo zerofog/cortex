@@ -121,20 +121,17 @@ export function ShadowSection({
         return (
           <div class="cortex-shadow-section__row" key={shadow._key} data-expanded={String(isExpanded)}>
             <div class="cortex-shadow-section__row-header">
-              <div
-                class="cortex-shadow-section__swatch-btn"
-                role="button"
-                tabindex={0}
+              <button
+                class="cortex-shadow-section__expand-btn"
+                type="button"
                 aria-label={isExpanded ? 'Collapse shadow controls' : 'Expand shadow controls'}
                 aria-expanded={isExpanded}
                 onClick={() => toggleExpand(shadow._key)}
-                onKeyDown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpand(shadow._key) } }}
               >
-                <div
-                  class="cortex-shadow-section__swatch-preview"
-                  style={{ backgroundColor: shadow.color }}
-                />
-              </div>
+                <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 2l4 3-4 3" />
+                </svg>
+              </button>
               <div class="cortex-shadow-section__type">
                 <Dropdown
                   options={SHADOW_TYPE_OPTIONS}
