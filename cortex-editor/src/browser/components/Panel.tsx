@@ -11,19 +11,20 @@ import { LayoutSection, parseLayoutValues } from './sections/LayoutSection.js'
 import type { LayoutChange } from './sections/LayoutSection.js'
 import { TypographySection, parseTypographyValues, getWeightsForFamily, stripCSSQuotes } from './sections/TypographySection.js'
 import type { TypographyChange } from './sections/TypographySection.js'
-import { FillSection, parseFillValues } from './sections/FillSection.js'
+import { FillSection, parseFillValues, summarizeFill } from './sections/FillSection.js'
 import type { FillChange } from './sections/FillSection.js'
-import { BorderSection, parseBorderValues } from './sections/BorderSection.js'
+import { BorderSection, parseBorderValues, summarizeBorder } from './sections/BorderSection.js'
 import type { BorderChange } from './sections/BorderSection.js'
-import { ShadowSection, parseShadowValues } from './sections/ShadowSection.js'
+import { ShadowSection, parseShadowValues, summarizeShadow, parseBoxShadow, serializeBoxShadow, DEFAULT_SHADOW } from './sections/ShadowSection.js'
 import type { ShadowChange } from './sections/ShadowSection.js'
-import { EffectsSection, parseEffectsValues } from './sections/EffectsSection.js'
+import { EffectsSection, parseEffectsValues, summarizeEffects } from './sections/EffectsSection.js'
 import type { EffectsChange } from './sections/EffectsSection.js'
 import { PositionSection, parsePositionValues } from './sections/PositionSection.js'
 import type { PositionChange } from './sections/PositionSection.js'
 import type { InteractionState } from '../state-detector.js'
 import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
+import { CollapsibleSection } from './CollapsibleSection.js'
 import type { CortexChannel } from '../../adapters/types.js'
 
 /**
@@ -279,6 +280,19 @@ export function Panel({
   const handlePositionCommit = useCallback((c: PositionChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handlePositionScrub = useCallback((c: PositionChange) => applyOverride(c.property, c.value, false), [applyOverride])
 
+  // Collapsible section summaries — computed from existing parsed values
+  const fillSummary = useMemo(() => summarizeFill(computedStyles.fill), [computedStyles.fill])
+  const borderSummary = useMemo(() => summarizeBorder(computedStyles.border), [computedStyles.border])
+  const shadowSummary = useMemo(() => summarizeShadow(computedStyles.shadow), [computedStyles.shadow])
+  const effectsSummary = useMemo(() => summarizeEffects(computedStyles.effects), [computedStyles.effects])
+
+  // Shadow add handler — lifted from ShadowSection so the "+" button can live in CollapsibleSection's header
+  const handleShadowAdd = useCallback(() => {
+    const shadows = parseBoxShadow(computedStyles.shadow.boxShadow)
+    const value = serializeBoxShadow([...shadows, { ...DEFAULT_SHADOW }])
+    applyOverride('box-shadow', value, true)
+  }, [computedStyles.shadow.boxShadow, applyOverride])
+
   const handleSelectParent = useCallback(() => {
     if (!element) return
     if (element.parentElement && element.parentElement !== document.documentElement) {
@@ -465,33 +479,54 @@ export function Panel({
           />
         </SectionGroup>
         <SectionGroup label="Style" groupId="style">
-          <FillSection
-            values={computedStyles.fill}
-            onChange={handleFillCommit}
-            swatches={swatches}
-            dimmedProperties={dimmedProperties}
-          />
-          <BorderSection
-            values={computedStyles.border}
-            onChange={handleBorderCommit}
-            onScrub={handleBorderScrub}
-            onScrubEnd={handleBorderCommit}
-            swatches={swatches}
-            dimmedProperties={dimmedProperties}
-          />
-          <ShadowSection
-            values={computedStyles.shadow}
-            onChange={handleShadowCommit}
-            swatches={swatches}
-            dimmedProperties={dimmedProperties}
-          />
-          <EffectsSection
-            values={computedStyles.effects}
-            onChange={handleEffectsCommit}
-            onScrub={handleEffectsScrub}
-            onScrubEnd={handleEffectsCommit}
-            dimmedProperties={dimmedProperties}
-          />
+          <CollapsibleSection sectionId="fill" label="Fill" summary={fillSummary}>
+            <FillSection
+              values={computedStyles.fill}
+              onChange={handleFillCommit}
+              swatches={swatches}
+              dimmedProperties={dimmedProperties}
+            />
+          </CollapsibleSection>
+          <CollapsibleSection sectionId="border" label="Border" summary={borderSummary}>
+            <BorderSection
+              values={computedStyles.border}
+              onChange={handleBorderCommit}
+              onScrub={handleBorderScrub}
+              onScrubEnd={handleBorderCommit}
+              swatches={swatches}
+              dimmedProperties={dimmedProperties}
+            />
+          </CollapsibleSection>
+          <CollapsibleSection
+            sectionId="shadow"
+            label="Shadow"
+            summary={shadowSummary}
+            headerAction={
+              <button
+                class="cortex-shadow-section__add"
+                data-tooltip="Add shadow"
+                onClick={handleShadowAdd}
+              >
+                +
+              </button>
+            }
+          >
+            <ShadowSection
+              values={computedStyles.shadow}
+              onChange={handleShadowCommit}
+              swatches={swatches}
+              dimmedProperties={dimmedProperties}
+            />
+          </CollapsibleSection>
+          <CollapsibleSection sectionId="effects" label="Effects" summary={effectsSummary}>
+            <EffectsSection
+              values={computedStyles.effects}
+              onChange={handleEffectsCommit}
+              onScrub={handleEffectsScrub}
+              onScrubEnd={handleEffectsCommit}
+              dimmedProperties={dimmedProperties}
+            />
+          </CollapsibleSection>
         </SectionGroup>
         {channel && (
           <CommentInput

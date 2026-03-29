@@ -33,13 +33,19 @@ export function parseShadowValues(cs: CSSStyleDeclaration): ShadowValues {
   }
 }
 
-const DEFAULT_SHADOW: Shadow = {
+export const DEFAULT_SHADOW: Shadow = {
   inset: false,
   x: 0,
   y: 2,
   blur: 8,
   spread: 0,
   color: 'rgba(0, 0, 0, 0.1)',
+}
+
+export function summarizeShadow(values: ShadowValues): string {
+  const shadows = parseBoxShadow(values.boxShadow)
+  if (shadows.length === 0) return 'none'
+  return shadows.length === 1 ? '1 shadow' : `${shadows.length} shadows`
 }
 
 /** Shadow with a stable key for list rendering. */
@@ -66,10 +72,6 @@ export function ShadowSection({
     [onChange],
   )
 
-  const handleAdd = useCallback(() => {
-    emitChange([...shadows, { ...DEFAULT_SHADOW, _key: nextKeyRef.current++ }])
-  }, [shadows, emitChange])
-
   const handleRemove = useCallback(
     (index: number) => {
       const updated = shadows.filter((_, i) => i !== index)
@@ -90,17 +92,6 @@ export function ShadowSection({
 
   return (
     <div class="cortex-shadow-section" data-section-id="shadow">
-      <div class="cortex-shadow-section__header">
-        <span class="cortex-section-label">Shadow</span>
-        <button
-          class="cortex-shadow-section__add"
-          data-tooltip="Add shadow"
-          onClick={handleAdd}
-        >
-          +
-        </button>
-      </div>
-
       {shadows.map((shadow, index) => (
         <div class="cortex-shadow-section__row" key={shadow._key}>
           <div class="cortex-shadow-section__grid">

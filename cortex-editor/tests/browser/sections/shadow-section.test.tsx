@@ -4,7 +4,7 @@ import {
   ShadowSection,
   parseBoxShadow,
   serializeBoxShadow,
-  parseShadowValues,
+  summarizeShadow,
 } from '../../../src/browser/components/sections/ShadowSection.js'
 import type { ShadowValues } from '../../../src/browser/components/sections/ShadowSection.js'
 
@@ -155,10 +155,10 @@ describe('ShadowSection', () => {
     expect(rows).toHaveLength(1)
   })
 
-  it('renders add shadow button', () => {
+  it('does not render add button (lifted to CollapsibleSection header in Panel)', () => {
     setup()
     const addBtn = container.querySelector('.cortex-shadow-section__add')
-    expect(addBtn).not.toBeNull()
+    expect(addBtn).toBeNull()
   })
 
   it('shows no shadow rows when box-shadow is none', () => {
@@ -186,5 +186,19 @@ describe('ShadowSection', () => {
     expect(colorInputs.length).toBeGreaterThan(0)
     // The swatches prop is threaded through to ColorPicker on open;
     // we verify the ColorInput rendered (prop accepted without error)
+  })
+})
+
+describe('summarizeShadow', () => {
+  it('returns "none" when box-shadow is none', () => {
+    expect(summarizeShadow({ boxShadow: 'none' })).toBe('none')
+  })
+
+  it('returns "1 shadow" for single shadow', () => {
+    expect(summarizeShadow({ boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.1)' })).toBe('1 shadow')
+  })
+
+  it('returns count for multiple shadows', () => {
+    expect(summarizeShadow({ boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.1), inset 0px 1px 2px rgba(0, 0, 0, 0.05)' })).toBe('2 shadows')
   })
 })

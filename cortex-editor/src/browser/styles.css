@@ -502,6 +502,99 @@
   gap: 16px;
 }
 
+/* ── Collapsible section wrapper ────────────── */
+
+.cortex-collapsible {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.cortex-collapsible__header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.cortex-collapsible__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  user-select: none;
+  font-family: inherit;
+  text-align: left;
+  outline: none;
+}
+
+.cortex-collapsible__toggle:focus-visible {
+  outline: 2px solid transparent;
+  outline-color: var(--select-muted);
+  border-radius: var(--radius-sm);
+}
+
+.cortex-collapsible__chevron {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  color: var(--ink-ghost);
+  opacity: 0;
+  transition: opacity 150ms ease-out, transform 150ms ease-out;
+  transform: rotate(0deg);
+}
+
+.cortex-collapsible[data-expanded="true"] .cortex-collapsible__chevron {
+  transform: rotate(90deg);
+}
+
+.cortex-collapsible:hover .cortex-collapsible__chevron {
+  opacity: 1;
+}
+
+.cortex-collapsible__label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-label);
+  letter-spacing: 0.01em;
+  color: var(--ink-tertiary);
+}
+
+.cortex-collapsible__summary {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-value);
+  color: var(--ink-secondary);
+  font-family: var(--mono);
+  letter-spacing: -0.02em;
+  margin-left: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+.cortex-collapsible__action {
+  flex-shrink: 0;
+}
+
+.cortex-collapsible__body {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 150ms ease-out;
+}
+
+.cortex-collapsible[data-expanded="false"] .cortex-collapsible__body {
+  grid-template-rows: 0fr;
+}
+
+.cortex-collapsible__body-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
 .cortex-spacing-group__toggle {
   display: flex;
   align-items: center;
@@ -1155,12 +1248,6 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-
-.cortex-shadow-section__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
 }
 
 .cortex-shadow-section__add,

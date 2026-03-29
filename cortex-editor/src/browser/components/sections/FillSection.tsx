@@ -30,6 +30,13 @@ export function parseFillValues(cs: CSSStyleDeclaration): FillValues {
   }
 }
 
+export function summarizeFill(values: FillValues): string {
+  if (parseLinearGradient(values.backgroundImage)) return 'Gradient'
+  const { hex, alpha } = parseColor(values.backgroundColor)
+  if (alpha === 0) return 'transparent'
+  return alpha < 100 ? `${hex} ${alpha}%` : hex
+}
+
 const FILL_TYPE_OPTIONS = [
   { value: 'solid', label: 'Solid' },
   { value: 'gradient', label: 'Gradient' },
@@ -171,7 +178,6 @@ export function FillSection({
   return (
     <div class="cortex-fill-section" data-section-id="fill">
       <div class="cortex-fill-section__type-row">
-        <span class="cortex-section-label">Fill</span>
         <SegmentedControl
           options={FILL_TYPE_OPTIONS}
           value={fillType}

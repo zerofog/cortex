@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
-import { EffectsSection, parseEffectsValues, replaceBlurInFilter } from '../../../src/browser/components/sections/EffectsSection.js'
+import { EffectsSection, parseEffectsValues, replaceBlurInFilter, summarizeEffects } from '../../../src/browser/components/sections/EffectsSection.js'
 import type { EffectsValues } from '../../../src/browser/components/sections/EffectsSection.js'
 
 // Mock @floating-ui/dom for Dropdown
@@ -216,5 +216,19 @@ describe('EffectsSection', () => {
     expect(bgBlurInput).toBeDefined()
     const input = bgBlurInput!.querySelector('input') as HTMLInputElement
     expect(input.value).toBe('0')
+  })
+})
+
+describe('summarizeEffects', () => {
+  it('returns "default" when all values are default', () => {
+    expect(summarizeEffects({ opacity: 100, overflow: 'visible', cursor: 'auto', blur: 0, backdropBlur: 0, filterRaw: '', backdropFilterRaw: '' })).toBe('default')
+  })
+
+  it('includes opacity when not 100%', () => {
+    expect(summarizeEffects({ opacity: 50, overflow: 'visible', cursor: 'auto', blur: 0, backdropBlur: 0, filterRaw: '', backdropFilterRaw: '' })).toBe('50%')
+  })
+
+  it('includes multiple non-default values', () => {
+    expect(summarizeEffects({ opacity: 80, overflow: 'hidden', cursor: 'auto', blur: 4, backdropBlur: 0, filterRaw: 'blur(4px)', backdropFilterRaw: '' })).toBe('80%, hidden, blur 4px')
   })
 })
