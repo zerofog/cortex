@@ -1,0 +1,39 @@
+cortex-editor/src/core/rewriter/detector.ts
+  91dd830423e45119 9,35,41,45-52,66,72-74,80,88-93,97
+cortex-editor/tests/core/detector.test.ts
+  91dd830423e45119 147-193
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "43dd7babea539a7828f63098fdfe0a77affbaa64",
+  "prompts": {
+    "0b28aac81c1518cb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51ead870-5488-4815-8c94-7b322ce7d3ea",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 667,
+      "overriden_lines": 0
+    },
+    "91dd830423e45119": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b7d60b6a-2774-4cc1-b5dd-46a367029615",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 70,
+      "total_deletions": 7,
+      "accepted_lines": 70,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/6f9e7d0e0a4da232ad2c511c3dfde7b965589d4af0b0ed36c02f0902e8e26f05"
+    }
+  }
+}
