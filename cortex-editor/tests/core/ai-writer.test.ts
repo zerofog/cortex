@@ -536,6 +536,40 @@ describe('AIWriter', () => {
     if (!result.success) expect(result.reason).toContain('syntax')
   })
 
+  it('returns failure on timeout', async () => {
+    mockReadFile.mockResolvedValueOnce(sampleFile)
+    // Mock fetch to hang longer than the timeout
+    fetchSpy.mockImplementationOnce(
+      () => new Promise((_resolve, reject) => {
+        // Simulate AbortController behavior: when the signal fires,
+        // fetch rejects with an AbortError.
+        const abortHandler = () => {
+          const err = new DOMException('The operation was aborted.', 'AbortError')
+          reject(err)
+        }
+        // Pull the signal from the call args to listen for abort
+        const call = fetchSpy.mock.calls[fetchSpy.mock.calls.length - 1]
+        const signal = (call?.[1] as RequestInit | undefined)?.signal as AbortSignal | undefined
+        if (signal) {
+          signal.addEventListener('abort', abortHandler)
+        }
+      }),
+    )
+
+    const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile, timeoutMs: 10 })
+    const result = await writer.write({
+      filePath: '/project/src/Hero.tsx',
+      line: 5, col: 5,
+      property: 'padding-top', value: '16px',
+      failureReason: 'test',
+    })
+
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.reason.toLowerCase()).toMatch(/abort/)
+    }
+  })
+
   it('sends correct headers and body to Claude API', async () => {
     mockReadFile.mockResolvedValueOnce(sampleFile)
     mockClaudeResponse(sampleFile.replace('pt-4', 'pt-8'))

@@ -86,6 +86,17 @@ describe('computeCapabilities', () => {
     expect(cl?.reason).toContain('API key')
   })
 
+  it('reports both Tailwind and component library when AI available', () => {
+    const caps = computeCapabilities(
+      { hasCSSModules: false, hasTailwind: true, hasCSSInJS: false, hasComponentLibrary: true, hasPlainCSS: false, summary: '' },
+      { resolverAvailable: false, aiAvailable: true },
+    )
+    const tw = caps.find(c => c.name === 'Tailwind')
+    const cl = caps.find(c => c.name === 'Component Library')
+    expect(tw?.status).toBe('supported')
+    expect(cl?.status).toBe('supported')
+  })
+
   it('handles mixed detection (Tailwind supported + CSS Modules supported)', () => {
     const caps = computeCapabilities(
       { hasCSSModules: true, hasTailwind: true, hasCSSInJS: false, hasPlainCSS: false, summary: '' },
