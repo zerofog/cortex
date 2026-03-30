@@ -1,4 +1,4 @@
-import type { Plugin, ResolvedConfig, HmrContext } from 'vite'
+import { loadEnv, type Plugin, type ResolvedConfig, type HmrContext } from 'vite'
 import type { SourceMapInput } from 'rollup'
 import type { IncomingMessage } from 'http'
 import type { Duplex } from 'stream'
@@ -538,8 +538,9 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         if (pipelineInstance) pipelineInstance.dispose()
         if (hmrUnsubscribe) hmrUnsubscribe()
 
-        // AI writer: enabled when CORTEX_API_KEY is set in environment
-        const cortexApiKey = process.env.CORTEX_API_KEY
+        // AI writer: enabled when CORTEX_API_KEY is set via .env/.env.local or shell
+        const env = loadEnv(config.mode, config.root, 'CORTEX_')
+        const cortexApiKey = env.CORTEX_API_KEY || process.env.CORTEX_API_KEY
         const aiWriter = cortexApiKey
           ? new AIWriter({ apiKey: cortexApiKey, readFile: (p) => fs.promises.readFile(p, 'utf-8') })
           : undefined
