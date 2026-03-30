@@ -66,6 +66,26 @@ describe('computeCapabilities', () => {
     expect(cij?.status).toBe('supported')
   })
 
+  it('reports component library as supported when AI available', () => {
+    const caps = computeCapabilities(
+      { hasCSSModules: false, hasTailwind: false, hasCSSInJS: false, hasComponentLibrary: true, hasPlainCSS: false, summary: '' },
+      { resolverAvailable: false, aiAvailable: true },
+    )
+    const cl = caps.find(c => c.name === 'Component Library')
+    expect(cl?.status).toBe('supported')
+    expect(cl?.reason).toContain('AI')
+  })
+
+  it('reports component library as ai-required when no AI', () => {
+    const caps = computeCapabilities(
+      { hasCSSModules: false, hasTailwind: false, hasCSSInJS: false, hasComponentLibrary: true, hasPlainCSS: false, summary: '' },
+      { resolverAvailable: false },
+    )
+    const cl = caps.find(c => c.name === 'Component Library')
+    expect(cl?.status).toBe('ai-required')
+    expect(cl?.reason).toContain('API key')
+  })
+
   it('handles mixed detection (Tailwind supported + CSS Modules supported)', () => {
     const caps = computeCapabilities(
       { hasCSSModules: true, hasTailwind: true, hasCSSInJS: false, hasPlainCSS: false, summary: '' },

@@ -51,5 +51,17 @@ export function computeCapabilities(
     }
   }
 
+  if (detection.hasComponentLibrary) {
+    if (resolver.aiAvailable) {
+      capabilities.push({ name: 'Component Library', status: 'supported', reason: 'AI-assisted editing active.' })
+    } else {
+      capabilities.push({
+        name: 'Component Library',
+        status: 'ai-required',
+        reason: 'Component library editing requires an API key. Visual preview is active.',
+      })
+    }
+  }
+
   return capabilities
 }
