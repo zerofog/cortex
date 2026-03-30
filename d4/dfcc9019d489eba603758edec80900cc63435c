@@ -1,0 +1,26 @@
+cortex-editor/src/browser/components/CapabilityBanner.tsx
+  7d09326090add6f9 1-2,4
+cortex-editor/src/browser/components/CortexApp.tsx
+  7d09326090add6f9 3,53,107-109,363
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "d4dfcc9019d489eba603758edec80900cc63435c",
+  "prompts": {
+    "7d09326090add6f9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1f8c0589-89d5-4a6f-8153-a8fea7b2b879",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 9,
+      "total_deletions": 16,
+      "accepted_lines": 9,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/ddb1ba4de41ba6272bedcf0196168a677ab5a33452a00cec0d58017c0cddcf76"
+    }
+  }
+}
