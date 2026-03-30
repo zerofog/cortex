@@ -120,7 +120,7 @@ describe('validateResult', () => {
 
   it('accepts valid single-line edit near target', () => {
     const newFile = baseFile.replace('pt-4', 'pt-6')
-    const result = validateResult(baseFile, newFile, 'App.tsx', 5)
+    const result = validateResult(baseFile, newFile, 'App.tsx', 5, 1, 9)
     expect(result.valid).toBe(true)
   })
 
@@ -128,7 +128,7 @@ describe('validateResult', () => {
     // Create a file with 15 lines, change all of them (exceeds 10-line budget)
     const bigFile = Array.from({ length: 15 }, (_, i) => `const x${i} = ${i}`).join('\n')
     const newBigFile = bigFile.split('\n').map(l => l + ' // changed').join('\n')
-    const result = validateResult(bigFile, newBigFile, 'App.tsx', 8)
+    const result = validateResult(bigFile, newBigFile, 'App.tsx', 8, 1, 15)
     expect(result.valid).toBe(false)
     expect(result.reason).toContain('too broad')
   })
@@ -136,20 +136,20 @@ describe('validateResult', () => {
   it('rejects when changes are far from target line', () => {
     // Target is line 5, but modify line 1 (import statement)
     const newFile = baseFile.replace('import React from "react"', 'import React from "preact"')
-    const result = validateResult(baseFile, newFile, 'App.tsx', 50)
+    const result = validateResult(baseFile, newFile, 'App.tsx', 50, 38, 62)
     expect(result.valid).toBe(false)
     expect(result.reason).toContain('too far')
   })
 
   it('rejects syntax errors', () => {
     const badFile = baseFile.replace('<div className="pt-4 bg-blue-500">', '<div className="pt-4 bg-blue-500"')
-    const result = validateResult(baseFile, badFile, 'App.tsx', 5)
+    const result = validateResult(baseFile, badFile, 'App.tsx', 5, 1, 9)
     expect(result.valid).toBe(false)
     expect(result.reason).toContain('syntax')
   })
 
   it('rejects zero-diff (no changes)', () => {
-    const result = validateResult(baseFile, baseFile, 'App.tsx', 5)
+    const result = validateResult(baseFile, baseFile, 'App.tsx', 5, 1, 9)
     expect(result.valid).toBe(false)
     expect(result.reason).toContain('no changes')
   })
@@ -157,8 +157,77 @@ describe('validateResult', () => {
   it('skips parse check for non-JSX files', () => {
     const cssOld = '.foo { color: red; }'
     const cssNew = '.foo { color: blue; }'
-    const result = validateResult(cssOld, cssNew, 'styles.css', 1)
+    const result = validateResult(cssOld, cssNew, 'styles.css', 1, 1, 1)
     expect(result.valid).toBe(true)
+  })
+
+  it('accepts edit that adds a line near target', () => {
+    // AI adds 1 line near target line 5. With positional diffing, all lines
+    // from the insertion point onward shift — line 22 in new != line 22 in old,
+    // and |22 - 5| > 15, so the old code would reject this as "too far".
+    // The fix should accept it because net delta is only 1 (≤ 3).
+    const oldLines = [
+      'import React from "react"',       // 1
+      '',                                  // 2
+      'export function App() {',           // 3
+      '  return (',                        // 4
+      '    <div className="pt-4">',        // 5  ← target
+      '      <h1>Hello</h1>',             // 6
+      '      <p>Content</p>',             // 7
+    ]
+    // Pad to 25 lines so shifted lines exceed locality distance
+    for (let i = 8; i <= 23; i++) oldLines.push(`      <p>Line ${i}</p>`)
+    oldLines.push('    </div>')            // 24
+    oldLines.push('  )')                   // 25
+    oldLines.push('}')                     // 26
+
+    // New file: add a wrapper <div> around the content — adds 1 line, valid JSX
+    const newLines = [...oldLines]
+    newLines[4] = '    <div className="pt-4 mb-2">'   // line 5 changed
+    // Insert opening tag after <h1>, close it before </div>
+    newLines.splice(6, 0, '      <p>Extra line</p>')   // insert after h1
+
+    const oldFile = oldLines.join('\n')
+    const newFile = newLines.join('\n')
+
+    // Context window: lines 1-26
+    const result = validateResult(oldFile, newFile, 'App.tsx', 5, 1, 26)
+    expect(result.valid).toBe(true)
+  })
+
+  it('rejects edit with large net line delta (> 3)', () => {
+    // AI adds 5 lines — net delta of 5 exceeds MAX_NET_LINE_DELTA of 3
+    const oldFile = [
+      'import React from "react"',
+      '',
+      'export function App() {',
+      '  return (',
+      '    <div className="pt-4">',
+      '      <h1>Hello</h1>',
+      '    </div>',
+      '  )',
+      '}',
+    ].join('\n')
+    const newFile = [
+      'import React from "react"',
+      '',
+      'export function App() {',
+      '  return (',
+      '    <div className="pt-4 mb-2">',
+      '      <span>extra1</span>',
+      '      <span>extra2</span>',
+      '      <span>extra3</span>',
+      '      <span>extra4</span>',
+      '      <span>extra5</span>',
+      '      <h1>Hello</h1>',
+      '    </div>',
+      '  )',
+      '}',
+    ].join('\n')
+    // Target line 5, context window 1-9
+    const result = validateResult(oldFile, newFile, 'App.tsx', 5, 1, 9)
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('net line delta')
   })
 })
 

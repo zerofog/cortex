@@ -41,6 +41,7 @@ const DEFAULT_API_BASE = 'https://api.anthropic.com'
 const CONTEXT_WINDOW = 25
 const MAX_DIFF_LINES = 10
 const MAX_LOCALITY_DISTANCE = 15
+const MAX_NET_LINE_DELTA = 3
 const MAX_LINE_LENGTH = 500
 const MAX_TOKENS = 1024
 
@@ -127,7 +128,7 @@ export class AIWriter {
     const newContent = newLines.join('\n')
 
     // Validate the result
-    const validation = validateResult(oldContent, newContent, filePath, request.line)
+    const validation = validateResult(oldContent, newContent, filePath, request.line, startLine, endLine)
     if (!validation.valid) {
       return { success: false, filePath, reason: validation.reason! }
     }
@@ -242,6 +243,8 @@ export function validateResult(
   newContent: string,
   filePath: string,
   targetLine: number,
+  contextStartLine: number,
+  contextEndLine: number,
 ): { valid: boolean; reason?: string } {
   // Gate 1: Parse check — must produce valid JSX/TSX
   const ext = extname(filePath)
@@ -253,29 +256,44 @@ export function validateResult(
     }
   }
 
-  // Gate 2: Diff budget — max N lines changed
+  // Gate 2 + 3: Diff budget and localization
   const oldLines = oldContent.split('\n')
   const newLines = newContent.split('\n')
-  let diffCount = 0
-  const maxLen = Math.max(oldLines.length, newLines.length)
-  const changedLineNumbers: number[] = []
-  for (let i = 0; i < maxLen; i++) {
-    if (oldLines[i] !== newLines[i]) {
-      diffCount++
-      changedLineNumbers.push(i + 1)
-    }
-  }
-  if (diffCount > MAX_DIFF_LINES) {
-    return { valid: false, reason: `AI changed ${diffCount} lines (max ${MAX_DIFF_LINES}). Edit rejected as too broad.` }
-  }
-  if (diffCount === 0) {
-    return { valid: false, reason: 'AI made no changes to the file' }
-  }
+  const netDelta = Math.abs(oldLines.length - newLines.length)
 
-  // Gate 3: Localization — changes must be near the target line
-  for (const changedLine of changedLineNumbers) {
-    if (Math.abs(changedLine - targetLine) > MAX_LOCALITY_DISTANCE) {
-      return { valid: false, reason: `AI modified line ${changedLine}, which is too far from target line ${targetLine}. Edit rejected.` }
+  if (netDelta > 0) {
+    // Lines were added or removed — positional line-by-line diffing is unreliable
+    // because all subsequent lines shift, inflating both diff count and locality
+    // distance. Use net delta as the safety constraint instead.
+    if (netDelta > MAX_NET_LINE_DELTA) {
+      return { valid: false, reason: `AI added/removed ${netDelta} net lines (max ${MAX_NET_LINE_DELTA}). Edit rejected — net line delta too large.` }
+    }
+    // Verify the file actually changed (not just whitespace reformat)
+    if (oldContent === newContent) {
+      return { valid: false, reason: 'AI made no changes to the file' }
+    }
+  } else {
+    // Same line count — value replacement. Positional diff is reliable.
+    let diffCount = 0
+    const changedLineNumbers: number[] = []
+    for (let i = 0; i < oldLines.length; i++) {
+      if (oldLines[i] !== newLines[i]) {
+        diffCount++
+        changedLineNumbers.push(i + 1)
+      }
+    }
+    // Gate 2: Diff budget
+    if (diffCount > MAX_DIFF_LINES) {
+      return { valid: false, reason: `AI changed ${diffCount} lines (max ${MAX_DIFF_LINES}). Edit rejected as too broad.` }
+    }
+    if (diffCount === 0) {
+      return { valid: false, reason: 'AI made no changes to the file' }
+    }
+    // Gate 3: Localization — per-line locality check
+    for (const changedLine of changedLineNumbers) {
+      if (Math.abs(changedLine - targetLine) > MAX_LOCALITY_DISTANCE) {
+        return { valid: false, reason: `AI modified line ${changedLine}, which is too far from target line ${targetLine}. Edit rejected.` }
+      }
     }
   }
 
