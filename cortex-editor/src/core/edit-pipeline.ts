@@ -28,7 +28,7 @@ export interface EditPipelineOptions {
   rewriter: TailwindRewriter
   verifier: HMRVerifier
   /** Injected for testability. Default: fs.writeFile */
-  writeFile: (path: string, content: string) => Promise<void>
+  writeFile: (path: string, content: string, options?: { suppressHMR?: boolean }) => Promise<void>
   /** Absolute path to project root. File writes are scoped to this directory. */
   projectRoot: string
   /** Debounce delay in ms. Default: 400 */
@@ -91,7 +91,7 @@ export class EditPipeline {
   private readonly resolver: TailwindResolver
   private readonly rewriter: TailwindRewriter
   private readonly verifier: HMRVerifier
-  private readonly writeFile: (path: string, content: string) => Promise<void>
+  private readonly writeFile: (path: string, content: string, options?: { suppressHMR?: boolean }) => Promise<void>
   private readonly projectRoot: string
   private readonly debounceMs: number
   private readonly cssModulesRewriter?: CSSModulesRewriter
@@ -311,7 +311,7 @@ export class EditPipeline {
         property: edit.property,
       })
 
-      await this.writeFile(resolvedPath, result.newContent)
+      await this.writeFile(resolvedPath, result.newContent, { suppressHMR: true })
 
       this.channel.send({
         type: 'edit_status',
@@ -483,7 +483,7 @@ export class EditPipeline {
         this.undoStack.push({ filePath: resolvedCssPath, previousContent: result.oldContent, currentContent: result.newContent })
       }
       this.verifier.trackEdit({ editId: edit.editId, filePath: resolvedCssPath, expectedValue: edit.value, property: edit.property })
-      await this.writeFile(resolvedCssPath, result.newContent)
+      await this.writeFile(resolvedCssPath, result.newContent, { suppressHMR: true })
       this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done' })
     })
   }

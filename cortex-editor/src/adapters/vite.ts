@@ -426,9 +426,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         }
 
         // Route edit/undo/redo to EditPipeline (or notify if still initializing)
-        // Mark forward edits for HMR suppression — the override preview is sufficient
         if (data.type === 'edit') {
-          suppressHMRForNextWrite = true
           if (pipelineInstance) pipelineInstance.handleEdit(data as EditRequest)
           else channelInstance?.send({ type: 'edit_status', editId: (data as EditRequest).editId, status: 'failed', reason: 'Editor is still initializing. Please try again.' })
         }
@@ -555,8 +553,8 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           runtimeResolver,
           undoStack,
           aiWriter,
-          writeFile: async (p, c) => {
-            if (suppressHMRForNextWrite) {
+          writeFile: async (p, c, options) => {
+            if (options?.suppressHMR || suppressHMRForNextWrite) {
               recentEditWrites.add(p)
               suppressHMRForNextWrite = false
               setTimeout(() => recentEditWrites.delete(p), 500)

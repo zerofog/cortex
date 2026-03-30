@@ -257,7 +257,7 @@ describe('EditPipeline', () => {
     vi.advanceTimersByTime(400)
     await vi.runAllTimersAsync()
 
-    expect(writeFile).toHaveBeenCalledWith('/project/src/App.tsx', 'new content')
+    expect(writeFile).toHaveBeenCalledWith('/project/src/App.tsx', 'new content', { suppressHMR: true })
     expect(verifier.tracked).toHaveLength(1)
   })
 
@@ -537,7 +537,7 @@ describe('EditPipeline', () => {
       newValue: '16px',
       elementSelector: 'div',
     })
-    expect(writeFile).toHaveBeenCalledWith('/project/src/Hero.module.css', 'new-css')
+    expect(writeFile).toHaveBeenCalledWith('/project/src/Hero.module.css', 'new-css', { suppressHMR: true })
     const doneStatus = channel.sent.find(
       m => m.type === 'edit_status' && (m as { status: string }).status === 'done'
     )
@@ -742,7 +742,7 @@ describe('EditPipeline', () => {
       newValue: '16px',
       elementSelector: 'div',
     })
-    expect(writeFile).toHaveBeenCalledWith('/project/src/Hero.module.css', 'new-css')
+    expect(writeFile).toHaveBeenCalledWith('/project/src/Hero.module.css', 'new-css', { suppressHMR: true })
   })
 
   it('fails with CSS module message on CSS Modules-only project when resolution fails', async () => {
@@ -1121,7 +1121,7 @@ describe('EditPipeline', () => {
     vi.advanceTimersByTime(400)
     await vi.runAllTimersAsync()
 
-    expect(writeFile).toHaveBeenCalledWith('/project/src/App.tsx', 'updated content')
+    expect(writeFile).toHaveBeenCalledWith('/project/src/App.tsx', 'updated content', { suppressHMR: true })
     const doneStatus = channel.sent.find(
       m => m.type === 'edit_status' && (m as { status: string }).status === 'done'
     )
