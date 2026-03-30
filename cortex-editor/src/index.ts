@@ -34,3 +34,9 @@ export { UndoStack } from './core/session/undo-stack.js'
 export type { UndoEntry } from './core/session/undo-stack.js'
 export { determineWriteStrategy } from './core/rewriter/shorthand.js'
 export type { WriteStrategy } from './core/rewriter/shorthand.js'
+
+// Phase 8b: Capabilities, v4 parser, oklch
+export { computeCapabilities } from './core/capabilities.js'
+export type { StyleCapability, CapabilityStatus, ResolverState } from './core/capabilities.js'
+export { parseV4Theme } from './core/tailwind-v4-parser.js'
+export { oklchToHex } from './core/oklch.js'
