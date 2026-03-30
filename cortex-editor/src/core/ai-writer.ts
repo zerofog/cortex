@@ -211,24 +211,83 @@ ${snippet}
 
 /** Strip instruction-like comments and truncate long lines. */
 export function sanitizeForPrompt(code: string): string {
-  return code
-    .split('\n')
-    .map(line => {
-      // Truncate excessively long lines (base64, minified code)
-      if (line.length > MAX_LINE_LENGTH) {
-        return line.slice(0, MAX_LINE_LENGTH) + ' /* truncated */'
+  const lines = code.split('\n')
+  const result: string[] = []
+  let inBlockComment = false
+  let blockHasInjection = false
+  let blockLines: string[] = []
+
+  for (const rawLine of lines) {
+    // Truncate excessively long lines (base64, minified code)
+    const line = rawLine.length > MAX_LINE_LENGTH
+      ? rawLine.slice(0, MAX_LINE_LENGTH) + ' /* truncated */'
+      : rawLine
+
+    const stripped = line.trim()
+
+    // ── Inside a multi-line block comment ──
+    if (inBlockComment) {
+      blockLines.push(line)
+      if (INSTRUCTION_COMMENT_RE.test(stripped)) {
+        blockHasInjection = true
       }
-      return line
-    })
-    .filter(line => {
-      // Strip single-line JS comments that look like injection attempts
-      const stripped = line.trim()
-      if (stripped.startsWith('//') && INSTRUCTION_COMMENT_RE.test(stripped.slice(2))) {
-        return false
+      if (stripped.includes('*/')) {
+        inBlockComment = false
+        if (!blockHasInjection) {
+          result.push(...blockLines)
+        }
+        blockLines = []
+        blockHasInjection = false
       }
-      return true
-    })
-    .join('\n')
+      continue
+    }
+
+    // ── Single-line // comment ──
+    if (stripped.startsWith('//') && INSTRUCTION_COMMENT_RE.test(stripped.slice(2))) {
+      continue
+    }
+
+    // ── Single-line block comment: /* ... */ on one line ──
+    if (stripped.startsWith('/*') && stripped.includes('*/')) {
+      const inner = stripped.slice(2, stripped.indexOf('*/'))
+      if (INSTRUCTION_COMMENT_RE.test(inner)) {
+        continue
+      }
+      result.push(line)
+      continue
+    }
+
+    // ── Single-line JSX comment: {/* ... */} on one line ──
+    if (stripped.startsWith('{/*') && stripped.includes('*/}')) {
+      const inner = stripped.slice(3, stripped.indexOf('*/}'))
+      if (INSTRUCTION_COMMENT_RE.test(inner)) {
+        continue
+      }
+      result.push(line)
+      continue
+    }
+
+    // ── Start of multi-line block comment ──
+    if (stripped.startsWith('/*') || stripped.startsWith('{/*')) {
+      inBlockComment = true
+      blockHasInjection = false
+      blockLines = [line]
+      const offset = stripped.startsWith('{/*') ? 3 : 2
+      if (INSTRUCTION_COMMENT_RE.test(stripped.slice(offset))) {
+        blockHasInjection = true
+      }
+      continue
+    }
+
+    result.push(line)
+  }
+
+  // If file ends mid-block-comment, flush buffered lines (non-injection only)
+  if (inBlockComment && !blockHasInjection) {
+    result.push(...blockLines)
+  }
+
+  return result.join('\n')
 }
 
 /** Extract content from the first code fence in the AI response. */
