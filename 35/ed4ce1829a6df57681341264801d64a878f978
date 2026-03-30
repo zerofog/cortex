@@ -1,0 +1,37 @@
+cortex-editor/src/core/tailwind-resolver.ts
+  91dd830423e45119 185,298-299,307-319,322,327,366-367,370-384,387
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "35ed4ce1829a6df57681341264801d64a878f978",
+  "prompts": {
+    "0b28aac81c1518cb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51ead870-5488-4815-8c94-7b322ce7d3ea",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 667,
+      "overriden_lines": 0
+    },
+    "91dd830423e45119": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b7d60b6a-2774-4cc1-b5dd-46a367029615",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 36,
+      "total_deletions": 6,
+      "accepted_lines": 36,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/e2c40ec14d43423cb5a642a6d2bb74bddcc0144625aec36b11025cb328ade144"
+    }
+  }
+}
