@@ -421,7 +421,12 @@ export class EditPipeline {
   private async executeAIWrite(
     edit: EditRequest, resolvedPath: string, line: number, col: number, failureReason: string,
   ): Promise<void> {
-    const result = await this.aiWriter!.write({
+    if (!this.aiWriter) {
+      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'AI writer is not configured.' })
+      return
+    }
+
+    const result = await this.aiWriter.write({
       filePath: resolvedPath,
       line,
       col,
