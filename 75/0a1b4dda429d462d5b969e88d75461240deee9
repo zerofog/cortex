@@ -1,0 +1,28 @@
+cortex-editor/src/core/parser-config.ts
+  7d09326090add6f9 1-8
+cortex-editor/src/core/rewriter/runtime-resolver.ts
+  7d09326090add6f9 5,19
+cortex-editor/src/core/ai-writer.ts
+  7d09326090add6f9 3,110,116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "750a1b4dda429d462d5b969e88d75461240deee9",
+  "prompts": {
+    "7d09326090add6f9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1f8c0589-89d5-4a6f-8153-a8fea7b2b879",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 17,
+      "total_deletions": 26,
+      "accepted_lines": 13,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/3a44885dc553eb9af59ded41e7f9376b06dfd6a65db18c4214173529198a9b83"
+    }
+  }
+}
