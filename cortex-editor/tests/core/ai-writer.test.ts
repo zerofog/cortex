@@ -220,7 +220,7 @@ describe('validateResult', () => {
     const newBigFile = bigFile.split('\n').map(l => l + ' // changed').join('\n')
     const result = validateResult(bigFile, newBigFile, 'App.tsx', 8, 1, 15)
     expect(result.valid).toBe(false)
-    expect(result.reason).toContain('too broad')
+    expect(!result.valid && result.reason).toContain('too broad')
   })
 
   it('rejects when changes are far from target line', () => {
@@ -228,20 +228,20 @@ describe('validateResult', () => {
     const newFile = baseFile.replace('import React from "react"', 'import React from "preact"')
     const result = validateResult(baseFile, newFile, 'App.tsx', 50, 38, 62)
     expect(result.valid).toBe(false)
-    expect(result.reason).toContain('too far')
+    expect(!result.valid && result.reason).toContain('too far')
   })
 
   it('rejects syntax errors', () => {
     const badFile = baseFile.replace('<div className="pt-4 bg-blue-500">', '<div className="pt-4 bg-blue-500"')
     const result = validateResult(baseFile, badFile, 'App.tsx', 5, 1, 9)
     expect(result.valid).toBe(false)
-    expect(result.reason).toContain('syntax')
+    expect(!result.valid && result.reason).toContain('syntax')
   })
 
   it('rejects zero-diff (no changes)', () => {
     const result = validateResult(baseFile, baseFile, 'App.tsx', 5, 1, 9)
     expect(result.valid).toBe(false)
-    expect(result.reason).toContain('no changes')
+    expect(!result.valid && result.reason).toContain('no changes')
   })
 
   it('skips parse check for non-JSX files', () => {
@@ -317,7 +317,7 @@ describe('validateResult', () => {
     // Target line 5, context window 1-9
     const result = validateResult(oldFile, newFile, 'App.tsx', 5, 1, 9)
     expect(result.valid).toBe(false)
-    expect(result.reason).toContain('net line delta')
+    expect(!result.valid && result.reason).toContain('net line delta')
   })
 })
 

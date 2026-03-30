@@ -130,7 +130,7 @@ export class AIWriter {
     // Validate the result
     const validation = validateResult(oldContent, newContent, filePath, request.line, startLine, endLine)
     if (!validation.valid) {
-      return { success: false, filePath, reason: validation.reason! }
+      return { success: false, filePath, reason: validation.reason }
     }
 
     return { success: true, filePath, oldContent, newContent }
@@ -168,14 +168,23 @@ export class AIWriter {
           5000,
         )
         await new Promise(resolve => setTimeout(resolve, delay))
-        response = await fetch(`${this.apiBaseUrl}/v1/messages`, requestOptions)
+        // Fresh AbortController for retry — original timer may have consumed most of the budget
+        clearTimeout(timer)
+        const retryController = new AbortController()
+        const retryTimer = setTimeout(() => retryController.abort(), this.timeoutMs)
+        try {
+          response = await fetch(`${this.apiBaseUrl}/v1/messages`, {
+            ...requestOptions,
+            signal: retryController.signal,
+          })
+        } finally {
+          clearTimeout(retryTimer)
+        }
         if (!response.ok) {
-          const body = await response.text().catch(() => '')
-          throw new Error(`API ${response.status} (after retry): ${body.slice(0, 200)}`)
+          throw new Error(`API error ${response.status} (after retry)`)
         }
       } else if (!response.ok) {
-        const body = await response.text().catch(() => '')
-        throw new Error(`API ${response.status}: ${body.slice(0, 200)}`)
+        throw new Error(`API error ${response.status}`)
       }
 
       const data = await response.json() as { content?: Array<{ type: string; text?: string }> }
@@ -339,7 +348,7 @@ export function validateResult(
   targetLine: number,
   contextStartLine: number,
   contextEndLine: number,
-): { valid: boolean; reason?: string } {
+): { valid: true } | { valid: false; reason: string } {
   // Gate 1: Parse check — must produce valid JSX/TSX
   const ext = extname(filePath)
   if (/\.[jt]sx?$/.test(ext)) {
