@@ -50,9 +50,10 @@ const MAX_TOKENS = 1024
 const SYSTEM_PROMPT = `You are a code editor. You modify source code files to change CSS styling properties.
 
 RULES:
-- Return ONLY the modified code lines, wrapped in a single code fence.
+- Return the COMPLETE code section with your change applied, wrapped in a single code fence.
+- Your output REPLACES the entire provided code section, so include ALL lines — not just the changed ones.
 - Change the MINIMUM number of lines necessary to apply the requested CSS property change.
-- Preserve exact indentation, formatting, and surrounding code.
+- Preserve exact indentation, formatting, and all surrounding code within the section.
 - Do NOT add explanations, comments, or text outside the code fence.
 - Do NOT add or remove imports.
 - Do NOT modify any code outside the targeted element.`
@@ -106,7 +107,6 @@ export class AIWriter {
     if (extractedCode === null) {
       return { success: false, filePath, reason: 'AI response did not contain a code block' }
     }
-
     // Replace the context window with AI output
     const newLines = [...lines]
     const aiLines = extractedCode.split('\n')
