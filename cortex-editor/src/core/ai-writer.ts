@@ -292,8 +292,28 @@ export function sanitizeForPrompt(code: string): string {
 
 /** Extract content from the first code fence in the AI response. */
 export function extractCodeFence(response: string): string | null {
-  const match = response.match(/```(?:\w+)?\n([\s\S]*?)```/)
-  return match ? match[1]!.replace(/\n$/, '') : null
+  // Find the first opening fence (with optional language tag)
+  const openMatch = response.match(/```(?:\w+)?\n/)
+  if (!openMatch) return null
+
+  const contentStart = openMatch.index! + openMatch[0].length
+  const rest = response.slice(contentStart)
+
+  // Find the last bare closing fence: a line that is ONLY ``` (with optional
+  // whitespace). This skips nested fences that appear mid-line in comments
+  // or string literals (e.g., `// Example: ```jsx`).
+  const lines = rest.split('\n')
+  let lastBareOffset = -1
+  let offset = 0
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*```\s*$/.test(lines[i]!)) {
+      lastBareOffset = offset
+    }
+    offset += lines[i]!.length + 1 // +1 for the \n
+  }
+
+  if (lastBareOffset === -1) return null
+  return rest.slice(0, lastBareOffset).replace(/\n$/, '')
 }
 
 /** Validate AI output: parse check, diff budget, localization. */

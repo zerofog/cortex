@@ -163,9 +163,35 @@ describe('extractCodeFence', () => {
     expect(extractCodeFence('no code here')).toBeNull()
   })
 
-  it('extracts first fence only', () => {
+  it('extracts from first opening to last bare closing fence', () => {
     const response = '```tsx\nfirst\n```\n```tsx\nsecond\n```'
-    expect(extractCodeFence(response)).toBe('first')
+    // With nested-fence-safe extraction, content spans from first opening
+    // to last bare closing fence. The AI contract (single fence block)
+    // makes this the correct behavior for nested backtick handling.
+    expect(extractCodeFence(response)).toBe('first\n```\n```tsx\nsecond')
+  })
+
+  it('handles nested backtick fences in AI response', () => {
+    const response = [
+      'Here is the modified code:',
+      '```tsx',
+      'export function App() {',
+      '  // Example: ```jsx',
+      '  // <div />',
+      '  // ```',
+      '  return <div className="pt-6" />',
+      '}',
+      '```',
+    ].join('\n')
+    const expected = [
+      'export function App() {',
+      '  // Example: ```jsx',
+      '  // <div />',
+      '  // ```',
+      '  return <div className="pt-6" />',
+      '}',
+    ].join('\n')
+    expect(extractCodeFence(response)).toBe(expected)
   })
 })
 
