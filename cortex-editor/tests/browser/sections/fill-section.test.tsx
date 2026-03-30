@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
-import { FillSection, parseFillValues, parseLinearGradient } from '../../../src/browser/components/sections/FillSection.js'
+import { FillSection, parseFillValues, parseLinearGradient, summarizeFill } from '../../../src/browser/components/sections/FillSection.js'
 import type { FillValues } from '../../../src/browser/components/sections/FillSection.js'
 
 // Mock @floating-ui/dom for ColorPicker (transitively used by ColorInput)
@@ -155,5 +155,19 @@ describe('parseLinearGradient', () => {
     expect(result).not.toBeNull()
     expect(result!.stops).toHaveLength(3)
     expect(result!.stops[1]!.position).toBe(50)
+  })
+})
+
+describe('summarizeFill', () => {
+  it('returns hex for solid color', () => {
+    expect(summarizeFill({ backgroundColor: 'rgb(59, 130, 246)', backgroundImage: 'none' })).toBe('#3b82f6')
+  })
+
+  it('returns "transparent" for zero-alpha background', () => {
+    expect(summarizeFill({ backgroundColor: 'rgba(0, 0, 0, 0)', backgroundImage: 'none' })).toBe('transparent')
+  })
+
+  it('returns "Gradient" for linear-gradient', () => {
+    expect(summarizeFill({ backgroundColor: '#fff', backgroundImage: 'linear-gradient(180deg, #000 0%, #fff 100%)' })).toBe('Gradient')
   })
 })

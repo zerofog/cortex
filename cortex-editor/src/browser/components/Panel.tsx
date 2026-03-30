@@ -11,11 +11,11 @@ import { LayoutSection, parseLayoutValues } from './sections/LayoutSection.js'
 import type { LayoutChange } from './sections/LayoutSection.js'
 import { TypographySection, parseTypographyValues, getWeightsForFamily, stripCSSQuotes } from './sections/TypographySection.js'
 import type { TypographyChange } from './sections/TypographySection.js'
-import { FillSection, parseFillValues } from './sections/FillSection.js'
+import { FillSection, parseFillValues, summarizeFill } from './sections/FillSection.js'
 import type { FillChange } from './sections/FillSection.js'
-import { BorderSection, parseBorderValues } from './sections/BorderSection.js'
+import { BorderSection, parseBorderValues, summarizeBorder } from './sections/BorderSection.js'
 import type { BorderChange } from './sections/BorderSection.js'
-import { ShadowSection, parseShadowValues } from './sections/ShadowSection.js'
+import { ShadowSection, parseShadowValues, summarizeShadow, addShadow } from './sections/ShadowSection.js'
 import type { ShadowChange } from './sections/ShadowSection.js'
 import { EffectsSection, parseEffectsValues } from './sections/EffectsSection.js'
 import type { EffectsChange } from './sections/EffectsSection.js'
@@ -24,6 +24,7 @@ import type { PositionChange } from './sections/PositionSection.js'
 import type { InteractionState } from '../state-detector.js'
 import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
+import { CollapsibleSection } from './CollapsibleSection.js'
 import type { CortexChannel } from '../../adapters/types.js'
 
 /**
@@ -279,6 +280,35 @@ export function Panel({
   const handlePositionCommit = useCallback((c: PositionChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handlePositionScrub = useCallback((c: PositionChange) => applyOverride(c.property, c.value, false), [applyOverride])
 
+  // Property section state — driven by computed values, not user toggle
+  const fillSummary = useMemo(() => summarizeFill(computedStyles.fill), [computedStyles.fill])
+  const fillHasValue = fillSummary !== 'transparent'
+  const borderSummary = useMemo(() => summarizeBorder(computedStyles.border), [computedStyles.border])
+  const borderHasValue = borderSummary !== 'none'
+  const shadowSummary = useMemo(() => summarizeShadow(computedStyles.shadow), [computedStyles.shadow])
+  const shadowHasValue = shadowSummary !== 'none'
+
+  const handleFillAdd = useCallback(() => {
+    applyOverride('background-color', '#ffffff', true)
+  }, [applyOverride])
+  const handleFillRemove = useCallback(() => {
+    applyOverride('background-color', 'transparent', true)
+    applyOverride('background-image', 'none', true)
+  }, [applyOverride])
+  const handleBorderAdd = useCallback(() => {
+    applyOverride('border-width', '1px', true)
+    applyOverride('border-style', 'solid', true)
+    applyOverride('border-color', '#000000', true)
+  }, [applyOverride])
+  // Intentionally preserves border-color so re-adding restores the user's last choice
+  const handleBorderRemove = useCallback(() => {
+    applyOverride('border-style', 'none', true)
+    applyOverride('border-width', '0px', true)
+  }, [applyOverride])
+  const handleShadowAdd = useCallback(() => {
+    applyOverride('box-shadow', addShadow(computedStyles.shadow.boxShadow), true)
+  }, [computedStyles.shadow.boxShadow, applyOverride])
+
   const handleSelectParent = useCallback(() => {
     if (!element) return
     if (element.parentElement && element.parentElement !== document.documentElement) {
@@ -465,33 +495,41 @@ export function Panel({
           />
         </SectionGroup>
         <SectionGroup label="Style" groupId="style">
-          <FillSection
-            values={computedStyles.fill}
-            onChange={handleFillCommit}
-            swatches={swatches}
-            dimmedProperties={dimmedProperties}
-          />
-          <BorderSection
-            values={computedStyles.border}
-            onChange={handleBorderCommit}
-            onScrub={handleBorderScrub}
-            onScrubEnd={handleBorderCommit}
-            swatches={swatches}
-            dimmedProperties={dimmedProperties}
-          />
-          <ShadowSection
-            values={computedStyles.shadow}
-            onChange={handleShadowCommit}
-            swatches={swatches}
-            dimmedProperties={dimmedProperties}
-          />
-          <EffectsSection
-            values={computedStyles.effects}
-            onChange={handleEffectsCommit}
-            onScrub={handleEffectsScrub}
-            onScrubEnd={handleEffectsCommit}
-            dimmedProperties={dimmedProperties}
-          />
+          <CollapsibleSection sectionId="fill" label="Fill" summary={fillSummary} hasValue={fillHasValue} onAdd={handleFillAdd} onRemove={handleFillRemove}>
+            <FillSection
+              values={computedStyles.fill}
+              onChange={handleFillCommit}
+              swatches={swatches}
+              dimmedProperties={dimmedProperties}
+            />
+          </CollapsibleSection>
+          <CollapsibleSection sectionId="border" label="Border" summary={borderSummary} hasValue={borderHasValue} onAdd={handleBorderAdd} onRemove={handleBorderRemove}>
+            <BorderSection
+              values={computedStyles.border}
+              onChange={handleBorderCommit}
+              onScrub={handleBorderScrub}
+              onScrubEnd={handleBorderCommit}
+              swatches={swatches}
+              dimmedProperties={dimmedProperties}
+            />
+          </CollapsibleSection>
+          <CollapsibleSection sectionId="shadow" label="Shadow" summary={shadowSummary} hasValue={shadowHasValue} onAdd={handleShadowAdd} canAddMore>
+            <ShadowSection
+              values={computedStyles.shadow}
+              onChange={handleShadowCommit}
+              swatches={swatches}
+              dimmedProperties={dimmedProperties}
+            />
+          </CollapsibleSection>
+          <CollapsibleSection sectionId="effects" label="Effects" hasValue={true}>
+            <EffectsSection
+              values={computedStyles.effects}
+              onChange={handleEffectsCommit}
+              onScrub={handleEffectsScrub}
+              onScrubEnd={handleEffectsCommit}
+              dimmedProperties={dimmedProperties}
+            />
+          </CollapsibleSection>
         </SectionGroup>
         {channel && (
           <CommentInput

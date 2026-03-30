@@ -41,6 +41,15 @@ export function replaceBlurInFilter(existing: string, newBlur: number): string {
   return withoutBlur ? `${withoutBlur} blur(${newBlur}px)` : `blur(${newBlur}px)`
 }
 
+export function summarizeEffects(values: EffectsValues): string {
+  const parts: string[] = []
+  if (values.opacity < 100) parts.push(`${values.opacity}%`)
+  if (values.overflow !== 'visible') parts.push(values.overflow)
+  if (values.blur > 0) parts.push(`blur ${values.blur}px`)
+  if (values.backdropBlur > 0) parts.push(`bg-blur ${values.backdropBlur}px`)
+  return parts.length > 0 ? parts.join(', ') : 'default'
+}
+
 /** Extract effects-related values from a CSSStyleDeclaration. */
 export function parseEffectsValues(cs: CSSStyleDeclaration): EffectsValues {
   return {

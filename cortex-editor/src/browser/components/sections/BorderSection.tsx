@@ -44,6 +44,11 @@ export function parseBorderValues(cs: CSSStyleDeclaration): BorderValues {
   }
 }
 
+export function summarizeBorder(values: BorderValues): string {
+  if (values.borderStyle === 'none' || values.borderWidth === 0) return 'none'
+  return `${values.borderWidth}px ${values.borderStyle}`
+}
+
 const STYLE_OPTIONS = [
   { value: 'solid', icon: '\u2014', title: 'Solid' },
   { value: 'dashed', icon: '--', title: 'Dashed' },
@@ -108,7 +113,7 @@ export function BorderSection({
   return (
     <div class="cortex-border-section" data-section-id="border">
       <div class="cortex-border-section__group">
-        <span class="cortex-section-label">Border</span>
+        <span class="cortex-section-label">Width</span>
         <NumericInput
           value={values.borderWidth}
           unit="px"
