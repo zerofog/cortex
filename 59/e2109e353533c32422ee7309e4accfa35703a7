@@ -1,0 +1,39 @@
+cortex-editor/tests/core/tailwind-v4-parser.test.ts
+  91dd830423e45119 1-247
+cortex-editor/src/core/tailwind-v4-parser.ts
+  91dd830423e45119 1-328,330,332-334,336-375
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "59e2109e353533c32422ee7309e4accfa35703a7",
+  "prompts": {
+    "0b28aac81c1518cb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51ead870-5488-4815-8c94-7b322ce7d3ea",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 667,
+      "overriden_lines": 0
+    },
+    "91dd830423e45119": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b7d60b6a-2774-4cc1-b5dd-46a367029615",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 654,
+      "total_deletions": 32,
+      "accepted_lines": 619,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/21ab0e022c687fde1040fd495a2777d15b2adac6f78569e5aa7199b65c55043c"
+    }
+  }
+}
