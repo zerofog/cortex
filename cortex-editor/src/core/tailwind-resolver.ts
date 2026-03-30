@@ -182,7 +182,7 @@ export function normalizeHex(value: string): string | null {
 }
 
 /** Convert rgb(R,G,B) or hex to lowercase 6-digit hex. Returns null for alpha < 1. */
-function rgbToHex(value: string): string | null {
+export function rgbToHex(value: string): string | null {
   if (/^#[0-9a-fA-F]{6}$/i.test(value)) return value.toLowerCase()
   // Short hex (#abc → #aabbcc)
   const shortMatch = value.match(/^#([0-9a-fA-F])([0-9a-fA-F])([0-9a-fA-F])$/i)
@@ -295,7 +295,8 @@ export class TailwindResolver {
 
   /**
    * Create a resolver by loading and resolving the project's tailwind config.
-   * Returns null if tailwindcss is not installed.
+   * Tries v3 first (resolveConfig + config file), then falls back to v4 parser.
+   * Returns null if tailwindcss is not installed and no v4 CSS found.
    */
   static async fromConfig(projectRoot: string, options?: ResolverOptions): Promise<TailwindResolver | null> {
     const { isAbsolute } = await import('path')
@@ -303,14 +304,27 @@ export class TailwindResolver {
       throw new Error(`projectRoot must be an absolute path, got: ${projectRoot}`)
     }
 
+    // Try v3 first (resolveConfig + config file)
+    const v3Result = await TailwindResolver.tryV3(projectRoot, options)
+    if (v3Result) return v3Result
+
+    // Fall back to v4 parser (@theme blocks in CSS)
+    const { parseV4Theme } = await import('./tailwind-v4-parser.js')
+    const v4Theme = await parseV4Theme(projectRoot)
+    if (v4Theme) return TailwindResolver.fromTheme(v4Theme, options)
+
+    return null
+  }
+
+  private static async tryV3(projectRoot: string, options?: ResolverOptions): Promise<TailwindResolver | null> {
     let resolveConfig: (config: unknown) => { theme?: ResolvedTheme }
     try {
-      // @ts-expect-error — tailwindcss is an optional peer dep; import fails gracefully at runtime
+      // @ts-expect-error — tailwindcss v3 API; v4 removed this export
       const mod = await import('tailwindcss/resolveConfig')
       resolveConfig = mod.default
     } catch (err: unknown) {
       if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === 'ERR_MODULE_NOT_FOUND') {
-        return null // tailwindcss not installed — expected
+        return null
       }
       throw err
     }
@@ -349,12 +363,28 @@ export class TailwindResolver {
   /**
    * Resolve color swatches from the project's Tailwind config.
    * Returns representative hex colors (shade 500 per family + flat customs).
-   * Returns null if tailwindcss is not installed or no config found.
+   * Tries v3 first, then falls back to v4 parser.
+   * Returns null if tailwindcss is not installed and no v4 CSS found.
    */
   static async resolveColors(projectRoot: string): Promise<string[] | null> {
+    // Try v3 first
+    const v3Colors = await TailwindResolver.tryV3Colors(projectRoot)
+    if (v3Colors) return v3Colors
+
+    // Fall back to v4 parser
+    const { parseV4Theme } = await import('./tailwind-v4-parser.js')
+    const v4Theme = await parseV4Theme(projectRoot)
+    if (v4Theme?.colors && typeof v4Theme.colors === 'object') {
+      return flattenColors(v4Theme.colors as Record<string, unknown>)
+    }
+
+    return null
+  }
+
+  private static async tryV3Colors(projectRoot: string): Promise<string[] | null> {
     let resolveConfig: (config: unknown) => { theme?: Record<string, unknown> }
     try {
-      // @ts-expect-error — tailwindcss is an optional peer dep
+      // @ts-expect-error — tailwindcss v3 API
       const mod = await import('tailwindcss/resolveConfig')
       resolveConfig = mod.default
     } catch {
