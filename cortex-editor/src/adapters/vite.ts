@@ -14,6 +14,8 @@ import { HMRVerifier } from '../core/hmr-verifier.js'
 import { EditPipeline } from '../core/edit-pipeline.js'
 import type { EditRequest } from '../core/edit-pipeline.js'
 import { StyleDetector } from '../core/rewriter/detector.js'
+import { computeCapabilities } from '../core/capabilities.js'
+import type { ResolverState, StyleCapability } from '../core/capabilities.js'
 import { CSSModulesRewriter } from '../core/rewriter/css-modules.js'
 import { RuntimeCSSResolver } from '../core/rewriter/runtime-resolver.js'
 import { UndoStack } from '../core/session/undo-stack.js'
@@ -146,6 +148,7 @@ let editorActive = false
 let browserConnected = false
 let pipelineInstance: EditPipeline | null = null
 let hmrUnsubscribe: (() => void) | null = null
+let capabilitiesCache: StyleCapability[] | null = null
 
 // Annotation RPC dispatch
 const ALLOWED_RPC_METHODS = new Set(['getPending', 'getDetails', 'acknowledge', 'resolve', 'dismiss', 'respond'])
@@ -255,6 +258,7 @@ export function _resetForTesting(): void {
   annotationStore = new AnnotationStore()
   activityLog = new ActivityLog()
   if (pipelineInstance) { pipelineInstance.dispose(); pipelineInstance = null }
+  capabilitiesCache = null
 }
 
 export function cortexEditor(_options?: CortexEditorOptions): Plugin {
@@ -346,6 +350,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       }
       editorActive = false
       browserConnected = false
+      capabilitiesCache = null
 
       // Serve browser IIFE — read fresh on each request so rebuilds take effect without restart
       server.middlewares.use(CORTEX_BROWSER_PATH, (_req, res, next) => {
@@ -442,6 +447,10 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           if (channelInstance) {
             channelInstance.send({ type: 'agent-status', connected: cliClients.size > 0 })
             if (editorActive) channelInstance.send({ type: 'cortex' })
+            // Re-send capabilities for late-connecting browsers
+            if (capabilitiesCache) {
+              channelInstance.send({ type: 'capabilities', systems: capabilitiesCache })
+            }
           }
           return
         }
@@ -549,6 +558,16 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         })
 
         hmrUnsubscribe = onHMRUpdate((files) => verifier.onHMRUpdate(files))
+
+        // Compute and send capability status to browser
+        const resolverState: ResolverState = {
+          resolverAvailable: resolver !== null,
+        }
+        const capabilities = computeCapabilities(detection, resolverState)
+        capabilitiesCache = capabilities.length > 0 ? capabilities : null
+        if (capabilitiesCache) {
+          channel.send({ type: 'capabilities', systems: capabilitiesCache })
+        }
       }).catch((err) => {
         console.error('[cortex] Failed to initialize edit pipeline:', err instanceof Error ? err.message : err)
       })

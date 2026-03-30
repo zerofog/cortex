@@ -144,6 +144,53 @@ describe('StyleDetector', () => {
     })
   })
 
+  describe('Tailwind version detection', () => {
+    it('detects version 4 from @tailwindcss/vite in package.json', async () => {
+      writeFixture('package.json', JSON.stringify({
+        devDependencies: { '@tailwindcss/vite': '^4.0.0' },
+      }))
+      const result = await detector.detect(tmpDir)
+      expect(result.hasTailwind).toBe(true)
+      expect(result.tailwindVersion).toBe(4)
+    })
+
+    it('detects version 4 from @tailwindcss/postcss in package.json', async () => {
+      writeFixture('package.json', JSON.stringify({
+        devDependencies: { '@tailwindcss/postcss': '^4.0.0' },
+      }))
+      const result = await detector.detect(tmpDir)
+      expect(result.hasTailwind).toBe(true)
+      expect(result.tailwindVersion).toBe(4)
+    })
+
+    it('detects version 4 from @import "tailwindcss" in CSS', async () => {
+      writeFixture('src/index.css', '@import "tailwindcss";')
+      const result = await detector.detect(tmpDir)
+      expect(result.hasTailwind).toBe(true)
+      expect(result.tailwindVersion).toBe(4)
+    })
+
+    it('detects version 3 from tailwind.config.js', async () => {
+      writeFixture('tailwind.config.js', 'module.exports = {}')
+      const result = await detector.detect(tmpDir)
+      expect(result.hasTailwind).toBe(true)
+      expect(result.tailwindVersion).toBe(3)
+    })
+
+    it('detects version 3 from @tailwind directive', async () => {
+      writeFixture('src/app.css', '@tailwind base;\n@tailwind components;')
+      const result = await detector.detect(tmpDir)
+      expect(result.hasTailwind).toBe(true)
+      expect(result.tailwindVersion).toBe(3)
+    })
+
+    it('returns undefined tailwindVersion when no Tailwind detected', async () => {
+      const result = await detector.detect(tmpDir)
+      expect(result.hasTailwind).toBe(false)
+      expect(result.tailwindVersion).toBeUndefined()
+    })
+  })
+
   describe('Summary format', () => {
     it('produces "Detected: Tailwind" for Tailwind-only project', async () => {
       writeFixture('tailwind.config.js', 'module.exports = {}')

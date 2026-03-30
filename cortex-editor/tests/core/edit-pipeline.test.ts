@@ -1113,4 +1113,42 @@ describe('EditPipeline', () => {
     )
     expect(doneStatus).toBeDefined()
   })
+
+  it('sends edit_status for every debounced edit, not just the first failure', async () => {
+    const channel = mockChannel()
+    const resolver = mockResolver({}) // empty resolver — no classes found
+    const rewriter = mockRewriter()
+    const verifier = mockVerifier()
+    const writeFile = vi.fn().mockResolvedValue(undefined)
+
+    const pipeline = new EditPipeline({
+      channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+    })
+
+    // First edit — should get 'failed' status
+    pipeline.handleEdit({
+      editId: 'e1', source: '/project/src/App.tsx:5:10',
+      property: 'padding-top', value: '16px', elementSelector: '.app',
+    })
+    await vi.advanceTimersByTimeAsync(500)
+    const first = channel.sent.find(
+      (m: any) => m.type === 'edit_status' && m.editId === 'e1',
+    )
+    expect(first).toBeDefined()
+    expect(first!.status).toBe('failed')
+
+    // Second edit — must ALSO get 'failed' status (not silently dropped)
+    pipeline.handleEdit({
+      editId: 'e2', source: '/project/src/App.tsx:5:10',
+      property: 'color', value: 'rgb(255,0,0)', elementSelector: '.app',
+    })
+    await vi.advanceTimersByTimeAsync(500)
+    const second = channel.sent.find(
+      (m: any) => m.type === 'edit_status' && m.editId === 'e2',
+    )
+    expect(second).toBeDefined()
+    expect(second!.status).toBe('failed')
+
+    pipeline.dispose()
+  })
 })
