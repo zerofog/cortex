@@ -1,0 +1,28 @@
+cortex-editor/src/core/edit-pipeline.ts
+  7d09326090add6f9 31,94,314,486
+cortex-editor/tests/core/edit-pipeline.test.ts
+  7d09326090add6f9 260,540,745,1124
+cortex-editor/src/adapters/vite.ts
+  7d09326090add6f9 556-557
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "59b0c73a3fd300bbea8e1c4c2b179fa051feb4ba",
+  "prompts": {
+    "7d09326090add6f9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1f8c0589-89d5-4a6f-8153-a8fea7b2b879",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 12,
+      "total_deletions": 14,
+      "accepted_lines": 423,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/603ec01e1fb3dcce3bcdf34693e03a4594687acc69d67715cc49225f456761e5"
+    }
+  }
+}
