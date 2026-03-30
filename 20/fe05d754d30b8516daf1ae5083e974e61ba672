@@ -1,0 +1,24 @@
+cortex-editor/src/core/ai-writer.ts
+  7d09326090add6f9 50,52-56,61,66,218-226,228,230,232,234
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "20fe05d754d30b8516daf1ae5083e974e61ba672",
+  "prompts": {
+    "7d09326090add6f9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1f8c0589-89d5-4a6f-8153-a8fea7b2b879",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 116,
+      "total_deletions": 47,
+      "accepted_lines": 487,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/b7dc52189b8bb99b03d80fabbc594d478be40f64aee7f522bd9779d7f3d35269"
+    }
+  }
+}
