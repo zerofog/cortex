@@ -147,6 +147,18 @@ describe('EditPipeline', () => {
 
     const pipeline = new EditPipeline({ channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project' })
 
+    // Seed edit — establishes baseline (no previousValue, silently returns)
+    pipeline.handleEdit({
+      editId: 'edit-0',
+      source: '/project/src/App.tsx:2:10',
+      property: 'padding-top',
+      value: '8px',
+      elementSelector: 'div',
+    })
+    vi.advanceTimersByTime(400)
+    await vi.runAllTimersAsync()
+
+    // Actual edit — resolver returns null, should fail
     pipeline.handleEdit({
       editId: 'edit-1',
       source: '/project/src/App.tsx:2:10',
@@ -1125,7 +1137,14 @@ describe('EditPipeline', () => {
       channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
     })
 
-    // First edit — should get 'failed' status
+    // Seed edit — establishes baseline (silently returns)
+    pipeline.handleEdit({
+      editId: 'e0', source: '/project/src/App.tsx:5:10',
+      property: 'padding-top', value: '8px', elementSelector: '.app',
+    })
+    await vi.advanceTimersByTimeAsync(500)
+
+    // First real edit — should get 'failed' status (resolver can't resolve)
     pipeline.handleEdit({
       editId: 'e1', source: '/project/src/App.tsx:5:10',
       property: 'padding-top', value: '16px', elementSelector: '.app',
@@ -1136,6 +1155,13 @@ describe('EditPipeline', () => {
     )
     expect(first).toBeDefined()
     expect(first!.status).toBe('failed')
+
+    // Seed second property
+    pipeline.handleEdit({
+      editId: 'e1b', source: '/project/src/App.tsx:5:10',
+      property: 'color', value: 'rgb(0,0,0)', elementSelector: '.app',
+    })
+    await vi.advanceTimersByTimeAsync(500)
 
     // Second edit — must ALSO get 'failed' status (not silently dropped)
     pipeline.handleEdit({

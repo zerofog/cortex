@@ -14,6 +14,7 @@ import { HMRVerifier } from '../core/hmr-verifier.js'
 import { EditPipeline } from '../core/edit-pipeline.js'
 import type { EditRequest } from '../core/edit-pipeline.js'
 import { StyleDetector } from '../core/rewriter/detector.js'
+import type { DetectionResult } from '../core/rewriter/detector.js'
 import { computeCapabilities } from '../core/capabilities.js'
 import type { ResolverState, StyleCapability } from '../core/capabilities.js'
 import { CSSModulesRewriter } from '../core/rewriter/css-modules.js'
@@ -520,7 +521,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       const detector = new StyleDetector()
       const detectionPromise = detector.detect(projectRoot).catch((err) => {
         console.warn('[cortex] Style detection failed:', err instanceof Error ? err.message : err)
-        return { hasCSSModules: false, hasTailwind: false, hasCSSInJS: false, hasPlainCSS: true, summary: 'Detection failed' }
+        return { hasCSSModules: false, hasTailwind: false, hasCSSInJS: false, hasPlainCSS: true, summary: 'Detection failed' } satisfies DetectionResult
       })
       const resolverPromise = TailwindResolver.fromConfig(projectRoot).catch((err) => {
         console.warn('[cortex] Tailwind config resolution failed:', err instanceof Error ? err.message : err)

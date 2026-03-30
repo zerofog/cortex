@@ -235,8 +235,13 @@ export class EditPipeline {
     }
 
     // Layer 3: Tailwind path
+    // First edit for a source:property pair has no previousValue — this is the
+    // baseline "seed" establishing the current state. Skip silently; the CSS
+    // override already shows the preview. File write starts on the next edit.
+    if (!previousValue) return
+
     const newToken = this.resolver.findClass(edit.property, edit.value)
-    const oldToken = previousValue ? this.resolver.findClass(edit.property, previousValue) : null
+    const oldToken = this.resolver.findClass(edit.property, previousValue)
 
     if (!newToken || !oldToken) {
       this.channel.send({
