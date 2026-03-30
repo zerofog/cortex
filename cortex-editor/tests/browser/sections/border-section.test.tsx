@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
-import { BorderSection, parseBorderValues } from '../../../src/browser/components/sections/BorderSection.js'
+import { BorderSection, parseBorderValues, summarizeBorder } from '../../../src/browser/components/sections/BorderSection.js'
 import type { BorderValues } from '../../../src/browser/components/sections/BorderSection.js'
 
 // Mock @floating-ui/dom
@@ -157,5 +157,19 @@ describe('BorderSection', () => {
       expect(result.borderStyle).toBe('none')
       expect(result.borderRadius).toBe(0)
     })
+  })
+})
+
+describe('summarizeBorder', () => {
+  it('returns "none" for no border', () => {
+    expect(summarizeBorder({ borderWidth: 0, borderStyle: 'none', borderColor: '#000', borderRadius: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0, borderBottomRightRadius: 0, borderBottomLeftRadius: 0 })).toBe('none')
+  })
+
+  it('returns width and style for visible border', () => {
+    expect(summarizeBorder({ borderWidth: 2, borderStyle: 'solid', borderColor: '#000', borderRadius: 4, borderTopLeftRadius: 4, borderTopRightRadius: 4, borderBottomRightRadius: 4, borderBottomLeftRadius: 4 })).toBe('2px solid')
+  })
+
+  it('returns "none" when width is 0 even if style is set', () => {
+    expect(summarizeBorder({ borderWidth: 0, borderStyle: 'solid', borderColor: '#000', borderRadius: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0, borderBottomRightRadius: 0, borderBottomLeftRadius: 0 })).toBe('none')
   })
 })
