@@ -11,7 +11,7 @@ export function CapabilityBanner({ channel }: { channel: CortexChannel }) {
         const limited = msg.systems.filter(s => s.status !== 'supported')
         if (limited.length > 0) {
           setSystems(limited)
-          setDismissed(false)
+          // Don't reset dismissed — respect user's dismissal for the session
         }
       }
     })
@@ -24,11 +24,6 @@ export function CapabilityBanner({ channel }: { channel: CortexChannel }) {
       role="status"
       aria-live="polite"
       style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 9998,
         padding: '8px',
         pointerEvents: 'auto',
       }}

@@ -355,8 +355,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
 
   return (
     <>
-      <CapabilityBanner channel={channel} />
-      <ErrorToast channel={channel} />
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 9998, pointerEvents: 'none', display: 'flex', flexDirection: 'column' }}>
+        <CapabilityBanner channel={channel} />
+        <ErrorToast channel={channel} />
+      </div>
       <HoverOverlay element={hoverEnabled ? hoveredElement : null} />
       <SelectionOverlay
         element={selectedElement}

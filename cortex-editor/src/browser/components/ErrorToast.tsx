@@ -52,7 +52,7 @@ export function ErrorToast({ channel }: { channel: CortexChannel }) {
   if (toasts.length === 0) return null
 
   return (
-    <div role="alert" aria-live="assertive" style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 9999, padding: '8px', pointerEvents: 'auto' }}>
+    <div role="alert" aria-live="assertive" style={{ padding: '8px', pointerEvents: 'auto' }}>
       {toasts.map(toast => (
         <div
           key={toast.id}
