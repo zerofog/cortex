@@ -52,9 +52,13 @@ export function CapabilityBanner({ channel }: { channel: CortexChannel }) {
           {systems.map((sys) => (
             <div key={sys.name} style={{ marginBottom: systems.length > 1 ? '4px' : 0 }}>
               <strong>{sys.name}</strong>
-              {sys.status === 'preview-only' && ': visual preview active — file writes not yet available.'}
-              {sys.status === 'ai-required' && ': editing requires Claude Code.'}
-              {sys.reason ? ` ${sys.reason}` : ''}
+              {sys.reason
+                ? `: ${sys.reason}`
+                : sys.status === 'preview-only'
+                  ? ': visual preview active — file writes not yet available.'
+                  : sys.status === 'ai-required'
+                    ? ': editing requires Claude Code.'
+                    : ''}
             </div>
           ))}
         </div>

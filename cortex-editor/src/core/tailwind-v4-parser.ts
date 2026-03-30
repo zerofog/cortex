@@ -13,7 +13,7 @@
 
 import { readdir, readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { join, dirname } from 'node:path'
+import { join, dirname, sep } from 'node:path'
 import postcss from 'postcss'
 import { oklchToHex } from './oklch.js'
 import type { ResolvedTheme } from './tailwind-resolver.js'
@@ -323,8 +323,8 @@ async function findV4EntryCSS(projectRoot: string): Promise<string | null> {
 
   const cssFiles = entries.filter(e =>
     e.endsWith('.css') &&
-    !e.includes('/node_modules/') &&
-    !e.startsWith('node_modules/')
+    !e.includes(`${sep}node_modules${sep}`) &&
+    !e.startsWith(`node_modules${sep}`)
   )
 
   for (const file of cssFiles) {
