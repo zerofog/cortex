@@ -6,6 +6,7 @@ export type StyleSystem = 'tailwind' | 'css-modules' | 'css-in-js' | 'plain-css'
 export interface DetectionResult {
   hasCSSModules: boolean
   hasTailwind: boolean
+  tailwindVersion?: 3 | 4
   hasCSSInJS: boolean
   hasPlainCSS: boolean
   summary: string
@@ -31,16 +32,24 @@ export class StyleDetector {
     // Single async scan, shared across all detectors
     const allFiles = await this.scanFiles(projectRoot)
 
-    const [hasTailwind, hasCSSModules, hasCSSInJS] = await Promise.all([
+    const [tailwindResult, hasCSSModules, hasCSSInJS] = await Promise.all([
       this.detectTailwind(projectRoot, allFiles),
       this.detectCSSModules(allFiles),
       this.detectCSSInJS(projectRoot),
     ])
 
+    const hasTailwind = tailwindResult.detected
     const hasPlainCSS = !hasTailwind && !hasCSSModules && !hasCSSInJS
     const summary = this.buildSummary(hasTailwind, hasCSSModules, hasCSSInJS)
 
-    return { hasTailwind, hasCSSModules, hasCSSInJS, hasPlainCSS, summary }
+    return {
+      hasTailwind,
+      tailwindVersion: tailwindResult.version,
+      hasCSSModules,
+      hasCSSInJS,
+      hasPlainCSS,
+      summary,
+    }
   }
 
   private async scanFiles(root: string): Promise<string[]> {
@@ -54,19 +63,21 @@ export class StyleDetector {
     }
   }
 
-  private async detectTailwind(root: string, allFiles: string[]): Promise<boolean> {
+  private async detectTailwind(root: string, allFiles: string[]): Promise<{ detected: boolean; version?: 3 | 4 }> {
     // Check for Tailwind v4 Vite plugin in package.json
     try {
       const pkg = await fs.promises.readFile(path.join(root, 'package.json'), 'utf-8')
       const parsed = JSON.parse(pkg) as Record<string, Record<string, string>>
       const allDeps = { ...parsed.dependencies, ...parsed.devDependencies }
-      if ('@tailwindcss/vite' in allDeps || '@tailwindcss/postcss' in allDeps) return true
+      if ('@tailwindcss/vite' in allDeps || '@tailwindcss/postcss' in allDeps) {
+        return { detected: true, version: 4 }
+      }
     } catch { /* no package.json or parse error */ }
 
     for (const name of TAILWIND_CONFIG_NAMES) {
       try {
         await fs.promises.access(path.join(root, name))
-        return true
+        return { detected: true, version: 3 }
       } catch { /* not found */ }
     }
 
@@ -74,11 +85,16 @@ export class StyleDetector {
     for (const file of cssFiles) {
       try {
         const content = await fs.promises.readFile(file, 'utf-8')
-        if (/@tailwind\b/.test(content) || /@config\s+["']/.test(content) || /@import\s+["']tailwindcss["']/.test(content)) return true
+        if (/@import\s+["']tailwindcss["']/.test(content)) {
+          return { detected: true, version: 4 }
+        }
+        if (/@tailwind\b/.test(content) || /@config\s+["']/.test(content)) {
+          return { detected: true, version: 3 }
+        }
       } catch { /* skip unreadable */ }
     }
 
-    return false
+    return { detected: false }
   }
 
   private async detectCSSModules(allFiles: string[]): Promise<boolean> {
