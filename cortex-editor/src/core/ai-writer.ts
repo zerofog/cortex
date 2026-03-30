@@ -1,5 +1,6 @@
 import { parse } from '@babel/parser'
 import { basename, extname } from 'path'
+import { PARSE_PLUGINS } from './parser-config.js'
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -45,13 +46,6 @@ const MAX_NET_LINE_DELTA = 3
 const MAX_LINE_LENGTH = 500
 const MAX_TOKENS = 1024
 
-const PARSE_PLUGINS = [
-  'jsx',
-  'typescript',
-  ['decorators', { version: '2023-07' }],
-  'importAttributes',
-  'explicitResourceManagement',
-] as import('@babel/parser').ParserPlugin[]
 
 const SYSTEM_PROMPT = `You are a code editor. You modify source code files to change CSS styling properties.
 
@@ -95,19 +89,12 @@ export class AIWriter {
     }
 
     const lines = oldContent.split('\n')
-
-    // Extract context window around target line
     const { snippet, startLine, endLine } = extractContext(lines, request.line, CONTEXT_WINDOW)
-
-    // Sanitize the snippet before sending to AI
     const sanitized = sanitizeForPrompt(snippet)
-
-    // Build prompt
     const ext = extname(filePath).slice(1) || 'tsx'
     const filename = basename(filePath)
     const userPrompt = buildUserPrompt(request, sanitized, startLine, endLine, filename, ext)
 
-    // Call Claude API
     let responseText: string
     try {
       responseText = await this.callClaude(userPrompt)
@@ -115,20 +102,18 @@ export class AIWriter {
       return { success: false, filePath, reason: `AI request failed: ${err instanceof Error ? err.message : String(err)}` }
     }
 
-    // Extract code from response
     const extractedCode = extractCodeFence(responseText)
     if (extractedCode === null) {
       return { success: false, filePath, reason: 'AI response did not contain a code block' }
     }
 
-    // Reconstruct full file: replace the context window with AI output
+    // Replace the context window with AI output
     const newLines = [...lines]
     const aiLines = extractedCode.split('\n')
     newLines.splice(startLine - 1, endLine - startLine + 1, ...aiLines)
     const newContent = newLines.join('\n')
 
-    // Validate the result
-    const validation = validateResult(oldContent, newContent, filePath, request.line, startLine, endLine)
+    const validation = validateResult(oldContent, newContent, filePath, request.line)
     if (!validation.valid) {
       return { success: false, filePath, reason: validation.reason }
     }
@@ -346,8 +331,6 @@ export function validateResult(
   newContent: string,
   filePath: string,
   targetLine: number,
-  contextStartLine: number,
-  contextEndLine: number,
 ): { valid: true } | { valid: false; reason: string } {
   // Gate 1: Parse check — must produce valid JSX/TSX
   const ext = extname(filePath)

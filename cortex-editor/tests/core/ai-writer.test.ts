@@ -210,7 +210,7 @@ describe('validateResult', () => {
 
   it('accepts valid single-line edit near target', () => {
     const newFile = baseFile.replace('pt-4', 'pt-6')
-    const result = validateResult(baseFile, newFile, 'App.tsx', 5, 1, 9)
+    const result = validateResult(baseFile, newFile, 'App.tsx', 5)
     expect(result.valid).toBe(true)
   })
 
@@ -218,7 +218,7 @@ describe('validateResult', () => {
     // Create a file with 15 lines, change all of them (exceeds 10-line budget)
     const bigFile = Array.from({ length: 15 }, (_, i) => `const x${i} = ${i}`).join('\n')
     const newBigFile = bigFile.split('\n').map(l => l + ' // changed').join('\n')
-    const result = validateResult(bigFile, newBigFile, 'App.tsx', 8, 1, 15)
+    const result = validateResult(bigFile, newBigFile, 'App.tsx', 8)
     expect(result.valid).toBe(false)
     expect(!result.valid && result.reason).toContain('too broad')
   })
@@ -226,20 +226,20 @@ describe('validateResult', () => {
   it('rejects when changes are far from target line', () => {
     // Target is line 5, but modify line 1 (import statement)
     const newFile = baseFile.replace('import React from "react"', 'import React from "preact"')
-    const result = validateResult(baseFile, newFile, 'App.tsx', 50, 38, 62)
+    const result = validateResult(baseFile, newFile, 'App.tsx', 50)
     expect(result.valid).toBe(false)
     expect(!result.valid && result.reason).toContain('too far')
   })
 
   it('rejects syntax errors', () => {
     const badFile = baseFile.replace('<div className="pt-4 bg-blue-500">', '<div className="pt-4 bg-blue-500"')
-    const result = validateResult(baseFile, badFile, 'App.tsx', 5, 1, 9)
+    const result = validateResult(baseFile, badFile, 'App.tsx', 5)
     expect(result.valid).toBe(false)
     expect(!result.valid && result.reason).toContain('syntax')
   })
 
   it('rejects zero-diff (no changes)', () => {
-    const result = validateResult(baseFile, baseFile, 'App.tsx', 5, 1, 9)
+    const result = validateResult(baseFile, baseFile, 'App.tsx', 5)
     expect(result.valid).toBe(false)
     expect(!result.valid && result.reason).toContain('no changes')
   })
@@ -247,7 +247,7 @@ describe('validateResult', () => {
   it('skips parse check for non-JSX files', () => {
     const cssOld = '.foo { color: red; }'
     const cssNew = '.foo { color: blue; }'
-    const result = validateResult(cssOld, cssNew, 'styles.css', 1, 1, 1)
+    const result = validateResult(cssOld, cssNew, 'styles.css', 1)
     expect(result.valid).toBe(true)
   })
 
@@ -281,7 +281,7 @@ describe('validateResult', () => {
     const newFile = newLines.join('\n')
 
     // Context window: lines 1-26
-    const result = validateResult(oldFile, newFile, 'App.tsx', 5, 1, 26)
+    const result = validateResult(oldFile, newFile, 'App.tsx', 5)
     expect(result.valid).toBe(true)
   })
 
@@ -315,7 +315,7 @@ describe('validateResult', () => {
       '}',
     ].join('\n')
     // Target line 5, context window 1-9
-    const result = validateResult(oldFile, newFile, 'App.tsx', 5, 1, 9)
+    const result = validateResult(oldFile, newFile, 'App.tsx', 5)
     expect(result.valid).toBe(false)
     expect(!result.valid && result.reason).toContain('net line delta')
   })

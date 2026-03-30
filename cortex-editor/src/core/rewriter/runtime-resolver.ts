@@ -2,6 +2,7 @@ import { parse } from '@babel/parser'
 import { readFile as fsReadFile, stat } from 'node:fs/promises'
 import { resolve, dirname } from 'node:path'
 import type { Node } from '@babel/types'
+import { PARSE_PLUGINS } from '../parser-config.js'
 
 export interface ResolvedCSSMapping {
   cssFilePath: string
@@ -13,10 +14,9 @@ interface CacheEntry {
   result: ResolvedCSSMapping[]
 }
 
-const PARSE_PLUGINS = ['jsx', 'typescript', ['decorators', { version: '2023-07' }], 'importAttributes', 'explicitResourceManagement'] as string[]
 const PARSE_OPTIONS = {
   sourceType: 'module' as const,
-  plugins: PARSE_PLUGINS as import('@babel/parser').ParserPlugin[],
+  plugins: PARSE_PLUGINS,
 }
 
 const MAX_CACHE = 100
