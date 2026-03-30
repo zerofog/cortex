@@ -9,10 +9,8 @@ export function CapabilityBanner({ channel }: { channel: CortexChannel }) {
     return channel.onMessage((msg) => {
       if (msg.type === 'capabilities') {
         const limited = msg.systems.filter(s => s.status !== 'supported')
-        if (limited.length > 0) {
-          setSystems(limited)
-          // Don't reset dismissed — respect user's dismissal for the session
-        }
+        // Always update — clears stale limitations when all systems become supported
+        setSystems(limited)
       }
     })
   }, [channel])

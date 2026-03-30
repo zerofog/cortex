@@ -31,7 +31,13 @@ import type { ResolvedTheme } from './tailwind-resolver.js'
  */
 export function extractThemeProperties(css: string): Map<string, string> {
   const properties = new Map<string, string>()
-  const root = postcss.parse(css)
+
+  let root: postcss.Root
+  try {
+    root = postcss.parse(css)
+  } catch {
+    return properties // malformed CSS — fail gracefully, don't disable the editor
+  }
 
   root.walkAtRules('theme', (atRule) => {
     atRule.walkDecls((decl) => {
@@ -114,9 +120,13 @@ function normalizeColor(value: string): string | null {
     return null
   }
 
-  // rgb()/rgba() conversion
-  const m = trimmed.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)[\s,)]/)
+  // rgb()/rgba() — reject alpha < 1 (Tailwind separates color from opacity)
+  const m = trimmed.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+%?))?\s*\)/)
   if (m) {
+    if (m[4] !== undefined) {
+      const alpha = m[4].endsWith('%') ? Number(m[4].slice(0, -1)) / 100 : Number(m[4])
+      if (Number.isNaN(alpha) || alpha < 1) return null
+    }
     const r = Math.round(Number(m[1]))
     const g = Math.round(Number(m[2]))
     const b = Math.round(Number(m[3]))
