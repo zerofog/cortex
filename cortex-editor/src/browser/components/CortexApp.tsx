@@ -16,6 +16,7 @@ import { Toolbar } from './Toolbar.js'
 import { CommentPin } from './CommentPin.js'
 import { ActivityLog } from './ActivityLog.js'
 import { ErrorToast } from './ErrorToast.js'
+import { CapabilityBanner } from './CapabilityBanner.js'
 import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
 import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
@@ -354,6 +355,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
 
   return (
     <>
+      <CapabilityBanner channel={channel} />
       <ErrorToast channel={channel} />
       <HoverOverlay element={hoverEnabled ? hoveredElement : null} />
       <SelectionOverlay
