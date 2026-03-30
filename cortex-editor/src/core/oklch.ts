@@ -1,3 +1,11 @@
+/** sRGB gamma correction with clamping to [0, 1]. */
+function srgbGamma(v: number): number {
+  const clamped = Math.max(0, Math.min(1, v))
+  return clamped <= 0.0031308
+    ? 12.92 * clamped
+    : 1.055 * Math.pow(clamped, 1 / 2.4) - 0.055
+}
+
 /**
  * Convert an oklch() CSS color function to 6-digit lowercase hex.
  * Out-of-gamut values are clamped to sRGB. Returns null for unparseable input.
@@ -35,17 +43,9 @@ export function oklchToHex(oklchStr: string): string | null {
   const gl = -1.2684380046 * lc + 2.6097574011 * mc - 0.3413193965 * sc
   const bl = -0.0041960863 * lc - 0.7034186147 * mc + 1.707614701 * sc
 
-  // Linear sRGB → sRGB (gamma correction), clamped to [0, 1]
-  const gamma = (v: number) => {
-    const clamped = Math.max(0, Math.min(1, v))
-    return clamped <= 0.0031308
-      ? 12.92 * clamped
-      : 1.055 * Math.pow(clamped, 1 / 2.4) - 0.055
-  }
-
-  const r = Math.round(gamma(rl) * 255)
-  const g = Math.round(gamma(gl) * 255)
-  const bv = Math.round(gamma(bl) * 255)
+  const r = Math.round(srgbGamma(rl) * 255)
+  const g = Math.round(srgbGamma(gl) * 255)
+  const bv = Math.round(srgbGamma(bl) * 255)
 
   return `#${((1 << 24) + (r << 16) + (g << 8) + bv).toString(16).slice(1)}`
 }
