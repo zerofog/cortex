@@ -300,6 +300,7 @@ export function Panel({
     applyOverride('border-style', 'solid', true)
     applyOverride('border-color', '#000000', true)
   }, [applyOverride])
+  // Intentionally preserves border-color so re-adding restores the user's last choice
   const handleBorderRemove = useCallback(() => {
     applyOverride('border-style', 'none', true)
     applyOverride('border-width', '0px', true)

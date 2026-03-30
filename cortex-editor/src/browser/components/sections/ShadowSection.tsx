@@ -34,7 +34,7 @@ export function parseShadowValues(cs: CSSStyleDeclaration): ShadowValues {
   }
 }
 
-export const DEFAULT_SHADOW: Shadow = {
+const DEFAULT_SHADOW: Shadow = {
   inset: false,
   x: 0,
   y: 2,

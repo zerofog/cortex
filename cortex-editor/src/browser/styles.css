@@ -1927,8 +1927,8 @@
 .cortex-segmented__option,
 .cortex-dropdown__trigger,
 .cortex-color-input__swatch,
-.cortex-shadow-section__add,
 .cortex-shadow-section__remove,
+.cortex-shadow-section__expand-btn,
 .cortex-spacing-group__toggle,
 .cortex-lock-btn,
 .cortex-border-section__corner-toggle,
@@ -1941,8 +1941,8 @@
 .cortex-segmented__option:focus-visible,
 .cortex-dropdown__trigger:focus-visible,
 .cortex-color-input__swatch:focus-visible,
-.cortex-shadow-section__add:focus-visible,
 .cortex-shadow-section__remove:focus-visible,
+.cortex-shadow-section__expand-btn:focus-visible,
 .cortex-spacing-group__toggle:focus-visible,
 .cortex-lock-btn:focus-visible,
 .cortex-border-section__corner-toggle:focus-visible,
@@ -1961,8 +1961,8 @@
   transform: scale(0.92);
 }
 
-.cortex-shadow-section__add:active,
-.cortex-shadow-section__remove:active {
+.cortex-shadow-section__remove:active,
+.cortex-shadow-section__expand-btn:active {
   transform: scale(0.9);
 }
 
