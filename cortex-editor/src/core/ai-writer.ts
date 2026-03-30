@@ -47,16 +47,23 @@ const MAX_LINE_LENGTH = 500
 const MAX_TOKENS = 1024
 
 
-const SYSTEM_PROMPT = `You are a code editor. You modify source code files to change CSS styling properties.
+const SYSTEM_PROMPT = `You are a code editor. You modify JSX/TSX source files to apply CSS property changes.
+
+HOW TO APPLY THE CHANGE:
+- If the element already has a \`style\` prop, add or update the property in the existing style object.
+- If the element has no \`style\` prop, add one: \`style={{ camelCaseProperty: 'value' }}\`
+- Use JSX camelCase for property names (e.g., paddingTop, backgroundColor, fontSize).
+- Always quote string values. Use numbers only for unitless values (e.g., lineHeight, opacity).
 
 RULES:
 - Return the COMPLETE code section with your change applied, wrapped in a single code fence.
 - Your output REPLACES the entire provided code section, so include ALL lines — not just the changed ones.
-- Change the MINIMUM number of lines necessary to apply the requested CSS property change.
+- Do NOT include line numbers in your output — only return the raw code.
+- Change the MINIMUM number of lines necessary.
 - Preserve exact indentation, formatting, and all surrounding code within the section.
 - Do NOT add explanations, comments, or text outside the code fence.
 - Do NOT add or remove imports.
-- Do NOT modify any code outside the targeted element.`
+- Do NOT modify any element other than the one marked with ←.`
 
 // Matches instruction-like patterns commonly used in prompt injection
 const INSTRUCTION_COMMENT_RE = /^\s*(IMPORTANT|INSTRUCTION|NOTE|AI|SYSTEM|IGNORE|OVERRIDE|FORGET|DISREGARD)\s*:/i
@@ -208,13 +215,23 @@ export function buildUserPrompt(
   filename: string,
   ext: string,
 ): string {
-  return `TASK: Change the CSS property \`${request.property}\` to value \`${request.value}\` for the element at line ${request.line}, column ${request.col}.
+  // Add line numbers so the AI can identify the target element precisely
+  const numberedSnippet = snippet
+    .split('\n')
+    .map((line, i) => {
+      const lineNum = startLine + i
+      const marker = lineNum === request.line ? ' ←' : ''
+      return `${lineNum}| ${line}${marker}`
+    })
+    .join('\n')
 
-CONTEXT: The deterministic editor failed because: ${request.failureReason}
+  return `TASK: Set \`${request.property}: ${request.value}\` on the element at line ${request.line} (marked with ←).
 
-CODE (lines ${startLine}-${endLine} of ${filename}):
+CONTEXT: ${request.failureReason}
+
+CODE (${filename}, lines ${startLine}-${endLine} — line numbers shown for reference, do NOT include them in your output):
 \`\`\`${ext}
-${snippet}
+${numberedSnippet}
 \`\`\``
 }
 
