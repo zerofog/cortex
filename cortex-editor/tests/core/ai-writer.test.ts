@@ -400,7 +400,15 @@ describe('AIWriter', () => {
 
   it('returns failure on API error', async () => {
     mockReadFile.mockResolvedValueOnce(sampleFile)
-    fetchSpy.mockResolvedValueOnce(new Response('Rate limited', { status: 429 }))
+    // Both attempts return 429 (first triggers retry, second fails)
+    fetchSpy.mockResolvedValueOnce(new Response('Rate limited', {
+      status: 429,
+      headers: { 'retry-after': '0' },
+    }))
+    fetchSpy.mockResolvedValueOnce(new Response('Rate limited', {
+      status: 429,
+      headers: { 'retry-after': '0' },
+    }))
 
     const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
     const result = await writer.write({
@@ -412,6 +420,84 @@ describe('AIWriter', () => {
 
     expect(result.success).toBe(false)
     if (!result.success) expect(result.reason).toContain('429')
+  })
+
+  describe('callClaude retry', () => {
+    it('retries once on 429 and succeeds', async () => {
+      mockReadFile.mockResolvedValueOnce(sampleFile)
+      // First fetch: 429 rate limit
+      fetchSpy.mockResolvedValueOnce(new Response('Rate limited', {
+        status: 429,
+        headers: { 'retry-after': '0' },
+      }))
+      // Second fetch: success
+      const modifiedSnippet = sampleFile
+        .split('\n')
+        .map(l => l.replace('pt-4', 'pt-8'))
+        .join('\n')
+      fetchSpy.mockResolvedValueOnce(new Response(
+        JSON.stringify({
+          content: [{ type: 'text', text: `\`\`\`tsx\n${modifiedSnippet}\n\`\`\`` }],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ))
+
+      const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
+      const result = await writer.write({
+        filePath: '/project/src/Hero.tsx',
+        line: 5, col: 5,
+        property: 'padding-top', value: '32px',
+        failureReason: 'test',
+      })
+
+      expect(result.success).toBe(true)
+      expect(fetchSpy).toHaveBeenCalledTimes(2)
+    })
+
+    it('fails after second 429', async () => {
+      mockReadFile.mockResolvedValueOnce(sampleFile)
+      // Both fetches return 429
+      fetchSpy.mockResolvedValueOnce(new Response('Rate limited', {
+        status: 429,
+        headers: { 'retry-after': '0' },
+      }))
+      fetchSpy.mockResolvedValueOnce(new Response('Still rate limited', {
+        status: 429,
+        headers: { 'retry-after': '0' },
+      }))
+
+      const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
+      const result = await writer.write({
+        filePath: '/project/src/Hero.tsx',
+        line: 5, col: 5,
+        property: 'padding-top', value: '16px',
+        failureReason: 'test',
+      })
+
+      expect(result.success).toBe(false)
+      if (!result.success) {
+        expect(result.reason).toContain('429')
+        expect(result.reason).toContain('after retry')
+      }
+      expect(fetchSpy).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not retry on 500 errors', async () => {
+      mockReadFile.mockResolvedValueOnce(sampleFile)
+      fetchSpy.mockResolvedValueOnce(new Response('Internal Server Error', { status: 500 }))
+
+      const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
+      const result = await writer.write({
+        filePath: '/project/src/Hero.tsx',
+        line: 5, col: 5,
+        property: 'padding-top', value: '16px',
+        failureReason: 'test',
+      })
+
+      expect(result.success).toBe(false)
+      if (!result.success) expect(result.reason).toContain('500')
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('returns failure when AI response has no code fence', async () => {

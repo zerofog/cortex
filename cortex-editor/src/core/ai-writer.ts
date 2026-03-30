@@ -140,25 +140,40 @@ export class AIWriter {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), this.timeoutMs)
 
-    try {
-      const response = await fetch(`${this.apiBaseUrl}/v1/messages`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': this.apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: this.model,
-          max_tokens: MAX_TOKENS,
-          temperature: 0,
-          system: SYSTEM_PROMPT,
-          messages: [{ role: 'user', content: userPrompt }],
-        }),
-        signal: controller.signal,
-      })
+    const requestOptions: RequestInit = {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': this.apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: this.model,
+        max_tokens: MAX_TOKENS,
+        temperature: 0,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userPrompt }],
+      }),
+      signal: controller.signal,
+    }
 
-      if (!response.ok) {
+    try {
+      let response = await fetch(`${this.apiBaseUrl}/v1/messages`, requestOptions)
+
+      // Single retry for 429 rate limits
+      if (response.status === 429) {
+        const retryAfterSec = parseInt(response.headers.get('retry-after') ?? '', 10)
+        const delay = Math.min(
+          Number.isNaN(retryAfterSec) ? 1000 : retryAfterSec * 1000,
+          5000,
+        )
+        await new Promise(resolve => setTimeout(resolve, delay))
+        response = await fetch(`${this.apiBaseUrl}/v1/messages`, requestOptions)
+        if (!response.ok) {
+          const body = await response.text().catch(() => '')
+          throw new Error(`API ${response.status} (after retry): ${body.slice(0, 200)}`)
+        }
+      } else if (!response.ok) {
         const body = await response.text().catch(() => '')
         throw new Error(`API ${response.status}: ${body.slice(0, 200)}`)
       }
