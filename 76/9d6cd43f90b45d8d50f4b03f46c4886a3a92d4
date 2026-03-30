@@ -1,0 +1,26 @@
+cortex-editor/src/browser/components/CapabilityBanner.tsx
+  91dd830423e45119 12-13
+cortex-editor/src/core/tailwind-v4-parser.ts
+  91dd830423e45119 34-40,123-124,126-129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "769d6cd43f90b45d8d50f4b03f46c4886a3a92d4",
+  "prompts": {
+    "91dd830423e45119": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b7d60b6a-2774-4cc1-b5dd-46a367029615",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 15,
+      "total_deletions": 7,
+      "accepted_lines": 15,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/bbcd88da9b68de45761d9d8025d9a284b9d868ba2843224f76d40d48421b09ae"
+    }
+  }
+}
