@@ -1,4 +1,5 @@
 import type { Server as HttpServer } from 'http'
+import type { StyleCapability } from '../core/capabilities.js'
 
 // === Server-side adapter interface ===
 // Each framework adapter (Vite, Next.js) implements this.
@@ -86,6 +87,7 @@ export type ServerToBrowser =
   | { type: 'annotation-updated'; annotation: Annotation }
   | { type: 'agent-status'; connected: boolean }
   | { type: 'activity-entry'; entry: ActivityEntry }
+  | { type: 'capabilities'; systems: StyleCapability[] }
 
 export interface ElementContext {
   tagName: string
@@ -146,3 +148,5 @@ export interface CortexChannel {
   /** Clean up resources (WebSocket, timers). Optional — Vite channel has nothing to dispose. */
   dispose?: () => void
 }
+
+export type { StyleCapability }
