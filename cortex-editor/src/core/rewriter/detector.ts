@@ -8,6 +8,7 @@ export interface DetectionResult {
   hasTailwind: boolean
   tailwindVersion?: 3 | 4
   hasCSSInJS: boolean
+  hasComponentLibrary: boolean
   hasPlainCSS: boolean
   summary: string
 }
@@ -25,6 +26,13 @@ const CSS_IN_JS_PACKAGES = [
   '@emotion/react',
 ]
 
+const COMPONENT_LIBRARY_PACKAGES = [
+  '@mantine/core',
+  '@chakra-ui/react',
+  '@mui/material',
+  '@mui/system',
+]
+
 const SOURCE_EXTENSIONS = new Set(['.js', '.jsx', '.ts', '.tsx'])
 
 export class StyleDetector {
@@ -32,21 +40,23 @@ export class StyleDetector {
     // Single async scan, shared across all detectors
     const allFiles = await this.scanFiles(projectRoot)
 
-    const [tailwindResult, hasCSSModules, hasCSSInJS] = await Promise.all([
+    const [tailwindResult, hasCSSModules, hasCSSInJS, hasComponentLibrary] = await Promise.all([
       this.detectTailwind(projectRoot, allFiles),
       this.detectCSSModules(allFiles),
       this.detectCSSInJS(projectRoot),
+      this.detectComponentLibrary(projectRoot),
     ])
 
     const hasTailwind = tailwindResult.detected
-    const hasPlainCSS = !hasTailwind && !hasCSSModules && !hasCSSInJS
-    const summary = this.buildSummary(hasTailwind, hasCSSModules, hasCSSInJS)
+    const hasPlainCSS = !hasTailwind && !hasCSSModules && !hasCSSInJS && !hasComponentLibrary
+    const summary = this.buildSummary(hasTailwind, hasCSSModules, hasCSSInJS, hasComponentLibrary)
 
     return {
       hasTailwind,
       tailwindVersion: tailwindResult.version,
       hasCSSModules,
       hasCSSInJS,
+      hasComponentLibrary,
       hasPlainCSS,
       summary,
     }
@@ -123,11 +133,23 @@ export class StyleDetector {
     }
   }
 
-  private buildSummary(tw: boolean, cm: boolean, cij: boolean): string {
+  private async detectComponentLibrary(root: string): Promise<boolean> {
+    try {
+      const content = await fs.promises.readFile(path.join(root, 'package.json'), 'utf-8')
+      const pkg = JSON.parse(content) as Record<string, Record<string, string>>
+      const allDeps = { ...pkg.dependencies, ...pkg.devDependencies, ...pkg.peerDependencies }
+      return COMPONENT_LIBRARY_PACKAGES.some(name => name in allDeps)
+    } catch {
+      return false
+    }
+  }
+
+  private buildSummary(tw: boolean, cm: boolean, cij: boolean, cl?: boolean): string {
     const parts: string[] = []
     if (tw) parts.push('Tailwind')
     if (cm) parts.push('CSS Modules')
     if (cij) parts.push('CSS-in-JS')
+    if (cl) parts.push('Component Library')
     if (parts.length === 0) return 'No style system detected'
     return `Detected: ${parts.join(' + ')}`
   }

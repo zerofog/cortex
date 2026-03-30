@@ -20,6 +20,7 @@ import type { ResolverState, StyleCapability } from '../core/capabilities.js'
 import { CSSModulesRewriter } from '../core/rewriter/css-modules.js'
 import { RuntimeCSSResolver } from '../core/rewriter/runtime-resolver.js'
 import { UndoStack } from '../core/session/undo-stack.js'
+import { AIWriter } from '../core/ai-writer.js'
 import { AnnotationStore } from '../core/annotations.js'
 import { ActivityLog } from '../core/session/activity-log.js'
 
@@ -521,7 +522,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       const detector = new StyleDetector()
       const detectionPromise = detector.detect(projectRoot).catch((err) => {
         console.warn('[cortex] Style detection failed:', err instanceof Error ? err.message : err)
-        return { hasCSSModules: false, hasTailwind: false, hasCSSInJS: false, hasPlainCSS: true, summary: 'Detection failed' } satisfies DetectionResult
+        return { hasCSSModules: false, hasTailwind: false, hasCSSInJS: false, hasComponentLibrary: false, hasPlainCSS: true, summary: 'Detection failed' } satisfies DetectionResult
       })
       const resolverPromise = TailwindResolver.fromConfig(projectRoot).catch((err) => {
         console.warn('[cortex] Tailwind config resolution failed:', err instanceof Error ? err.message : err)
@@ -537,6 +538,12 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         if (pipelineInstance) pipelineInstance.dispose()
         if (hmrUnsubscribe) hmrUnsubscribe()
 
+        // AI writer: enabled when CORTEX_API_KEY is set in environment
+        const cortexApiKey = process.env.CORTEX_API_KEY
+        const aiWriter = cortexApiKey
+          ? new AIWriter({ apiKey: cortexApiKey, readFile: (p) => fs.promises.readFile(p, 'utf-8') })
+          : undefined
+
         pipelineInstance = new EditPipeline({
           channel,
           resolver: resolver ?? TailwindResolver.fromTheme({}),
@@ -546,6 +553,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           detector: detection,
           runtimeResolver,
           undoStack,
+          aiWriter,
           writeFile: async (p, c) => {
             if (suppressHMRForNextWrite) {
               recentEditWrites.add(p)
@@ -563,6 +571,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         // Compute and send capability status to browser
         const resolverState: ResolverState = {
           resolverAvailable: resolver !== null,
+          aiAvailable: !!aiWriter,
         }
         const capabilities = computeCapabilities(detection, resolverState)
         capabilitiesCache = capabilities.length > 0 ? capabilities : null

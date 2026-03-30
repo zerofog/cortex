@@ -10,6 +10,7 @@ export interface StyleCapability {
 
 export interface ResolverState {
   resolverAvailable: boolean
+  aiAvailable?: boolean
 }
 
 export function computeCapabilities(
@@ -21,6 +22,8 @@ export function computeCapabilities(
   if (detection.hasTailwind) {
     if (resolver.resolverAvailable) {
       capabilities.push({ name: 'Tailwind', status: 'supported' })
+    } else if (resolver.aiAvailable) {
+      capabilities.push({ name: 'Tailwind', status: 'supported', reason: 'AI-assisted editing active.' })
     } else {
       capabilities.push({
         name: 'Tailwind',
@@ -37,11 +40,15 @@ export function computeCapabilities(
   }
 
   if (detection.hasCSSInJS) {
-    capabilities.push({
-      name: 'CSS-in-JS',
-      status: 'ai-required',
-      reason: 'CSS-in-JS editing requires Claude Code. Visual preview is active.',
-    })
+    if (resolver.aiAvailable) {
+      capabilities.push({ name: 'CSS-in-JS', status: 'supported', reason: 'AI-assisted editing active.' })
+    } else {
+      capabilities.push({
+        name: 'CSS-in-JS',
+        status: 'ai-required',
+        reason: 'CSS-in-JS editing requires Claude Code. Visual preview is active.',
+      })
+    }
   }
 
   return capabilities
