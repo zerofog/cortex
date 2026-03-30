@@ -140,7 +140,9 @@ export function ShadowSection({
                 />
               </div>
               <button
+                type="button"
                 class="cortex-shadow-section__remove"
+                aria-label="Remove shadow"
                 data-tooltip="Remove shadow"
                 onClick={() => handleRemove(index)}
               >

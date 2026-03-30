@@ -35,6 +35,7 @@ export function CollapsibleSection({
           <button
             class="cortex-collapsible__btn"
             type="button"
+            aria-label={`Add ${label.toLowerCase()}`}
             data-tooltip={`Add ${label.toLowerCase()}`}
             onClick={onAdd}
           >
@@ -45,6 +46,7 @@ export function CollapsibleSection({
           <button
             class="cortex-collapsible__btn cortex-collapsible__btn--remove"
             type="button"
+            aria-label={`Remove ${label.toLowerCase()}`}
             data-tooltip={`Remove ${label.toLowerCase()}`}
             onClick={onRemove}
           >
@@ -52,7 +54,7 @@ export function CollapsibleSection({
           </button>
         )}
       </div>
-      <div class="cortex-collapsible__body">
+      <div class="cortex-collapsible__body" inert={!hasValue || undefined} aria-hidden={!hasValue || undefined}>
         <div class="cortex-collapsible__body-inner">
           {children}
         </div>

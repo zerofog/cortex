@@ -31,7 +31,11 @@ export function parseFillValues(cs: CSSStyleDeclaration): FillValues {
 }
 
 export function summarizeFill(values: FillValues): string {
-  if (parseLinearGradient(values.backgroundImage)) return 'Gradient'
+  const bgImg = values.backgroundImage
+  if (bgImg && bgImg !== 'none') {
+    if (parseLinearGradient(bgImg)) return 'Gradient'
+    return 'Image'
+  }
   const { hex, alpha } = parseColor(values.backgroundColor)
   if (alpha === 0) return 'transparent'
   return alpha < 100 ? `${hex} ${alpha}%` : hex
