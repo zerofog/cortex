@@ -323,8 +323,13 @@ export class TailwindResolver {
       const mod = await import('tailwindcss/resolveConfig')
       resolveConfig = mod.default
     } catch (err: unknown) {
-      if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === 'ERR_MODULE_NOT_FOUND') {
-        return null
+      if (err && typeof err === 'object' && 'code' in err) {
+        const code = (err as { code: string }).code
+        // ERR_MODULE_NOT_FOUND: tailwindcss not installed
+        // ERR_PACKAGE_PATH_NOT_EXPORTED: tailwindcss v4 (removed resolveConfig export)
+        if (code === 'ERR_MODULE_NOT_FOUND' || code === 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
+          return null
+        }
       }
       throw err
     }

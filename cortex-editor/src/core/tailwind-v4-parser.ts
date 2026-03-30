@@ -297,6 +297,19 @@ export function themePropertiesToResolved(properties: Map<string, string>): Reso
   }
   if (Object.keys(blur).length > 0) {
     theme.blur = blur
+    // Tailwind v4 uses the same --blur-* namespace for both blur and backdrop-blur
+    if (!theme.backdropBlur) {
+      theme.backdropBlur = { ...blur }
+    }
+  }
+
+  // ── Opacity (v4 doesn't have @theme vars; generate standard scale) ──
+  if (!theme.opacity) {
+    const opacity: Record<string, string> = {}
+    for (let i = 0; i <= 100; i += 5) {
+      opacity[String(i)] = String(i / 100)
+    }
+    theme.opacity = opacity
   }
 
   // ── Static defaults ─────────────────────────────────────────────

@@ -350,6 +350,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       }
       editorActive = false
       browserConnected = false
+      capabilitiesCache = null
 
       // Serve browser IIFE — read fresh on each request so rebuilds take effect without restart
       server.middlewares.use(CORTEX_BROWSER_PATH, (_req, res, next) => {
