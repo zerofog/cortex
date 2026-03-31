@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { writeFileSync, mkdirSync, rmSync } from 'fs'
 import { join, dirname } from 'path'
 import { tmpdir } from 'os'
+import type { SourceFile, SyntaxKind as SyntaxKindEnum } from 'ts-morph'
 import { ensureTsMorph, findJsxElementAt, cssPropertyToCamelCase } from '../../../src/core/rewriter/jsx-utils.js'
 
 function createTempFile(content: string): string {
@@ -15,6 +16,23 @@ function createTempFile(content: string): string {
 function cleanupTempFile(filePath: string): void {
   try { rmSync(filePath) } catch {}
   try { rmSync(dirname(filePath), { recursive: true }) } catch {}
+}
+
+/** Create a ts-morph SourceFile from source text, returning everything findJsxElementAt needs. */
+async function parseSource(source: string): Promise<{
+  sourceFile: SourceFile
+  SK: typeof SyntaxKindEnum
+  filePath: string
+}> {
+  const filePath = createTempFile(source)
+  const mod = await ensureTsMorph()
+  const project = new mod.Project({
+    useInMemoryFileSystem: false,
+    compilerOptions: { jsx: 4, allowJs: true },
+    skipAddingFilesFromTsConfig: true,
+  })
+  const sourceFile = project.createSourceFile(filePath, source, { overwrite: true })
+  return { sourceFile, SK: mod.SyntaxKind, filePath }
 }
 
 describe('cssPropertyToCamelCase', () => {
@@ -82,17 +100,11 @@ describe('ensureTsMorph', () => {
 
 describe('findJsxElementAt', () => {
   it('finds a self-closing JSX element at line:col', async () => {
-    const source = `export function App() {\n  return <img src="logo.png" />\n}`
-    const filePath = createTempFile(source)
+    const { sourceFile, SK, filePath } = await parseSource(
+      `export function App() {\n  return <img src="logo.png" />\n}`,
+    )
     try {
-      const mod = await ensureTsMorph()
-      const project = new mod.Project({
-        useInMemoryFileSystem: false,
-        compilerOptions: { jsx: 4, allowJs: true },
-        skipAddingFilesFromTsConfig: true,
-      })
-      const sourceFile = project.createSourceFile(filePath, source, { overwrite: true })
-      const element = findJsxElementAt(sourceFile, 2, 10, mod.SyntaxKind)
+      const element = findJsxElementAt(sourceFile, 2, 10, SK)
       expect(element).not.toBeNull()
       expect(element!.getText()).toContain('img')
     } finally {
@@ -101,17 +113,11 @@ describe('findJsxElementAt', () => {
   })
 
   it('finds an opening JSX element at line:col', async () => {
-    const source = `export function App() {\n  return <div className="hero">Hello</div>\n}`
-    const filePath = createTempFile(source)
+    const { sourceFile, SK, filePath } = await parseSource(
+      `export function App() {\n  return <div className="hero">Hello</div>\n}`,
+    )
     try {
-      const mod = await ensureTsMorph()
-      const project = new mod.Project({
-        useInMemoryFileSystem: false,
-        compilerOptions: { jsx: 4, allowJs: true },
-        skipAddingFilesFromTsConfig: true,
-      })
-      const sourceFile = project.createSourceFile(filePath, source, { overwrite: true })
-      const element = findJsxElementAt(sourceFile, 2, 10, mod.SyntaxKind)
+      const element = findJsxElementAt(sourceFile, 2, 10, SK)
       expect(element).not.toBeNull()
       expect(element!.getText()).toContain('div')
     } finally {
@@ -120,17 +126,9 @@ describe('findJsxElementAt', () => {
   })
 
   it('returns null for invalid position', async () => {
-    const source = `const x = 42\n`
-    const filePath = createTempFile(source)
+    const { sourceFile, SK, filePath } = await parseSource(`const x = 42\n`)
     try {
-      const mod = await ensureTsMorph()
-      const project = new mod.Project({
-        useInMemoryFileSystem: false,
-        compilerOptions: { jsx: 4, allowJs: true },
-        skipAddingFilesFromTsConfig: true,
-      })
-      const sourceFile = project.createSourceFile(filePath, source, { overwrite: true })
-      const element = findJsxElementAt(sourceFile, 1, 1, mod.SyntaxKind)
+      const element = findJsxElementAt(sourceFile, 1, 1, SK)
       expect(element).toBeNull()
     } finally {
       cleanupTempFile(filePath)
@@ -138,17 +136,11 @@ describe('findJsxElementAt', () => {
   })
 
   it('returns null for out-of-bounds line', async () => {
-    const source = `export function App() {\n  return <div>Hello</div>\n}`
-    const filePath = createTempFile(source)
+    const { sourceFile, SK, filePath } = await parseSource(
+      `export function App() {\n  return <div>Hello</div>\n}`,
+    )
     try {
-      const mod = await ensureTsMorph()
-      const project = new mod.Project({
-        useInMemoryFileSystem: false,
-        compilerOptions: { jsx: 4, allowJs: true },
-        skipAddingFilesFromTsConfig: true,
-      })
-      const sourceFile = project.createSourceFile(filePath, source, { overwrite: true })
-      const element = findJsxElementAt(sourceFile, 999, 1, mod.SyntaxKind)
+      const element = findJsxElementAt(sourceFile, 999, 1, SK)
       expect(element).toBeNull()
     } finally {
       cleanupTempFile(filePath)
@@ -156,24 +148,16 @@ describe('findJsxElementAt', () => {
   })
 
   it('finds the tightest element when nested', async () => {
-    const source = `export function App() {
+    const { sourceFile, SK, filePath } = await parseSource(`export function App() {
   return (
     <div className="outer">
       <span className="inner">Hello</span>
     </div>
   )
-}`
-    const filePath = createTempFile(source)
+}`)
     try {
-      const mod = await ensureTsMorph()
-      const project = new mod.Project({
-        useInMemoryFileSystem: false,
-        compilerOptions: { jsx: 4, allowJs: true },
-        skipAddingFilesFromTsConfig: true,
-      })
-      const sourceFile = project.createSourceFile(filePath, source, { overwrite: true })
       // Point at the <span> on line 4
-      const element = findJsxElementAt(sourceFile, 4, 7, mod.SyntaxKind)
+      const element = findJsxElementAt(sourceFile, 4, 7, SK)
       expect(element).not.toBeNull()
       expect(element!.getText()).toContain('span')
       expect(element!.getText()).not.toContain('outer')
@@ -185,18 +169,12 @@ describe('findJsxElementAt', () => {
   it('returns null when position is in element body text (not the opening tag)', async () => {
     // data-cortex-source points at the opening tag, not the body.
     // This documents that positions inside text content (after >) return null.
-    const source = `export function App() {\n  return <div>Hello World</div>\n}`
-    const filePath = createTempFile(source)
+    const { sourceFile, SK, filePath } = await parseSource(
+      `export function App() {\n  return <div>Hello World</div>\n}`,
+    )
     try {
-      const mod = await ensureTsMorph()
-      const project = new mod.Project({
-        useInMemoryFileSystem: false,
-        compilerOptions: { jsx: 4, allowJs: true },
-        skipAddingFilesFromTsConfig: true,
-      })
-      const sourceFile = project.createSourceFile(filePath, source, { overwrite: true })
       // col 17 points at "World" — inside the text content, outside <div> opening tag
-      const element = findJsxElementAt(sourceFile, 2, 17, mod.SyntaxKind)
+      const element = findJsxElementAt(sourceFile, 2, 17, SK)
       expect(element).toBeNull()
     } finally {
       cleanupTempFile(filePath)
