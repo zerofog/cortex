@@ -1523,6 +1523,157 @@ describe('EditPipeline', () => {
     })
   })
 
+  // --- classifyEdit routing ---
+
+  describe('classifyEdit routing', () => {
+    function mockAIWriterForClassify(result: AIWriteResult = {
+      success: true, filePath: '/project/src/App.tsx', oldContent: 'old', newContent: 'new',
+    }): { write: ReturnType<typeof vi.fn> } {
+      return { write: vi.fn().mockResolvedValue(result) }
+    }
+
+    function mockDeferredWriterForClassify(): DeferredWriter & { enqueued: DeferredEdit[]; disposed: boolean } {
+      const enqueued: DeferredEdit[] = []
+      return {
+        enqueued,
+        disposed: false,
+        enqueue(edit: DeferredEdit) { enqueued.push(edit) },
+        dispose() { this.disposed = true },
+      } as unknown as DeferredWriter & { enqueued: DeferredEdit[]; disposed: boolean }
+    }
+
+    it('routes to deferred when strategy is deferred (CSS Modules only, no Tailwind)', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const deferredWriter = mockDeferredWriterForClassify()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        detector: { hasCSSModules: true, hasTailwind: false },
+        deferredWriter: deferredWriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/Hero.tsx:5:3',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // Should route to deferredWriter (deferred strategy — CSS Modules only project)
+      expect(deferredWriter.enqueued).toHaveLength(1)
+      const writingStatus = channel.sent.find(
+        m => m.type === 'edit_status' && (m as { status: string }).status === 'writing',
+      )
+      expect(writingStatus).toBeDefined()
+    })
+
+    it('sends unsupported when strategy is unsupported (no AI, no Tailwind, no CSS Modules)', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        detector: { hasCSSModules: false, hasTailwind: false },
+        // No deferredWriter, no aiWriter
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      const failedStatus = channel.sent.find(
+        m => m.type === 'edit_status' && (m as { status: string }).status === 'failed',
+      )
+      expect(failedStatus).toBeDefined()
+      expect((failedStatus as { reason?: string }).reason).toContain('No supported editing strategy')
+    })
+
+    it('falls through from immediate to deferred when Tailwind resolution fails', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({}) // resolver exists but returns null
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const deferredWriter = mockDeferredWriterForClassify()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        detector: { hasCSSModules: false, hasTailwind: true },
+        deferredWriter: deferredWriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-0',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '8px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // Strategy is 'immediate' (hasTailwind + resolverAvailable) but resolver.findClass
+      // returns null, so it falls through to deferredWriter
+      expect(deferredWriter.enqueued).toHaveLength(1)
+      expect(deferredWriter.enqueued[0]).toMatchObject({
+        filePath: '/project/src/App.tsx',
+        property: 'padding-top',
+        value: '8px',
+        failureReason: expect.stringContaining('Cannot resolve'),
+      })
+    })
+
+    it('CSS Modules annotation path bypasses classifyEdit entirely', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const cssRewriter = mockCSSModulesRewriter()
+
+      // Even with detector saying no CSS Modules (unlikely but tests bypass),
+      // annotation path should still work
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        cssModulesRewriter: cssRewriter,
+        detector: { hasCSSModules: false, hasTailwind: false },
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/Hero.tsx:5:3',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+        cssMapping: 'src/Hero.module.css:.hero',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      const doneStatus = channel.sent.find(
+        m => m.type === 'edit_status' && (m as { status: string }).status === 'done',
+      )
+      expect(doneStatus).toBeDefined()
+      expect((doneStatus as { strategy?: string }).strategy).toBe('immediate')
+    })
+  })
+
   // --- DeferredWriter integration ---
 
   describe('DeferredWriter integration', () => {

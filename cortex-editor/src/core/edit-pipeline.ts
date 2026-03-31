@@ -8,6 +8,7 @@ import type { RuntimeCSSResolver } from './rewriter/runtime-resolver.js'
 import type { UndoStack } from './session/undo-stack.js'
 import type { AIWriter } from './ai-writer.js'
 import type { DeferredWriter, BatchedWriteRequest } from './deferred-writer.js'
+import { classifyEdit } from './edit-strategy.js'
 
 export interface EditRequest {
   editId: string
@@ -210,7 +211,7 @@ export class EditPipeline {
       return
     }
 
-    // Layer 1: CSS Modules routing via annotation
+    // Layer 1: CSS Modules routing via annotation — bypasses classifyEdit entirely
     if (edit.cssMapping && this.cssModulesRewriter) {
       const mapping = parseCssMapping(edit.cssMapping)
       if (mapping) {
@@ -235,6 +236,20 @@ export class EditPipeline {
         return
       }
     }
+
+    // Classify the edit strategy — single source of truth for routing decisions.
+    // Only meaningful when detection has run (detector exists); without it, fall
+    // through to the legacy Tailwind path for backward compatibility.
+    const strategy = this.detector
+      ? classifyEdit(
+          edit,
+          { ...this.detector, hasComponentLibrary: false, hasCSSInJS: false },
+          {
+            resolverAvailable: !!this.resolver,
+            aiAvailable: !!this.deferredWriter || !!this.aiWriter,
+          },
+        )
+      : undefined
 
     // Layer 2: Runtime CSS resolver (fallback for unannotated elements when CSS Modules detected)
     if (!edit.cssMapping && this.detector?.hasCSSModules && this.runtimeResolver && this.cssModulesRewriter) {
@@ -263,7 +278,18 @@ export class EditPipeline {
       }
     }
 
-    // Layer 3: Tailwind path
+    // Strategy-driven early exits (only when detection is available)
+    if (strategy === 'unsupported') {
+      this.channel.send({
+        type: 'edit_status',
+        editId: edit.editId,
+        status: 'failed',
+        reason: 'No supported editing strategy for this framework.',
+      })
+      return
+    }
+
+    // Layer 3: Tailwind path (strategy is 'immediate', 'deferred', or undefined for legacy)
     // First edit for a source:property pair has no previousValue — this is the
     // baseline "seed" establishing the current state. Skip silently; the CSS
     // override already shows the preview. File write starts on the next edit.
