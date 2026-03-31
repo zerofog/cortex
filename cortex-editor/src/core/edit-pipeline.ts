@@ -34,7 +34,7 @@ export interface EditPipelineOptions {
   resolver: TailwindResolver
   rewriter: TailwindRewriter
   verifier: HMRVerifier
-  /** Injected for testability. Default: fs.writeFile */
+  /** Injected for testability. Receives a WriteIntent and writes intent.content to intent.filePath. */
   writeFile: (intent: WriteIntent) => Promise<void>
   /** Absolute path to project root. File writes are scoped to this directory. */
   projectRoot: string
@@ -277,7 +277,9 @@ export class EditPipeline {
       if (this.deferredWriter) {
         const reason = !newToken
           ? `Cannot resolve Tailwind class for ${edit.property}: ${edit.value}`
-          : `Cannot resolve Tailwind class for ${edit.property}: ${previousValue}`
+          : previousValue
+            ? `Cannot resolve Tailwind class for ${edit.property}: ${previousValue}`
+            : `No baseline value for Tailwind token on ${edit.property}`
         this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
         this.deferredWriter.enqueue({
           filePath: resolvedPath, line, col,
