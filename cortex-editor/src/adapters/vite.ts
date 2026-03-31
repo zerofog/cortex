@@ -12,7 +12,7 @@ import { TailwindResolver } from '../core/tailwind-resolver.js'
 import { TailwindRewriter } from '../core/rewriter/tailwind.js'
 import { HMRVerifier } from '../core/hmr-verifier.js'
 import { EditPipeline } from '../core/edit-pipeline.js'
-import type { EditRequest } from '../core/edit-pipeline.js'
+import type { EditRequest, WriteIntent } from '../core/edit-pipeline.js'
 import { StyleDetector } from '../core/rewriter/detector.js'
 import type { DetectionResult } from '../core/rewriter/detector.js'
 import { computeCapabilities } from '../core/capabilities.js'
@@ -274,7 +274,6 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
   // owns all visuals during the editing session. Files are saved correctly on
   // disk for git/deployment. The stylesheet stays at page-load values.
   const recentEditWrites = new Set<string>()
-  let suppressHMRForNextWrite = false
 
   return {
     name: 'cortex-editor',
@@ -431,12 +430,10 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           else channelInstance?.send({ type: 'edit_status', editId: (data as EditRequest).editId, status: 'failed', reason: 'Editor is still initializing. Please try again.' })
         }
         if (data.type === 'undo') {
-          suppressHMRForNextWrite = true // Suppress — override undo handles the visual
           if (pipelineInstance) pipelineInstance.handleUndo()
           else channelInstance?.send({ type: 'undo_status', status: 'failed', restoredFile: '', reason: 'Editor is still initializing.' })
         }
         if (data.type === 'redo') {
-          suppressHMRForNextWrite = true // Suppress redo HMR — override is restored client-side
           if (pipelineInstance) pipelineInstance.handleRedo()
           else channelInstance?.send({ type: 'redo_status', status: 'failed', restoredFile: '', reason: 'Editor is still initializing.' })
         }
@@ -553,13 +550,13 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           runtimeResolver,
           undoStack,
           aiWriter,
-          writeFile: async (p, c, options) => {
-            if (options?.suppressHMR || suppressHMRForNextWrite) {
-              recentEditWrites.add(p)
-              suppressHMRForNextWrite = false
-              setTimeout(() => recentEditWrites.delete(p), 500)
+          writeFile: async (intent) => {
+            if (intent.kind === 'immediate' || intent.kind === 'undo' || intent.kind === 'redo') {
+              recentEditWrites.add(intent.filePath)
+              setTimeout(() => recentEditWrites.delete(intent.filePath), 500)
             }
-            await fs.promises.writeFile(p, c, 'utf-8')
+            // 'deferred': NO HMR suppression — framework must re-render from source
+            await fs.promises.writeFile(intent.filePath, intent.content, 'utf-8')
           },
           readFile: (p) => fs.promises.readFile(p, 'utf-8'),
           projectRoot,

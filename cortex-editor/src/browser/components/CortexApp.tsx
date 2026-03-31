@@ -116,7 +116,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         if (msg.status === 'done') {
           setActivityCount(c => c + 1)
           // Commit the browser undo snapshot — syncs with server's undo stack.
-          overrideRef.current?.commitEdit()
+          overrideRef.current?.commitEdit(msg.strategy === 'deferred')
         } else if (msg.status === 'failed' || msg.status === 'cancelled') {
           // Edit failed — clear the pending snapshot so the next edit starts clean.
           // The override stays (user sees the preview value) but no undo entry is created.

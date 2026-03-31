@@ -93,6 +93,16 @@ export class CSSOverrideManager {
     this.rebuild()
   }
 
+  /** Remove override after framework re-render completes (double-rAF).
+   *  Used for deferred (AI) edits where HMR needs to land before the override is cleared. */
+  private deferRemoval(source: string, property: string, pseudo?: '::before' | '::after'): void {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        this.remove(source, property, pseudo)
+      })
+    })
+  }
+
   /**
    * Apply state-forced declarations (e.g. from :hover CSSOM inspection).
    * Validates each entry against VALID_PROPERTY/VALID_VALUE/REJECT_URL/REJECT_COMMENT.
@@ -141,8 +151,12 @@ export class CSSOverrideManager {
     this.pendingEdits.set(editId, { source, property, pseudo, timestamp: Date.now() })
   }
 
-  private pendingRemovals: Array<{ source: string; property: string; pseudo?: '::before' | '::after' }> = []
+  private pendingRemovals: Array<{ source: string; property: string; pseudo?: '::before' | '::after'; deferred?: boolean }> = []
   private pendingClearAll = false
+  /** EditIds whose override removal should use double-rAF deferral. Populated by
+   *  commitEdit(true) so that handleHMRVerified — which may arrive AFTER commitEdit —
+   *  tags the removal correctly regardless of message ordering. */
+  private deferredEditIds = new Set<string>()
 
   /** Called when the server confirms an edit landed via HMR. Queues the override
    *  for removal — actual clearing happens in onHMRApplied() after the browser
@@ -153,7 +167,9 @@ export class CSSOverrideManager {
     if (!pending) return
     this.pendingEdits.delete(editId)
     if (match) {
-      this.pendingRemovals.push({ source: pending.source, property: pending.property, pseudo: pending.pseudo })
+      const deferred = this.deferredEditIds.has(editId)
+      if (deferred) this.deferredEditIds.delete(editId)
+      this.pendingRemovals.push({ source: pending.source, property: pending.property, pseudo: pending.pseudo, deferred })
     }
   }
 
@@ -174,7 +190,11 @@ export class CSSOverrideManager {
     if (this.pendingRemovals.length > 0) {
       const removals = this.pendingRemovals.splice(0)
       for (const r of removals) {
-        this.remove(r.source, r.property, r.pseudo)
+        if (r.deferred) {
+          this.deferRemoval(r.source, r.property, r.pseudo)
+        } else {
+          this.remove(r.source, r.property, r.pseudo)
+        }
       }
     }
   }
@@ -207,8 +227,23 @@ export class CSSOverrideManager {
     this.preEditSnapshot = null
   }
 
-  /** Commit the current edit — pushes the pre-edit snapshot to the undo stack. */
-  commitEdit(): void {
+  /** Commit the current edit — pushes the pre-edit snapshot to the undo stack.
+   *  Pass `deferred: true` for AI edits — marks all tracked pending edits for
+   *  double-rAF deferral. Uses deferredEditIds set so handleHMRVerified (which
+   *  may arrive AFTER this call) correctly tags the removal. */
+  commitEdit(deferred?: boolean): void {
+    if (deferred) {
+      // Mark all currently tracked pending edits as deferred. handleHMRVerified
+      // will check this set when it eventually pushes the removal entry.
+      for (const editId of this.pendingEdits.keys()) {
+        this.deferredEditIds.add(editId)
+      }
+      // Also tag any removals already queued (for the case where hmr_verified
+      // arrived before edit_status:done)
+      for (const r of this.pendingRemovals) {
+        r.deferred = true
+      }
+    }
     if (this.preEditSnapshot) {
       this.overrideUndoStack.push(this.preEditSnapshot)
       this.preEditSnapshot = null
@@ -254,6 +289,7 @@ export class CSSOverrideManager {
     this.overrideUndoStack.length = 0
     this.overrideRedoStack.length = 0
     this.pendingRemovals.length = 0
+    this.deferredEditIds.clear()
     this.overrides.clear()
     this.stateOverrides.clear()
     this.pendingEdits.clear()
@@ -267,6 +303,7 @@ export class CSSOverrideManager {
     this.overrideUndoStack.length = 0
     this.overrideRedoStack.length = 0
     this.pendingRemovals.length = 0
+    this.deferredEditIds.clear()
     this.cancelPendingRebuild()
     this.overrides.clear()
     this.stateOverrides.clear()
