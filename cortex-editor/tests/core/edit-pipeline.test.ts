@@ -3,6 +3,8 @@ import { EditPipeline } from '../../src/core/edit-pipeline.js'
 import type { TailwindResolver } from '../../src/core/tailwind-resolver.js'
 import type { TailwindRewriter } from '../../src/core/rewriter/tailwind.js'
 import type { HMRVerifier } from '../../src/core/hmr-verifier.js'
+import type { AIWriteResult } from '../../src/core/ai-writer.js'
+
 import { UndoStack } from '../../src/core/session/undo-stack.js'
 import { mockChannel } from '../helpers/mock-channel.js'
 
@@ -255,7 +257,7 @@ describe('EditPipeline', () => {
     vi.advanceTimersByTime(400)
     await vi.runAllTimersAsync()
 
-    expect(writeFile).toHaveBeenCalledWith('/project/src/App.tsx', 'new content')
+    expect(writeFile).toHaveBeenCalledWith('/project/src/App.tsx', 'new content', { suppressHMR: true })
     expect(verifier.tracked).toHaveLength(1)
   })
 
@@ -535,7 +537,7 @@ describe('EditPipeline', () => {
       newValue: '16px',
       elementSelector: 'div',
     })
-    expect(writeFile).toHaveBeenCalledWith('/project/src/Hero.module.css', 'new-css')
+    expect(writeFile).toHaveBeenCalledWith('/project/src/Hero.module.css', 'new-css', { suppressHMR: true })
     const doneStatus = channel.sent.find(
       m => m.type === 'edit_status' && (m as { status: string }).status === 'done'
     )
@@ -740,7 +742,7 @@ describe('EditPipeline', () => {
       newValue: '16px',
       elementSelector: 'div',
     })
-    expect(writeFile).toHaveBeenCalledWith('/project/src/Hero.module.css', 'new-css')
+    expect(writeFile).toHaveBeenCalledWith('/project/src/Hero.module.css', 'new-css', { suppressHMR: true })
   })
 
   it('fails with CSS module message on CSS Modules-only project when resolution fails', async () => {
@@ -1119,7 +1121,7 @@ describe('EditPipeline', () => {
     vi.advanceTimersByTime(400)
     await vi.runAllTimersAsync()
 
-    expect(writeFile).toHaveBeenCalledWith('/project/src/App.tsx', 'updated content')
+    expect(writeFile).toHaveBeenCalledWith('/project/src/App.tsx', 'updated content', { suppressHMR: true })
     const doneStatus = channel.sent.find(
       m => m.type === 'edit_status' && (m as { status: string }).status === 'done'
     )
@@ -1176,5 +1178,346 @@ describe('EditPipeline', () => {
     expect(second!.status).toBe('failed')
 
     pipeline.dispose()
+  })
+
+  // --- AI writer integration ---
+
+  describe('AI writer integration', () => {
+    function mockAIWriter(result: AIWriteResult = {
+      success: true, filePath: '/project/src/App.tsx', oldContent: 'old', newContent: 'new',
+    }): { write: ReturnType<typeof vi.fn> } {
+      return { write: vi.fn().mockResolvedValue(result) }
+    }
+
+    it('calls aiWriter.write() when resolver returns null (Point A)', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({}) // returns null for any lookup
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const aiWriter = mockAIWriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        aiWriter: aiWriter as any,
+      })
+
+      // Seed edit — establishes baseline
+      pipeline.handleEdit({
+        editId: 'edit-0',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '8px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+      channel.sent.length = 0
+
+      // Real edit — resolver returns null, triggers AI writer
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      expect(aiWriter.write).toHaveBeenCalledTimes(1)
+      expect(aiWriter.write).toHaveBeenCalledWith(expect.objectContaining({
+        filePath: '/project/src/App.tsx',
+        property: 'padding-top',
+        value: '16px',
+        failureReason: expect.stringContaining('Cannot resolve'),
+      }))
+
+      // Should send writing then done
+      const statuses = channel.sent.filter(m => m.type === 'edit_status')
+      expect(statuses).toHaveLength(2)
+      expect((statuses[0] as { status: string }).status).toBe('writing')
+      expect((statuses[1] as { status: string }).status).toBe('done')
+    })
+
+    it('calls executeAIWrite when rewriter fails (Point B — deadlock prevention)', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({
+        'padding-top': { '8px': 'pt-2', '16px': 'pt-4' },
+      })
+      const rewriter = mockRewriter({ success: false, reason: 'AST rewrite failed' })
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const aiWriter = mockAIWriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        aiWriter: aiWriter as any,
+      })
+
+      // Seed edit
+      pipeline.handleEdit({
+        editId: 'edit-0',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '8px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+      channel.sent.length = 0
+
+      // Real edit — resolves tokens but rewriter fails
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // AI writer called exactly once (no double-lock)
+      expect(aiWriter.write).toHaveBeenCalledTimes(1)
+      expect(aiWriter.write).toHaveBeenCalledWith(expect.objectContaining({
+        failureReason: 'AST rewrite failed',
+      }))
+
+      // Test completes without hanging — deadlock prevention works
+      const doneStatus = channel.sent.find(
+        m => m.type === 'edit_status' && (m as { status: string }).status === 'done',
+      )
+      expect(doneStatus).toBeDefined()
+    })
+
+    it('calls aiWriter when CSS Modules runtime resolver fails (Point C)', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const cssRewriter = mockCSSModulesRewriter()
+      const runtimeResolver = mockRuntimeResolver(null) // resolve returns null
+      const aiWriter = mockAIWriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        cssModulesRewriter: cssRewriter,
+        detector: { hasCSSModules: true, hasTailwind: false },
+        runtimeResolver,
+        aiWriter: aiWriter as any,
+      })
+
+      // No seed needed — Point C occurs before the pipeline's seed/baseline check
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/Hero.tsx:5:3',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      expect(aiWriter.write).toHaveBeenCalledTimes(1)
+      expect(aiWriter.write).toHaveBeenCalledWith(expect.objectContaining({
+        filePath: '/project/src/Hero.tsx',
+        property: 'padding-top',
+        value: '16px',
+        failureReason: expect.stringContaining('Could not resolve CSS module mapping'),
+      }))
+    })
+
+    it('sends done status + writes file after successful AI write', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({}) // triggers Point A
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const aiWriter = mockAIWriter({
+        success: true, filePath: '/project/src/App.tsx', oldContent: 'original', newContent: 'ai-modified',
+      })
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        aiWriter: aiWriter as any,
+      })
+
+      // Seed
+      pipeline.handleEdit({
+        editId: 'edit-0',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '8px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+      channel.sent.length = 0
+      writeFile.mockClear()
+
+      // Real edit
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      expect(writeFile).toHaveBeenCalledWith('/project/src/App.tsx', 'ai-modified')
+
+      const doneStatus = channel.sent.find(
+        m => m.type === 'edit_status' && (m as { status: string }).status === 'done',
+      )
+      expect(doneStatus).toBeDefined()
+    })
+
+    it('sends failed status when AI write fails', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({}) // triggers Point A
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const aiWriter = mockAIWriter({
+        success: false, filePath: '/project/src/App.tsx', reason: 'Parse check failed',
+      })
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        aiWriter: aiWriter as any,
+      })
+
+      // Seed
+      pipeline.handleEdit({
+        editId: 'edit-0',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '8px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+      channel.sent.length = 0
+
+      // Real edit — AI writer will fail
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      expect(writeFile).not.toHaveBeenCalled()
+
+      const failedStatus = channel.sent.find(
+        m => m.type === 'edit_status' && (m as { status: string }).status === 'failed',
+      )
+      expect(failedStatus).toBeDefined()
+      expect((failedStatus as { reason: string }).reason).toContain('Parse check failed')
+    })
+
+    it('pushes to undo stack after successful AI write', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({}) // triggers Point A
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const undoStack = new UndoStack()
+      const aiWriter = mockAIWriter({
+        success: true, filePath: '/project/src/App.tsx', oldContent: 'before-ai', newContent: 'after-ai',
+      })
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        undoStack,
+        aiWriter: aiWriter as any,
+      })
+
+      // Seed
+      pipeline.handleEdit({
+        editId: 'edit-0',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '8px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // Real edit
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      expect(undoStack.canUndo).toBe(true)
+      expect(undoStack.undoCount).toBe(1)
+
+      // Verify undo restores the AI's old content
+      const entry = undoStack.peekUndo()
+      expect(entry).toBeDefined()
+      expect(entry!.previousContent).toBe('before-ai')
+      expect(entry!.currentContent).toBe('after-ai')
+    })
+
+    it('does NOT call aiWriter when deterministic Tailwind succeeds', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({
+        'padding-top': { '8px': 'pt-2', '16px': 'pt-4' },
+      })
+      const rewriter = mockRewriter({ success: true, newContent: 'new content' })
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const aiWriter = mockAIWriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        aiWriter: aiWriter as any,
+      })
+
+      // Seed
+      pipeline.handleEdit({
+        editId: 'edit-0',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '8px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // Real edit — deterministic Tailwind succeeds
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // AI writer should NEVER be called
+      expect(aiWriter.write).not.toHaveBeenCalled()
+
+      // Deterministic path should still succeed
+      expect(writeFile).toHaveBeenCalled()
+      const doneStatus = channel.sent.find(
+        m => m.type === 'edit_status' && (m as { status: string }).status === 'done',
+      )
+      expect(doneStatus).toBeDefined()
+    })
   })
 })

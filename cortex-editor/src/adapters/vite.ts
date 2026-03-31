@@ -1,4 +1,4 @@
-import type { Plugin, ResolvedConfig, HmrContext } from 'vite'
+import { loadEnv, type Plugin, type ResolvedConfig, type HmrContext } from 'vite'
 import type { SourceMapInput } from 'rollup'
 import type { IncomingMessage } from 'http'
 import type { Duplex } from 'stream'
@@ -20,6 +20,7 @@ import type { ResolverState, StyleCapability } from '../core/capabilities.js'
 import { CSSModulesRewriter } from '../core/rewriter/css-modules.js'
 import { RuntimeCSSResolver } from '../core/rewriter/runtime-resolver.js'
 import { UndoStack } from '../core/session/undo-stack.js'
+import { AIWriter } from '../core/ai-writer.js'
 import { AnnotationStore } from '../core/annotations.js'
 import { ActivityLog } from '../core/session/activity-log.js'
 
@@ -425,9 +426,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         }
 
         // Route edit/undo/redo to EditPipeline (or notify if still initializing)
-        // Mark forward edits for HMR suppression — the override preview is sufficient
         if (data.type === 'edit') {
-          suppressHMRForNextWrite = true
           if (pipelineInstance) pipelineInstance.handleEdit(data as EditRequest)
           else channelInstance?.send({ type: 'edit_status', editId: (data as EditRequest).editId, status: 'failed', reason: 'Editor is still initializing. Please try again.' })
         }
@@ -521,7 +520,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       const detector = new StyleDetector()
       const detectionPromise = detector.detect(projectRoot).catch((err) => {
         console.warn('[cortex] Style detection failed:', err instanceof Error ? err.message : err)
-        return { hasCSSModules: false, hasTailwind: false, hasCSSInJS: false, hasPlainCSS: true, summary: 'Detection failed' } satisfies DetectionResult
+        return { hasCSSModules: false, hasTailwind: false, hasCSSInJS: false, hasComponentLibrary: false, hasPlainCSS: true, summary: 'Detection failed' } satisfies DetectionResult
       })
       const resolverPromise = TailwindResolver.fromConfig(projectRoot).catch((err) => {
         console.warn('[cortex] Tailwind config resolution failed:', err instanceof Error ? err.message : err)
@@ -537,6 +536,13 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         if (pipelineInstance) pipelineInstance.dispose()
         if (hmrUnsubscribe) hmrUnsubscribe()
 
+        // AI writer: enabled when CORTEX_API_KEY is set via .env/.env.local or shell
+        const env = loadEnv(config.mode, config.root, 'CORTEX_')
+        const cortexApiKey = env.CORTEX_API_KEY || process.env.CORTEX_API_KEY
+        const aiWriter = cortexApiKey
+          ? new AIWriter({ apiKey: cortexApiKey, readFile: (p) => fs.promises.readFile(p, 'utf-8') })
+          : undefined
+
         pipelineInstance = new EditPipeline({
           channel,
           resolver: resolver ?? TailwindResolver.fromTheme({}),
@@ -546,8 +552,9 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           detector: detection,
           runtimeResolver,
           undoStack,
-          writeFile: async (p, c) => {
-            if (suppressHMRForNextWrite) {
+          aiWriter,
+          writeFile: async (p, c, options) => {
+            if (options?.suppressHMR || suppressHMRForNextWrite) {
               recentEditWrites.add(p)
               suppressHMRForNextWrite = false
               setTimeout(() => recentEditWrites.delete(p), 500)
@@ -563,6 +570,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         // Compute and send capability status to browser
         const resolverState: ResolverState = {
           resolverAvailable: resolver !== null,
+          aiAvailable: !!aiWriter,
         }
         const capabilities = computeCapabilities(detection, resolverState)
         capabilitiesCache = capabilities.length > 0 ? capabilities : null

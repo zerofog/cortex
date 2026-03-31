@@ -1,6 +1,6 @@
 import type { JSX } from 'preact'
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
-import type { CortexChannel, Annotation, ActivityEntry } from '../../adapters/types.js'
+import type { CortexChannel, Annotation, ActivityEntry, StyleCapability } from '../../adapters/types.js'
 import { CSSOverrideManager } from '../override.js'
 import { initSelection } from '../selection.js'
 import type { SelectionHandle } from '../selection.js'
@@ -50,6 +50,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
   const [commentMode, setCommentMode] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
+  const [capabilitySystems, setCapabilitySystems] = useState<StyleCapability[]>([])
   const commentModeRef = useRef(false)
   commentModeRef.current = commentMode
 
@@ -102,6 +103,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         } else {
           handleExitRef.current?.()
         }
+      }
+      if (msg.type === 'capabilities') {
+        setCapabilitySystems(msg.systems.filter(s => s.status !== 'supported'))
       }
       if (msg.type === 'hello') {
         if (msg.swatches && msg.swatches.length > 0) {
@@ -356,7 +360,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   return (
     <>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 9998, pointerEvents: 'none', display: 'flex', flexDirection: 'column' }}>
-        <CapabilityBanner channel={channel} />
+        <CapabilityBanner systems={capabilitySystems} />
         <ErrorToast channel={channel} />
       </div>
       <HoverOverlay element={hoverEnabled ? hoveredElement : null} />
