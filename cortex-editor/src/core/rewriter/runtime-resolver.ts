@@ -117,6 +117,11 @@ export class RuntimeCSSResolver {
     }
 
     if (!best) return null
+    // Distance cap: reject matches more than 3 lines away from the target position.
+    // Without this, every query returns *something* even if the nearest JSX element
+    // is in a completely different part of the file.
+    const MAX_DIST = 3 * 10000 // 3 lines + any column offset
+    if (bestDist > MAX_DIST) return null
     return { cssFilePath: best.cssFilePath, selector: best.selector }
   }
 

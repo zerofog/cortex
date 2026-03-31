@@ -50,6 +50,9 @@ interface PendingEntry {
 /** Max distinct properties per element in a single batch. Prevents prompt overflow. */
 const MAX_CHANGES_PER_BATCH = 20
 
+/** Max concurrent AI calls. Prevents overwhelming the API with parallel requests. */
+const MAX_CONCURRENT_AI_CALLS = 2
+
 export class DeferredWriter {
   private readonly coalescingMs: number
   private readonly writeFn: WriteFn
@@ -106,6 +109,15 @@ export class DeferredWriter {
   /** Flush a pending entry: remove from pending, create AbortController, call writeFn. */
   private flush(key: string): void {
     if (this.disposed) return
+    if (this.inflight.size >= MAX_CONCURRENT_AI_CALLS) {
+      // Re-schedule — an inflight slot will free up soon
+      const entry = this.pending.get(key)
+      if (entry) {
+        clearTimeout(entry.timer)
+        entry.timer = setTimeout(() => this.flush(key), 100)
+      }
+      return
+    }
     const entry = this.pending.get(key)
     if (!entry) return
     this.pending.delete(key)

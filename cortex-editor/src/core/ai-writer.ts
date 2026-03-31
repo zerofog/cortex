@@ -41,9 +41,9 @@ export interface AIWriterOptions {
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001'
 const DEFAULT_TIMEOUT_MS = 15_000
 const DEFAULT_API_BASE = 'https://api.anthropic.com'
-const CONTEXT_WINDOW = 25
-const MAX_DIFF_LINES = 10
-const MAX_LOCALITY_DISTANCE = 15
+const CONTEXT_WINDOW = 50
+const MAX_DIFF_LINES = 20
+const MAX_LOCALITY_DISTANCE = 30
 const MAX_NET_LINE_DELTA = 3
 const MAX_LINE_LENGTH = 500
 const MAX_TOKENS = 1024
@@ -149,6 +149,7 @@ export class AIWriter {
   }
 
   private async callClaude(userPrompt: string, externalSignal?: AbortSignal): Promise<string> {
+    const startTime = Date.now()
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), this.timeoutMs)
 
@@ -184,10 +185,12 @@ export class AIWriter {
           5000,
         )
         await new Promise(resolve => setTimeout(resolve, delay))
-        // Fresh AbortController for retry — original timer may have consumed most of the budget
+        // Fresh AbortController for retry — use remaining time budget, not full timeout
         clearTimeout(timer)
+        const elapsed = Date.now() - startTime
+        const remaining = Math.max(this.timeoutMs - elapsed, 2000) // at least 2s for retry
         const retryController = new AbortController()
-        const retryTimer = setTimeout(() => retryController.abort(), this.timeoutMs)
+        const retryTimer = setTimeout(() => retryController.abort(), remaining)
         // Link external signal to retry controller too
         const onRetryAbort = () => retryController.abort()
         externalSignal?.addEventListener('abort', onRetryAbort)

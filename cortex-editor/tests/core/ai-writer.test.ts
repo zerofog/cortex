@@ -248,10 +248,10 @@ describe('validateResult', () => {
   })
 
   it('rejects when too many lines changed', () => {
-    // Create a file with 15 lines, change all of them (exceeds 10-line budget)
-    const bigFile = Array.from({ length: 15 }, (_, i) => `const x${i} = ${i}`).join('\n')
+    // Create a file with 25 lines, change all of them (exceeds 20-line budget)
+    const bigFile = Array.from({ length: 25 }, (_, i) => `const x${i} = ${i}`).join('\n')
     const newBigFile = bigFile.split('\n').map(l => l + ' // changed').join('\n')
-    const result = validateResult(bigFile, newBigFile, 'App.tsx', 8)
+    const result = validateResult(bigFile, newBigFile, 'App.tsx', 13)
     expect(result.valid).toBe(false)
     expect(!result.valid && result.reason).toContain('too broad')
   })

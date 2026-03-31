@@ -734,7 +734,16 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
     handleHotUpdate({ modules }: HmrContext) {
       if (modules.length === 0) return
 
-      const files = modules
+      // Suppress HMR for files cortex just wrote — the override is already
+      // showing the correct value. HMR would cause a full-page style recalc
+      // + repaint visible as a flash. The override stays until hmr_verified
+      // clears it (which is now a no-op since we handled verification above).
+      const cortexFiles = modules.filter(m => m.file && recentEditWrites.has(m.file))
+
+      // Only fire HMR callbacks for non-suppressed files — otherwise the
+      // verifier would track edits for files whose HMR was intentionally blocked.
+      const nonSuppressed = modules.filter(m => !m.file || !recentEditWrites.has(m.file))
+      const files = nonSuppressed
         .map(m => m.file)
         .filter((f): f is string => f != null && (/\.[jt]sx$/.test(f) || /\.module\.css$/.test(f)))
 
@@ -747,15 +756,9 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         }
       }
 
-      // Suppress HMR for files cortex just wrote — the override is already
-      // showing the correct value. HMR would cause a full-page style recalc
-      // + repaint visible as a flash. The override stays until hmr_verified
-      // clears it (which is now a no-op since we handled verification above).
-      const cortexFiles = modules.filter(m => m.file && recentEditWrites.has(m.file))
       if (cortexFiles.length > 0) {
         // Return only non-cortex modules — suppresses HMR for cortex-written files
-        const kept = modules.filter(m => !m.file || !recentEditWrites.has(m.file))
-        return kept
+        return nonSuppressed
       }
     },
   }

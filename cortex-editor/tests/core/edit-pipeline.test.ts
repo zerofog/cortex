@@ -260,7 +260,8 @@ describe('EditPipeline', () => {
     await vi.runAllTimersAsync()
 
     expect(writeFile).toHaveBeenCalledWith({ kind: 'immediate', filePath: '/project/src/App.tsx', content: 'new content' })
-    expect(verifier.tracked).toHaveLength(1)
+    // Immediate writes have HMR suppressed — verifier.trackEdit is NOT called
+    expect(verifier.tracked).toHaveLength(0)
   })
 
   it('routes to AI when rewriter returns success: false', async () => {

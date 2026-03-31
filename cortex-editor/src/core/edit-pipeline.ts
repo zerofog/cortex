@@ -1,4 +1,5 @@
 import { resolve, relative, sep } from 'path'
+import { realpathSync } from 'fs'
 import type { ServerChannel } from '../adapters/types.js'
 import type { TailwindResolver } from './tailwind-resolver.js'
 import type { TailwindRewriter } from './rewriter/tailwind.js'
@@ -58,7 +59,7 @@ export interface EditPipelineOptions {
 }
 
 const VALID_PROPERTY = /^-{0,2}[a-zA-Z][a-zA-Z0-9-]*$/
-const VALID_VALUE = /^[a-zA-Z0-9#()\s,.\-_'"/%+*]+$/
+const VALID_VALUE = /^[a-zA-Z0-9#()\s,.\-_'"/%+*!]+$/
 const REJECT_URL = /url\s*\(/i
 const REJECT_COMMENT = /\/\*/
 
@@ -121,7 +122,7 @@ export class EditPipeline {
     this.rewriter = options.rewriter
     this.verifier = options.verifier
     this.writeFile = options.writeFile
-    this.projectRoot = resolve(options.projectRoot)
+    try { this.projectRoot = realpathSync(resolve(options.projectRoot)) } catch { this.projectRoot = resolve(options.projectRoot) }
     this.debounceMs = options.debounceMs ?? 400
     this.cssModulesRewriter = options.cssModulesRewriter
     this.detector = options.detector
@@ -415,20 +416,26 @@ export class EditPipeline {
         return
       }
 
-      // Push to undo stack
+      // Immediate writes have HMR suppressed (recentEditWrites in vite.ts),
+      // so don't track for HMR verification — it would never resolve.
+
+      // Write file FIRST — side effects only after successful write
+      try {
+        await this.writeFile({ kind: 'immediate', filePath: resolvedPath, content: result.newContent })
+      } catch (err) {
+        this.channel.send({
+          type: 'edit_status',
+          editId: edit.editId,
+          status: 'failed',
+          reason: `Write failed: ${err instanceof Error ? err.message : String(err)}`,
+        })
+        return
+      }
+
+      // Push to undo stack only after successful write
       if (this.undoStack) {
         this.undoStack.push({ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent })
       }
-
-      // Track HMR BEFORE write — HMR may fire immediately after fs write
-      this.verifier.trackEdit({
-        editId: edit.editId,
-        filePath: resolvedPath,
-        expectedValue: edit.value,
-        property: edit.property,
-      })
-
-      await this.writeFile({ kind: 'immediate', filePath: resolvedPath, content: result.newContent })
 
       this.channel.send({
         type: 'edit_status',
@@ -457,6 +464,16 @@ export class EditPipeline {
   private async _doUndo(): Promise<void> {
     for (const timer of this.debounceTimers.values()) clearTimeout(timer)
     this.debounceTimers.clear()
+    // Clear stale lastValues for the file being undone — the baseline
+    // is no longer valid after undo restores previous content.
+    const undoEntry = this.undoStack!.peekUndo()
+    if (undoEntry) {
+      for (const [key] of this.lastValues) {
+        if (key.startsWith(undoEntry.filePath + ':')) {
+          this.lastValues.delete(key)
+        }
+      }
+    }
 
     const entry = this.undoStack!.peekUndo()
     if (!entry) {
@@ -502,6 +519,16 @@ export class EditPipeline {
   }
 
   private async _doRedo(): Promise<void> {
+    // Clear stale lastValues for the file being redone
+    const redoEntry = this.undoStack!.peekRedo()
+    if (redoEntry) {
+      for (const [key] of this.lastValues) {
+        if (key.startsWith(redoEntry.filePath + ':')) {
+          this.lastValues.delete(key)
+        }
+      }
+    }
+
     const entry = this.undoStack!.peekRedo()
     if (!entry) {
       this.channel.send({ type: 'redo_status', status: 'failed', restoredFile: '', reason: 'Nothing to redo.' })
@@ -530,7 +557,16 @@ export class EditPipeline {
   }
 
   private isInsideProjectRoot(filePath: string): boolean {
-    return filePath === this.projectRoot || filePath.startsWith(this.projectRoot + sep)
+    let real: string
+    try {
+      real = realpathSync(filePath)
+    } catch {
+      // File may not exist yet (e.g., source path in CSS Modules edits).
+      // Fall back to string-based check against the resolved project root.
+      const resolved = resolve(filePath)
+      return resolved === this.projectRoot || resolved.startsWith(this.projectRoot + sep)
+    }
+    return real === this.projectRoot || real.startsWith(this.projectRoot + sep)
   }
 
   /** AI write with file lock — used at Points A and C (not already locked). */
@@ -571,6 +607,19 @@ export class EditPipeline {
       return
     }
 
+    // Write file FIRST — side effects only after successful write
+    try {
+      await this.writeFile({ kind: 'deferred', filePath: resolvedPath, content: result.newContent })
+    } catch (err) {
+      this.channel.send({
+        type: 'edit_status',
+        editId: edit.editId,
+        status: 'failed',
+        reason: `Write failed: ${err instanceof Error ? err.message : String(err)}`,
+      })
+      return
+    }
+
     if (this.undoStack) {
       this.undoStack.push({ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent })
     }
@@ -581,8 +630,6 @@ export class EditPipeline {
       expectedValue: edit.value,
       property: edit.property,
     })
-
-    await this.writeFile({ kind: 'deferred', filePath: resolvedPath, content: result.newContent })
 
     this.channel.send({
       type: 'edit_status',
@@ -606,11 +653,17 @@ export class EditPipeline {
         this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: result.reason })
         return
       }
+      // Write file FIRST — side effects only after successful write
+      try {
+        await this.writeFile({ kind: 'immediate', filePath: resolvedCssPath, content: result.newContent })
+      } catch (err) {
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Write failed: ${err instanceof Error ? err.message : String(err)}` })
+        return
+      }
+      // Immediate writes have HMR suppressed — don't track for HMR verification.
       if (this.undoStack) {
         this.undoStack.push({ filePath: resolvedCssPath, previousContent: result.oldContent, currentContent: result.newContent })
       }
-      this.verifier.trackEdit({ editId: edit.editId, filePath: resolvedCssPath, expectedValue: edit.value, property: edit.property })
-      await this.writeFile({ kind: 'immediate', filePath: resolvedCssPath, content: result.newContent })
       this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done', strategy: 'immediate' })
     })
   }

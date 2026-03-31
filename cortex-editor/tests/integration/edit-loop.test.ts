@@ -53,6 +53,8 @@ describe('Edit loop integration', () => {
       })
 
       // Step 1: Establish baseline (browser reads initial computed style)
+      // The baseline edit silently sets lastValues but sends no edit_status
+      // (no previousValue → Tailwind path returns without writing)
       pipeline.handleEdit({
         editId: 'edit-0',
         source: `${filePath}:2:10`,
@@ -61,8 +63,8 @@ describe('Edit loop integration', () => {
         elementSelector: 'div',
       })
 
-      // Wait for baseline to resolve (will fail since no oldToken, but sets lastValues)
-      await waitFor(() => channel.sent.some(m => m.type === 'edit_status'))
+      // Wait for the debounce to fire and baseline to be captured
+      await new Promise(r => setTimeout(r, 100))
       channel.sent.length = 0
 
       // Step 2: User drags padding from 8px to 16px
@@ -90,13 +92,11 @@ describe('Edit loop integration', () => {
       expect((statusMsgs[0] as { status: string }).status).toBe('writing')
       expect((statusMsgs[1] as { status: string }).status).toBe('done')
 
-      // Step 3: Simulate HMR firing (dev server detects file change)
+      // Immediate writes suppress HMR in vite.ts, so verifier.trackEdit is
+      // not called. Verify HMR callback does NOT produce hmr_verified.
       verifier.onHMRUpdate([filePath])
-
-      // Verify: should send hmr_verified
       const hmrMsg = channel.sent.find(m => m.type === 'hmr_verified')
-      expect(hmrMsg).toBeDefined()
-      expect((hmrMsg as { match: boolean }).match).toBe(true)
+      expect(hmrMsg).toBeUndefined()
 
       // Cleanup
       rewriter.dispose()
@@ -157,10 +157,11 @@ describe('CSS Modules edit loop integration', () => {
       expect((statusMsgs[0] as { status: string }).status).toBe('writing')
       expect((statusMsgs[1] as { status: string }).status).toBe('done')
 
-      // HMR fires for CSS file
+      // Immediate writes suppress HMR — verifier.trackEdit is not called,
+      // so onHMRUpdate produces no hmr_verified.
       verifier.onHMRUpdate([cssPath])
       const hmrMsg = channel.sent.find(m => m.type === 'hmr_verified')
-      expect(hmrMsg).toBeDefined()
+      expect(hmrMsg).toBeUndefined()
 
       // Undo stack was populated
       expect(undoStack.canUndo).toBe(true)
@@ -342,7 +343,7 @@ describe('CSS Modules edit loop integration', () => {
 
       // Tailwind edit (no cssMapping → routes to Tailwind rewriter)
       channel.sent.length = 0
-      // Baseline
+      // Baseline — silently sets lastValues, no edit_status sent
       pipeline.handleEdit({
         editId: 'tw-edit-0',
         source: `${tsxPath}:2:10`,
@@ -350,7 +351,7 @@ describe('CSS Modules edit loop integration', () => {
         value: '8px',
         elementSelector: 'div',
       })
-      await waitFor(() => channel.sent.some(m => m.type === 'edit_status'))
+      await new Promise(r => setTimeout(r, 100))
       channel.sent.length = 0
 
       pipeline.handleEdit({
