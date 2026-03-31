@@ -106,6 +106,7 @@ export class EditPipeline {
   private readonly debounceMs: number
   private readonly cssModulesRewriter?: CSSModulesRewriter
   private readonly detector?: { hasCSSModules: boolean; hasTailwind: boolean }
+  private readonly classifyDetector?: { hasCSSModules: boolean; hasTailwind: boolean; hasComponentLibrary: boolean; hasCSSInJS: boolean }
   private readonly runtimeResolver?: RuntimeCSSResolver
   private readonly undoStack?: UndoStack
   private readonly readFile?: (path: string) => Promise<string>
@@ -124,6 +125,9 @@ export class EditPipeline {
     this.debounceMs = options.debounceMs ?? 400
     this.cssModulesRewriter = options.cssModulesRewriter
     this.detector = options.detector
+    this.classifyDetector = options.detector
+      ? { ...options.detector, hasComponentLibrary: false, hasCSSInJS: false }
+      : undefined
     this.runtimeResolver = options.runtimeResolver
     this.undoStack = options.undoStack
     this.readFile = options.readFile
@@ -282,10 +286,10 @@ export class EditPipeline {
     // Classify the edit strategy — single source of truth for routing decisions.
     // Only meaningful when detection has run (detector exists); without it, fall
     // through to the legacy Tailwind path for backward compatibility.
-    const strategy = this.detector
+    const strategy = this.classifyDetector
       ? classifyEdit(
           edit,
-          { ...this.detector, hasComponentLibrary: false, hasCSSInJS: false },
+          this.classifyDetector,
           {
             resolverAvailable: !!this.resolver,
             aiAvailable: !!this.deferredWriter || !!this.aiWriter,

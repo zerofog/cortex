@@ -150,8 +150,9 @@ export class DeferredWriter {
         this.pending.delete(key)
       }
     }
+    const prefix = filePath + ':'
     for (const [key, controller] of this.inflight) {
-      if (key.startsWith(filePath + ':')) {
+      if (key.startsWith(prefix)) {
         controller.abort()
         this.inflight.delete(key)
       }
