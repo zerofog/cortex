@@ -575,6 +575,108 @@ describe('Deferred AI edit integration', () => {
     }
   })
 
+  it('drag simulation: rapid edits → first batch succeeds → second batch "no changes" → all done', async () => {
+    const tempDir = join(tmpdir(), `cortex-drag-sim-${Date.now()}`)
+    mkdirSync(tempDir, { recursive: true })
+
+    try {
+      const filePath = join(tempDir, 'App.tsx')
+      const source = `export function App() {
+  return <div>Hello</div>
+}`
+      writeFileSync(filePath, source)
+
+      const channel = mockChannel()
+      const resolver = TailwindResolver.fromTheme({ spacing: {} })
+      const rewriter = new TailwindRewriter()
+      const verifier = new HMRVerifier(channel)
+      const undoStack = new UndoStack()
+
+      let aiCallCount = 0
+      const mockAI = createMockAIWriter({
+        delayMs: 30,
+        onCall: () => { aiCallCount++ },
+      })
+
+      const pipeline = new EditPipeline({
+        channel,
+        resolver,
+        rewriter,
+        verifier,
+        writeFile: (intent) => fsWriteFile(intent.filePath, intent.content, 'utf-8'),
+        readFile: (p) => fsReadFile(p, 'utf-8'),
+        projectRoot: tempDir,
+        debounceMs: 50,
+        aiWriter: mockAI,
+        detector: { hasCSSModules: false, hasTailwind: false },
+        undoStack,
+        deferredWriter: undefined as unknown as DeferredWriter,
+      })
+
+      const deferredWriter = new DeferredWriter({
+        coalescingMs: 30,
+        writeFn: (batch) => pipeline.executeDeferredBatch(batch),
+      })
+      Object.assign(pipeline, { deferredWriter })
+
+      const sourceRef = `${filePath}:2:10`
+
+      // ── Simulate a drag: rapid edits every 10ms ──
+      // Wave 1: user starts dragging padding-left
+      for (let i = 0; i < 5; i++) {
+        pipeline.handleEdit({
+          editId: `drag-${i}`,
+          source: sourceRef,
+          property: 'padding-left',
+          value: `${(i + 1) * 10}px`,
+          elementSelector: 'div',
+        })
+        await new Promise(r => setTimeout(r, 10))
+      }
+
+      // Wait for the first batch to flush and complete
+      await waitFor(() => channel.sent.some(
+        m => m.type === 'edit_status' && (m as { status: string }).status === 'done'
+      ), 3000)
+
+      // ── Wave 2: user does one more adjustment after first batch wrote ──
+      // This produces a second batch that reads the already-modified file.
+      // The AI sees the same value and returns "no changes" — should be treated as success.
+      pipeline.handleEdit({
+        editId: 'drag-final',
+        source: sourceRef,
+        property: 'padding-left',
+        value: '50px', // same final value as wave 1
+        elementSelector: 'div',
+      })
+
+      // Wait for the second batch to complete
+      await new Promise(r => setTimeout(r, 200))
+
+      // ── Verify: NO 'failed' status messages ──
+      const statusMsgs = channel.sent.filter(m => m.type === 'edit_status') as Array<{
+        editId: string; status: string; reason?: string
+      }>
+      const failedMsgs = statusMsgs.filter(m => m.status === 'failed' && !m.reason?.includes('Superseded'))
+      expect(failedMsgs).toHaveLength(0)
+
+      // ── Verify: the final editId got done (not failed) ──
+      const finalDone = statusMsgs.filter(m => m.editId === 'drag-final' && m.status === 'done')
+      expect(finalDone.length).toBeGreaterThanOrEqual(1)
+
+      // ── Verify: file has the final value ──
+      const finalContent = readFileSync(filePath, 'utf-8')
+      expect(finalContent).toContain("paddingLeft: '50px'")
+
+      deferredWriter.dispose()
+      rewriter.dispose()
+      verifier.dispose()
+      pipeline.dispose()
+    } finally {
+      try { rmSync(tempDir, { recursive: true }) } catch {}
+    }
+  })
+
   it('abort during AI call sends cancelled status, not generic failure', async () => {
     const tempDir = join(tmpdir(), `cortex-deferred-abort-${Date.now()}`)
     mkdirSync(tempDir, { recursive: true })
