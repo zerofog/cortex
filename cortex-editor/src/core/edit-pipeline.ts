@@ -248,7 +248,7 @@ export class EditPipeline {
         if (this.deferredWriter) {
           this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
           this.deferredWriter.enqueue({
-            filePath: resolvedPath, line, col,
+            editId: edit.editId, filePath: resolvedPath, line, col,
             property: edit.property, value: edit.value,
             failureReason: 'Could not resolve CSS module mapping for this element.',
           })
@@ -282,7 +282,7 @@ export class EditPipeline {
             : `No baseline value for Tailwind token on ${edit.property}`
         this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
         this.deferredWriter.enqueue({
-          filePath: resolvedPath, line, col,
+          editId: edit.editId, filePath: resolvedPath, line, col,
           property: edit.property, value: edit.value,
           failureReason: reason,
         })
@@ -323,7 +323,7 @@ export class EditPipeline {
           // enqueue() is synchronous — releases the file lock immediately.
           // DeferredWriter's writeFn acquires its own lock later. No deadlock.
           this.deferredWriter.enqueue({
-            filePath: resolvedPath, line, col,
+            editId: edit.editId, filePath: resolvedPath, line, col,
             property: edit.property, value: edit.value,
             failureReason: result.reason,
           })

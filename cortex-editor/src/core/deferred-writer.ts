@@ -10,6 +10,7 @@
  */
 
 export interface DeferredEdit {
+  editId: string
   filePath: string
   line: number
   col: number
@@ -23,6 +24,7 @@ export interface BatchedWriteRequest {
   line: number
   col: number
   changes: Array<{ property: string; value: string }>
+  editIds: string[]
   failureReason: string
   signal: AbortSignal
 }
@@ -38,6 +40,7 @@ interface PendingEntry {
   filePath: string
   line: number
   col: number
+  editIds: string[]
   failureReason: string
   /** property -> { property, value }. Last write wins via Map overwrite. */
   changes: Map<string, { property: string; value: string }>
@@ -81,6 +84,7 @@ export class DeferredWriter {
       if (existing.changes.has(edit.property) || existing.changes.size < MAX_CHANGES_PER_BATCH) {
         existing.changes.set(edit.property, { property: edit.property, value: edit.value })
       }
+      existing.editIds.push(edit.editId)
       existing.failureReason = edit.failureReason
       existing.timer = setTimeout(() => { this.flush(key) }, this.coalescingMs)
     } else {
@@ -91,6 +95,7 @@ export class DeferredWriter {
         filePath: edit.filePath,
         line: edit.line,
         col: edit.col,
+        editIds: [edit.editId],
         failureReason: edit.failureReason,
         changes,
         timer,
@@ -113,6 +118,7 @@ export class DeferredWriter {
       line: entry.line,
       col: entry.col,
       changes: Array.from(entry.changes.values()),
+      editIds: entry.editIds,
       failureReason: entry.failureReason,
       signal: ac.signal,
     }

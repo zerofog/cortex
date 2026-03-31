@@ -9,8 +9,8 @@ describe('DeferredWriter', () => {
     const writeFn = vi.fn().mockResolvedValue({ success: true, newContent: 'updated' })
     const writer = new DeferredWriter({ coalescingMs: 250, writeFn })
 
-    writer.enqueue({ filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '16px', failureReason: 'no class' })
-    writer.enqueue({ filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-left', value: '8px', failureReason: 'no class' })
+    writer.enqueue({ editId: 'e1', filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '16px', failureReason: 'no class' })
+    writer.enqueue({ editId: 'e2', filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-left', value: '8px', failureReason: 'no class' })
 
     await vi.advanceTimersByTimeAsync(250)
 
@@ -29,8 +29,8 @@ describe('DeferredWriter', () => {
     const writeFn = vi.fn().mockResolvedValue({ success: true, newContent: 'updated' })
     const writer = new DeferredWriter({ coalescingMs: 250, writeFn })
 
-    writer.enqueue({ filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '16px', failureReason: 'no class' })
-    writer.enqueue({ filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '24px', failureReason: 'no class' })
+    writer.enqueue({ editId: 'e1', filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '16px', failureReason: 'no class' })
+    writer.enqueue({ editId: 'e2', filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '24px', failureReason: 'no class' })
 
     await vi.advanceTimersByTimeAsync(250)
 
@@ -53,11 +53,11 @@ describe('DeferredWriter', () => {
     })
     const writer = new DeferredWriter({ coalescingMs: 100, writeFn })
 
-    writer.enqueue({ filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '16px', failureReason: 'no class' })
+    writer.enqueue({ editId: 'e1', filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '16px', failureReason: 'no class' })
     await vi.advanceTimersByTimeAsync(100) // first batch fires
 
     // New edit while first is in-flight — should abort first
-    writer.enqueue({ filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '24px', failureReason: 'no class' })
+    writer.enqueue({ editId: 'e2', filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '24px', failureReason: 'no class' })
     await vi.advanceTimersByTimeAsync(100) // second batch fires
 
     await vi.advanceTimersByTimeAsync(5000) // let everything settle
@@ -68,8 +68,8 @@ describe('DeferredWriter', () => {
     const writeFn = vi.fn().mockResolvedValue({ success: true, newContent: 'updated' })
     const writer = new DeferredWriter({ coalescingMs: 250, writeFn })
 
-    writer.enqueue({ filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '16px', failureReason: 'no class' })
-    writer.enqueue({ filePath: '/app/Hero.tsx', line: 5, col: 3, property: 'color', value: 'red', failureReason: 'no class' })
+    writer.enqueue({ editId: 'e1', filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '16px', failureReason: 'no class' })
+    writer.enqueue({ editId: 'e2', filePath: '/app/Hero.tsx', line: 5, col: 3, property: 'color', value: 'red', failureReason: 'no class' })
 
     await vi.advanceTimersByTimeAsync(250)
 
@@ -83,10 +83,35 @@ describe('DeferredWriter', () => {
     })
     const writer = new DeferredWriter({ coalescingMs: 100, writeFn })
 
-    writer.enqueue({ filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '16px', failureReason: 'no class' })
+    writer.enqueue({ editId: 'e1', filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '16px', failureReason: 'no class' })
     writer.dispose()
 
     await vi.advanceTimersByTimeAsync(500)
     expect(writeFn).not.toHaveBeenCalled()
+  })
+
+  it('tracks editIds through coalescing', async () => {
+    const writeFn = vi.fn().mockResolvedValue({ success: true })
+    const writer = new DeferredWriter({ coalescingMs: 250, writeFn })
+
+    writer.enqueue({ editId: 'e1', filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '16px', failureReason: 'no class' })
+    writer.enqueue({ editId: 'e2', filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-left', value: '8px', failureReason: 'no class' })
+
+    await vi.advanceTimersByTimeAsync(250)
+
+    expect(writeFn).toHaveBeenCalledTimes(1)
+    expect(writeFn.mock.calls[0][0].editIds).toEqual(['e1', 'e2'])
+  })
+
+  it('tracks editIds when same property is superseded', async () => {
+    const writeFn = vi.fn().mockResolvedValue({ success: true })
+    const writer = new DeferredWriter({ coalescingMs: 250, writeFn })
+
+    writer.enqueue({ editId: 'e1', filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '16px', failureReason: 'no class' })
+    writer.enqueue({ editId: 'e2', filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '24px', failureReason: 'no class' })
+
+    await vi.advanceTimersByTimeAsync(250)
+
+    expect(writeFn.mock.calls[0][0].editIds).toEqual(['e1', 'e2'])
   })
 })
