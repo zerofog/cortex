@@ -153,6 +153,10 @@ export class CSSOverrideManager {
 
   private pendingRemovals: Array<{ source: string; property: string; pseudo?: '::before' | '::after'; deferred?: boolean }> = []
   private pendingClearAll = false
+  /** EditIds whose override removal should use double-rAF deferral. Populated by
+   *  commitEdit(true) so that handleHMRVerified — which may arrive AFTER commitEdit —
+   *  tags the removal correctly regardless of message ordering. */
+  private deferredEditIds = new Set<string>()
 
   /** Called when the server confirms an edit landed via HMR. Queues the override
    *  for removal — actual clearing happens in onHMRApplied() after the browser
@@ -163,7 +167,9 @@ export class CSSOverrideManager {
     if (!pending) return
     this.pendingEdits.delete(editId)
     if (match) {
-      this.pendingRemovals.push({ source: pending.source, property: pending.property, pseudo: pending.pseudo })
+      const deferred = this.deferredEditIds.has(editId)
+      if (deferred) this.deferredEditIds.delete(editId)
+      this.pendingRemovals.push({ source: pending.source, property: pending.property, pseudo: pending.pseudo, deferred })
     }
   }
 
@@ -222,11 +228,18 @@ export class CSSOverrideManager {
   }
 
   /** Commit the current edit — pushes the pre-edit snapshot to the undo stack.
-   *  Pass `deferred: true` for AI edits — tags pending removals for double-rAF
-   *  delay so the override persists until the framework re-renders from new source. */
+   *  Pass `deferred: true` for AI edits — marks all tracked pending edits for
+   *  double-rAF deferral. Uses deferredEditIds set so handleHMRVerified (which
+   *  may arrive AFTER this call) correctly tags the removal. */
   commitEdit(deferred?: boolean): void {
-    // Tag all pending removals from this edit as deferred
-    if (deferred && this.pendingRemovals.length > 0) {
+    if (deferred) {
+      // Mark all currently tracked pending edits as deferred. handleHMRVerified
+      // will check this set when it eventually pushes the removal entry.
+      for (const editId of this.pendingEdits.keys()) {
+        this.deferredEditIds.add(editId)
+      }
+      // Also tag any removals already queued (for the case where hmr_verified
+      // arrived before edit_status:done)
       for (const r of this.pendingRemovals) {
         r.deferred = true
       }
@@ -276,6 +289,7 @@ export class CSSOverrideManager {
     this.overrideUndoStack.length = 0
     this.overrideRedoStack.length = 0
     this.pendingRemovals.length = 0
+    this.deferredEditIds.clear()
     this.overrides.clear()
     this.stateOverrides.clear()
     this.pendingEdits.clear()

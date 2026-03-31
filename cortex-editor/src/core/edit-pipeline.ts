@@ -506,6 +506,7 @@ export class EditPipeline {
       type: 'edit_status',
       editId: edit.editId,
       status: 'done',
+      strategy: 'deferred',
     })
   }
 

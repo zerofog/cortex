@@ -44,6 +44,9 @@ interface PendingEntry {
   timer: ReturnType<typeof setTimeout>
 }
 
+/** Max distinct properties per element in a single batch. Prevents prompt overflow. */
+const MAX_CHANGES_PER_BATCH = 20
+
 export class DeferredWriter {
   private readonly coalescingMs: number
   private readonly writeFn: WriteFn
@@ -73,7 +76,9 @@ export class DeferredWriter {
     if (existing) {
       // Reset the coalescing timer — we got more data, wait again
       clearTimeout(existing.timer)
-      existing.changes.set(edit.property, { property: edit.property, value: edit.value })
+      if (existing.changes.size < MAX_CHANGES_PER_BATCH) {
+        existing.changes.set(edit.property, { property: edit.property, value: edit.value })
+      }
       existing.failureReason = edit.failureReason
       existing.timer = setTimeout(() => { this.flush(key) }, this.coalescingMs)
     } else {
@@ -93,6 +98,7 @@ export class DeferredWriter {
 
   /** Flush a pending entry: remove from pending, create AbortController, call writeFn. */
   private flush(key: string): void {
+    if (this.disposed) return
     const entry = this.pending.get(key)
     if (!entry) return
     this.pending.delete(key)
@@ -110,7 +116,9 @@ export class DeferredWriter {
     }
 
     // Fire-and-forget — caller observes results via writeFn's side effects
-    this.writeFn(request).finally(() => {
+    this.writeFn(request).catch((err) => {
+      console.error('[cortex] DeferredWriter flush failed for %s:', key, err instanceof Error ? err.message : err)
+    }).finally(() => {
       // Only clean up if this is still the current controller for this key
       if (this.inflight.get(key) === ac) {
         this.inflight.delete(key)
