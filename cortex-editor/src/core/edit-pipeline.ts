@@ -737,6 +737,13 @@ export class EditPipeline {
       }, { fileContent, signal: batch.signal })
 
       if (!result.success) {
+        // "No changes" means the file already has the desired content — this happens
+        // when a previous coalesced batch already wrote the same changes. The file is
+        // correct, so treat as success rather than confusing the user with an error.
+        if (result.reason.includes('no changes')) {
+          this.sendDeferredStatus(batch.editIds, 'done')
+          return { success: true }
+        }
         this.sendDeferredStatus(batch.editIds, 'failed', result.reason)
         return { success: false, reason: result.reason }
       }

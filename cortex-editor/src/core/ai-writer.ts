@@ -46,7 +46,7 @@ const MAX_DIFF_LINES = 20
 const MAX_LOCALITY_DISTANCE = 30
 const MAX_NET_LINE_DELTA = 3
 const MAX_LINE_LENGTH = 500
-const MAX_TOKENS = 1024
+const MAX_TOKENS = 2048
 
 
 const SYSTEM_PROMPT = `You are a code editor. You modify JSX/TSX source files to apply CSS property changes.

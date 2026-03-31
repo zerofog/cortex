@@ -728,7 +728,7 @@ describe('AIWriter', () => {
     })
     const body = JSON.parse((options as RequestInit).body as string)
     expect(body.temperature).toBe(0)
-    expect(body.max_tokens).toBe(1024)
+    expect(body.max_tokens).toBe(2048)
   })
 
   describe('abort signal', () => {
