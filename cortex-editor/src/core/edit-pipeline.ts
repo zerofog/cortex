@@ -7,6 +7,7 @@ import type { CSSModulesRewriter } from './rewriter/css-modules.js'
 import type { RuntimeCSSResolver } from './rewriter/runtime-resolver.js'
 import type { UndoStack } from './session/undo-stack.js'
 import type { AIWriter } from './ai-writer.js'
+import type { DeferredWriter } from './deferred-writer.js'
 
 export interface EditRequest {
   editId: string
@@ -45,6 +46,8 @@ export interface EditPipelineOptions {
   readFile?: (path: string) => Promise<string>
   /** AI writer for framework-agnostic source edits when deterministic layers fail */
   aiWriter?: AIWriter
+  /** Deferred writer for batched AI edits with coalescing + cancellation */
+  deferredWriter?: DeferredWriter
 }
 
 const VALID_PROPERTY = /^-{0,2}[a-zA-Z][a-zA-Z0-9-]*$/
@@ -100,6 +103,7 @@ export class EditPipeline {
   private readonly undoStack?: UndoStack
   private readonly readFile?: (path: string) => Promise<string>
   private readonly aiWriter?: AIWriter
+  private readonly deferredWriter?: DeferredWriter
   private undoLock = Promise.resolve()
   private disposed = false
 
@@ -117,6 +121,7 @@ export class EditPipeline {
     this.undoStack = options.undoStack
     this.readFile = options.readFile
     this.aiWriter = options.aiWriter
+    this.deferredWriter = options.deferredWriter
   }
 
   handleEdit(edit: EditRequest): void {
@@ -234,6 +239,15 @@ export class EditPipeline {
       }
       // CSS Modules-only project → don't fall through to Tailwind
       if (!this.detector.hasTailwind) {
+        if (this.deferredWriter) {
+          this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
+          this.deferredWriter.enqueue({
+            filePath: resolvedPath, line, col,
+            property: edit.property, value: edit.value,
+            failureReason: 'Could not resolve CSS module mapping for this element.',
+          })
+          return
+        }
         if (this.aiWriter) {
           await this.commitAIWrite(edit, resolvedPath, line, col, 'Could not resolve CSS module mapping for this element.')
           return
@@ -247,12 +261,25 @@ export class EditPipeline {
     // First edit for a source:property pair has no previousValue — this is the
     // baseline "seed" establishing the current state. Skip silently; the CSS
     // override already shows the preview. File write starts on the next edit.
-    if (!previousValue) return
+    // Only skip seed for the Tailwind deterministic path — AI doesn't need a baseline
+    if (!previousValue && !this.deferredWriter) return
 
     const newToken = this.resolver.findClass(edit.property, edit.value)
-    const oldToken = this.resolver.findClass(edit.property, previousValue)
+    const oldToken = previousValue ? this.resolver.findClass(edit.property, previousValue) : null
 
     if (!newToken || !oldToken) {
+      if (this.deferredWriter) {
+        const reason = !newToken
+          ? `Cannot resolve Tailwind class for ${edit.property}: ${edit.value}`
+          : `Cannot resolve Tailwind class for ${edit.property}: ${previousValue}`
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
+        this.deferredWriter.enqueue({
+          filePath: resolvedPath, line, col,
+          property: edit.property, value: edit.value,
+          failureReason: reason,
+        })
+        return
+      }
       if (this.aiWriter) {
         const reason = !newToken
           ? `Cannot resolve Tailwind class for ${edit.property}: ${edit.value}`
@@ -284,6 +311,16 @@ export class EditPipeline {
       })
 
       if (!result.success) {
+        if (this.deferredWriter) {
+          // enqueue() is synchronous — releases the file lock immediately.
+          // DeferredWriter's writeFn acquires its own lock later. No deadlock.
+          this.deferredWriter.enqueue({
+            filePath: resolvedPath, line, col,
+            property: edit.property, value: edit.value,
+            failureReason: result.reason,
+          })
+          return
+        }
         if (this.aiWriter) {
           // Already inside withFileLock — call inner helper directly to avoid deadlock
           await this.executeAIWrite(edit, resolvedPath, line, col, result.reason)
@@ -318,6 +355,7 @@ export class EditPipeline {
         editId: edit.editId,
         status: 'done',
         newToken,
+        strategy: 'immediate',
       })
     })
   }
@@ -484,7 +522,7 @@ export class EditPipeline {
       }
       this.verifier.trackEdit({ editId: edit.editId, filePath: resolvedCssPath, expectedValue: edit.value, property: edit.property })
       await this.writeFile(resolvedCssPath, result.newContent, { suppressHMR: true })
-      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done' })
+      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done', strategy: 'immediate' })
     })
   }
 
@@ -510,5 +548,6 @@ export class EditPipeline {
     this.debounceTimers.clear()
     this.lastValues.clear()
     this.fileLocks.clear()
+    this.deferredWriter?.dispose()
   }
 }
