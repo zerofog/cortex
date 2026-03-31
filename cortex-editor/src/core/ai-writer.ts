@@ -199,9 +199,14 @@ export function extractContext(
   targetLine: number,
   windowSize: number,
 ): { snippet: string; startLine: number; endLine: number } {
+  if (lines.length <= windowSize) {
+    return { snippet: lines.join('\n'), startLine: 1, endLine: lines.length }
+  }
   const half = Math.floor(windowSize / 2)
-  const startLine = Math.max(1, targetLine - half)
-  const endLine = Math.min(lines.length, targetLine + half)
+  let startLine = targetLine - half
+  let endLine = startLine + windowSize - 1
+  if (startLine < 1) { startLine = 1; endLine = windowSize }
+  if (endLine > lines.length) { endLine = lines.length; startLine = Math.max(1, endLine - windowSize + 1) }
   const snippet = lines.slice(startLine - 1, endLine).join('\n')
   return { snippet, startLine, endLine }
 }

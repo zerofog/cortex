@@ -1309,7 +1309,7 @@ describe('EditPipeline', () => {
         aiWriter: aiWriter as any,
       })
 
-      // No seed needed — Point C is before the seed check (line 236 < line 250)
+      // No seed needed — Point C occurs before the pipeline's seed/baseline check
       pipeline.handleEdit({
         editId: 'edit-1',
         source: '/project/src/Hero.tsx:5:3',
