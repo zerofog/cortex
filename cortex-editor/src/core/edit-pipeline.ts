@@ -134,6 +134,27 @@ export class EditPipeline {
   handleEdit(edit: EditRequest): void {
     if (this.disposed) return
 
+    // Fast path: pure AI projects bypass the 400ms debounce and route
+    // directly to DeferredWriter's 250ms coalescing window
+    if (this.shouldBypassDebounce(edit)) {
+      const parsed = this.parseSource(edit.source)
+      if (!parsed) {
+        this.sendParseSourceError(edit)
+        return
+      }
+      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
+      this.deferredWriter!.enqueue({
+        editId: edit.editId,
+        filePath: parsed.resolvedPath,
+        line: parsed.line,
+        col: parsed.col,
+        property: edit.property,
+        value: edit.value,
+        failureReason: 'Deferred to AI writer',
+      })
+      return
+    }
+
     const debounceKey = `${edit.source}:${edit.property}`
 
     const existing = this.debounceTimers.get(debounceKey)
@@ -159,47 +180,79 @@ export class EditPipeline {
     )
   }
 
-  private async executeEdit(edit: EditRequest, previousValue: string | undefined): Promise<void> {
-    // Parse source as "filePath:line:col" — parse from right to handle
-    // Windows drive letters (e.g. "C:\Users\foo\App.tsx:2:10")
-    const lastColon = edit.source.lastIndexOf(':')
-    const secondLastColon = edit.source.lastIndexOf(':', lastColon - 1)
+  /**
+   * Parse a source string ("filePath:line:col") into its components.
+   * Returns null if the format is invalid or the path is outside projectRoot.
+   */
+  private parseSource(source: string): { resolvedPath: string; line: number; col: number } | null {
+    const lastColon = source.lastIndexOf(':')
+    const secondLastColon = source.lastIndexOf(':', lastColon - 1)
     if (lastColon === -1 || secondLastColon === -1 || secondLastColon === 0) {
-      this.channel.send({
-        type: 'edit_status',
-        editId: edit.editId,
-        status: 'failed',
-        reason: `Invalid source format: ${edit.source}`,
-      })
-      return
+      return null
     }
 
-    const filePath = edit.source.slice(0, secondLastColon)
-    const lineStr = edit.source.slice(secondLastColon + 1, lastColon)
-    const colStr = edit.source.slice(lastColon + 1)
+    const filePath = source.slice(0, secondLastColon)
+    const lineStr = source.slice(secondLastColon + 1, lastColon)
+    const colStr = source.slice(lastColon + 1)
 
     const line = parseInt(lineStr, 10)
     const col = parseInt(colStr, 10)
     if (Number.isNaN(line) || Number.isNaN(col)) {
-      this.channel.send({
-        type: 'edit_status',
-        editId: edit.editId,
-        status: 'failed',
-        reason: `Invalid line/col in source: ${edit.source}`,
-      })
-      return
+      return null
     }
 
     const resolvedPath = resolve(this.projectRoot, filePath)
     if (!this.isInsideProjectRoot(resolvedPath)) {
-      this.channel.send({
-        type: 'edit_status',
-        editId: edit.editId,
-        status: 'failed',
-        reason: 'File path outside project root',
-      })
+      return null
+    }
+
+    return { resolvedPath, line, col }
+  }
+
+  /** Send appropriate error when parseSource returns null. */
+  private sendParseSourceError(edit: EditRequest): void {
+    const lastColon = edit.source.lastIndexOf(':')
+    const secondLastColon = edit.source.lastIndexOf(':', lastColon - 1)
+    if (lastColon === -1 || secondLastColon === -1 || secondLastColon === 0) {
+      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Invalid source format: ${edit.source}` })
       return
     }
+    const filePath = edit.source.slice(0, secondLastColon)
+    const lineStr = edit.source.slice(secondLastColon + 1, lastColon)
+    const colStr = edit.source.slice(lastColon + 1)
+    const line = parseInt(lineStr, 10)
+    const col = parseInt(colStr, 10)
+    if (Number.isNaN(line) || Number.isNaN(col)) {
+      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Invalid line/col in source: ${edit.source}` })
+      return
+    }
+    // Only remaining failure case: path outside project root
+    this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'File path outside project root' })
+  }
+
+  /** Check if this edit can skip the 400ms debounce and route directly to DeferredWriter. */
+  private shouldBypassDebounce(edit: EditRequest): boolean {
+    // No DeferredWriter → can't bypass (nothing to enqueue to)
+    if (!this.deferredWriter) return false
+    // CSS Modules annotation → always immediate path, need debounce
+    if (edit.cssMapping) return false
+    // No detector → can't determine framework, use debounce
+    if (!this.detector) return false
+    // Pure AI project (no Tailwind, no CSS Modules) → bypass
+    if (!this.detector.hasTailwind && !this.detector.hasCSSModules) return true
+    // Mixed framework → use debounce, let executeEdit decide
+    return false
+  }
+
+  private async executeEdit(edit: EditRequest, previousValue: string | undefined): Promise<void> {
+    // Parse source as "filePath:line:col" — parse from right to handle
+    // Windows drive letters (e.g. "C:\Users\foo\App.tsx:2:10")
+    const parsed = this.parseSource(edit.source)
+    if (!parsed) {
+      this.sendParseSourceError(edit)
+      return
+    }
+    const { resolvedPath, line, col } = parsed
 
     // Server-side CSS property + value validation
     if (!isValidCSSProperty(edit.property)) {

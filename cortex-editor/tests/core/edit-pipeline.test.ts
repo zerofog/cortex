@@ -2338,4 +2338,205 @@ describe('EditPipeline', () => {
       expect(deferredWriter.cancelledFiles).toContain('/project/src/App.tsx')
     })
   })
+
+  // --- Debounce bypass for pure AI projects ---
+
+  describe('debounce bypass', () => {
+    function mockDeferredWriter(): DeferredWriter & { enqueued: DeferredEdit[]; disposed: boolean } {
+      const enqueued: DeferredEdit[] = []
+      return {
+        enqueued,
+        disposed: false,
+        enqueue(edit: DeferredEdit) { enqueued.push(edit) },
+        dispose() { this.disposed = true },
+      } as unknown as DeferredWriter & { enqueued: DeferredEdit[]; disposed: boolean }
+    }
+
+    it('bypasses debounce for pure AI projects', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const deferredWriter = mockDeferredWriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        detector: { hasCSSModules: false, hasTailwind: false },
+        deferredWriter: deferredWriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+
+      // Should be enqueued IMMEDIATELY — no timer advancement needed
+      expect(deferredWriter.enqueued).toHaveLength(1)
+      expect(deferredWriter.enqueued[0]).toMatchObject({
+        editId: 'edit-1',
+        filePath: '/project/src/App.tsx',
+        line: 2,
+        col: 10,
+        property: 'padding-top',
+        value: '16px',
+      })
+
+      // edit_status: writing should have been sent before enqueue
+      const writingStatus = channel.sent.find(
+        m => m.type === 'edit_status' && (m as { status: string }).status === 'writing',
+      )
+      expect(writingStatus).toBeDefined()
+      expect((writingStatus as { editId: string }).editId).toBe('edit-1')
+    })
+
+    it('does not bypass debounce for Tailwind projects', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({ 'padding-top': { '8px': 'pt-2', '16px': 'pt-4' } })
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const deferredWriter = mockDeferredWriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        detector: { hasCSSModules: false, hasTailwind: true },
+        deferredWriter: deferredWriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+
+      // Should NOT be immediately enqueued — still goes through debounce
+      expect(deferredWriter.enqueued).toHaveLength(0)
+
+      // After debounce fires, routing happens through executeEdit
+      await vi.advanceTimersByTimeAsync(400)
+      // With deferredWriter + no seed, the Tailwind resolver returns a token
+      // so it goes through the Tailwind rewrite path (not deferred)
+    })
+
+    it('does not bypass debounce for CSS Modules annotated edits', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const deferredWriter = mockDeferredWriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        detector: { hasCSSModules: false, hasTailwind: false },
+        deferredWriter: deferredWriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+        cssMapping: 'src/Hero.module.css:.hero',
+      })
+
+      // Should NOT be immediately enqueued — cssMapping forces debounce path
+      expect(deferredWriter.enqueued).toHaveLength(0)
+    })
+
+    it('does not bypass debounce when no deferredWriter', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        detector: { hasCSSModules: false, hasTailwind: false },
+        // No deferredWriter
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+
+      // No immediate effect — goes through debounce
+      expect(channel.sent).toHaveLength(0)
+    })
+
+    it('sends failed status when bypass path gets invalid source format', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const deferredWriter = mockDeferredWriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        detector: { hasCSSModules: false, hasTailwind: false },
+        deferredWriter: deferredWriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-bad',
+        source: 'bad-source',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+
+      // Should not enqueue
+      expect(deferredWriter.enqueued).toHaveLength(0)
+
+      // Should send failed status
+      const failedStatus = channel.sent.find(
+        m => m.type === 'edit_status' && (m as { status: string }).status === 'failed',
+      )
+      expect(failedStatus).toBeDefined()
+      expect((failedStatus as { reason: string }).reason).toContain('Invalid source format')
+    })
+
+    it('sends failed status when bypass path gets path outside project root', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const deferredWriter = mockDeferredWriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        detector: { hasCSSModules: false, hasTailwind: false },
+        deferredWriter: deferredWriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-bad',
+        source: '/etc/passwd:1:1',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+
+      expect(deferredWriter.enqueued).toHaveLength(0)
+      const failedStatus = channel.sent.find(
+        m => m.type === 'edit_status' && (m as { status: string }).status === 'failed',
+      )
+      expect(failedStatus).toBeDefined()
+      expect((failedStatus as { reason: string }).reason).toContain('outside project root')
+    })
+  })
 })
