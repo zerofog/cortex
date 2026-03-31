@@ -71,10 +71,12 @@ export class DeferredWriter {
 
     const key = `${edit.filePath}:${edit.line}:${edit.col}`
 
-    // Abort any in-flight request for this element — new data supersedes it
+    // Abort any in-flight request for this element — new data supersedes it.
+    // Use 'superseded' reason so executeDeferredBatch can distinguish from
+    // user-initiated cancellation (undo/redo) and skip sending error status.
     const existingInflight = this.inflight.get(key)
     if (existingInflight) {
-      existingInflight.abort()
+      existingInflight.abort('superseded')
       this.inflight.delete(key)
     }
 
@@ -137,7 +139,7 @@ export class DeferredWriter {
 
     // Fire-and-forget — caller observes results via writeFn's side effects
     this.writeFn(request).then((result) => {
-      if (!result.success) {
+      if (!result.success && result.reason !== 'aborted') {
         console.error('[cortex] DeferredWriter writeFn returned failure for %s: %s', key, result.reason)
       }
     }).catch((err) => {

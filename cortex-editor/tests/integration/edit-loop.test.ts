@@ -760,12 +760,11 @@ describe('Deferred AI edit integration', () => {
         type: string; editId: string; status: string; reason?: string; strategy?: string
       }>
 
-      // ── Verify first batch: cancelled (not generic failure) ──
+      // ── Verify first batch: silently cancelled (no error status sent) ──
       const firstBatchStatuses = statusMsgs.filter(m => m.editId === 'first-1')
-      // Should have 'writing' and then 'failed' with "Superseded" reason
+      // Coalescing supersede is silent — only 'writing' status, no 'failed'
       const firstFailed = firstBatchStatuses.find(m => m.status === 'failed')
-      expect(firstFailed).toBeDefined()
-      expect(firstFailed!.reason).toContain('Superseded')
+      expect(firstFailed).toBeUndefined()
 
       // ── Verify second batch: completed successfully ──
       const secondBatchStatuses = statusMsgs.filter(m => m.editId === 'second-1')

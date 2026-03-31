@@ -692,7 +692,11 @@ export class EditPipeline {
 
     // Check abort before starting
     if (batch.signal.aborted) {
-      this.sendDeferredStatus(batch.editIds, 'cancelled', 'Superseded by newer edit')
+      // Coalescing supersede: silent — the newer batch handles these properties.
+      // User-initiated cancel (undo/redo): send explicit status via cancelForFile path.
+      if (batch.signal.reason !== 'superseded') {
+        this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
+      }
       return { success: false, reason: 'aborted' }
     }
 
@@ -704,7 +708,9 @@ export class EditPipeline {
     return this.withFileLockResult(batch.filePath, async () => {
       // Check abort after lock acquisition (may have waited)
       if (batch.signal.aborted) {
-        this.sendDeferredStatus(batch.editIds, 'cancelled', 'Superseded by newer edit')
+        if (batch.signal.reason !== 'superseded') {
+          this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
+        }
         return { success: false, reason: 'aborted' }
       }
 
@@ -721,7 +727,9 @@ export class EditPipeline {
 
       // Check abort after file read
       if (batch.signal.aborted) {
-        this.sendDeferredStatus(batch.editIds, 'cancelled', 'Superseded by newer edit')
+        if (batch.signal.reason !== 'superseded') {
+          this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
+        }
         return { success: false, reason: 'aborted' }
       }
 
@@ -740,7 +748,9 @@ export class EditPipeline {
         // Abort during AI call: the signal fired while fetch was in-flight.
         // Treat as cancellation, not failure — a newer edit superseded this one.
         if (batch.signal.aborted) {
-          this.sendDeferredStatus(batch.editIds, 'cancelled', 'Superseded by newer edit')
+          if (batch.signal.reason !== 'superseded') {
+            this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
+          }
           return { success: false, reason: 'aborted' }
         }
         // "No changes" means the file already has the desired content — this happens
@@ -756,7 +766,9 @@ export class EditPipeline {
 
       // Check abort before writing (AI may have returned after supersede)
       if (batch.signal.aborted) {
-        this.sendDeferredStatus(batch.editIds, 'cancelled', 'Superseded by newer edit')
+        if (batch.signal.reason !== 'superseded') {
+          this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
+        }
         return { success: false, reason: 'aborted' }
       }
 

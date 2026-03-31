@@ -2078,7 +2078,7 @@ describe('EditPipeline', () => {
       expect(doneStatuses).toHaveLength(2)
     })
 
-    it('aborted signal returns failure and sends cancelled status', async () => {
+    it('user-initiated abort (undo/redo) sends cancelled status', async () => {
       const channel = mockChannel()
       const resolver = mockResolver({})
       const rewriter = mockRewriter()
@@ -2093,7 +2093,7 @@ describe('EditPipeline', () => {
       })
 
       const ac = new AbortController()
-      ac.abort() // pre-abort
+      ac.abort() // generic abort (no reason) — simulates undo/redo cancelForFile
 
       const batch: BatchedWriteRequest = {
         filePath: '/project/src/App.tsx',
@@ -2110,12 +2110,47 @@ describe('EditPipeline', () => {
       expect(result.success).toBe(false)
       expect(result.reason).toBe('aborted')
       expect(aiWriter.write).not.toHaveBeenCalled()
-      // Status should be 'failed' (cancelled maps to failed)
+      // User-initiated cancel sends explicit status
       const failedStatuses = channel.sent.filter(
         m => m.type === 'edit_status' && (m as any).status === 'failed',
       )
       expect(failedStatuses).toHaveLength(1)
-      expect((failedStatuses[0] as any).reason).toContain('Superseded')
+    })
+
+    it('coalescing supersede abort is silent — no status sent', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const aiWriter = mockAIWriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        aiWriter: aiWriter as any,
+        readFile: vi.fn(),
+      })
+
+      const ac = new AbortController()
+      ac.abort('superseded') // coalescing abort — should be silent
+
+      const batch: BatchedWriteRequest = {
+        filePath: '/project/src/App.tsx',
+        line: 14,
+        col: 7,
+        changes: [{ property: 'padding-top', value: '16px' }],
+        editIds: ['e1'],
+        failureReason: 'no class',
+        signal: ac.signal,
+      }
+
+      const result = await pipeline.executeDeferredBatch(batch)
+
+      expect(result.success).toBe(false)
+      expect(result.reason).toBe('aborted')
+      // Coalescing supersede: NO status sent — browser TTL handles cleanup
+      const statusMsgs = channel.sent.filter(m => m.type === 'edit_status')
+      expect(statusMsgs).toHaveLength(0)
     })
 
     it('AI failure sends failed status for all editIds', async () => {
