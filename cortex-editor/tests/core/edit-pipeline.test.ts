@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { EditPipeline } from '../../src/core/edit-pipeline.js'
+import type { WriteIntent } from '../../src/core/edit-pipeline.js'
 import type { TailwindResolver } from '../../src/core/tailwind-resolver.js'
 import type { TailwindRewriter } from '../../src/core/rewriter/tailwind.js'
 import type { HMRVerifier } from '../../src/core/hmr-verifier.js'
@@ -258,7 +259,7 @@ describe('EditPipeline', () => {
     vi.advanceTimersByTime(400)
     await vi.runAllTimersAsync()
 
-    expect(writeFile).toHaveBeenCalledWith('/project/src/App.tsx', 'new content', { suppressHMR: true })
+    expect(writeFile).toHaveBeenCalledWith({ kind: 'immediate', filePath: '/project/src/App.tsx', content: 'new content' })
     expect(verifier.tracked).toHaveLength(1)
   })
 
@@ -538,7 +539,7 @@ describe('EditPipeline', () => {
       newValue: '16px',
       elementSelector: 'div',
     })
-    expect(writeFile).toHaveBeenCalledWith('/project/src/Hero.module.css', 'new-css', { suppressHMR: true })
+    expect(writeFile).toHaveBeenCalledWith({ kind: 'immediate', filePath: '/project/src/Hero.module.css', content: 'new-css' })
     const doneStatus = channel.sent.find(
       m => m.type === 'edit_status' && (m as { status: string }).status === 'done'
     )
@@ -743,7 +744,7 @@ describe('EditPipeline', () => {
       newValue: '16px',
       elementSelector: 'div',
     })
-    expect(writeFile).toHaveBeenCalledWith('/project/src/Hero.module.css', 'new-css', { suppressHMR: true })
+    expect(writeFile).toHaveBeenCalledWith({ kind: 'immediate', filePath: '/project/src/Hero.module.css', content: 'new-css' })
   })
 
   it('fails with CSS module message on CSS Modules-only project when resolution fails', async () => {
@@ -898,7 +899,7 @@ describe('EditPipeline', () => {
     // Undo
     await pipeline.handleUndo()
 
-    expect(writeFile).toHaveBeenCalledWith('/project/src/App.tsx', 'old')
+    expect(writeFile).toHaveBeenCalledWith({ kind: 'undo', filePath: '/project/src/App.tsx', content: 'old' })
     const undoStatus = channel.sent.find(m => m.type === 'undo_status' && (m as { status: string }).status === 'done')
     expect(undoStatus).toBeDefined()
   })
@@ -1030,7 +1031,7 @@ describe('EditPipeline', () => {
 
     // writeFile was called once for the undo, not for the cancelled edit
     expect(writeFile).toHaveBeenCalledTimes(1)
-    expect(writeFile).toHaveBeenCalledWith('/project/src/App.tsx', 'old')
+    expect(writeFile).toHaveBeenCalledWith({ kind: 'undo', filePath: '/project/src/App.tsx', content: 'old' })
   })
 
   it('handleRedo re-applies change after undo', async () => {
@@ -1044,7 +1045,7 @@ describe('EditPipeline', () => {
     const undoStack = new UndoStack()
     // Track what the last written content was, so readFile returns the right thing
     let lastWritten = 'new content'
-    writeFile.mockImplementation(async (_p: string, content: string) => { lastWritten = content })
+    writeFile.mockImplementation(async (intent: WriteIntent) => { lastWritten = intent.content })
     const readFile = vi.fn().mockImplementation(async () => lastWritten)
 
     const pipeline = new EditPipeline({
@@ -1082,7 +1083,7 @@ describe('EditPipeline', () => {
     // Redo (should verify file matches previousContent, then write currentContent)
     await pipeline.handleRedo()
 
-    expect(writeFile).toHaveBeenCalledWith('/project/src/App.tsx', 'new content')
+    expect(writeFile).toHaveBeenCalledWith({ kind: 'redo', filePath: '/project/src/App.tsx', content: 'new content' })
     const redoStatus = channel.sent.find(m => m.type === 'redo_status' && (m as { status: string }).status === 'done')
     expect(redoStatus).toBeDefined()
   })
@@ -1122,7 +1123,7 @@ describe('EditPipeline', () => {
     vi.advanceTimersByTime(400)
     await vi.runAllTimersAsync()
 
-    expect(writeFile).toHaveBeenCalledWith('/project/src/App.tsx', 'updated content', { suppressHMR: true })
+    expect(writeFile).toHaveBeenCalledWith({ kind: 'immediate', filePath: '/project/src/App.tsx', content: 'updated content' })
     const doneStatus = channel.sent.find(
       m => m.type === 'edit_status' && (m as { status: string }).status === 'done'
     )
@@ -1369,7 +1370,7 @@ describe('EditPipeline', () => {
       vi.advanceTimersByTime(400)
       await vi.runAllTimersAsync()
 
-      expect(writeFile).toHaveBeenCalledWith('/project/src/App.tsx', 'ai-modified')
+      expect(writeFile).toHaveBeenCalledWith({ kind: 'deferred', filePath: '/project/src/App.tsx', content: 'ai-modified' })
 
       const doneStatus = channel.sent.find(
         m => m.type === 'edit_status' && (m as { status: string }).status === 'done',

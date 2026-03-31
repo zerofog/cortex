@@ -23,13 +23,19 @@ export interface EditRequest {
   cssMapping?: string
 }
 
+export interface WriteIntent {
+  kind: 'immediate' | 'deferred' | 'undo' | 'redo'
+  filePath: string
+  content: string
+}
+
 export interface EditPipelineOptions {
   channel: ServerChannel
   resolver: TailwindResolver
   rewriter: TailwindRewriter
   verifier: HMRVerifier
   /** Injected for testability. Default: fs.writeFile */
-  writeFile: (path: string, content: string, options?: { suppressHMR?: boolean }) => Promise<void>
+  writeFile: (intent: WriteIntent) => Promise<void>
   /** Absolute path to project root. File writes are scoped to this directory. */
   projectRoot: string
   /** Debounce delay in ms. Default: 400 */
@@ -94,7 +100,7 @@ export class EditPipeline {
   private readonly resolver: TailwindResolver
   private readonly rewriter: TailwindRewriter
   private readonly verifier: HMRVerifier
-  private readonly writeFile: (path: string, content: string, options?: { suppressHMR?: boolean }) => Promise<void>
+  private readonly writeFile: (intent: WriteIntent) => Promise<void>
   private readonly projectRoot: string
   private readonly debounceMs: number
   private readonly cssModulesRewriter?: CSSModulesRewriter
@@ -348,7 +354,7 @@ export class EditPipeline {
         property: edit.property,
       })
 
-      await this.writeFile(resolvedPath, result.newContent, { suppressHMR: true })
+      await this.writeFile({ kind: 'immediate', filePath: resolvedPath, content: result.newContent })
 
       this.channel.send({
         type: 'edit_status',
@@ -397,7 +403,7 @@ export class EditPipeline {
         }
       }
 
-      await this.writeFile(current.filePath, current.previousContent)
+      await this.writeFile({ kind: 'undo', filePath: current.filePath, content: current.previousContent })
       this.undoStack!.undo()
       this.channel.send({ type: 'undo_status', status: 'done', restoredFile: relative(this.projectRoot, current.filePath) })
     })
@@ -436,7 +442,7 @@ export class EditPipeline {
 
       const result = this.undoStack!.redo()
       if (!result) return
-      await this.writeFile(result.filePath, result.content)
+      await this.writeFile({ kind: 'redo', filePath: result.filePath, content: result.content })
       this.channel.send({ type: 'redo_status', status: 'done', restoredFile: relative(this.projectRoot, result.filePath) })
     })
   }
@@ -494,7 +500,7 @@ export class EditPipeline {
       property: edit.property,
     })
 
-    await this.writeFile(resolvedPath, result.newContent)
+    await this.writeFile({ kind: 'deferred', filePath: resolvedPath, content: result.newContent })
 
     this.channel.send({
       type: 'edit_status',
@@ -521,7 +527,7 @@ export class EditPipeline {
         this.undoStack.push({ filePath: resolvedCssPath, previousContent: result.oldContent, currentContent: result.newContent })
       }
       this.verifier.trackEdit({ editId: edit.editId, filePath: resolvedCssPath, expectedValue: edit.value, property: edit.property })
-      await this.writeFile(resolvedCssPath, result.newContent, { suppressHMR: true })
+      await this.writeFile({ kind: 'immediate', filePath: resolvedCssPath, content: result.newContent })
       this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done', strategy: 'immediate' })
     })
   }
