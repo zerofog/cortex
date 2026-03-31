@@ -31,6 +31,8 @@ export function findJsxElementAt(
   try {
     pos = sourceFile.compilerNode.getPositionOfLineAndCharacter(line - 1, col - 1)
   } catch {
+    // getPositionOfLineAndCharacter throws for out-of-bounds line/col.
+    // No other failure mode is known for this TS compiler API.
     return null
   }
 
