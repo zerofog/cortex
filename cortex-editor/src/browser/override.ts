@@ -303,6 +303,7 @@ export class CSSOverrideManager {
     this.overrideUndoStack.length = 0
     this.overrideRedoStack.length = 0
     this.pendingRemovals.length = 0
+    this.deferredEditIds.clear()
     this.cancelPendingRebuild()
     this.overrides.clear()
     this.stateOverrides.clear()
