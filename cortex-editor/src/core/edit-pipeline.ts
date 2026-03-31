@@ -138,16 +138,16 @@ export class EditPipeline {
     // directly to DeferredWriter's 250ms coalescing window
     if (this.shouldBypassDebounce(edit)) {
       const parsed = this.parseSource(edit.source)
-      if (!parsed) {
-        this.sendParseSourceError(edit)
+      if (!parsed.ok) {
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: parsed.reason })
         return
       }
       if (!isValidCSSProperty(edit.property)) {
-        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Invalid CSS property: ${edit.property}` })
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'Invalid CSS property name' })
         return
       }
       if (!isValidCSSValue(edit.value)) {
-        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Invalid CSS value for ${edit.property}` })
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'Invalid CSS value' })
         return
       }
       this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
@@ -190,13 +190,15 @@ export class EditPipeline {
 
   /**
    * Parse a source string ("filePath:line:col") into its components.
-   * Returns null if the format is invalid or the path is outside projectRoot.
+   * Returns a discriminated union with the parsed result or a failure reason.
    */
-  private parseSource(source: string): { resolvedPath: string; line: number; col: number } | null {
+  private parseSource(source: string):
+    | { ok: true; resolvedPath: string; line: number; col: number }
+    | { ok: false; reason: string } {
     const lastColon = source.lastIndexOf(':')
     const secondLastColon = source.lastIndexOf(':', lastColon - 1)
     if (lastColon === -1 || secondLastColon === -1 || secondLastColon === 0) {
-      return null
+      return { ok: false, reason: `Invalid source format: ${source}` }
     }
 
     const filePath = source.slice(0, secondLastColon)
@@ -206,36 +208,15 @@ export class EditPipeline {
     const line = parseInt(lineStr, 10)
     const col = parseInt(colStr, 10)
     if (Number.isNaN(line) || Number.isNaN(col)) {
-      return null
+      return { ok: false, reason: `Invalid line/col in source: ${source}` }
     }
 
     const resolvedPath = resolve(this.projectRoot, filePath)
     if (!this.isInsideProjectRoot(resolvedPath)) {
-      return null
+      return { ok: false, reason: 'File path outside project root' }
     }
 
-    return { resolvedPath, line, col }
-  }
-
-  /** Send appropriate error when parseSource returns null. */
-  private sendParseSourceError(edit: EditRequest): void {
-    const lastColon = edit.source.lastIndexOf(':')
-    const secondLastColon = edit.source.lastIndexOf(':', lastColon - 1)
-    if (lastColon === -1 || secondLastColon === -1 || secondLastColon === 0) {
-      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Invalid source format: ${edit.source}` })
-      return
-    }
-    const filePath = edit.source.slice(0, secondLastColon)
-    const lineStr = edit.source.slice(secondLastColon + 1, lastColon)
-    const colStr = edit.source.slice(lastColon + 1)
-    const line = parseInt(lineStr, 10)
-    const col = parseInt(colStr, 10)
-    if (Number.isNaN(line) || Number.isNaN(col)) {
-      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Invalid line/col in source: ${edit.source}` })
-      return
-    }
-    // Only remaining failure case: path outside project root
-    this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'File path outside project root' })
+    return { ok: true, resolvedPath, line, col }
   }
 
   /** Check if this edit can skip the 400ms debounce and route directly to DeferredWriter. */
@@ -256,8 +237,8 @@ export class EditPipeline {
     // Parse source as "filePath:line:col" — parse from right to handle
     // Windows drive letters (e.g. "C:\Users\foo\App.tsx:2:10")
     const parsed = this.parseSource(edit.source)
-    if (!parsed) {
-      this.sendParseSourceError(edit)
+    if (!parsed.ok) {
+      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: parsed.reason })
       return
     }
     const { resolvedPath, line, col } = parsed
@@ -749,16 +730,7 @@ export class EditPipeline {
   }
 
   private async withFileLock(filePath: string, fn: () => Promise<void>): Promise<void> {
-    const prev = this.fileLocks.get(filePath) ?? Promise.resolve()
-    const next = prev.then(fn, fn)
-    this.fileLocks.set(filePath, next)
-    try {
-      await next
-    } finally {
-      if (this.fileLocks.get(filePath) === next) {
-        this.fileLocks.delete(filePath)
-      }
-    }
+    await this.withFileLockResult(filePath, fn)
   }
 
   dispose(): void {
