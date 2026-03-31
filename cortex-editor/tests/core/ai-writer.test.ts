@@ -318,6 +318,41 @@ describe('validateResult', () => {
     expect(result.valid).toBe(true)
   })
 
+  it('rejects edit that only modifies a non-target line (Gate 6)', () => {
+    const oldFile = [
+      'import React from "react"',           // 1
+      '<div style={{ margin: "8px" }}>',      // 2 — AI modifies this line
+      '  <p>Filler</p>',                      // 3
+      '  <span>More filler</span>',           // 4
+      '  <span>Even more</span>',             // 5
+      '  <section>Hello</section>',           // 6
+      '  <footer>Bottom</footer>',            // 7
+      '</div>',                               // 8 — target is line 8
+    ].join('\n')
+    // Only line 2 changed — target is line 8 (distance = 6, well outside ±2)
+    const newFile = oldFile.replace('margin: "8px"', 'margin: "8px", paddingTop: "16px"')
+    const result = validateResult(oldFile, newFile, 'App.tsx', 8)
+    expect(result.valid).toBe(false)
+    if (!result.valid) {
+      expect(result.reason).toContain('target line')
+    }
+  })
+
+  it('accepts edit that modifies the target line (Gate 6 passes)', () => {
+    const oldFile = [
+      'import React from "react"',
+      '',
+      '<div>',
+      '  <p>Target</p>',
+      '  <section>Hello</section>',
+      '</div>',
+    ].join('\n')
+    // Line 5 changed — target is line 5
+    const newFile = oldFile.replace('<section>Hello</section>', '<section style={{ padding: "16px" }}>Hello</section>')
+    const result = validateResult(oldFile, newFile, 'App.tsx', 5)
+    expect(result.valid).toBe(true)
+  })
+
   it('rejects edit with large net line delta (> 3)', () => {
     // AI adds 5 lines — net delta of 5 exceeds MAX_NET_LINE_DELTA of 3
     const oldFile = [

@@ -390,6 +390,23 @@ export function validateResult(
     if (oldContent === newContent) {
       return { valid: false, reason: 'AI made no changes to the file' }
     }
+    // Gate 6: Target-line mutation — verify the target region was actually modified
+    const minLen = Math.min(oldLines.length, newLines.length)
+    let targetRegionChanged = false
+    for (let i = Math.max(0, targetLine - 3); i < Math.min(minLen, targetLine + 2); i++) {
+      if (i >= oldLines.length || i >= newLines.length || oldLines[i] !== newLines[i]) {
+        targetRegionChanged = true
+        break
+      }
+    }
+    // Also check if target is in the added/removed region
+    if (!targetRegionChanged && newLines.length !== oldLines.length) {
+      // If lines were added/removed near the target, that counts
+      targetRegionChanged = targetLine >= Math.min(oldLines.length, newLines.length) - 1
+    }
+    if (!targetRegionChanged) {
+      return { valid: false, reason: `AI did not modify the target line ${targetLine} region. Edit rejected.` }
+    }
   } else {
     // Same line count — value replacement. Positional diff is reliable.
     let diffCount = 0
@@ -412,6 +429,11 @@ export function validateResult(
       if (Math.abs(changedLine - targetLine) > MAX_LOCALITY_DISTANCE) {
         return { valid: false, reason: `AI modified line ${changedLine}, which is too far from target line ${targetLine}. Edit rejected.` }
       }
+    }
+    // Gate 6: Target-line mutation — at least one change must be on or adjacent to target
+    const targetChanged = changedLineNumbers.some(ln => Math.abs(ln - targetLine) <= 2)
+    if (!targetChanged) {
+      return { valid: false, reason: `AI modified lines ${changedLineNumbers.join(', ')} but not the target line ${targetLine}. Edit rejected.` }
     }
   }
 
