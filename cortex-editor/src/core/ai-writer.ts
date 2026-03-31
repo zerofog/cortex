@@ -87,8 +87,12 @@ export class AIWriter {
     this.apiBaseUrl = options.apiBaseUrl ?? DEFAULT_API_BASE
   }
 
-  async write(request: AIWriteRequest, fileContent?: string): Promise<AIWriteResult> {
+  async write(
+    request: AIWriteRequest,
+    options?: { fileContent?: string; signal?: AbortSignal },
+  ): Promise<AIWriteResult> {
     const { filePath } = request
+    const { fileContent, signal } = options ?? {}
 
     // Use provided content or read from disk
     let oldContent: string
@@ -102,6 +106,11 @@ export class AIWriter {
       }
     }
 
+    // Check for early abort before making the AI call
+    if (signal?.aborted) {
+      return { success: false, filePath, reason: 'Aborted before AI call' }
+    }
+
     const lines = oldContent.split('\n')
     const { snippet, startLine, endLine } = extractContext(lines, request.line, CONTEXT_WINDOW)
     const sanitized = sanitizeForPrompt(snippet)
@@ -111,9 +120,14 @@ export class AIWriter {
 
     let responseText: string
     try {
-      responseText = await this.callClaude(userPrompt)
+      responseText = await this.callClaude(userPrompt, signal)
     } catch (err) {
       return { success: false, filePath, reason: `AI request failed: ${err instanceof Error ? err.message : String(err)}` }
+    }
+
+    // Check for abort after AI response returns
+    if (signal?.aborted) {
+      return { success: false, filePath, reason: 'Aborted after AI response' }
     }
 
     const extractedCode = extractCodeFence(responseText)
@@ -134,9 +148,13 @@ export class AIWriter {
     return { success: true, filePath, oldContent, newContent }
   }
 
-  private async callClaude(userPrompt: string): Promise<string> {
+  private async callClaude(userPrompt: string, externalSignal?: AbortSignal): Promise<string> {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), this.timeoutMs)
+
+    // Link external abort signal to our internal controller
+    const onAbort = () => controller.abort()
+    externalSignal?.addEventListener('abort', onAbort)
 
     const requestOptions: RequestInit = {
       method: 'POST',
@@ -170,6 +188,9 @@ export class AIWriter {
         clearTimeout(timer)
         const retryController = new AbortController()
         const retryTimer = setTimeout(() => retryController.abort(), this.timeoutMs)
+        // Link external signal to retry controller too
+        const onRetryAbort = () => retryController.abort()
+        externalSignal?.addEventListener('abort', onRetryAbort)
         try {
           response = await fetch(`${this.apiBaseUrl}/v1/messages`, {
             ...requestOptions,
@@ -177,6 +198,7 @@ export class AIWriter {
           })
         } finally {
           clearTimeout(retryTimer)
+          externalSignal?.removeEventListener('abort', onRetryAbort)
         }
         if (!response.ok) {
           throw new Error(`API error ${response.status} (after retry)`)
@@ -193,6 +215,7 @@ export class AIWriter {
       return textBlock.text
     } finally {
       clearTimeout(timer)
+      externalSignal?.removeEventListener('abort', onAbort)
     }
   }
 }

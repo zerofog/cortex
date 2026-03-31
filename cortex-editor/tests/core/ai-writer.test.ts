@@ -695,7 +695,7 @@ describe('AIWriter', () => {
         value: '32px',
         failureReason: 'test',
       },
-      customContent,
+      { fileContent: customContent },
     )
 
     expect(result.success).toBe(true)
@@ -729,5 +729,119 @@ describe('AIWriter', () => {
     const body = JSON.parse((options as RequestInit).body as string)
     expect(body.temperature).toBe(0)
     expect(body.max_tokens).toBe(1024)
+  })
+
+  describe('abort signal', () => {
+    it('returns failure when signal is already aborted', async () => {
+      mockReadFile.mockResolvedValueOnce(sampleFile)
+      const signal = AbortSignal.abort()
+
+      const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
+      const result = await writer.write(
+        {
+          filePath: '/project/src/Hero.tsx',
+          line: 5, col: 5,
+          property: 'padding-top', value: '16px',
+          failureReason: 'test',
+        },
+        { signal },
+      )
+
+      expect(result.success).toBe(false)
+      if (!result.success) {
+        expect(result.reason).toContain('Aborted')
+      }
+      // fetch should NOT have been called
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('aborts AI call when external signal is triggered', async () => {
+      mockReadFile.mockResolvedValueOnce(sampleFile)
+      const ac = new AbortController()
+
+      // Mock fetch to hang until aborted
+      fetchSpy.mockImplementationOnce(
+        (_url, init) => new Promise((_resolve, reject) => {
+          const fetchSignal = (init as RequestInit | undefined)?.signal as AbortSignal | undefined
+          if (fetchSignal) {
+            fetchSignal.addEventListener('abort', () => {
+              reject(new DOMException('The operation was aborted.', 'AbortError'))
+            })
+          }
+        }),
+      )
+
+      const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
+      const writePromise = writer.write(
+        {
+          filePath: '/project/src/Hero.tsx',
+          line: 5, col: 5,
+          property: 'padding-top', value: '16px',
+          failureReason: 'test',
+        },
+        { signal: ac.signal },
+      )
+
+      // Abort after write has started
+      ac.abort()
+      const result = await writePromise
+
+      expect(result.success).toBe(false)
+    })
+
+    it('cleans up abort event listener after completion', async () => {
+      mockReadFile.mockResolvedValueOnce(sampleFile)
+      const modifiedSnippet = sampleFile
+        .split('\n')
+        .map(l => l.replace('pt-4', 'pt-8'))
+        .join('\n')
+      mockClaudeResponse(modifiedSnippet)
+
+      const ac = new AbortController()
+      const addSpy = vi.spyOn(ac.signal, 'addEventListener')
+      const removeSpy = vi.spyOn(ac.signal, 'removeEventListener')
+
+      const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
+      const result = await writer.write(
+        {
+          filePath: '/project/src/Hero.tsx',
+          line: 5, col: 5,
+          property: 'padding-top', value: '32px',
+          failureReason: 'test',
+        },
+        { signal: ac.signal },
+      )
+
+      expect(result.success).toBe(true)
+      // Listener must have been added and then cleaned up
+      expect(addSpy).toHaveBeenCalledWith('abort', expect.any(Function))
+      expect(removeSpy).toHaveBeenCalledWith('abort', expect.any(Function))
+    })
+
+    it('passes fileContent via options object', async () => {
+      const customContent = sampleFile.replace('Welcome', 'Custom')
+      const modifiedSnippet = customContent
+        .split('\n')
+        .map(l => l.replace('pt-4', 'pt-8'))
+        .join('\n')
+      mockClaudeResponse(modifiedSnippet)
+
+      const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
+      const result = await writer.write(
+        {
+          filePath: '/project/src/Hero.tsx',
+          line: 5, col: 5,
+          property: 'padding-top', value: '32px',
+          failureReason: 'test',
+        },
+        { fileContent: customContent },
+      )
+
+      expect(result.success).toBe(true)
+      expect(mockReadFile).not.toHaveBeenCalled()
+      if (result.success) {
+        expect(result.oldContent).toBe(customContent)
+      }
+    })
   })
 })
