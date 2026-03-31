@@ -7,6 +7,15 @@ import WebSocket from 'ws'
 import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting } from '../../src/adapters/vite.js'
 import type { Plugin } from 'vite'
 
+// Mock loadEnv from vite so tests can control CORTEX_API_KEY availability
+const { mockLoadEnv } = vi.hoisted(() => ({
+  mockLoadEnv: vi.fn().mockReturnValue({}),
+}))
+vi.mock('vite', async () => {
+  const actual = await vi.importActual<typeof import('vite')>('vite')
+  return { ...actual, loadEnv: mockLoadEnv }
+})
+
 // Mock TailwindResolver so tests control when/how swatches resolve
 vi.mock('../../src/core/tailwind-resolver.js', () => ({
   TailwindResolver: {
@@ -32,12 +41,16 @@ vi.mock('../../src/core/hmr-verifier.js', () => ({
   },
 }))
 
+// Capture EditPipeline constructor args for DeferredWriter wiring tests
+const editPipelineConstructorArgs: any[] = []
 vi.mock('../../src/core/edit-pipeline.js', () => ({
-  EditPipeline: function() {
+  EditPipeline: function(opts: any) {
+    editPipelineConstructorArgs.push(opts)
     this.handleEdit = () => {}
     this.handleUndo = () => {}
     this.handleRedo = () => {}
     this.dispose = () => {}
+    this.executeDeferredBatch = vi.fn().mockResolvedValue({ success: true })
   },
 }))
 
@@ -63,6 +76,20 @@ vi.mock('../../src/core/rewriter/runtime-resolver.js', () => ({
   },
 }))
 
+vi.mock('../../src/core/ai-writer.js', () => ({
+  AIWriter: function() {
+    this.write = vi.fn().mockResolvedValue({ success: true, newContent: '' })
+  },
+}))
+
+vi.mock('../../src/core/deferred-writer.js', () => ({
+  DeferredWriter: vi.fn().mockImplementation(function(this: any) {
+    this.enqueue = vi.fn()
+    this.cancelForFile = vi.fn()
+    this.dispose = vi.fn()
+  }),
+}))
+
 vi.mock('../../src/core/session/undo-stack.js', () => ({
   UndoStack: function() {
     this.push = () => {}
@@ -76,13 +103,18 @@ vi.mock('../../src/core/session/undo-stack.js', () => ({
   },
 }))
 
-// Import the mock for per-test control
+// Import mocks for per-test control
 import { TailwindResolver } from '../../src/core/tailwind-resolver.js'
+import { DeferredWriter } from '../../src/core/deferred-writer.js'
 const mockResolveColors = vi.mocked(TailwindResolver.resolveColors)
+const MockDeferredWriter = vi.mocked(DeferredWriter)
 
 // Reset module-level state between tests so ordering doesn't matter
 beforeEach(() => {
   mockResolveColors.mockResolvedValue(null)
+  mockLoadEnv.mockReturnValue({})
+  editPipelineConstructorArgs.length = 0
+  MockDeferredWriter.mockClear()
 })
 afterEach(() => {
   _resetForTesting()
@@ -1187,5 +1219,59 @@ describe('validateToggleShortcut', () => {
     expect(validateToggleShortcut('$mod+Shift+Period')).toBe('$mod+Shift+Period')
     expect(validateToggleShortcut('$mod+Shift+KeyE')).toBe('$mod+Shift+KeyE')
     expect(validateToggleShortcut('$mod+KeyK')).toBe('$mod+KeyK')
+  })
+})
+
+describe('DeferredWriter wiring', () => {
+  it('constructs DeferredWriter when API key is available', async () => {
+    mockLoadEnv.mockReturnValue({ CORTEX_API_KEY: 'test-key-123' })
+
+    const plugin = initPlugin()
+    const server = mockServer()
+    ;(plugin.configureServer as Function)(server)
+
+    // Pipeline construction is async (inside Promise.all().then()) — wait for it
+    await vi.waitFor(() => {
+      expect(editPipelineConstructorArgs.length).toBeGreaterThan(0)
+    })
+
+    // DeferredWriter constructor should have been called
+    expect(MockDeferredWriter).toHaveBeenCalledTimes(1)
+    const dwOpts = MockDeferredWriter.mock.calls[0][0]
+    expect(dwOpts.coalescingMs).toBe(250)
+    expect(typeof dwOpts.writeFn).toBe('function')
+
+    // Pipeline should have received the deferredWriter instance
+    const pipelineOpts = editPipelineConstructorArgs[0]
+    expect(pipelineOpts.deferredWriter).toBeDefined()
+    expect(pipelineOpts.aiWriter).toBeDefined()
+  })
+
+  it('does not construct DeferredWriter when no API key', async () => {
+    mockLoadEnv.mockReturnValue({})
+    // Also ensure process.env doesn't have the key
+    const origKey = process.env.CORTEX_API_KEY
+    delete process.env.CORTEX_API_KEY
+
+    try {
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+
+      // Pipeline construction is async — wait for it
+      await vi.waitFor(() => {
+        expect(editPipelineConstructorArgs.length).toBeGreaterThan(0)
+      })
+
+      // DeferredWriter should NOT have been constructed
+      expect(MockDeferredWriter).not.toHaveBeenCalled()
+
+      // Pipeline should have undefined deferredWriter
+      const pipelineOpts = editPipelineConstructorArgs[0]
+      expect(pipelineOpts.deferredWriter).toBeUndefined()
+      expect(pipelineOpts.aiWriter).toBeUndefined()
+    } finally {
+      if (origKey !== undefined) process.env.CORTEX_API_KEY = origKey
+    }
   })
 })
