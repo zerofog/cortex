@@ -780,4 +780,142 @@ describe('CSSOverrideManager', () => {
       expect(styleEl.textContent).toContain('color')
     })
   })
+
+  describe('deferred override removal', () => {
+    let rafCallbacks: Map<number, FrameRequestCallback>
+    let nextId: number
+
+    beforeEach(() => {
+      rafCallbacks = new Map()
+      nextId = 1
+      // Capture RAF calls instead of executing them synchronously
+      window.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+        const id = nextId++
+        rafCallbacks.set(id, cb)
+        return id
+      }) as typeof requestAnimationFrame
+      window.cancelAnimationFrame = ((id: number) => {
+        rafCallbacks.delete(id)
+      }) as typeof cancelAnimationFrame
+    })
+
+    function flushRAF() {
+      const cbs = Array.from(rafCallbacks.values())
+      rafCallbacks.clear()
+      cbs.forEach(cb => cb(performance.now()))
+    }
+
+    it('commitEdit(true) marks pending removals as deferred', () => {
+      // Setup: set an override, track it, verify it, then commit as deferred
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.beginEdit()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.handleHMRVerified('edit-1', true)
+      manager.commitEdit(true)
+
+      // onHMRApplied should NOT remove the override synchronously — it's deferred
+      manager.onHMRApplied()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      // Override should still be present (deferred removal waits for double-rAF)
+      expect(styleEl.textContent).toContain('color: red')
+    })
+
+    it('deferred removal clears override after double-rAF', () => {
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.beginEdit()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.handleHMRVerified('edit-1', true)
+      manager.commitEdit(true)
+
+      manager.onHMRApplied()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('color: red')
+
+      // First rAF — the outer requestAnimationFrame callback
+      flushRAF()
+      // Still present — inner rAF not yet fired
+      expect(styleEl.textContent).toContain('color: red')
+
+      // Second rAF — the inner requestAnimationFrame callback
+      flushRAF()
+      // Now the override should be removed
+      expect(styleEl.textContent).toBe('')
+    })
+
+    it('non-deferred removal clears override synchronously on onHMRApplied', () => {
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.beginEdit()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.handleHMRVerified('edit-1', true)
+      manager.commitEdit(false)
+
+      manager.onHMRApplied()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      // Override removed immediately (synchronous remove)
+      expect(styleEl.textContent).toBe('')
+    })
+
+    it('commitEdit() without argument preserves backward compatibility (non-deferred)', () => {
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.beginEdit()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.handleHMRVerified('edit-1', true)
+      manager.commitEdit()
+
+      manager.onHMRApplied()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      // Override removed immediately — same as commitEdit(false)
+      expect(styleEl.textContent).toBe('')
+    })
+
+    it('commitEdit(true) only tags current pending removals, not future ones', () => {
+      // First edit: deferred
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.beginEdit()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.handleHMRVerified('edit-1', true)
+      manager.commitEdit(true)
+
+      // Second edit: non-deferred (added after commitEdit)
+      manager.set('b:1:1', 'margin', '0')
+      flushRAF()
+      manager.beginEdit()
+      manager.trackPendingEdit('edit-2', 'b:1:1', 'margin')
+      manager.handleHMRVerified('edit-2', true)
+      manager.commitEdit(false)
+
+      // onHMRApplied processes all pending removals
+      manager.onHMRApplied()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      // margin should be removed immediately (non-deferred)
+      expect(styleEl.textContent).not.toContain('margin')
+      // color should still be present (deferred, waiting for double-rAF)
+      expect(styleEl.textContent).toContain('color: red')
+
+      // Flush double-rAF for the deferred removal
+      flushRAF()
+      flushRAF()
+      expect(styleEl.textContent).toBe('')
+    })
+
+    it('pendingClearAll takes precedence over deferred removals', () => {
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.beginEdit()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.handleHMRVerified('edit-1', true)
+      manager.commitEdit(true)
+      manager.queueClearAll()
+
+      manager.onHMRApplied()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      // clearAll takes priority — everything gone immediately
+      expect(styleEl.textContent).toBe('')
+    })
+  })
 })

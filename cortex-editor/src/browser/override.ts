@@ -93,6 +93,16 @@ export class CSSOverrideManager {
     this.rebuild()
   }
 
+  /** Remove override after framework re-render completes (double-rAF).
+   *  Used for deferred (AI) edits where HMR needs to land before the override is cleared. */
+  private deferRemoval(source: string, property: string, pseudo?: '::before' | '::after'): void {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        this.remove(source, property, pseudo)
+      })
+    })
+  }
+
   /**
    * Apply state-forced declarations (e.g. from :hover CSSOM inspection).
    * Validates each entry against VALID_PROPERTY/VALID_VALUE/REJECT_URL/REJECT_COMMENT.
@@ -141,7 +151,7 @@ export class CSSOverrideManager {
     this.pendingEdits.set(editId, { source, property, pseudo, timestamp: Date.now() })
   }
 
-  private pendingRemovals: Array<{ source: string; property: string; pseudo?: '::before' | '::after' }> = []
+  private pendingRemovals: Array<{ source: string; property: string; pseudo?: '::before' | '::after'; deferred?: boolean }> = []
   private pendingClearAll = false
 
   /** Called when the server confirms an edit landed via HMR. Queues the override
@@ -174,7 +184,11 @@ export class CSSOverrideManager {
     if (this.pendingRemovals.length > 0) {
       const removals = this.pendingRemovals.splice(0)
       for (const r of removals) {
-        this.remove(r.source, r.property, r.pseudo)
+        if (r.deferred) {
+          this.deferRemoval(r.source, r.property, r.pseudo)
+        } else {
+          this.remove(r.source, r.property, r.pseudo)
+        }
       }
     }
   }
@@ -207,8 +221,16 @@ export class CSSOverrideManager {
     this.preEditSnapshot = null
   }
 
-  /** Commit the current edit — pushes the pre-edit snapshot to the undo stack. */
-  commitEdit(): void {
+  /** Commit the current edit — pushes the pre-edit snapshot to the undo stack.
+   *  Pass `deferred: true` for AI edits — tags pending removals for double-rAF
+   *  delay so the override persists until the framework re-renders from new source. */
+  commitEdit(deferred?: boolean): void {
+    // Tag all pending removals from this edit as deferred
+    if (deferred && this.pendingRemovals.length > 0) {
+      for (const r of this.pendingRemovals) {
+        r.deferred = true
+      }
+    }
     if (this.preEditSnapshot) {
       this.overrideUndoStack.push(this.preEditSnapshot)
       this.preEditSnapshot = null
