@@ -76,7 +76,9 @@ export class DeferredWriter {
     if (existing) {
       // Reset the coalescing timer — we got more data, wait again
       clearTimeout(existing.timer)
-      if (existing.changes.size < MAX_CHANGES_PER_BATCH) {
+      // Always allow updates to existing properties (last-write-wins);
+      // only block genuinely new properties beyond the cap
+      if (existing.changes.has(edit.property) || existing.changes.size < MAX_CHANGES_PER_BATCH) {
         existing.changes.set(edit.property, { property: edit.property, value: edit.value })
       }
       existing.failureReason = edit.failureReason
@@ -116,8 +118,12 @@ export class DeferredWriter {
     }
 
     // Fire-and-forget — caller observes results via writeFn's side effects
-    this.writeFn(request).catch((err) => {
-      console.error('[cortex] DeferredWriter flush failed for %s:', key, err instanceof Error ? err.message : err)
+    this.writeFn(request).then((result) => {
+      if (!result.success) {
+        console.error('[cortex] DeferredWriter writeFn returned failure for %s: %s', key, result.reason)
+      }
+    }).catch((err) => {
+      console.error('[cortex] DeferredWriter flush threw for %s:', key, err instanceof Error ? err.message : err)
     }).finally(() => {
       // Only clean up if this is still the current controller for this key
       if (this.inflight.get(key) === ac) {
