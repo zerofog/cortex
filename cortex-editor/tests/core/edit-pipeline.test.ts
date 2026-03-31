@@ -2110,11 +2110,11 @@ describe('EditPipeline', () => {
       expect(result.success).toBe(false)
       expect(result.reason).toBe('aborted')
       expect(aiWriter.write).not.toHaveBeenCalled()
-      // User-initiated cancel sends explicit status
-      const failedStatuses = channel.sent.filter(
-        m => m.type === 'edit_status' && (m as any).status === 'failed',
+      // User-initiated cancel sends explicit 'cancelled' status (not 'failed')
+      const cancelledStatuses = channel.sent.filter(
+        m => m.type === 'edit_status' && (m as any).status === 'cancelled',
       )
-      expect(failedStatuses).toHaveLength(1)
+      expect(cancelledStatuses).toHaveLength(1)
     })
 
     it('coalescing supersede abort is silent — no status sent', async () => {
@@ -2585,7 +2585,7 @@ describe('EditPipeline', () => {
       return { write: vi.fn().mockResolvedValue(result) }
     }
 
-    it('undo sends failed status for cancelled deferred editIds', async () => {
+    it('undo sends cancelled status for cancelled deferred editIds', async () => {
       const channel = mockChannel()
       const resolver = mockResolver({})
       const rewriter = mockRewriter()
@@ -2623,19 +2623,19 @@ describe('EditPipeline', () => {
         failureReason: 'no class',
       })
 
-      // Undo — should cancel deferred and send failed status for deferred-1
+      // Undo — should cancel deferred and send 'cancelled' status for deferred-1
       await pipeline.handleUndo()
 
-      const failedStatuses = channel.sent.filter(
-        m => m.type === 'edit_status' && (m as any).status === 'failed' && (m as any).editId === 'deferred-1',
+      const cancelledStatuses = channel.sent.filter(
+        m => m.type === 'edit_status' && (m as any).status === 'cancelled' && (m as any).editId === 'deferred-1',
       )
-      expect(failedStatuses).toHaveLength(1)
-      expect((failedStatuses[0] as any).reason).toContain('Cancelled by undo')
+      expect(cancelledStatuses).toHaveLength(1)
+      expect((cancelledStatuses[0] as any).reason).toContain('Cancelled by undo')
 
       deferredWriter.dispose()
     })
 
-    it('redo sends failed status for cancelled deferred editIds', async () => {
+    it('redo sends cancelled status for cancelled deferred editIds', async () => {
       const channel = mockChannel()
       const resolver = mockResolver({})
       const rewriter = mockRewriter()
@@ -2675,14 +2675,14 @@ describe('EditPipeline', () => {
         failureReason: 'no class',
       })
 
-      // Redo — should cancel deferred and send failed status for deferred-2
+      // Redo — should cancel deferred and send 'cancelled' status for deferred-2
       await pipeline.handleRedo()
 
-      const failedStatuses = channel.sent.filter(
-        m => m.type === 'edit_status' && (m as any).status === 'failed' && (m as any).editId === 'deferred-2',
+      const cancelledStatuses = channel.sent.filter(
+        m => m.type === 'edit_status' && (m as any).status === 'cancelled' && (m as any).editId === 'deferred-2',
       )
-      expect(failedStatuses).toHaveLength(1)
-      expect((failedStatuses[0] as any).reason).toContain('Cancelled by redo')
+      expect(cancelledStatuses).toHaveLength(1)
+      expect((cancelledStatuses[0] as any).reason).toContain('Cancelled by redo')
 
       deferredWriter.dispose()
     })

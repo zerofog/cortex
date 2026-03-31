@@ -808,7 +808,7 @@ export class EditPipeline {
       this.channel.send({
         type: 'edit_status',
         editId,
-        status: status === 'cancelled' ? 'failed' : status,
+        status,
         strategy: 'deferred',
         ...(reason ? { reason } : {}),
       })
