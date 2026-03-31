@@ -401,37 +401,36 @@ export function validateResult(
   }
 
   // Gate 2 + 3: Diff budget and localization
+  //
+  // Design note: source annotations (data-cortex-source="file:line:col") are
+  // determined at build time. After an AI edit modifies the file, line numbers
+  // may shift. Subsequent edits still reference the ORIGINAL line number until
+  // HMR re-renders the page. The validation gates must tolerate this drift:
+  //
+  // - Parse check: absolute, no line dependency
+  // - Net line delta: absolute, limits structural changes
+  // - Diff budget: counts changed lines (reliable for same-length files)
+  // - Locality: ensures changes are within MAX_LOCALITY_DISTANCE of target
+  //
+  // We intentionally do NOT require changes to be exactly on the target line.
+  // The ±30 line locality window accommodates typical line drift from prior edits.
+  // The context window (50 lines) ensures the AI sees the element regardless of
+  // small position shifts.
+
   const oldLines = oldContent.split('\n')
   const newLines = newContent.split('\n')
   const netDelta = Math.abs(oldLines.length - newLines.length)
 
+  // Verify the file actually changed
+  if (oldContent === newContent) {
+    return { valid: false, reason: 'AI made no changes to the file' }
+  }
+
   if (netDelta > 0) {
     // Lines were added or removed — positional line-by-line diffing is unreliable
-    // because all subsequent lines shift, inflating both diff count and locality
-    // distance. Use net delta as the safety constraint instead.
+    // because all subsequent lines shift. Use net delta as the safety constraint.
     if (netDelta > MAX_NET_LINE_DELTA) {
       return { valid: false, reason: `AI added/removed ${netDelta} net lines (max ${MAX_NET_LINE_DELTA}). Edit rejected — net line delta too large.` }
-    }
-    // Verify the file actually changed (not just whitespace reformat)
-    if (oldContent === newContent) {
-      return { valid: false, reason: 'AI made no changes to the file' }
-    }
-    // Gate 6: Target-line mutation — verify the target region was actually modified
-    const minLen = Math.min(oldLines.length, newLines.length)
-    let targetRegionChanged = false
-    for (let i = Math.max(0, targetLine - 3); i < Math.min(minLen, targetLine + 2); i++) {
-      if (i >= oldLines.length || i >= newLines.length || oldLines[i] !== newLines[i]) {
-        targetRegionChanged = true
-        break
-      }
-    }
-    // Also check if target is in the added/removed region
-    if (!targetRegionChanged && newLines.length !== oldLines.length) {
-      // If lines were added/removed near the target, that counts
-      targetRegionChanged = targetLine >= Math.min(oldLines.length, newLines.length) - 1
-    }
-    if (!targetRegionChanged) {
-      return { valid: false, reason: `AI did not modify the target line ${targetLine} region. Edit rejected.` }
     }
   } else {
     // Same line count — value replacement. Positional diff is reliable.
@@ -456,10 +455,14 @@ export function validateResult(
         return { valid: false, reason: `AI modified line ${changedLine}, which is too far from target line ${targetLine}. Edit rejected.` }
       }
     }
-    // Gate 6: Target-line mutation — at least one change must be on or adjacent to target
-    const targetChanged = changedLineNumbers.some(ln => Math.abs(ln - targetLine) <= 2)
-    if (!targetChanged) {
-      return { valid: false, reason: `AI modified lines ${changedLineNumbers.join(', ')} but not the target line ${targetLine}. Edit rejected.` }
+    // Gate 6: Target proximity — at least one change should be near the target.
+    // Uses half the context window radius (not ±2) to accommodate line drift
+    // from prior AI edits that shifted element positions before HMR updates
+    // the source annotations.
+    const TARGET_PROXIMITY = Math.floor(CONTEXT_WINDOW / 4) // ±12 for 50-line window
+    const nearTarget = changedLineNumbers.some(ln => Math.abs(ln - targetLine) <= TARGET_PROXIMITY)
+    if (!nearTarget) {
+      return { valid: false, reason: `AI modified lines ${changedLineNumbers.join(', ')} but not near target line ${targetLine}. Edit rejected.` }
     }
   }
 

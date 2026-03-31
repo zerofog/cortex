@@ -318,24 +318,33 @@ describe('validateResult', () => {
     expect(result.valid).toBe(true)
   })
 
-  it('rejects edit that only modifies a non-target line (Gate 6)', () => {
-    const oldFile = [
-      'import React from "react"',           // 1
-      '<div style={{ margin: "8px" }}>',      // 2 — AI modifies this line
-      '  <p>Filler</p>',                      // 3
-      '  <span>More filler</span>',           // 4
-      '  <span>Even more</span>',             // 5
-      '  <section>Hello</section>',           // 6
-      '  <footer>Bottom</footer>',            // 7
-      '</div>',                               // 8 — target is line 8
-    ].join('\n')
-    // Only line 2 changed — target is line 8 (distance = 6, well outside ±2)
+  it('rejects edit that modifies a line far from target (Gate 6 — wrong element)', () => {
+    // Simulate AI modifying the wrong element: change is at line 2,
+    // target is line 20 (distance = 18, outside ±12 proximity window).
+    // Must be valid JSX to reach Gate 6 (parse check comes first).
+    const lines = ['export function App() {', '  return (', '    <div style={{ margin: "8px" }}>']
+    for (let i = 4; i <= 22; i++) lines.push(`      <p>Line ${i}</p>`)
+    lines.push('    </div>', '  )', '}')
+    const oldFile = lines.join('\n')
     const newFile = oldFile.replace('margin: "8px"', 'margin: "8px", paddingTop: "16px"')
-    const result = validateResult(oldFile, newFile, 'App.tsx', 8)
+    const result = validateResult(oldFile, newFile, 'App.tsx', 20)
     expect(result.valid).toBe(false)
     if (!result.valid) {
       expect(result.reason).toContain('target line')
     }
+  })
+
+  it('accepts edit near target with line drift (Gate 6 — ±12 tolerance)', () => {
+    // Simulate line drift: target was line 10, but element shifted to line 15.
+    // AI correctly modified line 15. Distance = 5, within ±12 window.
+    // Must be valid JSX to pass parse check.
+    const lines = ['export function App() {', '  return (', '    <div>']
+    for (let i = 4; i <= 22; i++) lines.push(`      <p className="line-${i}">Line ${i}</p>`)
+    lines.push('    </div>', '  )', '}')
+    const oldFile = lines.join('\n')
+    const newFile = oldFile.replace('className="line-15"', 'className="line-15" style={{ paddingTop: "16px" }}')
+    const result = validateResult(oldFile, newFile, 'App.tsx', 10)
+    expect(result.valid).toBe(true)
   })
 
   it('accepts edit that modifies the target line (Gate 6 passes)', () => {
