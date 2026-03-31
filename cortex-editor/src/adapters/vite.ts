@@ -21,6 +21,7 @@ import { CSSModulesRewriter } from '../core/rewriter/css-modules.js'
 import { RuntimeCSSResolver } from '../core/rewriter/runtime-resolver.js'
 import { UndoStack } from '../core/session/undo-stack.js'
 import { AIWriter } from '../core/ai-writer.js'
+import { DeferredWriter } from '../core/deferred-writer.js'
 import { AnnotationStore } from '../core/annotations.js'
 import { ActivityLog } from '../core/session/activity-log.js'
 
@@ -540,6 +541,16 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           ? new AIWriter({ apiKey: cortexApiKey, readFile: (p) => fs.promises.readFile(p, 'utf-8') })
           : undefined
 
+        // Deferred writer: enabled when AI writer is available. The writeFn
+        // closure captures pipelineInstance by reference — safe because writeFn
+        // only fires after the coalescing window (250ms+), well after assignment.
+        const deferredWriter = aiWriter
+          ? new DeferredWriter({
+            coalescingMs: 250,
+            writeFn: async (batch) => pipelineInstance!.executeDeferredBatch(batch),
+          })
+          : undefined
+
         pipelineInstance = new EditPipeline({
           channel,
           resolver: resolver ?? TailwindResolver.fromTheme({}),
@@ -550,6 +561,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           runtimeResolver,
           undoStack,
           aiWriter,
+          deferredWriter,
           writeFile: async (intent) => {
             if (intent.kind === 'immediate' || intent.kind === 'undo' || intent.kind === 'redo') {
               recentEditWrites.add(intent.filePath)
