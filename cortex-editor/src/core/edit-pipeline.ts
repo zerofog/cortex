@@ -1,4 +1,5 @@
 import { resolve, relative, sep } from 'path'
+import { realpathSync } from 'fs'
 import type { ServerChannel } from '../adapters/types.js'
 import type { TailwindResolver } from './tailwind-resolver.js'
 import type { TailwindRewriter } from './rewriter/tailwind.js'
@@ -7,7 +8,8 @@ import type { CSSModulesRewriter } from './rewriter/css-modules.js'
 import type { RuntimeCSSResolver } from './rewriter/runtime-resolver.js'
 import type { UndoStack } from './session/undo-stack.js'
 import type { AIWriter } from './ai-writer.js'
-import type { DeferredWriter } from './deferred-writer.js'
+import type { DeferredWriter, BatchedWriteRequest } from './deferred-writer.js'
+import { classifyEdit } from './edit-strategy.js'
 
 export interface EditRequest {
   editId: string
@@ -57,7 +59,7 @@ export interface EditPipelineOptions {
 }
 
 const VALID_PROPERTY = /^-{0,2}[a-zA-Z][a-zA-Z0-9-]*$/
-const VALID_VALUE = /^[a-zA-Z0-9#()\s,.\-_'"/%+*]+$/
+const VALID_VALUE = /^[a-zA-Z0-9#()\s,.\-_'"/%+*!]+$/
 const REJECT_URL = /url\s*\(/i
 const REJECT_COMMENT = /\/\*/
 
@@ -105,6 +107,7 @@ export class EditPipeline {
   private readonly debounceMs: number
   private readonly cssModulesRewriter?: CSSModulesRewriter
   private readonly detector?: { hasCSSModules: boolean; hasTailwind: boolean }
+  private readonly classifyDetector?: { hasCSSModules: boolean; hasTailwind: boolean; hasComponentLibrary: boolean; hasCSSInJS: boolean }
   private readonly runtimeResolver?: RuntimeCSSResolver
   private readonly undoStack?: UndoStack
   private readonly readFile?: (path: string) => Promise<string>
@@ -119,10 +122,13 @@ export class EditPipeline {
     this.rewriter = options.rewriter
     this.verifier = options.verifier
     this.writeFile = options.writeFile
-    this.projectRoot = resolve(options.projectRoot)
+    try { this.projectRoot = realpathSync(resolve(options.projectRoot)) } catch { this.projectRoot = resolve(options.projectRoot) }
     this.debounceMs = options.debounceMs ?? 400
     this.cssModulesRewriter = options.cssModulesRewriter
     this.detector = options.detector
+    this.classifyDetector = options.detector
+      ? { ...options.detector, hasComponentLibrary: false, hasCSSInJS: false }
+      : undefined
     this.runtimeResolver = options.runtimeResolver
     this.undoStack = options.undoStack
     this.readFile = options.readFile
@@ -132,6 +138,35 @@ export class EditPipeline {
 
   handleEdit(edit: EditRequest): void {
     if (this.disposed) return
+
+    // Fast path: pure AI projects bypass the 400ms debounce and route
+    // directly to DeferredWriter's 250ms coalescing window
+    if (this.shouldBypassDebounce(edit)) {
+      const parsed = this.parseSource(edit.source)
+      if (!parsed.ok) {
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: parsed.reason })
+        return
+      }
+      if (!isValidCSSProperty(edit.property)) {
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'Invalid CSS property name' })
+        return
+      }
+      if (!isValidCSSValue(edit.value)) {
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'Invalid CSS value' })
+        return
+      }
+      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
+      this.deferredWriter!.enqueue({
+        editId: edit.editId,
+        filePath: parsed.resolvedPath,
+        line: parsed.line,
+        col: parsed.col,
+        property: edit.property,
+        value: edit.value,
+        failureReason: 'Deferred to AI writer',
+      })
+      return
+    }
 
     const debounceKey = `${edit.source}:${edit.property}`
 
@@ -158,47 +193,60 @@ export class EditPipeline {
     )
   }
 
-  private async executeEdit(edit: EditRequest, previousValue: string | undefined): Promise<void> {
-    // Parse source as "filePath:line:col" — parse from right to handle
-    // Windows drive letters (e.g. "C:\Users\foo\App.tsx:2:10")
-    const lastColon = edit.source.lastIndexOf(':')
-    const secondLastColon = edit.source.lastIndexOf(':', lastColon - 1)
+  /**
+   * Parse a source string ("filePath:line:col") into its components.
+   * Returns a discriminated union with the parsed result or a failure reason.
+   */
+  private parseSource(source: string):
+    | { ok: true; resolvedPath: string; line: number; col: number }
+    | { ok: false; reason: string } {
+    const lastColon = source.lastIndexOf(':')
+    const secondLastColon = source.lastIndexOf(':', lastColon - 1)
     if (lastColon === -1 || secondLastColon === -1 || secondLastColon === 0) {
-      this.channel.send({
-        type: 'edit_status',
-        editId: edit.editId,
-        status: 'failed',
-        reason: `Invalid source format: ${edit.source}`,
-      })
-      return
+      return { ok: false, reason: `Invalid source format: ${source}` }
     }
 
-    const filePath = edit.source.slice(0, secondLastColon)
-    const lineStr = edit.source.slice(secondLastColon + 1, lastColon)
-    const colStr = edit.source.slice(lastColon + 1)
+    const filePath = source.slice(0, secondLastColon)
+    const lineStr = source.slice(secondLastColon + 1, lastColon)
+    const colStr = source.slice(lastColon + 1)
 
     const line = parseInt(lineStr, 10)
     const col = parseInt(colStr, 10)
     if (Number.isNaN(line) || Number.isNaN(col)) {
-      this.channel.send({
-        type: 'edit_status',
-        editId: edit.editId,
-        status: 'failed',
-        reason: `Invalid line/col in source: ${edit.source}`,
-      })
-      return
+      return { ok: false, reason: `Invalid line/col in source: ${source}` }
     }
 
     const resolvedPath = resolve(this.projectRoot, filePath)
     if (!this.isInsideProjectRoot(resolvedPath)) {
-      this.channel.send({
-        type: 'edit_status',
-        editId: edit.editId,
-        status: 'failed',
-        reason: 'File path outside project root',
-      })
+      return { ok: false, reason: 'File path outside project root' }
+    }
+
+    return { ok: true, resolvedPath, line, col }
+  }
+
+  /** Check if this edit can skip the 400ms debounce and route directly to DeferredWriter. */
+  private shouldBypassDebounce(edit: EditRequest): boolean {
+    // No DeferredWriter → can't bypass (nothing to enqueue to)
+    if (!this.deferredWriter) return false
+    // CSS Modules annotation → always immediate path, need debounce
+    if (edit.cssMapping) return false
+    // No detector → can't determine framework, use debounce
+    if (!this.detector) return false
+    // Pure AI project (no Tailwind, no CSS Modules) → bypass
+    if (!this.detector.hasTailwind && !this.detector.hasCSSModules) return true
+    // Mixed framework → use debounce, let executeEdit decide
+    return false
+  }
+
+  private async executeEdit(edit: EditRequest, previousValue: string | undefined): Promise<void> {
+    // Parse source as "filePath:line:col" — parse from right to handle
+    // Windows drive letters (e.g. "C:\Users\foo\App.tsx:2:10")
+    const parsed = this.parseSource(edit.source)
+    if (!parsed.ok) {
+      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: parsed.reason })
       return
     }
+    const { resolvedPath, line, col } = parsed
 
     // Server-side CSS property + value validation
     if (!isValidCSSProperty(edit.property)) {
@@ -210,7 +258,7 @@ export class EditPipeline {
       return
     }
 
-    // Layer 1: CSS Modules routing via annotation
+    // Layer 1: CSS Modules routing via annotation — bypasses classifyEdit entirely
     if (edit.cssMapping && this.cssModulesRewriter) {
       const mapping = parseCssMapping(edit.cssMapping)
       if (mapping) {
@@ -236,6 +284,20 @@ export class EditPipeline {
       }
     }
 
+    // Classify the edit strategy — single source of truth for routing decisions.
+    // Only meaningful when detection has run (detector exists); without it, fall
+    // through to the legacy Tailwind path for backward compatibility.
+    const strategy = this.classifyDetector
+      ? classifyEdit(
+          edit,
+          this.classifyDetector,
+          {
+            resolverAvailable: !!this.resolver,
+            aiAvailable: !!this.deferredWriter || !!this.aiWriter,
+          },
+        )
+      : undefined
+
     // Layer 2: Runtime CSS resolver (fallback for unannotated elements when CSS Modules detected)
     if (!edit.cssMapping && this.detector?.hasCSSModules && this.runtimeResolver && this.cssModulesRewriter) {
       const resolved = await this.runtimeResolver.resolve(edit.source, this.projectRoot)
@@ -248,7 +310,7 @@ export class EditPipeline {
         if (this.deferredWriter) {
           this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
           this.deferredWriter.enqueue({
-            filePath: resolvedPath, line, col,
+            editId: edit.editId, filePath: resolvedPath, line, col,
             property: edit.property, value: edit.value,
             failureReason: 'Could not resolve CSS module mapping for this element.',
           })
@@ -263,7 +325,18 @@ export class EditPipeline {
       }
     }
 
-    // Layer 3: Tailwind path
+    // Strategy-driven early exits (only when detection is available)
+    if (strategy === 'unsupported') {
+      this.channel.send({
+        type: 'edit_status',
+        editId: edit.editId,
+        status: 'failed',
+        reason: 'No supported editing strategy for this framework.',
+      })
+      return
+    }
+
+    // Layer 3: Tailwind path (strategy is 'immediate', 'deferred', or undefined for legacy)
     // First edit for a source:property pair has no previousValue — this is the
     // baseline "seed" establishing the current state. Skip silently; the CSS
     // override already shows the preview. File write starts on the next edit.
@@ -282,7 +355,7 @@ export class EditPipeline {
             : `No baseline value for Tailwind token on ${edit.property}`
         this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
         this.deferredWriter.enqueue({
-          filePath: resolvedPath, line, col,
+          editId: edit.editId, filePath: resolvedPath, line, col,
           property: edit.property, value: edit.value,
           failureReason: reason,
         })
@@ -323,7 +396,7 @@ export class EditPipeline {
           // enqueue() is synchronous — releases the file lock immediately.
           // DeferredWriter's writeFn acquires its own lock later. No deadlock.
           this.deferredWriter.enqueue({
-            filePath: resolvedPath, line, col,
+            editId: edit.editId, filePath: resolvedPath, line, col,
             property: edit.property, value: edit.value,
             failureReason: result.reason,
           })
@@ -343,20 +416,26 @@ export class EditPipeline {
         return
       }
 
-      // Push to undo stack
+      // Immediate writes have HMR suppressed (recentEditWrites in vite.ts),
+      // so don't track for HMR verification — it would never resolve.
+
+      // Write file FIRST — side effects only after successful write
+      try {
+        await this.writeFile({ kind: 'immediate', filePath: resolvedPath, content: result.newContent })
+      } catch (err) {
+        this.channel.send({
+          type: 'edit_status',
+          editId: edit.editId,
+          status: 'failed',
+          reason: `Write failed: ${err instanceof Error ? err.message : String(err)}`,
+        })
+        return
+      }
+
+      // Push to undo stack only after successful write
       if (this.undoStack) {
         this.undoStack.push({ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent })
       }
-
-      // Track HMR BEFORE write — HMR may fire immediately after fs write
-      this.verifier.trackEdit({
-        editId: edit.editId,
-        filePath: resolvedPath,
-        expectedValue: edit.value,
-        property: edit.property,
-      })
-
-      await this.writeFile({ kind: 'immediate', filePath: resolvedPath, content: result.newContent })
 
       this.channel.send({
         type: 'edit_status',
@@ -385,12 +464,26 @@ export class EditPipeline {
   private async _doUndo(): Promise<void> {
     for (const timer of this.debounceTimers.values()) clearTimeout(timer)
     this.debounceTimers.clear()
+    // Clear stale lastValues for the file being undone — the baseline
+    // is no longer valid after undo restores previous content.
+    const undoEntry = this.undoStack!.peekUndo()
+    if (undoEntry) {
+      for (const [key] of this.lastValues) {
+        if (key.startsWith(undoEntry.filePath + ':')) {
+          this.lastValues.delete(key)
+        }
+      }
+    }
 
     const entry = this.undoStack!.peekUndo()
     if (!entry) {
       this.channel.send({ type: 'undo_status', status: 'failed', restoredFile: '', reason: 'Nothing to undo.' })
       return
     }
+
+    // Cancel any pending/in-flight deferred writes for this file
+    const cancelledIds = this.deferredWriter?.cancelForFile(entry.filePath) ?? []
+    this.sendDeferredStatus(cancelledIds, 'cancelled', 'Cancelled by undo')
 
     await this.withFileLock(entry.filePath, async () => {
       const current = this.undoStack!.peekUndo()
@@ -426,11 +519,25 @@ export class EditPipeline {
   }
 
   private async _doRedo(): Promise<void> {
+    // Clear stale lastValues for the file being redone
+    const redoEntry = this.undoStack!.peekRedo()
+    if (redoEntry) {
+      for (const [key] of this.lastValues) {
+        if (key.startsWith(redoEntry.filePath + ':')) {
+          this.lastValues.delete(key)
+        }
+      }
+    }
+
     const entry = this.undoStack!.peekRedo()
     if (!entry) {
       this.channel.send({ type: 'redo_status', status: 'failed', restoredFile: '', reason: 'Nothing to redo.' })
       return
     }
+
+    // Cancel any pending/in-flight deferred writes for this file
+    const cancelledIds = this.deferredWriter?.cancelForFile(entry.filePath) ?? []
+    this.sendDeferredStatus(cancelledIds, 'cancelled', 'Cancelled by redo')
 
     await this.withFileLock(entry.filePath, async () => {
       if (this.readFile) {
@@ -450,7 +557,16 @@ export class EditPipeline {
   }
 
   private isInsideProjectRoot(filePath: string): boolean {
-    return filePath === this.projectRoot || filePath.startsWith(this.projectRoot + sep)
+    let real: string
+    try {
+      real = realpathSync(filePath)
+    } catch {
+      // File may not exist yet (e.g., source path in CSS Modules edits).
+      // Fall back to string-based check against the resolved project root.
+      const resolved = resolve(filePath)
+      return resolved === this.projectRoot || resolved.startsWith(this.projectRoot + sep)
+    }
+    return real === this.projectRoot || real.startsWith(this.projectRoot + sep)
   }
 
   /** AI write with file lock — used at Points A and C (not already locked). */
@@ -491,6 +607,19 @@ export class EditPipeline {
       return
     }
 
+    // Write file FIRST — side effects only after successful write
+    try {
+      await this.writeFile({ kind: 'deferred', filePath: resolvedPath, content: result.newContent })
+    } catch (err) {
+      this.channel.send({
+        type: 'edit_status',
+        editId: edit.editId,
+        status: 'failed',
+        reason: `Write failed: ${err instanceof Error ? err.message : String(err)}`,
+      })
+      return
+    }
+
     if (this.undoStack) {
       this.undoStack.push({ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent })
     }
@@ -501,8 +630,6 @@ export class EditPipeline {
       expectedValue: edit.value,
       property: edit.property,
     })
-
-    await this.writeFile({ kind: 'deferred', filePath: resolvedPath, content: result.newContent })
 
     this.channel.send({
       type: 'edit_status',
@@ -526,18 +653,172 @@ export class EditPipeline {
         this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: result.reason })
         return
       }
+      // Write file FIRST — side effects only after successful write
+      try {
+        await this.writeFile({ kind: 'immediate', filePath: resolvedCssPath, content: result.newContent })
+      } catch (err) {
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Write failed: ${err instanceof Error ? err.message : String(err)}` })
+        return
+      }
+      // Immediate writes have HMR suppressed — don't track for HMR verification.
       if (this.undoStack) {
         this.undoStack.push({ filePath: resolvedCssPath, previousContent: result.oldContent, currentContent: result.newContent })
       }
-      this.verifier.trackEdit({ editId: edit.editId, filePath: resolvedCssPath, expectedValue: edit.value, property: edit.property })
-      await this.writeFile({ kind: 'immediate', filePath: resolvedCssPath, content: result.newContent })
       this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done', strategy: 'immediate' })
     })
   }
 
-  private async withFileLock(filePath: string, fn: () => Promise<void>): Promise<void> {
+  /** Execute a deferred batch: acquire lock, read file, call AI, validate, write, push undo, send status.
+   *  Called by DeferredWriter's writeFn — must be public for external wiring. */
+  async executeDeferredBatch(batch: BatchedWriteRequest): Promise<{ success: boolean; reason?: string }> {
+    try {
+      return await this._executeDeferredBatchInner(batch)
+    } catch (err) {
+      // Last-resort safety net: if the inner logic throws unexpectedly,
+      // ensure editIds always get a terminal status (never stuck in "writing")
+      const reason = `Unexpected error: ${err instanceof Error ? err.message : String(err)}`
+      this.sendDeferredStatus(batch.editIds, 'failed', reason)
+      return { success: false, reason }
+    }
+  }
+
+  private async _executeDeferredBatchInner(batch: BatchedWriteRequest): Promise<{ success: boolean; reason?: string }> {
+    // Defense-in-depth: re-validate path even though handleEdit already checked.
+    // executeDeferredBatch is public and the path traversed DeferredWriter in between.
+    if (!this.isInsideProjectRoot(batch.filePath)) {
+      this.sendDeferredStatus(batch.editIds, 'failed', 'File path outside project root')
+      return { success: false, reason: 'File path outside project root' }
+    }
+
+    // Check abort before starting
+    if (batch.signal.aborted) {
+      // Coalescing supersede: silent — the newer batch handles these properties.
+      // User-initiated cancel (undo/redo): send explicit status via cancelForFile path.
+      if (batch.signal.reason !== 'superseded') {
+        this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
+      }
+      return { success: false, reason: 'aborted' }
+    }
+
+    if (!this.aiWriter) {
+      this.sendDeferredStatus(batch.editIds, 'failed', 'AI writer is not configured.')
+      return { success: false, reason: 'AI writer is not configured.' }
+    }
+
+    return this.withFileLockResult(batch.filePath, async () => {
+      // Check abort after lock acquisition (may have waited)
+      if (batch.signal.aborted) {
+        if (batch.signal.reason !== 'superseded') {
+          this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
+        }
+        return { success: false, reason: 'aborted' }
+      }
+
+      // Read current file content inside lock
+      let fileContent: string
+      try {
+        if (!this.readFile) throw new Error('readFile is not configured')
+        fileContent = await this.readFile(batch.filePath)
+      } catch (err) {
+        const reason = `Failed to read file: ${err instanceof Error ? err.message : String(err)}`
+        this.sendDeferredStatus(batch.editIds, 'failed', reason)
+        return { success: false, reason }
+      }
+
+      // Check abort after file read
+      if (batch.signal.aborted) {
+        if (batch.signal.reason !== 'superseded') {
+          this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
+        }
+        return { success: false, reason: 'aborted' }
+      }
+
+      // Call AI with content + signal
+      const result = await this.aiWriter!.write({
+        filePath: batch.filePath,
+        line: batch.line,
+        col: batch.col,
+        property: batch.changes[0]!.property,
+        value: batch.changes[0]!.value,
+        changes: batch.changes,
+        failureReason: batch.failureReason,
+      }, { fileContent, signal: batch.signal })
+
+      if (!result.success) {
+        // Abort during AI call: the signal fired while fetch was in-flight.
+        // Treat as cancellation, not failure — a newer edit superseded this one.
+        if (batch.signal.aborted) {
+          if (batch.signal.reason !== 'superseded') {
+            this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
+          }
+          return { success: false, reason: 'aborted' }
+        }
+        // "No changes" means the file already has the desired content — this happens
+        // when a previous coalesced batch already wrote the same changes. The file is
+        // correct, so treat as success rather than confusing the user with an error.
+        if (result.reason.includes('no changes')) {
+          this.sendDeferredStatus(batch.editIds, 'done')
+          return { success: true }
+        }
+        this.sendDeferredStatus(batch.editIds, 'failed', result.reason)
+        return { success: false, reason: result.reason }
+      }
+
+      // Check abort before writing (AI may have returned after supersede)
+      if (batch.signal.aborted) {
+        if (batch.signal.reason !== 'superseded') {
+          this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
+        }
+        return { success: false, reason: 'aborted' }
+      }
+
+      // Write file FIRST — side effects only after successful write
+      try {
+        await this.writeFile({ kind: 'deferred', filePath: batch.filePath, content: result.newContent })
+      } catch (err) {
+        const reason = `Write failed: ${err instanceof Error ? err.message : String(err)}`
+        this.sendDeferredStatus(batch.editIds, 'failed', reason)
+        return { success: false, reason }
+      }
+
+      // Push undo (only after successful write)
+      if (this.undoStack) {
+        this.undoStack.push({ filePath: batch.filePath, previousContent: result.oldContent, currentContent: result.newContent })
+      }
+
+      // Track HMR — use last change's property/value for verification.
+      // editId must be the last one to correlate with lastChange (not the first).
+      const lastChange = batch.changes[batch.changes.length - 1]!
+      this.verifier.trackEdit({
+        editId: batch.editIds[batch.editIds.length - 1]!,
+        filePath: batch.filePath,
+        expectedValue: lastChange.value,
+        property: lastChange.property,
+      })
+
+      // Send done for all coalesced editIds
+      this.sendDeferredStatus(batch.editIds, 'done')
+
+      return { success: true }
+    })
+  }
+
+  private sendDeferredStatus(editIds: string[], status: 'done' | 'failed' | 'cancelled', reason?: string): void {
+    for (const editId of editIds) {
+      this.channel.send({
+        type: 'edit_status',
+        editId,
+        status,
+        strategy: 'deferred',
+        ...(reason ? { reason } : {}),
+      })
+    }
+  }
+
+  private async withFileLockResult<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
     const prev = this.fileLocks.get(filePath) ?? Promise.resolve()
-    const next = prev.then(fn, fn)
+    let result!: T
+    const next = prev.then(async () => { result = await fn() }, async () => { result = await fn() })
     this.fileLocks.set(filePath, next)
     try {
       await next
@@ -546,6 +827,11 @@ export class EditPipeline {
         this.fileLocks.delete(filePath)
       }
     }
+    return result
+  }
+
+  private async withFileLock(filePath: string, fn: () => Promise<void>): Promise<void> {
+    await this.withFileLockResult(filePath, fn)
   }
 
   dispose(): void {

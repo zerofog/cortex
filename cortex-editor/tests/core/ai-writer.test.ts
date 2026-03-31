@@ -248,10 +248,10 @@ describe('validateResult', () => {
   })
 
   it('rejects when too many lines changed', () => {
-    // Create a file with 15 lines, change all of them (exceeds 10-line budget)
-    const bigFile = Array.from({ length: 15 }, (_, i) => `const x${i} = ${i}`).join('\n')
+    // Create a file with 25 lines, change all of them (exceeds 20-line budget)
+    const bigFile = Array.from({ length: 25 }, (_, i) => `const x${i} = ${i}`).join('\n')
     const newBigFile = bigFile.split('\n').map(l => l + ' // changed').join('\n')
-    const result = validateResult(bigFile, newBigFile, 'App.tsx', 8)
+    const result = validateResult(bigFile, newBigFile, 'App.tsx', 13)
     expect(result.valid).toBe(false)
     expect(!result.valid && result.reason).toContain('too broad')
   })
@@ -318,24 +318,33 @@ describe('validateResult', () => {
     expect(result.valid).toBe(true)
   })
 
-  it('rejects edit that only modifies a non-target line (Gate 6)', () => {
-    const oldFile = [
-      'import React from "react"',           // 1
-      '<div style={{ margin: "8px" }}>',      // 2 — AI modifies this line
-      '  <p>Filler</p>',                      // 3
-      '  <span>More filler</span>',           // 4
-      '  <span>Even more</span>',             // 5
-      '  <section>Hello</section>',           // 6
-      '  <footer>Bottom</footer>',            // 7
-      '</div>',                               // 8 — target is line 8
-    ].join('\n')
-    // Only line 2 changed — target is line 8 (distance = 6, well outside ±2)
+  it('rejects edit that modifies a line far from target (Gate 6 — wrong element)', () => {
+    // Simulate AI modifying the wrong element: change is at line 2,
+    // target is line 20 (distance = 18, outside ±12 proximity window).
+    // Must be valid JSX to reach Gate 6 (parse check comes first).
+    const lines = ['export function App() {', '  return (', '    <div style={{ margin: "8px" }}>']
+    for (let i = 4; i <= 22; i++) lines.push(`      <p>Line ${i}</p>`)
+    lines.push('    </div>', '  )', '}')
+    const oldFile = lines.join('\n')
     const newFile = oldFile.replace('margin: "8px"', 'margin: "8px", paddingTop: "16px"')
-    const result = validateResult(oldFile, newFile, 'App.tsx', 8)
+    const result = validateResult(oldFile, newFile, 'App.tsx', 20)
     expect(result.valid).toBe(false)
     if (!result.valid) {
       expect(result.reason).toContain('target line')
     }
+  })
+
+  it('accepts edit near target with line drift (Gate 6 — ±12 tolerance)', () => {
+    // Simulate line drift: target was line 10, but element shifted to line 15.
+    // AI correctly modified line 15. Distance = 5, within ±12 window.
+    // Must be valid JSX to pass parse check.
+    const lines = ['export function App() {', '  return (', '    <div>']
+    for (let i = 4; i <= 22; i++) lines.push(`      <p className="line-${i}">Line ${i}</p>`)
+    lines.push('    </div>', '  )', '}')
+    const oldFile = lines.join('\n')
+    const newFile = oldFile.replace('className="line-15"', 'className="line-15" style={{ paddingTop: "16px" }}')
+    const result = validateResult(oldFile, newFile, 'App.tsx', 10)
+    expect(result.valid).toBe(true)
   })
 
   it('accepts edit that modifies the target line (Gate 6 passes)', () => {
@@ -589,8 +598,9 @@ describe('AIWriter', () => {
 
   it('returns failure when AI produces syntax error', async () => {
     mockReadFile.mockResolvedValueOnce(sampleFile)
-    // Return code with broken JSX
-    mockClaudeResponse(sampleFile.replace('<div className="pt-4 bg-blue-500 text-white">', '<div className="pt-8 bg-blue-500 text-white"'))
+    // Return code with broken JSX (missing closing bracket)
+    const brokenCode = sampleFile.replace('<div className="pt-4 bg-blue-500 text-white">', '<div className="pt-8 bg-blue-500 text-white"')
+    mockClaudeResponse(brokenCode)
 
     const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
     const result = await writer.write({
@@ -695,7 +705,7 @@ describe('AIWriter', () => {
         value: '32px',
         failureReason: 'test',
       },
-      customContent,
+      { fileContent: customContent },
     )
 
     expect(result.success).toBe(true)
@@ -728,6 +738,120 @@ describe('AIWriter', () => {
     })
     const body = JSON.parse((options as RequestInit).body as string)
     expect(body.temperature).toBe(0)
-    expect(body.max_tokens).toBe(1024)
+    expect(body.max_tokens).toBe(2048)
+  })
+
+  describe('abort signal', () => {
+    it('returns failure when signal is already aborted', async () => {
+      mockReadFile.mockResolvedValueOnce(sampleFile)
+      const signal = AbortSignal.abort()
+
+      const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
+      const result = await writer.write(
+        {
+          filePath: '/project/src/Hero.tsx',
+          line: 5, col: 5,
+          property: 'padding-top', value: '16px',
+          failureReason: 'test',
+        },
+        { signal },
+      )
+
+      expect(result.success).toBe(false)
+      if (!result.success) {
+        expect(result.reason).toContain('Aborted')
+      }
+      // fetch should NOT have been called
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('aborts AI call when external signal is triggered', async () => {
+      mockReadFile.mockResolvedValueOnce(sampleFile)
+      const ac = new AbortController()
+
+      // Mock fetch to hang until aborted
+      fetchSpy.mockImplementationOnce(
+        (_url, init) => new Promise((_resolve, reject) => {
+          const fetchSignal = (init as RequestInit | undefined)?.signal as AbortSignal | undefined
+          if (fetchSignal) {
+            fetchSignal.addEventListener('abort', () => {
+              reject(new DOMException('The operation was aborted.', 'AbortError'))
+            })
+          }
+        }),
+      )
+
+      const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
+      const writePromise = writer.write(
+        {
+          filePath: '/project/src/Hero.tsx',
+          line: 5, col: 5,
+          property: 'padding-top', value: '16px',
+          failureReason: 'test',
+        },
+        { signal: ac.signal },
+      )
+
+      // Abort after write has started
+      ac.abort()
+      const result = await writePromise
+
+      expect(result.success).toBe(false)
+    })
+
+    it('cleans up abort event listener after completion', async () => {
+      mockReadFile.mockResolvedValueOnce(sampleFile)
+      const modifiedSnippet = sampleFile
+        .split('\n')
+        .map(l => l.replace('pt-4', 'pt-8'))
+        .join('\n')
+      mockClaudeResponse(modifiedSnippet)
+
+      const ac = new AbortController()
+      const addSpy = vi.spyOn(ac.signal, 'addEventListener')
+      const removeSpy = vi.spyOn(ac.signal, 'removeEventListener')
+
+      const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
+      const result = await writer.write(
+        {
+          filePath: '/project/src/Hero.tsx',
+          line: 5, col: 5,
+          property: 'padding-top', value: '32px',
+          failureReason: 'test',
+        },
+        { signal: ac.signal },
+      )
+
+      expect(result.success).toBe(true)
+      // Listener must have been added and then cleaned up
+      expect(addSpy).toHaveBeenCalledWith('abort', expect.any(Function))
+      expect(removeSpy).toHaveBeenCalledWith('abort', expect.any(Function))
+    })
+
+    it('passes fileContent via options object', async () => {
+      const customContent = sampleFile.replace('Welcome', 'Custom')
+      const modifiedSnippet = customContent
+        .split('\n')
+        .map(l => l.replace('pt-4', 'pt-8'))
+        .join('\n')
+      mockClaudeResponse(modifiedSnippet)
+
+      const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
+      const result = await writer.write(
+        {
+          filePath: '/project/src/Hero.tsx',
+          line: 5, col: 5,
+          property: 'padding-top', value: '32px',
+          failureReason: 'test',
+        },
+        { fileContent: customContent },
+      )
+
+      expect(result.success).toBe(true)
+      expect(mockReadFile).not.toHaveBeenCalled()
+      if (result.success) {
+        expect(result.oldContent).toBe(customContent)
+      }
+    })
   })
 })

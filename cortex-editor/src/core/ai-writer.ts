@@ -39,14 +39,14 @@ export interface AIWriterOptions {
 // ── Constants ──────────────────────────────────────────────────────
 
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001'
-const DEFAULT_TIMEOUT_MS = 15_000
+const DEFAULT_TIMEOUT_MS = 8_000
 const DEFAULT_API_BASE = 'https://api.anthropic.com'
-const CONTEXT_WINDOW = 25
-const MAX_DIFF_LINES = 10
-const MAX_LOCALITY_DISTANCE = 15
+const CONTEXT_WINDOW = 50
+const MAX_DIFF_LINES = 20
+const MAX_LOCALITY_DISTANCE = 30
 const MAX_NET_LINE_DELTA = 3
 const MAX_LINE_LENGTH = 500
-const MAX_TOKENS = 1024
+const MAX_TOKENS = 2048
 
 
 const SYSTEM_PROMPT = `You are a code editor. You modify JSX/TSX source files to apply CSS property changes.
@@ -87,8 +87,12 @@ export class AIWriter {
     this.apiBaseUrl = options.apiBaseUrl ?? DEFAULT_API_BASE
   }
 
-  async write(request: AIWriteRequest, fileContent?: string): Promise<AIWriteResult> {
+  async write(
+    request: AIWriteRequest,
+    options?: { fileContent?: string; signal?: AbortSignal },
+  ): Promise<AIWriteResult> {
     const { filePath } = request
+    const { fileContent, signal } = options ?? {}
 
     // Use provided content or read from disk
     let oldContent: string
@@ -102,6 +106,11 @@ export class AIWriter {
       }
     }
 
+    // Check for early abort before making the AI call
+    if (signal?.aborted) {
+      return { success: false, filePath, reason: 'Aborted before AI call' }
+    }
+
     const lines = oldContent.split('\n')
     const { snippet, startLine, endLine } = extractContext(lines, request.line, CONTEXT_WINDOW)
     const sanitized = sanitizeForPrompt(snippet)
@@ -109,18 +118,33 @@ export class AIWriter {
     const filename = basename(filePath)
     const userPrompt = buildUserPrompt(request, sanitized, startLine, endLine, filename, ext)
 
+    // With temperature=0, retrying produces the identical output — a retry
+    // loop wastes tokens with 0% recovery. The 429 retry in callClaude handles
+    // transient network issues. Validation failures here are deterministic
+    // (the model can't produce valid code for this input) and won't improve.
+    // The real fix is the InlineStyleRewriter (deterministic AST path) which
+    // eliminates ~85% of AI calls entirely.
+
+    if (signal?.aborted) {
+      return { success: false, filePath, reason: 'Aborted before AI call' }
+    }
+
     let responseText: string
     try {
-      responseText = await this.callClaude(userPrompt)
+      responseText = await this.callClaude(userPrompt, signal)
     } catch (err) {
       return { success: false, filePath, reason: `AI request failed: ${err instanceof Error ? err.message : String(err)}` }
+    }
+
+    if (signal?.aborted) {
+      return { success: false, filePath, reason: 'Aborted after AI response' }
     }
 
     const extractedCode = extractCodeFence(responseText)
     if (extractedCode === null) {
       return { success: false, filePath, reason: 'AI response did not contain a code block' }
     }
-    // Replace the context window with AI output
+
     const newLines = [...lines]
     const aiLines = extractedCode.split('\n')
     newLines.splice(startLine - 1, endLine - startLine + 1, ...aiLines)
@@ -134,9 +158,14 @@ export class AIWriter {
     return { success: true, filePath, oldContent, newContent }
   }
 
-  private async callClaude(userPrompt: string): Promise<string> {
+  private async callClaude(userPrompt: string, externalSignal?: AbortSignal): Promise<string> {
+    const startTime = Date.now()
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), this.timeoutMs)
+
+    // Link external abort signal to our internal controller
+    const onAbort = () => controller.abort()
+    externalSignal?.addEventListener('abort', onAbort)
 
     const requestOptions: RequestInit = {
       method: 'POST',
@@ -166,10 +195,15 @@ export class AIWriter {
           5000,
         )
         await new Promise(resolve => setTimeout(resolve, delay))
-        // Fresh AbortController for retry — original timer may have consumed most of the budget
+        // Fresh AbortController for retry — use remaining time budget, not full timeout
         clearTimeout(timer)
+        const elapsed = Date.now() - startTime
+        const remaining = Math.max(this.timeoutMs - elapsed, 2000) // at least 2s for retry
         const retryController = new AbortController()
-        const retryTimer = setTimeout(() => retryController.abort(), this.timeoutMs)
+        const retryTimer = setTimeout(() => retryController.abort(), remaining)
+        // Link external signal to retry controller too
+        const onRetryAbort = () => retryController.abort()
+        externalSignal?.addEventListener('abort', onRetryAbort)
         try {
           response = await fetch(`${this.apiBaseUrl}/v1/messages`, {
             ...requestOptions,
@@ -177,6 +211,7 @@ export class AIWriter {
           })
         } finally {
           clearTimeout(retryTimer)
+          externalSignal?.removeEventListener('abort', onRetryAbort)
         }
         if (!response.ok) {
           throw new Error(`API error ${response.status} (after retry)`)
@@ -193,6 +228,7 @@ export class AIWriter {
       return textBlock.text
     } finally {
       clearTimeout(timer)
+      externalSignal?.removeEventListener('abort', onAbort)
     }
   }
 }
@@ -375,37 +411,36 @@ export function validateResult(
   }
 
   // Gate 2 + 3: Diff budget and localization
+  //
+  // Design note: source annotations (data-cortex-source="file:line:col") are
+  // determined at build time. After an AI edit modifies the file, line numbers
+  // may shift. Subsequent edits still reference the ORIGINAL line number until
+  // HMR re-renders the page. The validation gates must tolerate this drift:
+  //
+  // - Parse check: absolute, no line dependency
+  // - Net line delta: absolute, limits structural changes
+  // - Diff budget: counts changed lines (reliable for same-length files)
+  // - Locality: ensures changes are within MAX_LOCALITY_DISTANCE of target
+  //
+  // We intentionally do NOT require changes to be exactly on the target line.
+  // The ±30 line locality window accommodates typical line drift from prior edits.
+  // The context window (50 lines) ensures the AI sees the element regardless of
+  // small position shifts.
+
   const oldLines = oldContent.split('\n')
   const newLines = newContent.split('\n')
   const netDelta = Math.abs(oldLines.length - newLines.length)
 
+  // Verify the file actually changed
+  if (oldContent === newContent) {
+    return { valid: false, reason: 'AI made no changes to the file' }
+  }
+
   if (netDelta > 0) {
     // Lines were added or removed — positional line-by-line diffing is unreliable
-    // because all subsequent lines shift, inflating both diff count and locality
-    // distance. Use net delta as the safety constraint instead.
+    // because all subsequent lines shift. Use net delta as the safety constraint.
     if (netDelta > MAX_NET_LINE_DELTA) {
       return { valid: false, reason: `AI added/removed ${netDelta} net lines (max ${MAX_NET_LINE_DELTA}). Edit rejected — net line delta too large.` }
-    }
-    // Verify the file actually changed (not just whitespace reformat)
-    if (oldContent === newContent) {
-      return { valid: false, reason: 'AI made no changes to the file' }
-    }
-    // Gate 6: Target-line mutation — verify the target region was actually modified
-    const minLen = Math.min(oldLines.length, newLines.length)
-    let targetRegionChanged = false
-    for (let i = Math.max(0, targetLine - 3); i < Math.min(minLen, targetLine + 2); i++) {
-      if (i >= oldLines.length || i >= newLines.length || oldLines[i] !== newLines[i]) {
-        targetRegionChanged = true
-        break
-      }
-    }
-    // Also check if target is in the added/removed region
-    if (!targetRegionChanged && newLines.length !== oldLines.length) {
-      // If lines were added/removed near the target, that counts
-      targetRegionChanged = targetLine >= Math.min(oldLines.length, newLines.length) - 1
-    }
-    if (!targetRegionChanged) {
-      return { valid: false, reason: `AI did not modify the target line ${targetLine} region. Edit rejected.` }
     }
   } else {
     // Same line count — value replacement. Positional diff is reliable.
@@ -430,10 +465,14 @@ export function validateResult(
         return { valid: false, reason: `AI modified line ${changedLine}, which is too far from target line ${targetLine}. Edit rejected.` }
       }
     }
-    // Gate 6: Target-line mutation — at least one change must be on or adjacent to target
-    const targetChanged = changedLineNumbers.some(ln => Math.abs(ln - targetLine) <= 2)
-    if (!targetChanged) {
-      return { valid: false, reason: `AI modified lines ${changedLineNumbers.join(', ')} but not the target line ${targetLine}. Edit rejected.` }
+    // Gate 6: Target proximity — at least one change should be near the target.
+    // Uses half the context window radius (not ±2) to accommodate line drift
+    // from prior AI edits that shifted element positions before HMR updates
+    // the source annotations.
+    const TARGET_PROXIMITY = Math.floor(CONTEXT_WINDOW / 4) // ±12 for 50-line window
+    const nearTarget = changedLineNumbers.some(ln => Math.abs(ln - targetLine) <= TARGET_PROXIMITY)
+    if (!nearTarget) {
+      return { valid: false, reason: `AI modified lines ${changedLineNumbers.join(', ')} but not near target line ${targetLine}. Edit rejected.` }
     }
   }
 

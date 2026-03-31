@@ -21,6 +21,7 @@ import { CSSModulesRewriter } from '../core/rewriter/css-modules.js'
 import { RuntimeCSSResolver } from '../core/rewriter/runtime-resolver.js'
 import { UndoStack } from '../core/session/undo-stack.js'
 import { AIWriter } from '../core/ai-writer.js'
+import { DeferredWriter } from '../core/deferred-writer.js'
 import { AnnotationStore } from '../core/annotations.js'
 import { ActivityLog } from '../core/session/activity-log.js'
 
@@ -540,6 +541,19 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           ? new AIWriter({ apiKey: cortexApiKey, readFile: (p) => fs.promises.readFile(p, 'utf-8') })
           : undefined
 
+        // Deferred writer: enabled when AI writer is available. The writeFn
+        // closure captures pipelineInstance by reference — safe because writeFn
+        // only fires after the coalescing window (250ms+), well after assignment.
+        const deferredWriter = aiWriter
+          ? new DeferredWriter({
+            coalescingMs: 250,
+            writeFn: async (batch) => {
+              if (!pipelineInstance) return { success: false, reason: 'Pipeline not initialized' }
+              return pipelineInstance.executeDeferredBatch(batch)
+            },
+          })
+          : undefined
+
         pipelineInstance = new EditPipeline({
           channel,
           resolver: resolver ?? TailwindResolver.fromTheme({}),
@@ -550,6 +564,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           runtimeResolver,
           undoStack,
           aiWriter,
+          deferredWriter,
           writeFile: async (intent) => {
             if (intent.kind === 'immediate' || intent.kind === 'undo' || intent.kind === 'redo') {
               recentEditWrites.add(intent.filePath)
@@ -719,7 +734,16 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
     handleHotUpdate({ modules }: HmrContext) {
       if (modules.length === 0) return
 
-      const files = modules
+      // Suppress HMR for files cortex just wrote — the override is already
+      // showing the correct value. HMR would cause a full-page style recalc
+      // + repaint visible as a flash. The override stays until hmr_verified
+      // clears it (which is now a no-op since we handled verification above).
+      const cortexFiles = modules.filter(m => m.file && recentEditWrites.has(m.file))
+
+      // Only fire HMR callbacks for non-suppressed files — otherwise the
+      // verifier would track edits for files whose HMR was intentionally blocked.
+      const nonSuppressed = modules.filter(m => !m.file || !recentEditWrites.has(m.file))
+      const files = nonSuppressed
         .map(m => m.file)
         .filter((f): f is string => f != null && (/\.[jt]sx$/.test(f) || /\.module\.css$/.test(f)))
 
@@ -732,15 +756,9 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         }
       }
 
-      // Suppress HMR for files cortex just wrote — the override is already
-      // showing the correct value. HMR would cause a full-page style recalc
-      // + repaint visible as a flash. The override stays until hmr_verified
-      // clears it (which is now a no-op since we handled verification above).
-      const cortexFiles = modules.filter(m => m.file && recentEditWrites.has(m.file))
       if (cortexFiles.length > 0) {
         // Return only non-cortex modules — suppresses HMR for cortex-written files
-        const kept = modules.filter(m => !m.file || !recentEditWrites.has(m.file))
-        return kept
+        return nonSuppressed
       }
     },
   }
