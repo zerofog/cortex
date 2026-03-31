@@ -56,6 +56,39 @@ describe('buildUserPrompt', () => {
     expect(prompt).toContain('App.tsx')
     expect(prompt).toContain('```tsx')
   })
+
+  it('formats multiple changes from changes[] array', () => {
+    const request = {
+      filePath: '/project/src/App.tsx',
+      line: 10,
+      col: 5,
+      property: 'padding-top',
+      value: '16px',
+      failureReason: 'Cannot resolve Tailwind class',
+      changes: [
+        { property: 'padding-top', value: '24px' },
+        { property: 'margin-left', value: '8px' },
+      ],
+    }
+    const prompt = buildUserPrompt(request, '<div className="pt-4">', 8, 12, 'App.tsx', 'tsx')
+    expect(prompt).toContain('padding-top: 24px')
+    expect(prompt).toContain('margin-left: 8px')
+    // Should NOT include the legacy single-property format
+    expect(prompt).not.toContain('padding-top: 16px')
+  })
+
+  it('falls back to property/value when changes[] is absent', () => {
+    const request = {
+      filePath: '/project/src/App.tsx',
+      line: 10,
+      col: 5,
+      property: 'padding-top',
+      value: '16px',
+      failureReason: 'test',
+    }
+    const prompt = buildUserPrompt(request, '<div className="pt-4">', 8, 12, 'App.tsx', 'tsx')
+    expect(prompt).toContain('`padding-top: 16px`')
+  })
 })
 
 describe('sanitizeForPrompt', () => {
@@ -281,6 +314,41 @@ describe('validateResult', () => {
     const newFile = newLines.join('\n')
 
     // Context window: lines 1-26
+    const result = validateResult(oldFile, newFile, 'App.tsx', 5)
+    expect(result.valid).toBe(true)
+  })
+
+  it('rejects edit that only modifies a non-target line (Gate 6)', () => {
+    const oldFile = [
+      'import React from "react"',           // 1
+      '<div style={{ margin: "8px" }}>',      // 2 — AI modifies this line
+      '  <p>Filler</p>',                      // 3
+      '  <span>More filler</span>',           // 4
+      '  <span>Even more</span>',             // 5
+      '  <section>Hello</section>',           // 6
+      '  <footer>Bottom</footer>',            // 7
+      '</div>',                               // 8 — target is line 8
+    ].join('\n')
+    // Only line 2 changed — target is line 8 (distance = 6, well outside ±2)
+    const newFile = oldFile.replace('margin: "8px"', 'margin: "8px", paddingTop: "16px"')
+    const result = validateResult(oldFile, newFile, 'App.tsx', 8)
+    expect(result.valid).toBe(false)
+    if (!result.valid) {
+      expect(result.reason).toContain('target line')
+    }
+  })
+
+  it('accepts edit that modifies the target line (Gate 6 passes)', () => {
+    const oldFile = [
+      'import React from "react"',
+      '',
+      '<div>',
+      '  <p>Target</p>',
+      '  <section>Hello</section>',
+      '</div>',
+    ].join('\n')
+    // Line 5 changed — target is line 5
+    const newFile = oldFile.replace('<section>Hello</section>', '<section style={{ padding: "16px" }}>Hello</section>')
     const result = validateResult(oldFile, newFile, 'App.tsx', 5)
     expect(result.valid).toBe(true)
   })
@@ -567,6 +635,75 @@ describe('AIWriter', () => {
     expect(result.success).toBe(false)
     if (!result.success) {
       expect(result.reason.toLowerCase()).toMatch(/abort/)
+    }
+  })
+
+  it('handles multiple property changes via changes[] array', async () => {
+    mockReadFile.mockResolvedValueOnce(sampleFile)
+    const modifiedSnippet = sampleFile
+      .split('\n')
+      .map(l => l.replace(
+        'className="pt-4 bg-blue-500 text-white"',
+        'className="pt-4 bg-blue-500 text-white" style={{ paddingTop: \'24px\', marginLeft: \'8px\' }}',
+      ))
+      .join('\n')
+    mockClaudeResponse(modifiedSnippet)
+
+    const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
+    const result = await writer.write({
+      filePath: '/project/src/Hero.tsx',
+      line: 5,
+      col: 5,
+      property: 'padding-top',
+      value: '24px',
+      failureReason: 'Cannot resolve Tailwind class',
+      changes: [
+        { property: 'padding-top', value: '24px' },
+        { property: 'margin-left', value: '8px' },
+      ],
+    })
+
+    expect(result.success).toBe(true)
+
+    // Verify the prompt sent to Claude contains both properties
+    const [, options] = fetchSpy.mock.calls[0]!
+    const body = JSON.parse((options as RequestInit).body as string)
+    const userPrompt: string = body.messages[0].content
+    expect(userPrompt).toContain('padding-top')
+    expect(userPrompt).toContain('24px')
+    expect(userPrompt).toContain('margin-left')
+    expect(userPrompt).toContain('8px')
+    // Should use multi-property format (comma-separated), not single-property
+    expect(userPrompt).toMatch(/^TASK: Set `padding-top: 24px`, `margin-left: 8px`/m)
+  })
+
+  it('uses fileContent when provided instead of reading file', async () => {
+    const customContent = sampleFile.replace('Welcome', 'Custom')
+    const modifiedSnippet = customContent
+      .split('\n')
+      .map(l => l.replace('pt-4', 'pt-8'))
+      .join('\n')
+    mockClaudeResponse(modifiedSnippet)
+
+    const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
+    const result = await writer.write(
+      {
+        filePath: '/project/src/Hero.tsx',
+        line: 5,
+        col: 5,
+        property: 'padding-top',
+        value: '32px',
+        failureReason: 'test',
+      },
+      customContent,
+    )
+
+    expect(result.success).toBe(true)
+    // readFile should NOT have been called
+    expect(mockReadFile).not.toHaveBeenCalled()
+    if (result.success) {
+      expect(result.oldContent).toBe(customContent)
+      expect(result.newContent).toContain('pt-8')
     }
   })
 

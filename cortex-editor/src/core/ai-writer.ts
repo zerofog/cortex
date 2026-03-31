@@ -11,10 +11,12 @@ export interface AIWriteRequest {
   line: number
   /** 1-based column number of the target JSX element */
   col: number
-  /** CSS property being changed, e.g. 'padding-top' */
+  /** Single property change (legacy — used when changes[] is absent) */
   property: string
-  /** Target CSS value, e.g. '16px' */
+  /** Single value (legacy — used when changes[] is absent) */
   value: string
+  /** Batched property changes. When present, property/value above are ignored. */
+  changes?: Array<{ property: string; value: string }>
   /** Why the deterministic path failed — passed to AI as context */
   failureReason: string
 }
@@ -85,15 +87,19 @@ export class AIWriter {
     this.apiBaseUrl = options.apiBaseUrl ?? DEFAULT_API_BASE
   }
 
-  async write(request: AIWriteRequest): Promise<AIWriteResult> {
+  async write(request: AIWriteRequest, fileContent?: string): Promise<AIWriteResult> {
     const { filePath } = request
 
-    // Read current file content
+    // Use provided content or read from disk
     let oldContent: string
-    try {
-      oldContent = await this.readFile(filePath)
-    } catch (err) {
-      return { success: false, filePath, reason: `Failed to read file: ${err instanceof Error ? err.message : String(err)}` }
+    if (fileContent !== undefined) {
+      oldContent = fileContent
+    } else {
+      try {
+        oldContent = await this.readFile(filePath)
+      } catch (err) {
+        return { success: false, filePath, reason: `Failed to read file: ${err instanceof Error ? err.message : String(err)}` }
+      }
     }
 
     const lines = oldContent.split('\n')
@@ -230,7 +236,11 @@ export function buildUserPrompt(
     })
     .join('\n')
 
-  return `TASK: Set \`${request.property}: ${request.value}\` on the element at line ${request.line} (marked with ←).
+  const changesList = request.changes
+    ? request.changes.map(c => `\`${c.property}: ${c.value}\``).join(', ')
+    : `\`${request.property}: ${request.value}\``
+
+  return `TASK: Set ${changesList} on the element at line ${request.line} (marked with ←).
 
 CONTEXT: ${request.failureReason}
 
@@ -380,6 +390,23 @@ export function validateResult(
     if (oldContent === newContent) {
       return { valid: false, reason: 'AI made no changes to the file' }
     }
+    // Gate 6: Target-line mutation — verify the target region was actually modified
+    const minLen = Math.min(oldLines.length, newLines.length)
+    let targetRegionChanged = false
+    for (let i = Math.max(0, targetLine - 3); i < Math.min(minLen, targetLine + 2); i++) {
+      if (i >= oldLines.length || i >= newLines.length || oldLines[i] !== newLines[i]) {
+        targetRegionChanged = true
+        break
+      }
+    }
+    // Also check if target is in the added/removed region
+    if (!targetRegionChanged && newLines.length !== oldLines.length) {
+      // If lines were added/removed near the target, that counts
+      targetRegionChanged = targetLine >= Math.min(oldLines.length, newLines.length) - 1
+    }
+    if (!targetRegionChanged) {
+      return { valid: false, reason: `AI did not modify the target line ${targetLine} region. Edit rejected.` }
+    }
   } else {
     // Same line count — value replacement. Positional diff is reliable.
     let diffCount = 0
@@ -402,6 +429,11 @@ export function validateResult(
       if (Math.abs(changedLine - targetLine) > MAX_LOCALITY_DISTANCE) {
         return { valid: false, reason: `AI modified line ${changedLine}, which is too far from target line ${targetLine}. Edit rejected.` }
       }
+    }
+    // Gate 6: Target-line mutation — at least one change must be on or adjacent to target
+    const targetChanged = changedLineNumbers.some(ln => Math.abs(ln - targetLine) <= 2)
+    if (!targetChanged) {
+      return { valid: false, reason: `AI modified lines ${changedLineNumbers.join(', ')} but not the target line ${targetLine}. Edit rejected.` }
     }
   }
 
