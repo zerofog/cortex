@@ -47,7 +47,7 @@ describe('Edit loop integration', () => {
         resolver,
         rewriter,
         verifier,
-        writeFile: (path, content) => fsWriteFile(path, content, 'utf-8'),
+        writeFile: (intent) => fsWriteFile(intent.filePath, intent.content, 'utf-8'),
         projectRoot: tempDir,
         debounceMs: 50, // Short debounce for test speed
       })
@@ -129,7 +129,7 @@ describe('CSS Modules edit loop integration', () => {
       const pipeline = new EditPipeline({
         channel, resolver, rewriter, verifier,
         cssModulesRewriter, undoStack,
-        writeFile: (p, c) => fsWriteFile(p, c, 'utf-8'),
+        writeFile: (intent) => fsWriteFile(intent.filePath, intent.content, 'utf-8'),
         readFile: (p) => fsReadFile(p, 'utf-8'),
         projectRoot: tempDir,
         debounceMs: 50,
@@ -194,7 +194,7 @@ describe('CSS Modules edit loop integration', () => {
       const pipeline = new EditPipeline({
         channel, resolver, rewriter, verifier,
         cssModulesRewriter, undoStack,
-        writeFile: (p, c) => fsWriteFile(p, c, 'utf-8'),
+        writeFile: (intent) => fsWriteFile(intent.filePath, intent.content, 'utf-8'),
         readFile: (p) => fsReadFile(p, 'utf-8'),
         projectRoot: tempDir,
         debounceMs: 50,
@@ -256,7 +256,7 @@ describe('CSS Modules edit loop integration', () => {
       const pipeline = new EditPipeline({
         channel, resolver, rewriter, verifier,
         cssModulesRewriter, undoStack,
-        writeFile: (p, c) => fsWriteFile(p, c, 'utf-8'),
+        writeFile: (intent) => fsWriteFile(intent.filePath, intent.content, 'utf-8'),
         readFile: (p) => fsReadFile(p, 'utf-8'),
         projectRoot: tempDir,
         debounceMs: 50,
@@ -320,7 +320,7 @@ describe('CSS Modules edit loop integration', () => {
         channel, resolver, rewriter, verifier,
         cssModulesRewriter, undoStack,
         detector: { hasCSSModules: true, hasTailwind: true },
-        writeFile: (p, c) => fsWriteFile(p, c, 'utf-8'),
+        writeFile: (intent) => fsWriteFile(intent.filePath, intent.content, 'utf-8'),
         readFile: (p) => fsReadFile(p, 'utf-8'),
         projectRoot: tempDir,
         debounceMs: 50,
