@@ -35,6 +35,10 @@ export type { UndoEntry } from './core/session/undo-stack.js'
 export { determineWriteStrategy } from './core/rewriter/shorthand.js'
 export type { WriteStrategy } from './core/rewriter/shorthand.js'
 
+// AI writer (Edit Engine)
+export { AIWriter } from './core/ai-writer.js'
+export type { AIWriteRequest, AIWriteResult, AIWriterOptions } from './core/ai-writer.js'
+
 // Phase 8b: Capabilities, v4 parser, oklch
 export { computeCapabilities } from './core/capabilities.js'
 export type { StyleCapability, CapabilityStatus, ResolverState } from './core/capabilities.js'

@@ -1,19 +1,8 @@
-import { useState, useEffect } from 'preact/hooks'
-import type { CortexChannel, StyleCapability } from '../../adapters/types.js'
+import { useState } from 'preact/hooks'
+import type { StyleCapability } from '../../adapters/types.js'
 
-export function CapabilityBanner({ channel }: { channel: CortexChannel }) {
-  const [systems, setSystems] = useState<StyleCapability[]>([])
+export function CapabilityBanner({ systems }: { systems: StyleCapability[] }) {
   const [dismissed, setDismissed] = useState(false)
-
-  useEffect(() => {
-    return channel.onMessage((msg) => {
-      if (msg.type === 'capabilities') {
-        const limited = msg.systems.filter(s => s.status !== 'supported')
-        // Always update — clears stale limitations when all systems become supported
-        setSystems(limited)
-      }
-    })
-  }, [channel])
 
   if (dismissed || systems.length === 0) return null
 

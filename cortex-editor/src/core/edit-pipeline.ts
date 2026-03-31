@@ -6,6 +6,7 @@ import type { HMRVerifier } from './hmr-verifier.js'
 import type { CSSModulesRewriter } from './rewriter/css-modules.js'
 import type { RuntimeCSSResolver } from './rewriter/runtime-resolver.js'
 import type { UndoStack } from './session/undo-stack.js'
+import type { AIWriter } from './ai-writer.js'
 
 export interface EditRequest {
   editId: string
@@ -27,7 +28,7 @@ export interface EditPipelineOptions {
   rewriter: TailwindRewriter
   verifier: HMRVerifier
   /** Injected for testability. Default: fs.writeFile */
-  writeFile: (path: string, content: string) => Promise<void>
+  writeFile: (path: string, content: string, options?: { suppressHMR?: boolean }) => Promise<void>
   /** Absolute path to project root. File writes are scoped to this directory. */
   projectRoot: string
   /** Debounce delay in ms. Default: 400 */
@@ -42,6 +43,8 @@ export interface EditPipelineOptions {
   undoStack?: UndoStack
   /** Injected for testability. Used by undo to verify file hasn't changed. */
   readFile?: (path: string) => Promise<string>
+  /** AI writer for framework-agnostic source edits when deterministic layers fail */
+  aiWriter?: AIWriter
 }
 
 const VALID_PROPERTY = /^-{0,2}[a-zA-Z][a-zA-Z0-9-]*$/
@@ -88,7 +91,7 @@ export class EditPipeline {
   private readonly resolver: TailwindResolver
   private readonly rewriter: TailwindRewriter
   private readonly verifier: HMRVerifier
-  private readonly writeFile: (path: string, content: string) => Promise<void>
+  private readonly writeFile: (path: string, content: string, options?: { suppressHMR?: boolean }) => Promise<void>
   private readonly projectRoot: string
   private readonly debounceMs: number
   private readonly cssModulesRewriter?: CSSModulesRewriter
@@ -96,6 +99,7 @@ export class EditPipeline {
   private readonly runtimeResolver?: RuntimeCSSResolver
   private readonly undoStack?: UndoStack
   private readonly readFile?: (path: string) => Promise<string>
+  private readonly aiWriter?: AIWriter
   private undoLock = Promise.resolve()
   private disposed = false
 
@@ -112,6 +116,7 @@ export class EditPipeline {
     this.runtimeResolver = options.runtimeResolver
     this.undoStack = options.undoStack
     this.readFile = options.readFile
+    this.aiWriter = options.aiWriter
   }
 
   handleEdit(edit: EditRequest): void {
@@ -229,6 +234,10 @@ export class EditPipeline {
       }
       // CSS Modules-only project → don't fall through to Tailwind
       if (!this.detector.hasTailwind) {
+        if (this.aiWriter) {
+          await this.commitAIWrite(edit, resolvedPath, line, col, 'Could not resolve CSS module mapping for this element.')
+          return
+        }
         this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'Could not resolve CSS module mapping for this element. Connect Claude Code for AI-assisted editing.' })
         return
       }
@@ -244,6 +253,13 @@ export class EditPipeline {
     const oldToken = this.resolver.findClass(edit.property, previousValue)
 
     if (!newToken || !oldToken) {
+      if (this.aiWriter) {
+        const reason = !newToken
+          ? `Cannot resolve Tailwind class for ${edit.property}: ${edit.value}`
+          : `Cannot resolve Tailwind class for ${edit.property}: ${previousValue}`
+        await this.commitAIWrite(edit, resolvedPath, line, col, reason)
+        return
+      }
       this.channel.send({
         type: 'edit_status',
         editId: edit.editId,
@@ -268,6 +284,11 @@ export class EditPipeline {
       })
 
       if (!result.success) {
+        if (this.aiWriter) {
+          // Already inside withFileLock — call inner helper directly to avoid deadlock
+          await this.executeAIWrite(edit, resolvedPath, line, col, result.reason)
+          return
+        }
         this.channel.send({
           type: 'edit_status',
           editId: edit.editId,
@@ -290,7 +311,7 @@ export class EditPipeline {
         property: edit.property,
       })
 
-      await this.writeFile(resolvedPath, result.newContent)
+      await this.writeFile(resolvedPath, result.newContent, { suppressHMR: true })
 
       this.channel.send({
         type: 'edit_status',
@@ -386,6 +407,64 @@ export class EditPipeline {
     return filePath === this.projectRoot || filePath.startsWith(this.projectRoot + sep)
   }
 
+  /** AI write with file lock — used at Points A and C (not already locked). */
+  private async commitAIWrite(
+    edit: EditRequest, resolvedPath: string, line: number, col: number, failureReason: string,
+  ): Promise<void> {
+    this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
+    await this.withFileLock(resolvedPath, async () => {
+      await this.executeAIWrite(edit, resolvedPath, line, col, failureReason)
+    })
+  }
+
+  /** AI write without lock — used at Point B (already inside withFileLock). */
+  private async executeAIWrite(
+    edit: EditRequest, resolvedPath: string, line: number, col: number, failureReason: string,
+  ): Promise<void> {
+    if (!this.aiWriter) {
+      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'AI writer is not configured.' })
+      return
+    }
+
+    const result = await this.aiWriter.write({
+      filePath: resolvedPath,
+      line,
+      col,
+      property: edit.property,
+      value: edit.value,
+      failureReason,
+    })
+
+    if (!result.success) {
+      this.channel.send({
+        type: 'edit_status',
+        editId: edit.editId,
+        status: 'failed',
+        reason: result.reason,
+      })
+      return
+    }
+
+    if (this.undoStack) {
+      this.undoStack.push({ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent })
+    }
+
+    this.verifier.trackEdit({
+      editId: edit.editId,
+      filePath: resolvedPath,
+      expectedValue: edit.value,
+      property: edit.property,
+    })
+
+    await this.writeFile(resolvedPath, result.newContent)
+
+    this.channel.send({
+      type: 'edit_status',
+      editId: edit.editId,
+      status: 'done',
+    })
+  }
+
   private async commitCSSModulesRewrite(edit: EditRequest, resolvedCssPath: string, selector: string): Promise<void> {
     this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
     await this.withFileLock(resolvedCssPath, async () => {
@@ -404,7 +483,7 @@ export class EditPipeline {
         this.undoStack.push({ filePath: resolvedCssPath, previousContent: result.oldContent, currentContent: result.newContent })
       }
       this.verifier.trackEdit({ editId: edit.editId, filePath: resolvedCssPath, expectedValue: edit.value, property: edit.property })
-      await this.writeFile(resolvedCssPath, result.newContent)
+      await this.writeFile(resolvedCssPath, result.newContent, { suppressHMR: true })
       this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done' })
     })
   }

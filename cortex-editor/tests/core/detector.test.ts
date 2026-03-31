@@ -134,6 +134,24 @@ describe('StyleDetector', () => {
     })
   })
 
+  describe('Component library detection', () => {
+    it('detects @mantine/core as hasComponentLibrary: true', async () => {
+      writeFixture('package.json', JSON.stringify({
+        dependencies: { '@mantine/core': '^7.0.0' },
+      }))
+      const result = await detector.detect(tmpDir)
+      expect(result.hasComponentLibrary).toBe(true)
+    })
+
+    it('returns hasComponentLibrary: false when no component library', async () => {
+      writeFixture('package.json', JSON.stringify({
+        dependencies: { react: '^18.0.0', 'react-dom': '^18.0.0' },
+      }))
+      const result = await detector.detect(tmpDir)
+      expect(result.hasComponentLibrary).toBe(false)
+    })
+  })
+
   describe('Empty project', () => {
     it('classifies as plain CSS when no signals found', async () => {
       const result = await detector.detect(tmpDir)
