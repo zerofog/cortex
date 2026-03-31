@@ -614,6 +614,18 @@ export class EditPipeline {
   /** Execute a deferred batch: acquire lock, read file, call AI, validate, write, push undo, send status.
    *  Called by DeferredWriter's writeFn — must be public for external wiring. */
   async executeDeferredBatch(batch: BatchedWriteRequest): Promise<{ success: boolean; reason?: string }> {
+    try {
+      return await this._executeDeferredBatchInner(batch)
+    } catch (err) {
+      // Last-resort safety net: if the inner logic throws unexpectedly,
+      // ensure editIds always get a terminal status (never stuck in "writing")
+      const reason = `Unexpected error: ${err instanceof Error ? err.message : String(err)}`
+      this.sendDeferredStatus(batch.editIds, 'failed', reason)
+      return { success: false, reason }
+    }
+  }
+
+  private async _executeDeferredBatchInner(batch: BatchedWriteRequest): Promise<{ success: boolean; reason?: string }> {
     // Check abort before starting
     if (batch.signal.aborted) {
       this.sendDeferredStatus(batch.editIds, 'cancelled', 'Superseded by newer edit')

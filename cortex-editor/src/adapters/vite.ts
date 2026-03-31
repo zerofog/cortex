@@ -547,7 +547,10 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         const deferredWriter = aiWriter
           ? new DeferredWriter({
             coalescingMs: 250,
-            writeFn: async (batch) => pipelineInstance!.executeDeferredBatch(batch),
+            writeFn: async (batch) => {
+              if (!pipelineInstance) return { success: false, reason: 'Pipeline not initialized' }
+              return pipelineInstance.executeDeferredBatch(batch)
+            },
           })
           : undefined
 
