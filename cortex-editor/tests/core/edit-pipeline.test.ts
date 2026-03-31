@@ -5,7 +5,7 @@ import type { TailwindResolver } from '../../src/core/tailwind-resolver.js'
 import type { TailwindRewriter } from '../../src/core/rewriter/tailwind.js'
 import type { HMRVerifier } from '../../src/core/hmr-verifier.js'
 import type { AIWriteResult } from '../../src/core/ai-writer.js'
-import type { DeferredWriter, DeferredEdit } from '../../src/core/deferred-writer.js'
+import type { DeferredWriter, DeferredEdit, BatchedWriteRequest } from '../../src/core/deferred-writer.js'
 
 import { UndoStack } from '../../src/core/session/undo-stack.js'
 import { mockChannel } from '../helpers/mock-channel.js'
@@ -1863,6 +1863,328 @@ describe('EditPipeline', () => {
       // deferredWriter used, aiWriter NOT called
       expect(deferredWriter.enqueued.length).toBeGreaterThanOrEqual(1)
       expect(aiWriter.write).not.toHaveBeenCalled()
+    })
+  })
+
+  // --- executeDeferredBatch ---
+
+  describe('executeDeferredBatch', () => {
+    function mockAIWriter(result: AIWriteResult = {
+      success: true, filePath: '/project/src/App.tsx', oldContent: 'old', newContent: 'new',
+    }): { write: ReturnType<typeof vi.fn> } {
+      return { write: vi.fn().mockResolvedValue(result) }
+    }
+
+    it('happy path: reads file, calls AI, pushes undo, writes file, sends done', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const undoStack = new UndoStack()
+      const aiWriter = mockAIWriter()
+      const readFile = vi.fn().mockResolvedValue('old content')
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        undoStack,
+        readFile,
+        aiWriter: aiWriter as any,
+      })
+
+      const ac = new AbortController()
+      const batch: BatchedWriteRequest = {
+        filePath: '/project/src/App.tsx',
+        line: 14,
+        col: 7,
+        changes: [{ property: 'padding-top', value: '16px' }],
+        editIds: ['e1', 'e2'],
+        failureReason: 'no class',
+        signal: ac.signal,
+      }
+
+      const result = await pipeline.executeDeferredBatch(batch)
+
+      expect(result.success).toBe(true)
+      expect(readFile).toHaveBeenCalledWith('/project/src/App.tsx')
+      expect(aiWriter.write).toHaveBeenCalledTimes(1)
+      expect(aiWriter.write).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filePath: '/project/src/App.tsx',
+          line: 14,
+          col: 7,
+          changes: [{ property: 'padding-top', value: '16px' }],
+        }),
+        expect.objectContaining({ fileContent: 'old content', signal: ac.signal }),
+      )
+      expect(undoStack.canUndo).toBe(true)
+      expect(writeFile).toHaveBeenCalledWith({ kind: 'deferred', filePath: '/project/src/App.tsx', content: 'new' })
+      // done status for all editIds
+      const doneStatuses = channel.sent.filter(
+        m => m.type === 'edit_status' && (m as any).status === 'done',
+      )
+      expect(doneStatuses).toHaveLength(2)
+    })
+
+    it('aborted signal returns failure and sends cancelled status', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const aiWriter = mockAIWriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        aiWriter: aiWriter as any,
+        readFile: vi.fn(),
+      })
+
+      const ac = new AbortController()
+      ac.abort() // pre-abort
+
+      const batch: BatchedWriteRequest = {
+        filePath: '/project/src/App.tsx',
+        line: 14,
+        col: 7,
+        changes: [{ property: 'padding-top', value: '16px' }],
+        editIds: ['e1'],
+        failureReason: 'no class',
+        signal: ac.signal,
+      }
+
+      const result = await pipeline.executeDeferredBatch(batch)
+
+      expect(result.success).toBe(false)
+      expect(result.reason).toBe('aborted')
+      expect(aiWriter.write).not.toHaveBeenCalled()
+      // Status should be 'failed' (cancelled maps to failed)
+      const failedStatuses = channel.sent.filter(
+        m => m.type === 'edit_status' && (m as any).status === 'failed',
+      )
+      expect(failedStatuses).toHaveLength(1)
+      expect((failedStatuses[0] as any).reason).toContain('Superseded')
+    })
+
+    it('AI failure sends failed status for all editIds', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const aiWriter = mockAIWriter({
+        success: false, filePath: '/project/src/App.tsx', reason: 'AI parse error',
+      })
+      const readFile = vi.fn().mockResolvedValue('old content')
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        aiWriter: aiWriter as any,
+        readFile,
+      })
+
+      const ac = new AbortController()
+      const batch: BatchedWriteRequest = {
+        filePath: '/project/src/App.tsx',
+        line: 14,
+        col: 7,
+        changes: [{ property: 'padding-top', value: '16px' }],
+        editIds: ['e1', 'e2', 'e3'],
+        failureReason: 'no class',
+        signal: ac.signal,
+      }
+
+      const result = await pipeline.executeDeferredBatch(batch)
+
+      expect(result.success).toBe(false)
+      expect(result.reason).toBe('AI parse error')
+      const failedStatuses = channel.sent.filter(
+        m => m.type === 'edit_status' && (m as any).status === 'failed',
+      )
+      expect(failedStatuses).toHaveLength(3)
+      for (const s of failedStatuses) {
+        expect((s as any).reason).toBe('AI parse error')
+      }
+    })
+
+    it('returns failure when AI writer is not configured', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        // NO aiWriter
+      })
+
+      const ac = new AbortController()
+      const batch: BatchedWriteRequest = {
+        filePath: '/project/src/App.tsx',
+        line: 14,
+        col: 7,
+        changes: [{ property: 'padding-top', value: '16px' }],
+        editIds: ['e1'],
+        failureReason: 'no class',
+        signal: ac.signal,
+      }
+
+      const result = await pipeline.executeDeferredBatch(batch)
+
+      expect(result.success).toBe(false)
+      expect(result.reason).toContain('AI writer is not configured')
+    })
+
+    it('returns failure when readFile is not configured', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const aiWriter = mockAIWriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        aiWriter: aiWriter as any,
+        // NO readFile
+      })
+
+      const ac = new AbortController()
+      const batch: BatchedWriteRequest = {
+        filePath: '/project/src/App.tsx',
+        line: 14,
+        col: 7,
+        changes: [{ property: 'padding-top', value: '16px' }],
+        editIds: ['e1'],
+        failureReason: 'no class',
+        signal: ac.signal,
+      }
+
+      const result = await pipeline.executeDeferredBatch(batch)
+
+      expect(result.success).toBe(false)
+      expect(result.reason).toContain('Failed to read file')
+    })
+  })
+
+  // --- Undo/Redo cancels deferred writes ---
+
+  describe('undo/redo cancels deferred writes', () => {
+    function mockAIWriter(result: AIWriteResult = {
+      success: true, filePath: '/project/src/App.tsx', oldContent: 'old', newContent: 'new',
+    }): { write: ReturnType<typeof vi.fn> } {
+      return { write: vi.fn().mockResolvedValue(result) }
+    }
+
+    function mockDeferredWriterWithCancel(): DeferredWriter & { enqueued: DeferredEdit[]; cancelledFiles: string[] } {
+      const enqueued: DeferredEdit[] = []
+      const cancelledFiles: string[] = []
+      return {
+        enqueued,
+        cancelledFiles,
+        enqueue(edit: DeferredEdit) { enqueued.push(edit) },
+        cancelForFile(filePath: string) { cancelledFiles.push(filePath) },
+        dispose() {},
+      } as unknown as DeferredWriter & { enqueued: DeferredEdit[]; cancelledFiles: string[] }
+    }
+
+    it('_doUndo cancels deferred writes for the target file', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({
+        'padding-top': { '8px': 'pt-2', '16px': 'pt-4' },
+      })
+      const rewriter = mockRewriter({ success: true, newContent: 'new content' })
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const undoStack = new UndoStack()
+      const deferredWriter = mockDeferredWriterWithCancel()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        undoStack,
+        readFile: vi.fn().mockResolvedValue('new content'),
+        deferredWriter: deferredWriter as any,
+      })
+
+      // Establish baseline
+      pipeline.handleEdit({
+        editId: 'edit-0',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '8px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // Make an edit that gets undo-tracked
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // Undo — should cancel deferred writes for App.tsx
+      await pipeline.handleUndo()
+
+      expect(deferredWriter.cancelledFiles).toContain('/project/src/App.tsx')
+    })
+
+    it('_doRedo cancels deferred writes for the target file', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({
+        'padding-top': { '8px': 'pt-2', '16px': 'pt-4' },
+      })
+      const rewriter = mockRewriter({ success: true, newContent: 'new content' })
+      const verifier = mockVerifier()
+      let lastWritten = 'new content'
+      const writeFile = vi.fn().mockImplementation(async (intent: WriteIntent) => { lastWritten = intent.content })
+      const readFile = vi.fn().mockImplementation(async () => lastWritten)
+      const undoStack = new UndoStack()
+      const deferredWriter = mockDeferredWriterWithCancel()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        undoStack,
+        readFile,
+        deferredWriter: deferredWriter as any,
+      })
+
+      // Establish baseline
+      pipeline.handleEdit({
+        editId: 'edit-0',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '8px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // Make an edit that gets undo-tracked
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // Undo first
+      await pipeline.handleUndo()
+      deferredWriter.cancelledFiles.length = 0 // reset to only observe redo
+
+      // Redo — should cancel deferred writes for App.tsx
+      await pipeline.handleRedo()
+
+      expect(deferredWriter.cancelledFiles).toContain('/project/src/App.tsx')
     })
   })
 })

@@ -114,4 +114,73 @@ describe('DeferredWriter', () => {
 
     expect(writeFn.mock.calls[0][0].editIds).toEqual(['e1', 'e2'])
   })
+
+  describe('cancelForFile', () => {
+    it('cancels pending entries for the specified file', async () => {
+      const writeFn = vi.fn().mockResolvedValue({ success: true })
+      const writer = new DeferredWriter({ coalescingMs: 250, writeFn })
+
+      writer.enqueue({ editId: 'e1', filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '16px', failureReason: 'no class' })
+      writer.enqueue({ editId: 'e2', filePath: '/app/Hero.tsx', line: 5, col: 3, property: 'color', value: 'red', failureReason: 'no class' })
+
+      writer.cancelForFile('/app/App.tsx')
+
+      await vi.advanceTimersByTimeAsync(250)
+
+      // Only Hero.tsx should flush
+      expect(writeFn).toHaveBeenCalledTimes(1)
+      expect(writeFn.mock.calls[0][0].filePath).toBe('/app/Hero.tsx')
+    })
+
+    it('aborts in-flight requests for the specified file', async () => {
+      let abortedSignal: AbortSignal | undefined
+      const writeFn = vi.fn().mockImplementation(async (req) => {
+        abortedSignal = req.signal
+        await new Promise(r => setTimeout(r, 5000))
+        return { success: true }
+      })
+      const writer = new DeferredWriter({ coalescingMs: 100, writeFn })
+
+      writer.enqueue({ editId: 'e1', filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '16px', failureReason: 'no class' })
+      await vi.advanceTimersByTimeAsync(100) // flush fires, now in-flight
+
+      writer.cancelForFile('/app/App.tsx')
+
+      expect(abortedSignal?.aborted).toBe(true)
+    })
+
+    it('does not affect entries for other files', async () => {
+      const writeFn = vi.fn().mockResolvedValue({ success: true })
+      const writer = new DeferredWriter({ coalescingMs: 250, writeFn })
+
+      writer.enqueue({ editId: 'e1', filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '16px', failureReason: 'no class' })
+      writer.enqueue({ editId: 'e2', filePath: '/app/Hero.tsx', line: 5, col: 3, property: 'color', value: 'red', failureReason: 'no class' })
+      writer.enqueue({ editId: 'e3', filePath: '/app/Footer.tsx', line: 10, col: 1, property: 'margin', value: '4px', failureReason: 'no class' })
+
+      writer.cancelForFile('/app/App.tsx')
+
+      await vi.advanceTimersByTimeAsync(250)
+
+      expect(writeFn).toHaveBeenCalledTimes(2)
+      const flushedFiles = writeFn.mock.calls.map((c: any) => c[0].filePath)
+      expect(flushedFiles).toContain('/app/Hero.tsx')
+      expect(flushedFiles).toContain('/app/Footer.tsx')
+      expect(flushedFiles).not.toContain('/app/App.tsx')
+    })
+
+    it('cancels multiple pending entries for the same file (different elements)', async () => {
+      const writeFn = vi.fn().mockResolvedValue({ success: true })
+      const writer = new DeferredWriter({ coalescingMs: 250, writeFn })
+
+      // Two different elements in the same file
+      writer.enqueue({ editId: 'e1', filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '16px', failureReason: 'no class' })
+      writer.enqueue({ editId: 'e2', filePath: '/app/App.tsx', line: 30, col: 5, property: 'color', value: 'red', failureReason: 'no class' })
+
+      writer.cancelForFile('/app/App.tsx')
+
+      await vi.advanceTimersByTimeAsync(250)
+
+      expect(writeFn).not.toHaveBeenCalled()
+    })
+  })
 })

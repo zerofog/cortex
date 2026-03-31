@@ -138,6 +138,23 @@ export class DeferredWriter {
     })
   }
 
+  /** Cancel all pending and in-flight operations for a given file path.
+   *  Used by undo/redo to prevent deferred writes from overwriting restored content. */
+  cancelForFile(filePath: string): void {
+    for (const [key, entry] of this.pending) {
+      if (entry.filePath === filePath) {
+        clearTimeout(entry.timer)
+        this.pending.delete(key)
+      }
+    }
+    for (const [key, controller] of this.inflight) {
+      if (key.startsWith(filePath + ':')) {
+        controller.abort()
+        this.inflight.delete(key)
+      }
+    }
+  }
+
   /** Tear down: clear all pending timers, abort all in-flight requests. */
   dispose(): void {
     this.disposed = true

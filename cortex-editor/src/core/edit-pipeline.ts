@@ -7,7 +7,7 @@ import type { CSSModulesRewriter } from './rewriter/css-modules.js'
 import type { RuntimeCSSResolver } from './rewriter/runtime-resolver.js'
 import type { UndoStack } from './session/undo-stack.js'
 import type { AIWriter } from './ai-writer.js'
-import type { DeferredWriter } from './deferred-writer.js'
+import type { DeferredWriter, BatchedWriteRequest } from './deferred-writer.js'
 
 export interface EditRequest {
   editId: string
@@ -392,6 +392,9 @@ export class EditPipeline {
       return
     }
 
+    // Cancel any pending/in-flight deferred writes for this file
+    this.deferredWriter?.cancelForFile(entry.filePath)
+
     await this.withFileLock(entry.filePath, async () => {
       const current = this.undoStack!.peekUndo()
       if (!current || current.id !== entry.id) return
@@ -431,6 +434,9 @@ export class EditPipeline {
       this.channel.send({ type: 'redo_status', status: 'failed', restoredFile: '', reason: 'Nothing to redo.' })
       return
     }
+
+    // Cancel any pending/in-flight deferred writes for this file
+    this.deferredWriter?.cancelForFile(entry.filePath)
 
     await this.withFileLock(entry.filePath, async () => {
       if (this.readFile) {
@@ -533,6 +539,117 @@ export class EditPipeline {
       await this.writeFile({ kind: 'immediate', filePath: resolvedCssPath, content: result.newContent })
       this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done', strategy: 'immediate' })
     })
+  }
+
+  /** Execute a deferred batch: acquire lock, read file, call AI, validate, write, push undo, send status.
+   *  Called by DeferredWriter's writeFn — must be public for external wiring. */
+  async executeDeferredBatch(batch: BatchedWriteRequest): Promise<{ success: boolean; reason?: string }> {
+    // Check abort before starting
+    if (batch.signal.aborted) {
+      this.sendDeferredStatus(batch.editIds, 'cancelled', 'Superseded by newer edit')
+      return { success: false, reason: 'aborted' }
+    }
+
+    if (!this.aiWriter) {
+      this.sendDeferredStatus(batch.editIds, 'failed', 'AI writer is not configured.')
+      return { success: false, reason: 'AI writer is not configured.' }
+    }
+
+    return this.withFileLockResult(batch.filePath, async () => {
+      // Check abort after lock acquisition (may have waited)
+      if (batch.signal.aborted) {
+        this.sendDeferredStatus(batch.editIds, 'cancelled', 'Superseded by newer edit')
+        return { success: false, reason: 'aborted' }
+      }
+
+      // Read current file content inside lock
+      let fileContent: string
+      try {
+        if (!this.readFile) throw new Error('readFile is not configured')
+        fileContent = await this.readFile(batch.filePath)
+      } catch (err) {
+        const reason = `Failed to read file: ${err instanceof Error ? err.message : String(err)}`
+        this.sendDeferredStatus(batch.editIds, 'failed', reason)
+        return { success: false, reason }
+      }
+
+      // Check abort after file read
+      if (batch.signal.aborted) {
+        this.sendDeferredStatus(batch.editIds, 'cancelled', 'Superseded by newer edit')
+        return { success: false, reason: 'aborted' }
+      }
+
+      // Call AI with content + signal
+      const result = await this.aiWriter!.write({
+        filePath: batch.filePath,
+        line: batch.line,
+        col: batch.col,
+        property: batch.changes[0]!.property,
+        value: batch.changes[0]!.value,
+        changes: batch.changes,
+        failureReason: batch.failureReason,
+      }, { fileContent, signal: batch.signal })
+
+      if (!result.success) {
+        this.sendDeferredStatus(batch.editIds, 'failed', result.reason)
+        return { success: false, reason: result.reason }
+      }
+
+      // Check abort before writing (AI may have returned after supersede)
+      if (batch.signal.aborted) {
+        this.sendDeferredStatus(batch.editIds, 'cancelled', 'Superseded by newer edit')
+        return { success: false, reason: 'aborted' }
+      }
+
+      // Push undo
+      if (this.undoStack) {
+        this.undoStack.push({ filePath: batch.filePath, previousContent: result.oldContent, currentContent: result.newContent })
+      }
+
+      // Track HMR — use last change's property/value for verification
+      const lastChange = batch.changes[batch.changes.length - 1]!
+      this.verifier.trackEdit({
+        editId: batch.editIds[0]!,
+        filePath: batch.filePath,
+        expectedValue: lastChange.value,
+        property: lastChange.property,
+      })
+
+      // Write file
+      await this.writeFile({ kind: 'deferred', filePath: batch.filePath, content: result.newContent })
+
+      // Send done for all coalesced editIds
+      this.sendDeferredStatus(batch.editIds, 'done')
+
+      return { success: true }
+    })
+  }
+
+  private sendDeferredStatus(editIds: string[], status: 'done' | 'failed' | 'cancelled', reason?: string): void {
+    for (const editId of editIds) {
+      this.channel.send({
+        type: 'edit_status',
+        editId,
+        status: status === 'cancelled' ? 'failed' : status,
+        strategy: 'deferred',
+        ...(reason ? { reason } : {}),
+      })
+    }
+  }
+
+  private async withFileLockResult<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.fileLocks.get(filePath) ?? Promise.resolve()
+    let result!: T
+    const next = prev.then(async () => { result = await fn() }, async () => { result = await fn() })
+    this.fileLocks.set(filePath, next)
+    try {
+      await next
+    } finally {
+      if (this.fileLocks.get(filePath) === next) {
+        this.fileLocks.delete(filePath)
+      }
+    }
+    return result
   }
 
   private async withFileLock(filePath: string, fn: () => Promise<void>): Promise<void> {
