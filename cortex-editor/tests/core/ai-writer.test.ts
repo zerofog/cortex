@@ -579,10 +579,12 @@ describe('AIWriter', () => {
 
   it('returns failure when AI response has no code fence', async () => {
     mockReadFile.mockResolvedValueOnce(sampleFile)
-    fetchSpy.mockResolvedValueOnce(new Response(
+    // Mock both attempts (retry on validation failure)
+    const badResponse = () => new Response(
       JSON.stringify({ content: [{ type: 'text', text: 'I cannot make this change.' }] }),
       { status: 200, headers: { 'content-type': 'application/json' } },
-    ))
+    )
+    fetchSpy.mockResolvedValueOnce(badResponse()).mockResolvedValueOnce(badResponse())
 
     const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
     const result = await writer.write({
@@ -598,8 +600,10 @@ describe('AIWriter', () => {
 
   it('returns failure when AI produces syntax error', async () => {
     mockReadFile.mockResolvedValueOnce(sampleFile)
-    // Return code with broken JSX
-    mockClaudeResponse(sampleFile.replace('<div className="pt-4 bg-blue-500 text-white">', '<div className="pt-8 bg-blue-500 text-white"'))
+    // Return code with broken JSX — mock both attempts (retry on validation failure)
+    const brokenCode = sampleFile.replace('<div className="pt-4 bg-blue-500 text-white">', '<div className="pt-8 bg-blue-500 text-white"')
+    mockClaudeResponse(brokenCode)
+    mockClaudeResponse(brokenCode)
 
     const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
     const result = await writer.write({

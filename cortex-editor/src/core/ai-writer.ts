@@ -118,34 +118,49 @@ export class AIWriter {
     const filename = basename(filePath)
     const userPrompt = buildUserPrompt(request, sanitized, startLine, endLine, filename, ext)
 
-    let responseText: string
-    try {
-      responseText = await this.callClaude(userPrompt, signal)
-    } catch (err) {
-      return { success: false, filePath, reason: `AI request failed: ${err instanceof Error ? err.message : String(err)}` }
+    // LLM outputs are stochastic — retry once on validation failure (syntax
+    // errors, missing code fence). The 429 retry in callClaude handles rate
+    // limits; this retry handles AI quality issues.
+    const MAX_ATTEMPTS = 2
+    let lastReason = ''
+
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      if (signal?.aborted) {
+        return { success: false, filePath, reason: 'Aborted before AI call' }
+      }
+
+      let responseText: string
+      try {
+        responseText = await this.callClaude(userPrompt, signal)
+      } catch (err) {
+        return { success: false, filePath, reason: `AI request failed: ${err instanceof Error ? err.message : String(err)}` }
+      }
+
+      if (signal?.aborted) {
+        return { success: false, filePath, reason: 'Aborted after AI response' }
+      }
+
+      const extractedCode = extractCodeFence(responseText)
+      if (extractedCode === null) {
+        lastReason = 'AI response did not contain a code block'
+        continue // retry
+      }
+
+      const newLines = [...lines]
+      const aiLines = extractedCode.split('\n')
+      newLines.splice(startLine - 1, endLine - startLine + 1, ...aiLines)
+      const newContent = newLines.join('\n')
+
+      const validation = validateResult(oldContent, newContent, filePath, request.line)
+      if (!validation.valid) {
+        lastReason = validation.reason
+        continue // retry
+      }
+
+      return { success: true, filePath, oldContent, newContent }
     }
 
-    // Check for abort after AI response returns
-    if (signal?.aborted) {
-      return { success: false, filePath, reason: 'Aborted after AI response' }
-    }
-
-    const extractedCode = extractCodeFence(responseText)
-    if (extractedCode === null) {
-      return { success: false, filePath, reason: 'AI response did not contain a code block' }
-    }
-    // Replace the context window with AI output
-    const newLines = [...lines]
-    const aiLines = extractedCode.split('\n')
-    newLines.splice(startLine - 1, endLine - startLine + 1, ...aiLines)
-    const newContent = newLines.join('\n')
-
-    const validation = validateResult(oldContent, newContent, filePath, request.line)
-    if (!validation.valid) {
-      return { success: false, filePath, reason: validation.reason }
-    }
-
-    return { success: true, filePath, oldContent, newContent }
+    return { success: false, filePath, reason: lastReason }
   }
 
   private async callClaude(userPrompt: string, externalSignal?: AbortSignal): Promise<string> {
