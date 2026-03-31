@@ -20,6 +20,7 @@ export { TailwindResolver } from './core/tailwind-resolver.js'
 export type { ResolvedTheme } from './core/tailwind-resolver.js'
 export { TailwindRewriter } from './core/rewriter/tailwind.js'
 export type { RewriteRequest, RewriteResult } from './core/rewriter/types.js'
+export { ensureTsMorph, findJsxElementAt, cssPropertyToCamelCase } from './core/rewriter/jsx-utils.js'
 export { HMRVerifier } from './core/hmr-verifier.js'
 export type { PendingEdit } from './core/hmr-verifier.js'
 

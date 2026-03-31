@@ -1,0 +1,180 @@
+import { describe, it, expect } from 'vitest'
+import { writeFileSync, mkdirSync, rmSync } from 'fs'
+import { join, dirname } from 'path'
+import { tmpdir } from 'os'
+import { ensureTsMorph, findJsxElementAt, cssPropertyToCamelCase } from '../../../src/core/rewriter/jsx-utils.js'
+
+function createTempFile(content: string): string {
+  const dir = join(tmpdir(), `cortex-jsx-utils-test-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+  mkdirSync(dir, { recursive: true })
+  const filePath = join(dir, 'Test.tsx')
+  writeFileSync(filePath, content)
+  return filePath
+}
+
+function cleanupTempFile(filePath: string): void {
+  try { rmSync(filePath) } catch {}
+  try { rmSync(dirname(filePath), { recursive: true }) } catch {}
+}
+
+describe('cssPropertyToCamelCase', () => {
+  it('converts simple kebab-case to camelCase', () => {
+    expect(cssPropertyToCamelCase('padding-top')).toBe('paddingTop')
+  })
+
+  it('converts multi-segment kebab-case', () => {
+    expect(cssPropertyToCamelCase('background-color')).toBe('backgroundColor')
+  })
+
+  it('converts triple-segment properties', () => {
+    expect(cssPropertyToCamelCase('border-top-width')).toBe('borderTopWidth')
+  })
+
+  it('passes through single-word properties unchanged', () => {
+    expect(cssPropertyToCamelCase('margin')).toBe('margin')
+    expect(cssPropertyToCamelCase('color')).toBe('color')
+    expect(cssPropertyToCamelCase('display')).toBe('display')
+  })
+
+  it('handles -ms- vendor prefix as lowercase ms', () => {
+    expect(cssPropertyToCamelCase('-ms-transform')).toBe('msTransform')
+    expect(cssPropertyToCamelCase('-ms-flex-align')).toBe('msFlexAlign')
+  })
+
+  it('handles -webkit- vendor prefix', () => {
+    expect(cssPropertyToCamelCase('-webkit-transform')).toBe('WebkitTransform')
+    expect(cssPropertyToCamelCase('-webkit-backdrop-filter')).toBe('WebkitBackdropFilter')
+  })
+
+  it('handles -moz- vendor prefix', () => {
+    expect(cssPropertyToCamelCase('-moz-appearance')).toBe('MozAppearance')
+  })
+
+  it('passes through CSS custom properties unchanged', () => {
+    expect(cssPropertyToCamelCase('--my-var')).toBe('--my-var')
+    expect(cssPropertyToCamelCase('--spacing-lg')).toBe('--spacing-lg')
+    expect(cssPropertyToCamelCase('--color-primary')).toBe('--color-primary')
+  })
+
+  it('handles already-camelCase input', () => {
+    expect(cssPropertyToCamelCase('paddingTop')).toBe('paddingTop')
+  })
+})
+
+describe('ensureTsMorph', () => {
+  it('returns ts-morph module with Project and SyntaxKind', async () => {
+    const mod = await ensureTsMorph()
+    expect(mod.Project).toBeDefined()
+    expect(mod.SyntaxKind).toBeDefined()
+    expect(typeof mod.SyntaxKind.JsxOpeningElement).toBe('number')
+  })
+
+  it('returns the same instance on repeated calls (singleton)', async () => {
+    const mod1 = await ensureTsMorph()
+    const mod2 = await ensureTsMorph()
+    expect(mod1).toBe(mod2)
+  })
+})
+
+describe('findJsxElementAt', () => {
+  it('finds a self-closing JSX element at line:col', async () => {
+    const source = `export function App() {\n  return <img src="logo.png" />\n}`
+    const filePath = createTempFile(source)
+    try {
+      const mod = await ensureTsMorph()
+      const project = new mod.Project({
+        useInMemoryFileSystem: false,
+        compilerOptions: { jsx: 4, allowJs: true },
+        skipAddingFilesFromTsConfig: true,
+      })
+      const sourceFile = project.createSourceFile(filePath, source, { overwrite: true })
+      const element = findJsxElementAt(sourceFile, 2, 10, mod.SyntaxKind)
+      expect(element).not.toBeNull()
+      expect(element!.getText()).toContain('img')
+    } finally {
+      cleanupTempFile(filePath)
+    }
+  })
+
+  it('finds an opening JSX element at line:col', async () => {
+    const source = `export function App() {\n  return <div className="hero">Hello</div>\n}`
+    const filePath = createTempFile(source)
+    try {
+      const mod = await ensureTsMorph()
+      const project = new mod.Project({
+        useInMemoryFileSystem: false,
+        compilerOptions: { jsx: 4, allowJs: true },
+        skipAddingFilesFromTsConfig: true,
+      })
+      const sourceFile = project.createSourceFile(filePath, source, { overwrite: true })
+      const element = findJsxElementAt(sourceFile, 2, 10, mod.SyntaxKind)
+      expect(element).not.toBeNull()
+      expect(element!.getText()).toContain('div')
+    } finally {
+      cleanupTempFile(filePath)
+    }
+  })
+
+  it('returns null for invalid position', async () => {
+    const source = `const x = 42\n`
+    const filePath = createTempFile(source)
+    try {
+      const mod = await ensureTsMorph()
+      const project = new mod.Project({
+        useInMemoryFileSystem: false,
+        compilerOptions: { jsx: 4, allowJs: true },
+        skipAddingFilesFromTsConfig: true,
+      })
+      const sourceFile = project.createSourceFile(filePath, source, { overwrite: true })
+      const element = findJsxElementAt(sourceFile, 1, 1, mod.SyntaxKind)
+      expect(element).toBeNull()
+    } finally {
+      cleanupTempFile(filePath)
+    }
+  })
+
+  it('returns null for out-of-bounds line', async () => {
+    const source = `export function App() {\n  return <div>Hello</div>\n}`
+    const filePath = createTempFile(source)
+    try {
+      const mod = await ensureTsMorph()
+      const project = new mod.Project({
+        useInMemoryFileSystem: false,
+        compilerOptions: { jsx: 4, allowJs: true },
+        skipAddingFilesFromTsConfig: true,
+      })
+      const sourceFile = project.createSourceFile(filePath, source, { overwrite: true })
+      const element = findJsxElementAt(sourceFile, 999, 1, mod.SyntaxKind)
+      expect(element).toBeNull()
+    } finally {
+      cleanupTempFile(filePath)
+    }
+  })
+
+  it('finds the tightest element when nested', async () => {
+    const source = `export function App() {
+  return (
+    <div className="outer">
+      <span className="inner">Hello</span>
+    </div>
+  )
+}`
+    const filePath = createTempFile(source)
+    try {
+      const mod = await ensureTsMorph()
+      const project = new mod.Project({
+        useInMemoryFileSystem: false,
+        compilerOptions: { jsx: 4, allowJs: true },
+        skipAddingFilesFromTsConfig: true,
+      })
+      const sourceFile = project.createSourceFile(filePath, source, { overwrite: true })
+      // Point at the <span> on line 4
+      const element = findJsxElementAt(sourceFile, 4, 7, mod.SyntaxKind)
+      expect(element).not.toBeNull()
+      expect(element!.getText()).toContain('span')
+      expect(element!.getText()).not.toContain('outer')
+    } finally {
+      cleanupTempFile(filePath)
+    }
+  })
+})

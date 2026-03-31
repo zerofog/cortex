@@ -1,19 +1,10 @@
-import type { Project, SourceFile, JsxOpeningElement, JsxSelfClosingElement, Node, SyntaxKind as SyntaxKindEnum } from 'ts-morph'
+import type { Project, SourceFile, Node, SyntaxKind as SyntaxKindEnum } from 'ts-morph'
 import { readFile } from 'fs/promises'
 import type { RewriteRequest, RewriteResult } from './types.js'
+import { ensureTsMorph, findJsxElementAt } from './jsx-utils.js'
 
 /** Recognized className helper functions (clsx, classnames, cn, cx). */
 const CLASSNAME_HELPERS = new Set(['clsx', 'classnames', 'cn', 'cx'])
-
-/** Lazily loaded ts-morph exports. Cold path — only loaded on first rewrite (~200ms). */
-let _tsMorph: typeof import('ts-morph') | null = null
-
-async function ensureTsMorph(): Promise<typeof import('ts-morph')> {
-  if (!_tsMorph) {
-    _tsMorph = await import('ts-morph')
-  }
-  return _tsMorph
-}
 
 /**
  * Rewrites Tailwind className tokens in JSX source files using ts-morph.
@@ -88,7 +79,7 @@ export class TailwindRewriter {
       sourceFile = project.createSourceFile(filePath, oldContent, { overwrite: true })
     }
 
-    const jsxElement = this.findJsxElementAt(sourceFile, line, col, SK)
+    const jsxElement = findJsxElementAt(sourceFile, line, col, SK)
     if (!jsxElement) {
       return { success: false, filePath, reason: `No JSX element found at ${line}:${col}` }
     }
@@ -134,42 +125,6 @@ export class TailwindRewriter {
     }
 
     return { success: false, filePath, reason: `Unsupported className initializer kind: ${kind}` }
-  }
-
-  private findJsxElementAt(
-    sourceFile: SourceFile,
-    line: number,
-    col: number,
-    SK: typeof SyntaxKindEnum,
-  ): JsxOpeningElement | JsxSelfClosingElement | null {
-    let pos: number
-    try {
-      pos = sourceFile.compilerNode.getPositionOfLineAndCharacter(line - 1, col - 1)
-    } catch {
-      return null
-    }
-
-    const jsxElements = [
-      ...sourceFile.getDescendantsOfKind(SK.JsxOpeningElement),
-      ...sourceFile.getDescendantsOfKind(SK.JsxSelfClosingElement),
-    ]
-
-    let best: JsxOpeningElement | JsxSelfClosingElement | null = null
-    let bestDist = Infinity
-
-    for (const el of jsxElements) {
-      const elStart = el.getStart()
-      const elEnd = el.getEnd()
-      if (pos >= elStart && pos <= elEnd) {
-        const dist = pos - elStart
-        if (dist < bestDist) {
-          bestDist = dist
-          best = el
-        }
-      }
-    }
-
-    return best
   }
 
   private rewriteStringLiteral(
