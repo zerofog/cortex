@@ -630,6 +630,13 @@ export class EditPipeline {
   }
 
   private async _executeDeferredBatchInner(batch: BatchedWriteRequest): Promise<{ success: boolean; reason?: string }> {
+    // Defense-in-depth: re-validate path even though handleEdit already checked.
+    // executeDeferredBatch is public and the path traversed DeferredWriter in between.
+    if (!this.isInsideProjectRoot(batch.filePath)) {
+      this.sendDeferredStatus(batch.editIds, 'failed', 'File path outside project root')
+      return { success: false, reason: 'File path outside project root' }
+    }
+
     // Check abort before starting
     if (batch.signal.aborted) {
       this.sendDeferredStatus(batch.editIds, 'cancelled', 'Superseded by newer edit')
