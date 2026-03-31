@@ -6,13 +6,16 @@ import type { SourceFile, JsxOpeningElement, JsxSelfClosingElement, SyntaxKind a
 
 // ── Lazy ts-morph loader (cold path ~200ms) ─────────────────────
 
-let _tsMorph: typeof import('ts-morph') | null = null
+let _tsMorphPromise: Promise<typeof import('ts-morph')> | null = null
 
-export async function ensureTsMorph(): Promise<typeof import('ts-morph')> {
-  if (!_tsMorph) {
-    _tsMorph = await import('ts-morph')
+export function ensureTsMorph(): Promise<typeof import('ts-morph')> {
+  if (!_tsMorphPromise) {
+    _tsMorphPromise = import('ts-morph').catch(err => {
+      _tsMorphPromise = null // allow retry on failure
+      throw err
+    })
   }
-  return _tsMorph
+  return _tsMorphPromise
 }
 
 // ── JSX element finder ──────────────────────────────────────────
@@ -66,7 +69,13 @@ export function findJsxElementAt(
  *
  * CSS custom properties (`--my-var`) pass through unchanged.
  */
+/** CSS properties whose CSSOM name differs from the simple camelCase conversion. */
+const CSSOM_EXCEPTIONS: Record<string, string> = { 'float': 'cssFloat' }
+
 export function cssPropertyToCamelCase(property: string): string {
+  const exception = CSSOM_EXCEPTIONS[property]
+  if (exception) return exception
+
   // CSS custom properties are used as-is in JavaScript
   if (property.startsWith('--')) return property
 

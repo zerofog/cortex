@@ -48,6 +48,10 @@ describe('cssPropertyToCamelCase', () => {
     expect(cssPropertyToCamelCase('border-top-width')).toBe('borderTopWidth')
   })
 
+  it('maps CSSOM exceptions (float → cssFloat)', () => {
+    expect(cssPropertyToCamelCase('float')).toBe('cssFloat')
+  })
+
   it('passes through single-word properties unchanged', () => {
     expect(cssPropertyToCamelCase('margin')).toBe('margin')
     expect(cssPropertyToCamelCase('color')).toBe('color')
