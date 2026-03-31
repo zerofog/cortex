@@ -11,10 +11,12 @@ export interface AIWriteRequest {
   line: number
   /** 1-based column number of the target JSX element */
   col: number
-  /** CSS property being changed, e.g. 'padding-top' */
+  /** Single property change (legacy — used when changes[] is absent) */
   property: string
-  /** Target CSS value, e.g. '16px' */
+  /** Single value (legacy — used when changes[] is absent) */
   value: string
+  /** Batched property changes. When present, property/value above are ignored. */
+  changes?: Array<{ property: string; value: string }>
   /** Why the deterministic path failed — passed to AI as context */
   failureReason: string
 }
@@ -85,15 +87,19 @@ export class AIWriter {
     this.apiBaseUrl = options.apiBaseUrl ?? DEFAULT_API_BASE
   }
 
-  async write(request: AIWriteRequest): Promise<AIWriteResult> {
+  async write(request: AIWriteRequest, fileContent?: string): Promise<AIWriteResult> {
     const { filePath } = request
 
-    // Read current file content
+    // Use provided content or read from disk
     let oldContent: string
-    try {
-      oldContent = await this.readFile(filePath)
-    } catch (err) {
-      return { success: false, filePath, reason: `Failed to read file: ${err instanceof Error ? err.message : String(err)}` }
+    if (fileContent !== undefined) {
+      oldContent = fileContent
+    } else {
+      try {
+        oldContent = await this.readFile(filePath)
+      } catch (err) {
+        return { success: false, filePath, reason: `Failed to read file: ${err instanceof Error ? err.message : String(err)}` }
+      }
     }
 
     const lines = oldContent.split('\n')
@@ -230,7 +236,11 @@ export function buildUserPrompt(
     })
     .join('\n')
 
-  return `TASK: Set \`${request.property}: ${request.value}\` on the element at line ${request.line} (marked with ←).
+  const changesList = request.changes
+    ? request.changes.map(c => `\`${c.property}: ${c.value}\``).join(', ')
+    : `\`${request.property}: ${request.value}\``
+
+  return `TASK: Set ${changesList} on the element at line ${request.line} (marked with ←).
 
 CONTEXT: ${request.failureReason}
 

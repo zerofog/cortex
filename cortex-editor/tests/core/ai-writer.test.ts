@@ -56,6 +56,39 @@ describe('buildUserPrompt', () => {
     expect(prompt).toContain('App.tsx')
     expect(prompt).toContain('```tsx')
   })
+
+  it('formats multiple changes from changes[] array', () => {
+    const request = {
+      filePath: '/project/src/App.tsx',
+      line: 10,
+      col: 5,
+      property: 'padding-top',
+      value: '16px',
+      failureReason: 'Cannot resolve Tailwind class',
+      changes: [
+        { property: 'padding-top', value: '24px' },
+        { property: 'margin-left', value: '8px' },
+      ],
+    }
+    const prompt = buildUserPrompt(request, '<div className="pt-4">', 8, 12, 'App.tsx', 'tsx')
+    expect(prompt).toContain('padding-top: 24px')
+    expect(prompt).toContain('margin-left: 8px')
+    // Should NOT include the legacy single-property format
+    expect(prompt).not.toContain('padding-top: 16px')
+  })
+
+  it('falls back to property/value when changes[] is absent', () => {
+    const request = {
+      filePath: '/project/src/App.tsx',
+      line: 10,
+      col: 5,
+      property: 'padding-top',
+      value: '16px',
+      failureReason: 'test',
+    }
+    const prompt = buildUserPrompt(request, '<div className="pt-4">', 8, 12, 'App.tsx', 'tsx')
+    expect(prompt).toContain('`padding-top: 16px`')
+  })
 })
 
 describe('sanitizeForPrompt', () => {
@@ -567,6 +600,75 @@ describe('AIWriter', () => {
     expect(result.success).toBe(false)
     if (!result.success) {
       expect(result.reason.toLowerCase()).toMatch(/abort/)
+    }
+  })
+
+  it('handles multiple property changes via changes[] array', async () => {
+    mockReadFile.mockResolvedValueOnce(sampleFile)
+    const modifiedSnippet = sampleFile
+      .split('\n')
+      .map(l => l.replace(
+        'className="pt-4 bg-blue-500 text-white"',
+        'className="pt-4 bg-blue-500 text-white" style={{ paddingTop: \'24px\', marginLeft: \'8px\' }}',
+      ))
+      .join('\n')
+    mockClaudeResponse(modifiedSnippet)
+
+    const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
+    const result = await writer.write({
+      filePath: '/project/src/Hero.tsx',
+      line: 5,
+      col: 5,
+      property: 'padding-top',
+      value: '24px',
+      failureReason: 'Cannot resolve Tailwind class',
+      changes: [
+        { property: 'padding-top', value: '24px' },
+        { property: 'margin-left', value: '8px' },
+      ],
+    })
+
+    expect(result.success).toBe(true)
+
+    // Verify the prompt sent to Claude contains both properties
+    const [, options] = fetchSpy.mock.calls[0]!
+    const body = JSON.parse((options as RequestInit).body as string)
+    const userPrompt: string = body.messages[0].content
+    expect(userPrompt).toContain('padding-top')
+    expect(userPrompt).toContain('24px')
+    expect(userPrompt).toContain('margin-left')
+    expect(userPrompt).toContain('8px')
+    // Should use multi-property format (comma-separated), not single-property
+    expect(userPrompt).toMatch(/^TASK: Set `padding-top: 24px`, `margin-left: 8px`/m)
+  })
+
+  it('uses fileContent when provided instead of reading file', async () => {
+    const customContent = sampleFile.replace('Welcome', 'Custom')
+    const modifiedSnippet = customContent
+      .split('\n')
+      .map(l => l.replace('pt-4', 'pt-8'))
+      .join('\n')
+    mockClaudeResponse(modifiedSnippet)
+
+    const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
+    const result = await writer.write(
+      {
+        filePath: '/project/src/Hero.tsx',
+        line: 5,
+        col: 5,
+        property: 'padding-top',
+        value: '32px',
+        failureReason: 'test',
+      },
+      customContent,
+    )
+
+    expect(result.success).toBe(true)
+    // readFile should NOT have been called
+    expect(mockReadFile).not.toHaveBeenCalled()
+    if (result.success) {
+      expect(result.oldContent).toBe(customContent)
+      expect(result.newContent).toContain('pt-8')
     }
   })
 
