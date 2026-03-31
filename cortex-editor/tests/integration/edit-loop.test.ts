@@ -5,6 +5,9 @@ import { TailwindRewriter } from '../../src/core/rewriter/tailwind.js'
 import { HMRVerifier } from '../../src/core/hmr-verifier.js'
 import { CSSModulesRewriter } from '../../src/core/rewriter/css-modules.js'
 import { UndoStack } from '../../src/core/session/undo-stack.js'
+import { DeferredWriter } from '../../src/core/deferred-writer.js'
+import type { AIWriter } from '../../src/core/ai-writer.js'
+import type { AIWriteRequest, AIWriteResult } from '../../src/core/ai-writer.js'
 import { mockChannel } from '../helpers/mock-channel.js'
 import { writeFileSync, readFileSync, mkdirSync, rmSync } from 'fs'
 import { writeFile as fsWriteFile, readFile as fsReadFile } from 'fs/promises'
@@ -370,6 +373,312 @@ describe('CSS Modules edit loop integration', () => {
       expect(undoStack.undoCount).toBe(2)
 
       cssModulesRewriter.dispose()
+      rewriter.dispose()
+      verifier.dispose()
+      pipeline.dispose()
+    } finally {
+      try { rmSync(tempDir, { recursive: true }) } catch {}
+    }
+  })
+})
+
+// ── Helpers for deferred AI edit tests ────────────────────────────
+
+/**
+ * Create a mock AIWriter that simulates a delay and applies a simple style edit.
+ * Respects abort signals: rejects with AbortError if signal fires during delay.
+ */
+function createMockAIWriter(opts: {
+  delayMs: number
+  onCall?: (request: AIWriteRequest, signal?: AbortSignal) => void
+}): AIWriter {
+  return {
+    async write(
+      request: AIWriteRequest,
+      options?: { fileContent?: string; signal?: AbortSignal },
+    ): Promise<AIWriteResult> {
+      const { filePath } = request
+      const signal = options?.signal
+
+      opts.onCall?.(request, signal)
+
+      // Check abort before starting
+      if (signal?.aborted) {
+        return { success: false, filePath, reason: 'Aborted before AI call' }
+      }
+
+      // Simulate AI processing delay with abort support
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, opts.delayMs)
+        if (signal) {
+          const onAbort = () => {
+            clearTimeout(timer)
+            reject(new DOMException('This operation was aborted', 'AbortError'))
+          }
+          signal.addEventListener('abort', onAbort, { once: true })
+        }
+      }).catch((err) => {
+        // Re-throw to match real AIWriter behavior: callClaude throws,
+        // write() catches and returns { success: false, reason: 'AI request failed: ...' }
+        throw err
+      }).catch(() => {
+        // Swallow — we'll check signal.aborted below
+      })
+
+      // After delay, check if aborted (matches real AIWriter flow)
+      if (signal?.aborted) {
+        return { success: false, filePath, reason: 'AI request failed: This operation was aborted' }
+      }
+
+      // Apply mock edit: inject/update style props from the changes array
+      const oldContent = options?.fileContent ?? ''
+      const changes = request.changes ?? [{ property: request.property, value: request.value }]
+      const styleEntries = changes.map(c => {
+        const camel = c.property.replace(/-([a-z])/g, (_, l) => l.toUpperCase())
+        return `${camel}: '${c.value}'`
+      })
+      const styleStr = `style={{ ${styleEntries.join(', ')} }}`
+
+      // Simple replacement: insert style before the closing > of the target JSX element
+      let newContent = oldContent
+      const lines = oldContent.split('\n')
+      const targetIdx = request.line - 1
+      if (targetIdx >= 0 && targetIdx < lines.length) {
+        const line = lines[targetIdx]!
+        // If line already has style={{, replace it
+        if (line.includes('style={{')) {
+          lines[targetIdx] = line.replace(/style=\{\{[^}]*\}\}/, styleStr)
+        } else {
+          // Insert style before the closing >
+          lines[targetIdx] = line.replace(/>/, ` ${styleStr}>`)
+        }
+        newContent = lines.join('\n')
+      }
+
+      return { success: true, filePath, oldContent, newContent }
+    },
+  } as unknown as AIWriter
+}
+
+// ── Deferred AI edit integration tests ────────────────────────────
+
+describe('Deferred AI edit integration', () => {
+  it('coalesced batch succeeds through full pipeline', async () => {
+    const tempDir = join(tmpdir(), `cortex-deferred-coalesce-${Date.now()}`)
+    mkdirSync(tempDir, { recursive: true })
+
+    try {
+      const filePath = join(tempDir, 'App.tsx')
+      const source = `export function App() {
+  return <div>Hello</div>
+}`
+      writeFileSync(filePath, source)
+
+      const channel = mockChannel()
+      const resolver = TailwindResolver.fromTheme({ spacing: {} })
+      const rewriter = new TailwindRewriter()
+      const verifier = new HMRVerifier(channel)
+      const undoStack = new UndoStack()
+
+      let aiCallCount = 0
+      let lastRequest: AIWriteRequest | undefined
+      const mockAI = createMockAIWriter({
+        delayMs: 10,
+        onCall: (req) => { aiCallCount++; lastRequest = req },
+      })
+
+      // Create pipeline first, then wire DeferredWriter with pipeline.executeDeferredBatch
+      const pipeline = new EditPipeline({
+        channel,
+        resolver,
+        rewriter,
+        verifier,
+        writeFile: (intent) => fsWriteFile(intent.filePath, intent.content, 'utf-8'),
+        readFile: (p) => fsReadFile(p, 'utf-8'),
+        projectRoot: tempDir,
+        debounceMs: 50,
+        aiWriter: mockAI,
+        // detector with no TW / no CSS Modules → pure AI project → bypass debounce
+        detector: { hasCSSModules: false, hasTailwind: false },
+        undoStack,
+        deferredWriter: undefined as unknown as DeferredWriter, // placeholder, set below
+      })
+
+      // Wire DeferredWriter → pipeline.executeDeferredBatch
+      const deferredWriter = new DeferredWriter({
+        coalescingMs: 50,
+        writeFn: (batch) => pipeline.executeDeferredBatch(batch),
+      })
+      // Inject the deferredWriter into the pipeline (it's readonly, so use Object.assign)
+      Object.assign(pipeline, { deferredWriter })
+
+      // Send 3 rapid edits for different properties on the same element
+      const sourceRef = `${filePath}:2:10`
+
+      pipeline.handleEdit({
+        editId: 'batch-1',
+        source: sourceRef,
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+      pipeline.handleEdit({
+        editId: 'batch-2',
+        source: sourceRef,
+        property: 'margin-left',
+        value: '8px',
+        elementSelector: 'div',
+      })
+      pipeline.handleEdit({
+        editId: 'batch-3',
+        source: sourceRef,
+        property: 'font-size',
+        value: '14px',
+        elementSelector: 'div',
+      })
+
+      // Wait for coalescing (50ms) + AI call (10ms) + some buffer
+      await waitFor(() => channel.sent.some(
+        m => m.type === 'edit_status' && (m as { status: string }).status === 'done'
+      ), 3000)
+
+      // Verify: only 1 AI call, with all 3 properties coalesced
+      expect(aiCallCount).toBe(1)
+      expect(lastRequest!.changes).toHaveLength(3)
+      expect(lastRequest!.changes!.map(c => c.property)).toEqual(
+        expect.arrayContaining(['padding-top', 'margin-left', 'font-size'])
+      )
+
+      // Verify: file was written with the mock's style injection
+      const newContent = readFileSync(filePath, 'utf-8')
+      expect(newContent).toContain('style={{')
+      expect(newContent).toContain("paddingTop: '16px'")
+      expect(newContent).toContain("marginLeft: '8px'")
+      expect(newContent).toContain("fontSize: '14px'")
+
+      // Verify: all 3 editIds got 'writing' + 'done' status
+      const statusMsgs = channel.sent.filter(m => m.type === 'edit_status') as Array<{ type: string; editId: string; status: string }>
+      const doneIds = statusMsgs.filter(m => m.status === 'done').map(m => m.editId)
+      expect(doneIds).toContain('batch-1')
+      expect(doneIds).toContain('batch-2')
+      expect(doneIds).toContain('batch-3')
+
+      // Verify: undo stack recorded the change
+      expect(undoStack.canUndo).toBe(true)
+
+      deferredWriter.dispose()
+      rewriter.dispose()
+      verifier.dispose()
+      pipeline.dispose()
+    } finally {
+      try { rmSync(tempDir, { recursive: true }) } catch {}
+    }
+  })
+
+  it('abort during AI call sends cancelled status, not generic failure', async () => {
+    const tempDir = join(tmpdir(), `cortex-deferred-abort-${Date.now()}`)
+    mkdirSync(tempDir, { recursive: true })
+
+    try {
+      const filePath = join(tempDir, 'App.tsx')
+      const source = `export function App() {
+  return <div>Hello</div>
+}`
+      writeFileSync(filePath, source)
+
+      const channel = mockChannel()
+      const resolver = TailwindResolver.fromTheme({ spacing: {} })
+      const rewriter = new TailwindRewriter()
+      const verifier = new HMRVerifier(channel)
+      const undoStack = new UndoStack()
+
+      let aiCallCount = 0
+      // Slow AI: takes 300ms to respond (gives time for second edit to abort it)
+      const mockAI = createMockAIWriter({
+        delayMs: 300,
+        onCall: () => { aiCallCount++ },
+      })
+
+      const pipeline = new EditPipeline({
+        channel,
+        resolver,
+        rewriter,
+        verifier,
+        writeFile: (intent) => fsWriteFile(intent.filePath, intent.content, 'utf-8'),
+        readFile: (p) => fsReadFile(p, 'utf-8'),
+        projectRoot: tempDir,
+        debounceMs: 50,
+        aiWriter: mockAI,
+        detector: { hasCSSModules: false, hasTailwind: false },
+        undoStack,
+        deferredWriter: undefined as unknown as DeferredWriter,
+      })
+
+      const deferredWriter = new DeferredWriter({
+        coalescingMs: 50,
+        writeFn: (batch) => pipeline.executeDeferredBatch(batch),
+      })
+      Object.assign(pipeline, { deferredWriter })
+
+      const sourceRef = `${filePath}:2:10`
+
+      // ── Batch 1: send an edit, wait for flush → AI call starts (slow) ──
+      pipeline.handleEdit({
+        editId: 'first-1',
+        source: sourceRef,
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+
+      // Wait for coalescing to fire and AI call to start
+      await waitFor(() => aiCallCount >= 1, 2000)
+
+      // ── Batch 2: send another edit for the same element → aborts batch 1 ──
+      pipeline.handleEdit({
+        editId: 'second-1',
+        source: sourceRef,
+        property: 'padding-top',
+        value: '24px',
+        elementSelector: 'div',
+      })
+
+      // Wait for the second batch to complete
+      await waitFor(() => {
+        const doneMessages = channel.sent.filter(
+          m => m.type === 'edit_status' && (m as { status: string }).status === 'done'
+        )
+        return doneMessages.length > 0
+      }, 3000)
+
+      // Give a moment for all status messages to arrive
+      await new Promise(r => setTimeout(r, 50))
+
+      const statusMsgs = channel.sent.filter(m => m.type === 'edit_status') as Array<{
+        type: string; editId: string; status: string; reason?: string; strategy?: string
+      }>
+
+      // ── Verify first batch: cancelled (not generic failure) ──
+      const firstBatchStatuses = statusMsgs.filter(m => m.editId === 'first-1')
+      // Should have 'writing' and then 'failed' with "Superseded" reason
+      const firstFailed = firstBatchStatuses.find(m => m.status === 'failed')
+      expect(firstFailed).toBeDefined()
+      expect(firstFailed!.reason).toContain('Superseded')
+
+      // ── Verify second batch: completed successfully ──
+      const secondBatchStatuses = statusMsgs.filter(m => m.editId === 'second-1')
+      const secondDone = secondBatchStatuses.find(m => m.status === 'done')
+      expect(secondDone).toBeDefined()
+
+      // ── Verify file has the SECOND batch's value, not the first ──
+      const finalContent = readFileSync(filePath, 'utf-8')
+      expect(finalContent).toContain("paddingTop: '24px'")
+      expect(finalContent).not.toContain("paddingTop: '16px'")
+
+      // ── Verify 2 AI calls total (first aborted, second succeeded) ──
+      expect(aiCallCount).toBe(2)
+
+      deferredWriter.dispose()
       rewriter.dispose()
       verifier.dispose()
       pipeline.dispose()

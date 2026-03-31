@@ -737,6 +737,12 @@ export class EditPipeline {
       }, { fileContent, signal: batch.signal })
 
       if (!result.success) {
+        // Abort during AI call: the signal fired while fetch was in-flight.
+        // Treat as cancellation, not failure — a newer edit superseded this one.
+        if (batch.signal.aborted) {
+          this.sendDeferredStatus(batch.editIds, 'cancelled', 'Superseded by newer edit')
+          return { success: false, reason: 'aborted' }
+        }
         // "No changes" means the file already has the desired content — this happens
         // when a previous coalesced batch already wrote the same changes. The file is
         // correct, so treat as success rather than confusing the user with an error.
