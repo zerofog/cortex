@@ -182,5 +182,34 @@ describe('DeferredWriter', () => {
 
       expect(writeFn).not.toHaveBeenCalled()
     })
+
+    it('returns cancelled editIds from pending entries', () => {
+      const writeFn = vi.fn().mockResolvedValue({ success: true })
+      const writer = new DeferredWriter({ coalescingMs: 250, writeFn })
+
+      // Two elements with multiple coalesced edits
+      writer.enqueue({ editId: 'e1', filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '16px', failureReason: 'no class' })
+      writer.enqueue({ editId: 'e2', filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '24px', failureReason: 'no class' })
+      writer.enqueue({ editId: 'e3', filePath: '/app/App.tsx', line: 30, col: 5, property: 'color', value: 'red', failureReason: 'no class' })
+      // Different file — should NOT be returned
+      writer.enqueue({ editId: 'e4', filePath: '/app/Hero.tsx', line: 5, col: 3, property: 'color', value: 'blue', failureReason: 'no class' })
+
+      const cancelledIds = writer.cancelForFile('/app/App.tsx')
+
+      expect(cancelledIds).toEqual(expect.arrayContaining(['e1', 'e2', 'e3']))
+      expect(cancelledIds).toHaveLength(3)
+      expect(cancelledIds).not.toContain('e4')
+    })
+
+    it('returns empty array when no pending entries match', () => {
+      const writeFn = vi.fn().mockResolvedValue({ success: true })
+      const writer = new DeferredWriter({ coalescingMs: 250, writeFn })
+
+      writer.enqueue({ editId: 'e1', filePath: '/app/Hero.tsx', line: 5, col: 3, property: 'color', value: 'red', failureReason: 'no class' })
+
+      const cancelledIds = writer.cancelForFile('/app/App.tsx')
+
+      expect(cancelledIds).toEqual([])
+    })
   })
 })

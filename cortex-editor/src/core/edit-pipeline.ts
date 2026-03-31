@@ -480,7 +480,8 @@ export class EditPipeline {
     }
 
     // Cancel any pending/in-flight deferred writes for this file
-    this.deferredWriter?.cancelForFile(entry.filePath)
+    const cancelledIds = this.deferredWriter?.cancelForFile(entry.filePath) ?? []
+    this.sendDeferredStatus(cancelledIds, 'cancelled', 'Cancelled by undo')
 
     await this.withFileLock(entry.filePath, async () => {
       const current = this.undoStack!.peekUndo()
@@ -523,7 +524,8 @@ export class EditPipeline {
     }
 
     // Cancel any pending/in-flight deferred writes for this file
-    this.deferredWriter?.cancelForFile(entry.filePath)
+    const cancelledIds = this.deferredWriter?.cancelForFile(entry.filePath) ?? []
+    this.sendDeferredStatus(cancelledIds, 'cancelled', 'Cancelled by redo')
 
     await this.withFileLock(entry.filePath, async () => {
       if (this.readFile) {
@@ -688,22 +690,29 @@ export class EditPipeline {
         return { success: false, reason: 'aborted' }
       }
 
-      // Push undo
+      // Write file FIRST — side effects only after successful write
+      try {
+        await this.writeFile({ kind: 'deferred', filePath: batch.filePath, content: result.newContent })
+      } catch (err) {
+        const reason = `Write failed: ${err instanceof Error ? err.message : String(err)}`
+        this.sendDeferredStatus(batch.editIds, 'failed', reason)
+        return { success: false, reason }
+      }
+
+      // Push undo (only after successful write)
       if (this.undoStack) {
         this.undoStack.push({ filePath: batch.filePath, previousContent: result.oldContent, currentContent: result.newContent })
       }
 
-      // Track HMR — use last change's property/value for verification
+      // Track HMR — use last change's property/value for verification.
+      // editId must be the last one to correlate with lastChange (not the first).
       const lastChange = batch.changes[batch.changes.length - 1]!
       this.verifier.trackEdit({
-        editId: batch.editIds[0]!,
+        editId: batch.editIds[batch.editIds.length - 1]!,
         filePath: batch.filePath,
         expectedValue: lastChange.value,
         property: lastChange.property,
       })
-
-      // Write file
-      await this.writeFile({ kind: 'deferred', filePath: batch.filePath, content: result.newContent })
 
       // Send done for all coalesced editIds
       this.sendDeferredStatus(batch.editIds, 'done')
