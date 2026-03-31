@@ -50,6 +50,10 @@ describe('cssPropertyToCamelCase', () => {
     expect(cssPropertyToCamelCase('-moz-appearance')).toBe('MozAppearance')
   })
 
+  it('handles -o- vendor prefix', () => {
+    expect(cssPropertyToCamelCase('-o-transform')).toBe('OTransform')
+  })
+
   it('passes through CSS custom properties unchanged', () => {
     expect(cssPropertyToCamelCase('--my-var')).toBe('--my-var')
     expect(cssPropertyToCamelCase('--spacing-lg')).toBe('--spacing-lg')
@@ -173,6 +177,27 @@ describe('findJsxElementAt', () => {
       expect(element).not.toBeNull()
       expect(element!.getText()).toContain('span')
       expect(element!.getText()).not.toContain('outer')
+    } finally {
+      cleanupTempFile(filePath)
+    }
+  })
+
+  it('returns null when position is in element body text (not the opening tag)', async () => {
+    // data-cortex-source points at the opening tag, not the body.
+    // This documents that positions inside text content (after >) return null.
+    const source = `export function App() {\n  return <div>Hello World</div>\n}`
+    const filePath = createTempFile(source)
+    try {
+      const mod = await ensureTsMorph()
+      const project = new mod.Project({
+        useInMemoryFileSystem: false,
+        compilerOptions: { jsx: 4, allowJs: true },
+        skipAddingFilesFromTsConfig: true,
+      })
+      const sourceFile = project.createSourceFile(filePath, source, { overwrite: true })
+      // col 17 points at "World" — inside the text content, outside <div> opening tag
+      const element = findJsxElementAt(sourceFile, 2, 17, mod.SyntaxKind)
+      expect(element).toBeNull()
     } finally {
       cleanupTempFile(filePath)
     }
