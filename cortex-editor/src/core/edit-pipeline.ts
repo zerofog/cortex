@@ -142,6 +142,14 @@ export class EditPipeline {
         this.sendParseSourceError(edit)
         return
       }
+      if (!isValidCSSProperty(edit.property)) {
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Invalid CSS property: ${edit.property}` })
+        return
+      }
+      if (!isValidCSSValue(edit.value)) {
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Invalid CSS value for ${edit.property}` })
+        return
+      }
       this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
       this.deferredWriter!.enqueue({
         editId: edit.editId,
