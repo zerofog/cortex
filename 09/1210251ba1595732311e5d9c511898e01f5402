@@ -1,0 +1,22 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "091210251ba1595732311e5d9c511898e01f5402",
+  "prompts": {
+    "7d09326090add6f9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1f8c0589-89d5-4a6f-8153-a8fea7b2b879",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 464,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/b7dc52189b8bb99b03d80fabbc594d478be40f64aee7f522bd9779d7f3d35269"
+    }
+  }
+}
