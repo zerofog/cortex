@@ -24,6 +24,9 @@ export interface EditRequest {
   elementSelector: string
   /** From data-cortex-css annotation, e.g. "src/Hero.module.css:.hero,.heroTitle" */
   cssMapping?: string
+  /** Editing scope: 'instance' edits this element only (inline style),
+   *  'all' edits the shared CSS class (affects all instances). */
+  scope?: 'instance' | 'all'
 }
 
 export interface WriteIntent {
