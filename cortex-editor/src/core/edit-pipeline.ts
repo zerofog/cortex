@@ -236,6 +236,8 @@ export class EditPipeline {
   private shouldBypassDebounce(edit: EditRequest): boolean {
     // No DeferredWriter → can't bypass (nothing to enqueue to)
     if (!this.deferredWriter) return false
+    // Instance scope needs debounced path for InlineStyleRewriter routing
+    if (edit.scope === 'instance') return false
     // CSS Modules annotation → always immediate path, need debounce
     if (edit.cssMapping) return false
     // No detector → can't determine framework, use debounce
@@ -270,6 +272,31 @@ export class EditPipeline {
 
     // Layer 1: CSS Modules routing via annotation — bypasses classifyEdit entirely
     if (edit.cssMapping && this.cssModulesRewriter) {
+      // Instance scope: route to InlineStyleRewriter instead of shared CSS rule
+      if (edit.scope === 'instance') {
+        if (this.inlineStyleRewriter) {
+          const handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
+          if (handled) return
+        }
+        // InlineStyleRewriter unavailable or failed — fall through to deferred/AI
+        if (this.deferredWriter) {
+          this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
+          this.deferredWriter.enqueue({
+            editId: edit.editId, filePath: resolvedPath, line, col,
+            property: edit.property, value: edit.value,
+            failureReason: 'Inline style rewrite failed for instance-scoped edit.',
+          })
+          return
+        }
+        if (this.aiWriter) {
+          await this.commitAIWrite(edit, resolvedPath, line, col, 'Inline style rewrite failed for instance-scoped edit.')
+          return
+        }
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'Instance-scoped editing requires InlineStyleRewriter or AI writer.' })
+        return
+      }
+
+      // scope === 'all' or undefined — existing CSSModulesRewriter path
       const mapping = parseCssMapping(edit.cssMapping)
       if (mapping) {
         const resolvedCssPath = resolve(this.projectRoot, mapping.cssFilePath)
@@ -313,8 +340,15 @@ export class EditPipeline {
     if (!edit.cssMapping && this.detector?.hasCSSModules && this.runtimeResolver && this.cssModulesRewriter) {
       const resolved = await this.runtimeResolver.resolve(edit.source, this.projectRoot)
       if (resolved && this.isInsideProjectRoot(resolved.cssFilePath)) {
-        await this.commitCSSModulesRewrite(edit, resolved.cssFilePath, resolved.selector)
-        return
+        // Instance scope: route to InlineStyleRewriter instead of shared CSS rule
+        if (edit.scope === 'instance' && this.inlineStyleRewriter) {
+          const handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
+          if (handled) return
+          // InlineStyleRewriter failed — fall through to deferred/AI below
+        } else {
+          await this.commitCSSModulesRewrite(edit, resolved.cssFilePath, resolved.selector)
+          return
+        }
       }
       // CSS Modules-only project → don't fall through to Tailwind
       if (!this.detector.hasTailwind) {
