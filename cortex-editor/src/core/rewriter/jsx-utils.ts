@@ -1,6 +1,9 @@
 /**
- * Shared JSX utilities for AST-based rewriters (TailwindRewriter, InlineStyleRewriter).
- * Pure functions + module-scoped ts-morph lazy loader.
+ * Shared JSX utilities for AST-based rewriters (TailwindRewriter, InlineStyleRewriter,
+ * ToolApplicator). Pure functions + module-scoped ts-morph lazy loader.
+ *
+ * Scope: JSX/TSX files only. Vue SFC and Svelte templates require framework-specific
+ * compiler plugins and are not supported by these utilities.
  */
 import type { SourceFile, JsxOpeningElement, JsxSelfClosingElement, SyntaxKind as SyntaxKindEnum } from 'ts-morph'
 
@@ -18,9 +21,24 @@ export function ensureTsMorph(): Promise<typeof import('ts-morph')> {
   return _tsMorphPromise
 }
 
+/** Reset the lazy loader for testing. Only available in test environments. */
+export function _resetTsMorphForTesting(): void {
+  if (process.env.NODE_ENV === 'test' || process.env.VITEST) {
+    _tsMorphPromise = null
+  }
+}
+
 // ── JSX element finder ──────────────────────────────────────────
 
-/** Find the tightest JSX element containing the given 1-based line:col position. */
+/**
+ * Find the tightest JSX element containing the given 1-based line:col position.
+ * Uses O(depth) ancestor walk from the position instead of O(n) full-tree scan.
+ *
+ * Note: source annotations (data-cortex-source) are set at build time and may become
+ * stale after file rewrites shift line numbers. If the position doesn't resolve to a
+ * JSX element, this returns null — the caller should handle gracefully (e.g., fail
+ * the edit, wait for HMR to refresh annotations).
+ */
 export function findJsxElementAt(
   sourceFile: SourceFile,
   line: number,
@@ -31,35 +49,25 @@ export function findJsxElementAt(
   try {
     pos = sourceFile.compilerNode.getPositionOfLineAndCharacter(line - 1, col - 1)
   } catch {
-    // getPositionOfLineAndCharacter throws for out-of-bounds line/col.
-    // No other failure mode is known for this TS compiler API.
     return null
   }
 
-  const jsxElements = [
-    ...sourceFile.getDescendantsOfKind(SK.JsxOpeningElement),
-    ...sourceFile.getDescendantsOfKind(SK.JsxSelfClosingElement),
-  ]
-
-  let best: JsxOpeningElement | JsxSelfClosingElement | null = null
-  let bestDist = Infinity
-
-  for (const el of jsxElements) {
-    const elStart = el.getStart()
-    const elEnd = el.getEnd()
-    if (pos >= elStart && pos <= elEnd) {
-      const dist = pos - elStart
-      if (dist < bestDist) {
-        bestDist = dist
-        best = el
-      }
+  let node = sourceFile.getDescendantAtPos(pos)
+  while (node) {
+    const kind = node.getKind()
+    if (kind === SK.JsxOpeningElement || kind === SK.JsxSelfClosingElement) {
+      return node as JsxOpeningElement | JsxSelfClosingElement
     }
+    node = node.getParent()
   }
 
-  return best
+  return null
 }
 
 // ── CSS property name conversion ────────────────────────────────
+
+const CSSOM_EXCEPTIONS: Record<string, string> = { 'float': 'cssFloat' }
+const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 
 /**
  * Convert kebab-case CSS property to camelCase for JSX style objects.
@@ -70,28 +78,25 @@ export function findJsxElementAt(
  * - `-moz-appearance` → `MozAppearance` (capitalized)
  *
  * CSS custom properties (`--my-var`) pass through unchanged.
+ *
+ * Input must be a valid CSS property name (lowercase kebab-case or custom property).
+ * Callers should validate input before calling — `EditPipeline.VALID_PROPERTY` provides
+ * this upstream. Returns the input unchanged if it contains no hyphens.
  */
-/** CSS properties whose CSSOM name differs from the simple camelCase conversion. */
-const CSSOM_EXCEPTIONS: Record<string, string> = { 'float': 'cssFloat' }
-
 export function cssPropertyToCamelCase(property: string): string {
+  if (DANGEROUS_KEYS.has(property)) return property
+
   const exception = CSSOM_EXCEPTIONS[property]
   if (exception) return exception
 
-  // CSS custom properties are used as-is in JavaScript
   if (property.startsWith('--')) return property
 
-  // Vendor prefixes: strip leading '-', then camelCase the rest
-  // -ms-transform → ms-transform → msTransform
-  // -webkit-transform → webkit-transform → WebkitTransform (capitalize non-ms)
   if (property.startsWith('-')) {
     const withoutLeadingDash = property.slice(1)
-    const camel = withoutLeadingDash.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())
-    // -ms- is the only vendor prefix React lowercases
+    const camel = withoutLeadingDash.replace(/-([a-zA-Z])/g, (_, letter: string) => letter.toUpperCase())
     if (withoutLeadingDash.startsWith('ms-')) return camel
-    // All other vendor prefixes get capitalized first letter
     return camel.charAt(0).toUpperCase() + camel.slice(1)
   }
 
-  return property.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())
+  return property.replace(/-([a-zA-Z])/g, (_, letter: string) => letter.toUpperCase())
 }
