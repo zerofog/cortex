@@ -9,6 +9,7 @@ import type { RuntimeCSSResolver } from './rewriter/runtime-resolver.js'
 import type { UndoStack } from './session/undo-stack.js'
 import type { AIWriter } from './ai-writer.js'
 import type { DeferredWriter, BatchedWriteRequest } from './deferred-writer.js'
+import type { InlineStyleRewriter } from './rewriter/inline-style.js'
 import { classifyEdit } from './edit-strategy.js'
 
 export interface EditRequest {
@@ -26,7 +27,7 @@ export interface EditRequest {
 }
 
 export interface WriteIntent {
-  kind: 'immediate' | 'deferred' | 'undo' | 'redo'
+  kind: 'immediate' | 'jsx-immediate' | 'deferred' | 'undo' | 'redo'
   filePath: string
   content: string
 }
@@ -56,6 +57,8 @@ export interface EditPipelineOptions {
   aiWriter?: AIWriter
   /** Deferred writer for batched AI edits with coalescing + cancellation */
   deferredWriter?: DeferredWriter
+  /** Inline style rewriter for deterministic style prop editing (Layer 3.5) */
+  inlineStyleRewriter?: InlineStyleRewriter
 }
 
 const VALID_PROPERTY = /^-{0,2}[a-zA-Z][a-zA-Z0-9-]*$/
@@ -113,6 +116,7 @@ export class EditPipeline {
   private readonly readFile?: (path: string) => Promise<string>
   private readonly aiWriter?: AIWriter
   private readonly deferredWriter?: DeferredWriter
+  private readonly inlineStyleRewriter?: InlineStyleRewriter
   private undoLock = Promise.resolve()
   private disposed = false
 
@@ -134,6 +138,7 @@ export class EditPipeline {
     this.readFile = options.readFile
     this.aiWriter = options.aiWriter
     this.deferredWriter = options.deferredWriter
+    this.inlineStyleRewriter = options.inlineStyleRewriter
   }
 
   handleEdit(edit: EditRequest): void {
@@ -232,6 +237,8 @@ export class EditPipeline {
     if (edit.cssMapping) return false
     // No detector → can't determine framework, use debounce
     if (!this.detector) return false
+    // InlineStyleRewriter provides a deterministic path — use debounce for coalescing
+    if (this.inlineStyleRewriter) return false
     // Pure AI project (no Tailwind, no CSS Modules) → bypass
     if (!this.detector.hasTailwind && !this.detector.hasCSSModules) return true
     // Mixed framework → use debounce, let executeEdit decide
@@ -307,6 +314,16 @@ export class EditPipeline {
       }
       // CSS Modules-only project → don't fall through to Tailwind
       if (!this.detector.hasTailwind) {
+        // Layer 3.5: Inline style rewriter — deterministic fallback
+        if (this.inlineStyleRewriter) {
+          const styleResult = await this.inlineStyleRewriter.rewrite({
+            filePath: resolvedPath, line, col, property: edit.property, value: edit.value,
+          })
+          if (styleResult.success) {
+            await this.commitInlineStyleWrite(edit, resolvedPath, styleResult as { success: true; filePath: string; oldContent: string; newContent: string })
+            return
+          }
+        }
         if (this.deferredWriter) {
           this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
           this.deferredWriter.enqueue({
@@ -326,7 +343,8 @@ export class EditPipeline {
     }
 
     // Strategy-driven early exits (only when detection is available)
-    if (strategy === 'unsupported') {
+    // InlineStyleRewriter provides a fallback — don't bail when it's available
+    if (strategy === 'unsupported' && !this.inlineStyleRewriter) {
       this.channel.send({
         type: 'edit_status',
         editId: edit.editId,
@@ -340,13 +358,24 @@ export class EditPipeline {
     // First edit for a source:property pair has no previousValue — this is the
     // baseline "seed" establishing the current state. Skip silently; the CSS
     // override already shows the preview. File write starts on the next edit.
-    // Only skip seed for the Tailwind deterministic path — AI doesn't need a baseline
-    if (!previousValue && !this.deferredWriter) return
+    // Only skip seed for the Tailwind deterministic path — AI and InlineStyleRewriter don't need a baseline
+    if (!previousValue && !this.deferredWriter && !this.inlineStyleRewriter) return
 
     const newToken = this.resolver.findClass(edit.property, edit.value)
     const oldToken = previousValue ? this.resolver.findClass(edit.property, previousValue) : null
 
     if (!newToken || !oldToken) {
+      // Layer 3.5: Inline style rewriter — only for non-Tailwind projects
+      // (Tailwind projects should not accumulate inline styles)
+      if (this.inlineStyleRewriter && !this.detector?.hasTailwind) {
+        const styleResult = await this.inlineStyleRewriter.rewrite({
+          filePath: resolvedPath, line, col, property: edit.property, value: edit.value,
+        })
+        if (styleResult.success) {
+          await this.commitInlineStyleWrite(edit, resolvedPath, styleResult as { success: true; filePath: string; oldContent: string; newContent: string })
+          return
+        }
+      }
       if (this.deferredWriter) {
         const reason = !newToken
           ? `Cannot resolve Tailwind class for ${edit.property}: ${edit.value}`
@@ -668,6 +697,31 @@ export class EditPipeline {
     })
   }
 
+  /** Inline style write with file lock — used at Points A and C. */
+  private async commitInlineStyleWrite(
+    edit: EditRequest,
+    resolvedPath: string,
+    result: { success: true; filePath: string; oldContent: string; newContent: string },
+  ): Promise<void> {
+    this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
+    await this.withFileLock(resolvedPath, async () => {
+      // Use 'jsx-immediate' — allows HMR (unlike 'immediate' which suppresses it)
+      try {
+        await this.writeFile({ kind: 'jsx-immediate', filePath: resolvedPath, content: result.newContent })
+      } catch (err) {
+        this.channel.send({
+          type: 'edit_status', editId: edit.editId, status: 'failed',
+          reason: `Write failed: ${err instanceof Error ? err.message : String(err)}`,
+        })
+        return
+      }
+      if (this.undoStack) {
+        this.undoStack.push({ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent })
+      }
+      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done', strategy: 'immediate' })
+    })
+  }
+
   /** Execute a deferred batch: acquire lock, read file, call AI, validate, write, push undo, send status.
    *  Called by DeferredWriter's writeFn — must be public for external wiring. */
   async executeDeferredBatch(batch: BatchedWriteRequest): Promise<{ success: boolean; reason?: string }> {
@@ -844,5 +898,6 @@ export class EditPipeline {
     this.lastValues.clear()
     this.fileLocks.clear()
     this.deferredWriter?.dispose()
+    this.inlineStyleRewriter?.dispose()
   }
 }
