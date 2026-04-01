@@ -27,6 +27,8 @@ export interface EditRequest {
   /** Editing scope: 'instance' edits this element only (inline style),
    *  'all' edits the shared CSS class (affects all instances). */
   scope?: 'instance' | 'all'
+  /** Source locations of all shared elements (for scope='all' inline style cleanup). */
+  instanceSources?: string[]
 }
 
 export interface WriteIntent {
@@ -710,6 +712,9 @@ export class EditPipeline {
 
   private async commitCSSModulesRewrite(edit: EditRequest, resolvedCssPath: string, selector: string): Promise<void> {
     this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
+
+    // CSS rewrite inside CSS file lock only
+    let cssSuccess = false
     await this.withFileLock(resolvedCssPath, async () => {
       const result = await this.cssModulesRewriter!.rewrite({
         cssFilePath: resolvedCssPath,
@@ -722,25 +727,30 @@ export class EditPipeline {
         this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: result.reason })
         return
       }
-      // Write file FIRST — side effects only after successful write
       try {
         await this.writeFile({ kind: 'immediate', filePath: resolvedCssPath, content: result.newContent })
       } catch (err) {
         this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Write failed: ${err instanceof Error ? err.message : String(err)}` })
         return
       }
-      // Immediate writes have HMR suppressed — don't track for HMR verification.
       if (this.undoStack) {
         this.undoStack.push({ filePath: resolvedCssPath, previousContent: result.oldContent, currentContent: result.newContent })
       }
+      cssSuccess = true
+      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done', strategy: 'immediate' })
+    })
 
-      // Clean up conflicting inline style when scope='all' — prevents instance
-      // overrides from blocking the class-level edit via CSS specificity.
-      if (edit.scope === 'all' && this.inlineStyleRewriter) {
-        const parsed = this.parseSource(edit.source)
-        if (parsed.ok) {
-          try {
-            const cleanup = await this.inlineStyleRewriter.removeProperty({
+    // Clean up conflicting inline styles on ALL shared elements when scope='all'.
+    // Runs OUTSIDE the CSS lock — each JSX file acquires its own lock to prevent TOCTOU.
+    // Uses instanceSources (all shared element locations) instead of just edit.source.
+    if (cssSuccess && edit.scope === 'all' && this.inlineStyleRewriter) {
+      const sources = edit.instanceSources?.length ? edit.instanceSources : [edit.source]
+      for (const source of sources) {
+        const parsed = this.parseSource(source)
+        if (!parsed.ok) continue
+        try {
+          await this.withFileLock(parsed.resolvedPath, async () => {
+            const cleanup = await this.inlineStyleRewriter!.removeProperty({
               filePath: parsed.resolvedPath, line: parsed.line, col: parsed.col, property: edit.property,
             })
             if (cleanup.success && cleanup.newContent !== cleanup.oldContent) {
@@ -749,12 +759,10 @@ export class EditPipeline {
                 this.undoStack.push({ filePath: parsed.resolvedPath, previousContent: cleanup.oldContent, currentContent: cleanup.newContent })
               }
             }
-          } catch { /* cleanup failure is non-fatal — CSS edit already succeeded */ }
-        }
+          })
+        } catch { /* cleanup failure is non-fatal — CSS edit already succeeded */ }
       }
-
-      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done', strategy: 'immediate' })
-    })
+    }
   }
 
   /**

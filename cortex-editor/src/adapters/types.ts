@@ -64,7 +64,7 @@ export interface ServerChannel {
 export type BrowserToServer =
   | { type: 'init' }
   | { type: 'cortex-closed' }
-  | { type: 'edit'; protocolVersion?: number; editId: string; property: string; value: string; source: string; elementSelector: string; cssMapping?: string; scope?: 'instance' | 'all' }
+  | { type: 'edit'; protocolVersion?: number; editId: string; property: string; value: string; source: string; elementSelector: string; cssMapping?: string; scope?: 'instance' | 'all'; instanceSources?: string[] }
   | { type: 'undo'; protocolVersion?: number; editId?: string }
   | { type: 'redo'; protocolVersion?: number; editId?: string }
   | { type: 'comment'; protocolVersion?: number; elementSource: string; text: string; elementContext?: ElementContext; currentStyles?: Record<string, string>; pinPosition?: { x: number; y: number } }

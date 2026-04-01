@@ -352,7 +352,14 @@ export function Panel({
           value,
           elementSelector: element.tagName.toLowerCase(),
           cssMapping: element.getAttribute('data-cortex-css') ?? undefined,
-          ...(sharedInfo ? { scope: editScope } : {}),
+          ...(sharedInfo ? {
+            scope: editScope,
+            ...(editScope === 'all' ? {
+              instanceSources: sharedInfo.elements
+                .map(el => el.getAttribute('data-cortex-source'))
+                .filter((s): s is string => s !== null),
+            } : {}),
+          } : {}),
         })
       }
     }
