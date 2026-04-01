@@ -457,6 +457,7 @@ function createMockAIWriter(opts: {
 
       return { success: true, filePath, oldContent, newContent }
     },
+    dispose() {},
   } as unknown as AIWriter
 }
 
