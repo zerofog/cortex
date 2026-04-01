@@ -256,18 +256,33 @@
   white-space: nowrap;
 }
 
-.cortex-panel__scope-select {
-  background: var(--well);
+.cortex-panel__scope-toggle {
+  display: flex;
   border: 1px solid var(--rule);
   border-radius: var(--radius-sm);
-  color: var(--ink);
-  font-size: var(--text-sm);
-  padding: var(--sp-1) var(--sp-3);
-  cursor: pointer;
-  min-width: 0;
+  overflow: hidden;
 }
 
-.cortex-panel__scope-select:hover {
+.cortex-panel__scope-btn {
+  background: var(--well);
+  border: none;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  padding: 2px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cortex-panel__scope-btn:not(:last-child) {
+  border-right: 1px solid var(--rule);
+}
+
+.cortex-panel__scope-btn--active {
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+}
+
+.cortex-panel__scope-btn:hover:not(.cortex-panel__scope-btn--active) {
   background: var(--well-hover);
 }
 

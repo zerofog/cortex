@@ -29,6 +29,41 @@ import { SectionGroup } from './SectionGroup.js'
 import { CollapsibleSection } from './CollapsibleSection.js'
 import type { CortexChannel } from '../../adapters/types.js'
 
+// ── Blast-radius highlight utilities ──────────────────────────────────
+// These operate on the REAL page DOM (outside Shadow DOM) via a data attribute.
+// A <style> injected into the page <head> provides the visual treatment; the
+// attribute toggle is batched inside requestAnimationFrame to prevent layout thrashing.
+
+const HIGHLIGHT_ATTR = 'data-cortex-blast-radius'
+let blastRadiusStyle: HTMLStyleElement | null = null
+
+function ensureBlastRadiusStyle(): void {
+  if (blastRadiusStyle) return
+  blastRadiusStyle = document.createElement('style')
+  blastRadiusStyle.setAttribute('data-cortex-blast-radius-style', '')
+  blastRadiusStyle.textContent = `[${HIGHLIGHT_ATTR}] { outline: 2px dashed #f97316 !important; outline-offset: 2px !important; }`
+  document.head.appendChild(blastRadiusStyle)
+}
+
+function highlightSharedElements(info: SharedClassInfo, selected: HTMLElement | null): void {
+  ensureBlastRadiusStyle()
+  requestAnimationFrame(() => {
+    for (const el of info.elements) {
+      if (el === selected) continue // Skip selected element — already has SelectionOverlay
+      el.setAttribute(HIGHLIGHT_ATTR, '')
+    }
+  })
+}
+
+function clearHighlights(): void {
+  requestAnimationFrame(() => {
+    const highlighted = document.querySelectorAll(`[${HIGHLIGHT_ATTR}]`)
+    for (const el of highlighted) {
+      el.removeAttribute(HIGHLIGHT_ATTR)
+    }
+  })
+}
+
 /**
  * All CSS properties checked for dimming (default vs forced-state comparison).
  * Covers every section's managed properties.
@@ -159,7 +194,9 @@ export function Panel({
 
   // Detect shared CSS classes when a new element is selected (ZF0-1018).
   // Resets scope to 'instance' (safe default) on every element change.
+  // Clear stale blast-radius highlights from previous selection (ZF0-1019).
   useEffect(() => {
+    clearHighlights()
     if (element) {
       setSharedInfo(detectSharedClasses(element))
     } else {
@@ -476,14 +513,22 @@ export function Panel({
           <span class="cortex-panel__scope-label">
             Shared by {sharedInfo.count} elements
           </span>
-          <select
-            class="cortex-panel__scope-select"
-            value={editScope}
-            onChange={(e) => setEditScope((e.target as HTMLSelectElement).value as 'instance' | 'all')}
-          >
-            <option value="instance">This element</option>
-            <option value="all">All {sharedInfo.count} elements</option>
-          </select>
+          <div class="cortex-panel__scope-toggle">
+            <button
+              class={`cortex-panel__scope-btn ${editScope === 'instance' ? 'cortex-panel__scope-btn--active' : ''}`}
+              onClick={() => setEditScope('instance')}
+            >
+              This element
+            </button>
+            <button
+              class={`cortex-panel__scope-btn ${editScope === 'all' ? 'cortex-panel__scope-btn--active' : ''}`}
+              onClick={() => setEditScope('all')}
+              onMouseEnter={() => highlightSharedElements(sharedInfo, element)}
+              onMouseLeave={() => clearHighlights()}
+            >
+              All {sharedInfo.count}
+            </button>
+          </div>
         </div>
       )}
       <div class="cortex-panel__body" ref={bodyRef} key={contentKey}>
