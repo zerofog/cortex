@@ -3,7 +3,7 @@ import { writeFileSync, mkdirSync, rmSync } from 'fs'
 import { join, dirname } from 'path'
 import { tmpdir } from 'os'
 import type { SourceFile, SyntaxKind as SyntaxKindEnum } from 'ts-morph'
-import { ensureTsMorph, findJsxElementAt, cssPropertyToCamelCase } from '../../../src/core/rewriter/jsx-utils.js'
+import { ensureTsMorph, findJsxElementAt, cssPropertyToCamelCase, _resetTsMorphForTesting } from '../../../src/core/rewriter/jsx-utils.js'
 
 function createTempFile(content: string): string {
   const dir = join(tmpdir(), `cortex-jsx-utils-test-${Date.now()}-${Math.random().toString(36).slice(2)}`)
@@ -85,6 +85,20 @@ describe('cssPropertyToCamelCase', () => {
   it('handles already-camelCase input', () => {
     expect(cssPropertyToCamelCase('paddingTop')).toBe('paddingTop')
   })
+
+  it('handles uppercase post-hyphen letters (malformed input)', () => {
+    expect(cssPropertyToCamelCase('padding-Top')).toBe('paddingTop')
+  })
+
+  it('passes through dangerous keys unchanged (blocklist guard)', () => {
+    // These keys would pass through unchanged even without the guard (no hyphens),
+    // but the guard prevents future regressions if CSSOM_EXCEPTIONS or other
+    // mappings ever include them. The real protection is that downstream code
+    // using obj[cssPropertyToCamelCase(input)] won't pollute prototypes.
+    expect(cssPropertyToCamelCase('constructor')).toBe('constructor')
+    expect(cssPropertyToCamelCase('__proto__')).toBe('__proto__')
+    expect(cssPropertyToCamelCase('prototype')).toBe('prototype')
+  })
 })
 
 describe('ensureTsMorph', () => {
@@ -99,6 +113,21 @@ describe('ensureTsMorph', () => {
     const mod1 = await ensureTsMorph()
     const mod2 = await ensureTsMorph()
     expect(mod1).toBe(mod2)
+  })
+
+  it('_resetTsMorphForTesting allows re-initialization', async () => {
+    const promise1 = ensureTsMorph()
+    const mod1 = await promise1
+    expect(mod1.SyntaxKind).toBeDefined()
+
+    _resetTsMorphForTesting()
+
+    const promise2 = ensureTsMorph()
+    const mod2 = await promise2
+    expect(mod2.SyntaxKind).toBeDefined()
+
+    // After reset, a fresh initialization occurs: the Promise instance differs
+    expect(promise2).not.toBe(promise1)
   })
 })
 
@@ -170,14 +199,57 @@ describe('findJsxElementAt', () => {
     }
   })
 
+  it('finds element at opening < position', async () => {
+    const { sourceFile, SK, filePath } = await parseSource(
+      `export function App() {\n  return <div className="x">Hi</div>\n}`,
+    )
+    try {
+      // col 10 is the '<' of <div>
+      const element = findJsxElementAt(sourceFile, 2, 10, SK)
+      expect(element).not.toBeNull()
+      expect(element!.getText()).toContain('div')
+    } finally {
+      cleanupTempFile(filePath)
+    }
+  })
+
+  it('finds element at closing > position of opening tag', async () => {
+    const { sourceFile, SK, filePath } = await parseSource(
+      `export function App() {\n  return <div className="x">Hi</div>\n}`,
+    )
+    try {
+      // The opening tag <div className="x"> ends at the >
+      // col 28 is the '>' — should still resolve to the opening element
+      const element = findJsxElementAt(sourceFile, 2, 28, SK)
+      expect(element).not.toBeNull()
+      expect(element!.getText()).toContain('div')
+    } finally {
+      cleanupTempFile(filePath)
+    }
+  })
+
+  it('finds self-closing element at /> position', async () => {
+    const { sourceFile, SK, filePath } = await parseSource(
+      `export function App() {\n  return <img src="a.png" />\n}`,
+    )
+    try {
+      // Position on the / of />
+      const element = findJsxElementAt(sourceFile, 2, 25, SK)
+      expect(element).not.toBeNull()
+      expect(element!.getText()).toContain('img')
+    } finally {
+      cleanupTempFile(filePath)
+    }
+  })
+
   it('returns null when position is in element body text (not the opening tag)', async () => {
-    // data-cortex-source points at the opening tag, not the body.
-    // This documents that positions inside text content (after >) return null.
+    // The ancestor walk from JsxText goes through JsxElement (container node),
+    // not JsxOpeningElement. This is correct: data-cortex-source always points
+    // at the opening tag, never at body text.
     const { sourceFile, SK, filePath } = await parseSource(
       `export function App() {\n  return <div>Hello World</div>\n}`,
     )
     try {
-      // col 17 points at "World" — inside the text content, outside <div> opening tag
       const element = findJsxElementAt(sourceFile, 2, 17, SK)
       expect(element).toBeNull()
     } finally {
