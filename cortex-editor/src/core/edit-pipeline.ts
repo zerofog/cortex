@@ -317,13 +317,8 @@ export class EditPipeline {
       if (!this.detector.hasTailwind) {
         // Layer 3.5: Inline style rewriter — deterministic fallback
         if (this.inlineStyleRewriter) {
-          const styleResult = await this.inlineStyleRewriter.rewrite({
-            filePath: resolvedPath, line, col, property: edit.property, value: edit.value,
-          })
-          if (styleResult.success) {
-            await this.commitInlineStyleWrite(edit, resolvedPath, styleResult as { success: true; filePath: string; oldContent: string; newContent: string })
-            return
-          }
+          const handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
+          if (handled) return
         }
         if (this.deferredWriter) {
           this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
@@ -369,13 +364,8 @@ export class EditPipeline {
       // Layer 3.5: Inline style rewriter — only for non-Tailwind projects
       // (Tailwind projects should not accumulate inline styles)
       if (this.inlineStyleRewriter && !this.detector?.hasTailwind) {
-        const styleResult = await this.inlineStyleRewriter.rewrite({
-          filePath: resolvedPath, line, col, property: edit.property, value: edit.value,
-        })
-        if (styleResult.success) {
-          await this.commitInlineStyleWrite(edit, resolvedPath, styleResult as { success: true; filePath: string; oldContent: string; newContent: string })
-          return
-        }
+        const handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
+        if (handled) return
       }
       if (this.deferredWriter) {
         const reason = !newToken
@@ -698,14 +688,26 @@ export class EditPipeline {
     })
   }
 
-  /** Inline style write with file lock — used at Points A and C. */
-  private async commitInlineStyleWrite(
+  /**
+   * Attempt inline style rewrite inside file lock, then write if successful.
+   * Returns true if the rewrite succeeded (edit handled), false if it bailed (caller should fall through).
+   * The rewrite is performed INSIDE the lock to prevent TOCTOU races — the file read, AST manipulation,
+   * and write are all serialized per-file.
+   */
+  private async tryInlineStyleWrite(
     edit: EditRequest,
     resolvedPath: string,
-    result: { success: true; filePath: string; oldContent: string; newContent: string },
-  ): Promise<void> {
+    line: number,
+    col: number,
+  ): Promise<boolean> {
     this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
+    let handled = false
     await this.withFileLock(resolvedPath, async () => {
+      const result = await this.inlineStyleRewriter!.rewrite({
+        filePath: resolvedPath, line, col, property: edit.property, value: edit.value,
+      })
+      if (!result.success) return // handled stays false — caller falls through
+
       // Use 'jsx-immediate' — allows HMR (unlike 'immediate' which suppresses it)
       try {
         await this.writeFile({ kind: 'jsx-immediate', filePath: resolvedPath, content: result.newContent })
@@ -714,13 +716,24 @@ export class EditPipeline {
           type: 'edit_status', editId: edit.editId, status: 'failed',
           reason: `Write failed: ${err instanceof Error ? err.message : String(err)}`,
         })
+        handled = true // error handled — don't fall through to AI
         return
       }
       if (this.undoStack) {
         this.undoStack.push({ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent })
       }
+      // Track for HMR verification — jsx-immediate allows HMR, so the verifier
+      // can confirm the update and clean up the browser CSS override.
+      this.verifier.trackEdit({
+        editId: edit.editId,
+        filePath: resolvedPath,
+        expectedValue: edit.value,
+        property: edit.property,
+      })
       this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done', strategy: 'immediate' })
+      handled = true
     })
+    return handled
   }
 
   /** Execute a deferred batch: acquire lock, read file, call AI, validate, write, push undo, send status.

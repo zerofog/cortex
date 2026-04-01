@@ -54,6 +54,11 @@ describe('classifyEdit', () => {
       .toBe('immediate')
   })
 
+  it('returns deferred for Tailwind without resolver even when inlineStyle available', () => {
+    expect(classifyEdit(base, { hasCSSModules: false, hasTailwind: true, hasCSSInJS: false, hasComponentLibrary: false, hasPlainCSS: false, summary: '' }, { resolverAvailable: false, aiAvailable: true, inlineStyleAvailable: true }))
+      .toBe('deferred')
+  })
+
   it('prefers Tailwind resolver over inlineStyle when both available', () => {
     expect(classifyEdit(base, { hasCSSModules: false, hasTailwind: true, hasCSSInJS: false, hasComponentLibrary: false, hasPlainCSS: false, summary: '' }, { resolverAvailable: true, inlineStyleAvailable: true }))
       .toBe('immediate')

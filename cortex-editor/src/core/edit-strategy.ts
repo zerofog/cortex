@@ -30,7 +30,13 @@ export function classifyEdit(
   // Tailwind with working resolver — immediate
   if (detection.hasTailwind && resolver?.resolverAvailable) return 'immediate'
 
-  // Inline style rewriter — deterministic fallback for any JSX element
+  // Tailwind without resolver — inline styles are NOT the right fallback
+  // (would accumulate inline styles alongside Tailwind utility classes)
+  if (detection.hasTailwind && !resolver?.resolverAvailable) {
+    return resolver?.aiAvailable ? 'deferred' : 'unsupported'
+  }
+
+  // Inline style rewriter — deterministic fallback for non-Tailwind JSX
   if (resolver?.inlineStyleAvailable) return 'immediate'
 
   // AI available — deferred (covers Tailwind fallback, component libs, CSS-in-JS)
