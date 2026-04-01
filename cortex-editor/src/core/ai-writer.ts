@@ -125,7 +125,7 @@ interface ToolCall {
 function parseToolAction(call: ToolCall): ToolAction | null {
   const { name, input } = call
   if (name === 'set_inline_style') {
-    if (!Array.isArray(input.changes)) return null
+    if (!Array.isArray(input.changes) || input.changes.length === 0) return null
     for (const c of input.changes) {
       if (typeof c?.property !== 'string' || typeof c?.value !== 'string') return null
     }
@@ -136,7 +136,7 @@ function parseToolAction(call: ToolCall): ToolAction | null {
     return { tool: 'replace_attribute', attribute: input.attribute, value: input.value }
   }
   if (name === 'replace_line_content') {
-    if (typeof input.line_number !== 'number' || typeof input.old_content !== 'string' || typeof input.new_content !== 'string') return null
+    if (typeof input.line_number !== 'number' || !Number.isInteger(input.line_number) || typeof input.old_content !== 'string' || typeof input.new_content !== 'string') return null
     return { tool: 'replace_line_content', lineNumber: input.line_number, oldContent: input.old_content, newContent: input.new_content }
   }
   return null

@@ -20,6 +20,14 @@ export type ApplyResult =
   | { success: true; content: string }
   | { success: false; reason: string }
 
+// Maximum distance from target element for replace_line_content (defense-in-depth).
+// Matches the context window half-width — the AI can only see ±25 lines around the target.
+const MAX_PROXIMITY = 25
+
+// Allowlist for replace_attribute: styling-related + semantic attributes only.
+// Blocks event handlers (on*), ref, and other behavioral attributes.
+const ALLOWED_ATTRIBUTE_RE = /^(className|class|style|id|role|title|alt|htmlFor|tabIndex|hidden|disabled|aria-[a-z-]+|data-[a-z-]+)$/
+
 // ── ToolApplicator ────────────────────────────────────────────────
 
 export class ToolApplicator {
@@ -74,7 +82,7 @@ export class ToolApplicator {
       case 'replace_attribute':
         return this.applyReplaceAttribute(content, filePath, line, col, action.attribute, action.value)
       case 'replace_line_content':
-        return this.applyReplaceLineContent(content, action.lineNumber, action.oldContent, action.newContent)
+        return this.applyReplaceLineContent(content, line, action.lineNumber, action.oldContent, action.newContent)
       default: {
         const _exhaustive: never = action
         return { success: false, reason: `Unknown tool: ${(_exhaustive as ToolAction).tool}` }
@@ -102,76 +110,74 @@ export class ToolApplicator {
     }
 
     const sourceFile = project.createSourceFile(filePath, content, { overwrite: true })
-    const jsxElement = findJsxElementAt(sourceFile, line, col, SK)
-    if (!jsxElement) {
-      return { success: false, reason: `No JSX element found at ${line}:${col}` }
-    }
-
-    // Look for existing style attribute
-    const styleAttrRaw = jsxElement.getAttribute('style')
-    const styleAttr = styleAttrRaw?.asKind(SK.JsxAttribute)
-
-    if (!styleAttr) {
-      // No style prop — add one with all changes
-      const props = changes.map(c => {
-        const key = this.formatObjectKey(cssPropertyToCamelCase(c.property))
-        return `${key}: ${JSON.stringify(c.value)}`
-      })
-      jsxElement.addAttribute({
-        name: 'style',
-        initializer: `{{ ${props.join(', ')} }}`,
-      })
-      const result = sourceFile.getFullText()
-      project.removeSourceFile(sourceFile)
-      return { success: true, content: result }
-    }
-
-    // Has style attribute — inspect the initializer
-    const initializer = styleAttr.getInitializer()
-    if (!initializer) {
-      return { success: false, reason: 'style attribute has no value' }
-    }
-
-    if (initializer.getKind() !== SK.JsxExpression) {
-      return { success: false, reason: 'style attribute is not a JSX expression' }
-    }
-
-    const jsxExpr = initializer.asKind(SK.JsxExpression)
-    const expression = jsxExpr?.getExpression()
-    if (!expression) {
-      return { success: false, reason: 'Empty JSX expression in style' }
-    }
-
-    // Non-literal expression: wrap with spread
-    if (expression.getKind() !== SK.ObjectLiteralExpression) {
-      const originalExprText = expression.getText()
-      const props = changes.map(c => {
-        const key = this.formatObjectKey(cssPropertyToCamelCase(c.property))
-        return `${key}: ${JSON.stringify(c.value)}`
-      })
-      expression.replaceWithText(`{ ...${originalExprText}, ${props.join(', ')} }`)
-      const result = sourceFile.getFullText()
-      project.removeSourceFile(sourceFile)
-      return { success: true, content: result }
-    }
-
-    const objLiteral = expression.asKind(SK.ObjectLiteralExpression)
-    if (!objLiteral) {
-      return { success: false, reason: 'Expected object literal expression' }
-    }
-
-    // Apply each change
-    for (const change of changes) {
-      const camelProp = cssPropertyToCamelCase(change.property)
-      const result = this.applyOneStyleChange(objLiteral, camelProp, change.value, SK)
-      if (!result.success) {
-        return result
+    try {
+      const jsxElement = findJsxElementAt(sourceFile, line, col, SK)
+      if (!jsxElement) {
+        return { success: false, reason: `No JSX element found at ${line}:${col}` }
       }
-    }
 
-    const finalContent = sourceFile.getFullText()
-    project.removeSourceFile(sourceFile)
-    return { success: true, content: finalContent }
+      // Look for existing style attribute
+      const styleAttrRaw = jsxElement.getAttribute('style')
+      const styleAttr = styleAttrRaw?.asKind(SK.JsxAttribute)
+
+      if (!styleAttr) {
+        // No style prop — add one with all changes
+        const props = changes.map(c => {
+          const key = this.formatObjectKey(cssPropertyToCamelCase(c.property))
+          return `${key}: ${JSON.stringify(c.value)}`
+        })
+        jsxElement.addAttribute({
+          name: 'style',
+          initializer: `{{ ${props.join(', ')} }}`,
+        })
+        return { success: true, content: sourceFile.getFullText() }
+      }
+
+      // Has style attribute — inspect the initializer
+      const initializer = styleAttr.getInitializer()
+      if (!initializer) {
+        return { success: false, reason: 'style attribute has no value' }
+      }
+
+      if (initializer.getKind() !== SK.JsxExpression) {
+        return { success: false, reason: 'style attribute is not a JSX expression' }
+      }
+
+      const jsxExpr = initializer.asKind(SK.JsxExpression)
+      const expression = jsxExpr?.getExpression()
+      if (!expression) {
+        return { success: false, reason: 'Empty JSX expression in style' }
+      }
+
+      // Non-literal expression: wrap with spread
+      if (expression.getKind() !== SK.ObjectLiteralExpression) {
+        const originalExprText = expression.getText()
+        const props = changes.map(c => {
+          const key = this.formatObjectKey(cssPropertyToCamelCase(c.property))
+          return `${key}: ${JSON.stringify(c.value)}`
+        })
+        expression.replaceWithText(`{ ...${originalExprText}, ${props.join(', ')} }`)
+        return { success: true, content: sourceFile.getFullText() }
+      }
+
+      const objLiteral = expression.asKind(SK.ObjectLiteralExpression)
+      if (!objLiteral) {
+        return { success: false, reason: 'Expected object literal expression' }
+      }
+
+      // Apply each change
+      for (const change of changes) {
+        const camelProp = cssPropertyToCamelCase(change.property)
+        const result = this.applyOneStyleChange(objLiteral, camelProp, change.value, SK)
+        if (!result.success) {
+          return result
+        }
+      }
+
+      return { success: true, content: sourceFile.getFullText() }
+    } finally {
+      project.removeSourceFile(sourceFile)
+    }
   }
 
   /** Apply a single style property change to an ObjectLiteralExpression (mutates AST in place). */
@@ -248,35 +254,41 @@ export class ToolApplicator {
     }
 
     const sourceFile = project.createSourceFile(filePath, content, { overwrite: true })
-    const jsxElement = findJsxElementAt(sourceFile, line, col, SK)
-    if (!jsxElement) {
-      return { success: false, reason: `No JSX element found at ${line}:${col}` }
+    try {
+      const jsxElement = findJsxElementAt(sourceFile, line, col, SK)
+      if (!jsxElement) {
+        return { success: false, reason: `No JSX element found at ${line}:${col}` }
+      }
+
+      // Validate attribute name against allowlist (security: prevent event handler injection)
+      if (!ALLOWED_ATTRIBUTE_RE.test(attribute)) {
+        return { success: false, reason: `Attribute '${attribute}' is not in the allowed list for AI edits` }
+      }
+
+      // Check if attribute already exists
+      const existingAttrRaw = jsxElement.getAttribute(attribute)
+      const existingAttr = existingAttrRaw?.asKind(SK.JsxAttribute)
+
+      if (existingAttr) {
+        existingAttr.replaceWithText(`${attribute}=${value}`)
+      } else {
+        jsxElement.addAttribute({
+          name: attribute,
+          initializer: value,
+        })
+      }
+
+      return { success: true, content: sourceFile.getFullText() }
+    } finally {
+      project.removeSourceFile(sourceFile)
     }
-
-    // Check if attribute already exists
-    const existingAttrRaw = jsxElement.getAttribute(attribute)
-    const existingAttr = existingAttrRaw?.asKind(SK.JsxAttribute)
-
-    if (existingAttr) {
-      // Replace the entire attribute text with name=value
-      existingAttr.replaceWithText(`${attribute}=${value}`)
-    } else {
-      // Add new attribute
-      jsxElement.addAttribute({
-        name: attribute,
-        initializer: value,
-      })
-    }
-
-    const attrContent = sourceFile.getFullText()
-    project.removeSourceFile(sourceFile)
-    return { success: true, content: attrContent }
   }
 
   // ── replace_line_content ──────────────────────────────────────
 
   private applyReplaceLineContent(
     content: string,
+    targetLine: number,
     lineNumber: number,
     oldContent: string,
     newContent: string,
@@ -285,6 +297,11 @@ export class ToolApplicator {
 
     if (lineNumber < 1 || lineNumber > lines.length) {
       return { success: false, reason: `Line ${lineNumber} is out of bounds (file has ${lines.length} lines)` }
+    }
+
+    // Proximity check: reject edits far from the target element (defense-in-depth)
+    if (Math.abs(lineNumber - targetLine) > MAX_PROXIMITY) {
+      return { success: false, reason: `Line ${lineNumber} is too far from target line ${targetLine} (max distance: ${MAX_PROXIMITY})` }
     }
 
     const line = lines[lineNumber - 1]!

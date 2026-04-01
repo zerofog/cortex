@@ -173,8 +173,9 @@ export class CSSOverrideManager {
     this.pendingEdits.delete(editId)
     if (match) {
       if (this.hmrAppliedPending) {
-        // HMR already applied for this cycle — process immediately
-        this.hmrAppliedPending = false
+        // HMR already applied for this cycle — process immediately.
+        // Don't clear the flag: other edits in the same HMR cycle also need it.
+        // The next onHMRApplied() call resets it.
         const deferred = this.deferredEditIds.has(editId)
         if (deferred) this.deferredEditIds.delete(editId)
         if (deferred) {
