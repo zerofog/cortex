@@ -301,6 +301,7 @@ export class EditPipeline {
           {
             resolverAvailable: !!this.resolver,
             aiAvailable: !!this.deferredWriter || !!this.aiWriter,
+            inlineStyleAvailable: !!this.inlineStyleRewriter,
           },
         )
       : undefined

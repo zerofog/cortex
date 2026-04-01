@@ -16,18 +16,22 @@ export interface EditClassificationInput {
 export function classifyEdit(
   edit: EditClassificationInput,
   detection: Pick<DetectionResult, 'hasCSSModules' | 'hasTailwind' | 'hasComponentLibrary' | 'hasCSSInJS'>,
-  resolver?: Pick<ResolverState, 'resolverAvailable' | 'aiAvailable'>,
+  resolver?: Pick<ResolverState, 'resolverAvailable' | 'aiAvailable' | 'inlineStyleAvailable'>,
 ): EditStrategy {
   // CSS Modules annotated path — always immediate
   if (edit.cssMapping && detection.hasCSSModules) return 'immediate'
 
-  // CSS Modules without annotation — needs AI
+  // CSS Modules without annotation — inline style fallback or AI
   if (detection.hasCSSModules && !detection.hasTailwind) {
+    if (resolver?.inlineStyleAvailable) return 'immediate'
     return resolver?.aiAvailable ? 'deferred' : 'unsupported'
   }
 
   // Tailwind with working resolver — immediate
   if (detection.hasTailwind && resolver?.resolverAvailable) return 'immediate'
+
+  // Inline style rewriter — deterministic fallback for any JSX element
+  if (resolver?.inlineStyleAvailable) return 'immediate'
 
   // AI available — deferred (covers Tailwind fallback, component libs, CSS-in-JS)
   if (resolver?.aiAvailable) return 'deferred'
