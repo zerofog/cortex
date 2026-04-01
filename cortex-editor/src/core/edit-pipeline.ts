@@ -733,6 +733,26 @@ export class EditPipeline {
       if (this.undoStack) {
         this.undoStack.push({ filePath: resolvedCssPath, previousContent: result.oldContent, currentContent: result.newContent })
       }
+
+      // Clean up conflicting inline style when scope='all' — prevents instance
+      // overrides from blocking the class-level edit via CSS specificity.
+      if (edit.scope === 'all' && this.inlineStyleRewriter) {
+        const parsed = this.parseSource(edit.source)
+        if (parsed.ok) {
+          try {
+            const cleanup = await this.inlineStyleRewriter.removeProperty({
+              filePath: parsed.resolvedPath, line: parsed.line, col: parsed.col, property: edit.property,
+            })
+            if (cleanup.success && cleanup.newContent !== cleanup.oldContent) {
+              await this.writeFile({ kind: 'jsx-immediate', filePath: parsed.resolvedPath, content: cleanup.newContent })
+              if (this.undoStack) {
+                this.undoStack.push({ filePath: parsed.resolvedPath, previousContent: cleanup.oldContent, currentContent: cleanup.newContent })
+              }
+            }
+          } catch { /* cleanup failure is non-fatal — CSS edit already succeeded */ }
+        }
+      }
+
       this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done', strategy: 'immediate' })
     })
   }

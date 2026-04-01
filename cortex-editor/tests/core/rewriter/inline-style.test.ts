@@ -418,4 +418,82 @@ describe('InlineStyleRewriter', () => {
       cleanupTempFile(filePath)
     }
   })
+
+  // --- removeProperty ---
+
+  describe('removeProperty', () => {
+    it('removes an existing property from the style object', async () => {
+      const source = `export function App() {
+  return <div style={{ paddingTop: "20px", color: "red" }}>Hello</div>
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.removeProperty({ filePath, line: 2, col: 10, property: 'padding-top' })
+        expect(result.success).toBe(true)
+        if (result.success) {
+          expect(result.newContent).toContain('color: "red"')
+          expect(result.newContent).not.toContain('paddingTop')
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
+
+    it('removes entire style attribute when last property removed', async () => {
+      const source = `export function App() {
+  return <div style={{ paddingTop: "20px" }}>Hello</div>
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.removeProperty({ filePath, line: 2, col: 10, property: 'padding-top' })
+        expect(result.success).toBe(true)
+        if (result.success) {
+          expect(result.newContent).not.toContain('style')
+          expect(result.newContent).toContain('<div>Hello</div>')
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
+
+    it('returns unchanged content when property does not exist', async () => {
+      const source = `export function App() {
+  return <div style={{ color: "red" }}>Hello</div>
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.removeProperty({ filePath, line: 2, col: 10, property: 'padding-top' })
+        expect(result.success).toBe(true)
+        if (result.success) {
+          expect(result.newContent).toBe(result.oldContent)
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
+
+    it('returns unchanged content when no style attribute exists', async () => {
+      const source = `export function App() {
+  return <div className="hero">Hello</div>
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.removeProperty({ filePath, line: 2, col: 10, property: 'padding-top' })
+        expect(result.success).toBe(true)
+        if (result.success) {
+          expect(result.newContent).toBe(result.oldContent)
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
+  })
 })

@@ -524,15 +524,31 @@ export function Panel({
           <span class="cortex-panel__scope-label">
             Shared by {sharedInfo.count} elements
           </span>
-          <div class="cortex-panel__scope-toggle">
+          <div
+            class="cortex-panel__scope-toggle"
+            role="radiogroup"
+            aria-label="Editing scope"
+            onKeyDown={(e: KeyboardEvent) => {
+              if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                e.preventDefault()
+                setEditScope(editScope === 'instance' ? 'all' : 'instance')
+              }
+            }}
+          >
             <button
               class={`cortex-panel__scope-btn ${editScope === 'instance' ? 'cortex-panel__scope-btn--active' : ''}`}
+              role="radio"
+              aria-checked={editScope === 'instance'}
+              tabIndex={editScope === 'instance' ? 0 : -1}
               onClick={() => setEditScope('instance')}
             >
               This element
             </button>
             <button
               class={`cortex-panel__scope-btn ${editScope === 'all' ? 'cortex-panel__scope-btn--active' : ''}`}
+              role="radio"
+              aria-checked={editScope === 'all'}
+              tabIndex={editScope === 'all' ? 0 : -1}
               onClick={() => setEditScope('all')}
               onMouseEnter={() => highlightSharedElements(sharedInfo, element)}
               onMouseLeave={() => clearHighlights()}
