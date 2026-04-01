@@ -33,6 +33,7 @@
   --destructive: #ef4444;
   --destructive-surface: rgba(239, 68, 68, 0.06);
   --warning: #f97316;
+  --warning-surface: rgba(249, 115, 22, 0.06);
 
   /* Scrollbar */
   --scrollbar: #d4d4d4;
@@ -236,6 +237,38 @@
   color: var(--ink-tertiary);
   font-size: 13px;
   text-align: center;
+}
+
+.cortex-panel__scope {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-3) var(--sp-5);
+  background: var(--warning-surface);
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--text-sm);
+  gap: var(--sp-4);
+}
+
+.cortex-panel__scope-label {
+  color: var(--warning);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.cortex-panel__scope-select {
+  background: var(--well);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  padding: var(--sp-1) var(--sp-3);
+  cursor: pointer;
+  min-width: 0;
+}
+
+.cortex-panel__scope-select:hover {
+  background: var(--well-hover);
 }
 
 /* ── Panel header ────────────────────────────── */

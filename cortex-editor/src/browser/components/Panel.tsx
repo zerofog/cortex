@@ -22,6 +22,8 @@ import type { EffectsChange } from './sections/EffectsSection.js'
 import { PositionSection, parsePositionValues } from './sections/PositionSection.js'
 import type { PositionChange } from './sections/PositionSection.js'
 import type { InteractionState } from '../state-detector.js'
+import { detectSharedClasses } from '../shared-class-detector.js'
+import type { SharedClassInfo } from '../shared-class-detector.js'
 import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
 import { CollapsibleSection } from './CollapsibleSection.js'
@@ -117,6 +119,10 @@ export function Panel({
   // Pseudo-element tab state — internal to Panel
   const [activePseudo, setActivePseudo] = useState<'element' | '::before' | '::after'>('element')
 
+  // Shared class detection + scope toggle for instance-level editing (ZF0-1018)
+  const [sharedInfo, setSharedInfo] = useState<SharedClassInfo | null>(null)
+  const [editScope, setEditScope] = useState<'instance' | 'all'>('instance')
+
   // Default computed styles snapshot for dimming comparison.
   // Plain object snapshot (NOT a live CSSStyleDeclaration) — taken once per element.
   const defaultStylesRef = useRef<Record<string, string> | null>(null)
@@ -149,6 +155,17 @@ export function Panel({
       setActivePseudo('element') // reset pseudo tab on element change
     }
     prevElementRef.current = element
+  }, [element])
+
+  // Detect shared CSS classes when a new element is selected (ZF0-1018).
+  // Resets scope to 'instance' (safe default) on every element change.
+  useEffect(() => {
+    if (element) {
+      setSharedInfo(detectSharedClasses(element))
+    } else {
+      setSharedInfo(null)
+    }
+    setEditScope('instance')
   }, [element])
 
   // M3: Clear cross-fade class after animation completes
@@ -259,10 +276,11 @@ export function Panel({
           value,
           elementSelector: element.tagName.toLowerCase(),
           cssMapping: element.getAttribute('data-cortex-css') ?? undefined,
+          ...(sharedInfo ? { scope: editScope } : {}),
         })
       }
     }
-  }, [element, overrideManager, activePseudo, channel])
+  }, [element, overrideManager, activePseudo, channel, sharedInfo, editScope])
 
   const handleSpacingCommit = useCallback((c: SpacingChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleScrub = useCallback((c: SpacingChange) => applyOverride(c.property, c.value, false), [applyOverride])
@@ -453,6 +471,21 @@ export function Panel({
         hoverEnabled={hoverEnabled}
         onToggleHover={onToggleHover}
       />
+      {sharedInfo && (
+        <div class="cortex-panel__scope">
+          <span class="cortex-panel__scope-label">
+            Shared by {sharedInfo.count} elements
+          </span>
+          <select
+            class="cortex-panel__scope-select"
+            value={editScope}
+            onChange={(e) => setEditScope((e.target as HTMLSelectElement).value as 'instance' | 'all')}
+          >
+            <option value="instance">This element</option>
+            <option value="all">All {sharedInfo.count} elements</option>
+          </select>
+        </div>
+      )}
       <div class="cortex-panel__body" ref={bodyRef} key={contentKey}>
         <SectionGroup label="Layout" groupId="layout">
           <LayoutSection
