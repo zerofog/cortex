@@ -164,13 +164,13 @@ export class ToolApplicator {
     return { success: true, content: sourceFile.getFullText() }
   }
 
-  /** Apply a single style property change to an ObjectLiteralExpression. */
+  /** Apply a single style property change to an ObjectLiteralExpression (mutates AST in place). */
   private applyOneStyleChange(
     objLiteral: import('ts-morph').ObjectLiteralExpression,
     camelProp: string,
     value: string,
     SK: typeof SyntaxKindEnum,
-  ): ApplyResult {
+  ): { success: true } | { success: false; reason: string } {
     for (const prop of objLiteral.getProperties()) {
       const propKind = prop.getKind()
 
@@ -204,7 +204,7 @@ export class ToolApplicator {
         }
 
         propAssign.setInitializer(JSON.stringify(value))
-        return { success: true, content: '' } // content not used; caller reads sourceFile
+        return { success: true }
       }
     }
 
@@ -214,7 +214,7 @@ export class ToolApplicator {
       name: propKey,
       initializer: JSON.stringify(value),
     })
-    return { success: true, content: '' } // content not used; caller reads sourceFile
+    return { success: true }
   }
 
   // ── replace_attribute ─────────────────────────────────────────
