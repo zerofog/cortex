@@ -25,6 +25,8 @@ export interface ShadowSectionProps {
   swatches?: string[]
   /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
   dimmedProperties?: Set<string>
+  /** Set of CSS properties whose values differ across selected elements. */
+  mixedProperties?: Set<string>
 }
 
 /** Extract shadow-related values from a CSSStyleDeclaration. */
@@ -69,6 +71,7 @@ export function ShadowSection({
   values,
   onChange,
   swatches,
+  mixedProperties,
 }: ShadowSectionProps): JSX.Element {
   const nextKeyRef = useRef(0)
   const [expandedKey, setExpandedKey] = useState<number | null>(null)
@@ -157,6 +160,7 @@ export function ShadowSection({
                     unit="px"
                     label="X"
                     tooltip="Horizontal offset"
+                    mixed={mixedProperties?.has('box-shadow')}
                     onChange={(v: number) => handleFieldChange(index, 'x', v)}
                   />
                   <NumericInput
@@ -164,6 +168,7 @@ export function ShadowSection({
                     unit="px"
                     label="Y"
                     tooltip="Vertical offset"
+                    mixed={mixedProperties?.has('box-shadow')}
                     onChange={(v: number) => handleFieldChange(index, 'y', v)}
                   />
                   <NumericInput
@@ -172,6 +177,7 @@ export function ShadowSection({
                     label="B"
                     tooltip="Blur radius"
                     min={0}
+                    mixed={mixedProperties?.has('box-shadow')}
                     onChange={(v: number) => handleFieldChange(index, 'blur', v)}
                   />
                   <NumericInput
@@ -179,6 +185,7 @@ export function ShadowSection({
                     unit="px"
                     label="S"
                     tooltip="Spread radius"
+                    mixed={mixedProperties?.has('box-shadow')}
                     onChange={(v: number) => handleFieldChange(index, 'spread', v)}
                   />
                 </div>
@@ -186,6 +193,7 @@ export function ShadowSection({
                   value={shadow.color}
                   onChange={(hex: string) => handleFieldChange(index, 'color', hex)}
                   swatches={swatches}
+                  mixed={mixedProperties?.has('box-shadow')}
                 />
               </div>
             )}

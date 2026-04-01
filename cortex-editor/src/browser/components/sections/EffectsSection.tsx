@@ -26,6 +26,8 @@ export interface EffectsSectionProps {
   onScrubEnd?: (change: EffectsChange) => void
   /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
   dimmedProperties?: Set<string>
+  /** Set of CSS properties whose values differ across selected elements. */
+  mixedProperties?: Set<string>
 }
 
 function parseBlurValue(filter: string): number {
@@ -89,6 +91,7 @@ export function EffectsSection({
   onChange,
   onScrub,
   onScrubEnd,
+  mixedProperties,
 }: EffectsSectionProps): JSX.Element {
   // Opacity handlers
   const handleOpacityChange = useCallback(
@@ -154,6 +157,7 @@ export function EffectsSection({
           label="OP"
           tooltip="Opacity"
           min={0}
+          mixed={mixedProperties?.has('opacity')}
           onChange={handleOpacityChange}
           onScrub={handleOpacityScrub}
           onScrubEnd={handleOpacityScrubEnd}

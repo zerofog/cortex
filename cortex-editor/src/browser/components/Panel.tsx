@@ -237,7 +237,7 @@ export function Panel({
   // C1: Cache getComputedStyle results + compute dimmed properties in a single useMemo
   // to avoid double forced layout. CRITICAL: activeState + activePseudo in deps so
   // useMemo re-runs after state forcing (getComputedStyle returns a live reference).
-  const { computedStyles, dimmedProperties } = useMemo(() => {
+  const { computedStyles, dimmedProperties, mixedProperties } = useMemo(() => {
     if (!element) {
       return {
         computedStyles: {
@@ -251,6 +251,7 @@ export function Panel({
           position: parsePositionValues({} as CSSStyleDeclaration),
         },
         dimmedProperties: undefined as Set<string> | undefined,
+        mixedProperties: undefined as Set<string> | undefined,
       }
     }
     const pseudo = activePseudo !== 'element' ? activePseudo : undefined
@@ -277,8 +278,26 @@ export function Panel({
       }
     }
 
-    return { computedStyles: parsed, dimmedProperties: dimmed }
-  }, [element, styleVersion, activeState, activePseudo])
+    // Compare computed styles across shared elements when editing "All" scope.
+    // Properties where siblings differ from the selected element are "mixed".
+    let mixed: Set<string> | undefined
+    if (sharedInfo && editScope === 'all') {
+      mixed = new Set<string>()
+      for (const sibling of sharedInfo.elements) {
+        if (sibling === element) continue
+        const siblingCs = getComputedStyle(sibling)
+        for (const prop of ALL_DIMMING_PROPERTIES) {
+          if (mixed.has(prop)) continue
+          if (cs.getPropertyValue(prop) !== siblingCs.getPropertyValue(prop)) {
+            mixed.add(prop)
+          }
+        }
+      }
+      if (mixed.size === 0) mixed = undefined
+    }
+
+    return { computedStyles: parsed, dimmedProperties: dimmed, mixedProperties: mixed }
+  }, [element, styleVersion, activeState, activePseudo, sharedInfo, editScope])
 
   // Derive isFlexOrGrid from normalized layout display
   const layoutDisplay = computedStyles.layout.display
@@ -578,6 +597,7 @@ export function Panel({
             onScrub={handleLayoutScrub}
             onScrubEnd={handleLayoutCommit}
             dimmedProperties={dimmedProperties}
+            mixedProperties={mixedProperties}
           />
           <SpacingSection
             padding={computedStyles.spacing.padding}
@@ -589,6 +609,7 @@ export function Panel({
             onScrub={handleScrub}
             onScrubEnd={handleSpacingCommit}
             dimmedProperties={dimmedProperties}
+            mixedProperties={mixedProperties}
           />
         </SectionGroup>
         {/* Position is instance-specific — hide when editing shared class */}
@@ -612,6 +633,7 @@ export function Panel({
             onScrubEnd={handleTypographyCommit}
             swatches={swatches}
             dimmedProperties={dimmedProperties}
+            mixedProperties={mixedProperties}
           />
         </SectionGroup>
         <SectionGroup label="Style" groupId="style">
@@ -621,6 +643,7 @@ export function Panel({
               onChange={handleFillCommit}
               swatches={swatches}
               dimmedProperties={dimmedProperties}
+              mixedProperties={mixedProperties}
             />
           </CollapsibleSection>
           <CollapsibleSection sectionId="border" label="Border" summary={borderSummary} hasValue={borderHasValue} onAdd={handleBorderAdd} onRemove={handleBorderRemove}>
@@ -631,6 +654,7 @@ export function Panel({
               onScrubEnd={handleBorderCommit}
               swatches={swatches}
               dimmedProperties={dimmedProperties}
+              mixedProperties={mixedProperties}
             />
           </CollapsibleSection>
           <CollapsibleSection sectionId="shadow" label="Shadow" summary={shadowSummary} hasValue={shadowHasValue} onAdd={handleShadowAdd} canAddMore>
@@ -639,6 +663,7 @@ export function Panel({
               onChange={handleShadowCommit}
               swatches={swatches}
               dimmedProperties={dimmedProperties}
+              mixedProperties={mixedProperties}
             />
           </CollapsibleSection>
           <CollapsibleSection sectionId="effects" label="Effects" hasValue={true}>
@@ -648,6 +673,7 @@ export function Panel({
               onScrub={handleEffectsScrub}
               onScrubEnd={handleEffectsCommit}
               dimmedProperties={dimmedProperties}
+              mixedProperties={mixedProperties}
             />
           </CollapsibleSection>
         </SectionGroup>

@@ -12,6 +12,8 @@ export interface NumericInputProps {
   onScrub?: (value: number) => void
   onScrubEnd?: (value: number) => void
   overridden?: boolean
+  /** When true, shows '--' placeholder indicating shared elements have different values. */
+  mixed?: boolean
 }
 
 function getStep(e: KeyboardEvent | WheelEvent): number {
@@ -35,6 +37,7 @@ export function NumericInput({
   onScrub,
   onScrubEnd,
   overridden,
+  mixed,
 }: NumericInputProps): JSX.Element {
   const [localValue, setLocalValue] = useState(String(value))
   const [isEditing, setIsEditing] = useState(false)
@@ -184,6 +187,7 @@ export function NumericInput({
         'cortex-numeric-input',
         isScrubbing && 'cortex-numeric-input--scrubbing',
         overridden && 'cortex-numeric-input--overridden',
+        mixed && 'cortex-numeric-input--mixed',
       ].filter(Boolean).join(' ')}
       onPointerDown={disabled ? undefined : handleScrubDown}
       data-tooltip={tooltip}
@@ -196,7 +200,8 @@ export function NumericInput({
         type="text"
         inputMode="numeric"
         aria-label={tooltip ?? label}
-        value={localValue}
+        value={mixed && !isEditing ? '' : localValue}
+        placeholder={mixed ? '--' : undefined}
         disabled={disabled}
         tabIndex={disabled ? -1 : undefined}
         onInput={handleInput}

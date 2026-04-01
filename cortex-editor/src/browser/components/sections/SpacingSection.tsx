@@ -31,6 +31,8 @@ export interface SpacingSectionProps {
   onScrubEnd?: (change: SpacingChange) => void
   /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
   dimmedProperties?: Set<string>
+  /** Set of CSS properties whose values differ across selected elements. */
+  mixedProperties?: Set<string>
 }
 
 function SpacingGroup({
@@ -45,6 +47,7 @@ function SpacingGroup({
   onChange,
   onScrub,
   onScrubEnd,
+  mixedProperties,
 }: {
   label: string
   values: SpacingValues
@@ -57,6 +60,7 @@ function SpacingGroup({
   onChange: (change: SpacingChange) => void
   onScrub?: (change: SpacingChange) => void
   onScrubEnd?: (change: SpacingChange) => void
+  mixedProperties?: Set<string>
 }): JSX.Element {
   const makeHandler = useCallback(
     (cb?: (change: SpacingChange) => void) =>
@@ -107,12 +111,16 @@ function SpacingGroup({
         </div>
         <div class="cortex-spacing-group__grid">
           <NumericInput value={values.top} unit="px" label="T" tooltip="Top" min={allowNegative ? undefined : 0}
+            mixed={mixedProperties?.has(`${prefix}-top`)}
             onChange={(v) => handleChange(['top'], v)} onScrub={(v) => handleScrub(['top'], v)} onScrubEnd={(v) => handleScrubEnd(['top'], v)} />
           <NumericInput value={values.right} unit="px" label="R" tooltip="Right" min={allowNegative ? undefined : 0}
+            mixed={mixedProperties?.has(`${prefix}-right`)}
             onChange={(v) => handleChange(['right'], v)} onScrub={(v) => handleScrub(['right'], v)} onScrubEnd={(v) => handleScrubEnd(['right'], v)} />
           <NumericInput value={values.bottom} unit="px" label="B" tooltip="Bottom" min={allowNegative ? undefined : 0}
+            mixed={mixedProperties?.has(`${prefix}-bottom`)}
             onChange={(v) => handleChange(['bottom'], v)} onScrub={(v) => handleScrub(['bottom'], v)} onScrubEnd={(v) => handleScrubEnd(['bottom'], v)} />
           <NumericInput value={values.left} unit="px" label="L" tooltip="Left" min={allowNegative ? undefined : 0}
+            mixed={mixedProperties?.has(`${prefix}-left`)}
             onChange={(v) => handleChange(['left'], v)} onScrub={(v) => handleScrub(['left'], v)} onScrubEnd={(v) => handleScrubEnd(['left'], v)} />
         </div>
       </div>
@@ -139,6 +147,7 @@ function SpacingGroup({
           label={"\u2194"}
           tooltip={`Horizontal ${label}`}
           min={allowNegative ? undefined : 0}
+          mixed={mixedProperties?.has(`${prefix}-left`) || mixedProperties?.has(`${prefix}-right`)}
           onChange={handleHorizontal(handleChange)}
           onScrub={handleHorizontal(handleScrub)}
           onScrubEnd={handleHorizontal(handleScrubEnd)}
@@ -165,6 +174,7 @@ function SpacingGroup({
           label={"\u2195"}
           tooltip={`Vertical ${label}`}
           min={allowNegative ? undefined : 0}
+          mixed={mixedProperties?.has(`${prefix}-top`) || mixedProperties?.has(`${prefix}-bottom`)}
           onChange={handleVertical(handleChange)}
           onScrub={handleVertical(handleScrub)}
           onScrubEnd={handleVertical(handleScrubEnd)}
@@ -206,6 +216,7 @@ export function SpacingSection({
   onChange,
   onScrub,
   onScrubEnd,
+  mixedProperties,
 }: SpacingSectionProps): JSX.Element {
   const [paddingLocked, setPaddingLocked] = useState(false)
   const [marginLocked, setMarginLocked] = useState(false)
@@ -218,7 +229,7 @@ export function SpacingSection({
       <SpacingGroup label="Padding" values={padding} prefix="padding" allowNegative={false}
         locked={paddingLocked} onToggleLock={() => setPaddingLocked(p => !p)}
         expanded={paddingExpanded} onToggleExpand={() => setPaddingExpanded(p => !p)}
-        onChange={onChange} onScrub={onScrub} onScrubEnd={onScrubEnd} />
+        onChange={onChange} onScrub={onScrub} onScrubEnd={onScrubEnd} mixedProperties={mixedProperties} />
       {boxSizing !== undefined && (
         <div class="cortex-spacing-section__toggles">
           <div class="cortex-spacing-section__toggle-group" data-section="sizing">
@@ -235,7 +246,7 @@ export function SpacingSection({
       <SpacingGroup label="Margin" values={margin} prefix="margin" allowNegative={true}
         locked={marginLocked} onToggleLock={() => setMarginLocked(p => !p)}
         expanded={marginExpanded} onToggleExpand={() => setMarginExpanded(p => !p)}
-        onChange={onChange} onScrub={onScrub} onScrubEnd={onScrubEnd} />
+        onChange={onChange} onScrub={onScrub} onScrubEnd={onScrubEnd} mixedProperties={mixedProperties} />
       {isFlexOrGrid && (
         <div class="cortex-spacing-group" data-section="gap">
           <div class="cortex-spacing-group__header">
@@ -243,6 +254,7 @@ export function SpacingSection({
           </div>
           <div class="cortex-spacing-group__row">
             <NumericInput value={gap.column} unit="px" label={"\u2194"} tooltip="Column Gap" min={0}
+              mixed={mixedProperties?.has('column-gap')}
               onChange={(v) => {
                 onChange({ property: 'column-gap', value: `${v}px` })
                 if (gapLocked) onChange({ property: 'row-gap', value: `${v}px` })
@@ -272,6 +284,7 @@ export function SpacingSection({
               </svg>
             </button>
             <NumericInput value={gap.row} unit="px" label={"\u2195"} tooltip="Row Gap" min={0}
+              mixed={mixedProperties?.has('row-gap')}
               onChange={(v) => {
                 onChange({ property: 'row-gap', value: `${v}px` })
                 if (gapLocked) onChange({ property: 'column-gap', value: `${v}px` })

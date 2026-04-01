@@ -29,6 +29,8 @@ export interface TypographySectionProps {
   swatches?: string[]
   /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
   dimmedProperties?: Set<string>
+  /** Set of CSS properties whose values differ across selected elements. */
+  mixedProperties?: Set<string>
 }
 
 /** Extract typography-related values from a CSSStyleDeclaration. */
@@ -103,6 +105,7 @@ export function TypographySection({
   onScrub,
   onScrubEnd,
   swatches,
+  mixedProperties,
 }: TypographySectionProps): JSX.Element {
   const weightOptions = useMemo(() => {
     const opts = availableWeights.map((w) => ({
@@ -188,6 +191,7 @@ export function TypographySection({
             label="SZ"
             tooltip="Font Size"
             min={1}
+            mixed={mixedProperties?.has('font-size')}
             onChange={handleFontSizeChange}
             onScrub={handleFontSizeScrub}
             onScrubEnd={handleFontSizeScrubEnd}
@@ -209,6 +213,7 @@ export function TypographySection({
             value={values.lineHeight}
             label="LH"
             tooltip="Line Height"
+            mixed={mixedProperties?.has('line-height')}
             onChange={handleLineHeightChange}
             onScrub={handleLineHeightScrub}
             onScrubEnd={handleLineHeightScrubEnd}
@@ -220,6 +225,7 @@ export function TypographySection({
             unit="px"
             label="LS"
             tooltip="Letter Spacing"
+            mixed={mixedProperties?.has('letter-spacing')}
             onChange={handleLetterSpacingChange}
             onScrub={handleLetterSpacingScrub}
             onScrubEnd={handleLetterSpacingScrubEnd}
@@ -245,6 +251,7 @@ export function TypographySection({
           alpha={colorParsed.alpha}
           onAlphaChange={handleColorAlphaChange}
           swatches={swatches}
+          mixed={mixedProperties?.has('color')}
         />
       </div>
     </div>

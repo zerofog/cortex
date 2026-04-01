@@ -478,6 +478,24 @@
   transition: color 300ms ease-out;
 }
 
+/* Mixed indicator — shows '--' placeholder when shared elements have different values */
+.cortex-numeric-input--mixed .cortex-numeric-input__value::placeholder {
+  color: var(--ink-muted);
+  font-style: italic;
+  opacity: 1;
+}
+
+.cortex-color-input--mixed .cortex-color-input__swatch {
+  background: repeating-linear-gradient(
+    45deg, var(--well) 0px, var(--well) 4px, var(--rule) 4px, var(--rule) 8px
+  ) !important;
+}
+
+.cortex-color-input--mixed .cortex-color-input__hex {
+  color: var(--ink-muted);
+  font-style: italic;
+}
+
 .cortex-color-input--overridden .cortex-color-input__hex {
   color: var(--select-hover);
   transition: color 300ms ease-out;

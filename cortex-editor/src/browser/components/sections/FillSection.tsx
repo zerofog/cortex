@@ -20,6 +20,8 @@ export interface FillSectionProps {
   swatches?: string[]
   /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
   dimmedProperties?: Set<string>
+  /** Set of CSS properties whose values differ across selected elements. */
+  mixedProperties?: Set<string>
 }
 
 /** Extract fill-related values from a CSSStyleDeclaration. */
@@ -116,6 +118,7 @@ export function FillSection({
   values,
   onChange,
   swatches,
+  mixedProperties,
 }: FillSectionProps): JSX.Element {
   // Gradient mode: base detection on successful parse (linear-gradient only).
   // Radial/conic gradients fall through to solid mode since we can't edit them.
@@ -227,6 +230,7 @@ export function FillSection({
             alpha={solidAlpha}
             onAlphaChange={handleSolidAlphaChange}
             swatches={swatches}
+            mixed={mixedProperties?.has('background-color')}
           />
         </div>
       )}
