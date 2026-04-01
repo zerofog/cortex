@@ -151,6 +151,7 @@ export class AIWriter {
   private readonly timeoutMs: number
   private readonly apiBaseUrl: string
   private readonly toolApplicator: ToolApplicator
+  private readonly ownsApplicator: boolean
 
   constructor(options: AIWriterOptions) {
     this.apiKey = options.apiKey
@@ -158,6 +159,7 @@ export class AIWriter {
     this.model = options.model ?? DEFAULT_MODEL
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
     this.apiBaseUrl = options.apiBaseUrl ?? DEFAULT_API_BASE
+    this.ownsApplicator = !options.toolApplicator
     this.toolApplicator = options.toolApplicator ?? new ToolApplicator()
   }
 
@@ -311,7 +313,7 @@ export class AIWriter {
   }
 
   dispose(): void {
-    this.toolApplicator.dispose()
+    if (this.ownsApplicator) this.toolApplicator.dispose()
   }
 }
 

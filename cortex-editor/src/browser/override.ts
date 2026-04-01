@@ -207,7 +207,6 @@ export class CSSOverrideManager {
       return
     }
     if (this.pendingRemovals.length > 0) {
-      this.hmrAppliedPending = false
       const removals = this.pendingRemovals.splice(0)
       for (const r of removals) {
         if (this.deferredEditIds.has(r.editId)) {
@@ -217,10 +216,11 @@ export class CSSOverrideManager {
           this.remove(r.source, r.property, r.pseudo)
         }
       }
-    } else {
-      // HMR applied but no removals queued — flag for late-arriving handleHMRVerified
-      this.hmrAppliedPending = true
     }
+    // Flag that HMR stylesheet is applied — any late-arriving handleHMRVerified
+    // can process immediately. Set after draining AND when empty: handles both
+    // "some edits drained, more arrive late" and "no edits queued yet" cases.
+    this.hmrAppliedPending = true
   }
 
   private evictStalePendingEdits(): void {

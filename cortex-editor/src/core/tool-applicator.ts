@@ -28,6 +28,13 @@ const MAX_PROXIMITY = 25
 // Blocks event handlers (on*), ref, and other behavioral attributes.
 const ALLOWED_ATTRIBUTE_RE = /^(className|class|style|id|role|title|alt|htmlFor|tabIndex|hidden|disabled|aria-[a-z-]+|data-[a-z-]+)$/
 
+/** Validate that a string is a single JSX attribute initializer — either a quoted string or a braced expression. */
+function isValidJsxInitializer(v: string): boolean {
+  if (/^"([^"\\]|\\.)*"$/.test(v) || /^'([^'\\]|\\.)*'$/.test(v)) return true
+  if (v.startsWith('{') && v.endsWith('}')) return true
+  return false
+}
+
 // ── ToolApplicator ────────────────────────────────────────────────
 
 export class ToolApplicator {
@@ -62,8 +69,9 @@ export class ToolApplicator {
    * Apply a structured tool action to source content.
    *
    * For set_inline_style and replace_attribute, line/col are 1-based positions
-   * identifying the target JSX element. For replace_line_content, line/col are ignored
-   * (the action carries its own lineNumber).
+   * identifying the target JSX element. For replace_line_content, the action's
+   * lineNumber determines which line is modified, and the provided `line` argument
+   * is used as the target line for proximity checking (col is ignored).
    */
   async apply(
     content: string,
@@ -265,16 +273,23 @@ export class ToolApplicator {
         return { success: false, reason: `Attribute '${attribute}' is not in the allowed list for AI edits` }
       }
 
+      // Validate value is a single JSX attribute initializer — prevents smuggling
+      // extra attributes via values like `"x" onClick={...}`
+      const trimmedValue = value.trim()
+      if (!isValidJsxInitializer(trimmedValue)) {
+        return { success: false, reason: 'Invalid attribute value; must be a string literal or {expression}' }
+      }
+
       // Check if attribute already exists
       const existingAttrRaw = jsxElement.getAttribute(attribute)
       const existingAttr = existingAttrRaw?.asKind(SK.JsxAttribute)
 
       if (existingAttr) {
-        existingAttr.replaceWithText(`${attribute}=${value}`)
+        existingAttr.replaceWithText(`${attribute}=${trimmedValue}`)
       } else {
         jsxElement.addAttribute({
           name: attribute,
-          initializer: value,
+          initializer: trimmedValue,
         })
       }
 
