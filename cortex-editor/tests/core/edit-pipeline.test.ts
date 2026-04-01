@@ -3415,6 +3415,43 @@ describe('EditPipeline', () => {
       expect(cssRewriter.rewrite).not.toHaveBeenCalled()
     })
 
+    it('scope=instance + Layer 2 without InlineStyleRewriter falls through to deferredWriter', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const cssRewriter = mockCSSModulesRewriter()
+      const runtimeResolver = mockRuntimeResolver({ cssFilePath: '/project/src/Hero.module.css', selector: '.hero' })
+      const deferredWriter = mockDeferredWriterForScope()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        cssModulesRewriter: cssRewriter,
+        detector: { hasCSSModules: true, hasTailwind: false },
+        runtimeResolver,
+        // NO inlineStyleRewriter — must NOT fall to commitCSSModulesRewrite
+        deferredWriter: deferredWriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/Hero.tsx:5:3',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+        scope: 'instance',
+      })
+
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // CSSModulesRewriter must NOT be called for instance scope
+      expect(cssRewriter.rewrite).not.toHaveBeenCalled()
+      // Should fall through to deferredWriter
+      expect(deferredWriter.enqueued).toHaveLength(1)
+    })
+
     it('scope=instance without InlineStyleRewriter and without deferredWriter sends failed', async () => {
       const channel = mockChannel()
       const resolver = mockResolver({})

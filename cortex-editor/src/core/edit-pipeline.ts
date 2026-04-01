@@ -275,7 +275,10 @@ export class EditPipeline {
       // Instance scope: route to InlineStyleRewriter instead of shared CSS rule
       if (edit.scope === 'instance') {
         if (this.inlineStyleRewriter) {
-          const handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
+          let handled = false
+          try {
+            handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
+          } catch { /* treat throws as failed, fall through to deferred/AI */ }
           if (handled) return
         }
         // InlineStyleRewriter unavailable or failed — fall through to deferred/AI
@@ -340,11 +343,16 @@ export class EditPipeline {
     if (!edit.cssMapping && this.detector?.hasCSSModules && this.runtimeResolver && this.cssModulesRewriter) {
       const resolved = await this.runtimeResolver.resolve(edit.source, this.projectRoot)
       if (resolved && this.isInsideProjectRoot(resolved.cssFilePath)) {
-        // Instance scope: route to InlineStyleRewriter instead of shared CSS rule
-        if (edit.scope === 'instance' && this.inlineStyleRewriter) {
-          const handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
-          if (handled) return
-          // InlineStyleRewriter failed — fall through to deferred/AI below
+        // Instance scope: route to InlineStyleRewriter, never to CSSModulesRewriter
+        if (edit.scope === 'instance') {
+          if (this.inlineStyleRewriter) {
+            let handled = false
+            try {
+              handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
+            } catch { /* treat throws as failed, fall through to deferred/AI */ }
+            if (handled) return
+          }
+          // InlineStyleRewriter unavailable or failed — fall through to deferred/AI below
         } else {
           await this.commitCSSModulesRewrite(edit, resolved.cssFilePath, resolved.selector)
           return

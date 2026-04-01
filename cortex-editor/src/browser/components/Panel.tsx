@@ -35,14 +35,14 @@ import type { CortexChannel } from '../../adapters/types.js'
 // attribute toggle is batched inside requestAnimationFrame to prevent layout thrashing.
 
 const HIGHLIGHT_ATTR = 'data-cortex-blast-radius'
-let blastRadiusStyle: HTMLStyleElement | null = null
 
 function ensureBlastRadiusStyle(): void {
-  if (blastRadiusStyle) return
-  blastRadiusStyle = document.createElement('style')
-  blastRadiusStyle.setAttribute('data-cortex-blast-radius-style', '')
-  blastRadiusStyle.textContent = `[${HIGHLIGHT_ATTR}] { outline: 2px dashed #f97316 !important; outline-offset: 2px !important; }`
-  document.head.appendChild(blastRadiusStyle)
+  // Query DOM instead of module-level ref — survives Vite HMR module re-execution
+  if (document.head.querySelector('[data-cortex-blast-radius-style]')) return
+  const style = document.createElement('style')
+  style.setAttribute('data-cortex-blast-radius-style', '')
+  style.textContent = `[${HIGHLIGHT_ATTR}] { outline: 2px dashed #f97316 !important; outline-offset: 2px !important; }`
+  document.head.appendChild(style)
 }
 
 function highlightSharedElements(info: SharedClassInfo, selected: HTMLElement | null): void {
@@ -198,7 +198,11 @@ export function Panel({
   useEffect(() => {
     clearHighlights()
     if (element) {
-      setSharedInfo(detectSharedClasses(element))
+      try {
+        setSharedInfo(detectSharedClasses(element))
+      } catch {
+        setSharedInfo(null) // degrade gracefully — editing still works, just no scope toggle
+      }
     } else {
       setSharedInfo(null)
     }
