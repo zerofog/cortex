@@ -153,27 +153,37 @@ export class CSSOverrideManager {
 
   private pendingRemovals: Array<{ editId: string; source: string; property: string; pseudo?: '::before' | '::after' }> = []
   private pendingClearAll = false
-  /** EditIds whose override removal should use double-rAF deferral. Populated by
-   *  commitEdit(true) so that handleHMRVerified — which may arrive AFTER commitEdit —
-   *  tags the removal correctly regardless of message ordering. */
+  /** EditIds whose override removal should use double-rAF deferral (AI/deferred edits).
+   *  Populated by commitEdit(true). Checked at drain time in onHMRApplied and at
+   *  late-arrival time in handleHMRVerified. */
   private deferredEditIds = new Set<string>()
+  /** True when onHMRApplied fired but pendingRemovals was empty (nothing to drain).
+   *  handleHMRVerified checks this flag to process the removal immediately instead
+   *  of queueing it for a future onHMRApplied that may never come. */
+  private hmrAppliedPending = false
 
-  /** Called when the server confirms an edit landed via HMR. For deferred (AI)
-   *  edits, applies removal directly via double-rAF — this avoids a race where
-   *  vite:afterUpdate (hmr-applied) fires before hmr_verified, leaving the
-   *  removal stuck in the queue. For immediate edits, queues removal for
-   *  onHMRApplied() which removes synchronously after HMR stylesheet applies. */
+  /** Called when the server confirms an edit landed via HMR. Queues the override
+   *  for removal in onHMRApplied(). If onHMRApplied already fired for this HMR cycle
+   *  (hmrAppliedPending flag), processes immediately — the HMR stylesheet is already
+   *  applied so the removal is safe. */
   handleHMRVerified(editId: string, match: boolean): void {
     this.evictStalePendingEdits()
     const pending = this.pendingEdits.get(editId)
     if (!pending) return
     this.pendingEdits.delete(editId)
     if (match) {
-      const deferred = this.deferredEditIds.has(editId)
-      if (deferred) {
-        this.deferredEditIds.delete(editId)
-        this.deferRemoval(pending.source, pending.property, pending.pseudo)
+      if (this.hmrAppliedPending) {
+        // HMR already applied for this cycle — process immediately
+        this.hmrAppliedPending = false
+        const deferred = this.deferredEditIds.has(editId)
+        if (deferred) this.deferredEditIds.delete(editId)
+        if (deferred) {
+          this.deferRemoval(pending.source, pending.property, pending.pseudo)
+        } else {
+          this.remove(pending.source, pending.property, pending.pseudo)
+        }
       } else {
+        // HMR not yet applied — queue for onHMRApplied (don't consume deferredEditIds yet)
         this.pendingRemovals.push({ editId, source: pending.source, property: pending.property, pseudo: pending.pseudo })
       }
     }
@@ -184,18 +194,19 @@ export class CSSOverrideManager {
     this.pendingClearAll = true
   }
 
-  /** Called when the browser confirms HMR stylesheet update has been applied.
-   *  Drains queued removals. Checks deferredEditIds at drain time to handle
-   *  the case where handleHMRVerified ran before commitEdit(true) — the editId
-   *  wasn't in deferredEditIds when queued but is now. */
+  /** Called when the browser confirms HMR stylesheet update has been applied
+   *  (vite:afterUpdate). Drains queued removals. If nothing to drain, sets
+   *  hmrAppliedPending so a late-arriving handleHMRVerified can process immediately. */
   onHMRApplied(): void {
     if (this.pendingClearAll) {
       this.pendingClearAll = false
       this.pendingRemovals.length = 0
+      this.hmrAppliedPending = false
       this.clearAll()
       return
     }
     if (this.pendingRemovals.length > 0) {
+      this.hmrAppliedPending = false
       const removals = this.pendingRemovals.splice(0)
       for (const r of removals) {
         if (this.deferredEditIds.has(r.editId)) {
@@ -205,6 +216,9 @@ export class CSSOverrideManager {
           this.remove(r.source, r.property, r.pseudo)
         }
       }
+    } else {
+      // HMR applied but no removals queued — flag for late-arriving handleHMRVerified
+      this.hmrAppliedPending = true
     }
   }
 
@@ -296,6 +310,7 @@ export class CSSOverrideManager {
     this.overrideRedoStack.length = 0
     this.pendingRemovals.length = 0
     this.deferredEditIds.clear()
+    this.hmrAppliedPending = false
     this.overrides.clear()
     this.stateOverrides.clear()
     this.pendingEdits.clear()
@@ -310,6 +325,7 @@ export class CSSOverrideManager {
     this.overrideRedoStack.length = 0
     this.pendingRemovals.length = 0
     this.deferredEditIds.clear()
+    this.hmrAppliedPending = false
     this.cancelPendingRebuild()
     this.overrides.clear()
     this.stateOverrides.clear()
