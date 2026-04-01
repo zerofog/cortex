@@ -341,6 +341,59 @@ describe('InlineStyleRewriter', () => {
     }
   })
 
+  it('adds property when style has shorthand for a different property', async () => {
+    const source = `export function App({ color }: { color: string }) {
+  return <div style={{ color }}>Hello</div>
+}`
+    const filePath = createTempFile(source)
+    try {
+      const rewriter = new InlineStyleRewriter()
+      const result = await rewriter.rewrite({
+        filePath,
+        line: 2,
+        col: 10,
+        property: 'padding-top',
+        value: '16px',
+      })
+
+      expect(result.success).toBe(true)
+      if (result.success) {
+        // Shorthand for 'color' preserved, new property added
+        expect(result.newContent).toContain('color')
+        expect(result.newContent).toContain('paddingTop: "16px"')
+      }
+      rewriter.dispose()
+    } finally {
+      cleanupTempFile(filePath)
+    }
+  })
+
+  it('updates numeric literal to string (CSS values are always strings)', async () => {
+    const source = `export function App() {
+  return <div style={{ zIndex: 1 }}>Hello</div>
+}`
+    const filePath = createTempFile(source)
+    try {
+      const rewriter = new InlineStyleRewriter()
+      const result = await rewriter.rewrite({
+        filePath,
+        line: 2,
+        col: 10,
+        property: 'z-index',
+        value: '2',
+      })
+
+      expect(result.success).toBe(true)
+      if (result.success) {
+        // CSS values from browser are always strings; React accepts both
+        expect(result.newContent).toContain('zIndex: "2"')
+      }
+      rewriter.dispose()
+    } finally {
+      cleanupTempFile(filePath)
+    }
+  })
+
   it('bails on shorthand property assignment', async () => {
     const source = `export function App({ paddingTop }: { paddingTop: string }) {
   return <div style={{ paddingTop }}>Hello</div>
