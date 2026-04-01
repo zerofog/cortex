@@ -41,6 +41,8 @@ export type { WriteStrategy } from './core/rewriter/shorthand.js'
 // AI writer (Edit Engine)
 export { AIWriter } from './core/ai-writer.js'
 export type { AIWriteRequest, AIWriteResult, AIWriterOptions } from './core/ai-writer.js'
+export { ToolApplicator } from './core/tool-applicator.js'
+export type { ToolAction, ApplyResult } from './core/tool-applicator.js'
 
 // Phase 8b: Capabilities, v4 parser, oklch
 export { computeCapabilities } from './core/capabilities.js'
