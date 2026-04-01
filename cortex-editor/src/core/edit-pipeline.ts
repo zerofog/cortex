@@ -354,8 +354,11 @@ export class EditPipeline {
     // First edit for a source:property pair has no previousValue — this is the
     // baseline "seed" establishing the current state. Skip silently; the CSS
     // override already shows the preview. File write starts on the next edit.
-    // Only skip seed for the Tailwind deterministic path — AI and InlineStyleRewriter don't need a baseline
-    if (!previousValue && !this.deferredWriter && !this.inlineStyleRewriter) return
+    // Seed-skip: first edit establishes the baseline for Tailwind (oldToken = null without it).
+    // InlineStyleRewriter doesn't need a baseline (uses property+value directly),
+    // so bypass seed-skip only when InlineStyleRewriter can handle this edit.
+    const canHandleWithoutBaseline = this.inlineStyleRewriter && !this.detector?.hasTailwind
+    if (!previousValue && !this.deferredWriter && !canHandleWithoutBaseline) return
 
     const newToken = this.resolver.findClass(edit.property, edit.value)
     const oldToken = previousValue ? this.resolver.findClass(edit.property, previousValue) : null
