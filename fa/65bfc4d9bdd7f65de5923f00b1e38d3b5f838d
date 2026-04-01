@@ -1,0 +1,58 @@
+cortex-editor/src/browser/components/Panel.tsx
+  3eecd8d42cdde8c3 240,254,281-300,600,612,636,646,657,666,676
+cortex-editor/src/browser/components/sections/TypographySection.tsx
+  3eecd8d42cdde8c3 32-33,108,194,216,228,254
+cortex-editor/src/browser/styles.css
+  3eecd8d42cdde8c3 481-498
+cortex-editor/src/browser/components/sections/SpacingSection.tsx
+  3eecd8d42cdde8c3 34-35,50,63,114,117,120,123,150,177,219,232,249,257,287
+cortex-editor/src/browser/components/sections/FillSection.tsx
+  3eecd8d42cdde8c3 23-24,121,233
+cortex-editor/src/browser/components/sections/BorderSection.tsx
+  3eecd8d42cdde8c3 31-32,67,126,149,163,192,201,210,219
+cortex-editor/src/browser/components/controls/NumericInput.tsx
+  3eecd8d42cdde8c3 15-16,40,190,203-204
+cortex-editor/src/browser/components/controls/ColorInput.tsx
+  3eecd8d42cdde8c3 12-13,66,123,127,135
+cortex-editor/src/browser/components/sections/EffectsSection.tsx
+  3eecd8d42cdde8c3 29-30,94,160
+cortex-editor/src/browser/components/sections/ShadowSection.tsx
+  3eecd8d42cdde8c3 28-29,74,163,171,180,188,196
+cortex-editor/src/browser/components/sections/LayoutSection.tsx
+  3eecd8d42cdde8c3 34-35,104,340,361,406,428,450,472
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.3",
+  "base_commit_sha": "fa65bfc4d9bdd7f65de5923f00b1e38d3b5f838d",
+  "prompts": {
+    "3eecd8d42cdde8c3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "81f73591-ce2e-407e-87d7-feb5ee61211e",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 116,
+      "total_deletions": 10,
+      "accepted_lines": 116,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/614f94fa1eafebe7fa2d195f52592f86107d01a23f07eb85c6ecbed0934dfad6"
+    },
+    "6a8950c188d04c09": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4615-601e-7000-8eee-5995a84ec48e",
+        "model": "gpt-5.4"
+      },
+      "human_author": "dklzf <dlee@zerofog.app>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1055,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/8f89809ce73f3c76ab8b2e5d60e95c64ed5134cb7e35113f311e65fecdd0a03b"
+    }
+  }
+}
