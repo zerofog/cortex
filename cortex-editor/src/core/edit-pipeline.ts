@@ -361,7 +361,8 @@ export class EditPipeline {
       // CSS Modules-only project → don't fall through to Tailwind
       if (!this.detector.hasTailwind) {
         // Layer 3.5: Inline style rewriter — deterministic fallback
-        if (this.inlineStyleRewriter) {
+        // Skip if we already tried InlineStyleRewriter for instance scope (avoids double call)
+        if (this.inlineStyleRewriter && edit.scope !== 'instance') {
           const handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
           if (handled) return
         }

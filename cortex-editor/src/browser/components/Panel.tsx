@@ -45,18 +45,25 @@ function ensureBlastRadiusStyle(): void {
   document.head.appendChild(style)
 }
 
+let highlightFrame = 0
+let clearFrame = 0
+
 function highlightSharedElements(info: SharedClassInfo, selected: HTMLElement | null): void {
   ensureBlastRadiusStyle()
-  requestAnimationFrame(() => {
+  cancelAnimationFrame(clearFrame)
+  cancelAnimationFrame(highlightFrame)
+  highlightFrame = requestAnimationFrame(() => {
     for (const el of info.elements) {
-      if (el === selected) continue // Skip selected element — already has SelectionOverlay
+      if (el === selected) continue
       el.setAttribute(HIGHLIGHT_ATTR, '')
     }
   })
 }
 
 function clearHighlights(): void {
-  requestAnimationFrame(() => {
+  cancelAnimationFrame(highlightFrame)
+  cancelAnimationFrame(clearFrame)
+  clearFrame = requestAnimationFrame(() => {
     const highlighted = document.querySelectorAll(`[${HIGHLIGHT_ATTR}]`)
     for (const el of highlighted) {
       el.removeAttribute(HIGHLIGHT_ATTR)
