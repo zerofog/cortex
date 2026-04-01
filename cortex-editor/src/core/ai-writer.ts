@@ -1,6 +1,8 @@
 import { parse } from '@babel/parser'
 import { basename, extname } from 'path'
 import { PARSE_PLUGINS } from './parser-config.js'
+import { ToolApplicator } from './tool-applicator.js'
+import type { ToolAction } from './tool-applicator.js'
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -30,10 +32,12 @@ export interface AIWriterOptions {
   readFile: (path: string) => Promise<string>
   /** Override model for testing. Default: claude-haiku-4-5-20251001 */
   model?: string
-  /** Override timeout in ms. Default: 15000 */
+  /** Override timeout in ms. Default: 8000 */
   timeoutMs?: number
   /** Override API base URL. Default: https://api.anthropic.com */
   apiBaseUrl?: string
+  /** Optional ToolApplicator for DI/testing. Created internally if not provided. */
+  toolApplicator?: ToolApplicator
 }
 
 // ── Constants ──────────────────────────────────────────────────────
@@ -42,33 +46,80 @@ const DEFAULT_MODEL = 'claude-haiku-4-5-20251001'
 const DEFAULT_TIMEOUT_MS = 8_000
 const DEFAULT_API_BASE = 'https://api.anthropic.com'
 const CONTEXT_WINDOW = 50
-const MAX_DIFF_LINES = 20
-const MAX_LOCALITY_DISTANCE = 30
-const MAX_NET_LINE_DELTA = 3
 const MAX_LINE_LENGTH = 500
-const MAX_TOKENS = 2048
+const MAX_TOKENS = 512
 
+const SYSTEM_PROMPT = `You are a code editor. You modify JSX/TSX source files using the provided tools.
 
-const SYSTEM_PROMPT = `You are a code editor. You modify JSX/TSX source files to apply CSS property changes.
+The user provides a code snippet with the target element marked with \u2190. Apply the requested CSS changes using the most appropriate tool:
 
-HOW TO APPLY THE CHANGE:
-- If the element already has a \`style\` prop, add or update the property in the existing style object.
-- If the element has no \`style\` prop, add one: \`style={{ camelCaseProperty: 'value' }}\`
-- Use JSX camelCase for property names (e.g., paddingTop, backgroundColor, fontSize).
-- Always quote string values. Use numbers only for unitless values (e.g., lineHeight, opacity).
+1. set_inline_style \u2014 preferred for CSS property changes. Adds or updates style prop properties.
+2. replace_attribute \u2014 for className or other JSX attribute changes.
+3. replace_line_content \u2014 last resort for changes the above tools cannot express.
 
 RULES:
-- Return the COMPLETE code section with your change applied, wrapped in a single code fence.
-- Your output REPLACES the entire provided code section, so include ALL lines — not just the changed ones.
-- Do NOT include line numbers in your output — only return the raw code.
-- Change the MINIMUM number of lines necessary.
-- Preserve exact indentation, formatting, and all surrounding code within the section.
-- Do NOT add explanations, comments, or text outside the code fence.
-- Do NOT add or remove imports.
-- Do NOT modify any element other than the one marked with ←.`
+- Use kebab-case property names for set_inline_style (e.g., padding-top, background-color). The applicator handles camelCase conversion.
+- Change only the target element (marked with \u2190).
+- Do NOT modify imports or other elements.`
+
+const TOOL_DEFINITIONS = [
+  {
+    name: 'set_inline_style',
+    description: 'Set one or more CSS properties on the target element\'s inline style prop.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        changes: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              property: { type: 'string', description: 'CSS property in kebab-case (e.g., padding-top)' },
+              value: { type: 'string', description: 'CSS value (e.g., 16px, #ff0000)' },
+            },
+            required: ['property', 'value'],
+          },
+        },
+      },
+      required: ['changes'],
+    },
+  },
+  {
+    name: 'replace_attribute',
+    description: 'Replace or add a JSX attribute on the target element.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        attribute: { type: 'string', description: 'JSX attribute name (e.g., className)' },
+        value: { type: 'string', description: 'Complete attribute value including quotes/braces' },
+      },
+      required: ['attribute', 'value'],
+    },
+  },
+  {
+    name: 'replace_line_content',
+    description: 'Replace a specific line of code. Use only when set_inline_style and replace_attribute cannot express the change.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        line_number: { type: 'number', description: '1-based line number to modify' },
+        old_content: { type: 'string', description: 'Expected current content (trimmed)' },
+        new_content: { type: 'string', description: 'New line content' },
+      },
+      required: ['line_number', 'old_content', 'new_content'],
+    },
+  },
+]
 
 // Matches instruction-like patterns commonly used in prompt injection
 const INSTRUCTION_COMMENT_RE = /^\s*(IMPORTANT|INSTRUCTION|NOTE|AI|SYSTEM|IGNORE|OVERRIDE|FORGET|DISREGARD)\s*:/i
+
+// ── Internal types ────────────────────────────────────────────────
+
+interface ToolCall {
+  name: string
+  input: Record<string, unknown>
+}
 
 // ── AIWriter ───────────────────────────────────────────────────────
 
@@ -78,6 +129,7 @@ export class AIWriter {
   private readonly model: string
   private readonly timeoutMs: number
   private readonly apiBaseUrl: string
+  private toolApplicator: ToolApplicator
 
   constructor(options: AIWriterOptions) {
     this.apiKey = options.apiKey
@@ -85,6 +137,7 @@ export class AIWriter {
     this.model = options.model ?? DEFAULT_MODEL
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
     this.apiBaseUrl = options.apiBaseUrl ?? DEFAULT_API_BASE
+    this.toolApplicator = options.toolApplicator ?? new ToolApplicator()
   }
 
   async write(
@@ -118,20 +171,13 @@ export class AIWriter {
     const filename = basename(filePath)
     const userPrompt = buildUserPrompt(request, sanitized, startLine, endLine, filename, ext)
 
-    // With temperature=0, retrying produces the identical output — a retry
-    // loop wastes tokens with 0% recovery. The 429 retry in callClaude handles
-    // transient network issues. Validation failures here are deterministic
-    // (the model can't produce valid code for this input) and won't improve.
-    // The real fix is the InlineStyleRewriter (deterministic AST path) which
-    // eliminates ~85% of AI calls entirely.
-
     if (signal?.aborted) {
       return { success: false, filePath, reason: 'Aborted before AI call' }
     }
 
-    let responseText: string
+    let toolCall: ToolCall
     try {
-      responseText = await this.callClaude(userPrompt, signal)
+      toolCall = await this.callClaude(userPrompt, signal)
     } catch (err) {
       return { success: false, filePath, reason: `AI request failed: ${err instanceof Error ? err.message : String(err)}` }
     }
@@ -140,17 +186,42 @@ export class AIWriter {
       return { success: false, filePath, reason: 'Aborted after AI response' }
     }
 
-    const extractedCode = extractCodeFence(responseText)
-    if (extractedCode === null) {
-      return { success: false, filePath, reason: 'AI response did not contain a code block' }
+    // Convert ToolCall to ToolAction and apply via ToolApplicator
+    let action: ToolAction
+    switch (toolCall.name) {
+      case 'set_inline_style':
+        action = {
+          tool: 'set_inline_style',
+          changes: toolCall.input.changes as Array<{ property: string; value: string }>,
+        }
+        break
+      case 'replace_attribute':
+        action = {
+          tool: 'replace_attribute',
+          attribute: toolCall.input.attribute as string,
+          value: toolCall.input.value as string,
+        }
+        break
+      case 'replace_line_content':
+        action = {
+          tool: 'replace_line_content',
+          lineNumber: toolCall.input.line_number as number,
+          oldContent: toolCall.input.old_content as string,
+          newContent: toolCall.input.new_content as string,
+        }
+        break
+      default:
+        return { success: false, filePath, reason: `Unknown tool: ${toolCall.name}` }
     }
 
-    const newLines = [...lines]
-    const aiLines = extractedCode.split('\n')
-    newLines.splice(startLine - 1, endLine - startLine + 1, ...aiLines)
-    const newContent = newLines.join('\n')
+    const applyResult = await this.toolApplicator.apply(oldContent, filePath, request.line, request.col, action)
+    if (!applyResult.success) {
+      return { success: false, filePath, reason: applyResult.reason }
+    }
 
-    const validation = validateResult(oldContent, newContent, filePath, request.line)
+    const newContent = applyResult.content
+
+    const validation = validateResult(oldContent, newContent, filePath)
     if (!validation.valid) {
       return { success: false, filePath, reason: validation.reason }
     }
@@ -158,7 +229,7 @@ export class AIWriter {
     return { success: true, filePath, oldContent, newContent }
   }
 
-  private async callClaude(userPrompt: string, externalSignal?: AbortSignal): Promise<string> {
+  private async callClaude(userPrompt: string, externalSignal?: AbortSignal): Promise<ToolCall> {
     const startTime = Date.now()
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), this.timeoutMs)
@@ -180,6 +251,8 @@ export class AIWriter {
         temperature: 0,
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userPrompt }],
+        tools: TOOL_DEFINITIONS,
+        tool_choice: { type: 'any' },
       }),
       signal: controller.signal,
     }
@@ -220,16 +293,22 @@ export class AIWriter {
         throw new Error(`API error ${response.status}`)
       }
 
-      const data = await response.json() as { content?: Array<{ type: string; text?: string }> }
-      const textBlock = data.content?.find(b => b.type === 'text')
-      if (!textBlock?.text) {
-        throw new Error('Empty response from API')
+      const data = await response.json() as {
+        content?: Array<{ type: string; id?: string; name?: string; input?: Record<string, unknown> }>
       }
-      return textBlock.text
+      const toolUseBlock = data.content?.find(b => b.type === 'tool_use')
+      if (!toolUseBlock?.name || !toolUseBlock.input) {
+        throw new Error('AI did not call any tools')
+      }
+      return { name: toolUseBlock.name, input: toolUseBlock.input }
     } finally {
       clearTimeout(timer)
       externalSignal?.removeEventListener('abort', onAbort)
     }
+  }
+
+  dispose(): void {
+    this.toolApplicator.dispose()
   }
 }
 
@@ -262,25 +341,24 @@ export function buildUserPrompt(
   filename: string,
   ext: string,
 ): string {
-  // Add line numbers so the AI can identify the target element precisely
   const numberedSnippet = snippet
     .split('\n')
     .map((line, i) => {
       const lineNum = startLine + i
-      const marker = lineNum === request.line ? ' ←' : ''
+      const marker = lineNum === request.line ? ' \u2190' : ''
       return `${lineNum}| ${line}${marker}`
     })
     .join('\n')
 
   const changesList = request.changes
-    ? request.changes.map(c => `\`${c.property}: ${c.value}\``).join(', ')
-    : `\`${request.property}: ${request.value}\``
+    ? request.changes.map(c => `${c.property}: ${c.value}`).join(', ')
+    : `${request.property}: ${request.value}`
 
-  return `TASK: Set ${changesList} on the element at line ${request.line} (marked with ←).
+  return `Set ${changesList} on the element at line ${request.line} (marked with \u2190).
 
-CONTEXT: ${request.failureReason}
+Context: ${request.failureReason}
 
-CODE (${filename}, lines ${startLine}-${endLine} — line numbers shown for reference, do NOT include them in your output):
+File: ${filename} (lines ${startLine}-${endLine})
 \`\`\`${ext}
 ${numberedSnippet}
 \`\`\``
@@ -367,112 +445,22 @@ export function sanitizeForPrompt(code: string): string {
   return result.join('\n')
 }
 
-/** Extract content from the first code fence in the AI response. */
-export function extractCodeFence(response: string): string | null {
-  // Find the first opening fence (with optional language tag)
-  const openMatch = response.match(/```(?:\w+)?\n/)
-  if (!openMatch) return null
-
-  const contentStart = openMatch.index! + openMatch[0].length
-  const rest = response.slice(contentStart)
-
-  // Find the last bare closing fence: a line that is ONLY ``` (with optional
-  // whitespace). This skips nested fences that appear mid-line in comments
-  // or string literals (e.g., `// Example: ```jsx`).
-  const lines = rest.split('\n')
-  let lastBareOffset = -1
-  let offset = 0
-  for (let i = 0; i < lines.length; i++) {
-    if (/^\s*```\s*$/.test(lines[i]!)) {
-      lastBareOffset = offset
-    }
-    offset += lines[i]!.length + 1 // +1 for the \n
-  }
-
-  if (lastBareOffset === -1) return null
-  return rest.slice(0, lastBareOffset).replace(/\n$/, '')
-}
-
-/** Validate AI output: parse check, diff budget, localization. */
+/** Validate tool-applied output: parse check and no-op detection. */
 export function validateResult(
   oldContent: string,
   newContent: string,
   filePath: string,
-  targetLine: number,
 ): { valid: true } | { valid: false; reason: string } {
-  // Gate 1: Parse check — must produce valid JSX/TSX
+  if (oldContent === newContent) {
+    return { valid: false, reason: 'AI made no changes to the file' }
+  }
+
   const ext = extname(filePath)
   if (/\.[jt]sx?$/.test(ext)) {
     try {
       parse(newContent, { sourceType: 'module', plugins: PARSE_PLUGINS })
     } catch (err) {
-      return { valid: false, reason: `AI output has syntax errors: ${err instanceof Error ? err.message : String(err)}` }
-    }
-  }
-
-  // Gate 2 + 3: Diff budget and localization
-  //
-  // Design note: source annotations (data-cortex-source="file:line:col") are
-  // determined at build time. After an AI edit modifies the file, line numbers
-  // may shift. Subsequent edits still reference the ORIGINAL line number until
-  // HMR re-renders the page. The validation gates must tolerate this drift:
-  //
-  // - Parse check: absolute, no line dependency
-  // - Net line delta: absolute, limits structural changes
-  // - Diff budget: counts changed lines (reliable for same-length files)
-  // - Locality: ensures changes are within MAX_LOCALITY_DISTANCE of target
-  //
-  // We intentionally do NOT require changes to be exactly on the target line.
-  // The ±30 line locality window accommodates typical line drift from prior edits.
-  // The context window (50 lines) ensures the AI sees the element regardless of
-  // small position shifts.
-
-  const oldLines = oldContent.split('\n')
-  const newLines = newContent.split('\n')
-  const netDelta = Math.abs(oldLines.length - newLines.length)
-
-  // Verify the file actually changed
-  if (oldContent === newContent) {
-    return { valid: false, reason: 'AI made no changes to the file' }
-  }
-
-  if (netDelta > 0) {
-    // Lines were added or removed — positional line-by-line diffing is unreliable
-    // because all subsequent lines shift. Use net delta as the safety constraint.
-    if (netDelta > MAX_NET_LINE_DELTA) {
-      return { valid: false, reason: `AI added/removed ${netDelta} net lines (max ${MAX_NET_LINE_DELTA}). Edit rejected — net line delta too large.` }
-    }
-  } else {
-    // Same line count — value replacement. Positional diff is reliable.
-    let diffCount = 0
-    const changedLineNumbers: number[] = []
-    for (let i = 0; i < oldLines.length; i++) {
-      if (oldLines[i] !== newLines[i]) {
-        diffCount++
-        changedLineNumbers.push(i + 1)
-      }
-    }
-    // Gate 2: Diff budget
-    if (diffCount > MAX_DIFF_LINES) {
-      return { valid: false, reason: `AI changed ${diffCount} lines (max ${MAX_DIFF_LINES}). Edit rejected as too broad.` }
-    }
-    if (diffCount === 0) {
-      return { valid: false, reason: 'AI made no changes to the file' }
-    }
-    // Gate 3: Localization — per-line locality check
-    for (const changedLine of changedLineNumbers) {
-      if (Math.abs(changedLine - targetLine) > MAX_LOCALITY_DISTANCE) {
-        return { valid: false, reason: `AI modified line ${changedLine}, which is too far from target line ${targetLine}. Edit rejected.` }
-      }
-    }
-    // Gate 6: Target proximity — at least one change should be near the target.
-    // Uses half the context window radius (not ±2) to accommodate line drift
-    // from prior AI edits that shifted element positions before HMR updates
-    // the source annotations.
-    const TARGET_PROXIMITY = Math.floor(CONTEXT_WINDOW / 4) // ±12 for 50-line window
-    const nearTarget = changedLineNumbers.some(ln => Math.abs(ln - targetLine) <= TARGET_PROXIMITY)
-    if (!nearTarget) {
-      return { valid: false, reason: `AI modified lines ${changedLineNumbers.join(', ')} but not near target line ${targetLine}. Edit rejected.` }
+      return { valid: false, reason: `Tool-applied output has syntax errors: ${err instanceof Error ? err.message : String(err)}` }
     }
   }
 

@@ -4,7 +4,6 @@ import {
   extractContext,
   buildUserPrompt,
   sanitizeForPrompt,
-  extractCodeFence,
   validateResult,
 } from '../../src/core/ai-writer.js'
 
@@ -87,7 +86,23 @@ describe('buildUserPrompt', () => {
       failureReason: 'test',
     }
     const prompt = buildUserPrompt(request, '<div className="pt-4">', 8, 12, 'App.tsx', 'tsx')
-    expect(prompt).toContain('`padding-top: 16px`')
+    expect(prompt).toContain('padding-top: 16px')
+  })
+
+  it('uses simplified format without TASK prefix', () => {
+    const request = {
+      filePath: '/project/src/App.tsx',
+      line: 10,
+      col: 5,
+      property: 'padding-top',
+      value: '16px',
+      failureReason: 'test',
+    }
+    const prompt = buildUserPrompt(request, '<div />', 8, 12, 'App.tsx', 'tsx')
+    expect(prompt).toMatch(/^Set padding-top: 16px/)
+    expect(prompt).not.toContain('TASK:')
+    expect(prompt).toContain('Context:')
+    expect(prompt).toContain('File: App.tsx')
   })
 })
 
@@ -181,53 +196,6 @@ describe('sanitizeForPrompt', () => {
   })
 })
 
-describe('extractCodeFence', () => {
-  it('extracts code from fenced block', () => {
-    const response = 'Here is the code:\n```tsx\n<div className="pt-6">\n```\nDone.'
-    expect(extractCodeFence(response)).toBe('<div className="pt-6">')
-  })
-
-  it('extracts code without language tag', () => {
-    const response = '```\nsome code\n```'
-    expect(extractCodeFence(response)).toBe('some code')
-  })
-
-  it('returns null when no fence found', () => {
-    expect(extractCodeFence('no code here')).toBeNull()
-  })
-
-  it('extracts from first opening to last bare closing fence', () => {
-    const response = '```tsx\nfirst\n```\n```tsx\nsecond\n```'
-    // With nested-fence-safe extraction, content spans from first opening
-    // to last bare closing fence. The AI contract (single fence block)
-    // makes this the correct behavior for nested backtick handling.
-    expect(extractCodeFence(response)).toBe('first\n```\n```tsx\nsecond')
-  })
-
-  it('handles nested backtick fences in AI response', () => {
-    const response = [
-      'Here is the modified code:',
-      '```tsx',
-      'export function App() {',
-      '  // Example: ```jsx',
-      '  // <div />',
-      '  // ```',
-      '  return <div className="pt-6" />',
-      '}',
-      '```',
-    ].join('\n')
-    const expected = [
-      'export function App() {',
-      '  // Example: ```jsx',
-      '  // <div />',
-      '  // ```',
-      '  return <div className="pt-6" />',
-      '}',
-    ].join('\n')
-    expect(extractCodeFence(response)).toBe(expected)
-  })
-})
-
 describe('validateResult', () => {
   const baseFile = [
     'import React from "react"',
@@ -241,38 +209,21 @@ describe('validateResult', () => {
     '}',
   ].join('\n')
 
-  it('accepts valid single-line edit near target', () => {
+  it('accepts valid single-line edit', () => {
     const newFile = baseFile.replace('pt-4', 'pt-6')
-    const result = validateResult(baseFile, newFile, 'App.tsx', 5)
+    const result = validateResult(baseFile, newFile, 'App.tsx')
     expect(result.valid).toBe(true)
-  })
-
-  it('rejects when too many lines changed', () => {
-    // Create a file with 25 lines, change all of them (exceeds 20-line budget)
-    const bigFile = Array.from({ length: 25 }, (_, i) => `const x${i} = ${i}`).join('\n')
-    const newBigFile = bigFile.split('\n').map(l => l + ' // changed').join('\n')
-    const result = validateResult(bigFile, newBigFile, 'App.tsx', 13)
-    expect(result.valid).toBe(false)
-    expect(!result.valid && result.reason).toContain('too broad')
-  })
-
-  it('rejects when changes are far from target line', () => {
-    // Target is line 5, but modify line 1 (import statement)
-    const newFile = baseFile.replace('import React from "react"', 'import React from "preact"')
-    const result = validateResult(baseFile, newFile, 'App.tsx', 50)
-    expect(result.valid).toBe(false)
-    expect(!result.valid && result.reason).toContain('too far')
   })
 
   it('rejects syntax errors', () => {
     const badFile = baseFile.replace('<div className="pt-4 bg-blue-500">', '<div className="pt-4 bg-blue-500"')
-    const result = validateResult(baseFile, badFile, 'App.tsx', 5)
+    const result = validateResult(baseFile, badFile, 'App.tsx')
     expect(result.valid).toBe(false)
     expect(!result.valid && result.reason).toContain('syntax')
   })
 
   it('rejects zero-diff (no changes)', () => {
-    const result = validateResult(baseFile, baseFile, 'App.tsx', 5)
+    const result = validateResult(baseFile, baseFile, 'App.tsx')
     expect(result.valid).toBe(false)
     expect(!result.valid && result.reason).toContain('no changes')
   })
@@ -280,121 +231,8 @@ describe('validateResult', () => {
   it('skips parse check for non-JSX files', () => {
     const cssOld = '.foo { color: red; }'
     const cssNew = '.foo { color: blue; }'
-    const result = validateResult(cssOld, cssNew, 'styles.css', 1)
+    const result = validateResult(cssOld, cssNew, 'styles.css')
     expect(result.valid).toBe(true)
-  })
-
-  it('accepts edit that adds a line near target', () => {
-    // AI adds 1 line near target line 5. With positional diffing, all lines
-    // from the insertion point onward shift — line 22 in new != line 22 in old,
-    // and |22 - 5| > 15, so the old code would reject this as "too far".
-    // The fix should accept it because net delta is only 1 (≤ 3).
-    const oldLines = [
-      'import React from "react"',       // 1
-      '',                                  // 2
-      'export function App() {',           // 3
-      '  return (',                        // 4
-      '    <div className="pt-4">',        // 5  ← target
-      '      <h1>Hello</h1>',             // 6
-      '      <p>Content</p>',             // 7
-    ]
-    // Pad to 25 lines so shifted lines exceed locality distance
-    for (let i = 8; i <= 23; i++) oldLines.push(`      <p>Line ${i}</p>`)
-    oldLines.push('    </div>')            // 24
-    oldLines.push('  )')                   // 25
-    oldLines.push('}')                     // 26
-
-    // New file: add a wrapper <div> around the content — adds 1 line, valid JSX
-    const newLines = [...oldLines]
-    newLines[4] = '    <div className="pt-4 mb-2">'   // line 5 changed
-    // Insert opening tag after <h1>, close it before </div>
-    newLines.splice(6, 0, '      <p>Extra line</p>')   // insert after h1
-
-    const oldFile = oldLines.join('\n')
-    const newFile = newLines.join('\n')
-
-    // Context window: lines 1-26
-    const result = validateResult(oldFile, newFile, 'App.tsx', 5)
-    expect(result.valid).toBe(true)
-  })
-
-  it('rejects edit that modifies a line far from target (Gate 6 — wrong element)', () => {
-    // Simulate AI modifying the wrong element: change is at line 2,
-    // target is line 20 (distance = 18, outside ±12 proximity window).
-    // Must be valid JSX to reach Gate 6 (parse check comes first).
-    const lines = ['export function App() {', '  return (', '    <div style={{ margin: "8px" }}>']
-    for (let i = 4; i <= 22; i++) lines.push(`      <p>Line ${i}</p>`)
-    lines.push('    </div>', '  )', '}')
-    const oldFile = lines.join('\n')
-    const newFile = oldFile.replace('margin: "8px"', 'margin: "8px", paddingTop: "16px"')
-    const result = validateResult(oldFile, newFile, 'App.tsx', 20)
-    expect(result.valid).toBe(false)
-    if (!result.valid) {
-      expect(result.reason).toContain('target line')
-    }
-  })
-
-  it('accepts edit near target with line drift (Gate 6 — ±12 tolerance)', () => {
-    // Simulate line drift: target was line 10, but element shifted to line 15.
-    // AI correctly modified line 15. Distance = 5, within ±12 window.
-    // Must be valid JSX to pass parse check.
-    const lines = ['export function App() {', '  return (', '    <div>']
-    for (let i = 4; i <= 22; i++) lines.push(`      <p className="line-${i}">Line ${i}</p>`)
-    lines.push('    </div>', '  )', '}')
-    const oldFile = lines.join('\n')
-    const newFile = oldFile.replace('className="line-15"', 'className="line-15" style={{ paddingTop: "16px" }}')
-    const result = validateResult(oldFile, newFile, 'App.tsx', 10)
-    expect(result.valid).toBe(true)
-  })
-
-  it('accepts edit that modifies the target line (Gate 6 passes)', () => {
-    const oldFile = [
-      'import React from "react"',
-      '',
-      '<div>',
-      '  <p>Target</p>',
-      '  <section>Hello</section>',
-      '</div>',
-    ].join('\n')
-    // Line 5 changed — target is line 5
-    const newFile = oldFile.replace('<section>Hello</section>', '<section style={{ padding: "16px" }}>Hello</section>')
-    const result = validateResult(oldFile, newFile, 'App.tsx', 5)
-    expect(result.valid).toBe(true)
-  })
-
-  it('rejects edit with large net line delta (> 3)', () => {
-    // AI adds 5 lines — net delta of 5 exceeds MAX_NET_LINE_DELTA of 3
-    const oldFile = [
-      'import React from "react"',
-      '',
-      'export function App() {',
-      '  return (',
-      '    <div className="pt-4">',
-      '      <h1>Hello</h1>',
-      '    </div>',
-      '  )',
-      '}',
-    ].join('\n')
-    const newFile = [
-      'import React from "react"',
-      '',
-      'export function App() {',
-      '  return (',
-      '    <div className="pt-4 mb-2">',
-      '      <span>extra1</span>',
-      '      <span>extra2</span>',
-      '      <span>extra3</span>',
-      '      <span>extra4</span>',
-      '      <span>extra5</span>',
-      '      <h1>Hello</h1>',
-      '    </div>',
-      '  )',
-      '}',
-    ].join('\n')
-    // Target line 5, context window 1-9
-    const result = validateResult(oldFile, newFile, 'App.tsx', 5)
-    expect(result.valid).toBe(false)
-    expect(!result.valid && result.reason).toContain('net line delta')
   })
 })
 
@@ -425,22 +263,25 @@ describe('AIWriter', () => {
     fetchSpy.mockRestore()
   })
 
-  function mockClaudeResponse(code: string) {
+  function mockClaudeToolResponse(toolName: string, input: Record<string, unknown>) {
     fetchSpy.mockResolvedValueOnce(new Response(
       JSON.stringify({
-        content: [{ type: 'text', text: `\`\`\`tsx\n${code}\n\`\`\`` }],
+        content: [{
+          type: 'tool_use',
+          id: 'toolu_mock',
+          name: toolName,
+          input,
+        }],
       }),
       { status: 200, headers: { 'content-type': 'application/json' } },
     ))
   }
 
-  it('returns success when AI produces valid edit', async () => {
+  it('returns success when AI calls set_inline_style', async () => {
     mockReadFile.mockResolvedValueOnce(sampleFile)
-    const modifiedSnippet = sampleFile
-      .split('\n')
-      .map(l => l.replace('pt-4', 'pt-8'))
-      .join('\n')
-    mockClaudeResponse(modifiedSnippet)
+    mockClaudeToolResponse('set_inline_style', {
+      changes: [{ property: 'padding-top', value: '32px' }],
+    })
 
     const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
     const result = await writer.write({
@@ -455,9 +296,60 @@ describe('AIWriter', () => {
     expect(result.success).toBe(true)
     if (result.success) {
       expect(result.oldContent).toBe(sampleFile)
+      expect(result.newContent).toContain('paddingTop')
+      expect(result.newContent).toContain('32px')
+    }
+    writer.dispose()
+  })
+
+  it('returns success when AI calls replace_attribute', async () => {
+    mockReadFile.mockResolvedValueOnce(sampleFile)
+    mockClaudeToolResponse('replace_attribute', {
+      attribute: 'className',
+      value: '"pt-8 bg-blue-500 text-white"',
+    })
+
+    const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
+    const result = await writer.write({
+      filePath: '/project/src/Hero.tsx',
+      line: 5,
+      col: 5,
+      property: 'padding-top',
+      value: '32px',
+      failureReason: 'test',
+    })
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.newContent).toContain('pt-8')
+    }
+    writer.dispose()
+  })
+
+  it('returns success when AI calls replace_line_content', async () => {
+    mockReadFile.mockResolvedValueOnce(sampleFile)
+    mockClaudeToolResponse('replace_line_content', {
+      line_number: 5,
+      old_content: '<div className="pt-4 bg-blue-500 text-white">',
+      new_content: '<div className="pt-8 bg-blue-500 text-white">',
+    })
+
+    const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
+    const result = await writer.write({
+      filePath: '/project/src/Hero.tsx',
+      line: 5,
+      col: 5,
+      property: 'padding-top',
+      value: '32px',
+      failureReason: 'test',
+    })
+
+    expect(result.success).toBe(true)
+    if (result.success) {
       expect(result.newContent).toContain('pt-8')
       expect(result.newContent).not.toContain('pt-4')
     }
+    writer.dispose()
   })
 
   it('returns failure when file cannot be read', async () => {
@@ -473,6 +365,7 @@ describe('AIWriter', () => {
 
     expect(result.success).toBe(false)
     if (!result.success) expect(result.reason).toContain('read file')
+    writer.dispose()
   })
 
   it('returns failure on API error', async () => {
@@ -497,6 +390,7 @@ describe('AIWriter', () => {
 
     expect(result.success).toBe(false)
     if (!result.success) expect(result.reason).toContain('429')
+    writer.dispose()
   })
 
   describe('callClaude retry', () => {
@@ -507,17 +401,10 @@ describe('AIWriter', () => {
         status: 429,
         headers: { 'retry-after': '0' },
       }))
-      // Second fetch: success
-      const modifiedSnippet = sampleFile
-        .split('\n')
-        .map(l => l.replace('pt-4', 'pt-8'))
-        .join('\n')
-      fetchSpy.mockResolvedValueOnce(new Response(
-        JSON.stringify({
-          content: [{ type: 'text', text: `\`\`\`tsx\n${modifiedSnippet}\n\`\`\`` }],
-        }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      ))
+      // Second fetch: success with tool_use
+      mockClaudeToolResponse('set_inline_style', {
+        changes: [{ property: 'padding-top', value: '32px' }],
+      })
 
       const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
       const result = await writer.write({
@@ -529,6 +416,7 @@ describe('AIWriter', () => {
 
       expect(result.success).toBe(true)
       expect(fetchSpy).toHaveBeenCalledTimes(2)
+      writer.dispose()
     })
 
     it('fails after second 429', async () => {
@@ -557,6 +445,7 @@ describe('AIWriter', () => {
         expect(result.reason).toContain('after retry')
       }
       expect(fetchSpy).toHaveBeenCalledTimes(2)
+      writer.dispose()
     })
 
     it('does not retry on 500 errors', async () => {
@@ -574,10 +463,11 @@ describe('AIWriter', () => {
       expect(result.success).toBe(false)
       if (!result.success) expect(result.reason).toContain('500')
       expect(fetchSpy).toHaveBeenCalledTimes(1)
+      writer.dispose()
     })
   })
 
-  it('returns failure when AI response has no code fence', async () => {
+  it('returns failure when AI response has no tool_use blocks', async () => {
     mockReadFile.mockResolvedValueOnce(sampleFile)
     fetchSpy.mockResolvedValueOnce(new Response(
       JSON.stringify({ content: [{ type: 'text', text: 'I cannot make this change.' }] }),
@@ -593,25 +483,47 @@ describe('AIWriter', () => {
     })
 
     expect(result.success).toBe(false)
-    if (!result.success) expect(result.reason).toContain('code block')
+    if (!result.success) expect(result.reason).toContain('did not call any tools')
+    writer.dispose()
   })
 
-  it('returns failure when AI produces syntax error', async () => {
+  it('returns failure when AI calls unknown tool', async () => {
     mockReadFile.mockResolvedValueOnce(sampleFile)
-    // Return code with broken JSX (missing closing bracket)
-    const brokenCode = sampleFile.replace('<div className="pt-4 bg-blue-500 text-white">', '<div className="pt-8 bg-blue-500 text-white"')
-    mockClaudeResponse(brokenCode)
+    mockClaudeToolResponse('unknown_tool', { foo: 'bar' })
 
     const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
     const result = await writer.write({
       filePath: '/project/src/Hero.tsx',
       line: 5, col: 5,
-      property: 'padding-top', value: '32px',
+      property: 'padding-top', value: '16px',
       failureReason: 'test',
     })
 
     expect(result.success).toBe(false)
-    if (!result.success) expect(result.reason).toContain('syntax')
+    if (!result.success) expect(result.reason).toContain('Unknown tool')
+    writer.dispose()
+  })
+
+  it('propagates ToolApplicator failure as AIWriteResult failure', async () => {
+    mockReadFile.mockResolvedValueOnce(sampleFile)
+    // Ask AI to set style on a non-existent element location
+    mockClaudeToolResponse('set_inline_style', {
+      changes: [{ property: 'padding-top', value: '32px' }],
+    })
+
+    const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
+    const result = await writer.write({
+      filePath: '/project/src/Hero.tsx',
+      line: 99, // no element at this line
+      col: 1,
+      property: 'padding-top',
+      value: '32px',
+      failureReason: 'test',
+    })
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.reason).toContain('No JSX element found')
+    writer.dispose()
   })
 
   it('returns failure on timeout', async () => {
@@ -646,18 +558,17 @@ describe('AIWriter', () => {
     if (!result.success) {
       expect(result.reason.toLowerCase()).toMatch(/abort/)
     }
+    writer.dispose()
   })
 
   it('handles multiple property changes via changes[] array', async () => {
     mockReadFile.mockResolvedValueOnce(sampleFile)
-    const modifiedSnippet = sampleFile
-      .split('\n')
-      .map(l => l.replace(
-        'className="pt-4 bg-blue-500 text-white"',
-        'className="pt-4 bg-blue-500 text-white" style={{ paddingTop: \'24px\', marginLeft: \'8px\' }}',
-      ))
-      .join('\n')
-    mockClaudeResponse(modifiedSnippet)
+    mockClaudeToolResponse('set_inline_style', {
+      changes: [
+        { property: 'padding-top', value: '24px' },
+        { property: 'margin-left', value: '8px' },
+      ],
+    })
 
     const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
     const result = await writer.write({
@@ -683,17 +594,16 @@ describe('AIWriter', () => {
     expect(userPrompt).toContain('24px')
     expect(userPrompt).toContain('margin-left')
     expect(userPrompt).toContain('8px')
-    // Should use multi-property format (comma-separated), not single-property
-    expect(userPrompt).toMatch(/^TASK: Set `padding-top: 24px`, `margin-left: 8px`/m)
+    // Should use multi-property format (comma-separated)
+    expect(userPrompt).toMatch(/^Set padding-top: 24px, margin-left: 8px/m)
+    writer.dispose()
   })
 
   it('uses fileContent when provided instead of reading file', async () => {
     const customContent = sampleFile.replace('Welcome', 'Custom')
-    const modifiedSnippet = customContent
-      .split('\n')
-      .map(l => l.replace('pt-4', 'pt-8'))
-      .join('\n')
-    mockClaudeResponse(modifiedSnippet)
+    mockClaudeToolResponse('set_inline_style', {
+      changes: [{ property: 'padding-top', value: '32px' }],
+    })
 
     const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
     const result = await writer.write(
@@ -713,13 +623,16 @@ describe('AIWriter', () => {
     expect(mockReadFile).not.toHaveBeenCalled()
     if (result.success) {
       expect(result.oldContent).toBe(customContent)
-      expect(result.newContent).toContain('pt-8')
+      expect(result.newContent).toContain('paddingTop')
     }
+    writer.dispose()
   })
 
-  it('sends correct headers and body to Claude API', async () => {
+  it('sends correct headers, body, tools, and tool_choice to Claude API', async () => {
     mockReadFile.mockResolvedValueOnce(sampleFile)
-    mockClaudeResponse(sampleFile.replace('pt-4', 'pt-8'))
+    mockClaudeToolResponse('set_inline_style', {
+      changes: [{ property: 'padding-top', value: '32px' }],
+    })
 
     const writer = new AIWriter({ apiKey: 'sk-test-123', readFile: mockReadFile })
     await writer.write({
@@ -738,7 +651,13 @@ describe('AIWriter', () => {
     })
     const body = JSON.parse((options as RequestInit).body as string)
     expect(body.temperature).toBe(0)
-    expect(body.max_tokens).toBe(2048)
+    expect(body.max_tokens).toBe(512)
+    expect(body.tools).toHaveLength(3)
+    expect(body.tools[0].name).toBe('set_inline_style')
+    expect(body.tools[1].name).toBe('replace_attribute')
+    expect(body.tools[2].name).toBe('replace_line_content')
+    expect(body.tool_choice).toEqual({ type: 'any' })
+    writer.dispose()
   })
 
   describe('abort signal', () => {
@@ -763,6 +682,7 @@ describe('AIWriter', () => {
       }
       // fetch should NOT have been called
       expect(fetchSpy).not.toHaveBeenCalled()
+      writer.dispose()
     })
 
     it('aborts AI call when external signal is triggered', async () => {
@@ -797,15 +717,14 @@ describe('AIWriter', () => {
       const result = await writePromise
 
       expect(result.success).toBe(false)
+      writer.dispose()
     })
 
     it('cleans up abort event listener after completion', async () => {
       mockReadFile.mockResolvedValueOnce(sampleFile)
-      const modifiedSnippet = sampleFile
-        .split('\n')
-        .map(l => l.replace('pt-4', 'pt-8'))
-        .join('\n')
-      mockClaudeResponse(modifiedSnippet)
+      mockClaudeToolResponse('set_inline_style', {
+        changes: [{ property: 'padding-top', value: '32px' }],
+      })
 
       const ac = new AbortController()
       const addSpy = vi.spyOn(ac.signal, 'addEventListener')
@@ -826,15 +745,14 @@ describe('AIWriter', () => {
       // Listener must have been added and then cleaned up
       expect(addSpy).toHaveBeenCalledWith('abort', expect.any(Function))
       expect(removeSpy).toHaveBeenCalledWith('abort', expect.any(Function))
+      writer.dispose()
     })
 
     it('passes fileContent via options object', async () => {
       const customContent = sampleFile.replace('Welcome', 'Custom')
-      const modifiedSnippet = customContent
-        .split('\n')
-        .map(l => l.replace('pt-4', 'pt-8'))
-        .join('\n')
-      mockClaudeResponse(modifiedSnippet)
+      mockClaudeToolResponse('set_inline_style', {
+        changes: [{ property: 'padding-top', value: '32px' }],
+      })
 
       const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
       const result = await writer.write(
@@ -852,6 +770,7 @@ describe('AIWriter', () => {
       if (result.success) {
         expect(result.oldContent).toBe(customContent)
       }
+      writer.dispose()
     })
   })
 })
