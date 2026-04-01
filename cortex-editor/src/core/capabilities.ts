@@ -11,6 +11,8 @@ export interface StyleCapability {
 export interface ResolverState {
   resolverAvailable: boolean
   aiAvailable?: boolean
+  /** InlineStyleRewriter available — deterministic fallback for any JSX element */
+  inlineStyleAvailable?: boolean
 }
 
 export function computeCapabilities(

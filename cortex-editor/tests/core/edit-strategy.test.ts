@@ -38,4 +38,29 @@ describe('classifyEdit', () => {
     expect(classifyEdit(base, { hasCSSModules: true, hasTailwind: false, hasCSSInJS: false, hasComponentLibrary: false, hasPlainCSS: false, summary: '' }, { resolverAvailable: false, aiAvailable: true }))
       .toBe('deferred')
   })
+
+  it('returns immediate when inlineStyleAvailable (pure JSX project)', () => {
+    expect(classifyEdit(base, { hasCSSModules: false, hasTailwind: false, hasCSSInJS: false, hasComponentLibrary: false, hasPlainCSS: false, summary: '' }, { resolverAvailable: false, inlineStyleAvailable: true }))
+      .toBe('immediate')
+  })
+
+  it('returns immediate for CSS Modules without annotation when inlineStyleAvailable', () => {
+    expect(classifyEdit(base, { hasCSSModules: true, hasTailwind: false, hasCSSInJS: false, hasComponentLibrary: false, hasPlainCSS: false, summary: '' }, { resolverAvailable: false, inlineStyleAvailable: true }))
+      .toBe('immediate')
+  })
+
+  it('returns immediate for component library when inlineStyleAvailable', () => {
+    expect(classifyEdit(base, { hasCSSModules: false, hasTailwind: false, hasCSSInJS: false, hasComponentLibrary: true, hasPlainCSS: false, summary: '' }, { resolverAvailable: false, inlineStyleAvailable: true }))
+      .toBe('immediate')
+  })
+
+  it('returns deferred for Tailwind without resolver even when inlineStyle available', () => {
+    expect(classifyEdit(base, { hasCSSModules: false, hasTailwind: true, hasCSSInJS: false, hasComponentLibrary: false, hasPlainCSS: false, summary: '' }, { resolverAvailable: false, aiAvailable: true, inlineStyleAvailable: true }))
+      .toBe('deferred')
+  })
+
+  it('prefers Tailwind resolver over inlineStyle when both available', () => {
+    expect(classifyEdit(base, { hasCSSModules: false, hasTailwind: true, hasCSSInJS: false, hasComponentLibrary: false, hasPlainCSS: false, summary: '' }, { resolverAvailable: true, inlineStyleAvailable: true }))
+      .toBe('immediate')
+  })
 })
