@@ -531,7 +531,10 @@ export function Panel({
             onKeyDown={(e: KeyboardEvent) => {
               if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
                 e.preventDefault()
-                setEditScope(editScope === 'instance' ? 'all' : 'instance')
+                const next = editScope === 'instance' ? 'all' : 'instance'
+                setEditScope(next)
+                if (next === 'all') highlightSharedElements(sharedInfo, element)
+                else clearHighlights()
               }
             }}
           >
@@ -540,7 +543,7 @@ export function Panel({
               role="radio"
               aria-checked={editScope === 'instance'}
               tabIndex={editScope === 'instance' ? 0 : -1}
-              onClick={() => setEditScope('instance')}
+              onClick={() => { setEditScope('instance'); clearHighlights() }}
             >
               This element
             </button>
@@ -549,9 +552,9 @@ export function Panel({
               role="radio"
               aria-checked={editScope === 'all'}
               tabIndex={editScope === 'all' ? 0 : -1}
-              onClick={() => setEditScope('all')}
-              onMouseEnter={() => highlightSharedElements(sharedInfo, element)}
-              onMouseLeave={() => clearHighlights()}
+              onClick={() => { setEditScope('all'); highlightSharedElements(sharedInfo, element) }}
+              onMouseEnter={() => { if (editScope !== 'all') highlightSharedElements(sharedInfo, element) }}
+              onMouseLeave={() => { if (editScope !== 'all') clearHighlights() }}
             >
               All {sharedInfo.count}
             </button>
