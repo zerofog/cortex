@@ -226,14 +226,16 @@ export class TailwindRewriter {
 
   /**
    * Replace a class token within a space-separated class string.
-   * Matches whole tokens only. Returns null if token not found.
+   * Matches whole tokens only. Preserves original whitespace formatting
+   * (multi-space gaps, newlines in Prettier-formatted multi-line classNames).
+   * Returns null if token not found.
    */
   private replaceClassToken(classString: string, oldToken: string, newToken: string): string | null {
-    const classes = classString.split(/\s+/)
-    const idx = classes.indexOf(oldToken)
-    if (idx === -1) return null
-    classes[idx] = newToken
-    return classes.join(' ')
+    const escaped = oldToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const re = new RegExp(`(?<=^|\\s)${escaped}(?=\\s|$)`)
+    const match = re.exec(classString)
+    if (!match) return null
+    return classString.slice(0, match.index) + newToken + classString.slice(match.index + oldToken.length)
   }
 
   dispose(): void {
