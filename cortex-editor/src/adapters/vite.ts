@@ -10,6 +10,7 @@ import { createSourceTransform } from './source-transform.js'
 import type { ServerChannel, BrowserToServer, ServerToBrowser } from './types.js'
 import { TailwindResolver } from '../core/tailwind-resolver.js'
 import { TailwindRewriter } from '../core/rewriter/tailwind.js'
+import { InlineStyleRewriter } from '../core/rewriter/inline-style.js'
 import { HMRVerifier } from '../core/hmr-verifier.js'
 import { EditPipeline } from '../core/edit-pipeline.js'
 import type { EditRequest, WriteIntent } from '../core/edit-pipeline.js'
@@ -507,6 +508,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       // Build the edit pipeline with all deps. Tailwind deps are lazy/optional.
       const projectRoot = config.root
       const rewriter = new TailwindRewriter()
+      const inlineStyleRewriter = new InlineStyleRewriter()
       const verifier = new HMRVerifier(channelInstance)
       const cssModulesRewriter = new CSSModulesRewriter({
         readFile: (p) => fs.promises.readFile(p, 'utf-8'),
@@ -558,6 +560,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           channel,
           resolver: resolver ?? TailwindResolver.fromTheme({}),
           rewriter,
+          inlineStyleRewriter,
           verifier,
           cssModulesRewriter,
           detector: detection,
@@ -570,6 +573,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
               recentEditWrites.add(intent.filePath)
               setTimeout(() => recentEditWrites.delete(intent.filePath), 500)
             }
+            // 'jsx-immediate': write JSX file but allow HMR — React must re-render with new style prop
             // 'deferred': NO HMR suppression — framework must re-render from source
             await fs.promises.writeFile(intent.filePath, intent.content, 'utf-8')
           },
@@ -583,6 +587,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         const resolverState: ResolverState = {
           resolverAvailable: resolver !== null,
           aiAvailable: !!aiWriter,
+          inlineStyleAvailable: true,
         }
         const capabilities = computeCapabilities(detection, resolverState)
         capabilitiesCache = capabilities.length > 0 ? capabilities : null

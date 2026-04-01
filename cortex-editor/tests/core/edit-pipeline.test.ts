@@ -6,6 +6,8 @@ import type { TailwindRewriter } from '../../src/core/rewriter/tailwind.js'
 import type { HMRVerifier } from '../../src/core/hmr-verifier.js'
 import type { AIWriteResult } from '../../src/core/ai-writer.js'
 import type { DeferredWriter, DeferredEdit, BatchedWriteRequest } from '../../src/core/deferred-writer.js'
+import type { InlineStyleRewriter } from '../../src/core/rewriter/inline-style.js'
+import type { RewriteResult } from '../../src/core/rewriter/types.js'
 
 import { UndoStack } from '../../src/core/session/undo-stack.js'
 import { mockChannel } from '../helpers/mock-channel.js'
@@ -2792,6 +2794,348 @@ describe('EditPipeline', () => {
       for (const s of failedStatuses) {
         expect((s as any).reason).toContain('disk full')
       }
+    })
+  })
+
+  // --- InlineStyleRewriter integration (Layer 3.5) ---
+
+  describe('InlineStyleRewriter integration', () => {
+    function mockInlineStyleRewriter(result: RewriteResult = {
+      success: true, filePath: '/project/src/App.tsx', oldContent: 'old', newContent: 'new',
+    }): InlineStyleRewriter & { rewrite: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> } {
+      return {
+        rewrite: vi.fn().mockResolvedValue(result),
+        dispose: vi.fn(),
+      } as unknown as InlineStyleRewriter & { rewrite: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }
+    }
+
+    function mockDeferredWriterForInline(): DeferredWriter & { enqueued: DeferredEdit[]; disposed: boolean } {
+      const enqueued: DeferredEdit[] = []
+      return {
+        enqueued,
+        disposed: false,
+        enqueue(edit: DeferredEdit) { enqueued.push(edit) },
+        dispose() { this.disposed = true },
+        cancelForFile() { return [] },
+      } as unknown as DeferredWriter & { enqueued: DeferredEdit[]; disposed: boolean }
+    }
+
+    it('routes to InlineStyleRewriter when Tailwind rewrite fails on non-Tailwind project', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({}) // returns null — no Tailwind tokens
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const inlineRewriter = mockInlineStyleRewriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        detector: { hasCSSModules: false, hasTailwind: false },
+        inlineStyleRewriter: inlineRewriter as any,
+      })
+
+      // First edit — no seed skip when inlineStyleRewriter is present
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      expect(inlineRewriter.rewrite).toHaveBeenCalledTimes(1)
+      expect(inlineRewriter.rewrite).toHaveBeenCalledWith({
+        filePath: '/project/src/App.tsx',
+        line: 2,
+        col: 10,
+        property: 'padding-top',
+        value: '16px',
+      })
+      expect(writeFile).toHaveBeenCalledWith({ kind: 'jsx-immediate', filePath: '/project/src/App.tsx', content: 'new' })
+
+      const doneStatus = channel.sent.find(
+        m => m.type === 'edit_status' && (m as { status: string }).status === 'done',
+      )
+      expect(doneStatus).toBeDefined()
+      expect((doneStatus as { strategy?: string }).strategy).toBe('immediate')
+    })
+
+    it('does NOT route to InlineStyleRewriter on Tailwind projects', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({}) // returns null — would normally trigger fallback
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const inlineRewriter = mockInlineStyleRewriter()
+      const deferredWriter = mockDeferredWriterForInline()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        detector: { hasCSSModules: false, hasTailwind: true },
+        inlineStyleRewriter: inlineRewriter as any,
+        deferredWriter: deferredWriter as any,
+      })
+
+      // Seed edit — with deferredWriter present, proceeds through
+      pipeline.handleEdit({
+        editId: 'edit-0',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '8px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // InlineStyleRewriter should NOT be called — Tailwind projects don't use inline styles
+      expect(inlineRewriter.rewrite).not.toHaveBeenCalled()
+      // Should fall through to deferredWriter instead
+      expect(deferredWriter.enqueued.length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('falls through to AI when InlineStyleRewriter bails', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({}) // returns null
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const inlineRewriter = mockInlineStyleRewriter({
+        success: false, filePath: '/project/src/App.tsx', reason: 'style is not an object literal',
+      })
+      const deferredWriter = mockDeferredWriterForInline()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        detector: { hasCSSModules: false, hasTailwind: false },
+        inlineStyleRewriter: inlineRewriter as any,
+        deferredWriter: deferredWriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      expect(inlineRewriter.rewrite).toHaveBeenCalledTimes(1)
+      // Should fall through to deferredWriter
+      expect(deferredWriter.enqueued).toHaveLength(1)
+    })
+
+    it('uses jsx-immediate WriteIntent kind', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const inlineRewriter = mockInlineStyleRewriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        detector: { hasCSSModules: false, hasTailwind: false },
+        inlineStyleRewriter: inlineRewriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      expect(writeFile).toHaveBeenCalledTimes(1)
+      expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'jsx-immediate' }))
+    })
+
+    it('pushes to undo stack on success', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const undoStack = new UndoStack()
+      const inlineRewriter = mockInlineStyleRewriter({
+        success: true, filePath: '/project/src/App.tsx', oldContent: 'before-inline', newContent: 'after-inline',
+      })
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        detector: { hasCSSModules: false, hasTailwind: false },
+        undoStack,
+        inlineStyleRewriter: inlineRewriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      expect(undoStack.canUndo).toBe(true)
+      expect(undoStack.undoCount).toBe(1)
+      const entry = undoStack.peekUndo()
+      expect(entry).toBeDefined()
+      expect(entry!.previousContent).toBe('before-inline')
+      expect(entry!.currentContent).toBe('after-inline')
+    })
+
+    it('bypass debounce disabled when InlineStyleRewriter available', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const inlineRewriter = mockInlineStyleRewriter()
+      const deferredWriter = mockDeferredWriterForInline()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        detector: { hasCSSModules: false, hasTailwind: false },
+        inlineStyleRewriter: inlineRewriter as any,
+        deferredWriter: deferredWriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+
+      // Should NOT be immediately enqueued — debounce bypass is disabled
+      expect(deferredWriter.enqueued).toHaveLength(0)
+
+      // Should go through debounce timer instead
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // InlineStyleRewriter should have been called (via debounce, not bypass)
+      expect(inlineRewriter.rewrite).toHaveBeenCalledTimes(1)
+    })
+
+    it('allows first edit through (no seed skip) when InlineStyleRewriter available', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const inlineRewriter = mockInlineStyleRewriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        // No detector — no deferredWriter — no previousValue
+        // Previously this would skip silently (seed skip)
+        inlineStyleRewriter: inlineRewriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // Rewrite should be attempted — not silently skipped
+      expect(inlineRewriter.rewrite).toHaveBeenCalledTimes(1)
+    })
+
+    it('tries InlineStyleRewriter at Point A (CSS Modules-only, resolver failed, non-Tailwind)', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const cssRewriter = mockCSSModulesRewriter()
+      const runtimeResolver = mockRuntimeResolver(null) // resolver fails
+      const inlineRewriter = mockInlineStyleRewriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        cssModulesRewriter: cssRewriter,
+        detector: { hasCSSModules: true, hasTailwind: false },
+        runtimeResolver,
+        inlineStyleRewriter: inlineRewriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:5:3',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // InlineStyleRewriter should be tried as fallback
+      expect(inlineRewriter.rewrite).toHaveBeenCalledTimes(1)
+      expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'jsx-immediate' }))
+    })
+
+    it('calls dispose on InlineStyleRewriter when pipeline disposes', () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn()
+      const inlineRewriter = mockInlineStyleRewriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        inlineStyleRewriter: inlineRewriter as any,
+      })
+
+      pipeline.dispose()
+
+      expect(inlineRewriter.dispose).toHaveBeenCalledTimes(1)
+    })
+
+    it('sends failed status when inline style write fails', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockRejectedValue(new Error('disk full'))
+      const inlineRewriter = mockInlineStyleRewriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        detector: { hasCSSModules: false, hasTailwind: false },
+        inlineStyleRewriter: inlineRewriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      const failedStatus = channel.sent.find(
+        m => m.type === 'edit_status' && (m as { status: string }).status === 'failed',
+      )
+      expect(failedStatus).toBeDefined()
+      expect((failedStatus as { reason: string }).reason).toContain('disk full')
     })
   })
 })
