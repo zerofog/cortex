@@ -500,7 +500,7 @@ describe('AIWriter', () => {
     })
 
     expect(result.success).toBe(false)
-    if (!result.success) expect(result.reason).toContain('Unknown tool')
+    if (!result.success) expect(result.reason).toContain('Malformed tool input')
     writer.dispose()
   })
 

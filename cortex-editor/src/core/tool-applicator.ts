@@ -75,6 +75,10 @@ export class ToolApplicator {
         return this.applyReplaceAttribute(content, filePath, line, col, action.attribute, action.value)
       case 'replace_line_content':
         return this.applyReplaceLineContent(content, action.lineNumber, action.oldContent, action.newContent)
+      default: {
+        const _exhaustive: never = action
+        return { success: false, reason: `Unknown tool: ${(_exhaustive as ToolAction).tool}` }
+      }
     }
   }
 
@@ -117,7 +121,9 @@ export class ToolApplicator {
         name: 'style',
         initializer: `{{ ${props.join(', ')} }}`,
       })
-      return { success: true, content: sourceFile.getFullText() }
+      const result = sourceFile.getFullText()
+      project.removeSourceFile(sourceFile)
+      return { success: true, content: result }
     }
 
     // Has style attribute — inspect the initializer
@@ -144,7 +150,9 @@ export class ToolApplicator {
         return `${key}: ${JSON.stringify(c.value)}`
       })
       expression.replaceWithText(`{ ...${originalExprText}, ${props.join(', ')} }`)
-      return { success: true, content: sourceFile.getFullText() }
+      const result = sourceFile.getFullText()
+      project.removeSourceFile(sourceFile)
+      return { success: true, content: result }
     }
 
     const objLiteral = expression.asKind(SK.ObjectLiteralExpression)
@@ -161,7 +169,9 @@ export class ToolApplicator {
       }
     }
 
-    return { success: true, content: sourceFile.getFullText() }
+    const finalContent = sourceFile.getFullText()
+    project.removeSourceFile(sourceFile)
+    return { success: true, content: finalContent }
   }
 
   /** Apply a single style property change to an ObjectLiteralExpression (mutates AST in place). */
@@ -258,7 +268,9 @@ export class ToolApplicator {
       })
     }
 
-    return { success: true, content: sourceFile.getFullText() }
+    const attrContent = sourceFile.getFullText()
+    project.removeSourceFile(sourceFile)
+    return { success: true, content: attrContent }
   }
 
   // ── replace_line_content ──────────────────────────────────────

@@ -916,5 +916,6 @@ export class EditPipeline {
     this.fileLocks.clear()
     this.deferredWriter?.dispose()
     this.inlineStyleRewriter?.dispose()
+    this.aiWriter?.dispose()
   }
 }

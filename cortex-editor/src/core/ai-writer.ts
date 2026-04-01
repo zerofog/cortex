@@ -121,6 +121,27 @@ interface ToolCall {
   input: Record<string, unknown>
 }
 
+/** Validate and convert a raw tool_use response into a typed ToolAction. Returns null if shape is invalid. */
+function parseToolAction(call: ToolCall): ToolAction | null {
+  const { name, input } = call
+  if (name === 'set_inline_style') {
+    if (!Array.isArray(input.changes)) return null
+    for (const c of input.changes) {
+      if (typeof c?.property !== 'string' || typeof c?.value !== 'string') return null
+    }
+    return { tool: 'set_inline_style', changes: input.changes as Array<{ property: string; value: string }> }
+  }
+  if (name === 'replace_attribute') {
+    if (typeof input.attribute !== 'string' || typeof input.value !== 'string') return null
+    return { tool: 'replace_attribute', attribute: input.attribute, value: input.value }
+  }
+  if (name === 'replace_line_content') {
+    if (typeof input.line_number !== 'number' || typeof input.old_content !== 'string' || typeof input.new_content !== 'string') return null
+    return { tool: 'replace_line_content', lineNumber: input.line_number, oldContent: input.old_content, newContent: input.new_content }
+  }
+  return null
+}
+
 // ── AIWriter ───────────────────────────────────────────────────────
 
 export class AIWriter {
@@ -186,32 +207,10 @@ export class AIWriter {
       return { success: false, filePath, reason: 'Aborted after AI response' }
     }
 
-    // Convert ToolCall to ToolAction and apply via ToolApplicator
-    let action: ToolAction
-    switch (toolCall.name) {
-      case 'set_inline_style':
-        action = {
-          tool: 'set_inline_style',
-          changes: toolCall.input.changes as Array<{ property: string; value: string }>,
-        }
-        break
-      case 'replace_attribute':
-        action = {
-          tool: 'replace_attribute',
-          attribute: toolCall.input.attribute as string,
-          value: toolCall.input.value as string,
-        }
-        break
-      case 'replace_line_content':
-        action = {
-          tool: 'replace_line_content',
-          lineNumber: toolCall.input.line_number as number,
-          oldContent: toolCall.input.old_content as string,
-          newContent: toolCall.input.new_content as string,
-        }
-        break
-      default:
-        return { success: false, filePath, reason: `Unknown tool: ${toolCall.name}` }
+    // Convert ToolCall to ToolAction — validate shape before applying
+    const action = parseToolAction(toolCall)
+    if (!action) {
+      return { success: false, filePath, reason: `Malformed tool input from AI for tool '${toolCall.name}'` }
     }
 
     const applyResult = await this.toolApplicator.apply(oldContent, filePath, request.line, request.col, action)
@@ -294,7 +293,11 @@ export class AIWriter {
       }
 
       const data = await response.json() as {
+        stop_reason?: string
         content?: Array<{ type: string; id?: string; name?: string; input?: Record<string, unknown> }>
+      }
+      if (data.stop_reason === 'max_tokens') {
+        throw new Error('AI response truncated (max_tokens reached)')
       }
       const toolUseBlock = data.content?.find(b => b.type === 'tool_use')
       if (!toolUseBlock?.name || !toolUseBlock.input) {
