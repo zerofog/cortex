@@ -130,7 +130,10 @@ export class InlineStyleRewriter {
       return { success: false, filePath, reason: `style is not an object literal — route to AI (found ${expression.getKindName()})` }
     }
 
-    const objLiteral = expression.asKind(SK.ObjectLiteralExpression)!
+    const objLiteral = expression.asKind(SK.ObjectLiteralExpression)
+    if (!objLiteral) {
+      return { success: false, filePath, reason: 'Expected object literal expression' }
+    }
 
     // Check for existing property
     for (const prop of objLiteral.getProperties()) {
@@ -138,7 +141,8 @@ export class InlineStyleRewriter {
 
       // Handle ShorthandPropertyAssignment — bail
       if (propKind === SK.ShorthandPropertyAssignment) {
-        const shorthand = prop.asKind(SK.ShorthandPropertyAssignment)!
+        const shorthand = prop.asKind(SK.ShorthandPropertyAssignment)
+        if (!shorthand) continue
         if (shorthand.getName() === camelProp) {
           return { success: false, filePath, reason: `Property '${camelProp}' uses shorthand assignment — route to AI` }
         }
@@ -148,7 +152,8 @@ export class InlineStyleRewriter {
       if (propKind === SK.SpreadAssignment) continue
 
       if (propKind === SK.PropertyAssignment) {
-        const propAssign = prop.asKind(SK.PropertyAssignment)!
+        const propAssign = prop.asKind(SK.PropertyAssignment)
+        if (!propAssign) continue
         const name = propAssign.getName()
         // For quoted keys, getName() returns the unquoted string
         // For computed keys we skip
