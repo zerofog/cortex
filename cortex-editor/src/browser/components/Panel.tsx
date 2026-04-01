@@ -306,7 +306,16 @@ export function Panel({
     // Snapshot BEFORE any set() — captures pre-edit state for undo.
     // beginEdit() is idempotent (only snapshots once per gesture).
     overrideManager.beginEdit()
-    overrideManager.set(source, property, value, pseudo)
+    // scope='all': apply CSS override preview to ALL shared elements so
+    // the user sees the effect everywhere, not just on the selected element.
+    if (sharedInfo && editScope === 'all') {
+      for (const el of sharedInfo.elements) {
+        const elSource = el.getAttribute('data-cortex-source')
+        if (elSource) overrideManager.set(elSource, property, value, pseudo)
+      }
+    } else {
+      overrideManager.set(source, property, value, pseudo)
+    }
     if (commitRender) {
       overrideManager.flush()
       setStyleVersion(v => v + 1)
@@ -556,7 +565,7 @@ export function Panel({
               onMouseEnter={() => { if (editScope !== 'all') highlightSharedElements(sharedInfo, element) }}
               onMouseLeave={() => { if (editScope !== 'all') clearHighlights() }}
             >
-              All {sharedInfo.count}
+              All
             </button>
           </div>
         </div>
@@ -582,15 +591,18 @@ export function Panel({
             dimmedProperties={dimmedProperties}
           />
         </SectionGroup>
-        <SectionGroup label="Position" groupId="position">
-          <PositionSection
-            values={computedStyles.position}
-            onChange={handlePositionCommit}
-            onScrub={handlePositionScrub}
-            onScrubEnd={handlePositionCommit}
-            dimmedProperties={dimmedProperties}
-          />
-        </SectionGroup>
+        {/* Position is instance-specific — hide when editing shared class */}
+        {!(sharedInfo && editScope === 'all') && (
+          <SectionGroup label="Position" groupId="position">
+            <PositionSection
+              values={computedStyles.position}
+              onChange={handlePositionCommit}
+              onScrub={handlePositionScrub}
+              onScrubEnd={handlePositionCommit}
+              dimmedProperties={dimmedProperties}
+            />
+          </SectionGroup>
+        )}
         <SectionGroup label="Typography" groupId="typography">
           <TypographySection
             values={computedStyles.typography}
