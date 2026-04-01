@@ -90,7 +90,11 @@ describe('cssPropertyToCamelCase', () => {
     expect(cssPropertyToCamelCase('padding-Top')).toBe('paddingTop')
   })
 
-  it('passes through dangerous keys without conversion', () => {
+  it('passes through dangerous keys unchanged (blocklist guard)', () => {
+    // These keys would pass through unchanged even without the guard (no hyphens),
+    // but the guard prevents future regressions if CSSOM_EXCEPTIONS or other
+    // mappings ever include them. The real protection is that downstream code
+    // using obj[cssPropertyToCamelCase(input)] won't pollute prototypes.
     expect(cssPropertyToCamelCase('constructor')).toBe('constructor')
     expect(cssPropertyToCamelCase('__proto__')).toBe('__proto__')
     expect(cssPropertyToCamelCase('prototype')).toBe('prototype')
@@ -112,12 +116,18 @@ describe('ensureTsMorph', () => {
   })
 
   it('_resetTsMorphForTesting allows re-initialization', async () => {
-    const mod1 = await ensureTsMorph()
+    const promise1 = ensureTsMorph()
+    const mod1 = await promise1
+    expect(mod1.SyntaxKind).toBeDefined()
+
     _resetTsMorphForTesting()
-    const mod2 = await ensureTsMorph()
+
+    const promise2 = ensureTsMorph()
+    const mod2 = await promise2
     expect(mod2.SyntaxKind).toBeDefined()
-    // After reset, a fresh import is triggered (may or may not be same object
-    // depending on module cache, but should be functional)
+
+    // After reset, a fresh initialization occurs: the Promise instance differs
+    expect(promise2).not.toBe(promise1)
   })
 })
 
@@ -184,6 +194,49 @@ describe('findJsxElementAt', () => {
       expect(element).not.toBeNull()
       expect(element!.getText()).toContain('span')
       expect(element!.getText()).not.toContain('outer')
+    } finally {
+      cleanupTempFile(filePath)
+    }
+  })
+
+  it('finds element at opening < position', async () => {
+    const { sourceFile, SK, filePath } = await parseSource(
+      `export function App() {\n  return <div className="x">Hi</div>\n}`,
+    )
+    try {
+      // col 10 is the '<' of <div>
+      const element = findJsxElementAt(sourceFile, 2, 10, SK)
+      expect(element).not.toBeNull()
+      expect(element!.getText()).toContain('div')
+    } finally {
+      cleanupTempFile(filePath)
+    }
+  })
+
+  it('finds element at closing > position of opening tag', async () => {
+    const { sourceFile, SK, filePath } = await parseSource(
+      `export function App() {\n  return <div className="x">Hi</div>\n}`,
+    )
+    try {
+      // The opening tag <div className="x"> ends at the >
+      // col 28 is the '>' — should still resolve to the opening element
+      const element = findJsxElementAt(sourceFile, 2, 28, SK)
+      expect(element).not.toBeNull()
+      expect(element!.getText()).toContain('div')
+    } finally {
+      cleanupTempFile(filePath)
+    }
+  })
+
+  it('finds self-closing element at /> position', async () => {
+    const { sourceFile, SK, filePath } = await parseSource(
+      `export function App() {\n  return <img src="a.png" />\n}`,
+    )
+    try {
+      // Position on the / of />
+      const element = findJsxElementAt(sourceFile, 2, 25, SK)
+      expect(element).not.toBeNull()
+      expect(element!.getText()).toContain('img')
     } finally {
       cleanupTempFile(filePath)
     }
