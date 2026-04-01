@@ -151,25 +151,42 @@ export class CSSOverrideManager {
     this.pendingEdits.set(editId, { source, property, pseudo, timestamp: Date.now() })
   }
 
-  private pendingRemovals: Array<{ source: string; property: string; pseudo?: '::before' | '::after'; deferred?: boolean }> = []
+  private pendingRemovals: Array<{ editId: string; source: string; property: string; pseudo?: '::before' | '::after' }> = []
   private pendingClearAll = false
-  /** EditIds whose override removal should use double-rAF deferral. Populated by
-   *  commitEdit(true) so that handleHMRVerified — which may arrive AFTER commitEdit —
-   *  tags the removal correctly regardless of message ordering. */
+  /** EditIds whose override removal should use double-rAF deferral (AI/deferred edits).
+   *  Populated by commitEdit(true). Checked at drain time in onHMRApplied and at
+   *  late-arrival time in handleHMRVerified. */
   private deferredEditIds = new Set<string>()
+  /** True when onHMRApplied fired but pendingRemovals was empty (nothing to drain).
+   *  handleHMRVerified checks this flag to process the removal immediately instead
+   *  of queueing it for a future onHMRApplied that may never come. */
+  private hmrAppliedPending = false
 
   /** Called when the server confirms an edit landed via HMR. Queues the override
-   *  for removal — actual clearing happens in onHMRApplied() after the browser
-   *  has applied the HMR stylesheet update. */
+   *  for removal in onHMRApplied(). If onHMRApplied already fired for this HMR cycle
+   *  (hmrAppliedPending flag), processes immediately — the HMR stylesheet is already
+   *  applied so the removal is safe. */
   handleHMRVerified(editId: string, match: boolean): void {
     this.evictStalePendingEdits()
     const pending = this.pendingEdits.get(editId)
     if (!pending) return
     this.pendingEdits.delete(editId)
     if (match) {
-      const deferred = this.deferredEditIds.has(editId)
-      if (deferred) this.deferredEditIds.delete(editId)
-      this.pendingRemovals.push({ source: pending.source, property: pending.property, pseudo: pending.pseudo, deferred })
+      if (this.hmrAppliedPending) {
+        // HMR already applied for this cycle — process immediately.
+        // Don't clear the flag: other edits in the same HMR cycle also need it.
+        // The next onHMRApplied() call resets it.
+        const deferred = this.deferredEditIds.has(editId)
+        if (deferred) this.deferredEditIds.delete(editId)
+        if (deferred) {
+          this.deferRemoval(pending.source, pending.property, pending.pseudo)
+        } else {
+          this.remove(pending.source, pending.property, pending.pseudo)
+        }
+      } else {
+        // HMR not yet applied — queue for onHMRApplied (don't consume deferredEditIds yet)
+        this.pendingRemovals.push({ editId, source: pending.source, property: pending.property, pseudo: pending.pseudo })
+      }
     }
   }
 
@@ -178,25 +195,32 @@ export class CSSOverrideManager {
     this.pendingClearAll = true
   }
 
-  /** Called when the browser confirms HMR stylesheet update has been applied.
-   *  Now safe to remove overrides without flicker. */
+  /** Called when the browser confirms HMR stylesheet update has been applied
+   *  (vite:afterUpdate). Drains queued removals. If nothing to drain, sets
+   *  hmrAppliedPending so a late-arriving handleHMRVerified can process immediately. */
   onHMRApplied(): void {
     if (this.pendingClearAll) {
       this.pendingClearAll = false
       this.pendingRemovals.length = 0
+      this.hmrAppliedPending = false
       this.clearAll()
       return
     }
     if (this.pendingRemovals.length > 0) {
       const removals = this.pendingRemovals.splice(0)
       for (const r of removals) {
-        if (r.deferred) {
+        if (this.deferredEditIds.has(r.editId)) {
+          this.deferredEditIds.delete(r.editId)
           this.deferRemoval(r.source, r.property, r.pseudo)
         } else {
           this.remove(r.source, r.property, r.pseudo)
         }
       }
     }
+    // Flag that HMR stylesheet is applied — any late-arriving handleHMRVerified
+    // can process immediately. Set after draining AND when empty: handles both
+    // "some edits drained, more arrive late" and "no edits queued yet" cases.
+    this.hmrAppliedPending = true
   }
 
   private evictStalePendingEdits(): void {
@@ -228,20 +252,17 @@ export class CSSOverrideManager {
   }
 
   /** Commit the current edit — pushes the pre-edit snapshot to the undo stack.
-   *  Pass `deferred: true` for AI edits — marks all tracked pending edits for
-   *  double-rAF deferral. Uses deferredEditIds set so handleHMRVerified (which
-   *  may arrive AFTER this call) correctly tags the removal. */
+   *  Pass `deferred: true` for AI edits — marks editIds so removal uses double-rAF.
+   *  Checks both pendingEdits (not yet verified) and pendingRemovals (already verified
+   *  but not yet drained) to handle all message orderings between commitEdit and
+   *  handleHMRVerified. */
   commitEdit(deferred?: boolean): void {
     if (deferred) {
-      // Mark all currently tracked pending edits as deferred. handleHMRVerified
-      // will check this set when it eventually pushes the removal entry.
       for (const editId of this.pendingEdits.keys()) {
         this.deferredEditIds.add(editId)
       }
-      // Also tag any removals already queued (for the case where hmr_verified
-      // arrived before edit_status:done)
       for (const r of this.pendingRemovals) {
-        r.deferred = true
+        this.deferredEditIds.add(r.editId)
       }
     }
     if (this.preEditSnapshot) {
@@ -290,6 +311,7 @@ export class CSSOverrideManager {
     this.overrideRedoStack.length = 0
     this.pendingRemovals.length = 0
     this.deferredEditIds.clear()
+    this.hmrAppliedPending = false
     this.overrides.clear()
     this.stateOverrides.clear()
     this.pendingEdits.clear()
@@ -304,6 +326,7 @@ export class CSSOverrideManager {
     this.overrideRedoStack.length = 0
     this.pendingRemovals.length = 0
     this.deferredEditIds.clear()
+    this.hmrAppliedPending = false
     this.cancelPendingRebuild()
     this.overrides.clear()
     this.stateOverrides.clear()
