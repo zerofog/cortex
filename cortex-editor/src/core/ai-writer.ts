@@ -129,7 +129,7 @@ export class AIWriter {
   private readonly model: string
   private readonly timeoutMs: number
   private readonly apiBaseUrl: string
-  private toolApplicator: ToolApplicator
+  private readonly toolApplicator: ToolApplicator
 
   constructor(options: AIWriterOptions) {
     this.apiKey = options.apiKey
