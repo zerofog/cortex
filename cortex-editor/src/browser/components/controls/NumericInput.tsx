@@ -145,8 +145,10 @@ export function NumericInput({
     try { target.setPointerCapture(e.pointerId) } catch {}
 
     setIsScrubbing(true)
+    let hasMoved = false
 
     const handleMove = (me: PointerEvent) => {
+      hasMoved = true
       const delta = me.clientX - scrubStartX.current
       const next = clampValue(roundTenth(scrubStartValue.current + delta))
       localValueRef.current = String(next)
@@ -164,11 +166,14 @@ export function NumericInput({
 
     const handleUp = (ue: PointerEvent) => {
       try { target.releasePointerCapture(ue.pointerId) } catch {}
+      if (!hasMoved) {
+        // Click without drag — just focus the input, don't commit
+        inputRef.current?.focus()
+        cleanup()
+        return
+      }
       const delta = ue.clientX - scrubStartX.current
       const next = clampValue(roundTenth(scrubStartValue.current + delta))
-      // onScrubEnd triggers the commit (applyOverride + edit dispatch).
-      // Don't also call onChange — it would double-commit, causing a visual flash.
-      // The value propagates back via getComputedStyle → styleVersion re-render.
       if (onScrubEnd) {
         onScrubEnd(next)
       } else {

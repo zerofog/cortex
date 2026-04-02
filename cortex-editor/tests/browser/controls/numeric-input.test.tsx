@@ -152,6 +152,22 @@ describe('NumericInput', () => {
     dispatchPointerEvent(wrapper, 'pointerup', { clientX: 120 })
   })
 
+  it('click without drag focuses input without dispatching edit', async () => {
+    const onScrubEnd = vi.fn()
+    const { onChange, input } = setup({ onScrubEnd })
+    const wrapper = input.closest('.cortex-numeric-input') as HTMLElement
+
+    // Click: pointerdown at x=100, pointerup at x=100 (no move)
+    dispatchPointerEvent(wrapper, 'pointerdown', { clientX: 100 })
+    await new Promise(r => setTimeout(r, 0))
+    dispatchPointerEvent(wrapper, 'pointerup', { clientX: 100 })
+    await new Promise(r => setTimeout(r, 0))
+
+    // Should NOT dispatch onScrubEnd or onChange — it's just a click
+    expect(onScrubEnd).not.toHaveBeenCalled()
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
   it('commits typed value on blur', async () => {
     const { onChange, input } = setup()
     // Focus, type a new value, then blur
