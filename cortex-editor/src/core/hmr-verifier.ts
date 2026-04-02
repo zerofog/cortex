@@ -5,6 +5,7 @@ export interface PendingEdit {
   filePath: string
   expectedValue: string
   property: string
+  kind?: 'immediate' | 'jsx-immediate' | 'deferred'
 }
 
 interface PendingEntry extends PendingEdit {
@@ -56,6 +57,7 @@ export class HMRVerifier {
           editId: edit.editId,
           match: true,
           expected: edit.expectedValue,
+          kind: edit.kind,
         })
         this.pending.delete(key)
       }
@@ -71,6 +73,7 @@ export class HMRVerifier {
           editId: entry.editId,
           match: false,
           expected: entry.expectedValue,
+          kind: entry.kind,
         })
         this.pending.delete(key)
       }

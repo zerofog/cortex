@@ -101,6 +101,91 @@ describe('HMRVerifier', () => {
     expect((channel.sent[0] as { editId: string }).editId).toBe('edit-2')
   })
 
+  describe('kind propagation', () => {
+    it('includes kind: immediate in hmr_verified when trackEdit has kind: immediate', () => {
+      verifier.trackEdit({
+        editId: 'edit-imm',
+        filePath: 'src/App.tsx',
+        expectedValue: '16px',
+        property: 'padding-top',
+        kind: 'immediate',
+      })
+
+      verifier.onHMRUpdate(['src/App.tsx'])
+
+      expect(channel.sent).toHaveLength(1)
+      expect(channel.sent[0]).toEqual({
+        type: 'hmr_verified',
+        editId: 'edit-imm',
+        match: true,
+        expected: '16px',
+        kind: 'immediate',
+      })
+    })
+
+    it('includes kind: jsx-immediate in hmr_verified when trackEdit has kind: jsx-immediate', () => {
+      verifier.trackEdit({
+        editId: 'edit-jsx',
+        filePath: 'src/App.tsx',
+        expectedValue: '24px',
+        property: 'margin-top',
+        kind: 'jsx-immediate',
+      })
+
+      verifier.onHMRUpdate(['src/App.tsx'])
+
+      expect(channel.sent).toHaveLength(1)
+      expect(channel.sent[0]).toEqual({
+        type: 'hmr_verified',
+        editId: 'edit-jsx',
+        match: true,
+        expected: '24px',
+        kind: 'jsx-immediate',
+      })
+    })
+
+    it('includes kind: deferred in hmr_verified when trackEdit has kind: deferred', () => {
+      verifier.trackEdit({
+        editId: 'edit-def',
+        filePath: 'src/App.tsx',
+        expectedValue: '8px',
+        property: 'gap',
+        kind: 'deferred',
+      })
+
+      verifier.onHMRUpdate(['src/App.tsx'])
+
+      expect(channel.sent).toHaveLength(1)
+      expect(channel.sent[0]).toEqual({
+        type: 'hmr_verified',
+        editId: 'edit-def',
+        match: true,
+        expected: '8px',
+        kind: 'deferred',
+      })
+    })
+
+    it('sends kind: undefined in hmr_verified when trackEdit omits kind (backward compat)', () => {
+      verifier.trackEdit({
+        editId: 'edit-legacy',
+        filePath: 'src/App.tsx',
+        expectedValue: '16px',
+        property: 'padding-top',
+      })
+
+      verifier.onHMRUpdate(['src/App.tsx'])
+
+      expect(channel.sent).toHaveLength(1)
+      expect(channel.sent[0]).toEqual({
+        type: 'hmr_verified',
+        editId: 'edit-legacy',
+        match: true,
+        expected: '16px',
+        kind: undefined,
+      })
+    })
+  })
+
   describe('TTL eviction', () => {
     beforeEach(() => {
       vi.useFakeTimers()
@@ -139,6 +224,7 @@ describe('HMRVerifier', () => {
         editId: 'edit-old',
         match: false,
         expected: '16px',
+        kind: undefined,
       })
 
       // HMR for stale file — should NOT match (was evicted)
@@ -149,6 +235,40 @@ describe('HMRVerifier', () => {
       v.onHMRUpdate(['src/Page.tsx'])
       expect(ch.sent).toHaveLength(2)
       expect((ch.sent[1] as { editId: string }).editId).toBe('edit-new')
+
+      v.dispose()
+    })
+
+    it('includes kind in stale eviction message', () => {
+      const ch = mockChannel()
+      const v = new HMRVerifier(ch)
+
+      v.trackEdit({
+        editId: 'edit-stale',
+        filePath: 'src/App.tsx',
+        expectedValue: '16px',
+        property: 'padding-top',
+        kind: 'jsx-immediate',
+      })
+
+      vi.advanceTimersByTime(31_000)
+
+      // Trigger eviction
+      v.trackEdit({
+        editId: 'edit-fresh',
+        filePath: 'src/Other.tsx',
+        expectedValue: '8px',
+        property: 'gap',
+      })
+
+      expect(ch.sent).toHaveLength(1)
+      expect(ch.sent[0]).toEqual({
+        type: 'hmr_verified',
+        editId: 'edit-stale',
+        match: false,
+        expected: '16px',
+        kind: 'jsx-immediate',
+      })
 
       v.dispose()
     })
