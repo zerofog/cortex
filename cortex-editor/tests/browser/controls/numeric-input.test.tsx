@@ -151,4 +151,83 @@ describe('NumericInput', () => {
     // Release
     dispatchPointerEvent(wrapper, 'pointerup', { clientX: 120 })
   })
+
+  it('click without drag focuses input without dispatching edit', async () => {
+    const onScrubEnd = vi.fn()
+    const { onChange, input } = setup({ onScrubEnd })
+    const wrapper = input.closest('.cortex-numeric-input') as HTMLElement
+
+    // Click: pointerdown at x=100, pointerup at x=100 (no move)
+    dispatchPointerEvent(wrapper, 'pointerdown', { clientX: 100 })
+    await new Promise(r => setTimeout(r, 0))
+    dispatchPointerEvent(wrapper, 'pointerup', { clientX: 100 })
+    await new Promise(r => setTimeout(r, 0))
+
+    // Should NOT dispatch onScrubEnd or onChange — it's just a click
+    expect(onScrubEnd).not.toHaveBeenCalled()
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('zero-delta pointermove does not trigger scrub commit (deadzone)', async () => {
+    const onScrubEnd = vi.fn()
+    const { onChange, input } = setup({ onScrubEnd })
+    const wrapper = input.closest('.cortex-numeric-input') as HTMLElement
+
+    // Simulate trackpad jitter: pointerdown, pointermove at same X, pointerup
+    dispatchPointerEvent(wrapper, 'pointerdown', { clientX: 100 })
+    await new Promise(r => setTimeout(r, 0))
+    dispatchPointerEvent(wrapper, 'pointermove', { clientX: 100 }) // zero delta
+    dispatchPointerEvent(wrapper, 'pointermove', { clientX: 101 }) // 1px — still within deadzone
+    await new Promise(r => setTimeout(r, 0))
+    dispatchPointerEvent(wrapper, 'pointerup', { clientX: 101 })
+    await new Promise(r => setTimeout(r, 0))
+
+    // Sub-pixel movement should NOT trigger scrub commit
+    expect(onScrubEnd).not.toHaveBeenCalled()
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('commits typed value on blur', async () => {
+    const { onChange, input } = setup()
+    // Focus, type a new value, then blur
+    input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+    input.value = '24'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
+    await new Promise(r => setTimeout(r, 10))
+    expect(onChange).toHaveBeenCalledWith(24)
+  })
+
+  it('does NOT commit on blur if user did not type (HMR safety)', async () => {
+    const { onChange, input } = setup()
+    // Focus the input (select all), then blur WITHOUT typing
+    input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+    input.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
+    await new Promise(r => setTimeout(r, 10))
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('does NOT commit on blur when value prop changes externally (HMR scenario)', async () => {
+    // Simulates: user scrubs to 18, server writes, HMR fires, value prop changes to 30 (stale),
+    // input blurs during React re-render — should NOT dispatch onChange(old-value)
+    const onChange = vi.fn()
+    container = document.createElement('div')
+    document.body.appendChild(container)
+
+    // Render with value=30 (simulating stale computed style after HMR)
+    render(<NumericInput value={30} unit="px" onChange={onChange} />, container)
+    const input = container.querySelector('input') as HTMLInputElement
+
+    // The input displays "30" but user never typed — blur should NOT fire onChange
+    input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+    // Re-render with different value (simulates HMR changing the prop)
+    render(<NumericInput value={18} unit="px" onChange={onChange} />, container)
+    await new Promise(r => setTimeout(r, 10))
+    // Blur fires (e.g., React replaced DOM node)
+    input.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
+    await new Promise(r => setTimeout(r, 10))
+
+    // Should NOT have called onChange — user didn't type
+    expect(onChange).not.toHaveBeenCalled()
+  })
 })

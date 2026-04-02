@@ -28,6 +28,8 @@ export interface BorderSectionProps {
   swatches?: string[]
   /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
   dimmedProperties?: Set<string>
+  /** Set of CSS properties whose values differ across selected elements. */
+  mixedProperties?: Set<string>
 }
 
 /** Extract border-related values from a CSSStyleDeclaration. */
@@ -62,6 +64,7 @@ export function BorderSection({
   onScrub,
   onScrubEnd,
   swatches,
+  mixedProperties,
 }: BorderSectionProps): JSX.Element {
   const [perCorner, setPerCorner] = useState(false)
 
@@ -120,6 +123,7 @@ export function BorderSection({
           label="W"
           tooltip="Border Width"
           min={0}
+          mixed={mixedProperties?.has('border-width')}
           onChange={handleWidthChange}
           onScrub={handleWidthScrub}
           onScrubEnd={handleWidthScrubEnd}
@@ -142,6 +146,7 @@ export function BorderSection({
           value={values.borderColor}
           onChange={handleColorChange}
           swatches={swatches}
+          mixed={mixedProperties?.has('border-color')}
         />
       </div>
 
@@ -155,6 +160,7 @@ export function BorderSection({
               label="R"
               tooltip="Border Radius"
               min={0}
+              mixed={mixedProperties?.has('border-top-left-radius') || mixedProperties?.has('border-top-right-radius') || mixedProperties?.has('border-bottom-left-radius') || mixedProperties?.has('border-bottom-right-radius')}
               onChange={handleRadiusChange}
               onScrub={handleRadiusScrub}
               onScrubEnd={handleRadiusScrubEnd}
@@ -183,6 +189,7 @@ export function BorderSection({
             label="TL"
             tooltip="Top Left Radius"
             min={0}
+            mixed={mixedProperties?.has('border-top-left-radius')}
             {...cornerHandlers('border-top-left-radius')}
           />
           <NumericInput
@@ -191,6 +198,7 @@ export function BorderSection({
             label="TR"
             tooltip="Top Right Radius"
             min={0}
+            mixed={mixedProperties?.has('border-top-right-radius')}
             {...cornerHandlers('border-top-right-radius')}
           />
           <NumericInput
@@ -199,6 +207,7 @@ export function BorderSection({
             label="BR"
             tooltip="Bottom Right Radius"
             min={0}
+            mixed={mixedProperties?.has('border-bottom-right-radius')}
             {...cornerHandlers('border-bottom-right-radius')}
           />
           <NumericInput
@@ -207,6 +216,7 @@ export function BorderSection({
             label="BL"
             tooltip="Bottom Left Radius"
             min={0}
+            mixed={mixedProperties?.has('border-bottom-left-radius')}
             {...cornerHandlers('border-bottom-left-radius')}
           />
         </div>

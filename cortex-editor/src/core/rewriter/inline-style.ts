@@ -188,6 +188,95 @@ export class InlineStyleRewriter {
   }
 
   /**
+   * Remove a single CSS property from the element's inline style object.
+   * Used by scope='all' to clean up instance-level overrides before writing
+   * to the shared CSS class — prevents inline styles from blocking the class edit.
+   *
+   * Returns success with unchanged content if the property or style attribute
+   * doesn't exist (nothing to clean up is not an error).
+   */
+  async removeProperty(request: { filePath: string; line: number; col: number; property: string }): Promise<RewriteResult> {
+    if (this.disposed) {
+      return { success: false, filePath: request.filePath, reason: 'Rewriter is disposed' }
+    }
+
+    const { filePath, line, col, property } = request
+    const camelProp = cssPropertyToCamelCase(property)
+
+    let oldContent: string
+    try {
+      oldContent = await readFile(filePath, 'utf-8')
+    } catch (err) {
+      return { success: false, filePath, reason: `Cannot read file: ${err instanceof Error ? err.message : err}` }
+    }
+
+    let project: Project
+    let SK: typeof SyntaxKindEnum
+    try {
+      const ready = await this.ensureReady()
+      project = ready.project
+      SK = ready.SK
+    } catch (err) {
+      return { success: false, filePath, reason: `Rewriter init failed: ${err instanceof Error ? err.message : err}` }
+    }
+
+    let sourceFile: SourceFile
+    const existing = project.getSourceFile(filePath)
+    if (existing) {
+      existing.replaceWithText(oldContent)
+      sourceFile = existing
+    } else {
+      sourceFile = project.createSourceFile(filePath, oldContent, { overwrite: true })
+    }
+
+    const jsxElement = findJsxElementAt(sourceFile, line, col, SK)
+    if (!jsxElement) {
+      // No element = nothing to clean up
+      return { success: true, filePath, oldContent, newContent: oldContent }
+    }
+
+    const styleAttrRaw = jsxElement.getAttribute('style')
+    const styleAttr = styleAttrRaw?.asKind(SK.JsxAttribute)
+    if (!styleAttr) {
+      // No style prop = nothing to clean up
+      return { success: true, filePath, oldContent, newContent: oldContent }
+    }
+
+    const initializer = styleAttr.getInitializer()
+    if (!initializer) return { success: true, filePath, oldContent, newContent: oldContent }
+
+    const jsxExpr = initializer.asKind(SK.JsxExpression)
+    const expression = jsxExpr?.getExpression()
+    if (!expression || expression.getKind() !== SK.ObjectLiteralExpression) {
+      // Non-object-literal style — can't safely remove, skip
+      return { success: true, filePath, oldContent, newContent: oldContent }
+    }
+
+    const objLiteral = expression.asKind(SK.ObjectLiteralExpression)
+    if (!objLiteral) return { success: true, filePath, oldContent, newContent: oldContent }
+
+    // Find and remove the property
+    for (const prop of objLiteral.getProperties()) {
+      if (prop.getKind() !== SK.PropertyAssignment) continue
+      const propAssign = prop.asKind(SK.PropertyAssignment)
+      if (!propAssign || propAssign.getName() !== camelProp) continue
+
+      propAssign.remove()
+
+      // If object literal is now empty, remove the entire style attribute
+      if (objLiteral.getProperties().length === 0) {
+        styleAttr.remove()
+      }
+
+      const newContent = sourceFile.getFullText()
+      return { success: true, filePath, oldContent, newContent }
+    }
+
+    // Property not found — nothing to clean up
+    return { success: true, filePath, oldContent, newContent: oldContent }
+  }
+
+  /**
    * Format an object key — quote it if it contains special characters
    * (CSS custom properties like --my-var need quoting).
    */

@@ -33,6 +33,7 @@
   --destructive: #ef4444;
   --destructive-surface: rgba(239, 68, 68, 0.06);
   --warning: #f97316;
+  --warning-surface: rgba(249, 115, 22, 0.06);
 
   /* Scrollbar */
   --scrollbar: #d4d4d4;
@@ -238,6 +239,62 @@
   text-align: center;
 }
 
+.cortex-panel__scope {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-3) var(--sp-5);
+  background: var(--warning-surface);
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--text-sm);
+  gap: var(--sp-4);
+}
+
+.cortex-panel__scope-label {
+  color: var(--warning);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.cortex-panel__scope-toggle {
+  display: flex;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.cortex-panel__scope-btn {
+  background: var(--well);
+  border: none;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  padding: 2px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cortex-panel__scope-btn:not(:last-child) {
+  border-right: 1px solid var(--rule);
+}
+
+.cortex-panel__scope-btn--active {
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+}
+
+.cortex-panel__scope-btn:focus-visible {
+  outline: none;
+}
+
+.cortex-panel__scope-toggle:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.cortex-panel__scope-btn:hover:not(.cortex-panel__scope-btn--active) {
+  background: var(--well-hover);
+}
+
 /* ── Panel header ────────────────────────────── */
 
 .cortex-panel-header {
@@ -428,6 +485,24 @@
 .cortex-numeric-input--overridden .cortex-numeric-input__value {
   color: var(--select-hover);
   transition: color 300ms ease-out;
+}
+
+/* Mixed indicator — shows '--' placeholder when shared elements have different values */
+.cortex-numeric-input--mixed .cortex-numeric-input__value::placeholder {
+  color: var(--ink-muted);
+  font-style: italic;
+  opacity: 1;
+}
+
+.cortex-color-input--mixed .cortex-color-input__swatch {
+  background: repeating-linear-gradient(
+    45deg, var(--well) 0px, var(--well) 4px, var(--rule) 4px, var(--rule) 8px
+  ) !important;
+}
+
+.cortex-color-input--mixed .cortex-color-input__hex {
+  color: var(--ink-muted);
+  font-style: italic;
 }
 
 .cortex-color-input--overridden .cortex-color-input__hex {

@@ -9,6 +9,8 @@ export interface ColorInputProps {
   alpha?: number
   onAlphaChange?: (alpha: number) => void
   swatches?: string[]
+  /** When true, shows hatched swatch indicating shared elements have different colors. */
+  mixed?: boolean
 }
 
 export const HEX_REGEX = /^#[0-9a-fA-F]{6}$/
@@ -61,7 +63,7 @@ export function formatColor(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${Math.round(alpha) / 100})`
 }
 
-export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, swatches }: ColorInputProps): JSX.Element {
+export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, swatches, mixed }: ColorInputProps): JSX.Element {
   const parsed = parseColor(value)
   const hexColor = parsed.hex
   const currentAlpha = alphaProp ?? parsed.alpha
@@ -118,11 +120,11 @@ export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, s
   }, [onAlphaChange])
 
   return (
-    <div class="cortex-color-input" ref={swatchRef}>
+    <div class={`cortex-color-input${mixed ? ' cortex-color-input--mixed' : ''}`} ref={swatchRef}>
       <button
         type="button"
         class="cortex-color-input__swatch"
-        style={{ backgroundColor: value }}
+        style={mixed ? undefined : { backgroundColor: value }}
         onClick={handleSwatchClick}
         aria-label="Open color picker"
       />
@@ -130,7 +132,7 @@ export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, s
         class="cortex-color-input__hex"
         type="text"
         aria-label="Hex color value"
-        value={displayedHex}
+        value={mixed ? '--' : displayedHex}
         onInput={handleHexInput}
         onFocus={handleHexFocus}
         onBlur={handleHexBlur}

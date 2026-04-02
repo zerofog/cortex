@@ -3138,4 +3138,431 @@ describe('EditPipeline', () => {
       expect((failedStatus as { reason: string }).reason).toContain('disk full')
     })
   })
+
+  // --- Instance scope routing (ZF0-1017) ---
+
+  describe('scope routing', () => {
+    function mockInlineStyleRewriter(result: RewriteResult = {
+      success: true, filePath: '/project/src/App.tsx', oldContent: 'old', newContent: 'new',
+    }): InlineStyleRewriter & { rewrite: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>; removeProperty: ReturnType<typeof vi.fn> } {
+      return {
+        rewrite: vi.fn().mockResolvedValue(result),
+        removeProperty: vi.fn().mockResolvedValue({ success: true, filePath: '/project/src/App.tsx', oldContent: 'old', newContent: 'new-cleaned' }),
+        dispose: vi.fn(),
+      } as unknown as InlineStyleRewriter & { rewrite: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>; removeProperty: ReturnType<typeof vi.fn> }
+    }
+
+    function mockDeferredWriterForScope(): DeferredWriter & { enqueued: DeferredEdit[]; disposed: boolean } {
+      const enqueued: DeferredEdit[] = []
+      return {
+        enqueued,
+        disposed: false,
+        enqueue(edit: DeferredEdit) { enqueued.push(edit) },
+        dispose() { this.disposed = true },
+        cancelForFile() { return [] },
+      } as unknown as DeferredWriter & { enqueued: DeferredEdit[]; disposed: boolean }
+    }
+
+    it('scope=instance + cssMapping routes to InlineStyleRewriter, NOT CSSModulesRewriter', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const cssRewriter = mockCSSModulesRewriter()
+      const inlineRewriter = mockInlineStyleRewriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        cssModulesRewriter: cssRewriter,
+        inlineStyleRewriter: inlineRewriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/Hero.tsx:5:3',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+        cssMapping: 'src/Hero.module.css:.hero',
+        scope: 'instance',
+      })
+
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // InlineStyleRewriter should be called with the JSX file coords
+      expect(inlineRewriter.rewrite).toHaveBeenCalledTimes(1)
+      expect(inlineRewriter.rewrite).toHaveBeenCalledWith({
+        filePath: '/project/src/Hero.tsx',
+        line: 5,
+        col: 3,
+        property: 'padding-top',
+        value: '16px',
+      })
+      // CSSModulesRewriter should NOT be called
+      expect(cssRewriter.rewrite).not.toHaveBeenCalled()
+      // Should write the JSX file, not the CSS file
+      expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'jsx-immediate' }))
+    })
+
+    it('scope=all + cssMapping routes to CSSModulesRewriter (existing behavior)', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const cssRewriter = mockCSSModulesRewriter()
+      const inlineRewriter = mockInlineStyleRewriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        cssModulesRewriter: cssRewriter,
+        inlineStyleRewriter: inlineRewriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/Hero.tsx:5:3',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+        cssMapping: 'src/Hero.module.css:.hero',
+        scope: 'all',
+      })
+
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      expect(cssRewriter.rewrite).toHaveBeenCalledTimes(1)
+      expect(inlineRewriter.rewrite).not.toHaveBeenCalled()
+    })
+
+    it('scope=undefined + cssMapping routes to CSSModulesRewriter (backward compat)', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const cssRewriter = mockCSSModulesRewriter()
+      const inlineRewriter = mockInlineStyleRewriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        cssModulesRewriter: cssRewriter,
+        inlineStyleRewriter: inlineRewriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/Hero.tsx:5:3',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+        cssMapping: 'src/Hero.module.css:.hero',
+        // no scope field
+      })
+
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      expect(cssRewriter.rewrite).toHaveBeenCalledTimes(1)
+      expect(inlineRewriter.rewrite).not.toHaveBeenCalled()
+    })
+
+    it('scope=instance without InlineStyleRewriter falls through to deferredWriter', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const cssRewriter = mockCSSModulesRewriter()
+      const deferredWriter = mockDeferredWriterForScope()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        cssModulesRewriter: cssRewriter,
+        // NO inlineStyleRewriter
+        deferredWriter: deferredWriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/Hero.tsx:5:3',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+        cssMapping: 'src/Hero.module.css:.hero',
+        scope: 'instance',
+      })
+
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // CSSModulesRewriter should NOT be called — instance scope
+      expect(cssRewriter.rewrite).not.toHaveBeenCalled()
+      // Should fall through to deferredWriter
+      expect(deferredWriter.enqueued).toHaveLength(1)
+      expect(deferredWriter.enqueued[0]).toMatchObject({
+        editId: 'edit-1',
+        property: 'padding-top',
+        value: '16px',
+      })
+    })
+
+    it('scope=instance + InlineStyleRewriter fails falls through to deferredWriter', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const cssRewriter = mockCSSModulesRewriter()
+      const inlineRewriter = mockInlineStyleRewriter({
+        success: false, filePath: '/project/src/Hero.tsx', reason: 'style is not an object literal',
+      })
+      const deferredWriter = mockDeferredWriterForScope()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        cssModulesRewriter: cssRewriter,
+        inlineStyleRewriter: inlineRewriter as any,
+        deferredWriter: deferredWriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/Hero.tsx:5:3',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+        cssMapping: 'src/Hero.module.css:.hero',
+        scope: 'instance',
+      })
+
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // InlineStyleRewriter was attempted
+      expect(inlineRewriter.rewrite).toHaveBeenCalledTimes(1)
+      // CSSModulesRewriter was NOT called
+      expect(cssRewriter.rewrite).not.toHaveBeenCalled()
+      // Should fall through to deferredWriter
+      expect(deferredWriter.enqueued).toHaveLength(1)
+      expect(deferredWriter.enqueued[0]).toMatchObject({
+        editId: 'edit-1',
+        failureReason: expect.stringContaining('Inline style rewrite failed'),
+      })
+    })
+
+    it('scope=instance does not bypass debounce', () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const deferredWriter = mockDeferredWriterForScope()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        detector: { hasCSSModules: false, hasTailwind: false },
+        deferredWriter: deferredWriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+        scope: 'instance',
+      })
+
+      // Should NOT be immediately enqueued — instance scope needs debounced path
+      expect(deferredWriter.enqueued).toHaveLength(0)
+    })
+
+    it('scope=instance + Layer 2 runtime resolver routes to InlineStyleRewriter', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const cssRewriter = mockCSSModulesRewriter()
+      const runtimeResolver = mockRuntimeResolver({ cssFilePath: '/project/src/Hero.module.css', selector: '.hero' })
+      const inlineRewriter = mockInlineStyleRewriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        cssModulesRewriter: cssRewriter,
+        detector: { hasCSSModules: true, hasTailwind: false },
+        runtimeResolver,
+        inlineStyleRewriter: inlineRewriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/Hero.tsx:5:3',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+        scope: 'instance',
+      })
+
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // InlineStyleRewriter should be called instead of CSSModulesRewriter
+      expect(inlineRewriter.rewrite).toHaveBeenCalledTimes(1)
+      expect(cssRewriter.rewrite).not.toHaveBeenCalled()
+    })
+
+    it('scope=instance + Layer 2 without InlineStyleRewriter falls through to deferredWriter', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const cssRewriter = mockCSSModulesRewriter()
+      const runtimeResolver = mockRuntimeResolver({ cssFilePath: '/project/src/Hero.module.css', selector: '.hero' })
+      const deferredWriter = mockDeferredWriterForScope()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        cssModulesRewriter: cssRewriter,
+        detector: { hasCSSModules: true, hasTailwind: false },
+        runtimeResolver,
+        // NO inlineStyleRewriter — must NOT fall to commitCSSModulesRewrite
+        deferredWriter: deferredWriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/Hero.tsx:5:3',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+        scope: 'instance',
+      })
+
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // CSSModulesRewriter must NOT be called for instance scope
+      expect(cssRewriter.rewrite).not.toHaveBeenCalled()
+      // Should fall through to deferredWriter
+      expect(deferredWriter.enqueued).toHaveLength(1)
+    })
+
+    it('scope=instance without InlineStyleRewriter and without deferredWriter sends failed', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const cssRewriter = mockCSSModulesRewriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        cssModulesRewriter: cssRewriter,
+        // NO inlineStyleRewriter, NO deferredWriter, NO aiWriter
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/Hero.tsx:5:3',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+        cssMapping: 'src/Hero.module.css:.hero',
+        scope: 'instance',
+      })
+
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      const failedStatus = channel.sent.find(
+        m => m.type === 'edit_status' && (m as { status: string }).status === 'failed',
+      )
+      expect(failedStatus).toBeDefined()
+      expect((failedStatus as { reason: string }).reason).toContain('Instance-scoped editing requires')
+    })
+
+    it('scope=all with instanceSources cleans up inline styles on ALL shared elements', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const cssRewriter = mockCSSModulesRewriter()
+      const inlineRewriter = mockInlineStyleRewriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        cssModulesRewriter: cssRewriter,
+        inlineStyleRewriter: inlineRewriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/Hero.tsx:5:3',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+        cssMapping: 'src/Hero.module.css:.hero',
+        scope: 'all',
+        instanceSources: ['/project/src/Hero.tsx:5:3', '/project/src/Hero.tsx:12:3'],
+      })
+
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // CSS rewrite should be called
+      expect(cssRewriter.rewrite).toHaveBeenCalledTimes(1)
+      // removeProperty should be called for BOTH sources (cleanup all shared elements)
+      expect(inlineRewriter.rewrite).not.toHaveBeenCalled() // rewrite is for setting, not removing
+      // The removeProperty is on the inlineStyleRewriter mock — check via the dispose mock pattern
+      // Since our mock doesn't track removeProperty calls directly, verify via writeFile calls:
+      // CSS write (immediate) + 2 JSX cleanup writes (jsx-immediate)
+      const jsxWrites = writeFile.mock.calls.filter(
+        (c: any[]) => c[0]?.kind === 'jsx-immediate',
+      )
+      expect(jsxWrites).toHaveLength(2)
+    })
+
+    it('scope=all without instanceSources falls back to edit.source for cleanup', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const cssRewriter = mockCSSModulesRewriter()
+      const inlineRewriter = mockInlineStyleRewriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        cssModulesRewriter: cssRewriter,
+        inlineStyleRewriter: inlineRewriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/Hero.tsx:5:3',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+        cssMapping: 'src/Hero.module.css:.hero',
+        scope: 'all',
+        // NO instanceSources — backward compat
+      })
+
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // CSS write + 1 JSX cleanup (just edit.source)
+      const jsxWrites = writeFile.mock.calls.filter(
+        (c: any[]) => c[0]?.kind === 'jsx-immediate',
+      )
+      expect(jsxWrites).toHaveLength(1)
+    })
+  })
 })

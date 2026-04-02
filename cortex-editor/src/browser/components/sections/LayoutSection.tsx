@@ -31,6 +31,8 @@ export interface LayoutSectionProps {
   onScrubEnd?: (change: LayoutChange) => void
   /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
   dimmedProperties?: Set<string>
+  /** Set of CSS properties whose values differ across selected elements. */
+  mixedProperties?: Set<string>
 }
 
 /** Normalize computed display values to SegmentedControl options. */
@@ -99,6 +101,7 @@ export function LayoutSection({
   onChange,
   onScrub,
   onScrubEnd,
+  mixedProperties,
 }: LayoutSectionProps): JSX.Element {
   const isFlex = values.display === 'flex' || values.display === 'inline-flex'
   const isGrid = values.display === 'grid' || values.display === 'inline-grid'
@@ -334,6 +337,7 @@ export function LayoutSection({
               label="W"
               tooltip="Width"
               min={0}
+              mixed={mixedProperties?.has('width')}
               onChange={handleWidthChange}
               onScrub={handleWidthScrub}
               onScrubEnd={handleWidthScrubEnd}
@@ -354,6 +358,7 @@ export function LayoutSection({
               label="H"
               tooltip="Height"
               min={0}
+              mixed={mixedProperties?.has('height')}
               onChange={handleHeightChange}
               onScrub={handleHeightScrub}
               onScrubEnd={handleHeightScrubEnd}
@@ -398,6 +403,7 @@ export function LayoutSection({
                   label="Min"
                   tooltip="Min Width"
                   min={0}
+                  mixed={mixedProperties?.has('min-width')}
                   onChange={handleMinWidthChange}
                 />
                 <button
@@ -419,6 +425,7 @@ export function LayoutSection({
                   label="Max"
                   tooltip="Max Width"
                   min={0}
+                  mixed={mixedProperties?.has('max-width')}
                   onChange={handleMaxWidthChange}
                 />
                 <button
@@ -440,6 +447,7 @@ export function LayoutSection({
                   label="Min"
                   tooltip="Min Height"
                   min={0}
+                  mixed={mixedProperties?.has('min-height')}
                   onChange={handleMinHeightChange}
                 />
                 <button
@@ -461,6 +469,7 @@ export function LayoutSection({
                   label="Max"
                   tooltip="Max Height"
                   min={0}
+                  mixed={mixedProperties?.has('max-height')}
                   onChange={handleMaxHeightChange}
                 />
                 <button

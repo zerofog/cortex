@@ -24,6 +24,11 @@ export interface EditRequest {
   elementSelector: string
   /** From data-cortex-css annotation, e.g. "src/Hero.module.css:.hero,.heroTitle" */
   cssMapping?: string
+  /** Editing scope: 'instance' edits this element only (inline style),
+   *  'all' edits the shared CSS class (affects all instances). */
+  scope?: 'instance' | 'all'
+  /** Source locations of all shared elements (for scope='all' inline style cleanup). */
+  instanceSources?: string[]
 }
 
 export interface WriteIntent {
@@ -180,7 +185,6 @@ export class EditPipeline {
 
     const previousValue = this.lastValues.get(debounceKey)
     this.lastValues.set(debounceKey, edit.value)
-
     this.debounceTimers.set(
       debounceKey,
       setTimeout(() => {
@@ -233,6 +237,8 @@ export class EditPipeline {
   private shouldBypassDebounce(edit: EditRequest): boolean {
     // No DeferredWriter → can't bypass (nothing to enqueue to)
     if (!this.deferredWriter) return false
+    // Instance scope needs debounced path for InlineStyleRewriter routing
+    if (edit.scope === 'instance') return false
     // CSS Modules annotation → always immediate path, need debounce
     if (edit.cssMapping) return false
     // No detector → can't determine framework, use debounce
@@ -267,6 +273,34 @@ export class EditPipeline {
 
     // Layer 1: CSS Modules routing via annotation — bypasses classifyEdit entirely
     if (edit.cssMapping && this.cssModulesRewriter) {
+      // Instance scope: route to InlineStyleRewriter instead of shared CSS rule
+      if (edit.scope === 'instance') {
+        if (this.inlineStyleRewriter) {
+          let handled = false
+          try {
+            handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
+          } catch { /* treat throws as failed, fall through to deferred/AI */ }
+          if (handled) return
+        }
+        // InlineStyleRewriter unavailable or failed — fall through to deferred/AI
+        if (this.deferredWriter) {
+          this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
+          this.deferredWriter.enqueue({
+            editId: edit.editId, filePath: resolvedPath, line, col,
+            property: edit.property, value: edit.value,
+            failureReason: 'Inline style rewrite failed for instance-scoped edit.',
+          })
+          return
+        }
+        if (this.aiWriter) {
+          await this.commitAIWrite(edit, resolvedPath, line, col, 'Inline style rewrite failed for instance-scoped edit.')
+          return
+        }
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'Instance-scoped editing requires InlineStyleRewriter or AI writer.' })
+        return
+      }
+
+      // scope === 'all' or undefined — existing CSSModulesRewriter path
       const mapping = parseCssMapping(edit.cssMapping)
       if (mapping) {
         const resolvedCssPath = resolve(this.projectRoot, mapping.cssFilePath)
@@ -310,14 +344,30 @@ export class EditPipeline {
     if (!edit.cssMapping && this.detector?.hasCSSModules && this.runtimeResolver && this.cssModulesRewriter) {
       const resolved = await this.runtimeResolver.resolve(edit.source, this.projectRoot)
       if (resolved && this.isInsideProjectRoot(resolved.cssFilePath)) {
-        await this.commitCSSModulesRewrite(edit, resolved.cssFilePath, resolved.selector)
-        return
+        // Instance scope: route to InlineStyleRewriter, never to CSSModulesRewriter
+        if (edit.scope === 'instance') {
+          if (this.inlineStyleRewriter) {
+            let handled = false
+            try {
+              handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
+            } catch { /* treat throws as failed, fall through to deferred/AI */ }
+            if (handled) return
+          }
+          // InlineStyleRewriter unavailable or failed — fall through to deferred/AI below
+        } else {
+          await this.commitCSSModulesRewrite(edit, resolved.cssFilePath, resolved.selector)
+          return
+        }
       }
       // CSS Modules-only project → don't fall through to Tailwind
       if (!this.detector.hasTailwind) {
         // Layer 3.5: Inline style rewriter — deterministic fallback
-        if (this.inlineStyleRewriter) {
-          const handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
+        // Skip if we already tried InlineStyleRewriter for instance scope (avoids double call)
+        if (this.inlineStyleRewriter && edit.scope !== 'instance') {
+          let handled = false
+          try {
+            handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
+          } catch { /* treat throws as failed, fall through to deferred/AI */ }
           if (handled) return
         }
         if (this.deferredWriter) {
@@ -664,6 +714,9 @@ export class EditPipeline {
 
   private async commitCSSModulesRewrite(edit: EditRequest, resolvedCssPath: string, selector: string): Promise<void> {
     this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
+
+    // CSS rewrite inside CSS file lock only
+    let cssSuccess = false
     await this.withFileLock(resolvedCssPath, async () => {
       const result = await this.cssModulesRewriter!.rewrite({
         cssFilePath: resolvedCssPath,
@@ -676,19 +729,42 @@ export class EditPipeline {
         this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: result.reason })
         return
       }
-      // Write file FIRST — side effects only after successful write
       try {
         await this.writeFile({ kind: 'immediate', filePath: resolvedCssPath, content: result.newContent })
       } catch (err) {
         this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Write failed: ${err instanceof Error ? err.message : String(err)}` })
         return
       }
-      // Immediate writes have HMR suppressed — don't track for HMR verification.
       if (this.undoStack) {
         this.undoStack.push({ filePath: resolvedCssPath, previousContent: result.oldContent, currentContent: result.newContent })
       }
+      cssSuccess = true
       this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done', strategy: 'immediate' })
     })
+
+    // Clean up conflicting inline styles on ALL shared elements when scope='all'.
+    // Runs OUTSIDE the CSS lock — each JSX file acquires its own lock to prevent TOCTOU.
+    // Uses instanceSources (all shared element locations) instead of just edit.source.
+    if (cssSuccess && edit.scope === 'all' && this.inlineStyleRewriter) {
+      const sources = edit.instanceSources?.length ? edit.instanceSources : [edit.source]
+      for (const source of sources) {
+        const parsed = this.parseSource(source)
+        if (!parsed.ok) continue
+        try {
+          await this.withFileLock(parsed.resolvedPath, async () => {
+            const cleanup = await this.inlineStyleRewriter!.removeProperty({
+              filePath: parsed.resolvedPath, line: parsed.line, col: parsed.col, property: edit.property,
+            })
+            if (cleanup.success && cleanup.newContent !== cleanup.oldContent) {
+              await this.writeFile({ kind: 'jsx-immediate', filePath: parsed.resolvedPath, content: cleanup.newContent })
+              if (this.undoStack) {
+                this.undoStack.push({ filePath: parsed.resolvedPath, previousContent: cleanup.oldContent, currentContent: cleanup.newContent })
+              }
+            }
+          })
+        } catch { /* cleanup failure is non-fatal — CSS edit already succeeded */ }
+      }
+    }
   }
 
   /**
