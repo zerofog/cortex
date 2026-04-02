@@ -1375,6 +1375,10 @@ describe('EditPipeline', () => {
 
       expect(writeFile).toHaveBeenCalledWith({ kind: 'deferred', filePath: '/project/src/App.tsx', content: 'ai-modified' })
 
+      // commitAIWrite tracks with kind: 'deferred' — AI writes need double-rAF deferral
+      expect(verifier.tracked).toHaveLength(1)
+      expect((verifier.tracked[0] as any).kind).toBe('deferred')
+
       const doneStatus = channel.sent.find(
         m => m.type === 'edit_status' && (m as { status: string }).status === 'done',
       )
@@ -2736,6 +2740,7 @@ describe('EditPipeline', () => {
       expect((verifier.tracked[0] as any).editId).toBe('e-last')
       expect((verifier.tracked[0] as any).property).toBe('margin-left')
       expect((verifier.tracked[0] as any).expectedValue).toBe('8px')
+      expect((verifier.tracked[0] as any).kind).toBe('deferred')
     })
   })
 
@@ -2854,6 +2859,10 @@ describe('EditPipeline', () => {
         value: '16px',
       })
       expect(writeFile).toHaveBeenCalledWith({ kind: 'jsx-immediate', filePath: '/project/src/App.tsx', content: 'new' })
+
+      // InlineStyleRewriter tracks with kind: 'jsx-immediate'
+      expect(verifier.tracked).toHaveLength(1)
+      expect((verifier.tracked[0] as any).kind).toBe('jsx-immediate')
 
       const doneStatus = channel.sent.find(
         m => m.type === 'edit_status' && (m as { status: string }).status === 'done',

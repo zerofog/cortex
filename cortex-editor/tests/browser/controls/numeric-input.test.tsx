@@ -230,4 +230,73 @@ describe('NumericInput', () => {
     // Should NOT have called onChange — user didn't type
     expect(onChange).not.toHaveBeenCalled()
   })
+
+  describe('mixed state', () => {
+    it('shows placeholder "--" when mixed and not editing', () => {
+      const { input } = setup({ mixed: true })
+      expect(input.value).toBe('')
+      expect(input.placeholder).toBe('--')
+    })
+
+    it('does not auto-fill selected element value on click', async () => {
+      const { input } = setup({ value: 16, mixed: true })
+      const wrapper = input.closest('.cortex-numeric-input') as HTMLElement
+      expect(input.value).toBe('')
+
+      // Click without drag — triggers handleScrubDown → handleUp → focus
+      dispatchPointerEvent(wrapper, 'pointerdown', { clientX: 100 })
+      await new Promise(r => setTimeout(r, 0))
+      dispatchPointerEvent(wrapper, 'pointerup', { clientX: 100 })
+      await new Promise(r => setTimeout(r, 10))
+
+      // Input stays empty — no auto-fill with selected element's value (16)
+      expect(input.value).toBe('')
+    })
+
+    it('accepts keystrokes after click-to-focus', async () => {
+      const { input } = setup({ value: 16, mixed: true })
+      const wrapper = input.closest('.cortex-numeric-input') as HTMLElement
+
+      // Click to focus
+      dispatchPointerEvent(wrapper, 'pointerdown', { clientX: 100 })
+      await new Promise(r => setTimeout(r, 0))
+      dispatchPointerEvent(wrapper, 'pointerup', { clientX: 100 })
+      await new Promise(r => setTimeout(r, 10))
+
+      // Simulate typing "30"
+      input.value = '30'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      await new Promise(r => setTimeout(r, 10))
+
+      expect(input.value).toBe('30')
+    })
+
+    it('commits typed value on Enter', () => {
+      const { input, onChange } = setup({ value: 16, mixed: true })
+
+      // Direct input event (same pattern as existing Enter commit tests)
+      input.value = '30'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      dispatchKeyboardEvent(input, 'keydown', { key: 'Enter' })
+
+      expect(onChange).toHaveBeenCalledWith(30)
+    })
+
+    it('does not commit on blur without typing', async () => {
+      const { input, onChange } = setup({ value: 16, mixed: true })
+      const wrapper = input.closest('.cortex-numeric-input') as HTMLElement
+
+      // Click to focus
+      dispatchPointerEvent(wrapper, 'pointerdown', { clientX: 100 })
+      await new Promise(r => setTimeout(r, 0))
+      dispatchPointerEvent(wrapper, 'pointerup', { clientX: 100 })
+      await new Promise(r => setTimeout(r, 10))
+
+      // Blur without typing
+      input.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
+      await new Promise(r => setTimeout(r, 10))
+
+      expect(onChange).not.toHaveBeenCalled()
+    })
+  })
 })

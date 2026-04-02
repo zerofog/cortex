@@ -702,6 +702,7 @@ export class EditPipeline {
       filePath: resolvedPath,
       expectedValue: edit.value,
       property: edit.property,
+      kind: 'deferred',
     })
 
     this.channel.send({
@@ -808,6 +809,7 @@ export class EditPipeline {
         filePath: resolvedPath,
         expectedValue: edit.value,
         property: edit.property,
+        kind: 'jsx-immediate',
       })
       this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done', strategy: 'immediate' })
       handled = true
@@ -941,6 +943,7 @@ export class EditPipeline {
         filePath: batch.filePath,
         expectedValue: lastChange.value,
         property: lastChange.property,
+        kind: 'deferred',
       })
 
       // Send done for all coalesced editIds

@@ -94,14 +94,22 @@ export function NumericInput({
   const handleFocus = useCallback(() => {
     setIsEditing(true)
     userTypedRef.current = false
+    if (mixed) {
+      // Don't reveal the selected element's value — user types the target value
+      // from scratch, since there's no single "current" value in mixed state.
+      localValueRef.current = ''
+      setLocalValue('')
+    }
     inputRef.current?.select()
-  }, [])
+  }, [mixed])
 
   const handleBlur = useCallback(() => {
     setIsEditing(false)
     const parsed = parseFloat(localValueRef.current)
     if (isNaN(parsed)) {
-      const reverted = String(value)
+      // In mixed state, revert to empty (shows '--' placeholder) instead of
+      // revealing the selected element's value for a single frame.
+      const reverted = mixed ? '' : String(value)
       localValueRef.current = reverted
       setLocalValue(reverted)
       if (inputRef.current) inputRef.current.value = reverted
