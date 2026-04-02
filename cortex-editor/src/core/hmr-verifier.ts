@@ -1,11 +1,11 @@
-import type { ServerChannel } from '../adapters/types.js'
+import type { EditKind, ServerChannel } from '../adapters/types.js'
 
 export interface PendingEdit {
   editId: string
   filePath: string
   expectedValue: string
   property: string
-  kind?: 'immediate' | 'jsx-immediate' | 'deferred'
+  kind?: EditKind
 }
 
 interface PendingEntry extends PendingEdit {

@@ -1,3 +1,4 @@
+import type { EditKind } from '../adapters/types.js'
 import { VALID_PROPERTY, VALID_VALUE, REJECT_URL, REJECT_COMMENT } from './css-validation.js'
 import { emitOverrideChange } from './override-bus.js'
 
@@ -153,7 +154,7 @@ export class CSSOverrideManager {
     this.pendingEdits.set(editId, { sources: sourceArray, property, pseudo, timestamp: Date.now() })
   }
 
-  private pendingRemovals: Array<{ editId: string; source: string; property: string; pseudo?: '::before' | '::after'; kind?: 'immediate' | 'jsx-immediate' | 'deferred' }> = []
+  private pendingRemovals: Array<{ editId: string; source: string; property: string; pseudo?: '::before' | '::after'; kind?: EditKind }> = []
   private pendingClearAll = false
   /** EditIds whose override removal should use double-rAF deferral (AI/deferred edits).
    *  Populated by commitEdit(true). Checked at drain time in onHMRApplied and at
@@ -168,17 +169,16 @@ export class CSSOverrideManager {
    *  for removal in onHMRApplied(). If onHMRApplied already fired for this HMR cycle
    *  (hmrAppliedPending flag), processes immediately — the HMR stylesheet is already
    *  applied so the removal is safe. */
-  handleHMRVerified(editId: string, match: boolean, kind?: 'immediate' | 'jsx-immediate' | 'deferred'): void {
+  handleHMRVerified(editId: string, match: boolean, kind?: EditKind): void {
     this.evictStalePendingEdits()
     const pending = this.pendingEdits.get(editId)
     if (!pending) return
     this.pendingEdits.delete(editId)
     if (match) {
       if (this.hmrAppliedPending) {
-        const shouldDefer = this.deferredEditIds.has(editId) || (kind != null && kind !== 'immediate')
-        if (this.deferredEditIds.has(editId)) this.deferredEditIds.delete(editId)
+        const deferred = this.consumeDeferralSignal(editId, kind)
         for (const source of pending.sources) {
-          if (shouldDefer) {
+          if (deferred) {
             this.deferRemoval(source, pending.property, pending.pseudo)
           } else {
             this.remove(source, pending.property, pending.pseudo)
@@ -190,6 +190,15 @@ export class CSSOverrideManager {
         }
       }
     }
+  }
+
+  /** Decide whether an override removal should be deferred (double-rAF).
+   *  Checks both the legacy deferredEditIds set and the kind field.
+   *  Consumes the deferredEditIds entry if present (side-effecting). */
+  private consumeDeferralSignal(editId: string, kind?: EditKind): boolean {
+    const fromLegacy = this.deferredEditIds.has(editId)
+    if (fromLegacy) this.deferredEditIds.delete(editId)
+    return fromLegacy || (kind != null && kind !== 'immediate')
   }
 
   /** Queue a clearAll to run when the next HMR update lands in the browser. */
@@ -211,9 +220,7 @@ export class CSSOverrideManager {
     if (this.pendingRemovals.length > 0) {
       const removals = this.pendingRemovals.splice(0)
       for (const r of removals) {
-        const shouldDefer = this.deferredEditIds.has(r.editId) || (r.kind != null && r.kind !== 'immediate')
-        if (this.deferredEditIds.has(r.editId)) this.deferredEditIds.delete(r.editId)
-        if (shouldDefer) {
+        if (this.consumeDeferralSignal(r.editId, r.kind)) {
           this.deferRemoval(r.source, r.property, r.pseudo)
         } else {
           this.remove(r.source, r.property, r.pseudo)

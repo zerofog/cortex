@@ -702,7 +702,7 @@ export class EditPipeline {
       filePath: resolvedPath,
       expectedValue: edit.value,
       property: edit.property,
-      kind: 'immediate',
+      kind: 'deferred',
     })
 
     this.channel.send({

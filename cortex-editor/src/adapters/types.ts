@@ -59,6 +59,12 @@ export interface ServerChannel {
   dispose(): Promise<void>
 }
 
+/** Write kind for HMR verification — determines override removal timing in the browser.
+ *  'immediate': CSS-only edit, override cleared synchronously (stylesheet already applied).
+ *  'jsx-immediate': JSX inline style edit, override cleared after double-rAF (React re-render).
+ *  'deferred': AI/deferred edit, override cleared after double-rAF (framework re-render). */
+export type EditKind = 'immediate' | 'jsx-immediate' | 'deferred'
+
 // === Message protocol ===
 
 export type BrowserToServer =
@@ -81,7 +87,7 @@ export type ServerToBrowser =
   | { type: 'undo_status'; status: 'failed'; restoredFile: string; reason: string }
   | { type: 'redo_status'; status: 'done'; restoredFile: string }
   | { type: 'redo_status'; status: 'failed'; restoredFile: string; reason: string }
-  | { type: 'hmr_verified'; editId: string; match: boolean; expected?: string; actual?: string; kind?: 'immediate' | 'jsx-immediate' | 'deferred' }
+  | { type: 'hmr_verified'; editId: string; match: boolean; expected?: string; actual?: string; kind?: EditKind }
   | { type: 'hmr-applied' }
   | { type: 'annotation-created'; annotation: Annotation }
   | { type: 'annotation-updated'; annotation: Annotation }

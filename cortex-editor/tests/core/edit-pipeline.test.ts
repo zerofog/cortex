@@ -1375,9 +1375,9 @@ describe('EditPipeline', () => {
 
       expect(writeFile).toHaveBeenCalledWith({ kind: 'deferred', filePath: '/project/src/App.tsx', content: 'ai-modified' })
 
-      // commitAIWrite tracks with kind: 'immediate'
+      // commitAIWrite tracks with kind: 'deferred' — AI writes need double-rAF deferral
       expect(verifier.tracked).toHaveLength(1)
-      expect((verifier.tracked[0] as any).kind).toBe('immediate')
+      expect((verifier.tracked[0] as any).kind).toBe('deferred')
 
       const doneStatus = channel.sent.find(
         m => m.type === 'edit_status' && (m as { status: string }).status === 'done',
