@@ -3153,12 +3153,13 @@ describe('EditPipeline', () => {
   describe('scope routing', () => {
     function mockInlineStyleRewriter(result: RewriteResult = {
       success: true, filePath: '/project/src/App.tsx', oldContent: 'old', newContent: 'new',
-    }): InlineStyleRewriter & { rewrite: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>; removeProperty: ReturnType<typeof vi.fn> } {
+    }): InlineStyleRewriter & { rewrite: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>; removeProperty: ReturnType<typeof vi.fn>; removeProperties: ReturnType<typeof vi.fn> } {
       return {
         rewrite: vi.fn().mockResolvedValue(result),
         removeProperty: vi.fn().mockResolvedValue({ success: true, filePath: '/project/src/App.tsx', oldContent: 'old', newContent: 'new-cleaned' }),
+        removeProperties: vi.fn().mockResolvedValue({ success: true, filePath: '/project/src/App.tsx', oldContent: 'old', newContent: 'new-cleaned' }),
         dispose: vi.fn(),
-      } as unknown as InlineStyleRewriter & { rewrite: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>; removeProperty: ReturnType<typeof vi.fn> }
+      } as unknown as InlineStyleRewriter & { rewrite: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>; removeProperty: ReturnType<typeof vi.fn>; removeProperties: ReturnType<typeof vi.fn> }
     }
 
     function mockDeferredWriterForScope(): DeferredWriter & { enqueued: DeferredEdit[]; disposed: boolean } {
@@ -3527,15 +3528,31 @@ describe('EditPipeline', () => {
 
       // CSS rewrite should be called
       expect(cssRewriter.rewrite).toHaveBeenCalledTimes(1)
-      // removeProperty should be called for BOTH sources (cleanup all shared elements)
-      expect(inlineRewriter.rewrite).not.toHaveBeenCalled() // rewrite is for setting, not removing
-      // The removeProperty is on the inlineStyleRewriter mock — check via the dispose mock pattern
-      // Since our mock doesn't track removeProperty calls directly, verify via writeFile calls:
-      // CSS write (immediate) + 2 JSX cleanup writes (jsx-immediate)
+      // Batch removeProperties called (not individual removeProperty)
+      expect(inlineRewriter.removeProperties).toHaveBeenCalledTimes(1)
+      expect(inlineRewriter.removeProperty).not.toHaveBeenCalled()
+      expect(inlineRewriter.rewrite).not.toHaveBeenCalled()
+      // Both sources in same file → 1 batched JSX write (not 2 individual writes)
       const jsxWrites = writeFile.mock.calls.filter(
         (c: any[]) => c[0]?.kind === 'jsx-immediate',
       )
-      expect(jsxWrites).toHaveLength(2)
+      expect(jsxWrites).toHaveLength(1)
+      // Verify removeProperties received both targets
+      expect(inlineRewriter.removeProperties).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targets: expect.arrayContaining([
+            expect.objectContaining({ line: 5, col: 3 }),
+            expect.objectContaining({ line: 12, col: 3 }),
+          ]),
+        }),
+      )
+      // verifier.trackEdit should NOT be called for cleanup writes —
+      // the CSS write suppresses HMR, so the override must stay until page reload.
+      // Tracking cleanup would trigger hmr_verified, clearing the override prematurely.
+      const cleanupTrack = verifier.tracked.find(
+        (t: any) => t.kind === 'jsx-immediate',
+      )
+      expect(cleanupTrack).toBeUndefined()
     })
 
     it('scope=all without instanceSources falls back to edit.source for cleanup', async () => {
@@ -3567,7 +3584,14 @@ describe('EditPipeline', () => {
       vi.advanceTimersByTime(400)
       await vi.runAllTimersAsync()
 
-      // CSS write + 1 JSX cleanup (just edit.source)
+      // Batch removeProperties called with single target (edit.source fallback)
+      expect(inlineRewriter.removeProperties).toHaveBeenCalledTimes(1)
+      expect(inlineRewriter.removeProperties).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targets: [expect.objectContaining({ line: 5, col: 3, property: 'padding-top' })],
+        }),
+      )
+      // CSS write + 1 JSX cleanup write
       const jsxWrites = writeFile.mock.calls.filter(
         (c: any[]) => c[0]?.kind === 'jsx-immediate',
       )
