@@ -212,7 +212,7 @@ export function NumericInput({
         type="text"
         inputMode="numeric"
         aria-label={tooltip ?? label}
-        value={mixed && !isEditing ? '' : localValue}
+        value={mixed ? '' : localValue}
         placeholder={mixed ? '--' : undefined}
         disabled={disabled}
         tabIndex={disabled ? -1 : undefined}
