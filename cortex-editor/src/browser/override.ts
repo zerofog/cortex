@@ -251,7 +251,8 @@ export class CSSOverrideManager {
     }
   }
 
-  /** Decide whether an override removal should be deferred (double-rAF).
+  /** Decide whether an override removal should use non-synchronous removal.
+   *  Returns true for jsx-immediate (MutationObserver) and deferred (double-rAF).
    *  Checks both the legacy deferredEditIds set and the kind field.
    *  Consumes the deferredEditIds entry if present (side-effecting). */
   private consumeDeferralSignal(editId: string, kind?: EditKind): boolean {

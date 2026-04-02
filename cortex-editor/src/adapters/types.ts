@@ -61,7 +61,8 @@ export interface ServerChannel {
 
 /** Write kind for HMR verification — determines override removal timing in the browser.
  *  'immediate': CSS-only edit, override cleared synchronously (stylesheet already applied).
- *  'jsx-immediate': JSX inline style edit, override cleared after double-rAF (React re-render).
+ *  'jsx-immediate': JSX inline style edit, override cleared after a MutationObserver
+ *                   confirms React applied the new inline style to the DOM element.
  *  'deferred': AI/deferred edit, override cleared after double-rAF (framework re-render). */
 export type EditKind = 'immediate' | 'jsx-immediate' | 'deferred'
 
