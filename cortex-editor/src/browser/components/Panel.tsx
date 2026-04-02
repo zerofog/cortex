@@ -347,8 +347,8 @@ export function Panel({
       if (channel) {
         const editId = crypto.randomUUID()
         overrideManager.trackPendingEdit(editId, source, property, pseudo)
-        channel.send({
-          type: 'edit',
+        const msg = {
+          type: 'edit' as const,
           editId,
           source,
           property,
@@ -363,7 +363,8 @@ export function Panel({
                 .filter((s): s is string => s !== null),
             } : {}),
           } : {}),
-        })
+        }
+        channel.send(msg as any)
       }
     }
   }, [element, overrideManager, activePseudo, channel, sharedInfo, editScope])

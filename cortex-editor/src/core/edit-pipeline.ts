@@ -185,7 +185,6 @@ export class EditPipeline {
 
     const previousValue = this.lastValues.get(debounceKey)
     this.lastValues.set(debounceKey, edit.value)
-
     this.debounceTimers.set(
       debounceKey,
       setTimeout(() => {
