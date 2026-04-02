@@ -22,10 +22,54 @@ import type { EffectsChange } from './sections/EffectsSection.js'
 import { PositionSection, parsePositionValues } from './sections/PositionSection.js'
 import type { PositionChange } from './sections/PositionSection.js'
 import type { InteractionState } from '../state-detector.js'
+import { detectSharedClasses } from '../shared-class-detector.js'
+import type { SharedClassInfo } from '../shared-class-detector.js'
 import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
 import { CollapsibleSection } from './CollapsibleSection.js'
 import type { CortexChannel } from '../../adapters/types.js'
+
+// ── Blast-radius highlight utilities ──────────────────────────────────
+// These operate on the REAL page DOM (outside Shadow DOM) via a data attribute.
+// A <style> injected into the page <head> provides the visual treatment; the
+// attribute toggle is batched inside requestAnimationFrame to prevent layout thrashing.
+
+const HIGHLIGHT_ATTR = 'data-cortex-blast-radius'
+
+function ensureBlastRadiusStyle(): void {
+  // Query DOM instead of module-level ref — survives Vite HMR module re-execution
+  if (document.head.querySelector('[data-cortex-blast-radius-style]')) return
+  const style = document.createElement('style')
+  style.setAttribute('data-cortex-blast-radius-style', '')
+  style.textContent = `[${HIGHLIGHT_ATTR}] { outline: 2px dashed #f97316 !important; outline-offset: 2px !important; }`
+  document.head.appendChild(style)
+}
+
+let highlightFrame = 0
+let clearFrame = 0
+
+function highlightSharedElements(info: SharedClassInfo, selected: HTMLElement | null): void {
+  ensureBlastRadiusStyle()
+  cancelAnimationFrame(clearFrame)
+  cancelAnimationFrame(highlightFrame)
+  highlightFrame = requestAnimationFrame(() => {
+    for (const el of info.elements) {
+      if (el === selected) continue
+      el.setAttribute(HIGHLIGHT_ATTR, '')
+    }
+  })
+}
+
+function clearHighlights(): void {
+  cancelAnimationFrame(highlightFrame)
+  cancelAnimationFrame(clearFrame)
+  clearFrame = requestAnimationFrame(() => {
+    const highlighted = document.querySelectorAll(`[${HIGHLIGHT_ATTR}]`)
+    for (const el of highlighted) {
+      el.removeAttribute(HIGHLIGHT_ATTR)
+    }
+  })
+}
 
 /**
  * All CSS properties checked for dimming (default vs forced-state comparison).
@@ -117,6 +161,10 @@ export function Panel({
   // Pseudo-element tab state — internal to Panel
   const [activePseudo, setActivePseudo] = useState<'element' | '::before' | '::after'>('element')
 
+  // Shared class detection + scope toggle for instance-level editing (ZF0-1018)
+  const [sharedInfo, setSharedInfo] = useState<SharedClassInfo | null>(null)
+  const [editScope, setEditScope] = useState<'instance' | 'all'>('instance')
+
   // Default computed styles snapshot for dimming comparison.
   // Plain object snapshot (NOT a live CSSStyleDeclaration) — taken once per element.
   const defaultStylesRef = useRef<Record<string, string> | null>(null)
@@ -151,6 +199,26 @@ export function Panel({
     prevElementRef.current = element
   }, [element])
 
+  // Clear blast-radius highlights on unmount
+  useEffect(() => () => { clearHighlights() }, [])
+
+  // Detect shared CSS classes when a new element is selected (ZF0-1018).
+  // Resets scope to 'instance' (safe default) on every element change.
+  // Clear stale blast-radius highlights from previous selection (ZF0-1019).
+  useEffect(() => {
+    clearHighlights()
+    if (element) {
+      try {
+        setSharedInfo(detectSharedClasses(element))
+      } catch {
+        setSharedInfo(null) // degrade gracefully — editing still works, just no scope toggle
+      }
+    } else {
+      setSharedInfo(null)
+    }
+    setEditScope('instance')
+  }, [element])
+
   // M3: Clear cross-fade class after animation completes
   useEffect(() => {
     if (!isCrossFading) return
@@ -172,7 +240,7 @@ export function Panel({
   // C1: Cache getComputedStyle results + compute dimmed properties in a single useMemo
   // to avoid double forced layout. CRITICAL: activeState + activePseudo in deps so
   // useMemo re-runs after state forcing (getComputedStyle returns a live reference).
-  const { computedStyles, dimmedProperties } = useMemo(() => {
+  const { computedStyles, dimmedProperties, mixedProperties } = useMemo(() => {
     if (!element) {
       return {
         computedStyles: {
@@ -186,6 +254,7 @@ export function Panel({
           position: parsePositionValues({} as CSSStyleDeclaration),
         },
         dimmedProperties: undefined as Set<string> | undefined,
+        mixedProperties: undefined as Set<string> | undefined,
       }
     }
     const pseudo = activePseudo !== 'element' ? activePseudo : undefined
@@ -212,8 +281,26 @@ export function Panel({
       }
     }
 
-    return { computedStyles: parsed, dimmedProperties: dimmed }
-  }, [element, styleVersion, activeState, activePseudo])
+    // Compare computed styles across shared elements when editing "All" scope.
+    // Properties where siblings differ from the selected element are "mixed".
+    let mixed: Set<string> | undefined
+    if (sharedInfo && editScope === 'all') {
+      mixed = new Set<string>()
+      for (const sibling of sharedInfo.elements) {
+        if (sibling === element) continue
+        const siblingCs = getComputedStyle(sibling, pseudo)
+        for (const prop of ALL_DIMMING_PROPERTIES) {
+          if (mixed.has(prop)) continue
+          if (cs.getPropertyValue(prop) !== siblingCs.getPropertyValue(prop)) {
+            mixed.add(prop)
+          }
+        }
+      }
+      if (mixed.size === 0) mixed = undefined
+    }
+
+    return { computedStyles: parsed, dimmedProperties: dimmed, mixedProperties: mixed }
+  }, [element, styleVersion, activeState, activePseudo, sharedInfo, editScope])
 
   // Derive isFlexOrGrid from normalized layout display
   const layoutDisplay = computedStyles.layout.display
@@ -241,7 +328,16 @@ export function Panel({
     // Snapshot BEFORE any set() — captures pre-edit state for undo.
     // beginEdit() is idempotent (only snapshots once per gesture).
     overrideManager.beginEdit()
-    overrideManager.set(source, property, value, pseudo)
+    // scope='all': apply CSS override preview to ALL shared elements so
+    // the user sees the effect everywhere, not just on the selected element.
+    if (sharedInfo && editScope === 'all') {
+      for (const el of sharedInfo.elements) {
+        const elSource = el.getAttribute('data-cortex-source')
+        if (elSource) overrideManager.set(elSource, property, value, pseudo)
+      }
+    } else {
+      overrideManager.set(source, property, value, pseudo)
+    }
     if (commitRender) {
       overrideManager.flush()
       setStyleVersion(v => v + 1)
@@ -250,19 +346,32 @@ export function Panel({
       // to sync browser undo stack with server's debounced undo stack.
       if (channel) {
         const editId = crypto.randomUUID()
-        overrideManager.trackPendingEdit(editId, source, property, pseudo)
-        channel.send({
-          type: 'edit',
+        // Track all shared sources so HMR verification clears ALL sibling overrides
+        const pendingSources = (sharedInfo && editScope === 'all')
+          ? sharedInfo.elements.map(el => el.getAttribute('data-cortex-source')).filter((s): s is string => s !== null)
+          : source
+        overrideManager.trackPendingEdit(editId, pendingSources, property, pseudo)
+        const msg = {
+          type: 'edit' as const,
           editId,
           source,
           property,
           value,
           elementSelector: element.tagName.toLowerCase(),
           cssMapping: element.getAttribute('data-cortex-css') ?? undefined,
-        })
+          ...(sharedInfo ? {
+            scope: editScope,
+            ...(editScope === 'all' ? {
+              instanceSources: sharedInfo.elements
+                .map(el => el.getAttribute('data-cortex-source'))
+                .filter((s): s is string => s !== null),
+            } : {}),
+          } : {}),
+        }
+        channel.send(msg as any)
       }
     }
-  }, [element, overrideManager, activePseudo, channel])
+  }, [element, overrideManager, activePseudo, channel, sharedInfo, editScope])
 
   const handleSpacingCommit = useCallback((c: SpacingChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleScrub = useCallback((c: SpacingChange) => applyOverride(c.property, c.value, false), [applyOverride])
@@ -453,6 +562,50 @@ export function Panel({
         hoverEnabled={hoverEnabled}
         onToggleHover={onToggleHover}
       />
+      {sharedInfo && (
+        <div class="cortex-panel__scope">
+          <span class="cortex-panel__scope-label">
+            Shared by {sharedInfo.count} elements
+          </span>
+          <div
+            class="cortex-panel__scope-toggle"
+            role="radiogroup"
+            aria-label="Editing scope"
+            onKeyDown={(e: KeyboardEvent) => {
+              if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                e.preventDefault()
+                const next = editScope === 'instance' ? 'all' : 'instance'
+                setEditScope(next)
+                if (next === 'all') highlightSharedElements(sharedInfo, element)
+                else clearHighlights()
+              }
+            }}
+          >
+            <button
+              type="button"
+              class={`cortex-panel__scope-btn ${editScope === 'instance' ? 'cortex-panel__scope-btn--active' : ''}`}
+              role="radio"
+              aria-checked={editScope === 'instance'}
+              tabIndex={editScope === 'instance' ? 0 : -1}
+              onClick={() => { setEditScope('instance'); clearHighlights() }}
+            >
+              This element
+            </button>
+            <button
+              type="button"
+              class={`cortex-panel__scope-btn ${editScope === 'all' ? 'cortex-panel__scope-btn--active' : ''}`}
+              role="radio"
+              aria-checked={editScope === 'all'}
+              tabIndex={editScope === 'all' ? 0 : -1}
+              onClick={() => { setEditScope('all'); highlightSharedElements(sharedInfo, element) }}
+              onMouseEnter={() => { if (editScope !== 'all') highlightSharedElements(sharedInfo, element) }}
+              onMouseLeave={() => { if (editScope !== 'all') clearHighlights() }}
+            >
+              All
+            </button>
+          </div>
+        </div>
+      )}
       <div class="cortex-panel__body" ref={bodyRef} key={contentKey}>
         <SectionGroup label="Layout" groupId="layout">
           <LayoutSection
@@ -461,6 +614,7 @@ export function Panel({
             onScrub={handleLayoutScrub}
             onScrubEnd={handleLayoutCommit}
             dimmedProperties={dimmedProperties}
+            mixedProperties={mixedProperties}
           />
           <SpacingSection
             padding={computedStyles.spacing.padding}
@@ -472,17 +626,21 @@ export function Panel({
             onScrub={handleScrub}
             onScrubEnd={handleSpacingCommit}
             dimmedProperties={dimmedProperties}
+            mixedProperties={mixedProperties}
           />
         </SectionGroup>
-        <SectionGroup label="Position" groupId="position">
-          <PositionSection
-            values={computedStyles.position}
-            onChange={handlePositionCommit}
-            onScrub={handlePositionScrub}
-            onScrubEnd={handlePositionCommit}
-            dimmedProperties={dimmedProperties}
-          />
-        </SectionGroup>
+        {/* Position is instance-specific — hide when editing shared class */}
+        {!(sharedInfo && editScope === 'all') && (
+          <SectionGroup label="Position" groupId="position">
+            <PositionSection
+              values={computedStyles.position}
+              onChange={handlePositionCommit}
+              onScrub={handlePositionScrub}
+              onScrubEnd={handlePositionCommit}
+              dimmedProperties={dimmedProperties}
+            />
+          </SectionGroup>
+        )}
         <SectionGroup label="Typography" groupId="typography">
           <TypographySection
             values={computedStyles.typography}
@@ -492,6 +650,7 @@ export function Panel({
             onScrubEnd={handleTypographyCommit}
             swatches={swatches}
             dimmedProperties={dimmedProperties}
+            mixedProperties={mixedProperties}
           />
         </SectionGroup>
         <SectionGroup label="Style" groupId="style">
@@ -501,6 +660,7 @@ export function Panel({
               onChange={handleFillCommit}
               swatches={swatches}
               dimmedProperties={dimmedProperties}
+              mixedProperties={mixedProperties}
             />
           </CollapsibleSection>
           <CollapsibleSection sectionId="border" label="Border" summary={borderSummary} hasValue={borderHasValue} onAdd={handleBorderAdd} onRemove={handleBorderRemove}>
@@ -511,6 +671,7 @@ export function Panel({
               onScrubEnd={handleBorderCommit}
               swatches={swatches}
               dimmedProperties={dimmedProperties}
+              mixedProperties={mixedProperties}
             />
           </CollapsibleSection>
           <CollapsibleSection sectionId="shadow" label="Shadow" summary={shadowSummary} hasValue={shadowHasValue} onAdd={handleShadowAdd} canAddMore>
@@ -519,6 +680,7 @@ export function Panel({
               onChange={handleShadowCommit}
               swatches={swatches}
               dimmedProperties={dimmedProperties}
+              mixedProperties={mixedProperties}
             />
           </CollapsibleSection>
           <CollapsibleSection sectionId="effects" label="Effects" hasValue={true}>
@@ -528,6 +690,7 @@ export function Panel({
               onScrub={handleEffectsScrub}
               onScrubEnd={handleEffectsCommit}
               dimmedProperties={dimmedProperties}
+              mixedProperties={mixedProperties}
             />
           </CollapsibleSection>
         </SectionGroup>

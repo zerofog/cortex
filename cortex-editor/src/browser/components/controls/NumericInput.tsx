@@ -12,6 +12,8 @@ export interface NumericInputProps {
   onScrub?: (value: number) => void
   onScrubEnd?: (value: number) => void
   overridden?: boolean
+  /** When true, shows '--' placeholder indicating shared elements have different values. */
+  mixed?: boolean
 }
 
 function getStep(e: KeyboardEvent | WheelEvent): number {
@@ -35,6 +37,7 @@ export function NumericInput({
   onScrub,
   onScrubEnd,
   overridden,
+  mixed,
 }: NumericInputProps): JSX.Element {
   const [localValue, setLocalValue] = useState(String(value))
   const [isEditing, setIsEditing] = useState(false)
@@ -44,6 +47,9 @@ export function NumericInput({
   const scrubStartX = useRef(0)
   const scrubStartValue = useRef(0)
   const scrubCleanupRef = useRef<(() => void) | null>(null)
+  // Track whether the user actually typed in the input — prevents HMR-triggered
+  // blurs from dispatching phantom edits with stale values.
+  const userTypedRef = useRef(false)
 
   // Clean up scrub listeners if component unmounts mid-scrub
   useEffect(() => {
@@ -87,6 +93,7 @@ export function NumericInput({
 
   const handleFocus = useCallback(() => {
     setIsEditing(true)
+    userTypedRef.current = false
     inputRef.current?.select()
   }, [])
 
@@ -94,24 +101,26 @@ export function NumericInput({
     setIsEditing(false)
     const parsed = parseFloat(localValueRef.current)
     if (isNaN(parsed)) {
-      // Force revert: update both ref and state, and directly set the DOM
-      // value in case Preact skips the re-render (state may not have changed)
       const reverted = String(value)
       localValueRef.current = reverted
       setLocalValue(reverted)
       if (inputRef.current) inputRef.current.value = reverted
     } else {
       const clamped = clampValue(parsed)
-      if (clamped !== value) {
+      // Only commit if the user actually typed a new value — prevents HMR-triggered
+      // blurs from dispatching phantom edits when React replaces DOM nodes.
+      if (userTypedRef.current && clamped !== value) {
         onChange(clamped)
       }
       const str = String(clamped)
       localValueRef.current = str
       setLocalValue(str)
     }
+    userTypedRef.current = false
   }, [value, onChange, clampValue])
 
   const handleInput = useCallback((e: Event) => {
+    userTypedRef.current = true
     const v = (e.target as HTMLInputElement).value
     localValueRef.current = v
     setLocalValue(v)
@@ -136,9 +145,12 @@ export function NumericInput({
     try { target.setPointerCapture(e.pointerId) } catch {}
 
     setIsScrubbing(true)
+    let hasMoved = false
 
     const handleMove = (me: PointerEvent) => {
       const delta = me.clientX - scrubStartX.current
+      if (!hasMoved && Math.abs(delta) < 2) return // deadzone — ignore sub-pixel trackpad jitter
+      hasMoved = true
       const next = clampValue(roundTenth(scrubStartValue.current + delta))
       localValueRef.current = String(next)
       setLocalValue(String(next))
@@ -155,11 +167,14 @@ export function NumericInput({
 
     const handleUp = (ue: PointerEvent) => {
       try { target.releasePointerCapture(ue.pointerId) } catch {}
+      if (!hasMoved) {
+        // Click without drag — just focus the input, don't commit
+        inputRef.current?.focus()
+        cleanup()
+        return
+      }
       const delta = ue.clientX - scrubStartX.current
       const next = clampValue(roundTenth(scrubStartValue.current + delta))
-      // onScrubEnd triggers the commit (applyOverride + edit dispatch).
-      // Don't also call onChange — it would double-commit, causing a visual flash.
-      // The value propagates back via getComputedStyle → styleVersion re-render.
       if (onScrubEnd) {
         onScrubEnd(next)
       } else {
@@ -184,6 +199,7 @@ export function NumericInput({
         'cortex-numeric-input',
         isScrubbing && 'cortex-numeric-input--scrubbing',
         overridden && 'cortex-numeric-input--overridden',
+        mixed && 'cortex-numeric-input--mixed',
       ].filter(Boolean).join(' ')}
       onPointerDown={disabled ? undefined : handleScrubDown}
       data-tooltip={tooltip}
@@ -196,7 +212,8 @@ export function NumericInput({
         type="text"
         inputMode="numeric"
         aria-label={tooltip ?? label}
-        value={localValue}
+        value={mixed && !isEditing ? '' : localValue}
+        placeholder={mixed ? '--' : undefined}
         disabled={disabled}
         tabIndex={disabled ? -1 : undefined}
         onInput={handleInput}
