@@ -282,6 +282,15 @@
   color: var(--on-accent, #fff);
 }
 
+.cortex-panel__scope-btn:focus-visible {
+  outline: none;
+}
+
+.cortex-panel__scope-toggle:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .cortex-panel__scope-btn:hover:not(.cortex-panel__scope-btn--active) {
   background: var(--well-hover);
 }
