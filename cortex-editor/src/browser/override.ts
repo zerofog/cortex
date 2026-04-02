@@ -153,7 +153,7 @@ export class CSSOverrideManager {
     this.pendingEdits.set(editId, { sources: sourceArray, property, pseudo, timestamp: Date.now() })
   }
 
-  private pendingRemovals: Array<{ editId: string; source: string; property: string; pseudo?: '::before' | '::after' }> = []
+  private pendingRemovals: Array<{ editId: string; source: string; property: string; pseudo?: '::before' | '::after'; kind?: 'immediate' | 'jsx-immediate' | 'deferred' }> = []
   private pendingClearAll = false
   /** EditIds whose override removal should use double-rAF deferral (AI/deferred edits).
    *  Populated by commitEdit(true). Checked at drain time in onHMRApplied and at
@@ -168,17 +168,17 @@ export class CSSOverrideManager {
    *  for removal in onHMRApplied(). If onHMRApplied already fired for this HMR cycle
    *  (hmrAppliedPending flag), processes immediately — the HMR stylesheet is already
    *  applied so the removal is safe. */
-  handleHMRVerified(editId: string, match: boolean): void {
+  handleHMRVerified(editId: string, match: boolean, kind?: 'immediate' | 'jsx-immediate' | 'deferred'): void {
     this.evictStalePendingEdits()
     const pending = this.pendingEdits.get(editId)
     if (!pending) return
     this.pendingEdits.delete(editId)
     if (match) {
       if (this.hmrAppliedPending) {
-        const deferred = this.deferredEditIds.has(editId)
-        if (deferred) this.deferredEditIds.delete(editId)
+        const shouldDefer = this.deferredEditIds.has(editId) || (kind != null && kind !== 'immediate')
+        if (this.deferredEditIds.has(editId)) this.deferredEditIds.delete(editId)
         for (const source of pending.sources) {
-          if (deferred) {
+          if (shouldDefer) {
             this.deferRemoval(source, pending.property, pending.pseudo)
           } else {
             this.remove(source, pending.property, pending.pseudo)
@@ -186,7 +186,7 @@ export class CSSOverrideManager {
         }
       } else {
         for (const source of pending.sources) {
-          this.pendingRemovals.push({ editId, source, property: pending.property, pseudo: pending.pseudo })
+          this.pendingRemovals.push({ editId, source, property: pending.property, pseudo: pending.pseudo, kind })
         }
       }
     }
@@ -211,8 +211,9 @@ export class CSSOverrideManager {
     if (this.pendingRemovals.length > 0) {
       const removals = this.pendingRemovals.splice(0)
       for (const r of removals) {
-        if (this.deferredEditIds.has(r.editId)) {
-          this.deferredEditIds.delete(r.editId)
+        const shouldDefer = this.deferredEditIds.has(r.editId) || (r.kind != null && r.kind !== 'immediate')
+        if (this.deferredEditIds.has(r.editId)) this.deferredEditIds.delete(r.editId)
+        if (shouldDefer) {
           this.deferRemoval(r.source, r.property, r.pseudo)
         } else {
           this.remove(r.source, r.property, r.pseudo)

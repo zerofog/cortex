@@ -937,5 +937,82 @@ describe('CSSOverrideManager', () => {
       // clearAll takes priority — everything gone immediately
       expect(styleEl.textContent).toBe('')
     })
+
+    it('ordering A + kind: jsx-immediate — defers removal via double-rAF', () => {
+      // hmr_verified arrives before onHMRApplied, kind is jsx-immediate
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.beginEdit()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.commitEdit(false) // NOT deferred via commitEdit — kind drives deferral
+      manager.handleHMRVerified('edit-1', true, 'jsx-immediate') // queued in pendingRemovals with kind
+
+      // onHMRApplied drains the queue — kind:jsx-immediate → deferRemoval via double-rAF
+      manager.onHMRApplied()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('color: red')
+
+      flushRAF()
+      expect(styleEl.textContent).toContain('color: red')
+
+      flushRAF()
+      expect(styleEl.textContent).toBe('')
+    })
+
+    it('ordering B + kind: jsx-immediate — late arrival defers removal via double-rAF', () => {
+      // onHMRApplied fires first (hmrAppliedPending = true), then hmr_verified with kind
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.beginEdit()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.commitEdit(false) // NOT deferred via commitEdit
+
+      // onHMRApplied fires first — nothing to drain → sets hmrAppliedPending
+      manager.onHMRApplied()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('color: red')
+
+      // hmr_verified arrives late with kind — sees hmrAppliedPending → deferRemoval
+      manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
+      expect(styleEl.textContent).toContain('color: red')
+
+      flushRAF()
+      flushRAF()
+      expect(styleEl.textContent).toBe('')
+    })
+
+    it('ordering A + kind: immediate — sync removal (no deferral)', () => {
+      // kind: immediate → sync remove(), same as existing non-deferred behavior
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.beginEdit()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.commitEdit(false)
+      manager.handleHMRVerified('edit-1', true, 'immediate') // queued with kind
+
+      // onHMRApplied drains — kind:immediate → sync remove()
+      manager.onHMRApplied()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toBe('')
+    })
+
+    it('ordering with kind: undefined — falls back to deferredEditIds behavior (backward compat)', () => {
+      // No kind → existing deferredEditIds-based behavior
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.beginEdit()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.commitEdit(true) // deferred via commitEdit
+      manager.handleHMRVerified('edit-1', true) // no kind argument → undefined
+
+      // onHMRApplied drains — falls back to deferredEditIds → deferRemoval
+      manager.onHMRApplied()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('color: red')
+
+      flushRAF()
+      flushRAF()
+      expect(styleEl.textContent).toBe('')
+    })
   })
 })
