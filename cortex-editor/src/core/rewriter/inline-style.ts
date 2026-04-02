@@ -9,10 +9,10 @@
  *
  * Uses ts-morph for AST manipulation. Not concurrent-safe for the same file.
  */
-import type { Project, SourceFile, SyntaxKind as SyntaxKindEnum } from 'ts-morph'
+import type { Project, SourceFile, SyntaxKind as SyntaxKindEnum, ObjectLiteralExpression } from 'ts-morph'
 import { readFile } from 'fs/promises'
 import type { RewriteResult } from './types.js'
-import { ensureTsMorph, findJsxElementAt, cssPropertyToCamelCase } from './jsx-utils.js'
+import { ensureTsMorph, findJsxElementAt, cssPropertyToCamelCase, LONGHAND_TO_SHORTHAND } from './jsx-utils.js'
 
 export interface InlineStyleRewriteRequest {
   /** Absolute path to the source file */
@@ -55,19 +55,24 @@ export class InlineStyleRewriter {
     return { project: this.project, SK: this.SK }
   }
 
-  async rewrite(request: InlineStyleRewriteRequest): Promise<RewriteResult> {
+  /**
+   * Read a file and prepare a ts-morph SourceFile for manipulation.
+   * Consolidates the disposed check, file read, lazy init, and sourceFile
+   * create-or-refresh that every public method needs.
+   */
+  private async prepareSourceFile(filePath: string): Promise<
+    | { ok: true; sourceFile: SourceFile; oldContent: string; SK: typeof SyntaxKindEnum }
+    | { ok: false; result: RewriteResult }
+  > {
     if (this.disposed) {
-      return { success: false, filePath: request.filePath, reason: 'Rewriter is disposed' }
+      return { ok: false, result: { success: false, filePath, reason: 'Rewriter is disposed' } }
     }
-
-    const { filePath, line, col, property, value } = request
-    const camelProp = cssPropertyToCamelCase(property)
 
     let oldContent: string
     try {
       oldContent = await readFile(filePath, 'utf-8')
     } catch (err) {
-      return { success: false, filePath, reason: `Cannot read file: ${err instanceof Error ? err.message : err}` }
+      return { ok: false, result: { success: false, filePath, reason: `Cannot read file: ${err instanceof Error ? err.message : err}` } }
     }
 
     let project: Project
@@ -77,7 +82,7 @@ export class InlineStyleRewriter {
       project = ready.project
       SK = ready.SK
     } catch (err) {
-      return { success: false, filePath, reason: `Rewriter init failed: ${err instanceof Error ? err.message : err}` }
+      return { ok: false, result: { success: false, filePath, reason: `Rewriter init failed: ${err instanceof Error ? err.message : err}` } }
     }
 
     let sourceFile: SourceFile
@@ -88,6 +93,17 @@ export class InlineStyleRewriter {
     } else {
       sourceFile = project.createSourceFile(filePath, oldContent, { overwrite: true })
     }
+
+    return { ok: true, sourceFile, oldContent, SK }
+  }
+
+  async rewrite(request: InlineStyleRewriteRequest): Promise<RewriteResult> {
+    const { filePath, line, col, property, value } = request
+    const camelProp = cssPropertyToCamelCase(property)
+
+    const prep = await this.prepareSourceFile(filePath)
+    if (!prep.ok) return prep.result
+    const { sourceFile, oldContent, SK } = prep
 
     const jsxElement = findJsxElementAt(sourceFile, line, col, SK)
     if (!jsxElement) {
@@ -189,91 +205,118 @@ export class InlineStyleRewriter {
 
   /**
    * Remove a single CSS property from the element's inline style object.
-   * Used by scope='all' to clean up instance-level overrides before writing
-   * to the shared CSS class — prevents inline styles from blocking the class edit.
+   * Delegates to removeProperties with a single-element targets array.
    *
    * Returns success with unchanged content if the property or style attribute
    * doesn't exist (nothing to clean up is not an error).
    */
   async removeProperty(request: { filePath: string; line: number; col: number; property: string }): Promise<RewriteResult> {
-    if (this.disposed) {
-      return { success: false, filePath: request.filePath, reason: 'Rewriter is disposed' }
-    }
+    return this.removeProperties({
+      filePath: request.filePath,
+      targets: [{ line: request.line, col: request.col, property: request.property }],
+    })
+  }
 
-    const { filePath, line, col, property } = request
-    const camelProp = cssPropertyToCamelCase(property)
+  /**
+   * Remove a property from an object literal by exact match or shorthand parent.
+   * Returns true if a property was removed.
+   */
+  private removePropertyFromObject(
+    objLiteral: ObjectLiteralExpression,
+    camelProp: string,
+    SK: typeof SyntaxKindEnum,
+  ): boolean {
+    // Remove ALL properties that could set the target CSS property:
+    // both the exact longhand AND any shorthand parent.
+    // e.g., for paddingTop: remove both paddingTop AND padding.
+    // Lesson from made-refine: be comprehensive, not surgical —
+    // a surviving shorthand (padding: 16px) still sets the target
+    // property and would override the CSS class we're writing to.
+    const shorthand = LONGHAND_TO_SHORTHAND[camelProp]
+    const targets = shorthand ? [camelProp, shorthand] : [camelProp]
 
-    let oldContent: string
-    try {
-      oldContent = await readFile(filePath, 'utf-8')
-    } catch (err) {
-      return { success: false, filePath, reason: `Cannot read file: ${err instanceof Error ? err.message : err}` }
-    }
-
-    let project: Project
-    let SK: typeof SyntaxKindEnum
-    try {
-      const ready = await this.ensureReady()
-      project = ready.project
-      SK = ready.SK
-    } catch (err) {
-      return { success: false, filePath, reason: `Rewriter init failed: ${err instanceof Error ? err.message : err}` }
-    }
-
-    let sourceFile: SourceFile
-    const existing = project.getSourceFile(filePath)
-    if (existing) {
-      existing.replaceWithText(oldContent)
-      sourceFile = existing
-    } else {
-      sourceFile = project.createSourceFile(filePath, oldContent, { overwrite: true })
-    }
-
-    const jsxElement = findJsxElementAt(sourceFile, line, col, SK)
-    if (!jsxElement) {
-      // No element = nothing to clean up
-      return { success: true, filePath, oldContent, newContent: oldContent }
-    }
-
-    const styleAttrRaw = jsxElement.getAttribute('style')
-    const styleAttr = styleAttrRaw?.asKind(SK.JsxAttribute)
-    if (!styleAttr) {
-      // No style prop = nothing to clean up
-      return { success: true, filePath, oldContent, newContent: oldContent }
-    }
-
-    const initializer = styleAttr.getInitializer()
-    if (!initializer) return { success: true, filePath, oldContent, newContent: oldContent }
-
-    const jsxExpr = initializer.asKind(SK.JsxExpression)
-    const expression = jsxExpr?.getExpression()
-    if (!expression || expression.getKind() !== SK.ObjectLiteralExpression) {
-      // Non-object-literal style — can't safely remove, skip
-      return { success: true, filePath, oldContent, newContent: oldContent }
-    }
-
-    const objLiteral = expression.asKind(SK.ObjectLiteralExpression)
-    if (!objLiteral) return { success: true, filePath, oldContent, newContent: oldContent }
-
-    // Find and remove the property
-    for (const prop of objLiteral.getProperties()) {
-      if (prop.getKind() !== SK.PropertyAssignment) continue
-      const propAssign = prop.asKind(SK.PropertyAssignment)
-      if (!propAssign || propAssign.getName() !== camelProp) continue
-
-      propAssign.remove()
-
-      // If object literal is now empty, remove the entire style attribute
-      if (objLiteral.getProperties().length === 0) {
-        styleAttr.remove()
+    let removed = false
+    for (const target of targets) {
+      for (const prop of objLiteral.getProperties()) {
+        if (prop.getKind() !== SK.PropertyAssignment) continue
+        const propAssign = prop.asKind(SK.PropertyAssignment)
+        if (!propAssign || propAssign.getName() !== target) continue
+        propAssign.remove()
+        removed = true
+        break // only one match per target name; move to next target
       }
-
-      const newContent = sourceFile.getFullText()
-      return { success: true, filePath, oldContent, newContent }
     }
 
-    // Property not found — nothing to clean up
-    return { success: true, filePath, oldContent, newContent: oldContent }
+    return removed
+  }
+
+  /**
+   * Batch-remove a CSS property from multiple elements' inline styles in a single file.
+   * Reads once, modifies all targets on the same AST, writes once.
+   * Eliminates line-shift races when multiple elements are in the same file.
+   */
+  async removeProperties(request: {
+    filePath: string
+    targets: Array<{ line: number; col: number; property: string }>
+  }): Promise<RewriteResult> {
+    const { filePath, targets } = request
+    if (targets.length === 0) {
+      // No targets is a no-op, but return truthful content for undo safety
+      const prep = await this.prepareSourceFile(filePath)
+      if (!prep.ok) return prep.result
+      return { success: true, filePath, oldContent: prep.oldContent, newContent: prep.oldContent }
+    }
+
+    const prep = await this.prepareSourceFile(filePath)
+    if (!prep.ok) return prep.result
+    const { sourceFile, oldContent, SK } = prep
+
+    // Two-pass approach: collect all AST references BEFORE any mutations.
+    // Mutations (removePropertyFromObject, styleAttr.remove) shift line positions
+    // in the live AST, which would cause subsequent findJsxElementAt calls to
+    // miss their targets — the exact line-shift race this method eliminates.
+    type Collected = {
+      camelProp: string
+      objLiteral: ObjectLiteralExpression
+      styleAttr: import('ts-morph').JsxAttribute
+    }
+    const collected: Collected[] = []
+    for (const target of targets) {
+      const camelProp = cssPropertyToCamelCase(target.property)
+      const jsxElement = findJsxElementAt(sourceFile, target.line, target.col, SK)
+      if (!jsxElement) continue
+
+      const styleAttrRaw = jsxElement.getAttribute('style')
+      const styleAttr = styleAttrRaw?.asKind(SK.JsxAttribute)
+      if (!styleAttr) continue
+
+      const initializer = styleAttr.getInitializer()
+      if (!initializer) continue
+
+      const jsxExpr = initializer.asKind(SK.JsxExpression)
+      const expression = jsxExpr?.getExpression()
+      if (!expression || expression.getKind() !== SK.ObjectLiteralExpression) continue
+
+      const objLiteral = expression.asKind(SK.ObjectLiteralExpression)
+      if (!objLiteral) continue
+
+      collected.push({ camelProp, objLiteral, styleAttr })
+    }
+
+    // Pass 2: mutate all collected references (order doesn't matter — references are stable)
+    try {
+      for (const { camelProp, objLiteral, styleAttr } of collected) {
+        const removed = this.removePropertyFromObject(objLiteral, camelProp, SK)
+        if (removed && objLiteral.getProperties().length === 0) {
+          styleAttr.remove()
+        }
+      }
+    } catch (err) {
+      return { success: false, filePath, reason: `AST mutation failed: ${err instanceof Error ? err.message : err}` }
+    }
+
+    const newContent = sourceFile.getFullText()
+    return { success: true, filePath, oldContent, newContent }
   }
 
   /**

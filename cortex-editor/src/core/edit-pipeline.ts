@@ -744,26 +744,59 @@ export class EditPipeline {
     })
 
     // Clean up conflicting inline styles on ALL shared elements when scope='all'.
-    // Runs OUTSIDE the CSS lock — each JSX file acquires its own lock to prevent TOCTOU.
-    // Uses instanceSources (all shared element locations) instead of just edit.source.
+    // Groups sources by file path → batch removeProperties per file (single AST pass).
+    // Eliminates line-shift race when multiple elements share the same JSX file.
     if (cssSuccess && edit.scope === 'all' && this.inlineStyleRewriter) {
       const sources = edit.instanceSources?.length ? edit.instanceSources : [edit.source]
+
+      // Group by resolved file path — one batch per file.
+      // Dedup by line:col within each file (browser payload may contain duplicates).
+      const byFile = new Map<string, Array<{ line: number; col: number }>>()
+      const seen = new Set<string>()
       for (const source of sources) {
+        if (seen.has(source)) continue
+        seen.add(source)
         const parsed = this.parseSource(source)
-        if (!parsed.ok) continue
+        if (!parsed.ok) {
+          console.warn('[cortex] Skipping inline cleanup for source %s: %s', source, parsed.reason)
+          continue
+        }
+        let targets = byFile.get(parsed.resolvedPath)
+        if (!targets) {
+          targets = []
+          byFile.set(parsed.resolvedPath, targets)
+        }
+        targets.push({ line: parsed.line, col: parsed.col })
+      }
+
+      for (const [filePath, targets] of byFile) {
         try {
-          await this.withFileLock(parsed.resolvedPath, async () => {
-            const cleanup = await this.inlineStyleRewriter!.removeProperty({
-              filePath: parsed.resolvedPath, line: parsed.line, col: parsed.col, property: edit.property,
+          await this.withFileLock(filePath, async () => {
+            const cleanup = await this.inlineStyleRewriter!.removeProperties({
+              filePath,
+              targets: targets.map(t => ({ ...t, property: edit.property })),
             })
-            if (cleanup.success && cleanup.newContent !== cleanup.oldContent) {
-              await this.writeFile({ kind: 'jsx-immediate', filePath: parsed.resolvedPath, content: cleanup.newContent })
+            if (!cleanup.success) {
+              console.warn('[cortex] Inline style cleanup failed for %s: %s', filePath, cleanup.reason)
+              return
+            }
+            if (cleanup.newContent !== cleanup.oldContent) {
+              await this.writeFile({ kind: 'jsx-immediate', filePath, content: cleanup.newContent })
               if (this.undoStack) {
-                this.undoStack.push({ filePath: parsed.resolvedPath, previousContent: cleanup.oldContent, currentContent: cleanup.newContent })
+                this.undoStack.push({ filePath, previousContent: cleanup.oldContent, currentContent: cleanup.newContent })
               }
+              // No verifier.trackEdit here — intentional. The CSS write uses kind='immediate'
+              // which suppresses HMR, so the override must stay until page reload.
+              // If we tracked the cleanup write, its hmr_verified would clear the override
+              // before the CSS Module is hot-reloaded, causing the Panel to revert to
+              // the old CSS value.
             }
           })
-        } catch { /* cleanup failure is non-fatal — CSS edit already succeeded */ }
+        } catch (err) {
+          // Cleanup failure is non-fatal — CSS edit already succeeded.
+          // But log it so disk errors, ts-morph crashes, etc. are visible.
+          console.warn('[cortex] Inline style cleanup error for %s (edit %s):', filePath, edit.editId, err instanceof Error ? err.message : err)
+        }
       }
     }
   }

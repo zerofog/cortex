@@ -100,3 +100,25 @@ export function cssPropertyToCamelCase(property: string): string {
 
   return property.replace(/-([a-zA-Z])/g, (_, letter: string) => letter.toUpperCase())
 }
+
+// ── Shorthand parent lookup (camelCase) ────────────────────────
+// CSS shorthand → longhands. Adding a new shorthand = one entry here,
+// LONGHAND_TO_SHORTHAND is derived automatically.
+
+const SHORTHAND_LONGHANDS: Record<string, readonly string[]> = {
+  padding: ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'],
+  margin: ['marginTop', 'marginRight', 'marginBottom', 'marginLeft'],
+  borderRadius: ['borderTopLeftRadius', 'borderTopRightRadius', 'borderBottomRightRadius', 'borderBottomLeftRadius'],
+  borderWidth: ['borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth'],
+  borderStyle: ['borderTopStyle', 'borderRightStyle', 'borderBottomStyle', 'borderLeftStyle'],
+  borderColor: ['borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor'],
+  gap: ['rowGap', 'columnGap'],
+}
+
+// Derived inverse: longhand → shorthand parent
+export const LONGHAND_TO_SHORTHAND: Record<string, string> = {}
+for (const [shorthand, longhands] of Object.entries(SHORTHAND_LONGHANDS)) {
+  for (const longhand of longhands) {
+    LONGHAND_TO_SHORTHAND[longhand] = shorthand
+  }
+}
