@@ -126,7 +126,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       // Queue override removal — actual clearing deferred to hmr-applied
       // (hmr_verified/undo_status arrive BEFORE the browser applies the HMR stylesheet)
       if (msg.type === 'hmr_verified') {
-        overrideRef.current?.handleHMRVerified(msg.editId, msg.match)
+        overrideRef.current?.handleHMRVerified(msg.editId, msg.match, msg.kind)
       }
       // Unlock undo/redo serialization when server acknowledges
       if (msg.type === 'undo_status' || msg.type === 'redo_status') {

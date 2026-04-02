@@ -1,3 +1,4 @@
+import type { EditKind } from '../adapters/types.js'
 import { VALID_PROPERTY, VALID_VALUE, REJECT_URL, REJECT_COMMENT } from './css-validation.js'
 import { emitOverrideChange } from './override-bus.js'
 
@@ -93,14 +94,69 @@ export class CSSOverrideManager {
     this.rebuild()
   }
 
-  /** Remove override after framework re-render completes (double-rAF).
-   *  Used for deferred (AI) edits where HMR needs to land before the override is cleared. */
-  private deferRemoval(source: string, property: string, pseudo?: '::before' | '::after'): void {
-    requestAnimationFrame(() => {
+  /** Remove override after framework re-render completes.
+   *  For jsx-immediate: waits for MutationObserver on the element's style
+   *  attribute (proof that React re-rendered with the new inline style).
+   *  For deferred/AI: uses double-rAF (framework re-renders during HMR). */
+  private deferRemoval(source: string, property: string, pseudo?: '::before' | '::after', kind?: EditKind): void {
+    if (kind === 'jsx-immediate') {
+      this.awaitInlineStyleThenRemove(source, property, pseudo)
+    } else {
       requestAnimationFrame(() => {
-        this.remove(source, property, pseudo)
+        requestAnimationFrame(() => {
+          this.remove(source, property, pseudo)
+        })
       })
-    })
+    }
+  }
+
+  /** Wait for the element's inline style to change (React re-rendered), then remove the override.
+   *  Uses MutationObserver on the style attribute — fires when React applies the new inline style
+   *  prop to the DOM element. Safety timeout prevents infinite wait if HMR/render fails.
+   *  Tracked in activeStyleObservers so clearAll/dispose can clean up, and rapid edits
+   *  for the same source+property supersede the previous observer. */
+  private awaitInlineStyleThenRemove(source: string, property: string, pseudo?: '::before' | '::after'): void {
+    const el = document.querySelector(`[data-cortex-source="${CSS.escape(source)}"]`)
+    if (!el) {
+      this.remove(source, property, pseudo)
+      return
+    }
+
+    const key = `${source}:${property}${pseudo ?? ''}`
+
+    // Supersede any previous observer for the same source+property
+    const prev = this.activeStyleObservers.get(key)
+    if (prev) {
+      prev.observer.disconnect()
+      clearTimeout(prev.timeout)
+    }
+
+    let cleaned = false
+    const cleanup = () => {
+      if (cleaned) return
+      cleaned = true
+      observer.disconnect()
+      clearTimeout(timeout)
+      this.activeStyleObservers.delete(key)
+      this.remove(source, property, pseudo)
+    }
+
+    const observer = new MutationObserver(cleanup)
+    observer.observe(el, { attributes: true, attributeFilter: ['style'] })
+
+    // Safety: if React doesn't re-render within 1s, remove override anyway
+    const timeout = setTimeout(cleanup, 1000)
+
+    this.activeStyleObservers.set(key, { observer, timeout })
+  }
+
+  /** Disconnect all active style observers (called from clearAll/dispose). */
+  private disconnectStyleObservers(): void {
+    for (const { observer, timeout } of this.activeStyleObservers.values()) {
+      observer.disconnect()
+      clearTimeout(timeout)
+    }
+    this.activeStyleObservers.clear()
   }
 
   /**
@@ -153,7 +209,11 @@ export class CSSOverrideManager {
     this.pendingEdits.set(editId, { sources: sourceArray, property, pseudo, timestamp: Date.now() })
   }
 
-  private pendingRemovals: Array<{ editId: string; source: string; property: string; pseudo?: '::before' | '::after' }> = []
+  private pendingRemovals: Array<{ editId: string; source: string; property: string; pseudo?: '::before' | '::after'; kind?: EditKind }> = []
+  /** Active MutationObservers waiting for inline style changes (jsx-immediate).
+   *  Keyed by source+property so rapid edits supersede previous observers.
+   *  Cleaned up in clearAll()/dispose(). */
+  private activeStyleObservers = new Map<string, { observer: MutationObserver; timeout: ReturnType<typeof setTimeout> }>()
   private pendingClearAll = false
   /** EditIds whose override removal should use double-rAF deferral (AI/deferred edits).
    *  Populated by commitEdit(true). Checked at drain time in onHMRApplied and at
@@ -168,28 +228,37 @@ export class CSSOverrideManager {
    *  for removal in onHMRApplied(). If onHMRApplied already fired for this HMR cycle
    *  (hmrAppliedPending flag), processes immediately — the HMR stylesheet is already
    *  applied so the removal is safe. */
-  handleHMRVerified(editId: string, match: boolean): void {
+  handleHMRVerified(editId: string, match: boolean, kind?: EditKind): void {
     this.evictStalePendingEdits()
     const pending = this.pendingEdits.get(editId)
     if (!pending) return
     this.pendingEdits.delete(editId)
     if (match) {
       if (this.hmrAppliedPending) {
-        const deferred = this.deferredEditIds.has(editId)
-        if (deferred) this.deferredEditIds.delete(editId)
+        const deferred = this.consumeDeferralSignal(editId, kind)
         for (const source of pending.sources) {
           if (deferred) {
-            this.deferRemoval(source, pending.property, pending.pseudo)
+            this.deferRemoval(source, pending.property, pending.pseudo, kind)
           } else {
             this.remove(source, pending.property, pending.pseudo)
           }
         }
       } else {
         for (const source of pending.sources) {
-          this.pendingRemovals.push({ editId, source, property: pending.property, pseudo: pending.pseudo })
+          this.pendingRemovals.push({ editId, source, property: pending.property, pseudo: pending.pseudo, kind })
         }
       }
     }
+  }
+
+  /** Decide whether an override removal should use non-synchronous removal.
+   *  Returns true for jsx-immediate (MutationObserver) and deferred (double-rAF).
+   *  Checks both the legacy deferredEditIds set and the kind field.
+   *  Consumes the deferredEditIds entry if present (side-effecting). */
+  private consumeDeferralSignal(editId: string, kind?: EditKind): boolean {
+    const fromLegacy = this.deferredEditIds.has(editId)
+    if (fromLegacy) this.deferredEditIds.delete(editId)
+    return fromLegacy || kind === 'jsx-immediate' || kind === 'deferred'
   }
 
   /** Queue a clearAll to run when the next HMR update lands in the browser. */
@@ -211,9 +280,8 @@ export class CSSOverrideManager {
     if (this.pendingRemovals.length > 0) {
       const removals = this.pendingRemovals.splice(0)
       for (const r of removals) {
-        if (this.deferredEditIds.has(r.editId)) {
-          this.deferredEditIds.delete(r.editId)
-          this.deferRemoval(r.source, r.property, r.pseudo)
+        if (this.consumeDeferralSignal(r.editId, r.kind)) {
+          this.deferRemoval(r.source, r.property, r.pseudo, r.kind)
         } else {
           this.remove(r.source, r.property, r.pseudo)
         }
@@ -285,6 +353,7 @@ export class CSSOverrideManager {
     this.overrides = this.overrideUndoStack.pop()!
     this.pendingEdits.clear()
     this.pendingRemovals.length = 0
+    this.disconnectStyleObservers()
     this.cancelPendingRebuild()
     this.rebuild()
   }
@@ -296,6 +365,7 @@ export class CSSOverrideManager {
     this.overrides = this.overrideRedoStack.pop()!
     this.pendingEdits.clear()
     this.pendingRemovals.length = 0
+    this.disconnectStyleObservers()
     this.cancelPendingRebuild()
     this.rebuild()
   }
@@ -313,6 +383,7 @@ export class CSSOverrideManager {
     this.overrideRedoStack.length = 0
     this.pendingRemovals.length = 0
     this.deferredEditIds.clear()
+    this.disconnectStyleObservers()
     this.hmrAppliedPending = false
     this.overrides.clear()
     this.stateOverrides.clear()
@@ -328,6 +399,7 @@ export class CSSOverrideManager {
     this.overrideRedoStack.length = 0
     this.pendingRemovals.length = 0
     this.deferredEditIds.clear()
+    this.disconnectStyleObservers()
     this.hmrAppliedPending = false
     this.cancelPendingRebuild()
     this.overrides.clear()

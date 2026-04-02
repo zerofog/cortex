@@ -1,5 +1,6 @@
 // Main package exports
 export type {
+  EditKind,
   FrameworkAdapter,
   TransformResult,
   SourceMap,
