@@ -199,6 +199,9 @@ export function Panel({
     prevElementRef.current = element
   }, [element])
 
+  // Clear blast-radius highlights on unmount
+  useEffect(() => () => { clearHighlights() }, [])
+
   // Detect shared CSS classes when a new element is selected (ZF0-1018).
   // Resets scope to 'instance' (safe default) on every element change.
   // Clear stale blast-radius highlights from previous selection (ZF0-1019).
@@ -285,7 +288,7 @@ export function Panel({
       mixed = new Set<string>()
       for (const sibling of sharedInfo.elements) {
         if (sibling === element) continue
-        const siblingCs = getComputedStyle(sibling)
+        const siblingCs = getComputedStyle(sibling, pseudo)
         for (const prop of ALL_DIMMING_PROPERTIES) {
           if (mixed.has(prop)) continue
           if (cs.getPropertyValue(prop) !== siblingCs.getPropertyValue(prop)) {
@@ -574,6 +577,7 @@ export function Panel({
             }}
           >
             <button
+              type="button"
               class={`cortex-panel__scope-btn ${editScope === 'instance' ? 'cortex-panel__scope-btn--active' : ''}`}
               role="radio"
               aria-checked={editScope === 'instance'}
@@ -583,6 +587,7 @@ export function Panel({
               This element
             </button>
             <button
+              type="button"
               class={`cortex-panel__scope-btn ${editScope === 'all' ? 'cortex-panel__scope-btn--active' : ''}`}
               role="radio"
               aria-checked={editScope === 'all'}

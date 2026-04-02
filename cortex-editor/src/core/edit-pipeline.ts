@@ -365,7 +365,10 @@ export class EditPipeline {
         // Layer 3.5: Inline style rewriter — deterministic fallback
         // Skip if we already tried InlineStyleRewriter for instance scope (avoids double call)
         if (this.inlineStyleRewriter && edit.scope !== 'instance') {
-          const handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
+          let handled = false
+          try {
+            handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
+          } catch { /* treat throws as failed, fall through to deferred/AI */ }
           if (handled) return
         }
         if (this.deferredWriter) {
