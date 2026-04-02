@@ -495,5 +495,201 @@ describe('InlineStyleRewriter', () => {
         cleanupTempFile(filePath)
       }
     })
+
+    it('removes both longhand AND shorthand parent when both present', async () => {
+      const source = `export function App() {
+  return <div style={{ padding: "16px", paddingTop: "20px", color: "red" }}>Hello</div>
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.removeProperty({ filePath, line: 2, col: 10, property: 'padding-top' })
+        expect(result.success).toBe(true)
+        if (result.success) {
+          expect(result.newContent).not.toContain('paddingTop')
+          expect(result.newContent).not.toContain('padding:')
+          expect(result.newContent).not.toContain("padding\"")
+          expect(result.newContent).toContain('color: "red"')
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
+
+    it('removes shorthand parent when longhand target is not found', async () => {
+      const source = `export function App() {
+  return <div style={{ padding: "16px", color: "red" }}>Hello</div>
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.removeProperty({ filePath, line: 2, col: 10, property: 'padding-top' })
+        expect(result.success).toBe(true)
+        if (result.success) {
+          expect(result.newContent).not.toContain('padding')
+          expect(result.newContent).toContain('color: "red"')
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
+  })
+
+  // --- removeProperties (batch) ---
+
+  describe('removeProperties', () => {
+    it('removes properties from multiple elements in the same file', async () => {
+      const source = `export function App() {
+  return (
+    <div>
+      <div style={{ paddingTop: "20px" }}>Card A</div>
+      <div style={{ paddingTop: "24px" }}>Card B</div>
+    </div>
+  )
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.removeProperties({
+          filePath,
+          targets: [
+            { line: 4, col: 7, property: 'padding-top' },
+            { line: 5, col: 7, property: 'padding-top' },
+          ],
+        })
+        expect(result.success).toBe(true)
+        if (result.success) {
+          expect(result.newContent).not.toContain('paddingTop')
+          expect(result.newContent).not.toContain('style')
+          expect(result.newContent).toContain('Card A')
+          expect(result.newContent).toContain('Card B')
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
+
+    it('handles multi-line JSX where single-element removal would shift lines', async () => {
+      const source = `export function App() {
+  return (
+    <div>
+      <div
+        className="card"
+        style={{ paddingTop: "20px" }}
+      >Card A</div>
+      <div
+        className="card"
+        style={{ paddingTop: "24px" }}
+      >Card B</div>
+    </div>
+  )
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.removeProperties({
+          filePath,
+          targets: [
+            { line: 4, col: 7, property: 'padding-top' },
+            { line: 8, col: 7, property: 'padding-top' },
+          ],
+        })
+        expect(result.success).toBe(true)
+        if (result.success) {
+          expect(result.newContent).not.toContain('paddingTop')
+          expect(result.newContent).not.toContain('style')
+          expect(result.newContent).toContain('Card A')
+          expect(result.newContent).toContain('Card B')
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
+
+    it('removes shorthand parent during batch cleanup', async () => {
+      const source = `export function App() {
+  return (
+    <div>
+      <div style={{ padding: "16px" }}>Card A</div>
+      <div style={{ padding: "24px" }}>Card B</div>
+    </div>
+  )
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.removeProperties({
+          filePath,
+          targets: [
+            { line: 4, col: 7, property: 'padding-top' },
+            { line: 5, col: 7, property: 'padding-top' },
+          ],
+        })
+        expect(result.success).toBe(true)
+        if (result.success) {
+          expect(result.newContent).not.toContain('padding')
+          expect(result.newContent).not.toContain('style')
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
+
+    it('succeeds with partial matches — some elements have the property, some do not', async () => {
+      const source = `export function App() {
+  return (
+    <div>
+      <div style={{ paddingTop: "20px" }}>Card A</div>
+      <div className="card">Card B</div>
+    </div>
+  )
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.removeProperties({
+          filePath,
+          targets: [
+            { line: 4, col: 7, property: 'padding-top' },
+            { line: 5, col: 7, property: 'padding-top' },
+          ],
+        })
+        expect(result.success).toBe(true)
+        if (result.success) {
+          expect(result.newContent).not.toContain('paddingTop')
+          expect(result.newContent).toContain('Card A')
+          expect(result.newContent).toContain('Card B')
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
+
+    it('returns unchanged content when no targets match', async () => {
+      const source = `export function App() {
+  return <div className="card">Hello</div>
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.removeProperties({
+          filePath,
+          targets: [{ line: 2, col: 10, property: 'padding-top' }],
+        })
+        expect(result.success).toBe(true)
+        if (result.success) {
+          expect(result.newContent).toBe(result.oldContent)
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
   })
 })
