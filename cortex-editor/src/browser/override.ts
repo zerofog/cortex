@@ -257,7 +257,7 @@ export class CSSOverrideManager {
   private consumeDeferralSignal(editId: string, kind?: EditKind): boolean {
     const fromLegacy = this.deferredEditIds.has(editId)
     if (fromLegacy) this.deferredEditIds.delete(editId)
-    return fromLegacy || (kind != null && kind !== 'immediate')
+    return fromLegacy || kind === 'jsx-immediate' || kind === 'deferred'
   }
 
   /** Queue a clearAll to run when the next HMR update lands in the browser. */
@@ -352,6 +352,7 @@ export class CSSOverrideManager {
     this.overrides = this.overrideUndoStack.pop()!
     this.pendingEdits.clear()
     this.pendingRemovals.length = 0
+    this.disconnectStyleObservers()
     this.cancelPendingRebuild()
     this.rebuild()
   }
@@ -363,6 +364,7 @@ export class CSSOverrideManager {
     this.overrides = this.overrideRedoStack.pop()!
     this.pendingEdits.clear()
     this.pendingRemovals.length = 0
+    this.disconnectStyleObservers()
     this.cancelPendingRebuild()
     this.rebuild()
   }

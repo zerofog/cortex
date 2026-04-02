@@ -107,7 +107,9 @@ export function NumericInput({
     setIsEditing(false)
     const parsed = parseFloat(localValueRef.current)
     if (isNaN(parsed)) {
-      const reverted = String(value)
+      // In mixed state, revert to empty (shows '--' placeholder) instead of
+      // revealing the selected element's value for a single frame.
+      const reverted = mixed ? '' : String(value)
       localValueRef.current = reverted
       setLocalValue(reverted)
       if (inputRef.current) inputRef.current.value = reverted
