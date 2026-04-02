@@ -749,9 +749,13 @@ export class EditPipeline {
     if (cssSuccess && edit.scope === 'all' && this.inlineStyleRewriter) {
       const sources = edit.instanceSources?.length ? edit.instanceSources : [edit.source]
 
-      // Group by resolved file path — one batch per file
+      // Group by resolved file path — one batch per file.
+      // Dedup by line:col within each file (browser payload may contain duplicates).
       const byFile = new Map<string, Array<{ line: number; col: number }>>()
+      const seen = new Set<string>()
       for (const source of sources) {
+        if (seen.has(source)) continue
+        seen.add(source)
         const parsed = this.parseSource(source)
         if (!parsed.ok) {
           console.warn('[cortex] Skipping inline cleanup for source %s: %s', source, parsed.reason)
