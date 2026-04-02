@@ -94,8 +94,14 @@ export function NumericInput({
   const handleFocus = useCallback(() => {
     setIsEditing(true)
     userTypedRef.current = false
+    if (mixed) {
+      // Don't reveal the selected element's value — user types the target value
+      // from scratch, since there's no single "current" value in mixed state.
+      localValueRef.current = ''
+      setLocalValue('')
+    }
     inputRef.current?.select()
-  }, [])
+  }, [mixed])
 
   const handleBlur = useCallback(() => {
     setIsEditing(false)
@@ -212,7 +218,7 @@ export function NumericInput({
         type="text"
         inputMode="numeric"
         aria-label={tooltip ?? label}
-        value={mixed ? '' : localValue}
+        value={mixed && !isEditing ? '' : localValue}
         placeholder={mixed ? '--' : undefined}
         disabled={disabled}
         tabIndex={disabled ? -1 : undefined}

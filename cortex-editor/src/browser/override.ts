@@ -112,7 +112,9 @@ export class CSSOverrideManager {
 
   /** Wait for the element's inline style to change (React re-rendered), then remove the override.
    *  Uses MutationObserver on the style attribute — fires when React applies the new inline style
-   *  prop to the DOM element. Safety timeout prevents infinite wait if HMR/render fails. */
+   *  prop to the DOM element. Safety timeout prevents infinite wait if HMR/render fails.
+   *  Tracked in activeStyleObservers so clearAll/dispose can clean up, and rapid edits
+   *  for the same source+property supersede the previous observer. */
   private awaitInlineStyleThenRemove(source: string, property: string, pseudo?: '::before' | '::after'): void {
     const el = document.querySelector(`[data-cortex-source="${CSS.escape(source)}"]`)
     if (!el) {
@@ -120,9 +122,22 @@ export class CSSOverrideManager {
       return
     }
 
+    const key = `${source}:${property}${pseudo ?? ''}`
+
+    // Supersede any previous observer for the same source+property
+    const prev = this.activeStyleObservers.get(key)
+    if (prev) {
+      prev.observer.disconnect()
+      clearTimeout(prev.timeout)
+    }
+
+    let cleaned = false
     const cleanup = () => {
+      if (cleaned) return
+      cleaned = true
       observer.disconnect()
       clearTimeout(timeout)
+      this.activeStyleObservers.delete(key)
       this.remove(source, property, pseudo)
     }
 
@@ -131,6 +146,17 @@ export class CSSOverrideManager {
 
     // Safety: if React doesn't re-render within 1s, remove override anyway
     const timeout = setTimeout(cleanup, 1000)
+
+    this.activeStyleObservers.set(key, { observer, timeout })
+  }
+
+  /** Disconnect all active style observers (called from clearAll/dispose). */
+  private disconnectStyleObservers(): void {
+    for (const { observer, timeout } of this.activeStyleObservers.values()) {
+      observer.disconnect()
+      clearTimeout(timeout)
+    }
+    this.activeStyleObservers.clear()
   }
 
   /**
@@ -184,6 +210,10 @@ export class CSSOverrideManager {
   }
 
   private pendingRemovals: Array<{ editId: string; source: string; property: string; pseudo?: '::before' | '::after'; kind?: EditKind }> = []
+  /** Active MutationObservers waiting for inline style changes (jsx-immediate).
+   *  Keyed by source+property so rapid edits supersede previous observers.
+   *  Cleaned up in clearAll()/dispose(). */
+  private activeStyleObservers = new Map<string, { observer: MutationObserver; timeout: ReturnType<typeof setTimeout> }>()
   private pendingClearAll = false
   /** EditIds whose override removal should use double-rAF deferral (AI/deferred edits).
    *  Populated by commitEdit(true). Checked at drain time in onHMRApplied and at
@@ -350,6 +380,7 @@ export class CSSOverrideManager {
     this.overrideRedoStack.length = 0
     this.pendingRemovals.length = 0
     this.deferredEditIds.clear()
+    this.disconnectStyleObservers()
     this.hmrAppliedPending = false
     this.overrides.clear()
     this.stateOverrides.clear()
@@ -365,6 +396,7 @@ export class CSSOverrideManager {
     this.overrideRedoStack.length = 0
     this.pendingRemovals.length = 0
     this.deferredEditIds.clear()
+    this.disconnectStyleObservers()
     this.hmrAppliedPending = false
     this.cancelPendingRebuild()
     this.overrides.clear()
