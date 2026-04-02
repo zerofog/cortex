@@ -228,10 +228,9 @@ export class InlineStyleRewriter {
   ): boolean {
     // Remove ALL properties that could set the target CSS property:
     // both the exact longhand AND any shorthand parent.
-    // e.g., for paddingTop: remove both paddingTop AND padding.
-    // Lesson from made-refine: be comprehensive, not surgical —
-    // a surviving shorthand (padding: 16px) still sets the target
-    // property and would override the CSS class we're writing to.
+    // e.g., for paddingTop: remove both paddingTop AND padding —
+    // a surviving shorthand still sets the target property and
+    // would override the CSS class we're writing to.
     const shorthand = LONGHAND_TO_SHORTHAND[camelProp]
     const targets = shorthand ? [camelProp, shorthand] : [camelProp]
 
