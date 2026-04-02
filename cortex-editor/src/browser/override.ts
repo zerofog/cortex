@@ -19,7 +19,7 @@ export class CSSOverrideManager {
   private styleEl: HTMLStyleElement
   private overrides = new Map<string, Map<string, string>>()
   private stateOverrides = new Map<string, Map<string, string>>()
-  private pendingEdits = new Map<string, { source: string; property: string; pseudo?: '::before' | '::after'; timestamp: number }>()
+  private pendingEdits = new Map<string, { sources: string[]; property: string; pseudo?: '::before' | '::after'; timestamp: number }>()
 
   constructor() {
     this.styleEl = document.createElement('style')
@@ -138,17 +138,19 @@ export class CSSOverrideManager {
     this.rebuild()
   }
 
-  /** Track a pending edit so handleHMRVerified can clear the right override. */
-  trackPendingEdit(editId: string, source: string, property: string, pseudo?: '::before' | '::after'): void {
+  /** Track a pending edit so handleHMRVerified can clear the right override.
+   *  For scope='all' edits, pass all shared element sources so all overrides are cleared. */
+  trackPendingEdit(editId: string, sources: string | string[], property: string, pseudo?: '::before' | '::after'): void {
+    const sourceArray = Array.isArray(sources) ? sources : [sources]
     this.evictStalePendingEdits()
-    // Supersede any prior pending edit for the same target
+    // Supersede any prior pending edit for overlapping targets
     for (const [existingId, entry] of this.pendingEdits) {
-      if (entry.source === source && entry.property === property && entry.pseudo === pseudo) {
+      if (entry.property === property && entry.pseudo === pseudo &&
+          entry.sources.some(s => sourceArray.includes(s))) {
         this.pendingEdits.delete(existingId)
-        break
       }
     }
-    this.pendingEdits.set(editId, { source, property, pseudo, timestamp: Date.now() })
+    this.pendingEdits.set(editId, { sources: sourceArray, property, pseudo, timestamp: Date.now() })
   }
 
   private pendingRemovals: Array<{ editId: string; source: string; property: string; pseudo?: '::before' | '::after' }> = []
@@ -173,19 +175,19 @@ export class CSSOverrideManager {
     this.pendingEdits.delete(editId)
     if (match) {
       if (this.hmrAppliedPending) {
-        // HMR already applied for this cycle — process immediately.
-        // Don't clear the flag: other edits in the same HMR cycle also need it.
-        // The next onHMRApplied() call resets it.
         const deferred = this.deferredEditIds.has(editId)
         if (deferred) this.deferredEditIds.delete(editId)
-        if (deferred) {
-          this.deferRemoval(pending.source, pending.property, pending.pseudo)
-        } else {
-          this.remove(pending.source, pending.property, pending.pseudo)
+        for (const source of pending.sources) {
+          if (deferred) {
+            this.deferRemoval(source, pending.property, pending.pseudo)
+          } else {
+            this.remove(source, pending.property, pending.pseudo)
+          }
         }
       } else {
-        // HMR not yet applied — queue for onHMRApplied (don't consume deferredEditIds yet)
-        this.pendingRemovals.push({ editId, source: pending.source, property: pending.property, pseudo: pending.pseudo })
+        for (const source of pending.sources) {
+          this.pendingRemovals.push({ editId, source, property: pending.property, pseudo: pending.pseudo })
+        }
       }
     }
   }

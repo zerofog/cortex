@@ -346,7 +346,11 @@ export function Panel({
       // to sync browser undo stack with server's debounced undo stack.
       if (channel) {
         const editId = crypto.randomUUID()
-        overrideManager.trackPendingEdit(editId, source, property, pseudo)
+        // Track all shared sources so HMR verification clears ALL sibling overrides
+        const pendingSources = (sharedInfo && editScope === 'all')
+          ? sharedInfo.elements.map(el => el.getAttribute('data-cortex-source')).filter((s): s is string => s !== null)
+          : source
+        overrideManager.trackPendingEdit(editId, pendingSources, property, pseudo)
         const msg = {
           type: 'edit' as const,
           editId,

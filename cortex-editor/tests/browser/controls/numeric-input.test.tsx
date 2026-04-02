@@ -168,6 +168,25 @@ describe('NumericInput', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
+  it('zero-delta pointermove does not trigger scrub commit (deadzone)', async () => {
+    const onScrubEnd = vi.fn()
+    const { onChange, input } = setup({ onScrubEnd })
+    const wrapper = input.closest('.cortex-numeric-input') as HTMLElement
+
+    // Simulate trackpad jitter: pointerdown, pointermove at same X, pointerup
+    dispatchPointerEvent(wrapper, 'pointerdown', { clientX: 100 })
+    await new Promise(r => setTimeout(r, 0))
+    dispatchPointerEvent(wrapper, 'pointermove', { clientX: 100 }) // zero delta
+    dispatchPointerEvent(wrapper, 'pointermove', { clientX: 101 }) // 1px — still within deadzone
+    await new Promise(r => setTimeout(r, 0))
+    dispatchPointerEvent(wrapper, 'pointerup', { clientX: 101 })
+    await new Promise(r => setTimeout(r, 0))
+
+    // Sub-pixel movement should NOT trigger scrub commit
+    expect(onScrubEnd).not.toHaveBeenCalled()
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
   it('commits typed value on blur', async () => {
     const { onChange, input } = setup()
     // Focus, type a new value, then blur

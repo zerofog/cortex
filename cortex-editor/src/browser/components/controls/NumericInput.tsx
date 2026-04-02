@@ -148,8 +148,9 @@ export function NumericInput({
     let hasMoved = false
 
     const handleMove = (me: PointerEvent) => {
-      hasMoved = true
       const delta = me.clientX - scrubStartX.current
+      if (!hasMoved && Math.abs(delta) < 2) return // deadzone — ignore sub-pixel trackpad jitter
+      hasMoved = true
       const next = clampValue(roundTenth(scrubStartValue.current + delta))
       localValueRef.current = String(next)
       setLocalValue(String(next))
