@@ -1,0 +1,24 @@
+cortex-editor/src/core/rewriter/inline-style.ts
+  150568d0accaae96 231-233
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.3",
+  "base_commit_sha": "6db1351ce8e0650334be834f66c4c619463a4b52",
+  "prompts": {
+    "150568d0accaae96": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ee8d6fe-d0b5-4482-978c-379f290ded53",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 4,
+      "accepted_lines": 3,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/732b873964a1b3ebd8460ccbb782cd2888a7dc092303395694048b3dc304bc5c"
+    }
+  }
+}
