@@ -94,14 +94,43 @@ export class CSSOverrideManager {
     this.rebuild()
   }
 
-  /** Remove override after framework re-render completes (double-rAF).
-   *  Used for deferred (AI) edits where HMR needs to land before the override is cleared. */
-  private deferRemoval(source: string, property: string, pseudo?: '::before' | '::after'): void {
-    requestAnimationFrame(() => {
+  /** Remove override after framework re-render completes.
+   *  For jsx-immediate: waits for MutationObserver on the element's style
+   *  attribute (proof that React re-rendered with the new inline style).
+   *  For deferred/AI: uses double-rAF (framework re-renders during HMR). */
+  private deferRemoval(source: string, property: string, pseudo?: '::before' | '::after', kind?: EditKind): void {
+    if (kind === 'jsx-immediate') {
+      this.awaitInlineStyleThenRemove(source, property, pseudo)
+    } else {
       requestAnimationFrame(() => {
-        this.remove(source, property, pseudo)
+        requestAnimationFrame(() => {
+          this.remove(source, property, pseudo)
+        })
       })
-    })
+    }
+  }
+
+  /** Wait for the element's inline style to change (React re-rendered), then remove the override.
+   *  Uses MutationObserver on the style attribute — fires when React applies the new inline style
+   *  prop to the DOM element. Safety timeout prevents infinite wait if HMR/render fails. */
+  private awaitInlineStyleThenRemove(source: string, property: string, pseudo?: '::before' | '::after'): void {
+    const el = document.querySelector(`[data-cortex-source="${CSS.escape(source)}"]`)
+    if (!el) {
+      this.remove(source, property, pseudo)
+      return
+    }
+
+    const cleanup = () => {
+      observer.disconnect()
+      clearTimeout(timeout)
+      this.remove(source, property, pseudo)
+    }
+
+    const observer = new MutationObserver(cleanup)
+    observer.observe(el, { attributes: true, attributeFilter: ['style'] })
+
+    // Safety: if React doesn't re-render within 1s, remove override anyway
+    const timeout = setTimeout(cleanup, 1000)
   }
 
   /**
@@ -179,7 +208,7 @@ export class CSSOverrideManager {
         const deferred = this.consumeDeferralSignal(editId, kind)
         for (const source of pending.sources) {
           if (deferred) {
-            this.deferRemoval(source, pending.property, pending.pseudo)
+            this.deferRemoval(source, pending.property, pending.pseudo, kind)
           } else {
             this.remove(source, pending.property, pending.pseudo)
           }
@@ -221,7 +250,7 @@ export class CSSOverrideManager {
       const removals = this.pendingRemovals.splice(0)
       for (const r of removals) {
         if (this.consumeDeferralSignal(r.editId, r.kind)) {
-          this.deferRemoval(r.source, r.property, r.pseudo)
+          this.deferRemoval(r.source, r.property, r.pseudo, r.kind)
         } else {
           this.remove(r.source, r.property, r.pseudo)
         }

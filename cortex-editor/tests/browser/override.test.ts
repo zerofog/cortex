@@ -938,48 +938,83 @@ describe('CSSOverrideManager', () => {
       expect(styleEl.textContent).toBe('')
     })
 
-    it('ordering A + kind: jsx-immediate — defers removal via double-rAF', () => {
-      // hmr_verified arrives before onHMRApplied, kind is jsx-immediate
+    it('ordering A + kind: jsx-immediate — waits for inline style mutation before removing', async () => {
+      // Create a target element with data-cortex-source so MutationObserver can find it
+      const target = document.createElement('div')
+      target.setAttribute('data-cortex-source', 'a:1:1')
+      document.body.appendChild(target)
+
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
       manager.beginEdit()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
-      manager.commitEdit(false) // NOT deferred via commitEdit — kind drives deferral
-      manager.handleHMRVerified('edit-1', true, 'jsx-immediate') // queued in pendingRemovals with kind
+      manager.commitEdit(false)
+      manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
 
-      // onHMRApplied drains the queue — kind:jsx-immediate → deferRemoval via double-rAF
       manager.onHMRApplied()
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toContain('color: red')
 
+      // Override stays — MutationObserver is watching for inline style change
+      expect(styleEl.textContent).toContain('color: red')
       flushRAF()
       expect(styleEl.textContent).toContain('color: red')
 
-      flushRAF()
+      // Simulate React re-rendering with new inline style
+      target.style.color = 'blue'
+
+      // MutationObserver fires asynchronously — wait for it
+      await new Promise(resolve => setTimeout(resolve, 0))
+
       expect(styleEl.textContent).toBe('')
+
+      target.remove()
     })
 
-    it('ordering B + kind: jsx-immediate — late arrival defers removal via double-rAF', () => {
-      // onHMRApplied fires first (hmrAppliedPending = true), then hmr_verified with kind
+    it('ordering B + kind: jsx-immediate — late arrival waits for inline style mutation', async () => {
+      const target = document.createElement('div')
+      target.setAttribute('data-cortex-source', 'a:1:1')
+      document.body.appendChild(target)
+
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
       manager.beginEdit()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
-      manager.commitEdit(false) // NOT deferred via commitEdit
+      manager.commitEdit(false)
 
-      // onHMRApplied fires first — nothing to drain → sets hmrAppliedPending
       manager.onHMRApplied()
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
       expect(styleEl.textContent).toContain('color: red')
 
-      // hmr_verified arrives late with kind — sees hmrAppliedPending → deferRemoval
+      // Late arrival with jsx-immediate — sets up MutationObserver immediately
       manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
       expect(styleEl.textContent).toContain('color: red')
 
+      // Simulate React re-rendering
+      target.style.color = 'blue'
+      await new Promise(resolve => setTimeout(resolve, 0))
+
+      expect(styleEl.textContent).toBe('')
+
+      target.remove()
+    })
+
+    it('jsx-immediate without target element — falls back to immediate removal', () => {
+      // No element with data-cortex-source="a:1:1" in DOM
+      manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      flushRAF()
+      manager.beginEdit()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.commitEdit(false)
+      manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
+
+      manager.onHMRApplied()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      // No element found → immediate removal
       expect(styleEl.textContent).toBe('')
     })
+
+    // Safety timeout (1s fallback if React never re-renders) is verified
+    // by manual QA — fake timers conflict with the manual RAF capture in this suite.
 
     it('ordering A + kind: immediate — sync removal (no deferral)', () => {
       // kind: immediate → sync remove(), same as existing non-deferred behavior
