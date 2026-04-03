@@ -48,13 +48,9 @@ export function CommentInput({ onSubmit, agentConnected }: CommentInputProps): J
     ? 'cortex-comment-input cortex-comment-input--error'
     : 'cortex-comment-input'
 
-  const placeholder = pending
-    ? 'Sending...'
-    : error
-      ? 'Failed — press Enter to retry'
-      : agentConnected
-        ? 'Ask the AI agent...'
-        : 'Waiting for agent — run cortex mcp'
+  const placeholder = agentConnected
+    ? 'Ask the AI agent...'
+    : 'Waiting for agent — run cortex mcp'
 
   return (
     <div class={wrapperClass}>
@@ -62,6 +58,7 @@ export function CommentInput({ onSubmit, agentConnected }: CommentInputProps): J
         type="text"
         class="cortex-comment-input__field"
         aria-label="Comment to AI agent"
+        aria-describedby={error ? 'cortex-comment-error' : undefined}
         placeholder={placeholder}
         value={text}
         onInput={handleInput}
@@ -69,6 +66,7 @@ export function CommentInput({ onSubmit, agentConnected }: CommentInputProps): J
         disabled={!agentConnected || pending}
       />
       {pending && <span class="cortex-comment-input__spinner" />}
+      {error && <span id="cortex-comment-error" class="cortex-comment-input__error" role="alert">Failed — press Enter to retry</span>}
     </div>
   )
 }

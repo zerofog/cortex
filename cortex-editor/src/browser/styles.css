@@ -27,6 +27,7 @@
   --select: #3b82f6;
   --select-hover: #2563eb;
   --select-muted: rgba(59, 130, 246, 0.12);
+  --on-select: #fff;
 
   /* Status */
   --success: #22c55e;
@@ -51,6 +52,7 @@
   --sp-4: 8px;
   --sp-5: 12px;
   --sp-6: 16px;
+  --sp-7: 24px;
 
   /* Radius scale */
   --radius-sm: 4px;
@@ -95,6 +97,7 @@
   --select: #60a5fa;
   --select-hover: #3b82f6;
   --select-muted: rgba(96, 165, 250, 0.15);
+  --on-select: #0f172a;
 
   --success: #4ade80;
   --destructive: #f87171;
@@ -291,7 +294,7 @@
   border-radius: 3px;
 }
 .cortex-panel__empty {
-  padding: 24px var(--sp-6);
+  padding: var(--sp-7) var(--sp-6);
   text-align: center;
   display: flex;
   flex-direction: column;
@@ -358,7 +361,7 @@
 
 .cortex-panel__scope-btn--active {
   background: var(--select);
-  color: #fff;
+  color: var(--on-select);
 }
 
 .cortex-panel__scope-btn:focus-visible {
@@ -1155,7 +1158,9 @@
   background: var(--well);
   border: none;
   border-radius: var(--radius-md);
-  font: 13px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--text-lg);
+  line-height: 1;
+  font-family: var(--mono);
   color: var(--ink);
   box-shadow: var(--well-shadow);
   outline: none;
@@ -1882,6 +1887,13 @@
   color: var(--destructive);
 }
 
+.cortex-comment-input__error {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--destructive);
+  margin-top: var(--sp-1);
+}
+
 /* ── Comment Thread ──────────────────────────── */
 
 .cortex-thread {
@@ -2084,7 +2096,7 @@
 }
 
 .cortex-activity-log__empty {
-  padding: 24px 12px;
+  padding: var(--sp-7) var(--sp-5);
   text-align: center;
   color: var(--ink-secondary);
   font-size: var(--text-md);

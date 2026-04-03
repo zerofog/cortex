@@ -17,10 +17,9 @@ let activeChannel: CortexChannel | null = null
  * Exported for testability — auto-activation is handled by the IIFE wrapper below.
  */
 export function bootstrap(): void {
-  if (hostElement) return // Already bootstrapped (same script instance)
-  if (document.querySelector('[data-cortex-host]')) return // Already bootstrapped (another script instance)
-
-  // Load Geist fonts into document scope (font-face must be document-level for Shadow DOM)
+  // Load Geist fonts into document scope (font-face must be document-level for Shadow DOM).
+  // Runs before bootstrap guards — idempotent, ensures fonts load even if another
+  // script instance already created the host element.
   if (!document.querySelector('[data-cortex-fonts]')) {
     const fontLink = document.createElement('link')
     fontLink.setAttribute('data-cortex-fonts', '')
@@ -28,6 +27,9 @@ export function bootstrap(): void {
     fontLink.href = 'https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&family=Geist+Mono:wght@400;500&display=swap'
     document.head.appendChild(fontLink)
   }
+
+  if (hostElement) return // Already bootstrapped (same script instance)
+  if (document.querySelector('[data-cortex-host]')) return // Already bootstrapped (another script instance)
 
   // Create host element — fixed overlay, pointer-events:none, max z-index
   hostElement = document.createElement('div')
@@ -89,6 +91,7 @@ export function _resetForTesting(): void {
   shadowRoot = null
   rootElement = null
   _setCortexHost(null, null)
+  document.querySelector('[data-cortex-fonts]')?.remove()
 }
 
 // Auto-activate on page load
