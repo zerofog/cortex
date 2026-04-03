@@ -159,7 +159,10 @@ describe('cortex mcp', () => {
 
     // Verify the WS message was received by mock Vite
     await new Promise(r => setTimeout(r, 50))
-    expect(mockVite.lastMessage()).toEqual({ type: 'cortex' })
+    const msg = mockVite.lastMessage()!
+    expect(msg.type).toBe('cortex')
+    // token is null in tests (no .cortex/token file from mock Vite) — verify the field exists
+    expect('token' in msg).toBe(true)
   })
 
   it('cortex_deactivate sends cortex-close message when connected', async () => {
@@ -172,7 +175,9 @@ describe('cortex mcp', () => {
     expect((result.content as Array<{ text: string }>)[0].text).toContain('Deactivation command sent')
 
     await new Promise(r => setTimeout(r, 50))
-    expect(mockVite.lastMessage()).toEqual({ type: 'cortex-close' })
+    const msg = mockVite.lastMessage()!
+    expect(msg.type).toBe('cortex-close')
+    expect('token' in msg).toBe(true)
   })
 
   it('cortex_deactivate returns error when not connected to dev server', async () => {

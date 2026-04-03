@@ -4,7 +4,7 @@ import fs from 'fs'
 import os from 'os'
 import pathMod from 'path'
 import WebSocket from 'ws'
-import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting } from '../../src/adapters/vite.js'
+import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting, _getSessionTokenForTesting } from '../../src/adapters/vite.js'
 import type { Plugin } from 'vite'
 
 // Mock loadEnv from vite so tests can control CORTEX_API_KEY availability
@@ -309,10 +309,11 @@ describe('cortexEditor Vite plugin', () => {
       const plugin = initPlugin()
       const server = mockServer()
       ;(plugin.configureServer as Function)(server)
+      const token = _getSessionTokenForTesting()!
       const channel = getChannel()
       const received: unknown[] = []
       channel.onMessage((msg) => received.push(msg))
-      const testMsg = { type: 'edit', editId: '1', property: 'p', value: 'v', source: 's', elementSelector: 'e' }
+      const testMsg = { type: 'edit' as const, token, editId: '1', property: 'p', value: 'v', source: 's', elementSelector: 'e' }
       server.hot._trigger('cortex:msg', testMsg)
       expect(received).toHaveLength(1)
       expect(received[0]).toEqual(testMsg)
@@ -417,8 +418,9 @@ describe('cortexEditor Vite plugin', () => {
       const server = mockServer()
       ;(plugin.configureServer as Function)(server)
 
+      const token = _getSessionTokenForTesting()!
       server.hot._trigger('cortex:msg', { type: 'init' })
-      server.hot._trigger('cortex:msg', { type: 'edit', editId: '1', property: 'p', value: 'v', source: 's', elementSelector: 'e' })
+      server.hot._trigger('cortex:msg', { type: 'edit', token, editId: '1', property: 'p', value: 'v', source: 's', elementSelector: 'e' })
 
       await vi.waitFor(() => {
         expect(server._sent.find((s) => (s.data as any).type === 'hello')).toBeDefined()
@@ -488,7 +490,12 @@ describe('CLI WebSocket bridge', () => {
   let httpServer: HttpServer
   let serverPort: number
   let tmpDir: string
+  let sessionToken: string
   const openClients: WebSocket[] = []
+
+  function readToken(): string {
+    return fs.readFileSync(pathMod.join(tmpDir, '.cortex', 'token'), 'utf8').trim()
+  }
 
   function mockServerWithHttp(http: HttpServer) {
     const handlers = new Map<string, Function>()
@@ -524,6 +531,7 @@ describe('CLI WebSocket bridge', () => {
     })
     const addr = httpServer.address()
     serverPort = (addr as any).port
+    sessionToken = readToken()
 
     return { plugin, server }
   }
@@ -608,7 +616,7 @@ describe('CLI WebSocket bridge', () => {
     const { ws, nextMessage } = await connectCLI()
     await nextMessage() // drain status
 
-    ws.send(JSON.stringify({ type: 'cortex' }))
+    ws.send(JSON.stringify({ type: 'cortex', token: sessionToken }))
 
     await vi.waitFor(() => {
       const cortexMsgs = server._sent.filter((s) => (s.data as any).type === 'cortex')
@@ -621,7 +629,7 @@ describe('CLI WebSocket bridge', () => {
     const { ws, nextMessage } = await connectCLI()
     await nextMessage() // drain status
 
-    ws.send(JSON.stringify({ type: 'edit_status', editId: '1', status: 'done' }))
+    ws.send(JSON.stringify({ type: 'edit_status', editId: '1', status: 'done', token: sessionToken }))
     await new Promise((r) => setTimeout(r, 50))
 
     const editMsgs = server._sent.filter((s) => (s.data as any).type === 'edit_status')
@@ -738,7 +746,7 @@ describe('CLI WebSocket bridge', () => {
     const status1 = await nextMessage()
     expect(status1.editorActive).toBe(false)
 
-    ws.send(JSON.stringify({ type: 'cortex' }))
+    ws.send(JSON.stringify({ type: 'cortex', token: sessionToken }))
     await new Promise((r) => setTimeout(r, 50))
 
     const { nextMessage: nextMessage2 } = await connectCLI()
@@ -751,7 +759,7 @@ describe('CLI WebSocket bridge', () => {
     const { ws, nextMessage } = await connectCLI()
     await nextMessage() // drain status
 
-    ws.send(JSON.stringify({ type: 'cortex' }))
+    ws.send(JSON.stringify({ type: 'cortex', token: sessionToken }))
     await new Promise((r) => setTimeout(r, 50))
 
     server.hot._trigger('cortex:msg', { type: 'cortex-closed' })
@@ -768,7 +776,7 @@ describe('CLI WebSocket bridge', () => {
     await nextMessage() // drain cortex-status
 
     // Activate editor via CLI
-    ws.send(JSON.stringify({ type: 'cortex' }))
+    ws.send(JSON.stringify({ type: 'cortex', token: sessionToken }))
     await new Promise((r) => setTimeout(r, 50))
 
     // Record sent count after activation
@@ -812,7 +820,12 @@ describe('annotation RPC', () => {
   let httpServer: HttpServer
   let serverPort: number
   let tmpDir: string
+  let sessionToken: string
   const openClients: WebSocket[] = []
+
+  function readToken(): string {
+    return fs.readFileSync(pathMod.join(tmpDir, '.cortex', 'token'), 'utf8').trim()
+  }
 
   function mockServerWithHttp(http: HttpServer) {
     const handlers = new Map<string, Function>()
@@ -848,6 +861,7 @@ describe('annotation RPC', () => {
     })
     const addr = httpServer.address()
     serverPort = (addr as any).port
+    sessionToken = readToken()
 
     return { plugin, server }
   }
@@ -909,6 +923,7 @@ describe('annotation RPC', () => {
       requestId: 'r1',
       method: 'getPending',
       params: {},
+      token: sessionToken,
     }))
     const reply = await nextMessage()
     expect(reply.type).toBe('cortex-rpc-result')
@@ -924,6 +939,7 @@ describe('annotation RPC', () => {
     // Browser sends a comment via HMR
     server.hot._trigger('cortex:msg', {
       type: 'comment',
+      token: sessionToken,
       elementSource: 'src/App.tsx:5:3',
       text: 'Make this blue',
     })
@@ -937,6 +953,7 @@ describe('annotation RPC', () => {
       requestId: 'r2',
       method: 'getPending',
       params: {},
+      token: sessionToken,
     }))
 
     // Read messages until we get the RPC result
@@ -962,6 +979,7 @@ describe('annotation RPC', () => {
     // Create an annotation via browser comment
     server.hot._trigger('cortex:msg', {
       type: 'comment',
+      token: sessionToken,
       elementSource: 'src/App.tsx:10:5',
       text: 'Fix spacing',
     })
@@ -975,6 +993,7 @@ describe('annotation RPC', () => {
       requestId: 'get1',
       method: 'getPending',
       params: {},
+      token: sessionToken,
     }))
 
     let getReply: any
@@ -990,6 +1009,7 @@ describe('annotation RPC', () => {
       requestId: 'ack1',
       method: 'acknowledge',
       params: { annotationId },
+      token: sessionToken,
     }))
 
     let ackReply: any
@@ -1020,6 +1040,7 @@ describe('annotation RPC', () => {
       requestId: 'bad1',
       method: 'deleteEverything',
       params: {},
+      token: sessionToken,
     }))
     const reply = await nextMessage()
     expect(reply.type).toBe('cortex-rpc-error')
@@ -1035,6 +1056,7 @@ describe('annotation RPC', () => {
     // Create an annotation via browser comment
     server.hot._trigger('cortex:msg', {
       type: 'comment',
+      token: sessionToken,
       elementSource: 'src/App.tsx:5:3',
       text: 'Make this blue',
     })
@@ -1046,6 +1068,7 @@ describe('annotation RPC', () => {
       requestId: 'get1',
       method: 'getPending',
       params: {},
+      token: sessionToken,
     }))
     let getReply: any
     for (let i = 0; i < 20; i++) {
@@ -1060,6 +1083,7 @@ describe('annotation RPC', () => {
     // Browser sends a comment-reply via HMR
     server.hot._trigger('cortex:msg', {
       type: 'comment-reply',
+      token: sessionToken,
       annotationId,
       text: 'What shade of blue?',
     })
@@ -1098,6 +1122,7 @@ describe('annotation RPC', () => {
     // Send reply to a nonexistent annotation
     server.hot._trigger('cortex:msg', {
       type: 'comment-reply',
+      token: sessionToken,
       annotationId: 'nonexistent-id',
       text: 'This should be ignored',
     })

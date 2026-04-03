@@ -69,13 +69,13 @@ export type EditKind = 'immediate' | 'jsx-immediate' | 'deferred'
 // === Message protocol ===
 
 export type BrowserToServer =
-  | { type: 'init' }
+  | { type: 'init'; sessionId?: string }
   | { type: 'cortex-closed' }
-  | { type: 'edit'; protocolVersion?: number; editId: string; property: string; value: string; source: string; elementSelector: string; cssMapping?: string; scope?: 'instance' | 'all'; instanceSources?: string[] }
-  | { type: 'undo'; protocolVersion?: number; editId?: string }
-  | { type: 'redo'; protocolVersion?: number; editId?: string }
-  | { type: 'comment'; protocolVersion?: number; elementSource: string; text: string; elementContext?: ElementContext; currentStyles?: Record<string, string>; pinPosition?: { x: number; y: number } }
-  | { type: 'comment-reply'; protocolVersion?: number; annotationId: string; text: string }
+  | { type: 'edit'; token?: string; protocolVersion?: number; editId: string; property: string; value: string; source: string; elementSelector: string; cssMapping?: string; scope?: 'instance' | 'all'; instanceSources?: string[] }
+  | { type: 'undo'; token?: string; protocolVersion?: number; editId?: string }
+  | { type: 'redo'; token?: string; protocolVersion?: number; editId?: string }
+  | { type: 'comment'; token?: string; protocolVersion?: number; elementSource: string; text: string; elementContext?: ElementContext; currentStyles?: Record<string, string>; pinPosition?: { x: number; y: number } }
+  | { type: 'comment-reply'; token?: string; protocolVersion?: number; annotationId: string; text: string }
 
 export type ServerToBrowser =
   | { type: 'cortex' }

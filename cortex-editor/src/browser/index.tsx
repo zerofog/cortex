@@ -60,7 +60,7 @@ export function bootstrap(): void {
   }
 
   // Trigger server handshake — server responds with hello + swatches
-  activeChannel.send({ type: 'init' })
+  activeChannel.send({ type: 'init', sessionId: window.__CORTEX_SESSION_ID__ })
 
   // Read initial active state from DOM attribute (set by toggle shortcut before bootstrap)
   const initialActive = document.documentElement.hasAttribute('data-cortex-active')

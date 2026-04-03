@@ -28,7 +28,7 @@ export function createViteChannel(): CortexChannel {
 
   return {
     send(msg: BrowserToServer): void {
-      window.__cortex_send__?.(msg)
+      window.__cortex_send__?.({ ...msg, token: window.__CORTEX_TOKEN__ })
     },
     onMessage(handler: (msg: ServerToBrowser) => void): () => void {
       handlers.push(handler)
@@ -81,10 +81,11 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
     ws.onopen = () => {
       connected = true
       retryCount = 0
-      // Flush queued messages
+      // Flush queued messages — stamp token at send time (not enqueue time)
+      // so reconnection to a restarted server uses the fresh token.
       while (queue.length > 0) {
         const msg = queue.shift()!
-        ws!.send(JSON.stringify(msg))
+        ws!.send(JSON.stringify({ ...msg, token: window.__CORTEX_TOKEN__ }))
       }
     }
 
@@ -128,9 +129,11 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
   return {
     send(msg: BrowserToServer): void {
       if (connected && ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(msg))
+        ws.send(JSON.stringify({ ...msg, token: window.__CORTEX_TOKEN__ }))
       } else {
-        // Fix 5: cap queue size, drop oldest
+        // Fix 5: cap queue size, drop oldest. Queue raw messages —
+        // token is stamped at send time, not enqueue time, so reconnection
+        // to a restarted server uses the fresh token from window globals.
         if (queue.length >= MAX_QUEUE_SIZE) {
           queue.shift()
         }
