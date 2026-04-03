@@ -97,6 +97,12 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         } else {
           process.stderr.write('[cortex] AUTH_FAILED — token may be stale or missing. Try restarting the dev server.\n')
         }
+        // Reject all pending RPC requests — they were sent with the stale token
+        // and the server discards them before extracting requestId.
+        for (const [id, pending] of pendingRequests) {
+          pending.reject(new Error('AUTH_FAILED: invalid or missing auth token'))
+          pendingRequests.delete(id)
+        }
         return
       }
 

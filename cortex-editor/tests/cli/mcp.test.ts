@@ -161,6 +161,7 @@ describe('cortex mcp', () => {
     await new Promise(r => setTimeout(r, 50))
     const msg = mockVite.lastMessage()!
     expect(msg.type).toBe('cortex')
+    // token is null in tests (no .cortex/token file from mock Vite) — verify the field exists
     expect('token' in msg).toBe(true)
   })
 

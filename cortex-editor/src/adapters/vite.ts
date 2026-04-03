@@ -43,9 +43,8 @@ const CORTEX_MSG_EVENT = 'cortex:msg'
 const ALLOWED_ORIGINS = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/
 const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close'])
 /** Message types that require token auth — all write/mutation operations.
- *  Type-narrowed to BrowserToServer discriminants so adding a new write message
- *  type without updating this set produces a compile error. */
-type WriteMessageType = Extract<BrowserToServer, { token?: string }>['type']
+ *  Update this union when adding new write message types to BrowserToServer. */
+type WriteMessageType = 'edit' | 'undo' | 'redo' | 'comment' | 'comment-reply'
 const WRITE_TYPES: Set<WriteMessageType> = new Set(['edit', 'undo', 'redo', 'comment', 'comment-reply'])
 const HEARTBEAT_INTERVAL = 30_000
 const MAX_CLI_CONNECTIONS = 5
@@ -760,6 +759,8 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             }
             try {
               fs.writeFileSync(currentSession!.tokenFilePath!, currentSession!.token, { mode: 0o600 })
+              // Ensure 0o600 even if the file pre-existed with looser permissions
+              fs.chmodSync(currentSession!.tokenFilePath!, 0o600)
             } catch (err) {
               console.error('[cortex] Could not write token file — CLI authentication will fail:', err instanceof Error ? err.message : err)
             }
