@@ -1459,7 +1459,7 @@ describe('bug #5 regression: signal cleanup removes port + token files', () => {
 })
 
 describe('bug #10 regression: configureServer re-entry produces fresh stores', () => {
-  it('new session has empty annotations and activity log after re-entry', async () => {
+  it('new session has different identity and rejects old credentials after re-entry', async () => {
     const plugin = initPlugin()
     const server1 = mockServer()
     ;(plugin.configureServer as Function)(server1)
@@ -1468,10 +1468,12 @@ describe('bug #10 regression: configureServer re-entry produces fresh stores', (
     const token1 = _getSessionTokenForTesting()!
     server1.hot._trigger('cortex:msg', { type: 'init' })
 
-    // Wait for hello (confirms session is initialized)
+    // Wait for hello to capture session1's identity
     await vi.waitFor(() => {
       expect(server1._sent.find((s) => (s.data as any).type === 'hello')).toBeDefined()
     })
+    const hello1 = server1._sent.find((s) => (s.data as any).type === 'hello')!
+    const sessionId1 = (hello1.data as any).sessionId
 
     // Send a comment to create an annotation in the first session
     server1.hot._trigger('cortex:msg', {
@@ -1485,18 +1487,22 @@ describe('bug #10 regression: configureServer re-entry produces fresh stores', (
     const server2 = mockServer()
     ;(plugin.configureServer as Function)(server2)
 
-    // New session must have different token and sessionId
+    // New session must have different token AND sessionId — proving a new
+    // CortexSession instance was created (constructor generates fresh stores,
+    // as verified by the session independence test in session.test.ts)
     const token2 = _getSessionTokenForTesting()!
     expect(token2).not.toBe(token1)
 
-    // Trigger hello on new session to confirm it works
+    // Trigger hello on new session to confirm fresh identity
     server2.hot._trigger('cortex:msg', { type: 'init' })
     await vi.waitFor(() => {
       expect(server2._sent.find((s) => (s.data as any).type === 'hello')).toBeDefined()
     })
+    const hello2 = server2._sent.find((s) => (s.data as any).type === 'hello')!
+    const sessionId2 = (hello2.data as any).sessionId
+    expect(sessionId2).not.toBe(sessionId1)
 
-    // The fact that we can send with token2 (not token1) proves auth isolation.
-    // Verify: sending with OLD token on NEW session is rejected
+    // Old token is rejected by new session — auth isolation confirmed
     server2.hot._trigger('cortex:msg', {
       type: 'edit',
       token: token1,
@@ -1507,7 +1513,6 @@ describe('bug #10 regression: configureServer re-entry produces fresh stores', (
       elementSelector: 'div.stale',
     })
 
-    // An AUTH_FAILED error should have been sent back
     const authError = server2._sent.find((s) => (s.data as any).code === 'AUTH_FAILED')
     expect(authError).toBeDefined()
   })
