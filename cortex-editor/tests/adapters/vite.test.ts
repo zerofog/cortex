@@ -802,6 +802,35 @@ describe('CLI WebSocket bridge', () => {
     expect(server._sent.some((s) => (s.data as any).type === 'cortex')).toBe(false)
   })
 
+  it('rejects CLI message without token (bug #19)', async () => {
+    await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+
+    // Drain the cortex-status and agent-status welcome messages
+    await nextMessage()
+    await nextMessage()
+
+    ws.send(JSON.stringify({ type: 'cortex' }))
+    const response = await nextMessage()
+
+    expect(response.type).toBe('error')
+    expect(response.code).toBe('AUTH_FAILED')
+  })
+
+  it('rejects CLI message with wrong token (bug #19)', async () => {
+    await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+
+    await nextMessage()
+    await nextMessage()
+
+    ws.send(JSON.stringify({ type: 'cortex', token: 'wrong-token' }))
+    const response = await nextMessage()
+
+    expect(response.type).toBe('error')
+    expect(response.code).toBe('AUTH_FAILED')
+  })
+
   it('warns when no httpServer (middleware mode)', () => {
     const plugin = initPlugin()
     const server = mockServer()
@@ -1600,117 +1629,31 @@ describe('bug #19 regression: write messages without valid token are rejected', 
       const authError = server._sent.find((s) => (s.data as any).code === 'AUTH_FAILED')
       expect(authError).toBeUndefined()
     })
-  })
 
-  describe('CLI WebSocket path', () => {
-    let httpServer: HttpServer
-    let serverPort: number
-    let tmpDir: string
-    const openClients: WebSocket[] = []
+    it.each(['edit', 'undo', 'redo', 'comment', 'comment-reply'] as const)(
+      'rejects %s message without token',
+      (writeType) => {
+        const plugin = initPlugin()
+        const server = mockServer()
+        ;(plugin.configureServer as Function)(server)
 
-    beforeEach(() => {
-      tmpDir = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'cortex-auth-test-'))
-    })
+        server.hot._trigger('cortex:msg', { type: 'init' })
+        server.hot._trigger('cortex:msg', {
+          type: writeType,
+          editId: 'no-auth-1',
+          property: 'color',
+          value: 'red',
+          source: 'div',
+          elementSelector: 'div',
+          text: 'test',
+          elementSource: 'div',
+          annotationId: 'ann-1',
+        })
 
-    async function setupAuthServer() {
-      const plugin = initPlugin({ root: tmpDir })
-      httpServer = createServer()
-      const handlers = new Map<string, Function>()
-      const offHandlers = new Map<string, Function>()
-      const sent: { event: string; data: unknown }[] = []
-      const server = {
-        middlewares: { use: vi.fn() },
-        httpServer,
-        hot: {
-          on(event: string, handler: Function) { handlers.set(event, handler) },
-          off(event: string, handler: Function) { offHandlers.set(event, handler) },
-          send(event: string, data: unknown) { sent.push({ event, data }) },
-          _trigger(event: string, data: unknown) { handlers.get(event)?.(data) },
-        },
-        _handlers: handlers,
-        _sent: sent,
-      }
-      ;(plugin.configureServer as Function)(server)
-
-      await new Promise<void>((resolve) => {
-        httpServer.listen(0, '127.0.0.1', () => resolve())
-      })
-      serverPort = (httpServer.address() as any).port
-      return server
-    }
-
-    async function connectAuthCLI(): Promise<{ ws: WebSocket; nextMessage: () => Promise<any> }> {
-      const ws = new WebSocket(`ws://127.0.0.1:${serverPort}/@cortex/ws`)
-
-      const queue: any[] = []
-      const waiters: ((msg: any) => void)[] = []
-      ws.on('message', (raw) => {
-        const msg = JSON.parse(raw.toString())
-        const waiter = waiters.shift()
-        if (waiter) waiter(msg)
-        else queue.push(msg)
-      })
-
-      await new Promise<void>((resolve, reject) => {
-        ws.on('open', resolve)
-        ws.on('error', reject)
-      })
-      openClients.push(ws)
-
-      return {
-        ws,
-        nextMessage(): Promise<any> {
-          const buffered = queue.shift()
-          if (buffered !== undefined) return Promise.resolve(buffered)
-          return new Promise((resolve) => waiters.push(resolve))
-        },
-      }
-    }
-
-    afterEach(async () => {
-      for (const ws of openClients) {
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-          ws.terminate()
-        }
-      }
-      openClients.length = 0
-      await _resetForTesting()
-      if (httpServer?.listening) {
-        await new Promise<void>((resolve) => httpServer.close(() => resolve()))
-      }
-      fs.rmSync(tmpDir, { recursive: true, force: true })
-    })
-
-    it('rejects CLI message without token', async () => {
-      await setupAuthServer()
-      const { ws, nextMessage } = await connectAuthCLI()
-
-      // Drain the cortex-status and agent-status welcome messages
-      await nextMessage()
-      await nextMessage()
-
-      // Send a message without a token
-      ws.send(JSON.stringify({ type: 'cortex' }))
-      const response = await nextMessage()
-
-      expect(response.type).toBe('error')
-      expect(response.code).toBe('AUTH_FAILED')
-    })
-
-    it('rejects CLI message with wrong token', async () => {
-      await setupAuthServer()
-      const { ws, nextMessage } = await connectAuthCLI()
-
-      // Drain the cortex-status and agent-status welcome messages
-      await nextMessage()
-      await nextMessage()
-
-      ws.send(JSON.stringify({ type: 'cortex', token: 'wrong-token' }))
-      const response = await nextMessage()
-
-      expect(response.type).toBe('error')
-      expect(response.code).toBe('AUTH_FAILED')
-    })
+        const authError = server._sent.find((s) => (s.data as any).code === 'AUTH_FAILED')
+        expect(authError).toBeDefined()
+      },
+    )
   })
 })
 
