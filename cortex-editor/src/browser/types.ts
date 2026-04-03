@@ -15,6 +15,10 @@ declare global {
     __cortex_toggle_registered__?: boolean
     /** Queued toggle message when channel is not yet created */
     __cortex_pending_toggle__?: { type: 'cortex-toggle'; active: boolean }
+    /** Auth token injected by transformIndexHtml — prevents cross-project writes */
+    __CORTEX_TOKEN__?: string
+    /** Session ID injected by transformIndexHtml — scopes broadcasts per-session */
+    __CORTEX_SESSION_ID__?: string
   }
 }
 

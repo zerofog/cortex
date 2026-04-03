@@ -18,19 +18,29 @@ export interface MCPServerHandle {
   close(): void
 }
 
-export function discoverPort(): number | null {
-  const portFile = path.join(process.cwd(), '.cortex', 'port')
+/** Read a .cortex discovery file, returning null on ENOENT or empty content. */
+function readDiscoveryFile(name: string): string | null {
+  const filePath = path.join(process.cwd(), '.cortex', name)
   try {
-    const content = fs.readFileSync(portFile, 'utf8').trim()
-    const port = Math.trunc(Number(content))
-    return Number.isFinite(port) && port >= 1 && port <= 65535 ? port : null
+    return fs.readFileSync(filePath, 'utf8').trim() || null
   } catch (err) {
     if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
       return null
     }
-    process.stderr.write(`[cortex] Failed to read port file: ${err instanceof Error ? err.message : String(err)}\n`)
+    process.stderr.write(`[cortex] Failed to read ${name} file: ${err instanceof Error ? err.message : String(err)}\n`)
     return null
   }
+}
+
+export function discoverPort(): number | null {
+  const content = readDiscoveryFile('port')
+  if (!content) return null
+  const port = Math.trunc(Number(content))
+  return Number.isFinite(port) && port >= 1 && port <= 65535 ? port : null
+}
+
+export function discoverToken(): string | null {
+  return readDiscoveryFile('token')
 }
 
 export async function startMCPServer(options: MCPServerOptions = {}): Promise<MCPServerHandle> {
@@ -44,6 +54,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let retryCount = 0
   let closed = false
+  let token: string | null = null
 
   // RPC infrastructure for annotation tool queries
   const pendingRequests = new Map<string, {
@@ -57,7 +68,9 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     ws.on('open', () => {
       connected = true
       retryCount = 0
-      process.stderr.write(`[cortex] Connected to Vite server at ${wsUrl}\n`)
+      // Re-read token on each connection — token changes on Vite server restart
+      token = discoverToken()
+      process.stderr.write(`[cortex] Connected to Vite server at ${wsUrl}${token ? '' : ' (token not found — writes will be rejected)'}\n`)
     })
 
     ws.on('message', (raw) => {
@@ -72,6 +85,24 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         pendingRequests.delete(msg.requestId as string)
         if (msg.type === 'cortex-rpc-result') pending.resolve((msg as Record<string, unknown>).result)
         else pending.reject(new Error((msg as Record<string, unknown>).error as string))
+        return
+      }
+
+      // Handle auth failures — re-read token file in case of startup race or server restart
+      if (msg.type === 'error' && msg.code === 'AUTH_FAILED') {
+        const newToken = discoverToken()
+        if (newToken && newToken !== token) {
+          token = newToken
+          process.stderr.write('[cortex] Token refreshed after AUTH_FAILED — future requests will use new token\n')
+        } else {
+          process.stderr.write('[cortex] AUTH_FAILED — token may be stale or missing. Try restarting the dev server.\n')
+        }
+        // Reject all pending RPC requests — they were sent with the stale token
+        // and the server discards them before extracting requestId.
+        for (const [id, pending] of pendingRequests) {
+          pending.reject(new Error('AUTH_FAILED: invalid or missing auth token'))
+          pendingRequests.delete(id)
+        }
         return
       }
 
@@ -122,7 +153,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         resolve: (v: unknown) => { clearTimeout(timer); resolve(v) },
         reject: (e: Error) => { clearTimeout(timer); reject(e) },
       })
-      socket.send(JSON.stringify({ type: 'cortex-rpc', requestId, method, params }))
+      socket.send(JSON.stringify({ type: 'cortex-rpc', requestId, method, params, token }))
     })
   }
 
@@ -143,7 +174,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         }
       }
       try {
-        ws.send(JSON.stringify({ type: 'cortex' }))
+        ws.send(JSON.stringify({ type: 'cortex', token }))
       } catch (err) {
         return {
           content: [{ type: 'text' as const, text: `Failed to send activation command: ${err instanceof Error ? err.message : String(err)}` }],
@@ -167,7 +198,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         }
       }
       try {
-        ws.send(JSON.stringify({ type: 'cortex-close' }))
+        ws.send(JSON.stringify({ type: 'cortex-close', token }))
       } catch (err) {
         return {
           content: [{ type: 'text' as const, text: `Failed to send deactivation command: ${err instanceof Error ? err.message : String(err)}` }],

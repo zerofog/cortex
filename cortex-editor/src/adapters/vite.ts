@@ -42,6 +42,10 @@ const CORTEX_MSG_EVENT = 'cortex:msg'
 // CLI WebSocket bridge constants
 const ALLOWED_ORIGINS = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/
 const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close'])
+/** Message types that require token auth — all write/mutation operations.
+ *  Update this union when adding new write message types to BrowserToServer. */
+type WriteMessageType = 'edit' | 'undo' | 'redo' | 'comment' | 'comment-reply'
+const WRITE_TYPES: Set<WriteMessageType> = new Set(['edit', 'undo', 'redo', 'comment', 'comment-reply'])
 const HEARTBEAT_INTERVAL = 30_000
 const MAX_CLI_CONNECTIONS = 5
 
@@ -229,6 +233,14 @@ export function onHMRUpdate(cb: (files: string[]) => void): () => void {
 }
 
 /**
+ * Get the current session's token. Exposed for testing only.
+ * @internal
+ */
+export function _getSessionTokenForTesting(): string | null {
+  return currentSession?.token ?? null
+}
+
+/**
  * Reset module-level state. Exposed for testing only.
  * @internal
  */
@@ -295,8 +307,12 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       order: 'pre',
       handler(html) {
         if (config.command !== 'serve') return html
+        // Inject token + sessionId before the module script so globals are available at import time
+        const authScript = currentSession
+          ? `<script>window.__CORTEX_TOKEN__=${safeJSONForScript(currentSession.token)};window.__CORTEX_SESSION_ID__=${safeJSONForScript(currentSession.sessionId)}</script>\n`
+          : ''
         const script = `<script type="module" src="${CORTEX_CLIENT_PATH}"></script>`
-        const injected = html.replace(/<\/head>/i, `${script}\n</head>`)
+        const injected = html.replace(/<\/head>/i, `${authScript}${script}\n</head>`)
         if (injected === html) {
           console.warn('[cortex] transformIndexHtml: </head> not found — client script not injected')
         }
@@ -371,8 +387,24 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       // Vite 5.1+ API: server.hot replaces deprecated server.ws
       let helloSent = false
       const hotHandler = (data: BrowserToServer) => {
-        // Forward ALL browser messages to CLI clients (before init guard)
-        forwardToCLI(data)
+        // Guard against race during session disposal or configureServer re-entry
+        if (!currentSession || currentSession.isDisposed) return
+
+        // Token validation for write operations — must precede forwardToCLI to prevent
+        // unauthenticated messages from being fanned out to CLI clients.
+        if (WRITE_TYPES.has(data.type as WriteMessageType)) {
+          if (!('token' in data) || data.token !== currentSession.token) {
+            if (currentSession.channel) {
+              currentSession!.channel.send({ type: 'error', code: 'AUTH_FAILED', message: 'Invalid or missing auth token' })
+            }
+            return
+          }
+        }
+
+        // Forward browser messages to CLI clients — after auth so only valid messages propagate.
+        // Strip token from forwarded data to avoid leaking it to CLI clients.
+        const { token: _stripped, ...forwardData } = data as Record<string, unknown>
+        forwardToCLI(forwardData)
 
         // Track state from browser messages
         if (data.type === 'cortex-closed') currentSession!.editorActive = false
@@ -385,7 +417,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             channel.send({
               type: 'hello',
               protocolVersion: 1,
-              sessionId: crypto.randomUUID(),
+              sessionId: currentSession!.sessionId,
               swatches: colors && colors.length > 0 ? colors : undefined,
             })
           }).catch((err) => {
@@ -617,6 +649,17 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             const type = (parsed as { type: unknown }).type
             if (typeof type !== 'string') return
 
+            // Token validation for ALL CLI messages
+            const msgToken = (parsed as Record<string, unknown>).token
+            if (typeof msgToken !== 'string' || msgToken !== currentSession!.token) {
+              try {
+                ws.send(JSON.stringify({ type: 'error', code: 'AUTH_FAILED', message: 'Invalid or missing auth token' }))
+              } catch (sendErr) {
+                console.warn('[cortex] Failed to send AUTH_FAILED to CLI client:', sendErr instanceof Error ? sendErr.message : sendErr)
+              }
+              return
+            }
+
             // Handle RPC requests from CLI (annotation queries)
             if (type === 'cortex-rpc') {
               const requestId = (parsed as Record<string, unknown>).requestId as string
@@ -696,16 +739,30 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
 
         server.httpServer.on('upgrade', currentSession.upgradeHandlerRef)
 
-        // Write port file for MCP discovery (non-fatal — convenience for auto-discovery)
-        currentSession.portFilePath = path.join(config.root, '.cortex', 'port')
+        // Write port + token files for MCP discovery
+        const cortexDir = path.join(config.root, '.cortex')
+        currentSession.portFilePath = path.join(cortexDir, 'port')
+        currentSession.tokenFilePath = path.join(cortexDir, 'token')
         server.httpServer.on('listening', () => {
           const addr = server.httpServer!.address()
           if (addr && typeof addr === 'object') {
             try {
-              fs.mkdirSync(path.dirname(currentSession!.portFilePath!), { recursive: true })
+              fs.mkdirSync(cortexDir, { recursive: true, mode: 0o700 })
+            } catch (err) {
+              console.warn('[cortex] Could not create .cortex/ directory:', err instanceof Error ? err.message : err)
+              return
+            }
+            try {
               fs.writeFileSync(currentSession!.portFilePath!, String(addr.port))
             } catch (err) {
-              console.warn('[cortex] Could not write port file for CLI auto-discovery:', err instanceof Error ? err.message : err)
+              console.warn('[cortex] Could not write port file:', err instanceof Error ? err.message : err)
+            }
+            try {
+              fs.writeFileSync(currentSession!.tokenFilePath!, currentSession!.token, { mode: 0o600 })
+              // Ensure 0o600 even if the file pre-existed with looser permissions
+              fs.chmodSync(currentSession!.tokenFilePath!, 0o600)
+            } catch (err) {
+              console.error('[cortex] Could not write token file — CLI authentication will fail:', err instanceof Error ? err.message : err)
             }
           }
         })

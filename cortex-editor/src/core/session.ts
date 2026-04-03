@@ -1,4 +1,5 @@
 import fs from 'fs'
+import { randomUUID } from 'node:crypto'
 import type { WebSocketServer, WebSocket } from 'ws'
 import type { IncomingMessage } from 'http'
 import type { Duplex } from 'stream'
@@ -40,6 +41,14 @@ export class CortexSession {
   readonly annotations: AnnotationStore
   readonly activityLog: ActivityLog
 
+  // --- Auth + Session ---
+  /** Per-instance auth token — prevents cross-project writes on localhost. */
+  readonly token: string
+  /** Per-instance session ID — scopes broadcasts to prevent cross-tab contamination. */
+  readonly sessionId: string
+  /** Path to .cortex/token file (set by adapter, cleaned up on dispose). */
+  tokenFilePath: string | null = null
+
   // --- CLI WebSocket bridge ---
   cliWss: WebSocketServer | null = null
   readonly cliClients: Set<WebSocket> = new Set()
@@ -68,6 +77,8 @@ export class CortexSession {
 
   constructor(config: CortexConfig) {
     this.config = config
+    this.token = randomUUID()
+    this.sessionId = randomUUID()
     this.annotations = new AnnotationStore()
     this.activityLog = new ActivityLog()
   }
@@ -108,16 +119,18 @@ export class CortexSession {
       }
     })
 
-    // 4. Remove port file — ENOENT is expected (file may already be gone).
+    // 4. Remove discovery files — ENOENT is expected (file may already be gone).
     //    Other errors (EPERM, EACCES) surface via the errors array.
-    if (this.portFilePath) {
-      try {
-        fs.unlinkSync(this.portFilePath)
-      } catch (e) {
-        const code = e instanceof Error && 'code' in e ? (e as NodeJS.ErrnoException).code : undefined
-        if (code !== 'ENOENT') errors.push({ step: 'port-file', error: e })
+    for (const [step, prop] of [['port-file', 'portFilePath'], ['token-file', 'tokenFilePath']] as const) {
+      if (this[prop]) {
+        try {
+          fs.unlinkSync(this[prop]!)
+        } catch (e) {
+          const code = e instanceof Error && 'code' in e ? (e as NodeJS.ErrnoException).code : undefined
+          if (code !== 'ENOENT') errors.push({ step, error: e })
+        }
+        this[prop] = null
       }
-      this.portFilePath = null
     }
 
     // 5. Unsubscribe HMR — must precede pipeline dispose to prevent
