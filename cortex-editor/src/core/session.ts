@@ -122,17 +122,19 @@ export class CortexSession {
 
     // 5. Unsubscribe HMR — must precede pipeline dispose to prevent
     //    callbacks firing into a disposed pipeline's verifier.
-    if (this.hmrUnsubscribe) {
-      trySync('hmr-unsubscribe', () => this.hmrUnsubscribe!())
+    trySync('hmr-unsubscribe', () => {
+      const unsub = this.hmrUnsubscribe
       this.hmrUnsubscribe = null
-    }
+      unsub?.()
+    })
 
     // 6. Dispose pipeline before channel — pipeline holds a channel
     //    reference (EditPipeline.dispose() is synchronous today).
-    if (this.pipeline) {
-      trySync('pipeline', () => this.pipeline!.dispose())
+    trySync('pipeline', () => {
+      const p = this.pipeline
       this.pipeline = null
-    }
+      p?.dispose()
+    })
 
     // 7. Dispose channel (async — detaches server.hot listeners).
     if (this.channel) {

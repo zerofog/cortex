@@ -3,6 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import type { WebSocketServer, WebSocket } from 'ws'
+import type { ServerChannel } from '../../src/adapters/types.js'
 import { CortexSession } from '../../src/core/session.js'
 import type { CortexConfig } from '../../src/core/session.js'
 
@@ -18,6 +19,11 @@ function fakeWs(): WebSocket {
 /** Create a fake WebSocketServer with a close() stub. */
 function fakeWss(): WebSocketServer {
   return { close: vi.fn() } as unknown as WebSocketServer
+}
+
+/** Create a fake ServerChannel with the given dispose and stubs for everything else. */
+function fakeChannel(dispose: ServerChannel['dispose'] = vi.fn().mockResolvedValue(undefined)): ServerChannel {
+  return { dispose, send: vi.fn(), broadcast: vi.fn(), onMessage: vi.fn() }
 }
 
 describe('CortexSession', () => {
@@ -140,7 +146,7 @@ describe('CortexSession', () => {
 
     it('disposes the channel', async () => {
       const dispose = vi.fn().mockResolvedValue(undefined)
-      session.channel = { dispose, send: vi.fn(), broadcast: vi.fn(), onMessage: vi.fn() }
+      session.channel = fakeChannel(dispose)
 
       await session.dispose()
 
@@ -181,7 +187,7 @@ describe('CortexSession', () => {
         order.push('channel-dispose-start')
         setTimeout(() => { order.push('channel-dispose-end'); resolve() }, 10)
       }))
-      session.channel = { dispose, send: vi.fn(), broadcast: vi.fn(), onMessage: vi.fn() }
+      session.channel = fakeChannel(dispose)
 
       await session.dispose()
       order.push('session-dispose-done')
@@ -208,10 +214,7 @@ describe('CortexSession', () => {
     it('disposes pipeline before channel', async () => {
       const order: string[] = []
       session.pipeline = { dispose: () => { order.push('pipeline') } } as unknown as typeof session.pipeline
-      session.channel = {
-        dispose: async () => { order.push('channel') },
-        send: vi.fn(), broadcast: vi.fn(), onMessage: vi.fn(),
-      }
+      session.channel = fakeChannel(async () => { order.push('channel') })
 
       await session.dispose()
 
@@ -237,10 +240,7 @@ describe('CortexSession', () => {
 
     it('continues cleanup when channel.dispose() rejects', async () => {
       session.editorActive = true
-      session.channel = {
-        dispose: vi.fn().mockRejectedValue(new Error('channel boom')),
-        send: vi.fn(), broadcast: vi.fn(), onMessage: vi.fn(),
-      }
+      session.channel = fakeChannel(vi.fn().mockRejectedValue(new Error('channel boom')))
 
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
       await session.dispose()
