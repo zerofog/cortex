@@ -385,11 +385,14 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       // Vite 5.1+ API: server.hot replaces deprecated server.ws
       let helloSent = false
       const hotHandler = (data: BrowserToServer) => {
+        // Guard against race during session disposal or configureServer re-entry
+        if (!currentSession || currentSession.isDisposed) return
+
         // Token validation for write operations — must precede forwardToCLI to prevent
         // unauthenticated messages from being fanned out to CLI clients.
         if (WRITE_TYPES.has(data.type)) {
-          if (!('token' in data) || data.token !== currentSession!.token) {
-            if (currentSession!.channel) {
+          if (!('token' in data) || data.token !== currentSession.token) {
+            if (currentSession.channel) {
               currentSession!.channel.send({ type: 'error', code: 'AUTH_FAILED', message: 'Invalid or missing auth token' })
             }
             return
@@ -647,7 +650,11 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             // Token validation for ALL CLI messages
             const msgToken = (parsed as Record<string, unknown>).token
             if (typeof msgToken !== 'string' || msgToken !== currentSession!.token) {
-              try { ws.send(JSON.stringify({ type: 'error', code: 'AUTH_FAILED', message: 'Invalid or missing auth token' })) } catch {}
+              try {
+                ws.send(JSON.stringify({ type: 'error', code: 'AUTH_FAILED', message: 'Invalid or missing auth token' }))
+              } catch (sendErr) {
+                console.warn('[cortex] Failed to send AUTH_FAILED to CLI client:', sendErr instanceof Error ? sendErr.message : sendErr)
+              }
               return
             }
 
@@ -730,7 +737,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
 
         server.httpServer.on('upgrade', currentSession.upgradeHandlerRef)
 
-        // Write port + token files for MCP discovery (non-fatal — convenience for auto-discovery)
+        // Write port + token files for MCP discovery
         const cortexDir = path.join(config.root, '.cortex')
         currentSession.portFilePath = path.join(cortexDir, 'port')
         currentSession.tokenFilePath = path.join(cortexDir, 'token')
@@ -739,10 +746,19 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           if (addr && typeof addr === 'object') {
             try {
               fs.mkdirSync(cortexDir, { recursive: true, mode: 0o700 })
+            } catch (err) {
+              console.warn('[cortex] Could not create .cortex/ directory:', err instanceof Error ? err.message : err)
+              return
+            }
+            try {
               fs.writeFileSync(currentSession!.portFilePath!, String(addr.port))
+            } catch (err) {
+              console.warn('[cortex] Could not write port file:', err instanceof Error ? err.message : err)
+            }
+            try {
               fs.writeFileSync(currentSession!.tokenFilePath!, currentSession!.token, { mode: 0o600 })
             } catch (err) {
-              console.warn('[cortex] Could not write discovery files for CLI auto-discovery:', err instanceof Error ? err.message : err)
+              console.error('[cortex] Could not write token file — CLI authentication will fail:', err instanceof Error ? err.message : err)
             }
           }
         })
