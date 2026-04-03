@@ -42,8 +42,11 @@ const CORTEX_MSG_EVENT = 'cortex:msg'
 // CLI WebSocket bridge constants
 const ALLOWED_ORIGINS = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/
 const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close'])
-/** Message types that require token auth — all write/mutation operations. */
-const WRITE_TYPES = new Set(['edit', 'undo', 'redo', 'comment', 'comment-reply'])
+/** Message types that require token auth — all write/mutation operations.
+ *  Type-narrowed to BrowserToServer discriminants so adding a new write message
+ *  type without updating this set produces a compile error. */
+type WriteMessageType = Extract<BrowserToServer, { token?: string }>['type']
+const WRITE_TYPES: Set<WriteMessageType> = new Set(['edit', 'undo', 'redo', 'comment', 'comment-reply'])
 const HEARTBEAT_INTERVAL = 30_000
 const MAX_CLI_CONNECTIONS = 5
 
@@ -390,7 +393,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
 
         // Token validation for write operations — must precede forwardToCLI to prevent
         // unauthenticated messages from being fanned out to CLI clients.
-        if (WRITE_TYPES.has(data.type)) {
+        if (WRITE_TYPES.has(data.type as WriteMessageType)) {
           if (!('token' in data) || data.token !== currentSession.token) {
             if (currentSession.channel) {
               currentSession!.channel.send({ type: 'error', code: 'AUTH_FAILED', message: 'Invalid or missing auth token' })

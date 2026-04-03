@@ -93,7 +93,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         const newToken = discoverToken()
         if (newToken && newToken !== token) {
           token = newToken
-          process.stderr.write('[cortex] Token refreshed after AUTH_FAILED — retrying\n')
+          process.stderr.write('[cortex] Token refreshed after AUTH_FAILED — future requests will use new token\n')
         } else {
           process.stderr.write('[cortex] AUTH_FAILED — token may be stale or missing. Try restarting the dev server.\n')
         }
