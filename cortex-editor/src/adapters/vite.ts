@@ -339,7 +339,12 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       // Register signal handlers for graceful shutdown.
       // The ?? Promise.resolve() ensures process.exit runs even if currentSession is null
       // (optional chaining would short-circuit the entire .then chain, hanging the process).
-      shutdownHandler = () => { (currentSession?.dispose() ?? Promise.resolve()).then(() => process.exit(0), () => process.exit(1)) }
+      shutdownHandler = () => {
+        (currentSession?.dispose() ?? Promise.resolve()).then(
+          () => process.exit(0),
+          (err) => { console.error('[cortex] Shutdown cleanup failed:', err instanceof Error ? err.message : err); process.exit(1) },
+        )
+      }
       process.on('SIGINT', shutdownHandler)
       process.on('SIGTERM', shutdownHandler)
 
@@ -358,7 +363,10 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       })
 
       // Resolve Tailwind colors at server start — promise awaited in hotHandler
-      const swatchesPromise = TailwindResolver.resolveColors(config.root).catch(() => null)
+      const swatchesPromise = TailwindResolver.resolveColors(config.root).catch((err) => {
+        console.warn('[cortex] Tailwind color resolution failed:', err instanceof Error ? err.message : err)
+        return null
+      })
 
       // Vite 5.1+ API: server.hot replaces deprecated server.ws
       let helloSent = false
