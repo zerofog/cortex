@@ -116,8 +116,8 @@ beforeEach(() => {
   editPipelineConstructorArgs.length = 0
   MockDeferredWriter.mockClear()
 })
-afterEach(() => {
-  _resetForTesting()
+afterEach(async () => {
+  await _resetForTesting()
 })
 
 // Minimal mock of ResolvedConfig
@@ -451,6 +451,8 @@ describe('cortexEditor Vite plugin', () => {
   describe('handleHotUpdate + onHMRUpdate', () => {
     it('dispatches file list to registered HMR callbacks', () => {
       const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
       const files: string[][] = []
       onHMRUpdate((f) => files.push(f))
       const hmrContext = {
@@ -467,6 +469,8 @@ describe('cortexEditor Vite plugin', () => {
 
     it('onHMRUpdate returns unsubscribe function', () => {
       const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
       const files: string[][] = []
       const unsub = onHMRUpdate((f) => files.push(f))
       unsub()
@@ -564,7 +568,7 @@ describe('CLI WebSocket bridge', () => {
       }
     }
     openClients.length = 0
-    _resetForTesting()
+    await _resetForTesting()
     if (httpServer?.listening) {
       await new Promise<void>((resolve) => httpServer.close(() => resolve()))
     }
@@ -702,20 +706,20 @@ describe('CLI WebSocket bridge', () => {
     expect(() => channel.send({ type: 'cortex' })).not.toThrow()
   })
 
-  it('cleans up CLI connections on server dispose', async () => {
+  it('cleans up CLI connections on session dispose', async () => {
     await setupServer()
     const { ws } = await connectCLI()
 
     const closePromise = new Promise<void>((resolve) => ws.on('close', resolve))
-    const channel = getChannel()
-    await channel.dispose()
+    // Session dispose owns bridge cleanup — channel dispose is slim (hot.off only)
+    await _resetForTesting()
     await closePromise
   })
 
-  it('removes upgrade listener on dispose', async () => {
+  it('removes upgrade listener on session dispose', async () => {
     await setupServer()
-    const channel = getChannel()
-    await channel.dispose()
+    // Session dispose owns bridge cleanup — channel dispose is slim
+    await _resetForTesting()
 
     const ws = new WebSocket(`ws://127.0.0.1:${serverPort}/@cortex/ws`)
     openClients.push(ws)
@@ -885,7 +889,7 @@ describe('annotation RPC', () => {
       }
     }
     openClients.length = 0
-    _resetForTesting()
+    await _resetForTesting()
     if (httpServer?.listening) {
       await new Promise<void>((resolve) => httpServer.close(() => resolve()))
     }
@@ -1150,7 +1154,7 @@ describe('port file', () => {
   })
 
   afterEach(async () => {
-    _resetForTesting()
+    await _resetForTesting()
     if (httpServer?.listening) {
       await new Promise<void>((resolve) => httpServer.close(() => resolve()))
     }
@@ -1188,7 +1192,7 @@ describe('port file', () => {
     expect(content).toBe(String(port))
   })
 
-  it('cleans up .cortex/port on dispose', async () => {
+  it('cleans up .cortex/port on session dispose', async () => {
     setupPortFileServer()
 
     await new Promise<void>((resolve) => {
@@ -1198,7 +1202,8 @@ describe('port file', () => {
     const portFile = pathMod.join(tmpDir, '.cortex', 'port')
     expect(fs.existsSync(portFile)).toBe(true)
 
-    await getChannel().dispose()
+    // Session dispose owns port file cleanup — channel dispose is slim
+    await _resetForTesting()
     expect(fs.existsSync(portFile)).toBe(false)
   })
 })
@@ -1273,5 +1278,97 @@ describe('DeferredWriter wiring', () => {
     } finally {
       if (origKey !== undefined) process.env.CORTEX_API_KEY = origKey
     }
+  })
+})
+
+describe('CortexSession wiring (A2)', () => {
+  describe('configureServer re-entry', () => {
+    it('disposes old session when configureServer is called twice', async () => {
+      const plugin = initPlugin()
+      const server1 = mockServer()
+      ;(plugin.configureServer as Function)(server1)
+
+      // First session is active — channel exists
+      const channel1 = getChannel()
+      expect(channel1).toBeDefined()
+
+      // Call configureServer again (simulates Vite restart)
+      const server2 = mockServer()
+      ;(plugin.configureServer as Function)(server2)
+
+      // New channel exists and is different from the first
+      const channel2 = getChannel()
+      expect(channel2).toBeDefined()
+      expect(channel2).not.toBe(channel1)
+    })
+
+    it('does not accumulate signal handlers on re-entry', () => {
+      const plugin = initPlugin()
+      const server1 = mockServer()
+      ;(plugin.configureServer as Function)(server1)
+
+      const listenerCount1 = process.listenerCount('SIGINT')
+
+      // Call again — should remove old handlers first
+      const server2 = mockServer()
+      ;(plugin.configureServer as Function)(server2)
+
+      const listenerCount2 = process.listenerCount('SIGINT')
+      // Should have same count (old removed, new added)
+      expect(listenerCount2).toBe(listenerCount1)
+    })
+  })
+
+  describe('signal handler registration', () => {
+    it('registers SIGINT and SIGTERM handlers after configureServer', () => {
+      const sigintBefore = process.listenerCount('SIGINT')
+      const sigtermBefore = process.listenerCount('SIGTERM')
+
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+
+      expect(process.listenerCount('SIGINT')).toBe(sigintBefore + 1)
+      expect(process.listenerCount('SIGTERM')).toBe(sigtermBefore + 1)
+    })
+  })
+
+  describe('_resetForTesting', () => {
+    it('disposes session and clears signal handlers', async () => {
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+
+      const sigintBefore = process.listenerCount('SIGINT')
+
+      await _resetForTesting()
+
+      // Signal handlers removed
+      expect(process.listenerCount('SIGINT')).toBe(sigintBefore - 1)
+
+      // getChannel throws — session is null
+      expect(() => getChannel()).toThrow('getChannel() called before the Vite dev server started')
+    })
+
+    it('is safe to call when no session exists', async () => {
+      // Should not throw
+      await _resetForTesting()
+    })
+  })
+
+  describe('channel dispose is slim', () => {
+    it('channel dispose does not clean up bridge resources — session owns those', async () => {
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+
+      const channel = getChannel()
+      await channel.dispose()
+
+      // After channel dispose, getChannel still returns the same object —
+      // the session is NOT disposed, only the hot listener was detached.
+      // Session fields remain intact (channel dispose didn't touch them).
+      expect(getChannel()).toBe(channel)
+    })
   })
 })
