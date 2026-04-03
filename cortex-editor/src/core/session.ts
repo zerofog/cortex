@@ -93,8 +93,8 @@ export class CortexSession {
       }
     })
 
-    // 2. Terminate CLI clients — must precede WSS close so the close
-    //    frames go out on a still-open server.
+    // 2. Terminate CLI clients — must precede WSS close so termination
+    //    is processed while the server is still listening.
     trySync('cli-clients', () => {
       for (const client of this.cliClients) client.terminate()
       this.cliClients.clear()
@@ -152,8 +152,7 @@ export class CortexSession {
 
     if (errors.length > 0) {
       for (const { step, error } of errors) {
-        console.error('[cortex] Session dispose failed at step "%s":', step,
-          error instanceof Error ? error.message : error)
+        console.error('[cortex] Session dispose failed at step "%s":', step, error)
       }
     }
   }

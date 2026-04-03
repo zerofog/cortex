@@ -126,12 +126,17 @@ describe('CortexSession', () => {
     })
 
     it('suppresses port file removal errors', async () => {
-      // Point at a file that doesn't exist — unlinkSync will throw ENOENT
-      session.portFilePath = path.join(os.tmpdir(), 'cortex-nonexistent-port-file')
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-session-test-'))
+      try {
+        // Point at a unique path that doesn't exist — unlinkSync will throw ENOENT
+        session.portFilePath = path.join(tmpDir, 'nonexistent-port-file')
 
-      // Should not throw
-      await session.dispose()
-      expect(session.portFilePath).toBeNull()
+        // Should not throw
+        await session.dispose()
+        expect(session.portFilePath).toBeNull()
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true })
+      }
     })
 
     it('disposes the pipeline', async () => {
