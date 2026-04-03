@@ -231,6 +231,14 @@ export function onHMRUpdate(cb: (files: string[]) => void): () => void {
 }
 
 /**
+ * Get the current session's token. Exposed for testing only.
+ * @internal
+ */
+export function _getSessionTokenForTesting(): string | null {
+  return currentSession?.token ?? null
+}
+
+/**
  * Reset module-level state. Exposed for testing only.
  * @internal
  */
