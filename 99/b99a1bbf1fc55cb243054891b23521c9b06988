@@ -1,0 +1,52 @@
+cortex-editor/tests/adapters/vite.test.ts
+  b064668d71c8df18 1462,1471,1475-1476,1490-1492,1496,1501-1503,1505
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "99b99a1bbf1fc55cb243054891b23521c9b06988",
+  "prompts": {
+    "61f48676287d744c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d5549-bee5-7f00-96c2-c119da614943",
+        "model": "gpt-5.4"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1176,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/a1c48f9cc349ba3b94c524dd90a53e3ca3bcf374a9f88e193c57cfaa3672dd4e"
+    },
+    "9e81934f0b5e2147": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d55a2-a919-7850-8670-c4cec01c22a7",
+        "model": "gpt-5.4"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/3e727aa55116e1d455cab3d0e152f49f3e749f66099f9abe9a56e7b7b999925f"
+    },
+    "b064668d71c8df18": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0416f65d-619b-4ca2-b443-cb001c9e979c",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 13,
+      "total_deletions": 8,
+      "accepted_lines": 13,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/e70c147e20760b2ae18c6cd0d95b30fd6bf7e7861ab8fbbc9826089f5b8a7088"
+    }
+  }
+}
