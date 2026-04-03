@@ -4,11 +4,10 @@ import path from 'path'
 import os from 'os'
 import type { WebSocketServer, WebSocket } from 'ws'
 import { CortexSession } from '../../src/core/session.js'
-import type { ResolvedConfig } from 'vite'
+import type { CortexConfig } from '../../src/core/session.js'
 
-/** Minimal ResolvedConfig stub — only the fields CortexSession needs. */
-function makeConfig(overrides: Partial<ResolvedConfig> = {}): ResolvedConfig {
-  return { root: '/tmp/test-project', ...overrides } as unknown as ResolvedConfig
+function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
+  return { root: '/tmp/test-project', mode: 'development', ...overrides }
 }
 
 /** Create a fake WebSocket with a terminate() stub. */
@@ -164,7 +163,7 @@ describe('CortexSession', () => {
       session.browserConnected = true
       session.hmrCallbacks.push(() => {})
       session.recentEditWrites.add('file.tsx')
-      session.capabilitiesCache = [{ system: 'tailwind', status: 'ready', label: 'Tailwind' }] as typeof session.capabilitiesCache
+      session.capabilitiesCache = [{ name: 'Tailwind', status: 'supported' }]
 
       await session.dispose()
 
@@ -194,6 +193,61 @@ describe('CortexSession', () => {
       expect(session.isDisposed).toBe(false)
       await session.dispose()
       expect(session.isDisposed).toBe(true)
+    })
+
+    it('disposes hmrUnsubscribe before pipeline', async () => {
+      const order: string[] = []
+      session.hmrUnsubscribe = () => { order.push('hmr-unsub') }
+      session.pipeline = { dispose: () => { order.push('pipeline') } } as unknown as typeof session.pipeline
+
+      await session.dispose()
+
+      expect(order.indexOf('hmr-unsub')).toBeLessThan(order.indexOf('pipeline'))
+    })
+
+    it('disposes pipeline before channel', async () => {
+      const order: string[] = []
+      session.pipeline = { dispose: () => { order.push('pipeline') } } as unknown as typeof session.pipeline
+      session.channel = {
+        dispose: async () => { order.push('channel') },
+        send: vi.fn(), broadcast: vi.fn(), onMessage: vi.fn(),
+      }
+
+      await session.dispose()
+
+      expect(order).toEqual(['pipeline', 'channel'])
+    })
+
+    it('continues cleanup when a step throws', async () => {
+      const unsub = vi.fn()
+      session.hmrUnsubscribe = unsub
+      session.pipeline = {
+        dispose: () => { throw new Error('pipeline boom') },
+      } as unknown as typeof session.pipeline
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      await session.dispose()
+
+      expect(unsub).toHaveBeenCalled() // hmrUnsubscribe ran before pipeline (step 5 vs 6)
+      expect(session.pipeline).toBeNull()
+      expect(session.editorActive).toBe(false) // step 8 still ran
+      expect(warnSpy).toHaveBeenCalled()
+      warnSpy.mockRestore()
+    })
+
+    it('continues cleanup when channel.dispose() rejects', async () => {
+      session.editorActive = true
+      session.channel = {
+        dispose: vi.fn().mockRejectedValue(new Error('channel boom')),
+        send: vi.fn(), broadcast: vi.fn(), onMessage: vi.fn(),
+      }
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      await session.dispose()
+
+      expect(session.channel).toBeNull()
+      expect(session.editorActive).toBe(false) // step 8 still ran
+      warnSpy.mockRestore()
     })
 
     it('is idempotent — second dispose is a no-op', async () => {
