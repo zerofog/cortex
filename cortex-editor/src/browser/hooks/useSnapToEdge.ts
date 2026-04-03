@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'preact/hooks'
 import { cortexStorage, isValidPosition } from '../persistence.js'
 
-export const PANEL_WIDTH = 300
+export const PANEL_WIDTH = 320
 export const PANEL_MAX_HEIGHT = 460
 export const PANEL_MARGIN = 12
 const SNAP_DURATION = 350

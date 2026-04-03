@@ -20,7 +20,6 @@ export function CommentInput({ onSubmit, agentConnected }: CommentInputProps): J
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Enter' && text.trim() && !pending) {
       const submitted = text.trim()
-      setText('')
       setPending(true)
       setError(false)
       if (errorTimerRef.current) {
@@ -28,13 +27,14 @@ export function CommentInput({ onSubmit, agentConnected }: CommentInputProps): J
         errorTimerRef.current = null
       }
       onSubmit(submitted).then(
-        () => { if (mountedRef.current) setPending(false) },
+        () => { if (mountedRef.current) { setPending(false); setText('') } },
         (err: unknown) => {
           if (!mountedRef.current) return
           console.warn('[cortex] Comment submission failed:', err instanceof Error ? err.message : err)
           setPending(false)
           setError(true)
-          errorTimerRef.current = setTimeout(() => { setError(false) }, 3000)
+          // Don't clear text — user can press Enter to retry
+          errorTimerRef.current = setTimeout(() => { if (mountedRef.current) setError(false) }, 5000)
         },
       )
     }
@@ -48,13 +48,9 @@ export function CommentInput({ onSubmit, agentConnected }: CommentInputProps): J
     ? 'cortex-comment-input cortex-comment-input--error'
     : 'cortex-comment-input'
 
-  const placeholder = pending
-    ? 'Sending...'
-    : error
-      ? 'No response'
-      : agentConnected
-        ? 'Ask the AI agent...'
-        : 'No agent connected'
+  const placeholder = agentConnected
+    ? 'Ask the AI agent...'
+    : 'Waiting for agent — run cortex mcp'
 
   return (
     <div class={wrapperClass}>
@@ -62,6 +58,7 @@ export function CommentInput({ onSubmit, agentConnected }: CommentInputProps): J
         type="text"
         class="cortex-comment-input__field"
         aria-label="Comment to AI agent"
+        aria-describedby={error ? 'cortex-comment-error' : undefined}
         placeholder={placeholder}
         value={text}
         onInput={handleInput}
@@ -69,6 +66,7 @@ export function CommentInput({ onSubmit, agentConnected }: CommentInputProps): J
         disabled={!agentConnected || pending}
       />
       {pending && <span class="cortex-comment-input__spinner" />}
+      {error && <span id="cortex-comment-error" class="cortex-comment-input__error" role="alert">Failed — press Enter to retry</span>}
     </div>
   )
 }

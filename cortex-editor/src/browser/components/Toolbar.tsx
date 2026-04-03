@@ -18,7 +18,7 @@ const svgProps = { width: iconSize, height: iconSize, viewBox: '0 0 16 16', fill
 
 function IconGrip(): JSX.Element {
   // 2×3 grip dots — universal drag handle indicator
-  return <svg {...svgProps}><circle cx="6" cy="4" r="1.2" fill="currentColor" stroke="none" /><circle cx="10" cy="4" r="1.2" fill="currentColor" stroke="none" /><circle cx="6" cy="8" r="1.2" fill="currentColor" stroke="none" /><circle cx="10" cy="8" r="1.2" fill="currentColor" stroke="none" /><circle cx="6" cy="12" r="1.2" fill="currentColor" stroke="none" /><circle cx="10" cy="12" r="1.2" fill="currentColor" stroke="none" /></svg>
+  return <svg {...svgProps}><circle cx="6" cy="4" r="1.5" fill="currentColor" stroke="none" /><circle cx="10" cy="4" r="1.5" fill="currentColor" stroke="none" /><circle cx="6" cy="8" r="1.5" fill="currentColor" stroke="none" /><circle cx="10" cy="8" r="1.5" fill="currentColor" stroke="none" /><circle cx="6" cy="12" r="1.5" fill="currentColor" stroke="none" /><circle cx="10" cy="12" r="1.5" fill="currentColor" stroke="none" /></svg>
 }
 
 function IconClose(): JSX.Element {
@@ -26,11 +26,13 @@ function IconClose(): JSX.Element {
 }
 
 function IconComment(): JSX.Element {
-  return <svg {...svgProps}><path d="M2 4a1 1 0 011-1h10a1 1 0 011 1v6a1 1 0 01-1 1H6l-3 3V4z" /></svg>
+  // Rounded speech bubble with bottom-left tail
+  return <svg {...svgProps}><path d="M3 10V4A1.5 1.5 0 014.5 2.5h7A1.5 1.5 0 0113 4v4.5a1.5 1.5 0 01-1.5 1.5H7l-4 3.5z" /></svg>
 }
 
 function IconSelect(): JSX.Element {
-  return <svg {...svgProps}><path d="M4 2l8 6.5-3.5.5 2 4.5-2 .8-2-4.5L4 12V2z" /></svg>
+  // Cursor pointer — kite shape
+  return <svg {...svgProps}><path d="M3 2.5L7 14L9.5 9.5L14 7z" /></svg>
 }
 
 export function Toolbar({
@@ -54,7 +56,7 @@ export function Toolbar({
   }, [dragPointerDown])
 
   const modesRef = useRef<HTMLDivElement>(null)
-  const [indicatorStyle, setIndicatorStyle] = useState({ transform: 'translateX(0)', width: '36px' })
+  const [indicatorTransform, setIndicatorTransform] = useState('translateX(0)')
 
   useEffect(() => {
     const container = modesRef.current
@@ -63,10 +65,10 @@ export function Toolbar({
     const activeIdx = commentMode ? 1 : 0
     const btn = buttons[activeIdx]
     if (!btn) return
-    setIndicatorStyle({
-      transform: `translateX(${btn.offsetLeft - 2}px)`,
-      width: `${btn.offsetWidth}px`,
-    })
+    // offsetLeft already includes container padding — do not subtract it.
+    // See CLAUDE.md "UI Positioning Rules".
+    // Width is fixed at 36px in CSS — only translateX changes.
+    setIndicatorTransform(`translateX(${btn.offsetLeft}px)`)
   }, [commentMode])
 
   const classes = [
@@ -86,7 +88,7 @@ export function Toolbar({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
     >
-      <div class="cortex-toolbar__grip" aria-label="Drag to reposition">
+      <div class="cortex-toolbar__grip" role="presentation">
         <IconGrip />
       </div>
 
@@ -95,6 +97,7 @@ export function Toolbar({
           type="button"
           class="cortex-toolbar__badge"
           onClick={onActivityToggle}
+          aria-label={`${activityCount} ${activityCount === 1 ? 'change' : 'changes'}`}
           data-tooltip={`${activityCount} ${activityCount === 1 ? 'change' : 'changes'}`}
         >
           {activityCount}
@@ -102,7 +105,7 @@ export function Toolbar({
       )}
 
       <div class="cortex-toolbar__modes" ref={modesRef} role="radiogroup" aria-label="Editor mode">
-        <div class="cortex-toolbar__modes-indicator" style={indicatorStyle} />
+        <div class="cortex-toolbar__modes-indicator" style={{ transform: indicatorTransform }} />
         <button
           type="button"
           class={`cortex-toolbar__mode${!commentMode ? ' cortex-toolbar__mode--active' : ''}`}
@@ -136,6 +139,7 @@ export function Toolbar({
         class="cortex-toolbar__btn cortex-toolbar__btn--close"
         data-action="close"
         onClick={onClose}
+        aria-label="Close Cortex"
         data-tooltip="Close Cortex"
       >
         <IconClose />
