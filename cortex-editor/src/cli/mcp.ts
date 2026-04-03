@@ -18,32 +18,29 @@ export interface MCPServerHandle {
   close(): void
 }
 
-export function discoverPort(): number | null {
-  const portFile = path.join(process.cwd(), '.cortex', 'port')
+/** Read a .cortex discovery file, returning null on ENOENT or empty content. */
+function readDiscoveryFile(name: string): string | null {
+  const filePath = path.join(process.cwd(), '.cortex', name)
   try {
-    const content = fs.readFileSync(portFile, 'utf8').trim()
-    const port = Math.trunc(Number(content))
-    return Number.isFinite(port) && port >= 1 && port <= 65535 ? port : null
+    return fs.readFileSync(filePath, 'utf8').trim() || null
   } catch (err) {
     if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
       return null
     }
-    process.stderr.write(`[cortex] Failed to read port file: ${err instanceof Error ? err.message : String(err)}\n`)
+    process.stderr.write(`[cortex] Failed to read ${name} file: ${err instanceof Error ? err.message : String(err)}\n`)
     return null
   }
 }
 
+export function discoverPort(): number | null {
+  const content = readDiscoveryFile('port')
+  if (!content) return null
+  const port = Math.trunc(Number(content))
+  return Number.isFinite(port) && port >= 1 && port <= 65535 ? port : null
+}
+
 export function discoverToken(): string | null {
-  const tokenFile = path.join(process.cwd(), '.cortex', 'token')
-  try {
-    return fs.readFileSync(tokenFile, 'utf8').trim() || null
-  } catch (err) {
-    if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return null
-    }
-    process.stderr.write(`[cortex] Failed to read token file: ${err instanceof Error ? err.message : String(err)}\n`)
-    return null
-  }
+  return readDiscoveryFile('token')
 }
 
 export async function startMCPServer(options: MCPServerOptions = {}): Promise<MCPServerHandle> {

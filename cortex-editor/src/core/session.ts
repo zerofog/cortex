@@ -119,27 +119,18 @@ export class CortexSession {
       }
     })
 
-    // 4. Remove port file — ENOENT is expected (file may already be gone).
+    // 4. Remove discovery files — ENOENT is expected (file may already be gone).
     //    Other errors (EPERM, EACCES) surface via the errors array.
-    if (this.portFilePath) {
-      try {
-        fs.unlinkSync(this.portFilePath)
-      } catch (e) {
-        const code = e instanceof Error && 'code' in e ? (e as NodeJS.ErrnoException).code : undefined
-        if (code !== 'ENOENT') errors.push({ step: 'port-file', error: e })
+    for (const [step, prop] of [['port-file', 'portFilePath'], ['token-file', 'tokenFilePath']] as const) {
+      if (this[prop]) {
+        try {
+          fs.unlinkSync(this[prop]!)
+        } catch (e) {
+          const code = e instanceof Error && 'code' in e ? (e as NodeJS.ErrnoException).code : undefined
+          if (code !== 'ENOENT') errors.push({ step, error: e })
+        }
+        this[prop] = null
       }
-      this.portFilePath = null
-    }
-
-    // 4b. Remove token file — same pattern as port file.
-    if (this.tokenFilePath) {
-      try {
-        fs.unlinkSync(this.tokenFilePath)
-      } catch (e) {
-        const code = e instanceof Error && 'code' in e ? (e as NodeJS.ErrnoException).code : undefined
-        if (code !== 'ENOENT') errors.push({ step: 'token-file', error: e })
-      }
-      this.tokenFilePath = null
     }
 
     // 5. Unsubscribe HMR — must precede pipeline dispose to prevent
