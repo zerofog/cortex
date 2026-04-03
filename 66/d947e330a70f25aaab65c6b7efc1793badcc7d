@@ -1,0 +1,26 @@
+cortex-editor/src/browser/channel.ts
+  3fe62a7bfc6ce9b8 31,130,132,138
+cortex-editor/src/browser/index.tsx
+  3fe62a7bfc6ce9b8 63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "66d947e330a70f25aaab65c6b7efc1793badcc7d",
+  "prompts": {
+    "3fe62a7bfc6ce9b8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b4cfcecb-24a7-4e43-849e-5b0c3d00a6d9",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 5,
+      "total_deletions": 4,
+      "accepted_lines": 5,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/11f3ba618183f7be271aa4f1b424fe77b02d32784f9a6cb53a468aa689773495"
+    }
+  }
+}
