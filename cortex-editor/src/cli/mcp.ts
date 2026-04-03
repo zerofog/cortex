@@ -33,6 +33,19 @@ export function discoverPort(): number | null {
   }
 }
 
+export function discoverToken(): string | null {
+  const tokenFile = path.join(process.cwd(), '.cortex', 'token')
+  try {
+    return fs.readFileSync(tokenFile, 'utf8').trim() || null
+  } catch (err) {
+    if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null
+    }
+    process.stderr.write(`[cortex] Failed to read token file: ${err instanceof Error ? err.message : String(err)}\n`)
+    return null
+  }
+}
+
 export async function startMCPServer(options: MCPServerOptions = {}): Promise<MCPServerHandle> {
   const port = options.port ?? discoverPort() ?? 5173
   const wsUrl = `ws://localhost:${port}/@cortex/ws`
@@ -44,6 +57,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let retryCount = 0
   let closed = false
+  let token: string | null = null
 
   // RPC infrastructure for annotation tool queries
   const pendingRequests = new Map<string, {
@@ -57,6 +71,8 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     ws.on('open', () => {
       connected = true
       retryCount = 0
+      // Re-read token on each connection — token changes on Vite server restart
+      token = discoverToken()
       process.stderr.write(`[cortex] Connected to Vite server at ${wsUrl}\n`)
     })
 
@@ -122,7 +138,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         resolve: (v: unknown) => { clearTimeout(timer); resolve(v) },
         reject: (e: Error) => { clearTimeout(timer); reject(e) },
       })
-      socket.send(JSON.stringify({ type: 'cortex-rpc', requestId, method, params }))
+      socket.send(JSON.stringify({ type: 'cortex-rpc', requestId, method, params, token }))
     })
   }
 
@@ -143,7 +159,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         }
       }
       try {
-        ws.send(JSON.stringify({ type: 'cortex' }))
+        ws.send(JSON.stringify({ type: 'cortex', token }))
       } catch (err) {
         return {
           content: [{ type: 'text' as const, text: `Failed to send activation command: ${err instanceof Error ? err.message : String(err)}` }],
@@ -167,7 +183,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         }
       }
       try {
-        ws.send(JSON.stringify({ type: 'cortex-close' }))
+        ws.send(JSON.stringify({ type: 'cortex-close', token }))
       } catch (err) {
         return {
           content: [{ type: 'text' as const, text: `Failed to send deactivation command: ${err instanceof Error ? err.message : String(err)}` }],
