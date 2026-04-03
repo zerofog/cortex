@@ -41,10 +41,10 @@ export class CortexSession {
   readonly activityLog: ActivityLog
 
   // --- CLI WebSocket bridge ---
-  cliWss: InstanceType<typeof WebSocketServer> | null = null
-  readonly cliClients: Set<InstanceType<typeof WebSocket>> = new Set()
+  cliWss: WebSocketServer | null = null
+  readonly cliClients: Set<WebSocket> = new Set()
   heartbeatTimer: ReturnType<typeof setInterval> | null = null
-  readonly aliveFlags: WeakMap<InstanceType<typeof WebSocket>, boolean> = new WeakMap()
+  readonly aliveFlags: WeakMap<WebSocket, boolean> = new WeakMap()
   upgradeHandlerRef: ((req: IncomingMessage, socket: Duplex, head: Buffer) => void) | null = null
   portFilePath: string | null = null
 
@@ -79,12 +79,14 @@ export class CortexSession {
     // Each step is wrapped in try/catch so a failure in one step does not
     // prevent subsequent steps from running. Errors are collected and
     // logged at the end.
-    const errors: unknown[] = []
-    const trySync = (fn: () => void) => { try { fn() } catch (e) { errors.push(e) } }
+    const errors: { step: string; error: unknown }[] = []
+    const trySync = (step: string, fn: () => void) => {
+      try { fn() } catch (e) { errors.push({ step, error: e }) }
+    }
 
     // 1. Stop heartbeat — must precede client termination to prevent
     //    a timer tick from pinging already-terminated sockets.
-    trySync(() => {
+    trySync('heartbeat', () => {
       if (this.heartbeatTimer) {
         clearInterval(this.heartbeatTimer)
         this.heartbeatTimer = null
@@ -93,44 +95,48 @@ export class CortexSession {
 
     // 2. Terminate CLI clients — must precede WSS close so the close
     //    frames go out on a still-open server.
-    trySync(() => {
+    trySync('cli-clients', () => {
       for (const client of this.cliClients) client.terminate()
       this.cliClients.clear()
     })
 
     // 3. Close CLI WebSocket server.
-    trySync(() => {
+    trySync('cli-wss', () => {
       if (this.cliWss) {
         this.cliWss.close()
         this.cliWss = null
       }
     })
 
-    // 4. Remove port file — non-fatal (file may already be gone).
-    trySync(() => {
-      if (this.portFilePath) {
-        try { fs.unlinkSync(this.portFilePath) } catch { /* ENOENT is expected */ }
-        this.portFilePath = null
+    // 4. Remove port file — ENOENT is expected (file may already be gone).
+    //    Other errors (EPERM, EACCES) surface via the errors array.
+    if (this.portFilePath) {
+      try {
+        fs.unlinkSync(this.portFilePath)
+      } catch (e) {
+        const code = e instanceof Error && 'code' in e ? (e as NodeJS.ErrnoException).code : undefined
+        if (code !== 'ENOENT') errors.push({ step: 'port-file', error: e })
       }
-    })
+      this.portFilePath = null
+    }
 
     // 5. Unsubscribe HMR — must precede pipeline dispose to prevent
     //    callbacks firing into a disposed pipeline's verifier.
     if (this.hmrUnsubscribe) {
-      trySync(() => this.hmrUnsubscribe!())
+      trySync('hmr-unsubscribe', () => this.hmrUnsubscribe!())
       this.hmrUnsubscribe = null
     }
 
     // 6. Dispose pipeline before channel — pipeline holds a channel
     //    reference (EditPipeline.dispose() is synchronous today).
     if (this.pipeline) {
-      trySync(() => this.pipeline!.dispose())
+      trySync('pipeline', () => this.pipeline!.dispose())
       this.pipeline = null
     }
 
     // 7. Dispose channel (async — detaches server.hot listeners).
     if (this.channel) {
-      try { await this.channel.dispose() } catch (e) { errors.push(e) }
+      try { await this.channel.dispose() } catch (e) { errors.push({ step: 'channel', error: e }) }
       this.channel = null
     }
 
@@ -143,7 +149,10 @@ export class CortexSession {
     this.upgradeHandlerRef = null
 
     if (errors.length > 0) {
-      console.warn('[cortex] Session dispose encountered errors:', errors)
+      for (const { step, error } of errors) {
+        console.error('[cortex] Session dispose failed at step "%s":', step,
+          error instanceof Error ? error.message : error)
+      }
     }
   }
 }

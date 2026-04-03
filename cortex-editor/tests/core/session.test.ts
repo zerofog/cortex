@@ -11,13 +11,13 @@ function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
 }
 
 /** Create a fake WebSocket with a terminate() stub. */
-function fakeWs(): InstanceType<typeof WebSocket> {
-  return { terminate: vi.fn(), readyState: 1 } as unknown as InstanceType<typeof WebSocket>
+function fakeWs(): WebSocket {
+  return { terminate: vi.fn(), readyState: 1 } as unknown as WebSocket
 }
 
 /** Create a fake WebSocketServer with a close() stub. */
-function fakeWss(): InstanceType<typeof WebSocketServer> {
-  return { close: vi.fn() } as unknown as InstanceType<typeof WebSocketServer>
+function fakeWss(): WebSocketServer {
+  return { close: vi.fn() } as unknown as WebSocketServer
 }
 
 describe('CortexSession', () => {
@@ -225,14 +225,14 @@ describe('CortexSession', () => {
         dispose: () => { throw new Error('pipeline boom') },
       } as unknown as typeof session.pipeline
 
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
       await session.dispose()
 
       expect(unsub).toHaveBeenCalled() // hmrUnsubscribe ran before pipeline (step 5 vs 6)
       expect(session.pipeline).toBeNull()
       expect(session.editorActive).toBe(false) // step 8 still ran
-      expect(warnSpy).toHaveBeenCalled()
-      warnSpy.mockRestore()
+      expect(errorSpy).toHaveBeenCalled()
+      errorSpy.mockRestore()
     })
 
     it('continues cleanup when channel.dispose() rejects', async () => {
@@ -242,12 +242,12 @@ describe('CortexSession', () => {
         send: vi.fn(), broadcast: vi.fn(), onMessage: vi.fn(),
       }
 
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
       await session.dispose()
 
       expect(session.channel).toBeNull()
       expect(session.editorActive).toBe(false) // step 8 still ran
-      warnSpy.mockRestore()
+      errorSpy.mockRestore()
     })
 
     it('is idempotent — second dispose is a no-op', async () => {
