@@ -13,18 +13,17 @@ import { TailwindRewriter } from '../core/rewriter/tailwind.js'
 import { InlineStyleRewriter } from '../core/rewriter/inline-style.js'
 import { HMRVerifier } from '../core/hmr-verifier.js'
 import { EditPipeline } from '../core/edit-pipeline.js'
-import type { EditRequest, WriteIntent } from '../core/edit-pipeline.js'
+import type { EditRequest } from '../core/edit-pipeline.js'
 import { StyleDetector } from '../core/rewriter/detector.js'
 import type { DetectionResult } from '../core/rewriter/detector.js'
 import { computeCapabilities } from '../core/capabilities.js'
-import type { ResolverState, StyleCapability } from '../core/capabilities.js'
+import type { ResolverState } from '../core/capabilities.js'
 import { CSSModulesRewriter } from '../core/rewriter/css-modules.js'
 import { RuntimeCSSResolver } from '../core/rewriter/runtime-resolver.js'
 import { UndoStack } from '../core/session/undo-stack.js'
 import { AIWriter } from '../core/ai-writer.js'
 import { DeferredWriter } from '../core/deferred-writer.js'
-import { AnnotationStore } from '../core/annotations.js'
-import { ActivityLog } from '../core/session/activity-log.js'
+import { CortexSession } from '../core/session.js'
 
 export interface CortexEditorOptions {
   /** Package names in node_modules to instrument (for library component detection). */
@@ -136,23 +135,10 @@ if (!document.querySelector('[data-cortex-host]')) {
 `
 }
 
-let channelInstance: ServerChannel | null = null
-const hmrCallbacks: ((files: string[]) => void)[] = []
-let annotationStore = new AnnotationStore()
-let activityLog = new ActivityLog()
+let currentSession: CortexSession | null = null
 
-// CLI WebSocket bridge state
-let cliWss: InstanceType<typeof WebSocketServer> | null = null
-const cliClients = new Set<InstanceType<typeof WebSocket>>()
-let heartbeatTimer: ReturnType<typeof setInterval> | null = null
-const aliveFlags = new WeakMap<InstanceType<typeof WebSocket>, boolean>()
-let upgradeHandlerRef: ((req: IncomingMessage, socket: Duplex, head: Buffer) => void) | null = null
-let portFilePath: string | null = null
-let editorActive = false
-let browserConnected = false
-let pipelineInstance: EditPipeline | null = null
-let hmrUnsubscribe: (() => void) | null = null
-let capabilitiesCache: StyleCapability[] | null = null
+// Single shutdown handler registered on both SIGINT and SIGTERM, tracked for cleanup on re-entry
+let shutdownHandler: (() => void) | null = null
 
 // Annotation RPC dispatch
 const ALLOWED_RPC_METHODS = new Set(['getPending', 'getDetails', 'acknowledge', 'resolve', 'dismiss', 'respond'])
@@ -160,42 +146,42 @@ const ALLOWED_RPC_METHODS = new Set(['getPending', 'getDetails', 'acknowledge', 
 function handleAnnotationRPC(method: string, params: Record<string, unknown>): unknown {
   const id = typeof params.annotationId === 'string' ? params.annotationId : ''
   switch (method) {
-    case 'getPending': return annotationStore.getPending()
-    case 'getDetails': return annotationStore.getById(id)
+    case 'getPending': return currentSession!.annotations.getPending()
+    case 'getDetails': return currentSession!.annotations.getById(id)
     case 'acknowledge': {
-      const result = annotationStore.acknowledge(id)
-      if (result && channelInstance) {
-        channelInstance.send({ type: 'annotation-updated', annotation: result })
-        const entry = activityLog.add({ type: 'status-change', description: `Acknowledged: ${result.text}`, elementSource: result.elementSource })
-        channelInstance.send({ type: 'activity-entry', entry })
+      const result = currentSession!.annotations.acknowledge(id)
+      if (result && currentSession!.channel) {
+        currentSession!.channel.send({ type: 'annotation-updated', annotation: result })
+        const entry = currentSession!.activityLog.add({ type: 'status-change', description: `Acknowledged: ${result.text}`, elementSource: result.elementSource })
+        currentSession!.channel.send({ type: 'activity-entry', entry })
       }
       return result
     }
     case 'resolve': {
       const summary = typeof params.summary === 'string' ? params.summary : ''
-      const result = annotationStore.resolve(id, summary)
-      if (result && channelInstance) {
-        channelInstance.send({ type: 'annotation-updated', annotation: result })
-        const entry = activityLog.add({ type: 'status-change', description: `Resolved: ${summary}`, elementSource: result.elementSource })
-        channelInstance.send({ type: 'activity-entry', entry })
+      const result = currentSession!.annotations.resolve(id, summary)
+      if (result && currentSession!.channel) {
+        currentSession!.channel.send({ type: 'annotation-updated', annotation: result })
+        const entry = currentSession!.activityLog.add({ type: 'status-change', description: `Resolved: ${summary}`, elementSource: result.elementSource })
+        currentSession!.channel.send({ type: 'activity-entry', entry })
       }
       return result
     }
     case 'dismiss': {
       const reason = typeof params.reason === 'string' ? params.reason : undefined
-      const result = annotationStore.dismiss(id, reason)
-      if (result && channelInstance) {
-        channelInstance.send({ type: 'annotation-updated', annotation: result })
-        const entry = activityLog.add({ type: 'status-change', description: `Dismissed: ${result.text}`, elementSource: result.elementSource })
-        channelInstance.send({ type: 'activity-entry', entry })
+      const result = currentSession!.annotations.dismiss(id, reason)
+      if (result && currentSession!.channel) {
+        currentSession!.channel.send({ type: 'annotation-updated', annotation: result })
+        const entry = currentSession!.activityLog.add({ type: 'status-change', description: `Dismissed: ${result.text}`, elementSource: result.elementSource })
+        currentSession!.channel.send({ type: 'activity-entry', entry })
       }
       return result
     }
     case 'respond': {
       const text = typeof params.text === 'string' ? params.text : ''
-      const result = annotationStore.addMessage(id, { from: 'agent', text })
-      if (result && channelInstance) {
-        channelInstance.send({ type: 'annotation-updated', annotation: result })
+      const result = currentSession!.annotations.addMessage(id, { from: 'agent', text })
+      if (result && currentSession!.channel) {
+        currentSession!.channel.send({ type: 'annotation-updated', annotation: result })
       }
       return result
     }
@@ -205,38 +191,40 @@ function handleAnnotationRPC(method: string, params: Record<string, unknown>): u
 
 /** Forward a message to all connected CLI WebSocket clients. */
 function forwardToCLI(msg: unknown): void {
-  if (cliClients.size === 0) return
+  if (!currentSession || currentSession.cliClients.size === 0) return
   let data: string
   try {
     data = JSON.stringify(msg)
   } catch {
     return
   }
-  for (const client of cliClients) {
+  for (const client of currentSession.cliClients) {
     if (client.readyState !== WebSocket.OPEN) continue
     try {
       client.send(data)
     } catch {
-      cliClients.delete(client)
+      currentSession.cliClients.delete(client)
     }
   }
 }
 
 export function getChannel(): ServerChannel {
-  if (!channelInstance) {
+  if (!currentSession?.channel) {
     throw new Error(
       'getChannel() called before the Vite dev server started. ' +
       'Ensure cortexEditor() is in your vite.config.ts plugins[] and you are running `vite dev`.'
     )
   }
-  return channelInstance
+  return currentSession.channel
 }
 
 export function onHMRUpdate(cb: (files: string[]) => void): () => void {
-  hmrCallbacks.push(cb)
+  if (!currentSession) throw new Error('onHMRUpdate() called before configureServer')
+  const session = currentSession
+  session.hmrCallbacks.push(cb)
   return () => {
-    const idx = hmrCallbacks.indexOf(cb)
-    if (idx >= 0) hmrCallbacks.splice(idx, 1)
+    const idx = session.hmrCallbacks.indexOf(cb)
+    if (idx >= 0) session.hmrCallbacks.splice(idx, 1)
   }
 }
 
@@ -244,25 +232,14 @@ export function onHMRUpdate(cb: (files: string[]) => void): () => void {
  * Reset module-level state. Exposed for testing only.
  * @internal
  */
-export function _resetForTesting(): void {
-  channelInstance = null
-  hmrCallbacks.length = 0
-  // CLI bridge cleanup
-  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null }
-  for (const client of cliClients) client.terminate()
-  cliClients.clear()
-  if (cliWss) { cliWss.close(); cliWss = null }
-  editorActive = false
-  browserConnected = false
-  if (portFilePath) {
-    try { fs.unlinkSync(portFilePath) } catch {}
-    portFilePath = null
+export async function _resetForTesting(): Promise<void> {
+  await currentSession?.dispose()
+  currentSession = null
+  if (shutdownHandler) {
+    process.removeListener('SIGINT', shutdownHandler)
+    process.removeListener('SIGTERM', shutdownHandler)
+    shutdownHandler = null
   }
-  upgradeHandlerRef = null
-  annotationStore = new AnnotationStore()
-  activityLog = new ActivityLog()
-  if (pipelineInstance) { pipelineInstance.dispose(); pipelineInstance = null }
-  capabilitiesCache = null
 }
 
 export function cortexEditor(_options?: CortexEditorOptions): Plugin {
@@ -272,10 +249,6 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
   let aliasMap: Record<string, string> = {}
   const validatedToggleShortcut = validateToggleShortcut(_options?.toggleShortcut ?? '$mod+Shift+Period')
   const clientScript = getClientScript({ toggleShortcut: validatedToggleShortcut })
-  // Suppress HMR for ALL cortex writes (edit, undo, redo). The override layer
-  // owns all visuals during the editing session. Files are saved correctly on
-  // disk for git/deployment. The stylesheet stays at page-load values.
-  const recentEditWrites = new Set<string>()
 
   return {
     name: 'cortex-editor',
@@ -341,19 +314,34 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
     },
 
     configureServer(server) {
-      // Clean up CLI connections from a previous configureServer() call (Vite restart)
-      if (cliClients.size > 0) {
-        for (const client of cliClients) client.terminate()
-        cliClients.clear()
+      // Dispose previous session (Vite restart / configureServer re-entry)
+      // Remove upgrade handler from httpServer before dispose nulls the ref —
+      // session can't do this because it doesn't hold an httpServer reference.
+      if (currentSession) {
+        if (currentSession.upgradeHandlerRef && server.httpServer) {
+          server.httpServer.removeListener('upgrade', currentSession.upgradeHandlerRef)
+        }
+        currentSession.dispose().catch((err) => {
+          console.warn('[cortex] Failed to dispose previous session:', err instanceof Error ? err.message : err)
+        })
       }
-      if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null }
-      if (cliWss) { cliWss.close(); cliWss = null }
-      if (upgradeHandlerRef && server.httpServer) {
-        server.httpServer.removeListener('upgrade', upgradeHandlerRef)
+
+      // Remove old signal handlers before registering new ones
+      if (shutdownHandler) {
+        process.removeListener('SIGINT', shutdownHandler)
+        process.removeListener('SIGTERM', shutdownHandler)
+        shutdownHandler = null
       }
-      editorActive = false
-      browserConnected = false
-      capabilitiesCache = null
+
+      // Create fresh session for this server lifecycle
+      currentSession = new CortexSession({ root: config.root, mode: config.mode })
+
+      // Register signal handlers for graceful shutdown.
+      // The ?? Promise.resolve() ensures process.exit runs even if currentSession is null
+      // (optional chaining would short-circuit the entire .then chain, hanging the process).
+      shutdownHandler = () => { (currentSession?.dispose() ?? Promise.resolve()).then(() => process.exit(0), () => process.exit(1)) }
+      process.on('SIGINT', shutdownHandler)
+      process.on('SIGTERM', shutdownHandler)
 
       // Serve browser IIFE — read fresh on each request so rebuilds take effect without restart
       server.middlewares.use(CORTEX_BROWSER_PATH, (_req, res, next) => {
@@ -369,13 +357,6 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         res.end(content)
       })
 
-      // Dispose previous channel if configureServer is called again (server restart)
-      if (channelInstance) {
-        channelInstance.dispose().catch((err) => {
-          console.warn('[cortex] Failed to dispose previous channel:', err instanceof Error ? err.message : err)
-        })
-      }
-
       // Resolve Tailwind colors at server start — promise awaited in hotHandler
       const swatchesPromise = TailwindResolver.resolveColors(config.root).catch(() => null)
 
@@ -386,12 +367,12 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         forwardToCLI(data)
 
         // Track state from browser messages
-        if (data.type === 'cortex-closed') editorActive = false
+        if (data.type === 'cortex-closed') currentSession!.editorActive = false
 
         // Send hello with swatches on first message (typically 'init') from browser
-        if (!helloSent && channelInstance) {
+        if (!helloSent && currentSession!.channel) {
           helloSent = true // synchronous guard prevents duplicate sends
-          const channel = channelInstance
+          const channel = currentSession!.channel
           swatchesPromise.then((colors) => {
             channel.send({
               type: 'hello',
@@ -399,56 +380,58 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
               sessionId: crypto.randomUUID(),
               swatches: colors && colors.length > 0 ? colors : undefined,
             })
+          }).catch((err) => {
+            console.warn('[cortex] Failed to send hello:', err instanceof Error ? err.message : err)
           })
         }
 
         if (data.type === 'comment') {
-          const ann = annotationStore.create({
+          const ann = currentSession!.annotations.create({
             elementSource: data.elementSource,
             text: data.text,
             elementContext: data.elementContext,
             currentStyles: data.currentStyles,
             pinPosition: data.pinPosition,
           })
-          const entry = activityLog.add({ type: 'comment', description: data.text, elementSource: data.elementSource })
-          if (channelInstance) {
-            channelInstance.send({ type: 'annotation-created', annotation: ann })
-            channelInstance.send({ type: 'activity-entry', entry })
+          const entry = currentSession!.activityLog.add({ type: 'comment', description: data.text, elementSource: data.elementSource })
+          if (currentSession!.channel) {
+            currentSession!.channel.send({ type: 'annotation-created', annotation: ann })
+            currentSession!.channel.send({ type: 'activity-entry', entry })
           }
         }
 
         if (data.type === 'comment-reply') {
-          const ann = annotationStore.addMessage(data.annotationId, { from: 'user', text: data.text })
-          if (ann && channelInstance) {
-            const entry = activityLog.add({ type: 'comment', description: data.text, elementSource: ann.elementSource })
-            channelInstance.send({ type: 'annotation-updated', annotation: ann })
-            channelInstance.send({ type: 'activity-entry', entry })
+          const ann = currentSession!.annotations.addMessage(data.annotationId, { from: 'user', text: data.text })
+          if (ann && currentSession!.channel) {
+            const entry = currentSession!.activityLog.add({ type: 'comment', description: data.text, elementSource: ann.elementSource })
+            currentSession!.channel.send({ type: 'annotation-updated', annotation: ann })
+            currentSession!.channel.send({ type: 'activity-entry', entry })
           }
         }
 
         // Route edit/undo/redo to EditPipeline (or notify if still initializing)
         if (data.type === 'edit') {
-          if (pipelineInstance) pipelineInstance.handleEdit(data as EditRequest)
-          else channelInstance?.send({ type: 'edit_status', editId: (data as EditRequest).editId, status: 'failed', reason: 'Editor is still initializing. Please try again.' })
+          if (currentSession!.pipeline) currentSession!.pipeline.handleEdit(data as EditRequest)
+          else currentSession!.channel?.send({ type: 'edit_status', editId: (data as EditRequest).editId, status: 'failed', reason: 'Editor is still initializing. Please try again.' })
         }
         if (data.type === 'undo') {
-          if (pipelineInstance) pipelineInstance.handleUndo()
-          else channelInstance?.send({ type: 'undo_status', status: 'failed', restoredFile: '', reason: 'Editor is still initializing.' })
+          if (currentSession!.pipeline) currentSession!.pipeline.handleUndo()
+          else currentSession!.channel?.send({ type: 'undo_status', status: 'failed', restoredFile: '', reason: 'Editor is still initializing.' })
         }
         if (data.type === 'redo') {
-          if (pipelineInstance) pipelineInstance.handleRedo()
-          else channelInstance?.send({ type: 'redo_status', status: 'failed', restoredFile: '', reason: 'Editor is still initializing.' })
+          if (currentSession!.pipeline) currentSession!.pipeline.handleRedo()
+          else currentSession!.channel?.send({ type: 'redo_status', status: 'failed', restoredFile: '', reason: 'Editor is still initializing.' })
         }
 
         // Track browser connection + send current agent status on init
         if (data.type === 'init') {
-          browserConnected = true
-          if (channelInstance) {
-            channelInstance.send({ type: 'agent-status', connected: cliClients.size > 0 })
-            if (editorActive) channelInstance.send({ type: 'cortex' })
+          currentSession!.browserConnected = true
+          if (currentSession!.channel) {
+            currentSession!.channel.send({ type: 'agent-status', connected: currentSession!.cliClients.size > 0 })
+            if (currentSession!.editorActive) currentSession!.channel.send({ type: 'cortex' })
             // Re-send capabilities for late-connecting browsers
-            if (capabilitiesCache) {
-              channelInstance.send({ type: 'capabilities', systems: capabilitiesCache })
+            if (currentSession!.capabilitiesCache) {
+              currentSession!.channel.send({ type: 'capabilities', systems: currentSession!.capabilitiesCache })
             }
           }
           return
@@ -467,7 +450,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       // has no per-client targeting — all messages go to all connected tabs.
       // Both retained for intent clarity in calling code.
       // forwardToCLI echoes server→browser messages to connected CLI clients.
-      channelInstance = {
+      currentSession.channel = {
         send(msg: ServerToBrowser) {
           server.hot.send(CORTEX_MSG_EVENT, msg)
           forwardToCLI(msg)
@@ -486,21 +469,6 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         async dispose() {
           server.hot.off(CORTEX_MSG_EVENT, hotHandler)
           messageHandlers.length = 0
-
-          // CLI WebSocket bridge cleanup
-          if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null }
-          for (const client of cliClients) client.terminate()
-          cliClients.clear()
-          if (cliWss) { cliWss.close(); cliWss = null }
-          if (upgradeHandlerRef && server.httpServer) {
-            server.httpServer.removeListener('upgrade', upgradeHandlerRef)
-            upgradeHandlerRef = null
-          }
-          if (portFilePath) {
-            try { fs.unlinkSync(portFilePath) } catch {}
-            portFilePath = null
-          }
-          if (pipelineInstance) { pipelineInstance.dispose(); pipelineInstance = null }
         },
       }
 
@@ -509,7 +477,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       const projectRoot = config.root
       const rewriter = new TailwindRewriter()
       const inlineStyleRewriter = new InlineStyleRewriter()
-      const verifier = new HMRVerifier(channelInstance)
+      const verifier = new HMRVerifier(currentSession.channel)
       const cssModulesRewriter = new CSSModulesRewriter({
         readFile: (p) => fs.promises.readFile(p, 'utf-8'),
       })
@@ -527,14 +495,15 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         return null
       })
 
-      const channel = channelInstance
+      const session = currentSession
+      const channel = currentSession.channel
       Promise.all([detectionPromise, resolverPromise]).then(([detection, resolver]) => {
-        // Abort if server was disposed or channel was replaced during async init
-        if (!channelInstance || channelInstance !== channel) return
+        // Abort if server was disposed or session was replaced during async init
+        if (!currentSession || currentSession !== session) return
 
         // Dispose previous pipeline + HMR callback (e.g., from server restart)
-        if (pipelineInstance) pipelineInstance.dispose()
-        if (hmrUnsubscribe) hmrUnsubscribe()
+        if (currentSession.pipeline) currentSession.pipeline.dispose()
+        if (currentSession.hmrUnsubscribe) currentSession.hmrUnsubscribe()
 
         // AI writer: enabled when CORTEX_API_KEY is set via .env/.env.local or shell
         const env = loadEnv(config.mode, config.root, 'CORTEX_')
@@ -544,19 +513,19 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           : undefined
 
         // Deferred writer: enabled when AI writer is available. The writeFn
-        // closure captures pipelineInstance by reference — safe because writeFn
+        // closure captures currentSession by reference — safe because writeFn
         // only fires after the coalescing window (250ms+), well after assignment.
         const deferredWriter = aiWriter
           ? new DeferredWriter({
             coalescingMs: 250,
             writeFn: async (batch) => {
-              if (!pipelineInstance) return { success: false, reason: 'Pipeline not initialized' }
-              return pipelineInstance.executeDeferredBatch(batch)
+              if (!currentSession?.pipeline) return { success: false, reason: 'Pipeline not initialized' }
+              return currentSession.pipeline.executeDeferredBatch(batch)
             },
           })
           : undefined
 
-        pipelineInstance = new EditPipeline({
+        currentSession.pipeline = new EditPipeline({
           channel,
           resolver: resolver ?? TailwindResolver.fromTheme({}),
           rewriter,
@@ -570,8 +539,8 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           deferredWriter,
           writeFile: async (intent) => {
             if (intent.kind === 'immediate' || intent.kind === 'undo' || intent.kind === 'redo') {
-              recentEditWrites.add(intent.filePath)
-              setTimeout(() => recentEditWrites.delete(intent.filePath), 500)
+              currentSession?.recentEditWrites.add(intent.filePath)
+              setTimeout(() => currentSession?.recentEditWrites.delete(intent.filePath), 500)
             }
             // 'jsx-immediate': write JSX file but allow HMR — React must re-render with new style prop
             // 'deferred': NO HMR suppression — framework must re-render from source
@@ -581,7 +550,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           projectRoot,
         })
 
-        hmrUnsubscribe = onHMRUpdate((files) => verifier.onHMRUpdate(files))
+        currentSession.hmrUnsubscribe = onHMRUpdate((files) => verifier.onHMRUpdate(files))
 
         // Compute and send capability status to browser
         const resolverState: ResolverState = {
@@ -590,9 +559,9 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           inlineStyleAvailable: true,
         }
         const capabilities = computeCapabilities(detection, resolverState)
-        capabilitiesCache = capabilities.length > 0 ? capabilities : null
-        if (capabilitiesCache) {
-          channel.send({ type: 'capabilities', systems: capabilitiesCache })
+        currentSession.capabilitiesCache = capabilities.length > 0 ? capabilities : null
+        if (currentSession.capabilitiesCache) {
+          channel.send({ type: 'capabilities', systems: currentSession.capabilitiesCache })
         }
       }).catch((err) => {
         console.error('[cortex] Failed to initialize edit pipeline:', err instanceof Error ? err.message : err)
@@ -601,7 +570,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       // --- CLI WebSocket bridge ---
       // Only set up when httpServer is available (not in middleware mode)
       if (server.httpServer) {
-        cliWss = new WebSocketServer({
+        currentSession.cliWss = new WebSocketServer({
           noServer: true,
           maxPayload: 64 * 1024,
           verifyClient: ({ origin }: { origin: string }) => {
@@ -610,28 +579,28 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           },
         })
 
-        cliWss.on('connection', (ws) => {
-          if (cliClients.size >= MAX_CLI_CONNECTIONS) {
+        currentSession.cliWss.on('connection', (ws) => {
+          if (currentSession!.cliClients.size >= MAX_CLI_CONNECTIONS) {
             ws.close(1013, 'Too many CLI connections')
             return
           }
 
-          cliClients.add(ws)
-          aliveFlags.set(ws, true)
+          currentSession!.cliClients.add(ws)
+          currentSession!.aliveFlags.set(ws, true)
 
           // Send current status on connect (untyped JSON — not part of ServerToBrowser protocol)
           try {
-            ws.send(JSON.stringify({ type: 'cortex-status', editorActive, browserConnected }))
+            ws.send(JSON.stringify({ type: 'cortex-status', editorActive: currentSession!.editorActive, browserConnected: currentSession!.browserConnected }))
           } catch {
-            cliClients.delete(ws)
+            currentSession!.cliClients.delete(ws)
             ws.terminate()
             return
           }
 
           // Notify browser that an agent connected
-          if (channelInstance) channelInstance.send({ type: 'agent-status', connected: true })
+          if (currentSession!.channel) currentSession!.channel.send({ type: 'agent-status', connected: true })
 
-          ws.on('pong', () => { aliveFlags.set(ws, true) })
+          ws.on('pong', () => { currentSession?.aliveFlags.set(ws, true) })
 
           ws.on('message', (raw) => {
             let parsed: unknown
@@ -659,39 +628,40 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             }
 
             // Track state from CLI commands
-            if (type === 'cortex') editorActive = true
-            if (type === 'cortex-close') editorActive = false
+            if (type === 'cortex') currentSession!.editorActive = true
+            if (type === 'cortex-close') currentSession!.editorActive = false
 
             // Reconstruct message — don't forward arbitrary properties from CLI
             if (!CLI_ALLOWED_TYPES.has(type)) return
-            if (channelInstance) {
-              channelInstance.send({ type } as ServerToBrowser)
+            if (currentSession!.channel) {
+              currentSession!.channel.send({ type } as ServerToBrowser)
             }
           })
 
           ws.on('close', () => {
-            cliClients.delete(ws)
-            if (channelInstance) channelInstance.send({ type: 'agent-status', connected: cliClients.size > 0 })
+            currentSession?.cliClients.delete(ws)
+            if (currentSession?.channel) currentSession.channel.send({ type: 'agent-status', connected: currentSession.cliClients.size > 0 })
           })
-          ws.on('error', () => cliClients.delete(ws))
+          ws.on('error', () => currentSession?.cliClients.delete(ws))
         })
 
         // Heartbeat — 30s ping/pong, matching CortexTransport pattern
-        heartbeatTimer = setInterval(() => {
-          for (const client of cliClients) {
-            if (!aliveFlags.get(client)) {
+        currentSession.heartbeatTimer = setInterval(() => {
+          if (!currentSession) return
+          for (const client of currentSession.cliClients) {
+            if (!currentSession.aliveFlags.get(client)) {
               client.terminate()
-              cliClients.delete(client)
+              currentSession.cliClients.delete(client)
               continue
             }
-            aliveFlags.set(client, false)
-            try { client.ping() } catch { cliClients.delete(client) }
+            currentSession.aliveFlags.set(client, false)
+            try { client.ping() } catch { currentSession.cliClients.delete(client) }
           }
         }, HEARTBEAT_INTERVAL)
-        heartbeatTimer.unref()
+        currentSession.heartbeatTimer.unref()
 
         // WebSocket upgrade handler — route /@cortex/ws to CLI WSS
-        upgradeHandlerRef = (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+        currentSession.upgradeHandlerRef = (req: IncomingMessage, socket: Duplex, head: Buffer) => {
           if (req.url !== '/@cortex/ws') return
           // Do NOT close the socket for non-matching paths — Vite's HMR handler needs them
 
@@ -709,23 +679,23 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             return
           }
 
-          if (!cliWss) { socket.destroy(); return }
-          cliWss.handleUpgrade(req, socket, head, (ws: InstanceType<typeof WebSocket>) => {
-            if (!cliWss) { ws.terminate(); return }
-            cliWss.emit('connection', ws, req)
+          if (!currentSession?.cliWss) { socket.destroy(); return }
+          currentSession.cliWss.handleUpgrade(req, socket, head, (ws: InstanceType<typeof WebSocket>) => {
+            if (!currentSession?.cliWss) { ws.terminate(); return }
+            currentSession.cliWss.emit('connection', ws, req)
           })
         }
 
-        server.httpServer.on('upgrade', upgradeHandlerRef)
+        server.httpServer.on('upgrade', currentSession.upgradeHandlerRef)
 
         // Write port file for MCP discovery (non-fatal — convenience for auto-discovery)
-        portFilePath = path.join(config.root, '.cortex', 'port')
+        currentSession.portFilePath = path.join(config.root, '.cortex', 'port')
         server.httpServer.on('listening', () => {
           const addr = server.httpServer!.address()
           if (addr && typeof addr === 'object') {
             try {
-              fs.mkdirSync(path.dirname(portFilePath!), { recursive: true })
-              fs.writeFileSync(portFilePath!, String(addr.port))
+              fs.mkdirSync(path.dirname(currentSession!.portFilePath!), { recursive: true })
+              fs.writeFileSync(currentSession!.portFilePath!, String(addr.port))
             } catch (err) {
               console.warn('[cortex] Could not write port file for CLI auto-discovery:', err instanceof Error ? err.message : err)
             }
@@ -743,17 +713,17 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       // showing the correct value. HMR would cause a full-page style recalc
       // + repaint visible as a flash. The override stays until hmr_verified
       // clears it (which is now a no-op since we handled verification above).
-      const cortexFiles = modules.filter(m => m.file && recentEditWrites.has(m.file))
+      const cortexFiles = modules.filter(m => m.file && currentSession?.recentEditWrites.has(m.file))
 
       // Only fire HMR callbacks for non-suppressed files — otherwise the
       // verifier would track edits for files whose HMR was intentionally blocked.
-      const nonSuppressed = modules.filter(m => !m.file || !recentEditWrites.has(m.file))
+      const nonSuppressed = modules.filter(m => !m.file || !currentSession?.recentEditWrites.has(m.file))
       const files = nonSuppressed
         .map(m => m.file)
         .filter((f): f is string => f != null && (/\.[jt]sx$/.test(f) || /\.module\.css$/.test(f)))
 
       if (files.length > 0) {
-        const cbs = [...hmrCallbacks]
+        const cbs = [...(currentSession?.hmrCallbacks ?? [])]
         for (const cb of cbs) {
           try { cb(files) } catch (err) {
             console.warn('[cortex] HMR callback error:', err instanceof Error ? err.message : err)
