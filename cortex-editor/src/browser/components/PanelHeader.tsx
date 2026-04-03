@@ -152,9 +152,33 @@ export function PanelHeader({
         </button>
       </div>
       {showPseudoTabs && (
-        <div class="cortex-pseudo-tabs">
+        <div
+          class="cortex-pseudo-tabs"
+          role="tablist"
+          aria-label="Element pseudo-elements"
+          onKeyDown={(e: KeyboardEvent) => {
+            if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+            e.preventDefault()
+            const tabs: Array<'element' | '::before' | '::after'> = ['element']
+            if (hasBefore) tabs.push('::before')
+            if (hasAfter) tabs.push('::after')
+            const idx = tabs.indexOf(activePseudo)
+            const nextIdx = e.key === 'ArrowRight'
+              ? (idx + 1) % tabs.length
+              : (idx - 1 + tabs.length) % tabs.length
+            const next = tabs[nextIdx]
+            if (next) onPseudoChange?.(next)
+            // Move focus to the newly active tab
+            const container = e.currentTarget as HTMLElement
+            const nextBtn = container.querySelector(`[data-pseudo="${next}"]`) as HTMLElement | null
+            nextBtn?.focus()
+          }}
+        >
           <button
             class={`cortex-pseudo-tab${activePseudo === 'element' ? ' cortex-pseudo-tab--active' : ''}`}
+            role="tab"
+            aria-selected={activePseudo === 'element'}
+            tabIndex={activePseudo === 'element' ? 0 : -1}
             data-action="pseudo-element"
             data-pseudo="element"
             onClick={() => onPseudoChange?.('element')}
@@ -164,6 +188,9 @@ export function PanelHeader({
           {hasBefore && (
             <button
               class={`cortex-pseudo-tab${activePseudo === '::before' ? ' cortex-pseudo-tab--active' : ''}`}
+              role="tab"
+              aria-selected={activePseudo === '::before'}
+              tabIndex={activePseudo === '::before' ? 0 : -1}
               data-action="pseudo-before"
               data-pseudo="::before"
               onClick={() => onPseudoChange?.('::before')}
@@ -174,6 +201,9 @@ export function PanelHeader({
           {hasAfter && (
             <button
               class={`cortex-pseudo-tab${activePseudo === '::after' ? ' cortex-pseudo-tab--active' : ''}`}
+              role="tab"
+              aria-selected={activePseudo === '::after'}
+              tabIndex={activePseudo === '::after' ? 0 : -1}
               data-action="pseudo-after"
               data-pseudo="::after"
               onClick={() => onPseudoChange?.('::after')}

@@ -4,6 +4,7 @@ import type { CSSOverrideManager } from '../override.js'
 import { onOverrideChange } from '../override-bus.js'
 import { parseCortexSource, isLibraryComponent, findUserAncestor } from '../label.js'
 import { PANEL_WIDTH } from '../hooks/useSnapToEdge.js'
+import { formatShortcut } from '../format-shortcut.js'
 import { PanelHeader } from './PanelHeader.js'
 import { SpacingSection } from './sections/SpacingSection.js'
 import type { SpacingChange } from './sections/SpacingSection.js'
@@ -512,7 +513,11 @@ export function Panel({
           onToggleHover={onToggleHover}
         />
         <div class="cortex-panel__body">
-          <p class="cortex-panel__empty">Click an element to inspect its properties</p>
+          <div class="cortex-panel__empty">
+            <p class="cortex-panel__empty-action">Click any element to start editing</p>
+            <p class="cortex-panel__empty-hint">Changes write to your source files</p>
+            <p class="cortex-panel__empty-shortcut">{formatShortcut('$mod+Shift+Period')} to toggle</p>
+          </div>
         </div>
       </div>
     )

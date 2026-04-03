@@ -20,6 +20,15 @@ export function bootstrap(): void {
   if (hostElement) return // Already bootstrapped (same script instance)
   if (document.querySelector('[data-cortex-host]')) return // Already bootstrapped (another script instance)
 
+  // Load Geist fonts into document scope (font-face must be document-level for Shadow DOM)
+  if (!document.querySelector('[data-cortex-fonts]')) {
+    const fontLink = document.createElement('link')
+    fontLink.setAttribute('data-cortex-fonts', '')
+    fontLink.rel = 'stylesheet'
+    fontLink.href = 'https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&family=Geist+Mono:wght@400;500&display=swap'
+    document.head.appendChild(fontLink)
+  }
+
   // Create host element — fixed overlay, pointer-events:none, max z-index
   hostElement = document.createElement('div')
   hostElement.setAttribute('data-cortex-host', '')

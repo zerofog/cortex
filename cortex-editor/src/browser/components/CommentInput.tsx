@@ -20,7 +20,6 @@ export function CommentInput({ onSubmit, agentConnected }: CommentInputProps): J
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Enter' && text.trim() && !pending) {
       const submitted = text.trim()
-      setText('')
       setPending(true)
       setError(false)
       if (errorTimerRef.current) {
@@ -28,13 +27,14 @@ export function CommentInput({ onSubmit, agentConnected }: CommentInputProps): J
         errorTimerRef.current = null
       }
       onSubmit(submitted).then(
-        () => { if (mountedRef.current) setPending(false) },
+        () => { if (mountedRef.current) { setPending(false); setText('') } },
         (err: unknown) => {
           if (!mountedRef.current) return
           console.warn('[cortex] Comment submission failed:', err instanceof Error ? err.message : err)
           setPending(false)
           setError(true)
-          errorTimerRef.current = setTimeout(() => { setError(false) }, 3000)
+          // Don't clear text — user can press Enter to retry
+          errorTimerRef.current = setTimeout(() => { if (mountedRef.current) setError(false) }, 5000)
         },
       )
     }
@@ -51,10 +51,10 @@ export function CommentInput({ onSubmit, agentConnected }: CommentInputProps): J
   const placeholder = pending
     ? 'Sending...'
     : error
-      ? 'No response'
+      ? 'Failed — press Enter to retry'
       : agentConnected
         ? 'Ask the AI agent...'
-        : 'No agent connected'
+        : 'Waiting for agent — run cortex mcp'
 
   return (
     <div class={wrapperClass}>
