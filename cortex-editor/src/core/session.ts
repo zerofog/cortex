@@ -1,4 +1,5 @@
 import fs from 'fs'
+import { randomUUID } from 'node:crypto'
 import type { WebSocketServer, WebSocket } from 'ws'
 import type { IncomingMessage } from 'http'
 import type { Duplex } from 'stream'
@@ -40,6 +41,14 @@ export class CortexSession {
   readonly annotations: AnnotationStore
   readonly activityLog: ActivityLog
 
+  // --- Auth + Session ---
+  /** Per-instance auth token — prevents cross-project writes on localhost. */
+  readonly token: string
+  /** Per-instance session ID — scopes broadcasts to prevent cross-tab contamination. */
+  readonly sessionId: string
+  /** Path to .cortex/token file (set by adapter, cleaned up on dispose). */
+  tokenFilePath: string | null = null
+
   // --- CLI WebSocket bridge ---
   cliWss: WebSocketServer | null = null
   readonly cliClients: Set<WebSocket> = new Set()
@@ -68,6 +77,8 @@ export class CortexSession {
 
   constructor(config: CortexConfig) {
     this.config = config
+    this.token = randomUUID()
+    this.sessionId = randomUUID()
     this.annotations = new AnnotationStore()
     this.activityLog = new ActivityLog()
   }
@@ -118,6 +129,17 @@ export class CortexSession {
         if (code !== 'ENOENT') errors.push({ step: 'port-file', error: e })
       }
       this.portFilePath = null
+    }
+
+    // 4b. Remove token file — same pattern as port file.
+    if (this.tokenFilePath) {
+      try {
+        fs.unlinkSync(this.tokenFilePath)
+      } catch (e) {
+        const code = e instanceof Error && 'code' in e ? (e as NodeJS.ErrnoException).code : undefined
+        if (code !== 'ENOENT') errors.push({ step: 'token-file', error: e })
+      }
+      this.tokenFilePath = null
     }
 
     // 5. Unsubscribe HMR — must precede pipeline dispose to prevent
