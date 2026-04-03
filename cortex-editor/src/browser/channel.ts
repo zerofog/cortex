@@ -28,7 +28,7 @@ export function createViteChannel(): CortexChannel {
 
   return {
     send(msg: BrowserToServer): void {
-      window.__cortex_send__?.(msg)
+      window.__cortex_send__?.({ ...msg, token: window.__CORTEX_TOKEN__ })
     },
     onMessage(handler: (msg: ServerToBrowser) => void): () => void {
       handlers.push(handler)
@@ -127,14 +127,15 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
 
   return {
     send(msg: BrowserToServer): void {
+      const authed = { ...msg, token: window.__CORTEX_TOKEN__ }
       if (connected && ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(msg))
+        ws.send(JSON.stringify(authed))
       } else {
         // Fix 5: cap queue size, drop oldest
         if (queue.length >= MAX_QUEUE_SIZE) {
           queue.shift()
         }
-        queue.push(msg)
+        queue.push(authed)
       }
     },
     onMessage(handler: (msg: ServerToBrowser) => void): () => void {
