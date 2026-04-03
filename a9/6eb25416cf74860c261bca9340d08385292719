@@ -1,0 +1,24 @@
+cortex-editor/src/adapters/vite.ts
+  3fe62a7bfc6ce9b8 388-390,394-395,653-657,740,749-753,755-758,761
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "a96eb25416cf74860c261bca9340d08385292719",
+  "prompts": {
+    "3fe62a7bfc6ce9b8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b4cfcecb-24a7-4e43-849e-5b0c3d00a6d9",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 21,
+      "total_deletions": 5,
+      "accepted_lines": 21,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/fc8110d7c7e99873a109d8a68bc9d9df00e4c18bb34947a15452915b6d356608"
+    }
+  }
+}
