@@ -42,6 +42,8 @@ const CORTEX_MSG_EVENT = 'cortex:msg'
 // CLI WebSocket bridge constants
 const ALLOWED_ORIGINS = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/
 const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close'])
+/** Message types that require token auth — all write/mutation operations. */
+const WRITE_TYPES = new Set(['edit', 'undo', 'redo', 'comment', 'comment-reply'])
 const HEARTBEAT_INTERVAL = 30_000
 const MAX_CLI_CONNECTIONS = 5
 
@@ -295,8 +297,12 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       order: 'pre',
       handler(html) {
         if (config.command !== 'serve') return html
+        // Inject token + sessionId before the module script so globals are available at import time
+        const authScript = currentSession
+          ? `<script>window.__CORTEX_TOKEN__=${safeJSONForScript(currentSession.token)};window.__CORTEX_SESSION_ID__=${safeJSONForScript(currentSession.sessionId)}</script>\n`
+          : ''
         const script = `<script type="module" src="${CORTEX_CLIENT_PATH}"></script>`
-        const injected = html.replace(/<\/head>/i, `${script}\n</head>`)
+        const injected = html.replace(/<\/head>/i, `${authScript}${script}\n</head>`)
         if (injected === html) {
           console.warn('[cortex] transformIndexHtml: </head> not found — client script not injected')
         }
@@ -374,6 +380,22 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         // Forward ALL browser messages to CLI clients (before init guard)
         forwardToCLI(data)
 
+        // Token validation for write operations — reject mutations with missing/invalid token
+        if (WRITE_TYPES.has(data.type) && 'token' in data) {
+          if (data.token !== currentSession!.token) {
+            if (currentSession!.channel) {
+              currentSession!.channel.send({ type: 'error', code: 'AUTH_FAILED', message: 'Invalid or missing auth token' })
+            }
+            return
+          }
+        } else if (WRITE_TYPES.has(data.type)) {
+          // Write message without token field — reject
+          if (currentSession!.channel) {
+            currentSession!.channel.send({ type: 'error', code: 'AUTH_FAILED', message: 'Invalid or missing auth token' })
+          }
+          return
+        }
+
         // Track state from browser messages
         if (data.type === 'cortex-closed') currentSession!.editorActive = false
 
@@ -385,7 +407,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             channel.send({
               type: 'hello',
               protocolVersion: 1,
-              sessionId: crypto.randomUUID(),
+              sessionId: currentSession!.sessionId,
               swatches: colors && colors.length > 0 ? colors : undefined,
             })
           }).catch((err) => {
@@ -617,6 +639,13 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             const type = (parsed as { type: unknown }).type
             if (typeof type !== 'string') return
 
+            // Token validation for ALL CLI messages
+            const msgToken = (parsed as Record<string, unknown>).token
+            if (typeof msgToken !== 'string' || msgToken !== currentSession!.token) {
+              try { ws.send(JSON.stringify({ type: 'error', code: 'AUTH_FAILED', message: 'Invalid or missing auth token' })) } catch {}
+              return
+            }
+
             // Handle RPC requests from CLI (annotation queries)
             if (type === 'cortex-rpc') {
               const requestId = (parsed as Record<string, unknown>).requestId as string
@@ -696,16 +725,19 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
 
         server.httpServer.on('upgrade', currentSession.upgradeHandlerRef)
 
-        // Write port file for MCP discovery (non-fatal — convenience for auto-discovery)
-        currentSession.portFilePath = path.join(config.root, '.cortex', 'port')
+        // Write port + token files for MCP discovery (non-fatal — convenience for auto-discovery)
+        const cortexDir = path.join(config.root, '.cortex')
+        currentSession.portFilePath = path.join(cortexDir, 'port')
+        currentSession.tokenFilePath = path.join(cortexDir, 'token')
         server.httpServer.on('listening', () => {
           const addr = server.httpServer!.address()
           if (addr && typeof addr === 'object') {
             try {
-              fs.mkdirSync(path.dirname(currentSession!.portFilePath!), { recursive: true })
+              fs.mkdirSync(cortexDir, { recursive: true })
               fs.writeFileSync(currentSession!.portFilePath!, String(addr.port))
+              fs.writeFileSync(currentSession!.tokenFilePath!, currentSession!.token)
             } catch (err) {
-              console.warn('[cortex] Could not write port file for CLI auto-discovery:', err instanceof Error ? err.message : err)
+              console.warn('[cortex] Could not write discovery files for CLI auto-discovery:', err instanceof Error ? err.message : err)
             }
           }
         })
