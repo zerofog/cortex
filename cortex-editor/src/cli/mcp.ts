@@ -73,7 +73,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
       retryCount = 0
       // Re-read token on each connection — token changes on Vite server restart
       token = discoverToken()
-      process.stderr.write(`[cortex] Connected to Vite server at ${wsUrl}\n`)
+      process.stderr.write(`[cortex] Connected to Vite server at ${wsUrl}${token ? '' : ' (token not found — writes will be rejected)'}\n`)
     })
 
     ws.on('message', (raw) => {
@@ -88,6 +88,18 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         pendingRequests.delete(msg.requestId as string)
         if (msg.type === 'cortex-rpc-result') pending.resolve((msg as Record<string, unknown>).result)
         else pending.reject(new Error((msg as Record<string, unknown>).error as string))
+        return
+      }
+
+      // Handle auth failures — re-read token file in case of startup race or server restart
+      if (msg.type === 'error' && msg.code === 'AUTH_FAILED') {
+        const newToken = discoverToken()
+        if (newToken && newToken !== token) {
+          token = newToken
+          process.stderr.write('[cortex] Token refreshed after AUTH_FAILED — retrying\n')
+        } else {
+          process.stderr.write('[cortex] AUTH_FAILED — token may be stale or missing. Try restarting the dev server.\n')
+        }
         return
       }
 

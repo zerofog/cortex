@@ -385,24 +385,21 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       // Vite 5.1+ API: server.hot replaces deprecated server.ws
       let helloSent = false
       const hotHandler = (data: BrowserToServer) => {
-        // Forward ALL browser messages to CLI clients (before init guard)
-        forwardToCLI(data)
-
-        // Token validation for write operations — reject mutations with missing/invalid token
-        if (WRITE_TYPES.has(data.type) && 'token' in data) {
-          if (data.token !== currentSession!.token) {
+        // Token validation for write operations — must precede forwardToCLI to prevent
+        // unauthenticated messages from being fanned out to CLI clients.
+        if (WRITE_TYPES.has(data.type)) {
+          if (!('token' in data) || data.token !== currentSession!.token) {
             if (currentSession!.channel) {
               currentSession!.channel.send({ type: 'error', code: 'AUTH_FAILED', message: 'Invalid or missing auth token' })
             }
             return
           }
-        } else if (WRITE_TYPES.has(data.type)) {
-          // Write message without token field — reject
-          if (currentSession!.channel) {
-            currentSession!.channel.send({ type: 'error', code: 'AUTH_FAILED', message: 'Invalid or missing auth token' })
-          }
-          return
         }
+
+        // Forward browser messages to CLI clients — after auth so only valid messages propagate.
+        // Strip token from forwarded data to avoid leaking it to CLI clients.
+        const { token: _stripped, ...forwardData } = data as Record<string, unknown>
+        forwardToCLI(forwardData)
 
         // Track state from browser messages
         if (data.type === 'cortex-closed') currentSession!.editorActive = false
@@ -741,9 +738,9 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           const addr = server.httpServer!.address()
           if (addr && typeof addr === 'object') {
             try {
-              fs.mkdirSync(cortexDir, { recursive: true })
+              fs.mkdirSync(cortexDir, { recursive: true, mode: 0o700 })
               fs.writeFileSync(currentSession!.portFilePath!, String(addr.port))
-              fs.writeFileSync(currentSession!.tokenFilePath!, currentSession!.token)
+              fs.writeFileSync(currentSession!.tokenFilePath!, currentSession!.token, { mode: 0o600 })
             } catch (err) {
               console.warn('[cortex] Could not write discovery files for CLI auto-discovery:', err instanceof Error ? err.message : err)
             }
