@@ -8,7 +8,7 @@ import type { ResolvedConfig } from 'vite'
 
 /** Minimal ResolvedConfig stub — only the fields CortexSession needs. */
 function makeConfig(overrides: Partial<ResolvedConfig> = {}): ResolvedConfig {
-  return { root: '/tmp/test-project', ...overrides } as ResolvedConfig
+  return { root: '/tmp/test-project', ...overrides } as unknown as ResolvedConfig
 }
 
 /** Create a fake WebSocket with a terminate() stub. */
@@ -106,15 +106,18 @@ describe('CortexSession', () => {
 
     it('removes the port file', async () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-session-test-'))
-      const portFile = path.join(tmpDir, 'port')
-      fs.writeFileSync(portFile, '3000')
-      session.portFilePath = portFile
+      try {
+        const portFile = path.join(tmpDir, 'port')
+        fs.writeFileSync(portFile, '3000')
+        session.portFilePath = portFile
 
-      await session.dispose()
+        await session.dispose()
 
-      expect(fs.existsSync(portFile)).toBe(false)
-      expect(session.portFilePath).toBeNull()
-      fs.rmSync(tmpDir, { recursive: true, force: true })
+        expect(fs.existsSync(portFile)).toBe(false)
+        expect(session.portFilePath).toBeNull()
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true })
+      }
     })
 
     it('suppresses port file removal errors', async () => {
@@ -171,6 +174,26 @@ describe('CortexSession', () => {
       expect(session.recentEditWrites.size).toBe(0)
       expect(session.capabilitiesCache).toBeNull()
       expect(session.upgradeHandlerRef).toBeNull()
+    })
+
+    it('awaits channel dispose before completing', async () => {
+      const order: string[] = []
+      const dispose = vi.fn(() => new Promise<void>(resolve => {
+        order.push('channel-dispose-start')
+        setTimeout(() => { order.push('channel-dispose-end'); resolve() }, 10)
+      }))
+      session.channel = { dispose, send: vi.fn(), broadcast: vi.fn(), onMessage: vi.fn() }
+
+      await session.dispose()
+      order.push('session-dispose-done')
+
+      expect(order).toEqual(['channel-dispose-start', 'channel-dispose-end', 'session-dispose-done'])
+    })
+
+    it('exposes isDisposed state', async () => {
+      expect(session.isDisposed).toBe(false)
+      await session.dispose()
+      expect(session.isDisposed).toBe(true)
     })
 
     it('is idempotent — second dispose is a no-op', async () => {

@@ -10,9 +10,14 @@ import { AnnotationStore } from './annotations.js'
 import { ActivityLog } from './session/activity-log.js'
 
 /**
- * Encapsulates all per-server-lifecycle state that was previously scattered
- * across module-level globals in vite.ts. Each Vite dev server restart gets
- * a fresh CortexSession; dispose() cleans up the old one.
+ * Groups all per-server-lifecycle state that was previously scattered across
+ * module-level globals in vite.ts. Each Vite dev server restart gets a fresh
+ * CortexSession; dispose() cleans up the old one.
+ *
+ * Design: This is intentionally a state container with public mutable fields,
+ * mirroring the module-level `let` variables it replaces. vite.ts reads and
+ * writes these fields directly. Encapsulation tightens in later steps (A2-A4)
+ * as behaviors migrate into the class.
  */
 export class CortexSession {
   // --- Communication ---
@@ -44,6 +49,10 @@ export class CortexSession {
 
   // --- Lifecycle ---
   private disposed = false
+
+  get isDisposed(): boolean {
+    return this.disposed
+  }
 
   constructor(config: ResolvedConfig) {
     this.config = config
@@ -79,8 +88,9 @@ export class CortexSession {
       this.portFilePath = null
     }
 
-    // 5. Dispose pipeline before channel — pipeline may send final
-    //    messages through the channel during its teardown.
+    // 5. Dispose pipeline before channel — pipeline dispose is synchronous
+    //    today (EditPipeline.dispose(): void), but must precede channel
+    //    teardown since pipeline holds a channel reference.
     if (this.pipeline) {
       this.pipeline.dispose()
       this.pipeline = null
