@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { WebSocketServer, WebSocket } from 'ws'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { startMCPServer, discoverPort, calculateReconnectDelay, type MCPServerHandle } from '../../src/cli/mcp.js'
+import { startMCPServer, discoverPort, discoverToken, findProjectRoot, calculateReconnectDelay, type MCPServerHandle } from '../../src/cli/mcp.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import http from 'node:http'
@@ -297,6 +297,88 @@ describe('cortex mcp', () => {
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
+  })
+
+  describe('findProjectRoot walk-up discovery', () => {
+    let tmpRoot: string
+    let cortexDir: string
+
+    beforeEach(() => {
+      tmpRoot = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'cortex-root-'))
+      cortexDir = path.join(tmpRoot, '.cortex')
+      fs.mkdirSync(cortexDir, { recursive: true })
+      fs.writeFileSync(path.join(cortexDir, 'port'), '4321')
+      fs.writeFileSync(path.join(cortexDir, 'token'), 'test-token-abc')
+    })
+
+    afterEach(() => {
+      fs.rmSync(tmpRoot, { recursive: true, force: true })
+    })
+
+    it('discoverPort finds port when cwd is project root', () => {
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(tmpRoot)
+      try {
+        expect(discoverPort()).toBe(4321)
+      } finally {
+        cwdSpy.mockRestore()
+      }
+    })
+
+    it('discoverPort finds port by walking up from a subdirectory', () => {
+      const subDir = path.join(tmpRoot, 'src', 'components')
+      fs.mkdirSync(subDir, { recursive: true })
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(subDir)
+      try {
+        expect(discoverPort()).toBe(4321)
+      } finally {
+        cwdSpy.mockRestore()
+      }
+    })
+
+    it('discoverPort returns null when cwd is unrelated (no .cortex anywhere)', () => {
+      const unrelatedDir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'cortex-unrelated-'))
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(unrelatedDir)
+      try {
+        expect(discoverPort()).toBeNull()
+      } finally {
+        cwdSpy.mockRestore()
+        fs.rmSync(unrelatedDir, { recursive: true, force: true })
+      }
+    })
+
+    it('discoverToken follows the same walk-up pattern', () => {
+      const subDir = path.join(tmpRoot, 'src', 'deep', 'nested')
+      fs.mkdirSync(subDir, { recursive: true })
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(subDir)
+      try {
+        expect(discoverToken()).toBe('test-token-abc')
+      } finally {
+        cwdSpy.mockRestore()
+      }
+    })
+
+    it('findProjectRoot returns the directory containing .cortex/port', () => {
+      const subDir = path.join(tmpRoot, 'packages', 'ui')
+      fs.mkdirSync(subDir, { recursive: true })
+      expect(findProjectRoot(subDir)).toBe(tmpRoot)
+    })
+
+    it('findProjectRoot returns null when no .cortex/port exists', () => {
+      const unrelatedDir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'cortex-none-'))
+      try {
+        expect(findProjectRoot(unrelatedDir)).toBeNull()
+      } finally {
+        fs.rmSync(unrelatedDir, { recursive: true, force: true })
+      }
+    })
+
+    it('discoverPort accepts explicit projectRoot override', () => {
+      expect(discoverPort(tmpRoot)).toBe(4321)
+    })
+
+    it('discoverToken accepts explicit projectRoot override', () => {
+      expect(discoverToken(tmpRoot)).toBe('test-token-abc')
+    })
   })
 
   it('logs connection events to stderr (not stdout)', async () => {

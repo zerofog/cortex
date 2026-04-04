@@ -199,6 +199,7 @@ export class CSSOverrideManager {
   trackPendingEdit(editId: string, sources: string | string[], property: string, pseudo?: '::before' | '::after'): void {
     const sourceArray = Array.isArray(sources) ? sources : [sources]
     this.evictStalePendingEdits()
+    this.hmrAppliedPending = false
     // Supersede any prior pending edit for overlapping targets
     for (const [existingId, entry] of this.pendingEdits) {
       if (entry.property === property && entry.pseudo === pseudo &&

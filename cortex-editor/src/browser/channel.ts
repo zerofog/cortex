@@ -112,6 +112,7 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
         retryCount++
         reconnectTimer = setTimeout(connect, delay)
       } else {
+        queue.length = 0  // clear stale messages — no reconnect will flush them
         console.warn(
           `[cortex] WebSocket disconnected after ${maxRetries} retries. ` +
           `Edits will not be saved until the page is refreshed. URL: ${url}`,
@@ -128,6 +129,7 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
 
   return {
     send(msg: BrowserToServer): void {
+      if (disposed) return
       if (connected && ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ ...msg, token: window.__CORTEX_TOKEN__ }))
       } else {

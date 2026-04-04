@@ -417,7 +417,10 @@ export class EditPipeline {
       // Layer 3.5: Inline style rewriter — only for non-Tailwind projects
       // (Tailwind projects should not accumulate inline styles)
       if (this.inlineStyleRewriter && !this.detector?.hasTailwind) {
-        const handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
+        let handled = false
+        try {
+          handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
+        } catch { /* treat throws as failed, fall through to deferred/AI */ }
         if (handled) return
       }
       if (this.deferredWriter) {
@@ -876,7 +879,7 @@ export class EditPipeline {
     if (batch.signal.aborted) {
       // Coalescing supersede: silent — the newer batch handles these properties.
       // User-initiated cancel (undo/redo): send explicit status via cancelForFile path.
-      if (batch.signal.reason !== 'superseded') {
+      if (batch.signal.reason !== 'superseded' && batch.signal.reason !== 'user-cancel') {
         this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
       }
       return { success: false, reason: 'aborted' }
@@ -890,7 +893,7 @@ export class EditPipeline {
     return this.withFileLockResult(batch.filePath, async () => {
       // Check abort after lock acquisition (may have waited)
       if (batch.signal.aborted) {
-        if (batch.signal.reason !== 'superseded') {
+        if (batch.signal.reason !== 'superseded' && batch.signal.reason !== 'user-cancel') {
           this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
         }
         return { success: false, reason: 'aborted' }
@@ -909,7 +912,7 @@ export class EditPipeline {
 
       // Check abort after file read
       if (batch.signal.aborted) {
-        if (batch.signal.reason !== 'superseded') {
+        if (batch.signal.reason !== 'superseded' && batch.signal.reason !== 'user-cancel') {
           this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
         }
         return { success: false, reason: 'aborted' }
@@ -930,7 +933,7 @@ export class EditPipeline {
         // Abort during AI call: the signal fired while fetch was in-flight.
         // Treat as cancellation, not failure — a newer edit superseded this one.
         if (batch.signal.aborted) {
-          if (batch.signal.reason !== 'superseded') {
+          if (batch.signal.reason !== 'superseded' && batch.signal.reason !== 'user-cancel') {
             this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
           }
           return { success: false, reason: 'aborted' }
@@ -948,7 +951,7 @@ export class EditPipeline {
 
       // Check abort before writing (AI may have returned after supersede)
       if (batch.signal.aborted) {
-        if (batch.signal.reason !== 'superseded') {
+        if (batch.signal.reason !== 'superseded' && batch.signal.reason !== 'user-cancel') {
           this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
         }
         return { success: false, reason: 'aborted' }
@@ -968,16 +971,19 @@ export class EditPipeline {
         this.undoStack.push({ filePath: batch.filePath, previousContent: result.oldContent, currentContent: result.newContent })
       }
 
-      // Track HMR — use last change's property/value for verification.
-      // editId must be the last one to correlate with lastChange (not the first).
-      const lastChange = batch.changes[batch.changes.length - 1]!
-      this.verifier.trackEdit({
-        editId: batch.editIds[batch.editIds.length - 1]!,
-        filePath: batch.filePath,
-        expectedValue: lastChange.value,
-        property: lastChange.property,
-        kind: 'deferred',
-      })
+      // Track HMR for ALL changes in the batch, not just the last.
+      // Each change carries the latest editId for that property (last-write-wins
+      // in DeferredWriter's coalescing Map). This ensures the verifier sends
+      // hmr_verified for the editId the browser is actually tracking.
+      for (const change of batch.changes) {
+        this.verifier.trackEdit({
+          editId: change.editId,
+          filePath: batch.filePath,
+          expectedValue: change.value,
+          property: change.property,
+          kind: 'deferred',
+        })
+      }
 
       // Send done for all coalesced editIds
       this.sendDeferredStatus(batch.editIds, 'done')
