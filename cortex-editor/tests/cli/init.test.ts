@@ -92,35 +92,133 @@ describe('cortex init', () => {
     }
   })
 
-  it('detects cortexEditor in vite.config.ts', async () => {
+  it('skips injection when cortexEditor already present (idempotent)', async () => {
+    const viteConfig = [
+      'import { cortexEditor } from "cortex-editor/vite"',
+      'import { defineConfig } from "vite"',
+      '',
+      'export default defineConfig({',
+      '  plugins: [cortexEditor()],',
+      '})',
+    ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0"}}',
-      'vite.config.ts': 'import { cortexEditor } from "cortex-editor/vite"\nexport default { plugins: [cortexEditor()] }',
+      'vite.config.ts': viteConfig,
     })
     try {
       const result = await runInit(dir)
       expect(result.vitePluginFound).toBe(true)
+      expect(result.vitePluginInjected).toBe(false)
+      // File should be unchanged
+      const content = fs.readFileSync(path.join(dir, 'vite.config.ts'), 'utf8')
+      expect(content).toBe(viteConfig)
     } finally {
       cleanup(dir)
     }
   })
 
-  it('warns when cortexEditor not found in vite config', async () => {
+  it('injects cortexEditor into defineConfig with existing plugins array', async () => {
+    const viteConfig = [
+      'import { defineConfig } from \'vite\'',
+      'import react from \'@vitejs/plugin-react\'',
+      '',
+      'export default defineConfig({',
+      '  plugins: [react()],',
+      '})',
+    ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0"}}',
-      'vite.config.ts': 'export default { plugins: [] }',
+      'vite.config.ts': viteConfig,
     })
     try {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      try {
-        const result = await runInit(dir)
-        expect(result.vitePluginFound).toBe(false)
-        expect(warnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('cortexEditor plugin NOT found')
-        )
-      } finally {
-        warnSpy.mockRestore()
-      }
+      const result = await runInit(dir)
+      expect(result.vitePluginFound).toBe(true)
+      expect(result.vitePluginInjected).toBe(true)
+      const content = fs.readFileSync(path.join(dir, 'vite.config.ts'), 'utf8')
+      expect(content).toContain('import { cortexEditor } from "cortex-editor/vite"')
+      expect(content).toContain('cortexEditor()')
+      // Original plugin still present
+      expect(content).toContain('react()')
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('injects cortexEditor into defineConfig with no plugins', async () => {
+    const viteConfig = [
+      'import { defineConfig } from \'vite\'',
+      '',
+      'export default defineConfig({',
+      '  server: { port: 3000 },',
+      '})',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0"}}',
+      'vite.config.ts': viteConfig,
+    })
+    try {
+      const result = await runInit(dir)
+      expect(result.vitePluginFound).toBe(true)
+      expect(result.vitePluginInjected).toBe(true)
+      const content = fs.readFileSync(path.join(dir, 'vite.config.ts'), 'utf8')
+      expect(content).toContain('import { cortexEditor } from "cortex-editor/vite"')
+      expect(content).toContain('plugins: [cortexEditor()]')
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('injects cortexEditor into bare export with plugins', async () => {
+    const viteConfig = [
+      'export default {',
+      '  plugins: [somePlugin()],',
+      '}',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0"}}',
+      'vite.config.js': viteConfig,
+    })
+    try {
+      const result = await runInit(dir)
+      expect(result.vitePluginFound).toBe(true)
+      expect(result.vitePluginInjected).toBe(true)
+      const content = fs.readFileSync(path.join(dir, 'vite.config.js'), 'utf8')
+      expect(content).toContain('import { cortexEditor } from "cortex-editor/vite"')
+      expect(content).toContain('cortexEditor()')
+      expect(content).toContain('somePlugin()')
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('injects cortexEditor into bare export with no plugins', async () => {
+    const viteConfig = 'export default {}'
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0"}}',
+      'vite.config.js': viteConfig,
+    })
+    try {
+      const result = await runInit(dir)
+      expect(result.vitePluginFound).toBe(true)
+      expect(result.vitePluginInjected).toBe(true)
+      const content = fs.readFileSync(path.join(dir, 'vite.config.js'), 'utf8')
+      expect(content).toContain('import { cortexEditor } from "cortex-editor/vite"')
+      expect(content).toContain('plugins: [cortexEditor()]')
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('throws on malformed vite config with helpful message', async () => {
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0"}}',
+      'vite.config.ts': 'this is not valid javascript {{{',
+    })
+    try {
+      await expect(runInit(dir)).rejects.toThrow('vite.config.ts')
+      // File should be unchanged
+      const content = fs.readFileSync(path.join(dir, 'vite.config.ts'), 'utf8')
+      expect(content).toBe('this is not valid javascript {{{')
     } finally {
       cleanup(dir)
     }
