@@ -268,7 +268,15 @@ export class AIWriter {
           Number.isNaN(retryAfterSec) ? 1000 : retryAfterSec * 1000,
           5000,
         )
-        await new Promise(resolve => setTimeout(resolve, delay))
+        await new Promise<void>((resolve, reject) => {
+          if (externalSignal?.aborted) { reject(externalSignal.reason); return }
+          const delayTimer = setTimeout(() => {
+            externalSignal?.removeEventListener('abort', onDelayAbort)
+            resolve()
+          }, delay)
+          const onDelayAbort = () => { clearTimeout(delayTimer); reject(externalSignal!.reason) }
+          externalSignal?.addEventListener('abort', onDelayAbort, { once: true })
+        })
         // Fresh AbortController for retry — use remaining time budget, not full timeout
         clearTimeout(timer)
         const elapsed = Date.now() - startTime

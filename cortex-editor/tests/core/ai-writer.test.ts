@@ -772,5 +772,46 @@ describe('AIWriter', () => {
       }
       writer.dispose()
     })
+
+    it('exits 429 retry delay immediately when abort signal fires', async () => {
+      mockReadFile.mockResolvedValueOnce(sampleFile)
+      const ac = new AbortController()
+
+      // First fetch: 429 with a long retry-after to make the delay obvious
+      fetchSpy.mockResolvedValueOnce(new Response('Rate limited', {
+        status: 429,
+        headers: { 'retry-after': '5' },
+      }))
+      // Second fetch: would succeed, but should never be reached
+      mockClaudeToolResponse('set_inline_style', {
+        changes: [{ property: 'padding-top', value: '32px' }],
+      })
+
+      const writer = new AIWriter({ apiKey: 'test-key', readFile: mockReadFile })
+      const writePromise = writer.write(
+        {
+          filePath: '/project/src/Hero.tsx',
+          line: 5, col: 5,
+          property: 'padding-top', value: '16px',
+          failureReason: 'test',
+        },
+        { signal: ac.signal },
+      )
+
+      // Abort quickly — well before the 5s retry delay would finish
+      await new Promise(resolve => setTimeout(resolve, 50))
+      ac.abort()
+
+      const start = Date.now()
+      const result = await writePromise
+      const elapsed = Date.now() - start
+
+      // Should resolve quickly (not wait the full 5s delay)
+      expect(elapsed).toBeLessThan(2000)
+      expect(result.success).toBe(false)
+      // The second fetch should NOT have been called (only the initial 429)
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+      writer.dispose()
+    })
   })
 })
