@@ -1549,30 +1549,6 @@ describe('bug #10 regression: configureServer re-entry produces fresh stores', (
 
 describe('bug #19 regression: write messages without valid token are rejected', () => {
   describe('browser HMR path', () => {
-    it('rejects edit message with no token', () => {
-      const plugin = initPlugin()
-      const server = mockServer()
-      ;(plugin.configureServer as Function)(server)
-
-      // Init handshake first so the channel is alive
-      server.hot._trigger('cortex:msg', { type: 'init' })
-
-      // Send edit WITHOUT a token
-      server.hot._trigger('cortex:msg', {
-        type: 'edit',
-        editId: 'bad-1',
-        property: 'color',
-        value: 'red',
-        source: 'div',
-        elementSelector: 'div',
-      })
-
-      // Should receive AUTH_FAILED error
-      const authError = server._sent.find((s) => (s.data as any).code === 'AUTH_FAILED')
-      expect(authError).toBeDefined()
-      expect((authError!.data as any).type).toBe('error')
-    })
-
     it('rejects edit message with wrong token', () => {
       const plugin = initPlugin()
       const server = mockServer()

@@ -45,7 +45,7 @@ describe('HoverOverlay', () => {
     target.remove()
   })
 
-  it('has pointer-events: none from CSS class', () => {
+  it('renders overlay with correct positioning from bounding rect', () => {
     setup()
     const target = document.createElement('div')
     document.body.appendChild(target)
@@ -56,8 +56,8 @@ describe('HoverOverlay', () => {
     render(<HoverOverlay element={target} />, root)
     const overlay = root.querySelector('.cortex-hover-overlay') as HTMLElement
     expect(overlay).not.toBeNull()
-    // The class name is applied, actual pointer-events comes from CSS
-    expect(overlay.classList.contains('cortex-hover-overlay')).toBe(true)
+    expect(overlay.style.width).toBe('100px')
+    expect(overlay.style.height).toBe('100px')
 
     restore()
     target.remove()

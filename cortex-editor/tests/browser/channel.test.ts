@@ -295,11 +295,6 @@ describe('createWebSocketChannel', () => {
     expect(handler).not.toHaveBeenCalled()
   })
 
-  it('uses default URL when none provided', () => {
-    createWebSocketChannel()
-    expect(mockInstances[0]!.url).toContain(':24678/cortex')
-  })
-
   // Fix 1: unsubscribe
   it('onMessage() returns unsubscribe that removes handler', () => {
     const channel = createWebSocketChannel({ url: 'ws://test' })

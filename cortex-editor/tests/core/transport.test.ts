@@ -163,7 +163,8 @@ describe('CortexTransport', () => {
     const error = await new Promise<Error>((resolve) => {
       ws.on('error', resolve)
     })
-    expect(error).toBeDefined()
+    // Must confirm rejection is a 403 Forbidden, not a generic connection error
+    expect(error.message).toMatch(/403|Forbidden|Unexpected server response/)
   })
 
   it('accepts WebSocket connections with localhost Origin', async () => {
@@ -179,6 +180,34 @@ describe('CortexTransport', () => {
     })
     expect(ws.readyState).toBe(WebSocket.OPEN)
     ws.close()
+  })
+
+  it('accepts WebSocket connections with 127.0.0.1 Origin', async () => {
+    transport = new CortexTransport({ port: 0 })
+    await transport.start()
+
+    const ws = new WebSocket(`ws://localhost:${transport.port}`, {
+      headers: { Origin: 'http://127.0.0.1:3000' },
+    })
+    await new Promise<void>((resolve, reject) => {
+      ws.on('open', resolve)
+      ws.on('error', reject)
+    })
+    expect(ws.readyState).toBe(WebSocket.OPEN)
+    ws.close()
+  })
+
+  it('rejects WebSocket connections with null Origin (sandboxed iframe)', async () => {
+    transport = new CortexTransport({ port: 0 })
+    await transport.start()
+
+    const ws = new WebSocket(`ws://localhost:${transport.port}`, {
+      headers: { Origin: 'null' },
+    })
+    const error = await new Promise<Error>((resolve) => {
+      ws.on('error', resolve)
+    })
+    expect(error.message).toMatch(/403|Forbidden|Unexpected server response/)
   })
 
   it('onMessage returns unsubscribe function', async () => {

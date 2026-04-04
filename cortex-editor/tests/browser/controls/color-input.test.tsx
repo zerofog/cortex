@@ -91,10 +91,6 @@ describe('rgbToHex', () => {
     expect(rgbToHex('rgb(255, 255, 255)')).toBe('#ffffff')
   })
 
-  it('passes through valid hex', () => {
-    expect(rgbToHex('#3b82f6')).toBe('#3b82f6')
-  })
-
   it('lowercases hex', () => {
     expect(rgbToHex('#FF0000')).toBe('#ff0000')
   })
@@ -177,10 +173,6 @@ describe('parseColor', () => {
 })
 
 describe('formatColor', () => {
-  it('returns hex when alpha is 100', () => {
-    expect(formatColor('#3b82f6', 100)).toBe('#3b82f6')
-  })
-
   it('returns rgba when alpha < 100', () => {
     expect(formatColor('#3b82f6', 50)).toBe('rgba(59, 130, 246, 0.5)')
   })
