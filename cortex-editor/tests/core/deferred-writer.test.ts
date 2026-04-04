@@ -201,6 +201,28 @@ describe('DeferredWriter', () => {
       expect(cancelledIds).not.toContain('e4')
     })
 
+    it('returns inflight editIds in addition to pending editIds', async () => {
+      const writeFn = vi.fn().mockImplementation(async () => {
+        await new Promise(r => setTimeout(r, 5000))
+        return { success: true }
+      })
+      const writer = new DeferredWriter({ coalescingMs: 100, writeFn })
+
+      // Enqueue two edits for the same element, then flush to make them inflight
+      writer.enqueue({ editId: 'e1', filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-top', value: '16px', failureReason: 'no class' })
+      writer.enqueue({ editId: 'e2', filePath: '/app/App.tsx', line: 14, col: 7, property: 'padding-left', value: '8px', failureReason: 'no class' })
+      await vi.advanceTimersByTimeAsync(100) // flush fires, now e1+e2 are inflight
+
+      // Enqueue a new pending edit for a different element in the same file
+      writer.enqueue({ editId: 'e3', filePath: '/app/App.tsx', line: 30, col: 5, property: 'color', value: 'red', failureReason: 'no class' })
+
+      // Cancel — should return both inflight (e1, e2) and pending (e3)
+      const cancelledIds = writer.cancelForFile('/app/App.tsx')
+
+      expect(cancelledIds).toEqual(expect.arrayContaining(['e1', 'e2', 'e3']))
+      expect(cancelledIds).toHaveLength(3)
+    })
+
     it('returns empty array when no pending entries match', () => {
       const writeFn = vi.fn().mockResolvedValue({ success: true })
       const writer = new DeferredWriter({ coalescingMs: 250, writeFn })
