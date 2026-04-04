@@ -25,42 +25,34 @@ export interface MCPServerHandle {
 }
 
 /** Walk up from startDir looking for a .cortex directory containing a port file.
- *  Stops at project boundaries (.git or package.json) to prevent a malicious
- *  .cortex/port in a shared parent directory from hijacking the connection.
- *  When found above a boundary (monorepo case), the directory must also have
- *  its own project marker to be trusted. */
+ *  Stops at the git root (.git) to prevent a malicious .cortex/port in a shared
+ *  parent directory from hijacking the connection. We use .git (not package.json)
+ *  as the boundary because monorepos have nested package.json files but only one
+ *  .git at the root — stopping at package.json would break monorepo discovery. */
 export function findProjectRoot(startDir: string = process.cwd()): string | null {
   let dir = path.resolve(startDir)
   const { root } = path.parse(dir)
-  let passedProjectBoundary = false
   while (true) {
     // Check for .cortex/port in this directory
     const candidate = path.join(dir, '.cortex', 'port')
     try {
       fs.accessSync(candidate)
-      // Found port — verify trust level
-      if (!passedProjectBoundary) return dir
-      // Above a boundary: only trust if this dir also has a project marker
-      // (monorepo root has both .git and .cortex/port)
-      if (hasProjectMarker(dir)) return dir
-      return null // port found above boundary with no marker — don't trust
+      return dir
     } catch {
       // not found, walk up
     }
-    // Stop if we've already checked one level above a boundary
-    if (passedProjectBoundary) return null
-    // Check for project boundary markers before walking up
-    if (hasProjectMarker(dir)) passedProjectBoundary = true
+    // Stop at git root — .cortex/port should be at or below .git, never above it.
+    // If .git and .cortex/port are in the same dir, the port check above catches it.
+    try {
+      fs.accessSync(path.join(dir, '.git'))
+      return null
+    } catch {
+      // no .git, keep walking
+    }
     const parent = path.dirname(dir)
     if (parent === dir || dir === root) return null
     dir = parent
   }
-}
-
-function hasProjectMarker(dir: string): boolean {
-  try { fs.accessSync(path.join(dir, '.git')); return true } catch {}
-  try { fs.accessSync(path.join(dir, 'package.json')); return true } catch {}
-  return false
 }
 
 /** Read a .cortex discovery file, returning null on ENOENT or empty content. */
