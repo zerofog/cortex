@@ -26,7 +26,9 @@ export interface MCPServerHandle {
 
 /** Walk up from startDir looking for a .cortex directory containing a port file.
  *  Stops at project boundaries (.git or package.json) to prevent a malicious
- *  .cortex/port in a shared parent directory from hijacking the connection. */
+ *  .cortex/port in a shared parent directory from hijacking the connection.
+ *  When found above a boundary (monorepo case), the directory must also have
+ *  its own project marker to be trusted. */
 export function findProjectRoot(startDir: string = process.cwd()): string | null {
   let dir = path.resolve(startDir)
   const { root } = path.parse(dir)
@@ -36,29 +38,29 @@ export function findProjectRoot(startDir: string = process.cwd()): string | null
     const candidate = path.join(dir, '.cortex', 'port')
     try {
       fs.accessSync(candidate)
-      return dir
+      // Found port — verify trust level
+      if (!passedProjectBoundary) return dir
+      // Above a boundary: only trust if this dir also has a project marker
+      // (monorepo root has both .git and .cortex/port)
+      if (hasProjectMarker(dir)) return dir
+      return null // port found above boundary with no marker — don't trust
     } catch {
       // not found, walk up
     }
-    // Stop if we've passed a project boundary without finding .cortex/port —
-    // don't walk into unrelated parent directories
+    // Stop if we've already checked one level above a boundary
     if (passedProjectBoundary) return null
     // Check for project boundary markers before walking up
-    try {
-      fs.accessSync(path.join(dir, '.git'))
-      passedProjectBoundary = true
-    } catch {
-      try {
-        fs.accessSync(path.join(dir, 'package.json'))
-        passedProjectBoundary = true
-      } catch {
-        // no boundary marker, keep walking
-      }
-    }
+    if (hasProjectMarker(dir)) passedProjectBoundary = true
     const parent = path.dirname(dir)
     if (parent === dir || dir === root) return null
     dir = parent
   }
+}
+
+function hasProjectMarker(dir: string): boolean {
+  try { fs.accessSync(path.join(dir, '.git')); return true } catch {}
+  try { fs.accessSync(path.join(dir, 'package.json')); return true } catch {}
+  return false
 }
 
 /** Read a .cortex discovery file, returning null on ENOENT or empty content. */
