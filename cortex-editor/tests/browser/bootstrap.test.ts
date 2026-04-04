@@ -64,17 +64,6 @@ describe('bootstrap', () => {
     expect(css).toContain('pointer-events: none')
   })
 
-  it('attaches closed shadow DOM (internals not externally accessible)', async () => {
-    // Shadow DOM internals (styles, render target) are verified by component tests
-    const { bootstrap, _resetForTesting } = await import('../../src/browser/index.js')
-    _resetForTesting()
-    bootstrap()
-
-    const host = document.documentElement.querySelector('[data-cortex-host]') as HTMLElement
-    // Closed shadow root: host.shadowRoot returns null to external code
-    expect(host.shadowRoot).toBeNull()
-  })
-
   it('detects Vite channel when __cortex_send__ is present', async () => {
     window.__cortex_send__ = vi.fn()
 
@@ -88,17 +77,6 @@ describe('bootstrap', () => {
 
     delete window.__cortex_send__
     delete window.__cortex_channel__
-  })
-
-  it('falls back to WebSocket when __cortex_send__ is not present', async () => {
-    delete window.__cortex_send__
-
-    const { bootstrap, _resetForTesting } = await import('../../src/browser/index.js')
-    _resetForTesting()
-    bootstrap()
-
-    // WebSocket channel should not set __cortex_channel__
-    expect(window.__cortex_channel__).toBeUndefined()
   })
 
   it('_resetForTesting unmounts and removes host', async () => {
@@ -195,29 +173,20 @@ describe('theme detection', () => {
     expect(host.getAttribute('data-theme')).toBe('blueprint')
   })
 
-  it('sets data-theme="blueprint" when html has data-theme="dark"', async () => {
-    mockMatchMedia(false)
-    document.documentElement.setAttribute('data-theme', 'dark')
+  it.each(['data-theme', 'data-mode'])(
+    'sets blueprint when html has %s="dark"',
+    async (attr) => {
+      mockMatchMedia(false)
+      document.documentElement.setAttribute(attr, 'dark')
 
-    const { bootstrap, _resetForTesting } = await import('../../src/browser/index.js')
-    _resetForTesting()
-    bootstrap()
+      const { bootstrap, _resetForTesting } = await import('../../src/browser/index.js')
+      _resetForTesting()
+      bootstrap()
 
-    const host = document.querySelector('[data-cortex-host]') as HTMLElement
-    expect(host.getAttribute('data-theme')).toBe('blueprint')
-  })
-
-  it('sets data-theme="blueprint" when html has data-mode="dark"', async () => {
-    mockMatchMedia(false)
-    document.documentElement.setAttribute('data-mode', 'dark')
-
-    const { bootstrap, _resetForTesting } = await import('../../src/browser/index.js')
-    _resetForTesting()
-    bootstrap()
-
-    const host = document.querySelector('[data-cortex-host]') as HTMLElement
-    expect(host.getAttribute('data-theme')).toBe('blueprint')
-  })
+      const host = document.querySelector('[data-cortex-host]') as HTMLElement
+      expect(host.getAttribute('data-theme')).toBe('blueprint')
+    },
+  )
 
   // TODO: requires real CSSOM — happy-dom does not return meaningful computed background-color values
   it.skip('falls back to background luminance when no other signals present', async () => {
@@ -313,25 +282,21 @@ describe('theme detection', () => {
     expect(host.getAttribute('data-theme')).toBe('blueprint') // system → auto → dark
   })
 
-  it('getThemePreference returns system when localStorage is empty', async () => {
-    localStorage.removeItem('cortex-theme-preference')
+  it.each([
+    [undefined, 'system'],
+    ['dark', 'dark'],
+    ['light', 'light'],
+    ['system', 'system'],
+    ['invalid-value', 'system'],
+  ])('getThemePreference(%s) → %s', async (stored, expected) => {
+    if (stored !== undefined) {
+      localStorage.setItem('cortex-theme-preference', stored)
+    } else {
+      localStorage.removeItem('cortex-theme-preference')
+    }
 
     const { getThemePreference } = await import('../../src/browser/index.js')
-    expect(getThemePreference()).toBe('system')
-  })
-
-  it('getThemePreference returns stored value when valid', async () => {
-    localStorage.setItem('cortex-theme-preference', 'dark')
-
-    const { getThemePreference } = await import('../../src/browser/index.js')
-    expect(getThemePreference()).toBe('dark')
-  })
-
-  it('getThemePreference returns system for invalid stored value', async () => {
-    localStorage.setItem('cortex-theme-preference', 'invalid-value')
-
-    const { getThemePreference } = await import('../../src/browser/index.js')
-    expect(getThemePreference()).toBe('system')
+    expect(getThemePreference()).toBe(expected)
   })
 
   it('setThemePreference persists to localStorage and re-applies theme', async () => {

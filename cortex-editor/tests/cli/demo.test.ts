@@ -54,13 +54,13 @@ describe('cortex demo', () => {
         expect(pkg.name).toBe('cortex-demo')
         expect(pkg.private).toBe(true)
         expect(pkg.type).toBe('module')
-        expect(pkg.dependencies.react).toBeDefined()
-        expect(pkg.dependencies['react-dom']).toBeDefined()
-        expect(pkg.devDependencies.vite).toBeDefined()
-        expect(pkg.devDependencies['cortex-editor']).toBeDefined()
-        expect(pkg.devDependencies['@vitejs/plugin-react']).toBeDefined()
-        expect(pkg.devDependencies.tailwindcss).toBeDefined()
-        expect(pkg.devDependencies['@tailwindcss/vite']).toBeDefined()
+        expect(pkg.dependencies).toHaveProperty('react')
+        expect(pkg.dependencies).toHaveProperty('react-dom')
+        expect(pkg.devDependencies).toHaveProperty('vite')
+        expect(pkg.devDependencies).toHaveProperty('cortex-editor')
+        expect(pkg.devDependencies).toHaveProperty('@vitejs/plugin-react')
+        expect(pkg.devDependencies).toHaveProperty('tailwindcss')
+        expect(pkg.devDependencies).toHaveProperty('@tailwindcss/vite')
         expect(pkg.scripts.dev).toBe('vite')
       } finally {
         cleanup(cwd)
@@ -107,9 +107,7 @@ describe('cortex demo', () => {
           path.join(cwd, 'cortex-demo', 'src', 'App.tsx'),
           'utf8'
         )
-        // Must contain JSX angle brackets and a default export
-        expect(content).toMatch(/<\w+/)
-        expect(content).toContain('export default')
+        expect(content).toContain('export default function App')
       } finally {
         cleanup(cwd)
       }

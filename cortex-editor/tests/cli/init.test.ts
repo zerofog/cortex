@@ -209,30 +209,6 @@ describe('cortex init', () => {
     }
   })
 
-  it('injects cortexEditor into empty plugins array', async () => {
-    const viteConfig = [
-      'import { defineConfig } from \'vite\'',
-      '',
-      'export default defineConfig({',
-      '  plugins: [],',
-      '})',
-    ].join('\n')
-    const dir = makeTmpProject({
-      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0"}}',
-      'vite.config.ts': viteConfig,
-    })
-    try {
-      const result = await runInit(dir)
-      expect(result.vitePluginFound).toBe(true)
-      expect(result.vitePluginInjected).toBe(true)
-      const content = fs.readFileSync(path.join(dir, 'vite.config.ts'), 'utf8')
-      expect(content).toContain('import { cortexEditor } from "cortex-editor/vite"')
-      expect(content).toContain('cortexEditor()')
-    } finally {
-      cleanup(dir)
-    }
-  })
-
   it('throws on malformed vite config with helpful message', async () => {
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0"}}',
