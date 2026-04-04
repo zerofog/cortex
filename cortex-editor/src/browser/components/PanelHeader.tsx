@@ -1,5 +1,40 @@
 import type { JSX } from 'preact'
+import { useState } from 'preact/hooks'
+import { SegmentedControl } from './controls/SegmentedControl.js'
+import { getThemePreference, setThemePreference, type ThemePreference } from '../index.js'
 import { encodeFilePath } from '../label.js'
+
+const THEME_OPTIONS = [
+  {
+    value: 'light',
+    title: 'Light theme',
+    icon: (
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="6" cy="6" r="2.5" />
+        <path d="M6 1v1M6 10v1M1 6h1M10 6h1M2.5 2.5l.7.7M8.8 8.8l.7.7M9.5 2.5l-.7.7M3.2 8.8l-.7.7" />
+      </svg>
+    ),
+  },
+  {
+    value: 'dark',
+    title: 'Dark theme',
+    icon: (
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10 7.5A4.5 4.5 0 014.5 2c0-.3 0-.6.1-.9A5 5 0 006 11a5 5 0 004.9-4.4c-.3.1-.6.1-.9-.1z" />
+      </svg>
+    ),
+  },
+  {
+    value: 'system',
+    title: 'Match system theme',
+    icon: (
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="1.5" y="2.5" width="9" height="6" rx="1" />
+        <line x1="4" y1="10" x2="8" y2="10" />
+      </svg>
+    ),
+  },
+]
 
 export interface PanelHeaderProps {
   tagName: string
@@ -67,6 +102,12 @@ export function PanelHeader({
   // For library elements with ancestor source, show "<tagName>" instead of componentName
   const displayTag = isLibrary && ancestorSource ? `<${tagName}>` : (componentName ?? `<${tagName}>`)
 
+  const [themePref, setThemePref] = useState<ThemePreference>(getThemePreference())
+  const handleThemeChange = (pref: ThemePreference) => {
+    setThemePref(pref)
+    setThemePreference(pref)
+  }
+
   const showPseudoTabs = hasBefore || hasAfter
 
   return (
@@ -95,6 +136,12 @@ export function PanelHeader({
         )}
       </div>
       <div class="cortex-panel-header__actions">
+        <SegmentedControl
+          options={THEME_OPTIONS}
+          value={themePref}
+          onChange={(v) => handleThemeChange(v as ThemePreference)}
+          size="sm"
+        />
         <button
           class="cortex-panel-header__btn"
           data-action="parent"

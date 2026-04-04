@@ -123,3 +123,243 @@ describe('bootstrap', () => {
     expect(hosts).toHaveLength(1)
   })
 })
+
+describe('theme detection', () => {
+  let originalMatchMedia: typeof window.matchMedia
+
+  beforeEach(() => {
+    // @ts-expect-error — mock WebSocket
+    globalThis.WebSocket = MockWebSocket
+    originalMatchMedia = window.matchMedia
+    document.querySelectorAll('[data-cortex-host]').forEach(el => el.remove())
+    document.documentElement.removeAttribute('class')
+    document.documentElement.removeAttribute('data-theme')
+    document.documentElement.removeAttribute('data-mode')
+  })
+
+  afterEach(async () => {
+    window.matchMedia = originalMatchMedia
+    const mod = await import('../../src/browser/index.js')
+    mod._resetForTesting()
+    document.querySelectorAll('[data-cortex-host]').forEach(el => el.remove())
+    document.documentElement.removeAttribute('class')
+    document.documentElement.removeAttribute('data-theme')
+    document.documentElement.removeAttribute('data-mode')
+    try { localStorage.removeItem('cortex-theme-preference') } catch { /* ignore */ }
+  })
+
+  function mockMatchMedia(darkMode: boolean) {
+    window.matchMedia = vi.fn((query: string) => ({
+      matches: query === '(prefers-color-scheme: dark)' ? darkMode : false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })) as unknown as typeof window.matchMedia
+  }
+
+  it('sets data-theme="blueprint" when prefers-color-scheme: dark', async () => {
+    mockMatchMedia(true)
+
+    const { bootstrap, _resetForTesting } = await import('../../src/browser/index.js')
+    _resetForTesting()
+    bootstrap()
+
+    const host = document.querySelector('[data-cortex-host]') as HTMLElement
+    expect(host.getAttribute('data-theme')).toBe('blueprint')
+  })
+
+  it('does not set data-theme when light mode (default)', async () => {
+    mockMatchMedia(false)
+
+    const { bootstrap, _resetForTesting } = await import('../../src/browser/index.js')
+    _resetForTesting()
+    bootstrap()
+
+    const host = document.querySelector('[data-cortex-host]') as HTMLElement
+    expect(host.hasAttribute('data-theme')).toBe(false)
+  })
+
+  it('sets data-theme="blueprint" when html has class="dark"', async () => {
+    mockMatchMedia(false)
+    document.documentElement.classList.add('dark')
+
+    const { bootstrap, _resetForTesting } = await import('../../src/browser/index.js')
+    _resetForTesting()
+    bootstrap()
+
+    const host = document.querySelector('[data-cortex-host]') as HTMLElement
+    expect(host.getAttribute('data-theme')).toBe('blueprint')
+  })
+
+  it('sets data-theme="blueprint" when html has data-theme="dark"', async () => {
+    mockMatchMedia(false)
+    document.documentElement.setAttribute('data-theme', 'dark')
+
+    const { bootstrap, _resetForTesting } = await import('../../src/browser/index.js')
+    _resetForTesting()
+    bootstrap()
+
+    const host = document.querySelector('[data-cortex-host]') as HTMLElement
+    expect(host.getAttribute('data-theme')).toBe('blueprint')
+  })
+
+  it('sets data-theme="blueprint" when html has data-mode="dark"', async () => {
+    mockMatchMedia(false)
+    document.documentElement.setAttribute('data-mode', 'dark')
+
+    const { bootstrap, _resetForTesting } = await import('../../src/browser/index.js')
+    _resetForTesting()
+    bootstrap()
+
+    const host = document.querySelector('[data-cortex-host]') as HTMLElement
+    expect(host.getAttribute('data-theme')).toBe('blueprint')
+  })
+
+  // TODO: requires real CSSOM — happy-dom does not return meaningful computed background-color values
+  it.skip('falls back to background luminance when no other signals present', async () => {
+    // Would test: dark body background → blueprint theme
+  })
+
+  it('updates theme when matchMedia fires a change event', async () => {
+    mockMatchMedia(false)
+
+    const { bootstrap, _resetForTesting } = await import('../../src/browser/index.js')
+    _resetForTesting()
+    bootstrap()
+
+    const host = document.querySelector('[data-cortex-host]') as HTMLElement
+    expect(host.hasAttribute('data-theme')).toBe(false)
+
+    // Find the MediaQueryList that had addEventListener('change', ...) called on it
+    const matchMediaMock = window.matchMedia as ReturnType<typeof vi.fn>
+    const mql = matchMediaMock.mock.results
+      .map((r: { type: string; value: unknown }) => r.value as Record<string, ReturnType<typeof vi.fn>>)
+      .find((v) => v.addEventListener.mock.calls.some((c: unknown[]) => c[0] === 'change'))
+    expect(mql).toBeDefined()
+
+    const changeHandler = mql!.addEventListener.mock.calls.find(
+      (c: unknown[]) => c[0] === 'change'
+    )![1] as (e: { matches: boolean }) => void
+
+    // Simulate OS switching to dark mode
+    mockMatchMedia(true)
+    changeHandler({ matches: true })
+
+    expect(host.getAttribute('data-theme')).toBe('blueprint')
+  })
+
+  it('_resetForTesting cleans up theme watchers', async () => {
+    mockMatchMedia(false)
+
+    const { bootstrap, _resetForTesting } = await import('../../src/browser/index.js')
+    _resetForTesting()
+    bootstrap()
+
+    // Find the MediaQueryList that had addEventListener('change', ...) called on it
+    const matchMediaMock = window.matchMedia as ReturnType<typeof vi.fn>
+    const mql = matchMediaMock.mock.results
+      .map((r: { type: string; value: unknown }) => r.value as Record<string, ReturnType<typeof vi.fn>>)
+      .find((v) => v.addEventListener.mock.calls.some((c: unknown[]) => c[0] === 'change'))
+    expect(mql).toBeDefined()
+
+    _resetForTesting()
+
+    const removeCalls = mql!.removeEventListener.mock.calls.filter(
+      (c: unknown[]) => c[0] === 'change'
+    )
+    expect(removeCalls.length).toBeGreaterThan(0)
+  })
+
+  it('respects light preference override (ignores OS dark mode)', async () => {
+    mockMatchMedia(true) // OS says dark
+
+    const { bootstrap, _resetForTesting } = await import('../../src/browser/index.js')
+    _resetForTesting()
+    // Set preference AFTER _resetForTesting (which clears localStorage)
+    localStorage.setItem('cortex-theme-preference', 'light')
+    bootstrap()
+
+    const host = document.querySelector('[data-cortex-host]') as HTMLElement
+    expect(host.hasAttribute('data-theme')).toBe(false) // light override wins
+  })
+
+  it('respects dark preference override (ignores OS light mode)', async () => {
+    mockMatchMedia(false) // OS says light
+
+    const { bootstrap, _resetForTesting } = await import('../../src/browser/index.js')
+    _resetForTesting()
+    // Set preference AFTER _resetForTesting (which clears localStorage)
+    localStorage.setItem('cortex-theme-preference', 'dark')
+    bootstrap()
+
+    const host = document.querySelector('[data-cortex-host]') as HTMLElement
+    expect(host.getAttribute('data-theme')).toBe('blueprint')
+  })
+
+  it('system preference uses auto-detection', async () => {
+    mockMatchMedia(true) // OS says dark
+
+    const { bootstrap, _resetForTesting } = await import('../../src/browser/index.js')
+    _resetForTesting()
+    // Set preference AFTER _resetForTesting (which clears localStorage)
+    localStorage.setItem('cortex-theme-preference', 'system')
+    bootstrap()
+
+    const host = document.querySelector('[data-cortex-host]') as HTMLElement
+    expect(host.getAttribute('data-theme')).toBe('blueprint') // system → auto → dark
+  })
+
+  it('getThemePreference returns system when localStorage is empty', async () => {
+    localStorage.removeItem('cortex-theme-preference')
+
+    const { getThemePreference } = await import('../../src/browser/index.js')
+    expect(getThemePreference()).toBe('system')
+  })
+
+  it('getThemePreference returns stored value when valid', async () => {
+    localStorage.setItem('cortex-theme-preference', 'dark')
+
+    const { getThemePreference } = await import('../../src/browser/index.js')
+    expect(getThemePreference()).toBe('dark')
+  })
+
+  it('getThemePreference returns system for invalid stored value', async () => {
+    localStorage.setItem('cortex-theme-preference', 'invalid-value')
+
+    const { getThemePreference } = await import('../../src/browser/index.js')
+    expect(getThemePreference()).toBe('system')
+  })
+
+  it('setThemePreference persists to localStorage and re-applies theme', async () => {
+    mockMatchMedia(false)
+
+    const { bootstrap, setThemePreference, getThemePreference, _resetForTesting } =
+      await import('../../src/browser/index.js')
+    _resetForTesting()
+    bootstrap()
+
+    const host = document.querySelector('[data-cortex-host]') as HTMLElement
+    expect(host.hasAttribute('data-theme')).toBe(false) // starts light
+
+    setThemePreference('dark')
+    expect(getThemePreference()).toBe('dark')
+    expect(host.getAttribute('data-theme')).toBe('blueprint') // now dark
+
+    setThemePreference('light')
+    expect(getThemePreference()).toBe('light')
+    expect(host.hasAttribute('data-theme')).toBe(false) // back to light
+  })
+
+  it('_resetForTesting clears theme preference from localStorage', async () => {
+    localStorage.setItem('cortex-theme-preference', 'dark')
+
+    const { _resetForTesting } = await import('../../src/browser/index.js')
+    _resetForTesting()
+
+    expect(localStorage.getItem('cortex-theme-preference')).toBeNull()
+  })
+})

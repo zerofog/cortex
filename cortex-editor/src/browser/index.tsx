@@ -11,6 +11,75 @@ let hostElement: HTMLDivElement | null = null
 let shadowRoot: ShadowRoot | null = null
 let rootElement: HTMLDivElement | null = null
 let activeChannel: CortexChannel | null = null
+let themeMediaQuery: MediaQueryList | null = null
+let themeObserver: MutationObserver | null = null
+let currentTheme: 'blueprint' | null = null
+
+export type ThemePreference = 'light' | 'dark' | 'system'
+
+const STORAGE_KEY = 'cortex-theme-preference'
+
+export function getThemePreference(): ThemePreference {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    if (stored === 'light' || stored === 'dark' || stored === 'system') return stored
+  } catch { /* localStorage unavailable */ }
+  return 'system'
+}
+
+export function setThemePreference(pref: ThemePreference): void {
+  try { localStorage.setItem(STORAGE_KEY, pref) } catch { /* ignore */ }
+  applyTheme()
+}
+
+export function detectTheme(): 'blueprint' | null {
+  const pref = getThemePreference()
+  if (pref === 'light') return null
+  if (pref === 'dark') return 'blueprint'
+
+  // pref === 'system' — auto-detect
+  // Explicit app signals first — app overrides OS preference
+  const html = document.documentElement
+  if (html.classList.contains('dark')) return 'blueprint'
+  if (html.classList.contains('light')) return null
+  const dataTheme = html.getAttribute('data-theme')
+  if (dataTheme?.includes('dark')) return 'blueprint'
+  if (dataTheme?.includes('light')) return null
+  const dataMode = html.getAttribute('data-mode')
+  if (dataMode?.includes('dark')) return 'blueprint'
+  if (dataMode?.includes('light')) return null
+
+  // OS preference as fallback (only when app has no explicit signal)
+  if (window.matchMedia('(prefers-color-scheme: dark)').matches) return 'blueprint'
+
+  // Luminance fallback: sample background color of the page
+  if (!document.body) return null
+  const bg = getComputedStyle(document.body).backgroundColor
+  const match = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?/)
+  if (match) {
+    const alpha = match[4] !== undefined ? parseFloat(match[4]) : 1
+    if (alpha < 0.01) return null // transparent — inconclusive
+    const r = Number(match[1]) / 255
+    const g = Number(match[2]) / 255
+    const b = Number(match[3]) / 255
+    const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    if (luminance < 0.4) return 'blueprint'
+  }
+
+  return null
+}
+
+function applyTheme(): void {
+  if (!hostElement) return
+  const theme = detectTheme()
+  if (theme === currentTheme) return
+  currentTheme = theme
+  if (theme) {
+    hostElement.setAttribute('data-theme', theme)
+  } else {
+    hostElement.removeAttribute('data-theme')
+  }
+}
 
 /**
  * Create the Shadow DOM host, detect channel type, and render CortexApp.
@@ -51,6 +120,17 @@ export function bootstrap(): void {
   rootElement.setAttribute('data-cortex-root', '')
   shadowRoot.appendChild(rootElement)
 
+  applyTheme()
+
+  themeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+  themeMediaQuery.addEventListener('change', applyTheme)
+
+  themeObserver = new MutationObserver(applyTheme)
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class', 'data-theme', 'data-mode'],
+  })
+
   // Detect adapter type and create appropriate channel
   if (typeof window.__cortex_send__ === 'function') {
     activeChannel = createViteChannel()
@@ -86,12 +166,18 @@ export function _resetForTesting(): void {
   }
   activeChannel?.dispose?.()
   activeChannel = null
+  themeMediaQuery?.removeEventListener('change', applyTheme)
+  themeMediaQuery = null
+  themeObserver?.disconnect()
+  themeObserver = null
+  currentTheme = null
   hostElement?.remove()
   hostElement = null
   shadowRoot = null
   rootElement = null
   _setCortexHost(null, null)
   document.querySelector('[data-cortex-fonts]')?.remove()
+  try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
 }
 
 // Auto-activate on page load

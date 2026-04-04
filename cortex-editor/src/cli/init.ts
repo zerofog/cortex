@@ -1,9 +1,39 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { Project, SyntaxKind, ts, type SourceFile, type ObjectLiteralExpression } from 'ts-morph'
+
+/**
+ * Find the config object literal in a Vite config file.
+ * Supports: `export default defineConfig({...})` and `export default {...}`
+ */
+function findConfigObject(sourceFile: SourceFile): ObjectLiteralExpression | undefined {
+  // Look for `export default ...`
+  const defaultExport = sourceFile.getFirstDescendantByKind(SyntaxKind.ExportAssignment)
+  if (!defaultExport) return undefined
+
+  const expr = defaultExport.getExpression()
+
+  // Case 1: `export default defineConfig({...})` — call expression with object arg
+  if (expr.getKind() === SyntaxKind.CallExpression) {
+    const callExpr = expr.asKindOrThrow(SyntaxKind.CallExpression)
+    const firstArg = callExpr.getArguments()[0]
+    if (firstArg?.getKind() === SyntaxKind.ObjectLiteralExpression) {
+      return firstArg.asKindOrThrow(SyntaxKind.ObjectLiteralExpression)
+    }
+  }
+
+  // Case 2: `export default {...}` — bare object literal
+  if (expr.getKind() === SyntaxKind.ObjectLiteralExpression) {
+    return expr.asKindOrThrow(SyntaxKind.ObjectLiteralExpression)
+  }
+
+  return undefined
+}
 
 export interface InitResult {
   mcpWritten: boolean
   vitePluginFound: boolean | null
+  vitePluginInjected: boolean
   depFound: boolean
 }
 
@@ -60,8 +90,9 @@ export async function runInit(cwd: string = process.cwd()): Promise<InitResult> 
     mcpWritten = true
   }
 
-  // 3. Check Vite config for cortexEditor plugin
+  // 3. Inject cortexEditor plugin into Vite config (or detect existing)
   let vitePluginFound: boolean | null = null
+  let vitePluginInjected = false
   const viteConfigPath = [
     'vite.config.ts', 'vite.config.js', 'vite.config.mts',
     'vite.config.mjs', 'vite.config.cts', 'vite.config.cjs',
@@ -70,14 +101,73 @@ export async function runInit(cwd: string = process.cwd()): Promise<InitResult> 
     .find(f => fs.existsSync(f))
 
   if (viteConfigPath) {
+    const basename = path.basename(viteConfigPath)
     const content = fs.readFileSync(viteConfigPath, 'utf8')
-    vitePluginFound = content.includes('cortexEditor')
-    if (vitePluginFound) {
-      console.log(`  ${path.basename(viteConfigPath)}: cortexEditor plugin found`)
+
+    if (content.includes('cortexEditor')) {
+      vitePluginFound = true
+      console.log(`  ${basename}: cortexEditor plugin found`)
     } else {
-      console.warn(`  ${path.basename(viteConfigPath)}: cortexEditor plugin NOT found`)
-      console.warn('    Add to your Vite config: plugins: [cortexEditor()]')
-      console.warn('    Import: import { cortexEditor } from "cortex-editor/vite"')
+      // Attempt AST-based injection
+      const project = new Project({
+        useInMemoryFileSystem: true,
+        compilerOptions: {
+          allowJs: true,
+          noResolve: true,
+          skipLibCheck: true,
+        },
+      })
+      // Use .ts extension to enable full syntax support regardless of actual file extension
+      const sourceFile = project.createSourceFile('vite.config.ts', content)
+
+      // Check for syntax-level parse errors only (not type errors)
+      const syntaxDiag = sourceFile.getPreEmitDiagnostics()
+        .filter(d => d.getCode() >= 1000 && d.getCode() < 2000)
+      if (syntaxDiag.length > 0) {
+        const raw = syntaxDiag[0]!.getMessageText()
+        const text = typeof raw === 'string'
+          ? raw
+          : ts.flattenDiagnosticMessageText(raw.compilerObject, '\n')
+        throw new Error(`${basename}: failed to parse — ${text}`)
+      }
+
+      // Find the config object literal
+      const configObject = findConfigObject(sourceFile)
+      if (!configObject) {
+        throw new Error(
+          `${basename}: could not find config object — expected defineConfig({...}) or export default {...}`
+        )
+      }
+
+      // Find or create the plugins property
+      let pluginAdded = false
+      const pluginsProp = configObject.getProperty('plugins')
+      if (pluginsProp) {
+        const initializer = pluginsProp.getChildrenOfKind(SyntaxKind.ArrayLiteralExpression)[0]
+        if (initializer) {
+          initializer.addElement('cortexEditor()')
+          pluginAdded = true
+        } else {
+          console.warn(`  ${basename}: plugins is not an array literal — add cortexEditor() manually`)
+        }
+      } else {
+        configObject.addPropertyAssignment({
+          name: 'plugins',
+          initializer: '[cortexEditor()]',
+        })
+        pluginAdded = true
+      }
+
+      if (pluginAdded) {
+        sourceFile.addImportDeclaration({
+          namedImports: ['cortexEditor'],
+          moduleSpecifier: 'cortex-editor/vite',
+        })
+        fs.writeFileSync(viteConfigPath, sourceFile.getFullText())
+        vitePluginFound = true
+        vitePluginInjected = true
+        console.log(`  ${basename}: cortexEditor plugin injected`)
+      }
     }
   } else {
     console.warn('  No vite.config found — skipping plugin check')
@@ -93,5 +183,5 @@ export async function runInit(cwd: string = process.cwd()): Promise<InitResult> 
   console.log('')
   console.log('Setup complete. Restart your editor to pick up the MCP server.')
 
-  return { mcpWritten, vitePluginFound, depFound }
+  return { mcpWritten, vitePluginFound, vitePluginInjected, depFound }
 }

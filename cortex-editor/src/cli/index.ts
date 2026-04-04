@@ -5,6 +5,7 @@ const { positionals, values } = parseArgs({
   allowPositionals: true,
   options: {
     port: { type: 'string' },
+    fresh: { type: 'boolean' },
     help: { type: 'boolean', short: 'h' },
     version: { type: 'boolean', short: 'v' },
   },
@@ -25,9 +26,11 @@ Usage: cortex <command> [options]
 Commands:
   mcp     Start MCP stdio server (connects to Vite dev server)
   init    Set up Cortex in current project
+  demo    Scaffold a sample app with Cortex pre-wired
 
 Options:
-  --port  Vite dev server port (overrides .cortex/port auto-discovery)
+  --port     Vite dev server port (overrides .cortex/port auto-discovery)
+  --fresh    (demo) Delete existing demo and re-scaffold from scratch
   -h, --help     Show this help message
   -v, --version  Show version`)
   process.exit(values.help ? 0 : 1)
@@ -55,6 +58,14 @@ if (command === 'mcp') {
   try {
     const { runInit } = await import('./init.js')
     await runInit()
+  } catch (err) {
+    console.error(`[cortex] ${err instanceof Error ? err.message : String(err)}`)
+    process.exit(1)
+  }
+} else if (command === 'demo') {
+  try {
+    const { runDemo } = await import('./demo.js')
+    await runDemo({ fresh: Boolean(values.fresh) })
   } catch (err) {
     console.error(`[cortex] ${err instanceof Error ? err.message : String(err)}`)
     process.exit(1)
