@@ -438,13 +438,7 @@ describe('createWebSocketChannel', () => {
     vi.advanceTimersByTime(30000)
     expect(mockInstances).toHaveLength(2) // no more reconnects
 
-    // Queue should be empty — no reconnect will ever flush these messages
-    // Verify by opening a hypothetical connection: nothing should flush
-    // We verify indirectly: send another message, it should not accumulate
-    channel.send(makeMsg('4'))
-    // If queue is cleared on exhaustion, this msg would be the only one queued (bug: old msgs + new)
-    // But the real fix also guards send() against disposed-like state, so we check the next test.
-
+    // Queue should be empty — no reconnect will ever flush these stale messages.
     // Direct verification: open the second WS instance — stale messages should NOT be flushed
     mockInstances[1]!._simulateOpen()
     // If queue was cleared, at most the post-exhaustion message ('4') could flush,
