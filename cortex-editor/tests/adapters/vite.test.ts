@@ -802,6 +802,35 @@ describe('CLI WebSocket bridge', () => {
     expect(server._sent.some((s) => (s.data as any).type === 'cortex')).toBe(false)
   })
 
+  it('rejects CLI message without token (bug #19)', async () => {
+    await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+
+    // Drain the cortex-status and agent-status welcome messages
+    await nextMessage()
+    await nextMessage()
+
+    ws.send(JSON.stringify({ type: 'cortex' }))
+    const response = await nextMessage()
+
+    expect(response.type).toBe('error')
+    expect(response.code).toBe('AUTH_FAILED')
+  })
+
+  it('rejects CLI message with wrong token (bug #19)', async () => {
+    await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+
+    await nextMessage()
+    await nextMessage()
+
+    ws.send(JSON.stringify({ type: 'cortex', token: 'wrong-token' }))
+    const response = await nextMessage()
+
+    expect(response.type).toBe('error')
+    expect(response.code).toBe('AUTH_FAILED')
+  })
+
   it('warns when no httpServer (middleware mode)', () => {
     const plugin = initPlugin()
     const server = mockServer()
@@ -1395,5 +1424,319 @@ describe('CortexSession wiring (A2)', () => {
       // Session fields remain intact (channel dispose didn't touch them).
       expect(getChannel()).toBe(channel)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Regression tests (A4) — each must fail without the corresponding fix
+// ---------------------------------------------------------------------------
+
+describe('bug #5 regression: signal cleanup removes port + token files', () => {
+  let httpServer: HttpServer
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'cortex-signal-test-'))
+  })
+
+  afterEach(async () => {
+    await _resetForTesting()
+    if (httpServer?.listening) {
+      await new Promise<void>((resolve) => httpServer.close(() => resolve()))
+    }
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('dispose cleans up both .cortex/port and .cortex/token files', async () => {
+    const plugin = initPlugin({ root: tmpDir })
+    httpServer = createServer()
+    const handlers = new Map<string, Function>()
+    const server = {
+      middlewares: { use: vi.fn() },
+      httpServer,
+      hot: {
+        on(event: string, handler: Function) { handlers.set(event, handler) },
+        off: vi.fn(),
+        send: vi.fn(),
+        _trigger(event: string, data: unknown) { handlers.get(event)?.(data) },
+      },
+    }
+    ;(plugin.configureServer as Function)(server)
+
+    await new Promise<void>((resolve) => {
+      httpServer.listen(0, '127.0.0.1', () => resolve())
+    })
+
+    const portFile = pathMod.join(tmpDir, '.cortex', 'port')
+    const tokenFile = pathMod.join(tmpDir, '.cortex', 'token')
+
+    // Both files must exist after server start
+    expect(fs.existsSync(portFile)).toBe(true)
+    expect(fs.existsSync(tokenFile)).toBe(true)
+
+    // Token file must have restrictive permissions (0o600)
+    const tokenStat = fs.statSync(tokenFile)
+    expect(tokenStat.mode & 0o777).toBe(0o600)
+
+    // Simulate signal handler path: _resetForTesting calls session.dispose()
+    await _resetForTesting()
+
+    // Both files must be cleaned up — this is bug #5's fix
+    expect(fs.existsSync(portFile)).toBe(false)
+    expect(fs.existsSync(tokenFile)).toBe(false)
+  })
+})
+
+describe('bug #10 regression: configureServer re-entry produces fresh stores', () => {
+  it('new session has different identity and rejects old credentials after re-entry', async () => {
+    const plugin = initPlugin()
+    const server1 = mockServer()
+    ;(plugin.configureServer as Function)(server1)
+
+    // Populate first session's state via browser messages
+    const token1 = _getSessionTokenForTesting()!
+    server1.hot._trigger('cortex:msg', { type: 'init' })
+
+    // Wait for hello to capture session1's identity
+    await vi.waitFor(() => {
+      expect(server1._sent.find((s) => (s.data as any).type === 'hello')).toBeDefined()
+    })
+    const hello1 = server1._sent.find((s) => (s.data as any).type === 'hello')!
+    const sessionId1 = (hello1.data as any).sessionId
+
+    // Send a comment to create an annotation in the first session
+    server1.hot._trigger('cortex:msg', {
+      type: 'comment',
+      token: token1,
+      text: 'stale annotation',
+      elementSource: 'div.old',
+    })
+
+    // configureServer re-entry (simulates Vite restart)
+    const server2 = mockServer()
+    ;(plugin.configureServer as Function)(server2)
+
+    // New session must have different token AND sessionId — proving a new
+    // CortexSession instance was created (constructor generates fresh stores,
+    // as verified by the session independence test in session.test.ts)
+    const token2 = _getSessionTokenForTesting()!
+    expect(token2).not.toBe(token1)
+
+    // Trigger hello on new session to confirm fresh identity
+    server2.hot._trigger('cortex:msg', { type: 'init' })
+    await vi.waitFor(() => {
+      expect(server2._sent.find((s) => (s.data as any).type === 'hello')).toBeDefined()
+    })
+    const hello2 = server2._sent.find((s) => (s.data as any).type === 'hello')!
+    const sessionId2 = (hello2.data as any).sessionId
+    expect(sessionId2).not.toBe(sessionId1)
+
+    // Old token is rejected by new session — auth isolation confirmed
+    server2.hot._trigger('cortex:msg', {
+      type: 'edit',
+      token: token1,
+      editId: 'stale-1',
+      property: 'color',
+      value: 'blue',
+      source: 'div.stale',
+      elementSelector: 'div.stale',
+    })
+
+    const authError = server2._sent.find((s) => (s.data as any).code === 'AUTH_FAILED')
+    expect(authError).toBeDefined()
+  })
+})
+
+describe('bug #19 regression: write messages without valid token are rejected', () => {
+  describe('browser HMR path', () => {
+    it('rejects edit message with no token', () => {
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+
+      // Init handshake first so the channel is alive
+      server.hot._trigger('cortex:msg', { type: 'init' })
+
+      // Send edit WITHOUT a token
+      server.hot._trigger('cortex:msg', {
+        type: 'edit',
+        editId: 'bad-1',
+        property: 'color',
+        value: 'red',
+        source: 'div',
+        elementSelector: 'div',
+      })
+
+      // Should receive AUTH_FAILED error
+      const authError = server._sent.find((s) => (s.data as any).code === 'AUTH_FAILED')
+      expect(authError).toBeDefined()
+      expect((authError!.data as any).type).toBe('error')
+    })
+
+    it('rejects edit message with wrong token', () => {
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+
+      server.hot._trigger('cortex:msg', { type: 'init' })
+
+      server.hot._trigger('cortex:msg', {
+        type: 'edit',
+        token: 'wrong-token-value',
+        editId: 'bad-2',
+        property: 'color',
+        value: 'red',
+        source: 'div',
+        elementSelector: 'div',
+      })
+
+      const authError = server._sent.find((s) => (s.data as any).code === 'AUTH_FAILED')
+      expect(authError).toBeDefined()
+    })
+
+    it('accepts edit message with correct token', () => {
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+
+      const token = _getSessionTokenForTesting()!
+      server.hot._trigger('cortex:msg', { type: 'init' })
+
+      server.hot._trigger('cortex:msg', {
+        type: 'edit',
+        token,
+        editId: 'good-1',
+        property: 'color',
+        value: 'red',
+        source: 'div',
+        elementSelector: 'div',
+      })
+
+      // No AUTH_FAILED error should be sent
+      const authError = server._sent.find((s) => (s.data as any).code === 'AUTH_FAILED')
+      expect(authError).toBeUndefined()
+    })
+
+    it('does not require token for non-write messages', () => {
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+
+      // init is not a WRITE_TYPE — should work without token
+      server.hot._trigger('cortex:msg', { type: 'init' })
+
+      // No AUTH_FAILED
+      const authError = server._sent.find((s) => (s.data as any).code === 'AUTH_FAILED')
+      expect(authError).toBeUndefined()
+    })
+
+    it.each(['edit', 'undo', 'redo', 'comment', 'comment-reply'] as const)(
+      'rejects %s message without token',
+      (writeType) => {
+        const plugin = initPlugin()
+        const server = mockServer()
+        ;(plugin.configureServer as Function)(server)
+
+        server.hot._trigger('cortex:msg', { type: 'init' })
+        server.hot._trigger('cortex:msg', {
+          type: writeType,
+          editId: 'no-auth-1',
+          property: 'color',
+          value: 'red',
+          source: 'div',
+          elementSelector: 'div',
+          text: 'test',
+          elementSource: 'div',
+          annotationId: 'ann-1',
+        })
+
+        const authError = server._sent.find((s) => (s.data as any).code === 'AUTH_FAILED')
+        expect(authError).toBeDefined()
+      },
+    )
+  })
+})
+
+describe('bug #20 regression: per-tab sessionId scoping', () => {
+  it('hello response includes a sessionId', async () => {
+    const plugin = initPlugin()
+    const server = mockServer()
+    ;(plugin.configureServer as Function)(server)
+
+    server.hot._trigger('cortex:msg', { type: 'init' })
+
+    await vi.waitFor(() => {
+      expect(server._sent.find((s) => (s.data as any).type === 'hello')).toBeDefined()
+    })
+
+    const hello = server._sent.find((s) => (s.data as any).type === 'hello')!
+    const sessionId = (hello.data as any).sessionId
+    expect(typeof sessionId).toBe('string')
+    expect(sessionId.length).toBeGreaterThan(0)
+  })
+
+  it('transformIndexHtml injects sessionId into window global', () => {
+    const plugin = initPlugin()
+    const server = mockServer()
+    ;(plugin.configureServer as Function)(server)
+
+    const html = '<html><head></head><body></body></html>'
+    const hook = plugin.transformIndexHtml as { order: string; handler: (html: string) => string }
+    const result = hook.handler(html)
+
+    expect(result).toContain('window.__CORTEX_SESSION_ID__=')
+  })
+
+  it('sessionId in hello matches sessionId in transformIndexHtml', async () => {
+    const plugin = initPlugin()
+    const server = mockServer()
+    ;(plugin.configureServer as Function)(server)
+
+    // Get sessionId from hello
+    server.hot._trigger('cortex:msg', { type: 'init' })
+    await vi.waitFor(() => {
+      expect(server._sent.find((s) => (s.data as any).type === 'hello')).toBeDefined()
+    })
+    const hello = server._sent.find((s) => (s.data as any).type === 'hello')!
+    const helloSessionId = (hello.data as any).sessionId
+
+    // Get sessionId from HTML injection
+    const html = '<html><head></head><body></body></html>'
+    const hook = plugin.transformIndexHtml as { order: string; handler: (html: string) => string }
+    const result = hook.handler(html)
+
+    // Extract the injected sessionId value from the script tag
+    const match = result.match(/window\.__CORTEX_SESSION_ID__="([^"]+)"/)
+    expect(match).not.toBeNull()
+    const htmlSessionId = match![1]
+
+    expect(htmlSessionId).toBe(helloSessionId)
+  })
+
+  it('configureServer re-entry produces a different sessionId', async () => {
+    const plugin = initPlugin()
+
+    // First session
+    const server1 = mockServer()
+    ;(plugin.configureServer as Function)(server1)
+    server1.hot._trigger('cortex:msg', { type: 'init' })
+    await vi.waitFor(() => {
+      expect(server1._sent.find((s) => (s.data as any).type === 'hello')).toBeDefined()
+    })
+    const hello1 = server1._sent.find((s) => (s.data as any).type === 'hello')!
+    const sessionId1 = (hello1.data as any).sessionId
+
+    // Re-entry — new session
+    const server2 = mockServer()
+    ;(plugin.configureServer as Function)(server2)
+    server2.hot._trigger('cortex:msg', { type: 'init' })
+    await vi.waitFor(() => {
+      expect(server2._sent.find((s) => (s.data as any).type === 'hello')).toBeDefined()
+    })
+    const hello2 = server2._sent.find((s) => (s.data as any).type === 'hello')!
+    const sessionId2 = (hello2.data as any).sessionId
+
+    // Different sessions must have different sessionIds
+    expect(sessionId2).not.toBe(sessionId1)
   })
 })

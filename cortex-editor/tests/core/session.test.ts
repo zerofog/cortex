@@ -265,4 +265,33 @@ describe('CortexSession', () => {
       expect(wss.close).toHaveBeenCalledTimes(1)
     })
   })
+
+  describe('session independence', () => {
+    it('new session after dispose has completely independent state', async () => {
+      // Populate session A with non-default state
+      session.editorActive = true
+      session.browserConnected = true
+      session.annotations.create({ elementSource: 'div.test', text: 'a comment' })
+      session.cliWss = fakeWss()
+      session.cliClients.add(fakeWs())
+
+      const tokenA = session.token
+      const sessionIdA = session.sessionId
+
+      await session.dispose()
+
+      // Create session B with the same config
+      const sessionB = new CortexSession(makeConfig())
+
+      // Session B must have completely fresh state
+      expect(sessionB.token).not.toBe(tokenA)
+      expect(sessionB.sessionId).not.toBe(sessionIdA)
+      expect(sessionB.annotations.getAll()).toEqual([])
+      expect(sessionB.activityLog.count).toBe(0)
+      expect(sessionB.editorActive).toBe(false)
+      expect(sessionB.browserConnected).toBe(false)
+      expect(sessionB.cliClients.size).toBe(0)
+      expect(sessionB.isDisposed).toBe(false)
+    })
+  })
 })
