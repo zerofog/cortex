@@ -1,0 +1,30 @@
+cortex-editor/src/browser/channel.ts
+  410ec72fc505e738 115,132
+cortex-editor/tests/browser/channel.test.ts
+  410ec72fc505e738 416-480
+cortex-editor/tests/browser/panel.test.tsx
+  410ec72fc505e738 654-708
+cortex-editor/src/browser/components/Panel.tsx
+  410ec72fc505e738 75-78,207-208
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "152f095e25acd1aee36c79636596eafa0800baff",
+  "prompts": {
+    "410ec72fc505e738": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "de0a1dbd-a227-4130-847e-91e77023bf83",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 128,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/c7e6235cfa6e2f9627543dcd5f278cabebdccdc1ededc611e23a31059755cd2c"
+    }
+  }
+}
