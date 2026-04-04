@@ -13,7 +13,10 @@ export interface DemoResult {
 // ---------------------------------------------------------------------------
 
 function resolvePackageJson(demoDir: string): string {
-  // Resolve cortex-editor: use local file: link if running from source, else 'latest'
+  // Resolve cortex-editor reference:
+  // - Running from source (dev): use file: link to local package
+  // - Running from npm install: use ^version from installed package
+  // - Fallback: 'latest'
   let cortexEditorRef = 'latest'
   const cliDir = path.dirname(new URL(import.meta.url).pathname)
   const pkgRoot = path.resolve(cliDir, '../..')
@@ -22,7 +25,12 @@ function resolvePackageJson(demoDir: string): string {
     try {
       const pkg = JSON.parse(fs.readFileSync(localPkgJson, 'utf8'))
       if (pkg.name === 'cortex-editor') {
-        cortexEditorRef = `file:${path.relative(demoDir, pkgRoot)}`
+        const isInsideNodeModules = pkgRoot.includes(`${path.sep}node_modules${path.sep}`)
+        if (isInsideNodeModules && pkg.version) {
+          cortexEditorRef = `^${pkg.version}`
+        } else {
+          cortexEditorRef = `file:${path.relative(demoDir, pkgRoot)}`
+        }
       }
     } catch { /* ignore */ }
   }
