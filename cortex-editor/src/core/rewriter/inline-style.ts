@@ -331,10 +331,13 @@ export class InlineStyleRewriter {
     // Mutate: remove all properties per element, then check if empty
     try {
       for (const { camelProps, objLiteral, styleAttr } of byAttr.values()) {
+        let anyRemoved = false
         for (const camelProp of camelProps) {
-          this.removePropertyFromObject(objLiteral, camelProp, SK)
+          if (this.removePropertyFromObject(objLiteral, camelProp, SK)) {
+            anyRemoved = true
+          }
         }
-        if (objLiteral.getProperties().length === 0) {
+        if (anyRemoved && objLiteral.getProperties().length === 0) {
           styleAttr.remove()
         }
       }

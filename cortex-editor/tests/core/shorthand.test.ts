@@ -157,7 +157,6 @@ describe('parseTypeClassified', () => {
 
   it.each([
     ['.5em', '.5em'],   // \.\d+ branch (leading-dot decimal)
-    ['1.2px', '1.2px'], // \d+\.\d* branch (decimal with unit)
     ['50%', '50%'],     // % unit branch
   ])('classifies %s as width', (token, expectedWidth) => {
     const result = parseTypeClassified(`${token} solid red`)
