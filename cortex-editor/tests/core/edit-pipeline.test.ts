@@ -2670,7 +2670,7 @@ describe('EditPipeline', () => {
       return { write: vi.fn().mockResolvedValue(result) }
     }
 
-    it('tracks the last editId (not the first) for coalesced batches', async () => {
+    it('tracks ALL changes with corresponding editIds for coalesced batches', async () => {
       const channel = mockChannel()
       const resolver = mockResolver({})
       const rewriter = mockRewriter()
@@ -2702,12 +2702,76 @@ describe('EditPipeline', () => {
 
       await pipeline.executeDeferredBatch(batch)
 
-      expect(verifier.tracked).toHaveLength(1)
-      // Must be the LAST editId, matching the last change
-      expect((verifier.tracked[0] as any).editId).toBe('e-last')
-      expect((verifier.tracked[0] as any).property).toBe('margin-left')
-      expect((verifier.tracked[0] as any).expectedValue).toBe('8px')
+      // Both changes tracked (not just last)
+      expect(verifier.tracked).toHaveLength(2)
+      // First change gets first editId
+      expect((verifier.tracked[0] as any).editId).toBe('e-first')
+      expect((verifier.tracked[0] as any).property).toBe('padding-top')
+      expect((verifier.tracked[0] as any).expectedValue).toBe('16px')
       expect((verifier.tracked[0] as any).kind).toBe('deferred')
+      // Second change gets second editId (clamped to editIds.length)
+      expect((verifier.tracked[1] as any).editId).toBe('e-middle')
+      expect((verifier.tracked[1] as any).property).toBe('margin-left')
+      expect((verifier.tracked[1] as any).expectedValue).toBe('8px')
+      expect((verifier.tracked[1] as any).kind).toBe('deferred')
+    })
+
+    it('tracks ALL changes in the batch for HMR, not just the last (bug #12)', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const undoStack = new UndoStack()
+      const aiWriter = mockAIWriter()
+      const readFile = vi.fn().mockResolvedValue('old content')
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        undoStack, readFile,
+        aiWriter: aiWriter as any,
+      })
+
+      const ac = new AbortController()
+      const batch: BatchedWriteRequest = {
+        filePath: '/project/src/App.tsx',
+        line: 14,
+        col: 7,
+        changes: [
+          { property: 'padding-top', value: '16px' },
+          { property: 'margin-left', value: '8px' },
+          { property: 'color', value: 'red' },
+        ],
+        editIds: ['e1', 'e2', 'e3'],
+        failureReason: 'no class',
+        signal: ac.signal,
+      }
+
+      await pipeline.executeDeferredBatch(batch)
+
+      // All 3 changes should be tracked, not just the last
+      expect(verifier.tracked).toHaveLength(3)
+
+      // Each change tracked with correct property/value/kind
+      expect((verifier.tracked[0] as any).property).toBe('padding-top')
+      expect((verifier.tracked[0] as any).expectedValue).toBe('16px')
+      expect((verifier.tracked[0] as any).kind).toBe('deferred')
+      expect((verifier.tracked[0] as any).editId).toBe('e1')
+
+      expect((verifier.tracked[1] as any).property).toBe('margin-left')
+      expect((verifier.tracked[1] as any).expectedValue).toBe('8px')
+      expect((verifier.tracked[1] as any).kind).toBe('deferred')
+      expect((verifier.tracked[1] as any).editId).toBe('e2')
+
+      expect((verifier.tracked[2] as any).property).toBe('color')
+      expect((verifier.tracked[2] as any).expectedValue).toBe('red')
+      expect((verifier.tracked[2] as any).kind).toBe('deferred')
+      expect((verifier.tracked[2] as any).editId).toBe('e3')
+
+      // All should reference the same filePath
+      for (const tracked of verifier.tracked) {
+        expect((tracked as any).filePath).toBe('/project/src/App.tsx')
+      }
     })
   })
 
@@ -2902,6 +2966,45 @@ describe('EditPipeline', () => {
       expect(inlineRewriter.rewrite).toHaveBeenCalledTimes(1)
       // Should fall through to deferredWriter
       expect(deferredWriter.enqueued).toHaveLength(1)
+    })
+
+    it('falls through to deferred when InlineStyleRewriter throws at Tailwind fallback site (bug #3)', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({}) // returns null — no Tailwind tokens
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const inlineRewriter = mockInlineStyleRewriter()
+      // Make the rewrite throw (simulates unexpected error in InlineStyleRewriter)
+      inlineRewriter.rewrite.mockRejectedValue(new Error('unexpected ENOENT'))
+      const deferredWriter = mockDeferredWriterForInline()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        detector: { hasCSSModules: false, hasTailwind: false },
+        inlineStyleRewriter: inlineRewriter as any,
+        deferredWriter: deferredWriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // InlineStyleRewriter was called but threw
+      expect(inlineRewriter.rewrite).toHaveBeenCalledTimes(1)
+      // Should NOT crash — should fall through to deferredWriter
+      expect(deferredWriter.enqueued).toHaveLength(1)
+      // No failed status from the throw — it's treated as "didn't handle"
+      const failedStatuses = channel.sent.filter(
+        (m: any) => m.type === 'edit_status' && m.status === 'failed',
+      )
+      expect(failedStatuses).toHaveLength(0)
     })
 
     it('uses jsx-immediate WriteIntent kind', async () => {

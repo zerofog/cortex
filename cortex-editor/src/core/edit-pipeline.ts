@@ -417,7 +417,10 @@ export class EditPipeline {
       // Layer 3.5: Inline style rewriter — only for non-Tailwind projects
       // (Tailwind projects should not accumulate inline styles)
       if (this.inlineStyleRewriter && !this.detector?.hasTailwind) {
-        const handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
+        let handled = false
+        try {
+          handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
+        } catch { /* treat throws as failed, fall through to deferred/AI */ }
         if (handled) return
       }
       if (this.deferredWriter) {
@@ -968,16 +971,20 @@ export class EditPipeline {
         this.undoStack.push({ filePath: batch.filePath, previousContent: result.oldContent, currentContent: result.newContent })
       }
 
-      // Track HMR — use last change's property/value for verification.
-      // editId must be the last one to correlate with lastChange (not the first).
-      const lastChange = batch.changes[batch.changes.length - 1]!
-      this.verifier.trackEdit({
-        editId: batch.editIds[batch.editIds.length - 1]!,
-        filePath: batch.filePath,
-        expectedValue: lastChange.value,
-        property: lastChange.property,
-        kind: 'deferred',
-      })
+      // Track HMR for ALL changes in the batch, not just the last.
+      // Each property needs its own trackEdit so the browser can clear its CSS override
+      // when HMR fires. editIds may not be 1:1 with changes (coalescing), so use
+      // index with fallback to the last editId for safety.
+      for (let i = 0; i < batch.changes.length; i++) {
+        const change = batch.changes[i]!
+        this.verifier.trackEdit({
+          editId: batch.editIds[Math.min(i, batch.editIds.length - 1)]!,
+          filePath: batch.filePath,
+          expectedValue: change.value,
+          property: change.property,
+          kind: 'deferred',
+        })
+      }
 
       // Send done for all coalesced editIds
       this.sendDeferredStatus(batch.editIds, 'done')
