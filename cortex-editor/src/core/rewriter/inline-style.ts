@@ -237,12 +237,19 @@ export class InlineStyleRewriter {
     let removed = false
     for (const target of targets) {
       for (const prop of objLiteral.getProperties()) {
-        if (prop.getKind() !== SK.PropertyAssignment) continue
-        const propAssign = prop.asKind(SK.PropertyAssignment)
-        if (!propAssign || propAssign.getName() !== target) continue
-        propAssign.remove()
-        removed = true
-        break // only one match per target name; move to next target
+        if (prop.getKind() === SK.PropertyAssignment) {
+          const propAssign = prop.asKind(SK.PropertyAssignment)
+          if (!propAssign || propAssign.getName() !== target) continue
+          propAssign.remove()
+          removed = true
+          break // only one match per target name; move to next target
+        } else if (prop.getKind() === SK.ShorthandPropertyAssignment) {
+          const shorthandAssign = prop.asKind(SK.ShorthandPropertyAssignment)
+          if (!shorthandAssign || shorthandAssign.getName() !== target) continue
+          shorthandAssign.remove()
+          removed = true
+          break
+        }
       }
     }
 

@@ -535,6 +535,49 @@ describe('InlineStyleRewriter', () => {
         cleanupTempFile(filePath)
       }
     })
+
+    it('removes ShorthandPropertyAssignment (style={{ padding }})', async () => {
+      const source = `export function App({ padding }: { padding: string }) {
+  return <div style={{ padding }}>Hello</div>
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.removeProperty({ filePath, line: 2, col: 10, property: 'padding-top' })
+        expect(result.success).toBe(true)
+        if (result.success) {
+          // padding shorthand inside style should be removed (it's in LONGHAND_TO_SHORTHAND)
+          // The style attribute itself should be gone since padding was the only property
+          expect(result.newContent).not.toContain('style={{')
+          expect(result.newContent).not.toContain('style={')
+          expect(result.newContent).toContain('<div>Hello</div>')
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
+
+    it('removes ShorthandPropertyAssignment but keeps other properties', async () => {
+      const source = `export function App({ padding }: { padding: string }) {
+  return <div style={{ padding, color: "red" }}>Hello</div>
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.removeProperty({ filePath, line: 2, col: 10, property: 'padding-top' })
+        expect(result.success).toBe(true)
+        if (result.success) {
+          // padding shorthand removed from the style object, but color remains
+          expect(result.newContent).not.toContain('{{ padding')
+          expect(result.newContent).toContain('color: "red"')
+          expect(result.newContent).toContain('style')
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
   })
 
   // --- removeProperties (batch) ---
