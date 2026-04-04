@@ -458,25 +458,12 @@ describe('createWebSocketChannel', () => {
     expect(flushedIds).not.toContain('3')
   })
 
-  // Bug #18: send() is a no-op after dispose
-  it('send() after dispose does not queue messages', () => {
-    const channel = createWebSocketChannel({ url: 'ws://test' })
-    const makeMsg = (id: string) => ({
-      type: 'edit' as const, protocolVersion: 1, editId: id,
-      property: 'color', value: 'red', source: 'a:1:1', elementSelector: 'div',
-    })
-
-    channel.dispose!()
-
-    // send() after dispose — should be silently dropped
-    channel.send(makeMsg('post-dispose-1'))
-    channel.send(makeMsg('post-dispose-2'))
-
-    // Open the original WebSocket — nothing should flush
-    const ws = mockInstances[0]!
-    ws._simulateOpen()
-    expect(ws.send).not.toHaveBeenCalled()
-  })
+  // Note: the `if (disposed) return` guard in send() prevents queue growth after
+  // disposal (memory leak defense). This is untestable from outside the closure
+  // without a test seam — dispose() already nulls ws.onopen, so any flush-based
+  // assertion passes regardless. Deleted per CLAUDE.md rule #2 (assertions must
+  // be falsifiable). The queue-clearing-on-exhaustion test above covers the
+  // user-visible behavior.
 
   // Fix 9: dispose nulls all WebSocket event handlers
   it('dispose nulls all WebSocket event handlers', () => {
