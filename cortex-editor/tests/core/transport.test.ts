@@ -160,10 +160,14 @@ describe('CortexTransport', () => {
     const ws = new WebSocket(`ws://localhost:${transport.port}`, {
       headers: { Origin: 'https://evil.com' },
     })
-    const error = await new Promise<Error>((resolve) => {
-      ws.on('error', resolve)
+    const statusCode = await new Promise<number>((resolve, reject) => {
+      ws.on('unexpected-response', (_request, response) => {
+        response.resume()
+        resolve(response.statusCode ?? 0)
+      })
+      ws.on('error', reject)
     })
-    expect(error).toBeDefined()
+    expect(statusCode).toBe(403)
   })
 
   it('accepts WebSocket connections with localhost Origin', async () => {
@@ -179,6 +183,38 @@ describe('CortexTransport', () => {
     })
     expect(ws.readyState).toBe(WebSocket.OPEN)
     ws.close()
+  })
+
+  it('accepts WebSocket connections with 127.0.0.1 Origin', async () => {
+    transport = new CortexTransport({ port: 0 })
+    await transport.start()
+
+    const ws = new WebSocket(`ws://localhost:${transport.port}`, {
+      headers: { Origin: 'http://127.0.0.1:3000' },
+    })
+    await new Promise<void>((resolve, reject) => {
+      ws.on('open', resolve)
+      ws.on('error', reject)
+    })
+    expect(ws.readyState).toBe(WebSocket.OPEN)
+    ws.close()
+  })
+
+  it('rejects WebSocket connections with null Origin (sandboxed iframe)', async () => {
+    transport = new CortexTransport({ port: 0 })
+    await transport.start()
+
+    const ws = new WebSocket(`ws://localhost:${transport.port}`, {
+      headers: { Origin: 'null' },
+    })
+    const statusCode = await new Promise<number>((resolve, reject) => {
+      ws.on('unexpected-response', (_request, response) => {
+        response.resume()
+        resolve(response.statusCode ?? 0)
+      })
+      ws.on('error', reject)
+    })
+    expect(statusCode).toBe(403)
   })
 
   it('onMessage returns unsubscribe function', async () => {

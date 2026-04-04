@@ -8,6 +8,12 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { version } from '../version.js'
 
+/** Exponential backoff with cap for WebSocket reconnection. Exported for testing. */
+export function calculateReconnectDelay(retryCount: number): number {
+  const clamped = Math.min(retryCount, 15)
+  return Math.min(1000 * 2 ** clamped, 30_000)
+}
+
 export interface MCPServerOptions {
   port?: number
   /** Override transport for testing. Defaults to StdioServerTransport. */
@@ -126,8 +132,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
       editorActive = false
       browserConnected = false
       if (closed) return
-      const clampedRetry = Math.min(retryCount, 15)
-      const delay = Math.min(1000 * 2 ** clampedRetry, 30_000)
+      const delay = calculateReconnectDelay(retryCount)
       retryCount++
       reconnectTimer = setTimeout(connect, delay)
       reconnectTimer.unref()

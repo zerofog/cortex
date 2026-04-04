@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { WebSocketServer, WebSocket } from 'ws'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { startMCPServer, discoverPort, type MCPServerHandle } from '../../src/cli/mcp.js'
+import { startMCPServer, discoverPort, calculateReconnectDelay, type MCPServerHandle } from '../../src/cli/mcp.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import http from 'node:http'
@@ -232,19 +232,13 @@ describe('cortex mcp', () => {
   })
 
   it('reconnects to dev server with exponential backoff (capped at 30s)', () => {
-    // Test the backoff calculation logic directly
-    function calculateDelay(retryCount: number): number {
-      const clampedRetry = Math.min(retryCount, 15)
-      return Math.min(1000 * 2 ** clampedRetry, 30_000)
-    }
-
-    expect(calculateDelay(0)).toBe(1000)
-    expect(calculateDelay(1)).toBe(2000)
-    expect(calculateDelay(2)).toBe(4000)
-    expect(calculateDelay(3)).toBe(8000)
-    expect(calculateDelay(4)).toBe(16000)
-    expect(calculateDelay(5)).toBe(30000)   // capped at 30s
-    expect(calculateDelay(100)).toBe(30000) // retryCount > 15 still capped
+    expect(calculateReconnectDelay(0)).toBe(1000)
+    expect(calculateReconnectDelay(1)).toBe(2000)
+    expect(calculateReconnectDelay(2)).toBe(4000)
+    expect(calculateReconnectDelay(3)).toBe(8000)
+    expect(calculateReconnectDelay(4)).toBe(16000)
+    expect(calculateReconnectDelay(5)).toBe(30000)   // capped at 30s
+    expect(calculateReconnectDelay(100)).toBe(30000) // retryCount > 15 still capped
   })
 
   it('discovers port from .cortex/port file', () => {

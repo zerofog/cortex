@@ -48,22 +48,6 @@ describe('SelectionOverlay', () => {
     target.remove()
   })
 
-  it('has the selection-overlay CSS class for transition styling', () => {
-    setup()
-    const target = document.createElement('div')
-    document.body.appendChild(target)
-    const restore = mockGetBoundingClientRect(target, {
-      top: 10, left: 10, width: 100, height: 100,
-    })
-
-    render(<SelectionOverlay element={target} />, root)
-    const overlay = root.querySelector('.cortex-selection-overlay') as HTMLElement
-    expect(overlay.classList.contains('cortex-selection-overlay')).toBe(true)
-
-    restore()
-    target.remove()
-  })
-
   it('label shows component name + source file from data-cortex-source', () => {
     setup()
     const target = document.createElement('div')

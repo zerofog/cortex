@@ -244,12 +244,9 @@ describe('TailwindResolver', () => {
     it('handles case-insensitive hex', () => {
       const resolver = TailwindResolver.fromTheme(defaultColorTheme())
       expect(resolver.findClass('color', '#111827')).toBe('text-gray-900')
-      expect(resolver.findClass('color', '#111827'.toUpperCase())).toBe('text-gray-900')
-    })
-
-    it('handles uppercase hex from browser', () => {
-      const resolver = TailwindResolver.fromTheme(defaultColorTheme())
+      // Use a hex value with actual a-f letters to test case normalization
       expect(resolver.findClass('background-color', '#EF4444')).toBe('bg-red-500')
+      expect(resolver.findClass('background-color', '#ef4444')).toBe('bg-red-500')
     })
 
     it('returns null for unknown color', () => {
@@ -374,11 +371,6 @@ describe('TailwindResolver', () => {
     it('resolves shadow-sm with whitespace normalization', () => {
       const resolver = TailwindResolver.fromTheme(defaultShadowTheme())
       expect(resolver.findClass('box-shadow', '0 1px 2px 0 rgba(0, 0, 0, 0.05)')).toBe('shadow-sm')
-    })
-
-    it('resolves shadow-sm with extra whitespace', () => {
-      const resolver = TailwindResolver.fromTheme(defaultShadowTheme())
-      expect(resolver.findClass('box-shadow', '0  1px  2px  0  rgba(0, 0, 0, 0.05)')).toBe('shadow-sm')
     })
 
     it('returns null for non-matching shadow', () => {

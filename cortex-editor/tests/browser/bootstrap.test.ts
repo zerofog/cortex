@@ -64,28 +64,14 @@ describe('bootstrap', () => {
     expect(css).toContain('pointer-events: none')
   })
 
-  it('attaches shadow DOM in closed mode (shadowRoot not externally accessible)', async () => {
+  it('attaches closed shadow DOM (internals not externally accessible)', async () => {
+    // Shadow DOM internals (styles, render target) are verified by component tests
     const { bootstrap, _resetForTesting } = await import('../../src/browser/index.js')
     _resetForTesting()
     bootstrap()
 
     const host = document.documentElement.querySelector('[data-cortex-host]') as HTMLElement
     // Closed shadow root: host.shadowRoot returns null to external code
-    expect(host.shadowRoot).toBeNull()
-  })
-
-  it('shadow root contains styles and render target (verified via closed internals)', async () => {
-    // With mode: 'closed', host.shadowRoot is null from external code.
-    // We verify internal structure by confirming bootstrap completes without error
-    // and the host is appended to documentElement. CSS injection and render target
-    // are verified indirectly by component tests (SelectionOverlay, HoverOverlay).
-    const { bootstrap, _resetForTesting } = await import('../../src/browser/index.js')
-    _resetForTesting()
-    bootstrap()
-
-    const host = document.documentElement.querySelector('[data-cortex-host]') as HTMLElement
-    expect(host).not.toBeNull()
-    // Closed shadow root: external code cannot access internals
     expect(host.shadowRoot).toBeNull()
   })
 
