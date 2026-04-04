@@ -1,0 +1,66 @@
+cortex-editor/src/cli/init.ts
+  9761c7018ae58247 3-31,36,93,95,104,106-109,111-170,186
+cortex-editor/tests/cli/init.test.ts
+  9761c7018ae58247 95-103,106,111-114,120-128,131,134-245
+cortex-editor/src/cli/index.ts
+  9761c7018ae58247 8,29,32-33,65-72
+cortex-editor/src/browser/components/PanelHeader.tsx
+  9761c7018ae58247 2-4,7-37,105-110,139-144
+cortex-editor/src/cli/demo.ts
+  9761c7018ae58247 1-442
+cortex-editor/tests/browser/bootstrap.test.ts
+  9761c7018ae58247 126-365
+cortex-editor/tests/cli/demo.test.ts
+  9761c7018ae58247 1-234
+cortex-editor/src/browser/index.tsx
+  9761c7018ae58247 14-82,123-133,169-173,180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "ecfe9fe58c56b7b1322997fa21c483d1bf556e77",
+  "prompts": {
+    "65eb6233d9c95973": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d5762-5cb3-7cb0-97d1-0c78f8eb987a",
+        "model": "gpt-5.4"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/952a0e1df1a241d8d1bf283cd26cbedaa6bd9c2b49b3b79483aa34b766d7474e"
+    },
+    "8af62a8044bedc45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d5a10-c409-7912-bfa6-ac25fdbdf8a6",
+        "model": "gpt-5.4"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 1176,
+      "total_deletions": 0,
+      "accepted_lines": 1176,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/25c3ce990ac0fd9aa1247e265675ed9fd17fc751bd2fc564eebca03c79e5981a"
+    },
+    "9761c7018ae58247": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9261dbef-cdff-4908-a16e-6e521df187b0",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 1455,
+      "total_deletions": 183,
+      "accepted_lines": 1295,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/98a3df8c034d6cc7a3e55d8d7c9490da569a2fa1bceeb0c584774105e56d429c"
+    }
+  }
+}
