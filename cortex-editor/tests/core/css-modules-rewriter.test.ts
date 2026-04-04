@@ -261,6 +261,63 @@ describe('CSSModulesRewriter', () => {
     rewriter.dispose()
   })
 
+  it('hyphenated custom element matches exact tag only, not longer names', async () => {
+    // Longer name FIRST — the buggy \b regex matches my-component inside my-component-wrapper
+    const css = `.card my-component-wrapper { color: blue; }\n.card my-component { color: red; }\n`
+    const rewriter = new CSSModulesRewriter({ readFile: mockReadFile({ '/app/card.module.css': css }) })
+    const result = await rewriter.rewrite({
+      cssFilePath: '/app/card.module.css',
+      selector: '.card',
+      property: 'color',
+      newValue: 'green',
+      elementSelector: 'my-component',
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      // Should edit .card my-component, NOT .card my-component-wrapper
+      expect(result.newContent).toContain('.card my-component { color: green')
+      expect(result.newContent).toContain('.card my-component-wrapper { color: blue')
+    }
+    rewriter.dispose()
+  })
+
+  it('regular HTML element still matches descendant selector', async () => {
+    const css = `.card { color: red; }\n.card h3 { color: blue; }\n`
+    const rewriter = new CSSModulesRewriter({ readFile: mockReadFile({ '/app/card.module.css': css }) })
+    const result = await rewriter.rewrite({
+      cssFilePath: '/app/card.module.css',
+      selector: '.card',
+      property: 'color',
+      newValue: 'green',
+      elementSelector: 'h3',
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      // Should prefer .card h3 over .card
+      expect(result.newContent).toContain('.card h3 { color: green')
+      // Base rule should remain unchanged
+      expect(result.newContent).toContain('.card { color: red')
+    }
+    rewriter.dispose()
+  })
+
+  it('custom element x-button matches exactly in descendant selector', async () => {
+    const css = `.panel { padding: 8px; }\n.panel x-button { color: red; }\n`
+    const rewriter = new CSSModulesRewriter({ readFile: mockReadFile({ '/app/panel.module.css': css }) })
+    const result = await rewriter.rewrite({
+      cssFilePath: '/app/panel.module.css',
+      selector: '.panel',
+      property: 'color',
+      newValue: 'blue',
+      elementSelector: 'x-button',
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.newContent).toContain('.panel x-button { color: blue')
+    }
+    rewriter.dispose()
+  })
+
   it('file not found returns failure', async () => {
     const rewriter = new CSSModulesRewriter({ readFile: mockReadFile({}) })
     const result = await rewriter.rewrite({

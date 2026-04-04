@@ -208,7 +208,7 @@ export class CSSModulesRewriter {
           r.selector.split(',').some(part => {
             const trimmed = part.trim()
             // Match "selector tag" pattern (e.g., ".card h3")
-            return trimmed !== selector && new RegExp(`\\b${elementSelector}\\b`).test(trimmed)
+            return trimmed !== selector && new RegExp(`(?<![\\w-])${escapeRegex(elementSelector)}(?![\\w-])`).test(trimmed)
           }),
         )
         if (tagMatch) return { success: true, rule: tagMatch }
