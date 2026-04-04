@@ -101,7 +101,18 @@ describe('rgbToHex', () => {
 
   it('returns #000000 for unparseable', () => {
     expect(rgbToHex('transparent')).toBe('#000000')
-    expect(rgbToHex('hsl(200, 50%, 50%)')).toBe('#000000')
+    expect(rgbToHex('not-a-color')).toBe('#000000')
+  })
+
+  it('converts hsl() to hex', () => {
+    expect(rgbToHex('hsl(200, 50%, 50%)')).toBe('#4095bf')
+    expect(rgbToHex('hsl(0, 100%, 50%)')).toBe('#ff0000')
+    expect(rgbToHex('hsl(0, 0%, 50%)')).toBe('#808080')
+  })
+
+  it('converts oklch() to hex', () => {
+    expect(rgbToHex('oklch(0% 0 0)')).toBe('#000000')
+    expect(rgbToHex('oklch(100% 0 0)')).toBe('#ffffff')
   })
 
   it('expands 3-digit hex', () => {

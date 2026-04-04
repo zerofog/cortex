@@ -913,3 +913,61 @@ describe('H5: configurable remPx', () => {
     expect(resolver.findClass('border-radius', '1.25px')).toBe('rounded-sm')
   })
 })
+
+// ── Tolerance matching boundary tests ────────────────────────────────
+
+describe('findNearestColor tolerance', () => {
+  it('matches color within ±1 channel distance', () => {
+    const resolver = TailwindResolver.fromTheme({
+      colors: { red: { 500: '#ef4444' } },
+    })
+    // ±1 in each channel — should still match
+    expect(resolver.findClass('background-color', '#ee4444')).toBe('bg-red-500')  // r-1
+    expect(resolver.findClass('background-color', '#f04444')).toBe('bg-red-500')  // r+1
+    expect(resolver.findClass('background-color', '#ef4345')).toBe('bg-red-500')  // g-1, b+1
+  })
+
+  it('matches color within ±2 channel distance', () => {
+    const resolver = TailwindResolver.fromTheme({
+      colors: { blue: { 500: '#3b82f6' } },
+    })
+    // ±2 in one channel — should still match
+    expect(resolver.findClass('color', '#3982f6')).toBe('text-blue-500')  // r-2
+    expect(resolver.findClass('color', '#3d82f6')).toBe('text-blue-500')  // r+2
+  })
+
+  it('rejects color at distance 3 (beyond tolerance)', () => {
+    const resolver = TailwindResolver.fromTheme({
+      colors: { red: { 500: '#ef4444' } },
+    })
+    // 3 away in red channel — should NOT match
+    expect(resolver.findClass('background-color', '#ec4444')).toBeNull()
+    expect(resolver.findClass('background-color', '#f24444')).toBeNull()
+  })
+
+  it('picks closest when two theme colors are within tolerance of input', () => {
+    const resolver = TailwindResolver.fromTheme({
+      colors: {
+        // Two colors 4 apart in red channel: #e04444 and #e44444
+        a: '#e04444',
+        b: '#e44444',
+      },
+    })
+    // Input #e24444 is equidistant (2) from both — should match one of them
+    const result = resolver.findClass('background-color', '#e24444')
+    expect(result).not.toBeNull()
+    // Input #e14444 is 1 from 'a' and 3 from 'b' — must pick 'a'
+    expect(resolver.findClass('background-color', '#e14444')).toBe('bg-a')
+    // Input #e34444 is 3 from 'a' and 1 from 'b' — must pick 'b'
+    expect(resolver.findClass('background-color', '#e34444')).toBe('bg-b')
+  })
+
+  it('does not apply tolerance to non-color properties', () => {
+    const resolver = TailwindResolver.fromTheme({
+      spacing: { '4': '1rem' },
+    })
+    // 16px matches pt-4, but 17px should NOT match via tolerance
+    expect(resolver.findClass('padding-top', '16px')).toBe('pt-4')
+    expect(resolver.findClass('padding-top', '17px')).toBeNull()
+  })
+})

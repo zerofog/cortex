@@ -789,3 +789,134 @@ describe('Deferred AI edit integration', () => {
     }
   })
 })
+
+// ── V4 theme integration: full pipeline with parsed v4 theme ─────────
+describe('V4 Tailwind edit loop integration', () => {
+  it('v4 theme: spacing edit (padding-top) → file write with correct class', async () => {
+    const tempDir = join(tmpdir(), `cortex-v4-spacing-${Date.now()}`)
+    mkdirSync(tempDir, { recursive: true })
+
+    try {
+      const filePath = join(tempDir, 'App.tsx')
+      writeFileSync(filePath, `export function App() {\n  return <div className="pt-2 text-base">Hello</div>\n}`)
+
+      const channel = mockChannel()
+      // Use a v4-style theme (spacing from 0.25rem base, converted to px during invertTheme)
+      const resolver = TailwindResolver.fromTheme({
+        spacing: {
+          '0': '0px', 'px': '1px',
+          '1': '0.25rem', '2': '0.5rem', '3': '0.75rem', '4': '1rem',
+          '5': '1.25rem', '6': '1.5rem', '8': '2rem', '10': '2.5rem',
+        },
+      })
+      const rewriter = new TailwindRewriter()
+      const verifier = new HMRVerifier(channel)
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier,
+        writeFile: (intent) => fsWriteFile(intent.filePath, intent.content, 'utf-8'),
+        projectRoot: tempDir,
+        debounceMs: 50,
+        detector: { hasCSSModules: false, hasTailwind: true },
+      })
+
+      // Seed (baseline)
+      pipeline.handleEdit({
+        editId: 'v4-seed',
+        source: `${filePath}:2:10`,
+        property: 'padding-top',
+        value: '8px',
+        elementSelector: 'div',
+      })
+      await new Promise(r => setTimeout(r, 100))
+      channel.sent.length = 0
+
+      // Actual edit: 8px → 16px
+      pipeline.handleEdit({
+        editId: 'v4-edit-1',
+        source: `${filePath}:2:10`,
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+
+      await waitFor(() => channel.sent.some(
+        m => m.type === 'edit_status' && (m as { status: string }).status === 'done'
+      ))
+
+      const newSource = readFileSync(filePath, 'utf-8')
+      expect(newSource).toContain('pt-4')
+      expect(newSource).not.toContain('pt-2')
+
+      rewriter.dispose()
+      verifier.dispose()
+      pipeline.dispose()
+    } finally {
+      try { rmSync(tempDir, { recursive: true }) } catch {}
+    }
+  })
+
+  it('v4 theme: color edit (background-color) → file write with correct class', async () => {
+    const tempDir = join(tmpdir(), `cortex-v4-color-${Date.now()}`)
+    mkdirSync(tempDir, { recursive: true })
+
+    try {
+      const filePath = join(tempDir, 'App.tsx')
+      writeFileSync(filePath, `export function App() {\n  return <div className="bg-white p-4">Hello</div>\n}`)
+
+      const channel = mockChannel()
+      const resolver = TailwindResolver.fromTheme({
+        colors: {
+          white: '#ffffff',
+          black: '#000000',
+          red: { 500: '#ef4444' },
+          blue: { 500: '#3b82f6' },
+        },
+      })
+      const rewriter = new TailwindRewriter()
+      const verifier = new HMRVerifier(channel)
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier,
+        writeFile: (intent) => fsWriteFile(intent.filePath, intent.content, 'utf-8'),
+        projectRoot: tempDir,
+        debounceMs: 50,
+        detector: { hasCSSModules: false, hasTailwind: true },
+      })
+
+      // Seed with current bg color (white)
+      pipeline.handleEdit({
+        editId: 'v4-color-seed',
+        source: `${filePath}:2:10`,
+        property: 'background-color',
+        value: '#ffffff',
+        elementSelector: 'div',
+      })
+      await new Promise(r => setTimeout(r, 100))
+      channel.sent.length = 0
+
+      // Change to red-500
+      pipeline.handleEdit({
+        editId: 'v4-color-edit',
+        source: `${filePath}:2:10`,
+        property: 'background-color',
+        value: '#ef4444',
+        elementSelector: 'div',
+      })
+
+      await waitFor(() => channel.sent.some(
+        m => m.type === 'edit_status' && (m as { status: string }).status === 'done'
+      ))
+
+      const newSource = readFileSync(filePath, 'utf-8')
+      expect(newSource).toContain('bg-red-500')
+      expect(newSource).not.toContain('bg-white')
+
+      rewriter.dispose()
+      verifier.dispose()
+      pipeline.dispose()
+    } finally {
+      try { rmSync(tempDir, { recursive: true }) } catch {}
+    }
+  })
+})

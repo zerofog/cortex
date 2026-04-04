@@ -2,6 +2,7 @@ import type { JSX } from 'preact'
 import { useState, useRef, useCallback } from 'preact/hooks'
 import { ColorPicker } from './ColorPicker.js'
 import { NumericInput } from './NumericInput.js'
+import { oklchToHex } from '../../../core/oklch.js'
 
 export interface ColorInputProps {
   value: string
@@ -15,7 +16,11 @@ export interface ColorInputProps {
 
 export const HEX_REGEX = /^#[0-9a-fA-F]{6}$/
 
-/** Convert any CSS color string to #rrggbb. Handles #rgb, #rrggbb, rgb(), rgba() (comma or space syntax). Returns #000000 if unparseable. */
+/**
+ * Convert any CSS color string to #rrggbb.
+ * Handles #rgb, #rrggbb, rgb(), rgba(), hsl(), hsla(), oklch() (comma or space syntax).
+ * Returns #000000 if unparseable.
+ */
 export function rgbToHex(color: string): string {
   const trimmed = color.trim()
   // 6-digit hex
@@ -24,12 +29,51 @@ export function rgbToHex(color: string): string {
   const short = trimmed.match(/^#([0-9a-fA-F])([0-9a-fA-F])([0-9a-fA-F])$/)
   if (short) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`.toLowerCase()
   // rgb/rgba — comma or space-separated, possibly with decimals
-  const m = trimmed.match(/rgba?\(\s*(-?[\d.]+)[,\s]+(-?[\d.]+)[,\s]+(-?[\d.]+)/)
-  if (!m) return '#000000'
-  const r = Math.round(Math.min(255, Math.max(0, parseFloat(m[1]!))))
-  const g = Math.round(Math.min(255, Math.max(0, parseFloat(m[2]!))))
-  const b = Math.round(Math.min(255, Math.max(0, parseFloat(m[3]!))))
-  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`
+  const rgbMatch = trimmed.match(/rgba?\(\s*(-?[\d.]+)[,\s]+(-?[\d.]+)[,\s]+(-?[\d.]+)/)
+  if (rgbMatch) {
+    const r = Math.round(Math.min(255, Math.max(0, parseFloat(rgbMatch[1]!))))
+    const g = Math.round(Math.min(255, Math.max(0, parseFloat(rgbMatch[2]!))))
+    const b = Math.round(Math.min(255, Math.max(0, parseFloat(rgbMatch[3]!))))
+    return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`
+  }
+  // hsl/hsla — convert to rgb
+  const hslMatch = trimmed.match(/hsla?\(\s*([\d.]+)[,\s]+([\d.]+)%[,\s]+([\d.]+)%/)
+  if (hslMatch) {
+    const h = parseFloat(hslMatch[1]!) / 360
+    const s = parseFloat(hslMatch[2]!) / 100
+    const l = parseFloat(hslMatch[3]!) / 100
+    const [r, g, b] = hslToRgb(h, s, l)
+    return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`
+  }
+  // oklch() — delegate to canonical converter (single source of truth)
+  if (trimmed.startsWith('oklch(')) {
+    const hex = oklchToHex(trimmed)
+    return hex ?? '#000000'
+  }
+  return '#000000'
+}
+
+/** HSL to RGB. All inputs/outputs in [0,1] except returns [0,255]. */
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  if (s === 0) {
+    const v = Math.round(l * 255)
+    return [v, v, v]
+  }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s
+  const p = 2 * l - q
+  const hueToRgb = (t: number): number => {
+    if (t < 0) t += 1
+    if (t > 1) t -= 1
+    if (t < 1/6) return p + (q - p) * 6 * t
+    if (t < 1/2) return q
+    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6
+    return p
+  }
+  return [
+    Math.round(hueToRgb(h + 1/3) * 255),
+    Math.round(hueToRgb(h) * 255),
+    Math.round(hueToRgb(h - 1/3) * 255),
+  ]
 }
 
 /** Parse any CSS color string into { hex, alpha }. Alpha is 0–100 integer. */
