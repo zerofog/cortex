@@ -535,6 +535,49 @@ describe('InlineStyleRewriter', () => {
         cleanupTempFile(filePath)
       }
     })
+
+    it('removes ShorthandPropertyAssignment (style={{ padding }})', async () => {
+      const source = `export function App({ padding }: { padding: string }) {
+  return <div style={{ padding }}>Hello</div>
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.removeProperty({ filePath, line: 2, col: 10, property: 'padding-top' })
+        expect(result.success).toBe(true)
+        if (result.success) {
+          // padding shorthand inside style should be removed (it's in LONGHAND_TO_SHORTHAND)
+          // The style attribute itself should be gone since padding was the only property
+          expect(result.newContent).not.toContain('style={{')
+          expect(result.newContent).not.toContain('style={')
+          expect(result.newContent).toContain('<div>Hello</div>')
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
+
+    it('removes ShorthandPropertyAssignment but keeps other properties', async () => {
+      const source = `export function App({ padding }: { padding: string }) {
+  return <div style={{ padding, color: "red" }}>Hello</div>
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.removeProperty({ filePath, line: 2, col: 10, property: 'padding-top' })
+        expect(result.success).toBe(true)
+        if (result.success) {
+          // padding shorthand removed from the style object, but color remains
+          expect(result.newContent).not.toContain('{{ padding')
+          expect(result.newContent).toContain('color: "red"')
+          expect(result.newContent).toContain('style')
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
   })
 
   // --- removeProperties (batch) ---
@@ -664,6 +707,38 @@ describe('InlineStyleRewriter', () => {
           expect(result.newContent).not.toContain('paddingTop')
           expect(result.newContent).toContain('Card A')
           expect(result.newContent).toContain('Card B')
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
+
+    it('avoids stale-node crash when first target empties object via shorthand removal', async () => {
+      // Bug #7: When removePropertyFromObject removes both longhand + shorthand
+      // parent, it can empty the object and trigger styleAttr.remove(). A second
+      // target for the same element then operates on detached nodes.
+      const source = `export function App() {
+  return <div style={{ padding: "16px", paddingTop: "20px" }}>Hello</div>
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.removeProperties({
+          filePath,
+          targets: [
+            // First target: padding-top removes paddingTop + padding → empties object
+            { line: 2, col: 10, property: 'padding-top' },
+            // Second target: padding-bottom has nothing to remove, but
+            // collected entry references the same now-detached styleAttr
+            { line: 2, col: 10, property: 'padding-bottom' },
+          ],
+        })
+        // Must succeed — the first target removes everything, second is a no-op
+        expect(result.success).toBe(true)
+        if (result.success) {
+          expect(result.newContent).not.toContain('padding')
+          expect(result.newContent).not.toContain('style')
         }
         rewriter.dispose()
       } finally {

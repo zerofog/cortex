@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import postcss from 'postcss'
 import {
+  splitValues,
   parseBoxSides,
   recomposeBoxSides,
   parseTypeClassified,
@@ -12,6 +13,27 @@ function makeRule(css: string): postcss.Rule {
   const root = postcss.parse(css)
   return root.first as postcss.Rule
 }
+
+describe('splitValues', () => {
+  // Basic splitting is covered by parseBoxSides tests (which call splitValues).
+  // These test the NEW quote-tracking behavior only.
+
+  it('preserves double-quoted strings containing spaces', () => {
+    expect(splitValues('"Open Sans", sans-serif')).toEqual(['"Open Sans",', 'sans-serif'])
+  })
+
+  it('preserves single-quoted strings containing spaces', () => {
+    expect(splitValues("'Open Sans', sans-serif")).toEqual(["'Open Sans',", 'sans-serif'])
+  })
+
+  it('handles escaped quotes inside double-quoted strings', () => {
+    expect(splitValues('"Open\\" Sans", sans-serif')).toEqual(['"Open\\" Sans",', 'sans-serif'])
+  })
+
+  it('handles escaped quotes inside single-quoted strings', () => {
+    expect(splitValues("'Open\\' Sans', sans-serif")).toEqual(["'Open\\' Sans',", 'sans-serif'])
+  })
+})
 
 describe('parseBoxSides', () => {
   it('parses 1 value (all sides equal)', () => {
@@ -114,6 +136,50 @@ describe('parseTypeClassified', () => {
     expect(result!.width).toBe('1px')
     expect(result!.style).toBe('solid')
     expect(result!.color).toBe('rgb(0, 0, 0)')
+  })
+
+  it('rejects multi-dot value as width (1.2.3 is not a valid length)', () => {
+    const result = parseTypeClassified('1.2.3 solid red')
+    // 1.2.3 should NOT be classified as width — it should fall through to color
+    expect(result).not.toBeNull()
+    expect(result!.width).toBeUndefined()
+    expect(result!.style).toBe('solid')
+    expect(result!.color).toBe('1.2.3 red')
+  })
+
+  it('accepts decimal length as width (1.2px)', () => {
+    const result = parseTypeClassified('1.2px solid red')
+    expect(result).not.toBeNull()
+    expect(result!.width).toBe('1.2px')
+    expect(result!.style).toBe('solid')
+    expect(result!.color).toBe('red')
+  })
+
+  it.each([
+    ['.5em', '.5em'],   // \.\d+ branch (leading-dot decimal)
+    ['50%', '50%'],     // % unit branch
+  ])('classifies %s as width', (token, expectedWidth) => {
+    const result = parseTypeClassified(`${token} solid red`)
+    expect(result).not.toBeNull()
+    expect(result!.width).toBe(expectedWidth)
+    expect(result!.style).toBe('solid')
+  })
+
+  it('rejects bare dot as width', () => {
+    const result = parseTypeClassified('. solid red')
+    // bare dot is not a valid length
+    expect(result).not.toBeNull()
+    expect(result!.width).toBeUndefined()
+    expect(result!.style).toBe('solid')
+    expect(result!.color).toBe('. red')
+  })
+
+  it('accepts percentage as width (50%)', () => {
+    const result = parseTypeClassified('50% solid red')
+    expect(result).not.toBeNull()
+    expect(result!.width).toBe('50%')
+    expect(result!.style).toBe('solid')
+    expect(result!.color).toBe('red')
   })
 })
 
