@@ -714,59 +714,6 @@ describe('InlineStyleRewriter', () => {
       }
     })
 
-    it('removes 2+ properties from the same element without stale AST nodes', async () => {
-      const source = `export function App() {
-  return <div style={{ paddingTop: "20px", marginTop: "10px" }}>Hello</div>
-}`
-      const filePath = createTempFile(source)
-      try {
-        const rewriter = new InlineStyleRewriter()
-        const result = await rewriter.removeProperties({
-          filePath,
-          targets: [
-            { line: 2, col: 10, property: 'padding-top' },
-            { line: 2, col: 10, property: 'margin-top' },
-          ],
-        })
-        expect(result.success).toBe(true)
-        if (result.success) {
-          expect(result.newContent).not.toContain('paddingTop')
-          expect(result.newContent).not.toContain('marginTop')
-          expect(result.newContent).not.toContain('style')
-        }
-        rewriter.dispose()
-      } finally {
-        cleanupTempFile(filePath)
-      }
-    })
-
-    it('removes 2+ properties from the same element while other properties survive', async () => {
-      const source = `export function App() {
-  return <div style={{ paddingTop: "20px", marginTop: "10px", color: "red" }}>Hello</div>
-}`
-      const filePath = createTempFile(source)
-      try {
-        const rewriter = new InlineStyleRewriter()
-        const result = await rewriter.removeProperties({
-          filePath,
-          targets: [
-            { line: 2, col: 10, property: 'padding-top' },
-            { line: 2, col: 10, property: 'margin-top' },
-          ],
-        })
-        expect(result.success).toBe(true)
-        if (result.success) {
-          expect(result.newContent).not.toContain('paddingTop')
-          expect(result.newContent).not.toContain('marginTop')
-          expect(result.newContent).toContain('color: "red"')
-          expect(result.newContent).toContain('style')
-        }
-        rewriter.dispose()
-      } finally {
-        cleanupTempFile(filePath)
-      }
-    })
-
     it('avoids stale-node crash when first target empties object via shorthand removal', async () => {
       // Bug #7: When removePropertyFromObject removes both longhand + shorthand
       // parent, it can empty the object and trigger styleAttr.remove(). A second

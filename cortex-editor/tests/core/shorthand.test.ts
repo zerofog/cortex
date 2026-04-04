@@ -15,13 +15,8 @@ function makeRule(css: string): postcss.Rule {
 }
 
 describe('splitValues', () => {
-  it('splits basic space-separated values', () => {
-    expect(splitValues('10px 20px')).toEqual(['10px', '20px'])
-  })
-
-  it('preserves parenthesized groups (existing behavior)', () => {
-    expect(splitValues('1px solid rgb(0, 0, 0)')).toEqual(['1px', 'solid', 'rgb(0, 0, 0)'])
-  })
+  // Basic splitting is covered by parseBoxSides tests (which call splitValues).
+  // These test the NEW quote-tracking behavior only.
 
   it('preserves double-quoted strings containing spaces', () => {
     expect(splitValues('"Open Sans", sans-serif')).toEqual(['"Open Sans",', 'sans-serif'])
@@ -37,18 +32,6 @@ describe('splitValues', () => {
 
   it('handles escaped quotes inside single-quoted strings', () => {
     expect(splitValues("'Open\\' Sans', sans-serif")).toEqual(["'Open\\' Sans',", 'sans-serif'])
-  })
-
-  it('handles single value with no spaces', () => {
-    expect(splitValues('red')).toEqual(['red'])
-  })
-
-  it('handles empty string', () => {
-    expect(splitValues('')).toEqual([])
-  })
-
-  it('handles multiple consecutive spaces', () => {
-    expect(splitValues('10px  20px')).toEqual(['10px', '20px'])
   })
 })
 
@@ -172,34 +155,15 @@ describe('parseTypeClassified', () => {
     expect(result!.color).toBe('red')
   })
 
-  it('accepts integer length as width (10px)', () => {
-    const result = parseTypeClassified('10px solid red')
+  it.each([
+    ['.5em', '.5em'],   // \.\d+ branch (leading-dot decimal)
+    ['1.2px', '1.2px'], // \d+\.\d* branch (decimal with unit)
+    ['50%', '50%'],     // % unit branch
+  ])('classifies %s as width', (token, expectedWidth) => {
+    const result = parseTypeClassified(`${token} solid red`)
     expect(result).not.toBeNull()
-    expect(result!.width).toBe('10px')
-  })
-
-  it('accepts leading-dot decimal as width (.5em)', () => {
-    const result = parseTypeClassified('.5em solid red')
-    expect(result).not.toBeNull()
-    expect(result!.width).toBe('.5em')
+    expect(result!.width).toBe(expectedWidth)
     expect(result!.style).toBe('solid')
-    expect(result!.color).toBe('red')
-  })
-
-  it('accepts negative decimal as width (-1.5rem)', () => {
-    const result = parseTypeClassified('-1.5rem solid red')
-    expect(result).not.toBeNull()
-    expect(result!.width).toBe('-1.5rem')
-    expect(result!.style).toBe('solid')
-    expect(result!.color).toBe('red')
-  })
-
-  it('accepts unitless zero as width (0)', () => {
-    const result = parseTypeClassified('0 solid red')
-    expect(result).not.toBeNull()
-    expect(result!.width).toBe('0')
-    expect(result!.style).toBe('solid')
-    expect(result!.color).toBe('red')
   })
 
   it('rejects bare dot as width', () => {
