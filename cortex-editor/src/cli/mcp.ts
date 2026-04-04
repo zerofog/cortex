@@ -24,9 +24,29 @@ export interface MCPServerHandle {
   close(): void
 }
 
+/** Walk up from startDir looking for a .cortex directory containing a port file. */
+export function findProjectRoot(startDir: string = process.cwd()): string | null {
+  let dir = path.resolve(startDir)
+  const { root } = path.parse(dir)
+  while (true) {
+    const candidate = path.join(dir, '.cortex', 'port')
+    try {
+      fs.accessSync(candidate)
+      return dir
+    } catch {
+      // not found, walk up
+    }
+    const parent = path.dirname(dir)
+    if (parent === dir || dir === root) return null
+    dir = parent
+  }
+}
+
 /** Read a .cortex discovery file, returning null on ENOENT or empty content. */
-function readDiscoveryFile(name: string): string | null {
-  const filePath = path.join(process.cwd(), '.cortex', name)
+function readDiscoveryFile(name: string, projectRoot?: string): string | null {
+  const root = projectRoot ?? findProjectRoot()
+  if (!root) return null
+  const filePath = path.join(root, '.cortex', name)
   try {
     return fs.readFileSync(filePath, 'utf8').trim() || null
   } catch (err) {
@@ -38,15 +58,15 @@ function readDiscoveryFile(name: string): string | null {
   }
 }
 
-export function discoverPort(): number | null {
-  const content = readDiscoveryFile('port')
+export function discoverPort(projectRoot?: string): number | null {
+  const content = readDiscoveryFile('port', projectRoot)
   if (!content) return null
   const port = Math.trunc(Number(content))
   return Number.isFinite(port) && port >= 1 && port <= 65535 ? port : null
 }
 
-export function discoverToken(): string | null {
-  return readDiscoveryFile('token')
+export function discoverToken(projectRoot?: string): string | null {
+  return readDiscoveryFile('token', projectRoot)
 }
 
 export async function startMCPServer(options: MCPServerOptions = {}): Promise<MCPServerHandle> {
