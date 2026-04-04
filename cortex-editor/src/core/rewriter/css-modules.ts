@@ -204,11 +204,12 @@ export class CSSModulesRewriter {
       // Prefer descendant selectors that include the element's tag name
       // (e.g., prefer `.card h3` over `.card` when editing an <h3>)
       if (elementSelector && baseRules.length > 1) {
+        const elemRe = new RegExp(`(?<![\\w-])${escapeRegex(elementSelector)}(?![\\w-])`)
         const tagMatch = baseRules.find(r =>
           r.selector.split(',').some(part => {
             const trimmed = part.trim()
             // Match "selector tag" pattern (e.g., ".card h3")
-            return trimmed !== selector && new RegExp(`(?<![\\w-])${escapeRegex(elementSelector)}(?![\\w-])`).test(trimmed)
+            return trimmed !== selector && elemRe.test(trimmed)
           }),
         )
         if (tagMatch) return { success: true, rule: tagMatch }

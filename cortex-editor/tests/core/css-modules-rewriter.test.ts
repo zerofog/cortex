@@ -301,8 +301,8 @@ describe('CSSModulesRewriter', () => {
     rewriter.dispose()
   })
 
-  it('custom element x-button matches exactly in descendant selector', async () => {
-    const css = `.panel { padding: 8px; }\n.panel x-button { color: red; }\n`
+  it('custom element x-button matches exactly, not x-button-group', async () => {
+    const css = `.panel x-button-group { color: green; }\n.panel x-button { color: red; }\n`
     const rewriter = new CSSModulesRewriter({ readFile: mockReadFile({ '/app/panel.module.css': css }) })
     const result = await rewriter.rewrite({
       cssFilePath: '/app/panel.module.css',
@@ -314,6 +314,8 @@ describe('CSSModulesRewriter', () => {
     expect(result.success).toBe(true)
     if (result.success) {
       expect(result.newContent).toContain('.panel x-button { color: blue')
+      // x-button-group must NOT be edited
+      expect(result.newContent).toContain('.panel x-button-group { color: green')
     }
     rewriter.dispose()
   })

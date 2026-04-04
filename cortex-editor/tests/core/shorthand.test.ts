@@ -210,6 +210,14 @@ describe('parseTypeClassified', () => {
     expect(result!.style).toBe('solid')
     expect(result!.color).toBe('. red')
   })
+
+  it('accepts percentage as width (50%)', () => {
+    const result = parseTypeClassified('50% solid red')
+    expect(result).not.toBeNull()
+    expect(result!.width).toBe('50%')
+    expect(result!.style).toBe('solid')
+    expect(result!.color).toBe('red')
+  })
 })
 
 describe('findAndValidateShorthand', () => {

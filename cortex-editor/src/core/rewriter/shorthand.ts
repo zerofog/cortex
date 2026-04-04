@@ -10,7 +10,7 @@ const BORDER_STYLES = new Set([
   'none', 'hidden', 'dotted', 'dashed', 'solid', 'double', 'groove', 'ridge', 'inset', 'outset',
 ])
 const WIDTH_KEYWORDS = new Set(['thin', 'medium', 'thick'])
-const LENGTH_RE = /^-?(?:\d+\.?\d*|\.\d+)\w*$/
+const LENGTH_RE = /^-?(?:\d+\.?\d*|\.\d+)(?:[a-zA-Z]+|%)?$/
 
 function hasFunction(value: string, fn: string): boolean {
   return value.includes(`${fn}(`)
