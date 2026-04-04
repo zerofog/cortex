@@ -40,7 +40,7 @@ const VIRTUAL_CORTEX_CLIENT = '\0cortex-client'
 const CORTEX_MSG_EVENT = 'cortex:msg'
 
 // CLI WebSocket bridge constants
-const ALLOWED_ORIGINS = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/
+const ALLOWED_ORIGINS = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/
 const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close'])
 /** Message types that require token auth — all write/mutation operations.
  *  Update this union when adding new write message types to BrowserToServer. */
@@ -789,7 +789,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       const nonSuppressed = modules.filter(m => !m.file || !currentSession?.recentEditWrites.has(m.file))
       const files = nonSuppressed
         .map(m => m.file)
-        .filter((f): f is string => f != null && (/\.[jt]sx$/.test(f) || /\.module\.css$/.test(f)))
+        .filter((f): f is string => f != null && (/\.[jt]sx$/.test(f) || /\.css$/.test(f)))
 
       if (files.length > 0) {
         const cbs = [...(currentSession?.hmrCallbacks ?? [])]

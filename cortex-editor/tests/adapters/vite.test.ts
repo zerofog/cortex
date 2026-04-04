@@ -481,6 +481,34 @@ describe('cortexEditor Vite plugin', () => {
       ;(plugin.handleHotUpdate as Function)(hmrContext)
       expect(files).toHaveLength(0)
     })
+
+    it('fires onHMRUpdate for plain .css files (bug #13)', () => {
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+      const files: string[][] = []
+      onHMRUpdate((f) => files.push(f))
+      const hmrContext = {
+        modules: [{ file: '/project/src/styles.css' }],
+      }
+      ;(plugin.handleHotUpdate as Function)(hmrContext)
+      expect(files).toHaveLength(1)
+      expect(files[0]).toEqual(['/project/src/styles.css'])
+    })
+
+    it('fires onHMRUpdate for .module.css files (bug #13 regression)', () => {
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+      const files: string[][] = []
+      onHMRUpdate((f) => files.push(f))
+      const hmrContext = {
+        modules: [{ file: '/project/src/App.module.css' }],
+      }
+      ;(plugin.handleHotUpdate as Function)(hmrContext)
+      expect(files).toHaveLength(1)
+      expect(files[0]).toEqual(['/project/src/App.module.css'])
+    })
   })
 })
 
@@ -687,6 +715,14 @@ describe('CLI WebSocket bridge', () => {
       ws.on('close', () => resolve(true))
     })
     expect(closed).toBe(true)
+  })
+
+  it('accepts connections with IPv6 [::1] host header (bug #11)', async () => {
+    await setupServer()
+    const { ws } = await connectCLI({
+      headers: { Host: `[::1]:${serverPort}` },
+    })
+    expect(ws.readyState).toBe(WebSocket.OPEN)
   })
 
   it('caps concurrent connections at 5', async () => {
