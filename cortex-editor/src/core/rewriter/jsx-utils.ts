@@ -116,7 +116,7 @@ const SHORTHAND_LONGHANDS: Record<string, readonly string[]> = {
 }
 
 // Derived inverse: longhand → shorthand parent
-export const LONGHAND_TO_SHORTHAND: Record<string, string> = {}
+export const LONGHAND_TO_SHORTHAND: Record<string, string> = Object.create(null)
 for (const [shorthand, longhands] of Object.entries(SHORTHAND_LONGHANDS)) {
   for (const longhand of longhands) {
     LONGHAND_TO_SHORTHAND[longhand] = shorthand

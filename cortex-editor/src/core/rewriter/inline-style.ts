@@ -237,12 +237,19 @@ export class InlineStyleRewriter {
     let removed = false
     for (const target of targets) {
       for (const prop of objLiteral.getProperties()) {
-        if (prop.getKind() !== SK.PropertyAssignment) continue
-        const propAssign = prop.asKind(SK.PropertyAssignment)
-        if (!propAssign || propAssign.getName() !== target) continue
-        propAssign.remove()
-        removed = true
-        break // only one match per target name; move to next target
+        if (prop.getKind() === SK.PropertyAssignment) {
+          const propAssign = prop.asKind(SK.PropertyAssignment)
+          if (!propAssign || propAssign.getName() !== target) continue
+          propAssign.remove()
+          removed = true
+          break // only one match per target name; move to next target
+        } else if (prop.getKind() === SK.ShorthandPropertyAssignment) {
+          const shorthandAssign = prop.asKind(SK.ShorthandPropertyAssignment)
+          if (!shorthandAssign || shorthandAssign.getName() !== target) continue
+          shorthandAssign.remove()
+          removed = true
+          break
+        }
       }
     }
 
@@ -302,11 +309,35 @@ export class InlineStyleRewriter {
       collected.push({ camelProp, objLiteral, styleAttr })
     }
 
-    // Pass 2: mutate all collected references (order doesn't matter — references are stable)
+    // Pass 2: group by styleAttr to avoid stale-node races.
+    // When 2+ targets reference the same element, processing them individually
+    // can cause styleAttr.remove() on the first entry to detach the node,
+    // making subsequent entries operate on stale AST references.
+    const byAttr = new Map<number, {
+      camelProps: string[]
+      objLiteral: ObjectLiteralExpression
+      styleAttr: import('ts-morph').JsxAttribute
+    }>()
+    for (const { camelProp, objLiteral, styleAttr } of collected) {
+      const key = styleAttr.getStart()
+      const existing = byAttr.get(key)
+      if (existing) {
+        existing.camelProps.push(camelProp)
+      } else {
+        byAttr.set(key, { camelProps: [camelProp], objLiteral, styleAttr })
+      }
+    }
+
+    // Mutate: remove all properties per element, then check if empty
     try {
-      for (const { camelProp, objLiteral, styleAttr } of collected) {
-        const removed = this.removePropertyFromObject(objLiteral, camelProp, SK)
-        if (removed && objLiteral.getProperties().length === 0) {
+      for (const { camelProps, objLiteral, styleAttr } of byAttr.values()) {
+        let anyRemoved = false
+        for (const camelProp of camelProps) {
+          if (this.removePropertyFromObject(objLiteral, camelProp, SK)) {
+            anyRemoved = true
+          }
+        }
+        if (anyRemoved && objLiteral.getProperties().length === 0) {
           styleAttr.remove()
         }
       }
