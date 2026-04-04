@@ -671,7 +671,11 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
               }
               try {
                 const result = handleAnnotationRPC(method, params)
-                try { ws.send(JSON.stringify({ type: 'cortex-rpc-result', requestId, result })) } catch {}
+                try {
+                  ws.send(JSON.stringify({ type: 'cortex-rpc-result', requestId, result }))
+                } catch (sendErr) {
+                  console.warn('[cortex] Failed to send RPC result to CLI client:', sendErr instanceof Error ? sendErr.message : sendErr)
+                }
               } catch (err) {
                 try {
                   ws.send(JSON.stringify({ type: 'cortex-rpc-error', requestId, error: err instanceof Error ? err.message : String(err) }))

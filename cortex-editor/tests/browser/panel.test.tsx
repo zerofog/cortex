@@ -656,54 +656,52 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     vi.useFakeTimers()
 
     const el = document.createElement('div')
-    el.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
-    el.className = 'shared-class'
-    document.body.appendChild(el)
-
     const el2 = document.createElement('div')
-    el2.setAttribute('data-cortex-source', 'src/Card.tsx:8:3')
-    el2.className = 'shared-class'
-    document.body.appendChild(el2)
-
-    const overrideManager = {
-      set: vi.fn(), remove: vi.fn(), clearAll: vi.fn(),
-      dispose: vi.fn(), flush: vi.fn(),
-    }
-
     const container = document.createElement('div')
-    document.body.appendChild(container)
 
-    // Render Panel
-    render(
-      <Panel element={el} overrideManager={overrideManager as any}
-        onClose={() => {}} onSelectElement={() => {}} {...panelPositionProps} />,
-      container,
-    )
-    // Preact defers useEffect via setTimeout(done, 35) + setTimeout(callback).
-    // Advance enough so the initial effect runs and registers its cleanup.
-    await vi.advanceTimersByTimeAsync(50)
+    try {
+      el.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+      el.className = 'shared-class'
+      document.body.appendChild(el)
 
-    // Manually inject the blast-radius style tag to simulate a highlight having occurred.
-    // The style is lazily injected on first highlightSharedElements() call, not on mount.
-    if (!document.head.querySelector('[data-cortex-blast-radius-style]')) {
-      const style = document.createElement('style')
-      style.setAttribute('data-cortex-blast-radius-style', '')
-      style.textContent = '[data-cortex-blast-radius] { outline: 2px dashed #f97316 !important; }'
-      document.head.appendChild(style)
+      el2.setAttribute('data-cortex-source', 'src/Card.tsx:8:3')
+      el2.className = 'shared-class'
+      document.body.appendChild(el2)
+
+      const overrideManager = {
+        set: vi.fn(), remove: vi.fn(), clearAll: vi.fn(),
+        dispose: vi.fn(), flush: vi.fn(),
+      }
+
+      document.body.appendChild(container)
+
+      render(
+        <Panel element={el} overrideManager={overrideManager as any}
+          onClose={() => {}} onSelectElement={() => {}} {...panelPositionProps} />,
+        container,
+      )
+      await vi.advanceTimersByTimeAsync(50)
+
+      // Manually inject the blast-radius style tag to simulate a highlight having occurred.
+      // The style is lazily injected on first highlightSharedElements() call, not on mount.
+      if (!document.head.querySelector('[data-cortex-blast-radius-style]')) {
+        const style = document.createElement('style')
+        style.setAttribute('data-cortex-blast-radius-style', '')
+        style.textContent = '[data-cortex-blast-radius] { outline: 2px dashed #f97316 !important; }'
+        document.head.appendChild(style)
+      }
+
+      expect(document.head.querySelector('[data-cortex-blast-radius-style]')).not.toBeNull()
+
+      render(null, container)
+
+      expect(document.head.querySelector('[data-cortex-blast-radius-style]')).toBeNull()
+    } finally {
+      container.remove()
+      el.remove()
+      el2.remove()
+      vi.useRealTimers()
     }
-
-    expect(document.head.querySelector('[data-cortex-blast-radius-style]')).not.toBeNull()
-
-    // Unmount Panel — cleanup effect fires synchronously via Preact's options.unmount hook
-    render(null, container)
-
-    // After unmount, the blast-radius style tag should be removed from document.head
-    expect(document.head.querySelector('[data-cortex-blast-radius-style]')).toBeNull()
-
-    container.remove()
-    el.remove()
-    el2.remove()
-    vi.useRealTimers()
   })
 
   it('resets activePseudo to element when element changes', async () => {
