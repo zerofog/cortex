@@ -244,7 +244,9 @@ describe('TailwindResolver', () => {
     it('handles case-insensitive hex', () => {
       const resolver = TailwindResolver.fromTheme(defaultColorTheme())
       expect(resolver.findClass('color', '#111827')).toBe('text-gray-900')
-      expect(resolver.findClass('color', '#111827'.toUpperCase())).toBe('text-gray-900')
+      // Use a hex value with actual a-f letters to test case normalization
+      expect(resolver.findClass('background-color', '#EF4444')).toBe('bg-red-500')
+      expect(resolver.findClass('background-color', '#ef4444')).toBe('bg-red-500')
     })
 
     it('returns null for unknown color', () => {

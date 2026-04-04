@@ -45,7 +45,7 @@ describe('HoverOverlay', () => {
     target.remove()
   })
 
-  it('renders overlay with correct positioning from bounding rect', () => {
+  it('renders overlay with correct dimensions from bounding rect', () => {
     setup()
     const target = document.createElement('div')
     document.body.appendChild(target)

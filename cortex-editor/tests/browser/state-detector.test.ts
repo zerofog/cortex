@@ -95,9 +95,13 @@ describe('detectStates', () => {
 
   // TODO: requires real CSSOM (happy-dom limitation)
   it.skip('handles cross-origin stylesheets gracefully (no throw)', () => {
-    // Needs real cross-origin simulation to verify SecurityError handling
+    // Needs real cross-origin simulation to verify SecurityError handling.
+    // With a real cross-origin <link>, cssRules access throws SecurityError.
+    // The function should catch it and return empty maps (no states detected).
     const result = detectStates(target)
-    expect(result).toBeDefined()
+    expect(result.hover.size).toBe(0)
+    expect(result.focus.size).toBe(0)
+    expect(result.active.size).toBe(0)
   })
 
   it('handles descendant selectors: .parent:hover .child', () => {

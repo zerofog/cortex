@@ -160,11 +160,14 @@ describe('CortexTransport', () => {
     const ws = new WebSocket(`ws://localhost:${transport.port}`, {
       headers: { Origin: 'https://evil.com' },
     })
-    const error = await new Promise<Error>((resolve) => {
-      ws.on('error', resolve)
+    const statusCode = await new Promise<number>((resolve, reject) => {
+      ws.on('unexpected-response', (_request, response) => {
+        response.resume()
+        resolve(response.statusCode ?? 0)
+      })
+      ws.on('error', reject)
     })
-    // Must confirm rejection is a 403 Forbidden, not a generic connection error
-    expect(error.message).toMatch(/403|Forbidden|Unexpected server response/)
+    expect(statusCode).toBe(403)
   })
 
   it('accepts WebSocket connections with localhost Origin', async () => {
@@ -204,10 +207,14 @@ describe('CortexTransport', () => {
     const ws = new WebSocket(`ws://localhost:${transport.port}`, {
       headers: { Origin: 'null' },
     })
-    const error = await new Promise<Error>((resolve) => {
-      ws.on('error', resolve)
+    const statusCode = await new Promise<number>((resolve, reject) => {
+      ws.on('unexpected-response', (_request, response) => {
+        response.resume()
+        resolve(response.statusCode ?? 0)
+      })
+      ws.on('error', reject)
     })
-    expect(error.message).toMatch(/403|Forbidden|Unexpected server response/)
+    expect(statusCode).toBe(403)
   })
 
   it('onMessage returns unsubscribe function', async () => {
