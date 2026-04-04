@@ -1,7 +1,7 @@
 import type { JSX } from 'preact'
 import { useState } from 'preact/hooks'
 import { SegmentedControl } from './controls/SegmentedControl.js'
-import { getThemePreference, setThemePreference, type ThemePreference } from '../index.js'
+import { getThemePreference, setThemePreference, type ThemePreference } from '../theme.js'
 import { encodeFilePath } from '../label.js'
 
 const THEME_OPTIONS = [

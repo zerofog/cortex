@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { execFileSync, spawn } from 'node:child_process'
 
 export interface DemoResult {
@@ -18,7 +19,7 @@ function resolvePackageJson(demoDir: string): string {
   // - Running from npm install: use ^version from installed package
   // - Fallback: 'latest'
   let cortexEditorRef = 'latest'
-  const cliDir = path.dirname(new URL(import.meta.url).pathname)
+  const cliDir = path.dirname(fileURLToPath(import.meta.url))
   const pkgRoot = path.resolve(cliDir, '../..')
   const localPkgJson = path.join(pkgRoot, 'package.json')
   if (fs.existsSync(localPkgJson)) {

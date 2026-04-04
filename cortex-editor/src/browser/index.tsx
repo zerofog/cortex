@@ -15,22 +15,9 @@ let themeMediaQuery: MediaQueryList | null = null
 let themeObserver: MutationObserver | null = null
 let currentTheme: 'blueprint' | null = null
 
-export type ThemePreference = 'light' | 'dark' | 'system'
-
-const STORAGE_KEY = 'cortex-theme-preference'
-
-export function getThemePreference(): ThemePreference {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored === 'light' || stored === 'dark' || stored === 'system') return stored
-  } catch { /* localStorage unavailable */ }
-  return 'system'
-}
-
-export function setThemePreference(pref: ThemePreference): void {
-  try { localStorage.setItem(STORAGE_KEY, pref) } catch { /* ignore */ }
-  applyTheme()
-}
+export type { ThemePreference } from './theme.js'
+export { getThemePreference, setThemePreference } from './theme.js'
+import { getThemePreference, THEME_STORAGE_KEY, _registerPreferenceChangeHandler, _clearPreferenceChangeHandler } from './theme.js'
 
 export function detectTheme(): 'blueprint' | null {
   const pref = getThemePreference()
@@ -121,6 +108,7 @@ export function bootstrap(): void {
   shadowRoot.appendChild(rootElement)
 
   applyTheme()
+  _registerPreferenceChangeHandler(applyTheme)
 
   themeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
   themeMediaQuery.addEventListener('change', applyTheme)
@@ -177,7 +165,8 @@ export function _resetForTesting(): void {
   rootElement = null
   _setCortexHost(null, null)
   document.querySelector('[data-cortex-fonts]')?.remove()
-  try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
+  _clearPreferenceChangeHandler()
+  try { localStorage.removeItem(THEME_STORAGE_KEY) } catch { /* ignore */ }
 }
 
 // Auto-activate on page load

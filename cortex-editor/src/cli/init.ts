@@ -167,6 +167,8 @@ export async function runInit(cwd: string = process.cwd()): Promise<InitResult> 
         vitePluginFound = true
         vitePluginInjected = true
         console.log(`  ${basename}: cortexEditor plugin injected`)
+      } else {
+        vitePluginFound = false
       }
     }
   } else {
