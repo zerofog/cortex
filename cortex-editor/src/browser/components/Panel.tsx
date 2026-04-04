@@ -72,6 +72,10 @@ function clearHighlights(): void {
   })
 }
 
+function removeBlastRadiusStyle(): void {
+  document.head.querySelector('[data-cortex-blast-radius-style]')?.remove()
+}
+
 /**
  * All CSS properties checked for dimming (default vs forced-state comparison).
  * Covers every section's managed properties.
@@ -200,8 +204,8 @@ export function Panel({
     prevElementRef.current = element
   }, [element])
 
-  // Clear blast-radius highlights on unmount
-  useEffect(() => () => { clearHighlights() }, [])
+  // Clear blast-radius highlights and remove injected style tag on unmount
+  useEffect(() => () => { clearHighlights(); removeBlastRadiusStyle() }, [])
 
   // Detect shared CSS classes when a new element is selected (ZF0-1018).
   // Resets scope to 'instance' (safe default) on every element change.
