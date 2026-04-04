@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import postcss from 'postcss'
 import {
+  splitValues,
   parseBoxSides,
   recomposeBoxSides,
   parseTypeClassified,
@@ -12,6 +13,44 @@ function makeRule(css: string): postcss.Rule {
   const root = postcss.parse(css)
   return root.first as postcss.Rule
 }
+
+describe('splitValues', () => {
+  it('splits basic space-separated values', () => {
+    expect(splitValues('10px 20px')).toEqual(['10px', '20px'])
+  })
+
+  it('preserves parenthesized groups (existing behavior)', () => {
+    expect(splitValues('1px solid rgb(0, 0, 0)')).toEqual(['1px', 'solid', 'rgb(0, 0, 0)'])
+  })
+
+  it('preserves double-quoted strings containing spaces', () => {
+    expect(splitValues('"Open Sans", sans-serif')).toEqual(['"Open Sans",', 'sans-serif'])
+  })
+
+  it('preserves single-quoted strings containing spaces', () => {
+    expect(splitValues("'Open Sans', sans-serif")).toEqual(["'Open Sans',", 'sans-serif'])
+  })
+
+  it('handles escaped quotes inside double-quoted strings', () => {
+    expect(splitValues('"Open\\" Sans", sans-serif')).toEqual(['"Open\\" Sans",', 'sans-serif'])
+  })
+
+  it('handles escaped quotes inside single-quoted strings', () => {
+    expect(splitValues("'Open\\' Sans', sans-serif")).toEqual(["'Open\\' Sans',", 'sans-serif'])
+  })
+
+  it('handles single value with no spaces', () => {
+    expect(splitValues('red')).toEqual(['red'])
+  })
+
+  it('handles empty string', () => {
+    expect(splitValues('')).toEqual([])
+  })
+
+  it('handles multiple consecutive spaces', () => {
+    expect(splitValues('10px  20px')).toEqual(['10px', '20px'])
+  })
+})
 
 describe('parseBoxSides', () => {
   it('parses 1 value (all sides equal)', () => {

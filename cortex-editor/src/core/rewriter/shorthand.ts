@@ -16,19 +16,41 @@ function hasFunction(value: string, fn: string): boolean {
   return value.includes(`${fn}(`)
 }
 
-function splitValues(value: string): string[] {
+export function splitValues(value: string): string[] {
   const tokens: string[] = []
   let current = ''
   let depth = 0
-  for (let i = 0; i < value.length; i++) {
-    const ch = value[i]
-    if (ch === '(') depth++
-    else if (ch === ')') depth--
-    if (ch === ' ' && depth === 0) {
-      if (current) tokens.push(current)
-      current = ''
+  let quote: string | null = null
+  const len = value.length
+  for (let i = 0; i < len; i++) {
+    const ch = value[i]!
+    if (quote) {
+      // Inside quoted string
+      if (ch === '\\' && i + 1 < len) {
+        current += ch + value[i + 1]
+        i++ // skip escaped character
+      } else if (ch === quote) {
+        quote = null
+        current += ch
+      } else {
+        current += ch
+      }
     } else {
-      current += ch
+      if (ch === '"' || ch === "'") {
+        quote = ch
+        current += ch
+      } else if (ch === '(') {
+        depth++
+        current += ch
+      } else if (ch === ')') {
+        depth--
+        current += ch
+      } else if (ch === ' ' && depth === 0) {
+        if (current) tokens.push(current)
+        current = ''
+      } else {
+        current += ch
+      }
     }
   }
   if (current) tokens.push(current)
