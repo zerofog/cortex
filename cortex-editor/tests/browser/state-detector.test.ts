@@ -86,23 +86,22 @@ describe('detectStates', () => {
     expect(result.hover.get('display')).toBe('flex')
   })
 
-  it('recurses into @layer rules', () => {
-    // happy-dom may not support @layer as CSSLayerBlockRule.
-    // The implementation uses duck-typing fallback (cssRules property check).
-    // If the environment doesn't parse @layer at all, this tests graceful handling.
+  // TODO: requires real CSSOM (happy-dom limitation)
+  it.skip('recurses into @layer rules', () => {
     styleEl.textContent = '@layer base { .btn:hover { opacity: 0.8; } }'
     const result = detectStates(target)
-    // happy-dom does not parse @layer rules — verify no crash and empty result
-    // In real browsers, CSSLayerBlockRule would be recursed into and opacity detected.
-    expect(result).toBeDefined()
-    // If the environment does support @layer, opacity would be present:
-    // expect(result.hover.get('opacity')).toBe('0.8')
+    expect(result.hover.get('opacity')).toBe('0.8')
   })
 
-  it('handles cross-origin stylesheets gracefully (no throw)', () => {
-    // happy-dom doesn't truly simulate cross-origin, but we verify no crash
+  // TODO: requires real CSSOM (happy-dom limitation)
+  it.skip('handles cross-origin stylesheets gracefully (no throw)', () => {
+    // Needs real cross-origin simulation to verify SecurityError handling.
+    // With a real cross-origin <link>, cssRules access throws SecurityError.
+    // The function should catch it and return empty maps (no states detected).
     const result = detectStates(target)
-    expect(result).toBeDefined()
+    expect(result.hover.size).toBe(0)
+    expect(result.focus.size).toBe(0)
+    expect(result.active.size).toBe(0)
   })
 
   it('handles descendant selectors: .parent:hover .child', () => {
@@ -192,15 +191,11 @@ describe('detectStates', () => {
     link.remove()
   })
 
-  it('handles CSS nesting (&:hover inside parent rule)', () => {
-    // Native CSS nesting: &:hover is a child CSSStyleRule inside .btn { }
-    // In the CSSOM, the child rule's selectorText is resolved to .btn:hover
+  // TODO: requires real CSSOM (happy-dom limitation)
+  it.skip('handles CSS nesting (&:hover inside parent rule)', () => {
     styleEl.textContent = '.btn { color: red; &:hover { background-color: blue; } }'
     const result = detectStates(target)
-    // If the browser supports CSS nesting CSSOM, hover should be detected
-    // happy-dom may not support nested rules — verify no crash at minimum
-    expect(result).toBeDefined()
-    // In browsers that support nesting: expect(result.hover.get('background-color')).toBe('blue')
+    expect(result.hover.get('background-color')).toBe('blue')
   })
 
   it('skips ::after pseudo-element selectors', () => {
@@ -231,13 +226,10 @@ describe('detectStates', () => {
     wrapper.remove()
   })
 
-  it('handles &.modifier:hover in nested CSS (no crash)', () => {
-    // Native CSS nesting: .btn { &.primary:hover { color: white } }
-    // happy-dom doesn't support CSS nesting CSSOM, so this verifies no crash.
-    // In real browsers, the nested rule resolves to .btn.primary:hover.
+  // TODO: requires real CSSOM (happy-dom limitation)
+  it.skip('handles &.modifier:hover in nested CSS (no crash)', () => {
     styleEl.textContent = '.btn { &.primary:hover { color: white; } }'
     const result = detectStates(target)
-    // happy-dom won't produce nested CSSOM — just verify no crash
-    expect(result).toBeDefined()
+    expect(result.hover.get('color')).toBe('white')
   })
 })

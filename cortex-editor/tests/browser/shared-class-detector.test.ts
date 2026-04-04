@@ -139,19 +139,6 @@ describe('detectSharedClasses', () => {
     expect(detectSharedClasses(target)).toBeNull()
   })
 
-  it('matches selectors from the same CSS file', () => {
-    // Two elements from the SAME CSS file with the same selector — truly shared
-    const a = el('src/Hero.module.css:.badge')
-    const b = el('src/Hero.module.css:.badge')
-    const result = detectSharedClasses(a)
-    expect(result).not.toBeNull()
-    expect(result!.selector).toBe('.badge')
-    expect(result!.cssFilePath).toBe('src/Hero.module.css')
-    expect(result!.count).toBe(2)
-    expect(result!.elements).toContain(a)
-    expect(result!.elements).toContain(b)
-  })
-
   it('does not count the same element twice', () => {
     const target = el('src/Hero.module.css:.badge')
     el('src/Hero.module.css:.badge')

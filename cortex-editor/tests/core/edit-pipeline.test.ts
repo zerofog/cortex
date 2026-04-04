@@ -582,39 +582,6 @@ describe('EditPipeline', () => {
     expect((failedStatus as { reason: string }).reason).toBe('CSS file path outside project root')
   })
 
-  it('rejects cssMapping targeting non-module CSS file', async () => {
-    const channel = mockChannel()
-    const resolver = mockResolver({})
-    const rewriter = mockRewriter()
-    const verifier = mockVerifier()
-    const writeFile = vi.fn()
-    const cssRewriter = mockCSSModulesRewriter()
-
-    const pipeline = new EditPipeline({
-      channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
-      cssModulesRewriter: cssRewriter,
-    })
-
-    pipeline.handleEdit({
-      editId: 'edit-1',
-      source: '/project/src/Hero.tsx:5:3',
-      property: 'padding-top',
-      value: '16px',
-      elementSelector: 'div',
-      cssMapping: 'src/Hero.module.scss:.hero',
-    })
-
-    vi.advanceTimersByTime(400)
-    await vi.runAllTimersAsync()
-
-    expect(writeFile).not.toHaveBeenCalled()
-    const failedStatus = channel.sent.find(
-      m => m.type === 'edit_status' && (m as { status: string }).status === 'failed'
-    )
-    expect(failedStatus).toBeDefined()
-    expect((failedStatus as { reason: string }).reason).toContain('Modules editing not yet supported')
-  })
-
   it('rejects SCSS modules with specific error message', async () => {
     const channel = mockChannel()
     const resolver = mockResolver({})
