@@ -19,8 +19,8 @@ describe('DeferredWriter', () => {
       filePath: '/app/App.tsx',
       line: 14,
       changes: expect.arrayContaining([
-        { property: 'padding-top', value: '16px' },
-        { property: 'padding-left', value: '8px' },
+        expect.objectContaining({ property: 'padding-top', value: '16px' }),
+        expect.objectContaining({ property: 'padding-left', value: '8px' }),
       ]),
     }))
   })
@@ -37,7 +37,7 @@ describe('DeferredWriter', () => {
     expect(writeFn).toHaveBeenCalledTimes(1)
     const changes = writeFn.mock.calls[0][0].changes
     expect(changes).toHaveLength(1)
-    expect(changes[0]).toEqual({ property: 'padding-top', value: '24px' })
+    expect(changes[0]).toEqual({ property: 'padding-top', value: '24px', editId: 'e2' })
   })
 
   it('aborts in-flight AI call when new edit arrives for same element', async () => {

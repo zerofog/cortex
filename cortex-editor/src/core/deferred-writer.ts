@@ -23,7 +23,7 @@ export interface BatchedWriteRequest {
   filePath: string
   line: number
   col: number
-  changes: Array<{ property: string; value: string }>
+  changes: Array<{ property: string; value: string; editId: string }>
   editIds: string[]
   failureReason: string
   signal: AbortSignal
@@ -42,8 +42,8 @@ interface PendingEntry {
   col: number
   editIds: string[]
   failureReason: string
-  /** property -> { property, value }. Last write wins via Map overwrite. */
-  changes: Map<string, { property: string; value: string }>
+  /** property -> { property, value, editId }. Last write wins via Map overwrite. */
+  changes: Map<string, { property: string; value: string; editId: string }>
   timer: ReturnType<typeof setTimeout>
 }
 
@@ -87,14 +87,14 @@ export class DeferredWriter {
       // Always allow updates to existing properties (last-write-wins);
       // only block genuinely new properties beyond the cap
       if (existing.changes.has(edit.property) || existing.changes.size < MAX_CHANGES_PER_BATCH) {
-        existing.changes.set(edit.property, { property: edit.property, value: edit.value })
+        existing.changes.set(edit.property, { property: edit.property, value: edit.value, editId: edit.editId })
       }
       existing.editIds.push(edit.editId)
       existing.failureReason = edit.failureReason
       existing.timer = setTimeout(() => { this.flush(key) }, this.coalescingMs)
     } else {
-      const changes = new Map<string, { property: string; value: string }>()
-      changes.set(edit.property, { property: edit.property, value: edit.value })
+      const changes = new Map<string, { property: string; value: string; editId: string }>()
+      changes.set(edit.property, { property: edit.property, value: edit.value, editId: edit.editId })
       const timer = setTimeout(() => { this.flush(key) }, this.coalescingMs)
       this.pending.set(key, {
         filePath: edit.filePath,
@@ -168,7 +168,7 @@ export class DeferredWriter {
     for (const [key, entry] of this.inflight) {
       if (key.startsWith(prefix)) {
         cancelledIds.push(...entry.editIds)
-        entry.controller.abort()
+        entry.controller.abort('user-cancel')
         this.inflight.delete(key)
       }
     }

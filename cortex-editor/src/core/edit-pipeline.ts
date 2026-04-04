@@ -879,7 +879,7 @@ export class EditPipeline {
     if (batch.signal.aborted) {
       // Coalescing supersede: silent — the newer batch handles these properties.
       // User-initiated cancel (undo/redo): send explicit status via cancelForFile path.
-      if (batch.signal.reason !== 'superseded') {
+      if (batch.signal.reason !== 'superseded' && batch.signal.reason !== 'user-cancel') {
         this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
       }
       return { success: false, reason: 'aborted' }
@@ -893,7 +893,7 @@ export class EditPipeline {
     return this.withFileLockResult(batch.filePath, async () => {
       // Check abort after lock acquisition (may have waited)
       if (batch.signal.aborted) {
-        if (batch.signal.reason !== 'superseded') {
+        if (batch.signal.reason !== 'superseded' && batch.signal.reason !== 'user-cancel') {
           this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
         }
         return { success: false, reason: 'aborted' }
@@ -912,7 +912,7 @@ export class EditPipeline {
 
       // Check abort after file read
       if (batch.signal.aborted) {
-        if (batch.signal.reason !== 'superseded') {
+        if (batch.signal.reason !== 'superseded' && batch.signal.reason !== 'user-cancel') {
           this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
         }
         return { success: false, reason: 'aborted' }
@@ -933,7 +933,7 @@ export class EditPipeline {
         // Abort during AI call: the signal fired while fetch was in-flight.
         // Treat as cancellation, not failure — a newer edit superseded this one.
         if (batch.signal.aborted) {
-          if (batch.signal.reason !== 'superseded') {
+          if (batch.signal.reason !== 'superseded' && batch.signal.reason !== 'user-cancel') {
             this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
           }
           return { success: false, reason: 'aborted' }
@@ -951,7 +951,7 @@ export class EditPipeline {
 
       // Check abort before writing (AI may have returned after supersede)
       if (batch.signal.aborted) {
-        if (batch.signal.reason !== 'superseded') {
+        if (batch.signal.reason !== 'superseded' && batch.signal.reason !== 'user-cancel') {
           this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
         }
         return { success: false, reason: 'aborted' }
@@ -972,13 +972,12 @@ export class EditPipeline {
       }
 
       // Track HMR for ALL changes in the batch, not just the last.
-      // Each property needs its own trackEdit so the browser can clear its CSS override
-      // when HMR fires. editIds may not be 1:1 with changes (coalescing), so use
-      // index with fallback to the last editId for safety.
-      for (let i = 0; i < batch.changes.length; i++) {
-        const change = batch.changes[i]!
+      // Each change carries the latest editId for that property (last-write-wins
+      // in DeferredWriter's coalescing Map). This ensures the verifier sends
+      // hmr_verified for the editId the browser is actually tracking.
+      for (const change of batch.changes) {
         this.verifier.trackEdit({
-          editId: batch.editIds[Math.min(i, batch.editIds.length - 1)]!,
+          editId: change.editId,
           filePath: batch.filePath,
           expectedValue: change.value,
           property: change.property,

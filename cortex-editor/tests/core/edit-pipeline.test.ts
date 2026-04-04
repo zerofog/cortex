@@ -2022,7 +2022,7 @@ describe('EditPipeline', () => {
         filePath: '/project/src/App.tsx',
         line: 14,
         col: 7,
-        changes: [{ property: 'padding-top', value: '16px' }],
+        changes: [{ property: 'padding-top', value: '16px', editId: 'e1' }],
         editIds: ['e1', 'e2'],
         failureReason: 'no class',
         signal: ac.signal,
@@ -2038,7 +2038,7 @@ describe('EditPipeline', () => {
           filePath: '/project/src/App.tsx',
           line: 14,
           col: 7,
-          changes: [{ property: 'padding-top', value: '16px' }],
+          changes: [{ property: 'padding-top', value: '16px', editId: 'e1' }],
         }),
         expect.objectContaining({ fileContent: 'old content', signal: ac.signal }),
       )
@@ -2072,7 +2072,7 @@ describe('EditPipeline', () => {
         filePath: '/project/src/App.tsx',
         line: 14,
         col: 7,
-        changes: [{ property: 'padding-top', value: '16px' }],
+        changes: [{ property: 'padding-top', value: '16px', editId: 'e1' }],
         editIds: ['e1'],
         failureReason: 'no class',
         signal: ac.signal,
@@ -2111,7 +2111,7 @@ describe('EditPipeline', () => {
         filePath: '/project/src/App.tsx',
         line: 14,
         col: 7,
-        changes: [{ property: 'padding-top', value: '16px' }],
+        changes: [{ property: 'padding-top', value: '16px', editId: 'e1' }],
         editIds: ['e1'],
         failureReason: 'no class',
         signal: ac.signal,
@@ -2148,7 +2148,7 @@ describe('EditPipeline', () => {
         filePath: '/project/src/App.tsx',
         line: 14,
         col: 7,
-        changes: [{ property: 'padding-top', value: '16px' }],
+        changes: [{ property: 'padding-top', value: '16px', editId: 'e1' }],
         editIds: ['e1', 'e2', 'e3'],
         failureReason: 'no class',
         signal: ac.signal,
@@ -2184,7 +2184,7 @@ describe('EditPipeline', () => {
         filePath: '/project/src/App.tsx',
         line: 14,
         col: 7,
-        changes: [{ property: 'padding-top', value: '16px' }],
+        changes: [{ property: 'padding-top', value: '16px', editId: 'e1' }],
         editIds: ['e1'],
         failureReason: 'no class',
         signal: ac.signal,
@@ -2215,7 +2215,7 @@ describe('EditPipeline', () => {
         filePath: '/project/src/App.tsx',
         line: 14,
         col: 7,
-        changes: [{ property: 'padding-top', value: '16px' }],
+        changes: [{ property: 'padding-top', value: '16px', editId: 'e1' }],
         editIds: ['e1'],
         failureReason: 'no class',
         signal: ac.signal,
@@ -2692,8 +2692,8 @@ describe('EditPipeline', () => {
         line: 14,
         col: 7,
         changes: [
-          { property: 'padding-top', value: '16px' },
-          { property: 'margin-left', value: '8px' },
+          { property: 'padding-top', value: '16px', editId: 'e-first' },
+          { property: 'margin-left', value: '8px', editId: 'e-middle' },
         ],
         editIds: ['e-first', 'e-middle', 'e-last'],
         failureReason: 'no class',
@@ -2702,14 +2702,12 @@ describe('EditPipeline', () => {
 
       await pipeline.executeDeferredBatch(batch)
 
-      // Both changes tracked (not just last)
+      // Both changes tracked with their per-change editIds
       expect(verifier.tracked).toHaveLength(2)
-      // First change gets first editId
       expect((verifier.tracked[0] as any).editId).toBe('e-first')
       expect((verifier.tracked[0] as any).property).toBe('padding-top')
       expect((verifier.tracked[0] as any).expectedValue).toBe('16px')
       expect((verifier.tracked[0] as any).kind).toBe('deferred')
-      // Second change gets second editId (clamped to editIds.length)
       expect((verifier.tracked[1] as any).editId).toBe('e-middle')
       expect((verifier.tracked[1] as any).property).toBe('margin-left')
       expect((verifier.tracked[1] as any).expectedValue).toBe('8px')
@@ -2738,9 +2736,9 @@ describe('EditPipeline', () => {
         line: 14,
         col: 7,
         changes: [
-          { property: 'padding-top', value: '16px' },
-          { property: 'margin-left', value: '8px' },
-          { property: 'color', value: 'red' },
+          { property: 'padding-top', value: '16px', editId: 'e1' },
+          { property: 'margin-left', value: '8px', editId: 'e2' },
+          { property: 'color', value: 'red', editId: 'e3' },
         ],
         editIds: ['e1', 'e2', 'e3'],
         failureReason: 'no class',
@@ -2805,7 +2803,7 @@ describe('EditPipeline', () => {
         filePath: '/project/src/App.tsx',
         line: 14,
         col: 7,
-        changes: [{ property: 'padding-top', value: '16px' }],
+        changes: [{ property: 'padding-top', value: '16px', editId: 'e1' }],
         editIds: ['e1', 'e2'],
         failureReason: 'no class',
         signal: ac.signal,

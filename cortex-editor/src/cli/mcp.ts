@@ -24,17 +24,36 @@ export interface MCPServerHandle {
   close(): void
 }
 
-/** Walk up from startDir looking for a .cortex directory containing a port file. */
+/** Walk up from startDir looking for a .cortex directory containing a port file.
+ *  Stops at project boundaries (.git or package.json) to prevent a malicious
+ *  .cortex/port in a shared parent directory from hijacking the connection. */
 export function findProjectRoot(startDir: string = process.cwd()): string | null {
   let dir = path.resolve(startDir)
   const { root } = path.parse(dir)
+  let passedProjectBoundary = false
   while (true) {
+    // Check for .cortex/port in this directory
     const candidate = path.join(dir, '.cortex', 'port')
     try {
       fs.accessSync(candidate)
       return dir
     } catch {
       // not found, walk up
+    }
+    // Stop if we've passed a project boundary without finding .cortex/port —
+    // don't walk into unrelated parent directories
+    if (passedProjectBoundary) return null
+    // Check for project boundary markers before walking up
+    try {
+      fs.accessSync(path.join(dir, '.git'))
+      passedProjectBoundary = true
+    } catch {
+      try {
+        fs.accessSync(path.join(dir, 'package.json'))
+        passedProjectBoundary = true
+      } catch {
+        // no boundary marker, keep walking
+      }
     }
     const parent = path.dirname(dir)
     if (parent === dir || dir === root) return null
