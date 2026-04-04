@@ -115,6 +115,62 @@ describe('parseTypeClassified', () => {
     expect(result!.style).toBe('solid')
     expect(result!.color).toBe('rgb(0, 0, 0)')
   })
+
+  it('rejects multi-dot value as width (1.2.3 is not a valid length)', () => {
+    const result = parseTypeClassified('1.2.3 solid red')
+    // 1.2.3 should NOT be classified as width — it should fall through to color
+    expect(result).not.toBeNull()
+    expect(result!.width).toBeUndefined()
+    expect(result!.style).toBe('solid')
+    expect(result!.color).toBe('1.2.3 red')
+  })
+
+  it('accepts decimal length as width (1.2px)', () => {
+    const result = parseTypeClassified('1.2px solid red')
+    expect(result).not.toBeNull()
+    expect(result!.width).toBe('1.2px')
+    expect(result!.style).toBe('solid')
+    expect(result!.color).toBe('red')
+  })
+
+  it('accepts integer length as width (10px)', () => {
+    const result = parseTypeClassified('10px solid red')
+    expect(result).not.toBeNull()
+    expect(result!.width).toBe('10px')
+  })
+
+  it('accepts leading-dot decimal as width (.5em)', () => {
+    const result = parseTypeClassified('.5em solid red')
+    expect(result).not.toBeNull()
+    expect(result!.width).toBe('.5em')
+    expect(result!.style).toBe('solid')
+    expect(result!.color).toBe('red')
+  })
+
+  it('accepts negative decimal as width (-1.5rem)', () => {
+    const result = parseTypeClassified('-1.5rem solid red')
+    expect(result).not.toBeNull()
+    expect(result!.width).toBe('-1.5rem')
+    expect(result!.style).toBe('solid')
+    expect(result!.color).toBe('red')
+  })
+
+  it('accepts unitless zero as width (0)', () => {
+    const result = parseTypeClassified('0 solid red')
+    expect(result).not.toBeNull()
+    expect(result!.width).toBe('0')
+    expect(result!.style).toBe('solid')
+    expect(result!.color).toBe('red')
+  })
+
+  it('rejects bare dot as width', () => {
+    const result = parseTypeClassified('. solid red')
+    // bare dot is not a valid length
+    expect(result).not.toBeNull()
+    expect(result!.width).toBeUndefined()
+    expect(result!.style).toBe('solid')
+    expect(result!.color).toBe('. red')
+  })
 })
 
 describe('findAndValidateShorthand', () => {
