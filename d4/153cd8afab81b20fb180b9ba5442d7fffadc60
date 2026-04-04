@@ -1,0 +1,54 @@
+cortex-editor/src/adapters/vite.ts
+  0412426241975e32 568-573
+cortex-editor/tests/core/property-matrix.test.ts
+  0412426241975e32 1-191
+cortex-editor/tests/browser/controls/color-input.test.tsx
+  0412426241975e32 104-115
+cortex-editor/src/core/tailwind-resolver.ts
+  0412426241975e32 425-466
+cortex-editor/tests/core/tailwind-v4-roundtrip.test.ts
+  0412426241975e32 1-298
+cortex-editor/src/browser/components/controls/ColorInput.tsx
+  0412426241975e32 5,19-23,32-76
+cortex-editor/tests/integration/edit-loop.test.ts
+  0412426241975e32 792-922
+cortex-editor/src/core/oklch.ts
+  0412426241975e32 2-9,14,16-19,21-25,30-41,46-47,50,53-56,58,60,62-65,67-84,86-89
+cortex-editor/tests/core/tailwind-resolver.test.ts
+  0412426241975e32 916-973
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "d4153cd8afab81b20fb180b9ba5442d7fffadc60",
+  "prompts": {
+    "0412426241975e32": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dbb88f84-cff5-4f3f-a7a5-f663ce775ac5",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 1088,
+      "total_deletions": 103,
+      "accepted_lines": 867,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/645746170bb0fb676f2e48462f93e2bf7ada8891653fa544c2d9597121e127f1"
+    },
+    "8af62a8044bedc45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d5a10-c409-7912-bfa6-ac25fdbdf8a6",
+        "model": "gpt-5.4"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1176,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/25c3ce990ac0fd9aa1247e265675ed9fd17fc751bd2fc564eebca03c79e5981a"
+    }
+  }
+}
