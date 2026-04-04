@@ -7,7 +7,7 @@ export interface CortexTransportOptions {
   heartbeatInterval?: number
 }
 
-const ALLOWED_ORIGINS = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/
+const ALLOWED_ORIGINS = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/
 
 export class CortexTransport implements ServerChannel {
   private httpServer: HttpServer | null = null

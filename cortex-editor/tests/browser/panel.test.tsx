@@ -651,6 +651,59 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     target.remove()
   })
 
+  // Bug #17: blast-radius style tag removed on unmount
+  it('removes blast-radius style tag from document.head on unmount', async () => {
+    vi.useFakeTimers()
+
+    const el = document.createElement('div')
+    const el2 = document.createElement('div')
+    const container = document.createElement('div')
+
+    try {
+      el.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+      el.className = 'shared-class'
+      document.body.appendChild(el)
+
+      el2.setAttribute('data-cortex-source', 'src/Card.tsx:8:3')
+      el2.className = 'shared-class'
+      document.body.appendChild(el2)
+
+      const overrideManager = {
+        set: vi.fn(), remove: vi.fn(), clearAll: vi.fn(),
+        dispose: vi.fn(), flush: vi.fn(),
+      }
+
+      document.body.appendChild(container)
+
+      render(
+        <Panel element={el} overrideManager={overrideManager as any}
+          onClose={() => {}} onSelectElement={() => {}} {...panelPositionProps} />,
+        container,
+      )
+      await vi.advanceTimersByTimeAsync(50)
+
+      // Manually inject the blast-radius style tag to simulate a highlight having occurred.
+      // The style is lazily injected on first highlightSharedElements() call, not on mount.
+      if (!document.head.querySelector('[data-cortex-blast-radius-style]')) {
+        const style = document.createElement('style')
+        style.setAttribute('data-cortex-blast-radius-style', '')
+        style.textContent = '[data-cortex-blast-radius] { outline: 2px dashed #f97316 !important; }'
+        document.head.appendChild(style)
+      }
+
+      expect(document.head.querySelector('[data-cortex-blast-radius-style]')).not.toBeNull()
+
+      render(null, container)
+
+      expect(document.head.querySelector('[data-cortex-blast-radius-style]')).toBeNull()
+    } finally {
+      container.remove()
+      el.remove()
+      el2.remove()
+      vi.useRealTimers()
+    }
+  })
+
   it('resets activePseudo to element when element changes', async () => {
     const el1 = createTarget()
     const el2 = document.createElement('div')

@@ -5,6 +5,7 @@ import os from 'os'
 import pathMod from 'path'
 import WebSocket from 'ws'
 import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting, _getSessionTokenForTesting } from '../../src/adapters/vite.js'
+import { AnnotationStore } from '../../src/core/annotations.js'
 import type { Plugin } from 'vite'
 
 // Mock loadEnv from vite so tests can control CORTEX_API_KEY availability
@@ -480,6 +481,24 @@ describe('cortexEditor Vite plugin', () => {
       ;(plugin.handleHotUpdate as Function)(hmrContext)
       expect(files).toHaveLength(0)
     })
+
+    it.each([
+      ['styles.css', 'plain CSS'],
+      ['App.module.css', 'CSS modules'],
+    ])('fires onHMRUpdate for %s (%s) (bug #13)', (filename) => {
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+      const files: string[][] = []
+      onHMRUpdate((f) => files.push(f))
+      const fullPath = `/project/src/${filename}`
+      const hmrContext = {
+        modules: [{ file: fullPath }],
+      }
+      ;(plugin.handleHotUpdate as Function)(hmrContext)
+      expect(files).toHaveLength(1)
+      expect(files[0]).toEqual([fullPath])
+    })
   })
 })
 
@@ -686,6 +705,14 @@ describe('CLI WebSocket bridge', () => {
       ws.on('close', () => resolve(true))
     })
     expect(closed).toBe(true)
+  })
+
+  it('accepts connections with IPv6 [::1] host header (bug #11)', async () => {
+    await setupServer()
+    const { ws } = await connectCLI({
+      headers: { Host: `[::1]:${serverPort}` },
+    })
+    expect(ws.readyState).toBe(WebSocket.OPEN)
   })
 
   it('caps concurrent connections at 5', async () => {
@@ -1196,6 +1223,105 @@ describe('annotation RPC', () => {
     const agentStatus = server._sent.find((s) => (s.data as any).type === 'agent-status')
     expect(agentStatus).toBeDefined()
     expect((agentStatus!.data as any).connected).toBe(false)
+  })
+
+  it('ws.send() throwing during RPC success response does not crash the server', async () => {
+    // Intercept ws.send on the server side: throw when sending any RPC response
+    // for requestId "crash1". This simulates a WebSocket closing mid-send.
+    // Without the fix, ws.send in the success path throws, the outer catch fires,
+    // and ws.send in the catch also throws — an unhandled exception that crashes the server.
+    const origSend = WebSocket.prototype.send
+    WebSocket.prototype.send = function(this: WebSocket, data: any, ...args: any[]) {
+      if (typeof data === 'string' && data.includes('"crash1"') && (data.includes('"cortex-rpc-result"') || data.includes('"cortex-rpc-error"'))) {
+        throw new Error('WebSocket is not open')
+      }
+      return origSend.call(this, data, ...args)
+    } as any
+
+    try {
+      await setupServer()
+      const { ws, nextMessage } = await connectCLI()
+      await nextMessage() // drain cortex-status
+      await nextMessage() // drain agent-status
+
+      ws.send(JSON.stringify({
+        type: 'cortex-rpc',
+        requestId: 'crash1',
+        method: 'getPending',
+        params: {},
+        token: sessionToken,
+      }))
+
+      // Wait for the server to process the message
+      await new Promise((r) => setTimeout(r, 100))
+
+      // Restore send before verifying server is alive
+      WebSocket.prototype.send = origSend
+
+      // Verify the server is still alive by connecting a new client and performing an RPC
+      const client2 = await connectCLI()
+      await client2.nextMessage() // drain cortex-status
+      await client2.nextMessage() // drain agent-status
+
+      client2.ws.send(JSON.stringify({
+        type: 'cortex-rpc',
+        requestId: 'alive1',
+        method: 'getPending',
+        params: {},
+        token: sessionToken,
+      }))
+      const reply = await client2.nextMessage()
+      expect(reply.type).toBe('cortex-rpc-result')
+      expect(reply.requestId).toBe('alive1')
+    } finally {
+      WebSocket.prototype.send = origSend
+    }
+  })
+
+  it('ws.send() throwing during RPC error response logs console.warn', async () => {
+    // Make handleAnnotationRPC throw by sabotaging AnnotationStore.prototype.getPending
+    const getPendingSpy = vi.spyOn(AnnotationStore.prototype, 'getPending')
+      .mockImplementation(() => { throw new Error('store exploded') })
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    // Intercept ws.send on the server side: throw when sending cortex-rpc-error
+    const origSend = WebSocket.prototype.send
+    WebSocket.prototype.send = function(this: WebSocket, data: any, ...args: any[]) {
+      if (typeof data === 'string' && data.includes('"cortex-rpc-error"')) {
+        throw new Error('WebSocket is not open')
+      }
+      return origSend.call(this, data, ...args)
+    } as any
+
+    try {
+      await setupServer()
+      const { ws, nextMessage } = await connectCLI()
+      await nextMessage() // drain cortex-status
+      await nextMessage() // drain agent-status
+
+      // Send the RPC — handleAnnotationRPC will throw ('store exploded'),
+      // then the catch block's ws.send() will throw because we intercepted it.
+      ws.send(JSON.stringify({
+        type: 'cortex-rpc',
+        requestId: 'crash2',
+        method: 'getPending',
+        params: {},
+        token: sessionToken,
+      }))
+
+      // Wait for the server to process the message
+      await new Promise((r) => setTimeout(r, 100))
+
+      // Verify console.warn was called with the expected message
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[cortex] Failed to send RPC error to CLI client:',
+        expect.anything(),
+      )
+    } finally {
+      WebSocket.prototype.send = origSend
+      getPendingSpy.mockRestore()
+      warnSpy.mockRestore()
+    }
   })
 })
 

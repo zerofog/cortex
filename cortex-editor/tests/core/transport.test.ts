@@ -200,6 +200,21 @@ describe('CortexTransport', () => {
     ws.close()
   })
 
+  it('accepts WebSocket connections with IPv6 [::1] Origin (bug #11)', async () => {
+    transport = new CortexTransport({ port: 0 })
+    await transport.start()
+
+    const ws = new WebSocket(`ws://localhost:${transport.port}`, {
+      headers: { Origin: 'http://[::1]:5173' },
+    })
+    await new Promise<void>((resolve, reject) => {
+      ws.on('open', resolve)
+      ws.on('error', reject)
+    })
+    expect(ws.readyState).toBe(WebSocket.OPEN)
+    ws.close()
+  })
+
   it('rejects WebSocket connections with null Origin (sandboxed iframe)', async () => {
     transport = new CortexTransport({ port: 0 })
     await transport.start()

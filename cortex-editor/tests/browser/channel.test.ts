@@ -413,6 +413,52 @@ describe('createWebSocketChannel', () => {
     expect(hC).toHaveBeenCalled()
   })
 
+  // Bug #18: queue cleared when retries exhausted
+  it('clears queue when retries are exhausted', () => {
+    const channel = createWebSocketChannel({ url: 'ws://test', maxRetries: 1 })
+    const makeMsg = (id: string) => ({
+      type: 'edit' as const, protocolVersion: 1, editId: id,
+      property: 'color', value: 'red', source: 'a:1:1', elementSelector: 'div',
+    })
+
+    // Queue messages while disconnected
+    channel.send(makeMsg('1'))
+    channel.send(makeMsg('2'))
+
+    // First close → retry (retryCount 0 < maxRetries 1)
+    mockInstances[0]!._simulateClose()
+    vi.advanceTimersByTime(1000)
+    expect(mockInstances).toHaveLength(2)
+
+    // Queue more messages
+    channel.send(makeMsg('3'))
+
+    // Second close → retries exhausted (retryCount 1 >= maxRetries 1)
+    mockInstances[1]!._simulateClose()
+    vi.advanceTimersByTime(30000)
+    expect(mockInstances).toHaveLength(2) // no more reconnects
+
+    // Queue should be empty — no reconnect will ever flush these stale messages.
+    // Direct verification: open the second WS instance — stale messages should NOT be flushed
+    mockInstances[1]!._simulateOpen()
+    // If queue was cleared, at most the post-exhaustion message ('4') could flush,
+    // but since retries are exhausted, the channel is effectively dead.
+    // The key assertion: messages '1', '2', '3' should NOT flush (they were stale)
+    const flushedIds = mockInstances[1]!.send.mock.calls.map(
+      (c: [string]) => JSON.parse(c[0]).editId,
+    )
+    expect(flushedIds).not.toContain('1')
+    expect(flushedIds).not.toContain('2')
+    expect(flushedIds).not.toContain('3')
+  })
+
+  // Note: the `if (disposed) return` guard in send() prevents queue growth after
+  // disposal (memory leak defense). This is untestable from outside the closure
+  // without a test seam — dispose() already nulls ws.onopen, so any flush-based
+  // assertion passes regardless. Deleted per CLAUDE.md rule #2 (assertions must
+  // be falsifiable). The queue-clearing-on-exhaustion test above covers the
+  // user-visible behavior.
+
   // Fix 9: dispose nulls all WebSocket event handlers
   it('dispose nulls all WebSocket event handlers', () => {
     const channel = createWebSocketChannel({ url: 'ws://test' })

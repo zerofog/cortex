@@ -1031,6 +1031,39 @@ describe('CSSOverrideManager', () => {
       expect(styleEl.textContent).toBe('')
     })
 
+    it('hmrAppliedPending resets between edit cycles — no premature removal', () => {
+      // Cycle 1: set override, track, HMR apply, then verify
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.beginEdit()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.commitEdit(false)
+      manager.handleHMRVerified('edit-1', true)
+      manager.onHMRApplied() // sets hmrAppliedPending = true after draining
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toBe('') // cycle 1 override removed ✓
+
+      // Cycle 2: new edit — hmrAppliedPending should reset
+      manager.set('b:1:1', 'margin', '8px')
+      flushRAF()
+      manager.beginEdit()
+      manager.trackPendingEdit('edit-2', 'b:1:1', 'margin')
+      manager.commitEdit(false)
+
+      // handleHMRVerified fires BEFORE onHMRApplied for cycle 2
+      // BUG: without fix, hmrAppliedPending is still true from cycle 1
+      //       → removes override immediately → flash
+      // FIX: trackPendingEdit resets flag → queues for onHMRApplied
+      manager.handleHMRVerified('edit-2', true)
+
+      // Override should still be present (queued, not yet removed)
+      expect(styleEl.textContent).toContain('margin: 8px')
+
+      // Now onHMRApplied for cycle 2 drains the queue safely
+      manager.onHMRApplied()
+      expect(styleEl.textContent).toBe('')
+    })
+
     it('ordering with kind: undefined — falls back to deferredEditIds behavior (backward compat)', () => {
       // No kind → existing deferredEditIds-based behavior
       manager.set('a:1:1', 'color', 'red')
