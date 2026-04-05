@@ -53,7 +53,7 @@ describe('CommentInput', () => {
     render(<CommentInput onSubmit={vi.fn().mockResolvedValue(undefined)} agentConnected={false} />, container)
     const input = container.querySelector('input') as HTMLInputElement
     expect(input.disabled).toBe(true)
-    expect(input.placeholder).toContain('No agent')
+    expect(input.placeholder).toContain('Waiting for agent')
   })
 
   it('does not submit empty text', () => {

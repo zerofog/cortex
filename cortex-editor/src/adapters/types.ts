@@ -71,7 +71,7 @@ export type EditKind = 'immediate' | 'jsx-immediate' | 'deferred'
 export type BrowserToServer =
   | { type: 'init'; sessionId?: string }
   | { type: 'cortex-closed' }
-  | { type: 'edit'; token?: string; protocolVersion?: number; editId: string; property: string; value: string; source: string; elementSelector: string; cssMapping?: string; scope?: 'instance' | 'all'; instanceSources?: string[] }
+  | { type: 'edit'; token?: string; protocolVersion?: number; editId: string; property: string; value: string; source: string; elementSelector: string; cssMapping?: string; scope?: 'instance' | 'all'; instanceSources?: string[]; currentClass?: string }
   | { type: 'undo'; token?: string; protocolVersion?: number; editId?: string }
   | { type: 'redo'; token?: string; protocolVersion?: number; editId?: string }
   | { type: 'comment'; token?: string; protocolVersion?: number; elementSource: string; text: string; elementContext?: ElementContext; currentStyles?: Record<string, string>; pinPosition?: { x: number; y: number } }

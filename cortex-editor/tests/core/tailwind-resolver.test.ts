@@ -913,3 +913,60 @@ describe('H5: configurable remPx', () => {
     expect(resolver.findClass('border-radius', '1.25px')).toBe('rounded-sm')
   })
 })
+
+// ── Tolerance matching boundary tests ────────────────────────────────
+
+describe('findNearestColor tolerance (±10 for gamut mapping gaps)', () => {
+  it('matches color within ±1 channel distance', () => {
+    const resolver = TailwindResolver.fromTheme({
+      colors: { red: { 500: '#ef4444' } },
+    })
+    expect(resolver.findClass('background-color', '#ee4444')).toBe('bg-red-500')
+    expect(resolver.findClass('background-color', '#f04444')).toBe('bg-red-500')
+    expect(resolver.findClass('background-color', '#ef4345')).toBe('bg-red-500')
+  })
+
+  it('matches color within ±10 channel distance (gamut mapping gap)', () => {
+    const resolver = TailwindResolver.fromTheme({
+      colors: { blue: { 500: '#3b82f6' } },
+    })
+    // ±9 in red channel — within tolerance for out-of-gamut OKLCH colors
+    expect(resolver.findClass('color', '#3282f6')).toBe('text-blue-500')  // r-9
+    expect(resolver.findClass('color', '#4482f6')).toBe('text-blue-500')  // r+9
+    // ±10 exactly — boundary
+    expect(resolver.findClass('color', '#3182f6')).toBe('text-blue-500')  // r-10
+  })
+
+  it('rejects color at distance 11 (beyond ±10 tolerance)', () => {
+    const resolver = TailwindResolver.fromTheme({
+      colors: { red: { 500: '#ef4444' } },
+    })
+    expect(resolver.findClass('background-color', '#e44444')).toBeNull()  // r-11
+    expect(resolver.findClass('background-color', '#fa4444')).toBeNull()  // r+11
+  })
+
+  it('picks closest when two theme colors are within tolerance', () => {
+    const resolver = TailwindResolver.fromTheme({
+      colors: {
+        // Two colors 20 apart in red — both within ±10 of #e84444
+        a: '#de4444',  // distance 10 from #e8
+        b: '#f24444',  // distance 10 from #e8
+      },
+    })
+    // Equidistant — matches one
+    const result = resolver.findClass('background-color', '#e84444')
+    expect(result).not.toBeNull()
+    // Closer to 'a' — must pick 'a'
+    expect(resolver.findClass('background-color', '#e04444')).toBe('bg-a')
+    // Closer to 'b' — must pick 'b'
+    expect(resolver.findClass('background-color', '#f04444')).toBe('bg-b')
+  })
+
+  it('does not apply tolerance to non-color properties', () => {
+    const resolver = TailwindResolver.fromTheme({
+      spacing: { '4': '1rem' },
+    })
+    expect(resolver.findClass('padding-top', '16px')).toBe('pt-4')
+    expect(resolver.findClass('padding-top', '17px')).toBeNull()
+  })
+})

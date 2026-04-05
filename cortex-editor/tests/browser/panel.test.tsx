@@ -138,7 +138,7 @@ describe('Panel', () => {
       container,
     )
     expect(container.querySelector('.cortex-panel')).not.toBeNull()
-    expect(container.textContent).toContain('Click an element to inspect')
+    expect(container.textContent).toContain('Click any element to start editing')
     // Sections should NOT render in empty state
     expect(container.querySelector('[data-section-id]')).toBeNull()
     render(null, container)

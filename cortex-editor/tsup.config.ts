@@ -10,7 +10,7 @@ export default defineConfig([
     format: ['esm', 'cjs'],
     target: 'node20',
     sourcemap: true,
-    dts: true,
+    // DTS for ALL entries generated in one pass below — not per-config
     external: externals,
   },
   // Vite adapter
@@ -20,7 +20,6 @@ export default defineConfig([
     format: ['esm', 'cjs'],
     target: 'node20',
     sourcemap: true,
-    dts: true,
     external: externals,
     esbuildOptions(options) {
       // import.meta.url is guarded by __dirname check — CJS branch never reaches it
@@ -34,7 +33,6 @@ export default defineConfig([
     format: ['esm', 'cjs'],
     target: 'node20',
     sourcemap: true,
-    dts: true,
     external: externals,
     esbuildOptions(options) {
       options.logOverride = { 'empty-import-meta': 'silent' }
@@ -47,7 +45,6 @@ export default defineConfig([
     format: ['cjs'],
     target: 'node20',
     sourcemap: true,
-    dts: true,
     external: externals,
   },
   // CLI entry — cortex mcp / cortex init
@@ -75,5 +72,20 @@ export default defineConfig([
       options.jsxImportSource = 'preact'
     },
     loader: { '.css': 'text' },
+  },
+  // DTS-only pass: generates all declarations in a single tsc invocation.
+  // Before: 4 configs × dts:true = 4 parallel tsc runs (~16s total).
+  // After: 1 config × dts:true = 1 tsc run (~4s).
+  {
+    entry: {
+      'index': 'src/index.ts',
+      'vite/vite': 'src/adapters/vite.ts',
+      'next/next': 'src/adapters/next.ts',
+      'next/next-source-loader': 'src/adapters/next-source-loader.ts',
+    },
+    format: ['esm', 'cjs'],
+    target: 'node20',
+    dts: { only: true },
+    external: externals,
   },
 ])
