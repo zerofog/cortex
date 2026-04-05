@@ -1,0 +1,26 @@
+cortex-editor/tests/core/edit-pipeline.test.ts
+  578faae23d468284 2903,2905,2925,2930,2936-2968,3202-3235,3635-3716
+cortex-editor/src/core/edit-pipeline.ts
+  578faae23d468284 360-375,384-387,434,443-445
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "e5149bc7159ee5ebec087f2bdcc44f56277ffb32",
+  "prompts": {
+    "578faae23d468284": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2fdbb501-1a8f-4d33-b248-5baca31aa7f2",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 216,
+      "total_deletions": 50,
+      "accepted_lines": 179,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/53d68a4ce7612e4785120f7d5e0779df4aedfac32cdf064bad27084961b6ba9f"
+    }
+  }
+}
