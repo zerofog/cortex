@@ -67,22 +67,21 @@ const PREFIX_RULES: Array<{ prefix: string; property: string; isColor?: boolean 
   { prefix: 'min-h-', property: 'min-height' },
   { prefix: 'max-w-', property: 'max-width' },
   { prefix: 'max-h-', property: 'max-height' },
-  // Shorthand padding/margin — maps to top (panel uses individual sides)
-  { prefix: 'px-', property: 'padding-left' },
-  { prefix: 'py-', property: 'padding-top' },
-  { prefix: 'mx-', property: 'margin-left' },
-  { prefix: 'my-', property: 'margin-top' },
-  { prefix: 'p-', property: 'padding-top' },
-  { prefix: 'm-', property: 'margin-top' },
+  // Shorthand padding/margin — EXCLUDED from direct class path.
+  // Replacing px-4 with pl-N silently drops padding-right. Let the
+  // legacy resolver path handle shorthands safely.
+  // (px-, py-, p-, mx-, my-, m- are NOT listed here)
 
   // Colors — unambiguous prefixes
+  // NOTE: bg-clip-*, bg-opacity-*, bg-gradient-*, bg-no-repeat, etc. are
+  // handled by the exclusion set in extractUtilities, not here.
   { prefix: 'bg-', property: 'background-color', isColor: true },
 
-  // Typography
-  { prefix: 'font-', property: 'font-weight' },
+  // Typography — font- is handled by resolveAmbiguous (not here) because
+  // font-sans/font-mono are font-family, not font-weight.
   { prefix: 'leading-', property: 'line-height' },
 
-  // Border radius — longest-first
+  // Border radius — longest-first, individual corners only
   { prefix: 'rounded-tl-', property: 'border-top-left-radius' },
   { prefix: 'rounded-tr-', property: 'border-top-right-radius' },
   { prefix: 'rounded-br-', property: 'border-bottom-right-radius' },
@@ -96,6 +95,20 @@ const PREFIX_RULES: Array<{ prefix: string; property: string; isColor?: boolean 
   { prefix: 'backdrop-blur-', property: 'backdrop-filter' },
   { prefix: 'blur-', property: 'filter' },
 ]
+
+// Classes that start with bg- but are NOT background-color
+const BG_NON_COLOR = new Set([
+  'bg-opacity', 'bg-clip', 'bg-gradient', 'bg-no-repeat', 'bg-repeat',
+  'bg-cover', 'bg-contain', 'bg-center', 'bg-bottom', 'bg-top',
+  'bg-left', 'bg-right', 'bg-fixed', 'bg-local', 'bg-scroll',
+  'bg-origin', 'bg-blend', 'bg-none',
+])
+
+// Classes that start with border- but are NOT border-color or border-width
+const BORDER_NON_STYLE = new Set([
+  'border-opacity', 'border-collapse', 'border-separate', 'border-spacing',
+])
+
 
 // Known font-size scale keys (to disambiguate text-{size} from text-{color})
 const FONT_SIZE_KEYS = new Set([
@@ -131,6 +144,8 @@ function resolveAmbiguous(token: string): { property: string; className: string 
     const suffix = token.slice(7)
     // Already in STATIC_CLASSES (border-solid, etc.)
     if (STATIC_CLASSES[token]) return null
+    // Skip non-style/non-color border utilities
+    if (BORDER_NON_STYLE.has(token.split('-').slice(0, 2).join('-'))) return null
     // Numeric suffix → border-width
     if (/^\d+$/.test(suffix)) return { property: 'border-width', className: token }
     // Color-like suffix → border-color
@@ -144,9 +159,13 @@ function resolveAmbiguous(token: string): { property: string; className: string 
     return null // font-sans, font-mono → not editable properties
   }
 
-  // rounded/rounded-{suffix}: border-radius
+  // rounded/rounded-{suffix}: border-radius (exclude multi-corner shorthands like rounded-l-lg, rounded-r-lg)
   if (token === 'rounded') return { property: 'border-radius', className: token }
-  if (token.startsWith('rounded-') && !token.startsWith('rounded-t') && !token.startsWith('rounded-b')) {
+  if (token.startsWith('rounded-')
+    && !token.startsWith('rounded-t-') && !token.startsWith('rounded-b-')
+    && !token.startsWith('rounded-l-') && !token.startsWith('rounded-r-')
+    && !token.startsWith('rounded-tl-') && !token.startsWith('rounded-tr-')
+    && !token.startsWith('rounded-bl-') && !token.startsWith('rounded-br-')) {
     return { property: 'border-radius', className: token }
   }
 
@@ -181,13 +200,15 @@ export function extractUtilities(className: string): Map<string, string> {
     }
 
     // 2. Check prefix rules (longest match first)
+    //    Skip known non-color/non-value prefixes that share the same start
     let matched = false
     for (const rule of PREFIX_RULES) {
-      if (token.startsWith(rule.prefix) && !result.has(rule.property)) {
-        result.set(rule.property, token)
-        matched = true
-        break
-      }
+      if (!token.startsWith(rule.prefix) || result.has(rule.property)) continue
+      // Filter bg-{non-color} classes (bg-clip-text, bg-opacity-50, etc.)
+      if (rule.prefix === 'bg-' && BG_NON_COLOR.has(token.split('-').slice(0, 2).join('-'))) continue
+      result.set(rule.property, token)
+      matched = true
+      break
     }
     if (matched) continue
 

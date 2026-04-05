@@ -142,13 +142,13 @@ describe('extractUtilities', () => {
   // ── Complex real-world className strings ───────────────────────────
 
   it('handles a real-world component className', () => {
-    const result = extractUtilities('flex items-center gap-4 bg-red-500 text-white p-4 rounded-lg shadow-md')
+    const result = extractUtilities('flex items-center gap-4 bg-red-500 text-white pt-4 rounded-lg shadow-md')
     expect(result.get('display')).toBe('flex')
     expect(result.get('align-items')).toBe('items-center')
     expect(result.get('gap')).toBe('gap-4')
     expect(result.get('background-color')).toBe('bg-red-500')
     expect(result.get('color')).toBe('text-white')
-    expect(result.get('padding-top')).toBe('p-4')  // shorthand maps to top
+    expect(result.get('padding-top')).toBe('pt-4')
     expect(result.get('border-radius')).toBe('rounded-lg')
     expect(result.get('box-shadow')).toBe('shadow-md')
   })
@@ -182,5 +182,43 @@ describe('extractUtilities', () => {
   it('first class wins for same property', () => {
     const result = extractUtilities('pt-4 pt-8')
     expect(result.get('padding-top')).toBe('pt-4')
+  })
+
+  // ── Adversarial edge cases (from code review) ─────────────────────
+
+  it('does NOT extract shorthand p-/px-/py-/m- (prevents silent side-dropping)', () => {
+    const result = extractUtilities('p-4 px-2 py-8 m-4 mx-2 my-8')
+    // Shorthands excluded — editing one side would silently drop the others
+    expect(result.has('padding-top')).toBe(false)
+    expect(result.has('padding-left')).toBe(false)
+    expect(result.has('margin-top')).toBe(false)
+    expect(result.has('margin-left')).toBe(false)
+  })
+
+  it('does NOT misclassify font-sans/font-mono as font-weight', () => {
+    const result = extractUtilities('font-sans font-bold')
+    expect(result.get('font-weight')).toBe('font-bold')
+    // font-sans should NOT appear as any property
+    expect([...result.values()]).not.toContain('font-sans')
+  })
+
+  it('does NOT misclassify bg-clip-text as background-color', () => {
+    const result = extractUtilities('bg-clip-text bg-red-500')
+    expect(result.get('background-color')).toBe('bg-red-500')
+  })
+
+  it('does NOT misclassify bg-gradient-to-r as background-color', () => {
+    const result = extractUtilities('bg-gradient-to-r bg-blue-500')
+    expect(result.get('background-color')).toBe('bg-blue-500')
+  })
+
+  it('does NOT misclassify border-collapse as border-color', () => {
+    const result = extractUtilities('border-collapse border-red-500')
+    expect(result.get('border-color')).toBe('border-red-500')
+  })
+
+  it('does NOT extract rounded-l-/rounded-r- (multi-corner shorthands)', () => {
+    const result = extractUtilities('rounded-l-lg')
+    expect(result.has('border-radius')).toBe(false)
   })
 })

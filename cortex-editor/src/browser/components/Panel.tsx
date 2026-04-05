@@ -324,7 +324,11 @@ export function Panel({
   // instead of relying on fragile computed-style → hex → class-name reverse lookup.
   const extractedUtilities = useMemo(() => {
     if (!element) return new Map<string, string>()
-    return extractUtilities(element.className ?? '')
+    // SVG elements return SVGAnimatedString for .className — use getAttribute instead
+    const cls = typeof element.className === 'string'
+      ? element.className
+      : (element.getAttribute('class') ?? '')
+    return extractUtilities(cls)
   }, [element, styleVersion])
 
   // Shared override application — warns if element lacks source attribution.
