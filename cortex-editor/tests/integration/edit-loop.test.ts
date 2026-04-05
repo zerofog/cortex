@@ -789,3 +789,213 @@ describe('Deferred AI edit integration', () => {
     }
   })
 })
+
+// ── V4 theme integration: full pipeline with parsed v4 theme ─────────
+describe('V4 Tailwind edit loop integration', () => {
+  it('v4 theme: spacing edit (padding-top) → file write with correct class', async () => {
+    const tempDir = join(tmpdir(), `cortex-v4-spacing-${Date.now()}`)
+    mkdirSync(tempDir, { recursive: true })
+
+    try {
+      const filePath = join(tempDir, 'App.tsx')
+      writeFileSync(filePath, `export function App() {\n  return <div className="pt-2 text-base">Hello</div>\n}`)
+
+      const channel = mockChannel()
+      // Use a v4-style theme (spacing from 0.25rem base, converted to px during invertTheme)
+      const resolver = TailwindResolver.fromTheme({
+        spacing: {
+          '0': '0px', 'px': '1px',
+          '1': '0.25rem', '2': '0.5rem', '3': '0.75rem', '4': '1rem',
+          '5': '1.25rem', '6': '1.5rem', '8': '2rem', '10': '2.5rem',
+        },
+      })
+      const rewriter = new TailwindRewriter()
+      const verifier = new HMRVerifier(channel)
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier,
+        writeFile: (intent) => fsWriteFile(intent.filePath, intent.content, 'utf-8'),
+        projectRoot: tempDir,
+        debounceMs: 50,
+        detector: { hasCSSModules: false, hasTailwind: true },
+      })
+
+      // Seed (baseline)
+      pipeline.handleEdit({
+        editId: 'v4-seed',
+        source: `${filePath}:2:10`,
+        property: 'padding-top',
+        value: '8px',
+        elementSelector: 'div',
+      })
+      await new Promise(r => setTimeout(r, 100))
+      channel.sent.length = 0
+
+      // Actual edit: 8px → 16px
+      pipeline.handleEdit({
+        editId: 'v4-edit-1',
+        source: `${filePath}:2:10`,
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+      })
+
+      await waitFor(() => channel.sent.some(
+        m => m.type === 'edit_status' && (m as { status: string }).status === 'done'
+      ))
+
+      const newSource = readFileSync(filePath, 'utf-8')
+      expect(newSource).toContain('pt-4')
+      expect(newSource).not.toContain('pt-2')
+
+      rewriter.dispose()
+      verifier.dispose()
+      pipeline.dispose()
+    } finally {
+      try { rmSync(tempDir, { recursive: true }) } catch {}
+    }
+  })
+
+  it('v4 theme: color edit (background-color) → file write with correct class', async () => {
+    const tempDir = join(tmpdir(), `cortex-v4-color-${Date.now()}`)
+    mkdirSync(tempDir, { recursive: true })
+
+    try {
+      const filePath = join(tempDir, 'App.tsx')
+      writeFileSync(filePath, `export function App() {\n  return <div className="bg-white p-4">Hello</div>\n}`)
+
+      const channel = mockChannel()
+      const resolver = TailwindResolver.fromTheme({
+        colors: {
+          white: '#ffffff',
+          black: '#000000',
+          red: { 500: '#ef4444' },
+          blue: { 500: '#3b82f6' },
+        },
+      })
+      const rewriter = new TailwindRewriter()
+      const verifier = new HMRVerifier(channel)
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier,
+        writeFile: (intent) => fsWriteFile(intent.filePath, intent.content, 'utf-8'),
+        projectRoot: tempDir,
+        debounceMs: 50,
+        detector: { hasCSSModules: false, hasTailwind: true },
+      })
+
+      // Seed with current bg color (white)
+      pipeline.handleEdit({
+        editId: 'v4-color-seed',
+        source: `${filePath}:2:10`,
+        property: 'background-color',
+        value: '#ffffff',
+        elementSelector: 'div',
+      })
+      await new Promise(r => setTimeout(r, 100))
+      channel.sent.length = 0
+
+      // Change to red-500
+      pipeline.handleEdit({
+        editId: 'v4-color-edit',
+        source: `${filePath}:2:10`,
+        property: 'background-color',
+        value: '#ef4444',
+        elementSelector: 'div',
+      })
+
+      await waitFor(() => channel.sent.some(
+        m => m.type === 'edit_status' && (m as { status: string }).status === 'done'
+      ))
+
+      const newSource = readFileSync(filePath, 'utf-8')
+      expect(newSource).toContain('bg-red-500')
+      expect(newSource).not.toContain('bg-white')
+
+      rewriter.dispose()
+      verifier.dispose()
+      pipeline.dispose()
+    } finally {
+      try { rmSync(tempDir, { recursive: true }) } catch {}
+    }
+  })
+})
+
+// ── Direct class path: per-property tests with currentClass ──────────
+// These test the "short path": browser sends the actual Tailwind class name,
+// server uses it directly as oldToken. No seed, no reverse lookup, no OKLCH.
+describe('Direct class path (currentClass)', () => {
+  const PROPERTY_TESTS = [
+    { name: 'padding-top', oldClass: 'pt-2', newClass: 'pt-4', source: 'pt-2 bg-white', expected: 'pt-4', newValue: '16px' },
+    { name: 'margin-bottom', oldClass: 'mb-4', newClass: 'mb-8', source: 'mb-4 flex', expected: 'mb-8', newValue: '32px' },
+    { name: 'gap', oldClass: 'gap-2', newClass: 'gap-4', source: 'flex gap-2', expected: 'gap-4', newValue: '16px' },
+    { name: 'background-color', oldClass: 'bg-white', newClass: 'bg-black', source: 'bg-white p-4', expected: 'bg-black', newValue: '#000000' },
+    { name: 'font-size', oldClass: 'text-sm', newClass: 'text-lg', source: 'text-sm font-bold', expected: 'text-lg', newValue: '18px' },
+    { name: 'font-weight', oldClass: 'font-normal', newClass: 'font-bold', source: 'font-normal text-lg', expected: 'font-bold', newValue: '700' },
+    { name: 'border-radius', oldClass: 'rounded-sm', newClass: 'rounded-lg', source: 'rounded-sm border', expected: 'rounded-lg', newValue: '8px' },
+    { name: 'border-width', oldClass: 'border-0', newClass: 'border-2', source: 'border-0 border-gray-300', expected: 'border-2', newValue: '2px' },
+    { name: 'opacity', oldClass: 'opacity-100', newClass: 'opacity-50', source: 'opacity-100 bg-white', expected: 'opacity-50', newValue: '0.5' },
+    { name: 'display', oldClass: 'flex', newClass: 'grid', source: 'flex items-center', expected: 'grid', newValue: 'grid' },
+  ] as const
+
+  it.each(PROPERTY_TESTS)(
+    '$name: currentClass=$oldClass → write $newClass (no seed, no reverse lookup)',
+    async ({ name, oldClass, source, expected, newValue }) => {
+      const tempDir = join(tmpdir(), `cortex-direct-${name}-${Date.now()}`)
+      mkdirSync(tempDir, { recursive: true })
+
+      try {
+        const filePath = join(tempDir, 'App.tsx')
+        writeFileSync(filePath, `export function App() {\n  return <div className="${source}">Hello</div>\n}`)
+
+        const channel = mockChannel()
+        const resolver = TailwindResolver.fromTheme({
+          spacing: {
+            '0': '0px', 'px': '1px', '1': '0.25rem', '2': '0.5rem',
+            '3': '0.75rem', '4': '1rem', '5': '1.25rem', '6': '1.5rem', '8': '2rem',
+          },
+          colors: { white: '#ffffff', black: '#000000', gray: { 300: '#d1d5db' } },
+          fontSize: { sm: '0.875rem', base: '1rem', lg: '1.125rem' },
+          fontWeight: { normal: '400', bold: '700' },
+          borderRadius: { sm: '0.125rem', DEFAULT: '0.25rem', lg: '0.5rem' },
+          borderWidth: { '0': '0px', DEFAULT: '1px', '2': '2px' },
+          opacity: { '50': '0.5', '100': '1' },
+        })
+        const rewriter = new TailwindRewriter()
+        const verifier = new HMRVerifier(channel)
+
+        const pipeline = new EditPipeline({
+          channel, resolver, rewriter, verifier,
+          writeFile: (intent) => fsWriteFile(intent.filePath, intent.content, 'utf-8'),
+          projectRoot: tempDir,
+          debounceMs: 50,
+          detector: { hasCSSModules: false, hasTailwind: true },
+        })
+
+        // Direct class path: FIRST edit writes immediately (no seed needed!)
+        pipeline.handleEdit({
+          editId: `direct-${name}`,
+          source: `${filePath}:2:10`,
+          property: name,
+          value: newValue,
+          elementSelector: 'div',
+          currentClass: oldClass,  // <-- the key: browser sends the actual class
+        })
+
+        await waitFor(() => channel.sent.some(
+          m => m.type === 'edit_status' && (m as { status: string }).status === 'done'
+        ))
+
+        const newSource = readFileSync(filePath, 'utf-8')
+        expect(newSource).toContain(expected)
+        expect(newSource).not.toContain(oldClass)
+
+        rewriter.dispose()
+        verifier.dispose()
+        pipeline.dispose()
+      } finally {
+        try { rmSync(tempDir, { recursive: true }) } catch {}
+      }
+    },
+  )
+})

@@ -412,7 +412,7 @@ describe('CortexApp', () => {
     channel._simulateMessage({ type: 'agent-status', connected: false })
     await new Promise(r => setTimeout(r, 10))
     expect(commentInput.disabled).toBe(true)
-    expect(commentInput.placeholder).toContain('No agent')
+    expect(commentInput.placeholder).toContain('Waiting for agent')
 
     // Agent connected — input should be enabled
     channel._simulateMessage({ type: 'agent-status', connected: true })

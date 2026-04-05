@@ -422,7 +422,50 @@ export class TailwindResolver {
     const normalized = applyNormalizer(mapping.cssNormalizer, value, this.remPx)
     if (normalized == null) return null
 
-    return propertyMap.get(normalized) ?? null
+    const exact = propertyMap.get(normalized)
+    if (exact) return exact
+
+    // Tolerance matching for color properties: handles ±1-2 rounding differences
+    // between our OKLCH→hex conversion and the browser's conversion.
+    // Only triggers on exact-match miss, so zero cost for hits.
+    if (mapping.cssNormalizer === 'rgbToHex' && normalized.startsWith('#') && normalized.length === 7) {
+      return this.findNearestColor(propertyMap, normalized)
+    }
+
+    return null
+  }
+
+  /**
+   * Find the nearest color in the property map within a small tolerance.
+   * Handles ±10 per RGB channel to cover OKLCH→sRGB gamut mapping
+   * differences between our converter and the browser. The minimum
+   * distance between adjacent Tailwind shades is ~16, so ±10 is safe
+   * against cross-shade collisions.
+   * Returns null if no color is within tolerance.
+   */
+  private findNearestColor(propertyMap: Map<string, string>, hex: string): string | null {
+    const r = parseInt(hex.slice(1, 3), 16)
+    const g = parseInt(hex.slice(3, 5), 16)
+    const b = parseInt(hex.slice(5, 7), 16)
+
+    let bestClass: string | null = null
+    let bestDist = Infinity
+
+    for (const [storedHex, className] of propertyMap) {
+      if (!storedHex.startsWith('#') || storedHex.length !== 7) continue
+      const sr = parseInt(storedHex.slice(1, 3), 16)
+      const sg = parseInt(storedHex.slice(3, 5), 16)
+      const sb = parseInt(storedHex.slice(5, 7), 16)
+
+      // Max channel distance — fast rejection
+      const dist = Math.max(Math.abs(r - sr), Math.abs(g - sg), Math.abs(b - sb))
+      if (dist <= 10 && dist < bestDist) {
+        bestDist = dist
+        bestClass = className
+      }
+    }
+
+    return bestClass
   }
 
   /** Get all snap point values for a CSS property. Sorted numerically when possible. */

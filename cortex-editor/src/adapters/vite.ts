@@ -565,6 +565,12 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           })
           : undefined
 
+        // Surface theme loading failures: if Tailwind was detected but the
+        // resolver failed to load, warn clearly so the user knows why edits fail.
+        if (!resolver && detection.hasTailwind) {
+          console.warn('[cortex] ⚠ Tailwind detected but theme could not be loaded. Class-based editing will be limited. Check that tailwindcss is installed and theme.css is accessible.')
+        }
+
         currentSession.pipeline = new EditPipeline({
           channel,
           resolver: resolver ?? TailwindResolver.fromTheme({}),

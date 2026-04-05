@@ -33,4 +33,31 @@ describe('oklchToHex', () => {
   it('handles extra whitespace', () => {
     expect(oklchToHex('oklch(  0%   0   0  )')).toBe('#000000')
   })
+
+  it('handles oklch with slash alpha (alpha is discarded — hex has no alpha)', () => {
+    // Alpha is stripped — Tailwind separates color from opacity
+    const withoutAlpha = oklchToHex('oklch(63.7% 0.237 25.331)')!
+    expect(withoutAlpha).toBe('#fb2c36')  // concrete assertion, not self-referential
+    expect(oklchToHex('oklch(63.7% 0.237 25.331 / 0.8)')).toBe('#fb2c36')
+    expect(oklchToHex('oklch(63.7% 0.237 25.331 / 80%)')).toBe('#fb2c36')
+    expect(oklchToHex('oklch(63.7% 0.237 25.331 / 0)')).toBe('#fb2c36')
+  })
+
+  it('handles CSS Color L4 `none` keyword', () => {
+    // none = 0 for that component. oklch(50% 0 0) is a mid-gray.
+    const gray50 = oklchToHex('oklch(50% 0 0)')!
+    expect(gray50).toMatch(/^#[0-9a-f]{6}$/)  // valid hex
+    expect(oklchToHex('oklch(50% 0 none)')).toBe(gray50)  // hue=none same as hue=0 for achromatic
+    expect(oklchToHex('oklch(50% none none)')).toBe(gray50)  // chroma+hue=none same as 0,0
+    expect(oklchToHex('oklch(none 0 0)')).toBe('#000000')  // L=0 = black
+  })
+
+  it('handles negative hue values', () => {
+    // -30 degrees = 330 degrees — should produce the same non-null hex
+    const neg = oklchToHex('oklch(50% 0.2 -30)')
+    const pos = oklchToHex('oklch(50% 0.2 330)')
+    expect(neg).not.toBeNull()
+    expect(pos).not.toBeNull()
+    expect(neg).toBe(pos)
+  })
 })

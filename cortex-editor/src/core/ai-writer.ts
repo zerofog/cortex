@@ -296,10 +296,12 @@ export class AIWriter {
           externalSignal?.removeEventListener('abort', onRetryAbort)
         }
         if (!response.ok) {
-          throw new Error(`API error ${response.status} (after retry)`)
+          const errBody = await response.text().catch(() => '')
+          throw new Error(`API error ${response.status} (after retry): ${errBody}`)
         }
       } else if (!response.ok) {
-        throw new Error(`API error ${response.status}`)
+        const errBody = await response.text().catch(() => '')
+        throw new Error(`API error ${response.status}: ${errBody}`)
       }
 
       const data = await response.json() as {
