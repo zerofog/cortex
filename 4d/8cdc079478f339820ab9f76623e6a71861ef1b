@@ -1,0 +1,26 @@
+cortex-editor/src/browser/class-extractor.ts
+  0412426241975e32 111
+cortex-editor/tests/browser/class-extractor.test.ts
+  0412426241975e32 220-224
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "4d8cdc079478f339820ab9f76623e6a71861ef1b",
+  "prompts": {
+    "0412426241975e32": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dbb88f84-cff5-4f3f-a7a5-f663ce775ac5",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 6,
+      "total_deletions": 1,
+      "accepted_lines": 6,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/40750a1c4322b119e74f2aaeac4dbe3a0080733afd1162498dd8c23d1f52e936"
+    }
+  }
+}
