@@ -440,8 +440,9 @@ export class EditPipeline {
       ?? (previousValue ? this.resolver.findClass(edit.property, previousValue) : null)
 
     if (!newToken || !oldToken) {
-      // Layer 3.5: Inline style rewriter — only when element has no Tailwind class
-      // (elements with currentClass should stay on the Tailwind/AI path)
+      // Layer 3.5: Inline style rewriter — only when there is no Tailwind utility
+      // for this property on the element (elements with currentClass should stay on
+      // the Tailwind/AI path)
       if (this.inlineStyleRewriter && !edit.currentClass) {
         let handled = false
         try {
