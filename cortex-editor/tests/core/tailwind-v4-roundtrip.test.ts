@@ -66,7 +66,12 @@ function buildResolver(): TailwindResolver {
   return TailwindResolver.fromTheme(theme)
 }
 
-/** Convert an OKLCH string to the RGB format a browser would send. */
+/**
+ * Simulate browser RGB by using the same oklchToHex as production.
+ * This is intentionally self-referential: converter accuracy is validated
+ * independently in oklch.test.ts. This helper tests pipeline wiring
+ * (v4 parser → resolver → findClass), not converter correctness.
+ */
 function oklchToBrowserRgb(oklch: string): string {
   const hex = oklchToHex(oklch)!
   const r = parseInt(hex.slice(1, 3), 16)
@@ -106,15 +111,7 @@ describe('v4 round-trip: spacing properties', () => {
     }
   })
 
-  it.each(SPACING_PROPERTIES)('%s has non-empty snap points', (property) => {
-    const snaps = resolver.getSnapPoints(property)
-    expect(snaps.length, `${property} should have snap points`).toBeGreaterThan(5)
-  })
-
-  it.each(SPACING_PROPERTIES)('%s returns null for off-scale values', (property) => {
-    expect(resolver.findClass(property, '7px')).toBeNull()
-    expect(resolver.findClass(property, '13px')).toBeNull()
-  })
+  // Snap-points and null-rejection tests are in property-matrix.test.ts
 })
 
 describe('v4 round-trip: color properties', () => {
@@ -143,17 +140,7 @@ describe('v4 round-trip: color properties', () => {
     expect(resolver.findClass(property, '#1a73e8')).not.toBeNull()
   })
 
-  it.each(COLOR_PROPERTIES)('%s returns null for unknown colors', (property) => {
-    expect(resolver.findClass(property, 'rgb(123, 45, 67)')).toBeNull()
-  })
-
-  it.each(COLOR_PROPERTIES)('%s has non-empty snap points (hex values)', (property) => {
-    const snaps = resolver.getSnapPoints(property)
-    expect(snaps.length).toBeGreaterThan(0)
-    for (const snap of snaps) {
-      expect(snap).toMatch(/^#[0-9a-f]{6}$/)
-    }
-  })
+  // Null-rejection and snap-points tests are in property-matrix.test.ts
 })
 
 describe('v4 round-trip: typography properties', () => {
@@ -244,55 +231,4 @@ describe('v4 round-trip: effects properties', () => {
   })
 })
 
-describe('v4 round-trip: static utilities', () => {
-  // Static utilities work with any theme (no theme data needed)
-  const resolver = buildResolver()
-
-  it('display', () => {
-    expect(resolver.findClass('display', 'flex')).toBe('flex')
-    expect(resolver.findClass('display', 'grid')).toBe('grid')
-    expect(resolver.findClass('display', 'block')).toBe('block')
-    expect(resolver.findClass('display', 'none')).toBe('hidden')
-    expect(resolver.findClass('display', 'inline-flex')).toBe('inline-flex')
-  })
-
-  it('visibility', () => {
-    expect(resolver.findClass('visibility', 'visible')).toBe('visible')
-    expect(resolver.findClass('visibility', 'hidden')).toBe('invisible')
-  })
-
-  it('flex-direction', () => {
-    expect(resolver.findClass('flex-direction', 'row')).toBe('flex-row')
-    expect(resolver.findClass('flex-direction', 'column')).toBe('flex-col')
-  })
-
-  it('justify-content', () => {
-    expect(resolver.findClass('justify-content', 'center')).toBe('justify-center')
-    expect(resolver.findClass('justify-content', 'space-between')).toBe('justify-between')
-  })
-
-  it('align-items', () => {
-    expect(resolver.findClass('align-items', 'center')).toBe('items-center')
-    expect(resolver.findClass('align-items', 'stretch')).toBe('items-stretch')
-  })
-
-  it('text-align', () => {
-    expect(resolver.findClass('text-align', 'center')).toBe('text-center')
-    expect(resolver.findClass('text-align', 'left')).toBe('text-left')
-  })
-
-  it('border-style', () => {
-    expect(resolver.findClass('border-style', 'solid')).toBe('border-solid')
-    expect(resolver.findClass('border-style', 'none')).toBe('border-none')
-  })
-
-  it('overflow', () => {
-    expect(resolver.findClass('overflow', 'hidden')).toBe('overflow-hidden')
-    expect(resolver.findClass('overflow', 'auto')).toBe('overflow-auto')
-  })
-
-  it('cursor', () => {
-    expect(resolver.findClass('cursor', 'pointer')).toBe('cursor-pointer')
-    expect(resolver.findClass('cursor', 'default')).toBe('cursor-default')
-  })
-})
+// Static utility tests removed — fully subsumed by property-matrix.test.ts STATIC_MATRIX

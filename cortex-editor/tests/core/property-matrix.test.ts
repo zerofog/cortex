@@ -43,7 +43,11 @@ const props = extractThemeProperties(THEME_CSS)
 const theme = themePropertiesToResolved(props)
 const resolver = TailwindResolver.fromTheme(theme)
 
-/** Get browser-format RGB from OKLCH. */
+/**
+ * Simulate browser RGB using the same oklchToHex as production.
+ * Self-referential by design: tests pipeline wiring, not converter accuracy.
+ * Converter accuracy is validated independently in oklch.test.ts.
+ */
 function oklchRgb(oklch: string): string {
   const hex = oklchToHex(oklch)!
   const r = parseInt(hex.slice(1, 3), 16)

@@ -109,36 +109,17 @@ describe('extractUtilities', () => {
     expect(result.get('border-bottom-right-radius')).toBe('rounded-br-sm')
   })
 
-  // ── Static utilities ───────────────────────────────────────────────
+  // ── Static utilities (same code path — use it.each) ─────────────────
 
-  it('extracts display class', () => {
-    const result = extractUtilities('flex')
-    expect(result.get('display')).toBe('flex')
-  })
-
-  it('extracts hidden → display', () => {
-    const result = extractUtilities('hidden')
-    expect(result.get('display')).toBe('hidden')
-  })
-
-  it('extracts flex-direction', () => {
-    const result = extractUtilities('flex-col')
-    expect(result.get('flex-direction')).toBe('flex-col')
-  })
-
-  it('extracts justify-content', () => {
-    const result = extractUtilities('justify-between')
-    expect(result.get('justify-content')).toBe('justify-between')
-  })
-
-  it('extracts align-items', () => {
-    const result = extractUtilities('items-center')
-    expect(result.get('align-items')).toBe('items-center')
-  })
-
-  it('extracts cursor', () => {
-    const result = extractUtilities('cursor-pointer')
-    expect(result.get('cursor')).toBe('cursor-pointer')
+  it.each([
+    ['flex', 'display', 'flex'],
+    ['hidden', 'display', 'hidden'],
+    ['flex-col', 'flex-direction', 'flex-col'],
+    ['justify-between', 'justify-content', 'justify-between'],
+    ['items-center', 'align-items', 'items-center'],
+    ['cursor-pointer', 'cursor', 'cursor-pointer'],
+  ] as const)('extracts static utility %s → %s', (cls, property, expected) => {
+    expect(extractUtilities(cls).get(property)).toBe(expected)
   })
 
   // ── Effects ────────────────────────────────────────────────────────
