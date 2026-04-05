@@ -1,0 +1,32 @@
+cortex-editor/src/browser/class-extractor.ts
+  0412426241975e32 99-101,106,108-109,111-112,149-150,209-210
+cortex-editor/src/browser/components/controls/ColorInput.tsx
+  0412426241975e32 39-40,42
+cortex-editor/tests/core/oklch.test.ts
+  0412426241975e32 56-61
+cortex-editor/src/core/ai-writer.ts
+  0412426241975e32 300
+cortex-editor/src/core/edit-pipeline.ts
+  0412426241975e32 422
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "9221ff35a380c72a91980f1d7dcc3fb03578e537",
+  "prompts": {
+    "0412426241975e32": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dbb88f84-cff5-4f3f-a7a5-f663ce775ac5",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 23,
+      "total_deletions": 17,
+      "accepted_lines": 23,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/90370921479701eeb83d3d8fa3685c4186f9bc4354c4903cf66de459d581691d"
+    }
+  }
+}
