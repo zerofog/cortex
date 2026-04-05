@@ -53,7 +53,11 @@ describe('oklchToHex', () => {
   })
 
   it('handles negative hue values', () => {
-    // -30 degrees = 330 degrees — should produce the same hex
-    expect(oklchToHex('oklch(50% 0.2 -30)')).toBe(oklchToHex('oklch(50% 0.2 330)'))
+    // -30 degrees = 330 degrees — should produce the same non-null hex
+    const neg = oklchToHex('oklch(50% 0.2 -30)')
+    const pos = oklchToHex('oklch(50% 0.2 330)')
+    expect(neg).not.toBeNull()
+    expect(pos).not.toBeNull()
+    expect(neg).toBe(pos)
   })
 })

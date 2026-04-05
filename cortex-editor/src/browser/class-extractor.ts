@@ -96,18 +96,20 @@ const PREFIX_RULES: Array<{ prefix: string; property: string; isColor?: boolean 
   { prefix: 'blur-', property: 'filter' },
 ]
 
-// Classes that start with bg- but are NOT background-color
-const BG_NON_COLOR = new Set([
+// Prefixes of bg-* classes that are NOT background-color.
+// Checked via token.startsWith() to handle multi-segment names like bg-no-repeat.
+const BG_NON_COLOR_PREFIXES = [
   'bg-opacity', 'bg-clip', 'bg-gradient', 'bg-no-repeat', 'bg-repeat',
   'bg-cover', 'bg-contain', 'bg-center', 'bg-bottom', 'bg-top',
   'bg-left', 'bg-right', 'bg-fixed', 'bg-local', 'bg-scroll',
   'bg-origin', 'bg-blend', 'bg-none',
-])
+]
 
-// Classes that start with border- but are NOT border-color or border-width
-const BORDER_NON_STYLE = new Set([
+// Prefixes of border-* classes that are NOT border-color or border-width.
+const BORDER_NON_STYLE_PREFIXES = [
   'border-opacity', 'border-collapse', 'border-separate', 'border-spacing',
-])
+  'border-x', 'border-y',
+]
 
 
 // Known font-size scale keys (to disambiguate text-{size} from text-{color})
@@ -144,8 +146,8 @@ function resolveAmbiguous(token: string): { property: string; className: string 
     const suffix = token.slice(7)
     // Already in STATIC_CLASSES (border-solid, etc.)
     if (STATIC_CLASSES[token]) return null
-    // Skip non-style/non-color border utilities
-    if (BORDER_NON_STYLE.has(token.split('-').slice(0, 2).join('-'))) return null
+    // Skip non-style/non-color border utilities (border-x-2, border-collapse, etc.)
+    if (BORDER_NON_STYLE_PREFIXES.some(p => token.startsWith(p))) return null
     // Numeric suffix → border-width
     if (/^\d+$/.test(suffix)) return { property: 'border-width', className: token }
     // Color-like suffix → border-color
@@ -204,8 +206,8 @@ export function extractUtilities(className: string): Map<string, string> {
     let matched = false
     for (const rule of PREFIX_RULES) {
       if (!token.startsWith(rule.prefix) || result.has(rule.property)) continue
-      // Filter bg-{non-color} classes (bg-clip-text, bg-opacity-50, etc.)
-      if (rule.prefix === 'bg-' && BG_NON_COLOR.has(token.split('-').slice(0, 2).join('-'))) continue
+      // Filter bg-{non-color} classes (bg-clip-text, bg-no-repeat, bg-opacity-50, etc.)
+      if (rule.prefix === 'bg-' && BG_NON_COLOR_PREFIXES.some(p => token.startsWith(p))) continue
       result.set(rule.property, token)
       matched = true
       break

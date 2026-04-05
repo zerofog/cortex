@@ -36,10 +36,10 @@ export function rgbToHex(color: string): string {
     const b = Math.round(Math.min(255, Math.max(0, parseFloat(rgbMatch[3]!))))
     return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`
   }
-  // hsl/hsla — convert to rgb
-  const hslMatch = trimmed.match(/hsla?\(\s*([\d.]+)[,\s]+([\d.]+)%[,\s]+([\d.]+)%/)
+  // hsl/hsla — convert to rgb (supports negative hue and hue > 360)
+  const hslMatch = trimmed.match(/hsla?\(\s*(-?[\d.]+)[,\s]+([\d.]+)%[,\s]+([\d.]+)%/)
   if (hslMatch) {
-    const h = parseFloat(hslMatch[1]!) / 360
+    const h = ((parseFloat(hslMatch[1]!) % 360) + 360) % 360 / 360
     const s = parseFloat(hslMatch[2]!) / 100
     const l = parseFloat(hslMatch[3]!) / 100
     const [r, g, b] = hslToRgb(h, s, l)

@@ -419,7 +419,7 @@ export class EditPipeline {
     }
 
     const newToken = this.resolver.findClass(edit.property, edit.value)
-    const oldToken = edit.currentClass
+    const oldToken = (edit.currentClass || null)
       ?? (previousValue ? this.resolver.findClass(edit.property, previousValue) : null)
 
     if (!newToken || !oldToken) {
