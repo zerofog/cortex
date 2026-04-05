@@ -357,7 +357,22 @@ export class EditPipeline {
             } catch { /* treat throws as failed, fall through to deferred/AI */ }
             if (handled) return
           }
-          // InlineStyleRewriter unavailable or failed — fall through to deferred/AI below
+          // InlineStyleRewriter unavailable or failed — route to deferred/AI
+          if (this.deferredWriter) {
+            this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
+            this.deferredWriter.enqueue({
+              editId: edit.editId, filePath: resolvedPath, line, col,
+              property: edit.property, value: edit.value,
+              failureReason: 'Inline style rewrite failed for instance-scoped CSS Module element.',
+            })
+            return
+          }
+          if (this.aiWriter) {
+            await this.commitAIWrite(edit, resolvedPath, line, col, 'Inline style rewrite failed for instance-scoped CSS Module element.')
+            return
+          }
+          this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'Instance-scoped editing requires InlineStyleRewriter or AI writer.' })
+          return
         } else {
           await this.commitCSSModulesRewrite(edit, resolved.cssFilePath, resolved.selector)
           return
@@ -366,8 +381,10 @@ export class EditPipeline {
       // CSS Modules-only project → don't fall through to Tailwind
       if (!this.detector.hasTailwind) {
         // Layer 3.5: Inline style rewriter — deterministic fallback
-        // Skip if we already tried InlineStyleRewriter for instance scope (avoids double call)
-        if (this.inlineStyleRewriter && edit.scope !== 'instance') {
+        // Note: when resolved was truthy + scope=instance, the explicit fallback above
+        // already returned. We only reach here when resolved was null (InlineStyleRewriter
+        // was never tried) or resolved was outside project root.
+        if (this.inlineStyleRewriter) {
           let handled = false
           try {
             handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
@@ -414,7 +431,7 @@ export class EditPipeline {
     const hasDirectOldToken = !!edit.currentClass
     if (!hasDirectOldToken) {
       // Legacy seed-skip: first edit establishes the baseline for Tailwind (oldToken = null without it).
-      const canHandleWithoutBaseline = this.inlineStyleRewriter && !this.detector?.hasTailwind
+      const canHandleWithoutBaseline = !!this.inlineStyleRewriter
       if (!previousValue && !this.deferredWriter && !canHandleWithoutBaseline) return
     }
 
@@ -423,9 +440,9 @@ export class EditPipeline {
       ?? (previousValue ? this.resolver.findClass(edit.property, previousValue) : null)
 
     if (!newToken || !oldToken) {
-      // Layer 3.5: Inline style rewriter — only for non-Tailwind projects
-      // (Tailwind projects should not accumulate inline styles)
-      if (this.inlineStyleRewriter && !this.detector?.hasTailwind) {
+      // Layer 3.5: Inline style rewriter — only when element has no Tailwind class
+      // (elements with currentClass should stay on the Tailwind/AI path)
+      if (this.inlineStyleRewriter && !edit.currentClass) {
         let handled = false
         try {
           handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
