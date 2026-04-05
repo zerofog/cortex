@@ -217,6 +217,11 @@ describe('extractUtilities', () => {
     expect(result.get('border-color')).toBe('border-red-500')
   })
 
+  it('does NOT drop border-yellow-500 (border-y prefix must not match border-yellow)', () => {
+    const result = extractUtilities('border-yellow-500')
+    expect(result.get('border-color')).toBe('border-yellow-500')
+  })
+
   it('does NOT extract rounded-l-/rounded-r- (multi-corner shorthands)', () => {
     const result = extractUtilities('rounded-l-lg')
     expect(result.has('border-radius')).toBe(false)

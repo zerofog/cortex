@@ -108,7 +108,7 @@ const BG_NON_COLOR_PREFIXES = [
 // Prefixes of border-* classes that are NOT border-color or border-width.
 const BORDER_NON_STYLE_PREFIXES = [
   'border-opacity', 'border-collapse', 'border-separate', 'border-spacing',
-  'border-x', 'border-y',
+  'border-x-', 'border-y-',
 ]
 
 
