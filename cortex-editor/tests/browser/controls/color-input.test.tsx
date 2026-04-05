@@ -110,6 +110,14 @@ describe('rgbToHex', () => {
     expect(rgbToHex('hsl(0, 0%, 50%)')).toBe('#808080')
   })
 
+  it('converts hsl edge cases', () => {
+    expect(rgbToHex('hsl(360, 100%, 50%)')).toBe('#ff0000')  // h=360 wraps to h=0
+    expect(rgbToHex('hsl(0, 0%, 0%)')).toBe('#000000')       // l=0 = black
+    expect(rgbToHex('hsl(0, 0%, 100%)')).toBe('#ffffff')      // l=1 = white
+    expect(rgbToHex('hsl(0, 100%, 0%)')).toBe('#000000')      // l=0 trumps saturation
+    expect(rgbToHex('hsl(120, 100%, 50%)')).toBe('#00ff00')   // pure green
+  })
+
   it('converts oklch() to hex', () => {
     expect(rgbToHex('oklch(0% 0 0)')).toBe('#000000')
     expect(rgbToHex('oklch(100% 0 0)')).toBe('#ffffff')

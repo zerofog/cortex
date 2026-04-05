@@ -437,8 +437,10 @@ export class TailwindResolver {
 
   /**
    * Find the nearest color in the property map within a small tolerance.
-   * Handles ±2 per RGB channel to cover OKLCH→sRGB conversion rounding
-   * differences between our converter and the browser.
+   * Handles ±10 per RGB channel to cover OKLCH→sRGB gamut mapping
+   * differences between our converter and the browser. The minimum
+   * distance between adjacent Tailwind shades is ~16, so ±10 is safe
+   * against cross-shade collisions.
    * Returns null if no color is within tolerance.
    */
   private findNearestColor(propertyMap: Map<string, string>, hex: string): string | null {
@@ -457,7 +459,7 @@ export class TailwindResolver {
 
       // Max channel distance — fast rejection
       const dist = Math.max(Math.abs(r - sr), Math.abs(g - sg), Math.abs(b - sb))
-      if (dist <= 2 && dist < bestDist) {
+      if (dist <= 10 && dist < bestDist) {
         bestDist = dist
         bestClass = className
       }

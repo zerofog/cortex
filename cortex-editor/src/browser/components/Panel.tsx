@@ -5,6 +5,7 @@ import { onOverrideChange } from '../override-bus.js'
 import { parseCortexSource, isLibraryComponent, findUserAncestor } from '../label.js'
 import { PANEL_WIDTH } from '../hooks/useSnapToEdge.js'
 import { formatShortcut } from '../format-shortcut.js'
+import { extractUtilities } from '../class-extractor.js'
 import { PanelHeader } from './PanelHeader.js'
 import { SpacingSection } from './sections/SpacingSection.js'
 import type { SpacingChange } from './sections/SpacingSection.js'
@@ -318,6 +319,14 @@ export function Panel({
     [computedStyles.typography.fontFamily],
   )
 
+  // Extract Tailwind utility classes from element's className.
+  // Enables the "direct class path": send the actual class name to the server
+  // instead of relying on fragile computed-style → hex → class-name reverse lookup.
+  const extractedUtilities = useMemo(() => {
+    if (!element) return new Map<string, string>()
+    return extractUtilities(element.className ?? '')
+  }, [element, styleVersion])
+
   // Shared override application — warns if element lacks source attribution.
   // Passes pseudo parameter to CSSOverrideManager when editing a pseudo-element.
   // When commitRender is true (committed change, not scrub preview), also dispatches
@@ -364,6 +373,9 @@ export function Panel({
           value,
           elementSelector: element.tagName.toLowerCase(),
           cssMapping: element.getAttribute('data-cortex-css') ?? undefined,
+          // Direct class path: send the current Tailwind class so the server
+          // can use it as oldToken directly, bypassing computed-style reverse lookup.
+          currentClass: extractedUtilities.get(property),
           ...(sharedInfo ? {
             scope: editScope,
             ...(editScope === 'all' ? {
@@ -376,7 +388,7 @@ export function Panel({
         channel.send(msg as any)
       }
     }
-  }, [element, overrideManager, activePseudo, channel, sharedInfo, editScope])
+  }, [element, overrideManager, activePseudo, channel, sharedInfo, editScope, extractedUtilities])
 
   const handleSpacingCommit = useCallback((c: SpacingChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleScrub = useCallback((c: SpacingChange) => applyOverride(c.property, c.value, false), [applyOverride])

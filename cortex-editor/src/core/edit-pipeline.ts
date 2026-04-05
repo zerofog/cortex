@@ -29,6 +29,10 @@ export interface EditRequest {
   scope?: 'instance' | 'all'
   /** Source locations of all shared elements (for scope='all' inline style cleanup). */
   instanceSources?: string[]
+  /** Current Tailwind class for this property, read directly from element.className.
+   *  When present, used as oldToken directly — bypasses the fragile computed-style
+   *  → hex → class-name reverse lookup. Sent by the browser's class extractor. */
+  currentClass?: string
 }
 
 export interface WriteIntent {
@@ -401,17 +405,22 @@ export class EditPipeline {
     }
 
     // Layer 3: Tailwind path (strategy is 'immediate', 'deferred', or undefined for legacy)
-    // First edit for a source:property pair has no previousValue — this is the
-    // baseline "seed" establishing the current state. Skip silently; the CSS
-    // override already shows the preview. File write starts on the next edit.
-    // Seed-skip: first edit establishes the baseline for Tailwind (oldToken = null without it).
-    // InlineStyleRewriter doesn't need a baseline (uses property+value directly),
-    // so bypass seed-skip only when InlineStyleRewriter can handle this edit.
-    const canHandleWithoutBaseline = this.inlineStyleRewriter && !this.detector?.hasTailwind
-    if (!previousValue && !this.deferredWriter && !canHandleWithoutBaseline) return
+    //
+    // Direct class path: when the browser sends currentClass (read from element.className),
+    // we use it directly as oldToken — no seed-skip needed, no fragile reverse lookup.
+    // This is the fast path for Tailwind edits: first edit writes immediately.
+    //
+    // Fallback: when currentClass is absent, use the legacy seed-skip + resolver lookup.
+    const hasDirectOldToken = !!edit.currentClass
+    if (!hasDirectOldToken) {
+      // Legacy seed-skip: first edit establishes the baseline for Tailwind (oldToken = null without it).
+      const canHandleWithoutBaseline = this.inlineStyleRewriter && !this.detector?.hasTailwind
+      if (!previousValue && !this.deferredWriter && !canHandleWithoutBaseline) return
+    }
 
     const newToken = this.resolver.findClass(edit.property, edit.value)
-    const oldToken = previousValue ? this.resolver.findClass(edit.property, previousValue) : null
+    const oldToken = edit.currentClass
+      ?? (previousValue ? this.resolver.findClass(edit.property, previousValue) : null)
 
     if (!newToken || !oldToken) {
       // Layer 3.5: Inline style rewriter — only for non-Tailwind projects

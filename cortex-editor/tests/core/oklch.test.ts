@@ -33,4 +33,27 @@ describe('oklchToHex', () => {
   it('handles extra whitespace', () => {
     expect(oklchToHex('oklch(  0%   0   0  )')).toBe('#000000')
   })
+
+  it('handles oklch with slash alpha (alpha is discarded — hex has no alpha)', () => {
+    // Same hex with or without alpha
+    const withoutAlpha = oklchToHex('oklch(63.7% 0.237 25.331)')!
+    expect(oklchToHex('oklch(63.7% 0.237 25.331 / 0.8)')).toBe(withoutAlpha)
+    expect(oklchToHex('oklch(63.7% 0.237 25.331 / 80%)')).toBe(withoutAlpha)
+    expect(oklchToHex('oklch(63.7% 0.237 25.331 / 0)')).toBe(withoutAlpha)
+  })
+
+  it('handles CSS Color L4 `none` keyword', () => {
+    // none = 0 for that component (achromatic colors)
+    expect(oklchToHex('oklch(50% 0 none)')).not.toBeNull()  // achromatic gray, hue=none
+    expect(oklchToHex('oklch(50% none none)')).not.toBeNull()  // achromatic, chroma+hue=none
+    expect(oklchToHex('oklch(none 0 0)')).toBe('#000000')  // L=0 = black
+    // Achromatic color: same as oklch(50% 0 0)
+    expect(oklchToHex('oklch(50% 0 none)')).toBe(oklchToHex('oklch(50% 0 0)'))
+  })
+
+  it('handles negative hue values', () => {
+    // Negative hue is valid CSS — Math.cos/sin handle it correctly
+    const hex = oklchToHex('oklch(50% 0.2 -30)')
+    expect(hex).not.toBeNull()
+  })
 })

@@ -91,9 +91,9 @@ const UTILITY_MATRIX: PropertyTest[] = [
   { property: 'border-color', validValue: '#000000', expectedClass: 'border-black', invalidValue: 'rgb(123, 45, 67)' },
   { property: 'color', validValue: '#000000', expectedClass: 'text-black', invalidValue: 'rgb(123, 45, 67)' },
 
-  // Colors — OKLCH-derived
-  { property: 'background-color', validValue: oklchRgb('oklch(63.7% 0.237 25.331)'), expectedClass: 'bg-red-500', invalidValue: 'rgb(1, 2, 3)' },
-  { property: 'color', validValue: oklchRgb('oklch(62.3% 0.214 259.815)'), expectedClass: 'text-blue-500', invalidValue: 'rgb(1, 2, 3)' },
+  // Colors — OKLCH-derived (invalid must be >10 channels from any theme color)
+  { property: 'background-color', validValue: oklchRgb('oklch(63.7% 0.237 25.331)'), expectedClass: 'bg-red-500', invalidValue: 'rgb(80, 80, 80)' },
+  { property: 'color', validValue: oklchRgb('oklch(62.3% 0.214 259.815)'), expectedClass: 'text-blue-500', invalidValue: 'rgb(80, 80, 80)' },
 
   // Border
   { property: 'border-width', validValue: '1px', expectedClass: 'border', invalidValue: '3px' },

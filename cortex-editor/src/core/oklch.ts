@@ -47,13 +47,14 @@ function isInGamut(r: number, g: number, b: number): boolean {
  * Returns null for unparseable input.
  */
 export function oklchToHex(oklchStr: string): string | null {
-  const m = oklchStr.match(/oklch\(\s*([\d.]+)(%?)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*[\d.]+%?)?\s*\)/)
+  // Accept `none` keyword for any component (CSS Color L4 §14.2 — powerless/missing channels)
+  const m = oklchStr.match(/oklch\(\s*([\d.]+|none)(%?)\s+([\d.]+|none)\s+(-?[\d.]+|none)(?:\s*\/\s*[\d.]+%?)?\s*\)/)
   if (!m) return null
 
-  let L = parseFloat(m[1]!)
+  let L = m[1] === 'none' ? 0 : parseFloat(m[1]!)
   if (m[2] === '%') L /= 100
-  const C = parseFloat(m[3]!)
-  const H = parseFloat(m[4]!)
+  const C = m[3] === 'none' ? 0 : parseFloat(m[3]!)
+  const H = m[4] === 'none' ? 0 : parseFloat(m[4]!)
 
   if (Number.isNaN(L) || Number.isNaN(C) || Number.isNaN(H)) return null
 
