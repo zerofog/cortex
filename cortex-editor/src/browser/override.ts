@@ -318,7 +318,10 @@ export class CSSOverrideManager {
         let computed: CSSStyleDeclaration
         try {
           computed = getComputedStyle(el, pseudoSuffix || undefined)
-        } catch { continue }
+        } catch (err) {
+          console.warn('[cortex] sweepStaleOverrides: getComputedStyle failed for', rawSource, err)
+          continue
+        }
         const staleProps: string[] = []
         for (const [prop, val] of props) {
           try {
@@ -326,7 +329,9 @@ export class CSSOverrideManager {
             if (computedVal && computedVal === val.trim()) {
               staleProps.push(prop)
             }
-          } catch { /* skip unreadable properties */ }
+          } catch (err) {
+            console.warn('[cortex] sweepStaleOverrides: getPropertyValue failed for', prop, err)
+          }
         }
         for (const prop of staleProps) {
           props.delete(prop)
@@ -335,10 +340,19 @@ export class CSSOverrideManager {
         if (props.size === 0) this.overrides.delete(compositeKey)
       }
     } finally {
-      // Re-attach override <style> in its original position
+      // Re-attach override <style> in its original position.
+      // Guard against nextSibling removal during sweep (e.g., framework cleanup during HMR).
       if (parent) {
-        if (nextSibling) parent.insertBefore(this.styleEl, nextSibling)
-        else parent.appendChild(this.styleEl)
+        try {
+          if (nextSibling && nextSibling.parentNode === parent) {
+            parent.insertBefore(this.styleEl, nextSibling)
+          } else {
+            parent.appendChild(this.styleEl)
+          }
+        } catch {
+          // parent itself may have been removed — fall back to document.head
+          document.head.appendChild(this.styleEl)
+        }
       }
     }
 

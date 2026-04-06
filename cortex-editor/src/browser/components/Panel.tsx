@@ -357,7 +357,10 @@ export function Panel({
   const commitScrub = useCallback(() => {
     if (!element || scrubPreviousRef.current.size === 0) return
     const source = element.getAttribute('data-cortex-source')
-    if (!source) return
+    if (!source) {
+      scrubPreviousRef.current.clear()
+      return
+    }
     const pseudo = activePseudo !== 'element' ? activePseudo : undefined
 
     // Build PropertyChange[] from accumulated scrub previous values.
@@ -377,9 +380,13 @@ export function Panel({
 
     // Record command on stack. Overrides are already applied during scrub phase,
     // so record() stores without re-executing (avoids double-apply).
-    if (changes.length > 0 && commandStack) {
-      const cmd = new PropertyEditCommand({ changes, overrideManager })
-      commandStack.record(cmd)
+    if (changes.length > 0) {
+      if (commandStack) {
+        const cmd = new PropertyEditCommand({ changes, overrideManager })
+        commandStack.record(cmd)
+      } else {
+        console.warn('[cortex] Edit committed without undo stack — this edit cannot be undone')
+      }
     }
 
     overrideManager.flush()
