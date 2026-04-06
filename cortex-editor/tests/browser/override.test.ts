@@ -947,4 +947,84 @@ describe('CSSOverrideManager', () => {
       expect(styleEl.textContent).toBe('')
     })
   })
+
+  describe('HMR stale override sweep', () => {
+    it('calls sweepStaleOverrides on HMR applied', () => {
+      // Verify the sweep mechanism is invoked (we can't test real CSS matching in happy-dom)
+      manager.set('Hero.tsx:5:3', 'color', 'red')
+      manager.flush()
+      // In happy-dom, getComputedStyle returns '' for color, so nothing is swept.
+      // The override should survive (sweep skips empty computed values).
+      manager.onHMRApplied()
+      const style = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(style.textContent).toContain('color: red')
+    })
+
+    it('preserves overrides when element is not found', () => {
+      // No element with this source exists in the DOM
+      manager.set('Missing.tsx:1:1', 'color', 'red')
+      manager.flush()
+      manager.onHMRApplied()
+      const style = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(style.textContent).toContain('color: red')
+    })
+
+    it('sweeps override when computed style matches', () => {
+      // Create an element and override
+      const el = document.createElement('div')
+      el.setAttribute('data-cortex-source', 'Sweep.tsx:5:3')
+      el.style.color = 'red'
+      document.body.appendChild(el)
+
+      manager.set('Sweep.tsx:5:3', 'color', 'red')
+      manager.flush()
+
+      // Mock getComputedStyle to return matching value
+      const original = window.getComputedStyle
+      window.getComputedStyle = ((element: Element, pseudo?: string | null) => {
+        if (element === el && !pseudo) {
+          return { getPropertyValue: (prop: string) => prop === 'color' ? 'red' : '' } as CSSStyleDeclaration
+        }
+        return original.call(window, element, pseudo)
+      }) as typeof window.getComputedStyle
+
+      manager.onHMRApplied()
+
+      window.getComputedStyle = original
+
+      // The override should be removed (computed matches override)
+      const style = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(style.textContent).not.toContain('Sweep')
+
+      el.remove()
+    })
+
+    it('preserves override when computed style differs', () => {
+      const el = document.createElement('div')
+      el.setAttribute('data-cortex-source', 'Keep.tsx:5:3')
+      document.body.appendChild(el)
+
+      manager.set('Keep.tsx:5:3', 'color', 'red')
+      manager.flush()
+
+      // Mock getComputedStyle to return different value
+      const original = window.getComputedStyle
+      window.getComputedStyle = ((element: Element, pseudo?: string | null) => {
+        if (element === el && !pseudo) {
+          return { getPropertyValue: (prop: string) => prop === 'color' ? 'blue' : '' } as CSSStyleDeclaration
+        }
+        return original.call(window, element, pseudo)
+      }) as typeof window.getComputedStyle
+
+      manager.onHMRApplied()
+
+      window.getComputedStyle = original
+
+      // Override should be preserved (computed differs)
+      const style = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(style.textContent).toContain('color: red')
+
+      el.remove()
+    })
+  })
 })

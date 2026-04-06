@@ -288,6 +288,64 @@ export class CSSOverrideManager {
       }
     }
     this.hmrAppliedPending = true
+
+    // Sweep stale overrides: remove any where value matches computed style.
+    // This prevents accumulation of no-op !important rules after undo + HMR cycles.
+    this.sweepStaleOverrides()
+  }
+
+  /** Remove overrides where the value matches the element's computed style (no-op rules).
+   *  Called after HMR applies new styles — catches stale overrides from undo cycles.
+   *
+   *  Temporarily detaches the override <style> element so getComputedStyle reads
+   *  the underlying stylesheet values, not the override's own !important rules.
+   *  Without this, every active override would self-match and be incorrectly swept. */
+  private sweepStaleOverrides(): void {
+    // Detach override <style> so computed styles reflect underlying CSS only
+    const parent = this.styleEl.parentNode
+    const nextSibling = this.styleEl.nextSibling
+    if (parent) parent.removeChild(this.styleEl)
+
+    let changed = false
+    try {
+      for (const [compositeKey, props] of this.overrides) {
+        const pseudoSuffix = compositeKey.endsWith('::before') ? '::before'
+                           : compositeKey.endsWith('::after') ? '::after'
+                           : ''
+        const rawSource = pseudoSuffix ? compositeKey.slice(0, -pseudoSuffix.length) : compositeKey
+        const el = document.querySelector(`[data-cortex-source="${CSS.escape(rawSource)}"]`)
+        if (!el) continue
+        let computed: CSSStyleDeclaration
+        try {
+          computed = getComputedStyle(el, pseudoSuffix || undefined)
+        } catch { continue }
+        const staleProps: string[] = []
+        for (const [prop, val] of props) {
+          try {
+            const computedVal = computed.getPropertyValue(prop).trim()
+            if (computedVal && computedVal === val.trim()) {
+              staleProps.push(prop)
+            }
+          } catch { /* skip unreadable properties */ }
+        }
+        for (const prop of staleProps) {
+          props.delete(prop)
+          changed = true
+        }
+        if (props.size === 0) this.overrides.delete(compositeKey)
+      }
+    } finally {
+      // Re-attach override <style> in its original position
+      if (parent) {
+        if (nextSibling) parent.insertBefore(this.styleEl, nextSibling)
+        else parent.appendChild(this.styleEl)
+      }
+    }
+
+    if (changed) {
+      this.cancelPendingRebuild()
+      this.rebuild()
+    }
   }
 
   private evictStalePendingEdits(): void {
