@@ -35,7 +35,7 @@ export type { StyleSystem, DetectionResult } from './core/rewriter/detector.js'
 export { RuntimeCSSResolver } from './core/rewriter/runtime-resolver.js'
 export type { ResolvedCSSMapping } from './core/rewriter/runtime-resolver.js'
 export { UndoStack } from './core/session/undo-stack.js'
-export type { UndoEntry } from './core/session/undo-stack.js'
+export type { UndoEntry, UndoFileChange, UndoRestoreSet } from './core/session/undo-stack.js'
 export { determineWriteStrategy } from './core/rewriter/shorthand.js'
 export type { WriteStrategy } from './core/rewriter/shorthand.js'
 

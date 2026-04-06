@@ -1444,8 +1444,8 @@ describe('EditPipeline', () => {
       // Verify undo restores the AI's old content
       const entry = undoStack.peekUndo()
       expect(entry).toBeDefined()
-      expect(entry!.previousContent).toBe('before-ai')
-      expect(entry!.currentContent).toBe('after-ai')
+      expect(entry!.changes[0]!.previousContent).toBe('before-ai')
+      expect(entry!.changes[0]!.currentContent).toBe('after-ai')
     })
 
     it('does NOT call aiWriter when deterministic Tailwind succeeds', async () => {
@@ -2584,7 +2584,7 @@ describe('EditPipeline', () => {
       })
 
       // Push an undo entry manually so we have something to undo
-      undoStack.push({ filePath: '/project/src/App.tsx', previousContent: 'old-content', currentContent: 'new-content' })
+      undoStack.push({ changes: [{ filePath: '/project/src/App.tsx', previousContent: 'old-content', currentContent: 'new-content' }] })
 
       // Enqueue a deferred edit that's still pending (5s coalescing)
       deferredWriter.enqueue({
@@ -2634,7 +2634,7 @@ describe('EditPipeline', () => {
       })
 
       // Push an undo entry and undo it so we can redo
-      undoStack.push({ filePath: '/project/src/App.tsx', previousContent: 'old-content', currentContent: 'new-content' })
+      undoStack.push({ changes: [{ filePath: '/project/src/App.tsx', previousContent: 'old-content', currentContent: 'new-content' }] })
       await pipeline.handleUndo()
       channel.sent.length = 0 // reset
 
@@ -3098,8 +3098,8 @@ describe('EditPipeline', () => {
       expect(undoStack.undoCount).toBe(1)
       const entry = undoStack.peekUndo()
       expect(entry).toBeDefined()
-      expect(entry!.previousContent).toBe('before-inline')
-      expect(entry!.currentContent).toBe('after-inline')
+      expect(entry!.changes[0]!.previousContent).toBe('before-inline')
+      expect(entry!.changes[0]!.currentContent).toBe('after-inline')
     })
 
     it('bypass debounce disabled when InlineStyleRewriter available', async () => {
@@ -3903,6 +3903,271 @@ describe('EditPipeline', () => {
       )
       expect(cssWrites).toHaveLength(1)
       expect(cssWrites[0]![0].kind).toBe('immediate')
+    })
+
+    it('scope=all produces a single compound undo entry (not 2 separate entries)', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const undoStack = new UndoStack()
+
+      // Track file contents so readFile returns what writeFile last wrote
+      const fileContents = new Map<string, string>()
+      const readFile = vi.fn().mockImplementation(async (path: string) => fileContents.get(path) ?? '')
+      const writeFile = vi.fn().mockImplementation(async (intent: any) => {
+        fileContents.set(intent.filePath, intent.content)
+      })
+
+      const cssRewriter = mockCSSModulesRewriter({
+        success: true,
+        filePath: '/project/src/Hero.module.css',
+        oldContent: 'css-before',
+        newContent: 'css-after',
+      })
+      const inlineRewriter = mockInlineStyleRewriter()
+      // Override removeProperties to return distinct content
+      inlineRewriter.removeProperties.mockResolvedValue({
+        success: true,
+        filePath: '/project/src/Hero.tsx',
+        oldContent: 'jsx-before',
+        newContent: 'jsx-after',
+      })
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, readFile,
+        projectRoot: '/project', undoStack,
+        cssModulesRewriter: cssRewriter,
+        inlineStyleRewriter: inlineRewriter as any,
+      })
+
+      // Execute scope='all' edit (CSS rewrite + JSX inline style cleanup)
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/Hero.tsx:5:3',
+        property: 'color',
+        value: 'red',
+        elementSelector: 'div',
+        cssMapping: 'src/Hero.module.css:.hero',
+        scope: 'all',
+        instanceSources: ['/project/src/Hero.tsx:5:3'],
+      })
+
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // ── Key assertion: ONE compound entry, not two ──
+      expect(undoStack.undoCount).toBe(1)
+      const entry = undoStack.peekUndo()!
+      expect(entry.changes).toHaveLength(2)
+      expect(entry.changes[0]!.filePath).toBe('/project/src/Hero.module.css')
+      expect(entry.changes[0]!.previousContent).toBe('css-before')
+      expect(entry.changes[0]!.currentContent).toBe('css-after')
+      expect(entry.changes[1]!.filePath).toBe('/project/src/Hero.tsx')
+      expect(entry.changes[1]!.previousContent).toBe('jsx-before')
+      expect(entry.changes[1]!.currentContent).toBe('jsx-after')
+
+      // ── Undo: both files reverted atomically ──
+      channel.sent.length = 0
+      writeFile.mockClear()
+      await pipeline.handleUndo()
+      await vi.runAllTimersAsync()
+
+      expect(undoStack.undoCount).toBe(0)
+      expect(undoStack.canRedo).toBe(true)
+      // Two writes: CSS reverted + JSX reverted
+      expect(writeFile).toHaveBeenCalledTimes(2)
+      expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'undo', filePath: '/project/src/Hero.module.css', content: 'css-before' }))
+      expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'undo', filePath: '/project/src/Hero.tsx', content: 'jsx-before' }))
+      const undoMsg = channel.sent.find(m => m.type === 'undo_status') as { status: string }
+      expect(undoMsg.status).toBe('done')
+
+      // ── Redo: both files re-applied atomically ──
+      channel.sent.length = 0
+      writeFile.mockClear()
+      await pipeline.handleRedo()
+      await vi.runAllTimersAsync()
+
+      expect(undoStack.undoCount).toBe(1)
+      expect(undoStack.canRedo).toBe(false)
+      expect(writeFile).toHaveBeenCalledTimes(2)
+      expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'redo', filePath: '/project/src/Hero.module.css', content: 'css-after' }))
+      expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'redo', filePath: '/project/src/Hero.tsx', content: 'jsx-after' }))
+      const redoMsg = channel.sent.find(m => m.type === 'redo_status') as { status: string }
+      expect(redoMsg.status).toBe('done')
+    })
+
+    it('compound undo fails atomically when second file is stale (no partial writes)', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const undoStack = new UndoStack()
+
+      // readFile returns matching content for CSS but stale content for JSX
+      const readFile = vi.fn().mockImplementation(async (p: string) =>
+        p.endsWith('.css') ? 'css-after' : 'externally-modified-jsx')
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+
+      const cssRewriter = mockCSSModulesRewriter({
+        success: true, filePath: '/project/src/Hero.module.css',
+        oldContent: 'css-before', newContent: 'css-after',
+      })
+      const inlineRewriter = mockInlineStyleRewriter()
+      inlineRewriter.removeProperties.mockResolvedValue({
+        success: true, filePath: '/project/src/Hero.tsx',
+        oldContent: 'jsx-before', newContent: 'jsx-after',
+      })
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, readFile,
+        projectRoot: '/project', undoStack,
+        cssModulesRewriter: cssRewriter,
+        inlineStyleRewriter: inlineRewriter as any,
+      })
+
+      // Execute scope='all' edit
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/Hero.tsx:5:3',
+        property: 'color', value: 'red',
+        elementSelector: 'div',
+        cssMapping: 'src/Hero.module.css:.hero',
+        scope: 'all',
+        instanceSources: ['/project/src/Hero.tsx:5:3'],
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+      expect(undoStack.undoCount).toBe(1)
+
+      // Undo — CSS file matches currentContent, but JSX is stale
+      channel.sent.length = 0
+      writeFile.mockClear()
+      await pipeline.handleUndo()
+      await vi.runAllTimersAsync()
+
+      // Neither file should have been written (atomic failure)
+      expect(writeFile).not.toHaveBeenCalled()
+      const undoMsg = channel.sent.find(m => m.type === 'undo_status') as { status: string; reason?: string }
+      expect(undoMsg.status).toBe('failed')
+      expect(undoMsg.reason).toContain('modified outside cortex')
+      // Entry removed from stack (stale)
+      expect(undoStack.undoCount).toBe(0)
+    })
+
+    it('undo fails and entry stays on stack when readFile throws (ENOENT/EACCES)', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const undoStack = new UndoStack()
+
+      const readFile = vi.fn().mockRejectedValue(new Error('ENOENT: no such file'))
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, readFile,
+        projectRoot: '/project', undoStack,
+      })
+
+      // Manually push a compound entry
+      undoStack.push({ changes: [
+        { filePath: '/project/a.css', previousContent: 'old-css', currentContent: 'new-css' },
+        { filePath: '/project/a.tsx', previousContent: 'old-jsx', currentContent: 'new-jsx' },
+      ] })
+
+      await pipeline.handleUndo()
+      await vi.runAllTimersAsync()
+
+      expect(writeFile).not.toHaveBeenCalled()
+      const msg = channel.sent.find(m => m.type === 'undo_status') as { status: string; reason?: string }
+      expect(msg.status).toBe('failed')
+      expect(msg.reason).toContain('modified outside cortex')
+      // Entry removed (treated as stale)
+      expect(undoStack.undoCount).toBe(0)
+    })
+
+    it('undo with write failure rolls back already-written files and preserves entry', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const undoStack = new UndoStack()
+
+      const fileContents = new Map<string, string>([
+        ['/project/a.css', 'new-css'],
+        ['/project/a.tsx', 'new-jsx'],
+      ])
+      const readFile = vi.fn().mockImplementation(async (p: string) => fileContents.get(p) ?? '')
+      let writeCount = 0
+      const writeFile = vi.fn().mockImplementation(async (intent: any) => {
+        writeCount++
+        // First write (CSS) succeeds, second write (JSX) fails
+        if (writeCount === 2) throw new Error('ENOSPC: disk full')
+        fileContents.set(intent.filePath, intent.content)
+      })
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, readFile,
+        projectRoot: '/project', undoStack,
+      })
+
+      undoStack.push({ changes: [
+        { filePath: '/project/a.css', previousContent: 'old-css', currentContent: 'new-css' },
+        { filePath: '/project/a.tsx', previousContent: 'old-jsx', currentContent: 'new-jsx' },
+      ] })
+
+      await pipeline.handleUndo()
+      await vi.runAllTimersAsync()
+
+      const msg = channel.sent.find(m => m.type === 'undo_status') as { status: string; reason?: string }
+      expect(msg.status).toBe('failed')
+      expect(msg.reason).toContain('Write failed during undo')
+      // Entry stays on stack (not removed) — user can retry
+      expect(undoStack.canUndo).toBe(true)
+      // CSS file should be rolled back to currentContent (not left as previousContent)
+      expect(fileContents.get('/project/a.css')).toBe('new-css')
+    })
+
+    it('redo with stale file clears entire stack', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const undoStack = new UndoStack()
+
+      const fileContents = new Map<string, string>()
+      const readFile = vi.fn().mockImplementation(async (p: string) => fileContents.get(p) ?? '')
+      const writeFile = vi.fn().mockImplementation(async (intent: any) => {
+        fileContents.set(intent.filePath, intent.content)
+      })
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, readFile,
+        projectRoot: '/project', undoStack,
+      })
+
+      // Push and undo to create a redo entry
+      undoStack.push({ changes: [
+        { filePath: '/project/a.css', previousContent: 'old', currentContent: 'new' },
+      ] })
+      fileContents.set('/project/a.css', 'new')
+      await pipeline.handleUndo()
+      await vi.runAllTimersAsync()
+      expect(undoStack.canRedo).toBe(true)
+
+      // Simulate external modification — file no longer matches previousContent
+      fileContents.set('/project/a.css', 'externally-modified')
+
+      channel.sent.length = 0
+      await pipeline.handleRedo()
+      await vi.runAllTimersAsync()
+
+      const msg = channel.sent.find(m => m.type === 'redo_status') as { status: string }
+      expect(msg.status).toBe('failed')
+      // Redo staleness clears entire stack
+      expect(undoStack.canUndo).toBe(false)
+      expect(undoStack.canRedo).toBe(false)
     })
   })
 })
