@@ -1,0 +1,26 @@
+cortex-editor/src/browser/components/Panel.tsx
+  97e087a5b0cbafd0 5-7,117,161,172-175,215,344-346,349-351,360-366,372-378,383,385-404,407,409,440
+cortex-editor/tests/browser/panel.test.tsx
+  97e087a5b0cbafd0 36,342
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "10ef52d70cf973bafd663452ff1c7f9bfbcbecb0",
+  "prompts": {
+    "97e087a5b0cbafd0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6135b7a3-a944-4fa7-b119-808d834bb439",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 182,
+      "total_deletions": 59,
+      "accepted_lines": 158,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/d3836f8d06714dfd9289d47b254d1b0a4428bc2a5236dc9ead565c6a20234074"
+    }
+  }
+}
