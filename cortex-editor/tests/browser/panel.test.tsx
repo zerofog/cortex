@@ -33,6 +33,7 @@ describe('Panel', () => {
     const onSelectElement = vi.fn()
     const overrideManager = {
       set: vi.fn(),
+      get: vi.fn(),
       remove: vi.fn(),
       clearAll: vi.fn(),
       dispose: vi.fn(),
@@ -338,6 +339,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
   function createOverrideManager() {
     return {
       set: vi.fn(),
+      get: vi.fn(),
       remove: vi.fn(),
       clearAll: vi.fn(),
       dispose: vi.fn(),

@@ -2,6 +2,9 @@ import type { JSX } from 'preact'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks'
 import type { CSSOverrideManager } from '../override.js'
 import { onOverrideChange } from '../override-bus.js'
+import { CommandStack } from '../command-stack.js'
+import { PropertyEditCommand } from '../edit-command.js'
+import type { PropertyChange } from '../edit-command.js'
 import { parseCortexSource, isLibraryComponent, findUserAncestor } from '../label.js'
 import { PANEL_WIDTH } from '../hooks/useSnapToEdge.js'
 import { formatShortcut } from '../format-shortcut.js'
@@ -111,6 +114,7 @@ export interface PanelProps {
   panelPointerMove: (e: PointerEvent) => void
   panelPointerUp: (e: PointerEvent) => void
   panelPointerCancel: (e: PointerEvent) => void
+  commandStack?: CommandStack | null
   channel?: CortexChannel
   agentConnected?: boolean
 }
@@ -154,6 +158,7 @@ export function Panel({
   panelPointerMove,
   panelPointerUp,
   panelPointerCancel,
+  commandStack,
   channel,
   agentConnected,
 }: PanelProps): JSX.Element | null {
@@ -163,6 +168,10 @@ export function Panel({
   const [isCrossFading, setIsCrossFading] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
   const prevElementRef = useRef<HTMLElement | null>(null)
+
+  // Tracks previous override values during a scrub gesture for undo command creation.
+  // Key: source\0property\0pseudo (null-byte separated — source paths contain colons).
+  const scrubPreviousRef = useRef<Map<string, string>>(new Map())
 
   // Pseudo-element tab state — internal to Panel
   const [activePseudo, setActivePseudo] = useState<'element' | '::before' | '::after'>('element')
@@ -203,6 +212,7 @@ export function Panel({
       setActivePseudo('element') // reset pseudo tab on element change
     }
     prevElementRef.current = element
+    scrubPreviousRef.current.clear() // abandon any in-progress scrub state
   }, [element])
 
   // Clear blast-radius highlights and remove injected style tag on unmount
@@ -331,10 +341,14 @@ export function Panel({
     return extractUtilities(cls)
   }, [element, styleVersion])
 
+  // Null-byte separator for composite scrub keys — never appears in CSS properties or source paths.
+  const SEP = '\0'
+
   // Shared override application — warns if element lacks source attribution.
   // Passes pseudo parameter to CSSOverrideManager when editing a pseudo-element.
-  // When commitRender is true (committed change, not scrub preview), also dispatches
-  // an edit message to the server for source file writing.
+  // During scrub (commitRender=false): captures previousValue on first touch per
+  // property, then applies override via set(). On commit (commitRender=true): builds
+  // a PropertyEditCommand from accumulated scrub state and pushes it to CommandStack.
   const applyOverride = useCallback((property: string, value: string, commitRender: boolean) => {
     if (!element) return
     const source = element.getAttribute('data-cortex-source')
@@ -343,25 +357,56 @@ export function Panel({
       return
     }
     const pseudo = activePseudo !== 'element' ? activePseudo : undefined
-    // Snapshot BEFORE any set() — captures pre-edit state for undo.
-    // beginEdit() is idempotent (only snapshots once per gesture).
-    overrideManager.beginEdit()
+
+    // Capture previousValue BEFORE set() — only on first touch per property per gesture.
+    const prevKey = `${source}${SEP}${property}${SEP}${pseudo ?? ''}`
+    if (!scrubPreviousRef.current.has(prevKey)) {
+      scrubPreviousRef.current.set(prevKey, overrideManager.get(source, property, pseudo) ?? '')
+    }
+
     // scope='all': apply CSS override preview to ALL shared elements so
     // the user sees the effect everywhere, not just on the selected element.
     if (sharedInfo && editScope === 'all') {
       for (const el of sharedInfo.elements) {
         const elSource = el.getAttribute('data-cortex-source')
-        if (elSource) overrideManager.set(elSource, property, value, pseudo)
+        if (elSource) {
+          const elPrevKey = `${elSource}${SEP}${property}${SEP}${pseudo ?? ''}`
+          if (!scrubPreviousRef.current.has(elPrevKey)) {
+            scrubPreviousRef.current.set(elPrevKey, overrideManager.get(elSource, property, pseudo) ?? '')
+          }
+          overrideManager.set(elSource, property, value, pseudo)
+        }
       }
     } else {
       overrideManager.set(source, property, value, pseudo)
     }
+
     if (commitRender) {
+      // Build PropertyChange[] from accumulated scrub previous values.
+      const changes: PropertyChange[] = []
+      for (const [key, previousValue] of scrubPreviousRef.current) {
+        const [s, p, ps] = key.split(SEP) as [string, string, string]
+        const currentValue = overrideManager.get(s, p, (ps || undefined) as '::before' | '::after' | undefined) ?? value
+        changes.push({
+          source: s,
+          property: p,
+          value: currentValue,
+          previousValue,
+          pseudo: (ps || undefined) as '::before' | '::after' | undefined,
+        })
+      }
+
+      // Push command to stack. execute() calls set() again (idempotent — values already applied).
+      if (changes.length > 0 && commandStack) {
+        const cmd = new PropertyEditCommand({ changes, overrideManager })
+        commandStack.push(cmd)
+      }
+
       overrideManager.flush()
       setStyleVersion(v => v + 1)
+      scrubPreviousRef.current.clear()
 
-      // Dispatch edit to server — commitEdit() is called on edit_status:done
-      // to sync browser undo stack with server's debounced undo stack.
+      // Dispatch edit to server for source file writing.
       if (channel) {
         const editId = crypto.randomUUID()
         // Track all shared sources so HMR verification clears ALL sibling overrides
@@ -392,7 +437,7 @@ export function Panel({
         channel.send(msg as any)
       }
     }
-  }, [element, overrideManager, activePseudo, channel, sharedInfo, editScope, extractedUtilities])
+  }, [element, overrideManager, activePseudo, channel, sharedInfo, editScope, extractedUtilities, commandStack])
 
   const handleSpacingCommit = useCallback((c: SpacingChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleScrub = useCallback((c: SpacingChange) => applyOverride(c.property, c.value, false), [applyOverride])
