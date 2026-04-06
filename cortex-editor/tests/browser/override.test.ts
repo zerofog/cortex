@@ -656,128 +656,20 @@ describe('CSSOverrideManager', () => {
     })
   })
 
-  describe('override undo/redo stack', () => {
-    it('beginEdit + commitEdit creates one undo entry', () => {
-      manager.beginEdit()
-      manager.set('a:1:1', 'color', 'red')
-      manager.commitEdit()
-      manager.undoOverride()
-      manager.flush()
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toBe('')
+  describe('get()', () => {
+    it('returns current override value', () => {
+      manager.set('Hero.tsx:5:3', 'color', 'red')
+      expect(manager.get('Hero.tsx:5:3', 'color')).toBe('red')
     })
 
-    it('undoOverride restores previous state', () => {
-      manager.beginEdit()
-      manager.set('a:1:1', 'color', 'red')
-      manager.commitEdit()
-      manager.beginEdit()
-      manager.set('a:1:1', 'font-size', '16px')
-      manager.commitEdit()
-      manager.undoOverride()
-      manager.flush()
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toContain('color')
-      expect(styleEl.textContent).not.toContain('font-size')
+    it('returns undefined for non-existent override', () => {
+      expect(manager.get('Hero.tsx:5:3', 'color')).toBeUndefined()
     })
 
-    it('redoOverride re-applies after undo', () => {
-      manager.beginEdit()
-      manager.set('a:1:1', 'color', 'red')
-      manager.commitEdit()
-      manager.undoOverride()
-      manager.redoOverride()
-      manager.flush()
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toContain('color: red')
-    })
-
-    it('multiple undo levels (3 edits, 3 undos)', () => {
-      manager.beginEdit()
-      manager.set('a:1:1', 'color', 'red')
-      manager.commitEdit()
-      manager.beginEdit()
-      manager.set('b:1:1', 'margin', '0')
-      manager.commitEdit()
-      manager.beginEdit()
-      manager.set('c:1:1', 'padding', '8px')
-      manager.commitEdit()
-
-      manager.undoOverride()
-      manager.flush()
-      let styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).not.toContain('padding')
-      expect(styleEl.textContent).toContain('margin')
-
-      manager.undoOverride()
-      manager.flush()
-      styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).not.toContain('margin')
-      expect(styleEl.textContent).toContain('color')
-
-      manager.undoOverride()
-      manager.flush()
-      styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toBe('')
-    })
-
-    it('new edit clears redo stack', () => {
-      manager.beginEdit()
-      manager.set('a:1:1', 'color', 'red')
-      manager.commitEdit()
-      manager.undoOverride()
-
-      // New edit should clear redo
-      manager.beginEdit()
-      manager.set('b:1:1', 'margin', '0')
-      manager.commitEdit()
-
-      // Redo should be empty
-      manager.redoOverride()
-      manager.flush()
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toContain('margin')
-      expect(styleEl.textContent).not.toContain('color')
-    })
-
-    it('undo stack caps at MAX_UNDO_DEPTH (50)', () => {
-      for (let i = 0; i < 55; i++) {
-        manager.beginEdit()
-        manager.set(`src:${i}:1`, 'color', `#${String(i).padStart(6, '0')}`)
-        manager.commitEdit()
-      }
-      // Undo 50 times should work, 51st should be no-op
-      for (let i = 0; i < 50; i++) {
-        manager.undoOverride()
-      }
-      manager.flush()
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      // 55 edits - 50 undos = 5 remaining overrides (oldest 5 were evicted from undo stack)
-      expect(styleEl.textContent).toContain('color')
-    })
-
-    it('beginEdit is idempotent during scrub gesture', () => {
-      manager.beginEdit()
-      manager.set('a:1:1', 'color', 'red')
-      manager.beginEdit() // second call — should not create new snapshot
-      manager.set('a:1:1', 'color', 'blue')
-      manager.commitEdit()
-
-      manager.undoOverride()
-      manager.flush()
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      // Should restore to BEFORE the first set, not between
-      expect(styleEl.textContent).toBe('')
-    })
-
-    it('commitEdit without beginEdit is a no-op', () => {
-      manager.set('a:1:1', 'color', 'red')
-      manager.commitEdit() // no beginEdit — should not crash or create entry
-      manager.undoOverride()
-      manager.flush()
-      // Override still present since no undo entry was created
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toContain('color')
+    it('returns value for pseudo-element override', () => {
+      manager.set('Hero.tsx:5:3', 'content', '"hello"', '::before')
+      expect(manager.get('Hero.tsx:5:3', 'content', '::before')).toBe('"hello"')
+      expect(manager.get('Hero.tsx:5:3', 'content')).toBeUndefined()
     })
   })
 
@@ -808,9 +700,8 @@ describe('CSSOverrideManager', () => {
     it('ordering A: hmr_verified → onHMRApplied (normal order)', () => {
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.beginEdit()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
-      manager.commitEdit(true)
+      manager.markDeferred(true)
       manager.handleHMRVerified('edit-1', true) // queued in pendingRemovals
 
       // onHMRApplied drains the queue — deferred removal via double-rAF
@@ -828,9 +719,8 @@ describe('CSSOverrideManager', () => {
     it('ordering B: onHMRApplied → hmr_verified (late arrival)', () => {
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.beginEdit()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
-      manager.commitEdit(true)
+      manager.markDeferred(true)
 
       // onHMRApplied fires first — nothing to drain → sets hmrAppliedPending
       manager.onHMRApplied()
@@ -846,14 +736,13 @@ describe('CSSOverrideManager', () => {
       expect(styleEl.textContent).toBe('')
     })
 
-    it('ordering C: hmr_verified → commitEdit(true) → onHMRApplied', () => {
-      // handleHMRVerified runs before commitEdit — editId not in deferredEditIds yet
+    it('ordering C: hmr_verified → markDeferred(true) → onHMRApplied', () => {
+      // handleHMRVerified runs before markDeferred — editId not in deferredEditIds yet
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.beginEdit()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
       manager.handleHMRVerified('edit-1', true) // queued (not deferred yet)
-      manager.commitEdit(true) // adds editId to deferredEditIds + checks pendingRemovals
+      manager.markDeferred(true) // adds editId to deferredEditIds + checks pendingRemovals
 
       // onHMRApplied drains — checks deferredEditIds at drain time → deferRemoval
       manager.onHMRApplied()
@@ -868,10 +757,9 @@ describe('CSSOverrideManager', () => {
     it('non-deferred removal clears override synchronously on onHMRApplied', () => {
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.beginEdit()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
       manager.handleHMRVerified('edit-1', true)
-      manager.commitEdit(false)
+      manager.markDeferred(false)
 
       manager.onHMRApplied()
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
@@ -879,36 +767,20 @@ describe('CSSOverrideManager', () => {
       expect(styleEl.textContent).toBe('')
     })
 
-    it('commitEdit() without argument preserves backward compatibility (non-deferred)', () => {
-      manager.set('a:1:1', 'color', 'red')
-      flushRAF()
-      manager.beginEdit()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
-      manager.handleHMRVerified('edit-1', true)
-      manager.commitEdit()
-
-      manager.onHMRApplied()
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      // Override removed immediately — same as commitEdit(false)
-      expect(styleEl.textContent).toBe('')
-    })
-
     it('deferred vs non-deferred edits are handled independently', () => {
       // First edit: deferred
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.beginEdit()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
-      manager.commitEdit(true)
+      manager.markDeferred(true)
       manager.handleHMRVerified('edit-1', true) // queued
 
       // Second edit: non-deferred
       manager.set('b:1:1', 'margin', '0')
       flushRAF()
-      manager.beginEdit()
       manager.trackPendingEdit('edit-2', 'b:1:1', 'margin')
       manager.handleHMRVerified('edit-2', true) // queued
-      manager.commitEdit(false)
+      manager.markDeferred(false)
 
       // onHMRApplied drains both — checks deferredEditIds per removal
       manager.onHMRApplied()
@@ -926,10 +798,9 @@ describe('CSSOverrideManager', () => {
     it('pendingClearAll takes precedence over deferred removals', () => {
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.beginEdit()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
       manager.handleHMRVerified('edit-1', true)
-      manager.commitEdit(true)
+      manager.markDeferred(true)
       manager.queueClearAll()
 
       manager.onHMRApplied()
@@ -946,9 +817,8 @@ describe('CSSOverrideManager', () => {
 
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.beginEdit()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
-      manager.commitEdit(false)
+      manager.markDeferred(false)
       manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
 
       manager.onHMRApplied()
@@ -977,9 +847,8 @@ describe('CSSOverrideManager', () => {
 
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.beginEdit()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
-      manager.commitEdit(false)
+      manager.markDeferred(false)
 
       manager.onHMRApplied()
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
@@ -1002,9 +871,8 @@ describe('CSSOverrideManager', () => {
       // No element with data-cortex-source="a:1:1" in DOM
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.beginEdit()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
-      manager.commitEdit(false)
+      manager.markDeferred(false)
       manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
 
       manager.onHMRApplied()
@@ -1020,9 +888,8 @@ describe('CSSOverrideManager', () => {
       // kind: immediate → sync remove(), same as existing non-deferred behavior
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.beginEdit()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
-      manager.commitEdit(false)
+      manager.markDeferred(false)
       manager.handleHMRVerified('edit-1', true, 'immediate') // queued with kind
 
       // onHMRApplied drains — kind:immediate → sync remove()
@@ -1035,9 +902,8 @@ describe('CSSOverrideManager', () => {
       // Cycle 1: set override, track, HMR apply, then verify
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.beginEdit()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
-      manager.commitEdit(false)
+      manager.markDeferred(false)
       manager.handleHMRVerified('edit-1', true)
       manager.onHMRApplied() // sets hmrAppliedPending = true after draining
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
@@ -1046,9 +912,8 @@ describe('CSSOverrideManager', () => {
       // Cycle 2: new edit — hmrAppliedPending should reset
       manager.set('b:1:1', 'margin', '8px')
       flushRAF()
-      manager.beginEdit()
       manager.trackPendingEdit('edit-2', 'b:1:1', 'margin')
-      manager.commitEdit(false)
+      manager.markDeferred(false)
 
       // handleHMRVerified fires BEFORE onHMRApplied for cycle 2
       // BUG: without fix, hmrAppliedPending is still true from cycle 1
@@ -1068,9 +933,8 @@ describe('CSSOverrideManager', () => {
       // No kind → existing deferredEditIds-based behavior
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.beginEdit()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
-      manager.commitEdit(true) // deferred via commitEdit
+      manager.markDeferred(true) // deferred via markDeferred
       manager.handleHMRVerified('edit-1', true) // no kind argument → undefined
 
       // onHMRApplied drains — falls back to deferredEditIds → deferRemoval
