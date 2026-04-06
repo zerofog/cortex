@@ -329,18 +329,18 @@ describe('UndoStack', () => {
       expect(stack.redo()).toEqual([{ filePath: '/s.css', content: 'C' }])
     })
 
-    it('does NOT coalesce when previousContent mismatches top currentContent', () => {
+    it('does NOT coalesce when file is not in top entry', () => {
       const stack = new UndoStack()
       stack.push(entry('/a.css', 'A', 'B'))
-      // Different file — previousContent doesn't match anything in top
       stack.push(entry('/b.css', 'X', 'Y'))
       expect(stack.undoCount).toBe(2)
     })
 
-    it('does NOT coalesce edits to different files', () => {
+    it('does NOT coalesce when content chain is broken (same file, wrong previousContent)', () => {
       const stack = new UndoStack()
       stack.push(entry('/a.css', 'A', 'B'))
-      stack.push(entry('/b.css', 'B', 'C'))
+      // Same file, but previousContent 'X' !== top's currentContent 'B'
+      stack.push(entry('/a.css', 'X', 'C'))
       expect(stack.undoCount).toBe(2)
     })
 
@@ -367,12 +367,15 @@ describe('UndoStack', () => {
 
     it('coalescing clears redo stack', () => {
       const stack = new UndoStack()
-      stack.push(entry('/a.ts', 'old', 'new'))
-      stack.undo()
-      stack.redo()
-      // Now push two sequential edits that coalesce
-      stack.push(entry('/s.css', 'A', 'B'))
-      stack.push(entry('/s.css', 'B', 'C'))
+      // Set up: push two entries for different files, undo the second
+      stack.push(entry('/x.ts', 'x0', 'x1'))
+      stack.push(entry('/y.ts', 'y0', 'y1'))
+      stack.undo() // pops y entry → redo has y, undo has x
+      expect(stack.canRedo).toBe(true)
+
+      // Push that coalesces with remaining top (/x.ts: x0→x1)
+      stack.push(entry('/x.ts', 'x1', 'x3'))
+      // The coalescing path (not normal push) must clear redo
       expect(stack.redoCount).toBe(0)
     })
 

@@ -4055,7 +4055,7 @@ describe('EditPipeline', () => {
       expect(undoStack.undoCount).toBe(0)
     })
 
-    it('undo fails and entry stays on stack when readFile throws (ENOENT/EACCES)', async () => {
+    it('undo fails and removes stale entry when readFile throws (ENOENT/EACCES)', async () => {
       const channel = mockChannel()
       const resolver = mockResolver({})
       const rewriter = mockRewriter()
