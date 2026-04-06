@@ -76,6 +76,7 @@ export type BrowserToServer =
   | { type: 'redo'; token?: string; protocolVersion?: number; editId?: string }
   | { type: 'comment'; token?: string; protocolVersion?: number; elementSource: string; text: string; elementContext?: ElementContext; currentStyles?: Record<string, string>; pinPosition?: { x: number; y: number } }
   | { type: 'comment-reply'; token?: string; protocolVersion?: number; annotationId: string; text: string }
+  | { type: 'clear_server_undo'; token?: string; protocolVersion?: number }
 
 export type ServerToBrowser =
   | { type: 'cortex' }
@@ -88,6 +89,8 @@ export type ServerToBrowser =
   | { type: 'undo_status'; status: 'failed'; restoredFile: string; reason: string }
   | { type: 'redo_status'; status: 'done'; restoredFile: string }
   | { type: 'redo_status'; status: 'failed'; restoredFile: string; reason: string }
+  | { type: 'undo_sync_status'; status: 'done' | 'failed'; reason?: string }
+  | { type: 'redo_sync_status'; status: 'done' | 'failed'; reason?: string }
   | { type: 'hmr_verified'; editId: string; match: boolean; expected?: string; actual?: string; kind?: EditKind }
   | { type: 'hmr-applied' }
   | { type: 'annotation-created'; annotation: Annotation }

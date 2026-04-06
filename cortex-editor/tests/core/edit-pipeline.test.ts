@@ -870,7 +870,7 @@ describe('EditPipeline', () => {
     await pipeline.handleUndo()
 
     expect(writeFile).toHaveBeenCalledWith({ kind: 'undo', filePath: '/project/src/App.tsx', content: 'old' })
-    const undoStatus = channel.sent.find(m => m.type === 'undo_status' && (m as { status: string }).status === 'done')
+    const undoStatus = channel.sent.find(m => m.type === 'undo_sync_status' && (m as { status: string }).status === 'done')
     expect(undoStatus).toBeDefined()
   })
 
@@ -936,7 +936,7 @@ describe('EditPipeline', () => {
 
     expect(writeFile).not.toHaveBeenCalled()
     const failedStatus = channel.sent.find(
-      m => m.type === 'undo_status' && (m as { status: string }).status === 'failed'
+      m => m.type === 'undo_sync_status' && (m as { status: string }).status === 'failed'
     )
     expect(failedStatus).toBeDefined()
     expect((failedStatus as { reason: string }).reason).toContain('File was modified outside cortex')
@@ -1054,7 +1054,7 @@ describe('EditPipeline', () => {
     await pipeline.handleRedo()
 
     expect(writeFile).toHaveBeenCalledWith({ kind: 'redo', filePath: '/project/src/App.tsx', content: 'new content' })
-    const redoStatus = channel.sent.find(m => m.type === 'redo_status' && (m as { status: string }).status === 'done')
+    const redoStatus = channel.sent.find(m => m.type === 'redo_sync_status' && (m as { status: string }).status === 'done')
     expect(redoStatus).toBeDefined()
   })
 
@@ -3979,7 +3979,7 @@ describe('EditPipeline', () => {
       expect(writeFile).toHaveBeenCalledTimes(2)
       expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'undo', filePath: '/project/src/Hero.module.css', content: 'css-before' }))
       expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'undo', filePath: '/project/src/Hero.tsx', content: 'jsx-before' }))
-      const undoMsg = channel.sent.find(m => m.type === 'undo_status') as { status: string }
+      const undoMsg = channel.sent.find(m => m.type === 'undo_sync_status') as { status: string }
       expect(undoMsg.status).toBe('done')
 
       // ── Redo: both files re-applied atomically ──
@@ -3993,7 +3993,7 @@ describe('EditPipeline', () => {
       expect(writeFile).toHaveBeenCalledTimes(2)
       expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'redo', filePath: '/project/src/Hero.module.css', content: 'css-after' }))
       expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'redo', filePath: '/project/src/Hero.tsx', content: 'jsx-after' }))
-      const redoMsg = channel.sent.find(m => m.type === 'redo_status') as { status: string }
+      const redoMsg = channel.sent.find(m => m.type === 'redo_sync_status') as { status: string }
       expect(redoMsg.status).toBe('done')
     })
 
@@ -4048,7 +4048,7 @@ describe('EditPipeline', () => {
 
       // Neither file should have been written (atomic failure)
       expect(writeFile).not.toHaveBeenCalled()
-      const undoMsg = channel.sent.find(m => m.type === 'undo_status') as { status: string; reason?: string }
+      const undoMsg = channel.sent.find(m => m.type === 'undo_sync_status') as { status: string; reason?: string }
       expect(undoMsg.status).toBe('failed')
       expect(undoMsg.reason).toContain('modified outside cortex')
       // Entry removed from stack (stale)
@@ -4080,7 +4080,7 @@ describe('EditPipeline', () => {
       await vi.runAllTimersAsync()
 
       expect(writeFile).not.toHaveBeenCalled()
-      const msg = channel.sent.find(m => m.type === 'undo_status') as { status: string; reason?: string }
+      const msg = channel.sent.find(m => m.type === 'undo_sync_status') as { status: string; reason?: string }
       expect(msg.status).toBe('failed')
       expect(msg.reason).toContain('modified outside cortex')
       // Entry removed (treated as stale)
@@ -4120,7 +4120,7 @@ describe('EditPipeline', () => {
       await pipeline.handleUndo()
       await vi.runAllTimersAsync()
 
-      const msg = channel.sent.find(m => m.type === 'undo_status') as { status: string; reason?: string }
+      const msg = channel.sent.find(m => m.type === 'undo_sync_status') as { status: string; reason?: string }
       expect(msg.status).toBe('failed')
       expect(msg.reason).toContain('Write failed during undo')
       // Entry stays on stack (not removed) — user can retry
@@ -4163,7 +4163,7 @@ describe('EditPipeline', () => {
       await pipeline.handleRedo()
       await vi.runAllTimersAsync()
 
-      const msg = channel.sent.find(m => m.type === 'redo_status') as { status: string }
+      const msg = channel.sent.find(m => m.type === 'redo_sync_status') as { status: string }
       expect(msg.status).toBe('failed')
       // Redo staleness clears entire stack
       expect(undoStack.canUndo).toBe(false)
