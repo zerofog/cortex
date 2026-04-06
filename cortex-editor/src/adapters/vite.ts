@@ -584,12 +584,13 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           aiWriter,
           deferredWriter,
           writeFile: async (intent) => {
-            if (intent.kind === 'immediate' || intent.kind === 'undo' || intent.kind === 'redo') {
+            // suppressHmr flag takes precedence when set; otherwise fall back to kind-based default.
+            const suppress = intent.suppressHmr
+              ?? (intent.kind === 'immediate' || intent.kind === 'undo' || intent.kind === 'redo')
+            if (suppress) {
               currentSession?.recentEditWrites.add(intent.filePath)
               setTimeout(() => currentSession?.recentEditWrites.delete(intent.filePath), 500)
             }
-            // 'jsx-immediate': write JSX file but allow HMR — React must re-render with new style prop
-            // 'deferred': NO HMR suppression — framework must re-render from source
             await fs.promises.writeFile(intent.filePath, intent.content, 'utf-8')
           },
           readFile: (p) => fs.promises.readFile(p, 'utf-8'),

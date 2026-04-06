@@ -3749,11 +3749,20 @@ describe('EditPipeline', () => {
       expect(inlineRewriter.removeProperties).toHaveBeenCalledTimes(1)
       expect(inlineRewriter.removeProperty).not.toHaveBeenCalled()
       expect(inlineRewriter.rewrite).not.toHaveBeenCalled()
-      // Both sources in same file → 1 batched JSX write (not 2 individual writes)
-      const jsxWrites = writeFile.mock.calls.filter(
-        (c: any[]) => c[0]?.kind === 'jsx-immediate',
+      // CSS write: kind='immediate' (default HMR suppression)
+      const cssWrites = writeFile.mock.calls.filter(
+        (c: any[]) => c[0]?.filePath?.endsWith('.module.css'),
       )
-      expect(jsxWrites).toHaveLength(1)
+      expect(cssWrites).toHaveLength(1)
+      expect(cssWrites[0]![0].kind).toBe('immediate')
+      // Both sources in same file → 1 batched cleanup write (not 2 individual writes).
+      // Cleanup: kind='jsx-immediate' (correct for JSX) + suppressHmr=true (prevent race)
+      const cleanupWrites = writeFile.mock.calls.filter(
+        (c: any[]) => c[0]?.filePath?.endsWith('.tsx'),
+      )
+      expect(cleanupWrites).toHaveLength(1)
+      expect(cleanupWrites[0]![0].kind).toBe('jsx-immediate')
+      expect(cleanupWrites[0]![0].suppressHmr).toBe(true)
       // Verify removeProperties received both targets
       expect(inlineRewriter.removeProperties).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -3763,13 +3772,9 @@ describe('EditPipeline', () => {
           ]),
         }),
       )
-      // verifier.trackEdit should NOT be called for cleanup writes —
-      // the CSS write suppresses HMR, so the override must stay until page reload.
-      // Tracking cleanup would trigger hmr_verified, clearing the override prematurely.
-      const cleanupTrack = verifier.tracked.find(
-        (t: any) => t.kind === 'jsx-immediate',
-      )
-      expect(cleanupTrack).toBeUndefined()
+      // No verifier.trackEdit — override persists naturally (redundant but harmless
+      // once CSS HMR delivers matching value). Avoids hmrAppliedPending timing risk.
+      expect(verifier.tracked).toHaveLength(0)
     })
 
     it('scope=all without instanceSources falls back to edit.source for cleanup', async () => {
@@ -3808,11 +3813,96 @@ describe('EditPipeline', () => {
           targets: [expect.objectContaining({ line: 5, col: 3, property: 'padding-top' })],
         }),
       )
-      // CSS write + 1 JSX cleanup write
-      const jsxWrites = writeFile.mock.calls.filter(
-        (c: any[]) => c[0]?.kind === 'jsx-immediate',
+      // Cleanup write: kind='jsx-immediate' + suppressHmr=true (both writes suppress HMR)
+      const cleanupWrites = writeFile.mock.calls.filter(
+        (c: any[]) => c[0]?.filePath?.endsWith('.tsx'),
       )
-      expect(jsxWrites).toHaveLength(1)
+      expect(cleanupWrites).toHaveLength(1)
+      expect(cleanupWrites[0]![0].kind).toBe('jsx-immediate')
+      expect(cleanupWrites[0]![0].suppressHmr).toBe(true)
+    })
+
+    it('scope=all suppresses HMR for both CSS and cleanup writes (override covers transition)', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const cssRewriter = mockCSSModulesRewriter()
+      const inlineRewriter = mockInlineStyleRewriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        cssModulesRewriter: cssRewriter,
+        inlineStyleRewriter: inlineRewriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/Hero.tsx:5:3',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+        cssMapping: 'src/Hero.module.css:.hero',
+        scope: 'all',
+        instanceSources: ['/project/src/Hero.tsx:5:3', '/project/src/Hero.tsx:12:3'],
+      })
+
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // CSS write: kind='immediate' (default HMR suppression — prevents flicker and undo bugs)
+      const cssWrites = writeFile.mock.calls.filter(
+        (c: any[]) => c[0]?.filePath?.endsWith('.module.css'),
+      )
+      expect(cssWrites).toHaveLength(1)
+      expect(cssWrites[0]![0].kind).toBe('immediate')
+
+      // Cleanup write: kind='jsx-immediate' (correct for JSX) + suppressHmr=true
+      // Both writes suppress HMR — override provides the preview.
+      const cleanupWrites = writeFile.mock.calls.filter(
+        (c: any[]) => c[0]?.filePath?.endsWith('.tsx'),
+      )
+      expect(cleanupWrites).toHaveLength(1)
+      expect(cleanupWrites[0]![0].kind).toBe('jsx-immediate')
+      expect(cleanupWrites[0]![0].suppressHmr).toBe(true)
+
+      // No trackEdit for either write — override persists naturally.
+      expect(verifier.tracked).toHaveLength(0)
+    })
+
+    it('scope=undefined CSS write suppresses HMR (backward compat)', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const cssRewriter = mockCSSModulesRewriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        cssModulesRewriter: cssRewriter,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-1',
+        source: '/project/src/Hero.tsx:5:3',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+        cssMapping: 'src/Hero.module.css:.hero',
+        // No scope — backward compat
+      })
+
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      // Without scope='all', CSS write uses 'immediate' (HMR suppressed)
+      const cssWrites = writeFile.mock.calls.filter(
+        (c: any[]) => c[0]?.filePath?.endsWith('.module.css'),
+      )
+      expect(cssWrites).toHaveLength(1)
+      expect(cssWrites[0]![0].kind).toBe('immediate')
     })
   })
 })
