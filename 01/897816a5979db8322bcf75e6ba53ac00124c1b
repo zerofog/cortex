@@ -1,0 +1,26 @@
+cortex-editor/src/browser/components/CortexApp.tsx
+  97e087a5b0cbafd0 5,49,80,83-84,122-124,126,132,140,175-176,342-346,349-353,390-391
+cortex-editor/tests/browser/keyboard-shortcuts.test.tsx
+  97e087a5b0cbafd0 25-53,273,276-277,288,292,295-296,303-315,326,330-346,409-410
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "01897816a5979db8322bcf75e6ba53ac00124c1b",
+  "prompts": {
+    "97e087a5b0cbafd0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6135b7a3-a944-4fa7-b119-808d834bb439",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 102,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/d3836f8d06714dfd9289d47b254d1b0a4428bc2a5236dc9ead565c6a20234074"
+    }
+  }
+}
