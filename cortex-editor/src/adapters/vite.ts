@@ -584,9 +584,14 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           aiWriter,
           deferredWriter,
           writeFile: async (intent) => {
-            // suppressHmr flag takes precedence when set; otherwise fall back to kind-based default.
+            // Suppress HMR when the override layer is the complete visual mechanism
+            // (immediate CSS edits, undo, redo). The override (!important) already
+            // shows the correct value; HMR just causes a repaint flash.
+            // Allow HMR for jsx-immediate (React must re-render to apply inline
+            // styles) and deferred/AI edits (may rewrite JSX structure, Tailwind
+            // classes, or more than the single overridden property).
             const suppress = intent.suppressHmr
-              ?? (intent.kind === 'immediate' || intent.kind === 'undo' || intent.kind === 'redo')
+              ?? (intent.kind !== 'deferred' && intent.kind !== 'jsx-immediate')
             if (suppress) {
               currentSession?.recentEditWrites.add(intent.filePath)
               setTimeout(() => currentSession?.recentEditWrites.delete(intent.filePath), 500)

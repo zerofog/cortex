@@ -288,9 +288,6 @@ export class CSSOverrideManager {
         }
       }
     }
-    // Flag that HMR stylesheet is applied — any late-arriving handleHMRVerified
-    // can process immediately. Set after draining AND when empty: handles both
-    // "some edits drained, more arrive late" and "no edits queued yet" cases.
     this.hmrAppliedPending = true
   }
 
