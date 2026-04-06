@@ -126,22 +126,12 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (msg.type === 'hmr_verified') {
         overrideRef.current?.handleHMRVerified(msg.editId, msg.match, msg.kind)
       }
-      if (msg.type === 'undo_sync_status') {
-        if (msg.status === 'failed') {
-          console.warn('[cortex] Server undo sync failed:', msg.reason)
-          // Only reset server stack for real failures (stale file, write error).
-          // empty_stack is expected — browser stack leads, server may be shorter.
-          if (msg.reason_code !== 'empty_stack') {
-            channel.send({ type: 'clear_server_undo' })
-          }
-        }
-      }
-      if (msg.type === 'redo_sync_status') {
-        if (msg.status === 'failed') {
-          console.warn('[cortex] Server redo sync failed:', msg.reason)
-          if (msg.reason_code !== 'empty_stack') {
-            channel.send({ type: 'clear_server_undo' })
-          }
+      // Undo/redo sync failure: reset server stack for real failures (stale file,
+      // write error). empty_stack is expected — browser stack leads, server may be shorter.
+      if ((msg.type === 'undo_sync_status' || msg.type === 'redo_sync_status') && msg.status === 'failed') {
+        console.warn(`[cortex] Server ${msg.type === 'undo_sync_status' ? 'undo' : 'redo'} sync failed:`, msg.reason)
+        if (msg.reason_code !== 'empty_stack') {
+          channel.send({ type: 'clear_server_undo' })
         }
       }
       if (msg.type === 'hmr-applied') {

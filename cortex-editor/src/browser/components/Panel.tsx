@@ -364,13 +364,14 @@ export function Panel({
     const changes: PropertyChange[] = []
     for (const [key, previousValue] of scrubPreviousRef.current) {
       const [s, p, ps] = key.split(SEP) as [string, string, string]
-      const currentValue = overrideManager.get(s, p, (ps || undefined) as '::before' | '::after' | undefined) ?? ''
+      const parsedPseudo = (ps || undefined) as '::before' | '::after' | undefined
+      const currentValue = overrideManager.get(s, p, parsedPseudo) ?? ''
       changes.push({
         source: s,
         property: p,
         value: currentValue,
         previousValue,
-        pseudo: (ps || undefined) as '::before' | '::after' | undefined,
+        pseudo: parsedPseudo,
       })
     }
 
