@@ -144,6 +144,18 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           undoRedoTimeoutRef.current = null
         }
       }
+      if (msg.type === 'undo_sync_status') {
+        if (msg.status === 'failed') {
+          console.warn('[cortex] Server undo sync failed:', msg.reason)
+          channel.send({ type: 'clear_server_undo' })
+        }
+      }
+      if (msg.type === 'redo_sync_status') {
+        if (msg.status === 'failed') {
+          console.warn('[cortex] Server redo sync failed:', msg.reason)
+          channel.send({ type: 'clear_server_undo' })
+        }
+      }
       if (msg.type === 'hmr-applied') {
         overrideRef.current?.onHMRApplied()
       }

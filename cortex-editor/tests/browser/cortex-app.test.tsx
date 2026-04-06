@@ -596,4 +596,53 @@ describe('CortexApp', () => {
 
     target.remove()
   })
+
+  describe('server undo sync failure', () => {
+    it('sends clear_server_undo when undo sync fails', async () => {
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+      await activateEditor(channel)
+
+      // Clear any messages sent during activation
+      channel._lastSent.length = 0
+
+      channel._simulateMessage({ type: 'undo_sync_status', status: 'failed', reason: 'stale file' })
+      await new Promise(r => setTimeout(r, 10))
+
+      expect(channel._lastSent).toContainEqual({ type: 'clear_server_undo' })
+    })
+
+    it('sends clear_server_undo when redo sync fails', async () => {
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+      await activateEditor(channel)
+
+      channel._lastSent.length = 0
+
+      channel._simulateMessage({ type: 'redo_sync_status', status: 'failed', reason: 'stale file' })
+      await new Promise(r => setTimeout(r, 10))
+
+      expect(channel._lastSent).toContainEqual({ type: 'clear_server_undo' })
+    })
+
+    it('does not send clear_server_undo on sync success', async () => {
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+      await activateEditor(channel)
+
+      channel._lastSent.length = 0
+
+      channel._simulateMessage({ type: 'undo_sync_status', status: 'done' })
+      channel._simulateMessage({ type: 'redo_sync_status', status: 'done' })
+      await new Promise(r => setTimeout(r, 10))
+
+      expect(channel._lastSent).not.toContainEqual({ type: 'clear_server_undo' })
+    })
+  })
 })
