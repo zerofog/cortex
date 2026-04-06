@@ -1,0 +1,24 @@
+cortex-editor/tests/browser/command-pattern-integration.test.ts
+  97e087a5b0cbafd0 1-190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "3f72b2942a8a3416637d355bc017fa57399e21f0",
+  "prompts": {
+    "97e087a5b0cbafd0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6135b7a3-a944-4fa7-b119-808d834bb439",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 190,
+      "total_deletions": 1,
+      "accepted_lines": 190,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/892f85236ff82df21516a808309b7d287111bddbfa7a4cde14f4a88fb50c3b6a"
+    }
+  }
+}
