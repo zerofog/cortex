@@ -35,12 +35,10 @@ export function ErrorToast({ channel }: { channel: CortexChannel }) {
           isActionable ? undefined : 5000,
         )
       }
-      if (msg.type === 'undo_status' || msg.type === 'redo_status') {
-        const label = msg.type === 'undo_status' ? 'Undo' : 'Redo'
-        if (msg.status === 'done') {
-          addToast({ message: `${label}: restored ${msg.restoredFile}`, type: 'success' }, 2000)
-        } else if (msg.status === 'failed') {
-          addToast({ message: msg.reason, type: 'error' }, 5000)
+      if (msg.type === 'undo_sync_status' || msg.type === 'redo_sync_status') {
+        if (msg.status === 'failed') {
+          const label = msg.type === 'undo_sync_status' ? 'Undo' : 'Redo'
+          addToast({ message: msg.reason ?? `${label} sync failed`, type: 'error' }, 5000)
         }
       }
     })

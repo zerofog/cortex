@@ -85,10 +85,6 @@ export type ServerToBrowser =
   | { type: 'hello'; protocolVersion: number; sessionId: string; swatches?: string[] }
   | { type: 'error'; code: string; message: string; editId?: string }
   | { type: 'edit_status'; editId: string; status: 'writing' | 'done' | 'failed' | 'cancelled'; newToken?: string; reason?: string; strategy?: 'immediate' | 'deferred' }
-  | { type: 'undo_status'; status: 'done'; restoredFile: string }
-  | { type: 'undo_status'; status: 'failed'; restoredFile: string; reason: string }
-  | { type: 'redo_status'; status: 'done'; restoredFile: string }
-  | { type: 'redo_status'; status: 'failed'; restoredFile: string; reason: string }
   | { type: 'undo_sync_status'; status: 'done' | 'failed'; reason?: string }
   | { type: 'redo_sync_status'; status: 'done' | 'failed'; reason?: string }
   | { type: 'hmr_verified'; editId: string; match: boolean; expected?: string; actual?: string; kind?: EditKind }

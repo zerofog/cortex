@@ -63,8 +63,6 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const selectedElementRef = useRef<HTMLElement | null>(null)
   selectedElementRef.current = selectedElement
   const handleExitRef = useRef<(() => void) | null>(null)
-  const undoRedoInFlight = useRef(false)
-  const undoRedoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Panel positioning
   const { position: panelPosition, isSnapping: panelSnapping, setPosition: setPanelPosition, snap: panelSnap } = useSnapToEdge()
@@ -128,22 +126,6 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (msg.type === 'hmr_verified') {
         overrideRef.current?.handleHMRVerified(msg.editId, msg.match, msg.kind)
       }
-      if (msg.type === 'undo_status') {
-        // Legacy handler — visual undo already happened locally via CommandStack
-        undoRedoInFlight.current = false
-        if (undoRedoTimeoutRef.current) {
-          clearTimeout(undoRedoTimeoutRef.current)
-          undoRedoTimeoutRef.current = null
-        }
-      }
-      if (msg.type === 'redo_status') {
-        // Legacy handler — visual redo already happened locally via CommandStack
-        undoRedoInFlight.current = false
-        if (undoRedoTimeoutRef.current) {
-          clearTimeout(undoRedoTimeoutRef.current)
-          undoRedoTimeoutRef.current = null
-        }
-      }
       if (msg.type === 'undo_sync_status') {
         if (msg.status === 'failed') {
           console.warn('[cortex] Server undo sync failed:', msg.reason)
@@ -186,10 +168,6 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       overrideRef.current = null
       commandStack.clear()
       commandStackRef.current = null
-      if (undoRedoTimeoutRef.current) {
-        clearTimeout(undoRedoTimeoutRef.current)
-        undoRedoTimeoutRef.current = null
-      }
     }
   }, [channel, shadowRoot])
 
