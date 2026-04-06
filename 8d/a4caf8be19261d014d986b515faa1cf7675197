@@ -1,0 +1,24 @@
+cortex-editor/src/core/session/undo-stack.ts
+  23488743c5bd2189 63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "8da4caf8be19261d014d986b515faa1cf7675197",
+  "prompts": {
+    "23488743c5bd2189": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a5915b81-1f56-41b9-a092-f1d103d4cd20",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/732b261a8ad767a6c151bcd1b32da5e16fedb90f52ee1def8c914abd5a1c7d3f"
+    }
+  }
+}
