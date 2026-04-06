@@ -3749,8 +3749,14 @@ describe('EditPipeline', () => {
       expect(inlineRewriter.removeProperties).toHaveBeenCalledTimes(1)
       expect(inlineRewriter.removeProperty).not.toHaveBeenCalled()
       expect(inlineRewriter.rewrite).not.toHaveBeenCalled()
+      // CSS write: kind='immediate' with suppressHmr=false for scope='all'
+      const cssWrites = writeFile.mock.calls.filter(
+        (c: any[]) => c[0]?.filePath?.endsWith('.module.css'),
+      )
+      expect(cssWrites).toHaveLength(1)
+      expect(cssWrites[0]![0].kind).toBe('immediate')
+      expect(cssWrites[0]![0].suppressHmr).toBe(false)
       // Both sources in same file → 1 batched cleanup write (not 2 individual writes).
-      // Both CSS and cleanup use 'jsx-immediate' — HMR delivers both changes to browser.
       const cleanupWrites = writeFile.mock.calls.filter(
         (c: any[]) => c[0]?.filePath?.endsWith('.tsx'),
       )
@@ -3843,14 +3849,15 @@ describe('EditPipeline', () => {
       vi.advanceTimersByTime(400)
       await vi.runAllTimersAsync()
 
-      // CSS write uses 'jsx-immediate' for scope='all' — HMR delivers new value
+      // CSS write: kind='immediate' (correct for CSS) + suppressHmr=false (HMR allowed)
       const cssWrites = writeFile.mock.calls.filter(
         (c: any[]) => c[0]?.filePath?.endsWith('.module.css'),
       )
       expect(cssWrites).toHaveLength(1)
-      expect(cssWrites[0]![0].kind).toBe('jsx-immediate')
+      expect(cssWrites[0]![0].kind).toBe('immediate')
+      expect(cssWrites[0]![0].suppressHmr).toBe(false)
 
-      // Cleanup write also uses 'jsx-immediate' — React re-renders without inline styles
+      // Cleanup write: kind='jsx-immediate' (correct for JSX), default HMR (allowed)
       const cleanupWrites = writeFile.mock.calls.filter(
         (c: any[]) => c[0]?.filePath?.endsWith('.tsx'),
       )

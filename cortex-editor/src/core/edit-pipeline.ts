@@ -37,6 +37,11 @@ export interface EditRequest {
 
 export interface WriteIntent {
   kind: 'immediate' | 'jsx-immediate' | 'deferred' | 'undo' | 'redo'
+  /** Override HMR suppression. When set, takes precedence over kind-based default.
+   *  false = allow HMR (file not added to recentEditWrites).
+   *  true = suppress HMR (file added to recentEditWrites).
+   *  undefined = use kind-based default (immediate/undo/redo suppress; others allow). */
+  suppressHmr?: boolean
   filePath: string
   content: string
 }
@@ -761,12 +766,15 @@ export class EditPipeline {
         return
       }
       try {
-        // scope='all': allow HMR so the CSS Module value reaches the browser.
-        // The CSS override (!important) covers the transition. No flash because
-        // the override already shows the correct value before HMR delivers it.
-        // scope=undefined: suppress HMR (no cleanup write, no race to fix).
-        const cssWriteKind = edit.scope === 'all' ? 'jsx-immediate' : 'immediate'
-        await this.writeFile({ kind: cssWriteKind, filePath: resolvedCssPath, content: result.newContent })
+        // scope='all': allow HMR (suppressHmr: false) so the CSS Module value
+        // reaches the browser. The CSS override (!important) covers the transition.
+        // scope=undefined: default HMR suppression (no cleanup write, no race).
+        await this.writeFile({
+          kind: 'immediate',
+          suppressHmr: edit.scope === 'all' ? false : undefined,
+          filePath: resolvedCssPath,
+          content: result.newContent,
+        })
       } catch (err) {
         this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Write failed: ${err instanceof Error ? err.message : String(err)}` })
         return
