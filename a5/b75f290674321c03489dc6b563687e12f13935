@@ -1,0 +1,26 @@
+cortex-editor/tests/core/session/undo-stack.test.ts
+  23488743c5bd2189 332,339,342-343,370-378
+cortex-editor/tests/core/edit-pipeline.test.ts
+  23488743c5bd2189 4058
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "a5b75f290674321c03489dc6b563687e12f13935",
+  "prompts": {
+    "23488743c5bd2189": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a5915b81-1f56-41b9-a092-f1d103d4cd20",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 19,
+      "total_deletions": 16,
+      "accepted_lines": 14,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/0bbc345c985b4ba349b89e49dc85c4d9dee9f35871985517bc82bf5a9af5c527"
+    }
+  }
+}
