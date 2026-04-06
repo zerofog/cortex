@@ -766,15 +766,7 @@ export class EditPipeline {
         return
       }
       try {
-        // scope='all': allow HMR (suppressHmr: false) so the CSS Module value
-        // reaches the browser. The CSS override (!important) covers the transition.
-        // scope=undefined: default HMR suppression (no cleanup write, no race).
-        await this.writeFile({
-          kind: 'immediate',
-          suppressHmr: edit.scope === 'all' ? false : undefined,
-          filePath: resolvedCssPath,
-          content: result.newContent,
-        })
+        await this.writeFile({ kind: 'immediate', filePath: resolvedCssPath, content: result.newContent })
       } catch (err) {
         this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Write failed: ${err instanceof Error ? err.message : String(err)}` })
         return
@@ -824,11 +816,14 @@ export class EditPipeline {
               return
             }
             if (cleanup.newContent !== cleanup.oldContent) {
-              // Both CSS and cleanup writes use 'jsx-immediate' (HMR allowed):
-              // - CSS HMR delivers the new CSS Module value to the browser
-              // - Cleanup HMR triggers React re-render without inline styles
-              // The CSS override (!important) covers both transitions seamlessly.
-              await this.writeFile({ kind: 'jsx-immediate', filePath, content: cleanup.newContent })
+              // Suppress HMR for the cleanup write to match the CSS write.
+              // Both writes must suppress HMR to avoid a race: if cleanup HMR
+              // fired while CSS HMR is suppressed, React would re-render without
+              // inline styles before the CSS Module value reaches the browser.
+              // The CSS override (!important) provides the correct preview.
+              // Allowing CSS HMR causes flicker (style recalc) and breaks undo
+              // (CSS value in browser can't be rolled back when undo suppresses HMR).
+              await this.writeFile({ kind: 'jsx-immediate', suppressHmr: true, filePath, content: cleanup.newContent })
               if (this.undoStack) {
                 this.undoStack.push({ filePath, previousContent: cleanup.oldContent, currentContent: cleanup.newContent })
               }

@@ -3749,19 +3749,20 @@ describe('EditPipeline', () => {
       expect(inlineRewriter.removeProperties).toHaveBeenCalledTimes(1)
       expect(inlineRewriter.removeProperty).not.toHaveBeenCalled()
       expect(inlineRewriter.rewrite).not.toHaveBeenCalled()
-      // CSS write: kind='immediate' with suppressHmr=false for scope='all'
+      // CSS write: kind='immediate' (default HMR suppression)
       const cssWrites = writeFile.mock.calls.filter(
         (c: any[]) => c[0]?.filePath?.endsWith('.module.css'),
       )
       expect(cssWrites).toHaveLength(1)
       expect(cssWrites[0]![0].kind).toBe('immediate')
-      expect(cssWrites[0]![0].suppressHmr).toBe(false)
       // Both sources in same file → 1 batched cleanup write (not 2 individual writes).
+      // Cleanup: kind='jsx-immediate' (correct for JSX) + suppressHmr=true (prevent race)
       const cleanupWrites = writeFile.mock.calls.filter(
         (c: any[]) => c[0]?.filePath?.endsWith('.tsx'),
       )
       expect(cleanupWrites).toHaveLength(1)
       expect(cleanupWrites[0]![0].kind).toBe('jsx-immediate')
+      expect(cleanupWrites[0]![0].suppressHmr).toBe(true)
       // Verify removeProperties received both targets
       expect(inlineRewriter.removeProperties).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -3812,15 +3813,16 @@ describe('EditPipeline', () => {
           targets: [expect.objectContaining({ line: 5, col: 3, property: 'padding-top' })],
         }),
       )
-      // CSS write + 1 JSX cleanup write (both 'jsx-immediate', HMR allowed)
+      // Cleanup write: kind='jsx-immediate' + suppressHmr=true (both writes suppress HMR)
       const cleanupWrites = writeFile.mock.calls.filter(
         (c: any[]) => c[0]?.filePath?.endsWith('.tsx'),
       )
       expect(cleanupWrites).toHaveLength(1)
       expect(cleanupWrites[0]![0].kind).toBe('jsx-immediate')
+      expect(cleanupWrites[0]![0].suppressHmr).toBe(true)
     })
 
-    it('scope=all allows HMR for both CSS and cleanup writes (override covers transition)', async () => {
+    it('scope=all suppresses HMR for both CSS and cleanup writes (override covers transition)', async () => {
       const channel = mockChannel()
       const resolver = mockResolver({})
       const rewriter = mockRewriter()
@@ -3849,23 +3851,23 @@ describe('EditPipeline', () => {
       vi.advanceTimersByTime(400)
       await vi.runAllTimersAsync()
 
-      // CSS write: kind='immediate' (correct for CSS) + suppressHmr=false (HMR allowed)
+      // CSS write: kind='immediate' (default HMR suppression — prevents flicker and undo bugs)
       const cssWrites = writeFile.mock.calls.filter(
         (c: any[]) => c[0]?.filePath?.endsWith('.module.css'),
       )
       expect(cssWrites).toHaveLength(1)
       expect(cssWrites[0]![0].kind).toBe('immediate')
-      expect(cssWrites[0]![0].suppressHmr).toBe(false)
 
-      // Cleanup write: kind='jsx-immediate' (correct for JSX), default HMR (allowed)
+      // Cleanup write: kind='jsx-immediate' (correct for JSX) + suppressHmr=true
+      // Both writes suppress HMR — override provides the preview.
       const cleanupWrites = writeFile.mock.calls.filter(
         (c: any[]) => c[0]?.filePath?.endsWith('.tsx'),
       )
       expect(cleanupWrites).toHaveLength(1)
       expect(cleanupWrites[0]![0].kind).toBe('jsx-immediate')
+      expect(cleanupWrites[0]![0].suppressHmr).toBe(true)
 
       // No trackEdit for either write — override persists naturally.
-      // Avoids hmrAppliedPending timing dependency between CSS and JSX HMR batches.
       expect(verifier.tracked).toHaveLength(0)
     })
 
