@@ -1,0 +1,40 @@
+cortex-editor/src/browser/command-stack.ts
+  97e087a5b0cbafd0 21-26
+cortex-editor/src/adapters/types.ts
+  97e087a5b0cbafd0 88-89
+cortex-editor/src/browser/components/CortexApp.tsx
+  97e087a5b0cbafd0 132-136,142-144
+cortex-editor/tests/core/edit-pipeline.test.ts
+  97e087a5b0cbafd0 877,893-894,945
+cortex-editor/src/browser/components/Panel.tsx
+  97e087a5b0cbafd0 218-223,353-424,458,460,489,491-495,497-503,505-508
+cortex-editor/src/core/edit-pipeline.ts
+  97e087a5b0cbafd0 578,613,639,664,697,723
+cortex-editor/tests/browser/command-stack.test.ts
+  97e087a5b0cbafd0 126-144
+cortex-editor/src/browser/components/ErrorToast.tsx
+  97e087a5b0cbafd0 39-40
+cortex-editor/tests/browser/cortex-app.test.tsx
+  97e087a5b0cbafd0 611,626,647-664
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "d24634006b22ab2d799c5f78beaa1195eca8fb74",
+  "prompts": {
+    "97e087a5b0cbafd0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6135b7a3-a944-4fa7-b119-808d834bb439",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 164,
+      "total_deletions": 85,
+      "accepted_lines": 164,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/db57852c4e39099e2609c0ef9656a4a80321ce3e16f7a9ae094bcc13f7dc56dc"
+    }
+  }
+}
