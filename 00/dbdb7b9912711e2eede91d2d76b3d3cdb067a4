@@ -1,0 +1,24 @@
+cortex-editor/src/browser/components/ErrorToast.tsx
+  97e087a5b0cbafd0 38-41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "00dbdb7b9912711e2eede91d2d76b3d3cdb067a4",
+  "prompts": {
+    "97e087a5b0cbafd0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6135b7a3-a944-4fa7-b119-808d834bb439",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 32,
+      "accepted_lines": 4,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/d375f22e2580f0fd154057a0e6e41e2ac3f53a61c228e8f4dceea91b8cb68167"
+    }
+  }
+}
