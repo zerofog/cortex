@@ -37,6 +37,11 @@ export interface EditRequest {
 
 export interface WriteIntent {
   kind: 'immediate' | 'jsx-immediate' | 'deferred' | 'undo' | 'redo'
+  /** Override HMR suppression. When set, takes precedence over kind-based default.
+   *  false = allow HMR (file not added to recentEditWrites).
+   *  true = suppress HMR (file added to recentEditWrites).
+   *  undefined = use kind-based default (immediate/undo/redo suppress; others allow). */
+  suppressHmr?: boolean
   filePath: string
   content: string
 }
@@ -811,15 +816,21 @@ export class EditPipeline {
               return
             }
             if (cleanup.newContent !== cleanup.oldContent) {
-              await this.writeFile({ kind: 'jsx-immediate', filePath, content: cleanup.newContent })
+              // Suppress HMR for the cleanup write to match the CSS write.
+              // Both writes must suppress HMR to avoid a race: if cleanup HMR
+              // fired while CSS HMR is suppressed, React would re-render without
+              // inline styles before the CSS Module value reaches the browser.
+              // The CSS override (!important) provides the correct preview.
+              // Allowing CSS HMR causes flicker (style recalc) and breaks undo
+              // (CSS value in browser can't be rolled back when undo suppresses HMR).
+              await this.writeFile({ kind: 'jsx-immediate', suppressHmr: true, filePath, content: cleanup.newContent })
               if (this.undoStack) {
                 this.undoStack.push({ filePath, previousContent: cleanup.oldContent, currentContent: cleanup.newContent })
               }
-              // No verifier.trackEdit here — intentional. The CSS write uses kind='immediate'
-              // which suppresses HMR, so the override must stay until page reload.
-              // If we tracked the cleanup write, its hmr_verified would clear the override
-              // before the CSS Module is hot-reloaded, causing the Panel to revert to
-              // the old CSS value.
+              // No verifier.trackEdit — intentional. The override persists
+              // (redundant but harmless once CSS HMR delivers the matching value).
+              // Tracking would send hmr_verified, risking premature override
+              // removal if CSS and JSX HMR arrive in separate batches.
             }
           })
         } catch (err) {
