@@ -399,7 +399,6 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         <Panel
           element={selectedElement}
           overrideManager={overrideRef.current}
-          // @ts-expect-error — commandStack prop added in Task 5 (ZF0-1103)
           commandStack={commandStackRef.current}
           onClose={handleExit}
           onSelectElement={handleSelectElement}
