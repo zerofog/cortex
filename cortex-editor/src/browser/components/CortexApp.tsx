@@ -2,6 +2,7 @@ import type { JSX } from 'preact'
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
 import type { CortexChannel, Annotation, ActivityEntry, StyleCapability } from '../../adapters/types.js'
 import { CSSOverrideManager } from '../override.js'
+import { CommandStack } from '../command-stack.js'
 import { initSelection } from '../selection.js'
 import type { SelectionHandle } from '../selection.js'
 // @ts-ignore — tinykeys has types but exports field doesn't include a "types" condition (TODO: add declare module shim when tinykeys updates)
@@ -45,6 +46,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const [hasAfter, setHasAfter] = useState(false)
   const [hoverEnabled, setHoverEnabled] = useState(true)
   const overrideRef = useRef<CSSOverrideManager | null>(null)
+  const commandStackRef = useRef<CommandStack | null>(null)
   const [annotations, setAnnotations] = useState<Map<string, Annotation>>(new Map())
   const [agentConnected, setAgentConnected] = useState(false)
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
@@ -75,9 +77,11 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   useCanvasZoom(false)
 
   useEffect(() => {
-    // Initialize CSS override manager
+    // Initialize CSS override manager and command stack
     const overrideManager = new CSSOverrideManager()
     overrideRef.current = overrideManager
+    const commandStack = new CommandStack()
+    commandStackRef.current = commandStack
 
     // Initialize selection system
     const selectionHandle = initSelection(
@@ -115,32 +119,29 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (msg.type === 'edit_status') {
         if (msg.status === 'done') {
           setActivityCount(c => c + 1)
-          overrideRef.current?.commitEdit(msg.strategy === 'deferred')
-        } else if (msg.status === 'failed' || msg.status === 'cancelled') {
-          overrideRef.current?.cancelEdit()
+          if (msg.strategy === 'deferred') {
+            overrideRef.current?.markDeferred(true)
+          }
         }
+        // Note: commitEdit/cancelEdit removed — CommandStack owns undo/redo state
       }
       if (msg.type === 'hmr_verified') {
         overrideRef.current?.handleHMRVerified(msg.editId, msg.match, msg.kind)
       }
       if (msg.type === 'undo_status') {
+        // Legacy handler — visual undo already happened locally via CommandStack
         undoRedoInFlight.current = false
         if (undoRedoTimeoutRef.current) {
           clearTimeout(undoRedoTimeoutRef.current)
           undoRedoTimeoutRef.current = null
-        }
-        if (msg.status === 'done') {
-          overrideRef.current?.undoOverride()
         }
       }
       if (msg.type === 'redo_status') {
+        // Legacy handler — visual redo already happened locally via CommandStack
         undoRedoInFlight.current = false
         if (undoRedoTimeoutRef.current) {
           clearTimeout(undoRedoTimeoutRef.current)
           undoRedoTimeoutRef.current = null
-        }
-        if (msg.status === 'done') {
-          overrideRef.current?.redoOverride()
         }
       }
       if (msg.type === 'hmr-applied') {
@@ -171,6 +172,8 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       selectionRef.current = null
       overrideManager.dispose()
       overrideRef.current = null
+      commandStack.clear()
+      commandStackRef.current = null
       if (undoRedoTimeoutRef.current) {
         clearTimeout(undoRedoTimeoutRef.current)
         undoRedoTimeoutRef.current = null
@@ -336,22 +339,18 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       'v': guardSingleKey(() => setCommentMode(false)),
       'c': guardSingleKey(() => setCommentMode(m => !m)),
       '$mod+z': guardModifier(() => {
-        if (undoRedoInFlight.current) return
-        undoRedoInFlight.current = true
-        undoRedoTimeoutRef.current = setTimeout(() => {
-          undoRedoInFlight.current = false
-          undoRedoTimeoutRef.current = null
-        }, 10_000)
-        channel.send({ type: 'undo' })
+        const cmd = commandStackRef.current?.undo()
+        if (cmd) {
+          overrideRef.current?.flush()
+          channel.send({ type: 'undo' })
+        }
       }),
       '$mod+Shift+z': guardModifier(() => {
-        if (undoRedoInFlight.current) return
-        undoRedoInFlight.current = true
-        undoRedoTimeoutRef.current = setTimeout(() => {
-          undoRedoInFlight.current = false
-          undoRedoTimeoutRef.current = null
-        }, 10_000)
-        channel.send({ type: 'redo' })
+        const cmd = commandStackRef.current?.redo()
+        if (cmd) {
+          overrideRef.current?.flush()
+          channel.send({ type: 'redo' })
+        }
       }),
     })
 
@@ -388,6 +387,8 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         <Panel
           element={selectedElement}
           overrideManager={overrideRef.current}
+          // @ts-expect-error — commandStack prop added in Task 5 (ZF0-1103)
+          commandStack={commandStackRef.current}
           onClose={handleExit}
           onSelectElement={handleSelectElement}
           swatches={swatches}

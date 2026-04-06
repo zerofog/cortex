@@ -22,6 +22,35 @@ if (!KeyboardEvent.prototype.getModifierState) {
   }
 }
 
+// Mock CommandStack so we can control undo/redo return values.
+// Use a shared reference that tests can mutate before triggering shortcuts.
+const _commandStackMock = {
+  undo: vi.fn().mockReturnValue(null),
+  redo: vi.fn().mockReturnValue(null),
+  clear: vi.fn(),
+  push: vi.fn(),
+  canUndo: false,
+  canRedo: false,
+  undoCount: 0,
+  redoCount: 0,
+  peekUndo: vi.fn().mockReturnValue(null),
+  peekRedo: vi.fn().mockReturnValue(null),
+}
+vi.mock('../../src/browser/command-stack.js', () => ({
+  CommandStack: class MockCommandStack {
+    undo = _commandStackMock.undo
+    redo = _commandStackMock.redo
+    clear = _commandStackMock.clear
+    push = _commandStackMock.push
+    get canUndo() { return _commandStackMock.canUndo }
+    get canRedo() { return _commandStackMock.canRedo }
+    get undoCount() { return _commandStackMock.undoCount }
+    get redoCount() { return _commandStackMock.redoCount }
+    peekUndo = _commandStackMock.peekUndo
+    peekRedo = _commandStackMock.peekRedo
+  }
+}))
+
 // Mock the selection module (same pattern as cortex-app.test.tsx)
 vi.mock('../../src/browser/selection.js', () => {
   const cleanupFn = vi.fn()
@@ -241,9 +270,11 @@ describe('tinykeys shortcut integration', () => {
     expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(false)
   })
 
-  it('Cmd+Z sends undo message', async () => {
+  it('Cmd+Z sends undo message when command stack has entries', async () => {
     setup()
     const channel = createMockChannel()
+    // Mock undo to return a command (non-null = stack had an entry)
+    _commandStackMock.undo.mockReturnValueOnce({ editId: 'test', changes: [], execute: vi.fn(), undo: vi.fn() })
     render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
     await new Promise(r => setTimeout(r, SETTLE))
 
@@ -254,12 +285,34 @@ describe('tinykeys shortcut integration', () => {
     dispatchKeyboardEvent(window, 'keydown', { key: 'z', [modKey]: true })
     await new Promise(r => setTimeout(r, SETTLE))
 
+    expect(_commandStackMock.undo).toHaveBeenCalled()
     expect(channel._lastSent).toContainEqual({ type: 'undo' })
   })
 
-  it('Cmd+Shift+Z sends redo message', async () => {
+  it('Cmd+Z does NOT send undo when command stack is empty', async () => {
     setup()
     const channel = createMockChannel()
+    // Mock undo to return null (empty stack)
+    _commandStackMock.undo.mockReturnValueOnce(null)
+    render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    // Clear any sent messages from activation
+    channel._lastSent.length = 0
+
+    // Press Cmd+Z
+    dispatchKeyboardEvent(window, 'keydown', { key: 'z', [modKey]: true })
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    expect(_commandStackMock.undo).toHaveBeenCalled()
+    expect(channel._lastSent).not.toContainEqual({ type: 'undo' })
+  })
+
+  it('Cmd+Shift+Z sends redo message when command stack has entries', async () => {
+    setup()
+    const channel = createMockChannel()
+    // Mock redo to return a command
+    _commandStackMock.redo.mockReturnValueOnce({ editId: 'test', changes: [], execute: vi.fn(), undo: vi.fn() })
     render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
     await new Promise(r => setTimeout(r, SETTLE))
 
@@ -270,7 +323,27 @@ describe('tinykeys shortcut integration', () => {
     dispatchKeyboardEvent(window, 'keydown', { key: 'z', [modKey]: true, shiftKey: true })
     await new Promise(r => setTimeout(r, SETTLE))
 
+    expect(_commandStackMock.redo).toHaveBeenCalled()
     expect(channel._lastSent).toContainEqual({ type: 'redo' })
+  })
+
+  it('Cmd+Shift+Z does NOT send redo when command stack is empty', async () => {
+    setup()
+    const channel = createMockChannel()
+    // Mock redo to return null (empty stack)
+    _commandStackMock.redo.mockReturnValueOnce(null)
+    render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    // Clear any sent messages from activation
+    channel._lastSent.length = 0
+
+    // Press Cmd+Shift+Z
+    dispatchKeyboardEvent(window, 'keydown', { key: 'z', [modKey]: true, shiftKey: true })
+    await new Promise(r => setTimeout(r, SETTLE))
+
+    expect(_commandStackMock.redo).toHaveBeenCalled()
+    expect(channel._lastSent).not.toContainEqual({ type: 'redo' })
   })
 
   it('single-key shortcuts are blocked when input is focused', async () => {
@@ -333,6 +406,8 @@ describe('tinykeys shortcut integration', () => {
   it('modifier shortcuts work when Cortex UI is focused (not blocked)', async () => {
     setup()
     const channel = createMockChannel()
+    // Mock undo to return a command so the message gets sent
+    _commandStackMock.undo.mockReturnValueOnce({ editId: 'test', changes: [], execute: vi.fn(), undo: vi.fn() })
     render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
     await new Promise(r => setTimeout(r, SETTLE))
 
