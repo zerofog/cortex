@@ -129,13 +129,19 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (msg.type === 'undo_sync_status') {
         if (msg.status === 'failed') {
           console.warn('[cortex] Server undo sync failed:', msg.reason)
-          channel.send({ type: 'clear_server_undo' })
+          // Only reset server stack for real failures (stale file, write error).
+          // empty_stack is expected — browser stack leads, server may be shorter.
+          if (msg.reason_code !== 'empty_stack') {
+            channel.send({ type: 'clear_server_undo' })
+          }
         }
       }
       if (msg.type === 'redo_sync_status') {
         if (msg.status === 'failed') {
           console.warn('[cortex] Server redo sync failed:', msg.reason)
-          channel.send({ type: 'clear_server_undo' })
+          if (msg.reason_code !== 'empty_stack') {
+            channel.send({ type: 'clear_server_undo' })
+          }
         }
       }
       if (msg.type === 'hmr-applied') {

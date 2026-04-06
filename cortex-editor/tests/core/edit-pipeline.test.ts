@@ -874,7 +874,7 @@ describe('EditPipeline', () => {
     expect(undoStatus).toBeDefined()
   })
 
-  it('handleUndo with empty stack is a no-op', async () => {
+  it('handleUndo with empty stack sends empty_stack reason_code', async () => {
     const channel = mockChannel()
     const resolver = mockResolver({})
     const rewriter = mockRewriter()
@@ -890,6 +890,8 @@ describe('EditPipeline', () => {
     await pipeline.handleUndo()
 
     expect(writeFile).not.toHaveBeenCalled()
+    const failMsg = channel.sent.find(m => m.type === 'undo_sync_status')
+    expect(failMsg).toMatchObject({ status: 'failed', reason_code: 'empty_stack' })
   })
 
   it('handleUndo detects stale file and removes entry', async () => {
@@ -940,6 +942,7 @@ describe('EditPipeline', () => {
     )
     expect(failedStatus).toBeDefined()
     expect((failedStatus as { reason: string }).reason).toContain('File was modified outside cortex')
+    expect((failedStatus as { reason_code: string }).reason_code).toBe('stale')
     expect(undoStack.canUndo).toBe(false)
   })
 

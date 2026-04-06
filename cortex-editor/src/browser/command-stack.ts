@@ -18,6 +18,12 @@ export class CommandStack {
   /** Push and execute a command. Clears redo stack. */
   push(command: EditCommand): void {
     command.execute()
+    this.record(command)
+  }
+
+  /** Record a command without executing it. Use when the caller already applied
+   *  the side-effects (e.g., overrides set during scrub phase). Clears redo stack. */
+  record(command: EditCommand): void {
     this.undoStack.push(command)
     this.redoStack.length = 0
     while (this.undoStack.length > this.maxDepth) {

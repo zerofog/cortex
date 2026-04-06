@@ -608,7 +608,7 @@ describe('CortexApp', () => {
       // Clear any messages sent during activation
       channel._lastSent.length = 0
 
-      channel._simulateMessage({ type: 'undo_sync_status', status: 'failed', reason: 'stale file' })
+      channel._simulateMessage({ type: 'undo_sync_status', status: 'failed', reason: 'stale file', reason_code: 'stale' })
       await new Promise(r => setTimeout(r, 10))
 
       expect(channel._lastSent).toContainEqual({ type: 'clear_server_undo' })
@@ -623,7 +623,7 @@ describe('CortexApp', () => {
 
       channel._lastSent.length = 0
 
-      channel._simulateMessage({ type: 'redo_sync_status', status: 'failed', reason: 'stale file' })
+      channel._simulateMessage({ type: 'redo_sync_status', status: 'failed', reason: 'stale file', reason_code: 'stale' })
       await new Promise(r => setTimeout(r, 10))
 
       expect(channel._lastSent).toContainEqual({ type: 'clear_server_undo' })
@@ -640,6 +640,24 @@ describe('CortexApp', () => {
 
       channel._simulateMessage({ type: 'undo_sync_status', status: 'done' })
       channel._simulateMessage({ type: 'redo_sync_status', status: 'done' })
+      await new Promise(r => setTimeout(r, 10))
+
+      expect(channel._lastSent).not.toContainEqual({ type: 'clear_server_undo' })
+    })
+
+    it('does not send clear_server_undo for empty_stack failures', async () => {
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+      await activateEditor(channel)
+
+      channel._lastSent.length = 0
+
+      // empty_stack is expected — browser stack leads, server may be shorter.
+      // Should NOT trigger a server stack reset.
+      channel._simulateMessage({ type: 'undo_sync_status', status: 'failed', reason: 'Nothing to undo.', reason_code: 'empty_stack' })
+      channel._simulateMessage({ type: 'redo_sync_status', status: 'failed', reason: 'Nothing to redo.', reason_code: 'empty_stack' })
       await new Promise(r => setTimeout(r, 10))
 
       expect(channel._lastSent).not.toContainEqual({ type: 'clear_server_undo' })

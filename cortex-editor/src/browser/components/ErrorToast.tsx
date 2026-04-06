@@ -36,7 +36,8 @@ export function ErrorToast({ channel }: { channel: CortexChannel }) {
         )
       }
       if (msg.type === 'undo_sync_status' || msg.type === 'redo_sync_status') {
-        if (msg.status === 'failed') {
+        // empty_stack is expected (browser stack leads, server may be shorter) — no toast.
+        if (msg.status === 'failed' && msg.reason_code !== 'empty_stack') {
           const label = msg.type === 'undo_sync_status' ? 'Undo' : 'Redo'
           addToast({ message: msg.reason ?? `${label} sync failed`, type: 'error' }, 5000)
         }

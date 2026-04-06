@@ -123,4 +123,23 @@ describe('CommandStack', () => {
     expect(stack.peekUndo()).toBe(cmd)
     expect(stack.undoCount).toBe(1)
   })
+
+  it('record stores command without executing it', () => {
+    const cmd = makeCmd('color', 'red', '')
+    stack.record(cmd)
+    manager.flush()
+    // record() should NOT call execute() — the style tag should be empty
+    expect(document.head.querySelector('[data-cortex-override]')!.textContent).toBe('')
+    // But it should be on the undo stack
+    expect(stack.canUndo).toBe(true)
+    expect(stack.undoCount).toBe(1)
+  })
+
+  it('record clears redo stack', () => {
+    stack.push(makeCmd('color', 'red', ''))
+    stack.undo()
+    expect(stack.canRedo).toBe(true)
+    stack.record(makeCmd('color', 'blue', ''))
+    expect(stack.canRedo).toBe(false)
+  })
 })

@@ -215,6 +215,12 @@ export function Panel({
     scrubPreviousRef.current.clear() // abandon any in-progress scrub state
   }, [element])
 
+  // Abandon in-progress scrub state when switching pseudo-element tabs.
+  // Without this, scrub state from ::before would contaminate a ::after commit.
+  useEffect(() => {
+    scrubPreviousRef.current.clear()
+  }, [activePseudo])
+
   // Clear blast-radius highlights and remove injected style tag on unmount
   useEffect(() => () => { clearHighlights(); removeBlastRadiusStyle() }, [])
 
@@ -344,11 +350,78 @@ export function Panel({
   // Null-byte separator for composite scrub keys — never appears in CSS properties or source paths.
   const SEP = '\0'
 
-  // Shared override application — warns if element lacks source attribution.
-  // Passes pseudo parameter to CSSOverrideManager when editing a pseudo-element.
-  // During scrub (commitRender=false): captures previousValue on first touch per
-  // property, then applies override via set(). On commit (commitRender=true): builds
-  // a PropertyEditCommand from accumulated scrub state and pushes it to CommandStack.
+  // Commit phase: builds an atomic PropertyEditCommand from accumulated scrub state,
+  // records it on the CommandStack, flushes visual overrides, and sends server edits.
+  // Separated from applyOverride so batch handlers can accumulate multiple properties
+  // via scrub calls and commit once (one undo entry for the whole gesture).
+  const commitScrub = useCallback(() => {
+    if (!element || scrubPreviousRef.current.size === 0) return
+    const source = element.getAttribute('data-cortex-source')
+    if (!source) return
+    const pseudo = activePseudo !== 'element' ? activePseudo : undefined
+
+    // Build PropertyChange[] from accumulated scrub previous values.
+    const changes: PropertyChange[] = []
+    for (const [key, previousValue] of scrubPreviousRef.current) {
+      const [s, p, ps] = key.split(SEP) as [string, string, string]
+      const currentValue = overrideManager.get(s, p, (ps || undefined) as '::before' | '::after' | undefined) ?? ''
+      changes.push({
+        source: s,
+        property: p,
+        value: currentValue,
+        previousValue,
+        pseudo: (ps || undefined) as '::before' | '::after' | undefined,
+      })
+    }
+
+    // Record command on stack. Overrides are already applied during scrub phase,
+    // so record() stores without re-executing (avoids double-apply).
+    if (changes.length > 0 && commandStack) {
+      const cmd = new PropertyEditCommand({ changes, overrideManager })
+      commandStack.record(cmd)
+    }
+
+    overrideManager.flush()
+    setStyleVersion(v => v + 1)
+    scrubPreviousRef.current.clear()
+
+    // Dispatch one server edit per distinct property (not per source — server handles scope='all').
+    // Filter to the selected element's source to deduplicate scope='all' sibling entries.
+    if (channel) {
+      const editedProps = changes.filter(c => c.source === source)
+      for (const c of editedProps) {
+        const editId = crypto.randomUUID()
+        // Track all shared sources so HMR verification clears ALL sibling overrides
+        const pendingSources = (sharedInfo && editScope === 'all')
+          ? sharedInfo.elements.map(el => el.getAttribute('data-cortex-source')).filter((s): s is string => s !== null)
+          : source
+        overrideManager.trackPendingEdit(editId, pendingSources, c.property, pseudo)
+        channel.send({
+          type: 'edit',
+          editId,
+          source,
+          property: c.property,
+          value: c.value,
+          elementSelector: element.tagName.toLowerCase(),
+          cssMapping: element.getAttribute('data-cortex-css') ?? undefined,
+          // Direct class path: send the current Tailwind class so the server
+          // can use it as oldToken directly, bypassing computed-style reverse lookup.
+          currentClass: extractedUtilities.get(c.property),
+          ...(sharedInfo ? {
+            scope: editScope,
+            ...(editScope === 'all' ? {
+              instanceSources: sharedInfo.elements
+                .map(el => el.getAttribute('data-cortex-source'))
+                .filter((s): s is string => s !== null),
+            } : {}),
+          } : {}),
+        } as any)
+      }
+    }
+  }, [element, overrideManager, activePseudo, channel, sharedInfo, editScope, extractedUtilities, commandStack])
+
+  // Scrub phase: captures previousValue on first touch per property, applies override.
+  // On commit (commitRender=true): delegates to commitScrub() for atomic command creation.
   const applyOverride = useCallback((property: string, value: string, commitRender: boolean) => {
     if (!element) return
     const source = element.getAttribute('data-cortex-source')
@@ -382,62 +455,9 @@ export function Panel({
     }
 
     if (commitRender) {
-      // Build PropertyChange[] from accumulated scrub previous values.
-      const changes: PropertyChange[] = []
-      for (const [key, previousValue] of scrubPreviousRef.current) {
-        const [s, p, ps] = key.split(SEP) as [string, string, string]
-        const currentValue = overrideManager.get(s, p, (ps || undefined) as '::before' | '::after' | undefined) ?? value
-        changes.push({
-          source: s,
-          property: p,
-          value: currentValue,
-          previousValue,
-          pseudo: (ps || undefined) as '::before' | '::after' | undefined,
-        })
-      }
-
-      // Push command to stack. execute() calls set() again (idempotent — values already applied).
-      if (changes.length > 0 && commandStack) {
-        const cmd = new PropertyEditCommand({ changes, overrideManager })
-        commandStack.push(cmd)
-      }
-
-      overrideManager.flush()
-      setStyleVersion(v => v + 1)
-      scrubPreviousRef.current.clear()
-
-      // Dispatch edit to server for source file writing.
-      if (channel) {
-        const editId = crypto.randomUUID()
-        // Track all shared sources so HMR verification clears ALL sibling overrides
-        const pendingSources = (sharedInfo && editScope === 'all')
-          ? sharedInfo.elements.map(el => el.getAttribute('data-cortex-source')).filter((s): s is string => s !== null)
-          : source
-        overrideManager.trackPendingEdit(editId, pendingSources, property, pseudo)
-        const msg = {
-          type: 'edit' as const,
-          editId,
-          source,
-          property,
-          value,
-          elementSelector: element.tagName.toLowerCase(),
-          cssMapping: element.getAttribute('data-cortex-css') ?? undefined,
-          // Direct class path: send the current Tailwind class so the server
-          // can use it as oldToken directly, bypassing computed-style reverse lookup.
-          currentClass: extractedUtilities.get(property),
-          ...(sharedInfo ? {
-            scope: editScope,
-            ...(editScope === 'all' ? {
-              instanceSources: sharedInfo.elements
-                .map(el => el.getAttribute('data-cortex-source'))
-                .filter((s): s is string => s !== null),
-            } : {}),
-          } : {}),
-        }
-        channel.send(msg as any)
-      }
+      commitScrub()
     }
-  }, [element, overrideManager, activePseudo, channel, sharedInfo, editScope, extractedUtilities, commandStack])
+  }, [element, overrideManager, activePseudo, sharedInfo, editScope, commitScrub])
 
   const handleSpacingCommit = useCallback((c: SpacingChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleScrub = useCallback((c: SpacingChange) => applyOverride(c.property, c.value, false), [applyOverride])
@@ -466,20 +486,26 @@ export function Panel({
   const handleFillAdd = useCallback(() => {
     applyOverride('background-color', '#ffffff', true)
   }, [applyOverride])
+  // Batch: accumulate via scrub, commit once → one atomic undo entry.
   const handleFillRemove = useCallback(() => {
-    applyOverride('background-color', 'transparent', true)
-    applyOverride('background-image', 'none', true)
-  }, [applyOverride])
+    applyOverride('background-color', 'transparent', false)
+    applyOverride('background-image', 'none', false)
+    commitScrub()
+  }, [applyOverride, commitScrub])
+  // Batch: 3 properties → 1 undo entry.
   const handleBorderAdd = useCallback(() => {
-    applyOverride('border-width', '1px', true)
-    applyOverride('border-style', 'solid', true)
-    applyOverride('border-color', '#000000', true)
-  }, [applyOverride])
-  // Intentionally preserves border-color so re-adding restores the user's last choice
+    applyOverride('border-width', '1px', false)
+    applyOverride('border-style', 'solid', false)
+    applyOverride('border-color', '#000000', false)
+    commitScrub()
+  }, [applyOverride, commitScrub])
+  // Intentionally preserves border-color so re-adding restores the user's last choice.
+  // Batch: 2 properties → 1 undo entry.
   const handleBorderRemove = useCallback(() => {
-    applyOverride('border-style', 'none', true)
-    applyOverride('border-width', '0px', true)
-  }, [applyOverride])
+    applyOverride('border-style', 'none', false)
+    applyOverride('border-width', '0px', false)
+    commitScrub()
+  }, [applyOverride, commitScrub])
   const handleShadowAdd = useCallback(() => {
     applyOverride('box-shadow', addShadow(computedStyles.shadow.boxShadow), true)
   }, [computedStyles.shadow.boxShadow, applyOverride])
