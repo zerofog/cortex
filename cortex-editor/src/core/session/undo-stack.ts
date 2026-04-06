@@ -60,6 +60,7 @@ export class UndoStack {
         this.undoEntries[this.undoEntries.length - 1] = updated
         this.currentBytes += this.entryBytes(updated) - oldBytes
         this.redoEntries.length = 0
+        this.evict()
         return
       }
     }
