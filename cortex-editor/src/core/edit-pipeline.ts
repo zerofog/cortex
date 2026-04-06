@@ -6,7 +6,7 @@ import type { TailwindRewriter } from './rewriter/tailwind.js'
 import type { HMRVerifier } from './hmr-verifier.js'
 import type { CSSModulesRewriter } from './rewriter/css-modules.js'
 import type { RuntimeCSSResolver } from './rewriter/runtime-resolver.js'
-import type { UndoStack } from './session/undo-stack.js'
+import type { UndoStack, UndoFileChange } from './session/undo-stack.js'
 import type { AIWriter } from './ai-writer.js'
 import type { DeferredWriter, BatchedWriteRequest } from './deferred-writer.js'
 import type { InlineStyleRewriter } from './rewriter/inline-style.js'
@@ -542,7 +542,7 @@ export class EditPipeline {
 
       // Push to undo stack only after successful write
       if (this.undoStack) {
-        this.undoStack.push({ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent })
+        this.undoStack.push({ changes: [{ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent }] })
       }
 
       this.channel.send({
@@ -572,16 +572,6 @@ export class EditPipeline {
   private async _doUndo(): Promise<void> {
     for (const timer of this.debounceTimers.values()) clearTimeout(timer)
     this.debounceTimers.clear()
-    // Clear stale lastValues for the file being undone — the baseline
-    // is no longer valid after undo restores previous content.
-    const undoEntry = this.undoStack!.peekUndo()
-    if (undoEntry) {
-      for (const [key] of this.lastValues) {
-        if (key.startsWith(undoEntry.filePath + ':')) {
-          this.lastValues.delete(key)
-        }
-      }
-    }
 
     const entry = this.undoStack!.peekUndo()
     if (!entry) {
@@ -589,27 +579,70 @@ export class EditPipeline {
       return
     }
 
-    // Cancel any pending/in-flight deferred writes for this file
-    const cancelledIds = this.deferredWriter?.cancelForFile(entry.filePath) ?? []
-    this.sendDeferredStatus(cancelledIds, 'cancelled', 'Cancelled by undo')
-
-    await this.withFileLock(entry.filePath, async () => {
-      const current = this.undoStack!.peekUndo()
-      if (!current || current.id !== entry.id) return
-
-      if (this.readFile) {
-        const fileContent = await this.readFile(current.filePath)
-        if (fileContent !== current.currentContent) {
-          this.undoStack!.removeStaleEntry(current.id)
-          this.channel.send({ type: 'undo_status', status: 'failed', restoredFile: relative(this.projectRoot, current.filePath), reason: 'File was modified outside cortex. Undo not available for this change.' })
-          return
+    for (const change of entry.changes) {
+      for (const [key] of this.lastValues) {
+        if (key.startsWith(change.filePath + ':')) {
+          this.lastValues.delete(key)
         }
       }
+      const cancelledIds = this.deferredWriter?.cancelForFile(change.filePath) ?? []
+      this.sendDeferredStatus(cancelledIds, 'cancelled', 'Cancelled by undo')
+    }
 
-      await this.writeFile({ kind: 'undo', filePath: current.filePath, content: current.previousContent })
-      this.undoStack!.undo()
-      this.channel.send({ type: 'undo_status', status: 'done', restoredFile: relative(this.projectRoot, current.filePath) })
-    })
+    // Validate all files before writing any — partial undo would leave
+    // the codebase in an inconsistent state.
+    // NOTE: `stale` is set inside the async lock callback and read after the await.
+    // This is safe because the for-loop is sequential (not Promise.all).
+    for (const change of entry.changes) {
+      if (!this.readFile) continue
+      let stale = false
+      try {
+        await this.withFileLock(change.filePath, async () => {
+          const current = this.undoStack!.peekUndo()
+          if (!current || current.id !== entry.id) { stale = true; return }
+          const fileContent = await this.readFile!(change.filePath)
+          if (fileContent !== change.currentContent) { stale = true }
+        })
+      } catch (err) {
+        // readFile failure (ENOENT, EACCES) — file state unknown, treat as stale.
+        console.error('[cortex] Undo validation read failed for %s:', change.filePath, err)
+        stale = true
+      }
+      if (stale) {
+        this.undoStack!.removeStaleEntry(entry.id)
+        this.channel.send({ type: 'undo_status', status: 'failed', restoredFile: relative(this.projectRoot, change.filePath), reason: 'File was modified outside cortex. Undo not available for this change.' })
+        return
+      }
+    }
+
+    // Write all files. Staleness already verified above.
+    // On failure, roll back already-written files so the entry remains valid for retry.
+    const writtenUndo: Array<{ filePath: string; rollbackContent: string }> = []
+    try {
+      for (const change of entry.changes) {
+        await this.withFileLock(change.filePath, async () => {
+          await this.writeFile({ kind: 'undo', filePath: change.filePath, content: change.previousContent })
+        })
+        writtenUndo.push({ filePath: change.filePath, rollbackContent: change.currentContent })
+      }
+    } catch (err) {
+      // Roll back already-written files so disk matches entry.currentContent again.
+      for (const w of writtenUndo) {
+        try {
+          await this.withFileLock(w.filePath, async () => {
+            await this.writeFile({ kind: 'undo', filePath: w.filePath, content: w.rollbackContent })
+          })
+        } catch (rollbackErr) {
+          console.error('[cortex] Undo rollback failed for %s:', w.filePath, rollbackErr)
+        }
+      }
+      this.channel.send({ type: 'undo_status', status: 'failed', restoredFile: relative(this.projectRoot, entry.changes[0]?.filePath ?? ''), reason: `Write failed during undo: ${err instanceof Error ? err.message : String(err)}` })
+      return
+    }
+
+    this.undoStack!.undo()
+    const primaryFile = entry.changes[0]?.filePath ?? ''
+    this.channel.send({ type: 'undo_status', status: 'done', restoredFile: relative(this.projectRoot, primaryFile) })
   }
 
   async handleRedo(): Promise<void> {
@@ -627,41 +660,74 @@ export class EditPipeline {
   }
 
   private async _doRedo(): Promise<void> {
-    // Clear stale lastValues for the file being redone
-    const redoEntry = this.undoStack!.peekRedo()
-    if (redoEntry) {
-      for (const [key] of this.lastValues) {
-        if (key.startsWith(redoEntry.filePath + ':')) {
-          this.lastValues.delete(key)
-        }
-      }
-    }
-
     const entry = this.undoStack!.peekRedo()
     if (!entry) {
       this.channel.send({ type: 'redo_status', status: 'failed', restoredFile: '', reason: 'Nothing to redo.' })
       return
     }
 
-    // Cancel any pending/in-flight deferred writes for this file
-    const cancelledIds = this.deferredWriter?.cancelForFile(entry.filePath) ?? []
-    this.sendDeferredStatus(cancelledIds, 'cancelled', 'Cancelled by redo')
-
-    await this.withFileLock(entry.filePath, async () => {
-      if (this.readFile) {
-        const fileContent = await this.readFile(entry.filePath)
-        if (fileContent !== entry.previousContent) {
-          this.undoStack!.clear()
-          this.channel.send({ type: 'redo_status', status: 'failed', restoredFile: relative(this.projectRoot, entry.filePath), reason: 'File was modified outside cortex. Redo not available.' })
-          return
+    for (const change of entry.changes) {
+      for (const [key] of this.lastValues) {
+        if (key.startsWith(change.filePath + ':')) {
+          this.lastValues.delete(key)
         }
       }
+      const cancelledIds = this.deferredWriter?.cancelForFile(change.filePath) ?? []
+      this.sendDeferredStatus(cancelledIds, 'cancelled', 'Cancelled by redo')
+    }
 
-      const result = this.undoStack!.redo()
-      if (!result) return
-      await this.writeFile({ kind: 'redo', filePath: result.filePath, content: result.content })
-      this.channel.send({ type: 'redo_status', status: 'done', restoredFile: relative(this.projectRoot, result.filePath) })
-    })
+    // Validate all files before writing — redo staleness clears the full stack
+    // (matches original single-file behavior).
+    // NOTE: `stale` is set inside the async lock callback and read after the await.
+    // This is safe because the for-loop is sequential (not Promise.all).
+    for (const change of entry.changes) {
+      if (!this.readFile) continue
+      let stale = false
+      try {
+        await this.withFileLock(change.filePath, async () => {
+          const fileContent = await this.readFile!(change.filePath)
+          if (fileContent !== change.previousContent) { stale = true }
+        })
+      } catch (err) {
+        // readFile failure (ENOENT, EACCES) — file state unknown, treat as stale.
+        console.error('[cortex] Redo validation read failed for %s:', change.filePath, err)
+        stale = true
+      }
+      if (stale) {
+        this.undoStack!.clear()
+        this.channel.send({ type: 'redo_status', status: 'failed', restoredFile: relative(this.projectRoot, change.filePath), reason: 'File was modified outside cortex. Redo not available.' })
+        return
+      }
+    }
+
+    // Write all files, THEN pop the entry.
+    // redo() is called AFTER writes succeed to prevent stack/disk divergence.
+    // On failure, roll back already-written files so the entry remains valid for retry.
+    const writtenRedo: Array<{ filePath: string; rollbackContent: string }> = []
+    try {
+      for (const change of entry.changes) {
+        await this.withFileLock(change.filePath, async () => {
+          await this.writeFile({ kind: 'redo', filePath: change.filePath, content: change.currentContent })
+        })
+        writtenRedo.push({ filePath: change.filePath, rollbackContent: change.previousContent })
+      }
+    } catch (err) {
+      for (const w of writtenRedo) {
+        try {
+          await this.withFileLock(w.filePath, async () => {
+            await this.writeFile({ kind: 'redo', filePath: w.filePath, content: w.rollbackContent })
+          })
+        } catch (rollbackErr) {
+          console.error('[cortex] Redo rollback failed for %s:', w.filePath, rollbackErr)
+        }
+      }
+      this.channel.send({ type: 'redo_status', status: 'failed', restoredFile: relative(this.projectRoot, entry.changes[0]?.filePath ?? ''), reason: `Write failed during redo: ${err instanceof Error ? err.message : String(err)}` })
+      return
+    }
+
+    this.undoStack!.redo()
+    const primaryFile = entry.changes[0]?.filePath ?? ''
+    this.channel.send({ type: 'redo_status', status: 'done', restoredFile: relative(this.projectRoot, primaryFile) })
   }
 
   private isInsideProjectRoot(filePath: string): boolean {
@@ -729,7 +795,7 @@ export class EditPipeline {
     }
 
     if (this.undoStack) {
-      this.undoStack.push({ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent })
+      this.undoStack.push({ changes: [{ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent }] })
     }
 
     this.verifier.trackEdit({
@@ -751,6 +817,10 @@ export class EditPipeline {
   private async commitCSSModulesRewrite(edit: EditRequest, resolvedCssPath: string, selector: string): Promise<void> {
     this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
 
+    // Accumulate changes for a single compound undo push — one logical edit = one entry.
+    // Keeps server undo stack in sync with browser's override undo stack.
+    const undoChanges: UndoFileChange[] = []
+
     // CSS rewrite inside CSS file lock only
     let cssSuccess = false
     await this.withFileLock(resolvedCssPath, async () => {
@@ -771,11 +841,8 @@ export class EditPipeline {
         this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Write failed: ${err instanceof Error ? err.message : String(err)}` })
         return
       }
-      if (this.undoStack) {
-        this.undoStack.push({ filePath: resolvedCssPath, previousContent: result.oldContent, currentContent: result.newContent })
-      }
+      undoChanges.push({ filePath: resolvedCssPath, previousContent: result.oldContent, currentContent: result.newContent })
       cssSuccess = true
-      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done', strategy: 'immediate' })
     })
 
     // Clean up conflicting inline styles on ALL shared elements when scope='all'.
@@ -824,9 +891,7 @@ export class EditPipeline {
               // Allowing CSS HMR causes flicker (style recalc) and breaks undo
               // (CSS value in browser can't be rolled back when undo suppresses HMR).
               await this.writeFile({ kind: 'jsx-immediate', suppressHmr: true, filePath, content: cleanup.newContent })
-              if (this.undoStack) {
-                this.undoStack.push({ filePath, previousContent: cleanup.oldContent, currentContent: cleanup.newContent })
-              }
+              undoChanges.push({ filePath, previousContent: cleanup.oldContent, currentContent: cleanup.newContent })
               // No verifier.trackEdit — intentional. The override persists
               // (redundant but harmless once CSS HMR delivers the matching value).
               // Tracking would send hmr_verified, risking premature override
@@ -839,6 +904,20 @@ export class EditPipeline {
           console.warn('[cortex] Inline style cleanup error for %s (edit %s):', filePath, edit.editId, err instanceof Error ? err.message : err)
         }
       }
+    }
+
+    // Push compound undo entry AFTER all writes complete.
+    // For scope='all': contains CSS file change + JSX cleanup change(s).
+    // For scope='instance': contains only the CSS file change.
+    // One compound push = one browser undo entry = stacks stay in sync.
+    if (cssSuccess && this.undoStack && undoChanges.length > 0) {
+      this.undoStack.push({ changes: undoChanges })
+    }
+
+    // Send edit_status:done AFTER compound push so the browser commits
+    // its undo snapshot at the same time the server pushes its entry.
+    if (cssSuccess) {
+      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done', strategy: 'immediate' })
     }
   }
 
@@ -874,7 +953,7 @@ export class EditPipeline {
         return
       }
       if (this.undoStack) {
-        this.undoStack.push({ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent })
+        this.undoStack.push({ changes: [{ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent }] })
       }
       // Track for HMR verification — jsx-immediate allows HMR, so the verifier
       // can confirm the update and clean up the browser CSS override.
@@ -1006,7 +1085,7 @@ export class EditPipeline {
 
       // Push undo (only after successful write)
       if (this.undoStack) {
-        this.undoStack.push({ filePath: batch.filePath, previousContent: result.oldContent, currentContent: result.newContent })
+        this.undoStack.push({ changes: [{ filePath: batch.filePath, previousContent: result.oldContent, currentContent: result.newContent }] })
       }
 
       // Track HMR for ALL changes in the batch, not just the last.

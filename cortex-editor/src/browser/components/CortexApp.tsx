@@ -115,28 +115,34 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (msg.type === 'edit_status') {
         if (msg.status === 'done') {
           setActivityCount(c => c + 1)
-          // Commit the browser undo snapshot — syncs with server's undo stack.
           overrideRef.current?.commitEdit(msg.strategy === 'deferred')
         } else if (msg.status === 'failed' || msg.status === 'cancelled') {
-          // Edit failed — clear the pending snapshot so the next edit starts clean.
-          // The override stays (user sees the preview value) but no undo entry is created.
           overrideRef.current?.cancelEdit()
         }
       }
-      // Queue override removal — actual clearing deferred to hmr-applied
-      // (hmr_verified/undo_status arrive BEFORE the browser applies the HMR stylesheet)
       if (msg.type === 'hmr_verified') {
         overrideRef.current?.handleHMRVerified(msg.editId, msg.match, msg.kind)
       }
-      // Unlock undo/redo serialization when server acknowledges
-      if (msg.type === 'undo_status' || msg.type === 'redo_status') {
+      if (msg.type === 'undo_status') {
         undoRedoInFlight.current = false
         if (undoRedoTimeoutRef.current) {
           clearTimeout(undoRedoTimeoutRef.current)
           undoRedoTimeoutRef.current = null
         }
+        if (msg.status === 'done') {
+          overrideRef.current?.undoOverride()
+        }
       }
-      // Flush queued override removals — HMR stylesheet is now applied in the browser
+      if (msg.type === 'redo_status') {
+        undoRedoInFlight.current = false
+        if (undoRedoTimeoutRef.current) {
+          clearTimeout(undoRedoTimeoutRef.current)
+          undoRedoTimeoutRef.current = null
+        }
+        if (msg.status === 'done') {
+          overrideRef.current?.redoOverride()
+        }
+      }
       if (msg.type === 'hmr-applied') {
         overrideRef.current?.onHMRApplied()
       }
@@ -165,6 +171,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       selectionRef.current = null
       overrideManager.dispose()
       overrideRef.current = null
+      if (undoRedoTimeoutRef.current) {
+        clearTimeout(undoRedoTimeoutRef.current)
+        undoRedoTimeoutRef.current = null
+      }
     }
   }, [channel, shadowRoot])
 
@@ -311,7 +321,13 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     function guardModifier(handler: () => void): (e: KeyboardEvent) => void {
       return (e: KeyboardEvent) => {
         if (!isRealEvent(e)) return
-        if (isInputFocused()) return
+        // Block when a host-app input is focused (allow native text undo).
+        // Allow when a cortex panel input is focused (Cmd+Z should undo edits).
+        if (isInputFocused() && !isCortexUIFocused()) return
+        // Prevent browser native text undo/redo in cortex inputs — otherwise
+        // it changes the input value, sets userTypedRef, and triggers a phantom
+        // edit on blur that conflicts with the cortex undo.
+        e.preventDefault()
         handler()
       }
     }
@@ -319,10 +335,8 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     const unsubscribe = tinykeys(window, {
       'v': guardSingleKey(() => setCommentMode(false)),
       'c': guardSingleKey(() => setCommentMode(m => !m)),
-      // guardModifier omits isCortexUIFocused — Cmd+Z/Shift+Z should work inside Cortex panels
       '$mod+z': guardModifier(() => {
         if (undoRedoInFlight.current) return
-        overrideRef.current?.undoOverride()
         undoRedoInFlight.current = true
         undoRedoTimeoutRef.current = setTimeout(() => {
           undoRedoInFlight.current = false
@@ -332,7 +346,6 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       }),
       '$mod+Shift+z': guardModifier(() => {
         if (undoRedoInFlight.current) return
-        overrideRef.current?.redoOverride()
         undoRedoInFlight.current = true
         undoRedoTimeoutRef.current = setTimeout(() => {
           undoRedoInFlight.current = false
