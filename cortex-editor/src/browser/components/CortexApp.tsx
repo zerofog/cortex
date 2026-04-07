@@ -48,6 +48,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const overrideRef = useRef<CSSOverrideManager | null>(null)
   const commandStackRef = useRef<CommandStack | null>(null)
   const flushCommitRef = useRef<(() => void) | null>(null)
+  // Suppresses phantom re-edits from Panel re-renders during undo/redo.
+  // Set true before undo, cleared after next rAF when re-renders settle.
+  const undoInProgressRef = useRef(false)
   const [annotations, setAnnotations] = useState<Map<string, Annotation>>(new Map())
   const [agentConnected, setAgentConnected] = useState(false)
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
@@ -332,6 +335,8 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           if (active instanceof HTMLElement) active.blur()
         }
         flushCommitRef.current?.()
+        undoInProgressRef.current = true
+        requestAnimationFrame(() => { undoInProgressRef.current = false })
         const cmd = commandStackRef.current?.undo()
         console.log('[cortex:undo]   undo() →', cmd ? `cmd(${cmd.changes.length} changes)` : 'null', 'stackAfter:', commandStackRef.current?.undoCount)
         if (cmd) {
@@ -346,6 +351,8 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           if (active instanceof HTMLElement) active.blur()
         }
         flushCommitRef.current?.()
+        undoInProgressRef.current = true
+        requestAnimationFrame(() => { undoInProgressRef.current = false })
         const cmd = commandStackRef.current?.redo()
         console.log('[cortex:undo]   redo() →', cmd ? `cmd(${cmd.changes.length} changes)` : 'null', 'stackAfter:', commandStackRef.current?.undoCount)
         if (cmd) {
@@ -390,6 +397,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           overrideManager={overrideRef.current}
           commandStack={commandStackRef.current}
           flushCommitRef={flushCommitRef}
+          undoInProgressRef={undoInProgressRef}
           onClose={handleExit}
           onSelectElement={handleSelectElement}
           swatches={swatches}

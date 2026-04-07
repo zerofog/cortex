@@ -118,6 +118,8 @@ export interface PanelProps {
   /** Ref written by Panel — CortexApp calls it to flush pending coalesced commits
    *  before undo (microtask commits haven't fired yet when blur+undo runs synchronously). */
   flushCommitRef?: { current: (() => void) | null }
+  /** Set by CortexApp during undo/redo — suppresses phantom re-edits from Panel re-renders. */
+  undoInProgressRef?: { current: boolean }
   channel?: CortexChannel
   agentConnected?: boolean
 }
@@ -163,6 +165,7 @@ export function Panel({
   panelPointerCancel,
   commandStack,
   flushCommitRef,
+  undoInProgressRef,
   channel,
   agentConnected,
 }: PanelProps): JSX.Element | null {
@@ -367,6 +370,14 @@ export function Panel({
   // Separated from applyOverride so batch handlers can accumulate multiple properties
   // via scrub calls and commit once (one undo entry for the whole gesture).
   const commitScrub = useCallback(() => {
+    // Suppress phantom re-edits from Panel re-renders during undo/redo.
+    // Without this, undo changes overrides → Panel re-renders → inputs fire
+    // onChange with stale values → new phantom command overwrites the undo.
+    if (undoInProgressRef?.current) {
+      console.log('[cortex:undo] commitScrub SUPPRESSED (undo in progress)')
+      scrubPreviousRef.current.clear()
+      return
+    }
     if (!element || scrubPreviousRef.current.size === 0) return
     const source = element.getAttribute('data-cortex-source')
     if (!source) {
@@ -396,7 +407,7 @@ export function Panel({
       })
     }
 
-    console.log('[cortex:undo] commitScrub result:', { changesCount: changes.length, stackSize: commandStack?.undoCount ?? 'null' })
+    console.log('[cortex:undo] commitScrub result:', { changesCount: changes.length, stackSize: commandStack?.undoCount ?? 'null', scope: editScope, sharedCount: sharedInfo?.elements.length ?? 0, sources: [...new Set(changes.map(c => c.source.slice(-20)))] })
 
     // Record command on stack. Overrides are already applied during scrub phase,
     // so record() stores without re-executing (avoids double-apply).
@@ -478,7 +489,7 @@ export function Panel({
     }
     const pseudo = activePseudo !== 'element' ? activePseudo : undefined
 
-    console.log('[cortex:undo] applyOverride', { property, value, commitRender, pseudo, scrubSize: scrubPreviousRef.current.size })
+    console.log('[cortex:undo] applyOverride', { property, value, commitRender, pseudo, scrubSize: scrubPreviousRef.current.size, scope: editScope, sharedCount: sharedInfo?.elements.length ?? 0 })
 
     // Capture previousValue BEFORE set() — only on first touch per property per gesture.
     // If an override already exists, use that. Otherwise capture the computed style
