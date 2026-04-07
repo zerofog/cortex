@@ -440,9 +440,18 @@ export function Panel({
     const pseudo = activePseudo !== 'element' ? activePseudo : undefined
 
     // Capture previousValue BEFORE set() — only on first touch per property per gesture.
+    // If an override already exists, use that. Otherwise capture the computed style
+    // so undo can set it as a temporary override even after HMR has removed the
+    // original override and the CSS file has the new value.
     const prevKey = `${source}${SEP}${property}${SEP}${pseudo ?? ''}`
     if (!scrubPreviousRef.current.has(prevKey)) {
-      scrubPreviousRef.current.set(prevKey, overrideManager.get(source, property, pseudo) ?? '')
+      const existing = overrideManager.get(source, property, pseudo)
+      if (existing !== undefined) {
+        scrubPreviousRef.current.set(prevKey, existing)
+      } else {
+        const computed = getComputedStyle(element, pseudo ?? null).getPropertyValue(property).trim()
+        scrubPreviousRef.current.set(prevKey, computed || '')
+      }
     }
 
     // scope='all': apply CSS override preview to ALL shared elements so
@@ -453,7 +462,13 @@ export function Panel({
         if (elSource) {
           const elPrevKey = `${elSource}${SEP}${property}${SEP}${pseudo ?? ''}`
           if (!scrubPreviousRef.current.has(elPrevKey)) {
-            scrubPreviousRef.current.set(elPrevKey, overrideManager.get(elSource, property, pseudo) ?? '')
+            const elExisting = overrideManager.get(elSource, property, pseudo)
+            if (elExisting !== undefined) {
+              scrubPreviousRef.current.set(elPrevKey, elExisting)
+            } else {
+              const computed = getComputedStyle(el, pseudo ?? null).getPropertyValue(property).trim()
+              scrubPreviousRef.current.set(elPrevKey, computed || '')
+            }
           }
           overrideManager.set(elSource, property, value, pseudo)
         }
