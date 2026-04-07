@@ -732,9 +732,10 @@ export class EditPipeline {
     // Acquire the undo lock to avoid racing in-flight undo/redo operations.
     // Without this, a clear_server_undo arriving between an undo's file validation
     // and file write would empty the stack mid-operation.
-    this.undoLock = this.undoLock.then(() => {
-      this.undoStack?.clear()
-    })
+    this.undoLock = this.undoLock.then(
+      () => { this.undoStack?.clear() },
+      () => { this.undoStack?.clear() },
+    )
   }
 
   private isInsideProjectRoot(filePath: string): boolean {

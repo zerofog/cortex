@@ -35,7 +35,13 @@ export class CommandStack {
   undo(): EditCommand | null {
     const cmd = this.undoStack.pop()
     if (!cmd) return null
-    cmd.undo()
+    try {
+      cmd.undo()
+    } catch (err) {
+      // Restore to undoStack so the command isn't silently lost from both stacks.
+      this.undoStack.push(cmd)
+      throw err
+    }
     this.redoStack.push(cmd)
     return cmd
   }
@@ -44,7 +50,12 @@ export class CommandStack {
   redo(): EditCommand | null {
     const cmd = this.redoStack.pop()
     if (!cmd) return null
-    cmd.execute()
+    try {
+      cmd.execute()
+    } catch (err) {
+      this.redoStack.push(cmd)
+      throw err
+    }
     this.undoStack.push(cmd)
     return cmd
   }
