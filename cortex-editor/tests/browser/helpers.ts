@@ -1,7 +1,6 @@
 import { render, type ComponentChild } from 'preact'
 import { vi } from 'vitest'
-import type { CortexChannel } from '../../src/adapters/types.js'
-import type { ServerToBrowser } from '../../src/adapters/types.js'
+import type { CortexChannel, ConnectionState, ServerToBrowser } from '../../src/adapters/types.js'
 
 /**
  * Mock elementFromPoint — happy-dom returns null natively.
@@ -75,9 +74,11 @@ export function createShadowHost(opts?: { mode?: 'open' | 'closed' }): {
  */
 export function createMockChannel(): CortexChannel & {
   _simulateMessage(msg: ServerToBrowser): void
+  _simulateConnectionChange(state: ConnectionState): void
   _lastSent: unknown[]
 } {
   const handlers: Array<(msg: ServerToBrowser) => void> = []
+  const statusHandlers: Array<(state: ConnectionState) => void> = []
   const sent: unknown[] = []
 
   return {
@@ -90,7 +91,15 @@ export function createMockChannel(): CortexChannel & {
         if (idx >= 0) handlers.splice(idx, 1)
       }
     },
-    _simulateMessage(msg) { handlers.forEach(h => h(msg)) },
+    onConnectionChange(handler) {
+      statusHandlers.push(handler)
+      return () => {
+        const idx = statusHandlers.indexOf(handler)
+        if (idx >= 0) statusHandlers.splice(idx, 1)
+      }
+    },
+    _simulateMessage(msg) { [...handlers].forEach(h => h(msg)) },
+    _simulateConnectionChange(state) { [...statusHandlers].forEach(h => h(state)) },
     _lastSent: sent,
   }
 }

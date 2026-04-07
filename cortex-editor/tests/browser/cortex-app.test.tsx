@@ -668,4 +668,137 @@ describe('CortexApp', () => {
       expect(channel._lastSent).not.toContainEqual({ type: 'clear_server_undo' })
     })
   })
+
+  describe('connection status', () => {
+    it('clears reconnected timer if connection drops again', async () => {
+      vi.useFakeTimers()
+      try {
+        setup()
+        const channel = createMockChannel()
+        render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
+        await vi.advanceTimersByTimeAsync(10)
+
+        // Simulate: reconnecting → connected (starts 2s timer) → reconnecting (should cancel timer)
+        channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 1, maxRetries: 5 })
+        await vi.advanceTimersByTimeAsync(10)
+
+        channel._simulateConnectionChange({ status: 'connected' })
+        await vi.advanceTimersByTimeAsync(10)
+
+        // Connection drops again before the 2s timer fires
+        channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 2, maxRetries: 5 })
+        await vi.advanceTimersByTimeAsync(10)
+
+        // Advance past original 2s window — should NOT auto-dismiss to connected
+        // because the timer was cancelled on re-disconnect
+        await vi.advanceTimersByTimeAsync(2000)
+
+        const footer = root.querySelector('.cortex-connection-status')
+        expect(footer).not.toBeNull()
+        expect(footer!.classList.contains('cortex-connection-status--reconnecting')).toBe(true)
+        expect(footer!.textContent).toContain('Reconnecting')
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('renders reconnecting footer with retry count', async () => {
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
+      await new Promise(r => setTimeout(r, 10))
+
+      channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 2, maxRetries: 5 })
+      // 50ms to allow Preact batch render to flush under full-suite memory pressure
+      await new Promise(r => setTimeout(r, 50))
+
+      const footer = root.querySelector('.cortex-connection-status')
+      expect(footer).not.toBeNull()
+      expect(footer!.getAttribute('role')).toBe('status')
+      expect(footer!.textContent).toContain('Reconnecting')
+      expect(footer!.textContent).toContain('2/5')
+      expect(footer!.classList.contains('cortex-connection-status--reconnecting')).toBe(true)
+    })
+
+    it('renders disconnected footer with warning message', async () => {
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
+      await new Promise(r => setTimeout(r, 10))
+
+      channel._simulateConnectionChange({ status: 'disconnected' })
+      await new Promise(r => setTimeout(r, 50))
+
+      const footer = root.querySelector('.cortex-connection-status')
+      expect(footer).not.toBeNull()
+      expect(footer!.textContent).toContain('Disconnected')
+      expect(footer!.textContent).toContain('won\u2019t save')
+      expect(footer!.classList.contains('cortex-connection-status--disconnected')).toBe(true)
+    })
+
+    it('hides footer when connected (aria-live container present but empty)', async () => {
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
+      await new Promise(r => setTimeout(r, 10))
+
+      // Force Panel to mount by triggering a state change (overrideRef is set
+      // in useEffect but doesn't cause a re-render on its own)
+      channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 1, maxRetries: 5 })
+      await new Promise(r => setTimeout(r, 50))
+
+      // Transition to connected (skipping wasDisconnected flash by going
+      // reconnecting→connected without a prior disconnected state)
+      vi.useFakeTimers()
+      try {
+        channel._simulateConnectionChange({ status: 'connected' })
+        // Advance past the 2s reconnected flash timer
+        await vi.advanceTimersByTimeAsync(2100)
+
+        // Footer container exists (for aria-live) but is visually hidden with no text
+        const footer = root.querySelector('.cortex-connection-status')
+        expect(footer).not.toBeNull()
+        expect(footer!.classList.contains('cortex-connection-status--hidden')).toBe(true)
+        expect(footer!.textContent?.trim()).toBe('')
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('renders reconnected footer then auto-dismisses', async () => {
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
+      await new Promise(r => setTimeout(r, 10))
+
+      // Simulate reconnecting then connected to trigger "reconnected" flash
+      channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 1, maxRetries: 5 })
+      await new Promise(r => setTimeout(r, 10))
+
+      // Verify reconnecting footer first
+      expect(root.querySelector('.cortex-connection-status')).not.toBeNull()
+      expect(root.querySelector('.cortex-connection-status')!.textContent).toContain('Reconnecting')
+
+      vi.useFakeTimers()
+      try {
+        channel._simulateConnectionChange({ status: 'connected' })
+        await vi.advanceTimersByTimeAsync(50)
+
+        // Should show "Reconnected" footer
+        const footer = root.querySelector('.cortex-connection-status')
+        expect(footer).not.toBeNull()
+        expect(footer!.textContent).toContain('Reconnected')
+        expect(footer!.classList.contains('cortex-connection-status--reconnected')).toBe(true)
+
+        // After 2s auto-dismiss, footer should be visually hidden with no text
+        await vi.advanceTimersByTimeAsync(2000)
+        const dismissed = root.querySelector('.cortex-connection-status')
+        expect(dismissed).not.toBeNull()
+        expect(dismissed!.classList.contains('cortex-connection-status--hidden')).toBe(true)
+        expect(dismissed!.textContent?.trim()).toBe('')
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
 })
