@@ -147,9 +147,16 @@ export interface ActivityEntry {
 // Implemented in src/browser/channel.ts (Phase 2).
 // Defined here so both server and browser code share the same contract.
 
+/** Connection lifecycle state emitted by channels. */
+export type ConnectionState =
+  | { status: 'connected' }
+  | { status: 'reconnecting'; retryCount: number; maxRetries: number }
+  | { status: 'disconnected' }
+
 export interface CortexChannel {
   send(msg: BrowserToServer): void
   onMessage(handler: (msg: ServerToBrowser) => void): () => void
+  onConnectionChange(handler: (state: ConnectionState) => void): () => void
   readonly connected: boolean
   /** Clean up resources (WebSocket, timers). Optional — Vite channel has nothing to dispose. */
   dispose?: () => void

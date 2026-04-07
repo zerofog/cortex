@@ -9,6 +9,7 @@ export type {
   BrowserToServer,
   ServerToBrowser,
   ElementContext,
+  ConnectionState,
   CortexChannel,
 } from './adapters/types.js'
 

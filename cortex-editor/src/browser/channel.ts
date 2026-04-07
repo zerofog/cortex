@@ -1,4 +1,4 @@
-import type { BrowserToServer, CortexChannel, ServerToBrowser } from '../adapters/types.js'
+import type { BrowserToServer, ConnectionState, CortexChannel, ServerToBrowser } from '../adapters/types.js'
 import './types.js' // Window augmentation (__cortex_send__, __cortex_channel__, __cortex_ws_port__)
 
 /** Max queued messages during WebSocket disconnection (Fix 5) */
@@ -36,6 +36,11 @@ export function createViteChannel(): CortexChannel {
         const idx = handlers.indexOf(handler)
         if (idx >= 0) handlers.splice(idx, 1)
       }
+    },
+    onConnectionChange(_handler: (state: ConnectionState) => void): () => void {
+      // Vite HMR channels are always connected — no reconnection lifecycle.
+      // Stub satisfies the interface; real state emission added in Task 2.
+      return () => {}
     },
     get connected(): boolean {
       return typeof window.__cortex_send__ === 'function'
@@ -148,6 +153,10 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
         const idx = handlers.indexOf(handler)
         if (idx >= 0) handlers.splice(idx, 1)
       }
+    },
+    onConnectionChange(_handler: (state: ConnectionState) => void): () => void {
+      // Stub satisfies the interface; real state emission added in Task 2.
+      return () => {}
     },
     get connected(): boolean {
       return connected
