@@ -375,7 +375,11 @@ export function Panel({
       const [s, p, ps] = key.split(SEP) as [string, string, string]
       const parsedPseudo = (ps || undefined) as '::before' | '::after' | undefined
       const currentValue = overrideManager.get(s, p, parsedPseudo) ?? ''
-      if (currentValue === previousValue) continue
+      if (currentValue === previousValue) {
+        console.debug('[cortex:undo]   commitScrub SKIP no-op', { property: p, currentValue, previousValue })
+        continue
+      }
+      console.debug('[cortex:undo]   commitScrub CHANGE', { property: p, currentValue, previousValue })
       changes.push({
         source: s,
         property: p,
@@ -385,12 +389,15 @@ export function Panel({
       })
     }
 
+    console.debug('[cortex:undo] commitScrub result:', { changesCount: changes.length, stackSize: commandStack?.undoCount ?? 'null' })
+
     // Record command on stack. Overrides are already applied during scrub phase,
     // so record() stores without re-executing (avoids double-apply).
     if (changes.length > 0) {
       if (commandStack) {
         const cmd = new PropertyEditCommand({ changes, overrideManager })
         commandStack.record(cmd)
+        console.debug('[cortex:undo]   RECORDED command', { editId: cmd.editId, stackSize: commandStack.undoCount })
       } else {
         console.warn('[cortex] Edit committed without undo stack — this edit cannot be undone')
       }
@@ -450,6 +457,8 @@ export function Panel({
     }
     const pseudo = activePseudo !== 'element' ? activePseudo : undefined
 
+    console.debug('[cortex:undo] applyOverride', { property, value, commitRender, pseudo, scrubSize: scrubPreviousRef.current.size })
+
     // Capture previousValue BEFORE set() — only on first touch per property per gesture.
     // If an override already exists, use that. Otherwise capture the computed style
     // so undo can set it as a temporary override even after HMR has removed the
@@ -459,9 +468,11 @@ export function Panel({
       const existing = overrideManager.get(source, property, pseudo)
       if (existing !== undefined) {
         scrubPreviousRef.current.set(prevKey, existing)
+        console.debug('[cortex:undo]   prevValue from override:', existing)
       } else {
         const computed = getComputedStyle(element, pseudo ?? null).getPropertyValue(property).trim()
         scrubPreviousRef.current.set(prevKey, computed || '')
+        console.debug('[cortex:undo]   prevValue from computed:', computed || '(empty)')
       }
     }
 
@@ -494,9 +505,11 @@ export function Panel({
       // matches the last committed value for this property.
       const lastCommitted = lastCommitValueRef.current.get(prevKey)
       if (lastCommitted === value) {
+        console.debug('[cortex:undo]   PHANTOM SUPPRESSED (lastCommit match)', { property, value, lastCommitted })
         scrubPreviousRef.current.clear()
         return
       }
+      console.debug('[cortex:undo]   commitRender=true, calling commitScrub', { lastCommitted, value })
       commitScrub()
     }
   }, [element, overrideManager, activePseudo, sharedInfo, editScope, commitScrub])

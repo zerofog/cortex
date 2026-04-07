@@ -325,14 +325,21 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       'v': guardSingleKey(() => setCommentMode(false)),
       'c': guardSingleKey(() => setCommentMode(m => !m)),
       '$mod+z': guardModifier(() => {
+        const cortexFocused = isCortexUIFocused()
+        console.debug('[cortex:undo] Cmd+Z pressed', { cortexFocused, stackSize: commandStackRef.current?.undoCount ?? 'null' })
         // Blur focused cortex input to commit any in-progress scrub gesture.
         // The commit creates a command which we immediately undo — giving
         // instant "cancel my current edit" behavior without waiting for blur.
-        if (isCortexUIFocused()) {
+        if (cortexFocused) {
           const active = getDeepActiveElement()
-          if (active instanceof HTMLElement) active.blur()
+          if (active instanceof HTMLElement) {
+            console.debug('[cortex:undo]   blurring', active.tagName, 'stackBefore:', commandStackRef.current?.undoCount)
+            active.blur()
+            console.debug('[cortex:undo]   after blur, stackSize:', commandStackRef.current?.undoCount)
+          }
         }
         const cmd = commandStackRef.current?.undo()
+        console.debug('[cortex:undo]   undo() returned:', cmd ? `cmd(${cmd.editId})` : 'null', 'stackAfter:', commandStackRef.current?.undoCount)
         if (cmd) {
           overrideRef.current?.flush()
           channel.send({ type: 'undo' })
