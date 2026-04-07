@@ -326,28 +326,28 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       'v': guardSingleKey(() => setCommentMode(false)),
       'c': guardSingleKey(() => setCommentMode(m => !m)),
       '$mod+z': guardModifier(() => {
-        // Blur focused cortex input to commit any in-progress scrub gesture.
+        console.log('[cortex:undo] Cmd+Z', { stackSize: commandStackRef.current?.undoCount, cortexFocused: isCortexUIFocused() })
         if (isCortexUIFocused()) {
           const active = getDeepActiveElement()
           if (active instanceof HTMLElement) active.blur()
         }
-        // Flush coalesced microtask commit synchronously — the blur triggers
-        // applyOverride(true) which queues commitScrub via microtask. The
-        // microtask hasn't fired yet, so we flush it here before undo().
         flushCommitRef.current?.()
         const cmd = commandStackRef.current?.undo()
+        console.log('[cortex:undo]   undo() →', cmd ? `cmd(${cmd.changes.length} changes)` : 'null', 'stackAfter:', commandStackRef.current?.undoCount)
         if (cmd) {
           overrideRef.current?.flush()
           channel.send({ type: 'undo' })
         }
       }),
       '$mod+Shift+z': guardModifier(() => {
+        console.log('[cortex:undo] Cmd+Shift+Z', { stackSize: commandStackRef.current?.undoCount })
         if (isCortexUIFocused()) {
           const active = getDeepActiveElement()
           if (active instanceof HTMLElement) active.blur()
         }
         flushCommitRef.current?.()
         const cmd = commandStackRef.current?.redo()
+        console.log('[cortex:undo]   redo() →', cmd ? `cmd(${cmd.changes.length} changes)` : 'null', 'stackAfter:', commandStackRef.current?.undoCount)
         if (cmd) {
           overrideRef.current?.flush()
           channel.send({ type: 'redo' })
