@@ -1,0 +1,92 @@
+cortex-editor/tests/core/helpers.ts
+  97e087a5b0cbafd0 1-14
+cortex-editor/tests/browser/section-group.test.tsx
+  97e087a5b0cbafd0 26-28
+cortex-editor/tests/browser/shared-class-detector.test.ts
+  97e087a5b0cbafd0 15-17
+cortex-editor/tests/core/edit-pipeline.test.ts
+  97e087a5b0cbafd0 182,187,310,2252-2255,2304-2308,2361-2364,2690-2691
+cortex-editor/tests/browser/keyboard-shortcuts.test.tsx
+  97e087a5b0cbafd0 82-84
+cortex-editor/tests/core/transport.test.ts
+  97e087a5b0cbafd0 153-155
+cortex-editor/tests/core/property-matrix.test.ts
+  97e087a5b0cbafd0 13,87-88
+cortex-editor/tests/browser/panel.test.tsx
+  97e087a5b0cbafd0 370,372-377,393-394,484-488,576-587
+cortex-editor/tests/core/rewriter/jsx-utils.test.ts
+  97e087a5b0cbafd0 55-60,96-99
+cortex-editor/tests/core/tailwind-v4-roundtrip.test.ts
+  97e087a5b0cbafd0 15,117
+cortex-editor/tests/browser/hooks/use-snap-to-edge.test.tsx
+  97e087a5b0cbafd0 89-90,92-95,160-162,171-173
+cortex-editor/tests/browser/persistence.test.ts
+  97e087a5b0cbafd0 3,14,19,24,29,36,68
+cortex-editor/tests/adapters/vite.test.ts
+  97e087a5b0cbafd0 690-692,694-695,704-706,708-709
+cortex-editor/tests/browser/sections/layout-section.test.tsx
+  97e087a5b0cbafd0 120-124
+cortex-editor/tests/browser/sections/typography-section.test.tsx
+  97e087a5b0cbafd0 206
+cortex-editor/tests/browser/controls/color-input.test.tsx
+  97e087a5b0cbafd0 195-200
+cortex-editor/tests/core/detector.test.ts
+  97e087a5b0cbafd0 28-34
+cortex-editor/tests/browser/sections/fill-section.test.tsx
+  97e087a5b0cbafd0 45,49
+cortex-editor/tests/browser/edit-command.test.ts
+  97e087a5b0cbafd0 102-104
+cortex-editor/tests/browser/cortex-app.test.tsx
+  97e087a5b0cbafd0 191-197,206
+cortex-editor/tests/core/ai-writer.test.ts
+  97e087a5b0cbafd0 655-656,718
+cortex-editor/tests/core/tailwind-resolver.test.ts
+  97e087a5b0cbafd0 385-388,390,516-517,519,526-527,529
+cortex-editor/tests/core/hmr-verifier.test.ts
+  97e087a5b0cbafd0 105-110,112,116,124,127
+cortex-editor/tests/core/runtime-resolver.test.ts
+  97e087a5b0cbafd0 189
+cortex-editor/tests/browser/hooks/use-toolbar-dock.test.tsx
+  97e087a5b0cbafd0 91-92,114-116
+cortex-editor/tests/browser/sections/spacing-section.test.tsx
+  97e087a5b0cbafd0 49-50
+cortex-editor/tests/browser/override.test.ts
+  97e087a5b0cbafd0 115-121,124,941,944-945
+cortex-editor/tests/browser/selection-overlay.test.tsx
+  97e087a5b0cbafd0 400,402-406
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "7eb78973dcffef55ad0e9724a5247f0ef5997276",
+  "prompts": {
+    "97e087a5b0cbafd0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6135b7a3-a944-4fa7-b119-808d834bb439",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 203,
+      "total_deletions": 411,
+      "accepted_lines": 196,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/19b6fb08081c1d3b2622807f392325daebe36936dc6930b14e1d33df85223a92"
+    },
+    "f7b4ccbd9e29b555": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d6540-f5e1-7ca1-a678-df3ab98a3dd5",
+        "model": "gpt-5.4"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1176,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/c04ea8ee62f7acc228e714f54686c778816b15425ec8539f304e91485cf5cd98"
+    }
+  }
+}
