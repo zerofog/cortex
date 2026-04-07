@@ -364,18 +364,23 @@ export function Panel({
     const pseudo = activePseudo !== 'element' ? activePseudo : undefined
 
     // Build PropertyChange[] from accumulated scrub previous values.
+    // Filter out no-op changes (value === previousValue) — these occur when
+    // commitScrub fires again for the same property after the first commit
+    // already cleared scrubPreviousRef (e.g., input blur after HMR re-render).
     const changes: PropertyChange[] = []
     for (const [key, previousValue] of scrubPreviousRef.current) {
       const [s, p, ps] = key.split(SEP) as [string, string, string]
       const parsedPseudo = (ps || undefined) as '::before' | '::after' | undefined
       const currentValue = overrideManager.get(s, p, parsedPseudo) ?? ''
-      changes.push({
-        source: s,
-        property: p,
-        value: currentValue,
-        previousValue,
-        pseudo: parsedPseudo,
-      })
+      if (currentValue !== previousValue) {
+        changes.push({
+          source: s,
+          property: p,
+          value: currentValue,
+          previousValue,
+          pseudo: parsedPseudo,
+        })
+      }
     }
 
     // Record command on stack. Overrides are already applied during scrub phase,
