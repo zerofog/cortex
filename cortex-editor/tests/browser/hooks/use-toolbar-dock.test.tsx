@@ -88,11 +88,8 @@ describe('useToolbarDock', () => {
     expect(result.current.isHorizontal).toBe(false)
   })
 
-  it('defaults to bottom edge on fresh mount', () => {
-    const { result } = renderHook(() => useToolbarDock())
-    expect(result.current.edge).toBe('bottom')
-    expect(result.current.isHorizontal).toBe(true)
-  })
+  // Subsumed: 'defaults to bottom edge on fresh mount' — covered by
+  // 'defaults to bottom-center' (edge + position) and 'isHorizontal is true' tests above.
 
   describe('localStorage persistence', () => {
     beforeEach(() => localStorage.clear())
@@ -114,6 +111,9 @@ describe('useToolbarDock', () => {
       const { useToolbarDock: freshUseToolbarDock } = await import('../../../src/browser/hooks/useToolbarDock.js')
       const { result } = renderHook(() => freshUseToolbarDock())
       expect(result.current.edge).toBe('bottom')
+      // Assert position too — not just the edge string
+      expect(result.current.position.x).toBe(632) // (1440 - 176) / 2
+      expect(result.current.position.y).toBe(844) // 900 - 40 - 16
     })
 
     it('falls back to default when stored value is invalid', async () => {

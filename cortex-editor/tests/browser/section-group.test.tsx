@@ -23,11 +23,9 @@ describe('SectionGroup', () => {
     }
   })
 
-  it('renders root element with cortex-section-group class', () => {
-    setup({ label: 'Layout', groupId: 'layout' })
-    const root = container.querySelector('.cortex-section-group')
-    expect(root).not.toBeNull()
-  })
+  // Subsumed: 'renders root element with cortex-section-group class' —
+  // covered by 'uses correct BEM class names for all elements' which checks
+  // the same selector plus three additional class names.
 
   it('sets data-group attribute on root element', () => {
     setup({ label: 'Typography', groupId: 'typography' })

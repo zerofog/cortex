@@ -221,16 +221,16 @@ describe('CSS Modules edit loop integration', () => {
       // Step 2: Undo
       channel.sent.length = 0
       await pipeline.handleUndo()
-      await waitFor(() => channel.sent.some(m => m.type === 'undo_status'))
+      await waitFor(() => channel.sent.some(m => m.type === 'undo_sync_status'))
       expect(readFileSync(cssPath, 'utf-8')).toContain('padding-top: 8px')
-      expect((channel.sent.find(m => m.type === 'undo_status') as { status: string }).status).toBe('done')
+      expect((channel.sent.find(m => m.type === 'undo_sync_status') as { status: string }).status).toBe('done')
 
       // Step 3: Redo
       channel.sent.length = 0
       await pipeline.handleRedo()
-      await waitFor(() => channel.sent.some(m => m.type === 'redo_status'))
+      await waitFor(() => channel.sent.some(m => m.type === 'redo_sync_status'))
       expect(readFileSync(cssPath, 'utf-8')).toContain('padding-top: 16px')
-      expect((channel.sent.find(m => m.type === 'redo_status') as { status: string }).status).toBe('done')
+      expect((channel.sent.find(m => m.type === 'redo_sync_status') as { status: string }).status).toBe('done')
 
       cssModulesRewriter.dispose()
       verifier.dispose()
@@ -285,8 +285,8 @@ describe('CSS Modules edit loop integration', () => {
       // Undo should detect stale content
       channel.sent.length = 0
       await pipeline.handleUndo()
-      await waitFor(() => channel.sent.some(m => m.type === 'undo_status'))
-      const undoMsg = channel.sent.find(m => m.type === 'undo_status') as { status: string; reason?: string }
+      await waitFor(() => channel.sent.some(m => m.type === 'undo_sync_status'))
+      const undoMsg = channel.sent.find(m => m.type === 'undo_sync_status') as { status: string; reason?: string }
       expect(undoMsg.status).toBe('failed')
       expect(undoMsg.reason).toContain('modified outside cortex')
 

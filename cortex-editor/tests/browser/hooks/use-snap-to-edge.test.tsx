@@ -86,10 +86,13 @@ describe('useSnapToEdge utilities', () => {
 
   describe('getPanelBounds', () => {
     it('returns correct bounds for standard viewport', () => {
+      // Call real function — don't recompute expected from constants (shadow copy).
+      // At innerWidth=1024: availableX=704, minX=min(12,704)=12, maxX=max(12,692)=692
       const bounds = getPanelBounds()
-      expect(bounds.minX).toBe(PANEL_MARGIN)
-      expect(bounds.maxX).toBe(1024 - PANEL_WIDTH - PANEL_MARGIN)
-      expect(bounds.minY).toBe(PANEL_MARGIN)
+      expect(bounds.minX).toBe(12)
+      expect(bounds.maxX).toBe(692)
+      expect(bounds.minY).toBe(12)
+      expect(bounds.maxX).toBeGreaterThan(bounds.minX)
     })
 
     it('returns zero bounds when panel larger than viewport', () => {
@@ -154,7 +157,9 @@ describe('useSnapToEdge utilities', () => {
       vi.resetModules()
       const { getInitialPosition: freshGetInitialPosition } = await import('../../../src/browser/hooks/useSnapToEdge.js')
       const pos = freshGetInitialPosition()
-      expect(pos.x).toBeGreaterThan(0)
+      // Default: top-right corner = (innerWidth - PANEL_WIDTH - PANEL_MARGIN, PANEL_MARGIN)
+      expect(pos.x).toBe(692) // 1024 - 320 - 12
+      expect(pos.y).toBe(12)
     })
 
     it('falls back to default when stored value is invalid', async () => {
@@ -163,9 +168,9 @@ describe('useSnapToEdge utilities', () => {
       localStorage.setItem(`cortex:${PORT}:panel-position`, JSON.stringify({ x: 'bad', y: 200 }))
       const { getInitialPosition: freshGetInitialPosition } = await import('../../../src/browser/hooks/useSnapToEdge.js')
       const pos = freshGetInitialPosition()
-      // Should be default top-right, not the invalid stored value
-      expect(typeof pos.x).toBe('number')
-      expect(Number.isFinite(pos.x)).toBe(true)
+      // Invalid value rejected → same default as empty localStorage
+      expect(pos.x).toBe(692)
+      expect(pos.y).toBe(12)
     })
   })
 

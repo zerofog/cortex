@@ -16,7 +16,6 @@ const PENDING_EDIT_TTL_MS = 35_000
  * During rebuild(), both maps merge per-source. User edits win over state overrides.
  */
 export class CSSOverrideManager {
-  private static readonly MAX_UNDO_DEPTH = 50
   private styleEl: HTMLStyleElement
   private overrides = new Map<string, Map<string, string>>()
   private stateOverrides = new Map<string, Map<string, string>>()
@@ -217,7 +216,7 @@ export class CSSOverrideManager {
   private activeStyleObservers = new Map<string, { observer: MutationObserver; timeout: ReturnType<typeof setTimeout> }>()
   private pendingClearAll = false
   /** EditIds whose override removal should use double-rAF deferral (AI/deferred edits).
-   *  Populated by commitEdit(true). Checked at drain time in onHMRApplied and at
+   *  Populated by markDeferred(editId). Checked at drain time in onHMRApplied and at
    *  late-arrival time in handleHMRVerified. */
   private deferredEditIds = new Set<string>()
   /** True when onHMRApplied fired but pendingRemovals was empty (nothing to drain).
@@ -289,6 +288,78 @@ export class CSSOverrideManager {
       }
     }
     this.hmrAppliedPending = true
+
+    // Sweep stale overrides: remove any where value matches computed style.
+    // This prevents accumulation of no-op !important rules after undo + HMR cycles.
+    this.sweepStaleOverrides()
+  }
+
+  /** Remove overrides where the value matches the element's computed style (no-op rules).
+   *  Called after HMR applies new styles — catches stale overrides from undo cycles.
+   *
+   *  Temporarily detaches the override <style> element so getComputedStyle reads
+   *  the underlying stylesheet values, not the override's own !important rules.
+   *  Without this, every active override would self-match and be incorrectly swept. */
+  private sweepStaleOverrides(): void {
+    // Detach override <style> so computed styles reflect underlying CSS only
+    const parent = this.styleEl.parentNode
+    const nextSibling = this.styleEl.nextSibling
+    if (parent) parent.removeChild(this.styleEl)
+
+    let changed = false
+    try {
+      for (const [compositeKey, props] of this.overrides) {
+        const pseudoSuffix = compositeKey.endsWith('::before') ? '::before'
+                           : compositeKey.endsWith('::after') ? '::after'
+                           : ''
+        const rawSource = pseudoSuffix ? compositeKey.slice(0, -pseudoSuffix.length) : compositeKey
+        const el = document.querySelector(`[data-cortex-source="${CSS.escape(rawSource)}"]`)
+        if (!el) continue
+        let computed: CSSStyleDeclaration
+        try {
+          computed = getComputedStyle(el, pseudoSuffix || undefined)
+        } catch (err) {
+          console.warn('[cortex] sweepStaleOverrides: getComputedStyle failed for', rawSource, err)
+          continue
+        }
+        const staleProps: string[] = []
+        for (const [prop, val] of props) {
+          try {
+            const computedVal = computed.getPropertyValue(prop).trim()
+            if (computedVal && computedVal === val.trim()) {
+              staleProps.push(prop)
+            }
+          } catch (err) {
+            console.warn('[cortex] sweepStaleOverrides: getPropertyValue failed for', prop, err)
+          }
+        }
+        for (const prop of staleProps) {
+          props.delete(prop)
+          changed = true
+        }
+        if (props.size === 0) this.overrides.delete(compositeKey)
+      }
+    } finally {
+      // Re-attach override <style> in its original position.
+      // Guard against nextSibling removal during sweep (e.g., framework cleanup during HMR).
+      if (parent) {
+        try {
+          if (nextSibling && nextSibling.parentNode === parent) {
+            parent.insertBefore(this.styleEl, nextSibling)
+          } else {
+            parent.appendChild(this.styleEl)
+          }
+        } catch {
+          // parent itself may have been removed — fall back to document.head
+          document.head.appendChild(this.styleEl)
+        }
+      }
+    }
+
+    if (changed) {
+      this.cancelPendingRebuild()
+      this.rebuild()
+    }
   }
 
   private evictStalePendingEdits(): void {
@@ -300,85 +371,21 @@ export class CSSOverrideManager {
     }
   }
 
-  private overrideUndoStack: Map<string, Map<string, string>>[] = []
-  private overrideRedoStack: Map<string, Map<string, string>>[] = []
-
-  private preEditSnapshot: Map<string, Map<string, string>> | null = null
-
-  /** Mark the start of a new edit gesture (scrub or direct commit).
-   *  Takes a snapshot of the current state BEFORE any set() calls for this edit. */
-  beginEdit(): void {
-    if (!this.preEditSnapshot) {
-      this.preEditSnapshot = this.cloneOverrides()
-    }
+  /** Mark a specific edit ID as deferred so override removal uses double-rAF.
+   *  Called from CortexApp when edit_status reports strategy === 'deferred'. */
+  markDeferred(editId: string): void {
+    this.deferredEditIds.add(editId)
   }
 
-  /** Cancel the current edit — clears pre-edit snapshot without creating an undo entry.
-   *  Called on edit_status:failed/cancelled. */
-  cancelEdit(): void {
-    this.preEditSnapshot = null
-  }
-
-  /** Commit the current edit — pushes the pre-edit snapshot to the undo stack.
-   *  Pass `deferred: true` for AI edits — marks editIds so removal uses double-rAF.
-   *  Checks both pendingEdits (not yet verified) and pendingRemovals (already verified
-   *  but not yet drained) to handle all message orderings between commitEdit and
-   *  handleHMRVerified. */
-  commitEdit(deferred?: boolean): void {
-    if (deferred) {
-      for (const editId of this.pendingEdits.keys()) {
-        this.deferredEditIds.add(editId)
-      }
-      for (const r of this.pendingRemovals) {
-        this.deferredEditIds.add(r.editId)
-      }
-    }
-    if (this.preEditSnapshot) {
-      this.overrideUndoStack.push(this.preEditSnapshot)
-      this.preEditSnapshot = null
-      this.overrideRedoStack.length = 0
-      // Evict oldest entries beyond max depth (matches server's UndoStack.maxDepth)
-      while (this.overrideUndoStack.length > CSSOverrideManager.MAX_UNDO_DEPTH) {
-        this.overrideUndoStack.shift()
-      }
-    }
-  }
-
-  /** Undo: restore previous override state (one edit back). */
-  undoOverride(): void {
-    if (this.overrideUndoStack.length === 0) return
-    this.overrideRedoStack.push(this.cloneOverrides())
-    this.overrides = this.overrideUndoStack.pop()!
-    this.pendingEdits.clear()
-    this.pendingRemovals.length = 0
-    this.disconnectStyleObservers()
-    this.cancelPendingRebuild()
-    this.rebuild()
-  }
-
-  /** Redo: restore next override state (one edit forward). */
-  redoOverride(): void {
-    if (this.overrideRedoStack.length === 0) return
-    this.overrideUndoStack.push(this.cloneOverrides())
-    this.overrides = this.overrideRedoStack.pop()!
-    this.pendingEdits.clear()
-    this.pendingRemovals.length = 0
-    this.disconnectStyleObservers()
-    this.cancelPendingRebuild()
-    this.rebuild()
-  }
-
-  private cloneOverrides(): Map<string, Map<string, string>> {
-    const clone = new Map<string, Map<string, string>>()
-    for (const [k, v] of this.overrides) clone.set(k, new Map(v))
-    return clone
+  /** Read the current override value for a source+property. Returns undefined if no override exists.
+   *  Used by command creation to capture previousValue before applying a new edit. */
+  get(source: string, property: string, pseudo?: '::before' | '::after'): string | undefined {
+    const key = `${source}${pseudo ?? ''}`
+    return this.overrides.get(key)?.get(property)
   }
 
   /** Clear all overrides (e.g. on SPA navigation) */
   clearAll(): void {
-    this.preEditSnapshot = null
-    this.overrideUndoStack.length = 0
-    this.overrideRedoStack.length = 0
     this.pendingRemovals.length = 0
     this.deferredEditIds.clear()
     this.disconnectStyleObservers()
@@ -392,9 +399,6 @@ export class CSSOverrideManager {
 
   /** Remove the <style> element from the DOM */
   dispose(): void {
-    this.preEditSnapshot = null
-    this.overrideUndoStack.length = 0
-    this.overrideRedoStack.length = 0
     this.pendingRemovals.length = 0
     this.deferredEditIds.clear()
     this.disconnectStyleObservers()

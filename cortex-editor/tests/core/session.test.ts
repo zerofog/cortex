@@ -41,12 +41,10 @@ describe('CortexSession', () => {
     })
 
     it('initializes annotations store', () => {
-      expect(session.annotations).toBeDefined()
       expect(session.annotations.getAll()).toEqual([])
     })
 
     it('initializes activity log', () => {
-      expect(session.activityLog).toBeDefined()
       expect(session.activityLog.count).toBe(0)
     })
 

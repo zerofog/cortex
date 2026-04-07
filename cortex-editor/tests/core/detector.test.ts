@@ -25,26 +25,13 @@ function writeFixture(relativePath: string, content: string): void {
 
 describe('StyleDetector', () => {
   describe('Tailwind detection', () => {
-    it('detects tailwind.config.js in project root', async () => {
-      writeFixture('tailwind.config.js', 'module.exports = {}')
-      const result = await detector.detect(tmpDir)
-      expect(result.hasTailwind).toBe(true)
-    })
-
-    it('detects tailwind.config.ts', async () => {
-      writeFixture('tailwind.config.ts', 'export default {}')
-      const result = await detector.detect(tmpDir)
-      expect(result.hasTailwind).toBe(true)
-    })
-
-    it('detects tailwind.config.mjs', async () => {
-      writeFixture('tailwind.config.mjs', 'export default {}')
-      const result = await detector.detect(tmpDir)
-      expect(result.hasTailwind).toBe(true)
-    })
-
-    it('detects tailwind.config.cjs', async () => {
-      writeFixture('tailwind.config.cjs', 'module.exports = {}')
+    it.each([
+      ['tailwind.config.js', 'module.exports = {}'],
+      ['tailwind.config.ts', 'export default {}'],
+      ['tailwind.config.mjs', 'export default {}'],
+      ['tailwind.config.cjs', 'module.exports = {}'],
+    ])('detects %s in project root', async (filename, content) => {
+      writeFixture(filename, content)
       const result = await detector.detect(tmpDir)
       expect(result.hasTailwind).toBe(true)
     })
