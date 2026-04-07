@@ -751,5 +751,82 @@ describe('CortexApp', () => {
         vi.useRealTimers()
       }
     })
+
+    it('renders reconnecting footer with retry count', async () => {
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
+      await new Promise(r => setTimeout(r, 10))
+
+      channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 2, maxRetries: 5 })
+      await new Promise(r => setTimeout(r, 10))
+
+      const footer = root.querySelector('.cortex-connection-status')
+      expect(footer).not.toBeNull()
+      expect(footer!.getAttribute('role')).toBe('status')
+      expect(footer!.textContent).toContain('Reconnecting')
+      expect(footer!.textContent).toContain('2/5')
+      expect(footer!.classList.contains('cortex-connection-status--reconnecting')).toBe(true)
+    })
+
+    it('renders disconnected footer with warning message', async () => {
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
+      await new Promise(r => setTimeout(r, 10))
+
+      channel._simulateConnectionChange({ status: 'disconnected' })
+      await new Promise(r => setTimeout(r, 10))
+
+      const footer = root.querySelector('.cortex-connection-status')
+      expect(footer).not.toBeNull()
+      expect(footer!.textContent).toContain('Disconnected')
+      expect(footer!.textContent).toContain('won\u2019t save')
+      expect(footer!.classList.contains('cortex-connection-status--disconnected')).toBe(true)
+    })
+
+    it('does not render footer when connected', async () => {
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
+      await new Promise(r => setTimeout(r, 10))
+
+      // Default state is connected — no footer
+      const footer = root.querySelector('.cortex-connection-status')
+      expect(footer).toBeNull()
+    })
+
+    it('renders reconnected footer then auto-dismisses', async () => {
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
+      await new Promise(r => setTimeout(r, 10))
+
+      // Simulate reconnecting then connected to trigger "reconnected" flash
+      channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 1, maxRetries: 5 })
+      await new Promise(r => setTimeout(r, 10))
+
+      // Verify reconnecting footer first
+      expect(root.querySelector('.cortex-connection-status')).not.toBeNull()
+      expect(root.querySelector('.cortex-connection-status')!.textContent).toContain('Reconnecting')
+
+      vi.useFakeTimers()
+      try {
+        channel._simulateConnectionChange({ status: 'connected' })
+        await vi.advanceTimersByTimeAsync(50)
+
+        // Should show "Reconnected" footer
+        const footer = root.querySelector('.cortex-connection-status')
+        expect(footer).not.toBeNull()
+        expect(footer!.textContent).toContain('Reconnected')
+        expect(footer!.classList.contains('cortex-connection-status--reconnected')).toBe(true)
+
+        // After 2s auto-dismiss, footer should be gone
+        await vi.advanceTimersByTimeAsync(2000)
+        expect(root.querySelector('.cortex-connection-status')).toBeNull()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
   })
 })

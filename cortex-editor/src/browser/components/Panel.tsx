@@ -689,7 +689,6 @@ export function Panel({
           onPointerCancel={panelPointerCancel}
           hoverEnabled={hoverEnabled}
           onToggleHover={onToggleHover}
-          connectionStatus={connectionStatus}
         />
         <div class="cortex-panel__body">
           <div class="cortex-panel__empty">
@@ -698,6 +697,22 @@ export function Panel({
             <p class="cortex-panel__empty-shortcut">{formatShortcut('$mod+Shift+Period')} to toggle</p>
           </div>
         </div>
+        {connectionStatus && connectionStatus.status !== 'connected' && (
+          <div
+            class={`cortex-connection-status cortex-connection-status--${connectionStatus.status}`}
+            role="status"
+            aria-live="polite"
+          >
+            <span class="cortex-connection-status__dot" aria-hidden="true" />
+            <span class="cortex-connection-status__text">
+              {connectionStatus.status === 'reconnecting'
+                ? `Reconnecting\u2026 (${connectionStatus.retryCount}/${connectionStatus.maxRetries})`
+                : connectionStatus.status === 'disconnected'
+                  ? 'Disconnected \u2014 edits won\u2019t save to files'
+                  : 'Reconnected'}
+            </span>
+          </div>
+        )}
       </div>
     )
   }
@@ -745,7 +760,6 @@ export function Panel({
         ancestorLine={ancestor?.source.line ?? null}
         hoverEnabled={hoverEnabled}
         onToggleHover={onToggleHover}
-        connectionStatus={connectionStatus}
       />
       {sharedInfo && (
         <div class="cortex-panel__scope">
@@ -886,6 +900,22 @@ export function Panel({
           />
         )}
       </div>
+      {connectionStatus && connectionStatus.status !== 'connected' && (
+        <div
+          class={`cortex-connection-status cortex-connection-status--${connectionStatus.status}`}
+          role="status"
+          aria-live="polite"
+        >
+          <span class="cortex-connection-status__dot" aria-hidden="true" />
+          <span class="cortex-connection-status__text">
+            {connectionStatus.status === 'reconnecting'
+              ? `Reconnecting\u2026 (${connectionStatus.retryCount}/${connectionStatus.maxRetries})`
+              : connectionStatus.status === 'disconnected'
+                ? 'Disconnected \u2014 edits won\u2019t save to files'
+                : 'Reconnected'}
+          </span>
+        </div>
+      )}
     </div>
   )
 }
