@@ -3,6 +3,7 @@ import { useState } from 'preact/hooks'
 import { SegmentedControl } from './controls/SegmentedControl.js'
 import { getThemePreference, setThemePreference, type ThemePreference } from '../theme.js'
 import { encodeFilePath } from '../label.js'
+import type { ConnectionDisplay } from './CortexApp.js'
 
 const THEME_OPTIONS = [
   {
@@ -60,6 +61,7 @@ export interface PanelHeaderProps {
   ancestorLine?: string | null
   hoverEnabled?: boolean
   onToggleHover?: () => void
+  connectionStatus?: ConnectionDisplay
 }
 
 export function PanelHeader({
@@ -86,6 +88,7 @@ export function PanelHeader({
   ancestorLine,
   hoverEnabled = true,
   onToggleHover,
+  connectionStatus,
 }: PanelHeaderProps): JSX.Element {
   // When library with ancestor source, show ancestor source instead of element source
   const displaySource = isLibrary && ancestorSource ? ancestorSource : sourceFile

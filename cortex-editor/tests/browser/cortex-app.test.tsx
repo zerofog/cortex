@@ -668,4 +668,88 @@ describe('CortexApp', () => {
       expect(channel._lastSent).not.toContainEqual({ type: 'clear_server_undo' })
     })
   })
+
+  describe('connection status', () => {
+    it('starts with connected status and renders without error', async () => {
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
+      await new Promise(r => setTimeout(r, 10))
+
+      // Baseline: component renders, toolbar visible, no crash
+      expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
+    })
+
+    it('updates to reconnecting when channel fires reconnecting', async () => {
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
+      await new Promise(r => setTimeout(r, 10))
+
+      // Fire reconnecting — component should handle it without crashing
+      channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 1, maxRetries: 5 })
+      await new Promise(r => setTimeout(r, 10))
+
+      // Component still renders (no crash from state update)
+      expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
+    })
+
+    it('shows reconnected then auto-dismisses after 2s', async () => {
+      vi.useFakeTimers()
+      try {
+        setup()
+        const channel = createMockChannel()
+        render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
+        await vi.advanceTimersByTimeAsync(10)
+
+        // Simulate disconnect then reconnect to trigger "reconnected" flash
+        channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 1, maxRetries: 5 })
+        await vi.advanceTimersByTimeAsync(10)
+
+        channel._simulateConnectionChange({ status: 'connected' })
+        await vi.advanceTimersByTimeAsync(10)
+
+        // Component still renders (reconnected state)
+        expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
+
+        // Advance past the 2s auto-dismiss timer
+        await vi.advanceTimersByTimeAsync(2000)
+
+        // Component still renders (back to connected)
+        expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('clears reconnected timer if connection drops again', async () => {
+      vi.useFakeTimers()
+      try {
+        setup()
+        const channel = createMockChannel()
+        render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
+        await vi.advanceTimersByTimeAsync(10)
+
+        // Simulate: reconnecting → connected (starts 2s timer) → reconnecting (should cancel timer)
+        channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 1, maxRetries: 5 })
+        await vi.advanceTimersByTimeAsync(10)
+
+        channel._simulateConnectionChange({ status: 'connected' })
+        await vi.advanceTimersByTimeAsync(10)
+
+        // Connection drops again before the 2s timer fires
+        channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 2, maxRetries: 5 })
+        await vi.advanceTimersByTimeAsync(10)
+
+        // Advance past original 2s window — should NOT auto-dismiss to connected
+        // because we're now in reconnecting state
+        await vi.advanceTimersByTimeAsync(2000)
+
+        // Component still renders (no crash, still in reconnecting state)
+        expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
 })

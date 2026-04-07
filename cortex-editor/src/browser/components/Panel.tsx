@@ -33,6 +33,7 @@ import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
 import { CollapsibleSection } from './CollapsibleSection.js'
 import type { CortexChannel } from '../../adapters/types.js'
+import type { ConnectionDisplay } from './CortexApp.js'
 
 // ── Blast-radius highlight utilities ──────────────────────────────────
 // These operate on the REAL page DOM (outside Shadow DOM) via a data attribute.
@@ -122,6 +123,7 @@ export interface PanelProps {
   undoInProgressRef?: { current: boolean }
   channel?: CortexChannel
   agentConnected?: boolean
+  connectionStatus?: ConnectionDisplay
 }
 
 function parseSpacingValues(cs: CSSStyleDeclaration) {
@@ -168,6 +170,7 @@ export function Panel({
   undoInProgressRef,
   channel,
   agentConnected,
+  connectionStatus,
 }: PanelProps): JSX.Element | null {
   // ALL hooks first — no conditional returns before hooks
   const [contentKey, setContentKey] = useState(0)
@@ -686,6 +689,7 @@ export function Panel({
           onPointerCancel={panelPointerCancel}
           hoverEnabled={hoverEnabled}
           onToggleHover={onToggleHover}
+          connectionStatus={connectionStatus}
         />
         <div class="cortex-panel__body">
           <div class="cortex-panel__empty">
@@ -741,6 +745,7 @@ export function Panel({
         ancestorLine={ancestor?.source.line ?? null}
         hoverEnabled={hoverEnabled}
         onToggleHover={onToggleHover}
+        connectionStatus={connectionStatus}
       />
       {sharedInfo && (
         <div class="cortex-panel__scope">

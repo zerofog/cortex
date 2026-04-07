@@ -22,6 +22,13 @@ import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
 import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
 
+/** UI display state for connection indicator. Extends ConnectionState with transient 'reconnected'. */
+export type ConnectionDisplay =
+  | { status: 'connected' }
+  | { status: 'reconnecting'; retryCount: number; maxRetries: number }
+  | { status: 'disconnected' }
+  | { status: 'reconnected' }
+
 const MAX_ACTIVITY_ENTRIES = 200
 
 export interface CortexAppProps {
@@ -56,6 +63,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const undoGenRef = useRef(0)
   const [annotations, setAnnotations] = useState<Map<string, Annotation>>(new Map())
   const [agentConnected, setAgentConnected] = useState(false)
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionDisplay>({ status: 'connected' })
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
   const [commentMode, setCommentMode] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
@@ -165,8 +173,37 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       }
     })
 
+    // Track whether we were disconnected for the "reconnected" flash
+    let wasDisconnected = false
+    let reconnectedTimer: ReturnType<typeof setTimeout> | undefined
+
+    const unsubStatus = channel.onConnectionChange((state) => {
+      if (state.status === 'connected' && wasDisconnected) {
+        // Transition from disconnected/reconnecting → connected = "reconnected" flash
+        setConnectionStatus({ status: 'reconnected' })
+        if (reconnectedTimer !== undefined) clearTimeout(reconnectedTimer)
+        reconnectedTimer = setTimeout(() => {
+          setConnectionStatus({ status: 'connected' })
+          reconnectedTimer = undefined
+        }, 2000)
+        wasDisconnected = false
+      } else {
+        if (state.status === 'reconnecting' || state.status === 'disconnected') {
+          wasDisconnected = true
+        }
+        setConnectionStatus(state)
+        // If we were showing "reconnected" but connection drops again, cancel the auto-dismiss
+        if (reconnectedTimer !== undefined) {
+          clearTimeout(reconnectedTimer)
+          reconnectedTimer = undefined
+        }
+      }
+    })
+
     return () => {
       unsubscribe()
+      unsubStatus()
+      if (reconnectedTimer !== undefined) clearTimeout(reconnectedTimer)
       selectionHandle.cleanup()
       selectionRef.current = null
       overrideManager.dispose()
@@ -434,6 +471,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           panelPointerCancel={panelPointerCancel}
           channel={channel}
           agentConnected={agentConnected}
+          connectionStatus={connectionStatus}
         />
       )}
       <Toolbar
