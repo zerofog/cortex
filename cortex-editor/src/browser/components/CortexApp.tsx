@@ -325,6 +325,13 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       'v': guardSingleKey(() => setCommentMode(false)),
       'c': guardSingleKey(() => setCommentMode(m => !m)),
       '$mod+z': guardModifier(() => {
+        // Blur focused cortex input to commit any in-progress scrub gesture.
+        // The commit creates a command which we immediately undo — giving
+        // instant "cancel my current edit" behavior without waiting for blur.
+        if (isCortexUIFocused()) {
+          const active = getDeepActiveElement()
+          if (active instanceof HTMLElement) active.blur()
+        }
         const cmd = commandStackRef.current?.undo()
         if (cmd) {
           overrideRef.current?.flush()
@@ -332,6 +339,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         }
       }),
       '$mod+Shift+z': guardModifier(() => {
+        if (isCortexUIFocused()) {
+          const active = getDeepActiveElement()
+          if (active instanceof HTMLElement) active.blur()
+        }
         const cmd = commandStackRef.current?.redo()
         if (cmd) {
           overrideRef.current?.flush()
