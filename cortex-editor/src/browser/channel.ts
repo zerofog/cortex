@@ -38,8 +38,7 @@ export function createViteChannel(): CortexChannel {
       }
     },
     onConnectionChange(_handler: (state: ConnectionState) => void): () => void {
-      // Vite HMR channels are always connected — no reconnection lifecycle.
-      // Stub satisfies the interface; real state emission added in Task 2.
+      // Vite HMR manages its own reconnection and overlay — no lifecycle events to emit.
       return () => {}
     },
     get connected(): boolean {

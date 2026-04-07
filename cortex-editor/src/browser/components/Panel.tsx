@@ -44,7 +44,7 @@ function connectionStatusText(status: ConnectionDisplay): string {
       return 'Disconnected \u2014 edits won\u2019t save to files'
     case 'reconnected':
       return 'Reconnected'
-    default:
+    case 'connected':
       return ''
   }
 }

@@ -154,11 +154,7 @@ export type ConnectionState =
   | { status: 'disconnected' }
 
 /** UI display state for connection indicator. Extends ConnectionState with transient 'reconnected'. */
-export type ConnectionDisplay =
-  | { status: 'connected' }
-  | { status: 'reconnecting'; retryCount: number; maxRetries: number }
-  | { status: 'disconnected' }
-  | { status: 'reconnected' }
+export type ConnectionDisplay = ConnectionState | { status: 'reconnected' }
 
 export interface CortexChannel {
   send(msg: BrowserToServer): void
