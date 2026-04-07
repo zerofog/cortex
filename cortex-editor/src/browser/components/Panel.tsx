@@ -364,23 +364,28 @@ export function Panel({
     const pseudo = activePseudo !== 'element' ? activePseudo : undefined
 
     // Build PropertyChange[] from accumulated scrub previous values.
-    // Filter out no-op changes (value === previousValue) — these occur when
-    // commitScrub fires again for the same property after the first commit
-    // already cleared scrubPreviousRef (e.g., input blur after HMR re-render).
+    // Filter no-op changes via computed style comparison — handles CSS
+    // normalization (e.g., override 'red' vs computed 'rgb(255, 0, 0)').
+    // String comparison alone misses these because the formats differ.
     const changes: PropertyChange[] = []
     for (const [key, previousValue] of scrubPreviousRef.current) {
       const [s, p, ps] = key.split(SEP) as [string, string, string]
       const parsedPseudo = (ps || undefined) as '::before' | '::after' | undefined
       const currentValue = overrideManager.get(s, p, parsedPseudo) ?? ''
-      if (currentValue !== previousValue) {
-        changes.push({
-          source: s,
-          property: p,
-          value: currentValue,
-          previousValue,
-          pseudo: parsedPseudo,
-        })
+      if (currentValue === previousValue) continue
+      // Computed style normalizes both override and previousValue to the same
+      // format — if they match, the override is semantically a no-op.
+      if (s === source && element) {
+        const computedNow = getComputedStyle(element, parsedPseudo ?? null).getPropertyValue(p).trim()
+        if (computedNow === previousValue) continue
       }
+      changes.push({
+        source: s,
+        property: p,
+        value: currentValue,
+        previousValue,
+        pseudo: parsedPseudo,
+      })
     }
 
     // Record command on stack. Overrides are already applied during scrub phase,
