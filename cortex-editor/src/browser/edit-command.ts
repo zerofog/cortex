@@ -41,21 +41,16 @@ export class PropertyEditCommand implements EditCommand {
   }
 
   execute(): void {
-    console.log('[cortex:undo] cmd.execute()', { editId: this.editId, changes: this.changes.length })
     for (const c of this.changes) {
-      console.log('[cortex:undo]   execute set', { source: c.source.slice(-20), property: c.property, value: c.value })
       this.overrideManager.set(c.source, c.property, c.value, c.pseudo)
     }
   }
 
   undo(): void {
-    console.log('[cortex:undo] cmd.undo()', { editId: this.editId, changes: this.changes.length })
     for (const c of this.changes) {
       if (c.previousValue === '') {
-        console.log('[cortex:undo]   undo remove', { source: c.source.slice(-20), property: c.property })
         this.overrideManager.remove(c.source, c.property, c.pseudo)
       } else {
-        console.log('[cortex:undo]   undo set', { source: c.source.slice(-20), property: c.property, previousValue: c.previousValue })
         this.overrideManager.set(c.source, c.property, c.previousValue, c.pseudo)
       }
     }

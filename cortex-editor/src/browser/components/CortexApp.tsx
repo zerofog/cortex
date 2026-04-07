@@ -49,8 +49,11 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const commandStackRef = useRef<CommandStack | null>(null)
   const flushCommitRef = useRef<(() => void) | null>(null)
   // Suppresses phantom re-edits from Panel re-renders during undo/redo.
-  // Set true before undo, cleared after next rAF when re-renders settle.
+  // Set true before undo, cleared via nested setTimeout after Preact re-renders settle.
+  // undoGenRef prevents rapid Cmd+Z from clearing the flag too early: only the
+  // timeout from the latest undo/redo clears it (earlier ones see a stale generation).
   const undoInProgressRef = useRef(false)
+  const undoGenRef = useRef(0)
   const [annotations, setAnnotations] = useState<Map<string, Annotation>>(new Map())
   const [agentConnected, setAgentConnected] = useState(false)
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
@@ -122,7 +125,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         if (msg.status === 'done') {
           setActivityCount(c => c + 1)
           if (msg.strategy === 'deferred') {
-            overrideRef.current?.markDeferred(true)
+            overrideRef.current?.markDeferred(msg.editId)
           }
         }
         // Note: commitEdit/cancelEdit removed — CommandStack owns undo/redo state
@@ -130,11 +133,13 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (msg.type === 'hmr_verified') {
         overrideRef.current?.handleHMRVerified(msg.editId, msg.match, msg.kind)
       }
-      // Undo/redo sync failure: reset server stack for real failures (stale file,
-      // write error). empty_stack is expected — browser stack leads, server may be shorter.
+      // Undo/redo sync failure: reset server stack only for stack-invalidating
+      // failures (stale file, write error). empty_stack is expected (browser stack
+      // leads, server may be shorter). Unknown/missing reason_codes may be transient
+      // adapter errors — don't clear server state for those.
       if ((msg.type === 'undo_sync_status' || msg.type === 'redo_sync_status') && msg.status === 'failed') {
         console.warn(`[cortex] Server ${msg.type === 'undo_sync_status' ? 'undo' : 'redo'} sync failed:`, msg.reason)
-        if (msg.reason_code !== 'empty_stack') {
+        if (msg.reason_code === 'stale' || msg.reason_code === 'write_failed') {
           channel.send({ type: 'clear_server_undo' })
         }
       }
@@ -329,38 +334,50 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       'v': guardSingleKey(() => setCommentMode(false)),
       'c': guardSingleKey(() => setCommentMode(m => !m)),
       '$mod+z': guardModifier(() => {
-        console.log('[cortex:undo] Cmd+Z', { stackSize: commandStackRef.current?.undoCount, cortexFocused: isCortexUIFocused() })
         if (isCortexUIFocused()) {
-          const active = getDeepActiveElement()
-          if (active instanceof HTMLElement) active.blur()
+          const activeEl = getDeepActiveElement()
+          if (activeEl instanceof HTMLElement) activeEl.blur()
         }
         flushCommitRef.current?.()
         undoInProgressRef.current = true
         // Preact batches re-renders via setTimeout (macrotask), which fires AFTER
         // requestAnimationFrame. Use nested setTimeout so the flag outlives the
         // Preact re-render that triggers phantom onChange from sections.
-        setTimeout(() => setTimeout(() => { undoInProgressRef.current = false }))
-        const cmd = commandStackRef.current?.undo()
-        console.log('[cortex:undo]   undo() →', cmd ? `cmd(${cmd.changes.length} changes)` : 'null', 'stackAfter:', commandStackRef.current?.undoCount)
-        if (cmd) {
-          overrideRef.current?.flush()
-          channel.send({ type: 'undo' })
+        // Generation counter ensures rapid Cmd+Z doesn't clear the flag too early:
+        // only the timeout from the latest undo/redo actually clears it.
+        const gen = ++undoGenRef.current
+        setTimeout(() => setTimeout(() => {
+          if (undoGenRef.current === gen) undoInProgressRef.current = false
+        }))
+        try {
+          const cmd = commandStackRef.current?.undo()
+          if (cmd) {
+            overrideRef.current?.flush()
+            channel.send({ type: 'undo' })
+          }
+        } catch (err) {
+          console.error('[cortex] Undo failed:', err)
         }
       }),
       '$mod+Shift+z': guardModifier(() => {
-        console.log('[cortex:undo] Cmd+Shift+Z', { stackSize: commandStackRef.current?.undoCount })
         if (isCortexUIFocused()) {
-          const active = getDeepActiveElement()
-          if (active instanceof HTMLElement) active.blur()
+          const activeEl = getDeepActiveElement()
+          if (activeEl instanceof HTMLElement) activeEl.blur()
         }
         flushCommitRef.current?.()
         undoInProgressRef.current = true
-        setTimeout(() => setTimeout(() => { undoInProgressRef.current = false }))
-        const cmd = commandStackRef.current?.redo()
-        console.log('[cortex:undo]   redo() →', cmd ? `cmd(${cmd.changes.length} changes)` : 'null', 'stackAfter:', commandStackRef.current?.undoCount)
-        if (cmd) {
-          overrideRef.current?.flush()
-          channel.send({ type: 'redo' })
+        const gen = ++undoGenRef.current
+        setTimeout(() => setTimeout(() => {
+          if (undoGenRef.current === gen) undoInProgressRef.current = false
+        }))
+        try {
+          const cmd = commandStackRef.current?.redo()
+          if (cmd) {
+            overrideRef.current?.flush()
+            channel.send({ type: 'redo' })
+          }
+        } catch (err) {
+          console.error('[cortex] Redo failed:', err)
         }
       }),
     })

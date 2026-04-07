@@ -216,7 +216,7 @@ export class CSSOverrideManager {
   private activeStyleObservers = new Map<string, { observer: MutationObserver; timeout: ReturnType<typeof setTimeout> }>()
   private pendingClearAll = false
   /** EditIds whose override removal should use double-rAF deferral (AI/deferred edits).
-   *  Populated by markDeferred(true). Checked at drain time in onHMRApplied and at
+   *  Populated by markDeferred(editId). Checked at drain time in onHMRApplied and at
    *  late-arrival time in handleHMRVerified. */
   private deferredEditIds = new Set<string>()
   /** True when onHMRApplied fired but pendingRemovals was empty (nothing to drain).
@@ -371,17 +371,10 @@ export class CSSOverrideManager {
     }
   }
 
-  /** Mark deferred edit IDs so override removal uses double-rAF.
-   *  Called by CommandStack when committing deferred (AI) edits. */
-  markDeferred(deferred: boolean): void {
-    if (deferred) {
-      for (const editId of this.pendingEdits.keys()) {
-        this.deferredEditIds.add(editId)
-      }
-      for (const r of this.pendingRemovals) {
-        this.deferredEditIds.add(r.editId)
-      }
-    }
+  /** Mark a specific edit ID as deferred so override removal uses double-rAF.
+   *  Called from CortexApp when edit_status reports strategy === 'deferred'. */
+  markDeferred(editId: string): void {
+    this.deferredEditIds.add(editId)
   }
 
   /** Read the current override value for a source+property. Returns undefined if no override exists.

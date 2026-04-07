@@ -374,7 +374,6 @@ export function Panel({
     // Without this, undo changes overrides → Panel re-renders → inputs fire
     // onChange with stale values → new phantom command overwrites the undo.
     if (undoInProgressRef?.current) {
-      console.log('[cortex:undo] commitScrub SUPPRESSED (undo in progress)')
       scrubPreviousRef.current.clear()
       return
     }
@@ -393,11 +392,7 @@ export function Panel({
       const [s, p, ps] = key.split(SEP) as [string, string, string]
       const parsedPseudo = (ps || undefined) as '::before' | '::after' | undefined
       const currentValue = overrideManager.get(s, p, parsedPseudo) ?? ''
-      if (currentValue === previousValue) {
-        console.log('[cortex:undo]   commitScrub SKIP no-op', { property: p, currentValue, previousValue })
-        continue
-      }
-      console.log('[cortex:undo]   commitScrub CHANGE', { property: p, currentValue, previousValue })
+      if (currentValue === previousValue) continue
       changes.push({
         source: s,
         property: p,
@@ -407,15 +402,12 @@ export function Panel({
       })
     }
 
-    console.log('[cortex:undo] commitScrub result:', { changesCount: changes.length, stackSize: commandStack?.undoCount ?? 'null', scope: editScope, sharedCount: sharedInfo?.elements.length ?? 0, sources: [...new Set(changes.map(c => c.source.slice(-20)))] })
-
     // Record command on stack. Overrides are already applied during scrub phase,
     // so record() stores without re-executing (avoids double-apply).
     if (changes.length > 0) {
       if (commandStack) {
         const cmd = new PropertyEditCommand({ changes, overrideManager })
         commandStack.record(cmd)
-        console.log('[cortex:undo]   RECORDED command', { editId: cmd.editId, stackSize: commandStack.undoCount })
       } else {
         console.warn('[cortex] Edit committed without undo stack — this edit cannot be undone')
       }
@@ -448,8 +440,6 @@ export function Panel({
           value: c.value,
           elementSelector: element.tagName.toLowerCase(),
           cssMapping: element.getAttribute('data-cortex-css') ?? undefined,
-          // Direct class path: send the current Tailwind class so the server
-          // can use it as oldToken directly, bypassing computed-style reverse lookup.
           currentClass: extractedUtilities.get(c.property),
           ...(sharedInfo ? {
             scope: editScope,
@@ -459,7 +449,7 @@ export function Panel({
                 .filter((s): s is string => s !== null),
             } : {}),
           } : {}),
-        } as any)
+        })
       }
     }
   }, [element, overrideManager, activePseudo, channel, sharedInfo, editScope, extractedUtilities, commandStack])
@@ -484,34 +474,35 @@ export function Panel({
     // Suppress phantom re-edits triggered by Preact re-renders after undo/redo.
     // Preact's setTimeout-based batching fires AFTER the keyboard handler completes,
     // causing section inputs to re-render with new values and fire onChange.
-    if (undoInProgressRef?.current) {
-      console.log('[cortex:undo] applyOverride SUPPRESSED (undo in progress)', { property, value })
-      return
-    }
+    if (undoInProgressRef?.current) return
     if (!element) return
     const source = element.getAttribute('data-cortex-source')
-    if (!source) {
-      console.warn('[cortex] Cannot apply override: element missing data-cortex-source')
-      return
-    }
+    if (!source) return
     const pseudo = activePseudo !== 'element' ? activePseudo : undefined
+    const prevKey = `${source}${SEP}${property}${SEP}${pseudo ?? ''}`
 
-    console.log('[cortex:undo] applyOverride', { property, value, commitRender, pseudo, scrubSize: scrubPreviousRef.current.size, scope: editScope, sharedCount: sharedInfo?.elements.length ?? 0 })
+    // Phantom re-commit guard: after HMR re-render, input blur can fire onCommit
+    // with the same value that was just committed. Bail BEFORE applying the override
+    // so no stale !important rule is (re-)introduced into the style element.
+    if (commitRender) {
+      const lastCommitted = lastCommitValueRef.current.get(prevKey)
+      if (lastCommitted === value) {
+        scrubPreviousRef.current.delete(prevKey)
+        return
+      }
+    }
 
     // Capture previousValue BEFORE set() — only on first touch per property per gesture.
     // If an override already exists, use that. Otherwise capture the computed style
     // so undo can set it as a temporary override even after HMR has removed the
     // original override and the CSS file has the new value.
-    const prevKey = `${source}${SEP}${property}${SEP}${pseudo ?? ''}`
     if (!scrubPreviousRef.current.has(prevKey)) {
       const existing = overrideManager.get(source, property, pseudo)
       if (existing !== undefined) {
         scrubPreviousRef.current.set(prevKey, existing)
-        console.log('[cortex:undo]   prevValue from override:', existing)
       } else {
         const computed = getComputedStyle(element, pseudo ?? null).getPropertyValue(property).trim()
         scrubPreviousRef.current.set(prevKey, computed || '')
-        console.log('[cortex:undo]   prevValue from computed:', computed || '(empty)')
       }
     }
 
@@ -539,14 +530,6 @@ export function Panel({
     }
 
     if (commitRender) {
-      // Suppress phantom re-commits: after HMR re-render, input blur can fire
-      // onCommit with the same value that was just committed. Skip if the value
-      // matches the last committed value for this property.
-      const lastCommitted = lastCommitValueRef.current.get(prevKey)
-      if (lastCommitted === value) {
-        scrubPreviousRef.current.clear()
-        return
-      }
       // Coalesce synchronous multi-property commits into one atomic command.
       // When linked padding fires onChange for both left and right in the same
       // tick, both accumulate in scrubPreviousRef and commit once via microtask.
