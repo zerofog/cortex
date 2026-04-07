@@ -32,7 +32,48 @@ import type { SharedClassInfo } from '../shared-class-detector.js'
 import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
 import { CollapsibleSection } from './CollapsibleSection.js'
-import type { CortexChannel } from '../../adapters/types.js'
+import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
+
+// ── Connection status footer ─────────────────────────────────────────
+
+function connectionStatusText(status: ConnectionDisplay): string {
+  switch (status.status) {
+    case 'reconnecting':
+      return `Reconnecting\u2026 (${status.retryCount}/${status.maxRetries})`
+    case 'disconnected':
+      return 'Disconnected \u2014 edits won\u2019t save to files'
+    case 'reconnected':
+      return 'Reconnected'
+    case 'connected':
+      return ''
+    default: {
+      const _: never = status
+      return _
+    }
+  }
+}
+
+function ConnectionStatusFooter({ status }: { status?: ConnectionDisplay }): JSX.Element {
+  // aria-live regions must exist in DOM BEFORE content is injected —
+  // screen readers observe mutations to existing regions, not newly inserted ones.
+  // Always render the container; gate only the visible content.
+  if (!status || status.status === 'connected') {
+    return <div class="cortex-connection-status cortex-connection-status--hidden" role="status" aria-live="polite" aria-atomic="true" />
+  }
+  return (
+    <div
+      class={`cortex-connection-status cortex-connection-status--${status.status}`}
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <span class="cortex-connection-status__dot" aria-hidden="true" />
+      <span class="cortex-connection-status__text">
+        {connectionStatusText(status)}
+      </span>
+    </div>
+  )
+}
 
 // ── Blast-radius highlight utilities ──────────────────────────────────
 // These operate on the REAL page DOM (outside Shadow DOM) via a data attribute.
@@ -122,6 +163,7 @@ export interface PanelProps {
   undoInProgressRef?: { current: boolean }
   channel?: CortexChannel
   agentConnected?: boolean
+  connectionStatus?: ConnectionDisplay
 }
 
 function parseSpacingValues(cs: CSSStyleDeclaration) {
@@ -168,6 +210,7 @@ export function Panel({
   undoInProgressRef,
   channel,
   agentConnected,
+  connectionStatus,
 }: PanelProps): JSX.Element | null {
   // ALL hooks first — no conditional returns before hooks
   const [contentKey, setContentKey] = useState(0)
@@ -694,6 +737,7 @@ export function Panel({
             <p class="cortex-panel__empty-shortcut">{formatShortcut('$mod+Shift+Period')} to toggle</p>
           </div>
         </div>
+        <ConnectionStatusFooter status={connectionStatus} />
       </div>
     )
   }
@@ -881,6 +925,7 @@ export function Panel({
           />
         )}
       </div>
+      <ConnectionStatusFooter status={connectionStatus} />
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import type { BrowserToServer, CortexChannel, ServerToBrowser } from '../adapters/types.js'
+import type { BrowserToServer, ConnectionState, CortexChannel, ServerToBrowser } from '../adapters/types.js'
 import './types.js' // Window augmentation (__cortex_send__, __cortex_channel__, __cortex_ws_port__)
 
 /** Max queued messages during WebSocket disconnection (Fix 5) */
@@ -37,6 +37,10 @@ export function createViteChannel(): CortexChannel {
         if (idx >= 0) handlers.splice(idx, 1)
       }
     },
+    onConnectionChange(_handler: (state: ConnectionState) => void): () => void {
+      // Vite HMR manages its own reconnection and overlay — no lifecycle events to emit.
+      return () => {}
+    },
     get connected(): boolean {
       return typeof window.__cortex_send__ === 'function'
     },
@@ -67,6 +71,7 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
   const maxRetries = options?.maxRetries ?? 5
 
   const handlers: Array<(msg: ServerToBrowser) => void> = []
+  const statusHandlers: Array<(state: ConnectionState) => void> = []
   const queue: BrowserToServer[] = []
   let ws: WebSocket | null = null
   let connected = false
@@ -74,13 +79,41 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let disposed = false
 
+  function fireStatus(state: ConnectionState): void {
+    for (const h of [...statusHandlers]) {
+      try { h(state) } catch (err) {
+        console.warn('[cortex] Connection status handler error:', err instanceof Error ? err.message : err)
+      }
+    }
+  }
+
   function connect(): void {
     if (disposed) return
-    ws = new WebSocket(url)
+    try {
+      ws = new WebSocket(url)
+    } catch (err) {
+      // WebSocket constructor can throw (invalid URL, security policy, etc.)
+      // Without this catch, a throw during setTimeout-driven reconnection is
+      // silently swallowed, leaving the indicator stuck on "Reconnecting" forever.
+      // Retry if attempts remain (transient CSP/policy errors may resolve);
+      // only go terminal if retry budget is exhausted.
+      console.warn('[cortex] WebSocket connection failed:', err instanceof Error ? err.message : err)
+      if (retryCount < maxRetries) {
+        const delay = Math.min(1000 * 2 ** retryCount, 30000)
+        retryCount++
+        fireStatus({ status: 'reconnecting', retryCount, maxRetries })
+        reconnectTimer = setTimeout(connect, delay)
+      } else {
+        queue.length = 0
+        fireStatus({ status: 'disconnected' })
+      }
+      return
+    }
 
     ws.onopen = () => {
       connected = true
       retryCount = 0
+      fireStatus({ status: 'connected' })
       // Flush queued messages — stamp token at send time (not enqueue time)
       // so reconnection to a restarted server uses the fresh token.
       while (queue.length > 0) {
@@ -110,9 +143,11 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
       if (retryCount < maxRetries) {
         const delay = Math.min(1000 * 2 ** retryCount, 30000)
         retryCount++
+        fireStatus({ status: 'reconnecting', retryCount, maxRetries })
         reconnectTimer = setTimeout(connect, delay)
       } else {
         queue.length = 0  // clear stale messages — no reconnect will flush them
+        fireStatus({ status: 'disconnected' })
         console.warn(
           `[cortex] WebSocket disconnected after ${maxRetries} retries. ` +
           `Edits will not be saved until the page is refreshed. URL: ${url}`,
@@ -149,6 +184,13 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
         if (idx >= 0) handlers.splice(idx, 1)
       }
     },
+    onConnectionChange(handler: (state: ConnectionState) => void): () => void {
+      statusHandlers.push(handler)
+      return () => {
+        const idx = statusHandlers.indexOf(handler)
+        if (idx >= 0) statusHandlers.splice(idx, 1)
+      }
+    },
     get connected(): boolean {
       return connected
     },
@@ -165,6 +207,7 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
       }
       connected = false
       handlers.length = 0
+      statusHandlers.length = 0
       queue.length = 0
     },
   }
