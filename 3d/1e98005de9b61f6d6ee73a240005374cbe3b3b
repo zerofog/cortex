@@ -1,0 +1,58 @@
+cortex-editor/tests/browser/channel.test.ts
+  27b6d4d2b43a3215 597,599-601
+cortex-editor/src/browser/components/Panel.tsx
+  27b6d4d2b43a3215 49-52,60-62,65,70-73
+cortex-editor/src/browser/styles.css
+  27b6d4d2b43a3215 2449-2450
+cortex-editor/tests/browser/helpers.ts
+  27b6d4d2b43a3215 101-102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "3d1e98005de9b61f6d6ee73a240005374cbe3b3b",
+  "prompts": {
+    "27b6d4d2b43a3215": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "530061ea-5b11-4a1b-972d-b3e55983686a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 20,
+      "total_deletions": 14,
+      "accepted_lines": 20,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/3ddb75f397c95aa117b7f7b1f72fa2faa96c1dc259fc36cd0594dc26a1171da8"
+    },
+    "b1e56b7d2147e29e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d69a5-832a-71f2-9687-46c9fe9d0cb4",
+        "model": "gpt-5.4"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/99d52c88290a8c09ef8f9b5e2f85b0ee0fc777f79d9fac23bb50acd04ba4ebc7"
+    },
+    "f7b4ccbd9e29b555": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d6540-f5e1-7ca1-a678-df3ab98a3dd5",
+        "model": "gpt-5.4"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1176,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/c04ea8ee62f7acc228e714f54686c778816b15425ec8539f304e91485cf5cd98"
+    }
+  }
+}
