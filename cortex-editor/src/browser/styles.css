@@ -2441,6 +2441,16 @@
   flex-shrink: 0;
 }
 
+.cortex-connection-status--hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+  padding: 0;
+}
+
 .cortex-connection-status--reconnecting .cortex-connection-status__dot {
   background: var(--warning);
   animation: cortex-pulse 1.5s ease-in-out infinite;

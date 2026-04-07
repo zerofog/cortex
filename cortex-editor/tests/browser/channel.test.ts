@@ -542,11 +542,11 @@ describe('createWebSocketChannel', () => {
       expect(states).toEqual([]) // nothing fired during dispose
     })
 
-    it('fires disconnected when WebSocket constructor throws during reconnect', () => {
+    it('retries on constructor throw then fires disconnected after max retries', () => {
       channel.dispose?.()
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-      // Replace mock WebSocket with one that throws on 2nd instantiation
+      // Replace mock WebSocket with one that throws on 2nd+ instantiation
       let callCount = 0
       // @ts-expect-error — mock WebSocket global
       globalThis.WebSocket = class {
@@ -564,7 +564,7 @@ describe('createWebSocketChannel', () => {
         }
       }
 
-      channel = createWebSocketChannel({ url: 'ws://test', maxRetries: 3 })
+      channel = createWebSocketChannel({ url: 'ws://test', maxRetries: 2 })
       const states: ConnectionState[] = []
       channel.onConnectionChange(state => states.push(state))
 
@@ -575,17 +575,20 @@ describe('createWebSocketChannel', () => {
       ;(ws as any).readyState = 3
       ;(ws as any).onclose?.()
 
-      // onclose fires reconnecting, schedules setTimeout(connect, 1000)
+      // onclose: retryCount 0→1, fires reconnecting(1/2)
       expect(states).toEqual([
         { status: 'connected' },
-        { status: 'reconnecting', retryCount: 1, maxRetries: 3 },
+        { status: 'reconnecting', retryCount: 1, maxRetries: 2 },
       ])
 
-      // Advance timer — connect() calls new WebSocket which throws
+      // 1st retry timer fires — constructor throws, retryCount 1→2, fires reconnecting(2/2)
       vi.advanceTimersByTime(1000)
+      expect(states[2]).toEqual({ status: 'reconnecting', retryCount: 2, maxRetries: 2 })
 
-      // Should fire disconnected from the catch block
-      expect(states[2]).toEqual({ status: 'disconnected' })
+      // 2nd retry timer fires — constructor throws again, retryCount exhausted → disconnected
+      vi.advanceTimersByTime(2000)
+      expect(states[3]).toEqual({ status: 'disconnected' })
+
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('WebSocket connection failed:'),
         expect.any(String),

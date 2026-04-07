@@ -49,18 +49,26 @@ function connectionStatusText(status: ConnectionDisplay): string {
   }
 }
 
-function ConnectionStatusFooter({ status }: { status?: ConnectionDisplay }): JSX.Element | null {
-  if (!status || status.status === 'connected') return null
+function ConnectionStatusFooter({ status }: { status?: ConnectionDisplay }): JSX.Element {
+  // aria-live regions must exist in DOM BEFORE content is injected —
+  // screen readers observe mutations to existing regions, not newly inserted ones.
+  // Always render the container; gate only the visible content.
+  const visible = status && status.status !== 'connected'
   return (
     <div
-      class={`cortex-connection-status cortex-connection-status--${status.status}`}
+      class={visible ? `cortex-connection-status cortex-connection-status--${status!.status}` : 'cortex-connection-status cortex-connection-status--hidden'}
       role="status"
       aria-live="polite"
+      aria-atomic="true"
     >
-      <span class="cortex-connection-status__dot" aria-hidden="true" />
-      <span class="cortex-connection-status__text">
-        {connectionStatusText(status)}
-      </span>
+      {visible && (
+        <>
+          <span class="cortex-connection-status__dot" aria-hidden="true" />
+          <span class="cortex-connection-status__text">
+            {connectionStatusText(status!)}
+          </span>
+        </>
+      )}
     </div>
   )
 }

@@ -768,7 +768,9 @@ describe('CortexApp', () => {
       render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
       await new Promise(r => setTimeout(r, 10))
 
-      // Default state is connected — no footer
+      // Panel hasn't rendered yet (overrideRef set in useEffect, no re-render trigger),
+      // so the footer container is absent. Once a state change triggers re-render,
+      // the Panel mounts with the aria-live container already present.
       const footer = root.querySelector('.cortex-connection-status')
       expect(footer).toBeNull()
     })
@@ -798,9 +800,12 @@ describe('CortexApp', () => {
         expect(footer!.textContent).toContain('Reconnected')
         expect(footer!.classList.contains('cortex-connection-status--reconnected')).toBe(true)
 
-        // After 2s auto-dismiss, footer should be gone
+        // After 2s auto-dismiss, footer should be visually hidden with no text
         await vi.advanceTimersByTimeAsync(2000)
-        expect(root.querySelector('.cortex-connection-status')).toBeNull()
+        const dismissed = root.querySelector('.cortex-connection-status')
+        expect(dismissed).not.toBeNull()
+        expect(dismissed!.classList.contains('cortex-connection-status--hidden')).toBe(true)
+        expect(dismissed!.textContent?.trim()).toBe('')
       } finally {
         vi.useRealTimers()
       }

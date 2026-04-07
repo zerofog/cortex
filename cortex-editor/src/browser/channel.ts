@@ -95,8 +95,18 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
       // WebSocket constructor can throw (invalid URL, security policy, etc.)
       // Without this catch, a throw during setTimeout-driven reconnection is
       // silently swallowed, leaving the indicator stuck on "Reconnecting" forever.
+      // Retry if attempts remain (transient CSP/policy errors may resolve);
+      // only go terminal if retry budget is exhausted.
       console.warn('[cortex] WebSocket connection failed:', err instanceof Error ? err.message : err)
-      fireStatus({ status: 'disconnected' })
+      if (retryCount < maxRetries) {
+        const delay = Math.min(1000 * 2 ** retryCount, 30000)
+        retryCount++
+        fireStatus({ status: 'reconnecting', retryCount, maxRetries })
+        reconnectTimer = setTimeout(connect, delay)
+      } else {
+        queue.length = 0
+        fireStatus({ status: 'disconnected' })
+      }
       return
     }
 
