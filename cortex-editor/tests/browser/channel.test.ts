@@ -594,8 +594,11 @@ describe('createWebSocketChannel', () => {
         expect.any(String),
       )
       warnSpy.mockRestore()
+    })
 
-      // Restore original MockWebSocket for subsequent tests
+    afterEach(() => {
+      // Restore original MockWebSocket — if the constructor-throw test fails
+      // before restoring, subsequent tests would cascade fail without this.
       // @ts-expect-error — mock WebSocket global
       globalThis.WebSocket = MockWebSocket
     })

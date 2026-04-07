@@ -98,8 +98,8 @@ export function createMockChannel(): CortexChannel & {
         if (idx >= 0) statusHandlers.splice(idx, 1)
       }
     },
-    _simulateMessage(msg) { handlers.forEach(h => h(msg)) },
-    _simulateConnectionChange(state) { statusHandlers.forEach(h => h(state)) },
+    _simulateMessage(msg) { [...handlers].forEach(h => h(msg)) },
+    _simulateConnectionChange(state) { [...statusHandlers].forEach(h => h(state)) },
     _lastSent: sent,
   }
 }
