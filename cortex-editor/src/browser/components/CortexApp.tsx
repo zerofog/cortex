@@ -336,7 +336,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         }
         flushCommitRef.current?.()
         undoInProgressRef.current = true
-        requestAnimationFrame(() => { undoInProgressRef.current = false })
+        // Preact batches re-renders via setTimeout (macrotask), which fires AFTER
+        // requestAnimationFrame. Use nested setTimeout so the flag outlives the
+        // Preact re-render that triggers phantom onChange from sections.
+        setTimeout(() => setTimeout(() => { undoInProgressRef.current = false }))
         const cmd = commandStackRef.current?.undo()
         console.log('[cortex:undo]   undo() →', cmd ? `cmd(${cmd.changes.length} changes)` : 'null', 'stackAfter:', commandStackRef.current?.undoCount)
         if (cmd) {
@@ -352,7 +355,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         }
         flushCommitRef.current?.()
         undoInProgressRef.current = true
-        requestAnimationFrame(() => { undoInProgressRef.current = false })
+        setTimeout(() => setTimeout(() => { undoInProgressRef.current = false }))
         const cmd = commandStackRef.current?.redo()
         console.log('[cortex:undo]   redo() →', cmd ? `cmd(${cmd.changes.length} changes)` : 'null', 'stackAfter:', commandStackRef.current?.undoCount)
         if (cmd) {

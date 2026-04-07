@@ -481,6 +481,13 @@ export function Panel({
   // Scrub phase: captures previousValue on first touch per property, applies override.
   // On commit (commitRender=true): delegates to commitScrub() for atomic command creation.
   const applyOverride = useCallback((property: string, value: string, commitRender: boolean) => {
+    // Suppress phantom re-edits triggered by Preact re-renders after undo/redo.
+    // Preact's setTimeout-based batching fires AFTER the keyboard handler completes,
+    // causing section inputs to re-render with new values and fire onChange.
+    if (undoInProgressRef?.current) {
+      console.log('[cortex:undo] applyOverride SUPPRESSED (undo in progress)', { property, value })
+      return
+    }
     if (!element) return
     const source = element.getAttribute('data-cortex-source')
     if (!source) {
