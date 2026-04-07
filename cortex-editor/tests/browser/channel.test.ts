@@ -533,15 +533,6 @@ describe('createWebSocketChannel', () => {
       expect(states.length).toBe(1) // no new entries
     })
 
-    it('dispose clears status handlers', () => {
-      const states: ConnectionState[] = []
-      channel.onConnectionChange(state => states.push(state))
-
-      channel.dispose?.()
-      // After dispose, no more callbacks should fire
-      expect(states).toEqual([]) // nothing fired during dispose
-    })
-
     it('retries on constructor throw then fires disconnected after max retries', () => {
       channel.dispose?.()
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})

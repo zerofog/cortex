@@ -670,34 +670,6 @@ describe('CortexApp', () => {
   })
 
   describe('connection status', () => {
-    it('shows reconnected then auto-dismisses after 2s', async () => {
-      vi.useFakeTimers()
-      try {
-        setup()
-        const channel = createMockChannel()
-        render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
-        await vi.advanceTimersByTimeAsync(10)
-
-        // Simulate disconnect then reconnect to trigger "reconnected" flash
-        channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 1, maxRetries: 5 })
-        await vi.advanceTimersByTimeAsync(10)
-
-        channel._simulateConnectionChange({ status: 'connected' })
-        await vi.advanceTimersByTimeAsync(10)
-
-        // Component still renders (reconnected state)
-        expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
-
-        // Advance past the 2s auto-dismiss timer
-        await vi.advanceTimersByTimeAsync(2000)
-
-        // Component still renders (back to connected)
-        expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
-      } finally {
-        vi.useRealTimers()
-      }
-    })
-
     it('clears reconnected timer if connection drops again', async () => {
       vi.useFakeTimers()
       try {
@@ -718,11 +690,13 @@ describe('CortexApp', () => {
         await vi.advanceTimersByTimeAsync(10)
 
         // Advance past original 2s window — should NOT auto-dismiss to connected
-        // because we're now in reconnecting state
+        // because the timer was cancelled on re-disconnect
         await vi.advanceTimersByTimeAsync(2000)
 
-        // Component still renders (no crash, still in reconnecting state)
-        expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
+        const footer = root.querySelector('.cortex-connection-status')
+        expect(footer).not.toBeNull()
+        expect(footer!.classList.contains('cortex-connection-status--reconnecting')).toBe(true)
+        expect(footer!.textContent).toContain('Reconnecting')
       } finally {
         vi.useRealTimers()
       }
@@ -762,17 +736,33 @@ describe('CortexApp', () => {
       expect(footer!.classList.contains('cortex-connection-status--disconnected')).toBe(true)
     })
 
-    it('does not render footer when connected', async () => {
+    it('hides footer when connected (aria-live container present but empty)', async () => {
       setup()
       const channel = createMockChannel()
       render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
       await new Promise(r => setTimeout(r, 10))
 
-      // Panel hasn't rendered yet (overrideRef set in useEffect, no re-render trigger),
-      // so the footer container is absent. Once a state change triggers re-render,
-      // the Panel mounts with the aria-live container already present.
-      const footer = root.querySelector('.cortex-connection-status')
-      expect(footer).toBeNull()
+      // Force Panel to mount by triggering a state change (overrideRef is set
+      // in useEffect but doesn't cause a re-render on its own)
+      channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 1, maxRetries: 5 })
+      await new Promise(r => setTimeout(r, 50))
+
+      // Transition to connected (skipping wasDisconnected flash by going
+      // reconnecting→connected without a prior disconnected state)
+      vi.useFakeTimers()
+      try {
+        channel._simulateConnectionChange({ status: 'connected' })
+        // Advance past the 2s reconnected flash timer
+        await vi.advanceTimersByTimeAsync(2100)
+
+        // Footer container exists (for aria-live) but is visually hidden with no text
+        const footer = root.querySelector('.cortex-connection-status')
+        expect(footer).not.toBeNull()
+        expect(footer!.classList.contains('cortex-connection-status--hidden')).toBe(true)
+        expect(footer!.textContent?.trim()).toBe('')
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('renders reconnected footer then auto-dismisses', async () => {
