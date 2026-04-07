@@ -72,12 +72,21 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
   const maxRetries = options?.maxRetries ?? 5
 
   const handlers: Array<(msg: ServerToBrowser) => void> = []
+  const statusHandlers: Array<(state: ConnectionState) => void> = []
   const queue: BrowserToServer[] = []
   let ws: WebSocket | null = null
   let connected = false
   let retryCount = 0
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let disposed = false
+
+  function fireStatus(state: ConnectionState): void {
+    for (const h of [...statusHandlers]) {
+      try { h(state) } catch (err) {
+        console.warn('[cortex] Connection status handler error:', err instanceof Error ? err.message : err)
+      }
+    }
+  }
 
   function connect(): void {
     if (disposed) return
@@ -86,6 +95,7 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
     ws.onopen = () => {
       connected = true
       retryCount = 0
+      fireStatus({ status: 'connected' })
       // Flush queued messages — stamp token at send time (not enqueue time)
       // so reconnection to a restarted server uses the fresh token.
       while (queue.length > 0) {
@@ -115,9 +125,11 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
       if (retryCount < maxRetries) {
         const delay = Math.min(1000 * 2 ** retryCount, 30000)
         retryCount++
+        fireStatus({ status: 'reconnecting', retryCount, maxRetries })
         reconnectTimer = setTimeout(connect, delay)
       } else {
         queue.length = 0  // clear stale messages — no reconnect will flush them
+        fireStatus({ status: 'disconnected' })
         console.warn(
           `[cortex] WebSocket disconnected after ${maxRetries} retries. ` +
           `Edits will not be saved until the page is refreshed. URL: ${url}`,
@@ -154,9 +166,12 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
         if (idx >= 0) handlers.splice(idx, 1)
       }
     },
-    onConnectionChange(_handler: (state: ConnectionState) => void): () => void {
-      // Stub satisfies the interface; real state emission added in Task 2.
-      return () => {}
+    onConnectionChange(handler: (state: ConnectionState) => void): () => void {
+      statusHandlers.push(handler)
+      return () => {
+        const idx = statusHandlers.indexOf(handler)
+        if (idx >= 0) statusHandlers.splice(idx, 1)
+      }
     },
     get connected(): boolean {
       return connected
@@ -174,6 +189,7 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
       }
       connected = false
       handlers.length = 0
+      statusHandlers.length = 0
       queue.length = 0
     },
   }

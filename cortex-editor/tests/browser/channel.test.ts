@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createViteChannel, createWebSocketChannel } from '../../src/browser/channel.js'
-import type { ServerToBrowser } from '../../src/adapters/types.js'
+import type { ConnectionState, ServerToBrowser } from '../../src/adapters/types.js'
 
 describe('createViteChannel', () => {
   beforeEach(() => {
@@ -130,6 +130,14 @@ describe('createViteChannel', () => {
     window.__cortex_channel__!.handleServerMessage(msg)
     expect(hA).toHaveBeenCalledWith(msg)
     expect(hC).toHaveBeenCalledWith(msg)
+  })
+
+  it('onConnectionChange returns unsubscribe (no-op)', () => {
+    window.__cortex_send__ = vi.fn()
+    const channel = createViteChannel()
+    const unsub = channel.onConnectionChange(() => {})
+    expect(typeof unsub).toBe('function')
+    unsub() // should not throw
   })
 
   // Fix 10: Vite dispose clears handlers and window.__cortex_channel__
@@ -458,6 +466,96 @@ describe('createWebSocketChannel', () => {
   // assertion passes regardless. Deleted per CLAUDE.md rule #2 (assertions must
   // be falsifiable). The queue-clearing-on-exhaustion test above covers the
   // user-visible behavior.
+
+  describe('onConnectionChange', () => {
+    let channel: ReturnType<typeof createWebSocketChannel>
+    let lastWs: MockWebSocket
+
+    beforeEach(() => {
+      channel = createWebSocketChannel({ url: 'ws://test' })
+      lastWs = mockInstances[mockInstances.length - 1]!
+    })
+
+    afterEach(() => {
+      channel.dispose?.()
+    })
+
+    it('fires connected on WebSocket open', () => {
+      const states: ConnectionState[] = []
+      channel.onConnectionChange(state => states.push(state))
+
+      lastWs._simulateOpen()
+
+      expect(states).toEqual([{ status: 'connected' }])
+    })
+
+    it('fires reconnecting with retryCount on close when retries remain', () => {
+      const states: ConnectionState[] = []
+      lastWs._simulateOpen()
+      channel.onConnectionChange(state => states.push(state))
+
+      lastWs._simulateClose()
+
+      expect(states).toEqual([
+        { status: 'reconnecting', retryCount: 1, maxRetries: 5 },
+      ])
+    })
+
+    it('fires disconnected after max retries', () => {
+      channel.dispose?.()
+      channel = createWebSocketChannel({ url: 'ws://test', maxRetries: 1 })
+      const newWs = mockInstances[mockInstances.length - 1]!
+
+      const states: ConnectionState[] = []
+      newWs._simulateOpen()
+      channel.onConnectionChange(state => states.push(state))
+
+      // First close -> reconnecting
+      newWs._simulateClose()
+      expect(states[0]).toEqual({ status: 'reconnecting', retryCount: 1, maxRetries: 1 })
+
+      // Advance timer to trigger reconnect
+      vi.advanceTimersByTime(1000)
+      const retryWs = mockInstances[mockInstances.length - 1]!
+      retryWs._simulateClose()
+      expect(states[1]).toEqual({ status: 'disconnected' })
+    })
+
+    it('unsubscribe prevents further callbacks', () => {
+      const states: ConnectionState[] = []
+      const unsub = channel.onConnectionChange(state => states.push(state))
+
+      lastWs._simulateOpen()
+      expect(states.length).toBe(1)
+
+      unsub()
+      lastWs._simulateClose()
+      expect(states.length).toBe(1) // no new entries
+    })
+
+    it('dispose clears status handlers', () => {
+      const states: ConnectionState[] = []
+      channel.onConnectionChange(state => states.push(state))
+
+      channel.dispose?.()
+      // After dispose, no more callbacks should fire
+      expect(states).toEqual([]) // nothing fired during dispose
+    })
+
+    it('handler errors are caught and do not prevent other handlers', () => {
+      const states: ConnectionState[] = []
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      channel.onConnectionChange(() => { throw new Error('boom') })
+      channel.onConnectionChange(state => states.push(state))
+
+      lastWs._simulateOpen()
+
+      expect(states).toEqual([{ status: 'connected' }])
+      expect(warnSpy).toHaveBeenCalled()
+      warnSpy.mockRestore()
+    })
+  })
 
   // Fix 9: dispose nulls all WebSocket event handlers
   it('dispose nulls all WebSocket event handlers', () => {
