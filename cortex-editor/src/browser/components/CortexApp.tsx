@@ -1,6 +1,6 @@
 import type { JSX } from 'preact'
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
-import type { CortexChannel, Annotation, ActivityEntry, StyleCapability } from '../../adapters/types.js'
+import type { CortexChannel, ConnectionDisplay, Annotation, ActivityEntry, StyleCapability } from '../../adapters/types.js'
 import { CSSOverrideManager } from '../override.js'
 import { CommandStack } from '../command-stack.js'
 import { initSelection } from '../selection.js'
@@ -21,13 +21,6 @@ import { CapabilityBanner } from './CapabilityBanner.js'
 import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
 import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
-
-/** UI display state for connection indicator. Extends ConnectionState with transient 'reconnected'. */
-export type ConnectionDisplay =
-  | { status: 'connected' }
-  | { status: 'reconnecting'; retryCount: number; maxRetries: number }
-  | { status: 'disconnected' }
-  | { status: 'reconnected' }
 
 const MAX_ACTIVITY_ENTRIES = 200
 

@@ -10,6 +10,7 @@ export type {
   ServerToBrowser,
   ElementContext,
   ConnectionState,
+  ConnectionDisplay,
   CortexChannel,
 } from './adapters/types.js'
 

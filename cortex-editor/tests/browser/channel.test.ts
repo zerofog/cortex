@@ -542,6 +542,61 @@ describe('createWebSocketChannel', () => {
       expect(states).toEqual([]) // nothing fired during dispose
     })
 
+    it('fires disconnected when WebSocket constructor throws during reconnect', () => {
+      channel.dispose?.()
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      // Replace mock WebSocket with one that throws on 2nd instantiation
+      let callCount = 0
+      // @ts-expect-error — mock WebSocket global
+      globalThis.WebSocket = class {
+        onopen: (() => void) | null = null
+        onclose: (() => void) | null = null
+        onmessage: ((e: any) => void) | null = null
+        onerror: (() => void) | null = null
+        readyState = 0
+        send = vi.fn()
+        close = vi.fn()
+        constructor() {
+          callCount++
+          if (callCount > 1) throw new Error('SecurityError: blocked')
+          mockInstances.push(this as any)
+        }
+      }
+
+      channel = createWebSocketChannel({ url: 'ws://test', maxRetries: 3 })
+      const states: ConnectionState[] = []
+      channel.onConnectionChange(state => states.push(state))
+
+      // First ws exists — simulate open then close to trigger reconnect
+      const ws = mockInstances[mockInstances.length - 1]!
+      ;(ws as any).readyState = 1
+      ;(ws as any).onopen?.()
+      ;(ws as any).readyState = 3
+      ;(ws as any).onclose?.()
+
+      // onclose fires reconnecting, schedules setTimeout(connect, 1000)
+      expect(states).toEqual([
+        { status: 'connected' },
+        { status: 'reconnecting', retryCount: 1, maxRetries: 3 },
+      ])
+
+      // Advance timer — connect() calls new WebSocket which throws
+      vi.advanceTimersByTime(1000)
+
+      // Should fire disconnected from the catch block
+      expect(states[2]).toEqual({ status: 'disconnected' })
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('WebSocket connection failed:'),
+        expect.any(String),
+      )
+      warnSpy.mockRestore()
+
+      // Restore original MockWebSocket for subsequent tests
+      // @ts-expect-error — mock WebSocket global
+      globalThis.WebSocket = MockWebSocket
+    })
+
     it('handler errors are caught and do not prevent other handlers', () => {
       const states: ConnectionState[] = []
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})

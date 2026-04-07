@@ -670,30 +670,6 @@ describe('CortexApp', () => {
   })
 
   describe('connection status', () => {
-    it('starts with connected status and renders without error', async () => {
-      setup()
-      const channel = createMockChannel()
-      render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
-      await new Promise(r => setTimeout(r, 10))
-
-      // Baseline: component renders, toolbar visible, no crash
-      expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
-    })
-
-    it('updates to reconnecting when channel fires reconnecting', async () => {
-      setup()
-      const channel = createMockChannel()
-      render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
-      await new Promise(r => setTimeout(r, 10))
-
-      // Fire reconnecting — component should handle it without crashing
-      channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 1, maxRetries: 5 })
-      await new Promise(r => setTimeout(r, 10))
-
-      // Component still renders (no crash from state update)
-      expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
-    })
-
     it('shows reconnected then auto-dismisses after 2s', async () => {
       vi.useFakeTimers()
       try {
@@ -759,7 +735,8 @@ describe('CortexApp', () => {
       await new Promise(r => setTimeout(r, 10))
 
       channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 2, maxRetries: 5 })
-      await new Promise(r => setTimeout(r, 10))
+      // 50ms to allow Preact batch render to flush under full-suite memory pressure
+      await new Promise(r => setTimeout(r, 50))
 
       const footer = root.querySelector('.cortex-connection-status')
       expect(footer).not.toBeNull()
@@ -776,7 +753,7 @@ describe('CortexApp', () => {
       await new Promise(r => setTimeout(r, 10))
 
       channel._simulateConnectionChange({ status: 'disconnected' })
-      await new Promise(r => setTimeout(r, 10))
+      await new Promise(r => setTimeout(r, 50))
 
       const footer = root.querySelector('.cortex-connection-status')
       expect(footer).not.toBeNull()

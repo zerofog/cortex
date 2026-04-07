@@ -90,7 +90,16 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
 
   function connect(): void {
     if (disposed) return
-    ws = new WebSocket(url)
+    try {
+      ws = new WebSocket(url)
+    } catch (err) {
+      // WebSocket constructor can throw (invalid URL, security policy, etc.)
+      // Without this catch, a throw during setTimeout-driven reconnection is
+      // silently swallowed, leaving the indicator stuck on "Reconnecting" forever.
+      console.warn('[cortex] WebSocket connection failed:', err instanceof Error ? err.message : err)
+      fireStatus({ status: 'disconnected' })
+      return
+    }
 
     ws.onopen = () => {
       connected = true

@@ -32,8 +32,38 @@ import type { SharedClassInfo } from '../shared-class-detector.js'
 import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
 import { CollapsibleSection } from './CollapsibleSection.js'
-import type { CortexChannel } from '../../adapters/types.js'
-import type { ConnectionDisplay } from './CortexApp.js'
+import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
+
+// ── Connection status footer ─────────────────────────────────────────
+
+function connectionStatusText(status: ConnectionDisplay): string {
+  switch (status.status) {
+    case 'reconnecting':
+      return `Reconnecting\u2026 (${status.retryCount}/${status.maxRetries})`
+    case 'disconnected':
+      return 'Disconnected \u2014 edits won\u2019t save to files'
+    case 'reconnected':
+      return 'Reconnected'
+    default:
+      return ''
+  }
+}
+
+function ConnectionStatusFooter({ status }: { status?: ConnectionDisplay }): JSX.Element | null {
+  if (!status || status.status === 'connected') return null
+  return (
+    <div
+      class={`cortex-connection-status cortex-connection-status--${status.status}`}
+      role="status"
+      aria-live="polite"
+    >
+      <span class="cortex-connection-status__dot" aria-hidden="true" />
+      <span class="cortex-connection-status__text">
+        {connectionStatusText(status)}
+      </span>
+    </div>
+  )
+}
 
 // ── Blast-radius highlight utilities ──────────────────────────────────
 // These operate on the REAL page DOM (outside Shadow DOM) via a data attribute.
@@ -697,22 +727,7 @@ export function Panel({
             <p class="cortex-panel__empty-shortcut">{formatShortcut('$mod+Shift+Period')} to toggle</p>
           </div>
         </div>
-        {connectionStatus && connectionStatus.status !== 'connected' && (
-          <div
-            class={`cortex-connection-status cortex-connection-status--${connectionStatus.status}`}
-            role="status"
-            aria-live="polite"
-          >
-            <span class="cortex-connection-status__dot" aria-hidden="true" />
-            <span class="cortex-connection-status__text">
-              {connectionStatus.status === 'reconnecting'
-                ? `Reconnecting\u2026 (${connectionStatus.retryCount}/${connectionStatus.maxRetries})`
-                : connectionStatus.status === 'disconnected'
-                  ? 'Disconnected \u2014 edits won\u2019t save to files'
-                  : 'Reconnected'}
-            </span>
-          </div>
-        )}
+        <ConnectionStatusFooter status={connectionStatus} />
       </div>
     )
   }
@@ -900,22 +915,7 @@ export function Panel({
           />
         )}
       </div>
-      {connectionStatus && connectionStatus.status !== 'connected' && (
-        <div
-          class={`cortex-connection-status cortex-connection-status--${connectionStatus.status}`}
-          role="status"
-          aria-live="polite"
-        >
-          <span class="cortex-connection-status__dot" aria-hidden="true" />
-          <span class="cortex-connection-status__text">
-            {connectionStatus.status === 'reconnecting'
-              ? `Reconnecting\u2026 (${connectionStatus.retryCount}/${connectionStatus.maxRetries})`
-              : connectionStatus.status === 'disconnected'
-                ? 'Disconnected \u2014 edits won\u2019t save to files'
-                : 'Reconnected'}
-          </span>
-        </div>
-      )}
+      <ConnectionStatusFooter status={connectionStatus} />
     </div>
   )
 }

@@ -3,11 +3,6 @@ import { createMockChannel } from './helpers.js'
 import type { ConnectionState } from '../../src/adapters/types.js'
 
 describe('createMockChannel', () => {
-  it('has onConnectionChange method', () => {
-    const channel = createMockChannel()
-    expect(typeof channel.onConnectionChange).toBe('function')
-  })
-
   it('_simulateConnectionChange calls registered handlers', () => {
     const channel = createMockChannel()
     const states: ConnectionState[] = []
