@@ -652,10 +652,8 @@ describe('AIWriter', () => {
     const body = JSON.parse((options as RequestInit).body as string)
     expect(body.temperature).toBe(0)
     expect(body.max_tokens).toBe(512)
-    expect(body.tools).toHaveLength(3)
-    expect(body.tools[0].name).toBe('set_inline_style')
-    expect(body.tools[1].name).toBe('replace_attribute')
-    expect(body.tools[2].name).toBe('replace_line_content')
+    const toolNames = new Set(body.tools.map((t: { name: string }) => t.name))
+    expect(toolNames).toEqual(new Set(['set_inline_style', 'replace_attribute', 'replace_line_content']))
     expect(body.tool_choice).toEqual({ type: 'any' })
     writer.dispose()
   })
@@ -717,6 +715,7 @@ describe('AIWriter', () => {
       const result = await writePromise
 
       expect(result.success).toBe(false)
+      if (!result.success) expect(result.reason.toLowerCase()).toMatch(/abort/)
       writer.dispose()
     })
 

@@ -687,11 +687,12 @@ describe('CLI WebSocket bridge', () => {
       headers: { Origin: 'https://evil.com' },
     })
     openClients.push(ws)
-    const error = await new Promise<Event | Error>((resolve) => {
-      ws.on('error', resolve)
-      ws.on('close', () => resolve(new Error('closed')))
+    const error = await new Promise<Error>((resolve, reject) => {
+      ws.on('error', (e) => resolve(e as Error))
+      ws.on('open', () => reject(new Error('connection should have been rejected')))
     })
-    expect(error).toBeDefined()
+    // verifyClient returns false → ws library sends 401 Unauthorized
+    expect(error.message).toContain('401')
   })
 
   it('rejects connections with invalid Host header (DNS rebinding)', async () => {
@@ -700,11 +701,12 @@ describe('CLI WebSocket bridge', () => {
       headers: { Host: 'evil.com:5173' },
     })
     openClients.push(ws)
-    const closed = await new Promise<boolean>((resolve) => {
-      ws.on('error', () => resolve(true))
-      ws.on('close', () => resolve(true))
+    const error = await new Promise<Error>((resolve, reject) => {
+      ws.on('error', (e) => resolve(e as Error))
+      ws.on('open', () => reject(new Error('connection should have been rejected')))
     })
-    expect(closed).toBe(true)
+    // socket.destroy() before upgrade → connection reset
+    expect(error).toBeInstanceOf(Error)
   })
 
   it('accepts connections with IPv6 [::1] host header (bug #11)', async () => {

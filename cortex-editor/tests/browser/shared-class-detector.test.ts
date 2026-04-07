@@ -12,19 +12,9 @@ describe('parseCssMappingBrowser', () => {
     expect(result).toEqual({ cssFilePath: 'src/Hero.module.css', selectors: ['.badge', '.heroTitle'] })
   })
 
-  it('handles scss extension', () => {
-    const result = parseCssMappingBrowser('src/Card.module.scss:.card')
-    expect(result).toEqual({ cssFilePath: 'src/Card.module.scss', selectors: ['.card'] })
-  })
-
-  it('handles less extension', () => {
-    const result = parseCssMappingBrowser('src/Card.module.less:.card')
-    expect(result).toEqual({ cssFilePath: 'src/Card.module.less', selectors: ['.card'] })
-  })
-
-  it('handles sass extension', () => {
-    const result = parseCssMappingBrowser('src/Card.module.sass:.card')
-    expect(result).toEqual({ cssFilePath: 'src/Card.module.sass', selectors: ['.card'] })
+  it.each(['scss', 'less', 'sass'] as const)('handles %s extension', (ext) => {
+    const result = parseCssMappingBrowser(`src/Card.module.${ext}:.card`)
+    expect(result).toEqual({ cssFilePath: `src/Card.module.${ext}`, selectors: ['.card'] })
   })
 
   it('trims whitespace from selectors', () => {

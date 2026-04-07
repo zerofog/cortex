@@ -102,13 +102,18 @@ describe('HMRVerifier', () => {
   })
 
   describe('kind propagation', () => {
-    it('includes kind: immediate in hmr_verified when trackEdit has kind: immediate', () => {
+    it.each([
+      ['immediate', 'immediate' as const],
+      ['jsx-immediate', 'jsx-immediate' as const],
+      ['deferred', 'deferred' as const],
+      ['undefined (backward compat)', undefined],
+    ])('propagates kind: %s through hmr_verified', (_label, kind) => {
       verifier.trackEdit({
-        editId: 'edit-imm',
+        editId: 'edit-kind',
         filePath: 'src/App.tsx',
         expectedValue: '16px',
         property: 'padding-top',
-        kind: 'immediate',
+        kind,
       })
 
       verifier.onHMRUpdate(['src/App.tsx'])
@@ -116,72 +121,10 @@ describe('HMRVerifier', () => {
       expect(channel.sent).toHaveLength(1)
       expect(channel.sent[0]).toEqual({
         type: 'hmr_verified',
-        editId: 'edit-imm',
+        editId: 'edit-kind',
         match: true,
         expected: '16px',
-        kind: 'immediate',
-      })
-    })
-
-    it('includes kind: jsx-immediate in hmr_verified when trackEdit has kind: jsx-immediate', () => {
-      verifier.trackEdit({
-        editId: 'edit-jsx',
-        filePath: 'src/App.tsx',
-        expectedValue: '24px',
-        property: 'margin-top',
-        kind: 'jsx-immediate',
-      })
-
-      verifier.onHMRUpdate(['src/App.tsx'])
-
-      expect(channel.sent).toHaveLength(1)
-      expect(channel.sent[0]).toEqual({
-        type: 'hmr_verified',
-        editId: 'edit-jsx',
-        match: true,
-        expected: '24px',
-        kind: 'jsx-immediate',
-      })
-    })
-
-    it('includes kind: deferred in hmr_verified when trackEdit has kind: deferred', () => {
-      verifier.trackEdit({
-        editId: 'edit-def',
-        filePath: 'src/App.tsx',
-        expectedValue: '8px',
-        property: 'gap',
-        kind: 'deferred',
-      })
-
-      verifier.onHMRUpdate(['src/App.tsx'])
-
-      expect(channel.sent).toHaveLength(1)
-      expect(channel.sent[0]).toEqual({
-        type: 'hmr_verified',
-        editId: 'edit-def',
-        match: true,
-        expected: '8px',
-        kind: 'deferred',
-      })
-    })
-
-    it('sends kind: undefined in hmr_verified when trackEdit omits kind (backward compat)', () => {
-      verifier.trackEdit({
-        editId: 'edit-legacy',
-        filePath: 'src/App.tsx',
-        expectedValue: '16px',
-        property: 'padding-top',
-      })
-
-      verifier.onHMRUpdate(['src/App.tsx'])
-
-      expect(channel.sent).toHaveLength(1)
-      expect(channel.sent[0]).toEqual({
-        type: 'hmr_verified',
-        editId: 'edit-legacy',
-        match: true,
-        expected: '16px',
-        kind: undefined,
+        kind,
       })
     })
   })

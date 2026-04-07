@@ -186,26 +186,9 @@ export function Hero() {
     resolver.dispose()
   })
 
-  it('dispose() clears internal cache', async () => {
+  it('dispose() does not throw on double-dispose', () => {
     const resolver = new RuntimeCSSResolver()
-    // Access internal cache to verify it clears
-    const source = `
-import styles from './Hero.module.css'
-
-export function Hero() {
-  return <div className={styles.hero}>Hello</div>
-}
-`.trim()
-
-    await resolver.resolve(
-      '/project/src/Hero.tsx:4:10',
-      '/project',
-      mockReadFile(source),
-    )
-
     resolver.dispose()
-    // After dispose, a new resolve should still work (resolver creates fresh state)
-    // but we verify dispose doesn't throw and internal state is cleared
     expect(() => resolver.dispose()).not.toThrow()
   })
 })

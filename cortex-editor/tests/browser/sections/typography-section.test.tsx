@@ -203,6 +203,6 @@ describe('TypographySection', () => {
     setup()
     const swatch = container.querySelector('.cortex-color-input__swatch') as HTMLElement
     expect(swatch).not.toBeNull()
-    expect(swatch.style.backgroundColor).toBeTruthy()
+    expect(swatch.style.backgroundColor).toBe('rgb(107, 114, 128)')
   })
 })

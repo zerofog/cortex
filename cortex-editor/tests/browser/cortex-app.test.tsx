@@ -188,7 +188,13 @@ describe('CortexApp', () => {
     const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
     expect(styleEl).not.toBeNull()
 
-    // Select element B — state overrides from A should be cleared
+    // Inject state override content to make the assertion falsifiable.
+    // clearStateOverrides() calls rebuild() which regenerates from the internal maps.
+    // If clearStateOverrides is NOT called on element switch, this content persists.
+    styleEl.textContent = '[data-cortex-source="Hero.tsx:5:3"] { color: red !important; }'
+    expect(styleEl.textContent).not.toBe('')
+
+    // Select element B — clearStateOverrides → rebuild() should clear the style tag
     const elB = document.createElement('div')
     elB.setAttribute('data-cortex-source', 'Card.tsx:10:1')
     document.body.appendChild(elB)
@@ -197,8 +203,7 @@ describe('CortexApp', () => {
     selectCb(elB)
     await new Promise(r => setTimeout(r, 10))
 
-    // Style tag should not contain stale state overrides from element A
-    // (clearStateOverrides was called unconditionally on selection change)
+    // rebuild() regenerates from the (now empty) override maps — manual content is gone
     expect(styleEl.textContent).toBe('')
 
     elA.remove()

@@ -192,16 +192,12 @@ describe('parseColor', () => {
 })
 
 describe('formatColor', () => {
-  it('returns rgba when alpha < 100', () => {
-    expect(formatColor('#3b82f6', 50)).toBe('rgba(59, 130, 246, 0.5)')
-  })
-
-  it('returns rgba with 0 alpha', () => {
-    expect(formatColor('#3b82f6', 0)).toBe('rgba(59, 130, 246, 0)')
-  })
-
-  it('returns rgba with 75% alpha', () => {
-    expect(formatColor('#ff0000', 75)).toBe('rgba(255, 0, 0, 0.75)')
+  it.each([
+    [50, '#3b82f6', 'rgba(59, 130, 246, 0.5)'],
+    [0, '#3b82f6', 'rgba(59, 130, 246, 0)'],
+    [75, '#ff0000', 'rgba(255, 0, 0, 0.75)'],
+  ])('returns rgba when alpha=%i', (alpha, hex, expected) => {
+    expect(formatColor(hex, alpha)).toBe(expected)
   })
 
   it('returns hex for alpha >= 100', () => {

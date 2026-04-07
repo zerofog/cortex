@@ -99,6 +99,9 @@ describe('PropertyEditCommand', () => {
     cmd.undo()
     manager.flush()
     const undoneText = document.head.querySelector('[data-cortex-override]')!.textContent!
+    // Both sources must revert — not just the selected element
+    expect(undoneText).toContain('Card\\.tsx\\:10\\:3')
+    expect(undoneText).toContain('Card\\.tsx\\:20\\:3')
     expect(undoneText).toContain('padding: 8px')
   })
 

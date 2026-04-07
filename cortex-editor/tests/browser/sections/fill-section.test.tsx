@@ -42,11 +42,11 @@ describe('FillSection', () => {
     expect(root).not.toBeNull()
   })
 
-  it('renders a color swatch with the background color', () => {
+  it('renders a color swatch with the correct background color', () => {
     setup()
     const swatch = container.querySelector('.cortex-color-input__swatch') as HTMLElement
     expect(swatch).not.toBeNull()
-    expect(swatch.style.backgroundColor).toBeTruthy()
+    expect(swatch.style.backgroundColor).toBe('rgb(59, 130, 246)')
   })
 
   it('emits background-color change from color input', async () => {

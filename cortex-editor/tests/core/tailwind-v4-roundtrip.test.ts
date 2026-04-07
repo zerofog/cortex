@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest'
 import { extractThemeProperties, themePropertiesToResolved } from '../../src/core/tailwind-v4-parser.js'
 import { TailwindResolver } from '../../src/core/tailwind-resolver.js'
-import { oklchToHex } from '../../src/core/oklch.js'
+import { oklchToRgb } from './helpers.js'
 
 // Representative v4 theme with all property categories
 const V4_THEME_CSS = `
@@ -66,19 +66,6 @@ function buildResolver(): TailwindResolver {
   return TailwindResolver.fromTheme(theme)
 }
 
-/**
- * Simulate browser RGB by using the same oklchToHex as production.
- * This is intentionally self-referential: converter accuracy is validated
- * independently in oklch.test.ts. This helper tests pipeline wiring
- * (v4 parser → resolver → findClass), not converter correctness.
- */
-function oklchToBrowserRgb(oklch: string): string {
-  const hex = oklchToHex(oklch)!
-  const r = parseInt(hex.slice(1, 3), 16)
-  const g = parseInt(hex.slice(3, 5), 16)
-  const b = parseInt(hex.slice(5, 7), 16)
-  return `rgb(${r}, ${g}, ${b})`
-}
 
 describe('v4 round-trip: spacing properties', () => {
   const resolver = buildResolver()
@@ -127,7 +114,7 @@ describe('v4 round-trip: color properties', () => {
 
   it.each(COLOR_PROPERTIES)('%s resolves OKLCH-derived RGB values', (property) => {
     for (const oklch of OKLCH_COLORS) {
-      const browserRgb = oklchToBrowserRgb(oklch)
+      const browserRgb = oklchToRgb(oklch)
       const result = resolver.findClass(property, browserRgb)
       expect(result, `${property}: ${browserRgb} should resolve`).not.toBeNull()
     }

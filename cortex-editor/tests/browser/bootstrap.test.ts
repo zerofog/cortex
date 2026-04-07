@@ -72,7 +72,6 @@ describe('bootstrap', () => {
     bootstrap()
 
     // Verify __cortex_channel__ was set up (Vite channel registers handleServerMessage)
-    expect(window.__cortex_channel__).toBeDefined()
     expect(typeof window.__cortex_channel__?.handleServerMessage).toBe('function')
 
     delete window.__cortex_send__

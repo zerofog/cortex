@@ -112,27 +112,16 @@ describe('CSSOverrideManager', () => {
     )
   })
 
-  // Fix 2: CSS injection — source escaping
-  it('escapes special characters in source via CSS.escape()', () => {
-    manager.set('file"]{}body{display:none}[x="', 'color', 'red')
+  // Fix 2: CSS injection — source escaping via CSS.escape()
+  it.each([
+    ['injection payload', 'file"]{}body{display:none}[x="', 'body{display:none}'],
+    ['double quotes', 'Hero"evil.tsx:5:3', '[data-cortex-source="Hero"'],
+    ['closing brackets', 'file]:5:3', undefined],
+  ] as const)('escapes %s in source via CSS.escape()', (_label, source, forbidden) => {
+    manager.set(source, 'color', 'red')
     const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-    // CSS.escape should prevent selector breakout
-    expect(styleEl.textContent).not.toContain('body{display:none}')
     expect(styleEl.textContent).toContain('color: red !important')
-  })
-
-  it('escapes double quotes in source', () => {
-    manager.set('Hero"evil.tsx:5:3', 'color', 'red')
-    const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-    // The escaped output should not break the attribute selector
-    expect(styleEl.textContent).toContain('!important')
-    expect(styleEl.textContent).not.toContain('[data-cortex-source="Hero"')
-  })
-
-  it('escapes closing brackets in source', () => {
-    manager.set('file]:5:3', 'color', 'red')
-    const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-    expect(styleEl.textContent).toContain('!important')
+    if (forbidden) expect(styleEl.textContent).not.toContain(forbidden)
   })
 
   // Fix 2: CSS injection — property validation
@@ -949,12 +938,11 @@ describe('CSSOverrideManager', () => {
   })
 
   describe('HMR stale override sweep', () => {
-    it('calls sweepStaleOverrides on HMR applied', () => {
-      // Verify the sweep mechanism is invoked (we can't test real CSS matching in happy-dom)
+    it('preserves override when getComputedStyle returns empty (happy-dom limitation)', () => {
       manager.set('Hero.tsx:5:3', 'color', 'red')
       manager.flush()
-      // In happy-dom, getComputedStyle returns '' for color, so nothing is swept.
-      // The override should survive (sweep skips empty computed values).
+      // happy-dom returns '' for getComputedStyle — sweep skips empty computed values,
+      // so the override survives. Real sweep behavior tested in next test via mock.
       manager.onHMRApplied()
       const style = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
       expect(style.textContent).toContain('color: red')
