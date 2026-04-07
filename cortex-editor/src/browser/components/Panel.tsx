@@ -172,6 +172,9 @@ export function Panel({
   // Tracks previous override values during a scrub gesture for undo command creation.
   // Key: source\0property\0pseudo (null-byte separated — source paths contain colons).
   const scrubPreviousRef = useRef<Map<string, string>>(new Map())
+  // Tracks the last committed value per property to suppress phantom commits
+  // from HMR re-render blur events (same value committed twice for the same property).
+  const lastCommitValueRef = useRef<Map<string, string>>(new Map())
 
   // Pseudo-element tab state — internal to Panel
   const [activePseudo, setActivePseudo] = useState<'element' | '::before' | '::after'>('element')
@@ -213,12 +216,14 @@ export function Panel({
     }
     prevElementRef.current = element
     scrubPreviousRef.current.clear() // abandon any in-progress scrub state
+    lastCommitValueRef.current.clear()
   }, [element])
 
   // Abandon in-progress scrub state when switching pseudo-element tabs.
   // Without this, scrub state from ::before would contaminate a ::after commit.
   useEffect(() => {
     scrubPreviousRef.current.clear()
+    lastCommitValueRef.current.clear()
   }, [activePseudo])
 
   // Clear blast-radius highlights and remove injected style tag on unmount
@@ -364,21 +369,13 @@ export function Panel({
     const pseudo = activePseudo !== 'element' ? activePseudo : undefined
 
     // Build PropertyChange[] from accumulated scrub previous values.
-    // Filter no-op changes via computed style comparison — handles CSS
-    // normalization (e.g., override 'red' vs computed 'rgb(255, 0, 0)').
-    // String comparison alone misses these because the formats differ.
+    // Filter out no-op changes where value didn't change.
     const changes: PropertyChange[] = []
     for (const [key, previousValue] of scrubPreviousRef.current) {
       const [s, p, ps] = key.split(SEP) as [string, string, string]
       const parsedPseudo = (ps || undefined) as '::before' | '::after' | undefined
       const currentValue = overrideManager.get(s, p, parsedPseudo) ?? ''
       if (currentValue === previousValue) continue
-      // Computed style normalizes both override and previousValue to the same
-      // format — if they match, the override is semantically a no-op.
-      if (s === source && element) {
-        const computedNow = getComputedStyle(element, parsedPseudo ?? null).getPropertyValue(p).trim()
-        if (computedNow === previousValue) continue
-      }
       changes.push({
         source: s,
         property: p,
@@ -396,6 +393,10 @@ export function Panel({
         commandStack.record(cmd)
       } else {
         console.warn('[cortex] Edit committed without undo stack — this edit cannot be undone')
+      }
+      // Track committed values to suppress phantom re-commits from HMR re-render.
+      for (const c of changes) {
+        lastCommitValueRef.current.set(`${c.source}${SEP}${c.property}${SEP}${c.pseudo ?? ''}`, c.value)
       }
     }
 
@@ -488,6 +489,14 @@ export function Panel({
     }
 
     if (commitRender) {
+      // Suppress phantom re-commits: after HMR re-render, input blur can fire
+      // onCommit with the same value that was just committed. Skip if the value
+      // matches the last committed value for this property.
+      const lastCommitted = lastCommitValueRef.current.get(prevKey)
+      if (lastCommitted === value) {
+        scrubPreviousRef.current.clear()
+        return
+      }
       commitScrub()
     }
   }, [element, overrideManager, activePseudo, sharedInfo, editScope, commitScrub])
