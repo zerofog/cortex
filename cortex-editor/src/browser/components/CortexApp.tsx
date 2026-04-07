@@ -47,6 +47,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const [hoverEnabled, setHoverEnabled] = useState(true)
   const overrideRef = useRef<CSSOverrideManager | null>(null)
   const commandStackRef = useRef<CommandStack | null>(null)
+  const flushCommitRef = useRef<(() => void) | null>(null)
   const [annotations, setAnnotations] = useState<Map<string, Annotation>>(new Map())
   const [agentConnected, setAgentConnected] = useState(false)
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
@@ -325,21 +326,16 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       'v': guardSingleKey(() => setCommentMode(false)),
       'c': guardSingleKey(() => setCommentMode(m => !m)),
       '$mod+z': guardModifier(() => {
-        const cortexFocused = isCortexUIFocused()
-        console.debug('[cortex:undo] Cmd+Z pressed', { cortexFocused, stackSize: commandStackRef.current?.undoCount ?? 'null' })
         // Blur focused cortex input to commit any in-progress scrub gesture.
-        // The commit creates a command which we immediately undo — giving
-        // instant "cancel my current edit" behavior without waiting for blur.
-        if (cortexFocused) {
+        if (isCortexUIFocused()) {
           const active = getDeepActiveElement()
-          if (active instanceof HTMLElement) {
-            console.debug('[cortex:undo]   blurring', active.tagName, 'stackBefore:', commandStackRef.current?.undoCount)
-            active.blur()
-            console.debug('[cortex:undo]   after blur, stackSize:', commandStackRef.current?.undoCount)
-          }
+          if (active instanceof HTMLElement) active.blur()
         }
+        // Flush coalesced microtask commit synchronously — the blur triggers
+        // applyOverride(true) which queues commitScrub via microtask. The
+        // microtask hasn't fired yet, so we flush it here before undo().
+        flushCommitRef.current?.()
         const cmd = commandStackRef.current?.undo()
-        console.debug('[cortex:undo]   undo() returned:', cmd ? `cmd(${cmd.editId})` : 'null', 'stackAfter:', commandStackRef.current?.undoCount)
         if (cmd) {
           overrideRef.current?.flush()
           channel.send({ type: 'undo' })
@@ -350,6 +346,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           const active = getDeepActiveElement()
           if (active instanceof HTMLElement) active.blur()
         }
+        flushCommitRef.current?.()
         const cmd = commandStackRef.current?.redo()
         if (cmd) {
           overrideRef.current?.flush()
@@ -392,6 +389,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           element={selectedElement}
           overrideManager={overrideRef.current}
           commandStack={commandStackRef.current}
+          flushCommitRef={flushCommitRef}
           onClose={handleExit}
           onSelectElement={handleSelectElement}
           swatches={swatches}

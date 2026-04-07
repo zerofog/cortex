@@ -115,6 +115,9 @@ export interface PanelProps {
   panelPointerUp: (e: PointerEvent) => void
   panelPointerCancel: (e: PointerEvent) => void
   commandStack?: CommandStack | null
+  /** Ref written by Panel — CortexApp calls it to flush pending coalesced commits
+   *  before undo (microtask commits haven't fired yet when blur+undo runs synchronously). */
+  flushCommitRef?: { current: (() => void) | null }
   channel?: CortexChannel
   agentConnected?: boolean
 }
@@ -159,6 +162,7 @@ export function Panel({
   panelPointerUp,
   panelPointerCancel,
   commandStack,
+  flushCommitRef,
   channel,
   agentConnected,
 }: PanelProps): JSX.Element | null {
@@ -175,6 +179,9 @@ export function Panel({
   // Tracks the last committed value per property to suppress phantom commits
   // from HMR re-render blur events (same value committed twice for the same property).
   const lastCommitValueRef = useRef<Map<string, string>>(new Map())
+  // Coalesces synchronous multi-property commits (e.g., linked padding left+right)
+  // into a single atomic command via microtask.
+  const commitPendingRef = useRef(false)
 
   // Pseudo-element tab state — internal to Panel
   const [activePseudo, setActivePseudo] = useState<'element' | '::before' | '::after'>('element')
@@ -376,10 +383,10 @@ export function Panel({
       const parsedPseudo = (ps || undefined) as '::before' | '::after' | undefined
       const currentValue = overrideManager.get(s, p, parsedPseudo) ?? ''
       if (currentValue === previousValue) {
-        console.debug('[cortex:undo]   commitScrub SKIP no-op', { property: p, currentValue, previousValue })
+        console.log('[cortex:undo]   commitScrub SKIP no-op', { property: p, currentValue, previousValue })
         continue
       }
-      console.debug('[cortex:undo]   commitScrub CHANGE', { property: p, currentValue, previousValue })
+      console.log('[cortex:undo]   commitScrub CHANGE', { property: p, currentValue, previousValue })
       changes.push({
         source: s,
         property: p,
@@ -389,7 +396,7 @@ export function Panel({
       })
     }
 
-    console.debug('[cortex:undo] commitScrub result:', { changesCount: changes.length, stackSize: commandStack?.undoCount ?? 'null' })
+    console.log('[cortex:undo] commitScrub result:', { changesCount: changes.length, stackSize: commandStack?.undoCount ?? 'null' })
 
     // Record command on stack. Overrides are already applied during scrub phase,
     // so record() stores without re-executing (avoids double-apply).
@@ -397,7 +404,7 @@ export function Panel({
       if (commandStack) {
         const cmd = new PropertyEditCommand({ changes, overrideManager })
         commandStack.record(cmd)
-        console.debug('[cortex:undo]   RECORDED command', { editId: cmd.editId, stackSize: commandStack.undoCount })
+        console.log('[cortex:undo]   RECORDED command', { editId: cmd.editId, stackSize: commandStack.undoCount })
       } else {
         console.warn('[cortex] Edit committed without undo stack — this edit cannot be undone')
       }
@@ -446,6 +453,20 @@ export function Panel({
     }
   }, [element, overrideManager, activePseudo, channel, sharedInfo, editScope, extractedUtilities, commandStack])
 
+  // Expose flush for CortexApp to call before undo/redo — microtask commits
+  // haven't fired yet when blur+undo runs synchronously in the same tick.
+  useEffect(() => {
+    if (flushCommitRef) {
+      flushCommitRef.current = () => {
+        if (commitPendingRef.current) {
+          commitPendingRef.current = false
+          commitScrub()
+        }
+      }
+      return () => { flushCommitRef.current = null }
+    }
+  }, [flushCommitRef, commitScrub])
+
   // Scrub phase: captures previousValue on first touch per property, applies override.
   // On commit (commitRender=true): delegates to commitScrub() for atomic command creation.
   const applyOverride = useCallback((property: string, value: string, commitRender: boolean) => {
@@ -457,7 +478,7 @@ export function Panel({
     }
     const pseudo = activePseudo !== 'element' ? activePseudo : undefined
 
-    console.debug('[cortex:undo] applyOverride', { property, value, commitRender, pseudo, scrubSize: scrubPreviousRef.current.size })
+    console.log('[cortex:undo] applyOverride', { property, value, commitRender, pseudo, scrubSize: scrubPreviousRef.current.size })
 
     // Capture previousValue BEFORE set() — only on first touch per property per gesture.
     // If an override already exists, use that. Otherwise capture the computed style
@@ -468,11 +489,11 @@ export function Panel({
       const existing = overrideManager.get(source, property, pseudo)
       if (existing !== undefined) {
         scrubPreviousRef.current.set(prevKey, existing)
-        console.debug('[cortex:undo]   prevValue from override:', existing)
+        console.log('[cortex:undo]   prevValue from override:', existing)
       } else {
         const computed = getComputedStyle(element, pseudo ?? null).getPropertyValue(property).trim()
         scrubPreviousRef.current.set(prevKey, computed || '')
-        console.debug('[cortex:undo]   prevValue from computed:', computed || '(empty)')
+        console.log('[cortex:undo]   prevValue from computed:', computed || '(empty)')
       }
     }
 
@@ -505,12 +526,19 @@ export function Panel({
       // matches the last committed value for this property.
       const lastCommitted = lastCommitValueRef.current.get(prevKey)
       if (lastCommitted === value) {
-        console.debug('[cortex:undo]   PHANTOM SUPPRESSED (lastCommit match)', { property, value, lastCommitted })
         scrubPreviousRef.current.clear()
         return
       }
-      console.debug('[cortex:undo]   commitRender=true, calling commitScrub', { lastCommitted, value })
-      commitScrub()
+      // Coalesce synchronous multi-property commits into one atomic command.
+      // When linked padding fires onChange for both left and right in the same
+      // tick, both accumulate in scrubPreviousRef and commit once via microtask.
+      if (!commitPendingRef.current) {
+        commitPendingRef.current = true
+        queueMicrotask(() => {
+          commitPendingRef.current = false
+          commitScrub()
+        })
+      }
     }
   }, [element, overrideManager, activePseudo, sharedInfo, editScope, commitScrub])
 
