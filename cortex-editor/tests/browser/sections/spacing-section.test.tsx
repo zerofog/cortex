@@ -46,11 +46,8 @@ describe('SpacingSection', () => {
     expect(container.textContent).toContain('Gap')
   })
 
-  it('starts in 2-axis mode showing horizontal/vertical', () => {
-    setup({ padding: { top: 8, right: 8, bottom: 8, left: 8 } })
-    const paddingSection = container.querySelector('[data-section="padding"]')
-    expect(paddingSection).not.toBeNull()
-  })
+  // Subsumed: 'starts in 2-axis mode' — only asserted container exists.
+  // Covered by 'starts in 2-axis mode with expand toggle and lock toggle' below.
 
   it('renders lock toggle in unlocked state by default', () => {
     setup({ padding: { top: 16, right: 16, bottom: 16, left: 16 } })

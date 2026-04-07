@@ -382,14 +382,12 @@ describe('TailwindResolver', () => {
   // ── Static utilities (Step 9) ────────────────────────────────────────
 
   describe('static utilities', () => {
-    it('resolves border-style solid', () => {
+    it.each([
+      ['solid', 'border-solid'],
+      ['dashed', 'border-dashed'],
+    ])('resolves border-style %s', (value, expected) => {
       const resolver = TailwindResolver.fromTheme({})
-      expect(resolver.findClass('border-style', 'solid')).toBe('border-solid')
-    })
-
-    it('resolves border-style dashed', () => {
-      const resolver = TailwindResolver.fromTheme({})
-      expect(resolver.findClass('border-style', 'dashed')).toBe('border-dashed')
+      expect(resolver.findClass('border-style', value)).toBe(expected)
     })
 
     it('resolves overflow hidden', () => {
@@ -515,17 +513,20 @@ describe('getSnapPoints caching', () => {
     const resolver = TailwindResolver.fromTheme({
       spacing: { '1': '0.25rem', '2': '0.5rem', '4': '1rem' },
     })
-    const points = resolver.getSnapPoints('padding')
+    // Use 'padding-top' (in UTILITY_MAP), not 'padding' which hits EMPTY_FROZEN early-return
+    const points = resolver.getSnapPoints('padding-top')
     expect(Object.isFrozen(points)).toBe(true)
+    expect(points.length).toBeGreaterThan(0)
   })
 
   it('returns same reference on second call', () => {
     const resolver = TailwindResolver.fromTheme({
       spacing: { '1': '0.25rem', '2': '0.5rem' },
     })
-    const first = resolver.getSnapPoints('padding')
-    const second = resolver.getSnapPoints('padding')
+    const first = resolver.getSnapPoints('padding-top')
+    const second = resolver.getSnapPoints('padding-top')
     expect(first).toBe(second)
+    expect(first.length).toBeGreaterThan(0)
   })
 
   it('returns frozen empty array for unknown properties', () => {

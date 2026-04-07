@@ -2,6 +2,9 @@ import type { JSX } from 'preact'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks'
 import type { CSSOverrideManager } from '../override.js'
 import { onOverrideChange } from '../override-bus.js'
+import { CommandStack } from '../command-stack.js'
+import { PropertyEditCommand } from '../edit-command.js'
+import type { PropertyChange } from '../edit-command.js'
 import { parseCortexSource, isLibraryComponent, findUserAncestor } from '../label.js'
 import { PANEL_WIDTH } from '../hooks/useSnapToEdge.js'
 import { formatShortcut } from '../format-shortcut.js'
@@ -111,6 +114,12 @@ export interface PanelProps {
   panelPointerMove: (e: PointerEvent) => void
   panelPointerUp: (e: PointerEvent) => void
   panelPointerCancel: (e: PointerEvent) => void
+  commandStack?: CommandStack | null
+  /** Ref written by Panel — CortexApp calls it to flush pending coalesced commits
+   *  before undo (microtask commits haven't fired yet when blur+undo runs synchronously). */
+  flushCommitRef?: { current: (() => void) | null }
+  /** Set by CortexApp during undo/redo — suppresses phantom re-edits from Panel re-renders. */
+  undoInProgressRef?: { current: boolean }
   channel?: CortexChannel
   agentConnected?: boolean
 }
@@ -154,6 +163,9 @@ export function Panel({
   panelPointerMove,
   panelPointerUp,
   panelPointerCancel,
+  commandStack,
+  flushCommitRef,
+  undoInProgressRef,
   channel,
   agentConnected,
 }: PanelProps): JSX.Element | null {
@@ -163,6 +175,16 @@ export function Panel({
   const [isCrossFading, setIsCrossFading] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
   const prevElementRef = useRef<HTMLElement | null>(null)
+
+  // Tracks previous override values during a scrub gesture for undo command creation.
+  // Key: source\0property\0pseudo (null-byte separated — source paths contain colons).
+  const scrubPreviousRef = useRef<Map<string, string>>(new Map())
+  // Tracks the last committed value per property to suppress phantom commits
+  // from HMR re-render blur events (same value committed twice for the same property).
+  const lastCommitValueRef = useRef<Map<string, string>>(new Map())
+  // Coalesces synchronous multi-property commits (e.g., linked padding left+right)
+  // into a single atomic command via microtask.
+  const commitPendingRef = useRef(false)
 
   // Pseudo-element tab state — internal to Panel
   const [activePseudo, setActivePseudo] = useState<'element' | '::before' | '::after'>('element')
@@ -203,7 +225,16 @@ export function Panel({
       setActivePseudo('element') // reset pseudo tab on element change
     }
     prevElementRef.current = element
+    scrubPreviousRef.current.clear() // abandon any in-progress scrub state
+    lastCommitValueRef.current.clear()
   }, [element])
+
+  // Abandon in-progress scrub state when switching pseudo-element tabs.
+  // Without this, scrub state from ::before would contaminate a ::after commit.
+  useEffect(() => {
+    scrubPreviousRef.current.clear()
+    lastCommitValueRef.current.clear()
+  }, [activePseudo])
 
   // Clear blast-radius highlights and remove injected style tag on unmount
   useEffect(() => () => { clearHighlights(); removeBlastRadiusStyle() }, [])
@@ -331,55 +362,85 @@ export function Panel({
     return extractUtilities(cls)
   }, [element, styleVersion])
 
-  // Shared override application — warns if element lacks source attribution.
-  // Passes pseudo parameter to CSSOverrideManager when editing a pseudo-element.
-  // When commitRender is true (committed change, not scrub preview), also dispatches
-  // an edit message to the server for source file writing.
-  const applyOverride = useCallback((property: string, value: string, commitRender: boolean) => {
-    if (!element) return
+  // Null-byte separator for composite scrub keys — never appears in CSS properties or source paths.
+  const SEP = '\0'
+
+  // Commit phase: builds an atomic PropertyEditCommand from accumulated scrub state,
+  // records it on the CommandStack, flushes visual overrides, and sends server edits.
+  // Separated from applyOverride so batch handlers can accumulate multiple properties
+  // via scrub calls and commit once (one undo entry for the whole gesture).
+  const commitScrub = useCallback(() => {
+    // Suppress phantom re-edits from Panel re-renders during undo/redo.
+    // Without this, undo changes overrides → Panel re-renders → inputs fire
+    // onChange with stale values → new phantom command overwrites the undo.
+    if (undoInProgressRef?.current) {
+      scrubPreviousRef.current.clear()
+      return
+    }
+    if (!element || scrubPreviousRef.current.size === 0) return
     const source = element.getAttribute('data-cortex-source')
     if (!source) {
-      console.warn('[cortex] Cannot apply override: element missing data-cortex-source')
+      scrubPreviousRef.current.clear()
       return
     }
     const pseudo = activePseudo !== 'element' ? activePseudo : undefined
-    // Snapshot BEFORE any set() — captures pre-edit state for undo.
-    // beginEdit() is idempotent (only snapshots once per gesture).
-    overrideManager.beginEdit()
-    // scope='all': apply CSS override preview to ALL shared elements so
-    // the user sees the effect everywhere, not just on the selected element.
-    if (sharedInfo && editScope === 'all') {
-      for (const el of sharedInfo.elements) {
-        const elSource = el.getAttribute('data-cortex-source')
-        if (elSource) overrideManager.set(elSource, property, value, pseudo)
-      }
-    } else {
-      overrideManager.set(source, property, value, pseudo)
-    }
-    if (commitRender) {
-      overrideManager.flush()
-      setStyleVersion(v => v + 1)
 
-      // Dispatch edit to server — commitEdit() is called on edit_status:done
-      // to sync browser undo stack with server's debounced undo stack.
-      if (channel) {
+    // Build PropertyChange[] from accumulated scrub previous values.
+    // Filter out no-op changes where value didn't change.
+    const changes: PropertyChange[] = []
+    for (const [key, previousValue] of scrubPreviousRef.current) {
+      const [s, p, ps] = key.split(SEP) as [string, string, string]
+      const parsedPseudo = (ps || undefined) as '::before' | '::after' | undefined
+      const currentValue = overrideManager.get(s, p, parsedPseudo) ?? ''
+      if (currentValue === previousValue) continue
+      changes.push({
+        source: s,
+        property: p,
+        value: currentValue,
+        previousValue,
+        pseudo: parsedPseudo,
+      })
+    }
+
+    // Record command on stack. Overrides are already applied during scrub phase,
+    // so record() stores without re-executing (avoids double-apply).
+    if (changes.length > 0) {
+      if (commandStack) {
+        const cmd = new PropertyEditCommand({ changes, overrideManager })
+        commandStack.record(cmd)
+      } else {
+        console.warn('[cortex] Edit committed without undo stack — this edit cannot be undone')
+      }
+      // Track committed values to suppress phantom re-commits from HMR re-render.
+      for (const c of changes) {
+        lastCommitValueRef.current.set(`${c.source}${SEP}${c.property}${SEP}${c.pseudo ?? ''}`, c.value)
+      }
+    }
+
+    overrideManager.flush()
+    setStyleVersion(v => v + 1)
+    scrubPreviousRef.current.clear()
+
+    // Dispatch one server edit per distinct property (not per source — server handles scope='all').
+    // Filter to the selected element's source to deduplicate scope='all' sibling entries.
+    if (channel) {
+      const editedProps = changes.filter(c => c.source === source)
+      for (const c of editedProps) {
         const editId = crypto.randomUUID()
         // Track all shared sources so HMR verification clears ALL sibling overrides
         const pendingSources = (sharedInfo && editScope === 'all')
           ? sharedInfo.elements.map(el => el.getAttribute('data-cortex-source')).filter((s): s is string => s !== null)
           : source
-        overrideManager.trackPendingEdit(editId, pendingSources, property, pseudo)
-        const msg = {
-          type: 'edit' as const,
+        overrideManager.trackPendingEdit(editId, pendingSources, c.property, pseudo)
+        channel.send({
+          type: 'edit',
           editId,
           source,
-          property,
-          value,
+          property: c.property,
+          value: c.value,
           elementSelector: element.tagName.toLowerCase(),
           cssMapping: element.getAttribute('data-cortex-css') ?? undefined,
-          // Direct class path: send the current Tailwind class so the server
-          // can use it as oldToken directly, bypassing computed-style reverse lookup.
-          currentClass: extractedUtilities.get(property),
+          currentClass: extractedUtilities.get(c.property),
           ...(sharedInfo ? {
             scope: editScope,
             ...(editScope === 'all' ? {
@@ -388,11 +449,99 @@ export function Panel({
                 .filter((s): s is string => s !== null),
             } : {}),
           } : {}),
-        }
-        channel.send(msg as any)
+        })
       }
     }
-  }, [element, overrideManager, activePseudo, channel, sharedInfo, editScope, extractedUtilities])
+  }, [element, overrideManager, activePseudo, channel, sharedInfo, editScope, extractedUtilities, commandStack])
+
+  // Expose flush for CortexApp to call before undo/redo — microtask commits
+  // haven't fired yet when blur+undo runs synchronously in the same tick.
+  useEffect(() => {
+    if (flushCommitRef) {
+      flushCommitRef.current = () => {
+        if (commitPendingRef.current) {
+          commitPendingRef.current = false
+          commitScrub()
+        }
+      }
+      return () => { flushCommitRef.current = null }
+    }
+  }, [flushCommitRef, commitScrub])
+
+  // Scrub phase: captures previousValue on first touch per property, applies override.
+  // On commit (commitRender=true): delegates to commitScrub() for atomic command creation.
+  const applyOverride = useCallback((property: string, value: string, commitRender: boolean) => {
+    // Suppress phantom re-edits triggered by Preact re-renders after undo/redo.
+    // Preact's setTimeout-based batching fires AFTER the keyboard handler completes,
+    // causing section inputs to re-render with new values and fire onChange.
+    if (undoInProgressRef?.current) return
+    if (!element) return
+    const source = element.getAttribute('data-cortex-source')
+    if (!source) return
+    const pseudo = activePseudo !== 'element' ? activePseudo : undefined
+    const prevKey = `${source}${SEP}${property}${SEP}${pseudo ?? ''}`
+
+    // Phantom re-commit guard: after HMR re-render, input blur can fire onCommit
+    // with the same value that was just committed. Bail BEFORE applying the override
+    // so no stale !important rule is (re-)introduced into the style element.
+    if (commitRender) {
+      const lastCommitted = lastCommitValueRef.current.get(prevKey)
+      if (lastCommitted === value) {
+        scrubPreviousRef.current.delete(prevKey)
+        return
+      }
+    }
+
+    // Capture previousValue BEFORE set() — only on first touch per property per gesture.
+    // If an override already exists, use that. Otherwise capture the computed style
+    // so undo can set it as a temporary override even after HMR has removed the
+    // original override and the CSS file has the new value.
+    if (!scrubPreviousRef.current.has(prevKey)) {
+      const existing = overrideManager.get(source, property, pseudo)
+      if (existing !== undefined) {
+        scrubPreviousRef.current.set(prevKey, existing)
+      } else {
+        const computed = getComputedStyle(element, pseudo ?? null).getPropertyValue(property).trim()
+        scrubPreviousRef.current.set(prevKey, computed || '')
+      }
+    }
+
+    // scope='all': apply CSS override preview to ALL shared elements so
+    // the user sees the effect everywhere, not just on the selected element.
+    if (sharedInfo && editScope === 'all') {
+      for (const el of sharedInfo.elements) {
+        const elSource = el.getAttribute('data-cortex-source')
+        if (elSource) {
+          const elPrevKey = `${elSource}${SEP}${property}${SEP}${pseudo ?? ''}`
+          if (!scrubPreviousRef.current.has(elPrevKey)) {
+            const elExisting = overrideManager.get(elSource, property, pseudo)
+            if (elExisting !== undefined) {
+              scrubPreviousRef.current.set(elPrevKey, elExisting)
+            } else {
+              const computed = getComputedStyle(el, pseudo ?? null).getPropertyValue(property).trim()
+              scrubPreviousRef.current.set(elPrevKey, computed || '')
+            }
+          }
+          overrideManager.set(elSource, property, value, pseudo)
+        }
+      }
+    } else {
+      overrideManager.set(source, property, value, pseudo)
+    }
+
+    if (commitRender) {
+      // Coalesce synchronous multi-property commits into one atomic command.
+      // When linked padding fires onChange for both left and right in the same
+      // tick, both accumulate in scrubPreviousRef and commit once via microtask.
+      if (!commitPendingRef.current) {
+        commitPendingRef.current = true
+        queueMicrotask(() => {
+          commitPendingRef.current = false
+          commitScrub()
+        })
+      }
+    }
+  }, [element, overrideManager, activePseudo, sharedInfo, editScope, commitScrub])
 
   const handleSpacingCommit = useCallback((c: SpacingChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleScrub = useCallback((c: SpacingChange) => applyOverride(c.property, c.value, false), [applyOverride])
@@ -421,20 +570,26 @@ export function Panel({
   const handleFillAdd = useCallback(() => {
     applyOverride('background-color', '#ffffff', true)
   }, [applyOverride])
+  // Batch: accumulate via scrub, commit once → one atomic undo entry.
   const handleFillRemove = useCallback(() => {
-    applyOverride('background-color', 'transparent', true)
-    applyOverride('background-image', 'none', true)
-  }, [applyOverride])
+    applyOverride('background-color', 'transparent', false)
+    applyOverride('background-image', 'none', false)
+    commitScrub()
+  }, [applyOverride, commitScrub])
+  // Batch: 3 properties → 1 undo entry.
   const handleBorderAdd = useCallback(() => {
-    applyOverride('border-width', '1px', true)
-    applyOverride('border-style', 'solid', true)
-    applyOverride('border-color', '#000000', true)
-  }, [applyOverride])
-  // Intentionally preserves border-color so re-adding restores the user's last choice
+    applyOverride('border-width', '1px', false)
+    applyOverride('border-style', 'solid', false)
+    applyOverride('border-color', '#000000', false)
+    commitScrub()
+  }, [applyOverride, commitScrub])
+  // Intentionally preserves border-color so re-adding restores the user's last choice.
+  // Batch: 2 properties → 1 undo entry.
   const handleBorderRemove = useCallback(() => {
-    applyOverride('border-style', 'none', true)
-    applyOverride('border-width', '0px', true)
-  }, [applyOverride])
+    applyOverride('border-style', 'none', false)
+    applyOverride('border-width', '0px', false)
+    commitScrub()
+  }, [applyOverride, commitScrub])
   const handleShadowAdd = useCallback(() => {
     applyOverride('box-shadow', addShadow(computedStyles.shadow.boxShadow), true)
   }, [computedStyles.shadow.boxShadow, applyOverride])

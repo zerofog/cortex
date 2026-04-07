@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest'
 import { extractThemeProperties, themePropertiesToResolved } from '../../src/core/tailwind-v4-parser.js'
 import { TailwindResolver } from '../../src/core/tailwind-resolver.js'
-import { oklchToHex } from '../../src/core/oklch.js'
+import { oklchToRgb } from './helpers.js'
 
 // Full v4 theme covering all property categories
 const THEME_CSS = `
@@ -43,18 +43,6 @@ const props = extractThemeProperties(THEME_CSS)
 const theme = themePropertiesToResolved(props)
 const resolver = TailwindResolver.fromTheme(theme)
 
-/**
- * Simulate browser RGB using the same oklchToHex as production.
- * Self-referential by design: tests pipeline wiring, not converter accuracy.
- * Converter accuracy is validated independently in oklch.test.ts.
- */
-function oklchRgb(oklch: string): string {
-  const hex = oklchToHex(oklch)!
-  const r = parseInt(hex.slice(1, 3), 16)
-  const g = parseInt(hex.slice(3, 5), 16)
-  const b = parseInt(hex.slice(5, 7), 16)
-  return `rgb(${r}, ${g}, ${b})`
-}
 
 // ── UTILITY_MAP property matrix ─────────────────────────────────────
 
@@ -96,8 +84,8 @@ const UTILITY_MATRIX: PropertyTest[] = [
   { property: 'color', validValue: '#000000', expectedClass: 'text-black', invalidValue: 'rgb(123, 45, 67)' },
 
   // Colors — OKLCH-derived (invalid must be >10 channels from any theme color)
-  { property: 'background-color', validValue: oklchRgb('oklch(63.7% 0.237 25.331)'), expectedClass: 'bg-red-500', invalidValue: 'rgb(80, 80, 80)' },
-  { property: 'color', validValue: oklchRgb('oklch(62.3% 0.214 259.815)'), expectedClass: 'text-blue-500', invalidValue: 'rgb(80, 80, 80)' },
+  { property: 'background-color', validValue: oklchToRgb('oklch(63.7% 0.237 25.331)'), expectedClass: 'bg-red-500', invalidValue: 'rgb(80, 80, 80)' },
+  { property: 'color', validValue: oklchToRgb('oklch(62.3% 0.214 259.815)'), expectedClass: 'text-blue-500', invalidValue: 'rgb(80, 80, 80)' },
 
   // Border
   { property: 'border-width', validValue: '1px', expectedClass: 'border', invalidValue: '3px' },

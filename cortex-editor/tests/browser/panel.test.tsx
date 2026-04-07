@@ -33,6 +33,7 @@ describe('Panel', () => {
     const onSelectElement = vi.fn()
     const overrideManager = {
       set: vi.fn(),
+      get: vi.fn(),
       remove: vi.fn(),
       clearAll: vi.fn(),
       dispose: vi.fn(),
@@ -338,6 +339,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
   function createOverrideManager() {
     return {
       set: vi.fn(),
+      get: vi.fn(),
       remove: vi.fn(),
       clearAll: vi.fn(),
       dispose: vi.fn(),
@@ -365,8 +367,14 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     )
     await new Promise(r => setTimeout(r, 0))
 
-    // Mock getComputedStyle to return different color for the element
+    // Install mock + spy wrapper to detect getComputedStyle calls on our target
     const cleanupMock = mockGetComputedStyle(target, { color: 'rgb(255, 0, 0)' })
+    let targetCallCount = 0
+    const mockedGCS = window.getComputedStyle
+    window.getComputedStyle = ((...args: [Element, string?]) => {
+      if (args[0] === target) targetCallCount++
+      return mockedGCS.apply(window, args)
+    }) as typeof window.getComputedStyle
 
     // Re-render with hover state — should trigger useMemo re-read
     render(
@@ -382,10 +390,8 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     )
     await new Promise(r => setTimeout(r, 0))
 
-    // The panel should have re-read computed styles (activeState changed)
-    // We verify by checking it rendered (no error from stale memo)
-    const panel = container.querySelector('.cortex-panel')
-    expect(panel).not.toBeNull()
+    // useMemo must re-run when activeState changes — proves it's in the dep array
+    expect(targetCallCount).toBeGreaterThanOrEqual(1)
 
     cleanupMock()
     render(null, container)
@@ -475,83 +481,11 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     target.remove()
   })
 
-  it('computes dimmedProperties when activeState is not default', async () => {
-    const target = createTarget()
-    const overrideManager = createOverrideManager()
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-
-    // Render in default state first (snapshot taken)
-    render(
-      <Panel
-        element={target}
-        overrideManager={overrideManager as any}
-        onClose={() => {}}
-        onSelectElement={() => {}}
-        activeState="default"
-        {...panelPositionProps}
-      />,
-      container,
-    )
-    await new Promise(r => setTimeout(r, 0))
-
-    // Mock different computed styles for hover state
-    const cleanupMock = mockGetComputedStyle(target, {
-      color: 'rgb(255, 0, 0)',
-      backgroundColor: 'rgb(0, 0, 255)',
-    })
-
-    // Switch to hover state
-    render(
-      <Panel
-        element={target}
-        overrideManager={overrideManager as any}
-        onClose={() => {}}
-        onSelectElement={() => {}}
-        activeState="hover"
-        {...panelPositionProps}
-      />,
-      container,
-    )
-    await new Promise(r => setTimeout(r, 0))
-
-    // Panel should render with dimming enabled (no crash, renders normally)
-    const panel = container.querySelector('.cortex-panel')
-    expect(panel).not.toBeNull()
-
-    cleanupMock()
-    render(null, container)
-    container.remove()
-    target.remove()
-  })
-
-  it('does not compute dimmedProperties when activeState is default', async () => {
-    const target = createTarget()
-    const overrideManager = createOverrideManager()
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-
-    render(
-      <Panel
-        element={target}
-        overrideManager={overrideManager as any}
-        onClose={() => {}}
-        onSelectElement={() => {}}
-        activeState="default"
-        {...panelPositionProps}
-      />,
-      container,
-    )
-    await new Promise(r => setTimeout(r, 0))
-
-    // Panel should render without dimming classes
-    const panel = container.querySelector('.cortex-panel')
-    expect(panel).not.toBeNull()
-
-    render(null, container)
-    container.remove()
-    target.remove()
-  })
+  // TODO: assert dimmed CSS class when sections render dimmedProperties.
+  // dimmedProperties is computed in Panel's useMemo but no section component
+  // consumes the prop in JSX yet — there's no DOM output to assert against.
+  it.skip('computes dimmedProperties when activeState is not default', () => {})
+  it.skip('does not compute dimmedProperties when activeState is default', () => {})
 
   it('renders pseudo tabs when hasBefore or hasAfter is true', async () => {
     const target = createTarget()
@@ -637,14 +571,20 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     pseudoTab?.click()
     await new Promise(r => setTimeout(r, 0))
 
-    // Now trigger a property change — we'll find a scrub-capable input
-    // The override manager's set should be called with pseudo parameter
-    // For this test, we verify the panel rendered after pseudo tab switch
-    const panel = container.querySelector('.cortex-panel')
-    expect(panel).not.toBeNull()
-
-    // The pseudo tab should be active
     expect(pseudoTab?.classList.contains('cortex-pseudo-tab--active')).toBe(true)
+
+    // Trigger a property change via ArrowUp on a NumericInput to exercise the
+    // applyOverride → overrideManager.set path with the pseudo parameter.
+    const numericInput = container.querySelector('.cortex-numeric-input__value') as HTMLInputElement
+    expect(numericInput).not.toBeNull()
+    numericInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
+    await new Promise(r => setTimeout(r, 0))
+
+    // overrideManager.set must have been called with '::before' as the pseudo parameter
+    const setCall = (overrideManager.set as ReturnType<typeof vi.fn>).mock.calls.find(
+      (args: unknown[]) => args[3] === '::before'
+    )
+    expect(setCall).toBeDefined()
 
     render(null, container)
     container.remove()

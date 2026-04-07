@@ -179,11 +179,12 @@ describe('EditPipeline', () => {
     // No rewrite attempted
     expect(rewriter.calls).toHaveLength(0)
 
-    // Should send failed status (AI path not yet implemented)
+    // Should send failed status — no Tailwind class found, no AI/deferred fallback
     const failedStatus = channel.sent.find(
       m => m.type === 'edit_status' && (m as { status: string }).status === 'failed'
     )
     expect(failedStatus).toBeDefined()
+    expect((failedStatus as any).reason).toContain('Cannot resolve Tailwind class')
   })
 
   it('sends writing then done status on successful edit', async () => {
@@ -306,6 +307,7 @@ describe('EditPipeline', () => {
       m => m.type === 'edit_status' && (m as { status: string }).status === 'failed'
     )
     expect(failedStatus).toBeDefined()
+    expect((failedStatus as any).reason).toBe('Template literal')
   })
 
   it('rejects file paths outside project root', async () => {
@@ -870,11 +872,11 @@ describe('EditPipeline', () => {
     await pipeline.handleUndo()
 
     expect(writeFile).toHaveBeenCalledWith({ kind: 'undo', filePath: '/project/src/App.tsx', content: 'old' })
-    const undoStatus = channel.sent.find(m => m.type === 'undo_status' && (m as { status: string }).status === 'done')
+    const undoStatus = channel.sent.find(m => m.type === 'undo_sync_status' && (m as { status: string }).status === 'done')
     expect(undoStatus).toBeDefined()
   })
 
-  it('handleUndo with empty stack is a no-op', async () => {
+  it('handleUndo with empty stack sends empty_stack reason_code', async () => {
     const channel = mockChannel()
     const resolver = mockResolver({})
     const rewriter = mockRewriter()
@@ -890,6 +892,8 @@ describe('EditPipeline', () => {
     await pipeline.handleUndo()
 
     expect(writeFile).not.toHaveBeenCalled()
+    const failMsg = channel.sent.find(m => m.type === 'undo_sync_status')
+    expect(failMsg).toMatchObject({ status: 'failed', reason_code: 'empty_stack' })
   })
 
   it('handleUndo detects stale file and removes entry', async () => {
@@ -936,10 +940,11 @@ describe('EditPipeline', () => {
 
     expect(writeFile).not.toHaveBeenCalled()
     const failedStatus = channel.sent.find(
-      m => m.type === 'undo_status' && (m as { status: string }).status === 'failed'
+      m => m.type === 'undo_sync_status' && (m as { status: string }).status === 'failed'
     )
     expect(failedStatus).toBeDefined()
     expect((failedStatus as { reason: string }).reason).toContain('File was modified outside cortex')
+    expect((failedStatus as { reason_code: string }).reason_code).toBe('stale')
     expect(undoStack.canUndo).toBe(false)
   })
 
@@ -1054,7 +1059,7 @@ describe('EditPipeline', () => {
     await pipeline.handleRedo()
 
     expect(writeFile).toHaveBeenCalledWith({ kind: 'redo', filePath: '/project/src/App.tsx', content: 'new content' })
-    const redoStatus = channel.sent.find(m => m.type === 'redo_status' && (m as { status: string }).status === 'done')
+    const redoStatus = channel.sent.find(m => m.type === 'redo_sync_status' && (m as { status: string }).status === 'done')
     expect(redoStatus).toBeDefined()
   })
 
@@ -2244,7 +2249,10 @@ describe('EditPipeline', () => {
         enqueued,
         cancelledFiles,
         enqueue(edit: DeferredEdit) { enqueued.push(edit) },
-        cancelForFile(filePath: string) { cancelledFiles.push(filePath) },
+        cancelForFile(filePath: string): string[] {
+          cancelledFiles.push(filePath)
+          return ['fake-cancel-1']
+        },
         dispose() {},
       } as unknown as DeferredWriter & { enqueued: DeferredEdit[]; cancelledFiles: string[] }
     }
@@ -2293,6 +2301,11 @@ describe('EditPipeline', () => {
       await pipeline.handleUndo()
 
       expect(deferredWriter.cancelledFiles).toContain('/project/src/App.tsx')
+      // cancelForFile returns editIds → pipeline sends cancelled status for each
+      const cancelledMsg = channel.sent.find(
+        m => m.type === 'edit_status' && (m as any).editId === 'fake-cancel-1' && (m as any).status === 'cancelled'
+      )
+      expect(cancelledMsg).toBeDefined()
     })
 
     it('_doRedo cancels deferred writes for the target file', async () => {
@@ -2345,6 +2358,10 @@ describe('EditPipeline', () => {
       await pipeline.handleRedo()
 
       expect(deferredWriter.cancelledFiles).toContain('/project/src/App.tsx')
+      const cancelledMsg = channel.sent.find(
+        m => m.type === 'edit_status' && (m as any).editId === 'fake-cancel-1' && (m as any).status === 'cancelled'
+      )
+      expect(cancelledMsg).toBeDefined()
     })
   })
 
@@ -2670,49 +2687,8 @@ describe('EditPipeline', () => {
       return { write: vi.fn().mockResolvedValue(result) }
     }
 
-    it('tracks ALL changes with corresponding editIds for coalesced batches', async () => {
-      const channel = mockChannel()
-      const resolver = mockResolver({})
-      const rewriter = mockRewriter()
-      const verifier = mockVerifier()
-      const writeFile = vi.fn().mockResolvedValue(undefined)
-      const undoStack = new UndoStack()
-      const aiWriter = mockAIWriter()
-      const readFile = vi.fn().mockResolvedValue('old content')
-
-      const pipeline = new EditPipeline({
-        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
-        undoStack, readFile,
-        aiWriter: aiWriter as any,
-      })
-
-      const ac = new AbortController()
-      const batch: BatchedWriteRequest = {
-        filePath: '/project/src/App.tsx',
-        line: 14,
-        col: 7,
-        changes: [
-          { property: 'padding-top', value: '16px', editId: 'e-first' },
-          { property: 'margin-left', value: '8px', editId: 'e-middle' },
-        ],
-        editIds: ['e-first', 'e-middle', 'e-last'],
-        failureReason: 'no class',
-        signal: ac.signal,
-      }
-
-      await pipeline.executeDeferredBatch(batch)
-
-      // Both changes tracked with their per-change editIds
-      expect(verifier.tracked).toHaveLength(2)
-      expect((verifier.tracked[0] as any).editId).toBe('e-first')
-      expect((verifier.tracked[0] as any).property).toBe('padding-top')
-      expect((verifier.tracked[0] as any).expectedValue).toBe('16px')
-      expect((verifier.tracked[0] as any).kind).toBe('deferred')
-      expect((verifier.tracked[1] as any).editId).toBe('e-middle')
-      expect((verifier.tracked[1] as any).property).toBe('margin-left')
-      expect((verifier.tracked[1] as any).expectedValue).toBe('8px')
-      expect((verifier.tracked[1] as any).kind).toBe('deferred')
-    })
+    // Subsumed: "tracks ALL changes with corresponding editIds for coalesced batches"
+    // was strictly subsumed by the next test (3 changes + filePath loop vs 2 changes).
 
     it('tracks ALL changes in the batch for HMR, not just the last (bug #12)', async () => {
       const channel = mockChannel()
@@ -3979,7 +3955,7 @@ describe('EditPipeline', () => {
       expect(writeFile).toHaveBeenCalledTimes(2)
       expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'undo', filePath: '/project/src/Hero.module.css', content: 'css-before' }))
       expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'undo', filePath: '/project/src/Hero.tsx', content: 'jsx-before' }))
-      const undoMsg = channel.sent.find(m => m.type === 'undo_status') as { status: string }
+      const undoMsg = channel.sent.find(m => m.type === 'undo_sync_status') as { status: string }
       expect(undoMsg.status).toBe('done')
 
       // ── Redo: both files re-applied atomically ──
@@ -3993,7 +3969,7 @@ describe('EditPipeline', () => {
       expect(writeFile).toHaveBeenCalledTimes(2)
       expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'redo', filePath: '/project/src/Hero.module.css', content: 'css-after' }))
       expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'redo', filePath: '/project/src/Hero.tsx', content: 'jsx-after' }))
-      const redoMsg = channel.sent.find(m => m.type === 'redo_status') as { status: string }
+      const redoMsg = channel.sent.find(m => m.type === 'redo_sync_status') as { status: string }
       expect(redoMsg.status).toBe('done')
     })
 
@@ -4048,7 +4024,7 @@ describe('EditPipeline', () => {
 
       // Neither file should have been written (atomic failure)
       expect(writeFile).not.toHaveBeenCalled()
-      const undoMsg = channel.sent.find(m => m.type === 'undo_status') as { status: string; reason?: string }
+      const undoMsg = channel.sent.find(m => m.type === 'undo_sync_status') as { status: string; reason?: string }
       expect(undoMsg.status).toBe('failed')
       expect(undoMsg.reason).toContain('modified outside cortex')
       // Entry removed from stack (stale)
@@ -4080,7 +4056,7 @@ describe('EditPipeline', () => {
       await vi.runAllTimersAsync()
 
       expect(writeFile).not.toHaveBeenCalled()
-      const msg = channel.sent.find(m => m.type === 'undo_status') as { status: string; reason?: string }
+      const msg = channel.sent.find(m => m.type === 'undo_sync_status') as { status: string; reason?: string }
       expect(msg.status).toBe('failed')
       expect(msg.reason).toContain('modified outside cortex')
       // Entry removed (treated as stale)
@@ -4120,7 +4096,7 @@ describe('EditPipeline', () => {
       await pipeline.handleUndo()
       await vi.runAllTimersAsync()
 
-      const msg = channel.sent.find(m => m.type === 'undo_status') as { status: string; reason?: string }
+      const msg = channel.sent.find(m => m.type === 'undo_sync_status') as { status: string; reason?: string }
       expect(msg.status).toBe('failed')
       expect(msg.reason).toContain('Write failed during undo')
       // Entry stays on stack (not removed) — user can retry
@@ -4163,7 +4139,7 @@ describe('EditPipeline', () => {
       await pipeline.handleRedo()
       await vi.runAllTimersAsync()
 
-      const msg = channel.sent.find(m => m.type === 'redo_status') as { status: string }
+      const msg = channel.sent.find(m => m.type === 'redo_sync_status') as { status: string }
       expect(msg.status).toBe('failed')
       // Redo staleness clears entire stack
       expect(undoStack.canUndo).toBe(false)

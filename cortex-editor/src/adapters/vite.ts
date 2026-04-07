@@ -44,8 +44,8 @@ const ALLOWED_ORIGINS = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/
 const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close'])
 /** Message types that require token auth — all write/mutation operations.
  *  Update this union when adding new write message types to BrowserToServer. */
-type WriteMessageType = 'edit' | 'undo' | 'redo' | 'comment' | 'comment-reply'
-const WRITE_TYPES: Set<WriteMessageType> = new Set(['edit', 'undo', 'redo', 'comment', 'comment-reply'])
+type WriteMessageType = 'edit' | 'undo' | 'redo' | 'comment' | 'comment-reply' | 'clear_server_undo'
+const WRITE_TYPES: Set<WriteMessageType> = new Set(['edit', 'undo', 'redo', 'comment', 'comment-reply', 'clear_server_undo'])
 const HEARTBEAT_INTERVAL = 30_000
 const MAX_CLI_CONNECTIONS = 5
 
@@ -456,11 +456,14 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         }
         if (data.type === 'undo') {
           if (currentSession!.pipeline) currentSession!.pipeline.handleUndo()
-          else currentSession!.channel?.send({ type: 'undo_status', status: 'failed', restoredFile: '', reason: 'Editor is still initializing.' })
+          else currentSession!.channel?.send({ type: 'undo_sync_status', status: 'failed', reason: 'Editor is still initializing.' })
         }
         if (data.type === 'redo') {
           if (currentSession!.pipeline) currentSession!.pipeline.handleRedo()
-          else currentSession!.channel?.send({ type: 'redo_status', status: 'failed', restoredFile: '', reason: 'Editor is still initializing.' })
+          else currentSession!.channel?.send({ type: 'redo_sync_status', status: 'failed', reason: 'Editor is still initializing.' })
+        }
+        if (data.type === 'clear_server_undo') {
+          currentSession!.pipeline?.clearUndoStack()
         }
 
         // Track browser connection + send current agent status on init

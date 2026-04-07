@@ -150,7 +150,9 @@ describe('CortexTransport', () => {
     const error = await new Promise<Error>((resolve) => {
       ws2.on('error', resolve)
     })
-    expect(error).toBeDefined()
+    // After dispose, the server is closed — connection must fail (not succeed)
+    expect(error).toBeInstanceOf(Error)
+    expect(ws2.readyState).not.toBe(WebSocket.OPEN)
   })
 
   it('rejects WebSocket connections with non-localhost Origin', async () => {

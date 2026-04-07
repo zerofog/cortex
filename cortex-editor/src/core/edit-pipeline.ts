@@ -1,4 +1,4 @@
-import { resolve, relative, sep } from 'path'
+import { resolve, sep } from 'path'
 import { realpathSync } from 'fs'
 import type { ServerChannel } from '../adapters/types.js'
 import type { TailwindResolver } from './tailwind-resolver.js'
@@ -565,7 +565,7 @@ export class EditPipeline {
       await this.undoLock
     } catch (err) {
       console.error('[cortex] Undo failed:', err)
-      this.channel.send({ type: 'undo_status', status: 'failed', restoredFile: '', reason: err instanceof Error ? err.message : 'Undo failed' })
+      this.channel.send({ type: 'undo_sync_status', status: 'failed', reason: err instanceof Error ? err.message : 'Undo failed' })
     }
   }
 
@@ -575,7 +575,7 @@ export class EditPipeline {
 
     const entry = this.undoStack!.peekUndo()
     if (!entry) {
-      this.channel.send({ type: 'undo_status', status: 'failed', restoredFile: '', reason: 'Nothing to undo.' })
+      this.channel.send({ type: 'undo_sync_status', status: 'failed', reason: 'Nothing to undo.', reason_code: 'empty_stack' })
       return
     }
 
@@ -610,7 +610,7 @@ export class EditPipeline {
       }
       if (stale) {
         this.undoStack!.removeStaleEntry(entry.id)
-        this.channel.send({ type: 'undo_status', status: 'failed', restoredFile: relative(this.projectRoot, change.filePath), reason: 'File was modified outside cortex. Undo not available for this change.' })
+        this.channel.send({ type: 'undo_sync_status', status: 'failed', reason: 'File was modified outside cortex. Undo not available for this change.', reason_code: 'stale' })
         return
       }
     }
@@ -636,13 +636,12 @@ export class EditPipeline {
           console.error('[cortex] Undo rollback failed for %s:', w.filePath, rollbackErr)
         }
       }
-      this.channel.send({ type: 'undo_status', status: 'failed', restoredFile: relative(this.projectRoot, entry.changes[0]?.filePath ?? ''), reason: `Write failed during undo: ${err instanceof Error ? err.message : String(err)}` })
+      this.channel.send({ type: 'undo_sync_status', status: 'failed', reason: `Write failed during undo: ${err instanceof Error ? err.message : String(err)}`, reason_code: 'write_failed' })
       return
     }
 
     this.undoStack!.undo()
-    const primaryFile = entry.changes[0]?.filePath ?? ''
-    this.channel.send({ type: 'undo_status', status: 'done', restoredFile: relative(this.projectRoot, primaryFile) })
+    this.channel.send({ type: 'undo_sync_status', status: 'done' })
   }
 
   async handleRedo(): Promise<void> {
@@ -655,14 +654,14 @@ export class EditPipeline {
       await this.undoLock
     } catch (err) {
       console.error('[cortex] Redo failed:', err)
-      this.channel.send({ type: 'redo_status', status: 'failed', restoredFile: '', reason: err instanceof Error ? err.message : 'Redo failed' })
+      this.channel.send({ type: 'redo_sync_status', status: 'failed', reason: err instanceof Error ? err.message : 'Redo failed' })
     }
   }
 
   private async _doRedo(): Promise<void> {
     const entry = this.undoStack!.peekRedo()
     if (!entry) {
-      this.channel.send({ type: 'redo_status', status: 'failed', restoredFile: '', reason: 'Nothing to redo.' })
+      this.channel.send({ type: 'redo_sync_status', status: 'failed', reason: 'Nothing to redo.', reason_code: 'empty_stack' })
       return
     }
 
@@ -695,7 +694,7 @@ export class EditPipeline {
       }
       if (stale) {
         this.undoStack!.clear()
-        this.channel.send({ type: 'redo_status', status: 'failed', restoredFile: relative(this.projectRoot, change.filePath), reason: 'File was modified outside cortex. Redo not available.' })
+        this.channel.send({ type: 'redo_sync_status', status: 'failed', reason: 'File was modified outside cortex. Redo not available.', reason_code: 'stale' })
         return
       }
     }
@@ -721,13 +720,22 @@ export class EditPipeline {
           console.error('[cortex] Redo rollback failed for %s:', w.filePath, rollbackErr)
         }
       }
-      this.channel.send({ type: 'redo_status', status: 'failed', restoredFile: relative(this.projectRoot, entry.changes[0]?.filePath ?? ''), reason: `Write failed during redo: ${err instanceof Error ? err.message : String(err)}` })
+      this.channel.send({ type: 'redo_sync_status', status: 'failed', reason: `Write failed during redo: ${err instanceof Error ? err.message : String(err)}`, reason_code: 'write_failed' })
       return
     }
 
     this.undoStack!.redo()
-    const primaryFile = entry.changes[0]?.filePath ?? ''
-    this.channel.send({ type: 'redo_status', status: 'done', restoredFile: relative(this.projectRoot, primaryFile) })
+    this.channel.send({ type: 'redo_sync_status', status: 'done' })
+  }
+
+  clearUndoStack(): void {
+    // Acquire the undo lock to avoid racing in-flight undo/redo operations.
+    // Without this, a clear_server_undo arriving between an undo's file validation
+    // and file write would empty the stack mid-operation.
+    this.undoLock = this.undoLock.then(
+      () => { this.undoStack?.clear() },
+      () => { this.undoStack?.clear() },
+    )
   }
 
   private isInsideProjectRoot(filePath: string): boolean {

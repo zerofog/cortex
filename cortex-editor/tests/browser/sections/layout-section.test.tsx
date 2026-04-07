@@ -117,12 +117,11 @@ describe('LayoutSection', () => {
   it('emits visibility change', () => {
     const { onChange } = setup()
     const groups = container.querySelectorAll('[role="radiogroup"]')
-    // Visibility is the second radiogroup
-    if (groups.length >= 2) {
-      const hiddenBtn = groups[1].querySelector('[data-value="hidden"]') as HTMLElement
-      hiddenBtn?.click()
-      expect(onChange).toHaveBeenCalledWith({ property: 'visibility', value: 'hidden' })
-    }
+    // Visibility is the second radiogroup — assert it exists before clicking
+    expect(groups.length).toBeGreaterThanOrEqual(2)
+    const hiddenBtn = groups[1].querySelector('[data-value="hidden"]') as HTMLElement
+    hiddenBtn?.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'visibility', value: 'hidden' })
   })
 
   // Review finding 3b: use expect().toBeDefined() instead of if guard

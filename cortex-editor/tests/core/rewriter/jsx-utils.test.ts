@@ -52,10 +52,12 @@ describe('cssPropertyToCamelCase', () => {
     expect(cssPropertyToCamelCase('float')).toBe('cssFloat')
   })
 
-  it('passes through single-word properties unchanged', () => {
-    expect(cssPropertyToCamelCase('margin')).toBe('margin')
-    expect(cssPropertyToCamelCase('color')).toBe('color')
-    expect(cssPropertyToCamelCase('display')).toBe('display')
+  it.each([
+    ['margin', 'margin'],
+    ['color', 'color'],
+    ['display', 'display'],
+  ])('passes through single-word %s unchanged', (input, expected) => {
+    expect(cssPropertyToCamelCase(input)).toBe(expected)
   })
 
   it('handles -ms- vendor prefix as lowercase ms', () => {
@@ -91,10 +93,10 @@ describe('cssPropertyToCamelCase', () => {
   })
 
   it('passes through dangerous keys unchanged (blocklist guard)', () => {
-    // These keys would pass through unchanged even without the guard (no hyphens),
-    // but the guard prevents future regressions if CSSOM_EXCEPTIONS or other
-    // mappings ever include them. The real protection is that downstream code
-    // using obj[cssPropertyToCamelCase(input)] won't pollute prototypes.
+    // NOTE: These inputs have no hyphens, so the base regex would return them
+    // unchanged even without the DANGEROUS_KEYS guard. This test documents the
+    // contract but cannot detect guard removal. If a hyphenated dangerous key
+    // is ever added (e.g., '__proto__-value'), add a test for that input.
     expect(cssPropertyToCamelCase('constructor')).toBe('constructor')
     expect(cssPropertyToCamelCase('__proto__')).toBe('__proto__')
     expect(cssPropertyToCamelCase('prototype')).toBe('prototype')

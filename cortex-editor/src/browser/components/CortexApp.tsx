@@ -2,6 +2,7 @@ import type { JSX } from 'preact'
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
 import type { CortexChannel, Annotation, ActivityEntry, StyleCapability } from '../../adapters/types.js'
 import { CSSOverrideManager } from '../override.js'
+import { CommandStack } from '../command-stack.js'
 import { initSelection } from '../selection.js'
 import type { SelectionHandle } from '../selection.js'
 // @ts-ignore — tinykeys has types but exports field doesn't include a "types" condition (TODO: add declare module shim when tinykeys updates)
@@ -45,6 +46,14 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const [hasAfter, setHasAfter] = useState(false)
   const [hoverEnabled, setHoverEnabled] = useState(true)
   const overrideRef = useRef<CSSOverrideManager | null>(null)
+  const commandStackRef = useRef<CommandStack | null>(null)
+  const flushCommitRef = useRef<(() => void) | null>(null)
+  // Suppresses phantom re-edits from Panel re-renders during undo/redo.
+  // Set true before undo, cleared via nested setTimeout after Preact re-renders settle.
+  // undoGenRef prevents rapid Cmd+Z from clearing the flag too early: only the
+  // timeout from the latest undo/redo clears it (earlier ones see a stale generation).
+  const undoInProgressRef = useRef(false)
+  const undoGenRef = useRef(0)
   const [annotations, setAnnotations] = useState<Map<string, Annotation>>(new Map())
   const [agentConnected, setAgentConnected] = useState(false)
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
@@ -61,8 +70,6 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const selectedElementRef = useRef<HTMLElement | null>(null)
   selectedElementRef.current = selectedElement
   const handleExitRef = useRef<(() => void) | null>(null)
-  const undoRedoInFlight = useRef(false)
-  const undoRedoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Panel positioning
   const { position: panelPosition, isSnapping: panelSnapping, setPosition: setPanelPosition, snap: panelSnap } = useSnapToEdge()
@@ -75,9 +82,11 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   useCanvasZoom(false)
 
   useEffect(() => {
-    // Initialize CSS override manager
+    // Initialize CSS override manager and command stack
     const overrideManager = new CSSOverrideManager()
     overrideRef.current = overrideManager
+    const commandStack = new CommandStack()
+    commandStackRef.current = commandStack
 
     // Initialize selection system
     const selectionHandle = initSelection(
@@ -115,32 +124,23 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (msg.type === 'edit_status') {
         if (msg.status === 'done') {
           setActivityCount(c => c + 1)
-          overrideRef.current?.commitEdit(msg.strategy === 'deferred')
-        } else if (msg.status === 'failed' || msg.status === 'cancelled') {
-          overrideRef.current?.cancelEdit()
+          if (msg.strategy === 'deferred') {
+            overrideRef.current?.markDeferred(msg.editId)
+          }
         }
+        // Note: commitEdit/cancelEdit removed — CommandStack owns undo/redo state
       }
       if (msg.type === 'hmr_verified') {
         overrideRef.current?.handleHMRVerified(msg.editId, msg.match, msg.kind)
       }
-      if (msg.type === 'undo_status') {
-        undoRedoInFlight.current = false
-        if (undoRedoTimeoutRef.current) {
-          clearTimeout(undoRedoTimeoutRef.current)
-          undoRedoTimeoutRef.current = null
-        }
-        if (msg.status === 'done') {
-          overrideRef.current?.undoOverride()
-        }
-      }
-      if (msg.type === 'redo_status') {
-        undoRedoInFlight.current = false
-        if (undoRedoTimeoutRef.current) {
-          clearTimeout(undoRedoTimeoutRef.current)
-          undoRedoTimeoutRef.current = null
-        }
-        if (msg.status === 'done') {
-          overrideRef.current?.redoOverride()
+      // Undo/redo sync failure: reset server stack only for stack-invalidating
+      // failures (stale file, write error). empty_stack is expected (browser stack
+      // leads, server may be shorter). Unknown/missing reason_codes may be transient
+      // adapter errors — don't clear server state for those.
+      if ((msg.type === 'undo_sync_status' || msg.type === 'redo_sync_status') && msg.status === 'failed') {
+        console.warn(`[cortex] Server ${msg.type === 'undo_sync_status' ? 'undo' : 'redo'} sync failed:`, msg.reason)
+        if (msg.reason_code === 'stale' || msg.reason_code === 'write_failed') {
+          channel.send({ type: 'clear_server_undo' })
         }
       }
       if (msg.type === 'hmr-applied') {
@@ -171,10 +171,8 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       selectionRef.current = null
       overrideManager.dispose()
       overrideRef.current = null
-      if (undoRedoTimeoutRef.current) {
-        clearTimeout(undoRedoTimeoutRef.current)
-        undoRedoTimeoutRef.current = null
-      }
+      commandStack.clear()
+      commandStackRef.current = null
     }
   }, [channel, shadowRoot])
 
@@ -336,22 +334,51 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       'v': guardSingleKey(() => setCommentMode(false)),
       'c': guardSingleKey(() => setCommentMode(m => !m)),
       '$mod+z': guardModifier(() => {
-        if (undoRedoInFlight.current) return
-        undoRedoInFlight.current = true
-        undoRedoTimeoutRef.current = setTimeout(() => {
-          undoRedoInFlight.current = false
-          undoRedoTimeoutRef.current = null
-        }, 10_000)
-        channel.send({ type: 'undo' })
+        if (isCortexUIFocused()) {
+          const activeEl = getDeepActiveElement()
+          if (activeEl instanceof HTMLElement) activeEl.blur()
+        }
+        flushCommitRef.current?.()
+        undoInProgressRef.current = true
+        // Preact batches re-renders via setTimeout (macrotask), which fires AFTER
+        // requestAnimationFrame. Use nested setTimeout so the flag outlives the
+        // Preact re-render that triggers phantom onChange from sections.
+        // Generation counter ensures rapid Cmd+Z doesn't clear the flag too early:
+        // only the timeout from the latest undo/redo actually clears it.
+        const gen = ++undoGenRef.current
+        setTimeout(() => setTimeout(() => {
+          if (undoGenRef.current === gen) undoInProgressRef.current = false
+        }))
+        try {
+          const cmd = commandStackRef.current?.undo()
+          if (cmd) {
+            overrideRef.current?.flush()
+            channel.send({ type: 'undo' })
+          }
+        } catch (err) {
+          console.error('[cortex] Undo failed:', err)
+        }
       }),
       '$mod+Shift+z': guardModifier(() => {
-        if (undoRedoInFlight.current) return
-        undoRedoInFlight.current = true
-        undoRedoTimeoutRef.current = setTimeout(() => {
-          undoRedoInFlight.current = false
-          undoRedoTimeoutRef.current = null
-        }, 10_000)
-        channel.send({ type: 'redo' })
+        if (isCortexUIFocused()) {
+          const activeEl = getDeepActiveElement()
+          if (activeEl instanceof HTMLElement) activeEl.blur()
+        }
+        flushCommitRef.current?.()
+        undoInProgressRef.current = true
+        const gen = ++undoGenRef.current
+        setTimeout(() => setTimeout(() => {
+          if (undoGenRef.current === gen) undoInProgressRef.current = false
+        }))
+        try {
+          const cmd = commandStackRef.current?.redo()
+          if (cmd) {
+            overrideRef.current?.flush()
+            channel.send({ type: 'redo' })
+          }
+        } catch (err) {
+          console.error('[cortex] Redo failed:', err)
+        }
       }),
     })
 
@@ -388,6 +415,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         <Panel
           element={selectedElement}
           overrideManager={overrideRef.current}
+          commandStack={commandStackRef.current}
+          flushCommitRef={flushCommitRef}
+          undoInProgressRef={undoInProgressRef}
           onClose={handleExit}
           onSelectElement={handleSelectElement}
           swatches={swatches}

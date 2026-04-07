@@ -397,8 +397,13 @@ describe('state lens', () => {
     await new Promise(r => requestAnimationFrame(() => r(undefined)))
     await new Promise(r => setTimeout(r, 0))
 
-    // Lens position should have updated (transform value changed)
+    // Lens position should have updated to reflect the new element rect
     expect(lens?.style.transform).not.toBe(initialTransform)
+    // Assert specific position — lens centered on element (left=100, width=300)
+    // NOTE: happy-dom returns simplified transform values; real browsers may
+    // produce sub-pixel differences. This asserts the centering logic is correct
+    // in the test environment, not exact browser rendering.
+    expect(lens?.style.transform).toBe('translate(190px, 18px)')
   })
 
   it('positions lens below element when near top of viewport', async () => {
