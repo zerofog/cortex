@@ -139,7 +139,11 @@ export function LayerTree({ element, onSelectElement }: LayerTreeProps): JSX.Ele
   const handleResizeUp = useCallback((e: PointerEvent) => {
     if (!draggingRef.current) return
     draggingRef.current = false
-    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch {}
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+    } catch {
+      // Pointer capture already released (browser auto-releases on cancel/up race)
+    }
   }, [])
 
   if (!tree) return null

@@ -160,6 +160,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
               next.set(key, { source: dispatch.source, property: dispatch.property, value: dispatch.value, reason: msg.reason ?? 'Unknown error' })
               return next
             })
+          } else {
+            // editId not tracked — may have been coalesced during rapid scrub editing
+            console.warn(`[cortex] edit_status:failed for untracked editId ${msg.editId}: ${msg.reason ?? 'Unknown'}`)
           }
         }
       }

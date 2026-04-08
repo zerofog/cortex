@@ -804,7 +804,11 @@ export function Panel({
           agentConnected={agentConnected ?? false}
           onDismiss={(key) => onDismissError?.(key)}
           onAskAI={(error) => {
-            channel?.send({
+            if (!channel) {
+              console.warn('[cortex] Cannot send fix request: no channel')
+              return
+            }
+            channel.send({
               type: 'comment',
               kind: 'fix-request',
               fixMeta: { property: error.property, value: error.value, reason: error.reason },

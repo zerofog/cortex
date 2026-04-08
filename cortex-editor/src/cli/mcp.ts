@@ -159,6 +159,8 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         if (ann?.kind === 'fix-request' && ann.fixMeta) {
           const fixMeta = ann.fixMeta as { property: string; value: string; reason: string }
           try {
+            // notifications/claude/channel is an experimental Claude Code extension
+            // not in the MCP SDK's ServerNotification union — as never is required.
             server.server.notification({
               method: 'notifications/claude/channel',
               params: {
