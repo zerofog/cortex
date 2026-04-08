@@ -21,7 +21,7 @@ export class AnnotationStore {
       createdAt: now,
       updatedAt: now,
       thread: [],
-      kind: params.kind,
+      kind: params.kind ?? 'comment',
       fixMeta: params.fixMeta,
     }
     this.annotations.set(annotation.id, annotation)

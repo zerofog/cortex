@@ -156,7 +156,9 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
       // Push channel notification for fix-request annotations
       if (msg.type === 'annotation-created') {
         const ann = (msg as Record<string, unknown>).annotation as Record<string, unknown> | undefined
-        if (ann?.kind === 'fix-request' && ann.fixMeta) {
+        if (ann?.kind === 'fix-request' && ann.fixMeta && typeof ann.fixMeta === 'object') {
+          const fm = ann.fixMeta as Record<string, unknown>
+          if (typeof fm.property !== 'string' || typeof fm.value !== 'string' || typeof fm.reason !== 'string') return
           const fixMeta = ann.fixMeta as import('../adapters/types.js').FixMeta
           // notifications/claude/channel is an experimental Claude Code extension
           // not in the MCP SDK's ServerNotification union — as never is required.

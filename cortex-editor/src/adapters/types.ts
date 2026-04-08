@@ -142,7 +142,7 @@ export interface CreateAnnotationParams {
   elementContext?: ElementContext
   currentStyles?: Record<string, string>
   pinPosition?: { x: number; y: number }
-  kind: AnnotationKind
+  kind?: AnnotationKind
   fixMeta?: FixMeta
 }
 

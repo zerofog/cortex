@@ -68,14 +68,14 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const [editErrors, setEditErrors] = useState<Map<string, EditError>>(new Map())
 
   /** Remove an error by key — avoids new Map allocation when key is absent. */
-  function clearEditError(key: string): void {
+  const clearEditError = useCallback((key: string): void => {
     setEditErrors(prev => {
       if (!prev.has(key)) return prev
       const next = new Map(prev)
       next.delete(key)
       return next
     })
-  }
+  }, [])
   const commentModeRef = useRef(false)
   commentModeRef.current = commentMode
 
@@ -324,7 +324,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     map.set(editId, { source, property, value })
   }, [])
 
-  const handleDismissError = useCallback((key: string) => clearEditError(key), [])
+  const handleDismissError = clearEditError
 
   // Exit handler — notify server, deactivate
   const handleExit = useCallback(() => {
