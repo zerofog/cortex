@@ -1,0 +1,28 @@
+cortex-editor/src/browser/components/LayerTree.tsx
+  d404a8bcfb6efc70 32-35,46,52,118-119,127,129
+cortex-editor/src/browser/components/Panel.tsx
+  d404a8bcfb6efc70 34,170
+cortex-editor/src/browser/components/CortexApp.tsx
+  d404a8bcfb6efc70 4,68-78,150,189,318
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "e5deb64e34212ff81be5ab1bc4f0576c9071b496",
+  "prompts": {
+    "d404a8bcfb6efc70": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "73b8df50-0cdc-48a9-97f6-c6e701471e4f",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 27,
+      "total_deletions": 46,
+      "accepted_lines": 27,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/8f1531ea4a3abdd8f39691798ee1c9785eec8dfefef32ccf72676bc001d8defb"
+    }
+  }
+}
