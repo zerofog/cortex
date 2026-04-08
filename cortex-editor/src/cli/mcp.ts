@@ -158,25 +158,23 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         const ann = (msg as Record<string, unknown>).annotation as Record<string, unknown> | undefined
         if (ann?.kind === 'fix-request' && ann.fixMeta) {
           const fixMeta = ann.fixMeta as import('../adapters/types.js').FixMeta
-          try {
-            // notifications/claude/channel is an experimental Claude Code extension
-            // not in the MCP SDK's ServerNotification union — as never is required.
-            server.server.notification({
-              method: 'notifications/claude/channel',
-              params: {
-                content: JSON.stringify({
-                  type: 'fix-request',
-                  property: String(fixMeta.property).slice(0, 256),
-                  value: String(fixMeta.value).slice(0, 256),
-                  source: String(ann.elementSource).slice(0, 512),
-                  reason: String(fixMeta.reason).slice(0, 512),
-                }),
-                meta: { request_id: ann.id as string, severity: 'error' },
-              },
-            } as never)
-          } catch (err) {
+          // notifications/claude/channel is an experimental Claude Code extension
+          // not in the MCP SDK's ServerNotification union — as never is required.
+          void Promise.resolve(server.server.notification({
+            method: 'notifications/claude/channel',
+            params: {
+              content: JSON.stringify({
+                type: 'fix-request',
+                property: String(fixMeta.property).slice(0, 256),
+                value: String(fixMeta.value).slice(0, 256),
+                source: String(ann.elementSource).slice(0, 512),
+                reason: String(fixMeta.reason).slice(0, 512),
+              }),
+              meta: { request_id: ann.id as string, severity: 'error' },
+            },
+          } as never)).catch((err: unknown) => {
             process.stderr.write(`[cortex] Failed to send channel notification: ${err instanceof Error ? err.message : String(err)}\n`)
-          }
+          })
         }
       }
     })

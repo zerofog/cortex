@@ -256,6 +256,7 @@
   align-items: center;
   gap: var(--sp-2);
   padding: var(--sp-1) var(--sp-4);
+  border-left: 2px solid transparent;
   cursor: pointer;
   font-size: var(--text-sm);
   font-family: var(--mono);

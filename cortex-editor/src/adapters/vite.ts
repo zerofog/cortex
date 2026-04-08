@@ -426,12 +426,26 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         }
 
         if (data.type === 'comment') {
-          // Validate elementSource is within project root (defense-in-depth for fix-request annotations)
-          const sourceFile = data.elementSource.split(':')[0] ?? data.elementSource
+          // Validate elementSource is within project root (defense-in-depth for fix-request annotations).
+          // Parse file:line:col from the right (same pattern as edit-pipeline) to handle Windows drive letters.
+          const lastColon = data.elementSource.lastIndexOf(':')
+          const secondLastColon = data.elementSource.lastIndexOf(':', lastColon - 1)
+          const sourceFile = secondLastColon > 0 ? data.elementSource.slice(0, secondLastColon) : data.elementSource.split(':')[0] ?? data.elementSource
           const resolved = path.resolve(config.root, sourceFile)
-          if (!resolved.startsWith(config.root + path.sep) && resolved !== config.root) {
-            console.warn(`[cortex] Rejected comment: elementSource "${sourceFile}" is outside project root`)
-            return
+          // Use realpathSync on parent dir to catch symlink escapes (the file itself may not exist yet)
+          try {
+            const parentDir = path.dirname(resolved)
+            const realParent = fs.realpathSync.native(parentDir)
+            if (!realParent.startsWith(config.root + path.sep) && realParent !== config.root) {
+              console.warn(`[cortex] Rejected comment: elementSource "${sourceFile}" resolves outside project root via symlink`)
+              return
+            }
+          } catch {
+            // Parent dir doesn't exist — path.resolve already checked lexically
+            if (!resolved.startsWith(config.root + path.sep) && resolved !== config.root) {
+              console.warn(`[cortex] Rejected comment: elementSource "${sourceFile}" is outside project root`)
+              return
+            }
           }
           const ann = currentSession!.annotations.create({
             elementSource: data.elementSource,

@@ -153,7 +153,7 @@ export function LayerTree({ element, onSelectElement }: LayerTreeProps): JSX.Ele
       <div class="cortex-layer-tree" style={{ height: `${height}px` }}>
         <div class="cortex-layer-tree__header">Layers</div>
         <div class="cortex-layer-tree__scroll">
-          <TreeNodeRow node={tree} onSelectElement={onSelectElement} />
+          <TreeNodeRow key={tree} node={tree} onSelectElement={onSelectElement} />
         </div>
       </div>
       <div
