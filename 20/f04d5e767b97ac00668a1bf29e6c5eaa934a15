@@ -1,0 +1,24 @@
+cortex-editor/src/cli/mcp.ts
+  d404a8bcfb6efc70 201-207
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "20f04d5e767b97ac00668a1bf29e6c5eaa934a15",
+  "prompts": {
+    "d404a8bcfb6efc70": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "73b8df50-0cdc-48a9-97f6-c6e701471e4f",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 177,
+      "total_deletions": 26,
+      "accepted_lines": 152,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/5b79de7232d6f58da23405d29fac470f0c2eb44d9e3fa286b560ef1a086e5248"
+    }
+  }
+}
