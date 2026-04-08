@@ -10,6 +10,7 @@ import { PANEL_WIDTH } from '../hooks/useSnapToEdge.js'
 import { formatShortcut } from '../format-shortcut.js'
 import { extractUtilities } from '../class-extractor.js'
 import { PanelHeader } from './PanelHeader.js'
+import { LayerTree } from './LayerTree.js'
 import { SpacingSection } from './sections/SpacingSection.js'
 import type { SpacingChange } from './sections/SpacingSection.js'
 import { LayoutSection, parseLayoutValues } from './sections/LayoutSection.js'
@@ -786,6 +787,7 @@ export function Panel({
         hoverEnabled={hoverEnabled}
         onToggleHover={onToggleHover}
       />
+      <LayerTree element={element} onSelectElement={onSelectElement} />
       {sharedInfo && (
         <div class="cortex-panel__scope">
           <span class="cortex-panel__scope-label">
