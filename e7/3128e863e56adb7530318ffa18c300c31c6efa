@@ -1,0 +1,26 @@
+cortex-editor/src/browser/components/LayerTree.tsx
+  d404a8bcfb6efc70 105-106
+cortex-editor/src/browser/components/CortexApp.tsx
+  d404a8bcfb6efc70 318-324
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "e73128e863e56adb7530318ffa18c300c31c6efa",
+  "prompts": {
+    "d404a8bcfb6efc70": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "73b8df50-0cdc-48a9-97f6-c6e701471e4f",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 9,
+      "total_deletions": 3,
+      "accepted_lines": 9,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/ef72c2e09a81d2b06c8f057e820f725be708b1622b4efd637293cd775e18ebf1"
+    }
+  }
+}
