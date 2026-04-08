@@ -166,10 +166,10 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
               params: {
                 content: JSON.stringify({
                   type: 'fix-request',
-                  property: fixMeta.property,
-                  value: fixMeta.value,
-                  source: ann.elementSource as string,
-                  reason: fixMeta.reason,
+                  property: String(fixMeta.property).slice(0, 256),
+                  value: String(fixMeta.value).slice(0, 256),
+                  source: String(ann.elementSource).slice(0, 512),
+                  reason: String(fixMeta.reason).slice(0, 512),
                 }),
                 meta: { request_id: ann.id as string, severity: 'error' },
               },

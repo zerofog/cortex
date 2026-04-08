@@ -426,6 +426,13 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         }
 
         if (data.type === 'comment') {
+          // Validate elementSource is within project root (defense-in-depth for fix-request annotations)
+          const sourceFile = data.elementSource.split(':')[0] ?? data.elementSource
+          const resolved = path.resolve(config.root, sourceFile)
+          if (!resolved.startsWith(config.root + path.sep) && resolved !== config.root) {
+            console.warn(`[cortex] Rejected comment: elementSource "${sourceFile}" is outside project root`)
+            return
+          }
           const ann = currentSession!.annotations.create({
             elementSource: data.elementSource,
             text: data.text,
