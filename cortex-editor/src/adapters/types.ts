@@ -74,7 +74,7 @@ export type BrowserToServer =
   | { type: 'edit'; token?: string; protocolVersion?: number; editId: string; property: string; value: string; source: string; elementSelector: string; cssMapping?: string; scope?: 'instance' | 'all'; instanceSources?: string[]; currentClass?: string }
   | { type: 'undo'; token?: string; protocolVersion?: number; editId?: string }
   | { type: 'redo'; token?: string; protocolVersion?: number; editId?: string }
-  | { type: 'comment'; token?: string; protocolVersion?: number; elementSource: string; text: string; elementContext?: ElementContext; currentStyles?: Record<string, string>; pinPosition?: { x: number; y: number }; kind?: 'comment' | 'fix-request'; fixMeta?: { property: string; value: string; reason: string } }
+  | { type: 'comment'; token?: string; protocolVersion?: number; elementSource: string; text: string; elementContext?: ElementContext; currentStyles?: Record<string, string>; pinPosition?: { x: number; y: number }; kind?: AnnotationKind; fixMeta?: FixMeta }
   | { type: 'comment-reply'; token?: string; protocolVersion?: number; annotationId: string; text: string }
   | { type: 'clear_server_undo'; token?: string; protocolVersion?: number }
 
@@ -102,6 +102,14 @@ export interface ElementContext {
   textPreview: string
 }
 
+export type AnnotationKind = 'comment' | 'fix-request'
+
+export interface FixMeta {
+  property: string
+  value: string
+  reason: string
+}
+
 export type AnnotationStatus = 'pending' | 'acknowledged' | 'resolved' | 'dismissed'
 
 export interface Annotation {
@@ -117,8 +125,8 @@ export interface Annotation {
   resolution?: { summary: string }
   dismissReason?: string
   thread: ThreadMessage[]
-  kind?: 'comment' | 'fix-request'
-  fixMeta?: { property: string; value: string; reason: string }
+  kind?: AnnotationKind
+  fixMeta?: FixMeta
 }
 
 export interface ThreadMessage {
@@ -134,8 +142,8 @@ export interface CreateAnnotationParams {
   elementContext?: ElementContext
   currentStyles?: Record<string, string>
   pinPosition?: { x: number; y: number }
-  kind?: 'comment' | 'fix-request'
-  fixMeta?: { property: string; value: string; reason: string }
+  kind: AnnotationKind
+  fixMeta?: FixMeta
 }
 
 export interface ActivityEntry {

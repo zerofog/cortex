@@ -432,7 +432,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             elementContext: data.elementContext,
             currentStyles: data.currentStyles,
             pinPosition: data.pinPosition,
-            kind: data.kind,
+            kind: data.kind ?? 'comment',
             fixMeta: data.fixMeta,
           })
           const entry = currentSession!.activityLog.add({ type: 'comment', description: data.text, elementSource: data.elementSource })

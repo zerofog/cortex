@@ -1,11 +1,9 @@
 import type { JSX } from 'preact'
 import { useState, useEffect } from 'preact/hooks'
+import type { FixMeta } from '../../adapters/types.js'
 
-export interface EditError {
+export interface EditError extends FixMeta {
   source: string
-  property: string
-  value: string
-  reason: string
 }
 
 interface EditErrorCardProps {
