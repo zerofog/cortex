@@ -31,6 +31,7 @@ import type { InteractionState } from '../state-detector.js'
 import { detectSharedClasses } from '../shared-class-detector.js'
 import type { SharedClassInfo } from '../shared-class-detector.js'
 import { EditErrorCard } from './EditErrorCard.js'
+import type { EditError } from './EditErrorCard.js'
 import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
 import { CollapsibleSection } from './CollapsibleSection.js'
@@ -166,7 +167,7 @@ export interface PanelProps {
   channel?: CortexChannel
   agentConnected?: boolean
   connectionStatus?: ConnectionDisplay
-  editErrors?: Map<string, { source: string; property: string; value: string; reason: string }>
+  editErrors?: Map<string, EditError>
   onEditDispatch?: (editId: string, source: string, property: string, value: string) => void
   onDismissError?: (key: string) => void
 }

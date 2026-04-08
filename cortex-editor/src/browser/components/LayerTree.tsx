@@ -29,6 +29,10 @@ export function buildScopedTree(element: HTMLElement | null): TreeNode | null {
     current = current.parentElement
   }
 
+  function leafNode(c: HTMLElement, depth: number): TreeNode {
+    return { element: c, label: getLabel(c), depth, selected: false, expanded: false, children: [] }
+  }
+
   function buildNode(el: HTMLElement, depth: number, isOnPath: boolean): TreeNode {
     const isSelected = el === element
     // The ancestor at this depth in the chain (depth 0 = direct child of body)
@@ -39,32 +43,13 @@ export function buildScopedTree(element: HTMLElement | null): TreeNode | null {
       // Selected element: show direct children as leaf nodes
       children = Array.from(el.children)
         .filter((c): c is HTMLElement => c instanceof HTMLElement)
-        .map(c => ({
-          element: c,
-          label: getLabel(c),
-          depth: depth + 1,
-          selected: false,
-          expanded: false,
-          children: [],
-        }))
+        .map(c => leafNode(c, depth + 1))
     } else if (isOnPath && pathChild) {
       // Ancestor on the path: show all element children at this level,
       // recurse into the one that's on the ancestor path
       children = Array.from(el.children)
         .filter((c): c is HTMLElement => c instanceof HTMLElement)
-        .map(c => {
-          if (c === pathChild) {
-            return buildNode(c, depth + 1, true)
-          }
-          return {
-            element: c,
-            label: getLabel(c),
-            depth: depth + 1,
-            selected: false,
-            expanded: false,
-            children: [],
-          }
-        })
+        .map(c => c === pathChild ? buildNode(c, depth + 1, true) : leafNode(c, depth + 1))
     }
 
     return {
@@ -130,6 +115,8 @@ const MIN_HEIGHT = 60
 export function LayerTree({ element, onSelectElement }: LayerTreeProps): JSX.Element | null {
   const tree = useMemo(() => buildScopedTree(element), [element])
   const [height, setHeight] = useState(DEFAULT_HEIGHT)
+  const heightRef = useRef(height)
+  heightRef.current = height
   const draggingRef = useRef(false)
   const startYRef = useRef(0)
   const startHeightRef = useRef(0)
@@ -137,9 +124,9 @@ export function LayerTree({ element, onSelectElement }: LayerTreeProps): JSX.Ele
   const handleResizeDown = useCallback((e: PointerEvent) => {
     draggingRef.current = true
     startYRef.current = e.clientY
-    startHeightRef.current = height
+    startHeightRef.current = heightRef.current
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-  }, [height])
+  }, [])
 
   const handleResizeMove = useCallback((e: PointerEvent) => {
     if (!draggingRef.current) return

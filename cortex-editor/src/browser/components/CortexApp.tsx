@@ -1,6 +1,7 @@
 import type { JSX } from 'preact'
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
 import type { CortexChannel, ConnectionDisplay, Annotation, ActivityEntry, StyleCapability } from '../../adapters/types.js'
+import type { EditError } from './EditErrorCard.js'
 import { CSSOverrideManager } from '../override.js'
 import { CommandStack } from '../command-stack.js'
 import { initSelection } from '../selection.js'
@@ -64,7 +65,17 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // Error tracking: editId → source+property for lookup when edit_status:failed arrives
   const editDispatchRef = useRef<Map<string, { source: string; property: string; value: string }>>(new Map())
   // Active errors keyed by source\0property
-  const [editErrors, setEditErrors] = useState<Map<string, { source: string; property: string; value: string; reason: string }>>(new Map())
+  const [editErrors, setEditErrors] = useState<Map<string, EditError>>(new Map())
+
+  /** Remove an error by key — avoids new Map allocation when key is absent. */
+  function clearEditError(key: string): void {
+    setEditErrors(prev => {
+      if (!prev.has(key)) return prev
+      const next = new Map(prev)
+      next.delete(key)
+      return next
+    })
+  }
   const commentModeRef = useRef(false)
   commentModeRef.current = commentMode
 
@@ -136,13 +147,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           const dispatch = editDispatchRef.current.get(msg.editId)
           if (dispatch) {
             editDispatchRef.current.delete(msg.editId)
-            const key = `${dispatch.source}\0${dispatch.property}`
-            setEditErrors(prev => {
-              if (!prev.has(key)) return prev
-              const next = new Map(prev)
-              next.delete(key)
-              return next
-            })
+            clearEditError(`${dispatch.source}\0${dispatch.property}`)
           }
         }
         if (msg.status === 'failed' && msg.editId) {
@@ -181,13 +186,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         setAnnotations(prev => new Map(prev).set(msg.annotation.id, msg.annotation))
         // Clear error card when fix-request annotation resolves
         if (msg.annotation.kind === 'fix-request' && (msg.annotation.status === 'resolved' || msg.annotation.status === 'dismissed') && msg.annotation.fixMeta) {
-          const key = `${msg.annotation.elementSource}\0${msg.annotation.fixMeta.property}`
-          setEditErrors(prev => {
-            if (!prev.has(key)) return prev
-            const next = new Map(prev)
-            next.delete(key)
-            return next
-          })
+          clearEditError(`${msg.annotation.elementSource}\0${msg.annotation.fixMeta.property}`)
         }
       }
       if (msg.type === 'agent-status') {
@@ -316,13 +315,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     editDispatchRef.current.set(editId, { source, property, value })
   }, [])
 
-  const handleDismissError = useCallback((key: string) => {
-    setEditErrors(prev => {
-      const next = new Map(prev)
-      next.delete(key)
-      return next
-    })
-  }, [])
+  const handleDismissError = useCallback((key: string) => clearEditError(key), [])
 
   // Exit handler — notify server, deactivate
   const handleExit = useCallback(() => {
