@@ -61,6 +61,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const [commentMode, setCommentMode] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
   const [capabilitySystems, setCapabilitySystems] = useState<StyleCapability[]>([])
+  // Error tracking: editId → source+property for lookup when edit_status:failed arrives
+  const editDispatchRef = useRef<Map<string, { source: string; property: string; value: string }>>(new Map())
+  // Active errors keyed by source\0property
+  const [editErrors, setEditErrors] = useState<Map<string, { source: string; property: string; value: string; reason: string }>>(new Map())
   const commentModeRef = useRef(false)
   commentModeRef.current = commentMode
 
@@ -128,8 +132,29 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           if (msg.strategy === 'deferred') {
             overrideRef.current?.markDeferred(msg.editId)
           }
+          // Clear any error for this edit's source+property
+          const dispatch = editDispatchRef.current.get(msg.editId)
+          if (dispatch) {
+            const key = `${dispatch.source}\0${dispatch.property}`
+            setEditErrors(prev => {
+              if (!prev.has(key)) return prev
+              const next = new Map(prev)
+              next.delete(key)
+              return next
+            })
+          }
         }
-        // Note: commitEdit/cancelEdit removed — CommandStack owns undo/redo state
+        if (msg.status === 'failed' && msg.editId) {
+          const dispatch = editDispatchRef.current.get(msg.editId)
+          if (dispatch) {
+            const key = `${dispatch.source}\0${dispatch.property}`
+            setEditErrors(prev => {
+              const next = new Map(prev)
+              next.set(key, { source: dispatch.source, property: dispatch.property, value: dispatch.value, reason: msg.reason ?? 'Unknown error' })
+              return next
+            })
+          }
+        }
       }
       if (msg.type === 'hmr_verified') {
         overrideRef.current?.handleHMRVerified(msg.editId, msg.match, msg.kind)
@@ -152,6 +177,16 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       }
       if (msg.type === 'annotation-updated') {
         setAnnotations(prev => new Map(prev).set(msg.annotation.id, msg.annotation))
+        // Clear error card when fix-request annotation resolves
+        if (msg.annotation.kind === 'fix-request' && msg.annotation.status === 'resolved' && msg.annotation.fixMeta) {
+          const key = `${msg.annotation.elementSource}\0${msg.annotation.fixMeta.property}`
+          setEditErrors(prev => {
+            if (!prev.has(key)) return prev
+            const next = new Map(prev)
+            next.delete(key)
+            return next
+          })
+        }
       }
       if (msg.type === 'agent-status') {
         setAgentConnected(msg.connected)
@@ -274,6 +309,18 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
 
   const handleSelectElement = useCallback((el: HTMLElement | null) => setSelectedElement(el), [])
   const handleToggleHover = useCallback(() => setHoverEnabled(v => !v), [])
+
+  const handleEditDispatch = useCallback((editId: string, source: string, property: string, value: string) => {
+    editDispatchRef.current.set(editId, { source, property, value })
+  }, [])
+
+  const handleDismissError = useCallback((key: string) => {
+    setEditErrors(prev => {
+      const next = new Map(prev)
+      next.delete(key)
+      return next
+    })
+  }, [])
 
   // Exit handler — notify server, deactivate
   const handleExit = useCallback(() => {
@@ -465,6 +512,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           channel={channel}
           agentConnected={agentConnected}
           connectionStatus={connectionStatus}
+          editErrors={editErrors}
+          onEditDispatch={handleEditDispatch}
+          onDismissError={handleDismissError}
         />
       )}
       <Toolbar

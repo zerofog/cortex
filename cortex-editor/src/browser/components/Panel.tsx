@@ -165,6 +165,9 @@ export interface PanelProps {
   channel?: CortexChannel
   agentConnected?: boolean
   connectionStatus?: ConnectionDisplay
+  editErrors?: Map<string, { source: string; property: string; value: string; reason: string }>
+  onEditDispatch?: (editId: string, source: string, property: string, value: string) => void
+  onDismissError?: (key: string) => void
 }
 
 function parseSpacingValues(cs: CSSStyleDeclaration) {
@@ -212,6 +215,9 @@ export function Panel({
   channel,
   agentConnected,
   connectionStatus,
+  editErrors,
+  onEditDispatch,
+  onDismissError,
 }: PanelProps): JSX.Element | null {
   // ALL hooks first — no conditional returns before hooks
   const [contentKey, setContentKey] = useState(0)
@@ -471,6 +477,7 @@ export function Panel({
       const editedProps = changes.filter(c => c.source === source)
       for (const c of editedProps) {
         const editId = crypto.randomUUID()
+        onEditDispatch?.(editId, source, c.property, c.value)
         // Track all shared sources so HMR verification clears ALL sibling overrides
         const pendingSources = (sharedInfo && editScope === 'all')
           ? sharedInfo.elements.map(el => el.getAttribute('data-cortex-source')).filter((s): s is string => s !== null)
@@ -496,7 +503,7 @@ export function Panel({
         })
       }
     }
-  }, [element, overrideManager, activePseudo, channel, sharedInfo, editScope, extractedUtilities, commandStack])
+  }, [element, overrideManager, activePseudo, channel, sharedInfo, editScope, extractedUtilities, commandStack, onEditDispatch])
 
   // Expose flush for CortexApp to call before undo/redo — microtask commits
   // haven't fired yet when blur+undo runs synchronously in the same tick.
