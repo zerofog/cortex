@@ -669,6 +669,235 @@ describe('CortexApp', () => {
     })
   })
 
+  describe('error tracking', () => {
+    /** Helper: mount CortexApp, activate, select element, return refs. */
+    async function setupWithSelectedElement(channel: ReturnType<typeof createMockChannel>) {
+      const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+      const { selectCb } = _getCallbacks()
+
+      const target = document.createElement('div')
+      target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+      document.body.appendChild(target)
+      mockGetBoundingClientRect(target, { top: 50, left: 50, width: 200, height: 100 })
+
+      // Wait for Panel + sections to mount
+      selectCb(target)
+      await new Promise(r => setTimeout(r, 50))
+
+      return target
+    }
+
+    /**
+     * Trigger a property edit through the Layout section's Display SegmentedControl.
+     * Clicks a non-active segment to trigger applyOverride(property, value, true),
+     * which calls onEditDispatch and channel.send({type:'edit', editId, ...}).
+     * Returns the editId from the sent message.
+     */
+    async function triggerEditViaUI(): Promise<string> {
+      // Find the Layout section's Display SegmentedControl
+      const layoutSection = root.querySelector('[data-section-id="layout"]')
+      expect(layoutSection).not.toBeNull()
+
+      // Find a non-active segment option by data-value attribute
+      let targetSegment = layoutSection!.querySelector(
+        '.cortex-segmented__option[data-value="flex"]:not(.cortex-segmented__option--active)',
+      ) as HTMLButtonElement | null
+
+      // If flex is already active, try grid
+      if (!targetSegment) {
+        targetSegment = layoutSection!.querySelector(
+          '.cortex-segmented__option[data-value="grid"]:not(.cortex-segmented__option--active)',
+        ) as HTMLButtonElement | null
+      }
+      // Last resort: any non-active segment
+      if (!targetSegment) {
+        targetSegment = layoutSection!.querySelector(
+          '.cortex-segmented__option:not(.cortex-segmented__option--active)',
+        ) as HTMLButtonElement | null
+      }
+      expect(targetSegment).not.toBeNull()
+      targetSegment!.click()
+
+      // Wait for microtask commit + Preact re-render
+      await new Promise(r => setTimeout(r, 50))
+
+      // Extract editId from the sent 'edit' message
+      const editMsg = channel._lastSent.find((m: any) => m.type === 'edit') as any
+      expect(editMsg).toBeDefined()
+      expect(editMsg.editId).toBeDefined()
+      return editMsg.editId
+    }
+
+    // Shared channel reference for triggerEditViaUI
+    let channel: ReturnType<typeof createMockChannel>
+
+    it('edit_status:failed for untracked editId logs console.warn', async () => {
+      setup()
+      channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+      await activateEditor(channel)
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        channel._simulateMessage({ type: 'edit_status', editId: 'untracked-123', status: 'failed', reason: 'File not found' })
+        await new Promise(r => setTimeout(r, 10))
+
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('untracked editId untracked-123'),
+          // Not asserting exact string — just that editId and reason are mentioned
+        )
+      } finally {
+        warnSpy.mockRestore()
+      }
+    })
+
+    it('edit_status:failed populates editErrors and renders error card', async () => {
+      setup()
+      channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+      await activateEditor(channel)
+
+      const target = await setupWithSelectedElement(channel)
+      try {
+        const editId = await triggerEditViaUI()
+
+        // Simulate server failure for this edit
+        channel._simulateMessage({ type: 'edit_status', editId, status: 'failed', reason: 'CSS parse error' })
+        await new Promise(r => setTimeout(r, 50))
+
+        // Error card should be visible
+        const errorCard = root.querySelector('.cortex-error-card')
+        expect(errorCard).not.toBeNull()
+        expect(errorCard!.textContent).toContain('edit failed')
+        expect(errorCard!.textContent).toContain('CSS parse error')
+      } finally {
+        target.remove()
+      }
+    })
+
+    it('edit_status:done clears error for the same source+property', async () => {
+      setup()
+      channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+      await activateEditor(channel)
+
+      const target = await setupWithSelectedElement(channel)
+      try {
+        // Trigger first edit — will fail
+        const editId1 = await triggerEditViaUI()
+        channel._simulateMessage({ type: 'edit_status', editId: editId1, status: 'failed', reason: 'Write error' })
+        await new Promise(r => setTimeout(r, 50))
+
+        // Error card should be visible
+        expect(root.querySelector('.cortex-error-card')).not.toBeNull()
+
+        // Clear sent messages and trigger a second edit on the same property
+        channel._lastSent.length = 0
+        const editId2 = await triggerEditViaUI()
+
+        // Second edit succeeds — should clear the error for this source+property
+        channel._simulateMessage({ type: 'edit_status', editId: editId2, status: 'done' })
+        await new Promise(r => setTimeout(r, 50))
+
+        // Error card should be gone
+        expect(root.querySelector('.cortex-error-card')).toBeNull()
+      } finally {
+        target.remove()
+      }
+    })
+
+    it('annotation-updated with resolved fix-request clears error card', async () => {
+      setup()
+      channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+      await activateEditor(channel)
+
+      const target = await setupWithSelectedElement(channel)
+      try {
+        const editId = await triggerEditViaUI()
+
+        // Extract the property from the sent edit message
+        const editMsg = channel._lastSent.find((m: any) => m.type === 'edit') as any
+        const editProperty = editMsg.property
+
+        // Simulate failure
+        channel._simulateMessage({ type: 'edit_status', editId, status: 'failed', reason: 'Merge conflict' })
+        await new Promise(r => setTimeout(r, 50))
+        expect(root.querySelector('.cortex-error-card')).not.toBeNull()
+
+        // Simulate annotation-updated with resolved fix-request that matches
+        channel._simulateMessage({
+          type: 'annotation-updated',
+          annotation: {
+            id: 'fix-ann-1',
+            kind: 'fix-request',
+            status: 'resolved',
+            elementSource: 'Hero.tsx:5:3',
+            fixMeta: { property: editProperty, value: 'flex', reason: 'Merge conflict' },
+            text: `${editProperty} edit failed`,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            resolution: { summary: 'Applied display: flex' },
+            thread: [],
+          },
+        })
+        await new Promise(r => setTimeout(r, 50))
+
+        // Error card should be cleared
+        expect(root.querySelector('.cortex-error-card')).toBeNull()
+      } finally {
+        target.remove()
+      }
+    })
+
+    it('annotation-updated with dismissed fix-request also clears error card', async () => {
+      setup()
+      channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+      await activateEditor(channel)
+
+      const target = await setupWithSelectedElement(channel)
+      try {
+        const editId = await triggerEditViaUI()
+        const editMsg = channel._lastSent.find((m: any) => m.type === 'edit') as any
+        const editProperty = editMsg.property
+
+        // Simulate failure
+        channel._simulateMessage({ type: 'edit_status', editId, status: 'failed', reason: 'Unknown error' })
+        await new Promise(r => setTimeout(r, 50))
+        expect(root.querySelector('.cortex-error-card')).not.toBeNull()
+
+        // Simulate dismissed fix-request
+        channel._simulateMessage({
+          type: 'annotation-updated',
+          annotation: {
+            id: 'fix-ann-2',
+            kind: 'fix-request',
+            status: 'dismissed',
+            elementSource: 'Hero.tsx:5:3',
+            fixMeta: { property: editProperty, value: 'flex', reason: 'Unknown error' },
+            text: `${editProperty} edit failed`,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            dismissReason: 'User dismissed',
+            thread: [],
+          },
+        })
+        await new Promise(r => setTimeout(r, 50))
+
+        // Error card should be cleared
+        expect(root.querySelector('.cortex-error-card')).toBeNull()
+      } finally {
+        target.remove()
+      }
+    })
+  })
+
   describe('connection status', () => {
     it('clears reconnected timer if connection drops again', async () => {
       vi.useFakeTimers()
