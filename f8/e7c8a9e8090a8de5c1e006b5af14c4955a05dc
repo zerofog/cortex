@@ -1,0 +1,67 @@
+cortex-editor/src/adapters/types.ts
+  d404a8bcfb6efc70 77,120-121,137-138
+cortex-editor/src/core/annotations.ts
+  d404a8bcfb6efc70 24-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "f8e7c8a9e8090a8de5c1e006b5af14c4955a05dc",
+  "prompts": {
+    "91b91480bdcf5a71": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2818b0dd-e4bb-4dc5-9d79-ff8f4bd08883",
+        "model": "unknown"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 2133,
+      "total_deletions": 113,
+      "accepted_lines": 2020,
+      "overriden_lines": 0
+    },
+    "d404a8bcfb6efc70": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "73b8df50-0cdc-48a9-97f6-c6e701471e4f",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 7,
+      "total_deletions": 1,
+      "accepted_lines": 7,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/70c32b417e8da057f8ac90d3de502518895fd0c8a5573e293aed97584b94a19d"
+    },
+    "ed503624005aef3d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d6b33-2382-7600-ad6e-bc69858e0d25",
+        "model": "gpt-5.4"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/b4a137e2e7f096559d097e31ff431e94e0375c9c2de4da39a8f843218f432d22"
+    },
+    "f7b4ccbd9e29b555": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d6540-f5e1-7ca1-a678-df3ab98a3dd5",
+        "model": "gpt-5.4"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1176,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/c04ea8ee62f7acc228e714f54686c778816b15425ec8539f304e91485cf5cd98"
+    }
+  }
+}
