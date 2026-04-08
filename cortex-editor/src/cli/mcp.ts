@@ -152,6 +152,31 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         editorActive = Boolean(msg.editorActive)
         browserConnected = Boolean(msg.browserConnected)
       }
+
+      // Push channel notification for fix-request annotations
+      if (msg.type === 'annotation-created') {
+        const ann = (msg as Record<string, unknown>).annotation as Record<string, unknown> | undefined
+        if (ann?.kind === 'fix-request' && ann.fixMeta) {
+          const fixMeta = ann.fixMeta as { property: string; value: string; reason: string }
+          try {
+            server.server.notification({
+              method: 'notifications/claude/channel',
+              params: {
+                content: JSON.stringify({
+                  type: 'fix-request',
+                  property: fixMeta.property,
+                  value: fixMeta.value,
+                  source: ann.elementSource as string,
+                  reason: fixMeta.reason,
+                }),
+                meta: { request_id: ann.id as string, severity: 'error' },
+              },
+            } as never)
+          } catch (err) {
+            process.stderr.write(`[cortex] Failed to send channel notification: ${err instanceof Error ? err.message : String(err)}\n`)
+          }
+        }
+      }
     })
 
     ws.on('close', () => {
