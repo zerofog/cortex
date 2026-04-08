@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useMemo, useState } from 'preact/hooks'
+import { useCallback, useMemo, useRef, useState } from 'preact/hooks'
 import { getLabel } from '../label.js'
 
 export interface TreeNode {
@@ -124,17 +124,54 @@ function TreeNodeRow({ node, onSelectElement }: { node: TreeNode; onSelectElemen
   )
 }
 
+const DEFAULT_HEIGHT = 160
+const MIN_HEIGHT = 60
+
 export function LayerTree({ element, onSelectElement }: LayerTreeProps): JSX.Element | null {
   const tree = useMemo(() => buildScopedTree(element), [element])
+  const [height, setHeight] = useState(DEFAULT_HEIGHT)
+  const draggingRef = useRef(false)
+  const startYRef = useRef(0)
+  const startHeightRef = useRef(0)
+
+  const handleResizeDown = useCallback((e: PointerEvent) => {
+    draggingRef.current = true
+    startYRef.current = e.clientY
+    startHeightRef.current = height
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }, [height])
+
+  const handleResizeMove = useCallback((e: PointerEvent) => {
+    if (!draggingRef.current) return
+    const delta = e.clientY - startYRef.current
+    const maxHeight = Math.floor(window.innerHeight * 0.5)
+    const newHeight = Math.max(MIN_HEIGHT, Math.min(maxHeight, startHeightRef.current + delta))
+    setHeight(newHeight)
+  }, [])
+
+  const handleResizeUp = useCallback((e: PointerEvent) => {
+    if (!draggingRef.current) return
+    draggingRef.current = false
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch {}
+  }, [])
 
   if (!tree) return null
 
   return (
-    <div class="cortex-layer-tree">
-      <div class="cortex-layer-tree__header">Layers</div>
-      <div class="cortex-layer-tree__scroll">
-        <TreeNodeRow node={tree} onSelectElement={onSelectElement} />
+    <>
+      <div class="cortex-layer-tree" style={{ height: `${height}px` }}>
+        <div class="cortex-layer-tree__header">Layers</div>
+        <div class="cortex-layer-tree__scroll">
+          <TreeNodeRow node={tree} onSelectElement={onSelectElement} />
+        </div>
       </div>
-    </div>
+      <div
+        class="cortex-layer-resize"
+        onPointerDown={handleResizeDown}
+        onPointerMove={handleResizeMove}
+        onPointerUp={handleResizeUp}
+        onPointerCancel={handleResizeUp}
+      />
+    </>
   )
 }
