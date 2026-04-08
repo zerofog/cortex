@@ -315,7 +315,13 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const handleToggleHover = useCallback(() => setHoverEnabled(v => !v), [])
 
   const handleEditDispatch = useCallback((editId: string, source: string, property: string, value: string) => {
-    editDispatchRef.current.set(editId, { source, property, value })
+    const map = editDispatchRef.current
+    if (map.size >= 500) {
+      // Evict oldest entry to prevent unbounded growth if server never responds
+      const firstKey = map.keys().next().value
+      if (firstKey) map.delete(firstKey)
+    }
+    map.set(editId, { source, property, value })
   }, [])
 
   const handleDismissError = useCallback((key: string) => clearEditError(key), [])

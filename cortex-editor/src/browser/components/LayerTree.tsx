@@ -102,8 +102,8 @@ function TreeNodeRow({ node, onSelectElement }: { node: TreeNode; onSelectElemen
         )}
         <span class="cortex-layer-label">{node.label}</span>
       </div>
-      {showChildren && node.children.map(child => (
-        <TreeNodeRow key={child.label + child.depth} node={child} onSelectElement={onSelectElement} />
+      {showChildren && node.children.map((child, i) => (
+        <TreeNodeRow key={`${child.depth}-${i}`} node={child} onSelectElement={onSelectElement} />
       ))}
     </>
   )
