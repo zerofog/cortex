@@ -378,6 +378,9 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         res.end(content)
       })
 
+      // Cache resolved project root (avoids blocking realpathSync per comment message)
+      let realRootCache: string | null = null
+
       // Resolve Tailwind colors at server start — promise awaited in hotHandler
       const swatchesPromise = TailwindResolver.resolveColors(config.root).catch((err) => {
         console.warn('[cortex] Tailwind color resolution failed:', err instanceof Error ? err.message : err)
@@ -432,11 +435,13 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           const secondLastColon = data.elementSource.lastIndexOf(':', lastColon - 1)
           const sourceFile = secondLastColon > 0 ? data.elementSource.slice(0, secondLastColon) : data.elementSource.split(':')[0] ?? data.elementSource
           const resolved = path.resolve(config.root, sourceFile)
-          // Use realpathSync on parent dir to catch symlink escapes (the file itself may not exist yet)
+          // Use realpathSync on parent dir to catch symlink escapes (the file itself may not exist yet).
+          // realRoot is cached at the hotHandler scope to avoid blocking syscall per message.
+          const realRoot = realRootCache ?? (realRootCache = (() => { try { return fs.realpathSync.native(config.root) } catch { return config.root } })())
           try {
             const parentDir = path.dirname(resolved)
             const realParent = fs.realpathSync.native(parentDir)
-            if (!realParent.startsWith(config.root + path.sep) && realParent !== config.root) {
+            if (!realParent.startsWith(realRoot + path.sep) && realParent !== realRoot) {
               console.warn(`[cortex] Rejected comment: elementSource "${sourceFile}" resolves outside project root via symlink`)
               return
             }
