@@ -21,6 +21,8 @@ export class AnnotationStore {
       createdAt: now,
       updatedAt: now,
       thread: [],
+      kind: params.kind,
+      fixMeta: params.fixMeta,
     }
     this.annotations.set(annotation.id, annotation)
     return this.snapshot(annotation)
