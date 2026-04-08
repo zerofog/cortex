@@ -1,0 +1,26 @@
+cortex-editor/src/cli/mcp.ts
+  d404a8bcfb6efc70 155-179
+cortex-editor/tests/cli/mcp.test.ts
+  d404a8bcfb6efc70 539-683
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "a177d5645b50fe23614b03d6f7549d692633a798",
+  "prompts": {
+    "d404a8bcfb6efc70": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "73b8df50-0cdc-48a9-97f6-c6e701471e4f",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 25,
+      "total_deletions": 0,
+      "accepted_lines": 170,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/5b79de7232d6f58da23405d29fac470f0c2eb44d9e3fa286b560ef1a086e5248"
+    }
+  }
+}
