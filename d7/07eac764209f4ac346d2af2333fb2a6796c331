@@ -1,0 +1,24 @@
+cortex-editor/e2e-layer-tree.mjs
+  d404a8bcfb6efc70 1-201
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "d707eac764209f4ac346d2af2333fb2a6796c331",
+  "prompts": {
+    "d404a8bcfb6efc70": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "73b8df50-0cdc-48a9-97f6-c6e701471e4f",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 201,
+      "total_deletions": 0,
+      "accepted_lines": 201,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/0a0e68a2cfb6c040a5b1c4cfcf6b80bb4f201a108c5d5c494296b82f30af7bd2"
+    }
+  }
+}
