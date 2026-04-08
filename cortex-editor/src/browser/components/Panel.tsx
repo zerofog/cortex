@@ -30,6 +30,7 @@ import type { PositionChange } from './sections/PositionSection.js'
 import type { InteractionState } from '../state-detector.js'
 import { detectSharedClasses } from '../shared-class-detector.js'
 import type { SharedClassInfo } from '../shared-class-detector.js'
+import { EditErrorCard } from './EditErrorCard.js'
 import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
 import { CollapsibleSection } from './CollapsibleSection.js'
@@ -795,6 +796,23 @@ export function Panel({
         onToggleHover={onToggleHover}
       />
       <LayerTree element={element} onSelectElement={onSelectElement} />
+      {editErrors && element?.getAttribute('data-cortex-source') && (
+        <EditErrorCard
+          errors={editErrors}
+          elementSource={element.getAttribute('data-cortex-source')!}
+          agentConnected={agentConnected ?? false}
+          onDismiss={(key) => onDismissError?.(key)}
+          onAskAI={(error) => {
+            channel?.send({
+              type: 'comment',
+              kind: 'fix-request',
+              fixMeta: { property: error.property, value: error.value, reason: error.reason },
+              elementSource: error.source,
+              text: `${error.property} edit failed: ${error.reason}`,
+            })
+          }}
+        />
+      )}
       {sharedInfo && (
         <div class="cortex-panel__scope">
           <span class="cortex-panel__scope-label">
