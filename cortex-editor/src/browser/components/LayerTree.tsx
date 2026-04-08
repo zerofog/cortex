@@ -1,3 +1,5 @@
+import type { JSX } from 'preact'
+import { useMemo, useState } from 'preact/hooks'
 import { getLabel } from '../label.js'
 
 export interface TreeNode {
@@ -76,4 +78,63 @@ export function buildScopedTree(element: HTMLElement | null): TreeNode | null {
   }
 
   return buildNode(document.body, 0, true)
+}
+
+interface LayerTreeProps {
+  element: HTMLElement | null
+  onSelectElement: (el: HTMLElement) => void
+}
+
+function TreeNodeRow({ node, onSelectElement }: { node: TreeNode; onSelectElement: (el: HTMLElement) => void }): JSX.Element {
+  const [collapsed, setCollapsed] = useState(false)
+  const hasChildren = node.children.length > 0
+  const showChildren = hasChildren && node.expanded && !collapsed
+
+  return (
+    <>
+      <div
+        class={`cortex-layer-node${node.selected ? ' cortex-layer-node--selected' : ''}`}
+        style={{ paddingLeft: `${node.depth * 12 + 8}px` }}
+        onClick={(e) => {
+          e.stopPropagation()
+          onSelectElement(node.element)
+        }}
+      >
+        {hasChildren ? (
+          <span
+            class={`cortex-layer-chevron${showChildren ? ' cortex-layer-chevron--expanded' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              setCollapsed(c => !c)
+            }}
+          >
+            <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
+              <path d="M2 1l4 3-4 3z" />
+            </svg>
+          </span>
+        ) : (
+          <span class="cortex-layer-chevron-spacer" />
+        )}
+        <span class="cortex-layer-label">{node.label}</span>
+      </div>
+      {showChildren && node.children.map(child => (
+        <TreeNodeRow key={child.label + child.depth} node={child} onSelectElement={onSelectElement} />
+      ))}
+    </>
+  )
+}
+
+export function LayerTree({ element, onSelectElement }: LayerTreeProps): JSX.Element | null {
+  const tree = useMemo(() => buildScopedTree(element), [element])
+
+  if (!tree) return null
+
+  return (
+    <div class="cortex-layer-tree">
+      <div class="cortex-layer-tree__header">Layers</div>
+      <div class="cortex-layer-tree__scroll">
+        <TreeNodeRow node={tree} onSelectElement={onSelectElement} />
+      </div>
+    </div>
+  )
 }

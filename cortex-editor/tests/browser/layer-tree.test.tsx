@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { buildScopedTree } from '../../src/browser/components/LayerTree.js'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render } from 'preact'
+import { buildScopedTree, LayerTree } from '../../src/browser/components/LayerTree.js'
 import type { TreeNode } from '../../src/browser/components/LayerTree.js'
 
 describe('buildScopedTree', () => {
@@ -76,5 +77,104 @@ describe('buildScopedTree', () => {
     expect(tree!.children.length).toBeGreaterThanOrEqual(1)
 
     document.body.removeChild(child)
+  })
+})
+
+describe('LayerTree rendering', () => {
+  let container: HTMLDivElement
+  let fixtures: HTMLElement[] = []
+
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+  })
+
+  afterEach(() => {
+    render(null, container)
+    container.remove()
+    for (const el of fixtures) {
+      if (el.parentNode) el.parentNode.removeChild(el)
+    }
+    fixtures = []
+  })
+
+  /** Helper: find the rendered node whose label text matches */
+  function findNodeByLabel(label: string): HTMLElement | undefined {
+    const nodes = container.querySelectorAll('.cortex-layer-node')
+    return Array.from(nodes).find(n => {
+      const labelEl = n.querySelector('.cortex-layer-label')
+      return labelEl?.textContent === label
+    }) as HTMLElement | undefined
+  }
+
+  it('renders nothing when element is null', () => {
+    render(<LayerTree element={null} onSelectElement={() => {}} />, container)
+    expect(container.querySelector('.cortex-layer-tree')).toBeNull()
+  })
+
+  it('renders tree nodes with correct indentation', () => {
+    const parent = document.createElement('div')
+    parent.className = 'card'
+    const child = document.createElement('span')
+    parent.appendChild(child)
+    document.body.appendChild(parent)
+    fixtures.push(parent)
+
+    render(<LayerTree element={child} onSelectElement={() => {}} />, container)
+
+    // Verify indentation by label, not index — body has other children (test container)
+    const bodyNode = findNodeByLabel('body')!
+    const cardNode = findNodeByLabel('div.card')!
+    const spanNode = findNodeByLabel('span')!
+
+    expect(bodyNode).toBeDefined()
+    expect(cardNode).toBeDefined()
+    expect(spanNode).toBeDefined()
+
+    expect(parseInt(bodyNode.style.paddingLeft, 10)).toBe(8)   // depth 0 → 0*12+8
+    expect(parseInt(cardNode.style.paddingLeft, 10)).toBe(20)  // depth 1 → 1*12+8
+    expect(parseInt(spanNode.style.paddingLeft, 10)).toBe(32)  // depth 2 → 2*12+8
+  })
+
+  it('highlights the selected node', () => {
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    fixtures.push(el)
+
+    render(<LayerTree element={el} onSelectElement={() => {}} />, container)
+
+    const selected = container.querySelector('.cortex-layer-node--selected')
+    expect(selected).not.toBeNull()
+  })
+
+  it('fires onSelectElement when clicking a node', () => {
+    const parent = document.createElement('div')
+    parent.className = 'wrapper'
+    const child = document.createElement('span')
+    parent.appendChild(child)
+    document.body.appendChild(parent)
+    fixtures.push(parent)
+
+    const onSelect = vi.fn()
+    render(<LayerTree element={child} onSelectElement={onSelect} />, container)
+
+    const parentNode = findNodeByLabel('div.wrapper')
+    expect(parentNode).toBeDefined()
+    parentNode!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+
+    expect(onSelect).toHaveBeenCalledWith(parent)
+  })
+
+  it('shows chevron for nodes with children', () => {
+    const parent = document.createElement('div')
+    const child = document.createElement('span')
+    parent.appendChild(child)
+    document.body.appendChild(parent)
+    fixtures.push(parent)
+
+    render(<LayerTree element={child} onSelectElement={() => {}} />, container)
+
+    const chevrons = container.querySelectorAll('.cortex-layer-chevron')
+    expect(chevrons.length).toBeGreaterThanOrEqual(1)
   })
 })
