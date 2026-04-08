@@ -1,0 +1,26 @@
+cortex-editor/tests/browser/edit-error-card.test.tsx
+  d404a8bcfb6efc70 1-108
+cortex-editor/src/browser/components/EditErrorCard.tsx
+  d404a8bcfb6efc70 1-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "36f40029bf5e3b203e206afe9d66a6b35605f3a2",
+  "prompts": {
+    "d404a8bcfb6efc70": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "73b8df50-0cdc-48a9-97f6-c6e701471e4f",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 177,
+      "total_deletions": 0,
+      "accepted_lines": 177,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/7ea5d59e124a62b3e76ee7e5bf5287fffea04ab0597302aef6fd1b5c0f943b04"
+    }
+  }
+}
