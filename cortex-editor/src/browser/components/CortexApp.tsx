@@ -135,6 +135,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           // Clear any error for this edit's source+property
           const dispatch = editDispatchRef.current.get(msg.editId)
           if (dispatch) {
+            editDispatchRef.current.delete(msg.editId)
             const key = `${dispatch.source}\0${dispatch.property}`
             setEditErrors(prev => {
               if (!prev.has(key)) return prev
@@ -147,6 +148,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         if (msg.status === 'failed' && msg.editId) {
           const dispatch = editDispatchRef.current.get(msg.editId)
           if (dispatch) {
+            editDispatchRef.current.delete(msg.editId)
             const key = `${dispatch.source}\0${dispatch.property}`
             setEditErrors(prev => {
               const next = new Map(prev)
@@ -178,7 +180,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (msg.type === 'annotation-updated') {
         setAnnotations(prev => new Map(prev).set(msg.annotation.id, msg.annotation))
         // Clear error card when fix-request annotation resolves
-        if (msg.annotation.kind === 'fix-request' && msg.annotation.status === 'resolved' && msg.annotation.fixMeta) {
+        if (msg.annotation.kind === 'fix-request' && (msg.annotation.status === 'resolved' || msg.annotation.status === 'dismissed') && msg.annotation.fixMeta) {
           const key = `${msg.annotation.elementSource}\0${msg.annotation.fixMeta.property}`
           setEditErrors(prev => {
             if (!prev.has(key)) return prev

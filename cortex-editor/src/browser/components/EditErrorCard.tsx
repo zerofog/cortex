@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useState } from 'preact/hooks'
+import { useState, useEffect } from 'preact/hooks'
 
 export interface EditError {
   source: string
@@ -18,6 +18,13 @@ interface EditErrorCardProps {
 
 export function EditErrorCard({ errors, elementSource, agentConnected, onDismiss, onAskAI }: EditErrorCardProps): JSX.Element | null {
   const [askingAI, setAskingAI] = useState<string | null>(null)
+
+  // Reset askingAI after 15s timeout — prevents permanent disable if channel.send fails silently
+  useEffect(() => {
+    if (!askingAI) return
+    const timer = setTimeout(() => setAskingAI(null), 15_000)
+    return () => clearTimeout(timer)
+  }, [askingAI])
 
   // Filter errors for the currently selected element
   const elementErrors = Array.from(errors.entries()).filter(
