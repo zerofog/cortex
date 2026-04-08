@@ -28,13 +28,6 @@ export function ErrorToast({ channel }: { channel: CortexChannel }) {
 
   useEffect(() => {
     return channel.onMessage((msg) => {
-      if (msg.type === 'edit_status' && msg.status === 'failed') {
-        const isActionable = msg.reason?.includes('Connect') || msg.reason?.includes('install')
-        addToast(
-          { message: msg.reason ?? 'Edit failed', type: 'error' },
-          isActionable ? undefined : 5000,
-        )
-      }
       if (msg.type === 'undo_sync_status' || msg.type === 'redo_sync_status') {
         // empty_stack is expected (browser stack leads, server may be shorter) — no toast.
         if (msg.status === 'failed' && msg.reason_code !== 'empty_stack') {
