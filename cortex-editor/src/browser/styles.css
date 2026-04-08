@@ -235,6 +235,8 @@
 }
 
 .cortex-layer-tree__scroll {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--ink-faint) transparent;

@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useState, useEffect } from 'preact/hooks'
+import { useState, useEffect, useMemo } from 'preact/hooks'
 import type { FixMeta } from '../../adapters/types.js'
 
 export interface EditError extends FixMeta {
@@ -24,9 +24,10 @@ export function EditErrorCard({ errors, elementSource, agentConnected, onDismiss
     return () => clearTimeout(timer)
   }, [askingAI])
 
-  // Filter errors for the currently selected element
-  const elementErrors = Array.from(errors.entries()).filter(
-    ([, err]) => err.source === elementSource,
+  // Filter errors for the currently selected element (memoized to avoid re-scan on unrelated renders)
+  const elementErrors = useMemo(
+    () => Array.from(errors.entries()).filter(([, err]) => err.source === elementSource),
+    [errors, elementSource],
   )
 
   if (elementErrors.length === 0) return null
