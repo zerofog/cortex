@@ -429,26 +429,23 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         }
 
         if (data.type === 'comment') {
-          // Validate elementSource is within project root (defense-in-depth for fix-request annotations).
-          // Parse file:line:col from the right (same pattern as edit-pipeline) to handle Windows drive letters.
-          const lastColon = data.elementSource.lastIndexOf(':')
-          const secondLastColon = data.elementSource.lastIndexOf(':', lastColon - 1)
-          const sourceFile = secondLastColon > 0 ? data.elementSource.slice(0, secondLastColon) : data.elementSource.split(':')[0] ?? data.elementSource
-          const resolved = path.resolve(config.root, sourceFile)
-          // Use realpathSync on parent dir to catch symlink escapes (the file itself may not exist yet).
-          // realRoot is cached at the hotHandler scope to avoid blocking syscall per message.
-          const realRoot = realRootCache ?? (realRootCache = (() => { try { return fs.realpathSync.native(config.root) } catch { return config.root } })())
-          try {
-            const parentDir = path.dirname(resolved)
-            const realParent = fs.realpathSync.native(parentDir)
-            if (!realParent.startsWith(realRoot + path.sep) && realParent !== realRoot) {
-              console.warn(`[cortex] Rejected comment: elementSource "${sourceFile}" resolves outside project root via symlink`)
-              return
+          // Validate elementSource for fix-request annotations (defense-in-depth).
+          // Regular comments are allowed through — only fix-requests drive Claude Code file edits.
+          if (data.kind === 'fix-request') {
+            const lastColon = data.elementSource.lastIndexOf(':')
+            const secondLastColon = data.elementSource.lastIndexOf(':', lastColon - 1)
+            const sourceFile = secondLastColon > 0 ? data.elementSource.slice(0, secondLastColon) : data.elementSource.split(':')[0] ?? data.elementSource
+            const resolved = path.resolve(config.root, sourceFile)
+            const realRoot = realRootCache ?? (realRootCache = (() => { try { return fs.realpathSync.native(config.root) } catch { return config.root } })())
+            let outsideRoot = false
+            try {
+              const realParent = fs.realpathSync.native(path.dirname(resolved))
+              outsideRoot = !realParent.startsWith(realRoot + path.sep) && realParent !== realRoot
+            } catch {
+              outsideRoot = !resolved.startsWith(config.root + path.sep) && resolved !== config.root
             }
-          } catch {
-            // Parent dir doesn't exist — path.resolve already checked lexically
-            if (!resolved.startsWith(config.root + path.sep) && resolved !== config.root) {
-              console.warn(`[cortex] Rejected comment: elementSource "${sourceFile}" is outside project root`)
+            if (outsideRoot) {
+              console.warn(`[cortex] Rejected fix-request: elementSource "${sourceFile}" is outside project root`)
               return
             }
           }
