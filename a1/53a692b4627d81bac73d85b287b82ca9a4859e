@@ -1,0 +1,41 @@
+cortex-editor/e2e-layer-tree.mjs
+  d404a8bcfb6efc70 48,186-188
+cortex-editor/src/browser/components/EditErrorCard.tsx
+  d404a8bcfb6efc70 2,18,20-30,66-67,69,73
+cortex-editor/src/cli/mcp.ts
+  d404a8bcfb6efc70 449-450
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.6",
+  "base_commit_sha": "a153a692b4627d81bac73d85b287b82ca9a4859e",
+  "prompts": {
+    "150568d0accaae96": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ee8d6fe-d0b5-4482-978c-379f290ded53",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 419,
+      "overriden_lines": 0
+    },
+    "d404a8bcfb6efc70": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "73b8df50-0cdc-48a9-97f6-c6e701471e4f",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 24,
+      "total_deletions": 16,
+      "accepted_lines": 24,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/a4ee5c5a4bb879afffb2a328b407551ed79eba7bb0354c8a64ceb22e507a5e1d"
+    }
+  }
+}
