@@ -94,7 +94,10 @@ function TreeNodeRow({ node, onSelectElement }: { node: TreeNode; onSelectElemen
             class={`cortex-layer-chevron${showChildren ? ' cortex-layer-chevron--expanded' : ''}`}
             onClick={(e) => {
               e.stopPropagation()
-              setCollapsed(c => !c)
+              // Expanded nodes (on ancestor path): toggle collapse/expand
+              // Non-expanded leaf nodes: navigate to element (rebuilds tree with its children)
+              if (node.expanded) setCollapsed(c => !c)
+              else onSelectElement(node.element)
             }}
           >
             <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor">

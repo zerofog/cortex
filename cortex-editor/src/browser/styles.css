@@ -426,17 +426,8 @@
   transition: transform 350ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.cortex-panel--cross-fade .cortex-panel__body {
-  animation: cortex-cross-fade 150ms ease-out;
-}
-
 @keyframes cortex-slide-in {
   from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-@keyframes cortex-cross-fade {
-  from { opacity: 0.6; }
   to   { opacity: 1; }
 }
 

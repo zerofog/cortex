@@ -222,9 +222,7 @@ export function Panel({
   onDismissError,
 }: PanelProps): JSX.Element | null {
   // ALL hooks first — no conditional returns before hooks
-  const [contentKey, setContentKey] = useState(0)
   const [isEntering, setIsEntering] = useState(true)
-  const [isCrossFading, setIsCrossFading] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
   const prevElementRef = useRef<HTMLElement | null>(null)
 
@@ -273,8 +271,6 @@ export function Panel({
   useEffect(() => {
     if (prevElementRef.current && prevElementRef.current !== element) {
       // No cross-fade or body remount — sections update via normal prop changes.
-      // The previous contentKey/isCrossFading caused full panel body destruction,
-      // triggering visible flicker on segmented controls even when values were unchanged.
       setActivePseudo('element') // reset pseudo tab on element change
     }
     prevElementRef.current = element
@@ -309,12 +305,6 @@ export function Panel({
     setEditScope('instance')
   }, [element])
 
-  // M3: Clear cross-fade class after animation completes
-  useEffect(() => {
-    if (!isCrossFading) return
-    const timer = setTimeout(() => setIsCrossFading(false), 150)
-    return () => clearTimeout(timer)
-  }, [isCrossFading])
 
   // Sync strategy: bump counter on committed changes to force getComputedStyle re-read.
   // During scrub, trust NumericInput local state (no re-render per frame).
@@ -704,7 +694,6 @@ export function Panel({
     'cortex-panel',
     isEntering && 'cortex-panel--entering',
     isSnapping && 'cortex-panel--snapping',
-    isCrossFading && 'cortex-panel--cross-fade',
   ].filter(Boolean).join(' ')
 
   // Empty state: panel shell visible, no sections
@@ -854,7 +843,7 @@ export function Panel({
           </div>
         </div>
       )}
-      <div class="cortex-panel__body" ref={bodyRef} key={contentKey}>
+      <div class="cortex-panel__body" ref={bodyRef}>
         <SectionGroup label="Layout" groupId="layout">
           <LayoutSection
             values={computedStyles.layout}
