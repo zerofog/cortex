@@ -2013,6 +2013,7 @@
   padding: var(--sp-4) var(--sp-5);
   border-top: 1px solid var(--rule);
   position: relative;
+  flex-shrink: 0;
 }
 
 .cortex-comment-input__field {

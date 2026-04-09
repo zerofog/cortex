@@ -585,17 +585,7 @@ describe('CortexApp', () => {
     channel._simulateMessage({ type: 'annotation-created', annotation })
     await new Promise(r => setTimeout(r, 10))
 
-    // Spinner should still be visible (waiting for acknowledge)
-    expect(root.querySelector('.cortex-comment-input__spinner')).not.toBeNull()
-
-    // Simulate agent acknowledging
-    channel._simulateMessage({
-      type: 'annotation-updated',
-      annotation: { ...annotation, status: 'acknowledged' as const, updatedAt: Date.now() },
-    })
-    await new Promise(r => setTimeout(r, 10))
-
-    // Spinner should be gone, input re-enabled
+    // Spinner should be gone — comment resolves on annotation-created (not on acknowledge)
     expect(root.querySelector('.cortex-comment-input__spinner')).toBeNull()
     expect(input.disabled).toBe(false)
 
