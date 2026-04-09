@@ -8,6 +8,7 @@ export interface TreeNode {
   depth: number
   selected: boolean
   expanded: boolean
+  hasChildren: boolean
   children: TreeNode[]
 }
 
@@ -30,7 +31,8 @@ export function buildScopedTree(element: HTMLElement | null): TreeNode | null {
   }
 
   function leafNode(c: HTMLElement, depth: number): TreeNode {
-    return { element: c, label: getLabel(c), depth, selected: false, expanded: false, children: [] }
+    const childCount = Array.from(c.children).filter(ch => ch instanceof HTMLElement).length
+    return { element: c, label: getLabel(c), depth, selected: false, expanded: false, hasChildren: childCount > 0, children: [] }
   }
 
   function buildNode(el: HTMLElement, depth: number, isOnPath: boolean): TreeNode {
@@ -52,12 +54,14 @@ export function buildScopedTree(element: HTMLElement | null): TreeNode | null {
         .map(c => c === pathChild ? buildNode(c, depth + 1, true) : leafNode(c, depth + 1))
     }
 
+    const childCount = Array.from(el.children).filter(c => c instanceof HTMLElement).length
     return {
       element: el,
       label: getLabel(el),
       depth,
       selected: isSelected,
       expanded: isSelected || isOnPath,
+      hasChildren: childCount > 0,
       children,
     }
   }
@@ -72,8 +76,8 @@ interface LayerTreeProps {
 
 function TreeNodeRow({ node, onSelectElement }: { node: TreeNode; onSelectElement: (el: HTMLElement) => void }): JSX.Element {
   const [collapsed, setCollapsed] = useState(false)
-  const hasChildren = node.children.length > 0
-  const showChildren = hasChildren && node.expanded && !collapsed
+  const hasChildren = node.hasChildren
+  const showChildren = node.children.length > 0 && node.expanded && !collapsed
 
   return (
     <>
@@ -112,9 +116,12 @@ function TreeNodeRow({ node, onSelectElement }: { node: TreeNode; onSelectElemen
 const DEFAULT_HEIGHT = 160
 const MIN_HEIGHT = 60
 
+// Module-scoped so height survives component remounts (Panel cross-fade, element change)
+let persistedHeight = DEFAULT_HEIGHT
+
 export function LayerTree({ element, onSelectElement }: LayerTreeProps): JSX.Element | null {
   const tree = useMemo(() => buildScopedTree(element), [element])
-  const [height, setHeight] = useState(DEFAULT_HEIGHT)
+  const [height, setHeight] = useState(persistedHeight)
   const heightRef = useRef(height)
   heightRef.current = height
   const draggingRef = useRef(false)
@@ -133,6 +140,7 @@ export function LayerTree({ element, onSelectElement }: LayerTreeProps): JSX.Ele
     const delta = e.clientY - startYRef.current
     const maxHeight = Math.floor(window.innerHeight * 0.5)
     const newHeight = Math.max(MIN_HEIGHT, Math.min(maxHeight, startHeightRef.current + delta))
+    persistedHeight = newHeight
     setHeight(newHeight)
   }, [])
 
