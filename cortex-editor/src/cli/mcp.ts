@@ -408,6 +408,27 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
   const transport = options.transport ?? new StdioServerTransport()
   await server.connect(transport)
 
+  server.registerTool(
+    'cortex_channel_test',
+    { description: 'Send a test channel notification to verify the MCP channel is working. Use this to confirm Claude Code receives <channel source="cortex"> messages.' },
+    async () => {
+      try {
+        await Promise.resolve().then(() =>
+          server.server.notification({
+            method: 'notifications/claude/channel',
+            params: {
+              content: JSON.stringify({ type: 'test', message: 'Channel verification successful' }),
+              meta: { request_id: 'test-' + Date.now(), severity: 'info' },
+            },
+          } as never),
+        )
+        return { content: [{ type: 'text' as const, text: 'Channel notification sent. Check if <channel source="cortex"> appeared in your context.' }] }
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Channel notification FAILED: ${err instanceof Error ? err.message : String(err)}` }], isError: true }
+      }
+    },
+  )
+
   return {
     close() {
       closed = true

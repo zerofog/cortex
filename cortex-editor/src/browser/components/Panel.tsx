@@ -272,8 +272,9 @@ export function Panel({
 
   useEffect(() => {
     if (prevElementRef.current && prevElementRef.current !== element) {
-      setContentKey(k => k + 1)
-      setIsCrossFading(true)
+      // No cross-fade or body remount — sections update via normal prop changes.
+      // The previous contentKey/isCrossFading caused full panel body destruction,
+      // triggering visible flicker on segmented controls even when values were unchanged.
       setActivePseudo('element') // reset pseudo tab on element change
     }
     prevElementRef.current = element

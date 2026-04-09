@@ -125,6 +125,7 @@ describe('cortex mcp', () => {
     expect(names).toEqual([
       'cortex_acknowledge',
       'cortex_activate',
+      'cortex_channel_test',
       'cortex_deactivate',
       'cortex_dismiss',
       'cortex_get_details',
