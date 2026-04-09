@@ -1,6 +1,7 @@
 import type { JSX } from 'preact'
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
 import type { CortexChannel, ConnectionDisplay, Annotation, ActivityEntry, StyleCapability } from '../../adapters/types.js'
+import type { EditError } from './EditErrorCard.js'
 import { CSSOverrideManager } from '../override.js'
 import { CommandStack } from '../command-stack.js'
 import { initSelection } from '../selection.js'
@@ -61,6 +62,20 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const [commentMode, setCommentMode] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
   const [capabilitySystems, setCapabilitySystems] = useState<StyleCapability[]>([])
+  // Error tracking: editId → source+property for lookup when edit_status:failed arrives
+  const editDispatchRef = useRef<Map<string, { source: string; property: string; value: string }>>(new Map())
+  // Active errors keyed by source\0property
+  const [editErrors, setEditErrors] = useState<Map<string, EditError>>(new Map())
+
+  /** Remove an error by key — avoids new Map allocation when key is absent. */
+  const clearEditError = useCallback((key: string): void => {
+    setEditErrors(prev => {
+      if (!prev.has(key)) return prev
+      const next = new Map(prev)
+      next.delete(key)
+      return next
+    })
+  }, [])
   const commentModeRef = useRef(false)
   commentModeRef.current = commentMode
 
@@ -128,8 +143,28 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           if (msg.strategy === 'deferred') {
             overrideRef.current?.markDeferred(msg.editId)
           }
+          // Clear any error for this edit's source+property
+          const dispatch = editDispatchRef.current.get(msg.editId)
+          if (dispatch) {
+            editDispatchRef.current.delete(msg.editId)
+            clearEditError(`${dispatch.source}\0${dispatch.property}`)
+          }
         }
-        // Note: commitEdit/cancelEdit removed — CommandStack owns undo/redo state
+        if (msg.status === 'failed' && msg.editId) {
+          const dispatch = editDispatchRef.current.get(msg.editId)
+          if (dispatch) {
+            editDispatchRef.current.delete(msg.editId)
+            const key = `${dispatch.source}\0${dispatch.property}`
+            setEditErrors(prev => {
+              const next = new Map(prev)
+              next.set(key, { source: dispatch.source, property: dispatch.property, value: dispatch.value, reason: msg.reason ?? 'Unknown error' })
+              return next
+            })
+          } else {
+            // editId not tracked — may have been coalesced during rapid scrub editing
+            console.warn(`[cortex] edit_status:failed for untracked editId ${msg.editId}: ${msg.reason ?? 'Unknown'}`)
+          }
+        }
       }
       if (msg.type === 'hmr_verified') {
         overrideRef.current?.handleHMRVerified(msg.editId, msg.match, msg.kind)
@@ -152,6 +187,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       }
       if (msg.type === 'annotation-updated') {
         setAnnotations(prev => new Map(prev).set(msg.annotation.id, msg.annotation))
+        // Clear error card when fix-request annotation resolves
+        if (msg.annotation.kind === 'fix-request' && (msg.annotation.status === 'resolved' || msg.annotation.status === 'dismissed') && msg.annotation.fixMeta) {
+          clearEditError(`${msg.annotation.elementSource}\0${msg.annotation.fixMeta.property}`)
+        }
       }
       if (msg.type === 'agent-status') {
         setAgentConnected(msg.connected)
@@ -274,6 +313,18 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
 
   const handleSelectElement = useCallback((el: HTMLElement | null) => setSelectedElement(el), [])
   const handleToggleHover = useCallback(() => setHoverEnabled(v => !v), [])
+
+  const handleEditDispatch = useCallback((editId: string, source: string, property: string, value: string) => {
+    const map = editDispatchRef.current
+    if (map.size >= 500) {
+      // Evict oldest entry to prevent unbounded growth if server never responds
+      const firstKey = map.keys().next().value
+      if (firstKey) map.delete(firstKey)
+    }
+    map.set(editId, { source, property, value })
+  }, [])
+
+  const handleDismissError = clearEditError
 
   // Exit handler — notify server, deactivate
   const handleExit = useCallback(() => {
@@ -465,6 +516,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           channel={channel}
           agentConnected={agentConnected}
           connectionStatus={connectionStatus}
+          editErrors={editErrors}
+          onEditDispatch={handleEditDispatch}
+          onDismissError={handleDismissError}
         />
       )}
       <Toolbar
