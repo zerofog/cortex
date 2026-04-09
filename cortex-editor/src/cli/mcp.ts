@@ -413,18 +413,21 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     { description: 'Send a test channel notification to verify the MCP channel is working. Use this to confirm Claude Code receives <channel source="cortex"> messages.' },
     async () => {
       try {
-        await Promise.resolve().then(() =>
-          server.server.notification({
-            method: 'notifications/claude/channel',
-            params: {
-              content: JSON.stringify({ type: 'test', message: 'Channel verification successful' }),
-              meta: { request_id: 'test-' + Date.now(), severity: 'info' },
-            },
-          } as never),
-        )
-        return { content: [{ type: 'text' as const, text: 'Channel notification sent. Check if <channel source="cortex"> appeared in your context.' }] }
+        const notification = {
+          method: 'notifications/claude/channel',
+          params: {
+            content: 'Channel test: cortex MCP channel is working. Timestamp: ' + new Date().toISOString(),
+            meta: { test_id: String(Date.now()) },
+          },
+        }
+        process.stderr.write(`[cortex] Sending channel notification: ${JSON.stringify(notification)}\n`)
+        await server.server.notification(notification as never)
+        process.stderr.write('[cortex] Channel notification sent successfully\n')
+        return { content: [{ type: 'text' as const, text: 'Channel notification sent successfully. You should see a <channel source="cortex"> tag in your context. If not, check stderr for errors.' }] }
       } catch (err) {
-        return { content: [{ type: 'text' as const, text: `Channel notification FAILED: ${err instanceof Error ? err.message : String(err)}` }], isError: true }
+        const msg = err instanceof Error ? err.message : String(err)
+        process.stderr.write(`[cortex] Channel notification FAILED: ${msg}\n`)
+        return { content: [{ type: 'text' as const, text: `Channel notification FAILED: ${msg}` }], isError: true }
       }
     },
   )
