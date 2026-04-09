@@ -85,6 +85,17 @@ export function findUserAncestor(
   return null
 }
 
+/** Get a Chrome DevTools-style label for the layer tree: tag.firstClass or just tag.
+ *  Always shows the HTML element, never the component name — "section.hero" not "Features". */
+export function getTreeLabel(el: HTMLElement): string {
+  const tag = el.tagName.toLowerCase()
+  const cls = typeof el.className === 'string' ? el.className : (el.getAttribute('class') ?? '')
+  if (cls.trim()) {
+    return `${tag}.${cls.trim().split(/\s+/)[0]}`
+  }
+  return tag
+}
+
 /** Get a compact label (hover overlay) */
 export function getLabel(el: HTMLElement): string {
   const info = parseCortexSource(el)

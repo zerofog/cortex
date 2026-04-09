@@ -1,6 +1,6 @@
 import type { JSX } from 'preact'
 import { useCallback, useMemo, useRef, useState } from 'preact/hooks'
-import { getLabel } from '../label.js'
+import { getTreeLabel } from '../label.js'
 
 export interface TreeNode {
   element: HTMLElement
@@ -32,7 +32,7 @@ export function buildScopedTree(element: HTMLElement | null): TreeNode | null {
 
   function leafNode(c: HTMLElement, depth: number): TreeNode {
     const childCount = Array.from(c.children).filter(ch => ch instanceof HTMLElement).length
-    return { element: c, label: getLabel(c), depth, selected: false, expanded: false, hasChildren: childCount > 0, children: [] }
+    return { element: c, label: getTreeLabel(c), depth, selected: false, expanded: false, hasChildren: childCount > 0, children: [] }
   }
 
   function buildNode(el: HTMLElement, depth: number, isOnPath: boolean): TreeNode {
@@ -57,7 +57,7 @@ export function buildScopedTree(element: HTMLElement | null): TreeNode | null {
     const childCount = Array.from(el.children).filter(c => c instanceof HTMLElement).length
     return {
       element: el,
-      label: getLabel(el),
+      label: getTreeLabel(el),
       depth,
       selected: isSelected,
       expanded: isSelected || isOnPath,
