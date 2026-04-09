@@ -1,0 +1,36 @@
+cortex-editor/tests/browser/layer-tree.test.tsx
+  d404a8bcfb6efc70 77-80,180-183
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.6",
+  "base_commit_sha": "38c630895f306525de57206cbfadda5992274071",
+  "prompts": {
+    "150568d0accaae96": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ee8d6fe-d0b5-4482-978c-379f290ded53",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 419,
+      "overriden_lines": 0
+    },
+    "d404a8bcfb6efc70": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "73b8df50-0cdc-48a9-97f6-c6e701471e4f",
+        "model": "<synthetic>"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 28,
+      "total_deletions": 23,
+      "accepted_lines": 8,
+      "overriden_lines": 0
+    }
+  }
+}
