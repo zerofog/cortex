@@ -154,32 +154,49 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
       }
 
       // Push channel notification for fix-request annotations
+      // Push all annotation-created messages to Claude Code via channel notification.
+      // Comments arrive immediately so Claude can act. Fix-requests include fixMeta for structured repair.
       if (msg.type === 'annotation-created') {
         const ann = (msg as Record<string, unknown>).annotation as Record<string, unknown> | undefined
-        if (ann?.kind === 'fix-request' && ann.fixMeta && typeof ann.fixMeta === 'object') {
-          const fm = ann.fixMeta as Record<string, unknown>
-          if (typeof fm.property === 'string' && typeof fm.value === 'string' && typeof fm.reason === 'string') {
-          const fixMeta = ann.fixMeta as import('../adapters/types.js').FixMeta
-          // notifications/claude/channel is an experimental Claude Code extension
-          // not in the MCP SDK's ServerNotification union — as never is required.
+        if (ann && typeof ann.elementSource === 'string' && typeof ann.text === 'string') {
+          let content: string
+          let severity = 'info'
+
+          if (ann.kind === 'fix-request' && ann.fixMeta && typeof ann.fixMeta === 'object') {
+            const fm = ann.fixMeta as Record<string, unknown>
+            if (typeof fm.property === 'string' && typeof fm.value === 'string' && typeof fm.reason === 'string') {
+              content = JSON.stringify({
+                type: 'fix-request',
+                property: fm.property.slice(0, 256),
+                value: fm.value.slice(0, 256),
+                source: String(ann.elementSource).slice(0, 512),
+                reason: fm.reason.slice(0, 512),
+              })
+              severity = 'error'
+            } else {
+              content = String(ann.text).slice(0, 2048)
+            }
+          } else {
+            // Regular comment — push the text so Claude can act on it immediately
+            content = String(ann.text).slice(0, 2048)
+          }
+
           void Promise.resolve().then(() =>
             server.server.notification({
               method: 'notifications/claude/channel',
               params: {
-                content: JSON.stringify({
-                  type: 'fix-request',
-                  property: String(fixMeta.property).slice(0, 256),
-                  value: String(fixMeta.value).slice(0, 256),
+                content,
+                meta: {
+                  request_id: String(ann.id),
+                  severity,
                   source: String(ann.elementSource).slice(0, 512),
-                  reason: String(fixMeta.reason).slice(0, 512),
-                }),
-                meta: { request_id: ann.id as string, severity: 'error' },
+                  kind: String(ann.kind ?? 'comment'),
+                },
               },
             } as never),
           ).catch((err: unknown) => {
             process.stderr.write(`[cortex] Failed to send channel notification: ${err instanceof Error ? err.message : String(err)}\n`)
           })
-          }
         }
       }
     })

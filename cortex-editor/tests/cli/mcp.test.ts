@@ -583,14 +583,14 @@ describe('cortex mcp', () => {
       expect(params.meta.severity).toBe('error')
     })
 
-    it('does NOT send channel notification for regular annotation-created', async () => {
+    it('sends channel notification for regular comments (plain text content)', async () => {
       const client = await startTestServer(mockVite.port)
       mcpClient = client
       await waitForConnection(mockVite)
 
-      const notifications: unknown[] = []
+      const notifications: Array<{ method: string; params: unknown }> = []
       client.fallbackNotificationHandler = async (notification) => {
-        notifications.push(notification)
+        notifications.push({ method: notification.method, params: notification.params })
       }
 
       const cliWs = [...mockVite.clients][0]
@@ -608,17 +608,21 @@ describe('cortex mcp', () => {
       }))
 
       await new Promise(r => setTimeout(r, 200))
-      expect(notifications).toHaveLength(0)
+      expect(notifications).toHaveLength(1)
+      const params = notifications[0].params as { content: string; meta: { kind: string; severity: string } }
+      expect(params.content).toBe('Please fix the button')
+      expect(params.meta.kind).toBe('comment')
+      expect(params.meta.severity).toBe('info')
     })
 
-    it('does NOT send channel notification when fixMeta is missing', async () => {
+    it('sends channel notification for fix-request without fixMeta (falls back to text)', async () => {
       const client = await startTestServer(mockVite.port)
       mcpClient = client
       await waitForConnection(mockVite)
 
-      const notifications: unknown[] = []
+      const notifications: Array<{ method: string; params: unknown }> = []
       client.fallbackNotificationHandler = async (notification) => {
-        notifications.push(notification)
+        notifications.push({ method: notification.method, params: notification.params })
       }
 
       const cliWs = [...mockVite.clients][0]
@@ -637,7 +641,10 @@ describe('cortex mcp', () => {
       }))
 
       await new Promise(r => setTimeout(r, 200))
-      expect(notifications).toHaveLength(0)
+      expect(notifications).toHaveLength(1)
+      const params = notifications[0].params as { content: string; meta: { kind: string } }
+      expect(params.content).toBe('Some annotation')
+      expect(params.meta.kind).toBe('fix-request')
     })
 
     it('escapes special characters in channel JSON content', async () => {
