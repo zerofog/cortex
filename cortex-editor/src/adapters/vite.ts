@@ -378,6 +378,9 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         res.end(content)
       })
 
+      // Cache resolved project root (avoids blocking realpathSync per comment message)
+      let realRootCache: string | null = null
+
       // Resolve Tailwind colors at server start — promise awaited in hotHandler
       const swatchesPromise = TailwindResolver.resolveColors(config.root).catch((err) => {
         console.warn('[cortex] Tailwind color resolution failed:', err instanceof Error ? err.message : err)
@@ -426,12 +429,34 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         }
 
         if (data.type === 'comment') {
+          // Validate elementSource for fix-request annotations (defense-in-depth).
+          // Regular comments are allowed through — only fix-requests drive Claude Code file edits.
+          if (data.kind === 'fix-request') {
+            const lastColon = data.elementSource.lastIndexOf(':')
+            const secondLastColon = data.elementSource.lastIndexOf(':', lastColon - 1)
+            const sourceFile = secondLastColon > 0 ? data.elementSource.slice(0, secondLastColon) : data.elementSource.split(':')[0] ?? data.elementSource
+            const resolved = path.resolve(config.root, sourceFile)
+            const realRoot = realRootCache ?? (realRootCache = (() => { try { return fs.realpathSync.native(config.root) } catch { return config.root } })())
+            let outsideRoot = false
+            try {
+              const realParent = fs.realpathSync.native(path.dirname(resolved))
+              outsideRoot = !realParent.startsWith(realRoot + path.sep) && realParent !== realRoot
+            } catch {
+              outsideRoot = !resolved.startsWith(config.root + path.sep) && resolved !== config.root
+            }
+            if (outsideRoot) {
+              console.warn(`[cortex] Rejected fix-request: elementSource "${sourceFile}" is outside project root`)
+              return
+            }
+          }
           const ann = currentSession!.annotations.create({
             elementSource: data.elementSource,
             text: data.text,
             elementContext: data.elementContext,
             currentStyles: data.currentStyles,
             pinPosition: data.pinPosition,
+            kind: data.kind,
+            fixMeta: data.fixMeta,
           })
           const entry = currentSession!.activityLog.add({ type: 'comment', description: data.text, elementSource: data.elementSource })
           if (currentSession!.channel) {

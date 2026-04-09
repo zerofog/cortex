@@ -10,6 +10,7 @@ import { PANEL_WIDTH } from '../hooks/useSnapToEdge.js'
 import { formatShortcut } from '../format-shortcut.js'
 import { extractUtilities } from '../class-extractor.js'
 import { PanelHeader } from './PanelHeader.js'
+import { LayerTree } from './LayerTree.js'
 import { SpacingSection } from './sections/SpacingSection.js'
 import type { SpacingChange } from './sections/SpacingSection.js'
 import { LayoutSection, parseLayoutValues } from './sections/LayoutSection.js'
@@ -29,6 +30,8 @@ import type { PositionChange } from './sections/PositionSection.js'
 import type { InteractionState } from '../state-detector.js'
 import { detectSharedClasses } from '../shared-class-detector.js'
 import type { SharedClassInfo } from '../shared-class-detector.js'
+import { EditErrorCard } from './EditErrorCard.js'
+import type { EditError } from './EditErrorCard.js'
 import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
 import { CollapsibleSection } from './CollapsibleSection.js'
@@ -164,6 +167,9 @@ export interface PanelProps {
   channel?: CortexChannel
   agentConnected?: boolean
   connectionStatus?: ConnectionDisplay
+  editErrors?: Map<string, EditError>
+  onEditDispatch?: (editId: string, source: string, property: string, value: string) => void
+  onDismissError?: (key: string) => void
 }
 
 function parseSpacingValues(cs: CSSStyleDeclaration) {
@@ -211,11 +217,12 @@ export function Panel({
   channel,
   agentConnected,
   connectionStatus,
+  editErrors,
+  onEditDispatch,
+  onDismissError,
 }: PanelProps): JSX.Element | null {
   // ALL hooks first — no conditional returns before hooks
-  const [contentKey, setContentKey] = useState(0)
   const [isEntering, setIsEntering] = useState(true)
-  const [isCrossFading, setIsCrossFading] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
   const prevElementRef = useRef<HTMLElement | null>(null)
 
@@ -263,8 +270,7 @@ export function Panel({
 
   useEffect(() => {
     if (prevElementRef.current && prevElementRef.current !== element) {
-      setContentKey(k => k + 1)
-      setIsCrossFading(true)
+      // No cross-fade or body remount — sections update via normal prop changes.
       setActivePseudo('element') // reset pseudo tab on element change
     }
     prevElementRef.current = element
@@ -299,12 +305,6 @@ export function Panel({
     setEditScope('instance')
   }, [element])
 
-  // M3: Clear cross-fade class after animation completes
-  useEffect(() => {
-    if (!isCrossFading) return
-    const timer = setTimeout(() => setIsCrossFading(false), 150)
-    return () => clearTimeout(timer)
-  }, [isCrossFading])
 
   // Sync strategy: bump counter on committed changes to force getComputedStyle re-read.
   // During scrub, trust NumericInput local state (no re-render per frame).
@@ -470,6 +470,7 @@ export function Panel({
       const editedProps = changes.filter(c => c.source === source)
       for (const c of editedProps) {
         const editId = crypto.randomUUID()
+        onEditDispatch?.(editId, source, c.property, c.value)
         // Track all shared sources so HMR verification clears ALL sibling overrides
         const pendingSources = (sharedInfo && editScope === 'all')
           ? sharedInfo.elements.map(el => el.getAttribute('data-cortex-source')).filter((s): s is string => s !== null)
@@ -495,7 +496,7 @@ export function Panel({
         })
       }
     }
-  }, [element, overrideManager, activePseudo, channel, sharedInfo, editScope, extractedUtilities, commandStack])
+  }, [element, overrideManager, activePseudo, channel, sharedInfo, editScope, extractedUtilities, commandStack, onEditDispatch])
 
   // Expose flush for CortexApp to call before undo/redo — microtask commits
   // haven't fired yet when blur+undo runs synchronously in the same tick.
@@ -659,8 +660,9 @@ export function Panel({
     commentCleanupRef.current?.()
     channel.send({ type: 'comment', elementSource: source, text })
 
+    // Resolve as soon as the server creates the annotation (annotation-created).
+    // Agent processing (acknowledged/resolved) happens asynchronously afterward.
     return new Promise<void>((resolve, reject) => {
-      let annotationId: string | null = null
       let settled = false
       const timeout = setTimeout(() => {
         if (settled) return
@@ -670,19 +672,9 @@ export function Panel({
 
       const unsubscribe = channel.onMessage((msg) => {
         if (settled) return
-        if (!annotationId && msg.type === 'annotation-created' && !msg.annotation.pinPosition) {
-          annotationId = msg.annotation.id
-          if (msg.annotation.status !== 'pending') { settle(); resolve() }
-        }
-        if (annotationId && msg.type === 'annotation-updated') {
-          if (msg.annotation.id === annotationId && msg.annotation.status !== 'pending') {
-            settle()
-            if (msg.annotation.status === 'dismissed') {
-              reject(new Error('dismissed'))
-            } else {
-              resolve()
-            }
-          }
+        if (msg.type === 'annotation-created' && !msg.annotation.pinPosition) {
+          settle()
+          resolve()
         }
       })
 
@@ -702,7 +694,6 @@ export function Panel({
     'cortex-panel',
     isEntering && 'cortex-panel--entering',
     isSnapping && 'cortex-panel--snapping',
-    isCrossFading && 'cortex-panel--cross-fade',
   ].filter(Boolean).join(' ')
 
   // Empty state: panel shell visible, no sections
@@ -786,6 +777,28 @@ export function Panel({
         hoverEnabled={hoverEnabled}
         onToggleHover={onToggleHover}
       />
+      <LayerTree element={element} onSelectElement={onSelectElement} />
+      {editErrors && element?.getAttribute('data-cortex-source') && (
+        <EditErrorCard
+          errors={editErrors}
+          elementSource={element.getAttribute('data-cortex-source')!}
+          agentConnected={agentConnected ?? false}
+          onDismiss={(key) => onDismissError?.(key)}
+          onAskAI={(error) => {
+            if (!channel) {
+              console.warn('[cortex] Cannot send fix request: no channel')
+              return
+            }
+            channel.send({
+              type: 'comment',
+              kind: 'fix-request',
+              fixMeta: { property: error.property, value: error.value, reason: error.reason },
+              elementSource: error.source,
+              text: `${error.property} edit failed: ${error.reason}`,
+            })
+          }}
+        />
+      )}
       {sharedInfo && (
         <div class="cortex-panel__scope">
           <span class="cortex-panel__scope-label">
@@ -830,7 +843,7 @@ export function Panel({
           </div>
         </div>
       )}
-      <div class="cortex-panel__body" ref={bodyRef} key={contentKey}>
+      <div class="cortex-panel__body" ref={bodyRef}>
         <SectionGroup label="Layout" groupId="layout">
           <LayoutSection
             values={computedStyles.layout}
