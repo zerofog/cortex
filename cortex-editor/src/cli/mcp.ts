@@ -422,9 +422,6 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     },
   )
 
-  const transport = options.transport ?? new StdioServerTransport()
-  await server.connect(transport)
-
   server.registerTool(
     'cortex_channel_test',
     { description: 'Send a test channel notification to verify the MCP channel is working. Use this to confirm Claude Code receives <channel source="cortex"> messages.' },
@@ -448,6 +445,9 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
       }
     },
   )
+
+  const transport = options.transport ?? new StdioServerTransport()
+  await server.connect(transport)
 
   return {
     close() {

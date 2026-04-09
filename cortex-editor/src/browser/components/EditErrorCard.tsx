@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useState, useEffect, useMemo } from 'preact/hooks'
+import { useState, useMemo, useRef, useCallback } from 'preact/hooks'
 import type { FixMeta } from '../../adapters/types.js'
 
 export interface EditError extends FixMeta {
@@ -15,14 +15,19 @@ interface EditErrorCardProps {
 }
 
 export function EditErrorCard({ errors, elementSource, agentConnected, onDismiss, onAskAI }: EditErrorCardProps): JSX.Element | null {
-  const [askingAI, setAskingAI] = useState<string | null>(null)
+  const [askingAI, setAskingAI] = useState<Set<string>>(new Set())
 
-  // Reset askingAI after 15s timeout — prevents permanent disable if channel.send fails silently
-  useEffect(() => {
-    if (!askingAI) return
-    const timer = setTimeout(() => setAskingAI(null), 15_000)
-    return () => clearTimeout(timer)
-  }, [askingAI])
+  // Reset individual askingAI entries after 15s — prevents permanent disable if channel.send fails
+  const askingAITimeouts = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const markAsking = useCallback((key: string) => {
+    setAskingAI(prev => new Set(prev).add(key))
+    const existing = askingAITimeouts.current.get(key)
+    if (existing) clearTimeout(existing)
+    askingAITimeouts.current.set(key, setTimeout(() => {
+      setAskingAI(prev => { const next = new Set(prev); next.delete(key); return next })
+      askingAITimeouts.current.delete(key)
+    }, 15_000))
+  }, [])
 
   // Filter errors for the currently selected element (memoized to avoid re-scan on unrelated renders)
   const elementErrors = useMemo(
@@ -58,14 +63,14 @@ export function EditErrorCard({ errors, elementSource, agentConnected, onDismiss
               type="button"
               class="cortex-error-card__btn cortex-error-card__btn--primary"
               data-action="ask-ai"
-              disabled={!agentConnected || askingAI === key}
-              data-tooltip={!agentConnected ? 'Connect Claude Code to auto-fix' : undefined}
+              disabled={!agentConnected || askingAI.has(key)}
+              title={!agentConnected ? 'Connect Claude Code to auto-fix' : undefined}
               onClick={() => {
-                setAskingAI(key)
+                markAsking(key)
                 onAskAI(err)
               }}
             >
-              {askingAI === key ? 'Requesting fix...' : 'Ask AI'}
+              {askingAI.has(key) ? 'Requesting fix...' : 'Ask AI'}
             </button>
           </div>
         </div>

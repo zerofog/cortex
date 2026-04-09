@@ -45,6 +45,7 @@ async function runTests() {
   console.log(`${'='.repeat(50)}`)
 
   const browser = await chromium.launch({ headless: true })
+  try {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
   const page = await ctx.newPage()
 
@@ -182,7 +183,9 @@ async function runTests() {
   }
   assert('No page errors', errors.length === 0, errors.join('; '))
 
-  await browser.close()
+  } finally {
+    await browser.close()
+  }
 }
 
 async function main() {
