@@ -74,7 +74,10 @@ describe('buildScopedTree', () => {
     const tree = buildScopedTree(document.body)
     expect(tree!.element).toBe(document.body)
     expect(tree!.selected).toBe(true)
-    expect(tree!.children.length).toBeGreaterThanOrEqual(1)
+    const addedChild = tree!.children.find(n => n.element === child)
+    expect(addedChild).toBeDefined()
+    expect(addedChild!.selected).toBe(false)
+    expect(addedChild!.depth).toBe(1)
 
     document.body.removeChild(child)
   })
@@ -174,7 +177,9 @@ describe('LayerTree rendering', () => {
 
     render(<LayerTree element={child} onSelectElement={() => {}} />, container)
 
-    const chevrons = container.querySelectorAll('.cortex-layer-chevron')
-    expect(chevrons.length).toBeGreaterThanOrEqual(1)
+    // Verify at least 2 chevrons exist: body (has children) and the on-path div (has child span)
+    // Both are expanded ancestors, so both should have the expanded chevron class
+    const expandedChevrons = container.querySelectorAll('.cortex-layer-chevron--expanded')
+    expect(expandedChevrons.length).toBeGreaterThanOrEqual(2)
   })
 })
