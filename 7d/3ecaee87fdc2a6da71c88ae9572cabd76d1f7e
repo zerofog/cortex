@@ -1,0 +1,37 @@
+cortex-editor/tests/browser/cx-token-namespace.test.ts
+  494f3b79dd094d2d 79,90-96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "7d3ecaee87fdc2a6da71c88ae9572cabd76d1f7e",
+  "prompts": {
+    "150568d0accaae96": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ee8d6fe-d0b5-4482-978c-379f290ded53",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 419,
+      "overriden_lines": 0
+    },
+    "494f3b79dd094d2d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "56d725d5-f33c-4abf-9624-1c9d992857d1",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 8,
+      "total_deletions": 1,
+      "accepted_lines": 8,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/f24b063ed26228f8b5b56555a50746688e81956a34a5977c08ec67916de82700"
+    }
+  }
+}
