@@ -28,6 +28,16 @@
   /* Typography — Geist Sans with system fallback (reset by `all: initial`) */
   font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 
+  /* Re-assert font-size and line-height so every descendant inherits a
+     sensible default. Without this, `all: initial` leaves :host at UA
+     initial `font-size: medium` (~16px) and `line-height: normal`, and
+     any future top-level container that forgets to set font-size explicitly
+     would render text at 16px in contexts where 10–13px is expected. The
+     architecture reviewer flagged this as silently load-bearing on every
+     panel container — explicit seeding here closes the gap. */
+  font-size: var(--cx-text-lg);
+  line-height: 1.4;
+
   /* Default ink color so descendants without explicit `color` inherit
      the panel palette rather than the host app's text color. */
   color: var(--cx-ink);

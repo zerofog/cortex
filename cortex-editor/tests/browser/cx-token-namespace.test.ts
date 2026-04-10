@@ -94,6 +94,11 @@ describe('--cx-* token namespace migration (ZF0-1179)', () => {
     // this, `all: initial` causes descendants to inherit CanvasText (black),
     // visually broken in blueprint dark mode where --cx-ink is #e2e8f0
     expect(hostBody).toMatch(/color:\s*var\(--cx-ink\)/)
+    // font-size seed so descendants without an explicit font-size don't
+    // fall back to UA initial `medium` (~16px); the panel uses 10–13px
+    expect(hostBody).toMatch(/font-size:\s*var\(--cx-text-lg\)/)
+    // line-height seed so text layout doesn't inherit UA initial `normal`
+    expect(hostBody).toMatch(/line-height:\s*1\.4/)
   })
 
   it('new required tokens are defined', () => {
