@@ -76,7 +76,7 @@ describe('--cx-* token namespace migration (ZF0-1179)', () => {
     expect(hits, `bare tokens in .tsx inline styles:\n${JSON.stringify(hits, null, 2)}`).toEqual([])
   })
 
-  it(':host rule starts with all: initial', () => {
+  it(':host rule starts with all: initial and re-asserts required properties', () => {
     const css = readFileSync(join(BROWSER_SRC, 'styles.css'), 'utf8')
     const hostMatch = css.match(/:host\s*\{([^}]*)\}/s)
     expect(hostMatch).toBeTruthy()
@@ -87,6 +87,13 @@ describe('--cx-* token namespace migration (ZF0-1179)', () => {
     expect(hostBody).toMatch(/box-sizing:\s*border-box/)
     // font-family must be re-asserted (all: initial resets it)
     expect(hostBody).toMatch(/font-family:/)
+    // display: block must be explicit — without it, :host falls back to inline
+    // after all: initial and relies on implicit blockification of position:fixed
+    expect(hostBody).toMatch(/display:\s*block/)
+    // color seed for descendants that don't set color explicitly — without
+    // this, `all: initial` causes descendants to inherit CanvasText (black),
+    // visually broken in blueprint dark mode where --cx-ink is #e2e8f0
+    expect(hostBody).toMatch(/color:\s*var\(--cx-ink\)/)
   })
 
   it('new required tokens are defined', () => {
