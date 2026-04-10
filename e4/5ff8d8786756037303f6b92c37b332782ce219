@@ -1,0 +1,39 @@
+cortex-editor/tests/browser/cx-token-namespace.test.ts
+  494f3b79dd094d2d 1-109
+cortex-editor/src/browser/styles.css
+  494f3b79dd094d2d 7-25,75,83-84,88,93,95,97-103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "e45ff8d8786756037303f6b92c37b332782ce219",
+  "prompts": {
+    "150568d0accaae96": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ee8d6fe-d0b5-4482-978c-379f290ded53",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "494f3b79dd094d2d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "56d725d5-f33c-4abf-9624-1c9d992857d1",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 148,
+      "total_deletions": 11,
+      "accepted_lines": 142,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/f6dfe2de0f95417b8e25ca3d43c4729944ce5262cbae8f57a8dfb6222b115850"
+    }
+  }
+}
