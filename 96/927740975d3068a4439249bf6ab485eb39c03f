@@ -1,0 +1,39 @@
+cortex-editor/DESIGN.md
+  06a59faa461a3fd0 14-15,17-61,65-68,70-87,95,97,105,113,116-120,134-135,143,146-150,155-159,186,191-447,456-607
+cortex-editor/docs/panel-v2-mock.html
+  06a59faa461a3fd0 1906-1909
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.6",
+  "base_commit_sha": "96927740975d3068a4439249bf6ab485eb39c03f",
+  "prompts": {
+    "06a59faa461a3fd0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5c8c5c3b-7f0c-4fe9-89b7-bc6b377a99bc",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 636,
+      "total_deletions": 145,
+      "accepted_lines": 505,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/e6d1f70b186247f4f29894dbb67f488d3c411ab5d8e9221048c95ea977243664"
+    },
+    "150568d0accaae96": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ee8d6fe-d0b5-4482-978c-379f290ded53",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 419,
+      "overriden_lines": 0
+    }
+  }
+}
