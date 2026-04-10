@@ -55,9 +55,6 @@
   --cx-warning: #f97316;
   --cx-warning-surface: rgba(249, 115, 22, 0.06);
 
-  /* Scrollbar */
-  --cx-scrollbar: #d4d4d4;
-
   /* Tooltip */
   --cx-tooltip-bg: #1f2937;
 
@@ -133,7 +130,6 @@
   --cx-warning: #fb923c;
   --cx-warning-surface: rgba(251, 146, 60, 0.1);
 
-  --cx-scrollbar: #334155;
   --cx-tooltip-bg: #0f172a;
 }
 
