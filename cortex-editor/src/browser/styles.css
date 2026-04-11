@@ -709,7 +709,7 @@
 .cortex-numeric-input {
   display: flex;
   align-items: center;
-  height: 26px;
+  height: 28px;
   background: var(--cx-well);
   border-radius: var(--cx-radius-sm);
   padding: 0 var(--cx-sp-4);
@@ -868,14 +868,41 @@
 }
 
 .cortex-section-group__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cx-sp-3);
   padding: var(--cx-sp-5) var(--cx-sp-5) var(--cx-sp-3);
 }
 
 .cortex-section-group__title {
-  font-size: var(--cx-text-sm);
-  font-weight: var(--cx-weight-value);
-  color: var(--cx-ink-secondary);
+  font-size: var(--cx-text-lg);
+  font-weight: var(--cx-weight-heading);
+  color: var(--cx-ink);
   letter-spacing: 0.01em;
+}
+
+/* Right-aligned slot inside the section-group header for per-section
+   affordances (Typography T toggle, Position lock, etc.). Task 4 introduces
+   the wrapper; Tasks 5-16 fill it with concrete controls. Flex child is
+   constrained so long section titles still ellipsize cleanly. */
+.cortex-section-group__header-action {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* Sub-section label — lightweight divider + caption used inside a section
+   group to introduce a nested block (e.g. Spacing inside Layout, per-corner
+   radius inside Appearance). Lives next to the parent section-group rules
+   because the two evolve together. */
+.cortex-subsection-label {
+  font-size: var(--cx-text-md);
+  font-weight: 600;
+  color: var(--cx-ink-ghost);
+  border-top: 1px solid var(--cx-rule-soft);
+  margin-top: var(--cx-sp-4);
+  padding-top: var(--cx-sp-3);
 }
 
 .cortex-section-group__content {
@@ -1093,7 +1120,7 @@
   align-items: center;
   justify-content: center;
   gap: var(--cx-sp-2);
-  height: 26px;
+  height: 28px;
   padding: 0 10px;
   border: none;
   background: transparent;
@@ -1117,6 +1144,7 @@
 }
 
 .cortex-segmented--sm .cortex-segmented__option {
+  height: 22px;
   padding: 0 var(--cx-sp-3);
   min-width: 28px;
   flex: 0;
