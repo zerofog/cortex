@@ -966,7 +966,7 @@ export function Panel({
             onScrubEnd={handleAppearanceCommit}
             dimmedProperties={dimmedProperties}
             mixedProperties={mixedProperties}
-            resetKey={`${element.tagName}|${element.id ?? ''}|${element.getAttribute('data-cortex-source') ?? ''}`}
+            resetKey={`${element.tagName}|${element.id}|${element.getAttribute('data-cortex-source') ?? ''}`}
           />
         </SectionGroup>
         <SectionGroup label="Background" groupId="background">

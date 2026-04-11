@@ -250,7 +250,7 @@ describe('AppearanceSection', () => {
     expect(svg.querySelector('circle')).toBeNull()
   })
 
-  it('toggles visibility hidden <-> visible via the eye button', () => {
+  it('emits visibility=hidden when the eye button is clicked while visible', () => {
     const { onChange } = setup()
     const toggle = container.querySelector(
       '.cortex-appearance-section__visibility-toggle',
@@ -259,7 +259,7 @@ describe('AppearanceSection', () => {
     expect(onChange).toHaveBeenCalledWith({ property: 'visibility', value: 'hidden' })
   })
 
-  it('toggles visibility visible <-> hidden via the eye button', () => {
+  it('emits visibility=visible when the eye button is clicked while hidden', () => {
     const onChange = vi.fn()
     setup({ values: { ...DEFAULT_VALUES, visibility: 'hidden' }, onChange })
     const toggle = container.querySelector(
@@ -370,6 +370,67 @@ describe('AppearanceSection', () => {
         '.cortex-appearance-section__corner-toggle',
       ) as HTMLButtonElement
       expect(afterToggle.getAttribute('aria-pressed')).toBe('false')
+    })
+
+    // Negative control: the invariant the above test does NOT prove is that a
+    // re-render with the SAME resetKey (e.g. because an unrelated prop like
+    // `values.opacity` changed) must NOT collapse the per-corner state. The
+    // load-bearing piece of AppearanceSection for this is the `prevResetKeyRef`
+    // mount-skip guard; a future simplifier replacing it with a naive effect
+    // would silently wipe the user's expansion on every re-render. This test
+    // locks that invariant — it fails the moment the guard is removed.
+    it('does NOT reset the per-corner expansion when resetKey is unchanged across re-renders', async () => {
+      container = document.createElement('div')
+      document.body.appendChild(container)
+      const onChange = vi.fn()
+      // Initial render with stable resetKey.
+      render(
+        h(AppearanceSection, {
+          values: DEFAULT_VALUES,
+          onChange,
+          resetKey: 'stable-key',
+        }),
+        container,
+      )
+      const firstToggle = container.querySelector(
+        '.cortex-appearance-section__corner-toggle',
+      ) as HTMLButtonElement
+      firstToggle.click()
+      await new Promise((r) => setTimeout(r, 10))
+      expect(
+        (container.querySelector(
+          '.cortex-appearance-section__corner-toggle',
+        ) as HTMLButtonElement).getAttribute('aria-pressed'),
+      ).toBe('true')
+      // Sanity check: corner inputs are visible.
+      const labelsExpanded = Array.from(
+        container.querySelectorAll('.cortex-numeric-input__label'),
+      ).map((el) => el.textContent)
+      expect(labelsExpanded).toContain('TL')
+
+      // Re-render with the SAME resetKey but a different unrelated prop value
+      // (opacity jumps 80 → 60). The mount-skip guard must suppress the reset.
+      render(
+        h(AppearanceSection, {
+          values: { ...DEFAULT_VALUES, opacity: 60 },
+          onChange,
+          resetKey: 'stable-key',
+        }),
+        container,
+      )
+      await new Promise((r) => setTimeout(r, 10))
+      const afterToggle = container.querySelector(
+        '.cortex-appearance-section__corner-toggle',
+      ) as HTMLButtonElement
+      expect(afterToggle.getAttribute('aria-pressed')).toBe('true')
+      // Per-corner inputs must still be visible.
+      const labelsAfter = Array.from(
+        container.querySelectorAll('.cortex-numeric-input__label'),
+      ).map((el) => el.textContent)
+      expect(labelsAfter).toContain('TL')
+      expect(labelsAfter).toContain('TR')
+      expect(labelsAfter).toContain('BR')
+      expect(labelsAfter).toContain('BL')
     })
   })
 })

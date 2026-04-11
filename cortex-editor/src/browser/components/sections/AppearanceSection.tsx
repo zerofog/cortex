@@ -170,10 +170,18 @@ export function AppearanceSection({
   const handleToggleCorners = useCallback(() => setPerCorner((v) => !v), [])
 
   // ── Visibility handler ───────────────────────────────────────────────────
-  const isHidden = values.visibility === 'hidden'
+  // Depend on `values.visibility` directly rather than the derived `isHidden`
+  // boolean so the callback identity only changes when the underlying value
+  // actually changes (and not when a parent re-render produces a fresh bool
+  // with the same truth value). `isHidden` is still computed below for the
+  // aria-pressed state and icon selection.
   const handleToggleVisibility = useCallback(() => {
-    onChange({ property: 'visibility', value: isHidden ? 'visible' : 'hidden' })
-  }, [onChange, isHidden])
+    onChange({
+      property: 'visibility',
+      value: values.visibility === 'hidden' ? 'visible' : 'hidden',
+    })
+  }, [onChange, values.visibility])
+  const isHidden = values.visibility === 'hidden'
 
   // ── Dimming state ────────────────────────────────────────────────────────
   // Uniform radius dims on ANY radius change (uniform OR per-corner) because

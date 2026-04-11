@@ -97,6 +97,7 @@ export function EffectsSection({
   onChange,
   onScrub,
   onScrubEnd,
+  mixedProperties,
 }: EffectsSectionProps): JSX.Element {
   // Overflow handler
   const handleOverflowChange = useCallback(
@@ -167,6 +168,7 @@ export function EffectsSection({
           label="BL"
           tooltip="Blur"
           min={0}
+          mixed={mixedProperties?.has('filter')}
           onChange={handleBlurChange}
           onScrub={handleBlurScrub}
           onScrubEnd={handleBlurScrubEnd}
@@ -181,6 +183,7 @@ export function EffectsSection({
           label="BG"
           tooltip="Backdrop Blur"
           min={0}
+          mixed={mixedProperties?.has('backdrop-filter')}
           onChange={handleBackdropBlurChange}
           onScrub={handleBackdropBlurScrub}
           onScrubEnd={handleBackdropBlurScrubEnd}

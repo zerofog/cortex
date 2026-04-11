@@ -80,46 +80,6 @@ export function Blend({ size = 16, class: cls }: IconProps = {}): JSX.Element {
   )
 }
 
-// source: https://lucide.dev/icons/corner-up-left
-export function CornerUpLeft({ size = 16, class: cls }: IconProps = {}): JSX.Element {
-  return (
-    <svg {...svgProps(size, cls)}>
-      <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
-      <path d="M9 14 4 9l5-5" />
-    </svg>
-  )
-}
-
-// source: https://lucide.dev/icons/corner-up-right
-export function CornerUpRight({ size = 16, class: cls }: IconProps = {}): JSX.Element {
-  return (
-    <svg {...svgProps(size, cls)}>
-      <path d="m15 14 5-5-5-5" />
-      <path d="M4 20v-7a4 4 0 0 1 4-4h12" />
-    </svg>
-  )
-}
-
-// source: https://lucide.dev/icons/corner-down-right
-export function CornerDownRight({ size = 16, class: cls }: IconProps = {}): JSX.Element {
-  return (
-    <svg {...svgProps(size, cls)}>
-      <path d="m15 10 5 5-5 5" />
-      <path d="M4 4v7a4 4 0 0 0 4 4h12" />
-    </svg>
-  )
-}
-
-// source: https://lucide.dev/icons/corner-down-left
-export function CornerDownLeft({ size = 16, class: cls }: IconProps = {}): JSX.Element {
-  return (
-    <svg {...svgProps(size, cls)}>
-      <path d="M20 4v7a4 4 0 0 1-4 4H4" />
-      <path d="m9 10-5 5 5 5" />
-    </svg>
-  )
-}
-
 // source: https://lucide.dev/icons/square-dashed
 // Used as the "per-corner expand" affordance on the AppearanceSection radius
 // control. A dashed square reads as "this is the bounding box — click to edit
