@@ -127,19 +127,52 @@ function removeBlastRadiusStyle(): void {
 /**
  * All CSS properties checked for dimming (default vs forced-state comparison).
  * Covers every section's managed properties.
+ *
+ * Panel v2 additions (ZF0-1180): self-alignment, flex-wrap, grid template +
+ * auto-flow, per-side border widths, and per-corner border radii. `row-gap`,
+ * `column-gap`, `visibility`, and `box-shadow` were already in the list and
+ * are deliberately not duplicated.
  */
 export const ALL_DIMMING_PROPERTIES = [
-  'display', 'visibility', 'flex-direction', 'justify-content', 'align-items', 'width', 'height',
+  'display', 'visibility', 'flex-direction', 'flex-wrap', 'justify-content', 'align-items',
+  'justify-self', 'align-self',
+  'width', 'height',
   'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
   'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'row-gap', 'column-gap',
+  'grid-template-columns', 'grid-template-rows', 'grid-auto-flow',
   'font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'color', 'text-align',
   'background-color', 'background-image',
   'border-width', 'border-style', 'border-color', 'border-radius',
+  'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+  'border-top-left-radius', 'border-top-right-radius',
+  'border-bottom-left-radius', 'border-bottom-right-radius',
   'box-shadow',
   'opacity', 'overflow', 'box-sizing', 'cursor', 'filter', 'backdrop-filter',
   'position', 'left', 'top', 'z-index', 'rotate', 'scale',
   'min-width', 'max-width', 'min-height', 'max-height',
 ] as const
+
+/**
+ * True when `element` has at least one non-empty (trimmed) `TEXT_NODE` child.
+ *
+ * Used by Panel v2 to decide whether to render the Typography section group:
+ * only elements that directly render text are typography-relevant. Pure
+ * container elements (whose only children are other elements) don't have
+ * font/color decisions to make — those live on the descendant text elements
+ * themselves. An element with `<span>` + `'Some text'` mixed children returns
+ * `true` because it still renders a text node directly.
+ *
+ * Only TEXT_NODE children are considered; CDATA, comments, and nested
+ * element text are deliberately ignored.
+ */
+export function containsDirectText(element: Element): boolean {
+  for (const node of element.childNodes) {
+    if (node.nodeType === Node.TEXT_NODE && (node.textContent ?? '').trim() !== '') {
+      return true
+    }
+  }
+  return false
+}
 
 export interface PanelProps {
   element: HTMLElement | null
@@ -743,6 +776,11 @@ export function Panel({
   const ancestor = isLibrary ? findUserAncestor(element) : null
   const hasParent = element.parentElement !== null && element.parentElement !== document.documentElement
   const hasChildren = element.children.length > 0
+  // Typography section only renders for elements that directly render text.
+  // Pure container elements have nothing to do in Typography.
+  const showTypography = containsDirectText(element)
+  // Position section is instance-specific — hide when editing a shared class.
+  const showPosition = !(sharedInfo && editScope === 'all')
 
   return (
     <div
@@ -777,7 +815,6 @@ export function Panel({
         hoverEnabled={hoverEnabled}
         onToggleHover={onToggleHover}
       />
-      <LayerTree element={element} onSelectElement={onSelectElement} />
       {editErrors && element?.getAttribute('data-cortex-source') && (
         <EditErrorCard
           errors={editErrors}
@@ -844,6 +881,28 @@ export function Panel({
         </div>
       )}
       <div class="cortex-panel__body" ref={bodyRef}>
+        {/* Panel v2 canonical section ordering (DESIGN.md "Section ordering
+            rationale"): Elements → Position → Layout → Typography → Appearance
+            → Background → Border → Effects. Typography is conditional on the
+            selected element actually rendering direct text (`containsDirectText`).
+            Position is hidden when editing the shared-class "All" scope. The
+            `Appearance` group is a Task 3 insertion point — it renders as an
+            empty section shell so the Task 3 implementation can fill in
+            opacity / corner-radius / visibility without re-ordering anything. */}
+        <SectionGroup label="Elements" groupId="elements">
+          <LayerTree element={element} onSelectElement={onSelectElement} />
+        </SectionGroup>
+        {showPosition && (
+          <SectionGroup label="Position" groupId="position">
+            <PositionSection
+              values={computedStyles.position}
+              onChange={handlePositionCommit}
+              onScrub={handlePositionScrub}
+              onScrubEnd={handlePositionCommit}
+              dimmedProperties={dimmedProperties}
+            />
+          </SectionGroup>
+        )}
         <SectionGroup label="Layout" groupId="layout">
           <LayoutSection
             values={computedStyles.layout}
@@ -866,31 +925,29 @@ export function Panel({
             mixedProperties={mixedProperties}
           />
         </SectionGroup>
-        {/* Position is instance-specific — hide when editing shared class */}
-        {!(sharedInfo && editScope === 'all') && (
-          <SectionGroup label="Position" groupId="position">
-            <PositionSection
-              values={computedStyles.position}
-              onChange={handlePositionCommit}
-              onScrub={handlePositionScrub}
-              onScrubEnd={handlePositionCommit}
+        {showTypography && (
+          <SectionGroup label="Typography" groupId="typography">
+            <TypographySection
+              values={computedStyles.typography}
+              availableWeights={availableWeights}
+              onChange={handleTypographyCommit}
+              onScrub={handleTypographyScrub}
+              onScrubEnd={handleTypographyCommit}
+              swatches={swatches}
               dimmedProperties={dimmedProperties}
+              mixedProperties={mixedProperties}
             />
           </SectionGroup>
         )}
-        <SectionGroup label="Typography" groupId="typography">
-          <TypographySection
-            values={computedStyles.typography}
-            availableWeights={availableWeights}
-            onChange={handleTypographyCommit}
-            onScrub={handleTypographyScrub}
-            onScrubEnd={handleTypographyCommit}
-            swatches={swatches}
-            dimmedProperties={dimmedProperties}
-            mixedProperties={mixedProperties}
-          />
+        {/* Task 3 (ZF0-1181) fills in AppearanceSection with opacity,
+            corner-radius, and visibility. Rendered as an empty shell now
+            so ordering is locked and Task 3 is a drop-in addition. */}
+        <SectionGroup label="Appearance" groupId="appearance">
+          {null}
         </SectionGroup>
-        <SectionGroup label="Style" groupId="style">
+        <SectionGroup label="Background" groupId="background">
+          {/* Task 13 replaces FillSection with a dedicated BackgroundSection
+              that absorbs CollapsibleSection's add/remove buttons. */}
           <CollapsibleSection sectionId="fill" label="Fill" summary={fillSummary} hasValue={fillHasValue} onAdd={handleFillAdd} onRemove={handleFillRemove}>
             <FillSection
               values={computedStyles.fill}
@@ -900,6 +957,10 @@ export function Panel({
               mixedProperties={mixedProperties}
             />
           </CollapsibleSection>
+        </SectionGroup>
+        <SectionGroup label="Border" groupId="border">
+          {/* Task 14 folds the CollapsibleSection's add/remove buttons into
+              BorderSection itself and drops the redundant inner "Border" label. */}
           <CollapsibleSection sectionId="border" label="Border" summary={borderSummary} hasValue={borderHasValue} onAdd={handleBorderAdd} onRemove={handleBorderRemove}>
             <BorderSection
               values={computedStyles.border}
@@ -911,6 +972,10 @@ export function Panel({
               mixedProperties={mixedProperties}
             />
           </CollapsibleSection>
+        </SectionGroup>
+        <SectionGroup label="Effects" groupId="effects">
+          {/* Task 15 consolidates ShadowSection + EffectsSection into a single
+              unified Effects section with a type dropdown and detail panel. */}
           <CollapsibleSection sectionId="shadow" label="Shadow" summary={shadowSummary} hasValue={shadowHasValue} onAdd={handleShadowAdd} canAddMore>
             <ShadowSection
               values={computedStyles.shadow}

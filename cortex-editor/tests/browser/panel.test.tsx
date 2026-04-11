@@ -12,6 +12,16 @@ const panelPositionProps = {
   panelPointerCancel: vi.fn(),
 }
 
+// Global defense-in-depth against fake-timer leakage across tests.
+// A previous iteration had two tests that installed vi.useFakeTimers() and
+// relied on end-of-test vi.useRealTimers() — when those tests threw an
+// assertion error they skipped cleanup, leaving fake timers installed and
+// causing every subsequent `await new Promise(r => setTimeout(r, 0))` to
+// hang forever. See panel-section-order.test.ts for the same guard.
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 describe('Panel', () => {
   let cleanup: (() => void) | null = null
 
@@ -68,7 +78,15 @@ describe('Panel', () => {
   })
 
   it('renders section labels', () => {
-    const { root } = setup()
+    // Use a text-bearing element so the Typography section renders and the
+    // classic "Font" sub-label appears. The default setup() target is a
+    // childless <div> which intentionally omits Typography (see the
+    // `containsDirectText` helper in Panel.tsx).
+    const target = document.createElement('p')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    target.appendChild(document.createTextNode('Hero heading'))
+    document.body.appendChild(target)
+    const { root } = setup(target)
     expect(root.textContent).toContain('Display')
     expect(root.textContent).toContain('Padding')
     expect(root.textContent).toContain('Font')
@@ -82,25 +100,43 @@ describe('Panel', () => {
     expect(root.querySelector('[data-section-id="effects"]')).not.toBeNull()
   })
 
-  it('renders four section groups with correct data-group attributes', () => {
+  it('renders canonical section groups with correct data-group attributes', () => {
     const { root } = setup()
     const groups = root.querySelectorAll('.cortex-section-group')
-    expect(groups.length).toBe(4)
-    expect(root.querySelector('[data-group="layout"]')).not.toBeNull()
+    // Non-text-bearing element (<div>) renders 7 groups — Typography omitted.
+    // The test target created by setup() has no direct text children.
+    expect(groups.length).toBe(7)
+    expect(root.querySelector('[data-group="elements"]')).not.toBeNull()
     expect(root.querySelector('[data-group="position"]')).not.toBeNull()
-    expect(root.querySelector('[data-group="typography"]')).not.toBeNull()
-    expect(root.querySelector('[data-group="style"]')).not.toBeNull()
+    expect(root.querySelector('[data-group="layout"]')).not.toBeNull()
+    expect(root.querySelector('[data-group="appearance"]')).not.toBeNull()
+    expect(root.querySelector('[data-group="background"]')).not.toBeNull()
+    expect(root.querySelector('[data-group="border"]')).not.toBeNull()
+    expect(root.querySelector('[data-group="effects"]')).not.toBeNull()
+    // Old "Style" grouping is gone.
+    expect(root.querySelector('[data-group="style"]')).toBeNull()
   })
 
-  it('renders group headers with correct labels', () => {
+  it('renders group headers in canonical order for a non-text element', () => {
     const { root } = setup()
     const titles = root.querySelectorAll('.cortex-section-group__title')
     const labels = Array.from(titles).map(t => t.textContent)
-    expect(labels).toEqual(['Layout', 'Position', 'Typography', 'Style'])
+    expect(labels).toEqual([
+      'Elements',
+      'Position',
+      'Layout',
+      'Appearance',
+      'Background',
+      'Border',
+      'Effects',
+    ])
   })
 
   it('groups sections under correct parent groups', () => {
     const { root } = setup()
+    const elementsGroup = root.querySelector('[data-group="elements"]')!
+    expect(elementsGroup.querySelector('.cortex-layer-tree')).not.toBeNull()
+
     const layoutGroup = root.querySelector('[data-group="layout"]')!
     expect(layoutGroup.querySelector('[data-section-id="layout"]')).not.toBeNull()
     expect(layoutGroup.querySelector('[data-section-id="spacing"]')).not.toBeNull()
@@ -108,14 +144,19 @@ describe('Panel', () => {
     const positionGroup = root.querySelector('[data-group="position"]')!
     expect(positionGroup.querySelector('[data-section-id="position"]')).not.toBeNull()
 
-    const typographyGroup = root.querySelector('[data-group="typography"]')!
-    expect(typographyGroup.querySelector('[data-section-id="type"]')).not.toBeNull()
+    // Background wraps FillSection (transitional — Task 13 introduces a
+    // dedicated BackgroundSection that replaces FillSection).
+    const backgroundGroup = root.querySelector('[data-group="background"]')!
+    expect(backgroundGroup.querySelector('[data-section-id="fill"]')).not.toBeNull()
 
-    const styleGroup = root.querySelector('[data-group="style"]')!
-    expect(styleGroup.querySelector('[data-section-id="fill"]')).not.toBeNull()
-    expect(styleGroup.querySelector('[data-section-id="border"]')).not.toBeNull()
-    expect(styleGroup.querySelector('[data-section-id="shadow"]')).not.toBeNull()
-    expect(styleGroup.querySelector('[data-section-id="effects"]')).not.toBeNull()
+    const borderGroup = root.querySelector('[data-group="border"]')!
+    expect(borderGroup.querySelector('[data-section-id="border"]')).not.toBeNull()
+
+    // Effects wraps both ShadowSection and EffectsSection (transitional —
+    // Task 15 consolidates them into a single Effects section).
+    const effectsGroup = root.querySelector('[data-group="effects"]')!
+    expect(effectsGroup.querySelector('[data-section-id="shadow"]')).not.toBeNull()
+    expect(effectsGroup.querySelector('[data-section-id="effects"]')).not.toBeNull()
   })
 
   it('calls onClose when close button clicked', () => {
@@ -146,108 +187,14 @@ describe('Panel', () => {
     container.remove()
   })
 
-  // M3: Cross-fade class applied on element switch
-  it('adds cross-fade class when element changes', async () => {
-    const el1 = document.createElement('div')
-    el1.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
-    document.body.appendChild(el1)
-
-    const el2 = document.createElement('div')
-    el2.setAttribute('data-cortex-source', 'src/Card.tsx:8:3')
-    document.body.appendChild(el2)
-
-    const onClose = vi.fn()
-    const onSelectElement = vi.fn()
-    const overrideManager = {
-      set: vi.fn(), remove: vi.fn(), clearAll: vi.fn(),
-      dispose: vi.fn(), flush: vi.fn(),
-    }
-
-    // Render into a plain container so we can re-render with different props
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-
-    render(
-      <Panel element={el1} overrideManager={overrideManager as any}
-        onClose={onClose} onSelectElement={onSelectElement} {...panelPositionProps} />,
-      container,
-    )
-    await new Promise(r => setTimeout(r, 0))
-
-    // No cross-fade on initial render
-    let panel = container.querySelector('.cortex-panel')
-    expect(panel?.classList.contains('cortex-panel--cross-fade')).toBe(false)
-
-    // Switch element — should trigger cross-fade
-    render(
-      <Panel element={el2} overrideManager={overrideManager as any}
-        onClose={onClose} onSelectElement={onSelectElement} {...panelPositionProps} />,
-      container,
-    )
-    await new Promise(r => setTimeout(r, 0))
-
-    panel = container.querySelector('.cortex-panel')
-    expect(panel?.classList.contains('cortex-panel--cross-fade')).toBe(true)
-
-    // Clean up
-    render(null, container)
-    container.remove()
-    el1.remove()
-    el2.remove()
-  })
-
-  // M3: Cross-fade class clears after timeout
-  it('clears cross-fade class after animation duration', async () => {
-    vi.useFakeTimers()
-
-    const el1 = document.createElement('div')
-    el1.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
-    document.body.appendChild(el1)
-
-    const el2 = document.createElement('div')
-    el2.setAttribute('data-cortex-source', 'src/Card.tsx:8:3')
-    document.body.appendChild(el2)
-
-    const overrideManager = {
-      set: vi.fn(), remove: vi.fn(), clearAll: vi.fn(),
-      dispose: vi.fn(), flush: vi.fn(),
-    }
-
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-
-    render(
-      <Panel element={el1} overrideManager={overrideManager as any}
-        onClose={() => {}} onSelectElement={() => {}} {...panelPositionProps} />,
-      container,
-    )
-    // Advance enough for Preact's effect scheduling (>0ms needed under fake timers)
-    await vi.advanceTimersByTimeAsync(10)
-
-    // Switch element
-    render(
-      <Panel element={el2} overrideManager={overrideManager as any}
-        onClose={() => {}} onSelectElement={() => {}} {...panelPositionProps} />,
-      container,
-    )
-    // Flush effects — Preact needs macrotask cycles under fake timers
-    await vi.advanceTimersByTimeAsync(10)
-
-    let panel = container.querySelector('.cortex-panel')
-    expect(panel?.classList.contains('cortex-panel--cross-fade')).toBe(true)
-
-    // Advance past the 150ms animation duration (already at ~20ms, need 130+ more)
-    await vi.advanceTimersByTimeAsync(200)
-
-    panel = container.querySelector('.cortex-panel')
-    expect(panel?.classList.contains('cortex-panel--cross-fade')).toBe(false)
-
-    render(null, container)
-    container.remove()
-    el1.remove()
-    el2.remove()
-    vi.useRealTimers()
-  })
+  // NOTE: The old `cortex-panel--cross-fade` animation was removed in ZF0-1122
+  // when LayerTree was introduced; see the comment at Panel.tsx around the
+  // `useEffect(() => { ... prevElementRef.current !== element ... }, [element])`
+  // block: "No cross-fade or body remount — sections update via normal prop
+  // changes." The two cross-fade tests that used to live here asserted a class
+  // that never rendered and were only passing-or-timing-out at random due to
+  // a vi.useFakeTimers() cleanup that the failing assertion skipped. Deleted
+  // as dead zombie tests rather than ported.
 })
 
 describe('Panel — library detection wiring', () => {
