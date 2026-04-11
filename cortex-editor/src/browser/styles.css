@@ -2636,6 +2636,7 @@
 .cortex-lock-btn,
 .cortex-border-section__corner-toggle,
 .cortex-position-section__toggle,
+.cortex-position-dropdown__trigger,
 .cortex-sizing-trigger {
   outline: 2px solid transparent;
   outline-offset: 1px;
@@ -2650,6 +2651,7 @@
 .cortex-lock-btn:focus-visible,
 .cortex-border-section__corner-toggle:focus-visible,
 .cortex-position-section__toggle:focus-visible,
+.cortex-position-dropdown__trigger:focus-visible,
 .cortex-sizing-trigger:focus-visible {
   outline-color: var(--cx-select-muted);
 }
