@@ -100,37 +100,10 @@ describe('Panel', () => {
     expect(root.querySelector('[data-section-id="effects"]')).not.toBeNull()
   })
 
-  it('renders canonical section groups with correct data-group attributes', () => {
-    const { root } = setup()
-    const groups = root.querySelectorAll('.cortex-section-group')
-    // Non-text-bearing element (<div>) renders 7 groups — Typography omitted.
-    // The test target created by setup() has no direct text children.
-    expect(groups.length).toBe(7)
-    expect(root.querySelector('[data-group="elements"]')).not.toBeNull()
-    expect(root.querySelector('[data-group="position"]')).not.toBeNull()
-    expect(root.querySelector('[data-group="layout"]')).not.toBeNull()
-    expect(root.querySelector('[data-group="appearance"]')).not.toBeNull()
-    expect(root.querySelector('[data-group="background"]')).not.toBeNull()
-    expect(root.querySelector('[data-group="border"]')).not.toBeNull()
-    expect(root.querySelector('[data-group="effects"]')).not.toBeNull()
-    // Old "Style" grouping is gone.
-    expect(root.querySelector('[data-group="style"]')).toBeNull()
-  })
-
-  it('renders group headers in canonical order for a non-text element', () => {
-    const { root } = setup()
-    const titles = root.querySelectorAll('.cortex-section-group__title')
-    const labels = Array.from(titles).map(t => t.textContent)
-    expect(labels).toEqual([
-      'Elements',
-      'Position',
-      'Layout',
-      'Appearance',
-      'Background',
-      'Border',
-      'Effects',
-    ])
-  })
+  // Canonical section group count, data-group presence, and header label
+  // order are all owned by tests/browser/panel-section-order.test.ts. Do not
+  // re-assert them here — the array-equality tests in that file are the
+  // single source of truth and any duplicate here would be subsumed.
 
   it('groups sections under correct parent groups', () => {
     const { root } = setup()

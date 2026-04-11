@@ -1,16 +1,19 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { h } from 'preact'
-import { Panel } from '../../src/browser/components/Panel.js'
+import { Panel, containsDirectText } from '../../src/browser/components/Panel.js'
 import { renderInShadow } from './helpers.js'
 
 // Canonical Panel v2 ordering from DESIGN.md "Section ordering rationale":
-// Elements -> Position -> Layout -> Typography (conditional) -> Appearance ->
-// Background -> Border -> Effects.
+// Elements -> Position -> Layout -> Typography (conditional) -> Background ->
+// Border -> Effects.
+//
+// NOTE: Appearance is INTENTIONALLY omitted here. Task 3 (ZF0-1181) inserts
+// the Appearance SectionGroup between Typography and Background when it wires
+// opacity / corner-radius / visibility. Until then, Panel renders no shell.
 const CANONICAL_ORDER_NO_TEXT = [
   'Elements',
   'Position',
   'Layout',
-  'Appearance',
   'Background',
   'Border',
   'Effects',
@@ -21,7 +24,6 @@ const CANONICAL_ORDER_WITH_TEXT = [
   'Position',
   'Layout',
   'Typography',
-  'Appearance',
   'Background',
   'Border',
   'Effects',
@@ -99,27 +101,25 @@ describe('Panel — canonical section ordering', () => {
     return { ...result, overrideManager }
   }
 
-  it('renders 7 section groups in canonical order for a non-text element', () => {
+  // The canonical-order tests below double as the regression guard for
+  // Appearance absence AND old-"Style"-grouping absence. If any extra
+  // SectionGroup (Appearance shell, legacy Style, etc.) sneaks in, the
+  // array-equality assertion fails. Do not add dedicated "absence" tests —
+  // they would be subsumed by these.
+  it('renders 6 section groups in canonical order for a non-text element', () => {
     const target = makeNonTextElement()
     const { root } = mount(target)
     const groups = root.querySelectorAll('.cortex-section-group')
-    expect(groups.length).toBe(7)
+    expect(groups.length).toBe(6)
     expect(sectionLabels(root)).toEqual(CANONICAL_ORDER_NO_TEXT)
   })
 
-  it('renders 8 section groups (Typography included) for a text-bearing element', () => {
+  it('renders 7 section groups (Typography included) for a text-bearing element', () => {
     const target = makeTextElement()
     const { root } = mount(target)
     const groups = root.querySelectorAll('.cortex-section-group')
-    expect(groups.length).toBe(8)
+    expect(groups.length).toBe(7)
     expect(sectionLabels(root)).toEqual(CANONICAL_ORDER_WITH_TEXT)
-  })
-
-  it('does not include the old "Style" section group', () => {
-    const target = makeNonTextElement()
-    const { root } = mount(target)
-    expect(sectionLabels(root)).not.toContain('Style')
-    expect(root.querySelector('[data-group="style"]')).toBeNull()
   })
 
   it('wraps the LayerTree inside an Elements section group at the top', () => {
@@ -141,7 +141,9 @@ describe('Panel — canonical section ordering', () => {
     expect(root.querySelector('[data-group="position"]')).not.toBeNull()
     expect(root.querySelector('[data-group="layout"]')).not.toBeNull()
     expect(root.querySelector('[data-group="typography"]')).not.toBeNull()
-    expect(root.querySelector('[data-group="appearance"]')).not.toBeNull()
+    // [data-group="appearance"] is intentionally absent — Task 3 (ZF0-1181)
+    // wires it in. See the canonical-order tests above for the regression
+    // guard on extra groups sneaking in.
     expect(root.querySelector('[data-group="background"]')).not.toBeNull()
     expect(root.querySelector('[data-group="border"]')).not.toBeNull()
     expect(root.querySelector('[data-group="effects"]')).not.toBeNull()
@@ -187,13 +189,13 @@ describe('Panel — canonical section ordering', () => {
     // Position group should now be hidden.
     expect(root.querySelector('[data-group="position"]')).toBeNull()
 
-    // And the remaining groups should still be 6 (Elements, Layout, Appearance,
-    // Background, Border, Effects) — Typography omitted for a non-text element.
+    // And the remaining groups should be 5 (Elements, Layout, Background,
+    // Border, Effects) — Typography omitted for a non-text element, Position
+    // hidden by scope=all, Appearance not rendered until Task 3 wires it.
     const labels = sectionLabels(root)
     expect(labels).toEqual([
       'Elements',
       'Layout',
-      'Appearance',
       'Background',
       'Border',
       'Effects',
@@ -201,6 +203,83 @@ describe('Panel — canonical section ordering', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// `containsDirectText` — direct unit tests.
+//
+// These cover all the edge cases of the helper at the function level so the
+// Panel-mount tests below only need to verify Panel WIRES the helper correctly
+// (not that the helper itself is correct). Proper test layering.
+// ---------------------------------------------------------------------------
+describe('containsDirectText', () => {
+  type Setup = (el: HTMLElement) => void
+  const cases: [string, Setup, boolean][] = [
+    ['empty element', () => {}, false],
+    [
+      'only whitespace text',
+      (el) => el.appendChild(document.createTextNode('   \n\t')),
+      false,
+    ],
+    [
+      'non-empty text',
+      (el) => el.appendChild(document.createTextNode('hello')),
+      true,
+    ],
+    [
+      'mixed text + element children',
+      (el) => {
+        el.appendChild(document.createTextNode('hi '))
+        el.appendChild(document.createElement('span'))
+      },
+      true,
+    ],
+    [
+      'element children only',
+      (el) => {
+        el.appendChild(document.createElement('span'))
+        el.appendChild(document.createElement('br'))
+      },
+      false,
+    ],
+    [
+      'nested text inside child (not direct)',
+      (el) => {
+        const child = document.createElement('span')
+        child.appendChild(document.createTextNode('nested'))
+        el.appendChild(child)
+      },
+      false,
+    ],
+    [
+      'only comment children',
+      (el) => el.appendChild(document.createComment('a comment')),
+      false,
+    ],
+    [
+      'text surrounded by elements',
+      (el) => {
+        el.appendChild(document.createElement('br'))
+        el.appendChild(document.createTextNode('middle'))
+        el.appendChild(document.createElement('hr'))
+      },
+      true,
+    ],
+  ]
+
+  it.each(cases)('%s -> %s', (_desc, setup, expected) => {
+    const el = document.createElement('div')
+    setup(el)
+    expect(containsDirectText(el)).toBe(expected)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Panel Typography conditional rendering.
+//
+// Edge-case coverage for `containsDirectText` lives in the dedicated unit
+// tests above. These tests only verify that Panel RESPECTS the helper's
+// result at the render level — one representative case per branch is enough.
+// Don't duplicate edge-case coverage across both layers (no subsumption).
+// ---------------------------------------------------------------------------
 describe('Panel — Typography conditional rendering', () => {
   let cleanup: (() => void) | null = null
   const createdElements: HTMLElement[] = []
@@ -227,44 +306,33 @@ describe('Panel — Typography conditional rendering', () => {
     return result
   }
 
-  it('omits Typography for an element with only element children (no direct text)', () => {
+  type Setup = (el: HTMLElement) => void
+  const typographyCases: [string, Setup, 'present' | 'absent'][] = [
+    ['no children -> Typography absent', () => {}, 'absent'],
+    [
+      'text content -> Typography present',
+      (el) => el.appendChild(document.createTextNode('hi')),
+      'present',
+    ],
+    [
+      'element child only -> Typography absent',
+      (el) => el.appendChild(document.createElement('span')),
+      'absent',
+    ],
+  ]
+
+  it.each(typographyCases)('%s', (_desc, setup, expectation) => {
     const el = document.createElement('div')
-    el.setAttribute('data-cortex-source', 'src/Wrap.tsx:1:1')
-    el.appendChild(document.createElement('span'))
+    el.setAttribute('data-cortex-source', 'src/Case.tsx:1:1')
+    setup(el)
     document.body.appendChild(el)
     createdElements.push(el)
     const { root } = mount(el)
-    expect(root.querySelector('[data-group="typography"]')).toBeNull()
-  })
-
-  it('omits Typography for an element whose only text child is whitespace', () => {
-    const el = document.createElement('div')
-    el.setAttribute('data-cortex-source', 'src/Ws.tsx:1:1')
-    el.appendChild(document.createTextNode('   \n\t  '))
-    document.body.appendChild(el)
-    createdElements.push(el)
-    const { root } = mount(el)
-    expect(root.querySelector('[data-group="typography"]')).toBeNull()
-  })
-
-  it('includes Typography for an element with a non-empty text child', () => {
-    const el = document.createElement('p')
-    el.setAttribute('data-cortex-source', 'src/Txt.tsx:1:1')
-    el.appendChild(document.createTextNode('Hello'))
-    document.body.appendChild(el)
-    createdElements.push(el)
-    const { root } = mount(el)
-    expect(root.querySelector('[data-group="typography"]')).not.toBeNull()
-  })
-
-  it('includes Typography when text sits alongside element children (mixed content)', () => {
-    const el = document.createElement('p')
-    el.setAttribute('data-cortex-source', 'src/Mixed.tsx:1:1')
-    el.appendChild(document.createTextNode('Intro '))
-    el.appendChild(document.createElement('strong'))
-    document.body.appendChild(el)
-    createdElements.push(el)
-    const { root } = mount(el)
-    expect(root.querySelector('[data-group="typography"]')).not.toBeNull()
+    const typographyGroup = root.querySelector('[data-group="typography"]')
+    if (expectation === 'present') {
+      expect(typographyGroup).not.toBeNull()
+    } else {
+      expect(typographyGroup).toBeNull()
+    }
   })
 })

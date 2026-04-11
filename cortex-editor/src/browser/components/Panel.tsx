@@ -885,10 +885,12 @@ export function Panel({
             rationale"): Elements → Position → Layout → Typography → Appearance
             → Background → Border → Effects. Typography is conditional on the
             selected element actually rendering direct text (`containsDirectText`).
-            Position is hidden when editing the shared-class "All" scope. The
-            `Appearance` group is a Task 3 insertion point — it renders as an
-            empty section shell so the Task 3 implementation can fill in
-            opacity / corner-radius / visibility without re-ordering anything. */}
+            Position is hidden when editing the shared-class "All" scope.
+            Appearance is NOT rendered here — Task 3 (ZF0-1181) must insert its
+            own <SectionGroup label="Appearance" groupId="appearance"> between
+            Typography and Background when it adds the opacity / corner-radius /
+            visibility controls. No placeholder shell: Task 3 wires the group
+            itself so there is no empty DOM surface to delete. */}
         <SectionGroup label="Elements" groupId="elements">
           <LayerTree element={element} onSelectElement={onSelectElement} />
         </SectionGroup>
@@ -939,12 +941,9 @@ export function Panel({
             />
           </SectionGroup>
         )}
-        {/* Task 3 (ZF0-1181) fills in AppearanceSection with opacity,
-            corner-radius, and visibility. Rendered as an empty shell now
-            so ordering is locked and Task 3 is a drop-in addition. */}
-        <SectionGroup label="Appearance" groupId="appearance">
-          {null}
-        </SectionGroup>
+        {/* Task 3 (ZF0-1181) inserts <SectionGroup label="Appearance" groupId="appearance">
+            here with opacity, corner-radius, and visibility controls. Intentionally
+            no shell rendered now so Task 3 must wire its own SectionGroup explicitly. */}
         <SectionGroup label="Background" groupId="background">
           {/* Task 13 replaces FillSection with a dedicated BackgroundSection
               that absorbs CollapsibleSection's add/remove buttons. */}
