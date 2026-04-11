@@ -1728,6 +1728,118 @@
   gap: var(--cx-sp-3);
 }
 
+/* ── Appearance section (Task 3 / ZF0-1181) ──
+ *
+ * Opacity, corner-radius, and visibility live here. The section is the CTF3
+ * pilot for dimmedProperties — it is the first section to actually READ the
+ * dimmedProperties prop and apply a visual dim via
+ * .cortex-appearance-section__control--dimmed. Step 5 Simplify will propagate
+ * the pattern to the other 7 sections.
+ */
+.cortex-appearance-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-5);
+}
+
+.cortex-appearance-section__control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-3);
+  /* Dimming transitions match the 150ms / ease-out rhythm used elsewhere in
+     the panel so the state-lens switch reads as one coordinated motion. */
+  transition: opacity 150ms ease-out;
+}
+
+.cortex-appearance-section__control--opacity {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--cx-sp-3);
+}
+
+.cortex-appearance-section__control--visibility {
+  flex-direction: row;
+  align-items: center;
+}
+
+.cortex-appearance-section__control--dimmed {
+  opacity: 0.4;
+}
+
+.cortex-appearance-section__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: var(--cx-ink-ghost);
+  flex-shrink: 0;
+}
+
+.cortex-appearance-section__radius-row {
+  display: flex;
+  align-items: center;
+  gap: var(--cx-sp-3);
+}
+
+.cortex-appearance-section__corner-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-sm);
+  background: var(--cx-paper);
+  color: var(--cx-ink-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.cortex-appearance-section__corner-toggle:hover {
+  background: var(--cx-well-hover);
+  color: var(--cx-ink);
+}
+
+.cortex-appearance-section__corner-toggle--active {
+  background: var(--cx-select-muted);
+  color: var(--cx-select);
+  border-color: var(--cx-select);
+}
+
+.cortex-appearance-section__corners {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--cx-sp-3);
+  margin-top: var(--cx-sp-3);
+}
+
+.cortex-appearance-section__visibility-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-sm);
+  background: var(--cx-paper);
+  color: var(--cx-ink-secondary);
+  cursor: pointer;
+}
+
+.cortex-appearance-section__visibility-toggle:hover {
+  background: var(--cx-well-hover);
+  color: var(--cx-ink);
+}
+
+.cortex-appearance-section__visibility-toggle--hidden {
+  background: var(--cx-select-muted);
+  color: var(--cx-select);
+  border-color: var(--cx-select);
+}
+
 /* ── State Lens (on selection overlay) ─────── */
 
 .cortex-state-lens {

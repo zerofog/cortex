@@ -10,22 +10,13 @@ vi.mock('@floating-ui/dom', () => ({
   shift: vi.fn().mockReturnValue({}),
 }))
 
+// Task 3 (ZF0-1181): opacity moved out of EffectsSection into
+// AppearanceSection. parseEffectsValues no longer returns an opacity field;
+// parseAppearanceValues owns that extraction now. See
+// tests/browser/sections/AppearanceSection.test.ts for opacity coverage.
 describe('parseEffectsValues', () => {
-  it('parses opacity as percentage (0.75 -> 75)', () => {
-    const cs = {
-      opacity: '0.75',
-      overflow: 'visible',
-      cursor: 'auto',
-      filter: '',
-      backdropFilter: '',
-    } as unknown as CSSStyleDeclaration
-    const result = parseEffectsValues(cs)
-    expect(result.opacity).toBe(75)
-  })
-
   it('extracts blur from filter "blur(4px)" -> blur: 4', () => {
     const cs = {
-      opacity: '1',
       overflow: 'visible',
       cursor: 'auto',
       filter: 'blur(4px)',
@@ -37,7 +28,6 @@ describe('parseEffectsValues', () => {
 
   it('extracts backdrop-blur from backdropFilter "blur(8px)" -> backdropBlur: 8', () => {
     const cs = {
-      opacity: '1',
       overflow: 'visible',
       cursor: 'auto',
       filter: '',
@@ -49,7 +39,6 @@ describe('parseEffectsValues', () => {
 
   it('defaults blur to 0 when filter has no blur (e.g., "grayscale(100%)")', () => {
     const cs = {
-      opacity: '1',
       overflow: 'visible',
       cursor: 'auto',
       filter: 'grayscale(100%)',
@@ -59,21 +48,8 @@ describe('parseEffectsValues', () => {
     expect(result.blur).toBe(0)
   })
 
-  it('defaults opacity to 100 when missing', () => {
-    const cs = {
-      opacity: '',
-      overflow: 'visible',
-      cursor: 'auto',
-      filter: '',
-      backdropFilter: '',
-    } as unknown as CSSStyleDeclaration
-    const result = parseEffectsValues(cs)
-    expect(result.opacity).toBe(100)
-  })
-
   it('handles combined filter values "blur(4px) grayscale(50%)" -> blur: 4', () => {
     const cs = {
-      opacity: '1',
       overflow: 'visible',
       cursor: 'auto',
       filter: 'blur(4px) grayscale(50%)',
@@ -85,7 +61,6 @@ describe('parseEffectsValues', () => {
 
   it('includes raw filter strings', () => {
     const cs = {
-      opacity: '1',
       overflow: 'visible',
       cursor: 'auto',
       filter: 'blur(4px) grayscale(50%)',
@@ -134,7 +109,6 @@ describe('EffectsSection', () => {
   })
 
   const DEFAULT_VALUES: EffectsValues = {
-    opacity: 75,
     overflow: 'visible',
     cursor: 'auto',
     blur: 4,
@@ -160,15 +134,22 @@ describe('EffectsSection', () => {
     expect(root).not.toBeNull()
   })
 
-  it('renders opacity input (label "OP", unit "%")', () => {
+  // Task 3 (ZF0-1181): opacity moved to AppearanceSection. EffectsSection
+  // must no longer render an opacity NumericInput. Absence is asserted
+  // structurally — any future regression that re-adds opacity here will
+  // fail this test. Positive coverage lives in AppearanceSection tests.
+  it('does NOT render an opacity input any more (moved to AppearanceSection)', () => {
     setup()
     const inputs = container.querySelectorAll('.cortex-numeric-input')
     const opacityInput = Array.from(inputs).find((el) =>
-      el.textContent?.includes('OP') && el.textContent?.includes('%'),
+      el.textContent?.includes('OP'),
     )
-    expect(opacityInput).toBeDefined()
-    const input = opacityInput!.querySelector('input') as HTMLInputElement
-    expect(input.value).toBe('75')
+    expect(opacityInput).toBeUndefined()
+    // And the "%" unit (only opacity uses it here; blur is px) must be gone.
+    const percentUnits = Array.from(
+      container.querySelectorAll('.cortex-numeric-input__unit'),
+    ).filter((el) => el.textContent === '%')
+    expect(percentUnits.length).toBe(0)
   })
 
   it('renders overflow segmented control (visible/hidden/scroll/auto)', () => {
@@ -221,14 +202,14 @@ describe('EffectsSection', () => {
 
 describe('summarizeEffects', () => {
   it('returns "default" when all values are default', () => {
-    expect(summarizeEffects({ opacity: 100, overflow: 'visible', cursor: 'auto', blur: 0, backdropBlur: 0, filterRaw: '', backdropFilterRaw: '' })).toBe('default')
+    expect(summarizeEffects({ overflow: 'visible', cursor: 'auto', blur: 0, backdropBlur: 0, filterRaw: '', backdropFilterRaw: '' })).toBe('default')
   })
 
-  it('includes opacity when not 100%', () => {
-    expect(summarizeEffects({ opacity: 50, overflow: 'visible', cursor: 'auto', blur: 0, backdropBlur: 0, filterRaw: '', backdropFilterRaw: '' })).toBe('50%')
+  it('includes overflow when not visible', () => {
+    expect(summarizeEffects({ overflow: 'hidden', cursor: 'auto', blur: 0, backdropBlur: 0, filterRaw: '', backdropFilterRaw: '' })).toBe('hidden')
   })
 
   it('includes multiple non-default values', () => {
-    expect(summarizeEffects({ opacity: 80, overflow: 'hidden', cursor: 'auto', blur: 4, backdropBlur: 0, filterRaw: 'blur(4px)', backdropFilterRaw: '' })).toBe('80%, hidden, blur 4px')
+    expect(summarizeEffects({ overflow: 'hidden', cursor: 'auto', blur: 4, backdropBlur: 0, filterRaw: 'blur(4px)', backdropFilterRaw: '' })).toBe('hidden, blur 4px')
   })
 })

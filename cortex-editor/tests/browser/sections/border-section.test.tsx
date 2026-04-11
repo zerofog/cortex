@@ -81,50 +81,30 @@ describe('BorderSection', () => {
     expect(swatch).not.toBeNull()
   })
 
-  it('renders border radius input with label "R"', () => {
+  // Task 3 (ZF0-1181): radius controls moved to AppearanceSection. The
+  // BorderValues interface still carries the radius fields (Task 14 will
+  // remove them), but BorderSection itself no longer renders a radius
+  // NumericInput or a per-corner toggle. Those behaviours are now covered
+  // by tests/browser/sections/AppearanceSection.test.ts.
+  it('does not render a border-radius NumericInput any more (moved to AppearanceSection)', () => {
     setup()
-    const inputs = container.querySelectorAll('.cortex-numeric-input')
-    const radiusInput = Array.from(inputs).find((el) => el.textContent?.includes('R'))
-    expect(radiusInput).toBeDefined()
-    const input = radiusInput!.querySelector('input') as HTMLInputElement
-    expect(input.value).toBe('4')
+    const labels = Array.from(
+      container.querySelectorAll('.cortex-numeric-input__label'),
+    ).map((el) => el.textContent)
+    // "W" for width remains; "R" / "TL" / "TR" / "BR" / "BL" must be absent.
+    expect(labels).toContain('W')
+    expect(labels).not.toContain('R')
+    expect(labels).not.toContain('TL')
+    expect(labels).not.toContain('TR')
+    expect(labels).not.toContain('BR')
+    expect(labels).not.toContain('BL')
   })
 
-  it('renders per-corner toggle button', () => {
+  it('does not render the per-corner toggle button any more (moved to AppearanceSection)', () => {
     setup()
-    const toggle = container.querySelector('.cortex-border-section__corner-toggle')
-    expect(toggle).not.toBeNull()
-  })
-
-  it('shows 4 corner inputs when per-corner is toggled', async () => {
-    setup()
-    const toggle = container.querySelector('.cortex-border-section__corner-toggle') as HTMLButtonElement
-    expect(toggle).not.toBeNull()
-    toggle.click()
-    await new Promise((r) => setTimeout(r, 10))
-    const inputs = container.querySelectorAll('.cortex-numeric-input')
-    const labels = Array.from(inputs).map((el) => {
-      const label = el.querySelector('.cortex-numeric-input__label')
-      return label?.textContent
-    }).filter(Boolean)
-    expect(labels).toContain('TL')
-    expect(labels).toContain('TR')
-    expect(labels).toContain('BR')
-    expect(labels).toContain('BL')
-  })
-
-  it('per-corner toggle has aria-pressed="false" by default', () => {
-    setup()
-    const toggle = container.querySelector('.cortex-border-section__corner-toggle') as HTMLButtonElement
-    expect(toggle.getAttribute('aria-pressed')).toBe('false')
-  })
-
-  it('per-corner toggle has aria-pressed="true" when expanded', async () => {
-    setup()
-    const toggle = container.querySelector('.cortex-border-section__corner-toggle') as HTMLButtonElement
-    toggle.click()
-    await new Promise(r => setTimeout(r, 10))
-    expect(toggle.getAttribute('aria-pressed')).toBe('true')
+    expect(
+      container.querySelector('.cortex-border-section__corner-toggle'),
+    ).toBeNull()
   })
 
   describe('parseBorderValues', () => {

@@ -4,16 +4,17 @@ import { Panel, containsDirectText } from '../../src/browser/components/Panel.js
 import { renderInShadow } from './helpers.js'
 
 // Canonical Panel v2 ordering from DESIGN.md "Section ordering rationale":
-// Elements -> Position -> Layout -> Typography (conditional) -> Background ->
-// Border -> Effects.
+// Elements -> Position -> Layout -> Typography (conditional) -> Appearance ->
+// Background -> Border -> Effects.
 //
-// NOTE: Appearance is INTENTIONALLY omitted here. Task 3 (ZF0-1181) inserts
-// the Appearance SectionGroup between Typography and Background when it wires
-// opacity / corner-radius / visibility. Until then, Panel renders no shell.
+// Task 3 (ZF0-1181) wired Appearance between Layout/Typography and Background.
+// For non-text elements the order is Elements/Position/Layout/Appearance/...;
+// for text-bearing elements Typography sits between Layout and Appearance.
 const CANONICAL_ORDER_NO_TEXT = [
   'Elements',
   'Position',
   'Layout',
+  'Appearance',
   'Background',
   'Border',
   'Effects',
@@ -24,6 +25,7 @@ const CANONICAL_ORDER_WITH_TEXT = [
   'Position',
   'Layout',
   'Typography',
+  'Appearance',
   'Background',
   'Border',
   'Effects',
@@ -102,23 +104,23 @@ describe('Panel — canonical section ordering', () => {
   }
 
   // The canonical-order tests below double as the regression guard for
-  // Appearance absence AND old-"Style"-grouping absence. If any extra
-  // SectionGroup (Appearance shell, legacy Style, etc.) sneaks in, the
-  // array-equality assertion fails. Do not add dedicated "absence" tests —
-  // they would be subsumed by these.
-  it('renders 6 section groups in canonical order for a non-text element', () => {
+  // old-"Style"-grouping absence and any accidental duplicate SectionGroup.
+  // If any extra or missing SectionGroup sneaks in, the array-equality
+  // assertion fails. Do not add dedicated "absence" tests — they would be
+  // subsumed by these.
+  it('renders 7 section groups in canonical order for a non-text element', () => {
     const target = makeNonTextElement()
     const { root } = mount(target)
     const groups = root.querySelectorAll('.cortex-section-group')
-    expect(groups.length).toBe(6)
+    expect(groups.length).toBe(7)
     expect(sectionLabels(root)).toEqual(CANONICAL_ORDER_NO_TEXT)
   })
 
-  it('renders 7 section groups (Typography included) for a text-bearing element', () => {
+  it('renders 8 section groups (Typography included) for a text-bearing element', () => {
     const target = makeTextElement()
     const { root } = mount(target)
     const groups = root.querySelectorAll('.cortex-section-group')
-    expect(groups.length).toBe(7)
+    expect(groups.length).toBe(8)
     expect(sectionLabels(root)).toEqual(CANONICAL_ORDER_WITH_TEXT)
   })
 
@@ -141,12 +143,21 @@ describe('Panel — canonical section ordering', () => {
     expect(root.querySelector('[data-group="position"]')).not.toBeNull()
     expect(root.querySelector('[data-group="layout"]')).not.toBeNull()
     expect(root.querySelector('[data-group="typography"]')).not.toBeNull()
-    // [data-group="appearance"] is intentionally absent — Task 3 (ZF0-1181)
-    // wires it in. See the canonical-order tests above for the regression
-    // guard on extra groups sneaking in.
+    expect(root.querySelector('[data-group="appearance"]')).not.toBeNull()
     expect(root.querySelector('[data-group="background"]')).not.toBeNull()
     expect(root.querySelector('[data-group="border"]')).not.toBeNull()
     expect(root.querySelector('[data-group="effects"]')).not.toBeNull()
+  })
+
+  it('wires the Appearance group for non-text elements too (opacity/radius/visibility apply to every element)', () => {
+    const target = makeNonTextElement()
+    const { root } = mount(target)
+    const appearanceGroup = root.querySelector('[data-group="appearance"]')
+    expect(appearanceGroup).not.toBeNull()
+    // The inner AppearanceSection is identified by data-section-id="appearance".
+    expect(
+      appearanceGroup!.querySelector('[data-section-id="appearance"]'),
+    ).not.toBeNull()
   })
 
   it('hides the Position group when the element is part of a shared class selection (scope=all)', async () => {
@@ -189,13 +200,16 @@ describe('Panel — canonical section ordering', () => {
     // Position group should now be hidden.
     expect(root.querySelector('[data-group="position"]')).toBeNull()
 
-    // And the remaining groups should be 5 (Elements, Layout, Background,
-    // Border, Effects) — Typography omitted for a non-text element, Position
-    // hidden by scope=all, Appearance not rendered until Task 3 wires it.
+    // And the remaining groups should be 6 (Elements, Layout, Appearance,
+    // Background, Border, Effects) — Typography omitted for a non-text
+    // element, Position hidden by scope=all. Appearance is instance-agnostic
+    // (visual properties apply to every element in the shared class) so it
+    // stays visible.
     const labels = sectionLabels(root)
     expect(labels).toEqual([
       'Elements',
       'Layout',
+      'Appearance',
       'Background',
       'Border',
       'Effects',

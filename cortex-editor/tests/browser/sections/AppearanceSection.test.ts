@@ -1,0 +1,375 @@
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { render, h } from 'preact'
+import {
+  AppearanceSection,
+  parseAppearanceValues,
+  type AppearanceValues,
+  type AppearanceChange,
+} from '../../../src/browser/components/sections/AppearanceSection.js'
+
+// ---------------------------------------------------------------------------
+// parseAppearanceValues
+//
+// Pure-function coverage first: every branch the parser takes must be
+// exercised before we ever mount the component. This is the extraction half
+// of "move opacity out of EffectsSection" — the parse logic now lives here,
+// not in EffectsSection. Re-implemented, not copy-pasted (no shadow copy).
+// ---------------------------------------------------------------------------
+describe('parseAppearanceValues', () => {
+  it('rounds opacity 0.75 to 75% (integer percentage)', () => {
+    const cs = {
+      opacity: '0.75',
+      visibility: 'visible',
+      borderRadius: '0px',
+      borderTopLeftRadius: '0px',
+      borderTopRightRadius: '0px',
+      borderBottomRightRadius: '0px',
+      borderBottomLeftRadius: '0px',
+    } as unknown as CSSStyleDeclaration
+    expect(parseAppearanceValues(cs).opacity).toBe(75)
+  })
+
+  it('defaults opacity to 100 when the computed style is empty', () => {
+    const cs = {
+      opacity: '',
+      visibility: 'visible',
+      borderRadius: '0px',
+      borderTopLeftRadius: '0px',
+      borderTopRightRadius: '0px',
+      borderBottomRightRadius: '0px',
+      borderBottomLeftRadius: '0px',
+    } as unknown as CSSStyleDeclaration
+    expect(parseAppearanceValues(cs).opacity).toBe(100)
+  })
+
+  it('rounds fractional opacity cleanly — 0.333 -> 33', () => {
+    const cs = {
+      opacity: '0.333',
+      visibility: 'visible',
+      borderRadius: '0px',
+      borderTopLeftRadius: '0px',
+      borderTopRightRadius: '0px',
+      borderBottomRightRadius: '0px',
+      borderBottomLeftRadius: '0px',
+    } as unknown as CSSStyleDeclaration
+    expect(parseAppearanceValues(cs).opacity).toBe(33)
+  })
+
+  it('reads visibility literally from the computed style', () => {
+    const cs = {
+      opacity: '1',
+      visibility: 'hidden',
+      borderRadius: '0px',
+      borderTopLeftRadius: '0px',
+      borderTopRightRadius: '0px',
+      borderBottomRightRadius: '0px',
+      borderBottomLeftRadius: '0px',
+    } as unknown as CSSStyleDeclaration
+    expect(parseAppearanceValues(cs).visibility).toBe('hidden')
+  })
+
+  it('defaults visibility to "visible" when the computed style is empty', () => {
+    const cs = {
+      opacity: '1',
+      visibility: '',
+      borderRadius: '0px',
+      borderTopLeftRadius: '0px',
+      borderTopRightRadius: '0px',
+      borderBottomRightRadius: '0px',
+      borderBottomLeftRadius: '0px',
+    } as unknown as CSSStyleDeclaration
+    expect(parseAppearanceValues(cs).visibility).toBe('visible')
+  })
+
+  it('parses uniform and per-corner border radii as numeric pixels', () => {
+    const cs = {
+      opacity: '1',
+      visibility: 'visible',
+      borderRadius: '8px',
+      borderTopLeftRadius: '8px',
+      borderTopRightRadius: '4px',
+      borderBottomRightRadius: '2px',
+      borderBottomLeftRadius: '0px',
+    } as unknown as CSSStyleDeclaration
+    const v = parseAppearanceValues(cs)
+    expect(v.borderRadius).toBe(8)
+    expect(v.borderTopLeftRadius).toBe(8)
+    expect(v.borderTopRightRadius).toBe(4)
+    expect(v.borderBottomRightRadius).toBe(2)
+    expect(v.borderBottomLeftRadius).toBe(0)
+  })
+
+  it('defaults radii to 0 when the computed style returns non-numeric strings', () => {
+    const cs = {
+      opacity: '1',
+      visibility: 'visible',
+      borderRadius: 'auto',
+      borderTopLeftRadius: '',
+      borderTopRightRadius: 'auto',
+      borderBottomRightRadius: '',
+      borderBottomLeftRadius: '',
+    } as unknown as CSSStyleDeclaration
+    const v = parseAppearanceValues(cs)
+    expect(v.borderRadius).toBe(0)
+    expect(v.borderTopLeftRadius).toBe(0)
+    expect(v.borderTopRightRadius).toBe(0)
+    expect(v.borderBottomRightRadius).toBe(0)
+    expect(v.borderBottomLeftRadius).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AppearanceSection rendering
+// ---------------------------------------------------------------------------
+describe('AppearanceSection', () => {
+  let container: HTMLDivElement
+
+  afterEach(() => {
+    if (container) {
+      render(null, container)
+      container.remove()
+    }
+  })
+
+  const DEFAULT_VALUES: AppearanceValues = {
+    opacity: 80,
+    visibility: 'visible',
+    borderRadius: 4,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
+    borderBottomRightRadius: 4,
+    borderBottomLeftRadius: 4,
+  }
+
+  function setup(overrides: Partial<Parameters<typeof AppearanceSection>[0]> = {}) {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    const onChange = vi.fn()
+    render(
+      h(AppearanceSection, {
+        values: DEFAULT_VALUES,
+        onChange,
+        ...overrides,
+      }),
+      container,
+    )
+    return { onChange }
+  }
+
+  it('renders with data-section-id="appearance"', () => {
+    setup()
+    expect(container.querySelector('[data-section-id="appearance"]')).not.toBeNull()
+  })
+
+  it('renders an opacity NumericInput showing the current percentage', () => {
+    setup()
+    const inputs = container.querySelectorAll('.cortex-numeric-input')
+    const opacityInput = Array.from(inputs).find((el) =>
+      el.textContent?.includes('%'),
+    )
+    expect(opacityInput).toBeDefined()
+    const input = opacityInput!.querySelector('input') as HTMLInputElement
+    expect(input.value).toBe('80')
+  })
+
+  it('emits opacity as a 0..1 CSS string on change (80 -> "0.8")', () => {
+    const { onChange } = setup()
+    const inputs = container.querySelectorAll('.cortex-numeric-input')
+    const opacityInput = Array.from(inputs).find((el) =>
+      el.textContent?.includes('%'),
+    )!
+    const input = opacityInput.querySelector('input') as HTMLInputElement
+    input.focus()
+    ;(input as HTMLInputElement & { dispatchEvent: (e: Event) => boolean }).dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }),
+    )
+    // 80 + 1 = 81 → "0.81"
+    expect(onChange).toHaveBeenCalled()
+    const lastCall = onChange.mock.calls.at(-1)![0] as AppearanceChange
+    expect(lastCall.property).toBe('opacity')
+    expect(lastCall.value).toBe('0.81')
+  })
+
+  it('renders a uniform corner-radius NumericInput labeled "R" by default', () => {
+    setup()
+    const radiusInput = Array.from(
+      container.querySelectorAll('.cortex-numeric-input'),
+    ).find((el) =>
+      el.querySelector('.cortex-numeric-input__label')?.textContent === 'R',
+    )
+    expect(radiusInput).toBeDefined()
+    expect((radiusInput!.querySelector('input') as HTMLInputElement).value).toBe('4')
+  })
+
+  it('has a per-corner toggle button that swaps to TL/TR/BR/BL inputs when clicked', async () => {
+    setup()
+    const toggle = container.querySelector(
+      '.cortex-appearance-section__corner-toggle',
+    ) as HTMLButtonElement
+    expect(toggle).not.toBeNull()
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
+    toggle.click()
+    // Preact state flush is async via setTimeout(0) — give it a tick.
+    await new Promise((r) => setTimeout(r, 10))
+    const toggleAfter = container.querySelector(
+      '.cortex-appearance-section__corner-toggle',
+    ) as HTMLButtonElement
+    expect(toggleAfter.getAttribute('aria-pressed')).toBe('true')
+    const labels = Array.from(
+      container.querySelectorAll('.cortex-numeric-input__label'),
+    ).map((el) => el.textContent)
+    expect(labels).toContain('TL')
+    expect(labels).toContain('TR')
+    expect(labels).toContain('BR')
+    expect(labels).toContain('BL')
+  })
+
+  it('renders an eye-toggle button for visibility with Lucide Eye icon when visible', () => {
+    setup()
+    const toggle = container.querySelector(
+      '.cortex-appearance-section__visibility-toggle',
+    ) as HTMLButtonElement
+    expect(toggle).not.toBeNull()
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
+    // When visible: should have Eye icon (path attribute containing the distinctive lens path)
+    const svg = toggle.querySelector('svg')
+    expect(svg).not.toBeNull()
+    // Eye icon has a <circle cx="12" cy="12" r="3">; EyeOff does not.
+    expect(svg!.querySelector('circle')).not.toBeNull()
+  })
+
+  it('renders the EyeOff icon and aria-pressed=true when visibility=hidden', () => {
+    setup({ values: { ...DEFAULT_VALUES, visibility: 'hidden' } })
+    const toggle = container.querySelector(
+      '.cortex-appearance-section__visibility-toggle',
+    ) as HTMLButtonElement
+    expect(toggle).not.toBeNull()
+    expect(toggle.getAttribute('aria-pressed')).toBe('true')
+    // EyeOff icon has no <circle> (uses 4 paths).
+    const svg = toggle.querySelector('svg')!
+    expect(svg.querySelector('circle')).toBeNull()
+  })
+
+  it('toggles visibility hidden <-> visible via the eye button', () => {
+    const { onChange } = setup()
+    const toggle = container.querySelector(
+      '.cortex-appearance-section__visibility-toggle',
+    ) as HTMLButtonElement
+    toggle.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'visibility', value: 'hidden' })
+  })
+
+  it('toggles visibility visible <-> hidden via the eye button', () => {
+    const onChange = vi.fn()
+    setup({ values: { ...DEFAULT_VALUES, visibility: 'hidden' }, onChange })
+    const toggle = container.querySelector(
+      '.cortex-appearance-section__visibility-toggle',
+    ) as HTMLButtonElement
+    toggle.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'visibility', value: 'visible' })
+  })
+
+  // --- CTF3: dimmedProperties pilot ----------------------------------------
+  // AppearanceSection is the first section to READ dimmedProperties and apply
+  // a visual dim to its controls. Step 5 Simplify propagates this template to
+  // the other 7 sections. These tests lock the template in place.
+  describe('dimmedProperties (CTF3 pilot)', () => {
+    it('dims the opacity control when dimmedProperties contains "opacity"', () => {
+      setup({ dimmedProperties: new Set(['opacity']) })
+      const opacityControl = container.querySelector(
+        '.cortex-appearance-section__control--opacity',
+      )
+      expect(opacityControl).not.toBeNull()
+      expect(
+        opacityControl!.classList.contains('cortex-appearance-section__control--dimmed'),
+      ).toBe(true)
+    })
+
+    it('does NOT dim the opacity control when dimmedProperties is absent or does not include opacity', () => {
+      setup({ dimmedProperties: new Set(['visibility']) })
+      const opacityControl = container.querySelector(
+        '.cortex-appearance-section__control--opacity',
+      )!
+      expect(
+        opacityControl.classList.contains('cortex-appearance-section__control--dimmed'),
+      ).toBe(false)
+    })
+
+    it('dims the visibility toggle when dimmedProperties contains "visibility"', () => {
+      setup({ dimmedProperties: new Set(['visibility']) })
+      const visibilityControl = container.querySelector(
+        '.cortex-appearance-section__control--visibility',
+      )!
+      expect(
+        visibilityControl.classList.contains('cortex-appearance-section__control--dimmed'),
+      ).toBe(true)
+    })
+
+    it('dims the uniform radius control when dimmedProperties contains "border-radius"', () => {
+      setup({ dimmedProperties: new Set(['border-radius']) })
+      const radiusControl = container.querySelector(
+        '.cortex-appearance-section__control--radius',
+      )!
+      expect(
+        radiusControl.classList.contains('cortex-appearance-section__control--dimmed'),
+      ).toBe(true)
+    })
+
+    it('also dims the uniform radius control when any per-corner radius is dimmed', () => {
+      setup({ dimmedProperties: new Set(['border-top-left-radius']) })
+      const radiusControl = container.querySelector(
+        '.cortex-appearance-section__control--radius',
+      )!
+      expect(
+        radiusControl.classList.contains('cortex-appearance-section__control--dimmed'),
+      ).toBe(true)
+    })
+  })
+
+  // --- Per-corner state reset on element change ----------------------------
+  // When the selected element changes, the per-corner UI MUST collapse so a
+  // user's "expanded corners" state from a previous element doesn't leak into
+  // the next. Implemented via a `resetKey` prop that Panel.tsx changes on
+  // element identity, relying on React key-based remount.
+  describe('per-corner expand state reset via resetKey', () => {
+    it('resets the per-corner expansion when resetKey changes', async () => {
+      container = document.createElement('div')
+      document.body.appendChild(container)
+      const onChange = vi.fn()
+      // First render — expand corners
+      render(
+        h(AppearanceSection, {
+          values: DEFAULT_VALUES,
+          onChange,
+          resetKey: 'div|first',
+        }),
+        container,
+      )
+      const firstToggle = container.querySelector(
+        '.cortex-appearance-section__corner-toggle',
+      ) as HTMLButtonElement
+      firstToggle.click()
+      await new Promise((r) => setTimeout(r, 10))
+      expect(
+        (container.querySelector(
+          '.cortex-appearance-section__corner-toggle',
+        ) as HTMLButtonElement).getAttribute('aria-pressed'),
+      ).toBe('true')
+
+      // Re-render with a new resetKey — per-corner UI must collapse again
+      render(
+        h(AppearanceSection, {
+          values: DEFAULT_VALUES,
+          onChange,
+          resetKey: 'span|second',
+        }),
+        container,
+      )
+      await new Promise((r) => setTimeout(r, 10))
+      const afterToggle = container.querySelector(
+        '.cortex-appearance-section__corner-toggle',
+      ) as HTMLButtonElement
+      expect(afterToggle.getAttribute('aria-pressed')).toBe('false')
+    })
+  })
+})

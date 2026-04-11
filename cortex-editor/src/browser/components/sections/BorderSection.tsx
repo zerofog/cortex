@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useState, useCallback } from 'preact/hooks'
+import { useCallback } from 'preact/hooks'
 import { SegmentedControl } from '../controls/SegmentedControl.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { ColorInput } from '../controls/ColorInput.js'
@@ -66,8 +66,6 @@ export function BorderSection({
   swatches,
   mixedProperties,
 }: BorderSectionProps): JSX.Element {
-  const [perCorner, setPerCorner] = useState(false)
-
   const handleWidthChange = useCallback(
     (v: number) => onChange({ property: 'border-width', value: `${v}px` }),
     [onChange],
@@ -90,28 +88,6 @@ export function BorderSection({
     (hex: string) => onChange({ property: 'border-color', value: hex }),
     [onChange],
   )
-
-  const handleRadiusChange = useCallback(
-    (v: number) => onChange({ property: 'border-radius', value: `${v}px` }),
-    [onChange],
-  )
-  const handleRadiusScrub = useCallback(
-    (v: number) => { if (onScrub) onScrub({ property: 'border-radius', value: `${v}px` }) },
-    [onScrub],
-  )
-  const handleRadiusScrubEnd = useCallback(
-    (v: number) => { if (onScrubEnd) onScrubEnd({ property: 'border-radius', value: `${v}px` }) },
-    [onScrubEnd],
-  )
-
-  const handleToggleCorners = useCallback(() => setPerCorner((v) => !v), [])
-
-  // Per-corner handlers — created in render since they're used immediately
-  const cornerHandlers = (property: string) => ({
-    onChange: (v: number) => onChange({ property, value: `${v}px` }),
-    onScrub: onScrub ? (v: number) => onScrub({ property, value: `${v}px` }) : undefined,
-    onScrubEnd: onScrubEnd ? (v: number) => onScrubEnd({ property, value: `${v}px` }) : undefined,
-  })
 
   return (
     <div class="cortex-border-section" data-section-id="border">
@@ -150,77 +126,11 @@ export function BorderSection({
         />
       </div>
 
-      <div class="cortex-border-section__group">
-        <span class="cortex-section-label">Radius</span>
-        <div class="cortex-border-section__radius-row">
-          {!perCorner && (
-            <NumericInput
-              value={values.borderRadius}
-              unit="px"
-              label="R"
-              tooltip="Border Radius"
-              min={0}
-              mixed={mixedProperties?.has('border-top-left-radius') || mixedProperties?.has('border-top-right-radius') || mixedProperties?.has('border-bottom-left-radius') || mixedProperties?.has('border-bottom-right-radius')}
-              onChange={handleRadiusChange}
-              onScrub={handleRadiusScrub}
-              onScrubEnd={handleRadiusScrubEnd}
-            />
-          )}
-          <button
-            class={`cortex-border-section__corner-toggle${perCorner ? ' cortex-border-section__corner-toggle--active' : ''}`}
-            type="button"
-            aria-pressed={perCorner ? 'true' : 'false'}
-            aria-label={perCorner ? 'Uniform radius' : 'Per-corner radius'}
-            data-tooltip={perCorner ? 'Uniform radius' : 'Per-corner radius'}
-            onClick={handleToggleCorners}
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M2 5V2h3M9 2h3v3M12 9v3H9M5 14H2v-3" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {perCorner && (
-        <div class="cortex-border-section__corners">
-          <NumericInput
-            value={values.borderTopLeftRadius}
-            unit="px"
-            label="TL"
-            tooltip="Top Left Radius"
-            min={0}
-            mixed={mixedProperties?.has('border-top-left-radius')}
-            {...cornerHandlers('border-top-left-radius')}
-          />
-          <NumericInput
-            value={values.borderTopRightRadius}
-            unit="px"
-            label="TR"
-            tooltip="Top Right Radius"
-            min={0}
-            mixed={mixedProperties?.has('border-top-right-radius')}
-            {...cornerHandlers('border-top-right-radius')}
-          />
-          <NumericInput
-            value={values.borderBottomRightRadius}
-            unit="px"
-            label="BR"
-            tooltip="Bottom Right Radius"
-            min={0}
-            mixed={mixedProperties?.has('border-bottom-right-radius')}
-            {...cornerHandlers('border-bottom-right-radius')}
-          />
-          <NumericInput
-            value={values.borderBottomLeftRadius}
-            unit="px"
-            label="BL"
-            tooltip="Bottom Left Radius"
-            min={0}
-            mixed={mixedProperties?.has('border-bottom-left-radius')}
-            {...cornerHandlers('border-bottom-left-radius')}
-          />
-        </div>
-      )}
+      {/* Task 3 (ZF0-1181): radius controls moved to AppearanceSection. This
+          component still accepts the borderRadius / per-corner radius fields
+          on BorderValues so Panel.tsx's parse path is unchanged, but no UI
+          is rendered here. Task 14 (ZF0-1192) will fully remove the radius
+          fields from BorderValues and parseBorderValues. */}
     </div>
   )
 }

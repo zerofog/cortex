@@ -27,6 +27,8 @@ import { EffectsSection, parseEffectsValues } from './sections/EffectsSection.js
 import type { EffectsChange } from './sections/EffectsSection.js'
 import { PositionSection, parsePositionValues } from './sections/PositionSection.js'
 import type { PositionChange } from './sections/PositionSection.js'
+import { AppearanceSection, parseAppearanceValues } from './sections/AppearanceSection.js'
+import type { AppearanceChange } from './sections/AppearanceSection.js'
 import type { InteractionState } from '../state-detector.js'
 import { detectSharedClasses } from '../shared-class-detector.js'
 import type { SharedClassInfo } from '../shared-class-detector.js'
@@ -365,6 +367,7 @@ export function Panel({
           shadow: parseShadowValues({} as CSSStyleDeclaration),
           effects: parseEffectsValues({} as CSSStyleDeclaration),
           position: parsePositionValues({} as CSSStyleDeclaration),
+          appearance: parseAppearanceValues({} as CSSStyleDeclaration),
         },
         dimmedProperties: undefined as Set<string> | undefined,
         mixedProperties: undefined as Set<string> | undefined,
@@ -381,6 +384,7 @@ export function Panel({
       shadow: parseShadowValues(cs),
       effects: parseEffectsValues(cs),
       position: parsePositionValues(cs),
+      appearance: parseAppearanceValues(cs),
     }
 
     let dimmed: Set<string> | undefined
@@ -671,6 +675,19 @@ export function Panel({
     applyOverride('box-shadow', addShadow(computedStyles.shadow.boxShadow), true)
   }, [computedStyles.shadow.boxShadow, applyOverride])
 
+  // AppearanceSection (Task 3 / ZF0-1181) — mirrors every other section's
+  // commit/scrub pattern exactly; no new command path is required because
+  // opacity / visibility / border-radius all flow through the existing
+  // PropertyChange pipeline.
+  const handleAppearanceCommit = useCallback(
+    (c: AppearanceChange) => applyOverride(c.property, c.value, true),
+    [applyOverride],
+  )
+  const handleAppearanceScrub = useCallback(
+    (c: AppearanceChange) => applyOverride(c.property, c.value, false),
+    [applyOverride],
+  )
+
   const handleSelectParent = useCallback(() => {
     if (!element) return
     if (element.parentElement && element.parentElement !== document.documentElement) {
@@ -941,9 +958,17 @@ export function Panel({
             />
           </SectionGroup>
         )}
-        {/* Task 3 (ZF0-1181) inserts <SectionGroup label="Appearance" groupId="appearance">
-            here with opacity, corner-radius, and visibility controls. Intentionally
-            no shell rendered now so Task 3 must wire its own SectionGroup explicitly. */}
+        <SectionGroup label="Appearance" groupId="appearance">
+          <AppearanceSection
+            values={computedStyles.appearance}
+            onChange={handleAppearanceCommit}
+            onScrub={handleAppearanceScrub}
+            onScrubEnd={handleAppearanceCommit}
+            dimmedProperties={dimmedProperties}
+            mixedProperties={mixedProperties}
+            resetKey={`${element.tagName}|${element.id ?? ''}|${element.getAttribute('data-cortex-source') ?? ''}`}
+          />
+        </SectionGroup>
         <SectionGroup label="Background" groupId="background">
           {/* Task 13 replaces FillSection with a dedicated BackgroundSection
               that absorbs CollapsibleSection's add/remove buttons. */}

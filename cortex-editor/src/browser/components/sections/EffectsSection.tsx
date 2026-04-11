@@ -4,13 +4,21 @@ import { NumericInput } from '../controls/NumericInput.js'
 import { SegmentedControl } from '../controls/SegmentedControl.js'
 import { Dropdown } from '../controls/Dropdown.js'
 
+// ---------------------------------------------------------------------------
+// EffectsSection — overflow, cursor, blur, backdrop-blur.
+//
+// Task 3 (ZF0-1181) moved `opacity` out of this section into the new
+// AppearanceSection. Nothing in this file should reference opacity any more;
+// if a grep turns anything up it's a regression — fix it in that commit, do
+// not re-add a shadow copy here.
+// ---------------------------------------------------------------------------
+
 export interface EffectsChange {
   property: string
   value: string
 }
 
 export interface EffectsValues {
-  opacity: number      // 0-100 (percentage)
   overflow: string
   cursor: string
   blur: number         // px
@@ -45,7 +53,6 @@ export function replaceBlurInFilter(existing: string, newBlur: number): string {
 
 export function summarizeEffects(values: EffectsValues): string {
   const parts: string[] = []
-  if (values.opacity < 100) parts.push(`${values.opacity}%`)
   if (values.overflow !== 'visible') parts.push(values.overflow)
   if (values.blur > 0) parts.push(`blur ${values.blur}px`)
   if (values.backdropBlur > 0) parts.push(`bg-blur ${values.backdropBlur}px`)
@@ -55,7 +62,6 @@ export function summarizeEffects(values: EffectsValues): string {
 /** Extract effects-related values from a CSSStyleDeclaration. */
 export function parseEffectsValues(cs: CSSStyleDeclaration): EffectsValues {
   return {
-    opacity: Math.round((parseFloat(cs.opacity) || 1) * 100),
     overflow: cs.overflow ?? 'visible',
     cursor: cs.cursor ?? 'auto',
     blur: parseBlurValue(cs.filter ?? ''),
@@ -91,22 +97,7 @@ export function EffectsSection({
   onChange,
   onScrub,
   onScrubEnd,
-  mixedProperties,
 }: EffectsSectionProps): JSX.Element {
-  // Opacity handlers
-  const handleOpacityChange = useCallback(
-    (v: number) => onChange({ property: 'opacity', value: String(v / 100) }),
-    [onChange],
-  )
-  const handleOpacityScrub = useCallback(
-    (v: number) => { if (onScrub) onScrub({ property: 'opacity', value: String(v / 100) }) },
-    [onScrub],
-  )
-  const handleOpacityScrubEnd = useCallback(
-    (v: number) => { if (onScrubEnd) onScrubEnd({ property: 'opacity', value: String(v / 100) }) },
-    [onScrubEnd],
-  )
-
   // Overflow handler
   const handleOverflowChange = useCallback(
     (v: string) => onChange({ property: 'overflow', value: v }),
@@ -149,21 +140,6 @@ export function EffectsSection({
 
   return (
     <div class="cortex-effects-section" data-section-id="effects">
-      <div class="cortex-effects-section__group">
-        <span class="cortex-section-label">Opacity</span>
-        <NumericInput
-          value={values.opacity}
-          unit="%"
-          label="OP"
-          tooltip="Opacity"
-          min={0}
-          mixed={mixedProperties?.has('opacity')}
-          onChange={handleOpacityChange}
-          onScrub={handleOpacityScrub}
-          onScrubEnd={handleOpacityScrubEnd}
-        />
-      </div>
-
       <div class="cortex-effects-section__group">
         <span class="cortex-section-label">Overflow</span>
         <SegmentedControl
