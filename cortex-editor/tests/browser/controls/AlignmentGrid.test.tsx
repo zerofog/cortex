@@ -4,7 +4,7 @@ import { AlignmentGrid } from '../../../src/browser/components/controls/Alignmen
 import { dispatchMouseEvent } from '../helpers.js'
 
 /**
- * AlignmentGrid — Task 7 (ZF0-1185) tests.
+ * AlignmentGrid tests.
  *
  * The tests follow CLAUDE.md's Test Anti-Patterns rules:
  *  - falsifiable assertions (exact callback arguments, not toBeDefined)
@@ -381,5 +381,29 @@ describe('AlignmentGrid', () => {
     expect(onJustify).not.toHaveBeenCalled()
     expect(onAlign).not.toHaveBeenCalled()
     expect(onDistribute).not.toHaveBeenCalled()
+  })
+
+  it('native dblclick sequence (click+click+dblclick) fires position callbacks exactly once', async () => {
+    // Browsers deliver `click, click, dblclick` on a physical double-
+    // click. Without event.detail guarding, both clicks would fire
+    // onJustify + onAlign, producing two spurious position updates per
+    // dblclick. handleCellClick skips `detail > 1` so only the first
+    // click (detail=1) runs its callbacks.
+    const { onJustify, onAlign } = setup()
+    const cell = getCell(2, 2)
+    dispatchMouseEvent(cell, 'click', { detail: 1 })
+    dispatchMouseEvent(cell, 'click', { detail: 2 })
+    dispatchMouseEvent(cell, 'dblclick')
+    await tick()
+    // Exactly one fire, not two. The first click sets the position;
+    // the dblclick opens the overlay on top of that state.
+    expect(onJustify).toHaveBeenCalledTimes(1)
+    expect(onJustify).toHaveBeenCalledWith('flex-end')
+    expect(onAlign).toHaveBeenCalledTimes(1)
+    expect(onAlign).toHaveBeenCalledWith('flex-end')
+    // And the overlay is open (row overlay, since it's the first dblclick).
+    const overlay = getOverlay()
+    expect(overlay).not.toBeNull()
+    expect(overlay!.classList.contains('cortex-alignment-grid__overlay--row')).toBe(true)
   })
 })

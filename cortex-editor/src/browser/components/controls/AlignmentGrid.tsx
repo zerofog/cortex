@@ -1,6 +1,4 @@
 /**
- * AlignmentGrid — Panel v2 Task 7 (ZF0-1185)
- *
  * A 3×3 grid of dot cells for picking a flex/grid alignment combination.
  * Click sets a position (main + cross axis alignment); double-click swaps
  * the clicked row (or column) for a temporary 3-button overlay that lets
@@ -13,16 +11,13 @@
  *   Row 1 (center): align='center',      justify={flex-start|center|flex-end}
  *   Row 2 (bottom): align='flex-end',    justify={flex-start|center|flex-end}
  *
- * CSS role decoupling (CRITICAL): AlignmentGrid ALWAYS fires callbacks by
- * CSS role — `onJustify` owns main-axis alignment, `onAlign` owns cross-
- * axis. The grid is entirely unaware of `flex-direction`; the caller
- * (FlexControls in Task 8) is responsible for remapping the callbacks
- * when direction is `column` so the screen-coordinate labels (X/Y) stay
- * intuitive. Keeping the component direction-agnostic means the same
- * instance drops into GridControls (Task 9) without modification.
+ * CSS role decoupling: callbacks fire by CSS role — `onJustify` owns main-
+ * axis alignment, `onAlign` owns cross-axis. The grid is entirely unaware
+ * of `flex-direction`; callers handle column-direction remapping so the
+ * component drops cleanly into both flex and grid contexts.
  *
- * Disambiguation (from the plan — test-pinnable deterministic behavior,
- * not UX axis inference):
+ * Disambiguation (test-pinnable deterministic behavior, not UX axis
+ * inference):
  *   - First dblclick     → row overlay (cross-axis distribution)
  *   - Dblclick while in
  *     row overlay state  → column overlay (main-axis distribution)
@@ -159,12 +154,17 @@ export function AlignmentGrid({
   }, [overlay])
 
   const handleCellClick = useCallback(
-    (row: number, col: number) => {
+    (event: MouseEvent, row: number, col: number) => {
       // Single-click never opens the overlay and never runs while the
       // overlay is already open — the overlay owns input during its
       // lifetime (cells are not rendered, so this is structurally enforced
       // too; the guard is defensive against a future refactor).
       if (overlay) return
+      // Native dblclick delivers `click, click, dblclick` on the same
+      // element. The second click has `event.detail === 2`, so skipping
+      // detail > 1 suppresses the spurious second position fire while
+      // still letting the dblclick handler open the overlay.
+      if (event.detail > 1) return
       onJustify(justifyForCol(col))
       onAlign(alignForRow(row))
     },
@@ -212,7 +212,7 @@ export function AlignmentGrid({
         role="gridcell"
         aria-label={cellLabel(row, col)}
         aria-selected={active ? 'true' : 'false'}
-        onClick={() => handleCellClick(row, col)}
+        onClick={(event) => handleCellClick(event, row, col)}
         onDblClick={() => handleCellDblClick(row, col)}
         data-row={row}
         data-col={col}
