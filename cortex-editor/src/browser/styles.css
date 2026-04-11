@@ -2649,6 +2649,8 @@
 .cortex-border-section__corner-toggle,
 .cortex-icon-button,
 .cortex-position-dropdown__trigger,
+.cortex-xy-dropdown__trigger,
+.cortex-expandable-options__trigger,
 .cortex-alignment-grid__cell,
 .cortex-alignment-grid__distribute-btn,
 .cortex-sizing-trigger {
@@ -2666,6 +2668,8 @@
 .cortex-border-section__corner-toggle:focus-visible,
 .cortex-icon-button:focus-visible,
 .cortex-position-dropdown__trigger:focus-visible,
+.cortex-xy-dropdown__trigger:focus-visible,
+.cortex-expandable-options__trigger:focus-visible,
 .cortex-alignment-grid__cell:focus-visible,
 .cortex-alignment-grid__distribute-btn:focus-visible,
 .cortex-sizing-trigger:focus-visible {
@@ -2876,6 +2880,255 @@
 .cortex-alignment-grid__distribute-btn:hover {
   background: var(--cx-well-hover);
   color: var(--cx-ink);
+}
+
+/* ── FlexControls (Task 8 / ZF0-1186) ───────── */
+/* Container for the complete flex sub-panel — direction segmented control,
+   AlignmentGrid + X/Y dropdowns, gap input, wrap inside "More options". */
+
+.cortex-flex-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-5);
+}
+
+.cortex-flex-controls__direction {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-3);
+}
+
+.cortex-flex-controls__align {
+  display: flex;
+  gap: var(--cx-sp-4);
+  align-items: stretch;
+}
+
+.cortex-flex-controls__xy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-2);
+}
+
+.cortex-flex-controls__xy-field {
+  display: flex;
+}
+
+.cortex-flex-controls__gap {
+  display: flex;
+  gap: var(--cx-sp-3);
+}
+
+.cortex-flex-controls__wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-3);
+}
+
+/* ── XYDropdown (Task 8 / ZF0-1186) ─────────── */
+/* Sibling of PositionDropdown but with caller-supplied options — the
+   X/Y alignment catalogs differ per axis and per display mode, so the
+   component takes options as a prop (PositionDropdown keeps options
+   module-local by design). */
+
+.cortex-xy-dropdown {
+  position: relative;
+  width: 100%;
+}
+
+.cortex-xy-dropdown__trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--cx-sp-3);
+  width: 100%;
+  height: 28px;
+  padding: 0 var(--cx-sp-4);
+  background: var(--cx-well);
+  border: none;
+  border-radius: var(--cx-radius-md);
+  cursor: pointer;
+  font-size: var(--cx-text-md);
+  font-weight: var(--cx-weight-label);
+  color: var(--cx-ink);
+  text-align: left;
+  box-shadow: var(--cx-well-shadow);
+  transition: background 150ms ease-out;
+}
+
+.cortex-xy-dropdown__trigger:hover:not(:disabled) {
+  background: var(--cx-well-hover);
+}
+
+.cortex-xy-dropdown__trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.cortex-xy-dropdown__trigger-axis {
+  display: inline-flex;
+  flex-shrink: 0;
+  font-weight: var(--cx-weight-value);
+  color: var(--cx-ink-ghost);
+  min-width: 10px;
+}
+
+.cortex-xy-dropdown__trigger-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--cx-ink-secondary);
+}
+
+.cortex-xy-dropdown__trigger-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cortex-xy-dropdown__chevron {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--cx-ink-tertiary);
+  transition: transform 150ms ease-out;
+}
+
+.cortex-xy-dropdown__chevron--open {
+  transform: rotate(180deg);
+}
+
+.cortex-xy-dropdown__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+}
+
+.cortex-xy-dropdown__popover {
+  z-index: 2;
+  min-width: 160px;
+  background: var(--cx-paper);
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-lg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1), 0 1px 4px rgba(0, 0, 0, 0.06);
+  animation: cortex-popover-enter 150ms ease-out;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.cortex-xy-dropdown__list {
+  padding: var(--cx-sp-2) 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cortex-xy-dropdown__option {
+  display: flex;
+  align-items: center;
+  gap: var(--cx-sp-3);
+  height: 28px;
+  padding: 0 var(--cx-sp-4);
+  font-size: var(--cx-text-md);
+  font-weight: var(--cx-weight-label);
+  color: var(--cx-ink);
+  cursor: pointer;
+}
+
+.cortex-xy-dropdown__option--highlighted {
+  background: var(--cx-well);
+}
+
+.cortex-xy-dropdown__option--selected {
+  color: var(--cx-select);
+  font-weight: var(--cx-weight-value);
+}
+
+.cortex-xy-dropdown__option-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: currentColor;
+}
+
+.cortex-xy-dropdown__option-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cortex-xy-dropdown__option-check {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--cx-select);
+}
+
+/* ── ExpandableOptions (Task 8 / ZF0-1186) ──── */
+/* Collapsible container for secondary controls. Body stays mounted —
+   visibility flips via grid-template-rows 0fr→1fr, which is the one
+   compositor-friendly "animate auto height" technique. No `height`
+   transitions. Skipped entirely under prefers-reduced-motion. */
+
+.cortex-expandable-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-2);
+}
+
+.cortex-expandable-options__trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--cx-sp-2);
+  padding: var(--cx-sp-2) 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: var(--cx-text-sm);
+  font-weight: var(--cx-weight-value);
+  color: var(--cx-ink-ghost);
+  text-align: left;
+}
+
+.cortex-expandable-options__trigger:hover {
+  color: var(--cx-ink-secondary);
+}
+
+.cortex-expandable-options__chevron {
+  display: inline-flex;
+  flex-shrink: 0;
+  transition: transform 150ms ease-out;
+}
+
+.cortex-expandable-options__chevron--open {
+  transform: rotate(90deg);
+}
+
+.cortex-expandable-options__label {
+  font-weight: var(--cx-weight-value);
+}
+
+.cortex-expandable-options__body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 150ms ease-out;
+  overflow: hidden;
+}
+
+.cortex-expandable-options--open .cortex-expandable-options__body {
+  grid-template-rows: 1fr;
+}
+
+.cortex-expandable-options__inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cortex-expandable-options__body {
+    transition: none;
+  }
 }
 
 /* ── Position Section · self-alignment block ─

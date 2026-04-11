@@ -83,10 +83,22 @@ describe('LayoutSection', () => {
     expect(container.textContent).not.toContain('Direction')
   })
 
-  it('shows justify/align for flex display', () => {
+  it('shows FlexControls for flex display (Task 8 — Justify/Align replaced by AlignmentGrid + X/Y dropdowns)', () => {
+    // Task 8 extracted the inline Justify/Align SegmentedControls into
+    // FlexControls — which renders an AlignmentGrid and X/Y dropdowns
+    // instead of text-labelled segmented controls. The old "Justify"
+    // and "Align" labels no longer appear for flex display; for grid
+    // display they still exist (see the next test).
     setup({ values: { ...DEFAULT_VALUES, display: 'flex' } })
-    expect(container.textContent).toContain('Justify')
-    expect(container.textContent).toContain('Align')
+    expect(container.querySelector('.cortex-flex-controls')).not.toBeNull()
+    expect(container.querySelector('.cortex-alignment-grid')).not.toBeNull()
+    // X and Y dropdown triggers must both be present.
+    expect(
+      container.querySelector('[data-xy-axis="x"] .cortex-xy-dropdown__trigger'),
+    ).not.toBeNull()
+    expect(
+      container.querySelector('[data-xy-axis="y"] .cortex-xy-dropdown__trigger'),
+    ).not.toBeNull()
   })
 
   it('shows justify/align for grid display', () => {

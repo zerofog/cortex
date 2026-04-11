@@ -4,6 +4,8 @@ import { SegmentedControl } from '../controls/SegmentedControl.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { SizingDropdown } from '../controls/SizingDropdown.js'
 import type { SizingMode } from '../controls/SizingDropdown.js'
+import { FlexControls } from './FlexControls.js'
+import type { FlexValues, FlexChange } from './FlexControls.js'
 
 export interface LayoutChange {
   property: string
@@ -73,13 +75,6 @@ const VISIBILITY_OPTIONS = [
   { value: 'hidden', label: 'hidden' },
 ]
 
-const FLEX_DIRECTION_OPTIONS = [
-  { value: 'row', icon: '→', title: 'Row' },
-  { value: 'row-reverse', icon: '←', title: 'Row Reverse' },
-  { value: 'column', icon: '↓', title: 'Column' },
-  { value: 'column-reverse', icon: '↑', title: 'Column Reverse' },
-]
-
 const JUSTIFY_OPTIONS = [
   { value: 'flex-start', icon: '⊣', title: 'Start' },
   { value: 'center', icon: '⊡', title: 'Center' },
@@ -105,7 +100,6 @@ export function LayoutSection({
 }: LayoutSectionProps): JSX.Element {
   const isFlex = values.display === 'flex' || values.display === 'inline-flex'
   const isGrid = values.display === 'grid' || values.display === 'inline-grid'
-  const isFlexOrGrid = isFlex || isGrid
   const isNone = values.display === 'none'
   const [aspectLocked, setAspectLocked] = useState(false)
   const [widthMode, setWidthMode] = useState<SizingMode>(
@@ -131,10 +125,16 @@ export function LayoutSection({
     (v: string) => onChange({ property: 'visibility', value: v }),
     [onChange],
   )
-  const handleFlexDirChange = useCallback(
-    (v: string) => onChange({ property: 'flex-direction', value: v }),
-    [onChange],
-  )
+  // Flex callbacks are owned by FlexControls (Task 8 / ZF0-1186) —
+  // the column-direction X/Y swap logic needs a single source of truth,
+  // and inlining it in LayoutSection would duplicate the mapping. The
+  // FlexChange shape is structurally identical to LayoutChange (both are
+  // `{ property, value }`), so we pass the parent callbacks through
+  // unchanged — no wrapper allocation, no shape translation.
+  const handleFlexChange: (c: FlexChange) => void = onChange
+  const handleFlexScrub: ((c: FlexChange) => void) | undefined = onScrub
+  const handleFlexScrubEnd: ((c: FlexChange) => void) | undefined = onScrubEnd
+  // Grid-only justify/align handlers — will be absorbed into GridControls in Task 9.
   const handleJustifyChange = useCallback(
     (v: string) => onChange({ property: 'justify-content', value: v }),
     [onChange],
@@ -143,6 +143,21 @@ export function LayoutSection({
     (v: string) => onChange({ property: 'align-items', value: v }),
     [onChange],
   )
+
+  // FlexControls wants a FlexValues snapshot sourced from LayoutValues.
+  // `rowGap`/`columnGap`/`flexWrap` aren't carried on LayoutValues
+  // (that's Task 9+ plumbing); default them to 0/0/'nowrap' until the
+  // pipeline is extended. The FlexControls unit tests cover the
+  // FlexValues contract directly — this fallback keeps LayoutSection
+  // compiling without an invasive type change.
+  const flexValues: FlexValues = {
+    flexDirection: values.flexDirection,
+    justifyContent: values.justifyContent,
+    alignItems: values.alignItems,
+    rowGap: 0,
+    columnGap: 0,
+    flexWrap: 'nowrap',
+  }
 
   const widthNum = parseFloat(values.width)
   const heightNum = parseFloat(values.height)
@@ -295,17 +310,17 @@ export function LayoutSection({
 
       {isFlex && (
         <div class="cortex-layout-section__group cortex-layout-section__reveal">
-          <span class="cortex-section-label">Direction</span>
-          <SegmentedControl
-            options={FLEX_DIRECTION_OPTIONS}
-            value={values.flexDirection}
-            onChange={handleFlexDirChange}
-            size="sm"
+          <FlexControls
+            values={flexValues}
+            onChange={handleFlexChange}
+            onScrub={handleFlexScrub}
+            onScrubEnd={handleFlexScrubEnd}
+            mixedProperties={mixedProperties}
           />
         </div>
       )}
 
-      {isFlexOrGrid && (
+      {isGrid && (
         <>
           <div class="cortex-layout-section__group cortex-layout-section__reveal">
             <span class="cortex-section-label">Justify</span>
