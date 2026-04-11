@@ -2649,6 +2649,8 @@
 .cortex-border-section__corner-toggle,
 .cortex-icon-button,
 .cortex-position-dropdown__trigger,
+.cortex-alignment-grid__cell,
+.cortex-alignment-grid__distribute-btn,
 .cortex-sizing-trigger {
   outline: 2px solid transparent;
   outline-offset: 1px;
@@ -2664,6 +2666,8 @@
 .cortex-border-section__corner-toggle:focus-visible,
 .cortex-icon-button:focus-visible,
 .cortex-position-dropdown__trigger:focus-visible,
+.cortex-alignment-grid__cell:focus-visible,
+.cortex-alignment-grid__distribute-btn:focus-visible,
 .cortex-sizing-trigger:focus-visible {
   outline-color: var(--cx-select-muted);
 }
@@ -2777,6 +2781,101 @@
 
 .cortex-icon-button--active:hover:not(:disabled) {
   background: var(--cx-well-hover);
+}
+
+/* ── Alignment Grid ──────────────────────────
+   3x3 dot grid for flex/grid alignment picking. Click = position,
+   double-click = distribution overlay (replaces the target row or
+   column with a 3-button strip). Plan: conditional controls mount
+   instantly — no transitions on overlay show/hide. */
+.cortex-alignment-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: var(--cx-sp-1);
+  width: 80px;
+  aspect-ratio: 1;
+  padding: var(--cx-sp-1);
+  background: var(--cx-well);
+  border-radius: var(--cx-radius-sm);
+  box-shadow: var(--cx-well-shadow);
+  flex-shrink: 0;
+}
+
+.cortex-alignment-grid__cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: var(--cx-radius-sm);
+  padding: 0;
+  cursor: pointer;
+  color: var(--cx-ink-ghost);
+  /* Only background/color transition — no layout properties, no size
+     changes. Keeps the compositor happy and the click feel instant. */
+  transition: background 120ms ease-out, color 120ms ease-out;
+}
+
+.cortex-alignment-grid__cell:hover {
+  background: var(--cx-well-hover);
+  color: var(--cx-ink-secondary);
+}
+
+.cortex-alignment-grid__cell--active {
+  background: var(--cx-select-muted);
+  color: var(--cx-select);
+}
+
+.cortex-alignment-grid__cell--active:hover {
+  background: var(--cx-select-muted);
+}
+
+.cortex-alignment-grid__cell__dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  display: block;
+}
+
+/* Distribution overlay — occupies the full row or column via grid-span
+   set inline on the element. Flex row of 3 labeled buttons, no icons. */
+.cortex-alignment-grid__overlay {
+  display: flex;
+  align-items: stretch;
+  gap: var(--cx-sp-1);
+  background: var(--cx-well);
+  border-radius: var(--cx-radius-sm);
+  /* Row overlay: horizontal button strip. Col overlay: vertical strip. */
+}
+
+.cortex-alignment-grid__overlay--col {
+  flex-direction: column;
+}
+
+.cortex-alignment-grid__distribute-btn {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  border: none;
+  background: var(--cx-vellum);
+  color: var(--cx-ink-secondary);
+  border-radius: var(--cx-radius-sm);
+  font-size: var(--cx-text-xs);
+  font-weight: var(--cx-weight-value);
+  font-family: inherit;
+  padding: 0 var(--cx-sp-2);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 120ms ease-out, color 120ms ease-out;
+}
+
+.cortex-alignment-grid__distribute-btn:hover {
+  background: var(--cx-well-hover);
+  color: var(--cx-ink);
 }
 
 /* ── Position Section · self-alignment block ─
