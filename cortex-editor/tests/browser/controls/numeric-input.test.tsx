@@ -299,4 +299,51 @@ describe('NumericInput', () => {
       expect(onChange).not.toHaveBeenCalled()
     })
   })
+
+  // ── prefix prop (Task 6 / ZF0-1184) ───────────────────────────────────
+  // The `prefix` slot replaces the legacy `label` slot for callers that
+  // need to render an icon (or richer markup) inline-left of the value.
+  // PositionSection v2 uses it for X / Y / Z text tags AND the rotate icon.
+  describe('prefix prop', () => {
+    it('renders a string prefix inside a __prefix slot (not __label)', () => {
+      setup({ prefix: 'X' })
+      const prefixSlot = container.querySelector('.cortex-numeric-input__prefix')
+      expect(prefixSlot).not.toBeNull()
+      expect(prefixSlot!.textContent).toBe('X')
+      // Mutually exclusive with the legacy label slot
+      expect(container.querySelector('.cortex-numeric-input__label')).toBeNull()
+    })
+
+    it('renders a JSX prefix (icon support) inside the __prefix slot', () => {
+      // Stand-in icon — falsifiable: a real path string in the slot
+      // proves the JSX child rendered, and an empty container would
+      // fail the .innerHTML assertion.
+      const fakeIcon = (
+        <svg data-test-icon="rotate" viewBox="0 0 24 24">
+          <path d="M21 3v5h-5" />
+        </svg>
+      )
+      setup({ prefix: fakeIcon })
+      const prefixSlot = container.querySelector('.cortex-numeric-input__prefix')
+      expect(prefixSlot).not.toBeNull()
+      const svg = prefixSlot!.querySelector('svg[data-test-icon="rotate"]')
+      expect(svg).not.toBeNull()
+      expect(svg!.innerHTML).toContain('M21 3v5h-5')
+    })
+
+    it('prefix wins when both prefix and label are passed', () => {
+      setup({ prefix: 'X', label: 'IGNORED' })
+      const prefixSlot = container.querySelector('.cortex-numeric-input__prefix')
+      expect(prefixSlot!.textContent).toBe('X')
+      expect(container.querySelector('.cortex-numeric-input__label')).toBeNull()
+    })
+
+    it('falls back to the legacy label slot when prefix is omitted', () => {
+      setup({ label: 'T' })
+      const labelSlot = container.querySelector('.cortex-numeric-input__label')
+      expect(labelSlot).not.toBeNull()
+      expect(labelSlot!.textContent).toBe('T')
+      expect(container.querySelector('.cortex-numeric-input__prefix')).toBeNull()
+    })
+  })
 })

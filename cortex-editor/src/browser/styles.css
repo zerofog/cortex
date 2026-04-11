@@ -755,6 +755,18 @@
   flex-shrink: 0;
 }
 
+/* Inline ghost-coloured prefix slot — text or icon (e.g. RotateCw on the
+   PositionSection rotate input). Uses display:flex so an SVG child sits on
+   the input baseline without baseline-shifting the value text. */
+.cortex-numeric-input__prefix {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--cx-text-sm);
+  color: var(--cx-ink-ghost);
+  flex-shrink: 0;
+  line-height: 1;
+}
+
 .cortex-numeric-input__value {
   width: 100%;
   border: none;
@@ -2635,7 +2647,7 @@
 .cortex-spacing-group__toggle,
 .cortex-lock-btn,
 .cortex-border-section__corner-toggle,
-.cortex-position-section__toggle,
+.cortex-icon-button,
 .cortex-position-dropdown__trigger,
 .cortex-sizing-trigger {
   outline: 2px solid transparent;
@@ -2650,7 +2662,7 @@
 .cortex-spacing-group__toggle:focus-visible,
 .cortex-lock-btn:focus-visible,
 .cortex-border-section__corner-toggle:focus-visible,
-.cortex-position-section__toggle:focus-visible,
+.cortex-icon-button:focus-visible,
 .cortex-position-dropdown__trigger:focus-visible,
 .cortex-sizing-trigger:focus-visible {
   outline-color: var(--cx-select-muted);
@@ -2722,11 +2734,16 @@
   min-width: 0;
 }
 
-/* TODO Task 6 (ZF0-1184 PositionSection v2): bump to 28px or remove with PositionSection rewrite. */
-.cortex-position-section__toggle {
-  width: 26px;
-  height: 26px;
-  display: flex;
+/* ── Icon Button ─────────────────────────────
+   Reusable 28px square icon button (Task 6 / ZF0-1184). Used by
+   PositionSection v2 self-alignment block + flip H/V pair, and any
+   future Panel control that needs an icon-only toggle. Height matches
+   .cortex-numeric-input / .cortex-segmented__option md / .cortex-sizing-
+   trigger / .cortex-panel-header__btn (all 28px after Task 4 S6/S9). */
+.cortex-icon-button {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   border: none;
@@ -2735,32 +2752,47 @@
   cursor: pointer;
   color: var(--cx-ink-ghost);
   flex-shrink: 0;
-  transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out;
-  outline: 2px solid transparent;
-  outline-offset: 1px;
+  padding: 0;
+  transition: background 150ms ease-out, color 150ms ease-out, box-shadow 150ms ease-out;
 }
 
-.cortex-position-section__toggle:hover {
+.cortex-icon-button:hover:not(:disabled) {
   background: var(--cx-well);
   color: var(--cx-ink-secondary);
 }
 
-.cortex-position-section__toggle:active {
+.cortex-icon-button:active:not(:disabled) {
   background: var(--cx-well-hover);
+  transform: scale(0.92);
 }
 
-.cortex-position-section__toggle:focus-visible {
-  outline-color: var(--cx-select-muted);
+.cortex-icon-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
-.cortex-position-section__toggle--active {
+.cortex-icon-button--active {
   background: var(--cx-well);
   color: var(--cx-ink);
-  box-shadow: var(--cx-well-shadow);
+  box-shadow: var(--cx-well-shadow), 0 0 0 1.5px var(--cx-select-muted);
 }
 
-.cortex-position-section__toggle--active:hover {
+.cortex-icon-button--active:hover:not(:disabled) {
   background: var(--cx-well-hover);
+}
+
+/* ── Position Section · self-alignment block ─
+   6 IconButtons split across two rows (3 justify-self + 3 align-self),
+   only rendered when the parent element is flex/grid. */
+.cortex-position-section__self-align {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-2);
+}
+
+.cortex-position-section__self-align-row {
+  display: flex;
+  gap: var(--cx-sp-2);
 }
 
 /* ── Sizing Dropdown ────────────────────────── */

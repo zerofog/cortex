@@ -2,6 +2,18 @@ import type { JSX } from 'preact'
 import { useCallback } from 'preact/hooks'
 import { PositionDropdown } from '../controls/PositionDropdown.js'
 import { NumericInput } from '../controls/NumericInput.js'
+import { IconButton } from '../controls/IconButton.js'
+import {
+  RotateCw,
+  FlipHorizontal,
+  FlipVertical,
+  AlignHorizontalJustifyStart,
+  AlignHorizontalJustifyCenter,
+  AlignHorizontalJustifyEnd,
+  AlignVerticalJustifyStart,
+  AlignVerticalJustifyCenter,
+  AlignVerticalJustifyEnd,
+} from '../icons.js'
 
 export interface PositionChange {
   property: string
@@ -16,6 +28,8 @@ export interface PositionValues {
   rotate: string     // CSS rotate property (e.g., "none", "45deg")
   scaleX: string     // from CSS scale property, for flip detection
   scaleY: string     // from CSS scale property, for flip detection
+  justifySelf: string // computed justify-self (e.g., "auto", "start", "center", "end")
+  alignSelf: string   // computed align-self (e.g., "auto", "start", "center", "end")
 }
 
 export interface PositionSectionProps {
@@ -25,6 +39,17 @@ export interface PositionSectionProps {
   onScrubEnd?: (change: PositionChange) => void
   /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
   dimmedProperties?: Set<string>
+  /**
+   * True when the selected element's PARENT has display: flex / inline-flex /
+   * grid / inline-grid. Drives the conditional render of the self-alignment
+   * 6-button block — justify-self / align-self only have meaningful effects
+   * inside flex/grid containers.
+   *
+   * Computed in Panel.tsx (hot path) from
+   * `getComputedStyle(element.parentElement).display` so the section itself
+   * never re-touches the layout pipeline.
+   */
+  parentIsFlexOrGrid?: boolean
 }
 
 /** Extract position-related values from a CSSStyleDeclaration. */
@@ -45,7 +70,84 @@ export function parsePositionValues(cs: CSSStyleDeclaration): PositionValues {
     rotate: (cs as any).rotate ?? 'none',
     scaleX,
     scaleY,
+    justifySelf: cs.justifySelf ?? 'auto',
+    alignSelf: cs.alignSelf ?? 'auto',
   }
+}
+
+interface SelfAlignmentBlockProps {
+  justifySelf: string
+  alignSelf: string
+  onChange: (change: PositionChange) => void
+}
+
+// Tightly-scoped sub-block; lives in this file because it has zero reuse
+// outside PositionSection v2. Extract to its own module if a second consumer
+// ever appears.
+function SelfAlignmentBlock({
+  justifySelf,
+  alignSelf,
+  onChange,
+}: SelfAlignmentBlockProps): JSX.Element {
+  const setJustify = useCallback(
+    (value: string) => onChange({ property: 'justify-self', value }),
+    [onChange],
+  )
+  const setAlign = useCallback(
+    (value: string) => onChange({ property: 'align-self', value }),
+    [onChange],
+  )
+
+  return (
+    <div class="cortex-position-section__self-align">
+      <div class="cortex-position-section__self-align-row">
+        <IconButton
+          icon={<AlignHorizontalJustifyStart size={14} />}
+          ariaLabel="Justify self start"
+          tooltip="Justify self · start"
+          active={justifySelf === 'start' || justifySelf === 'flex-start'}
+          onClick={() => setJustify('start')}
+        />
+        <IconButton
+          icon={<AlignHorizontalJustifyCenter size={14} />}
+          ariaLabel="Justify self center"
+          tooltip="Justify self · center"
+          active={justifySelf === 'center'}
+          onClick={() => setJustify('center')}
+        />
+        <IconButton
+          icon={<AlignHorizontalJustifyEnd size={14} />}
+          ariaLabel="Justify self end"
+          tooltip="Justify self · end"
+          active={justifySelf === 'end' || justifySelf === 'flex-end'}
+          onClick={() => setJustify('end')}
+        />
+      </div>
+      <div class="cortex-position-section__self-align-row">
+        <IconButton
+          icon={<AlignVerticalJustifyStart size={14} />}
+          ariaLabel="Align self start"
+          tooltip="Align self · start"
+          active={alignSelf === 'start' || alignSelf === 'flex-start'}
+          onClick={() => setAlign('start')}
+        />
+        <IconButton
+          icon={<AlignVerticalJustifyCenter size={14} />}
+          ariaLabel="Align self center"
+          tooltip="Align self · center"
+          active={alignSelf === 'center'}
+          onClick={() => setAlign('center')}
+        />
+        <IconButton
+          icon={<AlignVerticalJustifyEnd size={14} />}
+          ariaLabel="Align self end"
+          tooltip="Align self · end"
+          active={alignSelf === 'end' || alignSelf === 'flex-end'}
+          onClick={() => setAlign('end')}
+        />
+      </div>
+    </div>
+  )
 }
 
 export function PositionSection({
@@ -53,6 +155,7 @@ export function PositionSection({
   onChange,
   onScrub,
   onScrubEnd,
+  parentIsFlexOrGrid,
 }: PositionSectionProps): JSX.Element {
   const isStatic = values.position === 'static'
 
@@ -112,11 +215,6 @@ export function PositionSection({
     (v: number) => { if (onScrubEnd) onScrubEnd({ property: 'rotate', value: `${v}deg` }) },
     [onScrubEnd],
   )
-  const handleRotate90 = useCallback(() => {
-    const current = values.rotate === 'none' ? 0 : parseFloat(values.rotate)
-    const next = (current + 90) % 360
-    onChange({ property: 'rotate', value: `${next}deg` })
-  }, [values.rotate, onChange])
 
   const handleFlipH = useCallback(() => {
     const newX = isFlippedH ? '1' : '-1'
@@ -132,6 +230,8 @@ export function PositionSection({
   const topNum = parseFloat(values.top)
   const xValue = isStatic ? 0 : (isNaN(leftNum) ? 0 : leftNum)
   const yValue = isStatic ? 0 : (isNaN(topNum) ? 0 : topNum)
+  // z-index defaults to 'auto' (NaN); coerce to 0 for the numeric input.
+  // Edits send the literal numeric string back, never 'auto'.
   const zValue = parseFloat(values.zIndex) || 0
 
   const isSticky = values.position === 'sticky'
@@ -147,60 +247,45 @@ export function PositionSection({
           onChange={handlePositionMode}
         />
       </div>
+      {parentIsFlexOrGrid && (
+        <SelfAlignmentBlock
+          justifySelf={values.justifySelf}
+          alignSelf={values.alignSelf}
+          onChange={onChange}
+        />
+      )}
       <div
         class={`cortex-position-section__xy-row${isStatic ? ' cortex-position-section__xy-row--disabled' : ''}`}
         data-tooltip={isStatic ? 'Set position mode to enable' : undefined}
       >
-        <NumericInput value={xValue} unit={isStatic ? 'auto' : 'px'} label="X" tooltip={xTooltip} disabled={isStatic} onChange={handleXChange} onScrub={handleXScrub} onScrubEnd={handleXScrubEnd} />
-        <NumericInput value={yValue} unit={isStatic ? 'auto' : 'px'} label="Y" tooltip={yTooltip} disabled={isStatic} onChange={handleYChange} onScrub={handleYScrub} onScrubEnd={handleYScrubEnd} />
-        <NumericInput value={zValue} label="Z" tooltip="Z-index" onChange={handleZChange} />
+        <NumericInput value={xValue} unit={isStatic ? 'auto' : 'px'} prefix="X" tooltip={xTooltip} disabled={isStatic} onChange={handleXChange} onScrub={handleXScrub} onScrubEnd={handleXScrubEnd} />
+        <NumericInput value={yValue} unit={isStatic ? 'auto' : 'px'} prefix="Y" tooltip={yTooltip} disabled={isStatic} onChange={handleYChange} onScrub={handleYScrub} onScrubEnd={handleYScrubEnd} />
+        <NumericInput value={zValue} prefix="Z" tooltip="Z-index" onChange={handleZChange} />
       </div>
       <div class="cortex-position-section__rotate-row">
         <NumericInput
           value={rotateNum}
           unit="deg"
-          label="∠"
+          prefix={<RotateCw size={12} />}
           tooltip="Rotation"
           onChange={handleRotateChange}
           onScrub={handleRotateScrub}
           onScrubEnd={handleRotateScrubEnd}
         />
-        <button
-          class="cortex-position-section__toggle"
-          type="button"
-          data-tooltip="Rotate 90°"
-          aria-label="Rotate 90 degrees"
-          onClick={handleRotate90}
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M2 7a5 5 0 0 1 9-3" />
-            <polyline points="11,1 11,4.5 7.5,4.5" />
-          </svg>
-        </button>
-        <button
-          class={`cortex-position-section__toggle${isFlippedH ? ' cortex-position-section__toggle--active' : ''}`}
-          type="button"
-          data-tooltip="Flip horizontal"
-          aria-label="Flip horizontal"
-          aria-pressed={isFlippedH ? 'true' : 'false'}
+        <IconButton
+          icon={<FlipHorizontal size={14} />}
+          ariaLabel="Flip horizontal"
+          tooltip="Flip horizontal"
+          active={isFlippedH}
           onClick={handleFlipH}
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M7 1v12M3 4l-2 3 2 3M11 4l2 3-2 3" />
-          </svg>
-        </button>
-        <button
-          class={`cortex-position-section__toggle${isFlippedV ? ' cortex-position-section__toggle--active' : ''}`}
-          type="button"
-          data-tooltip="Flip vertical"
-          aria-label="Flip vertical"
-          aria-pressed={isFlippedV ? 'true' : 'false'}
+        />
+        <IconButton
+          icon={<FlipVertical size={14} />}
+          ariaLabel="Flip vertical"
+          tooltip="Flip vertical"
+          active={isFlippedV}
           onClick={handleFlipV}
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M1 7h12M4 3L7 1l3 2M4 11l3 2 3-2" />
-          </svg>
-        </button>
+        />
       </div>
     </div>
   )

@@ -355,7 +355,7 @@ export function Panel({
   // C1: Cache getComputedStyle results + compute dimmed properties in a single useMemo
   // to avoid double forced layout. CRITICAL: activeState + activePseudo in deps so
   // useMemo re-runs after state forcing (getComputedStyle returns a live reference).
-  const { computedStyles, dimmedProperties, mixedProperties } = useMemo(() => {
+  const { computedStyles, dimmedProperties, mixedProperties, parentDisplay } = useMemo(() => {
     if (!element) {
       return {
         computedStyles: {
@@ -371,6 +371,7 @@ export function Panel({
         },
         dimmedProperties: undefined as Set<string> | undefined,
         mixedProperties: undefined as Set<string> | undefined,
+        parentDisplay: '',
       }
     }
     const pseudo = activePseudo !== 'element' ? activePseudo : undefined
@@ -386,6 +387,12 @@ export function Panel({
       position: parsePositionValues(cs),
       appearance: parseAppearanceValues(cs),
     }
+    // Read parent display for PositionSection v2 self-alignment gating
+    // (Task 6 / ZF0-1184). Single getComputedStyle call lives inside this
+    // already-cached useMemo so we don't add a second forced layout per
+    // render. Returns '' when there is no parent (document root).
+    const parent = element.parentElement
+    const computedParentDisplay = parent ? getComputedStyle(parent).display : ''
 
     let dimmed: Set<string> | undefined
     if (activeState !== 'default' && defaultStylesRef.current) {
@@ -416,12 +423,21 @@ export function Panel({
       if (mixed.size === 0) mixed = undefined
     }
 
-    return { computedStyles: parsed, dimmedProperties: dimmed, mixedProperties: mixed }
+    return { computedStyles: parsed, dimmedProperties: dimmed, mixedProperties: mixed, parentDisplay: computedParentDisplay }
   }, [element, styleVersion, activeState, activePseudo, sharedInfo, editScope])
 
   // Derive isFlexOrGrid from normalized layout display
   const layoutDisplay = computedStyles.layout.display
   const isFlexOrGrid = layoutDisplay === 'flex' || layoutDisplay === 'grid'
+  // Derive parentIsFlexOrGrid from the parent's raw display string. Used by
+  // PositionSection v2 to gate the self-alignment 6-button block (justify-
+  // self / align-self only have meaningful effects inside flex/grid). The
+  // raw display string is parsed in the useMemo above to avoid double layouts.
+  const parentIsFlexOrGrid =
+    parentDisplay === 'flex' ||
+    parentDisplay === 'inline-flex' ||
+    parentDisplay === 'grid' ||
+    parentDisplay === 'inline-grid'
   const availableWeights = useMemo(
     () => {
       const family = computedStyles.typography.fontFamily ?? ''
@@ -919,6 +935,7 @@ export function Panel({
               onScrub={handlePositionScrub}
               onScrubEnd={handlePositionCommit}
               dimmedProperties={dimmedProperties}
+              parentIsFlexOrGrid={parentIsFlexOrGrid}
             />
           </SectionGroup>
         )}
