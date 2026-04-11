@@ -1,6 +1,6 @@
 import type { JSX } from 'preact'
 import { useCallback } from 'preact/hooks'
-import { SegmentedControl } from '../controls/SegmentedControl.js'
+import { PositionDropdown } from '../controls/PositionDropdown.js'
 import { NumericInput } from '../controls/NumericInput.js'
 
 export interface PositionChange {
@@ -47,14 +47,6 @@ export function parsePositionValues(cs: CSSStyleDeclaration): PositionValues {
     scaleY,
   }
 }
-
-const POSITION_MODE_OPTIONS = [
-  { value: 'static', label: 'stat', title: 'Static' },
-  { value: 'relative', label: 'rel', title: 'Relative' },
-  { value: 'absolute', label: 'abs', title: 'Absolute' },
-  { value: 'fixed', label: 'fix', title: 'Fixed' },
-  { value: 'sticky', label: 'stky', title: 'Sticky' },
-]
 
 export function PositionSection({
   values,
@@ -150,11 +142,9 @@ export function PositionSection({
   return (
     <div class="cortex-position-section" data-section-id="position">
       <div class="cortex-position-section__group">
-        <SegmentedControl
-          options={POSITION_MODE_OPTIONS}
+        <PositionDropdown
           value={values.position}
           onChange={handlePositionMode}
-          size="sm"
         />
       </div>
       <div

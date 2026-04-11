@@ -3,6 +3,17 @@ import { render } from 'preact'
 import { PositionSection, parsePositionValues } from '../../../src/browser/components/sections/PositionSection.js'
 import type { PositionValues } from '../../../src/browser/components/sections/PositionSection.js'
 
+// Mock @floating-ui/dom — PositionSection now hosts a PositionDropdown
+// whose popover opens via computePosition. happy-dom has no layout
+// engine, so we stub the positioning API the same way Dropdown-family
+// tests do. The popover DOM is gated on isOpen state, not on position
+// resolution, so the mock only prevents spurious warn() logs.
+vi.mock('@floating-ui/dom', () => ({
+  computePosition: vi.fn().mockResolvedValue({ x: 0, y: 30 }),
+  flip: vi.fn().mockReturnValue({}),
+  shift: vi.fn().mockReturnValue({}),
+}))
+
 describe('PositionSection', () => {
   let container: HTMLDivElement
 
@@ -90,16 +101,28 @@ describe('PositionSection', () => {
     expect(result.scaleY).toBe('2')
   })
 
-  it('shows absolute as active for position:absolute', () => {
+  it('shows absolute as the selected option label for position:absolute', () => {
     setup({ values: { ...DEFAULT_VALUES, position: 'absolute' } })
-    const active = container.querySelector('[aria-checked="true"]')
-    expect(active!.getAttribute('data-value')).toBe('absolute')
+    const triggerLabel = container.querySelector(
+      '.cortex-position-dropdown__trigger-label',
+    )
+    expect(triggerLabel).not.toBeNull()
+    expect(triggerLabel!.textContent).toBe('Absolute')
   })
 
-  it('emits position change on mode switch', () => {
+  it('emits position change when selecting a new mode from the dropdown', async () => {
     const { onChange } = setup()
-    const absBtn = container.querySelector('[data-value="absolute"]') as HTMLElement
-    absBtn.click()
+    const trigger = container.querySelector(
+      '.cortex-position-dropdown__trigger',
+    ) as HTMLButtonElement
+    expect(trigger).not.toBeNull()
+    trigger.click()
+    await new Promise((r) => setTimeout(r, 10))
+    const absOption = container.querySelector(
+      '#cortex-position-opt-absolute',
+    ) as HTMLElement
+    expect(absOption).not.toBeNull()
+    absOption.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'position', value: 'absolute' })
   })
 
