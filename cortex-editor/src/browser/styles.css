@@ -667,8 +667,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border: none;
   background: transparent;
   border-radius: var(--cx-radius-sm);
@@ -898,7 +898,7 @@
    because the two evolve together. */
 .cortex-subsection-label {
   font-size: var(--cx-text-md);
-  font-weight: 600;
+  font-weight: var(--cx-weight-heading);
   color: var(--cx-ink-ghost);
   border-top: 1px solid var(--cx-rule-soft);
   margin-top: var(--cx-sp-4);
@@ -1488,6 +1488,7 @@
   flex-shrink: 0;
 }
 
+/* TODO Task 13 (ZF0-1191 BackgroundSection): bump to 28px for Panel v2 control consistency. */
 .cortex-color-picker__hex-input,
 .cortex-color-picker__alpha-input {
   flex: 1;
@@ -2577,6 +2578,7 @@
   min-width: 0;
 }
 
+/* TODO Task 6 (ZF0-1184 PositionSection v2): bump to 28px or remove with PositionSection rewrite. */
 .cortex-position-section__toggle {
   width: 26px;
   height: 26px;
@@ -2628,7 +2630,8 @@
   align-items: center;
   gap: var(--cx-sp-1);
   padding: 0 var(--cx-sp-3);
-  height: 26px;
+  /* Match .cortex-numeric-input height — these are visually fused via border-left in compound W/H controls. */
+  height: 28px;
   background: var(--cx-well);
   border: none;
   border-left: 1px solid var(--cx-rule-soft);

@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { render, h } from 'preact'
+import { render } from 'preact'
+import type { VNode } from 'preact'
 import { SectionGroup } from '../../../src/browser/components/SectionGroup.js'
 
 /**
@@ -22,7 +23,7 @@ describe('SectionGroup — Panel v2 headerAction slot', () => {
     }
   })
 
-  function mount(node: preact.VNode) {
+  function mount(node: VNode) {
     container = document.createElement('div')
     document.body.appendChild(container)
     render(node, container)
@@ -86,21 +87,8 @@ describe('SectionGroup — Panel v2 headerAction slot', () => {
     expect(header!.children[0].classList.contains('cortex-section-group__title')).toBe(true)
   })
 
-  it('applies the title class (typography token binding is asserted in CSS, not here)', () => {
-    // TODO: requires real CSSOM — computed font-size/weight for
-    // .cortex-section-group__title cannot be verified under happy-dom.
-    // The assertion here is that the class exists so the stylesheet rule
-    // can bind; visual-token asserting happens in E2E.
-    mount(
-      <SectionGroup label="Appearance" groupId="appearance">
-        <span />
-      </SectionGroup>,
-    )
-    const title = container.querySelector('.cortex-section-group__title')
-    expect(title).not.toBeNull()
-    expect(title!.classList.contains('cortex-section-group__title')).toBe(true)
+  it.skip('TODO: lock title typography invariants once real CSSOM is available', () => {
+    // Awaiting jsdom CSSOM support for var(--cx-text-lg) resolution.
+    // Until then, typography binding is locked in styles.css and the visual review.
   })
-
-  // Silence unused-import warnings for h (used by JSX factory at compile time).
-  void h
 })
