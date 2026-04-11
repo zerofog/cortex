@@ -25,6 +25,9 @@ describe('LayoutSection', () => {
     flexDirection: 'row',
     justifyContent: 'flex-start',
     alignItems: 'stretch',
+    rowGap: 0,
+    columnGap: 0,
+    flexWrap: 'nowrap',
     width: '320',
     height: '48',
     minWidth: '0px',
@@ -216,5 +219,61 @@ describe('LayoutSection', () => {
     const result = parseLayoutValues(cs)
     expect(result.minWidth).toBe('100px')
     expect(result.maxWidth).toBe('500px')
+  })
+
+  it('parseLayoutValues reads gap and flex-wrap fields from a CSSStyleDeclaration', () => {
+    const cs = {
+      display: 'flex',
+      visibility: 'visible',
+      flexDirection: 'column-reverse',
+      justifyContent: 'center',
+      alignItems: 'flex-end',
+      rowGap: '12px',
+      columnGap: '8px',
+      flexWrap: 'wrap-reverse',
+      width: 'auto',
+      height: 'auto',
+      minWidth: '0px',
+      maxWidth: 'none',
+      minHeight: '0px',
+      maxHeight: 'none',
+    } as unknown as CSSStyleDeclaration
+    const result = parseLayoutValues(cs)
+    expect(result.rowGap).toBe(12)
+    expect(result.columnGap).toBe(8)
+    expect(result.flexWrap).toBe('wrap-reverse')
+    // Confirm the existing fields still flow through.
+    expect(result.flexDirection).toBe('column-reverse')
+    expect(result.justifyContent).toBe('center')
+    expect(result.alignItems).toBe('flex-end')
+  })
+
+  it('parseLayoutValues defaults gap and flex-wrap when fields are absent', () => {
+    // CSSStyleDeclaration always returns '' (empty string) for unset
+    // longhand getters, so the parser must coerce '' to the same defaults
+    // an unstyled element would render with.
+    const cs = {
+      display: 'block',
+      visibility: 'visible',
+      flexDirection: '',
+      justifyContent: '',
+      alignItems: '',
+      rowGap: '',
+      columnGap: '',
+      flexWrap: '',
+      width: 'auto',
+      height: 'auto',
+      minWidth: '0px',
+      maxWidth: 'none',
+      minHeight: '0px',
+      maxHeight: 'none',
+    } as unknown as CSSStyleDeclaration
+    const result = parseLayoutValues(cs)
+    expect(result.rowGap).toBe(0)
+    expect(result.columnGap).toBe(0)
+    expect(result.flexWrap).toBe('nowrap')
+    expect(result.flexDirection).toBe('row')
+    expect(result.justifyContent).toBe('flex-start')
+    expect(result.alignItems).toBe('stretch')
   })
 })

@@ -1,9 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
-import {
-  FlexControls,
-  parseFlexValues,
-} from '../../../src/browser/components/sections/FlexControls.js'
+import { FlexControls } from '../../../src/browser/components/sections/FlexControls.js'
 import type {
   FlexValues,
   FlexChange,
@@ -523,48 +520,11 @@ describe('FlexControls', () => {
     ])
   })
 
-  // ── 20: parseFlexValues ──────────────────────────────────────────
-
-  it('parseFlexValues reads all 6 fields from a CSSStyleDeclaration', () => {
-    const cs = {
-      flexDirection: 'column-reverse',
-      justifyContent: 'center',
-      alignItems: 'flex-end',
-      rowGap: '12px',
-      columnGap: '8px',
-      flexWrap: 'wrap-reverse',
-    } as unknown as CSSStyleDeclaration
-    const values = parseFlexValues(cs)
-    expect(values.flexDirection).toBe('column-reverse')
-    expect(values.justifyContent).toBe('center')
-    expect(values.alignItems).toBe('flex-end')
-    expect(values.rowGap).toBe(12)
-    expect(values.columnGap).toBe(8)
-    expect(values.flexWrap).toBe('wrap-reverse')
-  })
-
-  it('parseFlexValues falls back to sensible defaults when fields are absent', () => {
-    // Missing fields mimic a CSSStyleDeclaration read from an element
-    // that doesn't have the property set. CSSStyleDeclaration always
-    // returns '' for unset longhand, so we test empty string too.
-    const cs = {
-      flexDirection: '',
-      justifyContent: '',
-      alignItems: '',
-      rowGap: '',
-      columnGap: '',
-      flexWrap: '',
-    } as unknown as CSSStyleDeclaration
-    const values = parseFlexValues(cs)
-    expect(values.flexDirection).toBe('row')
-    expect(values.justifyContent).toBe('flex-start')
-    expect(values.alignItems).toBe('stretch')
-    expect(values.rowGap).toBe(0)
-    expect(values.columnGap).toBe(0)
-    expect(values.flexWrap).toBe('nowrap')
-  })
-
-  // ── 21: AlignmentGrid reverse-map in column mode ─────────────────
+  // ── 20: AlignmentGrid reverse-map in column mode ─────────────────
+  // (parseFlexValues was moved into parseLayoutValues — its tests now
+  // live in tests/browser/sections/layout-section.test.tsx as
+  // `parseLayoutValues reads gap and flex-wrap fields from a
+  // CSSStyleDeclaration` + the `defaults gap and flex-wrap` sibling.)
 
   it('column mode: AlignmentGrid receives reverse-mapped align/justify props so the visual active cell matches user intent', () => {
     // User has set "horizontal=center, vertical=start" on a column flex.

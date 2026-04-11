@@ -18,6 +18,9 @@ export interface LayoutValues {
   flexDirection: string
   justifyContent: string
   alignItems: string
+  rowGap: number
+  columnGap: number
+  flexWrap: string
   width: string
   height: string
   minWidth: string
@@ -50,9 +53,12 @@ export function parseLayoutValues(cs: CSSStyleDeclaration): LayoutValues {
   return {
     display: normalizeDisplay(cs.display ?? 'block'),
     visibility: cs.visibility ?? 'visible',
-    flexDirection: cs.flexDirection ?? 'row',
-    justifyContent: cs.justifyContent ?? 'flex-start',
-    alignItems: cs.alignItems ?? 'stretch',
+    flexDirection: cs.flexDirection || 'row',
+    justifyContent: cs.justifyContent || 'flex-start',
+    alignItems: cs.alignItems || 'stretch',
+    rowGap: parseFloat(cs.rowGap || '0') || 0,
+    columnGap: parseFloat(cs.columnGap || '0') || 0,
+    flexWrap: cs.flexWrap || 'nowrap',
     width: cs.width ?? 'auto',
     height: cs.height ?? 'auto',
     minWidth: cs.minWidth ?? '0px',
@@ -144,19 +150,17 @@ export function LayoutSection({
     [onChange],
   )
 
-  // FlexControls wants a FlexValues snapshot sourced from LayoutValues.
-  // `rowGap`/`columnGap`/`flexWrap` aren't carried on LayoutValues
-  // (that's Task 9+ plumbing); default them to 0/0/'nowrap' until the
-  // pipeline is extended. The FlexControls unit tests cover the
-  // FlexValues contract directly — this fallback keeps LayoutSection
-  // compiling without an invasive type change.
+  // FlexValues is structurally a subset of LayoutValues. Building the
+  // explicit subset (instead of spreading) keeps the call site honest
+  // about which fields FlexControls actually consumes — adding a new
+  // FlexValues field surfaces here as a missing-property compile error.
   const flexValues: FlexValues = {
     flexDirection: values.flexDirection,
     justifyContent: values.justifyContent,
     alignItems: values.alignItems,
-    rowGap: 0,
-    columnGap: 0,
-    flexWrap: 'nowrap',
+    rowGap: values.rowGap,
+    columnGap: values.columnGap,
+    flexWrap: values.flexWrap,
   }
 
   const widthNum = parseFloat(values.width)

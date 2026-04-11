@@ -34,8 +34,9 @@
  * cross-axis CSS property (`align-content` in row, `justify-content`
  * in column).
  *
- * Silently writing the wrong CSS property is a trust vulnerability
- * (from the 2026-04-10 arch review) — every path through this file
+ * Silently writing the wrong CSS property is a trust vulnerability:
+ * the user sees "X = Left" and rationally expects horizontal-start, but
+ * column-flex would write the wrong axis. Every path through this file
  * must route through the single `flexAxisToCssProperty` helper below.
  * Tests assert on the exact property name emitted for every code path.
  */
@@ -83,46 +84,7 @@ export interface FlexControlsProps {
   mixedProperties?: Set<string>
 }
 
-// ── Parsing ─────────────────────────────────────────────────────────
-
-/**
- * Extract flex-related values from a CSSStyleDeclaration. Used by the
- * LayoutSection plumbing to derive a FlexValues snapshot before passing
- * it into FlexControls — sibling of `parseLayoutValues` in LayoutSection.
- *
- * CSSStyleDeclaration longhand getters return '' for unset properties,
- * so we coerce empty strings to the same defaults Panel expects
- * ('flex-start' for `align-items` being the important one — the browser
- * default for `align-items` is actually `normal`, but FlexControls'
- * canonical 3x3 grid only recognizes flex-start/center/flex-end; any
- * other value falls through to "no cell active" which is the
- * documented fallback state).
- */
-export function parseFlexValues(cs: CSSStyleDeclaration): FlexValues {
-  const flexDirection = (cs.flexDirection || '') || 'row'
-  const justifyContent = (cs.justifyContent || '') || 'flex-start'
-  // Note: align-items default in the spec is `normal`, but our 3x3 grid
-  // is parameterised on flex-start/center/flex-end, and the existing
-  // LayoutValues fallback was 'stretch'. Mirror that behaviour — the
-  // AlignmentGrid leaves all 9 cells inactive for 'stretch', which is
-  // the documented fallback.
-  const alignItems = (cs.alignItems || '') || 'stretch'
-  const flexWrap = (cs.flexWrap || '') || 'nowrap'
-  const rowGap = parseFloat(cs.rowGap || '0') || 0
-  const columnGap = parseFloat(cs.columnGap || '0') || 0
-  return {
-    flexDirection,
-    justifyContent,
-    alignItems,
-    rowGap,
-    columnGap,
-    flexWrap,
-  }
-}
-
 // ── X/Y axis mapping ────────────────────────────────────────────────
-
-type FlexDirection = 'row' | 'row-reverse' | 'column' | 'column-reverse'
 
 /** Screen-coordinate axis role — never a CSS property name. */
 type ScreenAxis = 'x' | 'y'
@@ -142,10 +104,10 @@ function isColumnDirection(direction: string): boolean {
 /**
  * Single source of truth for the X/Y → CSS property mapping. Every
  * callback handler inside FlexControls routes through this helper so
- * the swap logic lives in exactly one place. Adding a new call site
- * without going through this function is the P0 bug the 2026-04-10
- * arch review flagged; keep the call surface narrow and the helper
- * pure.
+ * the swap logic lives in exactly one place. Bypassing this function
+ * (writing CSS property names directly in a handler) re-introduces the
+ * silent-wrong-property bug the helper exists to prevent — keep the
+ * call surface narrow and the helper pure.
  */
 function flexAxisToCssProperty(
   role: ScreenAxis | { distribute: DistributeAxis },
@@ -212,7 +174,12 @@ export function FlexControls({
   onScrubEnd,
   mixedProperties,
 }: FlexControlsProps): JSX.Element {
-  const { flexDirection, justifyContent, alignItems, rowGap, columnGap, flexWrap } = values
+  // `columnGap` is parsed into FlexValues but not destructured here:
+  // the Gap input is single-axis, displays rowGap as the canonical
+  // value, and emits BOTH row-gap and column-gap on edit. When the
+  // source element has asymmetric gaps the difference is surfaced via
+  // `mixedProperties` (set by Panel.tsx), not by rendering two numbers.
+  const { flexDirection, justifyContent, alignItems, rowGap, flexWrap } = values
   const column = isColumnDirection(flexDirection)
 
   // ── Direction ────────────────────────────────────────────────
