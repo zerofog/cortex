@@ -1,0 +1,73 @@
+cortex-editor/src/browser/styles.css
+  5c9ddbbd3c05b370 1272-1413
+cortex-editor/src/browser/components/controls/PositionDropdown.tsx
+  5c9ddbbd3c05b370 1-296
+cortex-editor/tests/browser/controls/PositionDropdown.test.tsx
+  5c9ddbbd3c05b370 1-286
+cortex-editor/tests/browser/sections/position-section.test.tsx
+  5c9ddbbd3c05b370 6-16,104,106-110,113,115-125
+cortex-editor/src/browser/components/sections/PositionSection.tsx
+  5c9ddbbd3c05b370 3,145
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "b376b0326ae8e9a6087c4fa3f5b2ac132a2629a4",
+  "prompts": {
+    "150568d0accaae96": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ee8d6fe-d0b5-4482-978c-379f290ded53",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 419,
+      "overriden_lines": 0
+    },
+    "5c9ddbbd3c05b370": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e967742a-3da0-472f-8496-539042446ff4",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 760,
+      "total_deletions": 23,
+      "accepted_lines": 755,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/24ecb441c279a513d4b68b2298d9dc900c907443ee7417763d6362b12802d551"
+    },
+    "a6734e84f93fcb01": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6a3f2da5-1476-4242-a314-8468ccac3d07",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/b0e00ade6f28d26d2f81e77494b14e419dbcccb4be01a588dae7be9e6d18fb16"
+    },
+    "affb8ad5069b145d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "94e88686-b112-478a-88aa-19206d87b65e",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1057,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/ccacd75cb38aaa651d0b5f9fadd739aec358cac8238dc2f65a8a2d3eff6314d6"
+    }
+  }
+}
