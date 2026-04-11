@@ -300,10 +300,9 @@ describe('NumericInput', () => {
     })
   })
 
-  // ── prefix prop (Task 6 / ZF0-1184) ───────────────────────────────────
-  // The `prefix` slot replaces the legacy `label` slot for callers that
-  // need to render an icon (or richer markup) inline-left of the value.
-  // PositionSection v2 uses it for X / Y / Z text tags AND the rotate icon.
+  // The `prefix` slot supports rendering an icon or richer markup inline-
+  // left of the value — callers that only need plain text should prefer it
+  // over the legacy `label` slot.
   describe('prefix prop', () => {
     it('renders a string prefix inside a __prefix slot (not __label)', () => {
       setup({ prefix: 'X' })
@@ -344,6 +343,27 @@ describe('NumericInput', () => {
       expect(labelSlot).not.toBeNull()
       expect(labelSlot!.textContent).toBe('T')
       expect(container.querySelector('.cortex-numeric-input__prefix')).toBeNull()
+    })
+
+    it('feeds a string prefix into aria-label when tooltip and label are absent', () => {
+      // Locks the a11y fallback chain `tooltip ?? label ?? (typeof prefix
+      // === 'string' ? prefix : undefined)`. A prefix-only caller like
+      // <NumericInput prefix="X" onChange={...} /> still produces an
+      // accessible name so the input isn't orphaned for screen readers.
+      setup({ prefix: 'X', tooltip: undefined, label: undefined })
+      const input = container.querySelector('input') as HTMLInputElement
+      expect(input.getAttribute('aria-label')).toBe('X')
+    })
+
+    it('does NOT feed a JSX prefix into aria-label (avoids accessible-name garbage)', () => {
+      // JSX prefixes are icons, not text — silently serialising them into
+      // aria-label would produce "[object Object]" or similar noise. The
+      // fallback chain intentionally returns undefined so the caller must
+      // provide tooltip or label to name the input.
+      const iconOnly = <svg><path d="M0 0" /></svg>
+      setup({ prefix: iconOnly, tooltip: undefined, label: undefined })
+      const input = container.querySelector('input') as HTMLInputElement
+      expect(input.getAttribute('aria-label')).toBeNull()
     })
   })
 })

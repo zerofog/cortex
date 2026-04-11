@@ -387,10 +387,9 @@ export function Panel({
       position: parsePositionValues(cs),
       appearance: parseAppearanceValues(cs),
     }
-    // Read parent display for PositionSection v2 self-alignment gating
-    // (Task 6 / ZF0-1184). Single getComputedStyle call lives inside this
-    // already-cached useMemo so we don't add a second forced layout per
-    // render. Returns '' when there is no parent (document root).
+    // Read parent display inside the already-cached useMemo so we don't
+    // add a second forced layout per render. Returns '' when there is no
+    // parent (document root).
     const parent = element.parentElement
     const computedParentDisplay = parent ? getComputedStyle(parent).display : ''
 
@@ -429,10 +428,9 @@ export function Panel({
   // Derive isFlexOrGrid from normalized layout display
   const layoutDisplay = computedStyles.layout.display
   const isFlexOrGrid = layoutDisplay === 'flex' || layoutDisplay === 'grid'
-  // Derive parentIsFlexOrGrid from the parent's raw display string. Used by
-  // PositionSection v2 to gate the self-alignment 6-button block (justify-
-  // self / align-self only have meaningful effects inside flex/grid). The
-  // raw display string is parsed in the useMemo above to avoid double layouts.
+  // justify-self / align-self only have meaningful effects when the
+  // layout parent is flex or grid; the raw display string is parsed in
+  // the useMemo above to avoid a second forced layout.
   const parentIsFlexOrGrid =
     parentDisplay === 'flex' ||
     parentDisplay === 'inline-flex' ||

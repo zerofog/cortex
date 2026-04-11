@@ -33,21 +33,11 @@ export interface IconButtonProps {
 }
 
 /**
- * Reusable 28px square icon button matching the Panel v2 control height
- * spec (Task 4 / ZF0-1182). Used by PositionSection v2 (self-alignment
- * 6-button block + flip H/V pair) and any future Panel sections that need
- * an icon-only toggle. Active state renders a `--cx-select-muted` ring +
- * `aria-pressed="true"`; inactive renders flat with hover/focus feedback
- * supplied by the `.cortex-icon-button` CSS class in styles.css.
- *
- * Contract:
- * - 28px × 28px hit target (matches NumericInput / segmented control md /
- *   sizing trigger / panel header button — all 28px after Task 4 S6/S9).
- * - Border radius `--cx-radius-sm` so it visually fuses with the well row.
- * - Background transitions on hover via the well token; active uses the
- *   inset shadow + ring already shared with other panel controls.
- * - Icon colour follows `currentColor`, so the button-level color rule
- *   drives both default and active styling without per-icon overrides.
+ * Reusable 28px square icon button matching the other interactive panel
+ * controls. Active state renders a `--cx-select-muted` ring + emits
+ * `aria-pressed="true"` so the button reads as a toggle; inactive renders
+ * flat. Icon colour inherits `currentColor` so default/active transitions
+ * drive from the button-level color rule without per-icon overrides.
  */
 export function IconButton({
   icon,

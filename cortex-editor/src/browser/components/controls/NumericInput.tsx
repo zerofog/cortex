@@ -236,7 +236,7 @@ export function NumericInput({
         class="cortex-numeric-input__value"
         type="text"
         inputMode="numeric"
-        aria-label={tooltip ?? label}
+        aria-label={tooltip ?? label ?? (typeof prefix === 'string' ? prefix : undefined)}
         value={mixed && !isEditing ? '' : localValue}
         placeholder={mixed ? '--' : undefined}
         disabled={disabled}

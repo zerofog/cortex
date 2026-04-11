@@ -45,12 +45,15 @@ describe('IconButton', () => {
 
   // ── render contract ────────────────────────────────────────────────
 
-  it('renders a <button type="button"> with the cortex-icon-button class', () => {
-    const { button } = setup()
-    expect(button).not.toBeNull()
-    expect(button.tagName).toBe('BUTTON')
-    expect(button.getAttribute('type')).toBe('button')
-    expect(button.classList.contains('cortex-icon-button')).toBe(true)
+  it('renders a <button type="button"> element', () => {
+    setup()
+    // Re-query via aria-label so the class check below is not self-
+    // tautological with the setup helper's .cortex-icon-button query.
+    const byLabel = container.querySelector('button[aria-label="Flip horizontal"]') as HTMLButtonElement
+    expect(byLabel).not.toBeNull()
+    expect(byLabel.tagName).toBe('BUTTON')
+    expect(byLabel.getAttribute('type')).toBe('button')
+    expect(byLabel.classList.contains('cortex-icon-button')).toBe(true)
   })
 
   it('renders the EXACT icon passed in (anti-tautology, fingerprinted)', () => {
