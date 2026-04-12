@@ -22,13 +22,14 @@ describe('BorderSection', () => {
 
   const DEFAULT_VALUES: BorderValues = {
     borderWidth: 1,
+    borderTopWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
+    borderLeftWidth: 1,
     borderStyle: 'solid',
     borderColor: 'rgb(0, 0, 0)',
-    borderRadius: 4,
-    borderTopLeftRadius: 4,
-    borderTopRightRadius: 4,
-    borderBottomRightRadius: 4,
-    borderBottomLeftRadius: 4,
+    borderOpacity: 100,
+    visible: true,
   }
 
   function setup(overrides?: Partial<Parameters<typeof BorderSection>[0]>) {
@@ -38,6 +39,7 @@ describe('BorderSection', () => {
     render(
       <BorderSection
         values={DEFAULT_VALUES}
+        borderToken={null}
         onChange={onChange}
         {...overrides}
       />,
@@ -52,82 +54,124 @@ describe('BorderSection', () => {
     expect(root).not.toBeNull()
   })
 
-  it('renders border width input with label "W"', () => {
+  it('renders border width input with SquareDashed prefix', () => {
     setup()
-    const inputs = container.querySelectorAll('.cortex-numeric-input')
-    const widthInput = Array.from(inputs).find((el) => el.textContent?.includes('W'))
-    expect(widthInput).toBeDefined()
-    const input = widthInput!.querySelector('input') as HTMLInputElement
-    expect(input.value).toBe('1')
+    // The width row has a NumericInput with a prefix (SVG icon)
+    const prefixes = container.querySelectorAll('.cortex-numeric-input__prefix')
+    expect(prefixes.length).toBeGreaterThanOrEqual(1)
+    // The prefix should contain an SVG (SquareDashed icon)
+    const svg = prefixes[0]?.querySelector('svg')
+    expect(svg).not.toBeNull()
   })
 
-  it('renders border style segmented control with solid/dashed/dotted/none', () => {
-    setup()
-    const groups = container.querySelectorAll('[role="radiogroup"]')
-    expect(groups.length).toBeGreaterThanOrEqual(1)
-    // Check that solid is active by default
-    const solidBtn = container.querySelector('[data-value="solid"]')
-    expect(solidBtn).not.toBeNull()
-    expect(solidBtn!.getAttribute('aria-checked')).toBe('true')
-    // Verify other options exist
-    expect(container.querySelector('[data-value="dashed"]')).not.toBeNull()
-    expect(container.querySelector('[data-value="dotted"]')).not.toBeNull()
-    expect(container.querySelector('[data-value="none"]')).not.toBeNull()
-  })
-
-  it('renders border color swatch', () => {
+  it('renders border color swatch when no token', () => {
     setup()
     const swatch = container.querySelector('.cortex-color-input__swatch')
     expect(swatch).not.toBeNull()
   })
 
-  // Task 3 (ZF0-1181): radius controls moved to AppearanceSection. The
-  // BorderValues interface still carries the radius fields (Task 14 will
-  // remove them), but BorderSection itself no longer renders a radius
-  // NumericInput or a per-corner toggle. Those behaviours are now covered
-  // by tests/browser/sections/AppearanceSection.test.ts.
-  it('does not render a border-radius NumericInput any more (moved to AppearanceSection)', () => {
-    setup()
-    const labels = Array.from(
-      container.querySelectorAll('.cortex-numeric-input__label'),
-    ).map((el) => el.textContent)
-    // "W" for width remains; "R" / "TL" / "TR" / "BR" / "BL" must be absent.
-    expect(labels).toContain('W')
-    expect(labels).not.toContain('R')
-    expect(labels).not.toContain('TL')
-    expect(labels).not.toContain('TR')
-    expect(labels).not.toContain('BR')
-    expect(labels).not.toContain('BL')
+  it('renders TokenChip when borderToken is provided', () => {
+    setup({ borderToken: 'border-blue-500' })
+    const chip = container.querySelector('.cortex-token-chip')
+    expect(chip).not.toBeNull()
+    // No color swatch when token is present
+    const swatch = container.querySelector('.cortex-color-input__swatch')
+    expect(swatch).toBeNull()
   })
 
-  it('does not render the per-corner toggle button any more (moved to AppearanceSection)', () => {
+  it('eye toggle fires border-style none when visible', () => {
+    const { onChange } = setup({ values: { ...DEFAULT_VALUES, visible: true } })
+    // Find the eye toggle button (aria-label "Hide border")
+    const eyeBtn = container.querySelector('[aria-label="Hide border"]') as HTMLButtonElement
+    expect(eyeBtn).not.toBeNull()
+    eyeBtn.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'border-style', value: 'none' })
+  })
+
+  it('eye toggle fires border-style solid when hidden', () => {
+    const { onChange } = setup({
+      values: { ...DEFAULT_VALUES, visible: false, borderStyle: 'none' },
+    })
+    const eyeBtn = container.querySelector('[aria-label="Show border"]') as HTMLButtonElement
+    expect(eyeBtn).not.toBeNull()
+    eyeBtn.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'border-style', value: 'solid' })
+  })
+
+  it('width onChange fires border-width', () => {
+    const { onChange } = setup()
+    // Find the width NumericInput's <input> — it's the one in the width row
+    const widthRow = container.querySelector('.cortex-border-section__width-row')
+    expect(widthRow).not.toBeNull()
+    const input = widthRow!.querySelector('input') as HTMLInputElement
+    expect(input).not.toBeNull()
+    // NumericInput fires onChange on Enter: focus → set value → input event → Enter
+    input.focus()
+    input.value = '2'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(onChange).toHaveBeenCalledWith({ property: 'border-width', value: '2px' })
+  })
+
+  it('per-side expand toggles individual width inputs', async () => {
     setup()
-    expect(
-      container.querySelector('.cortex-border-section__corner-toggle'),
-    ).toBeNull()
+    // Initially no per-side grid
+    expect(container.querySelector('.cortex-border-section__per-side')).toBeNull()
+
+    // Click the expand button
+    const expandBtn = container.querySelector('[aria-label="Expand per-side widths"]') as HTMLButtonElement
+    expect(expandBtn).not.toBeNull()
+    expandBtn.click()
+    // Preact state flush is async via setTimeout(0) — give it a tick.
+    await new Promise((r) => setTimeout(r, 10))
+
+    // Now per-side grid should be visible with 4 inputs
+    const perSide = container.querySelector('.cortex-border-section__per-side')
+    expect(perSide).not.toBeNull()
+    const inputs = perSide!.querySelectorAll('input')
+    expect(inputs.length).toBe(4)
+  })
+
+  it('per-side T input fires border-top-width', async () => {
+    const { onChange } = setup()
+    // Open per-side
+    const expandBtn = container.querySelector('[aria-label="Expand per-side widths"]') as HTMLButtonElement
+    expandBtn.click()
+    await new Promise((r) => setTimeout(r, 10))
+
+    const perSide = container.querySelector('.cortex-border-section__per-side')
+    const labels = perSide!.querySelectorAll('.cortex-numeric-input__label')
+    const topLabel = Array.from(labels).find((el) => el.textContent === 'T')
+    expect(topLabel).toBeDefined()
+    const topInput = topLabel!.closest('.cortex-numeric-input')!.querySelector('input') as HTMLInputElement
+    topInput.focus()
+    topInput.value = '3'
+    topInput.dispatchEvent(new Event('input', { bubbles: true }))
+    topInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(onChange).toHaveBeenCalledWith({ property: 'border-top-width', value: '3px' })
   })
 
   describe('parseBorderValues', () => {
     it('parses border properties from computed style', () => {
       const cs = {
         borderWidth: '2px',
+        borderTopWidth: '2px',
+        borderRightWidth: '2px',
+        borderBottomWidth: '2px',
+        borderLeftWidth: '2px',
         borderStyle: 'dashed',
         borderColor: 'rgb(255, 0, 0)',
-        borderRadius: '8px',
-        borderTopLeftRadius: '8px',
-        borderTopRightRadius: '8px',
-        borderBottomRightRadius: '8px',
-        borderBottomLeftRadius: '8px',
       } as unknown as CSSStyleDeclaration
       const result = parseBorderValues(cs)
       expect(result.borderWidth).toBe(2)
+      expect(result.borderTopWidth).toBe(2)
+      expect(result.borderRightWidth).toBe(2)
+      expect(result.borderBottomWidth).toBe(2)
+      expect(result.borderLeftWidth).toBe(2)
       expect(result.borderStyle).toBe('dashed')
       expect(result.borderColor).toBe('rgb(255, 0, 0)')
-      expect(result.borderRadius).toBe(8)
-      expect(result.borderTopLeftRadius).toBe(8)
-      expect(result.borderTopRightRadius).toBe(8)
-      expect(result.borderBottomRightRadius).toBe(8)
-      expect(result.borderBottomLeftRadius).toBe(8)
+      expect(result.borderOpacity).toBe(100)
+      expect(result.visible).toBe(true)
     })
 
     it('defaults to none style and 0 width', () => {
@@ -135,21 +179,80 @@ describe('BorderSection', () => {
       const result = parseBorderValues(cs)
       expect(result.borderWidth).toBe(0)
       expect(result.borderStyle).toBe('none')
-      expect(result.borderRadius).toBe(0)
+      expect(result.visible).toBe(false)
+    })
+
+    it('does not return borderRadius (moved to AppearanceSection)', () => {
+      const cs = {
+        borderWidth: '1px',
+        borderTopWidth: '1px',
+        borderRightWidth: '1px',
+        borderBottomWidth: '1px',
+        borderLeftWidth: '1px',
+        borderStyle: 'solid',
+        borderColor: 'rgb(0, 0, 0)',
+        borderRadius: '8px',
+      } as unknown as CSSStyleDeclaration
+      const result = parseBorderValues(cs)
+      expect(result).not.toHaveProperty('borderRadius')
+      expect(result).not.toHaveProperty('borderTopLeftRadius')
+      expect(result).not.toHaveProperty('borderTopRightRadius')
+      expect(result).not.toHaveProperty('borderBottomRightRadius')
+      expect(result).not.toHaveProperty('borderBottomLeftRadius')
+    })
+
+    it('parses opacity from rgba border-color', () => {
+      const cs = {
+        borderWidth: '1px',
+        borderTopWidth: '1px',
+        borderRightWidth: '1px',
+        borderBottomWidth: '1px',
+        borderLeftWidth: '1px',
+        borderStyle: 'solid',
+        borderColor: 'rgba(0, 0, 0, 0.5)',
+      } as unknown as CSSStyleDeclaration
+      const result = parseBorderValues(cs)
+      expect(result.borderOpacity).toBe(50)
+    })
+
+    it('parses per-side widths individually', () => {
+      const cs = {
+        borderWidth: '1px',
+        borderTopWidth: '1px',
+        borderRightWidth: '2px',
+        borderBottomWidth: '3px',
+        borderLeftWidth: '4px',
+        borderStyle: 'solid',
+        borderColor: 'rgb(0, 0, 0)',
+      } as unknown as CSSStyleDeclaration
+      const result = parseBorderValues(cs)
+      expect(result.borderTopWidth).toBe(1)
+      expect(result.borderRightWidth).toBe(2)
+      expect(result.borderBottomWidth).toBe(3)
+      expect(result.borderLeftWidth).toBe(4)
     })
   })
 })
 
 describe('summarizeBorder', () => {
   it('returns "none" for no border', () => {
-    expect(summarizeBorder({ borderWidth: 0, borderStyle: 'none', borderColor: '#000', borderRadius: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0, borderBottomRightRadius: 0, borderBottomLeftRadius: 0 })).toBe('none')
+    expect(summarizeBorder({
+      borderWidth: 0, borderTopWidth: 0, borderRightWidth: 0, borderBottomWidth: 0, borderLeftWidth: 0,
+      borderStyle: 'none', borderColor: '#000', borderOpacity: 100, visible: false,
+    })).toBe('none')
   })
 
   it('returns width and style for visible border', () => {
-    expect(summarizeBorder({ borderWidth: 2, borderStyle: 'solid', borderColor: '#000', borderRadius: 4, borderTopLeftRadius: 4, borderTopRightRadius: 4, borderBottomRightRadius: 4, borderBottomLeftRadius: 4 })).toBe('2px solid')
+    expect(summarizeBorder({
+      borderWidth: 2, borderTopWidth: 2, borderRightWidth: 2, borderBottomWidth: 2, borderLeftWidth: 2,
+      borderStyle: 'solid', borderColor: '#000', borderOpacity: 100, visible: true,
+    })).toBe('2px solid')
   })
 
   it('returns "none" when width is 0 even if style is set', () => {
-    expect(summarizeBorder({ borderWidth: 0, borderStyle: 'solid', borderColor: '#000', borderRadius: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0, borderBottomRightRadius: 0, borderBottomLeftRadius: 0 })).toBe('none')
+    expect(summarizeBorder({
+      borderWidth: 0, borderTopWidth: 0, borderRightWidth: 0, borderBottomWidth: 0, borderLeftWidth: 0,
+      borderStyle: 'solid', borderColor: '#000', borderOpacity: 100, visible: true,
+    })).toBe('none')
   })
 })

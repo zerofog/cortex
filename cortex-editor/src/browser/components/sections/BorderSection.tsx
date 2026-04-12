@@ -1,8 +1,10 @@
 import type { JSX } from 'preact'
-import { useCallback } from 'preact/hooks'
-import { SegmentedControl } from '../controls/SegmentedControl.js'
+import { useState, useCallback, useMemo } from 'preact/hooks'
 import { NumericInput } from '../controls/NumericInput.js'
-import { ColorInput } from '../controls/ColorInput.js'
+import { ColorInput, parseColor, formatColor } from '../controls/ColorInput.js'
+import { TokenChip } from '../controls/TokenChip.js'
+import { IconButton } from '../controls/IconButton.js'
+import { Eye, EyeOff, SquareDashed } from '../icons.js'
 
 export interface BorderChange {
   property: string
@@ -11,17 +13,20 @@ export interface BorderChange {
 
 export interface BorderValues {
   borderWidth: number
+  borderTopWidth: number
+  borderRightWidth: number
+  borderBottomWidth: number
+  borderLeftWidth: number
   borderStyle: string
   borderColor: string
-  borderRadius: number
-  borderTopLeftRadius: number
-  borderTopRightRadius: number
-  borderBottomRightRadius: number
-  borderBottomLeftRadius: number
+  borderOpacity: number
+  visible: boolean
 }
 
 export interface BorderSectionProps {
   values: BorderValues
+  /** Tailwind class name if detected (e.g. "border-blue-500"), null if raw value */
+  borderToken: string | null
   onChange: (change: BorderChange) => void
   onScrub?: (change: BorderChange) => void
   onScrubEnd?: (change: BorderChange) => void
@@ -34,38 +39,86 @@ export interface BorderSectionProps {
 
 /** Extract border-related values from a CSSStyleDeclaration. */
 export function parseBorderValues(cs: CSSStyleDeclaration): BorderValues {
+  const color = cs.borderColor ?? 'rgb(0, 0, 0)'
+  // Parse alpha from rgba — e.g., "rgba(0, 0, 0, 0.5)" → 50
+  // Only match rgba() with exactly 4 values to avoid capturing the blue channel from rgb()
+  const alphaMatch = color.match(/rgba\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*,\s*([\d.]+)\s*\)/)
+  const alpha = alphaMatch?.[1] ? Math.round(parseFloat(alphaMatch[1]) * 100) : 100
   return {
     borderWidth: parseFloat(cs.borderWidth) || 0,
+    borderTopWidth: parseFloat(cs.borderTopWidth) || 0,
+    borderRightWidth: parseFloat(cs.borderRightWidth) || 0,
+    borderBottomWidth: parseFloat(cs.borderBottomWidth) || 0,
+    borderLeftWidth: parseFloat(cs.borderLeftWidth) || 0,
     borderStyle: cs.borderStyle ?? 'none',
-    borderColor: cs.borderColor ?? 'rgb(0, 0, 0)',
-    borderRadius: parseFloat(cs.borderRadius) || 0,
-    borderTopLeftRadius: parseFloat(cs.borderTopLeftRadius) || 0,
-    borderTopRightRadius: parseFloat(cs.borderTopRightRadius) || 0,
-    borderBottomRightRadius: parseFloat(cs.borderBottomRightRadius) || 0,
-    borderBottomLeftRadius: parseFloat(cs.borderBottomLeftRadius) || 0,
+    borderColor: color,
+    borderOpacity: alpha,
+    visible: (cs.borderStyle ?? 'none') !== 'none',
   }
 }
 
 export function summarizeBorder(values: BorderValues): string {
-  if (values.borderStyle === 'none' || values.borderWidth === 0) return 'none'
+  if (!values.visible || values.borderWidth === 0) return 'none'
   return `${values.borderWidth}px ${values.borderStyle}`
 }
 
-const STYLE_OPTIONS = [
-  { value: 'solid', icon: '\u2014', title: 'Solid' },
-  { value: 'dashed', icon: '--', title: 'Dashed' },
-  { value: 'dotted', icon: '\u00B7\u00B7', title: 'Dotted' },
-  { value: 'none', icon: '\u2298', title: 'None' },
-]
-
+/**
+ * BorderSection v2 — color + opacity + visibility, width + per-side expand.
+ *
+ * Row 1: [swatch+hex] [opacity %] [eye toggle]
+ * Row 2: [SquareDashed icon] [width px] [per-side toggle]
+ * Per-side (expanded): 2×2 grid of T/R/B/L individual widths.
+ *
+ * Business logic: this replaces the previous v1 BorderSection that had
+ * width/style/color rows plus radius controls. Radius is now owned by
+ * AppearanceSection. The border style segmented control is replaced by
+ * an eye toggle (none ↔ solid) since dashed/dotted are rare enough to
+ * not warrant permanent UI. The `+` button that creates a border now
+ * lives in the SectionGroup headerAction slot in Panel.tsx.
+ */
 export function BorderSection({
   values,
+  borderToken,
   onChange,
   onScrub,
   onScrubEnd,
   swatches,
   mixedProperties,
 }: BorderSectionProps): JSX.Element {
+  const [perSideOpen, setPerSideOpen] = useState(false)
+
+  const parsed = useMemo(() => parseColor(values.borderColor), [values.borderColor])
+
+  // ── Row 1: Color ──────────────────────────────────────────────────
+
+  const handleColorChange = useCallback(
+    (hex: string) => onChange({ property: 'border-color', value: hex }),
+    [onChange],
+  )
+
+  const handleUnlink = useCallback(() => {
+    onChange({ property: 'border-color', value: values.borderColor })
+  }, [onChange, values.borderColor])
+
+  const handleAlphaChange = useCallback(
+    (alpha: number) => {
+      onChange({ property: 'border-color', value: formatColor(parsed.hex, alpha) })
+    },
+    [onChange, parsed.hex],
+  )
+
+  // ── Row 1: Visibility toggle ──────────────────────────────────────
+
+  const handleVisibilityToggle = useCallback(() => {
+    if (values.visible) {
+      onChange({ property: 'border-style', value: 'none' })
+    } else {
+      onChange({ property: 'border-style', value: 'solid' })
+    }
+  }, [onChange, values.visible])
+
+  // ── Row 2: Width ──────────────────────────────────────────────────
+
   const handleWidthChange = useCallback(
     (v: number) => onChange({ property: 'border-width', value: `${v}px` }),
     [onChange],
@@ -79,24 +132,99 @@ export function BorderSection({
     [onScrubEnd],
   )
 
-  const handleStyleChange = useCallback(
-    (v: string) => onChange({ property: 'border-style', value: v }),
+  // ── Per-side toggle ───────────────────────────────────────────────
+
+  const handlePerSideToggle = useCallback(() => {
+    setPerSideOpen((v) => !v)
+  }, [])
+
+  // ── Per-side width handlers ───────────────────────────────────────
+
+  const handleTopWidth = useCallback(
+    (v: number) => onChange({ property: 'border-top-width', value: `${v}px` }),
+    [onChange],
+  )
+  const handleRightWidth = useCallback(
+    (v: number) => onChange({ property: 'border-right-width', value: `${v}px` }),
+    [onChange],
+  )
+  const handleBottomWidth = useCallback(
+    (v: number) => onChange({ property: 'border-bottom-width', value: `${v}px` }),
+    [onChange],
+  )
+  const handleLeftWidth = useCallback(
+    (v: number) => onChange({ property: 'border-left-width', value: `${v}px` }),
     [onChange],
   )
 
-  const handleColorChange = useCallback(
-    (hex: string) => onChange({ property: 'border-color', value: hex }),
-    [onChange],
+  const handleTopWidthScrub = useCallback(
+    (v: number) => { if (onScrub) onScrub({ property: 'border-top-width', value: `${v}px` }) },
+    [onScrub],
+  )
+  const handleRightWidthScrub = useCallback(
+    (v: number) => { if (onScrub) onScrub({ property: 'border-right-width', value: `${v}px` }) },
+    [onScrub],
+  )
+  const handleBottomWidthScrub = useCallback(
+    (v: number) => { if (onScrub) onScrub({ property: 'border-bottom-width', value: `${v}px` }) },
+    [onScrub],
+  )
+  const handleLeftWidthScrub = useCallback(
+    (v: number) => { if (onScrub) onScrub({ property: 'border-left-width', value: `${v}px` }) },
+    [onScrub],
+  )
+
+  const handleTopWidthScrubEnd = useCallback(
+    (v: number) => { if (onScrubEnd) onScrubEnd({ property: 'border-top-width', value: `${v}px` }) },
+    [onScrubEnd],
+  )
+  const handleRightWidthScrubEnd = useCallback(
+    (v: number) => { if (onScrubEnd) onScrubEnd({ property: 'border-right-width', value: `${v}px` }) },
+    [onScrubEnd],
+  )
+  const handleBottomWidthScrubEnd = useCallback(
+    (v: number) => { if (onScrubEnd) onScrubEnd({ property: 'border-bottom-width', value: `${v}px` }) },
+    [onScrubEnd],
+  )
+  const handleLeftWidthScrubEnd = useCallback(
+    (v: number) => { if (onScrubEnd) onScrubEnd({ property: 'border-left-width', value: `${v}px` }) },
+    [onScrubEnd],
   )
 
   return (
     <div class="cortex-border-section" data-section-id="border">
-      <div class="cortex-border-section__group">
-        <span class="cortex-section-label">Width</span>
+      {/* Row 1: Color + Opacity + Eye */}
+      <div class="cortex-border-section__color-row">
+        {borderToken !== null ? (
+          <TokenChip
+            tokenName={borderToken}
+            resolvedValue={values.borderColor}
+            onUnlink={handleUnlink}
+          />
+        ) : (
+          <ColorInput
+            value={values.borderColor}
+            onChange={handleColorChange}
+            alpha={values.borderOpacity}
+            onAlphaChange={handleAlphaChange}
+            swatches={swatches}
+            mixed={mixedProperties?.has('border-color')}
+          />
+        )}
+        <IconButton
+          icon={values.visible ? <Eye size={14} /> : <EyeOff size={14} />}
+          ariaLabel={values.visible ? 'Hide border' : 'Show border'}
+          tooltip={values.visible ? 'Hide border' : 'Show border'}
+          onClick={handleVisibilityToggle}
+        />
+      </div>
+
+      {/* Row 2: Width + Per-side toggle */}
+      <div class="cortex-border-section__width-row">
         <NumericInput
           value={values.borderWidth}
           unit="px"
-          label="W"
+          prefix={<SquareDashed size={14} />}
           tooltip="Border Width"
           min={0}
           mixed={mixedProperties?.has('border-width')}
@@ -104,33 +232,64 @@ export function BorderSection({
           onScrub={handleWidthScrub}
           onScrubEnd={handleWidthScrubEnd}
         />
-      </div>
-
-      <div class="cortex-border-section__group">
-        <span class="cortex-section-label">Style</span>
-        <SegmentedControl
-          options={STYLE_OPTIONS}
-          value={values.borderStyle}
-          onChange={handleStyleChange}
-          size="sm"
+        <IconButton
+          icon={<SquareDashed size={14} />}
+          ariaLabel={perSideOpen ? 'Collapse per-side widths' : 'Expand per-side widths'}
+          tooltip={perSideOpen ? 'Collapse per-side widths' : 'Expand per-side widths'}
+          active={perSideOpen}
+          onClick={handlePerSideToggle}
         />
       </div>
 
-      <div class="cortex-border-section__group">
-        <span class="cortex-section-label">Color</span>
-        <ColorInput
-          value={values.borderColor}
-          onChange={handleColorChange}
-          swatches={swatches}
-          mixed={mixedProperties?.has('border-color')}
-        />
-      </div>
-
-      {/* Task 3 (ZF0-1181): radius controls moved to AppearanceSection. This
-          component still accepts the borderRadius / per-corner radius fields
-          on BorderValues so Panel.tsx's parse path is unchanged, but no UI
-          is rendered here. Task 14 (ZF0-1192) will fully remove the radius
-          fields from BorderValues and parseBorderValues. */}
+      {/* Per-side expanded: 2×2 grid */}
+      {perSideOpen && (
+        <div class="cortex-border-section__per-side">
+          <NumericInput
+            value={values.borderTopWidth}
+            unit="px"
+            label="T"
+            tooltip="Border Top Width"
+            min={0}
+            mixed={mixedProperties?.has('border-top-width')}
+            onChange={handleTopWidth}
+            onScrub={handleTopWidthScrub}
+            onScrubEnd={handleTopWidthScrubEnd}
+          />
+          <NumericInput
+            value={values.borderRightWidth}
+            unit="px"
+            label="R"
+            tooltip="Border Right Width"
+            min={0}
+            mixed={mixedProperties?.has('border-right-width')}
+            onChange={handleRightWidth}
+            onScrub={handleRightWidthScrub}
+            onScrubEnd={handleRightWidthScrubEnd}
+          />
+          <NumericInput
+            value={values.borderBottomWidth}
+            unit="px"
+            label="B"
+            tooltip="Border Bottom Width"
+            min={0}
+            mixed={mixedProperties?.has('border-bottom-width')}
+            onChange={handleBottomWidth}
+            onScrub={handleBottomWidthScrub}
+            onScrubEnd={handleBottomWidthScrubEnd}
+          />
+          <NumericInput
+            value={values.borderLeftWidth}
+            unit="px"
+            label="L"
+            tooltip="Border Left Width"
+            min={0}
+            mixed={mixedProperties?.has('border-left-width')}
+            onChange={handleLeftWidth}
+            onScrub={handleLeftWidthScrub}
+            onScrubEnd={handleLeftWidthScrubEnd}
+          />
+        </div>
+      )}
     </div>
   )
 }

@@ -695,13 +695,6 @@ export function Panel({
     applyOverride('border-color', '#000000', false)
     commitScrub()
   }, [applyOverride, commitScrub])
-  // Intentionally preserves border-color so re-adding restores the user's last choice.
-  // Batch: 2 properties → 1 undo entry.
-  const handleBorderRemove = useCallback(() => {
-    applyOverride('border-style', 'none', false)
-    applyOverride('border-width', '0px', false)
-    commitScrub()
-  }, [applyOverride, commitScrub])
   const handleShadowAdd = useCallback(() => {
     applyOverride('box-shadow', addShadow(computedStyles.shadow.boxShadow), true)
   }, [computedStyles.shadow.boxShadow, applyOverride])
@@ -1027,12 +1020,19 @@ export function Panel({
             />
           )}
         </SectionGroup>
-        <SectionGroup label="Border" groupId="border">
-          {/* Task 14 folds the CollapsibleSection's add/remove buttons into
-              BorderSection itself and drops the redundant inner "Border" label. */}
-          <CollapsibleSection sectionId="border" label="Border" summary={borderSummary} hasValue={borderHasValue} onAdd={handleBorderAdd} onRemove={handleBorderRemove}>
+        <SectionGroup
+          label="Border"
+          groupId="border"
+          headerAction={
+            !borderHasValue ? (
+              <IconButton icon={<Plus size={14} />} ariaLabel="Add border" tooltip="Add border" onClick={handleBorderAdd} />
+            ) : undefined
+          }
+        >
+          {borderHasValue && (
             <BorderSection
               values={computedStyles.border}
+              borderToken={extractedUtilities.get('border-color') ?? null}
               onChange={handleBorderCommit}
               onScrub={handleBorderScrub}
               onScrubEnd={handleBorderCommit}
@@ -1040,7 +1040,7 @@ export function Panel({
               dimmedProperties={dimmedProperties}
               mixedProperties={mixedProperties}
             />
-          </CollapsibleSection>
+          )}
         </SectionGroup>
         <SectionGroup label="Effects" groupId="effects">
           {/* Task 15 consolidates ShadowSection + EffectsSection into a single
