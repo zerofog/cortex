@@ -55,6 +55,17 @@ describe('TokenChip', () => {
     expect(unlinkBtn.getAttribute('aria-label')).toBe('Detach token')
   })
 
+  it('non-color values do not set backgroundColor on swatch', () => {
+    container = mount(<TokenChip tokenName="--space-4" resolvedValue="16px" />)
+    const swatch = container.querySelector('.cortex-token-chip__swatch') as HTMLElement
+    expect(swatch).not.toBeNull()
+    // Non-color values take the stripe-pattern branch (background: repeating-linear-gradient)
+    // instead of the color branch (backgroundColor: resolvedValue).
+    // happy-dom drops complex gradient values, so we can only verify the negative:
+    // backgroundColor must NOT be set. The gradient visual is CSS, not testable here.
+    expect(swatch.style.backgroundColor).toBe('')
+  })
+
   it('does not render unlink when onUnlink omitted', () => {
     container = mount(<TokenChip tokenName="--bg" resolvedValue="blue" />)
     const unlinkBtn = container.querySelector('.cortex-token-chip__unlink')
