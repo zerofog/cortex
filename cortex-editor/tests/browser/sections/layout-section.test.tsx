@@ -169,10 +169,13 @@ describe('LayoutSection', () => {
     expect(widthCall![0].value).toBe('400px')
   })
 
-  it('handles auto width gracefully', () => {
+  it('handles auto width gracefully — SizingControls renders with fallback value', () => {
     setup({ values: { ...DEFAULT_VALUES, width: 'auto' } })
-    const inputs = container.querySelectorAll('.cortex-numeric-input')
-    expect(inputs.length).toBeGreaterThan(0)
+    const sizingControls = container.querySelector('[data-testid="sizing-controls"]')
+    expect(sizingControls).not.toBeNull()
+    // auto width shows sizing dropdown in 'fixed' mode (px)
+    const modeLabels = container.querySelectorAll('.cortex-sizing-trigger__label')
+    expect(modeLabels[0]?.textContent).toBe('px')
   })
 
   it('renders sizing dropdown triggers for W and H', () => {

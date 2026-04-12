@@ -109,8 +109,8 @@ function SpacingRow({
     [onScrubEnd, locked, fireChange],
   )
 
-  const horizontal = values.left === values.right ? values.left : values.left
-  const vertical = values.top === values.bottom ? values.top : values.top
+  const horizontal = values.left
+  const vertical = values.top
 
   return (
     <div class="cortex-spacing-row" data-section={prefix}>

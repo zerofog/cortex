@@ -43,7 +43,6 @@ export interface SizingControlsProps {
   onScrub?: (change: SizingChange) => void
   onScrubEnd?: (change: SizingChange) => void
   mixedProperties?: Set<string>
-  parentDisplay?: string
 }
 
 /** Derive the SizingDropdown mode from the raw CSS value — pure, no state. */

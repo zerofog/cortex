@@ -234,9 +234,14 @@ describe('SizingControls', () => {
     expect(maxInput).not.toBeNull()
   })
 
-  it('handles auto width gracefully', () => {
+  it('handles auto width gracefully — displays 0 and shows "fixed" mode', () => {
     setup({ values: { ...DEFAULT_VALUES, width: 'auto' } })
-    const inputs = container.querySelectorAll('.cortex-numeric-input')
-    expect(inputs.length).toBeGreaterThan(0)
+    const widthInput = container.querySelector('.cortex-numeric-input input') as HTMLInputElement
+    expect(widthInput).not.toBeNull()
+    // isAutoWidth → value falls back to 0
+    expect(widthInput.value).toBe('0')
+    // 'auto' is not fit-content or 100%, so mode is 'fixed'
+    const modeLabels = container.querySelectorAll('.cortex-sizing-trigger__label')
+    expect(modeLabels[0].textContent).toBe('px')
   })
 })
