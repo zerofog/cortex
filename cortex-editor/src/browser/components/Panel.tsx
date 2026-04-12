@@ -297,7 +297,10 @@ export function Panel({
         : ''
     }
     defaultStylesRef.current = snapshot
-  }, [element]) // only on element change, NOT on styleVersion or activeState
+    // Force useMemo re-run with fresh snapshot so dimming comparison
+    // uses the NEW element's defaults, not the previous element's.
+    setStyleVersion(v => v + 1)
+  }, [element])
 
   useEffect(() => {
     const timer = setTimeout(() => setIsEntering(false), 250)
