@@ -275,7 +275,7 @@ export function Panel({
   const [editScope, setEditScope] = useState<'instance' | 'all'>('instance')
 
   // Typography section dual-mode toggle: auto picks from detected token classes
-  const [typographyMode, setTypographyMode] = useState<'auto' | 'a' | 'b'>('auto')
+  const [typographyMode, setTypographyMode] = useState<'auto' | 'b'>('auto')
 
   // Default computed styles snapshot for dimming comparison.
   // Plain object snapshot (NOT a live CSSStyleDeclaration) — taken once per element.
@@ -923,7 +923,7 @@ export function Panel({
                 ariaLabel="Toggle typography mode"
                 tooltip="Toggle token/CSS view"
                 active={typographyMode !== 'auto'}
-                onClick={() => setTypographyMode(m => m === 'auto' ? 'b' : m === 'b' ? 'a' : 'auto')}
+                onClick={() => setTypographyMode(m => m === 'auto' ? 'b' : 'auto')}
               />
             }
           >

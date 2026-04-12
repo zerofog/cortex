@@ -32,8 +32,8 @@ export interface TypographySectionProps {
   dimmedProperties?: Set<string>
   /** Set of CSS properties whose values differ across selected elements. */
   mixedProperties?: Set<string>
-  /** Typography display mode: auto picks from detected tokens, a/b are manual overrides. */
-  mode: 'auto' | 'a' | 'b'
+  /** Typography display mode: auto picks from detected tokens, b forces CSS view. */
+  mode: 'auto' | 'b'
   detectedTokenClasses?: Array<{ className: string; property: string }>
 }
 
@@ -118,10 +118,9 @@ function resolveValue(property: string, values: TypographyValues): string {
 
 /** Determine the effective display mode from the mode prop + detected classes. */
 function effectiveMode(
-  mode: 'auto' | 'a' | 'b',
+  mode: 'auto' | 'b',
   detectedTokenClasses: Array<{ className: string; property: string }> | undefined,
 ): 'a' | 'b' {
-  if (mode === 'a') return 'a'
   if (mode === 'b') return 'b'
   // auto: show A if we have token classes, otherwise B
   return (detectedTokenClasses && detectedTokenClasses.length > 0) ? 'a' : 'b'
