@@ -1,12 +1,10 @@
 import type { JSX } from 'preact'
 import { useCallback, useMemo } from 'preact/hooks'
+import type { SectionChange } from './types.js'
 import { ColorInput, parseColor, formatColor } from '../controls/ColorInput.js'
 import { TokenChip } from '../controls/TokenChip.js'
 
-export interface BackgroundChange {
-  property: string
-  value: string
-}
+export type BackgroundChange = SectionChange
 
 export interface BackgroundSectionProps {
   /** Resolved background color from getComputedStyle */

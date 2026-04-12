@@ -1,5 +1,6 @@
 import type { JSX } from 'preact'
 import { useCallback, useMemo } from 'preact/hooks'
+import type { SectionChange } from './types.js'
 import { SegmentedControl } from '../controls/SegmentedControl.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { Dropdown } from '../controls/Dropdown.js'
@@ -7,10 +8,7 @@ import { ColorInput, parseColor, formatColor } from '../controls/ColorInput.js'
 import { TokenChip } from '../controls/TokenChip.js'
 import { AlignLeft, AlignCenter, AlignRight, AlignJustify, MoveVertical, MoveHorizontal } from '../icons.js'
 
-export interface TypographyChange {
-  property: string
-  value: string
-}
+export type TypographyChange = SectionChange
 
 export interface TypographyValues {
   fontFamily: string

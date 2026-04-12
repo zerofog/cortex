@@ -1,5 +1,6 @@
 import type { JSX } from 'preact'
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
+import type { SectionChange } from './types.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { Blend, Eye, EyeOff, SquareDashed } from '../icons.js'
 
@@ -26,10 +27,7 @@ import { Blend, Eye, EyeOff, SquareDashed } from '../icons.js'
 // under the Panel v2 section.
 // ---------------------------------------------------------------------------
 
-export interface AppearanceChange {
-  property: string
-  value: string
-}
+export type AppearanceChange = SectionChange
 
 export interface AppearanceValues {
   /** 0..100 — percentage form; the component emits 0..1 as CSS opacity. */

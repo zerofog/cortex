@@ -13,6 +13,7 @@
  */
 import type { JSX } from 'preact'
 import { useCallback } from 'preact/hooks'
+import type { SectionChange } from './types.js'
 import { SegmentedControl } from '../controls/SegmentedControl.js'
 import { Square, MoveHorizontal, LayoutGrid, Minus, EyeOff } from '../icons.js'
 import { FlexControls } from './FlexControls.js'
@@ -22,10 +23,7 @@ import type { GridValues, GridChange } from './GridControls.js'
 import { SizingControls } from './SizingControls.js'
 import { SpacingControls } from './SpacingControls.js'
 
-export interface LayoutChange {
-  property: string
-  value: string
-}
+export type LayoutChange = SectionChange
 
 export interface LayoutValues {
   display: string

@@ -49,6 +49,7 @@
  */
 import type { JSX } from 'preact'
 import { useCallback, useMemo } from 'preact/hooks'
+import type { SectionChange } from './types.js'
 import { SegmentedControl, type SegmentedOption } from '../controls/SegmentedControl.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { AlignmentGrid } from '../controls/AlignmentGrid.js'
@@ -66,10 +67,7 @@ import {
   MoveVertical,
 } from '../icons.js'
 
-export interface GridChange {
-  property: string
-  value: string
-}
+export type GridChange = SectionChange
 
 export interface GridValues {
   gridTemplateColumns: string

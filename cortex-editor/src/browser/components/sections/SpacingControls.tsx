@@ -12,13 +12,11 @@
  */
 import type { JSX } from 'preact'
 import { useState, useCallback } from 'preact/hooks'
+import type { SectionChange } from './types.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { MoveHorizontal, MoveVertical } from '../icons.js'
 
-export interface SpacingChange {
-  property: string
-  value: string
-}
+export type SpacingChange = SectionChange
 
 export interface SpacingControlsProps {
   padding: { top: number; right: number; bottom: number; left: number }

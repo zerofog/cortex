@@ -42,6 +42,7 @@
  */
 import type { JSX } from 'preact'
 import { useCallback } from 'preact/hooks'
+import type { SectionChange } from './types.js'
 import { SegmentedControl, type SegmentedOption } from '../controls/SegmentedControl.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { AlignmentGrid } from '../controls/AlignmentGrid.js'
@@ -61,10 +62,7 @@ import {
   MoveHorizontal,
 } from '../icons.js'
 
-export interface FlexChange {
-  property: string
-  value: string
-}
+export type FlexChange = SectionChange
 
 export interface FlexValues {
   flexDirection: string

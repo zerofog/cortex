@@ -1,5 +1,6 @@
 import type { JSX } from 'preact'
 import { useCallback } from 'preact/hooks'
+import type { SectionChange } from './types.js'
 import { PositionDropdown } from '../controls/PositionDropdown.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { IconButton } from '../controls/IconButton.js'
@@ -15,10 +16,7 @@ import {
   AlignVerticalJustifyEnd,
 } from '../icons.js'
 
-export interface PositionChange {
-  property: string
-  value: string
-}
+export type PositionChange = SectionChange
 
 export interface PositionValues {
   position: string   // static | relative | absolute | fixed | sticky

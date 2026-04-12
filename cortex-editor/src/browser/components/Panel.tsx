@@ -11,20 +11,14 @@ import { formatShortcut } from '../format-shortcut.js'
 import { extractUtilities } from '../class-extractor.js'
 import { PanelHeader } from './PanelHeader.js'
 import { ElementTree } from './sections/ElementTree.js'
-import type { SpacingChange } from './sections/SpacingControls.js'
+import type { SectionChange } from './sections/types.js'
 import { LayoutSection, parseLayoutValues } from './sections/LayoutSection.js'
-import type { LayoutChange } from './sections/LayoutSection.js'
 import { TypographySection, parseTypographyValues, getWeightsForFamily, stripCSSQuotes } from './sections/TypographySection.js'
-import type { TypographyChange } from './sections/TypographySection.js'
 import { parseFillValues, summarizeFill } from './sections/FillSection.js'
 import { BorderSection, parseBorderValues, summarizeBorder } from './sections/BorderSection.js'
-import type { BorderChange } from './sections/BorderSection.js'
 import { EffectsSection, parseEffectsValues, addShadow } from './sections/EffectsSection.js'
-import type { EffectsChange } from './sections/EffectsSection.js'
 import { PositionSection, parsePositionValues } from './sections/PositionSection.js'
-import type { PositionChange } from './sections/PositionSection.js'
 import { AppearanceSection, parseAppearanceValues } from './sections/AppearanceSection.js'
-import type { AppearanceChange } from './sections/AppearanceSection.js'
 import type { InteractionState } from '../state-detector.js'
 import { detectSharedClasses } from '../shared-class-detector.js'
 import type { SharedClassInfo } from '../shared-class-detector.js'
@@ -34,7 +28,6 @@ import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
 import { IconButton } from './controls/IconButton.js'
 import { BackgroundSection } from './sections/BackgroundSection.js'
-import type { BackgroundChange } from './sections/BackgroundSection.js'
 import { Type, Plus } from './icons.js'
 import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
 
@@ -653,20 +646,8 @@ export function Panel({
     }
   }, [element, overrideManager, activePseudo, sharedInfo, editScope, commitScrub])
 
-  const handleSpacingCommit = useCallback((c: SpacingChange) => applyOverride(c.property, c.value, true), [applyOverride])
-  const handleSpacingScrub = useCallback((c: SpacingChange) => applyOverride(c.property, c.value, false), [applyOverride])
-
-  const handleLayoutCommit = useCallback((c: LayoutChange) => applyOverride(c.property, c.value, true), [applyOverride])
-  const handleLayoutScrub = useCallback((c: LayoutChange) => applyOverride(c.property, c.value, false), [applyOverride])
-  const handleTypographyCommit = useCallback((c: TypographyChange) => applyOverride(c.property, c.value, true), [applyOverride])
-  const handleTypographyScrub = useCallback((c: TypographyChange) => applyOverride(c.property, c.value, false), [applyOverride])
-  const handleBgCommit = useCallback((c: BackgroundChange) => applyOverride(c.property, c.value, true), [applyOverride])
-  const handleBorderCommit = useCallback((c: BorderChange) => applyOverride(c.property, c.value, true), [applyOverride])
-  const handleBorderScrub = useCallback((c: BorderChange) => applyOverride(c.property, c.value, false), [applyOverride])
-  const handleEffectsCommit = useCallback((c: EffectsChange) => applyOverride(c.property, c.value, true), [applyOverride])
-  const handleEffectsScrub = useCallback((c: EffectsChange) => applyOverride(c.property, c.value, false), [applyOverride])
-  const handlePositionCommit = useCallback((c: PositionChange) => applyOverride(c.property, c.value, true), [applyOverride])
-  const handlePositionScrub = useCallback((c: PositionChange) => applyOverride(c.property, c.value, false), [applyOverride])
+  const handleCommit = useCallback((c: SectionChange) => applyOverride(c.property, c.value, true), [applyOverride])
+  const handleScrub = useCallback((c: SectionChange) => applyOverride(c.property, c.value, false), [applyOverride])
 
   // Property section state — driven by computed values, not user toggle
   const fillSummary = useMemo(() => summarizeFill(computedStyles.fill), [computedStyles.fill])
@@ -687,18 +668,6 @@ export function Panel({
     applyOverride('box-shadow', addShadow(computedStyles.effects.boxShadow), true)
   }, [computedStyles.effects.boxShadow, applyOverride])
 
-  // AppearanceSection (Task 3 / ZF0-1181) — mirrors every other section's
-  // commit/scrub pattern exactly; no new command path is required because
-  // opacity / visibility / border-radius all flow through the existing
-  // PropertyChange pipeline.
-  const handleAppearanceCommit = useCallback(
-    (c: AppearanceChange) => applyOverride(c.property, c.value, true),
-    [applyOverride],
-  )
-  const handleAppearanceScrub = useCallback(
-    (c: AppearanceChange) => applyOverride(c.property, c.value, false),
-    [applyOverride],
-  )
 
   const handleSelectParent = useCallback(() => {
     if (!element) return
@@ -921,9 +890,9 @@ export function Panel({
           <SectionGroup label="Position" groupId="position">
             <PositionSection
               values={computedStyles.position}
-              onChange={handlePositionCommit}
-              onScrub={handlePositionScrub}
-              onScrubEnd={handlePositionCommit}
+              onChange={handleCommit}
+              onScrub={handleScrub}
+              onScrubEnd={handleCommit}
               parentIsFlexOrGrid={parentIsFlexOrGrid}
             />
           </SectionGroup>
@@ -931,14 +900,14 @@ export function Panel({
         <SectionGroup label="Layout" groupId="layout">
           <LayoutSection
             values={computedStyles.layout}
-            onChange={handleLayoutCommit}
-            onScrub={handleLayoutScrub}
-            onScrubEnd={handleLayoutCommit}
+            onChange={handleCommit}
+            onScrub={handleScrub}
+            onScrubEnd={handleCommit}
             mixedProperties={mixedProperties}
             spacing={{ padding: computedStyles.spacing.padding, margin: computedStyles.spacing.margin }}
-            onSpacingChange={handleSpacingCommit}
-            onSpacingScrub={handleSpacingScrub}
-            onSpacingScrubEnd={handleSpacingCommit}
+            onSpacingChange={handleCommit}
+            onSpacingScrub={handleScrub}
+            onSpacingScrubEnd={handleCommit}
           />
         </SectionGroup>
         {showTypography && (
@@ -958,9 +927,9 @@ export function Panel({
             <TypographySection
               values={computedStyles.typography}
               availableWeights={availableWeights}
-              onChange={handleTypographyCommit}
-              onScrub={handleTypographyScrub}
-              onScrubEnd={handleTypographyCommit}
+              onChange={handleCommit}
+              onScrub={handleScrub}
+              onScrubEnd={handleCommit}
               swatches={swatches}
               mixedProperties={mixedProperties}
               mode={typographyMode}
@@ -971,9 +940,9 @@ export function Panel({
         <SectionGroup label="Appearance" groupId="appearance">
           <AppearanceSection
             values={computedStyles.appearance}
-            onChange={handleAppearanceCommit}
-            onScrub={handleAppearanceScrub}
-            onScrubEnd={handleAppearanceCommit}
+            onChange={handleCommit}
+            onScrub={handleScrub}
+            onScrubEnd={handleCommit}
             dimmedProperties={dimmedProperties}
             mixedProperties={mixedProperties}
             resetKey={`${element.tagName}|${element.id}|${element.getAttribute('data-cortex-source') ?? ''}`}
@@ -992,7 +961,7 @@ export function Panel({
             <BackgroundSection
               backgroundColor={computedStyles.fill.backgroundColor}
               backgroundToken={extractedUtilities.get('background-color') ?? null}
-              onChange={handleBgCommit}
+              onChange={handleCommit}
               swatches={swatches}
               mixedProperties={mixedProperties}
             />
@@ -1011,9 +980,9 @@ export function Panel({
             <BorderSection
               values={computedStyles.border}
               borderToken={extractedUtilities.get('border-color') ?? null}
-              onChange={handleBorderCommit}
-              onScrub={handleBorderScrub}
-              onScrubEnd={handleBorderCommit}
+              onChange={handleCommit}
+              onScrub={handleScrub}
+              onScrubEnd={handleCommit}
               swatches={swatches}
               mixedProperties={mixedProperties}
             />
@@ -1028,9 +997,9 @@ export function Panel({
         >
           <EffectsSection
             values={computedStyles.effects}
-            onChange={handleEffectsCommit}
-            onScrub={handleEffectsScrub}
-            onScrubEnd={handleEffectsCommit}
+            onChange={handleCommit}
+            onScrub={handleScrub}
+            onScrubEnd={handleCommit}
             swatches={swatches}
             mixedProperties={mixedProperties}
           />

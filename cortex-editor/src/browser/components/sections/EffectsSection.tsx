@@ -1,5 +1,6 @@
 import type { JSX } from 'preact'
 import { useState, useCallback, useMemo, useRef } from 'preact/hooks'
+import type { SectionChange } from './types.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { ColorInput } from '../controls/ColorInput.js'
 import { Dropdown } from '../controls/Dropdown.js'
@@ -12,10 +13,7 @@ import { IconButton } from '../controls/IconButton.js'
 export { parseBoxShadow, serializeBoxShadow }
 export type { Shadow }
 
-export interface EffectsChange {
-  property: string
-  value: string
-}
+export type EffectsChange = SectionChange
 
 export interface EffectsValues {
   boxShadow: string          // raw CSS box-shadow (from getComputedStyle)

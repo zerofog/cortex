@@ -1,15 +1,13 @@
 import type { JSX } from 'preact'
 import { useState, useCallback, useMemo } from 'preact/hooks'
+import type { SectionChange } from './types.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { ColorInput, parseColor, formatColor } from '../controls/ColorInput.js'
 import { TokenChip } from '../controls/TokenChip.js'
 import { IconButton } from '../controls/IconButton.js'
 import { Eye, EyeOff, SquareDashed } from '../icons.js'
 
-export interface BorderChange {
-  property: string
-  value: string
-}
+export type BorderChange = SectionChange
 
 export interface BorderValues {
   borderWidth: number

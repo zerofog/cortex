@@ -19,14 +19,12 @@
  */
 import type { JSX } from 'preact'
 import { useState, useCallback } from 'preact/hooks'
+import type { SectionChange } from './types.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { SizingDropdown } from '../controls/SizingDropdown.js'
 import type { SizingMode } from '../controls/SizingDropdown.js'
 
-export interface SizingChange {
-  property: string
-  value: string
-}
+export type SizingChange = SectionChange
 
 export interface SizingControlsProps {
   values: {
