@@ -1,0 +1,242 @@
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { render } from 'preact'
+import { SizingControls } from '../../../src/browser/components/sections/SizingControls.js'
+import type { SizingControlsProps } from '../../../src/browser/components/sections/SizingControls.js'
+
+vi.mock('@floating-ui/dom', () => ({
+  computePosition: vi.fn().mockResolvedValue({ x: 0, y: 30 }),
+  flip: vi.fn().mockReturnValue({}),
+  shift: vi.fn().mockReturnValue({}),
+}))
+
+describe('SizingControls', () => {
+  let container: HTMLDivElement
+
+  afterEach(() => {
+    if (container) {
+      render(null, container)
+      container.remove()
+    }
+  })
+
+  const DEFAULT_VALUES: SizingControlsProps['values'] = {
+    width: '320',
+    height: '48',
+    minWidth: '0px',
+    maxWidth: 'none',
+    minHeight: '0px',
+    maxHeight: 'none',
+    overflow: 'visible',
+    boxSizing: 'content-box',
+  }
+
+  function setup(overrides?: Partial<SizingControlsProps>) {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    const onChange = vi.fn()
+    render(
+      <SizingControls
+        values={DEFAULT_VALUES}
+        onChange={onChange}
+        {...overrides}
+      />,
+      container,
+    )
+    return { onChange }
+  }
+
+  it('renders W and H inputs', () => {
+    setup()
+    expect(container.textContent).toContain('W')
+    expect(container.textContent).toContain('H')
+  })
+
+  it('renders two sizing dropdown triggers', () => {
+    setup()
+    const triggers = container.querySelectorAll('.cortex-sizing-trigger')
+    expect(triggers.length).toBe(2)
+  })
+
+  it('emits width change with px suffix', () => {
+    const { onChange } = setup()
+    const inputs = container.querySelectorAll('.cortex-numeric-input input')
+    const widthInput = inputs[0] as HTMLInputElement
+    expect(widthInput).toBeDefined()
+    widthInput.focus()
+    widthInput.value = '400'
+    widthInput.dispatchEvent(new Event('input', { bubbles: true }))
+    widthInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    const widthCall = onChange.mock.calls.find((c: any) => c[0]?.property === 'width')
+    expect(widthCall).toBeDefined()
+    expect(widthCall![0].value).toBe('400px')
+  })
+
+  it('emits fit-content when width mode changed to fit', async () => {
+    const { onChange } = setup()
+    const triggers = container.querySelectorAll('.cortex-sizing-trigger')
+    ;(triggers[0] as HTMLElement).click()
+    await new Promise((r) => setTimeout(r, 10))
+    const fitOption = container.querySelector('[data-value="fit"]') as HTMLElement
+    expect(fitOption).not.toBeNull()
+    fitOption.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'width', value: 'fit-content' })
+  })
+
+  it('emits 100% when width mode changed to fill', async () => {
+    const { onChange } = setup()
+    const triggers = container.querySelectorAll('.cortex-sizing-trigger')
+    ;(triggers[0] as HTMLElement).click()
+    await new Promise((r) => setTimeout(r, 10))
+    const fillOption = container.querySelector('[data-value="fill"]') as HTMLElement
+    expect(fillOption).not.toBeNull()
+    fillOption.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'width', value: '100%' })
+  })
+
+  it('clip content toggle fires overflow:hidden / overflow:visible', () => {
+    const { onChange } = setup()
+    const clipBtn = container.querySelector('[data-tooltip="Clip content (overflow: hidden)"]') as HTMLElement
+    expect(clipBtn).not.toBeNull()
+    // Initially visible — click to clip
+    clipBtn.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'overflow', value: 'hidden' })
+
+    // Now render with overflow: hidden and click again
+    onChange.mockClear()
+    render(null, container)
+    container.remove()
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    render(
+      <SizingControls
+        values={{ ...DEFAULT_VALUES, overflow: 'hidden' }}
+        onChange={onChange}
+      />,
+      container,
+    )
+    const clipBtn2 = container.querySelector('[data-tooltip="Clip content (overflow: hidden)"]') as HTMLElement
+    clipBtn2.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'overflow', value: 'visible' })
+  })
+
+  it('border box toggle fires box-sizing:border-box / box-sizing:content-box', () => {
+    const { onChange } = setup()
+    const boxBtn = container.querySelector('[data-tooltip="Border box sizing"]') as HTMLElement
+    expect(boxBtn).not.toBeNull()
+    // Initially content-box — click for border-box
+    boxBtn.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'box-sizing', value: 'border-box' })
+
+    // Now render with border-box and click again
+    onChange.mockClear()
+    render(null, container)
+    container.remove()
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    render(
+      <SizingControls
+        values={{ ...DEFAULT_VALUES, boxSizing: 'border-box' }}
+        onChange={onChange}
+      />,
+      container,
+    )
+    const boxBtn2 = container.querySelector('[data-tooltip="Border box sizing"]') as HTMLElement
+    boxBtn2.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'box-sizing', value: 'content-box' })
+  })
+
+  it('aspect lock: changing W fires proportional H change', async () => {
+    const { onChange } = setup({ values: { ...DEFAULT_VALUES, width: '200', height: '100' } })
+    // Lock aspect
+    const lockBtn = container.querySelector('.cortex-lock-btn') as HTMLElement
+    expect(lockBtn).not.toBeNull()
+    lockBtn.click()
+    // Allow Preact to flush state update
+    await new Promise((r) => setTimeout(r, 10))
+    // Now change width — need to re-query since the component re-rendered
+    const inputs = container.querySelectorAll('.cortex-numeric-input input')
+    const widthInput = inputs[0] as HTMLInputElement
+    widthInput.focus()
+    widthInput.value = '400'
+    widthInput.dispatchEvent(new Event('input', { bubbles: true }))
+    widthInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    const widthCall = onChange.mock.calls.find((c: any) => c[0]?.property === 'width' && c[0]?.value === '400px')
+    expect(widthCall).toBeDefined()
+    const heightCall = onChange.mock.calls.find((c: any) => c[0]?.property === 'height' && c[0]?.value === '200px')
+    expect(heightCall).toBeDefined()
+  })
+
+  it('min-width toggle shows min input and fires property', async () => {
+    const { onChange } = setup()
+    const triggers = container.querySelectorAll('.cortex-sizing-trigger')
+    ;(triggers[0] as HTMLElement).click()
+    await new Promise((r) => setTimeout(r, 10))
+    const minToggle = container.querySelector('[data-action="toggle-min"]') as HTMLElement
+    expect(minToggle).not.toBeNull()
+    minToggle.click()
+    // Should fire onChange to set min-width to a nonzero value
+    expect(onChange).toHaveBeenCalledWith({ property: 'min-width', value: '1px' })
+  })
+
+  it('max-width toggle shows max input and fires property', async () => {
+    const { onChange } = setup()
+    const triggers = container.querySelectorAll('.cortex-sizing-trigger')
+    ;(triggers[0] as HTMLElement).click()
+    await new Promise((r) => setTimeout(r, 10))
+    const maxToggle = container.querySelector('[data-action="toggle-max"]') as HTMLElement
+    expect(maxToggle).not.toBeNull()
+    maxToggle.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'max-width', value: '9999px' })
+  })
+
+  // ── REGRESSION TEST: stale widthMode/heightMode ─────────────────
+  it('dropdown shows "fill" when values.width=100%, updates to "fixed" on re-render (stale-state fix)', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    const onChange = vi.fn()
+
+    // First render with width=100%
+    render(
+      <SizingControls
+        values={{ ...DEFAULT_VALUES, width: '100%' }}
+        onChange={onChange}
+      />,
+      container,
+    )
+    const triggers1 = container.querySelectorAll('.cortex-sizing-trigger__label')
+    expect(triggers1[0].textContent).toBe('fill')
+
+    // Re-render with width=320px — dropdown must update to "px" (fixed)
+    render(
+      <SizingControls
+        values={{ ...DEFAULT_VALUES, width: '320px' }}
+        onChange={onChange}
+      />,
+      container,
+    )
+    const triggers2 = container.querySelectorAll('.cortex-sizing-trigger__label')
+    expect(triggers2[0].textContent).toBe('px')
+  })
+
+  // ── REGRESSION TEST: stale min/max ──────────────────────────────
+  it('min-width input visible when values.minWidth is nonzero without toggling', () => {
+    setup({ values: { ...DEFAULT_VALUES, minWidth: '100px' } })
+    // The min-width input should be rendered because the value is > 0
+    expect(container.textContent).toContain('Min')
+    const minInput = container.querySelector('[data-tooltip="Min Width"]')
+    expect(minInput).not.toBeNull()
+  })
+
+  it('max-width input visible when values.maxWidth is not "none" without toggling', () => {
+    setup({ values: { ...DEFAULT_VALUES, maxWidth: '500px' } })
+    expect(container.textContent).toContain('Max')
+    const maxInput = container.querySelector('[data-tooltip="Max Width"]')
+    expect(maxInput).not.toBeNull()
+  })
+
+  it('handles auto width gracefully', () => {
+    setup({ values: { ...DEFAULT_VALUES, width: 'auto' } })
+    const inputs = container.querySelectorAll('.cortex-numeric-input')
+    expect(inputs.length).toBeGreaterThan(0)
+  })
+})

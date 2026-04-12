@@ -38,6 +38,13 @@ describe('LayoutSection', () => {
     maxWidth: 'none',
     minHeight: '0px',
     maxHeight: 'none',
+    overflow: 'visible',
+    boxSizing: 'content-box',
+  }
+
+  const DEFAULT_SPACING = {
+    padding: { top: 0, right: 0, bottom: 0, left: 0 },
+    margin: { top: 0, right: 0, bottom: 0, left: 0 },
   }
 
   function setup(overrides?: Partial<Parameters<typeof LayoutSection>[0]>) {
@@ -48,6 +55,8 @@ describe('LayoutSection', () => {
       <LayoutSection
         values={DEFAULT_VALUES}
         onChange={onChange}
+        spacing={DEFAULT_SPACING}
+        onSpacingChange={vi.fn()}
         {...overrides}
       />,
       container,
@@ -91,15 +100,9 @@ describe('LayoutSection', () => {
   })
 
   it('shows FlexControls for flex display (Task 8 — Justify/Align replaced by AlignmentGrid + X/Y dropdowns)', () => {
-    // Task 8 extracted the inline Justify/Align SegmentedControls into
-    // FlexControls — which renders an AlignmentGrid and X/Y dropdowns
-    // instead of text-labelled segmented controls. The old "Justify"
-    // and "Align" labels no longer appear for flex display; for grid
-    // display they still exist (see the next test).
     setup({ values: { ...DEFAULT_VALUES, display: 'flex' } })
     expect(container.querySelector('.cortex-flex-controls')).not.toBeNull()
     expect(container.querySelector('.cortex-alignment-grid')).not.toBeNull()
-    // X and Y dropdown triggers must both be present.
     expect(
       container.querySelector('[data-xy-axis="x"] .cortex-xy-dropdown__trigger'),
     ).not.toBeNull()
@@ -110,9 +113,6 @@ describe('LayoutSection', () => {
 
   it('renders GridControls for grid display (Task 9 / ZF0-1187)', () => {
     setup({ values: { ...DEFAULT_VALUES, display: 'grid' } })
-    // The text-labeled Justify/Align branch was replaced by GridControls
-    // in Task 9 — the presence of the grid-controls subtree + its X/Y
-    // dropdowns is the new falsifiable assertion.
     expect(container.querySelector('.cortex-grid-controls')).not.toBeNull()
     expect(
       container.querySelector('.cortex-grid-controls [data-xy-axis="x"] .cortex-xy-dropdown__trigger'),
@@ -120,7 +120,6 @@ describe('LayoutSection', () => {
     expect(
       container.querySelector('.cortex-grid-controls [data-xy-axis="y"] .cortex-xy-dropdown__trigger'),
     ).not.toBeNull()
-    // Direction segmented control is present.
     expect(
       container.querySelector('.cortex-grid-controls__direction [role="radiogroup"]'),
     ).not.toBeNull()
@@ -132,8 +131,9 @@ describe('LayoutSection', () => {
     expect(container.querySelector('.cortex-flex-controls')).toBeNull()
   })
 
-  it('renders W and H sizing inputs', () => {
+  it('renders W and H sizing inputs via SizingControls', () => {
     setup()
+    expect(container.querySelector('[data-testid="sizing-controls"]')).not.toBeNull()
     expect(container.textContent).toContain('W')
     expect(container.textContent).toContain('H')
   })
@@ -148,14 +148,12 @@ describe('LayoutSection', () => {
   it('emits visibility change', () => {
     const { onChange } = setup()
     const groups = container.querySelectorAll('[role="radiogroup"]')
-    // Visibility is the second radiogroup — assert it exists before clicking
     expect(groups.length).toBeGreaterThanOrEqual(2)
     const hiddenBtn = groups[1].querySelector('[data-value="hidden"]') as HTMLElement
     hiddenBtn?.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'visibility', value: 'hidden' })
   })
 
-  // Review finding 3b: use expect().toBeDefined() instead of if guard
   it('emits width change with px suffix', () => {
     const { onChange } = setup()
     const inputs = container.querySelectorAll('.cortex-numeric-input input')
@@ -214,10 +212,26 @@ describe('LayoutSection', () => {
     expect(minToggle).not.toBeNull()
     minToggle.click()
     await new Promise((r) => setTimeout(r, 10))
-    // Re-render should show Min label
     expect(container.textContent).toContain('Min')
   })
 
+  // ── display=none hides SizingControls + SpacingControls ─────────
+  it('display=none renders neither SizingControls nor SpacingControls', () => {
+    setup({ values: { ...DEFAULT_VALUES, display: 'none' } })
+    expect(container.querySelector('[data-testid="sizing-controls"]')).toBeNull()
+    expect(container.querySelector('[data-testid="spacing-controls"]')).toBeNull()
+  })
+
+  // ── display=block renders SizingControls + SpacingControls ──────
+  it('display=block renders SizingControls + SpacingControls (no flex/grid)', () => {
+    setup()
+    expect(container.querySelector('[data-testid="sizing-controls"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="spacing-controls"]')).not.toBeNull()
+    expect(container.querySelector('.cortex-flex-controls')).toBeNull()
+    expect(container.querySelector('.cortex-grid-controls')).toBeNull()
+  })
+
+  // ── parseLayoutValues ───────────────────────────────────────────
   it('parseLayoutValues includes min/max fields', () => {
     const cs = {
       display: 'block',
@@ -258,16 +272,12 @@ describe('LayoutSection', () => {
     expect(result.rowGap).toBe(12)
     expect(result.columnGap).toBe(8)
     expect(result.flexWrap).toBe('wrap-reverse')
-    // Confirm the existing fields still flow through.
     expect(result.flexDirection).toBe('column-reverse')
     expect(result.justifyContent).toBe('center')
     expect(result.alignItems).toBe('flex-end')
   })
 
   it('parseLayoutValues defaults gap and flex-wrap when fields are absent', () => {
-    // CSSStyleDeclaration always returns '' (empty string) for unset
-    // longhand getters, so the parser must coerce '' to the same defaults
-    // an unstyled element would render with.
     const cs = {
       display: 'block',
       visibility: 'visible',
@@ -319,13 +329,10 @@ describe('LayoutSection', () => {
     expect(result.gridTemplateRows).toBe('repeat(2, 1fr)')
     expect(result.gridAutoFlow).toBe('column')
     expect(result.justifyItems).toBe('center')
-    // alignItems reuses the existing field; confirm it still flows through.
     expect(result.alignItems).toBe('center')
   })
 
   it('parseLayoutValues defaults grid fields when absent', () => {
-    // Same contract as the flex defaults test — '' falls back to the
-    // same defaults an unstyled element would render with.
     const cs = {
       display: 'block',
       visibility: 'visible',
@@ -347,11 +354,57 @@ describe('LayoutSection', () => {
       maxHeight: 'none',
     } as unknown as CSSStyleDeclaration
     const result = parseLayoutValues(cs)
-    // 'none' is the computed-value default for grid-template-*; it
-    // parses to the complex tier in GridControls (read-only "(none)").
     expect(result.gridTemplateColumns).toBe('none')
     expect(result.gridTemplateRows).toBe('none')
     expect(result.gridAutoFlow).toBe('row')
     expect(result.justifyItems).toBe('stretch')
+  })
+
+  // ── parseLayoutValues overflow + boxSizing ──────────────────────
+  it('parseLayoutValues includes overflow and boxSizing fields', () => {
+    const cs = {
+      display: 'block',
+      visibility: 'visible',
+      flexDirection: '',
+      justifyContent: '',
+      alignItems: '',
+      rowGap: '',
+      columnGap: '',
+      flexWrap: '',
+      gridTemplateColumns: '',
+      gridTemplateRows: '',
+      gridAutoFlow: '',
+      justifyItems: '',
+      width: 'auto',
+      height: 'auto',
+      minWidth: '0px',
+      maxWidth: 'none',
+      minHeight: '0px',
+      maxHeight: 'none',
+      overflow: 'hidden',
+      boxSizing: 'border-box',
+    } as unknown as CSSStyleDeclaration
+    const result = parseLayoutValues(cs)
+    expect(result.overflow).toBe('hidden')
+    expect(result.boxSizing).toBe('border-box')
+  })
+
+  it('parseLayoutValues defaults overflow and boxSizing when absent', () => {
+    const cs = {
+      display: 'block',
+      visibility: 'visible',
+      flexDirection: '',
+      justifyContent: '',
+      alignItems: '',
+      width: 'auto',
+      height: 'auto',
+      minWidth: '0px',
+      maxWidth: 'none',
+      minHeight: '0px',
+      maxHeight: 'none',
+    } as unknown as CSSStyleDeclaration
+    const result = parseLayoutValues(cs)
+    expect(result.overflow).toBe('visible')
+    expect(result.boxSizing).toBe('content-box')
   })
 })

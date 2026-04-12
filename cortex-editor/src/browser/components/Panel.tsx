@@ -11,7 +11,6 @@ import { formatShortcut } from '../format-shortcut.js'
 import { extractUtilities } from '../class-extractor.js'
 import { PanelHeader } from './PanelHeader.js'
 import { LayerTree } from './LayerTree.js'
-import { SpacingSection } from './sections/SpacingSection.js'
 import type { SpacingChange } from './sections/SpacingSection.js'
 import { LayoutSection, parseLayoutValues } from './sections/LayoutSection.js'
 import type { LayoutChange } from './sections/LayoutSection.js'
@@ -945,18 +944,10 @@ export function Panel({
             onScrubEnd={handleLayoutCommit}
             dimmedProperties={dimmedProperties}
             mixedProperties={mixedProperties}
-          />
-          <SpacingSection
-            padding={computedStyles.spacing.padding}
-            margin={computedStyles.spacing.margin}
-            gap={computedStyles.spacing.gap}
-            isFlexOrGrid={isFlexOrGrid}
-            boxSizing={computedStyles.spacing.boxSizing}
-            onChange={handleSpacingCommit}
-            onScrub={handleScrub}
-            onScrubEnd={handleSpacingCommit}
-            dimmedProperties={dimmedProperties}
-            mixedProperties={mixedProperties}
+            spacing={{ padding: computedStyles.spacing.padding, margin: computedStyles.spacing.margin }}
+            onSpacingChange={handleSpacingCommit}
+            onSpacingScrub={handleScrub}
+            onSpacingScrubEnd={handleSpacingCommit}
           />
         </SectionGroup>
         {showTypography && (
