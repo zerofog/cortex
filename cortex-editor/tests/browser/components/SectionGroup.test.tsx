@@ -72,6 +72,20 @@ describe('SectionGroup — Panel v2 headerAction slot', () => {
     expect(button!.textContent).toBe('T')
   })
 
+  it('sets role="group" and aria-labelledby linking to title element', () => {
+    mount(
+      <SectionGroup label="Layout" groupId="layout">
+        <span />
+      </SectionGroup>,
+    )
+    const root = container.querySelector('.cortex-section-group') as HTMLElement
+    expect(root.getAttribute('role')).toBe('group')
+    expect(root.getAttribute('aria-labelledby')).toBe('cortex-section-title-layout')
+    const title = container.querySelector('#cortex-section-title-layout')
+    expect(title).not.toBeNull()
+    expect(title!.textContent).toBe('Layout')
+  })
+
   it('omits the headerAction wrapper entirely when the prop is not passed', () => {
     mount(
       <SectionGroup label="Elements" groupId="elements">

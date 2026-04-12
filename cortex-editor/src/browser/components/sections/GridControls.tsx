@@ -146,6 +146,14 @@ function flexAlignToGridAlign(value: string): string {
   return value
 }
 
+/** Reverse map grid canonical values to flex-spec values for AlignmentGrid's
+ *  internal active-cell detection (which uses flex-start/flex-end). */
+function gridAlignToFlexAlign(value: string): string {
+  if (value === 'start') return 'flex-start'
+  if (value === 'end') return 'flex-end'
+  return value
+}
+
 // ── Option catalogs ────────────────────────────────────────────────
 
 // Grid auto-flow — only row/column are canonical surface values. `row
@@ -392,8 +400,8 @@ export function GridControls({
       {/* Alignment — grid + X/Y dropdowns share one row. */}
       <div class="cortex-grid-controls__align">
         <AlignmentGrid
-          justifyValue={justifyItems}
-          alignValue={alignItems}
+          justifyValue={gridAlignToFlexAlign(justifyItems)}
+          alignValue={gridAlignToFlexAlign(alignItems)}
           onJustify={handleGridJustify}
           onAlign={handleGridAlign}
           onDistribute={handleGridDistribute}

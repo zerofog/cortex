@@ -200,8 +200,8 @@ export function PositionSection({
   )
 
   const rotateNum = values.rotate === 'none' ? 0 : parseFloat(values.rotate)
-  const isFlippedH = values.scaleX === '-1'
-  const isFlippedV = values.scaleY === '-1'
+  const isFlippedH = parseFloat(values.scaleX) < 0
+  const isFlippedV = parseFloat(values.scaleY) < 0
 
   const handleRotateChange = useCallback(
     (v: number) => onChange({ property: 'rotate', value: `${v}deg` }),

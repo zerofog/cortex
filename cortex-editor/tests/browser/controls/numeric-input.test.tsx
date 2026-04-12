@@ -80,12 +80,15 @@ describe('NumericInput', () => {
     expect(onChange).toHaveBeenCalledWith(16.1)
   })
 
-  it('commits text input on Enter', () => {
+  it('commits text input on Enter exactly once (no double-fire from blur)', async () => {
     const { onChange, input } = setup()
     // Simulate typing by setting value and dispatching input event
     input.value = '24'
     input.dispatchEvent(new Event('input', { bubbles: true }))
     dispatchKeyboardEvent(input, 'keydown', { key: 'Enter' })
+    // Enter calls blur() internally — wait for blur handler to run
+    await new Promise(r => setTimeout(r, 10))
+    expect(onChange).toHaveBeenCalledTimes(1)
     expect(onChange).toHaveBeenCalledWith(24)
   })
 
