@@ -1644,11 +1644,10 @@
   flex-shrink: 0;
 }
 
-/* TODO Task 13 (ZF0-1191 BackgroundSection): bump to 28px for Panel v2 control consistency. */
 .cortex-color-picker__hex-input,
 .cortex-color-picker__alpha-input {
   flex: 1;
-  height: 26px;
+  height: 28px;
   padding: 0 var(--cx-sp-3);
   background: var(--cx-well);
   border: none;
@@ -1691,6 +1690,14 @@
 .cortex-color-picker__swatch--active {
   border-color: var(--cx-select);
   box-shadow: 0 0 0 1px var(--cx-select);
+}
+
+/* ── Background section ───────────────────── */
+
+.cortex-background-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-3);
 }
 
 /* ── Fill section ──────────────────────────── */

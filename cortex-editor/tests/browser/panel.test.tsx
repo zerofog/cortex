@@ -94,7 +94,10 @@ describe('Panel', () => {
 
   it('renders Phase 5b sections', () => {
     const { root } = setup()
-    expect(root.querySelector('[data-section-id="fill"]')).not.toBeNull()
+    // BackgroundSection only renders when background has a value;
+    // with a default transparent background, the group is present
+    // but the section content is not. Assert the group exists.
+    expect(root.querySelector('[data-group="background"]')).not.toBeNull()
     expect(root.querySelector('[data-section-id="border"]')).not.toBeNull()
     expect(root.querySelector('[data-section-id="shadow"]')).not.toBeNull()
     expect(root.querySelector('[data-section-id="effects"]')).not.toBeNull()
@@ -117,10 +120,11 @@ describe('Panel', () => {
     const positionGroup = root.querySelector('[data-group="position"]')!
     expect(positionGroup.querySelector('[data-section-id="position"]')).not.toBeNull()
 
-    // Background wraps FillSection (transitional — Task 13 introduces a
-    // dedicated BackgroundSection that replaces FillSection).
+    // Background group always renders; BackgroundSection content renders
+    // only when the background is non-transparent.  With default mock
+    // styles the element has no background, so assert the group exists.
     const backgroundGroup = root.querySelector('[data-group="background"]')!
-    expect(backgroundGroup.querySelector('[data-section-id="fill"]')).not.toBeNull()
+    expect(backgroundGroup).not.toBeNull()
 
     const borderGroup = root.querySelector('[data-group="border"]')!
     expect(borderGroup.querySelector('[data-section-id="border"]')).not.toBeNull()

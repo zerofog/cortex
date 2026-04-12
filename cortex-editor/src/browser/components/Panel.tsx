@@ -16,7 +16,7 @@ import { LayoutSection, parseLayoutValues } from './sections/LayoutSection.js'
 import type { LayoutChange } from './sections/LayoutSection.js'
 import { TypographySection, parseTypographyValues, getWeightsForFamily, stripCSSQuotes } from './sections/TypographySection.js'
 import type { TypographyChange } from './sections/TypographySection.js'
-import { FillSection, parseFillValues, summarizeFill } from './sections/FillSection.js'
+import { parseFillValues, summarizeFill } from './sections/FillSection.js'
 import type { FillChange } from './sections/FillSection.js'
 import { BorderSection, parseBorderValues, summarizeBorder } from './sections/BorderSection.js'
 import type { BorderChange } from './sections/BorderSection.js'
@@ -37,7 +37,9 @@ import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
 import { CollapsibleSection } from './CollapsibleSection.js'
 import { IconButton } from './controls/IconButton.js'
-import { Type } from './icons.js'
+import { BackgroundSection } from './sections/BackgroundSection.js'
+import type { BackgroundChange } from './sections/BackgroundSection.js'
+import { Type, Plus } from './icons.js'
 import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
 
 /** Typography-related CSS properties filtered from extractedUtilities for Mode A display. */
@@ -668,6 +670,8 @@ export function Panel({
   const handleTypographyCommit = useCallback((c: TypographyChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleTypographyScrub = useCallback((c: TypographyChange) => applyOverride(c.property, c.value, false), [applyOverride])
   const handleFillCommit = useCallback((c: FillChange) => applyOverride(c.property, c.value, true), [applyOverride])
+  const handleBgCommit = useCallback((c: BackgroundChange) => applyOverride(c.property, c.value, true), [applyOverride])
+  const handleBgScrub = useCallback((c: BackgroundChange) => applyOverride(c.property, c.value, false), [applyOverride])
   const handleBorderCommit = useCallback((c: BorderChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleBorderScrub = useCallback((c: BorderChange) => applyOverride(c.property, c.value, false), [applyOverride])
   const handleShadowCommit = useCallback((c: ShadowChange) => applyOverride(c.property, c.value, true), [applyOverride])
@@ -1012,18 +1016,27 @@ export function Panel({
             resetKey={`${element.tagName}|${element.id}|${element.getAttribute('data-cortex-source') ?? ''}`}
           />
         </SectionGroup>
-        <SectionGroup label="Background" groupId="background">
-          {/* Task 13 replaces FillSection with a dedicated BackgroundSection
-              that absorbs CollapsibleSection's add/remove buttons. */}
-          <CollapsibleSection sectionId="fill" label="Fill" summary={fillSummary} hasValue={fillHasValue} onAdd={handleFillAdd} onRemove={handleFillRemove}>
-            <FillSection
-              values={computedStyles.fill}
-              onChange={handleFillCommit}
+        <SectionGroup
+          label="Background"
+          groupId="background"
+          headerAction={
+            !fillHasValue ? (
+              <IconButton icon={<Plus size={14} />} ariaLabel="Add background" tooltip="Add background color" onClick={handleFillAdd} />
+            ) : undefined
+          }
+        >
+          {fillHasValue && (
+            <BackgroundSection
+              backgroundColor={computedStyles.fill.backgroundColor}
+              backgroundToken={extractedUtilities.get('background-color') ?? null}
+              onChange={handleBgCommit}
+              onScrub={handleBgScrub}
+              onScrubEnd={handleBgCommit}
               swatches={swatches}
               dimmedProperties={dimmedProperties}
               mixedProperties={mixedProperties}
             />
-          </CollapsibleSection>
+          )}
         </SectionGroup>
         <SectionGroup label="Border" groupId="border">
           {/* Task 14 folds the CollapsibleSection's add/remove buttons into
