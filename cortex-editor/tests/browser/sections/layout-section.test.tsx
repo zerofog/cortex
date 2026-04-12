@@ -28,6 +28,10 @@ describe('LayoutSection', () => {
     rowGap: 0,
     columnGap: 0,
     flexWrap: 'nowrap',
+    gridTemplateColumns: 'none',
+    gridTemplateRows: 'none',
+    gridAutoFlow: 'row',
+    justifyItems: 'stretch',
     width: '320',
     height: '48',
     minWidth: '0px',
@@ -104,16 +108,28 @@ describe('LayoutSection', () => {
     ).not.toBeNull()
   })
 
-  it('shows justify/align for grid display', () => {
+  it('renders GridControls for grid display (Task 9 / ZF0-1187)', () => {
     setup({ values: { ...DEFAULT_VALUES, display: 'grid' } })
-    expect(container.textContent).toContain('Justify')
-    expect(container.textContent).toContain('Align')
+    // The text-labeled Justify/Align branch was replaced by GridControls
+    // in Task 9 — the presence of the grid-controls subtree + its X/Y
+    // dropdowns is the new falsifiable assertion.
+    expect(container.querySelector('.cortex-grid-controls')).not.toBeNull()
+    expect(
+      container.querySelector('.cortex-grid-controls [data-xy-axis="x"] .cortex-xy-dropdown__trigger'),
+    ).not.toBeNull()
+    expect(
+      container.querySelector('.cortex-grid-controls [data-xy-axis="y"] .cortex-xy-dropdown__trigger'),
+    ).not.toBeNull()
+    // Direction segmented control is present.
+    expect(
+      container.querySelector('.cortex-grid-controls__direction [role="radiogroup"]'),
+    ).not.toBeNull()
   })
 
-  it('hides justify/align for block display', () => {
+  it('hides GridControls and FlexControls for block display', () => {
     setup()
-    expect(container.textContent).not.toContain('Justify')
-    expect(container.textContent).not.toContain('Align')
+    expect(container.querySelector('.cortex-grid-controls')).toBeNull()
+    expect(container.querySelector('.cortex-flex-controls')).toBeNull()
   })
 
   it('renders W and H sizing inputs', () => {
@@ -275,5 +291,67 @@ describe('LayoutSection', () => {
     expect(result.flexDirection).toBe('row')
     expect(result.justifyContent).toBe('flex-start')
     expect(result.alignItems).toBe('stretch')
+  })
+
+  it('parseLayoutValues reads grid fields from a CSSStyleDeclaration', () => {
+    const cs = {
+      display: 'grid',
+      visibility: 'visible',
+      flexDirection: '',
+      justifyContent: '',
+      alignItems: 'center',
+      rowGap: '',
+      columnGap: '',
+      flexWrap: '',
+      gridTemplateColumns: 'repeat(3, 1fr)',
+      gridTemplateRows: 'repeat(2, 1fr)',
+      gridAutoFlow: 'column',
+      justifyItems: 'center',
+      width: 'auto',
+      height: 'auto',
+      minWidth: '0px',
+      maxWidth: 'none',
+      minHeight: '0px',
+      maxHeight: 'none',
+    } as unknown as CSSStyleDeclaration
+    const result = parseLayoutValues(cs)
+    expect(result.gridTemplateColumns).toBe('repeat(3, 1fr)')
+    expect(result.gridTemplateRows).toBe('repeat(2, 1fr)')
+    expect(result.gridAutoFlow).toBe('column')
+    expect(result.justifyItems).toBe('center')
+    // alignItems reuses the existing field; confirm it still flows through.
+    expect(result.alignItems).toBe('center')
+  })
+
+  it('parseLayoutValues defaults grid fields when absent', () => {
+    // Same contract as the flex defaults test — '' falls back to the
+    // same defaults an unstyled element would render with.
+    const cs = {
+      display: 'block',
+      visibility: 'visible',
+      flexDirection: '',
+      justifyContent: '',
+      alignItems: '',
+      rowGap: '',
+      columnGap: '',
+      flexWrap: '',
+      gridTemplateColumns: '',
+      gridTemplateRows: '',
+      gridAutoFlow: '',
+      justifyItems: '',
+      width: 'auto',
+      height: 'auto',
+      minWidth: '0px',
+      maxWidth: 'none',
+      minHeight: '0px',
+      maxHeight: 'none',
+    } as unknown as CSSStyleDeclaration
+    const result = parseLayoutValues(cs)
+    // 'none' is the computed-value default for grid-template-*; it
+    // parses to the complex tier in GridControls (read-only "(none)").
+    expect(result.gridTemplateColumns).toBe('none')
+    expect(result.gridTemplateRows).toBe('none')
+    expect(result.gridAutoFlow).toBe('row')
+    expect(result.justifyItems).toBe('stretch')
   })
 })

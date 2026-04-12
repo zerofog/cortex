@@ -6,6 +6,8 @@ import { SizingDropdown } from '../controls/SizingDropdown.js'
 import type { SizingMode } from '../controls/SizingDropdown.js'
 import { FlexControls } from './FlexControls.js'
 import type { FlexValues, FlexChange } from './FlexControls.js'
+import { GridControls } from './GridControls.js'
+import type { GridValues, GridChange } from './GridControls.js'
 
 export interface LayoutChange {
   property: string
@@ -21,6 +23,10 @@ export interface LayoutValues {
   rowGap: number
   columnGap: number
   flexWrap: string
+  gridTemplateColumns: string
+  gridTemplateRows: string
+  gridAutoFlow: string
+  justifyItems: string
   width: string
   height: string
   minWidth: string
@@ -59,6 +65,17 @@ export function parseLayoutValues(cs: CSSStyleDeclaration): LayoutValues {
     rowGap: parseFloat(cs.rowGap || '0') || 0,
     columnGap: parseFloat(cs.columnGap || '0') || 0,
     flexWrap: cs.flexWrap || 'nowrap',
+    // Grid fields (Task 9 / ZF0-1187). CSSStyleDeclaration returns ''
+    // for unset getters, so coerce empty values to the same defaults an
+    // unstyled element would render with. `gridTemplateColumns` /
+    // `gridTemplateRows` default to 'none' (the computed-value for
+    // unset), which parses to the complex tier and renders as a
+    // read-only "(none)" placeholder — the correct behaviour for an
+    // element that doesn't declare a template at all.
+    gridTemplateColumns: cs.gridTemplateColumns || 'none',
+    gridTemplateRows: cs.gridTemplateRows || 'none',
+    gridAutoFlow: cs.gridAutoFlow || 'row',
+    justifyItems: cs.justifyItems || 'stretch',
     width: cs.width ?? 'auto',
     height: cs.height ?? 'auto',
     minWidth: cs.minWidth ?? '0px',
@@ -79,22 +96,6 @@ const DISPLAY_OPTIONS = [
 const VISIBILITY_OPTIONS = [
   { value: 'visible', label: 'visible' },
   { value: 'hidden', label: 'hidden' },
-]
-
-const JUSTIFY_OPTIONS = [
-  { value: 'flex-start', icon: '⊣', title: 'Start' },
-  { value: 'center', icon: '⊡', title: 'Center' },
-  { value: 'flex-end', icon: '⊢', title: 'End' },
-  { value: 'space-between', icon: '⊞', title: 'Space Between' },
-  { value: 'space-around', icon: '⊟', title: 'Space Around' },
-]
-
-const ALIGN_OPTIONS = [
-  { value: 'flex-start', icon: '⊣', title: 'Start' },
-  { value: 'center', icon: '⊡', title: 'Center' },
-  { value: 'flex-end', icon: '⊢', title: 'End' },
-  { value: 'stretch', icon: '⊟', title: 'Stretch' },
-  { value: 'baseline', icon: '⊥', title: 'Baseline' },
 ]
 
 export function LayoutSection({
@@ -131,29 +132,24 @@ export function LayoutSection({
     (v: string) => onChange({ property: 'visibility', value: v }),
     [onChange],
   )
-  // Flex callbacks are owned by FlexControls (Task 8 / ZF0-1186) —
-  // the column-direction X/Y swap logic needs a single source of truth,
-  // and inlining it in LayoutSection would duplicate the mapping. The
-  // FlexChange shape is structurally identical to LayoutChange (both are
-  // `{ property, value }`), so we pass the parent callbacks through
-  // unchanged — no wrapper allocation, no shape translation.
+  // Flex/Grid callbacks are owned by FlexControls / GridControls — the
+  // direction-swap logic (flex) and the grid-specific property routing
+  // need single sources of truth, and inlining either in LayoutSection
+  // would duplicate the mapping. Both FlexChange and GridChange are
+  // structurally identical to LayoutChange (`{ property, value }`), so
+  // the parent callbacks pass through unchanged — no wrapper, no shape
+  // translation.
   const handleFlexChange: (c: FlexChange) => void = onChange
   const handleFlexScrub: ((c: FlexChange) => void) | undefined = onScrub
   const handleFlexScrubEnd: ((c: FlexChange) => void) | undefined = onScrubEnd
-  // Grid-only justify/align handlers — will be absorbed into GridControls in Task 9.
-  const handleJustifyChange = useCallback(
-    (v: string) => onChange({ property: 'justify-content', value: v }),
-    [onChange],
-  )
-  const handleAlignChange = useCallback(
-    (v: string) => onChange({ property: 'align-items', value: v }),
-    [onChange],
-  )
+  const handleGridChange: (c: GridChange) => void = onChange
+  const handleGridScrub: ((c: GridChange) => void) | undefined = onScrub
+  const handleGridScrubEnd: ((c: GridChange) => void) | undefined = onScrubEnd
 
-  // FlexValues is structurally a subset of LayoutValues. Building the
-  // explicit subset (instead of spreading) keeps the call site honest
-  // about which fields FlexControls actually consumes — adding a new
-  // FlexValues field surfaces here as a missing-property compile error.
+  // FlexValues / GridValues are structurally subsets of LayoutValues.
+  // Building the explicit subset (instead of spreading) keeps the call
+  // site honest about which fields each sub-control consumes — adding a
+  // new field surfaces here as a missing-property compile error.
   const flexValues: FlexValues = {
     flexDirection: values.flexDirection,
     justifyContent: values.justifyContent,
@@ -161,6 +157,15 @@ export function LayoutSection({
     rowGap: values.rowGap,
     columnGap: values.columnGap,
     flexWrap: values.flexWrap,
+  }
+  const gridValues: GridValues = {
+    gridTemplateColumns: values.gridTemplateColumns,
+    gridTemplateRows: values.gridTemplateRows,
+    gridAutoFlow: values.gridAutoFlow,
+    justifyItems: values.justifyItems,
+    alignItems: values.alignItems,
+    rowGap: values.rowGap,
+    columnGap: values.columnGap,
   }
 
   const widthNum = parseFloat(values.width)
@@ -325,26 +330,15 @@ export function LayoutSection({
       )}
 
       {isGrid && (
-        <>
-          <div class="cortex-layout-section__group cortex-layout-section__reveal">
-            <span class="cortex-section-label">Justify</span>
-            <SegmentedControl
-              options={JUSTIFY_OPTIONS}
-              value={values.justifyContent}
-              onChange={handleJustifyChange}
-              size="sm"
-            />
-          </div>
-          <div class="cortex-layout-section__group cortex-layout-section__reveal">
-            <span class="cortex-section-label">Align</span>
-            <SegmentedControl
-              options={ALIGN_OPTIONS}
-              value={values.alignItems}
-              onChange={handleAlignChange}
-              size="sm"
-            />
-          </div>
-        </>
+        <div class="cortex-layout-section__group cortex-layout-section__reveal">
+          <GridControls
+            values={gridValues}
+            onChange={handleGridChange}
+            onScrub={handleGridScrub}
+            onScrubEnd={handleGridScrubEnd}
+            mixedProperties={mixedProperties}
+          />
+        </div>
       )}
 
       <div class="cortex-layout-section__group">
