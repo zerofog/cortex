@@ -2653,7 +2653,8 @@
 .cortex-expandable-options__trigger,
 .cortex-alignment-grid__cell,
 .cortex-alignment-grid__distribute-btn,
-.cortex-sizing-trigger {
+.cortex-sizing-trigger,
+.cortex-token-chip__unlink {
   outline: 2px solid transparent;
   outline-offset: 1px;
 }
@@ -2672,7 +2673,8 @@
 .cortex-expandable-options__trigger:focus-visible,
 .cortex-alignment-grid__cell:focus-visible,
 .cortex-alignment-grid__distribute-btn:focus-visible,
-.cortex-sizing-trigger:focus-visible {
+.cortex-sizing-trigger:focus-visible,
+.cortex-token-chip__unlink:focus-visible {
   outline-color: var(--cx-select-muted);
 }
 
@@ -3436,6 +3438,56 @@
 
 .cortex-connection-status--reconnected .cortex-connection-status__dot {
   background: var(--cx-success);
+}
+
+/* ── Token Chip (Task 11 / ZF0-1189) ────────── */
+/* Pill-shaped chip for displaying a CSS variable name with a color swatch
+   and an optional unlink button. Used by Typography, Background, and
+   Border sections. */
+
+.cortex-token-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 6px;
+  background: var(--cx-well);
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-sm);
+}
+
+.cortex-token-chip__swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--cx-radius-sm);
+  flex-shrink: 0;
+}
+
+.cortex-token-chip__name {
+  font-family: var(--cx-font-mono, 'Geist Mono', monospace);
+  font-size: var(--cx-text-md);
+  color: var(--cx-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 28px;
+}
+
+.cortex-token-chip__unlink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  color: var(--cx-ink-ghost);
+  flex-shrink: 0;
+  transition: color 150ms ease-out;
+}
+
+.cortex-token-chip__unlink:hover {
+  color: var(--cx-ink);
 }
 
 /* ── Reduced motion ─────────────────────────── */
