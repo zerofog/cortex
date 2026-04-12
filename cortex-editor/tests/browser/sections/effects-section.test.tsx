@@ -1,7 +1,15 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
-import { EffectsSection, parseEffectsValues, replaceBlurInFilter, summarizeEffects } from '../../../src/browser/components/sections/EffectsSection.js'
+import {
+  EffectsSection,
+  parseEffectsValues,
+  replaceBlurInFilter,
+  summarizeEffects,
+  addShadow,
+  parseBlurValue,
+} from '../../../src/browser/components/sections/EffectsSection.js'
 import type { EffectsValues } from '../../../src/browser/components/sections/EffectsSection.js'
+import { parseBoxShadow } from '../../../src/core/shadow-utils.js'
 
 // Mock @floating-ui/dom for Dropdown
 vi.mock('@floating-ui/dom', () => ({
@@ -10,15 +18,13 @@ vi.mock('@floating-ui/dom', () => ({
   shift: vi.fn().mockReturnValue({}),
 }))
 
-// Task 3 (ZF0-1181): opacity moved out of EffectsSection into
-// AppearanceSection. parseEffectsValues no longer returns an opacity field;
-// parseAppearanceValues owns that extraction now. See
-// tests/browser/sections/AppearanceSection.test.ts for opacity coverage.
+// ---------------------------------------------------------------------------
+// parseEffectsValues
+// ---------------------------------------------------------------------------
 describe('parseEffectsValues', () => {
   it('extracts blur from filter "blur(4px)" -> blur: 4', () => {
     const cs = {
-      overflow: 'visible',
-      cursor: 'auto',
+      boxShadow: 'none',
       filter: 'blur(4px)',
       backdropFilter: '',
     } as unknown as CSSStyleDeclaration
@@ -28,8 +34,7 @@ describe('parseEffectsValues', () => {
 
   it('extracts backdrop-blur from backdropFilter "blur(8px)" -> backdropBlur: 8', () => {
     const cs = {
-      overflow: 'visible',
-      cursor: 'auto',
+      boxShadow: 'none',
       filter: '',
       backdropFilter: 'blur(8px)',
     } as unknown as CSSStyleDeclaration
@@ -39,8 +44,7 @@ describe('parseEffectsValues', () => {
 
   it('defaults blur to 0 when filter has no blur (e.g., "grayscale(100%)")', () => {
     const cs = {
-      overflow: 'visible',
-      cursor: 'auto',
+      boxShadow: 'none',
       filter: 'grayscale(100%)',
       backdropFilter: '',
     } as unknown as CSSStyleDeclaration
@@ -50,8 +54,7 @@ describe('parseEffectsValues', () => {
 
   it('handles combined filter values "blur(4px) grayscale(50%)" -> blur: 4', () => {
     const cs = {
-      overflow: 'visible',
-      cursor: 'auto',
+      boxShadow: 'none',
       filter: 'blur(4px) grayscale(50%)',
       backdropFilter: '',
     } as unknown as CSSStyleDeclaration
@@ -61,8 +64,7 @@ describe('parseEffectsValues', () => {
 
   it('includes raw filter strings', () => {
     const cs = {
-      overflow: 'visible',
-      cursor: 'auto',
+      boxShadow: 'none',
       filter: 'blur(4px) grayscale(50%)',
       backdropFilter: 'blur(8px)',
     } as unknown as CSSStyleDeclaration
@@ -70,8 +72,38 @@ describe('parseEffectsValues', () => {
     expect(result.filterRaw).toBe('blur(4px) grayscale(50%)')
     expect(result.backdropFilterRaw).toBe('blur(8px)')
   })
+
+  it('extracts boxShadow from computed style', () => {
+    const cs = {
+      boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.25)',
+      filter: '',
+      backdropFilter: '',
+    } as unknown as CSSStyleDeclaration
+    const result = parseEffectsValues(cs)
+    expect(result.boxShadow).toBe('0px 4px 8px rgba(0, 0, 0, 0.25)')
+  })
 })
 
+// ---------------------------------------------------------------------------
+// parseBlurValue
+// ---------------------------------------------------------------------------
+describe('parseBlurValue', () => {
+  it('extracts blur value from filter string', () => {
+    expect(parseBlurValue('blur(5px)')).toBe(5)
+  })
+
+  it('returns 0 for non-blur filter', () => {
+    expect(parseBlurValue('grayscale(100%)')).toBe(0)
+  })
+
+  it('returns 0 for empty string', () => {
+    expect(parseBlurValue('')).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// replaceBlurInFilter
+// ---------------------------------------------------------------------------
 describe('replaceBlurInFilter', () => {
   it('replaces blur in combined filter, preserving other functions', () => {
     expect(replaceBlurInFilter('grayscale(50%) blur(4px)', 8)).toBe('grayscale(50%) blur(8px)')
@@ -98,6 +130,80 @@ describe('replaceBlurInFilter', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// summarizeEffects
+// ---------------------------------------------------------------------------
+describe('summarizeEffects', () => {
+  it('returns "none" when all values are default', () => {
+    expect(summarizeEffects({
+      boxShadow: 'none', blur: 0, backdropBlur: 0, filterRaw: '', backdropFilterRaw: '',
+    })).toBe('none')
+  })
+
+  it('includes shadow count', () => {
+    expect(summarizeEffects({
+      boxShadow: '0px 4px 8px rgba(0,0,0,0.1)', blur: 0, backdropBlur: 0, filterRaw: '', backdropFilterRaw: '',
+    })).toBe('1 shadow')
+  })
+
+  it('includes multiple shadows', () => {
+    expect(summarizeEffects({
+      boxShadow: '0px 4px 8px rgba(0,0,0,0.1), inset 1px 2px 3px #000',
+      blur: 0, backdropBlur: 0, filterRaw: '', backdropFilterRaw: '',
+    })).toBe('2 shadows')
+  })
+
+  it('includes blur', () => {
+    expect(summarizeEffects({
+      boxShadow: 'none', blur: 4, backdropBlur: 0, filterRaw: 'blur(4px)', backdropFilterRaw: '',
+    })).toBe('blur 4px')
+  })
+
+  it('includes multiple non-default values', () => {
+    expect(summarizeEffects({
+      boxShadow: '0px 2px 4px rgba(0,0,0,0.1)',
+      blur: 4, backdropBlur: 0, filterRaw: 'blur(4px)', backdropFilterRaw: '',
+    })).toBe('1 shadow, blur 4px')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// addShadow
+// ---------------------------------------------------------------------------
+describe('addShadow', () => {
+  it('appends a default shadow to "none"', () => {
+    const result = addShadow('none')
+    const shadows = parseBoxShadow(result)
+    expect(shadows.length).toBe(1)
+    expect(shadows[0].inset).toBe(false)
+    expect(shadows[0].blur).toBe(8)
+  })
+
+  it('appends a shadow to an existing shadow list', () => {
+    const result = addShadow('0px 4px 8px rgba(0, 0, 0, 0.25)')
+    const shadows = parseBoxShadow(result)
+    expect(shadows.length).toBe(2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// parseShadowList via parseBoxShadow (spec test 1)
+// ---------------------------------------------------------------------------
+describe('parseShadowList via parseBoxShadow', () => {
+  it('parses "0px 4px 8px rgba(0,0,0,0.25)" into 1 shadow with correct values', () => {
+    const shadows = parseBoxShadow('0px 4px 8px rgba(0,0,0,0.25)')
+    expect(shadows.length).toBe(1)
+    expect(shadows[0].x).toBe(0)
+    expect(shadows[0].y).toBe(4)
+    expect(shadows[0].blur).toBe(8)
+    expect(shadows[0].spread).toBe(0)
+    expect(shadows[0].inset).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// EffectsSection component
+// ---------------------------------------------------------------------------
 describe('EffectsSection', () => {
   let container: HTMLDivElement
 
@@ -109,11 +215,18 @@ describe('EffectsSection', () => {
   })
 
   const DEFAULT_VALUES: EffectsValues = {
-    overflow: 'visible',
-    cursor: 'auto',
+    boxShadow: 'none',
     blur: 4,
     backdropBlur: 0,
     filterRaw: 'blur(4px)',
+    backdropFilterRaw: '',
+  }
+
+  const TWO_SHADOWS_VALUES: EffectsValues = {
+    boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.1), inset 1px 2px 3px #000',
+    blur: 0,
+    backdropBlur: 0,
+    filterRaw: '',
     backdropFilterRaw: '',
   }
 
@@ -134,48 +247,14 @@ describe('EffectsSection', () => {
     expect(root).not.toBeNull()
   })
 
-  // Task 3 (ZF0-1181): opacity moved to AppearanceSection. EffectsSection
-  // must no longer render an opacity NumericInput. Absence is asserted
-  // structurally — any future regression that re-adds opacity here will
-  // fail this test. Positive coverage lives in AppearanceSection tests.
-  it('does NOT render an opacity input any more (moved to AppearanceSection)', () => {
+  it('does NOT render overflow or cursor controls (removed in v2)', () => {
     setup()
-    const inputs = container.querySelectorAll('.cortex-numeric-input')
-    const opacityInput = Array.from(inputs).find((el) =>
-      el.textContent?.includes('OP'),
-    )
-    expect(opacityInput).toBeUndefined()
-    // And the "%" unit (only opacity uses it here; blur is px) must be gone.
-    const percentUnits = Array.from(
-      container.querySelectorAll('.cortex-numeric-input__unit'),
-    ).filter((el) => el.textContent === '%')
-    expect(percentUnits.length).toBe(0)
+    expect(container.textContent).not.toContain('Overflow')
+    expect(container.textContent).not.toContain('Cursor')
   })
 
-  it('renders overflow segmented control (visible/hidden/scroll/auto)', () => {
+  it('renders blur input with label "BL"', () => {
     setup()
-    expect(container.textContent).toContain('Overflow')
-    const groups = container.querySelectorAll('[role="radiogroup"]')
-    expect(groups.length).toBeGreaterThanOrEqual(1)
-    // Check all four overflow options exist
-    const overflowGroup = groups[0]
-    expect(overflowGroup.querySelector('[data-value="visible"]')).not.toBeNull()
-    expect(overflowGroup.querySelector('[data-value="hidden"]')).not.toBeNull()
-    expect(overflowGroup.querySelector('[data-value="scroll"]')).not.toBeNull()
-    expect(overflowGroup.querySelector('[data-value="auto"]')).not.toBeNull()
-  })
-
-  it('renders cursor dropdown', () => {
-    setup()
-    expect(container.textContent).toContain('Cursor')
-    const trigger = container.querySelector('.cortex-dropdown__trigger')
-    expect(trigger).not.toBeNull()
-    expect(trigger!.textContent).toContain('auto')
-  })
-
-  it('renders blur input (label for "Blur")', () => {
-    setup()
-    expect(container.textContent).toContain('Blur')
     const inputs = container.querySelectorAll('.cortex-numeric-input')
     const blurInput = Array.from(inputs).find((el) => {
       const label = el.querySelector('.cortex-numeric-input__label')
@@ -186,9 +265,8 @@ describe('EffectsSection', () => {
     expect(input.value).toBe('4')
   })
 
-  it('renders backdrop blur input (label for "BG Blur")', () => {
+  it('renders backdrop blur input with label "BG"', () => {
     setup()
-    expect(container.textContent).toContain('BG Blur')
     const inputs = container.querySelectorAll('.cortex-numeric-input')
     const bgBlurInput = Array.from(inputs).find((el) => {
       const label = el.querySelector('.cortex-numeric-input__label')
@@ -198,18 +276,142 @@ describe('EffectsSection', () => {
     const input = bgBlurInput!.querySelector('input') as HTMLInputElement
     expect(input.value).toBe('0')
   })
-})
 
-describe('summarizeEffects', () => {
-  it('returns "default" when all values are default', () => {
-    expect(summarizeEffects({ overflow: 'visible', cursor: 'auto', blur: 0, backdropBlur: 0, filterRaw: '', backdropFilterRaw: '' })).toBe('default')
+  it('renders shadow rows for each shadow in boxShadow', () => {
+    setup({ values: TWO_SHADOWS_VALUES })
+    const rows = container.querySelectorAll('.cortex-effects-section__row')
+    expect(rows.length).toBe(2)
   })
 
-  it('includes overflow when not visible', () => {
-    expect(summarizeEffects({ overflow: 'hidden', cursor: 'auto', blur: 0, backdropBlur: 0, filterRaw: '', backdropFilterRaw: '' })).toBe('hidden')
+  it('renders no shadow rows when boxShadow is "none"', () => {
+    setup()
+    const rows = container.querySelectorAll('.cortex-effects-section__row')
+    expect(rows.length).toBe(0)
   })
 
-  it('includes multiple non-default values', () => {
-    expect(summarizeEffects({ overflow: 'hidden', cursor: 'auto', blur: 4, backdropBlur: 0, filterRaw: 'blur(4px)', backdropFilterRaw: '' })).toBe('hidden, blur 4px')
+  // Spec test 2: + button fires onChange with default shadow
+  // (The + button is in Panel.tsx headerAction, but addShadow is tested above)
+
+  // Spec test 3: Remove button fires onChange removing entry
+  it('remove button fires onChange removing the shadow entry', () => {
+    const { onChange } = setup({ values: TWO_SHADOWS_VALUES })
+    const removeButtons = container.querySelectorAll<HTMLButtonElement>(
+      '.cortex-icon-button[aria-label="Remove shadow"]',
+    )
+    expect(removeButtons.length).toBe(2)
+    // Click remove on the first shadow
+    removeButtons[0].click()
+    expect(onChange).toHaveBeenCalledTimes(1)
+    const call = onChange.mock.calls[0][0]
+    expect(call.property).toBe('box-shadow')
+    // Verify the reconstructed value has only the inset shadow remaining
+    const remaining = parseBoxShadow(call.value)
+    expect(remaining.length).toBe(1)
+    expect(remaining[0].inset).toBe(true)
+  })
+
+  // Spec test 4: Eye toggle disables shadow
+  it('eye toggle disables a shadow by zeroing values', () => {
+    const values: EffectsValues = {
+      boxShadow: '0px 2px 8px 0px rgba(0, 0, 0, 0.1)',
+      blur: 0,
+      backdropBlur: 0,
+      filterRaw: '',
+      backdropFilterRaw: '',
+    }
+    const { onChange } = setup({ values })
+    const eyeButton = container.querySelector<HTMLButtonElement>(
+      '.cortex-icon-button[aria-label="Disable shadow"]',
+    )
+    expect(eyeButton).not.toBeNull()
+    eyeButton!.click()
+    expect(onChange).toHaveBeenCalledTimes(1)
+    const call = onChange.mock.calls[0][0]
+    expect(call.property).toBe('box-shadow')
+    const shadows = parseBoxShadow(call.value)
+    expect(shadows.length).toBe(1)
+    // All positional values should be zeroed
+    expect(shadows[0].x).toBe(0)
+    expect(shadows[0].y).toBe(0)
+    expect(shadows[0].blur).toBe(0)
+    expect(shadows[0].spread).toBe(0)
+  })
+
+  // Spec test 5: Detail panel hidden by default, visible after expand click
+  it('detail panel is hidden by default and visible after expand click', async () => {
+    const values: EffectsValues = {
+      boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.1)',
+      blur: 0,
+      backdropBlur: 0,
+      filterRaw: '',
+      backdropFilterRaw: '',
+    }
+    setup({ values })
+    // Detail should not be visible initially
+    expect(container.querySelector('.cortex-effects-section__detail')).toBeNull()
+    // Click expand
+    const expandBtn = container.querySelector<HTMLButtonElement>(
+      '.cortex-effects-section__expand-btn',
+    )
+    expect(expandBtn).not.toBeNull()
+    expandBtn!.click()
+    // Flush Preact's async rendering
+    await new Promise(r => setTimeout(r, 0))
+    // Detail should now be visible
+    expect(container.querySelector('.cortex-effects-section__detail')).not.toBeNull()
+    // Should have X, Y, B, S inputs
+    const grid = container.querySelector('.cortex-effects-section__grid')
+    expect(grid).not.toBeNull()
+    const numericInputs = grid!.querySelectorAll('.cortex-numeric-input')
+    expect(numericInputs.length).toBe(4)
+  })
+
+  // Spec test 6: Blur NumericInput fires filter change
+  it('blur NumericInput fires filter change via keyboard', () => {
+    const { onChange } = setup()
+    const inputs = container.querySelectorAll('.cortex-numeric-input')
+    const blurInput = Array.from(inputs).find((el) => {
+      const label = el.querySelector('.cortex-numeric-input__label')
+      return label?.textContent === 'BL'
+    })
+    expect(blurInput).toBeDefined()
+    const input = blurInput!.querySelector('input') as HTMLInputElement
+    // NumericInput fires onChange on ArrowUp/ArrowDown keydown
+    input.focus()
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
+    // The onChange should fire with filter property (blur 4 + 1 = 5)
+    const filterCalls = onChange.mock.calls.filter(
+      (c: any) => c[0].property === 'filter',
+    )
+    expect(filterCalls.length).toBeGreaterThanOrEqual(1)
+    expect(filterCalls[0][0].value).toContain('blur(5px)')
+  })
+
+  it('renders type dropdown with Drop shadow / Inner shadow options', () => {
+    const values: EffectsValues = {
+      boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.1)',
+      blur: 0,
+      backdropBlur: 0,
+      filterRaw: '',
+      backdropFilterRaw: '',
+    }
+    setup({ values })
+    const typeDropdown = container.querySelector('.cortex-effects-section__type .cortex-dropdown__trigger')
+    expect(typeDropdown).not.toBeNull()
+    expect(typeDropdown!.textContent).toContain('Drop shadow')
+  })
+
+  it('type dropdown shows "Inner shadow" for inset shadows', () => {
+    const values: EffectsValues = {
+      boxShadow: 'inset 0px 2px 8px rgba(0, 0, 0, 0.1)',
+      blur: 0,
+      backdropBlur: 0,
+      filterRaw: '',
+      backdropFilterRaw: '',
+    }
+    setup({ values })
+    const typeDropdown = container.querySelector('.cortex-effects-section__type .cortex-dropdown__trigger')
+    expect(typeDropdown).not.toBeNull()
+    expect(typeDropdown!.textContent).toContain('Inner shadow')
   })
 })

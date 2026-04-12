@@ -19,9 +19,7 @@ import type { TypographyChange } from './sections/TypographySection.js'
 import { parseFillValues, summarizeFill } from './sections/FillSection.js'
 import { BorderSection, parseBorderValues, summarizeBorder } from './sections/BorderSection.js'
 import type { BorderChange } from './sections/BorderSection.js'
-import { ShadowSection, parseShadowValues, summarizeShadow, addShadow } from './sections/ShadowSection.js'
-import type { ShadowChange } from './sections/ShadowSection.js'
-import { EffectsSection, parseEffectsValues } from './sections/EffectsSection.js'
+import { EffectsSection, parseEffectsValues, addShadow } from './sections/EffectsSection.js'
 import type { EffectsChange } from './sections/EffectsSection.js'
 import { PositionSection, parsePositionValues } from './sections/PositionSection.js'
 import type { PositionChange } from './sections/PositionSection.js'
@@ -34,7 +32,6 @@ import { EditErrorCard } from './EditErrorCard.js'
 import type { EditError } from './EditErrorCard.js'
 import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
-import { CollapsibleSection } from './CollapsibleSection.js'
 import { IconButton } from './controls/IconButton.js'
 import { BackgroundSection } from './sections/BackgroundSection.js'
 import type { BackgroundChange } from './sections/BackgroundSection.js'
@@ -376,7 +373,6 @@ export function Panel({
           typography: parseTypographyValues({} as CSSStyleDeclaration),
           fill: parseFillValues({} as CSSStyleDeclaration),
           border: parseBorderValues({} as CSSStyleDeclaration),
-          shadow: parseShadowValues({} as CSSStyleDeclaration),
           effects: parseEffectsValues({} as CSSStyleDeclaration),
           position: parsePositionValues({} as CSSStyleDeclaration),
           appearance: parseAppearanceValues({} as CSSStyleDeclaration),
@@ -394,7 +390,6 @@ export function Panel({
       typography: parseTypographyValues(cs),
       fill: parseFillValues(cs),
       border: parseBorderValues(cs),
-      shadow: parseShadowValues(cs),
       effects: parseEffectsValues(cs),
       position: parsePositionValues(cs),
       appearance: parseAppearanceValues(cs),
@@ -671,7 +666,6 @@ export function Panel({
   const handleBgCommit = useCallback((c: BackgroundChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleBorderCommit = useCallback((c: BorderChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleBorderScrub = useCallback((c: BorderChange) => applyOverride(c.property, c.value, false), [applyOverride])
-  const handleShadowCommit = useCallback((c: ShadowChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleEffectsCommit = useCallback((c: EffectsChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleEffectsScrub = useCallback((c: EffectsChange) => applyOverride(c.property, c.value, false), [applyOverride])
   const handlePositionCommit = useCallback((c: PositionChange) => applyOverride(c.property, c.value, true), [applyOverride])
@@ -682,9 +676,6 @@ export function Panel({
   const fillHasValue = fillSummary !== 'transparent'
   const borderSummary = useMemo(() => summarizeBorder(computedStyles.border), [computedStyles.border])
   const borderHasValue = borderSummary !== 'none'
-  const shadowSummary = useMemo(() => summarizeShadow(computedStyles.shadow), [computedStyles.shadow])
-  const shadowHasValue = shadowSummary !== 'none'
-
   const handleFillAdd = useCallback(() => {
     applyOverride('background-color', '#ffffff', true)
   }, [applyOverride])
@@ -696,8 +687,8 @@ export function Panel({
     commitScrub()
   }, [applyOverride, commitScrub])
   const handleShadowAdd = useCallback(() => {
-    applyOverride('box-shadow', addShadow(computedStyles.shadow.boxShadow), true)
-  }, [computedStyles.shadow.boxShadow, applyOverride])
+    applyOverride('box-shadow', addShadow(computedStyles.effects.boxShadow), true)
+  }, [computedStyles.effects.boxShadow, applyOverride])
 
   // AppearanceSection (Task 3 / ZF0-1181) — mirrors every other section's
   // commit/scrub pattern exactly; no new command path is required because
@@ -1042,28 +1033,22 @@ export function Panel({
             />
           )}
         </SectionGroup>
-        <SectionGroup label="Effects" groupId="effects">
-          {/* Task 15 consolidates ShadowSection + EffectsSection into a single
-              unified Effects section with a type dropdown and detail panel. */}
-          <CollapsibleSection sectionId="shadow" label="Shadow" summary={shadowSummary} hasValue={shadowHasValue} onAdd={handleShadowAdd} canAddMore>
-            <ShadowSection
-              values={computedStyles.shadow}
-              onChange={handleShadowCommit}
-              swatches={swatches}
-              dimmedProperties={dimmedProperties}
-              mixedProperties={mixedProperties}
-            />
-          </CollapsibleSection>
-          <CollapsibleSection sectionId="effects" label="Effects" hasValue={true}>
-            <EffectsSection
-              values={computedStyles.effects}
-              onChange={handleEffectsCommit}
-              onScrub={handleEffectsScrub}
-              onScrubEnd={handleEffectsCommit}
-              dimmedProperties={dimmedProperties}
-              mixedProperties={mixedProperties}
-            />
-          </CollapsibleSection>
+        <SectionGroup
+          label="Effects"
+          groupId="effects"
+          headerAction={
+            <IconButton icon={<Plus size={14} />} ariaLabel="Add effect" tooltip="Add shadow effect" onClick={handleShadowAdd} />
+          }
+        >
+          <EffectsSection
+            values={computedStyles.effects}
+            onChange={handleEffectsCommit}
+            onScrub={handleEffectsScrub}
+            onScrubEnd={handleEffectsCommit}
+            swatches={swatches}
+            dimmedProperties={dimmedProperties}
+            mixedProperties={mixedProperties}
+          />
         </SectionGroup>
         {channel && (
           <CommentInput

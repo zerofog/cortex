@@ -1795,27 +1795,33 @@
   gap: var(--cx-sp-3);
 }
 
-/* ── Shadow section ────────────────────────── */
+/* ── Effects section (consolidated shadow + blur) ── */
 
-.cortex-shadow-section {
+.cortex-effects-section {
   display: flex;
   flex-direction: column;
   gap: var(--cx-sp-6);
 }
 
-.cortex-shadow-section__row {
+.cortex-effects-section__shadows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-6);
+}
+
+.cortex-effects-section__row {
   display: flex;
   flex-direction: column;
   gap: var(--cx-sp-3);
 }
 
-.cortex-shadow-section__row-header {
+.cortex-effects-section__row-header {
   display: flex;
   align-items: center;
   gap: var(--cx-sp-2);
 }
 
-.cortex-shadow-section__expand-btn {
+.cortex-effects-section__expand-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1831,49 +1837,26 @@
   transition: background 150ms ease-out, color 150ms ease-out, transform 150ms ease-out;
 }
 
-.cortex-shadow-section__expand-btn svg {
+.cortex-effects-section__expand-btn svg {
   width: 10px;
   height: 10px;
 }
 
-.cortex-shadow-section__expand-btn:hover {
+.cortex-effects-section__expand-btn:hover {
   background: var(--cx-well);
   color: var(--cx-ink-secondary);
 }
 
-.cortex-shadow-section__row[data-expanded="true"] .cortex-shadow-section__expand-btn {
+.cortex-effects-section__row[data-expanded="true"] .cortex-effects-section__expand-btn {
   transform: rotate(90deg);
 }
 
-.cortex-shadow-section__type {
+.cortex-effects-section__type {
   flex: 1;
   min-width: 0;
 }
 
-.cortex-shadow-section__remove {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-  border: none;
-  background: transparent;
-  color: var(--cx-ink-ghost);
-  cursor: pointer;
-  border-radius: var(--cx-radius-sm);
-  padding: 0;
-  font-size: 14px;
-  transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out, transform 100ms ease-out;
-  line-height: 1;
-}
-
-.cortex-shadow-section__remove:hover {
-  background: var(--cx-destructive-surface);
-  color: var(--cx-destructive);
-}
-
-.cortex-shadow-section__detail {
+.cortex-effects-section__detail {
   display: flex;
   flex-direction: column;
   gap: var(--cx-sp-3);
@@ -1882,21 +1865,13 @@
   border-radius: var(--cx-radius-sm);
 }
 
-.cortex-shadow-section__grid {
+.cortex-effects-section__grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--cx-sp-3);
 }
 
-/* ── Effects section ───────────────────────── */
-
-.cortex-effects-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--cx-sp-6);
-}
-
-.cortex-effects-section__group {
+.cortex-effects-section__blur-controls {
   display: flex;
   flex-direction: column;
   gap: var(--cx-sp-3);
@@ -2633,8 +2608,7 @@
 .cortex-segmented__option,
 .cortex-dropdown__trigger,
 .cortex-color-input__swatch,
-.cortex-shadow-section__remove,
-.cortex-shadow-section__expand-btn,
+.cortex-effects-section__expand-btn,
 .cortex-spacing-group__toggle,
 .cortex-lock-btn,
 .cortex-icon-button,
@@ -2652,8 +2626,7 @@
 .cortex-segmented__option:focus-visible,
 .cortex-dropdown__trigger:focus-visible,
 .cortex-color-input__swatch:focus-visible,
-.cortex-shadow-section__remove:focus-visible,
-.cortex-shadow-section__expand-btn:focus-visible,
+.cortex-effects-section__expand-btn:focus-visible,
 .cortex-spacing-group__toggle:focus-visible,
 .cortex-lock-btn:focus-visible,
 .cortex-icon-button:focus-visible,
@@ -2677,8 +2650,7 @@
   transform: scale(0.92);
 }
 
-.cortex-shadow-section__remove:active,
-.cortex-shadow-section__expand-btn:active {
+.cortex-effects-section__expand-btn:active {
   transform: scale(0.9);
 }
 

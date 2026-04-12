@@ -102,7 +102,8 @@ describe('Panel', () => {
     // styles (borderStyle: 'none'), the group is present but the section
     // content is not. Same pattern as BackgroundSection above.
     expect(root.querySelector('[data-group="border"]')).not.toBeNull()
-    expect(root.querySelector('[data-section-id="shadow"]')).not.toBeNull()
+    // Task 15 consolidated ShadowSection + EffectsSection into a single
+    // unified EffectsSection with data-section-id="effects".
     expect(root.querySelector('[data-section-id="effects"]')).not.toBeNull()
   })
 
@@ -136,10 +137,8 @@ describe('Panel', () => {
     const borderGroup = root.querySelector('[data-group="border"]')!
     expect(borderGroup).not.toBeNull()
 
-    // Effects wraps both ShadowSection and EffectsSection (transitional —
-    // Task 15 consolidates them into a single Effects section).
+    // Task 15 consolidated shadow + effects into a single EffectsSection.
     const effectsGroup = root.querySelector('[data-group="effects"]')!
-    expect(effectsGroup.querySelector('[data-section-id="shadow"]')).not.toBeNull()
     expect(effectsGroup.querySelector('[data-section-id="effects"]')).not.toBeNull()
   })
 
