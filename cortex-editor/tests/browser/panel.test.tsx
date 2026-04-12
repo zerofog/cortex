@@ -78,10 +78,9 @@ describe('Panel', () => {
   })
 
   it('renders section labels', () => {
-    // Use a text-bearing element so the Typography section renders and the
-    // classic "Font" sub-label appears. The default setup() target is a
-    // childless <div> which intentionally omits Typography (see the
-    // `containsDirectText` helper in Panel.tsx).
+    // Use a text-bearing element so the Typography section renders.
+    // The default setup() target is a childless <div> which intentionally
+    // omits Typography (see `containsDirectText` helper in Panel.tsx).
     const target = document.createElement('p')
     target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
     target.appendChild(document.createTextNode('Hero heading'))
@@ -89,7 +88,8 @@ describe('Panel', () => {
     const { root } = setup(target)
     expect(root.textContent).toContain('Display')
     expect(root.textContent).toContain('Padding')
-    expect(root.textContent).toContain('Font')
+    // v2: "Font" sub-label removed; the SectionGroup header reads "Typography"
+    expect(root.textContent).toContain('Typography')
   })
 
   it('renders Phase 5b sections', () => {

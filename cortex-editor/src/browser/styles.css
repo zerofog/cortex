@@ -1484,15 +1484,25 @@
   gap: var(--cx-sp-6);
 }
 
-.cortex-typography-section__group {
-  display: flex;
-  flex-direction: column;
+/* Mode A: vertical stack of token chips */
+.cortex-typography-section--mode-a {
   gap: var(--cx-sp-3);
 }
 
+.cortex-typography-section__empty {
+  font-size: var(--cx-text-sm);
+  color: var(--cx-ink-ghost);
+  font-style: italic;
+}
+
+/* Mode B: CSS control rows */
 .cortex-typography-section__row {
   display: flex;
   gap: var(--cx-sp-3);
+}
+
+.cortex-typography-section__row--full {
+  flex-direction: column;
 }
 
 .cortex-typography-section__field {
@@ -1501,14 +1511,6 @@
   display: flex;
   align-items: center;
   gap: var(--cx-sp-2);
-}
-
-.cortex-typography-section__inline-label {
-  font-size: var(--cx-text-sm);
-  font-weight: var(--cx-weight-label);
-  letter-spacing: 0.01em;
-  color: var(--cx-ink-tertiary);
-  flex-shrink: 0;
 }
 
 /* ── Color input ────────────────────────────── */

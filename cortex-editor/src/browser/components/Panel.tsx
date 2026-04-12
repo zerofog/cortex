@@ -36,6 +36,8 @@ import type { EditError } from './EditErrorCard.js'
 import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
 import { CollapsibleSection } from './CollapsibleSection.js'
+import { IconButton } from './controls/IconButton.js'
+import { Type } from './icons.js'
 import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
 
 // ── Connection status footer ─────────────────────────────────────────
@@ -277,6 +279,9 @@ export function Panel({
   const [sharedInfo, setSharedInfo] = useState<SharedClassInfo | null>(null)
   const [editScope, setEditScope] = useState<'instance' | 'all'>('instance')
 
+  // Typography section dual-mode toggle (ZF0-1190)
+  const [typographyMode, setTypographyMode] = useState<'auto' | 'a' | 'b'>('auto')
+
   // Default computed styles snapshot for dimming comparison.
   // Plain object snapshot (NOT a live CSSStyleDeclaration) — taken once per element.
   const defaultStylesRef = useRef<Record<string, string> | null>(null)
@@ -306,6 +311,7 @@ export function Panel({
     if (prevElementRef.current && prevElementRef.current !== element) {
       // No cross-fade or body remount — sections update via normal prop changes.
       setActivePseudo('element') // reset pseudo tab on element change
+      setTypographyMode('auto') // reset typography mode on element change (ZF0-1190)
     }
     prevElementRef.current = element
     scrubPreviousRef.current.clear() // abandon any in-progress scrub state
@@ -454,6 +460,21 @@ export function Panel({
       : (element.getAttribute('class') ?? '')
     return extractUtilities(cls)
   }, [element, styleVersion])
+
+  // Derive typography token classes from extractedUtilities for Mode A display (ZF0-1190).
+  const detectedTypographyTokens = useMemo(() => {
+    const TYPOGRAPHY_PROPS = new Set([
+      'font-size', 'font-weight', 'font-family', 'line-height',
+      'letter-spacing', 'text-align', 'color',
+    ])
+    const result: Array<{ className: string; property: string }> = []
+    for (const [property, className] of extractedUtilities) {
+      if (TYPOGRAPHY_PROPS.has(property)) {
+        result.push({ className, property })
+      }
+    }
+    return result
+  }, [extractedUtilities])
 
   // Null-byte separator for composite scrub keys — never appears in CSS properties or source paths.
   const SEP = '\0'
@@ -951,7 +972,19 @@ export function Panel({
           />
         </SectionGroup>
         {showTypography && (
-          <SectionGroup label="Typography" groupId="typography">
+          <SectionGroup
+            label="Typography"
+            groupId="typography"
+            headerAction={
+              <IconButton
+                icon={<Type size={14} />}
+                ariaLabel="Toggle typography mode"
+                tooltip="Toggle token/CSS view"
+                active={typographyMode !== 'auto'}
+                onClick={() => setTypographyMode(m => m === 'auto' ? 'b' : m === 'b' ? 'a' : 'auto')}
+              />
+            }
+          >
             <TypographySection
               values={computedStyles.typography}
               availableWeights={availableWeights}
@@ -961,6 +994,8 @@ export function Panel({
               swatches={swatches}
               dimmedProperties={dimmedProperties}
               mixedProperties={mixedProperties}
+              mode={typographyMode}
+              detectedTokenClasses={detectedTypographyTokens}
             />
           </SectionGroup>
         )}
