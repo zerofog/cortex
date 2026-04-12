@@ -97,6 +97,7 @@ export function NumericInput({
       if (!isNaN(parsed)) {
         onChange(clampValue(parsed))
       }
+      userTypedRef.current = false
       setIsEditing(false)
       inputRef.current?.blur()
     } else if (e.key === 'Escape') {
@@ -140,7 +141,7 @@ export function NumericInput({
       setLocalValue(str)
     }
     userTypedRef.current = false
-  }, [value, onChange, clampValue])
+  }, [value, onChange, clampValue, mixed])
 
   const handleInput = useCallback((e: Event) => {
     userTypedRef.current = true

@@ -127,8 +127,8 @@ export function LayoutSection({
   onSpacingScrub,
   onSpacingScrubEnd,
 }: LayoutSectionProps): JSX.Element {
-  const isFlex = values.display === 'flex' || values.display === 'inline-flex'
-  const isGrid = values.display === 'grid' || values.display === 'inline-grid'
+  const isFlex = values.display === 'flex'
+  const isGrid = values.display === 'grid'
   const isNone = values.display === 'none'
 
   const handleDisplayChange = useCallback(

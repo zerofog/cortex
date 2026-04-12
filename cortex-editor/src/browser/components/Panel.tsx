@@ -432,9 +432,6 @@ export function Panel({
     return { computedStyles: parsed, dimmedProperties: dimmed, mixedProperties: mixed, parentDisplay: computedParentDisplay }
   }, [element, styleVersion, activeState, activePseudo, sharedInfo, editScope])
 
-  // Derive isFlexOrGrid from normalized layout display
-  const layoutDisplay = computedStyles.layout.display
-  const isFlexOrGrid = layoutDisplay === 'flex' || layoutDisplay === 'grid'
   // justify-self / align-self only have meaningful effects when the
   // layout parent is flex or grid; the raw display string is parsed in
   // the useMemo above to avoid a second forced layout.
@@ -657,7 +654,7 @@ export function Panel({
   }, [element, overrideManager, activePseudo, sharedInfo, editScope, commitScrub])
 
   const handleSpacingCommit = useCallback((c: SpacingChange) => applyOverride(c.property, c.value, true), [applyOverride])
-  const handleScrub = useCallback((c: SpacingChange) => applyOverride(c.property, c.value, false), [applyOverride])
+  const handleSpacingScrub = useCallback((c: SpacingChange) => applyOverride(c.property, c.value, false), [applyOverride])
 
   const handleLayoutCommit = useCallback((c: LayoutChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleLayoutScrub = useCallback((c: LayoutChange) => applyOverride(c.property, c.value, false), [applyOverride])
@@ -913,16 +910,10 @@ export function Panel({
         </div>
       )}
       <div class="cortex-panel__body" ref={bodyRef}>
-        {/* Panel v2 canonical section ordering (DESIGN.md "Section ordering
-            rationale"): Elements → Position → Layout → Typography → Appearance
-            → Background → Border → Effects. Typography is conditional on the
-            selected element actually rendering direct text (`containsDirectText`).
-            Position is hidden when editing the shared-class "All" scope.
-            Appearance is NOT rendered here — Task 3 (ZF0-1181) must insert its
-            own <SectionGroup label="Appearance" groupId="appearance"> between
-            Typography and Background when it adds the opacity / corner-radius /
-            visibility controls. No placeholder shell: Task 3 wires the group
-            itself so there is no empty DOM surface to delete. */}
+        {/* Section ordering per DESIGN.md: Elements → Position → Layout →
+            Typography → Appearance → Background → Border → Effects.
+            Typography conditional on containsDirectText; Position hidden
+            in shared-class "All" scope. */}
         <SectionGroup label="Elements" groupId="elements">
           <ElementTree element={element} onSelectElement={onSelectElement} />
         </SectionGroup>
@@ -933,7 +924,6 @@ export function Panel({
               onChange={handlePositionCommit}
               onScrub={handlePositionScrub}
               onScrubEnd={handlePositionCommit}
-              dimmedProperties={dimmedProperties}
               parentIsFlexOrGrid={parentIsFlexOrGrid}
             />
           </SectionGroup>
@@ -944,11 +934,10 @@ export function Panel({
             onChange={handleLayoutCommit}
             onScrub={handleLayoutScrub}
             onScrubEnd={handleLayoutCommit}
-            dimmedProperties={dimmedProperties}
             mixedProperties={mixedProperties}
             spacing={{ padding: computedStyles.spacing.padding, margin: computedStyles.spacing.margin }}
             onSpacingChange={handleSpacingCommit}
-            onSpacingScrub={handleScrub}
+            onSpacingScrub={handleSpacingScrub}
             onSpacingScrubEnd={handleSpacingCommit}
           />
         </SectionGroup>
@@ -973,7 +962,6 @@ export function Panel({
               onScrub={handleTypographyScrub}
               onScrubEnd={handleTypographyCommit}
               swatches={swatches}
-              dimmedProperties={dimmedProperties}
               mixedProperties={mixedProperties}
               mode={typographyMode}
               detectedTokenClasses={detectedTypographyTokens}
@@ -1006,7 +994,6 @@ export function Panel({
               backgroundToken={extractedUtilities.get('background-color') ?? null}
               onChange={handleBgCommit}
               swatches={swatches}
-              dimmedProperties={dimmedProperties}
               mixedProperties={mixedProperties}
             />
           )}
@@ -1028,7 +1015,6 @@ export function Panel({
               onScrub={handleBorderScrub}
               onScrubEnd={handleBorderCommit}
               swatches={swatches}
-              dimmedProperties={dimmedProperties}
               mixedProperties={mixedProperties}
             />
           )}
@@ -1046,7 +1032,6 @@ export function Panel({
             onScrub={handleEffectsScrub}
             onScrubEnd={handleEffectsCommit}
             swatches={swatches}
-            dimmedProperties={dimmedProperties}
             mixedProperties={mixedProperties}
           />
         </SectionGroup>

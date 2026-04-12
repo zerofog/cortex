@@ -169,6 +169,8 @@ export function SpacingControls({
 }: SpacingControlsProps): JSX.Element {
   const [paddingLocked, setPaddingLocked] = useState(false)
   const [marginLocked, setMarginLocked] = useState(false)
+  const togglePaddingLock = useCallback(() => setPaddingLocked(p => !p), [])
+  const toggleMarginLock = useCallback(() => setMarginLocked(p => !p), [])
 
   return (
     <div class="cortex-spacing-controls" data-testid="spacing-controls" data-section-id="spacing">
@@ -178,7 +180,7 @@ export function SpacingControls({
         prefix="padding"
         allowNegative={false}
         locked={paddingLocked}
-        onToggleLock={() => setPaddingLocked(p => !p)}
+        onToggleLock={togglePaddingLock}
         onChange={onChange}
         onScrub={onScrub}
         onScrubEnd={onScrubEnd}
@@ -190,7 +192,7 @@ export function SpacingControls({
         prefix="margin"
         allowNegative={true}
         locked={marginLocked}
-        onToggleLock={() => setMarginLocked(p => !p)}
+        onToggleLock={toggleMarginLock}
         onChange={onChange}
         onScrub={onScrub}
         onScrubEnd={onScrubEnd}

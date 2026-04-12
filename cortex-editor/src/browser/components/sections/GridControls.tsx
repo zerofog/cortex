@@ -48,7 +48,7 @@
  * unrecognized templates are displayed but never silently rewritten.
  */
 import type { JSX } from 'preact'
-import { useCallback } from 'preact/hooks'
+import { useCallback, useMemo } from 'preact/hooks'
 import { SegmentedControl, type SegmentedOption } from '../controls/SegmentedControl.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { AlignmentGrid } from '../controls/AlignmentGrid.js'
@@ -198,8 +198,8 @@ export function GridControls({
     columnGap,
   } = values
 
-  const cols = parseGridTemplate(gridTemplateColumns)
-  const rows = parseGridTemplate(gridTemplateRows)
+  const cols = useMemo(() => parseGridTemplate(gridTemplateColumns), [gridTemplateColumns])
+  const rows = useMemo(() => parseGridTemplate(gridTemplateRows), [gridTemplateRows])
 
   // ── Direction ────────────────────────────────────────────────
   const handleDirection = useCallback(
