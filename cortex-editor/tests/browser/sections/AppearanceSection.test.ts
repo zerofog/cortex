@@ -269,10 +269,9 @@ describe('AppearanceSection', () => {
     expect(onChange).toHaveBeenCalledWith({ property: 'visibility', value: 'visible' })
   })
 
-  // --- CTF3: dimmedProperties pilot ----------------------------------------
-  // AppearanceSection is the first section to READ dimmedProperties and apply
-  // a visual dim to its controls. Step 5 Simplify propagates this template to
-  // the other 7 sections. These tests lock the template in place.
+  // --- CTF3/CTF7: dimmedProperties -------------------------------------------
+  // AppearanceSection was the first section to READ dimmedProperties and apply
+  // a visual dim. CTF7 moved to the shared .cortex-control--dimmed class.
   describe('dimmedProperties (CTF3 pilot)', () => {
     it('dims the opacity control when dimmedProperties contains "opacity"', () => {
       setup({ dimmedProperties: new Set(['opacity']) })
@@ -281,7 +280,7 @@ describe('AppearanceSection', () => {
       )
       expect(opacityControl).not.toBeNull()
       expect(
-        opacityControl!.classList.contains('cortex-appearance-section__control--dimmed'),
+        opacityControl!.classList.contains('cortex-control--dimmed'),
       ).toBe(true)
     })
 
@@ -291,7 +290,7 @@ describe('AppearanceSection', () => {
         '.cortex-appearance-section__control--opacity',
       )!
       expect(
-        opacityControl.classList.contains('cortex-appearance-section__control--dimmed'),
+        opacityControl.classList.contains('cortex-control--dimmed'),
       ).toBe(false)
     })
 
@@ -301,7 +300,7 @@ describe('AppearanceSection', () => {
         '.cortex-appearance-section__control--visibility',
       )!
       expect(
-        visibilityControl.classList.contains('cortex-appearance-section__control--dimmed'),
+        visibilityControl.classList.contains('cortex-control--dimmed'),
       ).toBe(true)
     })
 
@@ -311,7 +310,7 @@ describe('AppearanceSection', () => {
         '.cortex-appearance-section__control--radius',
       )!
       expect(
-        radiusControl.classList.contains('cortex-appearance-section__control--dimmed'),
+        radiusControl.classList.contains('cortex-control--dimmed'),
       ).toBe(true)
     })
 
@@ -321,7 +320,7 @@ describe('AppearanceSection', () => {
         '.cortex-appearance-section__control--radius',
       )!
       expect(
-        radiusControl.classList.contains('cortex-appearance-section__control--dimmed'),
+        radiusControl.classList.contains('cortex-control--dimmed'),
       ).toBe(true)
     })
   })

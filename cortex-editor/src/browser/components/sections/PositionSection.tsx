@@ -1,5 +1,6 @@
 import type { JSX } from 'preact'
 import { useCallback } from 'preact/hooks'
+import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { PositionDropdown } from '../controls/PositionDropdown.js'
 import { NumericInput } from '../controls/NumericInput.js'
@@ -153,6 +154,7 @@ export function PositionSection({
   onChange,
   onScrub,
   onScrubEnd,
+  dimmedProperties,
   parentIsFlexOrGrid,
 }: PositionSectionProps): JSX.Element {
   const isStatic = values.position === 'static'
@@ -255,14 +257,14 @@ export function PositionSection({
         />
       )}
       <div
-        class={`cortex-position-section__xy-row${isStatic ? ' cortex-position-section__xy-row--disabled' : ''}`}
+        class={`cortex-position-section__xy-row${isStatic ? ' cortex-position-section__xy-row--disabled' : ''}${isDimmed(dimmedProperties, 'left', 'top') ? ' cortex-control--dimmed' : ''}`}
         data-tooltip={isStatic ? 'Set position mode to enable' : undefined}
       >
         <NumericInput value={xValue} unit={isStatic ? 'auto' : 'px'} prefix="X" tooltip={xTooltip} disabled={isStatic} onChange={handleXChange} onScrub={handleXScrub} onScrubEnd={handleXScrubEnd} />
         <NumericInput value={yValue} unit={isStatic ? 'auto' : 'px'} prefix="Y" tooltip={yTooltip} disabled={isStatic} onChange={handleYChange} onScrub={handleYScrub} onScrubEnd={handleYScrubEnd} />
         <NumericInput value={zValue} prefix="Z" tooltip="Z-index" onChange={handleZChange} />
       </div>
-      <div class="cortex-position-section__rotate-row">
+      <div class={`cortex-position-section__rotate-row${isDimmed(dimmedProperties, 'rotate', 'scale') ? ' cortex-control--dimmed' : ''}`}>
         <NumericInput
           value={rotateNum}
           unit="deg"

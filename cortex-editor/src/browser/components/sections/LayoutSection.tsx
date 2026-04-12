@@ -13,6 +13,7 @@
  */
 import type { JSX } from 'preact'
 import { useCallback } from 'preact/hooks'
+import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { SegmentedControl } from '../controls/SegmentedControl.js'
 import { Square, MoveHorizontal, LayoutGrid, Minus, EyeOff } from '../icons.js'
@@ -119,6 +120,7 @@ export function LayoutSection({
   onChange,
   onScrub,
   onScrubEnd,
+  dimmedProperties,
   mixedProperties,
   spacing,
   onSpacingChange,
@@ -168,7 +170,7 @@ export function LayoutSection({
 
   return (
     <div class="cortex-layout-section" data-section-id="layout">
-      <div class="cortex-layout-section__group">
+      <div class={`cortex-layout-section__group${isDimmed(dimmedProperties, 'display') ? ' cortex-control--dimmed' : ''}`}>
         <span class="cortex-section-label">Display</span>
         <SegmentedControl
           options={DISPLAY_OPTIONS}
@@ -179,7 +181,7 @@ export function LayoutSection({
       </div>
 
       {!isNone && (
-        <div class="cortex-layout-section__group cortex-layout-section__reveal" data-group="visibility">
+        <div class={`cortex-layout-section__group cortex-layout-section__reveal${isDimmed(dimmedProperties, 'visibility') ? ' cortex-control--dimmed' : ''}`} data-group="visibility">
           <span class="cortex-section-label">Visibility</span>
           <SegmentedControl
             options={VISIBILITY_OPTIONS}
@@ -198,6 +200,7 @@ export function LayoutSection({
             onChange={handleFlexChange}
             onScrub={handleFlexScrub}
             onScrubEnd={handleFlexScrubEnd}
+            dimmedProperties={dimmedProperties}
             mixedProperties={mixedProperties}
           />
         </div>
@@ -210,6 +213,7 @@ export function LayoutSection({
             onChange={handleGridChange}
             onScrub={handleGridScrub}
             onScrubEnd={handleGridScrubEnd}
+            dimmedProperties={dimmedProperties}
             mixedProperties={mixedProperties}
           />
         </div>
@@ -231,6 +235,7 @@ export function LayoutSection({
             onChange={onChange}
             onScrub={onScrub}
             onScrubEnd={onScrubEnd}
+            dimmedProperties={dimmedProperties}
             mixedProperties={mixedProperties}
           />
         </div>
@@ -244,6 +249,7 @@ export function LayoutSection({
             onChange={onSpacingChange}
             onScrub={onSpacingScrub}
             onScrubEnd={onSpacingScrubEnd}
+            dimmedProperties={dimmedProperties}
             mixedProperties={mixedProperties}
           />
         </div>

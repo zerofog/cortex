@@ -19,6 +19,7 @@
  */
 import type { JSX } from 'preact'
 import { useState, useCallback } from 'preact/hooks'
+import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { SizingDropdown } from '../controls/SizingDropdown.js'
@@ -40,6 +41,8 @@ export interface SizingControlsProps {
   onChange: (change: SizingChange) => void
   onScrub?: (change: SizingChange) => void
   onScrubEnd?: (change: SizingChange) => void
+  /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
+  dimmedProperties?: Set<string>
   mixedProperties?: Set<string>
 }
 
@@ -65,6 +68,7 @@ export function SizingControls({
   onChange,
   onScrub,
   onScrubEnd,
+  dimmedProperties,
   mixedProperties,
 }: SizingControlsProps): JSX.Element {
   const [aspectLocked, setAspectLocked] = useState(false)
@@ -214,7 +218,7 @@ export function SizingControls({
     <div class="cortex-sizing-controls" data-testid="sizing-controls">
       <span class="cortex-section-label">Sizing</span>
       <div class="cortex-layout-section__sizing">
-        <div class="cortex-layout-section__sizing-field">
+        <div class={`cortex-layout-section__sizing-field${isDimmed(dimmedProperties, 'width', 'min-width', 'max-width') ? ' cortex-control--dimmed' : ''}`}>
           <NumericInput
             value={isAutoWidth ? 0 : widthNum}
             label="W"
@@ -235,7 +239,7 @@ export function SizingControls({
             dimension="Width"
           />
         </div>
-        <div class="cortex-layout-section__sizing-field">
+        <div class={`cortex-layout-section__sizing-field${isDimmed(dimmedProperties, 'height', 'min-height', 'max-height') ? ' cortex-control--dimmed' : ''}`}>
           <NumericInput
             value={isAutoHeight ? 0 : heightNum}
             label="H"

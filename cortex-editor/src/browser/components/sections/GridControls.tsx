@@ -49,6 +49,7 @@
  */
 import type { JSX } from 'preact'
 import { useCallback, useMemo } from 'preact/hooks'
+import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { SegmentedControl, type SegmentedOption } from '../controls/SegmentedControl.js'
 import { NumericInput } from '../controls/NumericInput.js'
@@ -84,6 +85,8 @@ export interface GridControlsProps {
   onChange: (change: GridChange) => void
   onScrub?: (change: GridChange) => void
   onScrubEnd?: (change: GridChange) => void
+  /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
+  dimmedProperties?: Set<string>
   /** Set of CSS properties whose values differ across selected elements. */
   mixedProperties?: Set<string>
 }
@@ -192,6 +195,7 @@ export function GridControls({
   onChange,
   onScrub,
   onScrubEnd,
+  dimmedProperties,
   mixedProperties,
 }: GridControlsProps): JSX.Element {
   const {
@@ -339,7 +343,7 @@ export function GridControls({
           intermediate visual states are meaningless. Only commit-on-
           enter/blur is wired here. The dual gap inputs below DO forward
           scrub events because per-pixel gap dragging is interactive. */}
-      <div class="cortex-grid-controls__template">
+      <div class={`cortex-grid-controls__template${isDimmed(dimmedProperties, 'grid-template-columns', 'grid-template-rows') ? ' cortex-control--dimmed' : ''}`}>
         {cols.tier === 'simple' && (
           <div class="cortex-grid-controls__cols">
             <NumericInput
@@ -386,7 +390,7 @@ export function GridControls({
       </div>
 
       {/* Direction — icon-only segmented control, full width. */}
-      <div class="cortex-grid-controls__direction">
+      <div class={`cortex-grid-controls__direction${isDimmed(dimmedProperties, 'grid-auto-flow') ? ' cortex-control--dimmed' : ''}`}>
         <span class="cortex-section-label">Direction</span>
         <SegmentedControl
           options={DIRECTION_OPTIONS}
@@ -396,7 +400,7 @@ export function GridControls({
       </div>
 
       {/* Alignment — grid + X/Y dropdowns share one row. */}
-      <div class="cortex-grid-controls__align">
+      <div class={`cortex-grid-controls__align${isDimmed(dimmedProperties, 'justify-items', 'align-items') ? ' cortex-control--dimmed' : ''}`}>
         <AlignmentGrid
           justifyValue={gridAlignToFlexAlign(justifyItems)}
           alignValue={gridAlignToFlexAlign(alignItems)}
@@ -430,7 +434,7 @@ export function GridControls({
       </div>
 
       {/* Dual gap — two side-by-side NumericInputs (NOT linked). */}
-      <div class="cortex-grid-controls__gap">
+      <div class={`cortex-grid-controls__gap${isDimmed(dimmedProperties, 'row-gap', 'column-gap') ? ' cortex-control--dimmed' : ''}`}>
         <div class="cortex-grid-controls__column-gap">
           <NumericInput
             value={columnGap}

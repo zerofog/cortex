@@ -1,5 +1,6 @@
 import type { JSX } from 'preact'
 import { useCallback, useMemo } from 'preact/hooks'
+import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { ColorInput, parseColor, formatColor } from '../controls/ColorInput.js'
 import { TokenChip } from '../controls/TokenChip.js'
@@ -34,6 +35,7 @@ export function BackgroundSection({
   backgroundToken,
   onChange,
   swatches,
+  dimmedProperties,
   mixedProperties,
 }: BackgroundSectionProps): JSX.Element {
   const parsed = useMemo(() => parseColor(backgroundColor), [backgroundColor])
@@ -55,7 +57,7 @@ export function BackgroundSection({
   )
 
   return (
-    <div class="cortex-background-section" data-section-id="background">
+    <div class={`cortex-background-section${isDimmed(dimmedProperties, 'background-color') ? ' cortex-control--dimmed' : ''}`} data-section-id="background">
       {backgroundToken !== null ? (
         <TokenChip
           tokenName={backgroundToken}

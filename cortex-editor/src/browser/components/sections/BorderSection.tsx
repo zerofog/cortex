@@ -1,5 +1,6 @@
 import type { JSX } from 'preact'
 import { useState, useCallback, useMemo } from 'preact/hooks'
+import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { ColorInput, parseColor, formatColor } from '../controls/ColorInput.js'
@@ -81,6 +82,7 @@ export function BorderSection({
   onScrub,
   onScrubEnd,
   swatches,
+  dimmedProperties,
   mixedProperties,
 }: BorderSectionProps): JSX.Element {
   const [perSideOpen, setPerSideOpen] = useState(false)
@@ -192,7 +194,7 @@ export function BorderSection({
   return (
     <div class="cortex-border-section" data-section-id="border">
       {/* Row 1: Color + Opacity + Eye */}
-      <div class="cortex-border-section__color-row">
+      <div class={`cortex-border-section__color-row${isDimmed(dimmedProperties, 'border-color') ? ' cortex-control--dimmed' : ''}`}>
         {borderToken !== null ? (
           <TokenChip
             tokenName={borderToken}
@@ -218,7 +220,7 @@ export function BorderSection({
       </div>
 
       {/* Row 2: Width + Per-side toggle */}
-      <div class="cortex-border-section__width-row">
+      <div class={`cortex-border-section__width-row${isDimmed(dimmedProperties, 'border-width', 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width') ? ' cortex-control--dimmed' : ''}`}>
         <NumericInput
           value={values.borderWidth}
           unit="px"

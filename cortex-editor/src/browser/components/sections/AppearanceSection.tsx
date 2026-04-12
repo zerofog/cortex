@@ -1,5 +1,6 @@
 import type { JSX } from 'preact'
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
+import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { Blend, Eye, EyeOff, SquareDashed } from '../icons.js'
@@ -20,11 +21,9 @@ import { Blend, Eye, EyeOff, SquareDashed } from '../icons.js'
 // stops rendering its radius rows but keeps the radius fields on
 // `BorderValues` until Task 14 fully cleans up.
 //
-// CTF3 pilot: this section is the first in the codebase to actually READ
-// `dimmedProperties` and apply a visual dim to its controls. Step 5 Simplify
-// propagates the pattern across the remaining 7 sections. The dim class
-// `cortex-appearance-section__control--dimmed` is defined in styles.css
-// under the Panel v2 section.
+// CTF3 pilot: this section was the first in the codebase to actually READ
+// `dimmedProperties` and apply a visual dim to its controls. CTF7 propagated
+// the shared `.cortex-control--dimmed` class across all 8 sections.
 // ---------------------------------------------------------------------------
 
 export type AppearanceChange = SectionChange
@@ -86,16 +85,6 @@ export function parseAppearanceValues(cs: CSSStyleDeclaration): AppearanceValues
   }
 }
 
-// Classes used for CTF3 dimming. Keeping them as string constants avoids
-// typos in the six places `control--dimmed` gets conditionally appended.
-const BASE_CONTROL = 'cortex-appearance-section__control'
-const DIMMED = `${BASE_CONTROL}--dimmed`
-
-function controlClass(variant: string, dimmed: boolean): string {
-  return dimmed
-    ? `${BASE_CONTROL} ${BASE_CONTROL}--${variant} ${DIMMED}`
-    : `${BASE_CONTROL} ${BASE_CONTROL}--${variant}`
-}
 
 export function AppearanceSection({
   values,
@@ -186,20 +175,21 @@ export function AppearanceSection({
   // the uniform input is the fall-back representation whenever per-corner
   // isn't expanded — hiding the dim on a per-corner change would miscommunicate
   // the forced-state delta.
-  const opacityDimmed = dimmedProperties?.has('opacity') ?? false
-  const visibilityDimmed = dimmedProperties?.has('visibility') ?? false
-  const anyRadiusDimmed =
-    dimmedProperties?.has('border-radius') ||
-    dimmedProperties?.has('border-top-left-radius') ||
-    dimmedProperties?.has('border-top-right-radius') ||
-    dimmedProperties?.has('border-bottom-left-radius') ||
-    dimmedProperties?.has('border-bottom-right-radius') ||
-    false
+  const opacityDimmed = isDimmed(dimmedProperties, 'opacity')
+  const visibilityDimmed = isDimmed(dimmedProperties, 'visibility')
+  const anyRadiusDimmed = isDimmed(
+    dimmedProperties,
+    'border-radius',
+    'border-top-left-radius',
+    'border-top-right-radius',
+    'border-bottom-left-radius',
+    'border-bottom-right-radius',
+  )
 
   return (
     <div class="cortex-appearance-section" data-section-id="appearance">
       {/* ── Opacity ─────────────────────────────────── */}
-      <div class={controlClass('opacity', opacityDimmed)}>
+      <div class={`cortex-appearance-section__control cortex-appearance-section__control--opacity${opacityDimmed ? ' cortex-control--dimmed' : ''}`}>
         <span class="cortex-appearance-section__icon" aria-hidden="true">
           <Blend size={14} />
         </span>
@@ -216,7 +206,7 @@ export function AppearanceSection({
       </div>
 
       {/* ── Corner radius ───────────────────────────── */}
-      <div class={controlClass('radius', anyRadiusDimmed)}>
+      <div class={`cortex-appearance-section__control cortex-appearance-section__control--radius${anyRadiusDimmed ? ' cortex-control--dimmed' : ''}`}>
         <div class="cortex-appearance-section__radius-row">
           {!perCorner && (
             <NumericInput
@@ -290,7 +280,7 @@ export function AppearanceSection({
       </div>
 
       {/* ── Visibility (eye toggle) ─────────────────── */}
-      <div class={controlClass('visibility', visibilityDimmed)}>
+      <div class={`cortex-appearance-section__control cortex-appearance-section__control--visibility${visibilityDimmed ? ' cortex-control--dimmed' : ''}`}>
         <button
           type="button"
           class={`cortex-appearance-section__visibility-toggle${isHidden ? ' cortex-appearance-section__visibility-toggle--hidden' : ''}`}

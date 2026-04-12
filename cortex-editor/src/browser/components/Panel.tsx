@@ -896,6 +896,7 @@ export function Panel({
               onChange={handleCommit}
               onScrub={handleScrub}
               onScrubEnd={handleCommit}
+              dimmedProperties={dimmedProperties}
               parentIsFlexOrGrid={parentIsFlexOrGrid}
             />
           </SectionGroup>
@@ -906,6 +907,7 @@ export function Panel({
             onChange={handleCommit}
             onScrub={handleScrub}
             onScrubEnd={handleCommit}
+            dimmedProperties={dimmedProperties}
             mixedProperties={mixedProperties}
             spacing={{ padding: computedStyles.spacing.padding, margin: computedStyles.spacing.margin }}
             onSpacingChange={handleCommit}
@@ -934,6 +936,7 @@ export function Panel({
               onScrub={handleScrub}
               onScrubEnd={handleCommit}
               swatches={swatches}
+              dimmedProperties={dimmedProperties}
               mixedProperties={mixedProperties}
               mode={typographyMode}
               detectedTokenClasses={detectedTypographyTokens}
@@ -966,6 +969,7 @@ export function Panel({
               backgroundToken={extractedUtilities.get('background-color') ?? null}
               onChange={handleCommit}
               swatches={swatches}
+              dimmedProperties={dimmedProperties}
               mixedProperties={mixedProperties}
             />
           )}
@@ -987,6 +991,7 @@ export function Panel({
               onScrub={handleScrub}
               onScrubEnd={handleCommit}
               swatches={swatches}
+              dimmedProperties={dimmedProperties}
               mixedProperties={mixedProperties}
             />
           )}
@@ -1004,6 +1009,7 @@ export function Panel({
             onScrub={handleScrub}
             onScrubEnd={handleCommit}
             swatches={swatches}
+            dimmedProperties={dimmedProperties}
             mixedProperties={mixedProperties}
           />
         </SectionGroup>

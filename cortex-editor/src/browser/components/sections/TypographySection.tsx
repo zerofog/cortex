@@ -1,5 +1,6 @@
 import type { JSX } from 'preact'
 import { useCallback, useMemo } from 'preact/hooks'
+import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { SegmentedControl } from '../controls/SegmentedControl.js'
 import { NumericInput } from '../controls/NumericInput.js'
@@ -133,6 +134,7 @@ export function TypographySection({
   onScrub,
   onScrubEnd,
   swatches,
+  dimmedProperties,
   mixedProperties,
   mode,
   detectedTokenClasses,
@@ -249,7 +251,7 @@ export function TypographySection({
   return (
     <div class="cortex-typography-section cortex-typography-section--mode-b" data-section-id="type">
       {/* Font family — full width */}
-      <div class="cortex-typography-section__row cortex-typography-section__row--full">
+      <div class={`cortex-typography-section__row cortex-typography-section__row--full${isDimmed(dimmedProperties, 'font-family') ? ' cortex-control--dimmed' : ''}`}>
         <Dropdown
           options={fontFamilyOptions}
           value={fontFamilyOptions[0]?.value ?? ''}
@@ -258,7 +260,7 @@ export function TypographySection({
       </div>
 
       {/* Weight + Size — side by side */}
-      <div class="cortex-typography-section__row">
+      <div class={`cortex-typography-section__row${isDimmed(dimmedProperties, 'font-weight', 'font-size') ? ' cortex-control--dimmed' : ''}`}>
         <div class="cortex-typography-section__field">
           <Dropdown
             options={weightOptions}
@@ -281,7 +283,7 @@ export function TypographySection({
       </div>
 
       {/* Line-height + Letter-spacing — side by side with icon prefixes */}
-      <div class="cortex-typography-section__row">
+      <div class={`cortex-typography-section__row${isDimmed(dimmedProperties, 'line-height', 'letter-spacing') ? ' cortex-control--dimmed' : ''}`}>
         <div class="cortex-typography-section__field">
           <NumericInput
             value={values.lineHeight}
@@ -308,7 +310,7 @@ export function TypographySection({
       </div>
 
       {/* Text align — full width SegmentedControl with Lucide icons */}
-      <div class="cortex-typography-section__row cortex-typography-section__row--full">
+      <div class={`cortex-typography-section__row cortex-typography-section__row--full${isDimmed(dimmedProperties, 'text-align') ? ' cortex-control--dimmed' : ''}`}>
         <SegmentedControl
           options={ALIGN_OPTIONS}
           value={values.textAlign}
@@ -318,7 +320,7 @@ export function TypographySection({
       </div>
 
       {/* Color — full width */}
-      <div class="cortex-typography-section__row cortex-typography-section__row--full">
+      <div class={`cortex-typography-section__row cortex-typography-section__row--full${isDimmed(dimmedProperties, 'color') ? ' cortex-control--dimmed' : ''}`}>
         <ColorInput
           value={values.color}
           onChange={handleColorChange}

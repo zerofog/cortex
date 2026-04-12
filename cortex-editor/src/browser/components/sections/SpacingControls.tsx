@@ -12,6 +12,7 @@
  */
 import type { JSX } from 'preact'
 import { useState, useCallback } from 'preact/hooks'
+import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { MoveHorizontal, MoveVertical } from '../icons.js'
@@ -24,6 +25,8 @@ export interface SpacingControlsProps {
   onChange: (change: SpacingChange) => void
   onScrub?: (change: SpacingChange) => void
   onScrubEnd?: (change: SpacingChange) => void
+  /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
+  dimmedProperties?: Set<string>
   mixedProperties?: Set<string>
 }
 
@@ -41,6 +44,7 @@ function SpacingRow({
   onChange,
   onScrub,
   onScrubEnd,
+  dimmed,
   mixedProperties,
 }: {
   label: string
@@ -52,6 +56,7 @@ function SpacingRow({
   onChange: (change: SpacingChange) => void
   onScrub?: (change: SpacingChange) => void
   onScrubEnd?: (change: SpacingChange) => void
+  dimmed?: boolean
   mixedProperties?: Set<string>
 }): JSX.Element {
   const fireChange = useCallback(
@@ -111,7 +116,7 @@ function SpacingRow({
   const vertical = values.top
 
   return (
-    <div class="cortex-spacing-row" data-section={prefix}>
+    <div class={`cortex-spacing-row${dimmed ? ' cortex-control--dimmed' : ''}`} data-section={prefix}>
       <span class="cortex-section-label">{label}</span>
       <div class="cortex-spacing-row__inputs">
         <NumericInput
@@ -163,6 +168,7 @@ export function SpacingControls({
   onChange,
   onScrub,
   onScrubEnd,
+  dimmedProperties,
   mixedProperties,
 }: SpacingControlsProps): JSX.Element {
   const [paddingLocked, setPaddingLocked] = useState(false)
@@ -182,6 +188,7 @@ export function SpacingControls({
         onChange={onChange}
         onScrub={onScrub}
         onScrubEnd={onScrubEnd}
+        dimmed={isDimmed(dimmedProperties, 'padding-top', 'padding-right', 'padding-bottom', 'padding-left')}
         mixedProperties={mixedProperties}
       />
       <SpacingRow
@@ -194,6 +201,7 @@ export function SpacingControls({
         onChange={onChange}
         onScrub={onScrub}
         onScrubEnd={onScrubEnd}
+        dimmed={isDimmed(dimmedProperties, 'margin-top', 'margin-right', 'margin-bottom', 'margin-left')}
         mixedProperties={mixedProperties}
       />
     </div>

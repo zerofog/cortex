@@ -42,6 +42,7 @@
  */
 import type { JSX } from 'preact'
 import { useCallback } from 'preact/hooks'
+import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { SegmentedControl, type SegmentedOption } from '../controls/SegmentedControl.js'
 import { NumericInput } from '../controls/NumericInput.js'
@@ -78,6 +79,8 @@ export interface FlexControlsProps {
   onChange: (change: FlexChange) => void
   onScrub?: (change: FlexChange) => void
   onScrubEnd?: (change: FlexChange) => void
+  /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
+  dimmedProperties?: Set<string>
   /** Set of CSS properties whose values differ across selected elements. */
   mixedProperties?: Set<string>
 }
@@ -168,6 +171,7 @@ export function FlexControls({
   onChange,
   onScrub,
   onScrubEnd,
+  dimmedProperties,
   mixedProperties,
 }: FlexControlsProps): JSX.Element {
   // `columnGap` is parsed into FlexValues but not destructured here:
@@ -295,7 +299,7 @@ export function FlexControls({
   return (
     <div class="cortex-flex-controls">
       {/* Direction — icon-only segmented control, full width. */}
-      <div class="cortex-flex-controls__direction">
+      <div class={`cortex-flex-controls__direction${isDimmed(dimmedProperties, 'flex-direction') ? ' cortex-control--dimmed' : ''}`}>
         <span class="cortex-section-label">Direction</span>
         <SegmentedControl
           options={DIRECTION_OPTIONS}
@@ -305,7 +309,7 @@ export function FlexControls({
       </div>
 
       {/* Alignment — grid + X/Y dropdowns share one row. */}
-      <div class="cortex-flex-controls__align">
+      <div class={`cortex-flex-controls__align${isDimmed(dimmedProperties, 'justify-content', 'align-items') ? ' cortex-control--dimmed' : ''}`}>
         <AlignmentGrid
           justifyValue={gridJustifyValue}
           alignValue={gridAlignValue}
@@ -339,7 +343,7 @@ export function FlexControls({
       </div>
 
       {/* Gap — linked axes via a single NumericInput. */}
-      <div class="cortex-flex-controls__gap">
+      <div class={`cortex-flex-controls__gap${isDimmed(dimmedProperties, 'row-gap', 'column-gap') ? ' cortex-control--dimmed' : ''}`}>
         <NumericInput
           value={gapValue}
           unit="px"
@@ -355,7 +359,7 @@ export function FlexControls({
 
       {/* Wrap — tucked behind "More options" to keep the default view lean. */}
       <ExpandableOptions label="More options">
-        <div class="cortex-flex-controls__wrap">
+        <div class={`cortex-flex-controls__wrap${isDimmed(dimmedProperties, 'flex-wrap') ? ' cortex-control--dimmed' : ''}`}>
           <span class="cortex-section-label">Wrap</span>
           <SegmentedControl
             options={WRAP_OPTIONS}

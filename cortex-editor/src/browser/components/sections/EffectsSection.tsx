@@ -1,5 +1,6 @@
 import type { JSX } from 'preact'
 import { useState, useCallback, useMemo, useRef } from 'preact/hooks'
+import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { ColorInput } from '../controls/ColorInput.js'
@@ -115,6 +116,7 @@ export function EffectsSection({
   onScrub,
   onScrubEnd,
   swatches,
+  dimmedProperties,
   mixedProperties,
 }: EffectsSectionProps): JSX.Element {
   const [expandedKey, setExpandedKey] = useState<number | null>(null)
@@ -226,7 +228,7 @@ export function EffectsSection({
   return (
     <div class="cortex-effects-section" data-section-id="effects">
       {/* Shadow list */}
-      <div class="cortex-effects-section__shadows">
+      <div class={`cortex-effects-section__shadows${isDimmed(dimmedProperties, 'box-shadow') ? ' cortex-control--dimmed' : ''}`}>
         {shadows.map((shadow, index) => {
           const isExpanded = expandedKey === shadow._key
           const enabled = isShadowEnabled(shadow)
@@ -314,28 +316,32 @@ export function EffectsSection({
 
       {/* Blur controls */}
       <div class="cortex-effects-section__blur-controls">
-        <NumericInput
-          value={values.blur}
-          unit="px"
-          label="BL"
-          tooltip="Blur"
-          min={0}
-          mixed={mixedProperties?.has('filter')}
-          onChange={handleBlurChange}
-          onScrub={handleBlurScrub}
-          onScrubEnd={handleBlurScrubEnd}
-        />
-        <NumericInput
-          value={values.backdropBlur}
-          unit="px"
-          label="BG"
-          tooltip="Background Blur"
-          min={0}
-          mixed={mixedProperties?.has('backdrop-filter')}
-          onChange={handleBackdropBlurChange}
-          onScrub={handleBackdropBlurScrub}
-          onScrubEnd={handleBackdropBlurScrubEnd}
-        />
+        <div class={isDimmed(dimmedProperties, 'filter') ? 'cortex-control--dimmed' : undefined}>
+          <NumericInput
+            value={values.blur}
+            unit="px"
+            label="BL"
+            tooltip="Blur"
+            min={0}
+            mixed={mixedProperties?.has('filter')}
+            onChange={handleBlurChange}
+            onScrub={handleBlurScrub}
+            onScrubEnd={handleBlurScrubEnd}
+          />
+        </div>
+        <div class={isDimmed(dimmedProperties, 'backdrop-filter') ? 'cortex-control--dimmed' : undefined}>
+          <NumericInput
+            value={values.backdropBlur}
+            unit="px"
+            label="BG"
+            tooltip="Background Blur"
+            min={0}
+            mixed={mixedProperties?.has('backdrop-filter')}
+            onChange={handleBackdropBlurChange}
+            onScrub={handleBackdropBlurScrub}
+            onScrubEnd={handleBackdropBlurScrubEnd}
+          />
+        </div>
       </div>
     </div>
   )
