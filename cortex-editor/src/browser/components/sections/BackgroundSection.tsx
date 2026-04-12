@@ -14,8 +14,6 @@ export interface BackgroundSectionProps {
   /** Tailwind class name if detected (e.g. "bg-blue-500"), null if raw value */
   backgroundToken: string | null
   onChange: (change: BackgroundChange) => void
-  onScrub?: (change: BackgroundChange) => void
-  onScrubEnd?: (change: BackgroundChange) => void
   swatches?: string[]
   dimmedProperties?: Set<string>
   mixedProperties?: Set<string>
@@ -27,7 +25,7 @@ export interface BackgroundSectionProps {
  * When a Tailwind utility class is detected on the element (e.g. `bg-blue-500`),
  * renders a TokenChip with an unlink action. Otherwise renders a ColorInput for
  * direct hex/alpha editing. Gradient backgrounds degrade gracefully to the
- * ColorInput path (gradient editing is out of scope for Task 13).
+ * ColorInput path (gradient editing is out of scope).
  *
  * Business logic: this replaces the previous FillSection + CollapsibleSection
  * combo in Panel.tsx. The `+` button that adds a default background now lives

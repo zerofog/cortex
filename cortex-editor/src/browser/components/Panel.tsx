@@ -17,7 +17,6 @@ import type { LayoutChange } from './sections/LayoutSection.js'
 import { TypographySection, parseTypographyValues, getWeightsForFamily, stripCSSQuotes } from './sections/TypographySection.js'
 import type { TypographyChange } from './sections/TypographySection.js'
 import { parseFillValues, summarizeFill } from './sections/FillSection.js'
-import type { FillChange } from './sections/FillSection.js'
 import { BorderSection, parseBorderValues, summarizeBorder } from './sections/BorderSection.js'
 import type { BorderChange } from './sections/BorderSection.js'
 import { ShadowSection, parseShadowValues, summarizeShadow, addShadow } from './sections/ShadowSection.js'
@@ -669,9 +668,7 @@ export function Panel({
   const handleLayoutScrub = useCallback((c: LayoutChange) => applyOverride(c.property, c.value, false), [applyOverride])
   const handleTypographyCommit = useCallback((c: TypographyChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleTypographyScrub = useCallback((c: TypographyChange) => applyOverride(c.property, c.value, false), [applyOverride])
-  const handleFillCommit = useCallback((c: FillChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleBgCommit = useCallback((c: BackgroundChange) => applyOverride(c.property, c.value, true), [applyOverride])
-  const handleBgScrub = useCallback((c: BackgroundChange) => applyOverride(c.property, c.value, false), [applyOverride])
   const handleBorderCommit = useCallback((c: BorderChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleBorderScrub = useCallback((c: BorderChange) => applyOverride(c.property, c.value, false), [applyOverride])
   const handleShadowCommit = useCallback((c: ShadowChange) => applyOverride(c.property, c.value, true), [applyOverride])
@@ -691,12 +688,6 @@ export function Panel({
   const handleFillAdd = useCallback(() => {
     applyOverride('background-color', '#ffffff', true)
   }, [applyOverride])
-  // Batch: accumulate via scrub, commit once → one atomic undo entry.
-  const handleFillRemove = useCallback(() => {
-    applyOverride('background-color', 'transparent', false)
-    applyOverride('background-image', 'none', false)
-    commitScrub()
-  }, [applyOverride, commitScrub])
   // Batch: 3 properties → 1 undo entry.
   const handleBorderAdd = useCallback(() => {
     applyOverride('border-width', '1px', false)
@@ -1030,8 +1021,6 @@ export function Panel({
               backgroundColor={computedStyles.fill.backgroundColor}
               backgroundToken={extractedUtilities.get('background-color') ?? null}
               onChange={handleBgCommit}
-              onScrub={handleBgScrub}
-              onScrubEnd={handleBgCommit}
               swatches={swatches}
               dimmedProperties={dimmedProperties}
               mixedProperties={mixedProperties}
