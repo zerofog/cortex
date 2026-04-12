@@ -1710,64 +1710,6 @@
   gap: var(--cx-sp-3);
 }
 
-/* ── Fill section ──────────────────────────── */
-
-.cortex-fill-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--cx-sp-6);
-}
-
-.cortex-fill-section__group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--cx-sp-3);
-}
-
-.cortex-fill-section__color-row {
-  position: relative;
-}
-
-.cortex-fill-section__type-row {
-  display: flex;
-  flex-direction: column;
-  gap: var(--cx-sp-3);
-}
-
-.cortex-fill-section__gradient-preview {
-  height: 24px;
-  border-radius: var(--cx-radius-sm);
-  border: 1px solid var(--cx-rule);
-}
-
-.cortex-fill-section__gradient-stops {
-  display: flex;
-  flex-direction: column;
-  gap: var(--cx-sp-3);
-}
-
-.cortex-fill-section__gradient-stop {
-  display: flex;
-  flex-direction: column;
-  gap: var(--cx-sp-1);
-}
-
-.cortex-fill-section__gradient-stop-label {
-  font-size: var(--cx-text-sm);
-  color: var(--cx-ink-ghost);
-  letter-spacing: 0.01em;
-}
-
-.cortex-fill-section__angle-row {
-  display: flex;
-  align-items: center;
-  gap: var(--cx-sp-3);
-}
-
-.cortex-fill-section__angle-row .cortex-numeric-input {
-  flex: 1;
-}
-
 /* ── Border section ────────────────────────── */
 
 .cortex-border-section {
