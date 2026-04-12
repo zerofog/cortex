@@ -40,6 +40,12 @@ import { IconButton } from './controls/IconButton.js'
 import { Type } from './icons.js'
 import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
 
+/** Typography-related CSS properties filtered from extractedUtilities for Mode A display. */
+const TYPOGRAPHY_PROPS = new Set([
+  'font-size', 'font-weight', 'font-family', 'line-height',
+  'letter-spacing', 'text-align', 'color',
+])
+
 // ── Connection status footer ─────────────────────────────────────────
 
 function connectionStatusText(status: ConnectionDisplay): string {
@@ -279,7 +285,7 @@ export function Panel({
   const [sharedInfo, setSharedInfo] = useState<SharedClassInfo | null>(null)
   const [editScope, setEditScope] = useState<'instance' | 'all'>('instance')
 
-  // Typography section dual-mode toggle (ZF0-1190)
+  // Typography section dual-mode toggle: auto picks from detected token classes
   const [typographyMode, setTypographyMode] = useState<'auto' | 'a' | 'b'>('auto')
 
   // Default computed styles snapshot for dimming comparison.
@@ -311,7 +317,7 @@ export function Panel({
     if (prevElementRef.current && prevElementRef.current !== element) {
       // No cross-fade or body remount — sections update via normal prop changes.
       setActivePseudo('element') // reset pseudo tab on element change
-      setTypographyMode('auto') // reset typography mode on element change (ZF0-1190)
+      setTypographyMode('auto') // reset typography mode on element change
     }
     prevElementRef.current = element
     scrubPreviousRef.current.clear() // abandon any in-progress scrub state
@@ -461,12 +467,8 @@ export function Panel({
     return extractUtilities(cls)
   }, [element, styleVersion])
 
-  // Derive typography token classes from extractedUtilities for Mode A display (ZF0-1190).
+  // Derive typography token classes from extractedUtilities for Mode A display.
   const detectedTypographyTokens = useMemo(() => {
-    const TYPOGRAPHY_PROPS = new Set([
-      'font-size', 'font-weight', 'font-family', 'line-height',
-      'letter-spacing', 'text-align', 'color',
-    ])
     const result: Array<{ className: string; property: string }> = []
     for (const [property, className] of extractedUtilities) {
       if (TYPOGRAPHY_PROPS.has(property)) {

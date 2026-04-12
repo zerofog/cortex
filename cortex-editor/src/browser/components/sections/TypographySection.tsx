@@ -33,7 +33,7 @@ export interface TypographySectionProps {
   dimmedProperties?: Set<string>
   /** Set of CSS properties whose values differ across selected elements. */
   mixedProperties?: Set<string>
-  // NEW for v2:
+  /** Typography display mode: auto picks from detected tokens, a/b are manual overrides. */
   mode: 'auto' | 'a' | 'b'
   detectedTokenClasses?: Array<{ className: string; property: string }>
 }
@@ -248,15 +248,13 @@ export function TypographySection({
   }
 
   // ── Mode B: CSS control view ──────────────────────────────────────
-  const currentFamily = stripCSSQuotes(values.fontFamily.split(',')[0]?.trim() ?? '')
-
   return (
     <div class="cortex-typography-section cortex-typography-section--mode-b" data-section-id="type">
       {/* Font family — full width */}
       <div class="cortex-typography-section__row cortex-typography-section__row--full">
         <Dropdown
           options={fontFamilyOptions}
-          value={currentFamily}
+          value={fontFamilyOptions[0]?.value ?? ''}
           onChange={handleFontFamilyChange}
         />
       </div>
