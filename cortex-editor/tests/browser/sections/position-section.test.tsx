@@ -301,6 +301,23 @@ describe('PositionSection', () => {
     expect(flipH.getAttribute('aria-pressed')).toBe('true')
   })
 
+  it('flip H preserves non-unit magnitude: scaleX -2 → 2 (unflip)', () => {
+    const { onChange } = setup({ values: { ...DEFAULT_VALUES, scaleX: '-2', scaleY: '1' } })
+    const flipH = container.querySelector('[aria-label="Flip horizontal"]') as HTMLElement
+    // isFlippedH should be true (parseFloat('-2') < 0)
+    expect(flipH.classList.contains('cortex-icon-button--active')).toBe(true)
+    flipH.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'scale', value: '2 1' })
+  })
+
+  it('flip H preserves non-unit magnitude: scaleX 2 → -2 (flip)', () => {
+    const { onChange } = setup({ values: { ...DEFAULT_VALUES, scaleX: '2', scaleY: '1' } })
+    const flipH = container.querySelector('[aria-label="Flip horizontal"]') as HTMLElement
+    expect(flipH.classList.contains('cortex-icon-button--active')).toBe(false)
+    flipH.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'scale', value: '-2 1' })
+  })
+
   it('flip V IconButton stays inactive when scaleY is 1', () => {
     setup({ values: { ...DEFAULT_VALUES, scaleX: '-1', scaleY: '1' } })
     const flipV = container.querySelector('[aria-label="Flip vertical"]') as HTMLElement

@@ -80,8 +80,13 @@ describe('IconButton', () => {
     expect(button.getAttribute('aria-label')).toBe('Justify self center')
   })
 
-  it('emits aria-pressed="false" by default (toggle semantics)', () => {
+  it('omits aria-pressed when active is not passed (momentary button)', () => {
     const { button } = setup()
+    expect(button.hasAttribute('aria-pressed')).toBe(false)
+  })
+
+  it('emits aria-pressed="false" when active is explicitly false', () => {
+    const { button } = setup({ active: false })
     expect(button.getAttribute('aria-pressed')).toBe('false')
   })
 

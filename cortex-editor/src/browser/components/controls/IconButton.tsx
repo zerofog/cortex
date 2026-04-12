@@ -52,7 +52,7 @@ export function IconButton({
       type="button"
       class={`cortex-icon-button${active ? ' cortex-icon-button--active' : ''}`}
       aria-label={ariaLabel}
-      aria-pressed={active ? 'true' : 'false'}
+      aria-pressed={active !== undefined ? (active ? 'true' : 'false') : undefined}
       data-tooltip={tooltip}
       disabled={disabled}
       onClick={onClick}

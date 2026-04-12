@@ -312,6 +312,20 @@ describe('GridControls', () => {
     ])
   })
 
+  it('AlignmentGrid active cell highlights correctly with grid canonical values', () => {
+    // GridControls passes grid values (start/end) through gridAlignToFlexAlign
+    // so AlignmentGrid's internal flex-start/flex-end matching works.
+    setup({ values: { justifyItems: 'center', alignItems: 'start' } })
+    const topCenter = container.querySelector(
+      '.cortex-alignment-grid__cell[data-row="0"][data-col="1"]',
+    )
+    expect(topCenter?.classList.contains('cortex-alignment-grid__cell--active')).toBe(true)
+    // Negative: no other cell is active
+    const allCells = Array.from(container.querySelectorAll('.cortex-alignment-grid__cell'))
+    const activeCells = allCells.filter(c => c.classList.contains('cortex-alignment-grid__cell--active'))
+    expect(activeCells.length).toBe(1)
+  })
+
   it('AlignmentGrid distribute main-axis emits justify-content (track distribution, not item align)', async () => {
     const { onChange } = setup()
     // First dblclick → row overlay (cross axis). Second dblclick on a

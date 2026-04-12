@@ -702,7 +702,7 @@
   cursor: not-allowed;
 }
 
-.cortex-panel-header__btn--close:hover {
+.cortex-panel-header__btn--close:hover:not(:disabled) {
   background: var(--cx-destructive-surface);
   color: var(--cx-destructive);
 }
@@ -3369,7 +3369,7 @@
   padding: var(--cx-sp-2) var(--cx-sp-4);
   border-top: 1px solid var(--cx-rule);
   font-size: var(--cx-text-sm);
-  font-family: 'Geist Sans', system-ui, sans-serif;
+  font-family: 'Geist', system-ui, sans-serif;
   flex-shrink: 0;
   color: var(--cx-ink-secondary);
   background: var(--cx-vellum);
