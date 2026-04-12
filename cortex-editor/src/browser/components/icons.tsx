@@ -8,7 +8,7 @@
  *
  * Created by Task 3 (ZF0-1181) with the 4 icons AppearanceSection needs
  * (Eye, EyeOff, Blend, SquareDashed). Task 4 (ZF0-1182) extended this file
- * with the full Panel v2 inventory (43 icons total) covering section icons,
+ * with the full Panel v2 inventory (38 icons total) covering section icons,
  * control icons, and toolbar glyphs consumed by Tasks 5-16. Deliberately no
  * default export — named exports keep tree-shaking honest and make the
  * "add another icon" diff trivial. Snapshot tests in
@@ -342,48 +342,6 @@ export function MoveVertical({ size = 16, class: cls }: IconProps = {}): JSX.Ele
   )
 }
 
-// Corner-radius (Appearance per-corner editor) ────────────────────────────
-
-// source: https://lucide.dev/icons/corner-up-left
-export function CornerUpLeft({ size = 16, class: cls }: IconProps = {}): JSX.Element {
-  return (
-    <svg {...svgProps(size, cls)}>
-      <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
-      <path d="M9 14 4 9l5-5" />
-    </svg>
-  )
-}
-
-// source: https://lucide.dev/icons/corner-up-right
-export function CornerUpRight({ size = 16, class: cls }: IconProps = {}): JSX.Element {
-  return (
-    <svg {...svgProps(size, cls)}>
-      <path d="m15 14 5-5-5-5" />
-      <path d="M4 20v-7a4 4 0 0 1 4-4h12" />
-    </svg>
-  )
-}
-
-// source: https://lucide.dev/icons/corner-down-right
-export function CornerDownRight({ size = 16, class: cls }: IconProps = {}): JSX.Element {
-  return (
-    <svg {...svgProps(size, cls)}>
-      <path d="m15 10 5 5-5 5" />
-      <path d="M4 4v7a4 4 0 0 0 4 4h12" />
-    </svg>
-  )
-}
-
-// source: https://lucide.dev/icons/corner-down-left
-export function CornerDownLeft({ size = 16, class: cls }: IconProps = {}): JSX.Element {
-  return (
-    <svg {...svgProps(size, cls)}>
-      <path d="M20 4v7a4 4 0 0 1-4 4H4" />
-      <path d="m9 10-5 5 5 5" />
-    </svg>
-  )
-}
-
 // Token + common (Tasks 11-16) ─────────────────────────────────────────────
 
 // source: https://lucide.dev/icons/unlink
@@ -415,16 +373,6 @@ export function Minus({ size = 16, class: cls }: IconProps = {}): JSX.Element {
   return (
     <svg {...svgProps(size, cls)}>
       <path d="M5 12h14" />
-    </svg>
-  )
-}
-
-// source: https://lucide.dev/icons/x
-export function X({ size = 16, class: cls }: IconProps = {}): JSX.Element {
-  return (
-    <svg {...svgProps(size, cls)}>
-      <path d="M18 6 6 18" />
-      <path d="m6 6 12 12" />
     </svg>
   )
 }

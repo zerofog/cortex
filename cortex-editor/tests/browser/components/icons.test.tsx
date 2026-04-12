@@ -36,12 +36,13 @@ describe('icons.tsx — lucide.dev snapshot inventory', () => {
     }
   })
 
-  it('exports the expected number of icons (4 Task 3 + 39 Task 4 = 43)', () => {
-    // Task 4 ticket prompt estimated "~38" but the canonical inventory
-    // enumerates: Position (5) + Self-align (6) + Transforms (3) +
-    // Flex-dir (4) + Spacing (2) + Corners (4) + Token+common (7) +
-    // Grid (3) + Text-align (4) + Misc (1) = 39 new, giving 43 total.
-    expect(ICON_EXPORTS.length).toBe(43)
+  it('exports the expected number of icons (4 Task 3 + 34 Task 4 = 38)', () => {
+    // Task 4 inventory minus 5 unused icons removed in ZF0-1124:
+    // CornerUpLeft, CornerUpRight, CornerDownRight, CornerDownLeft, X.
+    // Remaining: Position (5) + Self-align (6) + Transforms (3) +
+    // Flex-dir (4) + Spacing (2) + Token+common (6) +
+    // Grid (3) + Text-align (4) + Misc (1) = 34 new, giving 38 total.
+    expect(ICON_EXPORTS.length).toBe(38)
   })
 
   it.each(ICON_EXPORTS)('<%s /> renders the lucide.dev SVG verbatim', (name, Component) => {
