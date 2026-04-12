@@ -119,14 +119,16 @@ export function EffectsSection({
   swatches,
   mixedProperties,
 }: EffectsSectionProps): JSX.Element {
-  const nextKeyRef = useRef(0)
   const [expandedKey, setExpandedKey] = useState<number | null>(null)
   // Stashed values per _key for eye toggle restore
   const stashRef = useRef<Map<number, { x: number; y: number; blur: number; spread: number }>>(new Map())
 
   const shadows = useMemo(() => {
     const parsed = parseBoxShadow(values.boxShadow)
-    return parsed.map((s): KeyedShadow => ({ ...s, _key: nextKeyRef.current++ }))
+    // Use array index as a stable key. Shadow order is preserved in the CSS
+    // string, so indices are stable across single-property edits. Keys only
+    // shift on add/remove, which is when we WANT the UI to re-layout.
+    return parsed.map((s, i): KeyedShadow => ({ ...s, _key: i }))
   }, [values.boxShadow])
 
   const emitChange = useCallback(

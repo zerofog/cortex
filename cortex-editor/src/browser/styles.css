@@ -879,6 +879,9 @@
 .cortex-panel--entering .cortex-section-group:nth-child(3) { animation-delay: 300ms; }
 .cortex-panel--entering .cortex-section-group:nth-child(4) { animation-delay: 400ms; }
 .cortex-panel--entering .cortex-section-group:nth-child(5) { animation-delay: 500ms; }
+.cortex-panel--entering .cortex-section-group:nth-child(6) { animation-delay: 600ms; }
+.cortex-panel--entering .cortex-section-group:nth-child(7) { animation-delay: 700ms; }
+.cortex-panel--entering .cortex-section-group:nth-child(8) { animation-delay: 800ms; }
 
 /* Divider between groups — space does the heavy lifting, rule is accent */
 .cortex-section-group + .cortex-section-group {
@@ -3432,7 +3435,7 @@
 }
 
 .cortex-token-chip__name {
-  font-family: var(--cx-font-mono, 'Geist Mono', monospace);
+  font-family: var(--cx-mono);
   font-size: var(--cx-text-md);
   color: var(--cx-ink);
   white-space: nowrap;

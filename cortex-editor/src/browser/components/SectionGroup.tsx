@@ -15,10 +15,11 @@ interface SectionGroupProps {
 }
 
 export function SectionGroup({ label, groupId, children, headerAction }: SectionGroupProps): JSX.Element {
+  const titleId = `cortex-section-title-${groupId}`
   return (
-    <div class="cortex-section-group" data-group={groupId}>
+    <div class="cortex-section-group" data-group={groupId} role="group" aria-labelledby={titleId}>
       <div class="cortex-section-group__header">
-        <span class="cortex-section-group__title">{label}</span>
+        <span id={titleId} class="cortex-section-group__title">{label}</span>
         {headerAction && (
           <div class="cortex-section-group__header-action">{headerAction}</div>
         )}

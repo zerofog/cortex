@@ -14,6 +14,7 @@
 import type { JSX } from 'preact'
 import { useCallback } from 'preact/hooks'
 import { SegmentedControl } from '../controls/SegmentedControl.js'
+import { Square, MoveHorizontal, LayoutGrid, Minus, EyeOff } from '../icons.js'
 import { FlexControls } from './FlexControls.js'
 import type { FlexValues, FlexChange } from './FlexControls.js'
 import { GridControls } from './GridControls.js'
@@ -103,11 +104,11 @@ export function parseLayoutValues(cs: CSSStyleDeclaration): LayoutValues {
 }
 
 const DISPLAY_OPTIONS = [
-  { value: 'block', icon: '□', title: 'Block' },
-  { value: 'flex', icon: '⇔', title: 'Flex' },
-  { value: 'grid', icon: '⊞', title: 'Grid' },
-  { value: 'inline', icon: '↔', title: 'Inline' },
-  { value: 'none', icon: '⊘', title: 'None' },
+  { value: 'block', icon: <Square size={14} />, title: 'Block' },
+  { value: 'flex', icon: <MoveHorizontal size={14} />, title: 'Flex' },
+  { value: 'grid', icon: <LayoutGrid size={14} />, title: 'Grid' },
+  { value: 'inline', icon: <Minus size={14} />, title: 'Inline' },
+  { value: 'none', icon: <EyeOff size={14} />, title: 'None' },
 ]
 
 const VISIBILITY_OPTIONS = [

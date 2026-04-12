@@ -217,14 +217,16 @@ export function PositionSection({
   )
 
   const handleFlipH = useCallback(() => {
-    const newX = isFlippedH ? '1' : '-1'
+    const magnitude = Math.abs(parseFloat(values.scaleX)) || 1
+    const newX = isFlippedH ? magnitude : -magnitude
     onChange({ property: 'scale', value: `${newX} ${values.scaleY}` })
-  }, [isFlippedH, values.scaleY, onChange])
+  }, [isFlippedH, values.scaleX, values.scaleY, onChange])
 
   const handleFlipV = useCallback(() => {
-    const newY = isFlippedV ? '1' : '-1'
+    const magnitude = Math.abs(parseFloat(values.scaleY)) || 1
+    const newY = isFlippedV ? magnitude : -magnitude
     onChange({ property: 'scale', value: `${values.scaleX} ${newY}` })
-  }, [isFlippedV, values.scaleX, onChange])
+  }, [isFlippedV, values.scaleX, values.scaleY, onChange])
 
   const leftNum = parseFloat(values.left)
   const topNum = parseFloat(values.top)

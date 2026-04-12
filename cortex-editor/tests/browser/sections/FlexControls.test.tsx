@@ -279,7 +279,7 @@ describe('FlexControls', () => {
     ])
   })
 
-  it('column direction: AlignmentGrid distribute main-axis emits align-items (SWAPPED)', async () => {
+  it('column direction: AlignmentGrid distribute main-axis emits justify-content', async () => {
     const { onChange } = setup({ values: { flexDirection: 'column' } })
     const cell = container.querySelector(
       '.cortex-alignment-grid__cell[data-row="0"][data-col="0"]',
@@ -296,19 +296,16 @@ describe('FlexControls', () => {
     ) as HTMLButtonElement
     distBtn.click()
     await tick()
-    // In column mode, main axis = vertical = on-screen Y.
-    // BUT the grid's internal "main" is main-axis distribution. After
-    // the swap, main-axis maps to align-items. This is the CSS-role
-    // swap, and a space-between value is never valid on align-items —
-    // but the mapping still goes through align-items (the user then
-    // sees the CSS engine reject it, which is a future-task issue).
-    // The point is: the property name emitted must follow the swap table.
-    expect(calls(onChange, 'align-items')).toEqual([
-      { property: 'align-items', value: 'space-between' },
+    // In column mode, main axis = vertical. The col overlay fires
+    // distribute 'main' → justify-content. Distribution keywords
+    // (space-between etc.) are only valid on justify-content / align-content,
+    // never on align-items.
+    expect(calls(onChange, 'justify-content')).toEqual([
+      { property: 'justify-content', value: 'space-between' },
     ])
   })
 
-  it('column direction: AlignmentGrid distribute cross-axis emits justify-content (SWAPPED)', async () => {
+  it('column direction: AlignmentGrid distribute cross-axis emits align-content', async () => {
     const { onChange } = setup({ values: { flexDirection: 'column' } })
     const cell = container.querySelector(
       '.cortex-alignment-grid__cell[data-row="1"][data-col="1"]',
@@ -320,11 +317,10 @@ describe('FlexControls', () => {
     ) as HTMLButtonElement
     distBtn.click()
     await tick()
-    // cross-axis in column mode → cross is horizontal → maps to
-    // justify-content (was align-content in row mode). The property
-    // flip is the whole point of this test.
-    expect(calls(onChange, 'justify-content')).toEqual([
-      { property: 'justify-content', value: 'space-between' },
+    // Cross-axis in column mode → horizontal → align-content.
+    // Distribution is always justify-content (main) or align-content (cross).
+    expect(calls(onChange, 'align-content')).toEqual([
+      { property: 'align-content', value: 'space-between' },
     ])
   })
 

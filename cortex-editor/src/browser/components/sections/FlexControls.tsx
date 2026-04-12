@@ -118,14 +118,12 @@ function flexAxisToCssProperty(
     if (role === 'x') return column ? 'align-items' : 'justify-content'
     /* role === 'y' */ return column ? 'justify-content' : 'align-items'
   }
-  // Distribution: main-axis distribution ALWAYS targets the main-axis
-  // CSS property; cross-axis distribution targets the cross-axis one.
-  // In row mode, main = justify-content, cross = align-content.
-  // In column mode, main = align-items (SWAPPED), cross = justify-content (SWAPPED).
-  if (role.distribute === 'main') {
-    return column ? 'align-items' : 'justify-content'
-  }
-  /* cross */ return column ? 'justify-content' : 'align-content'
+  // Distribution keywords (space-between, space-around, space-evenly) are
+  // only valid on justify-content and align-content — never on align-items.
+  // The AlignmentGrid already maps row overlay → 'cross' and col overlay →
+  // 'main' in a direction-agnostic way, so no direction swap is needed here.
+  if (role.distribute === 'main') return 'justify-content'
+  /* cross */ return 'align-content'
 }
 
 // ── Option catalogs ─────────────────────────────────────────────────

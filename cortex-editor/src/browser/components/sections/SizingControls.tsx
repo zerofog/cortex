@@ -259,7 +259,10 @@ export function SizingControls({
           />
         </div>
         <button
+          type="button"
           class={`cortex-lock-btn${aspectLocked ? ' cortex-lock-btn--active' : ''}`}
+          aria-pressed={aspectLocked ? 'true' : 'false'}
+          aria-label={aspectLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
           data-tooltip={aspectLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
           onClick={handleToggleLock}
         >
