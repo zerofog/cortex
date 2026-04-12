@@ -273,22 +273,42 @@ describe('GridControls', () => {
 
   // ── AlignmentGrid ──────────────────────────────────────────────
 
-  it('AlignmentGrid top-center click emits justify-items=center AND align-items=flex-start', () => {
+  it('AlignmentGrid top-center click emits canonical grid values (justify-items=center, align-items=start)', () => {
     const { onChange } = setup()
     const topCenter = container.querySelector(
       '.cortex-alignment-grid__cell[data-row="0"][data-col="1"]',
     ) as HTMLButtonElement
     topCenter.click()
-    // The grid always fires flex-start/center/flex-end literals
-    // (CSS-role-agnostic). For GRID, we route onJustify → justify-items
-    // (per-item) and onAlign → align-items. Grid accepts these literals
-    // but `flex-start`/`flex-end` are valid aliases for `start`/`end` in
-    // grid alignment props, so the emission is LITERAL — no translation.
+    // AlignmentGrid emits flex-spec literals (flex-start/center/flex-end)
+    // because it's CSS-role-agnostic and those are correct in flex.
+    // GridControls canonicalizes flex-start → start and flex-end → end
+    // before writing to justify-items/align-items so the emitted value
+    // matches what GRID_X/Y_OPTIONS render and what parseLayoutValues
+    // reads back. Without canonicalization, the dropdown's strict-equality
+    // match would fall through to index 0 after every grid click.
     expect(calls(onChange, 'justify-items')).toEqual([
       { property: 'justify-items', value: 'center' },
     ])
     expect(calls(onChange, 'align-items')).toEqual([
-      { property: 'align-items', value: 'flex-start' },
+      { property: 'align-items', value: 'start' },
+    ])
+  })
+
+  it('AlignmentGrid bottom-right click canonicalizes flex-end → end', () => {
+    const { onChange } = setup()
+    const bottomRight = container.querySelector(
+      '.cortex-alignment-grid__cell[data-row="2"][data-col="2"]',
+    ) as HTMLButtonElement
+    bottomRight.click()
+    // Regression guard for the flex-end → end half of the canonicalization
+    // table — top-center exercises only flex-start. A future refactor that
+    // drops one branch of flexAlignToGridAlign would survive the previous
+    // test alone.
+    expect(calls(onChange, 'justify-items')).toEqual([
+      { property: 'justify-items', value: 'end' },
+    ])
+    expect(calls(onChange, 'align-items')).toEqual([
+      { property: 'align-items', value: 'end' },
     ])
   })
 

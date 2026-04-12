@@ -127,6 +127,25 @@ export function parseGridTemplate(template: string): GridTemplate {
   return { tier: 'complex', raw: template }
 }
 
+// ── Alignment value canonicalization ───────────────────────────────
+
+/**
+ * Normalize a flex-spec alignment literal to its grid-spec equivalent.
+ * AlignmentGrid emits `flex-start`/`flex-end` (correct in flex context),
+ * but grid `justify-items`/`align-items` use `start`/`end` as the
+ * canonical values. CSS Box Alignment L3 accepts both forms in grid
+ * containers, but writing the canonical form keeps the dropdown UI in
+ * sync with the live CSS — without this normalization the GRID_X/Y
+ * dropdowns would silently fall back to index 0 after every grid click.
+ * Pure, side-effect-free; values that don't need translation pass
+ * through unchanged.
+ */
+function flexAlignToGridAlign(value: string): string {
+  if (value === 'flex-start') return 'start'
+  if (value === 'flex-end') return 'end'
+  return value
+}
+
 // ── Option catalogs ────────────────────────────────────────────────
 
 // Grid auto-flow — only row/column are canonical surface values. `row
@@ -194,12 +213,21 @@ export function GridControls({
   // per-item CSS role. Distribution routes to the track-distribution
   // props (justify-content / align-content) because individual items
   // can't take `space-between` values.
+  //
+  // AlignmentGrid emits the flex-spec literals `flex-start`/`flex-end`
+  // (it's CSS-role-agnostic — those are correct in flex context).
+  // Grid's `justify-items`/`align-items` accept them as legacy aliases,
+  // but the canonical grid value is `start`/`end`. Canonicalize at the
+  // write boundary so the value emitted matches what `parseLayoutValues`
+  // reads back AND matches the GRID_X/Y_OPTIONS catalog values — without
+  // this normalization the dropdown's strict-equality match would fall
+  // through to index 0 after every grid click.
   const handleGridJustify = useCallback(
-    (v: string) => onChange({ property: 'justify-items', value: v }),
+    (v: string) => onChange({ property: 'justify-items', value: flexAlignToGridAlign(v) }),
     [onChange],
   )
   const handleGridAlign = useCallback(
-    (v: string) => onChange({ property: 'align-items', value: v }),
+    (v: string) => onChange({ property: 'align-items', value: flexAlignToGridAlign(v) }),
     [onChange],
   )
   const handleGridDistribute = useCallback(
@@ -243,10 +271,10 @@ export function GridControls({
   )
 
   // ── Responsive tier: min-width reconstruction ────────────────
-  // The autoMode (auto-fit vs auto-fill) is preserved from the parsed
-  // value so the reconstruction round-trips cleanly. If the parser
-  // returned a non-responsive tier for some reason, the input isn't
-  // rendered — the callback is unreachable.
+  // autoMode (auto-fit vs auto-fill) is preserved from the parsed value
+  // so reconstruction round-trips cleanly. The tier guard satisfies TS
+  // narrowing — the input itself is only rendered inside the responsive
+  // branch (see JSX below), so the early-return is never hit at runtime.
   const handleMinWidthChange = useCallback(
     (v: number) => {
       if (cols.tier !== 'responsive') return
@@ -298,7 +326,13 @@ export function GridControls({
 
   return (
     <div class="cortex-grid-controls">
-      {/* Template — three-tier parser-driven rendering. */}
+      {/* Template — three-tier parser-driven rendering.
+          Cols/Rows/MinWidth NumericInputs intentionally do NOT forward
+          onScrub/onScrubEnd: dragging a column count from 3→24 would
+          trigger a cascade of full re-layouts on the iframe and the
+          intermediate visual states are meaningless. Only commit-on-
+          enter/blur is wired here. The dual gap inputs below DO forward
+          scrub events because per-pixel gap dragging is interactive. */}
       <div class="cortex-grid-controls__template">
         {cols.tier === 'simple' && (
           <div class="cortex-grid-controls__cols">
