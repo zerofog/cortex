@@ -160,18 +160,16 @@ export const ALL_DIMMING_PROPERTIES = [
  * container elements (whose only children are other elements) don't have
  * font/color decisions to make — those live on the descendant text elements
  * themselves. An element with `<span>` + `'Some text'` mixed children returns
- * `true` because it still renders a text node directly.
+ * `true` because it still renders a text node (even nested inside a span).
  *
- * Only TEXT_NODE children are considered; CDATA, comments, and nested
- * element text are deliberately ignored.
+ * Form inputs are always typography-sensitive (they render user text
+ * via browser internals, even without text-node children).
  */
-export function containsDirectText(element: Element): boolean {
-  for (const node of element.childNodes) {
-    if (node.nodeType === Node.TEXT_NODE && (node.textContent ?? '').trim() !== '') {
-      return true
-    }
-  }
-  return false
+const TYPOGRAPHY_ELEMENTS = new Set(['INPUT', 'TEXTAREA', 'SELECT'])
+
+export function hasTypographyContent(element: Element): boolean {
+  if (TYPOGRAPHY_ELEMENTS.has(element.tagName)) return true
+  return (element.textContent ?? '').trim() !== ''
 }
 
 export interface PanelProps {
@@ -779,7 +777,7 @@ export function Panel({
   const hasChildren = element.children.length > 0
   // Typography section only renders for elements that directly render text.
   // Pure container elements have nothing to do in Typography.
-  const showTypography = containsDirectText(element)
+  const showTypography = hasTypographyContent(element)
   // Position section is instance-specific — hide when editing a shared class.
   const showPosition = !(sharedInfo && editScope === 'all')
 
@@ -884,7 +882,7 @@ export function Panel({
       <div class="cortex-panel__body" ref={bodyRef}>
         {/* Section ordering per DESIGN.md: Elements → Position → Layout →
             Typography → Appearance → Background → Border → Effects.
-            Typography conditional on containsDirectText; Position hidden
+            Typography conditional on hasTypographyContent; Position hidden
             in shared-class "All" scope. */}
         <SectionGroup label="Elements" groupId="elements">
           <ElementTree element={element} onSelectElement={onSelectElement} />

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { h } from 'preact'
-import { Panel, containsDirectText } from '../../src/browser/components/Panel.js'
+import { Panel, hasTypographyContent } from '../../src/browser/components/Panel.js'
 import { renderInShadow } from './helpers.js'
 
 // Canonical Panel v2 ordering from DESIGN.md "Section ordering rationale":
@@ -218,13 +218,13 @@ describe('Panel — canonical section ordering', () => {
 })
 
 // ---------------------------------------------------------------------------
-// `containsDirectText` — direct unit tests.
+// `hasTypographyContent` — direct unit tests.
 //
 // These cover all the edge cases of the helper at the function level so the
 // Panel-mount tests below only need to verify Panel WIRES the helper correctly
 // (not that the helper itself is correct). Proper test layering.
 // ---------------------------------------------------------------------------
-describe('containsDirectText', () => {
+describe('hasTypographyContent', () => {
   type Setup = (el: HTMLElement) => void
   const cases: [string, Setup, boolean][] = [
     ['empty element', () => {}, false],
@@ -255,13 +255,13 @@ describe('containsDirectText', () => {
       false,
     ],
     [
-      'nested text inside child (not direct)',
+      'nested text inside child',
       (el) => {
         const child = document.createElement('span')
         child.appendChild(document.createTextNode('nested'))
         el.appendChild(child)
       },
-      false,
+      true,
     ],
     [
       'only comment children',
@@ -282,14 +282,22 @@ describe('containsDirectText', () => {
   it.each(cases)('%s -> %s', (_desc, setup, expected) => {
     const el = document.createElement('div')
     setup(el)
-    expect(containsDirectText(el)).toBe(expected)
+    expect(hasTypographyContent(el)).toBe(expected)
   })
+
+  it.each(['input', 'textarea', 'select'] as const)(
+    '<%s> is always typography-sensitive',
+    (tag) => {
+      const el = document.createElement(tag)
+      expect(hasTypographyContent(el)).toBe(true)
+    },
+  )
 })
 
 // ---------------------------------------------------------------------------
 // Panel Typography conditional rendering.
 //
-// Edge-case coverage for `containsDirectText` lives in the dedicated unit
+// Edge-case coverage for `hasTypographyContent` lives in the dedicated unit
 // tests above. These tests only verify that Panel RESPECTS the helper's
 // result at the render level — one representative case per branch is enough.
 // Don't duplicate edge-case coverage across both layers (no subsumption).
