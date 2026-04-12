@@ -375,7 +375,7 @@ export function SizingControls({
           )}
         </div>
       )}
-      <div class="cortex-sizing-controls__toggles">
+      <div class={`cortex-sizing-controls__toggles${isDimmed(dimmedProperties, 'overflow', 'box-sizing') ? ' cortex-control--dimmed' : ''}`}>
         <button
           class={`cortex-toggle-btn${isClipped ? ' cortex-toggle-btn--active' : ''}`}
           type="button"

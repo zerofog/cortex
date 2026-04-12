@@ -309,7 +309,7 @@ export function FlexControls({
       </div>
 
       {/* Alignment — grid + X/Y dropdowns share one row. */}
-      <div class={`cortex-flex-controls__align${isDimmed(dimmedProperties, 'justify-content', 'align-items') ? ' cortex-control--dimmed' : ''}`}>
+      <div class={`cortex-flex-controls__align${isDimmed(dimmedProperties, 'justify-content', 'align-items', 'align-content') ? ' cortex-control--dimmed' : ''}`}>
         <AlignmentGrid
           justifyValue={gridJustifyValue}
           alignValue={gridAlignValue}

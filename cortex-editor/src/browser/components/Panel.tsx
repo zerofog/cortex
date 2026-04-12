@@ -134,7 +134,8 @@ function removeBlastRadiusStyle(): void {
  * are deliberately not duplicated.
  */
 export const ALL_DIMMING_PROPERTIES = [
-  'display', 'visibility', 'flex-direction', 'flex-wrap', 'justify-content', 'align-items',
+  'display', 'visibility', 'flex-direction', 'flex-wrap',
+  'justify-content', 'align-items', 'align-content', 'justify-items',
   'justify-self', 'align-self',
   'width', 'height',
   'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
