@@ -1,0 +1,119 @@
+cortex-editor/src/browser/components/sections/BackgroundSection.tsx
+  63b6fe093962c300 3,38,60
+cortex-editor/src/browser/styles.css
+  63b6fe093962c300 1890-1895,1898-1899
+cortex-editor/src/browser/components/sections/BorderSection.tsx
+  63b6fe093962c300 3,85,197,223
+cortex-editor/src/browser/components/Panel.tsx
+  63b6fe093962c300 899,910,939,972,994,1012
+cortex-editor/src/browser/components/sections/SizingControls.tsx
+  63b6fe093962c300 22,44-45,71,221,242
+cortex-editor/src/browser/components/sections/GridControls.tsx
+  63b6fe093962c300 52,88-89,198,346,393,403,437
+cortex-editor/tests/browser/sections/AppearanceSection.test.ts
+  63b6fe093962c300 272-274,283,293,303,313,323
+cortex-editor/src/browser/components/sections/TypographySection.tsx
+  63b6fe093962c300 3,137,254,263,286,313,323
+cortex-editor/src/browser/components/sections/FlexControls.tsx
+  63b6fe093962c300 45,82-83,174,302,312,346,362
+cortex-editor/src/browser/components/sections/PositionSection.tsx
+  63b6fe093962c300 3,157,260,267
+cortex-editor/src/browser/components/sections/LayoutSection.tsx
+  63b6fe093962c300 16,123,173,184,203,216,238,252
+cortex-editor/src/browser/components/sections/AppearanceSection.tsx
+  63b6fe093962c300 3,24-26,178-187,192,209,283
+cortex-editor/src/browser/components/sections/SpacingControls.tsx
+  63b6fe093962c300 15,28-29,47,59,119,171,191,204
+cortex-editor/src/browser/components/sections/EffectsSection.tsx
+  63b6fe093962c300 3,119,231,319-344
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "39be00bb90302071e878b4f42ff98a69cdad3248",
+  "prompts": {
+    "150568d0accaae96": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ee8d6fe-d0b5-4482-978c-379f290ded53",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 419,
+      "overriden_lines": 0
+    },
+    "3add41c2a84e99ac": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bf831c3c-c7fe-4ed4-81dd-03efeed8c0c8",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1856,
+      "overriden_lines": 3,
+      "messages_url": "https://usegitai.com/cas/15249e43fb28e0f20155358bd73f4caab6f47564f16840a422514216e65e7507"
+    },
+    "4f5edaacd345ae9f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a73947a9-149b-45f8-887d-d7f318cee2ca",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 458,
+      "overriden_lines": 6,
+      "messages_url": "https://usegitai.com/cas/d5bd183523ab6cab604389c5e2d4d6f88997ab4815b73f29dc0331f635896295"
+    },
+    "63b6fe093962c300": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b25c2962-00b1-4dc8-b362-1617dcbf6a6b",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 125,
+      "total_deletions": 94,
+      "accepted_lines": 4244,
+      "overriden_lines": 34,
+      "messages_url": "https://usegitai.com/cas/54d4170ba639c607e3487375522a8d224a75e49222d72203047808735cc40801"
+    },
+    "80d4fb664f134106": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f88b739-1c6b-4fcb-bb4d-ec3b7e3f5db6",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 173,
+      "overriden_lines": 2,
+      "messages_url": "https://usegitai.com/cas/ef891652942d3d42e1456ed0437e6b99767499902ccfddc3ffbef684251753ec"
+    },
+    "affb8ad5069b145d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "94e88686-b112-478a-88aa-19206d87b65e",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1057,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/ccacd75cb38aaa651d0b5f9fadd739aec358cac8238dc2f65a8a2d3eff6314d6"
+    }
+  }
+}
