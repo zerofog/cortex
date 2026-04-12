@@ -361,6 +361,13 @@
   background: var(--cx-select-muted);
 }
 
+/* ── Element tree wrapper ────────────────────── */
+
+.cortex-element-tree {
+  max-height: 140px;
+  overflow-y: auto;
+}
+
 /* ── Error card ──────────────────────────────── */
 
 .cortex-error-cards {

@@ -10,7 +10,7 @@ import { PANEL_WIDTH } from '../hooks/useSnapToEdge.js'
 import { formatShortcut } from '../format-shortcut.js'
 import { extractUtilities } from '../class-extractor.js'
 import { PanelHeader } from './PanelHeader.js'
-import { LayerTree } from './LayerTree.js'
+import { ElementTree } from './sections/ElementTree.js'
 import type { SpacingChange } from './sections/SpacingControls.js'
 import { LayoutSection, parseLayoutValues } from './sections/LayoutSection.js'
 import type { LayoutChange } from './sections/LayoutSection.js'
@@ -924,7 +924,7 @@ export function Panel({
             visibility controls. No placeholder shell: Task 3 wires the group
             itself so there is no empty DOM surface to delete. */}
         <SectionGroup label="Elements" groupId="elements">
-          <LayerTree element={element} onSelectElement={onSelectElement} />
+          <ElementTree element={element} onSelectElement={onSelectElement} />
         </SectionGroup>
         {showPosition && (
           <SectionGroup label="Position" groupId="position">
