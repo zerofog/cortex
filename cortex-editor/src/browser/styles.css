@@ -364,8 +364,7 @@
 /* ── Element tree wrapper ────────────────────── */
 
 .cortex-element-tree {
-  max-height: 140px;
-  overflow-y: auto;
+  min-width: 0;
 }
 
 /* ── Error card ──────────────────────────────── */
@@ -499,6 +498,7 @@
 .cortex-panel__body {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   scrollbar-width: thin;
   scrollbar-color: var(--cx-ink-faint) transparent;
 }
