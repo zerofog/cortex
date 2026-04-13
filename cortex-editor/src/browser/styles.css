@@ -268,14 +268,6 @@
   flex-shrink: 0;
 }
 
-.cortex-layer-tree__header {
-  padding: var(--cx-sp-2) var(--cx-sp-4);
-  font-size: var(--cx-text-xs);
-  font-weight: var(--cx-weight-value);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--cx-ink-secondary);
-}
 
 .cortex-layer-tree__scroll {
   flex: 1;
@@ -892,6 +884,8 @@
 .cortex-section-resize {
   cursor: row-resize;
   border-bottom: 1px solid var(--cx-rule);
+  padding: 2px 0;
+  margin: -2px 0;
 }
 .cortex-section-resize:hover {
   background: var(--cx-select-muted);
@@ -942,7 +936,7 @@
 .cortex-section-group__content {
   display: flex;
   flex-direction: column;
-  padding: var(--cx-sp-3) var(--cx-sp-5) 0;
+  padding: 0 var(--cx-sp-5);
   gap: var(--cx-sp-5);
 }
 
