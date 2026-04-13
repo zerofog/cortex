@@ -890,7 +890,6 @@
 /* Resize handle between Elements and the next section — replaces the
    standard group divider so there's only one visual line. */
 .cortex-section-resize {
-  height: var(--cx-sp-4);
   cursor: row-resize;
   border-bottom: 1px solid var(--cx-rule);
 }
@@ -943,7 +942,7 @@
 .cortex-section-group__content {
   display: flex;
   flex-direction: column;
-  padding: var(--cx-sp-3) var(--cx-sp-5) var(--cx-sp-5);
+  padding: var(--cx-sp-3) var(--cx-sp-5) 0;
   gap: var(--cx-sp-5);
 }
 
