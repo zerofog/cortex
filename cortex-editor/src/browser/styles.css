@@ -883,9 +883,18 @@
    standard group divider so there's only one visual line. */
 .cortex-section-resize {
   cursor: row-resize;
-  border-bottom: 1px solid var(--cx-rule);
-  padding: 2px 0;
+  height: 5px;
   margin: -2px 0;
+  position: relative;
+}
+.cortex-section-resize::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 2px;
+  height: 1px;
+  background: var(--cx-rule);
 }
 .cortex-section-resize:hover {
   background: var(--cx-select-muted);
