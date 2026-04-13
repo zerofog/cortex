@@ -380,7 +380,7 @@ export function Panel({
   // C1: Cache getComputedStyle results + compute dimmed properties in a single useMemo
   // to avoid double forced layout. CRITICAL: activeState + activePseudo in deps so
   // useMemo re-runs after state forcing (getComputedStyle returns a live reference).
-  const { computedStyles, dimmedProperties, mixedProperties, parentDisplay } = useMemo(() => {
+  const { computedStyles, dimmedProperties, mixedProperties } = useMemo(() => {
     if (!element) {
       return {
         computedStyles: {
@@ -448,14 +448,6 @@ export function Panel({
     return { computedStyles: parsed, dimmedProperties: dimmed, mixedProperties: mixed, parentDisplay: computedParentDisplay }
   }, [element, styleVersion, activeState, activePseudo, sharedInfo, editScope])
 
-  // justify-self / align-self only have meaningful effects when the
-  // layout parent is flex or grid; the raw display string is parsed in
-  // the useMemo above to avoid a second forced layout.
-  const parentIsFlexOrGrid =
-    parentDisplay === 'flex' ||
-    parentDisplay === 'inline-flex' ||
-    parentDisplay === 'grid' ||
-    parentDisplay === 'inline-grid'
   const availableWeights = useMemo(
     () => {
       const family = computedStyles.typography.fontFamily ?? ''
@@ -924,7 +916,6 @@ export function Panel({
               onScrub={handleScrub}
               onScrubEnd={handleCommit}
               dimmedProperties={dimmedProperties}
-              parentIsFlexOrGrid={parentIsFlexOrGrid}
             />
           </SectionGroup>
         )}

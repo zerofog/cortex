@@ -325,108 +325,74 @@ describe('PositionSection', () => {
     expect(flipV.getAttribute('aria-pressed')).toBe('false')
   })
 
-  // ── Self-alignment block (parentIsFlexOrGrid gating) ───────────────
+  // ── Self-alignment button groups (always visible, two connected groups) ──
 
-  it('does NOT render the self-alignment block when parentIsFlexOrGrid is false', () => {
-    setup({ parentIsFlexOrGrid: false })
-    expect(container.querySelector('.cortex-position-section__self-align')).toBeNull()
-  })
-
-  it('does NOT render the self-alignment block by default (prop omitted)', () => {
+  it('renders two button groups with 3 buttons each', () => {
     setup()
-    expect(container.querySelector('.cortex-position-section__self-align')).toBeNull()
-  })
-
-  it('renders the self-alignment 6-button block when parentIsFlexOrGrid is true', () => {
-    setup({ parentIsFlexOrGrid: true })
-    const block = container.querySelector('.cortex-position-section__self-align')
-    expect(block).not.toBeNull()
-    const buttons = block!.querySelectorAll('.cortex-icon-button')
-    expect(buttons.length).toBe(6)
+    const groups = container.querySelectorAll('.cortex-position-section__btn-group')
+    expect(groups.length).toBe(2)
+    expect(groups[0].querySelectorAll('.cortex-icon-button').length).toBe(3)
+    expect(groups[1].querySelectorAll('.cortex-icon-button').length).toBe(3)
   })
 
   it('self-alignment buttons render the correct lucide icons (anti-tautology)', () => {
-    setup({ parentIsFlexOrGrid: true })
-    const block = container.querySelector('.cortex-position-section__self-align')!
-    const buttons = block.querySelectorAll('.cortex-icon-button')
-    // Row 1: justify-self start / center / end
+    setup()
+    const buttons = container.querySelectorAll('.cortex-position-section__btn-group .cortex-icon-button')
+    // Group 1: justify-self start / center / end
     expect(buttons[0].querySelector('svg')!.innerHTML).toContain(ICON_FINGERPRINT.justifyStart)
     expect(buttons[1].querySelector('svg')!.innerHTML).toContain(ICON_FINGERPRINT.justifyCenter)
     expect(buttons[2].querySelector('svg')!.innerHTML).toContain(ICON_FINGERPRINT.justifyEnd)
-    // Row 2: align-self start / center / end
+    // Group 2: align-self start / center / end
     expect(buttons[3].querySelector('svg')!.innerHTML).toContain(ICON_FINGERPRINT.alignStart)
     expect(buttons[4].querySelector('svg')!.innerHTML).toContain(ICON_FINGERPRINT.alignCenter)
     expect(buttons[5].querySelector('svg')!.innerHTML).toContain(ICON_FINGERPRINT.alignEnd)
   })
 
-  it('justify-self start IconButton emits onChange with property:"justify-self" value:"start"', () => {
-    const { onChange } = setup({ parentIsFlexOrGrid: true })
+  it('no buttons have active state by default', () => {
+    setup()
+    const active = container.querySelectorAll('.cortex-position-section__btn-group .cortex-icon-button--active')
+    expect(active.length).toBe(0)
+  })
+
+  it('justify-self start emits onChange with property:"justify-self" value:"start"', () => {
+    const { onChange } = setup()
     const btn = container.querySelector('[aria-label="Justify self start"]') as HTMLElement
     btn.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'justify-self', value: 'start' })
   })
 
-  it('justify-self center IconButton emits the center value', () => {
-    const { onChange } = setup({ parentIsFlexOrGrid: true })
+  it('justify-self center emits the center value', () => {
+    const { onChange } = setup()
     const btn = container.querySelector('[aria-label="Justify self center"]') as HTMLElement
     btn.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'justify-self', value: 'center' })
   })
 
-  it('justify-self end IconButton emits the end value', () => {
-    const { onChange } = setup({ parentIsFlexOrGrid: true })
+  it('justify-self end emits the end value', () => {
+    const { onChange } = setup()
     const btn = container.querySelector('[aria-label="Justify self end"]') as HTMLElement
     btn.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'justify-self', value: 'end' })
   })
 
-  it('align-self start IconButton emits onChange with property:"align-self" value:"start"', () => {
-    const { onChange } = setup({ parentIsFlexOrGrid: true })
+  it('align-self start emits onChange with property:"align-self" value:"start"', () => {
+    const { onChange } = setup()
     const btn = container.querySelector('[aria-label="Align self start"]') as HTMLElement
     btn.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'align-self', value: 'start' })
   })
 
-  it('align-self center IconButton emits the center value', () => {
-    const { onChange } = setup({ parentIsFlexOrGrid: true })
+  it('align-self center emits the center value', () => {
+    const { onChange } = setup()
     const btn = container.querySelector('[aria-label="Align self center"]') as HTMLElement
     btn.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'align-self', value: 'center' })
   })
 
-  it('align-self end IconButton emits the end value', () => {
-    const { onChange } = setup({ parentIsFlexOrGrid: true })
+  it('align-self end emits the end value', () => {
+    const { onChange } = setup()
     const btn = container.querySelector('[aria-label="Align self end"]') as HTMLElement
     btn.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'align-self', value: 'end' })
-  })
-
-  it('justify-self IconButton paints active state when value matches', () => {
-    setup({ parentIsFlexOrGrid: true, values: { ...DEFAULT_VALUES, justifySelf: 'center' } })
-    const center = container.querySelector('[aria-label="Justify self center"]') as HTMLElement
-    expect(center.classList.contains('cortex-icon-button--active')).toBe(true)
-    expect(center.getAttribute('aria-pressed')).toBe('true')
-    const start = container.querySelector('[aria-label="Justify self start"]') as HTMLElement
-    expect(start.classList.contains('cortex-icon-button--active')).toBe(false)
-    expect(start.getAttribute('aria-pressed')).toBe('false')
-  })
-
-  it('align-self IconButton paints active state when value matches', () => {
-    setup({ parentIsFlexOrGrid: true, values: { ...DEFAULT_VALUES, alignSelf: 'end' } })
-    const end = container.querySelector('[aria-label="Align self end"]') as HTMLElement
-    expect(end.classList.contains('cortex-icon-button--active')).toBe(true)
-    expect(end.getAttribute('aria-pressed')).toBe('true')
-  })
-
-  it('justify-self treats flex-start as start (legacy alias)', () => {
-    setup({ parentIsFlexOrGrid: true, values: { ...DEFAULT_VALUES, justifySelf: 'flex-start' } })
-    const start = container.querySelector('[aria-label="Justify self start"]') as HTMLElement
-    expect(start.classList.contains('cortex-icon-button--active')).toBe(true)
-  })
-
-  it('align-self treats flex-end as end (legacy alias)', () => {
-    setup({ parentIsFlexOrGrid: true, values: { ...DEFAULT_VALUES, alignSelf: 'flex-end' } })
-    const end = container.querySelector('[aria-label="Align self end"]') as HTMLElement
-    expect(end.classList.contains('cortex-icon-button--active')).toBe(true)
   })
 })

@@ -909,7 +909,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--cx-sp-3);
-  padding: var(--cx-sp-5) var(--cx-sp-5) var(--cx-sp-3);
+  padding: var(--cx-sp-5) var(--cx-sp-5) var(--cx-sp-4);
 }
 
 .cortex-section-group__title {
@@ -3143,17 +3143,45 @@
   min-width: 0;
 }
 
-/* ── Position Section · self-alignment block ─
-   Only meaningful when the parent element is flex/grid. */
+/* ── Position Section · self-alignment button groups (Mantine-style) ─ */
 .cortex-position-section__self-align {
   display: flex;
-  flex-direction: column;
-  gap: var(--cx-sp-2);
+  gap: var(--cx-sp-3);
 }
 
-.cortex-position-section__self-align-row {
+.cortex-position-section__btn-group {
   display: flex;
-  gap: var(--cx-sp-2);
+  flex: 1;
+}
+
+.cortex-position-section__btn-group > .cortex-icon-button {
+  flex: 1;
+  border-radius: 0;
+  border-right: 1px solid var(--cx-rule-soft);
+  color: var(--cx-ink-secondary);
+}
+
+.cortex-position-section__btn-group > .cortex-icon-button:first-child {
+  border-radius: var(--cx-radius-md) 0 0 var(--cx-radius-md);
+}
+
+.cortex-position-section__btn-group > .cortex-icon-button:last-child {
+  border-radius: 0 var(--cx-radius-md) var(--cx-radius-md) 0;
+  border-right: none;
+}
+
+.cortex-position-section__btn-group > .cortex-icon-button:hover:not(:disabled) {
+  color: var(--cx-ink);
+}
+
+/* Position → Layout transition: tighter spacing */
+[data-group="position"] > .cortex-section-group__content {
+  padding-bottom: var(--cx-sp-5);
+}
+
+[data-group="position"] + .cortex-section-group[data-group="layout"],
+[data-group="position"] + .cortex-section-resize + .cortex-section-group[data-group="layout"] {
+  margin-top: 0;
 }
 
 /* ── Sizing Dropdown ────────────────────────── */

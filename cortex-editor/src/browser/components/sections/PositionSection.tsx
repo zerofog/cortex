@@ -38,17 +38,6 @@ export interface PositionSectionProps {
   onScrubEnd?: (change: PositionChange) => void
   /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
   dimmedProperties?: Set<string>
-  /**
-   * True when the selected element's PARENT has display: flex / inline-flex /
-   * grid / inline-grid. Drives the conditional render of the self-alignment
-   * 6-button block — justify-self / align-self only have meaningful effects
-   * inside flex/grid containers.
-   *
-   * Computed in Panel.tsx (hot path) from
-   * `getComputedStyle(element.parentElement).display` so the section itself
-   * never re-touches the layout pipeline.
-   */
-  parentIsFlexOrGrid?: boolean
 }
 
 /** Extract position-related values from a CSSStyleDeclaration. */
@@ -75,17 +64,10 @@ export function parsePositionValues(cs: CSSStyleDeclaration): PositionValues {
 }
 
 interface SelfAlignmentBlockProps {
-  justifySelf: string
-  alignSelf: string
   onChange: (change: PositionChange) => void
 }
 
-// Tightly-scoped sub-block; lives in this file because it has zero reuse
-// outside PositionSection v2. Extract to its own module if a second consumer
-// ever appears.
 function SelfAlignmentBlock({
-  justifySelf,
-  alignSelf,
   onChange,
 }: SelfAlignmentBlockProps): JSX.Element {
   const setJustify = useCallback(
@@ -99,51 +81,15 @@ function SelfAlignmentBlock({
 
   return (
     <div class="cortex-position-section__self-align">
-      <div class="cortex-position-section__self-align-row">
-        <IconButton
-          icon={<AlignHorizontalJustifyStart size={14} />}
-          ariaLabel="Justify self start"
-          tooltip="Justify self · start"
-          active={justifySelf === 'start' || justifySelf === 'flex-start'}
-          onClick={() => setJustify('start')}
-        />
-        <IconButton
-          icon={<AlignHorizontalJustifyCenter size={14} />}
-          ariaLabel="Justify self center"
-          tooltip="Justify self · center"
-          active={justifySelf === 'center'}
-          onClick={() => setJustify('center')}
-        />
-        <IconButton
-          icon={<AlignHorizontalJustifyEnd size={14} />}
-          ariaLabel="Justify self end"
-          tooltip="Justify self · end"
-          active={justifySelf === 'end' || justifySelf === 'flex-end'}
-          onClick={() => setJustify('end')}
-        />
+      <div class="cortex-position-section__btn-group" role="group" aria-label="Justify self">
+        <IconButton icon={<AlignHorizontalJustifyStart size={14} />} ariaLabel="Justify self start" tooltip="Justify self · start" onClick={() => setJustify('start')} />
+        <IconButton icon={<AlignHorizontalJustifyCenter size={14} />} ariaLabel="Justify self center" tooltip="Justify self · center" onClick={() => setJustify('center')} />
+        <IconButton icon={<AlignHorizontalJustifyEnd size={14} />} ariaLabel="Justify self end" tooltip="Justify self · end" onClick={() => setJustify('end')} />
       </div>
-      <div class="cortex-position-section__self-align-row">
-        <IconButton
-          icon={<AlignVerticalJustifyStart size={14} />}
-          ariaLabel="Align self start"
-          tooltip="Align self · start"
-          active={alignSelf === 'start' || alignSelf === 'flex-start'}
-          onClick={() => setAlign('start')}
-        />
-        <IconButton
-          icon={<AlignVerticalJustifyCenter size={14} />}
-          ariaLabel="Align self center"
-          tooltip="Align self · center"
-          active={alignSelf === 'center'}
-          onClick={() => setAlign('center')}
-        />
-        <IconButton
-          icon={<AlignVerticalJustifyEnd size={14} />}
-          ariaLabel="Align self end"
-          tooltip="Align self · end"
-          active={alignSelf === 'end' || alignSelf === 'flex-end'}
-          onClick={() => setAlign('end')}
-        />
+      <div class="cortex-position-section__btn-group" role="group" aria-label="Align self">
+        <IconButton icon={<AlignVerticalJustifyStart size={14} />} ariaLabel="Align self start" tooltip="Align self · start" onClick={() => setAlign('start')} />
+        <IconButton icon={<AlignVerticalJustifyCenter size={14} />} ariaLabel="Align self center" tooltip="Align self · center" onClick={() => setAlign('center')} />
+        <IconButton icon={<AlignVerticalJustifyEnd size={14} />} ariaLabel="Align self end" tooltip="Align self · end" onClick={() => setAlign('end')} />
       </div>
     </div>
   )
@@ -155,7 +101,6 @@ export function PositionSection({
   onScrub,
   onScrubEnd,
   dimmedProperties,
-  parentIsFlexOrGrid,
 }: PositionSectionProps): JSX.Element {
   const isStatic = values.position === 'static'
 
@@ -249,13 +194,7 @@ export function PositionSection({
           onChange={handlePositionMode}
         />
       </div>
-      {parentIsFlexOrGrid && (
-        <SelfAlignmentBlock
-          justifySelf={values.justifySelf}
-          alignSelf={values.alignSelf}
-          onChange={onChange}
-        />
-      )}
+      <SelfAlignmentBlock onChange={onChange} />
       <div
         class={`cortex-position-section__xy-row${isStatic ? ' cortex-position-section__xy-row--disabled' : ''}${isDimmed(dimmedProperties, 'left', 'top') ? ' cortex-control--dimmed' : ''}`}
         data-tooltip={isStatic ? 'Set position mode to enable' : undefined}
