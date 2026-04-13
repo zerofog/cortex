@@ -11,6 +11,7 @@ import { formatShortcut } from '../format-shortcut.js'
 import { extractUtilities } from '../class-extractor.js'
 import { PanelHeader } from './PanelHeader.js'
 import { ElementTree } from './sections/ElementTree.js'
+import { DEFAULT_LAYER_HEIGHT, MIN_LAYER_HEIGHT } from './LayerTree.js'
 import type { SectionChange } from './sections/types.js'
 import { LayoutSection, parseLayoutValues } from './sections/LayoutSection.js'
 import { TypographySection, parseTypographyValues, getWeightsForFamily, stripCSSQuotes } from './sections/TypographySection.js'
@@ -277,6 +278,26 @@ export function Panel({
 
   // Typography section dual-mode toggle: auto picks from detected token classes
   const [typographyMode, setTypographyMode] = useState<'auto' | 'b'>('auto')
+
+  // Elements section (LayerTree) height — owned by Panel so the resize handle
+  // can sit between SectionGroups as the section divider.
+  const [layerHeight, setLayerHeight] = useState(DEFAULT_LAYER_HEIGHT)
+  const layerResizeRef = useRef({ dragging: false, startY: 0, startH: 0 })
+  const handleLayerResizeDown = useCallback((e: PointerEvent) => {
+    layerResizeRef.current = { dragging: true, startY: e.clientY, startH: layerHeight }
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }, [layerHeight])
+  const handleLayerResizeMove = useCallback((e: PointerEvent) => {
+    const r = layerResizeRef.current
+    if (!r.dragging) return
+    const maxH = Math.floor(window.innerHeight * 0.5)
+    setLayerHeight(Math.max(MIN_LAYER_HEIGHT, Math.min(maxH, r.startH + (e.clientY - r.startY))))
+  }, [])
+  const handleLayerResizeUp = useCallback((e: PointerEvent) => {
+    if (!layerResizeRef.current.dragging) return
+    layerResizeRef.current.dragging = false
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch {}
+  }, [])
 
   // Default computed styles snapshot for dimming comparison.
   // Plain object snapshot (NOT a live CSSStyleDeclaration) — taken once per element.
@@ -886,8 +907,15 @@ export function Panel({
             Typography conditional on hasTypographyContent; Position hidden
             in shared-class "All" scope. */}
         <SectionGroup label="Elements" groupId="elements">
-          <ElementTree element={element} onSelectElement={onSelectElement} />
+          <ElementTree element={element} onSelectElement={onSelectElement} height={layerHeight} />
         </SectionGroup>
+        <div
+          class="cortex-section-resize"
+          onPointerDown={handleLayerResizeDown}
+          onPointerMove={handleLayerResizeMove}
+          onPointerUp={handleLayerResizeUp}
+          onPointerCancel={handleLayerResizeUp}
+        />
         {showPosition && (
           <SectionGroup label="Position" groupId="position">
             <PositionSection

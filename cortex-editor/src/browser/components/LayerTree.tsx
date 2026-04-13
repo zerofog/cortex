@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useCallback, useMemo, useRef, useState } from 'preact/hooks'
+import { useMemo, useState } from 'preact/hooks'
 import { getTreeLabel } from '../label.js'
 
 export interface TreeNode {
@@ -72,6 +72,7 @@ export function buildScopedTree(element: HTMLElement | null): TreeNode | null {
 interface LayerTreeProps {
   element: HTMLElement | null
   onSelectElement: (el: HTMLElement) => void
+  height: number
 }
 
 function TreeNodeRow({ node, onSelectElement }: { node: TreeNode; onSelectElement: (el: HTMLElement) => void }): JSX.Element {
@@ -116,64 +117,20 @@ function TreeNodeRow({ node, onSelectElement }: { node: TreeNode; onSelectElemen
   )
 }
 
-const DEFAULT_HEIGHT = 160
-const MIN_HEIGHT = 60
+export const DEFAULT_LAYER_HEIGHT = 160
+export const MIN_LAYER_HEIGHT = 60
 
-// Module-scoped so height survives component remounts (Panel cross-fade, element change)
-let persistedHeight = DEFAULT_HEIGHT
-
-export function LayerTree({ element, onSelectElement }: LayerTreeProps): JSX.Element | null {
+export function LayerTree({ element, onSelectElement, height }: LayerTreeProps): JSX.Element | null {
   const tree = useMemo(() => buildScopedTree(element), [element])
-  const [height, setHeight] = useState(persistedHeight)
-  const heightRef = useRef(height)
-  heightRef.current = height
-  const draggingRef = useRef(false)
-  const startYRef = useRef(0)
-  const startHeightRef = useRef(0)
-
-  const handleResizeDown = useCallback((e: PointerEvent) => {
-    draggingRef.current = true
-    startYRef.current = e.clientY
-    startHeightRef.current = heightRef.current
-    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-  }, [])
-
-  const handleResizeMove = useCallback((e: PointerEvent) => {
-    if (!draggingRef.current) return
-    const delta = e.clientY - startYRef.current
-    const maxHeight = Math.floor(window.innerHeight * 0.5)
-    const newHeight = Math.max(MIN_HEIGHT, Math.min(maxHeight, startHeightRef.current + delta))
-    persistedHeight = newHeight
-    setHeight(newHeight)
-  }, [])
-
-  const handleResizeUp = useCallback((e: PointerEvent) => {
-    if (!draggingRef.current) return
-    draggingRef.current = false
-    try {
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
-    } catch {
-      // Pointer capture already released (browser auto-releases on cancel/up race)
-    }
-  }, [])
 
   if (!tree) return null
 
   return (
-    <>
-      <div class="cortex-layer-tree" style={{ height: `${height}px` }}>
-        <div class="cortex-layer-tree__header">Layers</div>
-        <div class="cortex-layer-tree__scroll">
-          <TreeNodeRow key={element} node={tree} onSelectElement={onSelectElement} />
-        </div>
+    <div class="cortex-layer-tree" style={{ height: `${height}px` }}>
+      <div class="cortex-layer-tree__header">Layers</div>
+      <div class="cortex-layer-tree__scroll">
+        <TreeNodeRow key={element} node={tree} onSelectElement={onSelectElement} />
       </div>
-      <div
-        class="cortex-layer-resize"
-        onPointerDown={handleResizeDown}
-        onPointerMove={handleResizeMove}
-        onPointerUp={handleResizeUp}
-        onPointerCancel={handleResizeUp}
-      />
-    </>
+    </div>
   )
 }
