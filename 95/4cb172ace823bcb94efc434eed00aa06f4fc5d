@@ -1,0 +1,163 @@
+cortex-editor/src/browser/override.ts
+  8be17b119e65ab43 22,198,209,237-245
+cortex-editor/src/browser/components/sections/SizingControls.tsx
+  8be17b119e65ab43 26,220,380-383,387-395,399-403
+cortex-editor/src/browser/components/controls/AlignmentGrid.tsx
+  5eb630e4ad1e56e6 110-114,117-119,123-128,133,135-143,217-254,258,273-275,311,315-318,332-434
+  8be17b119e65ab43 115-116,120-121,130-132,134,144,255-256
+cortex-editor/src/browser/components/sections/SpacingControls.tsx
+  8be17b119e65ab43 37,49-50,124-125,140,151-152,180,182,195
+cortex-editor/tests/browser/sections/SpacingControls.test.tsx
+  8be17b119e65ab43 35,37-39,48,50,52-54
+cortex-editor/src/browser/styles.css
+  8be17b119e65ab43 945,2978-2980,2989-2990,3035,3420-3424,3426-3439,3500-3533,3543-3553,3560-3561,3566-3576
+  5eb630e4ad1e56e6 938-939,1188-1189,2786-2913,2975,3131-3139,3221,3258,3281,3284,3534-3542,3554-3559,3562-3565
+cortex-editor/src/browser/components/sections/GridControls.tsx
+  5eb630e4ad1e56e6 51,59-60,163-164,175-178,182-186,212-215,301-326,369-390,398,424-425,427,431-432,434-437,439-480
+cortex-editor/tests/browser/components/icons.test.tsx
+  8be17b119e65ab43 44-45
+cortex-editor/src/browser/components/Panel.tsx
+  8be17b119e65ab43 403-411,414,561,617-626
+cortex-editor/src/browser/components/controls/XYDropdown.tsx
+  5eb630e4ad1e56e6 36-38,213,256-260,273-277
+cortex-editor/tests/browser/controls/AlignmentGrid.test.tsx
+  5eb630e4ad1e56e6 192-195,197-200,204-208,211-214,216-218,221-225
+cortex-editor/src/browser/components/sections/FlexControls.tsx
+  5eb630e4ad1e56e6 44,150-154,159-163,181,184-186,288-312,314,336,361-362,364-417
+cortex-editor/tests/browser/panel.test.tsx
+  8be17b119e65ab43 89-90
+cortex-editor/tests/browser/override.test.ts
+  8be17b119e65ab43 486,496,511,520,531,543,554-555,570-571,582-583,594-595,606,616,619,633,636,692,711,732,749,763,770,790,809,839,863,880,894,904,925
+cortex-editor/tests/browser/sections/GridControls.test.tsx
+  5eb630e4ad1e56e6 25-26,165,276-277,298-299,317-318,332-333,361-362,398,446-447,464,519,542,565,567,569-571,573-590,604,606-610,624,626-635,678
+  8be17b119e65ab43 278,334,363
+cortex-editor/src/browser/components/controls/SizingDropdown.tsx
+  8be17b119e65ab43 138
+cortex-editor/tests/browser/sections/layout-section.test.tsx
+  8be17b119e65ab43 81,83-84,87,89,143-149,232-256
+cortex-editor/tests/browser/sections/FlexControls.test.tsx
+  5eb630e4ad1e56e6 201-202,218-219,236-237,265-266,286-287,313-314,531-532,563-564,601
+  8be17b119e65ab43 238,425,427-429
+cortex-editor/src/browser/components/icons.tsx
+  8be17b119e65ab43 489-510
+cortex-editor/src/browser/components/sections/LayoutSection.tsx
+  8be17b119e65ab43 105-109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "954cb172ace823bcb94efc434eed00aa06f4fc5d",
+  "prompts": {
+    "150568d0accaae96": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ee8d6fe-d0b5-4482-978c-379f290ded53",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 419,
+      "overriden_lines": 0
+    },
+    "32c2b547e0eeb27a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "567ec1d8-41d0-4ed5-9135-788c46e5e75a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/41aaa8d33602c7c4885504818ae278ce5432663644ea9924d52ff37bdf731286"
+    },
+    "3add41c2a84e99ac": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bf831c3c-c7fe-4ed4-81dd-03efeed8c0c8",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/15249e43fb28e0f20155358bd73f4caab6f47564f16840a422514216e65e7507"
+    },
+    "4f5edaacd345ae9f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a73947a9-149b-45f8-887d-d7f318cee2ca",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/d5bd183523ab6cab604389c5e2d4d6f88997ab4815b73f29dc0331f635896295"
+    },
+    "5eb630e4ad1e56e6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cbb4c08c-b02f-4453-8c0a-461153382d19",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 838,
+      "total_deletions": 541,
+      "accepted_lines": 678,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/04fd0767305858068231e60a6af6e78b76a3b0de96adc29bc001a1420cdd8743"
+    },
+    "63b6fe093962c300": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b25c2962-00b1-4dc8-b362-1617dcbf6a6b",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 328,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/20db9be893aa80445c0a07d512e66ab7860e9b52d04e45d342cbbee8698aee13"
+    },
+    "8be17b119e65ab43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fd8b946b-a328-4eec-98b4-e46231995fa8",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 2109,
+      "total_deletions": 634,
+      "accepted_lines": 1501,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/78d1bf50782e352e43ff25d2679960b23369090c8b94e207c19226531e9988d6"
+    },
+    "affb8ad5069b145d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "94e88686-b112-478a-88aa-19206d87b65e",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1057,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/ccacd75cb38aaa651d0b5f9fadd739aec358cac8238dc2f65a8a2d3eff6314d6"
+    }
+  }
+}
