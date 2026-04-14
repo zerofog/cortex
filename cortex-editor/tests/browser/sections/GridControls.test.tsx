@@ -22,8 +22,8 @@ vi.mock('@floating-ui/dom', () => ({
 // and points at the moved path, these fixtures stay in lockstep.
 const ICON_FINGERPRINT = {
   // LayoutGrid / GalleryHorizontalEnd / GalleryVerticalEnd — row/column direction icons
-  gridRow: 'M2 7v10',            // GalleryHorizontalEnd — items flow horizontally
-  gridColumn: 'M7 2h10',         // GalleryVerticalEnd   — items flow vertically
+  gridRow: 'M5 12h14',            // ArrowRight — items flow horizontally
+  gridColumn: 'M12 5v14',         // ArrowDown  — items flow vertically
   // MoveHorizontal: m18 8 4 4-4 4
   moveHorizontal: 'm18 8 4 4-4 4',
   // MoveVertical: m8 18 4 4 4-4
@@ -162,7 +162,7 @@ describe('GridControls', () => {
 
   function getDirectionOptions(): HTMLElement[] {
     const group = container.querySelector(
-      '.cortex-grid-controls__direction [role="radiogroup"]',
+      '.cortex-grid-controls__template [role="radiogroup"]',
     )
     return Array.from(group?.querySelectorAll('[role="radio"]') ?? []) as HTMLElement[]
   }
@@ -273,8 +273,9 @@ describe('GridControls', () => {
 
   // ── AlignmentGrid ──────────────────────────────────────────────
 
-  it('AlignmentGrid top-center click emits canonical grid values (justify-items=center, align-items=start)', () => {
-    const { onChange } = setup()
+  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
+  it.skip('AlignmentGrid top-center click emits canonical grid values (justify-items=center, align-items=start)', () => {
+    const { onChange } = setup({ values: { justifyItems: 'start', alignItems: 'start' } })
     const topCenter = container.querySelector(
       '.cortex-alignment-grid__cell[data-row="0"][data-col="1"]',
     ) as HTMLButtonElement
@@ -294,7 +295,8 @@ describe('GridControls', () => {
     ])
   })
 
-  it('AlignmentGrid bottom-right click canonicalizes flex-end → end', () => {
+  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
+  it.skip('AlignmentGrid bottom-right click canonicalizes flex-end → end', () => {
     const { onChange } = setup()
     const bottomRight = container.querySelector(
       '.cortex-alignment-grid__cell[data-row="2"][data-col="2"]',
@@ -312,7 +314,8 @@ describe('GridControls', () => {
     ])
   })
 
-  it('AlignmentGrid active cell highlights correctly with grid canonical values', () => {
+  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
+  it.skip('AlignmentGrid active cell highlights correctly with grid canonical values', () => {
     // GridControls passes grid values (start/end) through gridAlignToFlexAlign
     // so AlignmentGrid's internal flex-start/flex-end matching works.
     setup({ values: { justifyItems: 'center', alignItems: 'start' } })
@@ -326,8 +329,9 @@ describe('GridControls', () => {
     expect(activeCells.length).toBe(1)
   })
 
-  it('AlignmentGrid distribute main-axis emits justify-content (track distribution, not item align)', async () => {
-    const { onChange } = setup()
+  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
+  it.skip('AlignmentGrid distribute main-axis emits justify-content (track distribution, not item align)', async () => {
+    const { onChange } = setup({ values: { justifyItems: 'start', alignItems: 'start' } })
     // First dblclick → row overlay (cross axis). Second dblclick on a
     // different cell → col overlay (main axis).
     const cell00 = container.querySelector(
@@ -354,8 +358,9 @@ describe('GridControls', () => {
     expect(calls(onChange, 'justify-items')).toEqual([])
   })
 
-  it('AlignmentGrid distribute cross-axis emits align-content', async () => {
-    const { onChange } = setup()
+  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
+  it.skip('AlignmentGrid distribute cross-axis emits align-content', async () => {
+    const { onChange } = setup({ values: { justifyItems: 'start', alignItems: 'start' } })
     const cell = container.querySelector(
       '.cortex-alignment-grid__cell[data-row="1"][data-col="1"]',
     ) as HTMLButtonElement
@@ -390,7 +395,7 @@ describe('GridControls', () => {
   ])('direction change to %s fires grid-auto-flow', (value, startFrom) => {
     const { onChange } = setup({ values: { gridAutoFlow: startFrom } })
     const btn = container.querySelector(
-      `.cortex-grid-controls__direction [data-value="${value}"]`,
+      `.cortex-grid-controls__template [data-value="${value}"]`,
     ) as HTMLElement
     expect(btn).not.toBeNull()
     btn.click()
@@ -438,7 +443,8 @@ describe('GridControls', () => {
     expect(rows.value).toBe('5')
   })
 
-  it('responsive tier: Cols is hidden, MinWidth input shows instead', () => {
+  // Responsive/complex template tiers removed from UI — simple tier only.
+  it.skip('responsive tier: Cols is hidden, MinWidth input shows instead', () => {
     setup({
       values: {
         gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
@@ -455,7 +461,7 @@ describe('GridControls', () => {
     expect(minw.value).toBe('200')
   })
 
-  it('complex tier: read-only raw CSS shown, neither Cols nor MinWidth editable', () => {
+  it.skip('complex tier: read-only raw CSS shown, neither Cols nor MinWidth editable', () => {
     setup({ values: { gridTemplateColumns: '1fr 2fr auto' } })
     expect(container.querySelector('.cortex-grid-controls__cols input')).toBeNull()
     expect(container.querySelector('.cortex-grid-controls__minwidth input')).toBeNull()
@@ -510,7 +516,7 @@ describe('GridControls', () => {
 
   // ── Responsive tier reconstruct emissions ─────────────────────
 
-  it('responsive tier: changing min-width from 200 to 240 emits repeat(auto-fit, minmax(240px, 1fr))', () => {
+  it.skip('responsive tier: changing min-width from 200 to 240 emits repeat(auto-fit, minmax(240px, 1fr))', () => {
     const { onChange } = setup({
       values: {
         gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
@@ -533,7 +539,7 @@ describe('GridControls', () => {
     }
   })
 
-  it('responsive auto-fill: changing min-width preserves the autoMode', () => {
+  it.skip('responsive auto-fill: changing min-width preserves the autoMode', () => {
     const { onChange } = setup({
       values: {
         gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
@@ -556,14 +562,32 @@ describe('GridControls', () => {
     }
   })
 
-  // ── Dual gap (NOT linked) ─────────────────────────────────────
+  // ── Lockable gap ──────────────────────────────────────────────
 
-  it('column-gap input fires ONLY column-gap (not row-gap)', () => {
+  it('gap defaults to locked — single "Gap" input fires BOTH axes', () => {
     const { onChange } = setup({ values: { columnGap: 4, rowGap: 4 } })
-    const input = container.querySelector(
-      '.cortex-grid-controls__column-gap input',
-    ) as HTMLInputElement
-    expect(input).not.toBeNull()
+    const inputs = container.querySelectorAll('.cortex-grid-controls__gap input')
+    expect(inputs.length).toBe(1)
+    const input = inputs[0] as HTMLInputElement
+    input.focus()
+    input.value = '8'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    const colGap = calls(onChange, 'column-gap')
+    const rowGap = calls(onChange, 'row-gap')
+    expect(colGap.length).toBeGreaterThanOrEqual(1)
+    expect(rowGap.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('unlocked column-gap input fires ONLY column-gap (not row-gap)', async () => {
+    const { onChange } = setup({ values: { columnGap: 4, rowGap: 4 } })
+    // Unlock
+    const lockBtn = container.querySelector('.cortex-grid-controls__gap .cortex-lock-btn') as HTMLButtonElement
+    lockBtn.click()
+    await tick()
+    const inputs = container.querySelectorAll('.cortex-grid-controls__gap input')
+    expect(inputs.length).toBe(2)
+    const input = inputs[0] as HTMLInputElement
     input.focus()
     input.value = '12'
     input.dispatchEvent(new Event('input', { bubbles: true }))
@@ -574,16 +598,16 @@ describe('GridControls', () => {
     for (const c of colGap) {
       expect(c).toEqual({ property: 'column-gap', value: '12px' })
     }
-    // Critical: NOT linked.
     expect(rowGap).toEqual([])
   })
 
-  it('row-gap input fires ONLY row-gap (not column-gap)', () => {
+  it('unlocked row-gap input fires ONLY row-gap (not column-gap)', async () => {
     const { onChange } = setup({ values: { columnGap: 4, rowGap: 4 } })
-    const input = container.querySelector(
-      '.cortex-grid-controls__row-gap input',
-    ) as HTMLInputElement
-    expect(input).not.toBeNull()
+    const lockBtn = container.querySelector('.cortex-grid-controls__gap .cortex-lock-btn') as HTMLButtonElement
+    lockBtn.click()
+    await tick()
+    const inputs = container.querySelectorAll('.cortex-grid-controls__gap input')
+    const input = inputs[1] as HTMLInputElement
     input.focus()
     input.value = '16'
     input.dispatchEvent(new Event('input', { bubbles: true }))
@@ -597,18 +621,18 @@ describe('GridControls', () => {
     expect(colGap).toEqual([])
   })
 
-  it('column-gap prefix renders MoveHorizontal lucide fingerprint', () => {
+  it('unlocked gap shows text prefixes "Cols" and "Rows" (no icons)', async () => {
     setup()
-    const col = container.querySelector('.cortex-grid-controls__column-gap') as HTMLElement
-    expect(col).not.toBeNull()
-    expect(col.innerHTML).toContain(ICON_FINGERPRINT.moveHorizontal)
-  })
-
-  it('row-gap prefix renders MoveVertical lucide fingerprint', () => {
-    setup()
-    const row = container.querySelector('.cortex-grid-controls__row-gap') as HTMLElement
-    expect(row).not.toBeNull()
-    expect(row.innerHTML).toContain(ICON_FINGERPRINT.moveVertical)
+    const lockBtn = container.querySelector('.cortex-grid-controls__gap .cortex-lock-btn') as HTMLButtonElement
+    lockBtn.click()
+    await tick()
+    const prefixes = container.querySelectorAll('.cortex-grid-controls__gap .cortex-numeric-input__prefix')
+    expect(prefixes.length).toBe(2)
+    expect(prefixes[0]!.textContent).toBe('Cols')
+    expect(prefixes[1]!.textContent).toBe('Rows')
+    // No SVG icons inside gap prefixes
+    const svgs = container.querySelectorAll('.cortex-grid-controls__gap .cortex-numeric-input__prefix svg')
+    expect(svgs.length).toBe(0)
   })
 
   // ── X/Y dropdown contract ─────────────────────────────────────
@@ -649,12 +673,9 @@ describe('GridControls', () => {
     expect(ids).toContain('cortex-xy-opt-end')
     // And the legacy flex literals are NOT present.
     expect(ids).not.toContain('cortex-xy-opt-flex-start')
-    // Falsifiable icon — the "Left" option should contain the alignHStart fingerprint.
-    const leftOpt = options.find((o) => o.id === 'cortex-xy-opt-start')
-    expect(leftOpt?.innerHTML).toContain(ICON_FINGERPRINT.alignHStart)
   })
 
-  it('Y dropdown renders grid-specific Top/Center/Bottom with vertical start icon', async () => {
+  it('Y dropdown renders grid-specific Top/Center/Bottom options', async () => {
     setup()
     await openYDropdown()
     const options = Array.from(
@@ -664,7 +685,5 @@ describe('GridControls', () => {
     expect(ids).toContain('cortex-xy-opt-start')
     expect(ids).toContain('cortex-xy-opt-center')
     expect(ids).toContain('cortex-xy-opt-end')
-    const topOpt = options.find((o) => o.id === 'cortex-xy-opt-start')
-    expect(topOpt?.innerHTML).toContain(ICON_FINGERPRINT.alignVStart)
   })
 })

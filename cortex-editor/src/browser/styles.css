@@ -876,7 +876,6 @@
 /* Divider between groups — space does the heavy lifting, rule is accent */
 .cortex-section-group + .cortex-section-group {
   border-top: 1px solid var(--cx-rule);
-  margin-top: var(--cx-sp-4);
 }
 
 /* Resize handle between Elements and the next section — replaces the
@@ -901,7 +900,6 @@
 }
 .cortex-section-resize + .cortex-section-group {
   border-top: none;
-  margin-top: 0;
 }
 
 .cortex-section-group__header {
@@ -937,15 +935,14 @@
   font-size: var(--cx-text-md);
   font-weight: var(--cx-weight-heading);
   color: var(--cx-ink-ghost);
-  border-top: 1px solid var(--cx-rule-soft);
-  margin-top: var(--cx-sp-4);
-  padding-top: var(--cx-sp-3);
+  padding: 8px 0;
+  margin: 0;
 }
 
 .cortex-section-group__content {
   display: flex;
   flex-direction: column;
-  padding: 0 var(--cx-sp-5);
+  padding: 0 var(--cx-sp-5) var(--cx-sp-5);
   gap: var(--cx-sp-5);
 }
 
@@ -1188,6 +1185,8 @@
 }
 
 .cortex-segmented__icon {
+  display: inline-flex;
+  align-items: center;
   font-size: 14px;
   line-height: 1;
 }
@@ -2784,6 +2783,134 @@
   flex-direction: column;
 }
 
+/* Span indicator — replaces cells in a row/column with 3 bars.
+   Figma spec: 2px wide, rounded 1px, ink color, 4px gap.
+   Interactive (click → point alignment, dblclick → overlay). */
+.cortex-alignment-grid__span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  cursor: pointer;
+  border-radius: var(--cx-radius-sm);
+}
+
+/* Full-grid span: bars spread across the entire grid (both axes non-positional).
+   Figma: 3 bars at x=13, x=33, x=53 within 70px → space-between distribution. */
+.cortex-alignment-grid__span--full {
+  position: relative;
+  flex-direction: row;
+  justify-content: space-between;
+  padding: 4px 8px;
+}
+
+.cortex-alignment-grid__span--full .cortex-alignment-grid__span-bar {
+  width: 2px;
+  height: 100%;
+  background: var(--cx-ink);
+  border-radius: 1px;
+}
+
+/* Dots for space-around/evenly — absolutely positioned at grid edges,
+   outside the bar group. Bars stay in identical positions. */
+.cortex-alignment-grid__span-dot {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--cx-ink-ghost);
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.cortex-alignment-grid__span-dot--left {
+  left: 2px;
+}
+
+.cortex-alignment-grid__span-dot--right {
+  right: 2px;
+}
+
+/* Row span: bars are vertical, filling the row height */
+.cortex-alignment-grid__span--row {
+  flex-direction: row;
+}
+
+/* Row baseline: "A" icon + horizontal underline extending right.
+   Space-around adds vertical tick marks at left/right edges. */
+.cortex-alignment-grid__span--row-baseline {
+  align-items: flex-end;
+  gap: 0;
+  padding: 0 4px 2px;
+}
+
+.cortex-alignment-grid__span--row-baseline .cortex-alignment-grid__span-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* Horizontal underline that extends to fill the remaining row width */
+.cortex-alignment-grid__span-baseline-line {
+  flex: 1;
+  height: 2px;
+  background: var(--cx-ink);
+  border-radius: 1px;
+  margin-bottom: 1px;
+}
+
+/* Vertical tick marks at edges for space-around/evenly baseline */
+.cortex-alignment-grid__span-baseline-tick {
+  width: 2px;
+  height: 10px;
+  background: var(--cx-ink);
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+
+.cortex-alignment-grid__span--row .cortex-alignment-grid__span-bar {
+  width: 2px;
+  height: 100%;
+  background: var(--cx-ink);
+  border-radius: 1px;
+}
+
+/* Column span: bars are vertical, filling the full column height */
+.cortex-alignment-grid__span--col {
+  flex-direction: row;
+  padding: 4px 0;
+}
+
+.cortex-alignment-grid__span--col .cortex-alignment-grid__span-bar {
+  width: 2px;
+  height: 100%;
+  background: var(--cx-ink);
+  border-radius: 1px;
+}
+
+/* Column baseline: dot → A icon → dot, vertically distributed.
+   Fills the column with no blank gaps — dots match the grid pattern. */
+.cortex-alignment-grid__span--col-baseline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+  color: var(--cx-ink);
+  cursor: pointer;
+  border-radius: var(--cx-radius-sm);
+}
+
+.cortex-alignment-grid__span--col-baseline .cortex-alignment-grid__cell__dot {
+  color: var(--cx-ink-ghost);
+}
+
+.cortex-alignment-grid__span-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
 .cortex-alignment-grid__distribute-btn {
   flex: 1;
   min-width: 0;
@@ -2845,12 +2972,22 @@
 .cortex-flex-controls__gap {
   display: flex;
   gap: var(--cx-sp-3);
+  align-items: center;
+}
+
+.cortex-flex-controls__gap > .cortex-numeric-input {
+  flex: 1;
+  min-width: 0;
 }
 
 .cortex-flex-controls__wrap {
   display: flex;
   flex-direction: column;
   gap: var(--cx-sp-3);
+}
+
+.cortex-flex-controls__wrap .cortex-segmented {
+  width: 100%;
 }
 
 /* ── XYDropdown (Task 8 / ZF0-1186) ─────────── */
@@ -2895,7 +3032,7 @@
 .cortex-xy-dropdown__trigger-axis {
   display: inline-flex;
   flex-shrink: 0;
-  font-weight: var(--cx-weight-value);
+  font-weight: var(--cx-weight-label);
   color: var(--cx-ink-ghost);
   min-width: 10px;
 }
@@ -2991,6 +3128,15 @@
   color: var(--cx-select);
 }
 
+/* Hint footer — describes the highlighted option */
+.cortex-xy-dropdown__hint {
+  padding: var(--cx-sp-2) var(--cx-sp-3);
+  border-top: 1px solid var(--cx-border);
+  font-size: var(--cx-text-xs);
+  color: var(--cx-ink-ghost);
+  line-height: 1.4;
+}
+
 /* ── ExpandableOptions (Task 8 / ZF0-1186) ──── */
 /* Collapsible container for secondary controls. Body stays mounted —
    visibility flips via grid-template-rows 0fr→1fr, which is the one
@@ -3072,6 +3218,7 @@
 .cortex-grid-controls__template {
   display: flex;
   gap: var(--cx-sp-3);
+  align-items: center;
 }
 
 .cortex-grid-controls__cols,
@@ -3108,11 +3255,7 @@
   white-space: nowrap;
 }
 
-.cortex-grid-controls__direction {
-  display: flex;
-  flex-direction: column;
-  gap: var(--cx-sp-3);
-}
+/* .cortex-grid-controls__direction removed — merged into __template row */
 
 .cortex-grid-controls__align {
   display: flex;
@@ -3135,10 +3278,10 @@
 .cortex-grid-controls__gap {
   display: flex;
   gap: var(--cx-sp-3);
+  align-items: center;
 }
 
-.cortex-grid-controls__column-gap,
-.cortex-grid-controls__row-gap {
+.cortex-grid-controls__gap > .cortex-numeric-input {
   flex: 1;
   min-width: 0;
 }
@@ -3179,10 +3322,6 @@
   padding-bottom: var(--cx-sp-5);
 }
 
-[data-group="position"] + .cortex-section-group[data-group="layout"],
-[data-group="position"] + .cortex-section-resize + .cortex-section-group[data-group="layout"] {
-  margin-top: 0;
-}
 
 /* ── Sizing Dropdown ────────────────────────── */
 
@@ -3199,7 +3338,6 @@
   height: 28px;
   background: var(--cx-well);
   border: none;
-  border-left: 1px solid var(--cx-rule-soft);
   border-radius: 0 var(--cx-radius-sm) var(--cx-radius-sm) 0;
   cursor: pointer;
   font-size: var(--cx-text-sm);
@@ -3267,10 +3405,6 @@
   background: var(--cx-well);
 }
 
-.cortex-sizing-menu__item--active .cortex-sizing-menu__indicator {
-  color: var(--cx-select);
-}
-
 .cortex-sizing-menu__item--checked .cortex-sizing-menu__indicator {
   color: var(--cx-select);
 }
@@ -3281,6 +3415,28 @@
   color: var(--cx-ink-tertiary);
   text-align: center;
   flex-shrink: 0;
+}
+
+.cortex-sizing-menu__radio {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--cx-ink-tertiary);
+  border-radius: 50%;
+  flex-shrink: 0;
+  position: relative;
+  transition: border-color 150ms ease-out;
+}
+
+.cortex-sizing-menu__radio--active {
+  border-color: var(--cx-select);
+}
+
+.cortex-sizing-menu__radio--active::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: var(--cx-select);
 }
 
 .cortex-sizing-menu__separator {
@@ -3339,6 +3495,83 @@
 .cortex-layout-section__minmax-dismiss:hover {
   background: var(--cx-destructive-surface);
   color: var(--cx-destructive);
+}
+
+/* ── Checkbox control ────────────────────────── */
+
+.cortex-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--cx-sp-3);
+  cursor: pointer;
+}
+
+.cortex-checkbox__box {
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-sm);
+  flex-shrink: 0;
+  transition: background 150ms ease-out, border-color 150ms ease-out;
+}
+
+.cortex-checkbox__box--checked {
+  background: var(--cx-select);
+  border-color: var(--cx-select);
+  color: white;
+}
+
+.cortex-checkbox__label {
+  font-size: var(--cx-text-sm);
+  color: var(--cx-ink-secondary);
+}
+
+/* ── Sizing toggles (Clip content / Border box) ── */
+
+.cortex-sizing-controls {
+  display: flex;
+  flex-direction: column;
+}
+
+.cortex-sizing-controls > .cortex-subsection-label {
+  padding-top: 0;
+}
+
+.cortex-sizing-controls__toggles {
+  display: flex;
+  gap: var(--cx-sp-5);
+  margin-top: var(--cx-sp-3);
+}
+
+/* ── Spacing sub-controls (padding / margin) ── */
+
+.cortex-spacing-controls {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Remove the section-group__content gap above the spacing wrapper —
+   the "Spacing" label's 8px top padding provides separation. */
+.cortex-layout-section__group:has(> .cortex-spacing-controls) {
+  margin-top: calc(-1 * var(--cx-sp-5));
+}
+
+.cortex-spacing-controls > .cortex-spacing-row + .cortex-spacing-row {
+  margin-top: var(--cx-sp-3);
+}
+
+.cortex-spacing-row__inputs {
+  display: flex;
+  gap: var(--cx-sp-3);
+  align-items: center;
+}
+
+.cortex-spacing-row__inputs > .cortex-numeric-input {
+  flex: 1;
+  min-width: 0;
 }
 
 /* ── Connection status footer ────────────────── */

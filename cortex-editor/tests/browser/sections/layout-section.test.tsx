@@ -78,20 +78,15 @@ describe('LayoutSection', () => {
     expect(active).not.toBeNull()
   })
 
-  it('renders visibility row when display is not none', () => {
+  it('does not render visibility control (moved to AppearanceSection)', () => {
     setup()
-    expect(container.textContent).toContain('Visibility')
+    expect(container.textContent).not.toContain('Visibility')
+    expect(container.querySelector('[data-group="visibility"]')).toBeNull()
   })
 
-  it('hides visibility row when display is none', () => {
-    setup({ values: { ...DEFAULT_VALUES, display: 'none' } })
-    const visSection = container.querySelector('[data-group="visibility"]')
-    expect(visSection === null || visSection.getAttribute('data-hidden') === 'true').toBe(true)
-  })
-
-  it('shows flex direction only for flex display', () => {
+  it('shows flex direction segmented control for flex display', () => {
     setup({ values: { ...DEFAULT_VALUES, display: 'flex' } })
-    expect(container.textContent).toContain('Direction')
+    expect(container.querySelector('.cortex-flex-controls__direction [role="radiogroup"]')).not.toBeNull()
   })
 
   it('hides flex direction for block display', () => {
@@ -145,13 +140,13 @@ describe('LayoutSection', () => {
     expect(onChange).toHaveBeenCalledWith({ property: 'display', value: 'flex' })
   })
 
-  it('emits visibility change', () => {
-    const { onChange } = setup()
-    const groups = container.querySelectorAll('[role="radiogroup"]')
-    expect(groups.length).toBeGreaterThanOrEqual(2)
-    const hiddenBtn = groups[1].querySelector('[data-value="hidden"]') as HTMLElement
-    hiddenBtn?.click()
-    expect(onChange).toHaveBeenCalledWith({ property: 'visibility', value: 'hidden' })
+  it('renders display as text-label segmented control (no icons)', () => {
+    setup()
+    const group = container.querySelector('[role="radiogroup"]')!
+    const options = group.querySelectorAll('[role="radio"]')
+    expect(options.length).toBe(5)
+    expect(options[0].textContent).toBe('block')
+    expect(options[4].textContent).toBe('none')
   })
 
   it('emits width change with px suffix', () => {
@@ -232,6 +227,31 @@ describe('LayoutSection', () => {
     expect(container.querySelector('[data-testid="spacing-controls"]')).not.toBeNull()
     expect(container.querySelector('.cortex-flex-controls')).toBeNull()
     expect(container.querySelector('.cortex-grid-controls')).toBeNull()
+  })
+
+  // ── Regression: flex→block transition must not crash ────────────
+  it('survives block→flex→block re-render without errors', () => {
+    // Start with block
+    const onChange = vi.fn()
+    const baseProps = {
+      values: DEFAULT_VALUES,
+      onChange,
+      spacing: DEFAULT_SPACING,
+      onSpacingChange: vi.fn(),
+    }
+    render(<LayoutSection {...baseProps} />, container)
+    expect(container.querySelector('.cortex-flex-controls')).toBeNull()
+
+    // Switch to flex
+    render(<LayoutSection {...baseProps} values={{ ...DEFAULT_VALUES, display: 'flex' }} />, container)
+    expect(container.querySelector('.cortex-flex-controls')).not.toBeNull()
+
+    // Switch back to block — this must not throw
+    render(<LayoutSection {...baseProps} values={{ ...DEFAULT_VALUES, display: 'block' }} />, container)
+    expect(container.querySelector('.cortex-flex-controls')).toBeNull()
+    // Display segmented control still shows block
+    const active = container.querySelector('[aria-checked="true"]') as HTMLElement
+    expect(active?.getAttribute('data-value')).toBe('block')
   })
 
   // ── parseLayoutValues ───────────────────────────────────────────

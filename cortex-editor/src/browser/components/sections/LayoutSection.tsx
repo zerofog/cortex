@@ -16,7 +16,6 @@ import { useCallback } from 'preact/hooks'
 import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { SegmentedControl } from '../controls/SegmentedControl.js'
-import { Square, MoveHorizontal, LayoutGrid, Minus, EyeOff } from '../icons.js'
 import { FlexControls } from './FlexControls.js'
 import type { FlexValues, FlexChange } from './FlexControls.js'
 import { GridControls } from './GridControls.js'
@@ -103,16 +102,11 @@ export function parseLayoutValues(cs: CSSStyleDeclaration): LayoutValues {
 }
 
 const DISPLAY_OPTIONS = [
-  { value: 'block', icon: <Square size={14} />, title: 'Block' },
-  { value: 'flex', icon: <MoveHorizontal size={14} />, title: 'Flex' },
-  { value: 'grid', icon: <LayoutGrid size={14} />, title: 'Grid' },
-  { value: 'inline', icon: <Minus size={14} />, title: 'Inline' },
-  { value: 'none', icon: <EyeOff size={14} />, title: 'None' },
-]
-
-const VISIBILITY_OPTIONS = [
-  { value: 'visible', label: 'visible' },
-  { value: 'hidden', label: 'hidden' },
+  { value: 'block', label: 'block' },
+  { value: 'flex', label: 'flex' },
+  { value: 'grid', label: 'grid' },
+  { value: 'inline', label: 'inline' },
+  { value: 'none', label: 'none' },
 ]
 
 export function LayoutSection({
@@ -133,10 +127,6 @@ export function LayoutSection({
 
   const handleDisplayChange = useCallback(
     (v: string) => onChange({ property: 'display', value: v }),
-    [onChange],
-  )
-  const handleVisibilityChange = useCallback(
-    (v: string) => onChange({ property: 'visibility', value: v }),
     [onChange],
   )
 
@@ -171,27 +161,12 @@ export function LayoutSection({
   return (
     <div class="cortex-layout-section" data-section-id="layout">
       <div class={`cortex-layout-section__group${isDimmed(dimmedProperties, 'display') ? ' cortex-control--dimmed' : ''}`}>
-        <span class="cortex-section-label">Display</span>
         <SegmentedControl
           options={DISPLAY_OPTIONS}
           value={values.display}
           onChange={handleDisplayChange}
-          size="sm"
         />
       </div>
-
-      {!isNone && (
-        <div class={`cortex-layout-section__group cortex-layout-section__reveal${isDimmed(dimmedProperties, 'visibility') ? ' cortex-control--dimmed' : ''}`} data-group="visibility">
-          <span class="cortex-section-label">Visibility</span>
-          <SegmentedControl
-            options={VISIBILITY_OPTIONS}
-            value={values.visibility}
-            onChange={handleVisibilityChange}
-          />
-        </div>
-      )}
-
-      {isNone && <div data-group="visibility" data-hidden="true" />}
 
       {isFlex && (
         <div class="cortex-layout-section__group cortex-layout-section__reveal">

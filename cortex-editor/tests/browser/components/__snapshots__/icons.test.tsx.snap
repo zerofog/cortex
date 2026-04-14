@@ -175,6 +175,20 @@ exports[`icons.tsx — lucide.dev snapshot inventory > <LayoutGrid /> renders th
 }
 `;
 
+exports[`icons.tsx — lucide.dev snapshot inventory > <Lock /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>",
+  "icon": "Lock",
+}
+`;
+
+exports[`icons.tsx — lucide.dev snapshot inventory > <LockOpen /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>",
+  "icon": "LockOpen",
+}
+`;
+
 exports[`icons.tsx — lucide.dev snapshot inventory > <Maximize /> renders the lucide.dev SVG verbatim 1`] = `
 {
   "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M21 8V5a2 2 0 0 0-2-2h-3"></path><path d="M3 16v3a2 2 0 0 0 2 2h3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path></svg>",

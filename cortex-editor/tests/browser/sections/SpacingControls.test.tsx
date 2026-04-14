@@ -32,10 +32,11 @@ describe('SpacingControls', () => {
     return { onChange }
   }
 
-  it('renders padding and margin rows', () => {
+  it('renders Spacing label with P/M prefix inputs', () => {
     setup()
-    expect(container.textContent).toContain('Padding')
-    expect(container.textContent).toContain('Margin')
+    expect(container.textContent).toContain('Spacing')
+    expect(container.textContent).toContain('P \u2194')
+    expect(container.textContent).toContain('M \u2194')
   })
 
   it('renders data-section attributes for padding and margin', () => {
@@ -44,11 +45,13 @@ describe('SpacingControls', () => {
     expect(container.querySelector('[data-section="margin"]')).not.toBeNull()
   })
 
-  it('Lucide MoveHorizontal/MoveVertical icons present as prefixes', () => {
+  it('uses text prefixes (P/M with arrow characters) instead of SVG icons', () => {
     setup()
-    const prefixes = container.querySelectorAll('.cortex-numeric-input__prefix svg')
-    // 2 rows (padding + margin) * 2 icons (H + V) = 4 SVG icons
+    const prefixes = container.querySelectorAll('.cortex-numeric-input__prefix')
     expect(prefixes.length).toBe(4)
+    // Text prefixes, not SVG icons
+    const svgInPrefixes = container.querySelectorAll('.cortex-numeric-input__prefix svg')
+    expect(svgInPrefixes.length).toBe(0)
   })
 
   it('padding uses padding-* properties', () => {

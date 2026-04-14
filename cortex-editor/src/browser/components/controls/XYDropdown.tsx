@@ -33,7 +33,9 @@ import { Check, ChevronDown } from '../icons.js'
 export interface XYDropdownOption {
   value: string
   label: string
-  icon: JSX.Element
+  icon?: JSX.Element
+  /** Description shown at the bottom of the dropdown when this option is highlighted. */
+  hint?: string
 }
 
 export interface XYDropdownProps {
@@ -208,9 +210,7 @@ export function XYDropdown({
         <span class="cortex-xy-dropdown__trigger-axis" aria-hidden="true">
           {axisLabel}
         </span>
-        <span class="cortex-xy-dropdown__trigger-icon" aria-hidden="true">
-          {selected?.icon}
-        </span>
+        {/* Icons only shown in dropdown options, not in the trigger. */}
         <span class="cortex-xy-dropdown__trigger-label">
           {selected?.label ?? '—'}
         </span>
@@ -253,9 +253,11 @@ export function XYDropdown({
                     onClick={() => select(opt.value)}
                     onMouseEnter={() => setHighlightIdx(i)}
                   >
-                    <span class="cortex-xy-dropdown__option-icon" aria-hidden="true">
-                      {opt.icon}
-                    </span>
+                    {opt.icon && (
+                      <span class="cortex-xy-dropdown__option-icon" aria-hidden="true">
+                        {opt.icon}
+                      </span>
+                    )}
                     <span class="cortex-xy-dropdown__option-label">
                       {opt.label}
                     </span>
@@ -268,6 +270,11 @@ export function XYDropdown({
                 )
               })}
             </div>
+            {options[highlightIdx]?.hint && (
+              <div class="cortex-xy-dropdown__hint" aria-live="polite">
+                {options[highlightIdx].hint}
+              </div>
+            )}
           </div>
         </>
       )}

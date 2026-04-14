@@ -189,23 +189,40 @@ describe('AlignmentGrid', () => {
     }
   })
 
-  it('non-canonical alignValue (stretch) leaves ALL 9 cells inactive', () => {
+  it('non-canonical alignValue (stretch) replaces the column with a span indicator', () => {
+    // stretch is a span value — the 3 cells in the column determined by
+    // justifyValue (center → col 1) are replaced by a span element with
+    // 3 vertical bars. The remaining 6 cells are inactive.
     setup({ justifyValue: 'center', alignValue: 'stretch' })
-    for (const cell of getCells()) {
+    const cells = getCells()
+    expect(cells.length).toBe(6)
+    // No remaining cell is active — the span owns the visual indicator.
+    for (const cell of cells) {
       expect(cell.getAttribute('aria-selected')).toBe('false')
       expect(cell.classList.contains('cortex-alignment-grid__cell--active')).toBe(false)
     }
+    // Span element is rendered.
+    const span = container.querySelector('.cortex-alignment-grid__span--col')
+    expect(span).not.toBeNull()
+    const bars = span!.querySelectorAll('.cortex-alignment-grid__span-bar')
+    expect(bars.length).toBe(3)
   })
 
-  it('non-canonical justifyValue (space-between) leaves ALL 9 cells inactive', () => {
-    // space-between is a distribution value — it belongs in the overlay,
-    // not the canonical 9-cell grid. This test prevents a subtle bug
-    // where a distribution value would accidentally "match" center
-    // via string equality.
+  it('non-canonical justifyValue (space-between) replaces the row with a span indicator', () => {
+    // space-between is a distribution value — the 3 cells in the row
+    // determined by alignValue (center → row 1) are replaced by a span
+    // element with 3 bars. The remaining 6 cells are inactive.
     setup({ justifyValue: 'space-between', alignValue: 'center' })
-    for (const cell of getCells()) {
+    const cells = getCells()
+    expect(cells.length).toBe(6)
+    for (const cell of cells) {
       expect(cell.getAttribute('aria-selected')).toBe('false')
     }
+    // Span element is rendered.
+    const span = container.querySelector('.cortex-alignment-grid__span--row')
+    expect(span).not.toBeNull()
+    const bars = span!.querySelectorAll('.cortex-alignment-grid__span-bar')
+    expect(bars.length).toBe(3)
   })
 
   // ── dblclick → overlay ────────────────────────────────────────────

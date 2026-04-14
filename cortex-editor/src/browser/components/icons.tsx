@@ -486,6 +486,28 @@ export function AlignJustify({ size = 16, class: cls }: IconProps = {}): JSX.Ele
   )
 }
 
+// Lock / Unlock (spacing axis link) ───────────────────────────────────────
+
+// source: https://lucide.dev/icons/lock
+export function Lock({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  )
+}
+
+// source: https://lucide.dev/icons/lock-open
+export function LockOpen({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+    </svg>
+  )
+}
+
 // Misc (Task 12 — Typography T toggle) ────────────────────────────────────
 
 // source: https://lucide.dev/icons/type

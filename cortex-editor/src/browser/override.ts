@@ -19,7 +19,7 @@ export class CSSOverrideManager {
   private styleEl: HTMLStyleElement
   private overrides = new Map<string, Map<string, string>>()
   private stateOverrides = new Map<string, Map<string, string>>()
-  private pendingEdits = new Map<string, { sources: string[]; property: string; pseudo?: '::before' | '::after'; timestamp: number }>()
+  private pendingEdits = new Map<string, { sources: string[]; property: string; value: string; pseudo?: '::before' | '::after'; timestamp: number }>()
 
   constructor() {
     this.styleEl = document.createElement('style')
@@ -195,7 +195,7 @@ export class CSSOverrideManager {
 
   /** Track a pending edit so handleHMRVerified can clear the right override.
    *  For scope='all' edits, pass all shared element sources so all overrides are cleared. */
-  trackPendingEdit(editId: string, sources: string | string[], property: string, pseudo?: '::before' | '::after'): void {
+  trackPendingEdit(editId: string, sources: string | string[], property: string, value: string, pseudo?: '::before' | '::after'): void {
     const sourceArray = Array.isArray(sources) ? sources : [sources]
     this.evictStalePendingEdits()
     this.hmrAppliedPending = false
@@ -206,7 +206,7 @@ export class CSSOverrideManager {
         this.pendingEdits.delete(existingId)
       }
     }
-    this.pendingEdits.set(editId, { sources: sourceArray, property, pseudo, timestamp: Date.now() })
+    this.pendingEdits.set(editId, { sources: sourceArray, property, value, pseudo, timestamp: Date.now() })
   }
 
   private pendingRemovals: Array<{ editId: string; source: string; property: string; pseudo?: '::before' | '::after'; kind?: EditKind }> = []
@@ -234,6 +234,15 @@ export class CSSOverrideManager {
     if (!pending) return
     this.pendingEdits.delete(editId)
     if (match) {
+      // Guard: if the user made a newer edit to the same property, the current
+      // override value won't match the committed value. Skip removal — the newer
+      // edit's HMR cycle will handle its own cleanup.
+      const primarySource = pending.sources[0]
+      if (primarySource) {
+        const currentValue = this.get(primarySource, pending.property, pending.pseudo)
+        if (currentValue !== undefined && currentValue !== pending.value) return
+      }
+
       if (this.hmrAppliedPending) {
         const deferred = this.consumeDeferralSignal(editId, kind)
         for (const source of pending.sources) {

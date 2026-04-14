@@ -48,7 +48,7 @@
  * unrecognized templates are displayed but never silently rewritten.
  */
 import type { JSX } from 'preact'
-import { useCallback, useMemo } from 'preact/hooks'
+import { useCallback, useMemo, useState } from 'preact/hooks'
 import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { SegmentedControl, type SegmentedOption } from '../controls/SegmentedControl.js'
@@ -56,16 +56,14 @@ import { NumericInput } from '../controls/NumericInput.js'
 import { AlignmentGrid } from '../controls/AlignmentGrid.js'
 import { XYDropdown, type XYDropdownOption } from '../controls/XYDropdown.js'
 import {
-  GalleryHorizontalEnd,
-  GalleryVerticalEnd,
+  ArrowRight,
+  ArrowDown,
   AlignHorizontalJustifyStart,
   AlignHorizontalJustifyCenter,
   AlignHorizontalJustifyEnd,
   AlignVerticalJustifyStart,
   AlignVerticalJustifyCenter,
   AlignVerticalJustifyEnd,
-  MoveHorizontal,
-  MoveVertical,
 } from '../icons.js'
 
 export type GridChange = SectionChange
@@ -162,8 +160,8 @@ function gridAlignToFlexAlign(value: string): string {
 // "neither-active" state (SegmentedControl uses exact-match active
 // detection), which is the correct read-only fallback.
 const DIRECTION_OPTIONS: SegmentedOption[] = [
-  { value: 'row', icon: <GalleryHorizontalEnd size={14} />, title: 'Row' },
-  { value: 'column', icon: <GalleryVerticalEnd size={14} />, title: 'Column' },
+  { value: 'row', icon: <ArrowRight size={14} />, title: 'Row' },
+  { value: 'column', icon: <ArrowDown size={14} />, title: 'Column' },
 ]
 
 // Grid-specific X/Y catalogs. Grid alignment props accept `start`/`end`
@@ -174,18 +172,18 @@ const DIRECTION_OPTIONS: SegmentedOption[] = [
 // per-item distribution entries (distribution lives exclusively on the
 // AlignmentGrid's dblclick overlay for grid).
 const GRID_X_OPTIONS: XYDropdownOption[] = [
-  { value: 'start', label: 'Left', icon: <AlignHorizontalJustifyStart size={14} /> },
-  { value: 'center', label: 'Center', icon: <AlignHorizontalJustifyCenter size={14} /> },
-  { value: 'end', label: 'Right', icon: <AlignHorizontalJustifyEnd size={14} /> },
-  { value: 'stretch', label: 'Stretch', icon: <AlignHorizontalJustifyCenter size={14} /> },
+  { value: 'start', label: 'Left', hint: 'Align items to the left of their grid cell.' },
+  { value: 'center', label: 'Center', hint: 'Center items horizontally in their grid cell.' },
+  { value: 'end', label: 'Right', hint: 'Align items to the right of their grid cell.' },
+  { value: 'stretch', label: 'Stretch', hint: 'Stretch items to fill the grid cell width.' },
 ]
 
 const GRID_Y_OPTIONS: XYDropdownOption[] = [
-  { value: 'start', label: 'Top', icon: <AlignVerticalJustifyStart size={14} /> },
-  { value: 'center', label: 'Center', icon: <AlignVerticalJustifyCenter size={14} /> },
-  { value: 'end', label: 'Bottom', icon: <AlignVerticalJustifyEnd size={14} /> },
-  { value: 'stretch', label: 'Stretch', icon: <AlignVerticalJustifyCenter size={14} /> },
-  { value: 'baseline', label: 'Baseline', icon: <AlignVerticalJustifyCenter size={14} /> },
+  { value: 'start', label: 'Top', hint: 'Align items to the top of their grid cell.' },
+  { value: 'center', label: 'Center', hint: 'Center items vertically in their grid cell.' },
+  { value: 'end', label: 'Bottom', hint: 'Align items to the bottom of their grid cell.' },
+  { value: 'stretch', label: 'Stretch', hint: 'Stretch items to fill the grid cell height.' },
+  { value: 'baseline', label: 'Baseline', hint: 'Align items along their text baseline.' },
 ]
 
 // ── Component ──────────────────────────────────────────────────────
@@ -210,6 +208,10 @@ export function GridControls({
 
   const cols = useMemo(() => parseGridTemplate(gridTemplateColumns), [gridTemplateColumns])
   const rows = useMemo(() => parseGridTemplate(gridTemplateRows), [gridTemplateRows])
+
+  // ── Gap lock ─────────────────────────────────────────────────
+  const [gapLocked, setGapLocked] = useState(true)
+  const toggleGapLock = useCallback(() => setGapLocked(p => !p), [])
 
   // ── Direction ────────────────────────────────────────────────
   const handleDirection = useCallback(
@@ -296,11 +298,32 @@ export function GridControls({
     [onChange, cols],
   )
 
-  // ── Dual gap (NOT linked) ────────────────────────────────────
-  // Each input fires exactly one property — unlike FlexControls'
-  // single Gap that writes both axes. Grid's dual-axis surface is
-  // genuinely two-axis: users expect to set column-gap and row-gap
-  // independently.
+  // ── Gap ──────────────────────────────────────────────────────
+  // Linked handlers fire BOTH axes (for locked mode).
+  const handleGapChange = useCallback(
+    (v: number) => {
+      onChange({ property: 'row-gap', value: `${v}px` })
+      onChange({ property: 'column-gap', value: `${v}px` })
+    },
+    [onChange],
+  )
+  const handleGapScrub = useCallback(
+    (v: number) => {
+      if (!onScrub) return
+      onScrub({ property: 'row-gap', value: `${v}px` })
+      onScrub({ property: 'column-gap', value: `${v}px` })
+    },
+    [onScrub],
+  )
+  const handleGapScrubEnd = useCallback(
+    (v: number) => {
+      if (!onScrubEnd) return
+      onScrubEnd({ property: 'row-gap', value: `${v}px` })
+      onScrubEnd({ property: 'column-gap', value: `${v}px` })
+    },
+    [onScrubEnd],
+  )
+  // Single-axis handlers (for unlocked mode).
   const handleColumnGapChange = useCallback(
     (v: number) => onChange({ property: 'column-gap', value: `${v}px` }),
     [onChange],
@@ -343,55 +366,28 @@ export function GridControls({
           intermediate visual states are meaningless. Only commit-on-
           enter/blur is wired here. The dual gap inputs below DO forward
           scrub events because per-pixel gap dragging is interactive. */}
-      <div class={`cortex-grid-controls__template${isDimmed(dimmedProperties, 'grid-template-columns', 'grid-template-rows') ? ' cortex-control--dimmed' : ''}`}>
-        {cols.tier === 'simple' && (
-          <div class="cortex-grid-controls__cols">
-            <NumericInput
-              value={cols.count}
-              label="Cols"
-              tooltip="Columns (repeat count)"
-              min={1}
-              mixed={mixedProperties?.has('grid-template-columns')}
-              onChange={handleColsCountChange}
-            />
-          </div>
-        )}
-        {rows.tier === 'simple' && (
-          <div class="cortex-grid-controls__rows">
-            <NumericInput
-              value={rows.count}
-              label="Rows"
-              tooltip="Rows (repeat count)"
-              min={1}
-              mixed={mixedProperties?.has('grid-template-rows')}
-              onChange={handleRowsCountChange}
-            />
-          </div>
-        )}
-        {cols.tier === 'responsive' && (
-          <div class="cortex-grid-controls__minwidth">
-            <NumericInput
-              value={cols.minWidth}
-              unit="px"
-              label="Min"
-              tooltip={`Min column width (${cols.autoMode})`}
-              min={0}
-              mixed={mixedProperties?.has('grid-template-columns')}
-              onChange={handleMinWidthChange}
-            />
-          </div>
-        )}
-        {cols.tier === 'complex' && (
-          <div class="cortex-grid-controls__raw" aria-label="Grid template columns (read-only)">
-            <span class="cortex-grid-controls__raw-label">Template</span>
-            <code class="cortex-grid-controls__raw-value">{cols.raw || '(none)'}</code>
-          </div>
-        )}
-      </div>
-
-      {/* Direction — icon-only segmented control, full width. */}
-      <div class={`cortex-grid-controls__direction${isDimmed(dimmedProperties, 'grid-auto-flow') ? ' cortex-control--dimmed' : ''}`}>
-        <span class="cortex-section-label">Direction</span>
+      {/* Template + Direction — merged into one row. */}
+      <div class={`cortex-grid-controls__template${isDimmed(dimmedProperties, 'grid-template-columns', 'grid-template-rows', 'grid-auto-flow') ? ' cortex-control--dimmed' : ''}`}>
+        <div class="cortex-grid-controls__cols">
+          <NumericInput
+            value={'count' in cols ? cols.count : 1}
+            label="Cols"
+            tooltip="Columns (repeat count)"
+            min={1}
+            mixed={mixedProperties?.has('grid-template-columns')}
+            onChange={handleColsCountChange}
+          />
+        </div>
+        <div class="cortex-grid-controls__rows">
+          <NumericInput
+            value={'count' in rows ? rows.count : 1}
+            label="Rows"
+            tooltip="Rows (repeat count)"
+            min={1}
+            mixed={mixedProperties?.has('grid-template-rows')}
+            onChange={handleRowsCountChange}
+          />
+        </div>
         <SegmentedControl
           options={DIRECTION_OPTIONS}
           value={gridAutoFlow}
@@ -399,16 +395,8 @@ export function GridControls({
         />
       </div>
 
-      {/* Alignment — grid + X/Y dropdowns share one row. */}
+      {/* X/Y alignment dropdowns (AlignmentGrid hidden — ZF0-1211). */}
       <div class={`cortex-grid-controls__align${isDimmed(dimmedProperties, 'justify-items', 'align-items', 'justify-content', 'align-content') ? ' cortex-control--dimmed' : ''}`}>
-        <AlignmentGrid
-          justifyValue={gridAlignToFlexAlign(justifyItems)}
-          alignValue={gridAlignToFlexAlign(alignItems)}
-          onJustify={handleGridJustify}
-          onAlign={handleGridAlign}
-          onDistribute={handleGridDistribute}
-          label="Grid alignment"
-        />
         <div class="cortex-grid-controls__xy">
           <div data-xy-axis="x" class="cortex-grid-controls__xy-field">
             <XYDropdown
@@ -433,34 +421,63 @@ export function GridControls({
         </div>
       </div>
 
-      {/* Dual gap — two side-by-side NumericInputs (NOT linked). */}
+      {/* Gap — lockable dual-axis. Locked = single input (both axes).
+          Unlocked = independent Cols (column-gap) + Rows (row-gap). */}
       <div class={`cortex-grid-controls__gap${isDimmed(dimmedProperties, 'row-gap', 'column-gap') ? ' cortex-control--dimmed' : ''}`}>
-        <div class="cortex-grid-controls__column-gap">
-          <NumericInput
-            value={columnGap}
-            unit="px"
-            prefix={<MoveHorizontal size={14} />}
-            tooltip="Column gap"
-            min={0}
-            mixed={mixedProperties?.has('column-gap')}
-            onChange={handleColumnGapChange}
-            onScrub={handleColumnGapScrub}
-            onScrubEnd={handleColumnGapScrubEnd}
-          />
-        </div>
-        <div class="cortex-grid-controls__row-gap">
+        {gapLocked ? (
           <NumericInput
             value={rowGap}
             unit="px"
-            prefix={<MoveVertical size={14} />}
-            tooltip="Row gap"
+            prefix="Gap"
+            tooltip="Gap (row-gap + column-gap)"
             min={0}
-            mixed={mixedProperties?.has('row-gap')}
-            onChange={handleRowGapChange}
-            onScrub={handleRowGapScrub}
-            onScrubEnd={handleRowGapScrubEnd}
+            mixed={mixedProperties?.has('row-gap') || mixedProperties?.has('column-gap')}
+            onChange={handleGapChange}
+            onScrub={handleGapScrub}
+            onScrubEnd={handleGapScrubEnd}
           />
-        </div>
+        ) : (
+          <>
+            <NumericInput
+              value={columnGap}
+              unit="px"
+              prefix="Cols"
+              tooltip="Column gap"
+              min={0}
+              mixed={mixedProperties?.has('column-gap')}
+              onChange={handleColumnGapChange}
+              onScrub={handleColumnGapScrub}
+              onScrubEnd={handleColumnGapScrubEnd}
+            />
+            <NumericInput
+              value={rowGap}
+              unit="px"
+              prefix="Rows"
+              tooltip="Row gap"
+              min={0}
+              mixed={mixedProperties?.has('row-gap')}
+              onChange={handleRowGapChange}
+              onScrub={handleRowGapScrub}
+              onScrubEnd={handleRowGapScrubEnd}
+            />
+          </>
+        )}
+        <button
+          class={`cortex-lock-btn${gapLocked ? ' cortex-lock-btn--active' : ''}`}
+          type="button"
+          aria-pressed={gapLocked ? 'true' : 'false'}
+          aria-label={gapLocked ? 'Unlock gap axes' : 'Lock gap axes'}
+          data-tooltip={gapLocked ? 'Unlock gap axes' : 'Lock gap axes'}
+          onClick={toggleGapLock}
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="6.5" width="8" height="5.5" rx="1" />
+            {gapLocked
+              ? <path d="M4.5,6.5 V4.5 a2.5,2.5 0 0 1 5,0 V6.5" />
+              : <path d="M4.5,6.5 V4.5 a2.5,2.5 0 0 1 5,0" />
+            }
+          </svg>
+        </button>
       </div>
     </div>
   )

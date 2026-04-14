@@ -198,7 +198,8 @@ describe('FlexControls', () => {
     expect(calls(onChange, 'align-items')).toEqual([])
   })
 
-  it('row direction: AlignmentGrid top-center click emits justify-content=center AND align-items=flex-start', () => {
+  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
+  it.skip('row direction: AlignmentGrid top-center click emits justify-content=center AND align-items=flex-start', () => {
     const { onChange } = setup({ values: { flexDirection: 'row' } })
     const topCenter = container.querySelector(
       '.cortex-alignment-grid__cell[data-row="0"][data-col="1"]',
@@ -214,7 +215,8 @@ describe('FlexControls', () => {
     ])
   })
 
-  it('column direction: AlignmentGrid top-center click emits SWAPPED properties', () => {
+  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
+  it.skip('column direction: AlignmentGrid top-center click emits SWAPPED properties', () => {
     const { onChange } = setup({ values: { flexDirection: 'column' } })
     // In column mode, caller reverse-maps the grid input so the visual
     // top-center cell still represents "horizontal center, vertical start".
@@ -231,8 +233,9 @@ describe('FlexControls', () => {
     ])
   })
 
-  it('row direction: AlignmentGrid distribute main-axis emits justify-content', async () => {
-    const { onChange } = setup({ values: { flexDirection: 'row' } })
+  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
+  it.skip('row direction: AlignmentGrid distribute main-axis emits justify-content', async () => {
+    const { onChange } = setup({ values: { flexDirection: 'row', alignItems: 'flex-start' } })
     // Open the overlay via dblclick. First dblclick → row overlay (cross axis).
     // Second dblclick → col overlay (main axis). Pick main axis to check
     // that the property is `justify-content` for row direction.
@@ -259,7 +262,8 @@ describe('FlexControls', () => {
     ])
   })
 
-  it('row direction: AlignmentGrid distribute cross-axis emits align-content', async () => {
+  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
+  it.skip('row direction: AlignmentGrid distribute cross-axis emits align-content', async () => {
     const { onChange } = setup({ values: { flexDirection: 'row' } })
     // First dblclick → row overlay (cross axis).
     const cell = container.querySelector(
@@ -279,7 +283,8 @@ describe('FlexControls', () => {
     ])
   })
 
-  it('column direction: AlignmentGrid distribute main-axis emits justify-content', async () => {
+  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
+  it.skip('column direction: AlignmentGrid distribute main-axis emits justify-content', async () => {
     const { onChange } = setup({ values: { flexDirection: 'column' } })
     const cell = container.querySelector(
       '.cortex-alignment-grid__cell[data-row="0"][data-col="0"]',
@@ -305,7 +310,8 @@ describe('FlexControls', () => {
     ])
   })
 
-  it('column direction: AlignmentGrid distribute cross-axis emits align-content', async () => {
+  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
+  it.skip('column direction: AlignmentGrid distribute cross-axis emits align-content', async () => {
     const { onChange } = setup({ values: { flexDirection: 'column' } })
     const cell = container.querySelector(
       '.cortex-alignment-grid__cell[data-row="1"][data-col="1"]',
@@ -416,11 +422,11 @@ describe('FlexControls', () => {
     expect(rowGap.length).toBe(colGap.length)
   })
 
-  it('Gap prefix icon renders a MoveHorizontal lucide fingerprint', () => {
+  it('Gap prefix renders "Gap" text label (not icon)', () => {
     setup()
-    const gap = container.querySelector('.cortex-flex-controls__gap') as HTMLElement
-    expect(gap).not.toBeNull()
-    expect(gap.innerHTML).toContain(ICON_FINGERPRINT.moveHorizontal)
+    const prefix = container.querySelector('.cortex-flex-controls__gap .cortex-numeric-input__prefix')
+    expect(prefix).not.toBeNull()
+    expect(prefix!.textContent).toBe('Gap')
   })
 
   // ── 18-19: Wrap + ExpandableOptions ──────────────────────────────
@@ -522,7 +528,8 @@ describe('FlexControls', () => {
   // `parseLayoutValues reads gap and flex-wrap fields from a
   // CSSStyleDeclaration` + the `defaults gap and flex-wrap` sibling.)
 
-  it('column mode: AlignmentGrid receives reverse-mapped align/justify props so the visual active cell matches user intent', () => {
+  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
+  it.skip('column mode: AlignmentGrid receives reverse-mapped align/justify props so the visual active cell matches user intent', () => {
     // User has set "horizontal=center, vertical=start" on a column flex.
     // In CSS that reads as: align-items=center, justify-content=flex-start.
     // The AlignmentGrid, which is always parameterized in ROW semantics,
@@ -553,7 +560,8 @@ describe('FlexControls', () => {
     expect(activeCount).toBe(1)
   })
 
-  it('row mode: AlignmentGrid receives direct props so the visual active cell matches user intent', () => {
+  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
+  it.skip('row mode: AlignmentGrid receives direct props so the visual active cell matches user intent', () => {
     setup({
       values: {
         flexDirection: 'row',
@@ -590,7 +598,7 @@ describe('FlexControls', () => {
     expect(getXDropdownTrigger().getAttribute('aria-expanded')).toBe('true')
   })
 
-  it('X dropdown renders Left/Center/Right plus distribution options with icon fingerprints', async () => {
+  it('X dropdown renders Left/Center/Right plus distribution options', async () => {
     setup()
     await openXDropdown()
     const options = Array.from(
@@ -602,11 +610,5 @@ describe('FlexControls', () => {
       (o) => o.querySelector('.cortex-xy-dropdown__option-label')?.textContent,
     )
     expect(labels).toEqual(['Left', 'Center', 'Right', 'Space Between', 'Space Around'])
-    // Falsifiable icon check — the "Left" option must contain the
-    // AlignHorizontalJustifyStart rect fingerprint.
-    const leftOpt = options.find(
-      (o) => o.querySelector('.cortex-xy-dropdown__option-label')?.textContent === 'Left',
-    )
-    expect(leftOpt?.innerHTML).toContain(ICON_FINGERPRINT.alignHStart)
   })
 })

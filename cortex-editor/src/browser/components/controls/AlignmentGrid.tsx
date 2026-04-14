@@ -107,20 +107,41 @@ interface OverlayState {
   index: number
 }
 
+// Distribution values: highlight the entire row (main axis).
+const DISTRIBUTION_VALUES = new Set(['space-between', 'space-around', 'space-evenly'])
+// Span values: highlight the entire column (cross axis).
+const SPAN_VALUES = new Set(['stretch', 'baseline'])
+
+type IndicatorMode =
+  | { type: 'point'; row: number; col: number }
+  | { type: 'row'; row: number }
+  | { type: 'col'; col: number }
+  | { type: 'full' }
+  | { type: 'none' }
+
 /**
- * Returns true when the given row/column's CSS-role values match the
- * currently-applied alignment. Non-canonical values ('stretch',
- * 'baseline', 'start', 'end', etc.) never match any of the 9 cells,
- * leaving the grid silently inactive — that's intentional fallback
- * behavior documented in the plan.
+ * Determine the grid indicator shape from the current axis values:
+ *   - point: both axes positional → single active cell
+ *   - row:   distribution on main axis → 3 bars spanning the row
+ *   - col:   stretch/baseline on cross axis → 3 bars spanning the column
+ *   - full:  BOTH axes non-positional → 3 bars spanning the entire grid
+ *   - none:  unrecognized combination → no indicator
  */
-function isCellActive(
-  row: number,
-  col: number,
-  alignValue: string,
-  justifyValue: string,
-): boolean {
-  return alignValue === alignForRow(row) && justifyValue === justifyForCol(col)
+function getIndicatorMode(justifyValue: string, alignValue: string): IndicatorMode {
+  const col = JUSTIFY_VALUES.indexOf(justifyValue as JustifyValue)
+  const row = ALIGN_VALUES.indexOf(alignValue as AlignValue)
+
+  if (col >= 0 && row >= 0) return { type: 'point', row, col }
+  if (DISTRIBUTION_VALUES.has(justifyValue) && row >= 0) return { type: 'row', row }
+  if (SPAN_VALUES.has(alignValue) && col >= 0) return { type: 'col', col }
+  // Distribution + baseline → row 0 with baseline underline (A + line),
+  // not full-grid bars. Figma: A icon + underline in top row, 6 dots below.
+  if (DISTRIBUTION_VALUES.has(justifyValue) && alignValue === 'baseline') return { type: 'row', row: 0 }
+  // Distribution + stretch → full grid indicator (3 bars, no dots).
+  if (DISTRIBUTION_VALUES.has(justifyValue) && SPAN_VALUES.has(alignValue)) return { type: 'full' }
+  if (DISTRIBUTION_VALUES.has(justifyValue)) return { type: 'row', row: 1 }
+  if (SPAN_VALUES.has(alignValue)) return { type: 'col', col: 1 }
+  return { type: 'none' }
 }
 
 export function AlignmentGrid({
@@ -193,11 +214,48 @@ export function AlignmentGrid({
     [overlay, onDistribute],
   )
 
-  // Render helpers — keeping the JSX inline would push past the 80-col
-  // comfort line for the cell loop, and the distinct row/col overlay
-  // branches read clearer as small sub-renders.
+  // Span click → collapse back to point alignment. Maps the click
+  // position within the span to a virtual cell (3 equal divisions).
+  const handleSpanClick = useCallback(
+    (event: MouseEvent, spanAxis: 'row' | 'col', fixedIndex: number) => {
+      if (event.detail > 1) return
+      const el = event.currentTarget as HTMLElement
+      const rect = el.getBoundingClientRect()
+      if (spanAxis === 'row') {
+        const col = Math.min(2, Math.floor(((event.clientX - rect.left) / rect.width) * 3))
+        onJustify(justifyForCol(col))
+        onAlign(alignForRow(fixedIndex))
+      } else {
+        const row = Math.min(2, Math.floor(((event.clientY - rect.top) / rect.height) * 3))
+        onJustify(justifyForCol(fixedIndex))
+        onAlign(alignForRow(row))
+      }
+    },
+    [onJustify, onAlign],
+  )
+
+  // Span dblclick → open overlay (same state machine as cell dblclick).
+  const handleSpanDblClick = useCallback(
+    (event: MouseEvent, spanAxis: 'row' | 'col', fixedIndex: number) => {
+      const el = event.currentTarget as HTMLElement
+      const rect = el.getBoundingClientRect()
+      const row = spanAxis === 'row' ? fixedIndex
+        : Math.min(2, Math.floor(((event.clientY - rect.top) / rect.height) * 3))
+      const col = spanAxis === 'col' ? fixedIndex
+        : Math.min(2, Math.floor(((event.clientX - rect.left) / rect.width) * 3))
+      setOverlay((prev) => {
+        if (prev === null) return { axis: 'row', index: row }
+        if (prev.axis === 'row') return { axis: 'col', index: col }
+        return { axis: 'row', index: row }
+      })
+    },
+    [],
+  )
+
+  const indicatorMode = getIndicatorMode(justifyValue, alignValue)
+
   function renderCell(row: number, col: number): JSX.Element {
-    const active = isCellActive(row, col, alignValue, justifyValue)
+    const active = indicatorMode.type === 'point' && indicatorMode.row === row && indicatorMode.col === col
     const classes = [
       'cortex-alignment-grid__cell',
       active && 'cortex-alignment-grid__cell--active',
@@ -212,6 +270,9 @@ export function AlignmentGrid({
         role="gridcell"
         aria-label={cellLabel(row, col)}
         aria-selected={active ? 'true' : 'false'}
+        // Explicit grid placement — prevents auto-placement pushing cells
+        // into implicit rows when a full-grid span occupies all tracks.
+        style={{ gridRow: row + 1, gridColumn: col + 1 }}
         onClick={(event) => handleCellClick(event, row, col)}
         onDblClick={() => handleCellDblClick(row, col)}
         data-row={row}
@@ -247,11 +308,14 @@ export function AlignmentGrid({
   const cells: JSX.Element[] = []
   for (let row = 0; row < 3; row++) {
     for (let col = 0; col < 3; col++) {
-      // Skip cells that are currently covered by the overlay — the overlay
-      // button-row takes their grid slots via grid-column/grid-row span.
+      // Skip cells replaced by overlay, span, or full-grid indicator.
       if (overlay) {
         if (overlay.axis === 'row' && row === overlay.index) continue
         if (overlay.axis === 'col' && col === overlay.index) continue
+      } else {
+        if (indicatorMode.type === 'full') continue
+        if (indicatorMode.type === 'row' && row === indicatorMode.row) continue
+        if (indicatorMode.type === 'col' && col === indicatorMode.col) continue
       }
       cells.push(renderCell(row, col))
     }
@@ -265,6 +329,109 @@ export function AlignmentGrid({
       aria-label={label}
     >
       {cells}
+      {/* Full-grid indicator — both axes non-positional (e.g. space-between +
+          stretch). 3 vertical bars spread across the entire grid, no dots. */}
+      {!overlay && indicatorMode.type === 'full' && (
+        <div
+          class="cortex-alignment-grid__span cortex-alignment-grid__span--full"
+          role="group"
+          aria-label="Full distribution indicator"
+          style={{ gridRow: '1 / -1', gridColumn: '1 / -1' }}
+          onClick={(e) => {
+            if (e.detail > 1) return
+            onJustify(justifyForCol(1))
+            onAlign(alignForRow(1))
+          }}
+          onDblClick={() => {
+            setOverlay((prev) => {
+              if (prev === null) return { axis: 'row', index: 1 }
+              if (prev.axis === 'row') return { axis: 'col', index: 1 }
+              return { axis: 'row', index: 1 }
+            })
+          }}
+        >
+          {justifyValue !== 'space-between' && (
+            <span class="cortex-alignment-grid__span-dot cortex-alignment-grid__span-dot--left" aria-hidden="true" />
+          )}
+          <span class="cortex-alignment-grid__span-bar" />
+          <span class="cortex-alignment-grid__span-bar" />
+          <span class="cortex-alignment-grid__span-bar" />
+          {justifyValue !== 'space-between' && (
+            <span class="cortex-alignment-grid__span-dot cortex-alignment-grid__span-dot--right" aria-hidden="true" />
+          )}
+        </div>
+      )}
+      {/* Row/column span indicators — replace cells in one row or column
+          with 3 bars. Figma spec: 2px wide, 1px rounded, ink color. */}
+      {!overlay && indicatorMode.type === 'row' && alignValue !== 'baseline' && (
+        <div
+          class="cortex-alignment-grid__span cortex-alignment-grid__span--row"
+          role="group"
+          aria-label="Distribution indicator"
+          style={{ gridRow: `${indicatorMode.row + 1}`, gridColumn: '1 / -1' }}
+          onClick={(e) => handleSpanClick(e, 'row', indicatorMode.row)}
+          onDblClick={(e) => handleSpanDblClick(e, 'row', indicatorMode.row)}
+        >
+          <span class="cortex-alignment-grid__span-bar" />
+          <span class="cortex-alignment-grid__span-bar" />
+          <span class="cortex-alignment-grid__span-bar" />
+        </div>
+      )}
+      {!overlay && indicatorMode.type === 'row' && alignValue === 'baseline' && (
+        <div
+          class="cortex-alignment-grid__span cortex-alignment-grid__span--row cortex-alignment-grid__span--row-baseline"
+          role="group"
+          aria-label="Baseline distribution indicator"
+          style={{ gridRow: `${indicatorMode.row + 1}`, gridColumn: '1 / -1' }}
+          onClick={(e) => handleSpanClick(e, 'row', indicatorMode.row)}
+          onDblClick={(e) => handleSpanDblClick(e, 'row', indicatorMode.row)}
+        >
+          {justifyValue !== 'space-between' && (
+            <span class="cortex-alignment-grid__span-baseline-tick" aria-hidden="true" />
+          )}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="cortex-alignment-grid__span-icon">
+            <path d="M4 20h16" />
+            <path d="m6 16 6-12 6 12" />
+            <path d="M8 12h8" />
+          </svg>
+          <span class="cortex-alignment-grid__span-baseline-line" aria-hidden="true" />
+          {justifyValue !== 'space-between' && (
+            <span class="cortex-alignment-grid__span-baseline-tick" aria-hidden="true" />
+          )}
+        </div>
+      )}
+      {!overlay && indicatorMode.type === 'col' && alignValue !== 'baseline' && (
+        <div
+          class="cortex-alignment-grid__span cortex-alignment-grid__span--col"
+          role="group"
+          aria-label="Stretch indicator"
+          style={{ gridColumn: `${indicatorMode.col + 1}`, gridRow: '1 / -1' }}
+          onClick={(e) => handleSpanClick(e, 'col', indicatorMode.col)}
+          onDblClick={(e) => handleSpanDblClick(e, 'col', indicatorMode.col)}
+        >
+          <span class="cortex-alignment-grid__span-bar" />
+          <span class="cortex-alignment-grid__span-bar" />
+          <span class="cortex-alignment-grid__span-bar" />
+        </div>
+      )}
+      {!overlay && indicatorMode.type === 'col' && alignValue === 'baseline' && (
+        <div
+          class="cortex-alignment-grid__span cortex-alignment-grid__span--col-baseline"
+          role="group"
+          aria-label="Baseline indicator"
+          style={{ gridColumn: `${indicatorMode.col + 1}`, gridRow: '1 / -1' }}
+          onClick={(e) => handleSpanClick(e, 'col', indicatorMode.col)}
+          onDblClick={(e) => handleSpanDblClick(e, 'col', indicatorMode.col)}
+        >
+          <span class="cortex-alignment-grid__cell__dot" aria-hidden="true" />
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="cortex-alignment-grid__span-icon">
+            <path d="M4 20h16" />
+            <path d="m6 16 6-12 6 12" />
+            <path d="M8 12h8" />
+          </svg>
+          <span class="cortex-alignment-grid__cell__dot" aria-hidden="true" />
+        </div>
+      )}
       {overlay?.axis === 'row' && (
         <div
           class="cortex-alignment-grid__overlay cortex-alignment-grid__overlay--row"

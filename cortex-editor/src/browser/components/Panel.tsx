@@ -400,9 +400,18 @@ export function Panel({
     }
     const pseudo = activePseudo !== 'element' ? activePseudo : undefined
     const cs = getComputedStyle(element, pseudo)
+    const source = element.getAttribute('data-cortex-source') ?? ''
+    const layout = parseLayoutValues(cs)
+    // Override width/height with raw override values so deriveSizingMode
+    // sees keywords like 'fit-content' / '100%' instead of resolved pixels.
+    const widthOverride = overrideManager.get(source, 'width', pseudo)
+    const heightOverride = overrideManager.get(source, 'height', pseudo)
+    if (widthOverride !== undefined) layout.width = widthOverride
+    if (heightOverride !== undefined) layout.height = heightOverride
+
     const parsed = {
       spacing: parseSpacingValues(cs),
-      layout: parseLayoutValues(cs),
+      layout,
       typography: parseTypographyValues(cs),
       fill: parseFillValues(cs),
       border: parseBorderValues(cs),
@@ -549,7 +558,7 @@ export function Panel({
         const pendingSources = (sharedInfo && editScope === 'all')
           ? sharedInfo.elements.map(el => el.getAttribute('data-cortex-source')).filter((s): s is string => s !== null)
           : source
-        overrideManager.trackPendingEdit(editId, pendingSources, c.property, pseudo)
+        overrideManager.trackPendingEdit(editId, pendingSources, c.property, c.value, pseudo)
         channel.send({
           type: 'edit',
           editId,
@@ -605,8 +614,16 @@ export function Panel({
     if (commitRender) {
       const lastCommitted = lastCommitValueRef.current.get(prevKey)
       if (lastCommitted === value) {
-        scrubPreviousRef.current.delete(prevKey)
-        return
+        // Only suppress if the override is still in place. If HMR or undo
+        // removed the override externally, the user genuinely wants to
+        // re-apply the same value — allow it through.
+        const currentOverride = overrideManager.get(source, property, pseudo)
+        if (currentOverride === value) {
+          scrubPreviousRef.current.delete(prevKey)
+          return
+        }
+        // Override was removed externally — stale guard entry, clear it
+        lastCommitValueRef.current.delete(prevKey)
       }
     }
 

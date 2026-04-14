@@ -86,8 +86,8 @@ describe('Panel', () => {
     target.appendChild(document.createTextNode('Hero heading'))
     document.body.appendChild(target)
     const { root } = setup(target)
-    expect(root.textContent).toContain('Display')
-    expect(root.textContent).toContain('Padding')
+    expect(root.textContent).toContain('Size')
+    expect(root.textContent).toContain('Spacing')
     // v2: "Font" sub-label removed; the SectionGroup header reads "Typography"
     expect(root.textContent).toContain('Typography')
   })

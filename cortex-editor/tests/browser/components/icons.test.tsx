@@ -41,8 +41,8 @@ describe('icons.tsx — lucide.dev snapshot inventory', () => {
     // CornerUpLeft, CornerUpRight, CornerDownRight, CornerDownLeft, X.
     // Remaining: Position (5) + Self-align (6) + Transforms (3) +
     // Flex-dir (4) + Spacing (2) + Token+common (6) +
-    // Grid (3) + Text-align (4) + Misc (1) = 34 new, giving 38 total.
-    expect(ICON_EXPORTS.length).toBe(38)
+    // Grid (3) + Text-align (4) + Misc (1) + Lock (2) = 36 new, giving 40 total.
+    expect(ICON_EXPORTS.length).toBe(40)
   })
 
   it.each(ICON_EXPORTS)('<%s /> renders the lucide.dev SVG verbatim', (name, Component) => {

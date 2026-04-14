@@ -135,9 +135,7 @@ export function SizingDropdown({
                 data-value={m}
                 onClick={() => handleModeClick(m)}
               >
-                <span class="cortex-sizing-menu__indicator">
-                  {m === mode ? '\u25CF' : '\u25CB'}
-                </span>
+                <span class={`cortex-sizing-menu__radio${m === mode ? ' cortex-sizing-menu__radio--active' : ''}`} />
                 {MODE_DISPLAY[m]}
               </div>
             ))}

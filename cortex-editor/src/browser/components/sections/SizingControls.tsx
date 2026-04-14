@@ -23,6 +23,7 @@ import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { SizingDropdown } from '../controls/SizingDropdown.js'
+import { Check } from '../icons.js'
 import type { SizingMode } from '../controls/SizingDropdown.js'
 
 export type SizingChange = SectionChange
@@ -216,7 +217,7 @@ export function SizingControls({
 
   return (
     <div class="cortex-sizing-controls" data-testid="sizing-controls">
-      <span class="cortex-section-label">Sizing</span>
+      <span class="cortex-subsection-label">Size</span>
       <div class="cortex-layout-section__sizing">
         <div class={`cortex-layout-section__sizing-field${isDimmed(dimmedProperties, 'width', 'min-width', 'max-width') ? ' cortex-control--dimmed' : ''}`}>
           <NumericInput
@@ -376,24 +377,30 @@ export function SizingControls({
         </div>
       )}
       <div class={`cortex-sizing-controls__toggles${isDimmed(dimmedProperties, 'overflow', 'box-sizing') ? ' cortex-control--dimmed' : ''}`}>
-        <button
-          class={`cortex-toggle-btn${isClipped ? ' cortex-toggle-btn--active' : ''}`}
-          type="button"
-          aria-pressed={isClipped ? 'true' : 'false'}
+        <label
+          class="cortex-checkbox"
+          role="checkbox"
+          aria-checked={isClipped ? 'true' : 'false'}
           data-tooltip="Clip content (overflow: hidden)"
           onClick={handleClipToggle}
         >
-          Clip content
-        </button>
-        <button
-          class={`cortex-toggle-btn${isBorderBox ? ' cortex-toggle-btn--active' : ''}`}
-          type="button"
-          aria-pressed={isBorderBox ? 'true' : 'false'}
+          <span class={`cortex-checkbox__box${isClipped ? ' cortex-checkbox__box--checked' : ''}`}>
+            {isClipped && <Check size={12} />}
+          </span>
+          <span class="cortex-checkbox__label">Clip content</span>
+        </label>
+        <label
+          class="cortex-checkbox"
+          role="checkbox"
+          aria-checked={isBorderBox ? 'true' : 'false'}
           data-tooltip="Border box sizing"
           onClick={handleBoxSizingToggle}
         >
-          Border box
-        </button>
+          <span class={`cortex-checkbox__box${isBorderBox ? ' cortex-checkbox__box--checked' : ''}`}>
+            {isBorderBox && <Check size={12} />}
+          </span>
+          <span class="cortex-checkbox__label">Border box</span>
+        </label>
       </div>
     </div>
   )

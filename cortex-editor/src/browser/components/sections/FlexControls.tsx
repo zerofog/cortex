@@ -41,7 +41,7 @@
  * Tests assert on the exact property name emitted for every code path.
  */
 import type { JSX } from 'preact'
-import { useCallback } from 'preact/hooks'
+import { useCallback, useState } from 'preact/hooks'
 import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { SegmentedControl, type SegmentedOption } from '../controls/SegmentedControl.js'
@@ -60,7 +60,6 @@ import {
   AlignVerticalJustifyStart,
   AlignVerticalJustifyCenter,
   AlignVerticalJustifyEnd,
-  MoveHorizontal,
 } from '../icons.js'
 
 export type FlexChange = SectionChange
@@ -148,20 +147,20 @@ const WRAP_OPTIONS: SegmentedOption[] = [
 // spread items along the main axis without the dblclick overlay
 // interaction — the dropdown is the fallback path.
 const X_OPTIONS: XYDropdownOption[] = [
-  { value: 'flex-start', label: 'Left', icon: <AlignHorizontalJustifyStart size={14} /> },
-  { value: 'center', label: 'Center', icon: <AlignHorizontalJustifyCenter size={14} /> },
-  { value: 'flex-end', label: 'Right', icon: <AlignHorizontalJustifyEnd size={14} /> },
-  { value: 'space-between', label: 'Space Between', icon: <AlignHorizontalJustifyCenter size={14} /> },
-  { value: 'space-around', label: 'Space Around', icon: <AlignHorizontalJustifyCenter size={14} /> },
+  { value: 'flex-start', label: 'Left', hint: 'Align children to the left of the row.' },
+  { value: 'center', label: 'Center', hint: 'Center children along the main axis.' },
+  { value: 'flex-end', label: 'Right', hint: 'Align children to the right of the row.' },
+  { value: 'space-between', label: 'Space Between', hint: 'Distribute children with equal space between them.' },
+  { value: 'space-around', label: 'Space Around', hint: 'Distribute children with equal space around them.' },
 ]
 
 // Y dropdown catalog — vertical alignment (see DESIGN.md L229).
 const Y_OPTIONS: XYDropdownOption[] = [
-  { value: 'flex-start', label: 'Top', icon: <AlignVerticalJustifyStart size={14} /> },
-  { value: 'center', label: 'Center', icon: <AlignVerticalJustifyCenter size={14} /> },
-  { value: 'flex-end', label: 'Bottom', icon: <AlignVerticalJustifyEnd size={14} /> },
-  { value: 'stretch', label: 'Stretch', icon: <AlignVerticalJustifyCenter size={14} /> },
-  { value: 'baseline', label: 'Baseline', icon: <AlignVerticalJustifyCenter size={14} /> },
+  { value: 'flex-start', label: 'Top', hint: 'Align children to the top of the cross axis.' },
+  { value: 'center', label: 'Center', hint: 'Center children along the cross axis.' },
+  { value: 'flex-end', label: 'Bottom', hint: 'Align children to the bottom of the cross axis.' },
+  { value: 'stretch', label: 'Stretch', hint: 'Stretch children to fill the cross axis.' },
+  { value: 'baseline', label: 'Baseline', hint: 'Align children along their text baseline.' },
 ]
 
 // ── Component ───────────────────────────────────────────────────────
@@ -179,8 +178,12 @@ export function FlexControls({
   // value, and emits BOTH row-gap and column-gap on edit. When the
   // source element has asymmetric gaps the difference is surfaced via
   // `mixedProperties` (set by Panel.tsx), not by rendering two numbers.
-  const { flexDirection, justifyContent, alignItems, rowGap, flexWrap } = values
+  const { flexDirection, justifyContent, alignItems, rowGap, columnGap, flexWrap } = values
   const column = isColumnDirection(flexDirection)
+
+  // ── Gap lock ─────────────────────────────────────────────────
+  const [gapLocked, setGapLocked] = useState(true)
+  const toggleGapLock = useCallback(() => setGapLocked(p => !p), [])
 
   // ── Direction ────────────────────────────────────────────────
   const handleDirection = useCallback(
@@ -282,12 +285,33 @@ export function FlexControls({
     [onScrubEnd],
   )
 
-  // Gap displays row-gap as the canonical value — if the two axes
-  // disagree (e.g. pre-existing CSS sets row-gap: 4px; column-gap: 8px),
-  // the panel shows row-gap until the user types a new value, at which
-  // point the two-callback dispatch re-converges them.
-  const gapValue = rowGap
+  // Unlocked single-axis handlers — each fires ONE property.
+  const handleColumnGapChange = useCallback(
+    (v: number) => onChange({ property: 'column-gap', value: `${v}px` }),
+    [onChange],
+  )
+  const handleColumnGapScrub = useCallback(
+    (v: number) => { if (onScrub) onScrub({ property: 'column-gap', value: `${v}px` }) },
+    [onScrub],
+  )
+  const handleColumnGapScrubEnd = useCallback(
+    (v: number) => { if (onScrubEnd) onScrubEnd({ property: 'column-gap', value: `${v}px` }) },
+    [onScrubEnd],
+  )
+  const handleRowGapChange = useCallback(
+    (v: number) => onChange({ property: 'row-gap', value: `${v}px` }),
+    [onChange],
+  )
+  const handleRowGapScrub = useCallback(
+    (v: number) => { if (onScrub) onScrub({ property: 'row-gap', value: `${v}px` }) },
+    [onScrub],
+  )
+  const handleRowGapScrubEnd = useCallback(
+    (v: number) => { if (onScrubEnd) onScrubEnd({ property: 'row-gap', value: `${v}px` }) },
+    [onScrubEnd],
+  )
 
+  const gapValue = rowGap
   const gapMixed = mixedProperties?.has('row-gap') || mixedProperties?.has('column-gap')
 
   // ── Wrap ─────────────────────────────────────────────────────
@@ -300,7 +324,6 @@ export function FlexControls({
     <div class="cortex-flex-controls">
       {/* Direction — icon-only segmented control, full width. */}
       <div class={`cortex-flex-controls__direction${isDimmed(dimmedProperties, 'flex-direction') ? ' cortex-control--dimmed' : ''}`}>
-        <span class="cortex-section-label">Direction</span>
         <SegmentedControl
           options={DIRECTION_OPTIONS}
           value={flexDirection}
@@ -310,14 +333,7 @@ export function FlexControls({
 
       {/* Alignment — grid + X/Y dropdowns share one row. */}
       <div class={`cortex-flex-controls__align${isDimmed(dimmedProperties, 'justify-content', 'align-items', 'align-content') ? ' cortex-control--dimmed' : ''}`}>
-        <AlignmentGrid
-          justifyValue={gridJustifyValue}
-          alignValue={gridAlignValue}
-          onJustify={handleGridJustify}
-          onAlign={handleGridAlign}
-          onDistribute={handleGridDistribute}
-          label="Flex alignment"
-        />
+        {/* AlignmentGrid hidden pending visual fixes — see ZF0-1211 */}
         <div class="cortex-flex-controls__xy">
           <div data-xy-axis="x" class="cortex-flex-controls__xy-field">
             <XYDropdown
@@ -342,30 +358,72 @@ export function FlexControls({
         </div>
       </div>
 
-      {/* Gap — linked axes via a single NumericInput. */}
+      {/* Gap — lockable dual-axis. Locked = single input (both axes).
+          Unlocked = independent Cols (column-gap) + Rows (row-gap). */}
       <div class={`cortex-flex-controls__gap${isDimmed(dimmedProperties, 'row-gap', 'column-gap') ? ' cortex-control--dimmed' : ''}`}>
-        <NumericInput
-          value={gapValue}
-          unit="px"
-          prefix={<MoveHorizontal size={14} />}
-          tooltip="Gap"
-          min={0}
-          mixed={gapMixed}
-          onChange={handleGapChange}
-          onScrub={handleGapScrub}
-          onScrubEnd={handleGapScrubEnd}
-        />
+        {gapLocked ? (
+          <NumericInput
+            value={gapValue}
+            unit="px"
+            prefix="Gap"
+            tooltip="Gap (row-gap + column-gap)"
+            min={0}
+            mixed={gapMixed}
+            onChange={handleGapChange}
+            onScrub={handleGapScrub}
+            onScrubEnd={handleGapScrubEnd}
+          />
+        ) : (
+          <>
+            <NumericInput
+              value={columnGap}
+              unit="px"
+              prefix="Cols"
+              tooltip="Column gap"
+              min={0}
+              mixed={mixedProperties?.has('column-gap')}
+              onChange={handleColumnGapChange}
+              onScrub={handleColumnGapScrub}
+              onScrubEnd={handleColumnGapScrubEnd}
+            />
+            <NumericInput
+              value={rowGap}
+              unit="px"
+              prefix="Rows"
+              tooltip="Row gap"
+              min={0}
+              mixed={mixedProperties?.has('row-gap')}
+              onChange={handleRowGapChange}
+              onScrub={handleRowGapScrub}
+              onScrubEnd={handleRowGapScrubEnd}
+            />
+          </>
+        )}
+        <button
+          class={`cortex-lock-btn${gapLocked ? ' cortex-lock-btn--active' : ''}`}
+          type="button"
+          aria-pressed={gapLocked ? 'true' : 'false'}
+          aria-label={gapLocked ? 'Unlock gap axes' : 'Lock gap axes'}
+          data-tooltip={gapLocked ? 'Unlock gap axes' : 'Lock gap axes'}
+          onClick={toggleGapLock}
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="6.5" width="8" height="5.5" rx="1" />
+            {gapLocked
+              ? <path d="M4.5,6.5 V4.5 a2.5,2.5 0 0 1 5,0 V6.5" />
+              : <path d="M4.5,6.5 V4.5 a2.5,2.5 0 0 1 5,0" />
+            }
+          </svg>
+        </button>
       </div>
 
       {/* Wrap — tucked behind "More options" to keep the default view lean. */}
       <ExpandableOptions label="More options">
         <div class={`cortex-flex-controls__wrap${isDimmed(dimmedProperties, 'flex-wrap') ? ' cortex-control--dimmed' : ''}`}>
-          <span class="cortex-section-label">Wrap</span>
           <SegmentedControl
             options={WRAP_OPTIONS}
             value={flexWrap}
             onChange={handleWrap}
-            size="sm"
           />
         </div>
       </ExpandableOptions>

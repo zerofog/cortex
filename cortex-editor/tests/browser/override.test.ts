@@ -483,7 +483,7 @@ describe('CSSOverrideManager', () => {
   describe('HMR verified override clearing', () => {
     it('trackPendingEdit + handleHMRVerified(match=true) removes the override', () => {
       manager.set('Hero.tsx:5:3', 'padding', '24px')
-      manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'padding')
+      manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'padding', '24px')
       manager.handleHMRVerified('edit-1', true)
       manager.onHMRApplied()
       manager.flush()
@@ -493,7 +493,7 @@ describe('CSSOverrideManager', () => {
 
     it('handleHMRVerified(match=false) keeps the override', () => {
       manager.set('Hero.tsx:5:3', 'padding', '24px')
-      manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'padding')
+      manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'padding', '24px')
       manager.handleHMRVerified('edit-1', false)
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
       expect(styleEl.textContent).toContain('padding')
@@ -508,7 +508,7 @@ describe('CSSOverrideManager', () => {
 
     it('clearAll also clears pending edits', () => {
       manager.set('Hero.tsx:5:3', 'padding', '24px')
-      manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'padding')
+      manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'padding', '24px')
       manager.clearAll()
       manager.handleHMRVerified('edit-1', true)
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
@@ -517,7 +517,7 @@ describe('CSSOverrideManager', () => {
 
     it('pseudo override cleared by handleHMRVerified with matching pseudo', () => {
       manager.set('Hero.tsx:5:3', 'width', '100px', '::before')
-      manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'width', '::before')
+      manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'width', '100px', '::before')
       manager.handleHMRVerified('edit-1', true)
       manager.onHMRApplied()
       manager.flush()
@@ -528,7 +528,7 @@ describe('CSSOverrideManager', () => {
     it('pseudo verification does not remove element-level override', () => {
       manager.set('Hero.tsx:5:3', 'width', '200px')
       manager.set('Hero.tsx:5:3', 'width', '100px', '::before')
-      manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'width', '::before')
+      manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'width', '100px', '::before')
       manager.handleHMRVerified('edit-1', true)
       manager.onHMRApplied()
       manager.flush()
@@ -540,7 +540,7 @@ describe('CSSOverrideManager', () => {
     it('element verification does not remove pseudo override', () => {
       manager.set('Hero.tsx:5:3', 'width', '200px')
       manager.set('Hero.tsx:5:3', 'width', '100px', '::before')
-      manager.trackPendingEdit('edit-2', 'Hero.tsx:5:3', 'width')
+      manager.trackPendingEdit('edit-2', 'Hero.tsx:5:3', 'width', '200px')
       manager.handleHMRVerified('edit-2', true)
       manager.onHMRApplied()
       manager.flush()
@@ -551,8 +551,8 @@ describe('CSSOverrideManager', () => {
 
     it('trackPendingEdit supersedes prior entry for same source+property', () => {
       manager.set('a:1:1', 'color', 'red')
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
-      manager.trackPendingEdit('edit-2', 'a:1:1', 'color')
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+      manager.trackPendingEdit('edit-2', 'a:1:1', 'color', 'red')
       manager.handleHMRVerified('edit-1', true)
       manager.onHMRApplied()
       manager.flush()
@@ -567,8 +567,8 @@ describe('CSSOverrideManager', () => {
     it('trackPendingEdit does not supersede different property', () => {
       manager.set('a:1:1', 'color', 'red')
       manager.set('a:1:1', 'margin', '0')
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
-      manager.trackPendingEdit('edit-2', 'a:1:1', 'margin')
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+      manager.trackPendingEdit('edit-2', 'a:1:1', 'margin', '0')
       manager.handleHMRVerified('edit-1', true)
       manager.handleHMRVerified('edit-2', true)
       manager.onHMRApplied()
@@ -579,8 +579,8 @@ describe('CSSOverrideManager', () => {
 
     it('trackPendingEdit supersedes with matching pseudo', () => {
       manager.set('a:1:1', 'width', '100px', '::before')
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'width', '::before')
-      manager.trackPendingEdit('edit-2', 'a:1:1', 'width', '::before')
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'width', '100px', '::before')
+      manager.trackPendingEdit('edit-2', 'a:1:1', 'width', '100px', '::before')
       manager.handleHMRVerified('edit-1', true)
       manager.onHMRApplied()
       manager.flush()
@@ -591,8 +591,8 @@ describe('CSSOverrideManager', () => {
     it('trackPendingEdit does not supersede different pseudo', () => {
       manager.set('a:1:1', 'width', '100px')
       manager.set('a:1:1', 'width', '200px', '::before')
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'width')
-      manager.trackPendingEdit('edit-2', 'a:1:1', 'width', '::before')
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'width', '100px')
+      manager.trackPendingEdit('edit-2', 'a:1:1', 'width', '200px', '::before')
       manager.handleHMRVerified('edit-1', true)
       manager.handleHMRVerified('edit-2', true)
       manager.onHMRApplied()
@@ -603,7 +603,7 @@ describe('CSSOverrideManager', () => {
 
     it('dispose clears pending edits', () => {
       manager.set('Hero.tsx:5:3', 'padding', '24px')
-      manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'padding')
+      manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'padding', '24px')
       manager.dispose()
       // After dispose, handleHMRVerified should be a no-op (not throw)
       expect(() => manager.handleHMRVerified('edit-1', true)).not.toThrow()
@@ -613,10 +613,10 @@ describe('CSSOverrideManager', () => {
       vi.useFakeTimers()
       try {
         manager.set('a:1:1', 'color', 'red')
-        manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+        manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
         vi.advanceTimersByTime(36_000)
         // Trigger eviction via a new trackPendingEdit
-        manager.trackPendingEdit('edit-2', 'a:1:1', 'margin')
+        manager.trackPendingEdit('edit-2', 'a:1:1', 'margin', 'test-value')
         // edit-1 should have been evicted — handleHMRVerified is a no-op
         manager.handleHMRVerified('edit-1', true)
         const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
@@ -630,10 +630,10 @@ describe('CSSOverrideManager', () => {
       vi.useFakeTimers()
       try {
         manager.set('a:1:1', 'color', 'red')
-        manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+        manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
         vi.advanceTimersByTime(20_000)
         // Trigger eviction — edit-1 is within TTL, should survive
-        manager.trackPendingEdit('edit-2', 'a:1:1', 'margin')
+        manager.trackPendingEdit('edit-2', 'a:1:1', 'margin', 'test-value')
         manager.handleHMRVerified('edit-1', true)
         manager.onHMRApplied()
         manager.flush()
@@ -689,7 +689,7 @@ describe('CSSOverrideManager', () => {
     it('ordering A: hmr_verified → onHMRApplied (normal order)', () => {
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
       manager.markDeferred('edit-1')
       manager.handleHMRVerified('edit-1', true) // queued in pendingRemovals
 
@@ -708,7 +708,7 @@ describe('CSSOverrideManager', () => {
     it('ordering B: onHMRApplied → hmr_verified (late arrival)', () => {
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
       manager.markDeferred('edit-1')
 
       // onHMRApplied fires first — nothing to drain → sets hmrAppliedPending
@@ -729,7 +729,7 @@ describe('CSSOverrideManager', () => {
       // handleHMRVerified runs before markDeferred — editId not in deferredEditIds yet
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
       manager.handleHMRVerified('edit-1', true) // queued (not deferred yet)
       manager.markDeferred('edit-1') // adds editId to deferredEditIds
 
@@ -746,7 +746,7 @@ describe('CSSOverrideManager', () => {
     it('non-deferred removal clears override synchronously on onHMRApplied', () => {
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
       manager.handleHMRVerified('edit-1', true)
 
 
@@ -760,14 +760,14 @@ describe('CSSOverrideManager', () => {
       // First edit: deferred
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
       manager.markDeferred('edit-1')
       manager.handleHMRVerified('edit-1', true) // queued
 
       // Second edit: non-deferred
       manager.set('b:1:1', 'margin', '0')
       flushRAF()
-      manager.trackPendingEdit('edit-2', 'b:1:1', 'margin')
+      manager.trackPendingEdit('edit-2', 'b:1:1', 'margin', '0')
       manager.handleHMRVerified('edit-2', true) // queued
 
 
@@ -787,7 +787,7 @@ describe('CSSOverrideManager', () => {
     it('pendingClearAll takes precedence over deferred removals', () => {
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
       manager.handleHMRVerified('edit-1', true)
       manager.markDeferred('edit-1')
       manager.queueClearAll()
@@ -806,7 +806,7 @@ describe('CSSOverrideManager', () => {
 
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
 
       manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
 
@@ -836,7 +836,7 @@ describe('CSSOverrideManager', () => {
 
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
 
 
       manager.onHMRApplied()
@@ -860,7 +860,7 @@ describe('CSSOverrideManager', () => {
       // No element with data-cortex-source="a:1:1" in DOM
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
 
       manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
 
@@ -877,7 +877,7 @@ describe('CSSOverrideManager', () => {
       // kind: immediate → sync remove(), same as existing non-deferred behavior
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
 
       manager.handleHMRVerified('edit-1', true, 'immediate') // queued with kind
 
@@ -891,7 +891,7 @@ describe('CSSOverrideManager', () => {
       // Cycle 1: set override, track, HMR apply, then verify
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
 
       manager.handleHMRVerified('edit-1', true)
       manager.onHMRApplied() // sets hmrAppliedPending = true after draining
@@ -901,7 +901,7 @@ describe('CSSOverrideManager', () => {
       // Cycle 2: new edit — hmrAppliedPending should reset
       manager.set('b:1:1', 'margin', '8px')
       flushRAF()
-      manager.trackPendingEdit('edit-2', 'b:1:1', 'margin')
+      manager.trackPendingEdit('edit-2', 'b:1:1', 'margin', '8px')
 
 
       // handleHMRVerified fires BEFORE onHMRApplied for cycle 2
@@ -922,7 +922,7 @@ describe('CSSOverrideManager', () => {
       // No kind → existing deferredEditIds-based behavior
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color')
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
       manager.markDeferred('edit-1') // deferred via markDeferred
       manager.handleHMRVerified('edit-1', true) // no kind argument → undefined
 

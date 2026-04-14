@@ -15,7 +15,6 @@ import { useState, useCallback } from 'preact/hooks'
 import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { NumericInput } from '../controls/NumericInput.js'
-import { MoveHorizontal, MoveVertical } from '../icons.js'
 
 export type SpacingChange = SectionChange
 
@@ -35,7 +34,7 @@ export interface SpacingControlsProps {
  * NumericInputs and a lock button to link them.
  */
 function SpacingRow({
-  label,
+  short,
   values,
   prefix,
   allowNegative,
@@ -47,7 +46,8 @@ function SpacingRow({
   dimmed,
   mixedProperties,
 }: {
-  label: string
+  /** Short prefix shown in the input (e.g. "P" for padding, "M" for margin) */
+  short: string
   values: { top: number; right: number; bottom: number; left: number }
   prefix: 'padding' | 'margin'
   allowNegative: boolean
@@ -117,13 +117,12 @@ function SpacingRow({
 
   return (
     <div class={`cortex-spacing-row${dimmed ? ' cortex-control--dimmed' : ''}`} data-section={prefix}>
-      <span class="cortex-section-label">{label}</span>
       <div class="cortex-spacing-row__inputs">
         <NumericInput
           value={horizontal}
           unit="px"
-          prefix={<MoveHorizontal size={14} />}
-          tooltip={`Horizontal ${label}`}
+          prefix={`${short} \u2194`}
+          tooltip={`Horizontal ${prefix}`}
           min={allowNegative ? undefined : 0}
           mixed={mixedProperties?.has(`${prefix}-left`) || mixedProperties?.has(`${prefix}-right`)}
           onChange={handleHorizontalChange}
@@ -138,7 +137,7 @@ function SpacingRow({
           data-tooltip={locked ? 'Unlock axes' : 'Lock axes'}
           onClick={onToggleLock}
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="6.5" width="8" height="5.5" rx="1" />
             {locked
               ? <path d="M4.5,6.5 V4.5 a2.5,2.5 0 0 1 5,0 V6.5" />
@@ -149,8 +148,8 @@ function SpacingRow({
         <NumericInput
           value={vertical}
           unit="px"
-          prefix={<MoveVertical size={14} />}
-          tooltip={`Vertical ${label}`}
+          prefix={`${short} \u2195`}
+          tooltip={`Vertical ${prefix}`}
           min={allowNegative ? undefined : 0}
           mixed={mixedProperties?.has(`${prefix}-top`) || mixedProperties?.has(`${prefix}-bottom`)}
           onChange={handleVerticalChange}
@@ -178,8 +177,9 @@ export function SpacingControls({
 
   return (
     <div class="cortex-spacing-controls" data-testid="spacing-controls" data-section-id="spacing">
+      <span class="cortex-subsection-label">Spacing</span>
       <SpacingRow
-        label="Padding"
+        short="P"
         values={padding}
         prefix="padding"
         allowNegative={false}
@@ -192,7 +192,7 @@ export function SpacingControls({
         mixedProperties={mixedProperties}
       />
       <SpacingRow
-        label="Margin"
+        short="M"
         values={margin}
         prefix="margin"
         allowNegative={true}
