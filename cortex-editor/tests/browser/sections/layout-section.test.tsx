@@ -94,10 +94,10 @@ describe('LayoutSection', () => {
     expect(container.textContent).not.toContain('Direction')
   })
 
-  it('shows FlexControls for flex display (Task 8 — Justify/Align replaced by AlignmentGrid + X/Y dropdowns)', () => {
+  it('shows FlexControls for flex display with X/Y dropdowns', () => {
     setup({ values: { ...DEFAULT_VALUES, display: 'flex' } })
     expect(container.querySelector('.cortex-flex-controls')).not.toBeNull()
-    expect(container.querySelector('.cortex-alignment-grid')).not.toBeNull()
+    // AlignmentGrid hidden (ZF0-1211) — X/Y dropdowns still render.
     expect(
       container.querySelector('[data-xy-axis="x"] .cortex-xy-dropdown__trigger'),
     ).not.toBeNull()
@@ -115,8 +115,9 @@ describe('LayoutSection', () => {
     expect(
       container.querySelector('.cortex-grid-controls [data-xy-axis="y"] .cortex-xy-dropdown__trigger'),
     ).not.toBeNull()
+    // Direction merged into template row.
     expect(
-      container.querySelector('.cortex-grid-controls__direction [role="radiogroup"]'),
+      container.querySelector('.cortex-grid-controls__template [role="radiogroup"]'),
     ).not.toBeNull()
   })
 
