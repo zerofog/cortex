@@ -190,18 +190,67 @@ describe('AppearanceSection', () => {
     expect(lastCall.value).toBe('0.81')
   })
 
-  it('renders a uniform corner-radius NumericInput labeled "R" by default', () => {
+  it('shows an indeterminate uniform radius (-- placeholder) when per-corner radii disagree on the element', () => {
+    // CSSOM emits `border-radius` as a shorthand when the 4 corners differ
+    // (e.g. "12px 12px 12px 0px"). `parseFloat` would capture only the
+    // leading `12`, silently misrepresenting state. The section detects
+    // this intra-element divergence and flips the uniform input to the
+    // same "mixed" state used for multi-selection variance: empty value
+    // + "--" placeholder, so the user can type a target to unify.
+    setup({
+      values: {
+        ...DEFAULT_VALUES,
+        borderRadius: 12,
+        borderTopLeftRadius: 12,
+        borderTopRightRadius: 12,
+        borderBottomRightRadius: 12,
+        borderBottomLeftRadius: 0, // one corner differs → indeterminate
+      },
+    })
+    const radiusInput = container.querySelector(
+      '[data-tooltip="Corner Radius"]',
+    ) as HTMLElement
+    const input = radiusInput.querySelector('input') as HTMLInputElement
+    expect(input.value).toBe('')
+    expect(input.placeholder).toBe('--')
+  })
+
+  it('keeps the uniform radius concrete when all 4 per-corner radii agree', () => {
+    // Falsifiability counterpart of the divergence test above — if the
+    // uniform-mixed logic ever flips to "always mixed" by accident, this
+    // test fails.
+    setup({
+      values: {
+        ...DEFAULT_VALUES,
+        borderRadius: 8,
+        borderTopLeftRadius: 8,
+        borderTopRightRadius: 8,
+        borderBottomRightRadius: 8,
+        borderBottomLeftRadius: 8,
+      },
+    })
+    const radiusInput = container.querySelector(
+      '[data-tooltip="Corner Radius"]',
+    ) as HTMLElement
+    const input = radiusInput.querySelector('input') as HTMLInputElement
+    expect(input.value).toBe('8')
+  })
+
+  it('renders a uniform corner-radius NumericInput with a Square icon prefix by default', () => {
     setup()
-    const radiusInput = Array.from(
-      container.querySelectorAll('.cortex-numeric-input'),
-    ).find((el) =>
-      el.querySelector('.cortex-numeric-input__label')?.textContent === 'R',
-    )
-    expect(radiusInput).toBeDefined()
+    // Identify the radius input by its semantic tooltip (the Panel v2 redesign
+    // replaced the legacy "R" text label with a Lucide `Square` prefix icon).
+    const radiusInput = container.querySelector(
+      '[data-tooltip="Corner Radius"]',
+    ) as HTMLElement | null
+    expect(radiusInput).not.toBeNull()
+    const prefix = radiusInput!.querySelector('.cortex-numeric-input__prefix')
+    expect(prefix).not.toBeNull()
+    expect(prefix!.querySelector('svg')).not.toBeNull()
     expect((radiusInput!.querySelector('input') as HTMLInputElement).value).toBe('4')
   })
 
-  it('has a per-corner toggle button that swaps to TL/TR/BR/BL inputs when clicked', async () => {
+  it('has a per-corner toggle button that swaps to 4 corner-prefixed inputs when clicked', async () => {
     setup()
     const toggle = container.querySelector(
       '.cortex-appearance-section__corner-toggle',
@@ -215,13 +264,23 @@ describe('AppearanceSection', () => {
       '.cortex-appearance-section__corner-toggle',
     ) as HTMLButtonElement
     expect(toggleAfter.getAttribute('aria-pressed')).toBe('true')
-    const labels = Array.from(
-      container.querySelectorAll('.cortex-numeric-input__label'),
-    ).map((el) => el.textContent)
-    expect(labels).toContain('TL')
-    expect(labels).toContain('TR')
-    expect(labels).toContain('BR')
-    expect(labels).toContain('BL')
+    // Each per-corner NumericInput is identified by its semantic tooltip
+    // (the Panel v2 polish replaced the earlier TL/TR/BR/BL text labels
+    // with Lucide-style corner-bracket prefix icons — see CornerTopLeft,
+    // CornerTopRight, CornerBottomRight, CornerBottomLeft in icons.tsx).
+    const tooltips = [
+      'Top Left Radius',
+      'Top Right Radius',
+      'Bottom Right Radius',
+      'Bottom Left Radius',
+    ]
+    for (const tooltip of tooltips) {
+      const input = container.querySelector(`[data-tooltip="${tooltip}"]`)
+      expect(input, `expected an input with tooltip "${tooltip}"`).not.toBeNull()
+      // Prefix slot must contain an SVG (the corner indicator icon).
+      const prefixSvg = input!.querySelector('.cortex-numeric-input__prefix svg')
+      expect(prefixSvg, `expected "${tooltip}" to have a prefix SVG`).not.toBeNull()
+    }
   })
 
   it('renders an eye-toggle button for visibility with Lucide Eye icon when visible', () => {
@@ -238,15 +297,19 @@ describe('AppearanceSection', () => {
     expect(svg!.querySelector('circle')).not.toBeNull()
   })
 
-  it('renders the EyeOff icon and aria-pressed=true when visibility=hidden', () => {
+  it('renders the EyeClosed icon and aria-pressed=true when visibility=hidden', () => {
     setup({ values: { ...DEFAULT_VALUES, visibility: 'hidden' } })
     const toggle = container.querySelector(
       '.cortex-appearance-section__visibility-toggle',
     ) as HTMLButtonElement
     expect(toggle).not.toBeNull()
     expect(toggle.getAttribute('aria-pressed')).toBe('true')
-    // EyeOff icon has no <circle> (uses 4 paths).
+    expect(toggle.getAttribute('aria-label')).toBe('Show element')
+    // EyeClosed icon: 5 <path> elements, zero <circle> elements. Locks the
+    // specific Lucide glyph (Eye would have 1 path + 1 circle; EyeOff would
+    // have 4 paths). Any drift surfaces here with a precise count mismatch.
     const svg = toggle.querySelector('svg')!
+    expect(svg.querySelectorAll('path').length).toBe(5)
     expect(svg.querySelector('circle')).toBeNull()
   })
 
@@ -271,57 +334,56 @@ describe('AppearanceSection', () => {
 
   // --- CTF3/CTF7: dimmedProperties -------------------------------------------
   // AppearanceSection was the first section to READ dimmedProperties and apply
-  // a visual dim. CTF7 moved to the shared .cortex-control--dimmed class.
+  // a visual dim. CTF7 moved to the shared .cortex-control--dimmed class. The
+  // Panel v2 single-row redesign (ZF0-1124) moved the dim class from per-row
+  // wrappers onto per-item spans (for NumericInputs) and directly onto the
+  // button class lists (corner-toggle, visibility-toggle). The data model has
+  // always been per-property, so the DOM now mirrors it.
   describe('dimmedProperties (CTF3 pilot)', () => {
+    const getOpacityItem = () =>
+      container.querySelector(
+        '.cortex-appearance-section__row > .cortex-appearance-section__item:first-child',
+      )!
+    const getRadiusCornerToggle = () =>
+      container.querySelector(
+        '.cortex-appearance-section__corner-toggle',
+      )!
+    const getVisibilityToggle = () =>
+      container.querySelector(
+        '.cortex-appearance-section__visibility-toggle',
+      )!
+
     it('dims the opacity control when dimmedProperties contains "opacity"', () => {
       setup({ dimmedProperties: new Set(['opacity']) })
-      const opacityControl = container.querySelector(
-        '.cortex-appearance-section__control--opacity',
-      )
-      expect(opacityControl).not.toBeNull()
-      expect(
-        opacityControl!.classList.contains('cortex-control--dimmed'),
-      ).toBe(true)
+      expect(getOpacityItem().classList.contains('cortex-control--dimmed')).toBe(true)
     })
 
     it('does NOT dim the opacity control when dimmedProperties is absent or does not include opacity', () => {
       setup({ dimmedProperties: new Set(['visibility']) })
-      const opacityControl = container.querySelector(
-        '.cortex-appearance-section__control--opacity',
-      )!
-      expect(
-        opacityControl.classList.contains('cortex-control--dimmed'),
-      ).toBe(false)
+      expect(getOpacityItem().classList.contains('cortex-control--dimmed')).toBe(false)
     })
 
     it('dims the visibility toggle when dimmedProperties contains "visibility"', () => {
       setup({ dimmedProperties: new Set(['visibility']) })
-      const visibilityControl = container.querySelector(
-        '.cortex-appearance-section__control--visibility',
-      )!
-      expect(
-        visibilityControl.classList.contains('cortex-control--dimmed'),
-      ).toBe(true)
+      expect(getVisibilityToggle().classList.contains('cortex-control--dimmed')).toBe(true)
     })
 
-    it('dims the uniform radius control when dimmedProperties contains "border-radius"', () => {
+    it('dims the radius controls when dimmedProperties contains "border-radius"', () => {
       setup({ dimmedProperties: new Set(['border-radius']) })
-      const radiusControl = container.querySelector(
-        '.cortex-appearance-section__control--radius',
+      // The uniform radius __item span AND the corner-toggle both carry the
+      // dim class — the former because the input itself reflects the overridden
+      // value, the latter because the per-corner affordance is the fallback
+      // representation when the uniform input isn't rendered.
+      const radiusItem = container.querySelector(
+        '.cortex-appearance-section__row > .cortex-appearance-section__item:nth-of-type(2)',
       )!
-      expect(
-        radiusControl.classList.contains('cortex-control--dimmed'),
-      ).toBe(true)
+      expect(radiusItem.classList.contains('cortex-control--dimmed')).toBe(true)
+      expect(getRadiusCornerToggle().classList.contains('cortex-control--dimmed')).toBe(true)
     })
 
-    it('also dims the uniform radius control when any per-corner radius is dimmed', () => {
+    it('also dims the radius controls when any per-corner radius is dimmed', () => {
       setup({ dimmedProperties: new Set(['border-top-left-radius']) })
-      const radiusControl = container.querySelector(
-        '.cortex-appearance-section__control--radius',
-      )!
-      expect(
-        radiusControl.classList.contains('cortex-control--dimmed'),
-      ).toBe(true)
+      expect(getRadiusCornerToggle().classList.contains('cortex-control--dimmed')).toBe(true)
     })
   })
 
@@ -402,10 +464,10 @@ describe('AppearanceSection', () => {
         ) as HTMLButtonElement).getAttribute('aria-pressed'),
       ).toBe('true')
       // Sanity check: corner inputs are visible.
-      const labelsExpanded = Array.from(
-        container.querySelectorAll('.cortex-numeric-input__label'),
-      ).map((el) => el.textContent)
-      expect(labelsExpanded).toContain('TL')
+      // Sanity: the per-corner Top-Left input renders with its tooltip.
+      expect(
+        container.querySelector('[data-tooltip="Top Left Radius"]'),
+      ).not.toBeNull()
 
       // Re-render with the SAME resetKey but a different unrelated prop value
       // (opacity jumps 80 → 60). The mount-skip guard must suppress the reset.
@@ -422,14 +484,11 @@ describe('AppearanceSection', () => {
         '.cortex-appearance-section__corner-toggle',
       ) as HTMLButtonElement
       expect(afterToggle.getAttribute('aria-pressed')).toBe('true')
-      // Per-corner inputs must still be visible.
-      const labelsAfter = Array.from(
-        container.querySelectorAll('.cortex-numeric-input__label'),
-      ).map((el) => el.textContent)
-      expect(labelsAfter).toContain('TL')
-      expect(labelsAfter).toContain('TR')
-      expect(labelsAfter).toContain('BR')
-      expect(labelsAfter).toContain('BL')
+      // All 4 per-corner inputs must still be rendered, identified by tooltip.
+      expect(container.querySelector('[data-tooltip="Top Left Radius"]')).not.toBeNull()
+      expect(container.querySelector('[data-tooltip="Top Right Radius"]')).not.toBeNull()
+      expect(container.querySelector('[data-tooltip="Bottom Right Radius"]')).not.toBeNull()
+      expect(container.querySelector('[data-tooltip="Bottom Left Radius"]')).not.toBeNull()
     })
   })
 })

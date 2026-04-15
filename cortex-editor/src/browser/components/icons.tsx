@@ -6,9 +6,9 @@
  * set (https://lucide.dev). Sources are documented per-icon with a URL comment
  * so a rename or path-update upstream can be verified in one hop.
  *
- * Created by Task 3 (ZF0-1181) with the 4 icons AppearanceSection needs
- * (Eye, EyeOff, Blend, SquareDashed). Task 4 (ZF0-1182) extended this file
- * with the full Panel v2 inventory (38 icons total) covering section icons,
+ * Created by Task 3 (ZF0-1181) with the icons AppearanceSection needed.
+ * Task 4 (ZF0-1182) extended this file with the full Panel v2 inventory
+ * covering section icons,
  * control icons, and toolbar glyphs consumed by Tasks 5-16. Deliberately no
  * default export — named exports keep tree-shaking honest and make the
  * "add another icon" diff trivial. Snapshot tests in
@@ -73,12 +73,66 @@ export function EyeOff({ size = 16, class: cls }: IconProps = {}): JSX.Element {
   )
 }
 
-// source: https://lucide.dev/icons/blend
-export function Blend({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+// source: https://lucide.dev/icons/eye-closed
+export function EyeClosed({ size = 16, class: cls }: IconProps = {}): JSX.Element {
   return (
     <svg {...svgProps(size, cls)}>
-      <circle cx="9" cy="9" r="7" />
-      <circle cx="15" cy="15" r="7" />
+      <path d="m15 18-.722-3.25" />
+      <path d="M2 8a10.645 10.645 0 0 0 20 0" />
+      <path d="m20 15-1.726-2.05" />
+      <path d="m4 15 1.726-2.05" />
+      <path d="m9 18 .722-3.25" />
+    </svg>
+  )
+}
+
+// source: https://lucide.dev/icons/eclipse
+// Used as the opacity-control prefix icon on AppearanceSection. Circle with an
+// inner crescent reads as "partial light / transparency" — replaces the
+// earlier `Contrast` glyph (half-filled hemisphere).
+export function Eclipse({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 2a7 7 0 1 0 10 10" />
+    </svg>
+  )
+}
+
+// ── Per-corner indicator icons (hand-written, Lucide-style) ────────────────
+// Single L-bracket at the respective corner, stroke geometry lifted from
+// `Maximize` so the 4 icons visually harmonize with the corner-toggle glyph.
+// Used as NumericInput prefixes on the Appearance per-corner radius inputs,
+// replacing the earlier "TL" / "TR" / "BR" / "BL" text labels.
+
+export function CornerTopLeft({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+    </svg>
+  )
+}
+
+export function CornerTopRight({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
+    </svg>
+  )
+}
+
+export function CornerBottomRight({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+    </svg>
+  )
+}
+
+export function CornerBottomLeft({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <path d="M3 16v3a2 2 0 0 0 2 2h3" />
     </svg>
   )
 }

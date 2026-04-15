@@ -3,7 +3,17 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { NumericInput } from '../controls/NumericInput.js'
-import { Blend, Eye, EyeOff, SquareDashed } from '../icons.js'
+import {
+  CornerBottomLeft,
+  CornerBottomRight,
+  CornerTopLeft,
+  CornerTopRight,
+  Eclipse,
+  Eye,
+  EyeClosed,
+  Maximize,
+  Square,
+} from '../icons.js'
 
 // ---------------------------------------------------------------------------
 // AppearanceSection (Task 3 / ZF0-1181)
@@ -186,112 +196,137 @@ export function AppearanceSection({
     'border-bottom-right-radius',
   )
 
+  // ── Indeterminate uniform radius ──────────────────────────────────────
+  // If the 4 per-corner radii disagree on the SELECTED element (CSSOM emits
+  // a `border-radius` shorthand like "12px 12px 12px 0px"; parseFloat only
+  // captures the leading number, so the uniform input would silently show
+  // `12` even though no single value represents the state). Extend the
+  // NumericInput `mixed` semantics: it already flags cross-element variance
+  // via `mixedProperties`; this extension flags intra-element variance too.
+  // Both sources are equivalent from the user's perspective — "there is no
+  // single value to show here, type a target to unify" — so one UI state
+  // (empty value + `--` placeholder) handles both.
+  const cornersDivergeOnElement =
+    values.borderTopLeftRadius !== values.borderTopRightRadius ||
+    values.borderTopRightRadius !== values.borderBottomRightRadius ||
+    values.borderBottomRightRadius !== values.borderBottomLeftRadius
+  const uniformRadiusMixed =
+    cornersDivergeOnElement ||
+    mixedProperties?.has('border-top-left-radius') === true ||
+    mixedProperties?.has('border-top-right-radius') === true ||
+    mixedProperties?.has('border-bottom-left-radius') === true ||
+    mixedProperties?.has('border-bottom-right-radius') === true
+
   return (
     <div class="cortex-appearance-section" data-section-id="appearance">
-      {/* ── Opacity ─────────────────────────────────── */}
-      <div class={`cortex-appearance-section__control cortex-appearance-section__control--opacity${opacityDimmed ? ' cortex-control--dimmed' : ''}`}>
-        <span class="cortex-appearance-section__icon" aria-hidden="true">
-          <Blend size={14} />
+      {/* Single inline row — [Opacity] [Radius?] [CornerToggle] [EyeToggle] */}
+      <div class="cortex-appearance-section__row">
+        {/* ── Opacity ─────────────────────────────────── */}
+        <span class={`cortex-appearance-section__item${opacityDimmed ? ' cortex-control--dimmed' : ''}`}>
+          <NumericInput
+            value={values.opacity}
+            unit="%"
+            prefix={<Eclipse size={14} />}
+            tooltip="Opacity"
+            min={0}
+            mixed={mixedProperties?.has('opacity')}
+            onChange={handleOpacityChange}
+            onScrub={handleOpacityScrub}
+            onScrubEnd={handleOpacityScrubEnd}
+          />
         </span>
-        <NumericInput
-          value={values.opacity}
-          unit="%"
-          tooltip="Opacity"
-          min={0}
-          mixed={mixedProperties?.has('opacity')}
-          onChange={handleOpacityChange}
-          onScrub={handleOpacityScrub}
-          onScrubEnd={handleOpacityScrubEnd}
-        />
-      </div>
 
-      {/* ── Corner radius ───────────────────────────── */}
-      <div class={`cortex-appearance-section__control cortex-appearance-section__control--radius${anyRadiusDimmed ? ' cortex-control--dimmed' : ''}`}>
-        <div class="cortex-appearance-section__radius-row">
-          {!perCorner && (
+        {/* ── Corner radius (uniform) ─────────────────── */}
+        {!perCorner && (
+          <span class={`cortex-appearance-section__item${anyRadiusDimmed ? ' cortex-control--dimmed' : ''}`}>
             <NumericInput
               value={values.borderRadius}
               unit="px"
-              label="R"
+              prefix={<Square size={14} />}
               tooltip="Corner Radius"
               min={0}
-              mixed={
-                mixedProperties?.has('border-top-left-radius') ||
-                mixedProperties?.has('border-top-right-radius') ||
-                mixedProperties?.has('border-bottom-left-radius') ||
-                mixedProperties?.has('border-bottom-right-radius')
-              }
+              mixed={uniformRadiusMixed}
               onChange={handleRadiusChange}
               onScrub={handleRadiusScrub}
               onScrubEnd={handleRadiusScrubEnd}
             />
-          )}
-          <button
-            class={`cortex-appearance-section__corner-toggle${perCorner ? ' cortex-appearance-section__corner-toggle--active' : ''}`}
-            type="button"
-            aria-pressed={perCorner ? 'true' : 'false'}
-            aria-label={perCorner ? 'Uniform radius' : 'Per-corner radius'}
-            data-tooltip={perCorner ? 'Uniform radius' : 'Per-corner radius'}
-            onClick={handleToggleCorners}
-          >
-            <SquareDashed size={14} />
-          </button>
-        </div>
-        {perCorner && (
-          <div class="cortex-appearance-section__corners">
-            <NumericInput
-              value={values.borderTopLeftRadius}
-              unit="px"
-              label="TL"
-              tooltip="Top Left Radius"
-              min={0}
-              mixed={mixedProperties?.has('border-top-left-radius')}
-              {...cornerHandlers('border-top-left-radius')}
-            />
-            <NumericInput
-              value={values.borderTopRightRadius}
-              unit="px"
-              label="TR"
-              tooltip="Top Right Radius"
-              min={0}
-              mixed={mixedProperties?.has('border-top-right-radius')}
-              {...cornerHandlers('border-top-right-radius')}
-            />
-            <NumericInput
-              value={values.borderBottomRightRadius}
-              unit="px"
-              label="BR"
-              tooltip="Bottom Right Radius"
-              min={0}
-              mixed={mixedProperties?.has('border-bottom-right-radius')}
-              {...cornerHandlers('border-bottom-right-radius')}
-            />
-            <NumericInput
-              value={values.borderBottomLeftRadius}
-              unit="px"
-              label="BL"
-              tooltip="Bottom Left Radius"
-              min={0}
-              mixed={mixedProperties?.has('border-bottom-left-radius')}
-              {...cornerHandlers('border-bottom-left-radius')}
-            />
-          </div>
+          </span>
         )}
-      </div>
 
-      {/* ── Visibility (eye toggle) ─────────────────── */}
-      <div class={`cortex-appearance-section__control cortex-appearance-section__control--visibility${visibilityDimmed ? ' cortex-control--dimmed' : ''}`}>
+        {/* ── Per-corner expand toggle ────────────────── */}
+        <button
+          class={[
+            'cortex-appearance-section__corner-toggle',
+            perCorner && 'cortex-appearance-section__corner-toggle--active',
+            anyRadiusDimmed && 'cortex-control--dimmed',
+          ].filter(Boolean).join(' ')}
+          type="button"
+          aria-pressed={perCorner ? 'true' : 'false'}
+          aria-label={perCorner ? 'Uniform radius' : 'Per-corner radius'}
+          data-tooltip={perCorner ? 'Uniform radius' : 'Per-corner radius'}
+          onClick={handleToggleCorners}
+        >
+          <Maximize size={14} />
+        </button>
+
+        {/* ── Visibility toggle ───────────────────────── */}
         <button
           type="button"
-          class={`cortex-appearance-section__visibility-toggle${isHidden ? ' cortex-appearance-section__visibility-toggle--hidden' : ''}`}
+          class={[
+            'cortex-appearance-section__visibility-toggle',
+            isHidden && 'cortex-appearance-section__visibility-toggle--hidden',
+            visibilityDimmed && 'cortex-control--dimmed',
+          ].filter(Boolean).join(' ')}
           aria-pressed={isHidden ? 'true' : 'false'}
           aria-label={isHidden ? 'Show element' : 'Hide element'}
           data-tooltip={isHidden ? 'Show element' : 'Hide element'}
           onClick={handleToggleVisibility}
         >
-          {isHidden ? <EyeOff size={16} /> : <Eye size={16} />}
+          {isHidden ? <EyeClosed size={16} /> : <Eye size={16} />}
         </button>
       </div>
+
+      {/* ── Per-corner inputs — grid laid out visually: TL TR / BL BR ─── */}
+      {perCorner && (
+        <div class="cortex-appearance-section__corners">
+          <NumericInput
+            value={values.borderTopLeftRadius}
+            unit="px"
+            prefix={<CornerTopLeft size={14} />}
+            tooltip="Top Left Radius"
+            min={0}
+            mixed={mixedProperties?.has('border-top-left-radius')}
+            {...cornerHandlers('border-top-left-radius')}
+          />
+          <NumericInput
+            value={values.borderTopRightRadius}
+            unit="px"
+            prefix={<CornerTopRight size={14} />}
+            tooltip="Top Right Radius"
+            min={0}
+            mixed={mixedProperties?.has('border-top-right-radius')}
+            {...cornerHandlers('border-top-right-radius')}
+          />
+          <NumericInput
+            value={values.borderBottomLeftRadius}
+            unit="px"
+            prefix={<CornerBottomLeft size={14} />}
+            tooltip="Bottom Left Radius"
+            min={0}
+            mixed={mixedProperties?.has('border-bottom-left-radius')}
+            {...cornerHandlers('border-bottom-left-radius')}
+          />
+          <NumericInput
+            value={values.borderBottomRightRadius}
+            unit="px"
+            prefix={<CornerBottomRight size={14} />}
+            tooltip="Bottom Right Radius"
+            min={0}
+            mixed={mixedProperties?.has('border-bottom-right-radius')}
+            {...cornerHandlers('border-bottom-right-radius')}
+          />
+        </div>
+      )}
     </div>
   )
 }

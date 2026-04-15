@@ -98,13 +98,6 @@ exports[`icons.tsx — lucide.dev snapshot inventory > <ArrowUp /> renders the l
 }
 `;
 
-exports[`icons.tsx — lucide.dev snapshot inventory > <Blend /> renders the lucide.dev SVG verbatim 1`] = `
-{
-  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="9" cy="9" r="7"></circle><circle cx="15" cy="15" r="7"></circle></svg>",
-  "icon": "Blend",
-}
-`;
-
 exports[`icons.tsx — lucide.dev snapshot inventory > <Check /> renders the lucide.dev SVG verbatim 1`] = `
 {
   "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>",
@@ -126,10 +119,52 @@ exports[`icons.tsx — lucide.dev snapshot inventory > <ChevronRight /> renders 
 }
 `;
 
+exports[`icons.tsx — lucide.dev snapshot inventory > <CornerBottomLeft /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M3 16v3a2 2 0 0 0 2 2h3"></path></svg>",
+  "icon": "CornerBottomLeft",
+}
+`;
+
+exports[`icons.tsx — lucide.dev snapshot inventory > <CornerBottomRight /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path></svg>",
+  "icon": "CornerBottomRight",
+}
+`;
+
+exports[`icons.tsx — lucide.dev snapshot inventory > <CornerTopLeft /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"></path></svg>",
+  "icon": "CornerTopLeft",
+}
+`;
+
+exports[`icons.tsx — lucide.dev snapshot inventory > <CornerTopRight /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M21 8V5a2 2 0 0 0-2-2h-3"></path></svg>",
+  "icon": "CornerTopRight",
+}
+`;
+
+exports[`icons.tsx — lucide.dev snapshot inventory > <Eclipse /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a7 7 0 1 0 10 10"></path></svg>",
+  "icon": "Eclipse",
+}
+`;
+
 exports[`icons.tsx — lucide.dev snapshot inventory > <Eye /> renders the lucide.dev SVG verbatim 1`] = `
 {
   "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path><circle cx="12" cy="12" r="3"></circle></svg>",
   "icon": "Eye",
+}
+`;
+
+exports[`icons.tsx — lucide.dev snapshot inventory > <EyeClosed /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="m15 18-.722-3.25"></path><path d="M2 8a10.645 10.645 0 0 0 20 0"></path><path d="m20 15-1.726-2.05"></path><path d="m4 15 1.726-2.05"></path><path d="m9 18 .722-3.25"></path></svg>",
+  "icon": "EyeClosed",
 }
 `;
 

@@ -57,6 +57,16 @@
   --cx-well-active: #ebebeb;
   --cx-well-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
 
+  /* Button hover — subtle lift on click-target surfaces (toggles, triggers,
+     icon buttons, segmented picks). Intentionally lighter than
+     --cx-well-hover, which is reserved for input-field hover feedback
+     (NumericInput, textareas) and mouse-down active states, where heavier
+     contrast reads as "this surface responds when you press it" rather than
+     "this is clickable". Value matches --cx-well by design: one design step
+     of lift over --cx-paper. Semantic split so the two tokens can drift
+     independently if the design evolves. */
+  --cx-btn-hover: #f5f5f5;
+
   /* Pencil lines */
   --cx-rule: #f0f0f0;
   --cx-rule-soft: rgba(0, 0, 0, 0.04);
@@ -134,6 +144,10 @@
   --cx-well-hover: #233044;
   --cx-well-active: #2a3a52;
   --cx-well-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15);
+
+  /* Dark-mode counterpart of --cx-btn-hover. Matches --cx-well value so the
+     subtle-lift semantic holds across modes. */
+  --cx-btn-hover: #1a2332;
 
   --cx-rule: #1e293b;
   --cx-rule-soft: rgba(255, 255, 255, 0.04);
@@ -417,7 +431,7 @@
 }
 
 .cortex-error-card__btn:hover:not(:disabled) {
-  background: var(--cx-well-hover);
+  background: var(--cx-btn-hover);
 }
 
 .cortex-error-card__btn:disabled {
@@ -585,7 +599,7 @@
 }
 
 .cortex-panel__scope-btn:hover:not(.cortex-panel__scope-btn--active) {
-  background: var(--cx-well-hover);
+  background: var(--cx-btn-hover);
 }
 
 /* ── Panel header ────────────────────────────── */
@@ -1217,7 +1231,7 @@
 }
 
 .cortex-dropdown__trigger:hover {
-  background: var(--cx-well-hover);
+  background: var(--cx-btn-hover);
 }
 
 .cortex-dropdown__value {
@@ -1338,7 +1352,7 @@
 }
 
 .cortex-position-dropdown__trigger:hover:not(:disabled) {
-  background: var(--cx-well-hover);
+  background: var(--cx-btn-hover);
 }
 
 .cortex-position-dropdown__trigger:disabled {
@@ -1857,98 +1871,58 @@
 .cortex-appearance-section {
   display: flex;
   flex-direction: column;
-  gap: var(--cx-sp-5);
-}
-
-.cortex-appearance-section__control {
-  display: flex;
-  flex-direction: column;
   gap: var(--cx-sp-3);
 }
 
-.cortex-appearance-section__control--opacity {
-  flex-direction: row;
-  align-items: center;
-  gap: var(--cx-sp-3);
-}
-
-.cortex-appearance-section__control--visibility {
-  flex-direction: row;
-  align-items: center;
-}
-
-.cortex-appearance-section__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  color: var(--cx-ink-ghost);
-  flex-shrink: 0;
-}
-
-.cortex-appearance-section__radius-row {
+.cortex-appearance-section__row {
   display: flex;
   align-items: center;
   gap: var(--cx-sp-3);
 }
 
-.cortex-appearance-section__corner-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--cx-rule);
-  border-radius: var(--cx-radius-sm);
-  background: var(--cx-paper);
-  color: var(--cx-ink-secondary);
-  cursor: pointer;
-  flex-shrink: 0;
+.cortex-appearance-section__item {
+  flex: 1;
+  min-width: 0;
+  display: flex;
 }
 
-.cortex-appearance-section__corner-toggle:hover {
-  background: var(--cx-well-hover);
-  color: var(--cx-ink);
+.cortex-appearance-section__item > .cortex-numeric-input {
+  flex: 1;
+  min-width: 0;
 }
 
-.cortex-appearance-section__corner-toggle--active {
-  background: var(--cx-select-muted);
-  color: var(--cx-select);
-  border-color: var(--cx-select);
-}
-
-.cortex-appearance-section__corners {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--cx-sp-3);
-  margin-top: var(--cx-sp-3);
-}
-
+.cortex-appearance-section__corner-toggle,
 .cortex-appearance-section__visibility-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;
+  flex: 0 0 28px;
   padding: 0;
-  border: 1px solid var(--cx-rule);
+  border: none;
   border-radius: var(--cx-radius-sm);
   background: var(--cx-paper);
   color: var(--cx-ink-secondary);
   cursor: pointer;
 }
 
+.cortex-appearance-section__corner-toggle:hover,
 .cortex-appearance-section__visibility-toggle:hover {
-  background: var(--cx-well-hover);
+  background: var(--cx-btn-hover);
   color: var(--cx-ink);
 }
 
+.cortex-appearance-section__corner-toggle--active,
 .cortex-appearance-section__visibility-toggle--hidden {
   background: var(--cx-select-muted);
   color: var(--cx-select);
-  border-color: var(--cx-select);
+}
+
+.cortex-appearance-section__corners {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--cx-sp-3);
 }
 
 /* ── State Lens (on selection overlay) ─────── */
@@ -2163,7 +2137,7 @@
 }
 
 .cortex-toolbar__badge:hover {
-  background: var(--cx-well-hover);
+  background: var(--cx-btn-hover);
 }
 
 .cortex-toolbar__badge:active {
@@ -2747,7 +2721,7 @@
 }
 
 .cortex-alignment-grid__cell:hover {
-  background: var(--cx-well-hover);
+  background: var(--cx-btn-hover);
   color: var(--cx-ink-secondary);
 }
 
@@ -2931,7 +2905,7 @@
 }
 
 .cortex-alignment-grid__distribute-btn:hover {
-  background: var(--cx-well-hover);
+  background: var(--cx-btn-hover);
   color: var(--cx-ink);
 }
 
@@ -3021,7 +2995,7 @@
 }
 
 .cortex-xy-dropdown__trigger:hover:not(:disabled) {
-  background: var(--cx-well-hover);
+  background: var(--cx-btn-hover);
 }
 
 .cortex-xy-dropdown__trigger:disabled {
@@ -3350,7 +3324,7 @@
 }
 
 .cortex-sizing-trigger:hover {
-  background: var(--cx-well-hover);
+  background: var(--cx-btn-hover);
   color: var(--cx-ink-secondary);
 }
 

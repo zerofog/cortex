@@ -36,13 +36,15 @@ describe('icons.tsx — lucide.dev snapshot inventory', () => {
     }
   })
 
-  it('exports the expected number of icons (4 Task 3 + 34 Task 4 = 38)', () => {
-    // Task 4 inventory minus 5 unused icons removed in ZF0-1124:
-    // CornerUpLeft, CornerUpRight, CornerDownRight, CornerDownLeft, X.
-    // Remaining: Position (5) + Self-align (6) + Transforms (3) +
-    // Flex-dir (4) + Spacing (2) + Token+common (6) +
-    // Grid (3) + Text-align (4) + Misc (1) + Lock (2) = 36 new, giving 40 total.
-    expect(ICON_EXPORTS.length).toBe(40)
+  it('exports the expected number of icons', () => {
+    // Task 4 (ZF0-1182) baseline was 40 icons after pruning 5 unused corners
+    // and X. ZF0-1124 Appearance redesign rounds adjusted that inventory:
+    //   −1 Blend         (orphaned — no Appearance icon reads as "blend-mode")
+    //   +1 EyeClosed     (visibility-off toggle, replaces EyeOff semantics)
+    //   +1 Eclipse       (opacity prefix, replaces Contrast)
+    //   +4 Corner(TL|TR|BR|BL)  (per-corner radius prefix icons)
+    // Net delta from the 40-icon Task 4 baseline: +5 → 45.
+    expect(ICON_EXPORTS.length).toBe(45)
   })
 
   it.each(ICON_EXPORTS)('<%s /> renders the lucide.dev SVG verbatim', (name, Component) => {
