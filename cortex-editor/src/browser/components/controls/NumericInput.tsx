@@ -237,6 +237,15 @@ export function NumericInput({
         class="cortex-numeric-input__value"
         type="text"
         inputMode="numeric"
+        // HTML `size` attribute governs the input's intrinsic minimum width
+        // (falls back to 20 chars by default, ≈140px). Setting it to 4 keeps
+        // the intrinsic small (≈28px) so a NumericInput can size to its
+        // content when its flex parent isn't constrained (e.g. the opacity
+        // slot inside ColorInput) without forcing row overflow. In constrained
+        // parents, the CSS `width: 100%` on __value still stretches the input
+        // to fill allocated space, so other consumers (spacing, position,
+        // grid/flex gap, etc.) are unaffected.
+        size={4}
         aria-label={tooltip ?? label ?? (typeof prefix === 'string' ? prefix : undefined)}
         value={mixed && !isEditing ? '' : localValue}
         placeholder={mixed ? '--' : undefined}

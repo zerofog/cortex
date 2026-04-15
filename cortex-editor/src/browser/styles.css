@@ -924,6 +924,17 @@
   padding: var(--cx-sp-5) var(--cx-sp-5) var(--cx-sp-4);
 }
 
+/* Sections with an empty state (Background, Border, Effects — those with a
+   `+` header-action button for adding the first value) need balanced
+   vertical padding so the label visually centers against the 28px add
+   button. Without this, the 8px bottom vs 12px top shifts the label 2px
+   off center. `:has()` scopes this to exactly the headers that render a
+   header-action slot, so the other 5 sections (Position, Layout, Appearance,
+   Typography, Spacing — content always rendered) keep their current padding. */
+.cortex-section-group__header:has(.cortex-section-group__header-action) {
+  padding: var(--cx-sp-5);
+}
+
 .cortex-section-group__title {
   font-size: var(--cx-text-lg);
   font-weight: var(--cx-weight-heading);
@@ -958,6 +969,16 @@
   flex-direction: column;
   padding: 0 var(--cx-sp-5) var(--cx-sp-5);
   gap: var(--cx-sp-5);
+}
+
+/* When a section has nothing to render (e.g. Background with no fill, Border
+   with no border) the SectionGroup wrapper still mounts but its content div
+   becomes :empty. Drop the bottom padding so the group collapses to just the
+   header row — otherwise the empty white space below the header reads as a
+   vertical rhythm bug. Preact doesn't emit whitespace text nodes from
+   `{false && ...}` conditional children, so :empty matches reliably. */
+.cortex-section-group__content:empty {
+  padding-bottom: 0;
 }
 
 /* ── Property section wrapper ──────────────── */
@@ -1587,7 +1608,8 @@
 }
 
 .cortex-color-input__hex {
-  flex: 1;
+  /* Hex takes 2/3 of the row's free space; opacity takes 1/3 (see below). */
+  flex: 2;
   height: 28px;
   padding: 0 var(--cx-sp-4);
   background: var(--cx-well);
@@ -1606,9 +1628,14 @@
   box-shadow: 0 0 0 2px var(--cx-select-muted);
 }
 
+/* Opacity takes 1/3 of the row's free space (hex takes 2/3). Flex arbitrates
+   the allocation; the inner NumericInput fills its slot via the existing
+   `.cortex-numeric-input__value { width: 100% }` rule just like every other
+   constrained NumericInput consumer. The HTML `size={4}` on NumericInput's
+   inner <input> keeps the flex min-content small enough that this 1/3 slot
+   actually fits without forcing row overflow. */
 .cortex-color-input__opacity {
-  width: 66px;
-  flex-shrink: 0;
+  flex: 1;
 }
 
 /* ── Color picker popover ──────────────────── */
@@ -1732,9 +1759,23 @@
 
 /* ── Background section ───────────────────── */
 
+/* Column-flex wrapper matching Typography's `__row--full` pattern. Single
+   child (ColorInput in raw mode OR a row sub-wrapper for the TokenChip
+   path) stretches horizontally via default `align-items: stretch`, with
+   content min-width protection preserved — no scoped `flex: 1` needed on
+   ColorInput, no `min-width: 0` override needed to compensate. */
 .cortex-background-section {
   display: flex;
   flex-direction: column;
+}
+
+/* Row wrapper used only in the TokenChip path where we have two children
+   (TokenChip + trailing IconButton) that need to sit side by side. Raw
+   ColorInput mode puts its own trailing inside ColorInput's flex container,
+   so this wrapper isn't used there. */
+.cortex-background-section__row {
+  display: flex;
+  align-items: center;
   gap: var(--cx-sp-3);
 }
 
@@ -1746,16 +1787,23 @@
   gap: var(--cx-sp-6);
 }
 
+/* Column-flex wrapper matching Typography's `__row--full` pattern — see
+   `.cortex-background-section` for the rationale. The single child (ColorInput
+   in raw mode, or the `__token-row` sub-wrapper in TokenChip mode) stretches
+   horizontally via default `align-items: stretch`, preserving content
+   min-width protection without any scoped `flex: 1` / `min-width: 0`. */
 .cortex-border-section__color-row {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Row sub-wrapper used only in the TokenChip path where we need TokenChip +
+   eye IconButton side-by-side. Raw ColorInput mode puts its own trailing
+   inside ColorInput, so this sub-wrapper isn't used there. */
+.cortex-border-section__token-row {
   display: flex;
   align-items: center;
   gap: var(--cx-sp-3);
-}
-
-.cortex-border-section__color-row > .cortex-color-input,
-.cortex-border-section__color-row > .cortex-token-chip {
-  flex: 1;
-  min-width: 0;
 }
 
 .cortex-border-section__width-row {

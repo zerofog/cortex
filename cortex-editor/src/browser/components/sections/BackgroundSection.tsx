@@ -4,6 +4,8 @@ import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { ColorInput, parseColor, formatColor } from '../controls/ColorInput.js'
 import { TokenChip } from '../controls/TokenChip.js'
+import { IconButton } from '../controls/IconButton.js'
+import { Minus } from '../icons.js'
 
 export type BackgroundChange = SectionChange
 
@@ -13,6 +15,8 @@ export interface BackgroundSectionProps {
   /** Tailwind class name if detected (e.g. "bg-blue-500"), null if raw value */
   backgroundToken: string | null
   onChange: (change: BackgroundChange) => void
+  /** When provided, renders a minus button at the row end that clears the fill. */
+  onRemove?: () => void
   swatches?: string[]
   dimmedProperties?: Set<string>
   mixedProperties?: Set<string>
@@ -34,6 +38,7 @@ export function BackgroundSection({
   backgroundColor,
   backgroundToken,
   onChange,
+  onRemove,
   swatches,
   dimmedProperties,
   mixedProperties,
@@ -56,14 +61,29 @@ export function BackgroundSection({
     [onChange, parsed.hex],
   )
 
+  // Reused in both the ColorInput trailing slot (raw value) and as a sibling
+  // of TokenChip (linked token). One handler, one element — only the
+  // composition differs depending on which surface renders the row.
+  const removeButton = onRemove ? (
+    <IconButton
+      icon={<Minus size={14} />}
+      ariaLabel="Remove background"
+      tooltip="Remove background"
+      onClick={onRemove}
+    />
+  ) : null
+
   return (
     <div class={`cortex-background-section${isDimmed(dimmedProperties, 'background-color') ? ' cortex-control--dimmed' : ''}`} data-section-id="background">
       {backgroundToken !== null ? (
-        <TokenChip
-          tokenName={backgroundToken}
-          resolvedValue={backgroundColor}
-          onUnlink={handleUnlink}
-        />
+        <div class="cortex-background-section__row">
+          <TokenChip
+            tokenName={backgroundToken}
+            resolvedValue={backgroundColor}
+            onUnlink={handleUnlink}
+          />
+          {removeButton}
+        </div>
       ) : (
         <ColorInput
           value={backgroundColor}
@@ -72,6 +92,7 @@ export function BackgroundSection({
           onAlphaChange={handleAlphaChange}
           swatches={swatches}
           mixed={mixedProperties?.has('background-color')}
+          trailing={removeButton}
         />
       )}
     </div>

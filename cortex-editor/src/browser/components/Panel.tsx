@@ -689,6 +689,14 @@ export function Panel({
   const handleFillAdd = useCallback(() => {
     applyOverride('background-color', '#ffffff', true)
   }, [applyOverride])
+  // Inverse of handleFillAdd — applied via override so `summarizeFill` returns
+  // 'transparent' and `fillHasValue` flips false, collapsing the section and
+  // re-surfacing the "+" add button in the SectionGroup header. Using override
+  // (rather than overrideManager.remove) keeps behavior deterministic regardless
+  // of what background the element's natural CSS cascade would reveal.
+  const handleFillRemove = useCallback(() => {
+    applyOverride('background-color', 'transparent', true)
+  }, [applyOverride])
   // Batch: 3 properties → 1 undo entry.
   const handleBorderAdd = useCallback(() => {
     applyOverride('border-width', '1px', false)
@@ -1003,6 +1011,7 @@ export function Panel({
               backgroundColor={computedStyles.fill.backgroundColor}
               backgroundToken={extractedUtilities.get('background-color') ?? null}
               onChange={handleCommit}
+              onRemove={handleFillRemove}
               swatches={swatches}
               dimmedProperties={dimmedProperties}
               mixedProperties={mixedProperties}

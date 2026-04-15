@@ -105,4 +105,39 @@ describe('BackgroundSection', () => {
     const chip = container.querySelector('.cortex-token-chip')
     expect(chip).toBeNull()
   })
+
+  // Test 6: Minus button renders only when onRemove is provided (ZF0-1124 polish)
+  it('does NOT render a remove button when onRemove is omitted', () => {
+    setup({ backgroundToken: null })
+    const removeBtn = container.querySelector('[aria-label="Remove background"]')
+    expect(removeBtn).toBeNull()
+  })
+
+  it('renders a remove button at row end when onRemove is provided', () => {
+    const onRemove = vi.fn()
+    setup({ backgroundToken: null, onRemove })
+    const removeBtn = container.querySelector(
+      '[aria-label="Remove background"]',
+    ) as HTMLButtonElement
+    expect(removeBtn).not.toBeNull()
+  })
+
+  it('fires onRemove when the remove button is clicked', () => {
+    const onRemove = vi.fn()
+    setup({ backgroundToken: null, onRemove })
+    const removeBtn = container.querySelector(
+      '[aria-label="Remove background"]',
+    ) as HTMLButtonElement
+    removeBtn.click()
+    expect(onRemove).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders the remove button even in the token-chip state', () => {
+    // A user with a detected Tailwind bg class should still be able to remove it;
+    // the minus button is independent of whether the color is linked or raw.
+    const onRemove = vi.fn()
+    setup({ backgroundToken: 'bg-blue-500', onRemove })
+    const removeBtn = container.querySelector('[aria-label="Remove background"]')
+    expect(removeBtn).not.toBeNull()
+  })
 })

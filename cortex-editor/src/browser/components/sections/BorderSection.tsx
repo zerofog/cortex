@@ -193,30 +193,42 @@ export function BorderSection({
 
   return (
     <div class="cortex-border-section" data-section-id="border">
-      {/* Row 1: Color + Opacity + Eye */}
+      {/* Row 1: Color + Opacity + Eye — eye lives inside ColorInput's trailing
+          slot when in raw-value mode so all four items share one flex layout
+          (no overflow-then-overlap from a separately-rendered IconButton).
+          For TokenChip mode, eye renders as a sibling — TokenChip has no
+          internal NumericInput to overflow, so the simpler composition is fine. */}
       <div class={`cortex-border-section__color-row${isDimmed(dimmedProperties, 'border-color') ? ' cortex-control--dimmed' : ''}`}>
-        {borderToken !== null ? (
-          <TokenChip
-            tokenName={borderToken}
-            resolvedValue={values.borderColor}
-            onUnlink={handleUnlink}
-          />
-        ) : (
-          <ColorInput
-            value={values.borderColor}
-            onChange={handleColorChange}
-            alpha={values.borderOpacity}
-            onAlphaChange={handleAlphaChange}
-            swatches={swatches}
-            mixed={mixedProperties?.has('border-color')}
-          />
-        )}
-        <IconButton
-          icon={values.visible ? <Eye size={14} /> : <EyeOff size={14} />}
-          ariaLabel={values.visible ? 'Hide border' : 'Show border'}
-          tooltip={values.visible ? 'Hide border' : 'Show border'}
-          onClick={handleVisibilityToggle}
-        />
+        {(() => {
+          const eyeButton = (
+            <IconButton
+              icon={values.visible ? <Eye size={14} /> : <EyeOff size={14} />}
+              ariaLabel={values.visible ? 'Hide border' : 'Show border'}
+              tooltip={values.visible ? 'Hide border' : 'Show border'}
+              onClick={handleVisibilityToggle}
+            />
+          )
+          return borderToken !== null ? (
+            <div class="cortex-border-section__token-row">
+              <TokenChip
+                tokenName={borderToken}
+                resolvedValue={values.borderColor}
+                onUnlink={handleUnlink}
+              />
+              {eyeButton}
+            </div>
+          ) : (
+            <ColorInput
+              value={values.borderColor}
+              onChange={handleColorChange}
+              alpha={values.borderOpacity}
+              onAlphaChange={handleAlphaChange}
+              swatches={swatches}
+              mixed={mixedProperties?.has('border-color')}
+              trailing={eyeButton}
+            />
+          )
+        })()}
       </div>
 
       {/* Row 2: Width + Per-side toggle */}
