@@ -18,7 +18,7 @@
  * — no useState. Same for minWidthEnabled/maxWidthEnabled etc.
  */
 import type { JSX } from 'preact'
-import { useState, useCallback } from 'preact/hooks'
+import { useState, useCallback, useEffect } from 'preact/hooks'
 import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { NumericInput } from '../controls/NumericInput.js'
@@ -88,6 +88,13 @@ export function SizingControls({
   const isAutoHeight = isNaN(heightNum)
 
   const canLockAspect = widthMode === 'fixed' && heightMode === 'fixed'
+  // Auto-unlock when either dimension switches away from fixed (e.g., to
+  // fill or fit). Without this, aspectLocked survives mode changes and the
+  // lock button renders as visually active while the guard silently no-ops
+  // every coupled write — confusing UX flagged by 3 independent reviewers.
+  useEffect(() => {
+    if (!canLockAspect) setAspectLocked(false)
+  }, [canLockAspect])
   const aspectRatio = (canLockAspect && !isAutoWidth && !isAutoHeight && heightNum > 0)
     ? widthNum / heightNum
     : 1
