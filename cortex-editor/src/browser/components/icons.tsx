@@ -543,6 +543,20 @@ export function ChevronRight({ size = 16, class: cls }: IconProps = {}): JSX.Ele
   )
 }
 
+// ── Shadow preview icon (hand-written, Lucide-style) ──────────────────
+// Two overlapping rounded rects: the back one (thinner stroke) reads as
+// the cast shadow, the front one (normal stroke) is the element. Used as
+// the expand/collapse toggle for each shadow row in EffectsSection,
+// replacing the generic ChevronRight that didn't communicate "shadow."
+export function BoxShadow({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <rect x="7" y="6" width="14" height="12" rx="2" stroke-width="1.5" />
+      <rect x="3" y="2" width="14" height="12" rx="2" />
+    </svg>
+  )
+}
+
 // Grid (Task 9) ────────────────────────────────────────────────────────────
 
 // source: https://lucide.dev/icons/layout-grid

@@ -45,8 +45,9 @@ describe('icons.tsx — lucide.dev snapshot inventory', () => {
     //   +4 Corner(TL|TR|BR|BL)  (per-corner radius prefix icons)
     //   +4 SquareSide(Top|Right|Bottom|Left)  (per-side border-width prefixes,
     //                                          replacing the T/R/B/L text labels)
-    // Net delta from the 40-icon Task 4 baseline: +9 → 49.
-    expect(ICON_EXPORTS.length).toBe(49)
+    //   +1 BoxShadow     (shadow row expand icon, replaces ChevronRight)
+    // Net delta from the 40-icon Task 4 baseline: +10 → 50.
+    expect(ICON_EXPORTS.length).toBe(50)
   })
 
   it.each(ICON_EXPORTS)('<%s /> renders the lucide.dev SVG verbatim', (name, Component) => {

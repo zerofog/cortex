@@ -7,7 +7,7 @@ import { ColorInput } from '../controls/ColorInput.js'
 import { Dropdown } from '../controls/Dropdown.js'
 import { parseBoxShadow, serializeBoxShadow } from '../../../core/shadow-utils.js'
 import type { Shadow } from '../../../core/shadow-utils.js'
-import { Eye, EyeOff, ChevronRight, Minus } from '../icons.js'
+import { Eye, EyeClosed, BoxShadow, Minus } from '../icons.js'
 import { IconButton } from '../controls/IconButton.js'
 
 // Re-export for downstream consumers (tests, Panel, other sections)
@@ -242,7 +242,7 @@ export function EffectsSection({
                   aria-expanded={isExpanded}
                   onClick={() => toggleExpand(shadow._key)}
                 >
-                  <ChevronRight size={10} />
+                  <BoxShadow size={14} />
                 </button>
                 <div class="cortex-effects-section__type">
                   <Dropdown
@@ -252,7 +252,7 @@ export function EffectsSection({
                   />
                 </div>
                 <IconButton
-                  icon={enabled ? <Eye size={14} /> : <EyeOff size={14} />}
+                  icon={enabled ? <Eye size={14} /> : <EyeClosed size={14} />}
                   ariaLabel={enabled ? 'Disable shadow' : 'Enable shadow'}
                   tooltip={enabled ? 'Disable shadow' : 'Enable shadow'}
                   onClick={() => handleEyeToggle(index)}

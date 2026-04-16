@@ -1855,12 +1855,17 @@
   gap: var(--cx-sp-2);
 }
 
+/* Sized to match the adjacent IconButtons (eye + minus) at 28×28 so the
+   row header has uniform visual rhythm. The old 20×20 + 10×10 SVG override
+   was tuned for the ChevronRight; the BoxShadow icon renders at its natural
+   size={14} via the JSX prop — no SVG size override needed. The rotate(90deg)
+   on expanded state is also gone (a shadow preview icon shouldn't spin). */
 .cortex-effects-section__expand-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
   border: none;
   background: transparent;
@@ -1868,21 +1873,12 @@
   cursor: pointer;
   padding: 0;
   border-radius: var(--cx-radius-sm);
-  transition: background 150ms ease-out, color 150ms ease-out, transform 150ms ease-out;
-}
-
-.cortex-effects-section__expand-btn svg {
-  width: 10px;
-  height: 10px;
+  transition: background 150ms ease-out, color 150ms ease-out;
 }
 
 .cortex-effects-section__expand-btn:hover {
-  background: var(--cx-well);
+  background: var(--cx-btn-hover);
   color: var(--cx-ink-secondary);
-}
-
-.cortex-effects-section__row[data-expanded="true"] .cortex-effects-section__expand-btn {
-  transform: rotate(90deg);
 }
 
 .cortex-effects-section__type {
