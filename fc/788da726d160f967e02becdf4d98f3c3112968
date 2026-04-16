@@ -1,0 +1,107 @@
+cortex-editor/src/browser/components/sections/PositionSection.tsx
+  132ad72d927ad21b 165-166,172-173
+cortex-editor/tests/browser/sections/typography-section.test.tsx
+  132ad72d927ad21b 205-335
+cortex-editor/src/browser/components/sections/SpacingControls.tsx
+  132ad72d927ad21b 117-121,132,159
+cortex-editor/src/browser/override.ts
+  132ad72d927ad21b 237-241,245-246,255-256
+cortex-editor/tests/browser/sections/ElementTree.test.tsx
+  132ad72d927ad21b 26,47,68,84
+cortex-editor/src/browser/components/sections/SizingControls.tsx
+  132ad72d927ad21b 99,103,108,112,117,121,128,132,137,141,146,150
+cortex-editor/tests/browser/controls/TokenChip.test.tsx
+  132ad72d927ad21b 35-36
+cortex-editor/DESIGN.md
+  132ad72d927ad21b 156,158,339
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "fc788da726d160f967e02becdf4d98f3c3112968",
+  "prompts": {
+    "132ad72d927ad21b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e2ac3347-a4fa-41da-a9eb-12962da22474",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 37841,
+      "total_deletions": 2630,
+      "accepted_lines": 37841,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/ddc3097c1198ff59e9c2d63710dcef1b885bee4a00eb0eae2e0c19be5cd20d2e"
+    },
+    "150568d0accaae96": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ee8d6fe-d0b5-4482-978c-379f290ded53",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 419,
+      "overriden_lines": 0
+    },
+    "30b027d76662f7e1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2937649d-b1dc-489d-b6a0-78ad7e3e1dca",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1478,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/848ae2ecafcc4ae1aad10a0a5432d87808e53e7897bdc13ae1527ec7be2871c3"
+    },
+    "63b6fe093962c300": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b25c2962-00b1-4dc8-b362-1617dcbf6a6b",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 328,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/20db9be893aa80445c0a07d512e66ab7860e9b52d04e45d342cbbee8698aee13"
+    },
+    "8be17b119e65ab43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fd8b946b-a328-4eec-98b4-e46231995fa8",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1187,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/78d1bf50782e352e43ff25d2679960b23369090c8b94e207c19226531e9988d6"
+    },
+    "affb8ad5069b145d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "94e88686-b112-478a-88aa-19206d87b65e",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1057,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/ccacd75cb38aaa651d0b5f9fadd739aec358cac8238dc2f65a8a2d3eff6314d6"
+    }
+  }
+}
