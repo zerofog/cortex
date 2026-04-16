@@ -10,23 +10,16 @@ import { PANEL_WIDTH } from '../hooks/useSnapToEdge.js'
 import { formatShortcut } from '../format-shortcut.js'
 import { extractUtilities } from '../class-extractor.js'
 import { PanelHeader } from './PanelHeader.js'
-import { LayerTree } from './LayerTree.js'
-import { SpacingSection } from './sections/SpacingSection.js'
-import type { SpacingChange } from './sections/SpacingSection.js'
+import { ElementTree } from './sections/ElementTree.js'
+import { DEFAULT_LAYER_HEIGHT, MIN_LAYER_HEIGHT } from './LayerTree.js'
+import type { SectionChange } from './sections/types.js'
 import { LayoutSection, parseLayoutValues } from './sections/LayoutSection.js'
-import type { LayoutChange } from './sections/LayoutSection.js'
 import { TypographySection, parseTypographyValues, getWeightsForFamily, stripCSSQuotes } from './sections/TypographySection.js'
-import type { TypographyChange } from './sections/TypographySection.js'
-import { FillSection, parseFillValues, summarizeFill } from './sections/FillSection.js'
-import type { FillChange } from './sections/FillSection.js'
+import { parseFillValues, summarizeFill } from './sections/fill-utils.js'
 import { BorderSection, parseBorderValues, summarizeBorder } from './sections/BorderSection.js'
-import type { BorderChange } from './sections/BorderSection.js'
-import { ShadowSection, parseShadowValues, summarizeShadow, addShadow } from './sections/ShadowSection.js'
-import type { ShadowChange } from './sections/ShadowSection.js'
-import { EffectsSection, parseEffectsValues } from './sections/EffectsSection.js'
-import type { EffectsChange } from './sections/EffectsSection.js'
+import { EffectsSection, parseEffectsValues, addShadow } from './sections/EffectsSection.js'
 import { PositionSection, parsePositionValues } from './sections/PositionSection.js'
-import type { PositionChange } from './sections/PositionSection.js'
+import { AppearanceSection, parseAppearanceValues } from './sections/AppearanceSection.js'
 import type { InteractionState } from '../state-detector.js'
 import { detectSharedClasses } from '../shared-class-detector.js'
 import type { SharedClassInfo } from '../shared-class-detector.js'
@@ -34,8 +27,16 @@ import { EditErrorCard } from './EditErrorCard.js'
 import type { EditError } from './EditErrorCard.js'
 import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
-import { CollapsibleSection } from './CollapsibleSection.js'
+import { IconButton } from './controls/IconButton.js'
+import { BackgroundSection } from './sections/BackgroundSection.js'
+import { Type, Plus } from './icons.js'
 import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
+
+/** Typography-related CSS properties filtered from extractedUtilities for Mode A display. */
+const TYPOGRAPHY_PROPS = new Set([
+  'font-size', 'font-weight', 'font-family', 'line-height',
+  'letter-spacing', 'text-align', 'color',
+])
 
 // ── Connection status footer ─────────────────────────────────────────
 
@@ -127,19 +128,51 @@ function removeBlastRadiusStyle(): void {
 /**
  * All CSS properties checked for dimming (default vs forced-state comparison).
  * Covers every section's managed properties.
+ *
+ * Panel v2 additions (ZF0-1180): self-alignment, flex-wrap, grid template +
+ * auto-flow, per-side border widths, and per-corner border radii. `row-gap`,
+ * `column-gap`, `visibility`, and `box-shadow` were already in the list and
+ * are deliberately not duplicated.
  */
 export const ALL_DIMMING_PROPERTIES = [
-  'display', 'visibility', 'flex-direction', 'justify-content', 'align-items', 'width', 'height',
+  'display', 'visibility', 'flex-direction', 'flex-wrap',
+  'justify-content', 'align-items', 'align-content', 'justify-items',
+  'justify-self', 'align-self',
+  'width', 'height',
   'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
   'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'row-gap', 'column-gap',
+  'grid-template-columns', 'grid-template-rows', 'grid-auto-flow',
   'font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'color', 'text-align',
   'background-color', 'background-image',
   'border-width', 'border-style', 'border-color', 'border-radius',
+  'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+  'border-top-left-radius', 'border-top-right-radius',
+  'border-bottom-left-radius', 'border-bottom-right-radius',
   'box-shadow',
   'opacity', 'overflow', 'box-sizing', 'cursor', 'filter', 'backdrop-filter',
   'position', 'left', 'top', 'z-index', 'rotate', 'scale',
   'min-width', 'max-width', 'min-height', 'max-height',
 ] as const
+
+/**
+ * True when `element` has at least one non-empty (trimmed) `TEXT_NODE` child.
+ *
+ * Used by Panel v2 to decide whether to render the Typography section group:
+ * only elements that directly render text are typography-relevant. Pure
+ * container elements (whose only children are other elements) don't have
+ * font/color decisions to make — those live on the descendant text elements
+ * themselves. An element with `<span>` + `'Some text'` mixed children returns
+ * `true` because it still renders a text node (even nested inside a span).
+ *
+ * Form inputs are always typography-sensitive (they render user text
+ * via browser internals, even without text-node children).
+ */
+const TYPOGRAPHY_ELEMENTS = new Set(['INPUT', 'TEXTAREA', 'SELECT'])
+
+export function hasTypographyContent(element: Element): boolean {
+  if (TYPOGRAPHY_ELEMENTS.has(element.tagName)) return true
+  return (element.textContent ?? '').trim() !== ''
+}
 
 export interface PanelProps {
   element: HTMLElement | null
@@ -243,6 +276,29 @@ export function Panel({
   const [sharedInfo, setSharedInfo] = useState<SharedClassInfo | null>(null)
   const [editScope, setEditScope] = useState<'instance' | 'all'>('instance')
 
+  // Typography section dual-mode toggle: auto picks from detected token classes
+  const [typographyMode, setTypographyMode] = useState<'auto' | 'b'>('auto')
+
+  // Elements section (LayerTree) height — owned by Panel so the resize handle
+  // can sit between SectionGroups as the section divider.
+  const [layerHeight, setLayerHeight] = useState(DEFAULT_LAYER_HEIGHT)
+  const layerResizeRef = useRef({ dragging: false, startY: 0, startH: 0 })
+  const handleLayerResizeDown = useCallback((e: PointerEvent) => {
+    layerResizeRef.current = { dragging: true, startY: e.clientY, startH: layerHeight }
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }, [layerHeight])
+  const handleLayerResizeMove = useCallback((e: PointerEvent) => {
+    const r = layerResizeRef.current
+    if (!r.dragging) return
+    const maxH = Math.floor(window.innerHeight * 0.5)
+    setLayerHeight(Math.max(MIN_LAYER_HEIGHT, Math.min(maxH, r.startH + (e.clientY - r.startY))))
+  }, [])
+  const handleLayerResizeUp = useCallback((e: PointerEvent) => {
+    if (!layerResizeRef.current.dragging) return
+    layerResizeRef.current.dragging = false
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch {}
+  }, [])
+
   // Default computed styles snapshot for dimming comparison.
   // Plain object snapshot (NOT a live CSSStyleDeclaration) — taken once per element.
   const defaultStylesRef = useRef<Record<string, string> | null>(null)
@@ -261,7 +317,10 @@ export function Panel({
         : ''
     }
     defaultStylesRef.current = snapshot
-  }, [element]) // only on element change, NOT on styleVersion or activeState
+    // Force useMemo re-run with fresh snapshot so dimming comparison
+    // uses the NEW element's defaults, not the previous element's.
+    setStyleVersion(v => v + 1)
+  }, [element])
 
   useEffect(() => {
     const timer = setTimeout(() => setIsEntering(false), 250)
@@ -272,6 +331,7 @@ export function Panel({
     if (prevElementRef.current && prevElementRef.current !== element) {
       // No cross-fade or body remount — sections update via normal prop changes.
       setActivePseudo('element') // reset pseudo tab on element change
+      setTypographyMode('auto') // reset typography mode on element change
     }
     prevElementRef.current = element
     scrubPreviousRef.current.clear() // abandon any in-progress scrub state
@@ -329,26 +389,63 @@ export function Panel({
           typography: parseTypographyValues({} as CSSStyleDeclaration),
           fill: parseFillValues({} as CSSStyleDeclaration),
           border: parseBorderValues({} as CSSStyleDeclaration),
-          shadow: parseShadowValues({} as CSSStyleDeclaration),
           effects: parseEffectsValues({} as CSSStyleDeclaration),
           position: parsePositionValues({} as CSSStyleDeclaration),
+          appearance: parseAppearanceValues({} as CSSStyleDeclaration),
         },
         dimmedProperties: undefined as Set<string> | undefined,
         mixedProperties: undefined as Set<string> | undefined,
+        parentDisplay: '',
       }
     }
     const pseudo = activePseudo !== 'element' ? activePseudo : undefined
     const cs = getComputedStyle(element, pseudo)
+    const source = element.getAttribute('data-cortex-source') ?? ''
+    const layout = parseLayoutValues(cs)
+    // Override width/height with raw override values so deriveSizingMode
+    // sees keywords like 'fit-content' / '100%' instead of resolved pixels.
+    const widthOverride = overrideManager.get(source, 'width', pseudo)
+    const heightOverride = overrideManager.get(source, 'height', pseudo)
+    if (widthOverride !== undefined) layout.width = widthOverride
+    if (heightOverride !== undefined) layout.height = heightOverride
+
     const parsed = {
       spacing: parseSpacingValues(cs),
-      layout: parseLayoutValues(cs),
+      layout,
       typography: parseTypographyValues(cs),
       fill: parseFillValues(cs),
       border: parseBorderValues(cs),
-      shadow: parseShadowValues(cs),
       effects: parseEffectsValues(cs),
       position: parsePositionValues(cs),
+      appearance: parseAppearanceValues(cs),
     }
+    // Per CSS spec §8.5.3, getComputedStyle zeroes border-width when
+    // border-style is 'none' or 'hidden' — which breaks the existence/
+    // visibility split used by summarizeBorder. A user-hidden border (via
+    // the eye toggle) would summarize as 'none' and the section would
+    // collapse, making "hide" indistinguishable from "delete". Same remedy
+    // as the width/height override pattern above: prefer the raw override-
+    // manager value over getComputedStyle when an override exists. The eye
+    // toggle handler in BorderSection snapshots all 5 width overrides
+    // before it flips style to 'hidden', so the override store has the
+    // specified widths available to recover here.
+    for (const [property, field] of [
+      ['border-width', 'borderWidth'],
+      ['border-top-width', 'borderTopWidth'],
+      ['border-right-width', 'borderRightWidth'],
+      ['border-bottom-width', 'borderBottomWidth'],
+      ['border-left-width', 'borderLeftWidth'],
+    ] as const) {
+      const raw = overrideManager.get(source, property, pseudo)
+      if (raw !== undefined) {
+        parsed.border[field] = parseFloat(raw) || 0
+      }
+    }
+    // Read parent display inside the already-cached useMemo so we don't
+    // add a second forced layout per render. Returns '' when there is no
+    // parent (document root).
+    const parent = element.parentElement
+    const computedParentDisplay = parent ? getComputedStyle(parent).display : ''
 
     let dimmed: Set<string> | undefined
     if (activeState !== 'default' && defaultStylesRef.current) {
@@ -379,12 +476,9 @@ export function Panel({
       if (mixed.size === 0) mixed = undefined
     }
 
-    return { computedStyles: parsed, dimmedProperties: dimmed, mixedProperties: mixed }
+    return { computedStyles: parsed, dimmedProperties: dimmed, mixedProperties: mixed, parentDisplay: computedParentDisplay }
   }, [element, styleVersion, activeState, activePseudo, sharedInfo, editScope])
 
-  // Derive isFlexOrGrid from normalized layout display
-  const layoutDisplay = computedStyles.layout.display
-  const isFlexOrGrid = layoutDisplay === 'flex' || layoutDisplay === 'grid'
   const availableWeights = useMemo(
     () => {
       const family = computedStyles.typography.fontFamily ?? ''
@@ -404,6 +498,17 @@ export function Panel({
       : (element.getAttribute('class') ?? '')
     return extractUtilities(cls)
   }, [element, styleVersion])
+
+  // Derive typography token classes from extractedUtilities for Mode A display.
+  const detectedTypographyTokens = useMemo(() => {
+    const result: Array<{ className: string; property: string }> = []
+    for (const [property, className] of extractedUtilities) {
+      if (TYPOGRAPHY_PROPS.has(property)) {
+        result.push({ className, property })
+      }
+    }
+    return result
+  }, [extractedUtilities])
 
   // Null-byte separator for composite scrub keys — never appears in CSS properties or source paths.
   const SEP = '\0'
@@ -475,7 +580,7 @@ export function Panel({
         const pendingSources = (sharedInfo && editScope === 'all')
           ? sharedInfo.elements.map(el => el.getAttribute('data-cortex-source')).filter((s): s is string => s !== null)
           : source
-        overrideManager.trackPendingEdit(editId, pendingSources, c.property, pseudo)
+        overrideManager.trackPendingEdit(editId, pendingSources, c.property, c.value, pseudo)
         channel.send({
           type: 'edit',
           editId,
@@ -531,8 +636,16 @@ export function Panel({
     if (commitRender) {
       const lastCommitted = lastCommitValueRef.current.get(prevKey)
       if (lastCommitted === value) {
-        scrubPreviousRef.current.delete(prevKey)
-        return
+        // Only suppress if the override is still in place. If HMR or undo
+        // removed the override externally, the user genuinely wants to
+        // re-apply the same value — allow it through.
+        const currentOverride = overrideManager.get(source, property, pseudo)
+        if (currentOverride === value) {
+          scrubPreviousRef.current.delete(prevKey)
+          return
+        }
+        // Override was removed externally — stale guard entry, clear it
+        lastCommitValueRef.current.delete(prevKey)
       }
     }
 
@@ -587,56 +700,71 @@ export function Panel({
     }
   }, [element, overrideManager, activePseudo, sharedInfo, editScope, commitScrub])
 
-  const handleSpacingCommit = useCallback((c: SpacingChange) => applyOverride(c.property, c.value, true), [applyOverride])
-  const handleScrub = useCallback((c: SpacingChange) => applyOverride(c.property, c.value, false), [applyOverride])
-
-  const handleLayoutCommit = useCallback((c: LayoutChange) => applyOverride(c.property, c.value, true), [applyOverride])
-  const handleLayoutScrub = useCallback((c: LayoutChange) => applyOverride(c.property, c.value, false), [applyOverride])
-  const handleTypographyCommit = useCallback((c: TypographyChange) => applyOverride(c.property, c.value, true), [applyOverride])
-  const handleTypographyScrub = useCallback((c: TypographyChange) => applyOverride(c.property, c.value, false), [applyOverride])
-  const handleFillCommit = useCallback((c: FillChange) => applyOverride(c.property, c.value, true), [applyOverride])
-  const handleBorderCommit = useCallback((c: BorderChange) => applyOverride(c.property, c.value, true), [applyOverride])
-  const handleBorderScrub = useCallback((c: BorderChange) => applyOverride(c.property, c.value, false), [applyOverride])
-  const handleShadowCommit = useCallback((c: ShadowChange) => applyOverride(c.property, c.value, true), [applyOverride])
-  const handleEffectsCommit = useCallback((c: EffectsChange) => applyOverride(c.property, c.value, true), [applyOverride])
-  const handleEffectsScrub = useCallback((c: EffectsChange) => applyOverride(c.property, c.value, false), [applyOverride])
-  const handlePositionCommit = useCallback((c: PositionChange) => applyOverride(c.property, c.value, true), [applyOverride])
-  const handlePositionScrub = useCallback((c: PositionChange) => applyOverride(c.property, c.value, false), [applyOverride])
+  const handleCommit = useCallback((c: SectionChange) => applyOverride(c.property, c.value, true), [applyOverride])
+  const handleScrub = useCallback((c: SectionChange) => applyOverride(c.property, c.value, false), [applyOverride])
 
   // Property section state — driven by computed values, not user toggle
   const fillSummary = useMemo(() => summarizeFill(computedStyles.fill), [computedStyles.fill])
   const fillHasValue = fillSummary !== 'transparent'
   const borderSummary = useMemo(() => summarizeBorder(computedStyles.border), [computedStyles.border])
   const borderHasValue = borderSummary !== 'none'
-  const shadowSummary = useMemo(() => summarizeShadow(computedStyles.shadow), [computedStyles.shadow])
-  const shadowHasValue = shadowSummary !== 'none'
-
   const handleFillAdd = useCallback(() => {
     applyOverride('background-color', '#ffffff', true)
   }, [applyOverride])
-  // Batch: accumulate via scrub, commit once → one atomic undo entry.
+  // Inverse of handleFillAdd — applied via override so `summarizeFill` returns
+  // 'transparent' and `fillHasValue` flips false, collapsing the section and
+  // re-surfacing the "+" add button in the SectionGroup header. Using override
+  // (rather than overrideManager.remove) keeps behavior deterministic regardless
+  // of what background the element's natural CSS cascade would reveal.
   const handleFillRemove = useCallback(() => {
-    applyOverride('background-color', 'transparent', false)
-    applyOverride('background-image', 'none', false)
-    commitScrub()
-  }, [applyOverride, commitScrub])
-  // Batch: 3 properties → 1 undo entry.
+    applyOverride('background-color', 'transparent', true)
+  }, [applyOverride])
+  // Apply one width value to the shorthand AND all 4 per-side longhands.
+  //
+  // The override manager is a flat `Map<property, value>` with no shorthand
+  // awareness: Map iteration order (= insertion order) becomes declaration
+  // order in the injected stylesheet (see override.ts rebuild()). Per CSS
+  // cascade rules, a longhand declared after a shorthand wins over the
+  // shorthand's expansion — and `Map.set` never moves existing keys. That
+  // means once `border-top-width` lands in the Map from user per-side edits
+  // or a prior minus action, any later write of `border-width` alone gets
+  // silently overruled by the stale longhand.
+  //
+  // Both `handleBorderAdd` and `handleBorderRemove` therefore write all five
+  // width properties through this helper. Add/remove become idempotent and
+  // symmetric: "+" always paints a uniform 1px border, "-" always fully
+  // zeroes every width slot regardless of prior per-side customization.
+  const setBorderWidths = useCallback((width: string) => {
+    applyOverride('border-width', width, false)
+    applyOverride('border-top-width', width, false)
+    applyOverride('border-right-width', width, false)
+    applyOverride('border-bottom-width', width, false)
+    applyOverride('border-left-width', width, false)
+  }, [applyOverride])
+  // Batch: 7 properties → 1 undo entry. All 5 width properties are written
+  // (via setBorderWidths) so any orphan per-side override from a prior
+  // remove→add cycle is cleared — otherwise the longhands would win the
+  // cascade and the new border would render with the old per-side values.
   const handleBorderAdd = useCallback(() => {
-    applyOverride('border-width', '1px', false)
+    setBorderWidths('1px')
     applyOverride('border-style', 'solid', false)
     applyOverride('border-color', '#000000', false)
     commitScrub()
-  }, [applyOverride, commitScrub])
-  // Intentionally preserves border-color so re-adding restores the user's last choice.
-  // Batch: 2 properties → 1 undo entry.
+  }, [setBorderWidths, applyOverride, commitScrub])
+  // Inverse of handleBorderAdd. Symmetric with handleFillRemove: writes
+  // explicit 0 values rather than calling overrideManager.remove, so a
+  // Tailwind utility class like `border` or `border-t-2` on the element
+  // can't resurface through the natural cascade after removal. Style and
+  // color are left untouched — minimal surface area, and handleBorderAdd
+  // will overwrite them from defaults on the next `+` click.
   const handleBorderRemove = useCallback(() => {
-    applyOverride('border-style', 'none', false)
-    applyOverride('border-width', '0px', false)
+    setBorderWidths('0px')
     commitScrub()
-  }, [applyOverride, commitScrub])
+  }, [setBorderWidths, commitScrub])
   const handleShadowAdd = useCallback(() => {
-    applyOverride('box-shadow', addShadow(computedStyles.shadow.boxShadow), true)
-  }, [computedStyles.shadow.boxShadow, applyOverride])
+    applyOverride('box-shadow', addShadow(computedStyles.effects.boxShadow), true)
+  }, [computedStyles.effects.boxShadow, applyOverride])
+
 
   const handleSelectParent = useCallback(() => {
     if (!element) return
@@ -743,6 +871,11 @@ export function Panel({
   const ancestor = isLibrary ? findUserAncestor(element) : null
   const hasParent = element.parentElement !== null && element.parentElement !== document.documentElement
   const hasChildren = element.children.length > 0
+  // Typography section only renders for elements that directly render text.
+  // Pure container elements have nothing to do in Typography.
+  const showTypography = hasTypographyContent(element)
+  // Position section is instance-specific — hide when editing a shared class.
+  const showPosition = !(sharedInfo && editScope === 'all')
 
   return (
     <div
@@ -777,7 +910,6 @@ export function Panel({
         hoverEnabled={hoverEnabled}
         onToggleHover={onToggleHover}
       />
-      <LayerTree element={element} onSelectElement={onSelectElement} />
       {editErrors && element?.getAttribute('data-cortex-source') && (
         <EditErrorCard
           errors={editErrors}
@@ -844,92 +976,144 @@ export function Panel({
         </div>
       )}
       <div class="cortex-panel__body" ref={bodyRef}>
-        <SectionGroup label="Layout" groupId="layout">
-          <LayoutSection
-            values={computedStyles.layout}
-            onChange={handleLayoutCommit}
-            onScrub={handleLayoutScrub}
-            onScrubEnd={handleLayoutCommit}
-            dimmedProperties={dimmedProperties}
-            mixedProperties={mixedProperties}
-          />
-          <SpacingSection
-            padding={computedStyles.spacing.padding}
-            margin={computedStyles.spacing.margin}
-            gap={computedStyles.spacing.gap}
-            isFlexOrGrid={isFlexOrGrid}
-            boxSizing={computedStyles.spacing.boxSizing}
-            onChange={handleSpacingCommit}
-            onScrub={handleScrub}
-            onScrubEnd={handleSpacingCommit}
-            dimmedProperties={dimmedProperties}
-            mixedProperties={mixedProperties}
-          />
+        {/* Section ordering per DESIGN.md: Elements → Position → Layout →
+            Typography → Appearance → Background → Border → Effects.
+            Typography conditional on hasTypographyContent; Position hidden
+            in shared-class "All" scope. */}
+        <SectionGroup label="Elements" groupId="elements">
+          <ElementTree element={element} onSelectElement={onSelectElement} height={layerHeight} />
         </SectionGroup>
-        {/* Position is instance-specific — hide when editing shared class */}
-        {!(sharedInfo && editScope === 'all') && (
+        <div
+          class="cortex-section-resize"
+          onPointerDown={handleLayerResizeDown}
+          onPointerMove={handleLayerResizeMove}
+          onPointerUp={handleLayerResizeUp}
+          onPointerCancel={handleLayerResizeUp}
+        />
+        {showPosition && (
           <SectionGroup label="Position" groupId="position">
             <PositionSection
               values={computedStyles.position}
-              onChange={handlePositionCommit}
-              onScrub={handlePositionScrub}
-              onScrubEnd={handlePositionCommit}
+              onChange={handleCommit}
+              onScrub={handleScrub}
+              onScrubEnd={handleCommit}
               dimmedProperties={dimmedProperties}
             />
           </SectionGroup>
         )}
-        <SectionGroup label="Typography" groupId="typography">
-          <TypographySection
-            values={computedStyles.typography}
-            availableWeights={availableWeights}
-            onChange={handleTypographyCommit}
-            onScrub={handleTypographyScrub}
-            onScrubEnd={handleTypographyCommit}
+        <SectionGroup label="Layout" groupId="layout">
+          <LayoutSection
+            values={computedStyles.layout}
+            onChange={handleCommit}
+            onScrub={handleScrub}
+            onScrubEnd={handleCommit}
+            dimmedProperties={dimmedProperties}
+            mixedProperties={mixedProperties}
+            spacing={{ padding: computedStyles.spacing.padding, margin: computedStyles.spacing.margin }}
+            onSpacingChange={handleCommit}
+            onSpacingScrub={handleScrub}
+            onSpacingScrubEnd={handleCommit}
+          />
+        </SectionGroup>
+        {showTypography && (
+          <SectionGroup
+            label="Typography"
+            groupId="typography"
+            headerAction={
+              <IconButton
+                icon={<Type size={14} />}
+                ariaLabel="Toggle typography mode"
+                tooltip="Toggle token/CSS view"
+                active={typographyMode !== 'auto'}
+                onClick={() => setTypographyMode(m => m === 'auto' ? 'b' : 'auto')}
+              />
+            }
+          >
+            <TypographySection
+              values={computedStyles.typography}
+              availableWeights={availableWeights}
+              onChange={handleCommit}
+              onScrub={handleScrub}
+              onScrubEnd={handleCommit}
+              swatches={swatches}
+              dimmedProperties={dimmedProperties}
+              mixedProperties={mixedProperties}
+              mode={typographyMode}
+              detectedTokenClasses={detectedTypographyTokens}
+            />
+          </SectionGroup>
+        )}
+        <SectionGroup label="Appearance" groupId="appearance">
+          <AppearanceSection
+            values={computedStyles.appearance}
+            onChange={handleCommit}
+            onScrub={handleScrub}
+            onScrubEnd={handleCommit}
+            dimmedProperties={dimmedProperties}
+            mixedProperties={mixedProperties}
+            resetKey={`${element.tagName}|${element.id}|${element.getAttribute('data-cortex-source') ?? ''}`}
+          />
+        </SectionGroup>
+        <SectionGroup
+          label="Background"
+          groupId="background"
+          headerAction={
+            !fillHasValue ? (
+              <IconButton icon={<Plus size={14} />} ariaLabel="Add background" tooltip="Add background color" onClick={handleFillAdd} />
+            ) : undefined
+          }
+        >
+          {fillHasValue && (
+            <BackgroundSection
+              backgroundColor={computedStyles.fill.backgroundColor}
+              backgroundToken={extractedUtilities.get('background-color') ?? null}
+              onChange={handleCommit}
+              onRemove={handleFillRemove}
+              swatches={swatches}
+              dimmedProperties={dimmedProperties}
+              mixedProperties={mixedProperties}
+            />
+          )}
+        </SectionGroup>
+        <SectionGroup
+          label="Border"
+          groupId="border"
+          headerAction={
+            !borderHasValue ? (
+              <IconButton icon={<Plus size={14} />} ariaLabel="Add border" tooltip="Add border" onClick={handleBorderAdd} />
+            ) : undefined
+          }
+        >
+          {borderHasValue && (
+            <BorderSection
+              values={computedStyles.border}
+              borderToken={extractedUtilities.get('border-color') ?? null}
+              onChange={handleCommit}
+              onScrub={handleScrub}
+              onScrubEnd={handleCommit}
+              onRemove={handleBorderRemove}
+              swatches={swatches}
+              dimmedProperties={dimmedProperties}
+              mixedProperties={mixedProperties}
+            />
+          )}
+        </SectionGroup>
+        <SectionGroup
+          label="Effects"
+          groupId="effects"
+          headerAction={
+            <IconButton icon={<Plus size={14} />} ariaLabel="Add effect" tooltip="Add shadow effect" onClick={handleShadowAdd} />
+          }
+        >
+          <EffectsSection
+            values={computedStyles.effects}
+            onChange={handleCommit}
+            onScrub={handleScrub}
+            onScrubEnd={handleCommit}
             swatches={swatches}
             dimmedProperties={dimmedProperties}
             mixedProperties={mixedProperties}
           />
-        </SectionGroup>
-        <SectionGroup label="Style" groupId="style">
-          <CollapsibleSection sectionId="fill" label="Fill" summary={fillSummary} hasValue={fillHasValue} onAdd={handleFillAdd} onRemove={handleFillRemove}>
-            <FillSection
-              values={computedStyles.fill}
-              onChange={handleFillCommit}
-              swatches={swatches}
-              dimmedProperties={dimmedProperties}
-              mixedProperties={mixedProperties}
-            />
-          </CollapsibleSection>
-          <CollapsibleSection sectionId="border" label="Border" summary={borderSummary} hasValue={borderHasValue} onAdd={handleBorderAdd} onRemove={handleBorderRemove}>
-            <BorderSection
-              values={computedStyles.border}
-              onChange={handleBorderCommit}
-              onScrub={handleBorderScrub}
-              onScrubEnd={handleBorderCommit}
-              swatches={swatches}
-              dimmedProperties={dimmedProperties}
-              mixedProperties={mixedProperties}
-            />
-          </CollapsibleSection>
-          <CollapsibleSection sectionId="shadow" label="Shadow" summary={shadowSummary} hasValue={shadowHasValue} onAdd={handleShadowAdd} canAddMore>
-            <ShadowSection
-              values={computedStyles.shadow}
-              onChange={handleShadowCommit}
-              swatches={swatches}
-              dimmedProperties={dimmedProperties}
-              mixedProperties={mixedProperties}
-            />
-          </CollapsibleSection>
-          <CollapsibleSection sectionId="effects" label="Effects" hasValue={true}>
-            <EffectsSection
-              values={computedStyles.effects}
-              onChange={handleEffectsCommit}
-              onScrub={handleEffectsScrub}
-              onScrubEnd={handleEffectsCommit}
-              dimmedProperties={dimmedProperties}
-              mixedProperties={mixedProperties}
-            />
-          </CollapsibleSection>
         </SectionGroup>
         {channel && (
           <CommentInput

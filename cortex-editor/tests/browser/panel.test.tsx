@@ -12,6 +12,16 @@ const panelPositionProps = {
   panelPointerCancel: vi.fn(),
 }
 
+// Global defense-in-depth against fake-timer leakage across tests.
+// A previous iteration had two tests that installed vi.useFakeTimers() and
+// relied on end-of-test vi.useRealTimers() — when those tests threw an
+// assertion error they skipped cleanup, leaving fake timers installed and
+// causing every subsequent `await new Promise(r => setTimeout(r, 0))` to
+// hang forever. See panel-section-order.test.ts for the same guard.
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 describe('Panel', () => {
   let cleanup: (() => void) | null = null
 
@@ -68,39 +78,45 @@ describe('Panel', () => {
   })
 
   it('renders section labels', () => {
-    const { root } = setup()
-    expect(root.textContent).toContain('Display')
-    expect(root.textContent).toContain('Padding')
-    expect(root.textContent).toContain('Font')
+    // Use a text-bearing element so the Typography section renders.
+    // The default setup() target is a childless <div> which intentionally
+    // omits Typography (see `containsDirectText` helper in Panel.tsx).
+    const target = document.createElement('p')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    target.appendChild(document.createTextNode('Hero heading'))
+    document.body.appendChild(target)
+    const { root } = setup(target)
+    expect(root.textContent).toContain('Size')
+    expect(root.textContent).toContain('Spacing')
+    // v2: "Font" sub-label removed; the SectionGroup header reads "Typography"
+    expect(root.textContent).toContain('Typography')
   })
 
   it('renders Phase 5b sections', () => {
     const { root } = setup()
-    expect(root.querySelector('[data-section-id="fill"]')).not.toBeNull()
-    expect(root.querySelector('[data-section-id="border"]')).not.toBeNull()
-    expect(root.querySelector('[data-section-id="shadow"]')).not.toBeNull()
+    // BackgroundSection only renders when background has a value;
+    // with a default transparent background, the group is present
+    // but the section content is not. Assert the group exists.
+    expect(root.querySelector('[data-group="background"]')).not.toBeNull()
+    // BorderSection only renders when border has a value; with default
+    // styles (borderStyle: 'none'), the group is present but the section
+    // content is not. Same pattern as BackgroundSection above.
+    expect(root.querySelector('[data-group="border"]')).not.toBeNull()
+    // Task 15 consolidated ShadowSection + EffectsSection into a single
+    // unified EffectsSection with data-section-id="effects".
     expect(root.querySelector('[data-section-id="effects"]')).not.toBeNull()
   })
 
-  it('renders four section groups with correct data-group attributes', () => {
-    const { root } = setup()
-    const groups = root.querySelectorAll('.cortex-section-group')
-    expect(groups.length).toBe(4)
-    expect(root.querySelector('[data-group="layout"]')).not.toBeNull()
-    expect(root.querySelector('[data-group="position"]')).not.toBeNull()
-    expect(root.querySelector('[data-group="typography"]')).not.toBeNull()
-    expect(root.querySelector('[data-group="style"]')).not.toBeNull()
-  })
-
-  it('renders group headers with correct labels', () => {
-    const { root } = setup()
-    const titles = root.querySelectorAll('.cortex-section-group__title')
-    const labels = Array.from(titles).map(t => t.textContent)
-    expect(labels).toEqual(['Layout', 'Position', 'Typography', 'Style'])
-  })
+  // Canonical section group count, data-group presence, and header label
+  // order are all owned by tests/browser/panel-section-order.test.ts. Do not
+  // re-assert them here — the array-equality tests in that file are the
+  // single source of truth and any duplicate here would be subsumed.
 
   it('groups sections under correct parent groups', () => {
     const { root } = setup()
+    const elementsGroup = root.querySelector('[data-group="elements"]')!
+    expect(elementsGroup.querySelector('.cortex-layer-tree')).not.toBeNull()
+
     const layoutGroup = root.querySelector('[data-group="layout"]')!
     expect(layoutGroup.querySelector('[data-section-id="layout"]')).not.toBeNull()
     expect(layoutGroup.querySelector('[data-section-id="spacing"]')).not.toBeNull()
@@ -108,14 +124,22 @@ describe('Panel', () => {
     const positionGroup = root.querySelector('[data-group="position"]')!
     expect(positionGroup.querySelector('[data-section-id="position"]')).not.toBeNull()
 
-    const typographyGroup = root.querySelector('[data-group="typography"]')!
-    expect(typographyGroup.querySelector('[data-section-id="type"]')).not.toBeNull()
+    // Background group always renders; BackgroundSection content renders
+    // only when the background is non-transparent.  With default mock
+    // styles the element has no background, so assert the group exists.
+    const backgroundGroup = root.querySelector('[data-group="background"]')!
+    expect(backgroundGroup).not.toBeNull()
 
-    const styleGroup = root.querySelector('[data-group="style"]')!
-    expect(styleGroup.querySelector('[data-section-id="fill"]')).not.toBeNull()
-    expect(styleGroup.querySelector('[data-section-id="border"]')).not.toBeNull()
-    expect(styleGroup.querySelector('[data-section-id="shadow"]')).not.toBeNull()
-    expect(styleGroup.querySelector('[data-section-id="effects"]')).not.toBeNull()
+    // Border group always renders; BorderSection content renders
+    // only when the border has a value (borderStyle !== 'none'). With
+    // default mock styles the element has no border, so assert the
+    // group exists but section content is absent.
+    const borderGroup = root.querySelector('[data-group="border"]')!
+    expect(borderGroup).not.toBeNull()
+
+    // Task 15 consolidated shadow + effects into a single EffectsSection.
+    const effectsGroup = root.querySelector('[data-group="effects"]')!
+    expect(effectsGroup.querySelector('[data-section-id="effects"]')).not.toBeNull()
   })
 
   it('calls onClose when close button clicked', () => {
@@ -146,108 +170,14 @@ describe('Panel', () => {
     container.remove()
   })
 
-  // M3: Cross-fade class applied on element switch
-  it('adds cross-fade class when element changes', async () => {
-    const el1 = document.createElement('div')
-    el1.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
-    document.body.appendChild(el1)
-
-    const el2 = document.createElement('div')
-    el2.setAttribute('data-cortex-source', 'src/Card.tsx:8:3')
-    document.body.appendChild(el2)
-
-    const onClose = vi.fn()
-    const onSelectElement = vi.fn()
-    const overrideManager = {
-      set: vi.fn(), remove: vi.fn(), clearAll: vi.fn(),
-      dispose: vi.fn(), flush: vi.fn(),
-    }
-
-    // Render into a plain container so we can re-render with different props
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-
-    render(
-      <Panel element={el1} overrideManager={overrideManager as any}
-        onClose={onClose} onSelectElement={onSelectElement} {...panelPositionProps} />,
-      container,
-    )
-    await new Promise(r => setTimeout(r, 0))
-
-    // No cross-fade on initial render
-    let panel = container.querySelector('.cortex-panel')
-    expect(panel?.classList.contains('cortex-panel--cross-fade')).toBe(false)
-
-    // Switch element — should trigger cross-fade
-    render(
-      <Panel element={el2} overrideManager={overrideManager as any}
-        onClose={onClose} onSelectElement={onSelectElement} {...panelPositionProps} />,
-      container,
-    )
-    await new Promise(r => setTimeout(r, 0))
-
-    panel = container.querySelector('.cortex-panel')
-    expect(panel?.classList.contains('cortex-panel--cross-fade')).toBe(true)
-
-    // Clean up
-    render(null, container)
-    container.remove()
-    el1.remove()
-    el2.remove()
-  })
-
-  // M3: Cross-fade class clears after timeout
-  it('clears cross-fade class after animation duration', async () => {
-    vi.useFakeTimers()
-
-    const el1 = document.createElement('div')
-    el1.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
-    document.body.appendChild(el1)
-
-    const el2 = document.createElement('div')
-    el2.setAttribute('data-cortex-source', 'src/Card.tsx:8:3')
-    document.body.appendChild(el2)
-
-    const overrideManager = {
-      set: vi.fn(), remove: vi.fn(), clearAll: vi.fn(),
-      dispose: vi.fn(), flush: vi.fn(),
-    }
-
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-
-    render(
-      <Panel element={el1} overrideManager={overrideManager as any}
-        onClose={() => {}} onSelectElement={() => {}} {...panelPositionProps} />,
-      container,
-    )
-    // Advance enough for Preact's effect scheduling (>0ms needed under fake timers)
-    await vi.advanceTimersByTimeAsync(10)
-
-    // Switch element
-    render(
-      <Panel element={el2} overrideManager={overrideManager as any}
-        onClose={() => {}} onSelectElement={() => {}} {...panelPositionProps} />,
-      container,
-    )
-    // Flush effects — Preact needs macrotask cycles under fake timers
-    await vi.advanceTimersByTimeAsync(10)
-
-    let panel = container.querySelector('.cortex-panel')
-    expect(panel?.classList.contains('cortex-panel--cross-fade')).toBe(true)
-
-    // Advance past the 150ms animation duration (already at ~20ms, need 130+ more)
-    await vi.advanceTimersByTimeAsync(200)
-
-    panel = container.querySelector('.cortex-panel')
-    expect(panel?.classList.contains('cortex-panel--cross-fade')).toBe(false)
-
-    render(null, container)
-    container.remove()
-    el1.remove()
-    el2.remove()
-    vi.useRealTimers()
-  })
+  // NOTE: The old `cortex-panel--cross-fade` animation was removed in ZF0-1122
+  // when LayerTree was introduced; see the comment at Panel.tsx around the
+  // `useEffect(() => { ... prevElementRef.current !== element ... }, [element])`
+  // block: "No cross-fade or body remount — sections update via normal prop
+  // changes." The two cross-fade tests that used to live here asserted a class
+  // that never rendered and were only passing-or-timing-out at random due to
+  // a vi.useFakeTimers() cleanup that the failing assertion skipped. Deleted
+  // as dead zombie tests rather than ported.
 })
 
 describe('Panel — library detection wiring', () => {

@@ -33,6 +33,11 @@ export function SegmentedControl({
     if (activeBtn) {
       indicator.style.transform = `translateX(${activeBtn.offsetLeft}px)`
       indicator.style.width = `${activeBtn.offsetWidth}px`
+      indicator.style.opacity = '1'
+    } else {
+      // No option matches (e.g. 'auto') — collapse the indicator
+      indicator.style.width = '0'
+      indicator.style.opacity = '0'
     }
   }, [value])
 

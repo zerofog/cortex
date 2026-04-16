@@ -19,7 +19,7 @@ export class CSSOverrideManager {
   private styleEl: HTMLStyleElement
   private overrides = new Map<string, Map<string, string>>()
   private stateOverrides = new Map<string, Map<string, string>>()
-  private pendingEdits = new Map<string, { sources: string[]; property: string; pseudo?: '::before' | '::after'; timestamp: number }>()
+  private pendingEdits = new Map<string, { sources: string[]; property: string; value: string; pseudo?: '::before' | '::after'; timestamp: number }>()
 
   constructor() {
     this.styleEl = document.createElement('style')
@@ -195,7 +195,7 @@ export class CSSOverrideManager {
 
   /** Track a pending edit so handleHMRVerified can clear the right override.
    *  For scope='all' edits, pass all shared element sources so all overrides are cleared. */
-  trackPendingEdit(editId: string, sources: string | string[], property: string, pseudo?: '::before' | '::after'): void {
+  trackPendingEdit(editId: string, sources: string | string[], property: string, value: string, pseudo?: '::before' | '::after'): void {
     const sourceArray = Array.isArray(sources) ? sources : [sources]
     this.evictStalePendingEdits()
     this.hmrAppliedPending = false
@@ -206,7 +206,7 @@ export class CSSOverrideManager {
         this.pendingEdits.delete(existingId)
       }
     }
-    this.pendingEdits.set(editId, { sources: sourceArray, property, pseudo, timestamp: Date.now() })
+    this.pendingEdits.set(editId, { sources: sourceArray, property, value, pseudo, timestamp: Date.now() })
   }
 
   private pendingRemovals: Array<{ editId: string; source: string; property: string; pseudo?: '::before' | '::after'; kind?: EditKind }> = []
@@ -234,9 +234,16 @@ export class CSSOverrideManager {
     if (!pending) return
     this.pendingEdits.delete(editId)
     if (match) {
+      // Guard per-source: if the user made a newer edit to the same property
+      // on a specific source, skip removal for THAT source only. Previously
+      // this checked only the first source and returned early for the entire
+      // pending edit, which incorrectly prevented clearing overrides on other
+      // scope='all' sources that still matched the committed value.
       if (this.hmrAppliedPending) {
         const deferred = this.consumeDeferralSignal(editId, kind)
         for (const source of pending.sources) {
+          const currentValue = this.get(source, pending.property, pending.pseudo)
+          if (currentValue !== undefined && currentValue !== pending.value) continue
           if (deferred) {
             this.deferRemoval(source, pending.property, pending.pseudo, kind)
           } else {
@@ -245,6 +252,8 @@ export class CSSOverrideManager {
         }
       } else {
         for (const source of pending.sources) {
+          const currentValue = this.get(source, pending.property, pending.pseudo)
+          if (currentValue !== undefined && currentValue !== pending.value) continue
           this.pendingRemovals.push({ editId, source, property: pending.property, pseudo: pending.pseudo, kind })
         }
       }

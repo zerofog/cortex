@@ -4,109 +4,166 @@
 /* ── Design tokens ──────────────────────────── */
 
 :host {
+  /* Shadow DOM isolation — reset every inherited property from the host app.
+     CSS custom properties inherit through the shadow boundary, and any style
+     the host app sets on its tree (color, font, line-height, box-sizing, …)
+     would otherwise leak in and corrupt panel rendering. `all: initial`
+     closes the leak; every inherited property we rely on must be re-asserted
+     below. See ZF0-1179 / 2026-04-10 architecture review. */
+  all: initial;
+
+  /* Re-assert box-sizing so it cascades to every descendant via the
+     universal box-sizing: inherit rule below. */
+  box-sizing: border-box;
+
+  /* Explicit block display. `all: initial` resets :host to `display: inline`.
+     Today the host element has inline `position: fixed`, and CSS spec blockifies
+     fixed-positioned elements to `display: block` at computed time — so layout
+     currently works. But that's implicit and load-bearing: if a future refactor
+     changes the host element's position, the panel would silently become inline.
+     Defense-in-depth: declare `display: block` so the panel's layout doesn't
+     depend on an invisible CSS spec rule. */
+  display: block;
+
+  /* Typography — Geist Sans with system fallback (reset by `all: initial`) */
+  font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  /* Re-assert font-size and line-height so every descendant inherits a
+     sensible default. Without this, `all: initial` leaves :host at UA
+     initial `font-size: medium` (~16px) and `line-height: normal`, and
+     any future top-level container that forgets to set font-size explicitly
+     would render text at 16px in contexts where 10–13px is expected. The
+     architecture reviewer flagged this as silently load-bearing on every
+     panel container — explicit seeding here closes the gap. */
+  font-size: var(--cx-text-lg);
+  line-height: 1.4;
+
+  /* Default ink color so descendants without explicit `color` inherit
+     the panel palette rather than the host app's text color. */
+  color: var(--cx-ink);
+
   /* Ink hierarchy — values are darkest, labels recede */
-  --ink: #111827;
-  --ink-secondary: #6b7280;
-  --ink-tertiary: #a3a3a3;
-  --ink-ghost: #b0b0b0;
-  --ink-faint: #d4d4d4;
+  --cx-ink: #111827;
+  --cx-ink-secondary: #6b7280;
+  --cx-ink-tertiary: #a3a3a3;
+  --cx-ink-ghost: #b0b0b0;
+  --cx-ink-faint: #d4d4d4;
 
   /* Surfaces — drafting-paper whites */
-  --paper: #fff;
-  --vellum: #fafafa;
-  --well: #f5f5f5;
-  --well-hover: #efefef;
-  --well-active: #ebebeb;
-  --well-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
+  --cx-paper: #fff;
+  --cx-vellum: #fafafa;
+  --cx-well: #f5f5f5;
+  --cx-well-hover: #efefef;
+  --cx-well-active: #ebebeb;
+  --cx-well-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
+
+  /* Button hover — subtle lift on click-target surfaces (toggles, triggers,
+     icon buttons, segmented picks). Intentionally lighter than
+     --cx-well-hover, which is reserved for input-field hover feedback
+     (NumericInput, textareas) and mouse-down active states, where heavier
+     contrast reads as "this surface responds when you press it" rather than
+     "this is clickable". Value matches --cx-well by design: one design step
+     of lift over --cx-paper. Semantic split so the two tokens can drift
+     independently if the design evolves. */
+  --cx-btn-hover: #f5f5f5;
 
   /* Pencil lines */
-  --rule: #f0f0f0;
-  --rule-soft: rgba(0, 0, 0, 0.04);
+  --cx-rule: #f0f0f0;
+  --cx-rule-soft: rgba(0, 0, 0, 0.04);
 
   /* Selection anchor — one accent, earned placement */
-  --select: #3b82f6;
-  --select-hover: #2563eb;
-  --select-muted: rgba(59, 130, 246, 0.12);
-  --on-select: #fff;
+  --cx-select: #3b82f6;
+  --cx-select-hover: #2563eb;
+  --cx-select-muted: rgba(59, 130, 246, 0.12);
+  --cx-on-select: #fff;
 
   /* Status */
-  --success: #22c55e;
-  --destructive: #ef4444;
-  --destructive-surface: rgba(239, 68, 68, 0.06);
-  --warning: #f97316;
-  --warning-surface: rgba(249, 115, 22, 0.06);
-
-  /* Scrollbar */
-  --scrollbar: #d4d4d4;
+  --cx-success: #22c55e;
+  --cx-destructive: #ef4444;
+  --cx-destructive-surface: rgba(239, 68, 68, 0.06);
+  --cx-warning: #f97316;
+  --cx-warning-surface: rgba(249, 115, 22, 0.06);
 
   /* Tooltip */
-  --tooltip-bg: #1f2937;
+  --cx-tooltip-bg: #1f2937;
 
   /* Monospace for values */
-  --mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --cx-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
   /* Spacing scale — 4px base */
-  --sp-1: 2px;
-  --sp-2: 4px;
-  --sp-3: 6px;
-  --sp-4: 8px;
-  --sp-5: 12px;
-  --sp-6: 16px;
-  --sp-7: 24px;
+  --cx-sp-1: 2px;
+  --cx-sp-2: 4px;
+  --cx-sp-3: 6px;
+  --cx-sp-4: 8px;
+  --cx-sp-5: 12px;
+  --cx-sp-6: 16px;
+  --cx-sp-7: 24px;
+  --cx-sp-8: 32px;
 
   /* Radius scale */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-lg-inner: 5px;
+  --cx-radius-sm: 4px;
+  --cx-radius-md: 6px;
+  --cx-radius-lg: 8px;
+  --cx-radius-lg-inner: 5px;
 
-  /* Type scale — 10/11/12/13 */
-  --text-xs: 10px;
-  --text-sm: 11px;
-  --text-md: 12px;
-  --text-lg: 13px;
+  /* Type scale — 9/11/12/13/14 (per DESIGN.md) */
+  --cx-text-xs: 9px;
+  --cx-text-sm: 11px;
+  --cx-text-md: 12px;
+  --cx-text-lg: 13px;
+  --cx-text-xl: 14px;
 
   /* Type weights */
-  --weight-label: 400;
-  --weight-value: 500;
-  --weight-title: 700;
+  --cx-weight-label: 400;
+  --cx-weight-value: 500;
+  --cx-weight-heading: 600;
+  --cx-weight-title: 700;
+}
 
-  /* Typography — Geist Sans with system fallback */
-  font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+/* Propagate border-box sizing to every panel descendant. The bare `*`
+   selector is safely scoped because this stylesheet is injected into the
+   Shadow DOM and cannot match anything in the host app tree. */
+*,
+*::before,
+*::after {
+  box-sizing: inherit;
 }
 
 /* ── Blueprint (dark mode) ─────────────────── */
 
 :host([data-theme="blueprint"]) {
-  --ink: #e2e8f0;
-  --ink-secondary: #94a3b8;
-  --ink-tertiary: #64748b;
-  --ink-ghost: #475569;
-  --ink-faint: #334155;
+  --cx-ink: #e2e8f0;
+  --cx-ink-secondary: #94a3b8;
+  --cx-ink-tertiary: #64748b;
+  --cx-ink-ghost: #475569;
+  --cx-ink-faint: #334155;
 
-  --paper: #0f172a;
-  --vellum: #1e293b;
-  --well: #1a2332;
-  --well-hover: #233044;
-  --well-active: #2a3a52;
-  --well-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15);
+  --cx-paper: #0f172a;
+  --cx-vellum: #1e293b;
+  --cx-well: #1a2332;
+  --cx-well-hover: #233044;
+  --cx-well-active: #2a3a52;
+  --cx-well-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15);
 
-  --rule: #1e293b;
-  --rule-soft: rgba(255, 255, 255, 0.04);
+  /* Dark-mode counterpart of --cx-btn-hover. Matches --cx-well value so the
+     subtle-lift semantic holds across modes. */
+  --cx-btn-hover: #1a2332;
 
-  --select: #60a5fa;
-  --select-hover: #3b82f6;
-  --select-muted: rgba(96, 165, 250, 0.15);
-  --on-select: #0f172a;
+  --cx-rule: #1e293b;
+  --cx-rule-soft: rgba(255, 255, 255, 0.04);
 
-  --success: #4ade80;
-  --destructive: #f87171;
-  --destructive-surface: rgba(248, 113, 113, 0.1);
-  --warning: #fb923c;
-  --warning-surface: rgba(251, 146, 60, 0.1);
+  --cx-select: #60a5fa;
+  --cx-select-hover: #3b82f6;
+  --cx-select-muted: rgba(96, 165, 250, 0.15);
+  --cx-on-select: #0f172a;
 
-  --scrollbar: #334155;
-  --tooltip-bg: #0f172a;
+  --cx-success: #4ade80;
+  --cx-destructive: #f87171;
+  --cx-destructive-surface: rgba(248, 113, 113, 0.1);
+  --cx-warning: #fb923c;
+  --cx-warning-surface: rgba(251, 146, 60, 0.1);
+
+  --cx-tooltip-bg: #0f172a;
 }
 
 /* Blueprint panel shadow — stronger in dark mode since background is already dark */
@@ -132,17 +189,17 @@
   bottom: calc(100% + 6px);
   left: 50%;
   transform: translateX(-50%) translateY(4px);
-  padding: var(--sp-2) var(--sp-4);
-  background: var(--tooltip-bg);
-  color: var(--paper);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-label);
+  padding: var(--cx-sp-2) var(--cx-sp-4);
+  background: var(--cx-tooltip-bg);
+  color: var(--cx-paper);
+  font-size: var(--cx-text-sm);
+  font-weight: var(--cx-weight-label);
   line-height: 1.3;
   white-space: nowrap;
   max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
-  border-radius: var(--radius-sm);
+  border-radius: var(--cx-radius-sm);
   pointer-events: none;
   z-index: 10;
   opacity: 0;
@@ -177,7 +234,7 @@
   left: 0;
   top: 0;
   pointer-events: none;
-  border: 2px solid var(--select);
+  border: 2px solid var(--cx-select);
   box-sizing: border-box;
 }
 
@@ -186,7 +243,7 @@
   left: 0;
   top: 0;
   pointer-events: none;
-  border: 2.5px solid var(--select);
+  border: 2.5px solid var(--cx-select);
   box-sizing: border-box;
   transition: border-radius 150ms ease-out;
 }
@@ -195,7 +252,7 @@
   position: absolute;
   left: 0;
   padding: 2px 6px;
-  background: var(--select);
+  background: var(--cx-select);
   color: #fff;
   font: 11px/1.3 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   white-space: nowrap;
@@ -214,7 +271,7 @@
 
 .cortex-label--below {
   top: 100%;
-  margin-top: var(--sp-2);
+  margin-top: var(--cx-sp-2);
 }
 
 /* ── Layer tree ──────────────────────────────── */
@@ -223,24 +280,15 @@
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  border-bottom: 1px solid var(--rule);
 }
 
-.cortex-layer-tree__header {
-  padding: var(--sp-2) var(--sp-4);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-value);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--ink-secondary);
-}
 
 .cortex-layer-tree__scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--ink-faint) transparent;
+  scrollbar-color: var(--cx-ink-faint) transparent;
 }
 
 .cortex-layer-tree__scroll::-webkit-scrollbar {
@@ -250,20 +298,20 @@
   background: transparent;
 }
 .cortex-layer-tree__scroll::-webkit-scrollbar-thumb {
-  background: var(--ink-faint);
+  background: var(--cx-ink-faint);
   border-radius: 3px;
 }
 
 .cortex-layer-node {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-1) var(--sp-4);
+  gap: var(--cx-sp-2);
+  padding: var(--cx-sp-1) var(--cx-sp-4);
   border-left: 2px solid transparent;
   cursor: pointer;
-  font-size: var(--text-sm);
-  font-family: var(--mono);
-  color: var(--ink-secondary);
+  font-size: var(--cx-text-sm);
+  font-family: var(--cx-mono);
+  color: var(--cx-ink-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -271,13 +319,13 @@
 }
 
 .cortex-layer-node:hover {
-  background: var(--well);
+  background: var(--cx-well);
 }
 
 .cortex-layer-node--selected {
-  background: var(--select-muted);
-  color: var(--ink);
-  border-left: 2px solid var(--select);
+  background: var(--cx-select-muted);
+  color: var(--cx-ink);
+  border-left: 2px solid var(--cx-select);
 }
 
 .cortex-layer-chevron {
@@ -287,7 +335,7 @@
   width: 12px;
   height: 12px;
   flex-shrink: 0;
-  color: var(--ink-tertiary);
+  color: var(--cx-ink-tertiary);
   cursor: pointer;
   transition: transform 150ms ease-out;
 }
@@ -310,24 +358,29 @@
   height: 4px;
   cursor: row-resize;
   background: transparent;
-  border-bottom: 1px solid var(--rule);
   flex-shrink: 0;
 }
 
 .cortex-layer-resize:hover {
-  background: var(--select-muted);
+  background: var(--cx-select-muted);
+}
+
+/* ── Element tree wrapper ────────────────────── */
+
+.cortex-element-tree {
+  min-width: 0;
 }
 
 /* ── Error card ──────────────────────────────── */
 
 .cortex-error-cards {
-  border-bottom: 1px solid var(--rule);
+  border-bottom: 1px solid var(--cx-rule);
 }
 
 .cortex-error-card {
-  padding: var(--sp-4);
-  background: var(--destructive-surface);
-  border-bottom: 1px solid var(--rule);
+  padding: var(--cx-sp-4);
+  background: var(--cx-destructive-surface);
+  border-bottom: 1px solid var(--cx-rule);
 }
 
 .cortex-error-card:last-child {
@@ -337,48 +390,48 @@
 .cortex-error-card__header {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-value);
-  color: var(--destructive);
+  gap: var(--cx-sp-2);
+  font-size: var(--cx-text-sm);
+  font-weight: var(--cx-weight-value);
+  color: var(--cx-destructive);
 }
 
 .cortex-error-card__icon {
   flex-shrink: 0;
-  color: var(--destructive);
+  color: var(--cx-destructive);
 }
 
 .cortex-error-card__property {
-  font-family: var(--mono);
+  font-family: var(--cx-mono);
 }
 
 .cortex-error-card__reason {
-  margin-top: var(--sp-2);
-  font-size: var(--text-sm);
-  color: var(--ink-secondary);
+  margin-top: var(--cx-sp-2);
+  font-size: var(--cx-text-sm);
+  color: var(--cx-ink-secondary);
   line-height: 1.4;
 }
 
 .cortex-error-card__actions {
   display: flex;
   justify-content: flex-end;
-  gap: var(--sp-2);
-  margin-top: var(--sp-3);
+  gap: var(--cx-sp-2);
+  margin-top: var(--cx-sp-3);
 }
 
 .cortex-error-card__btn {
-  padding: var(--sp-1) var(--sp-3);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-value);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-sm);
-  background: var(--well);
-  color: var(--ink);
+  padding: var(--cx-sp-1) var(--cx-sp-3);
+  font-size: var(--cx-text-xs);
+  font-weight: var(--cx-weight-value);
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-sm);
+  background: var(--cx-well);
+  color: var(--cx-ink);
   cursor: pointer;
 }
 
 .cortex-error-card__btn:hover:not(:disabled) {
-  background: var(--well-hover);
+  background: var(--cx-btn-hover);
 }
 
 .cortex-error-card__btn:disabled {
@@ -387,13 +440,13 @@
 }
 
 .cortex-error-card__btn--primary {
-  background: var(--select);
-  color: var(--on-select);
-  border-color: var(--select);
+  background: var(--cx-select);
+  color: var(--cx-on-select);
+  border-color: var(--cx-select);
 }
 
 .cortex-error-card__btn--primary:hover:not(:disabled) {
-  background: var(--select-hover);
+  background: var(--cx-select-hover);
 }
 
 /* ── Panel shell ─────────────────────────────── */
@@ -404,16 +457,16 @@
   top: 0;
   width: 320px;
   max-height: calc(100vh - 32px);
-  background: var(--paper);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-lg);
+  background: var(--cx-paper);
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-lg);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
   pointer-events: auto;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  color: var(--ink);
-  font-size: var(--text-lg);
+  color: var(--cx-ink);
+  font-size: var(--cx-text-lg);
   line-height: 1.4;
 }
 
@@ -449,8 +502,9 @@
 .cortex-panel__body {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   scrollbar-width: thin;
-  scrollbar-color: var(--ink-faint) transparent;
+  scrollbar-color: var(--cx-ink-faint) transparent;
 }
 
 .cortex-panel__body::-webkit-scrollbar {
@@ -460,48 +514,48 @@
   background: transparent;
 }
 .cortex-panel__body::-webkit-scrollbar-thumb {
-  background: var(--ink-faint);
+  background: var(--cx-ink-faint);
   border-radius: 3px;
 }
 .cortex-panel__empty {
-  padding: var(--sp-7) var(--sp-6);
+  padding: var(--cx-sp-7) var(--cx-sp-6);
   text-align: center;
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
+  gap: var(--cx-sp-3);
 }
 
 .cortex-panel__empty-action {
-  color: var(--ink-secondary);
-  font-size: var(--text-md);
+  color: var(--cx-ink-secondary);
+  font-size: var(--cx-text-md);
 }
 
 .cortex-panel__empty-hint {
-  color: var(--ink-tertiary);
-  font-size: var(--text-sm);
+  color: var(--cx-ink-tertiary);
+  font-size: var(--cx-text-sm);
 }
 
 .cortex-panel__empty-shortcut {
-  color: var(--ink-ghost);
-  font-size: var(--text-xs);
-  font-family: var(--mono);
+  color: var(--cx-ink-ghost);
+  font-size: var(--cx-text-xs);
+  font-family: var(--cx-mono);
 }
 
 .cortex-panel__scope {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--sp-3) var(--sp-5);
-  background: var(--warning-surface);
-  border-bottom: 1px solid var(--rule);
-  font-size: var(--text-sm);
-  gap: var(--sp-4);
+  padding: var(--cx-sp-3) var(--cx-sp-5);
+  background: var(--cx-warning-surface);
+  border-bottom: 1px solid var(--cx-rule);
+  font-size: var(--cx-text-sm);
+  gap: var(--cx-sp-4);
   animation: cortex-scope-enter 150ms ease-out;
 }
 
 .cortex-panel__scope-label {
-  color: var(--warning);
-  font-weight: var(--weight-value);
+  color: var(--cx-warning);
+  font-weight: var(--cx-weight-value);
   white-space: nowrap;
   min-width: 0;
   overflow: hidden;
@@ -510,42 +564,42 @@
 
 .cortex-panel__scope-toggle {
   display: flex;
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-sm);
   overflow: hidden;
 }
 
 .cortex-panel__scope-btn {
-  background: var(--well);
+  background: var(--cx-well);
   border: none;
-  color: var(--ink);
-  font-size: var(--text-sm);
+  color: var(--cx-ink);
+  font-size: var(--cx-text-sm);
   padding: 2px 8px;
   cursor: pointer;
   white-space: nowrap;
 }
 
 .cortex-panel__scope-btn:not(:last-child) {
-  border-right: 1px solid var(--rule);
+  border-right: 1px solid var(--cx-rule);
 }
 
 .cortex-panel__scope-btn--active {
-  background: var(--select);
-  color: var(--on-select);
+  background: var(--cx-select);
+  color: var(--cx-on-select);
 }
 
 .cortex-panel__scope-btn:focus-visible {
-  outline: 2px solid var(--select-muted);
+  outline: 2px solid var(--cx-select-muted);
   outline-offset: -1px;
 }
 
 .cortex-panel__scope-toggle:focus-within {
-  outline: 2px solid var(--select-muted);
+  outline: 2px solid var(--cx-select-muted);
   outline-offset: 1px;
 }
 
 .cortex-panel__scope-btn:hover:not(.cortex-panel__scope-btn--active) {
-  background: var(--well-hover);
+  background: var(--cx-btn-hover);
 }
 
 /* ── Panel header ────────────────────────────── */
@@ -554,10 +608,10 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--sp-3);
-  padding: var(--sp-4) var(--sp-5);
-  border-bottom: 1px solid var(--rule);
-  background: var(--paper);
+  gap: var(--cx-sp-3);
+  padding: var(--cx-sp-4) var(--cx-sp-5);
+  border-bottom: 1px solid var(--cx-rule);
+  background: var(--cx-paper);
   cursor: grab;
   min-height: 36px;
   flex-shrink: 0;
@@ -577,10 +631,10 @@
 
 /* Tag name as small badge — secondary to source attribution */
 .cortex-panel-header__tag {
-  font-size: var(--text-sm);
-  font-weight: var(--weight-value);
-  font-family: var(--mono);
-  color: var(--ink-secondary);
+  font-size: var(--cx-text-sm);
+  font-weight: var(--cx-weight-value);
+  font-family: var(--cx-mono);
+  color: var(--cx-ink-secondary);
   letter-spacing: -0.01em;
   white-space: nowrap;
   overflow: hidden;
@@ -589,10 +643,10 @@
 
 /* Source attribution as hero — the bridge between visual and code */
 .cortex-panel-header__source {
-  font-size: var(--text-md);
-  font-family: var(--mono);
-  font-weight: var(--weight-value);
-  color: var(--ink);
+  font-size: var(--cx-text-md);
+  font-family: var(--cx-mono);
+  font-weight: var(--cx-weight-value);
+  color: var(--cx-ink);
   text-decoration: none;
   letter-spacing: -0.01em;
   white-space: nowrap;
@@ -604,12 +658,12 @@
 }
 
 .cortex-panel-header__source:hover {
-  color: var(--select);
-  border-bottom-color: var(--select-muted);
+  color: var(--cx-select);
+  border-bottom-color: var(--cx-select-muted);
 }
 
 .cortex-panel-header__source:focus-visible {
-  outline: 2px solid var(--select-muted);
+  outline: 2px solid var(--cx-select-muted);
   outline-offset: 1px;
 }
 
@@ -624,14 +678,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border: none;
   background: transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--cx-radius-sm);
   cursor: pointer;
-  color: var(--ink-ghost);
-  font-size: var(--text-md);
+  color: var(--cx-ink-ghost);
+  font-size: var(--cx-text-md);
   padding: 0;
   transition: background 150ms ease-out, color 150ms ease-out, opacity 150ms ease-out, outline-color 150ms ease-out;
   outline: 2px solid transparent;
@@ -639,12 +693,12 @@
 }
 
 .cortex-panel-header__btn:hover:not(:disabled) {
-  background: var(--well);
-  color: var(--ink-secondary);
+  background: var(--cx-well);
+  color: var(--cx-ink-secondary);
 }
 
 .cortex-panel-header__btn:focus-visible {
-  outline-color: var(--select-muted);
+  outline-color: var(--cx-select-muted);
 }
 
 .cortex-panel-header__btn:disabled {
@@ -652,9 +706,9 @@
   cursor: not-allowed;
 }
 
-.cortex-panel-header__btn--close:hover {
-  background: var(--destructive-surface);
-  color: var(--destructive);
+.cortex-panel-header__btn--close:hover:not(:disabled) {
+  background: var(--cx-destructive-surface);
+  color: var(--cx-destructive);
 }
 
 .cortex-panel-header__btn--toggled-off {
@@ -666,19 +720,19 @@
 .cortex-numeric-input {
   display: flex;
   align-items: center;
-  height: 26px;
-  background: var(--well);
-  border-radius: var(--radius-sm);
-  padding: 0 var(--sp-4);
-  gap: var(--sp-2);
+  height: 28px;
+  background: var(--cx-well);
+  border-radius: var(--cx-radius-sm);
+  padding: 0 var(--cx-sp-4);
+  gap: var(--cx-sp-2);
   cursor: ew-resize;
   user-select: none;
-  box-shadow: var(--well-shadow);
+  box-shadow: var(--cx-well-shadow);
   transition: background 150ms ease-out, box-shadow 150ms ease-out;
 }
 
 .cortex-numeric-input:hover {
-  background: var(--well-hover);
+  background: var(--cx-well-hover);
 }
 
 /* Scrub affordance — subtle drag hint on hover */
@@ -693,36 +747,48 @@
 }
 
 .cortex-numeric-input:hover::before {
-  color: var(--ink-ghost);
+  color: var(--cx-ink-ghost);
 }
 
 .cortex-numeric-input--scrubbing {
   cursor: ew-resize;
-  background: var(--well-active);
-  box-shadow: var(--well-shadow), 0 0 0 1.5px var(--select-muted);
+  background: var(--cx-well-active);
+  box-shadow: var(--cx-well-shadow), 0 0 0 1.5px var(--cx-select-muted);
 }
 
 .cortex-numeric-input:focus-within {
-  box-shadow: var(--well-shadow), 0 0 0 1.5px var(--select-muted);
+  box-shadow: var(--cx-well-shadow), 0 0 0 1.5px var(--cx-select-muted);
 }
 
 .cortex-numeric-input__label {
-  font-size: var(--text-sm);
-  color: var(--ink-ghost);
+  font-size: var(--cx-text-sm);
+  color: var(--cx-ink-ghost);
   flex-shrink: 0;
+}
+
+/* Inline ghost-coloured prefix slot — text or icon (e.g. RotateCw on the
+   PositionSection rotate input). Uses display:flex so an SVG child sits on
+   the input baseline without baseline-shifting the value text. */
+.cortex-numeric-input__prefix {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--cx-text-sm);
+  color: var(--cx-ink-ghost);
+  flex-shrink: 0;
+  line-height: 1;
 }
 
 .cortex-numeric-input__value {
   width: 100%;
   border: none;
   background: transparent;
-  font-size: var(--text-md);
-  font-family: var(--mono);
-  font-weight: var(--weight-value);
+  font-size: var(--cx-text-md);
+  font-family: var(--cx-mono);
+  font-weight: var(--cx-weight-value);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
   line-height: 1;
-  color: var(--ink);
+  color: var(--cx-ink);
   padding: 0;
   outline: none;
   cursor: inherit;
@@ -740,42 +806,42 @@
 }
 
 .cortex-numeric-input__unit {
-  font-size: var(--text-sm);
-  color: var(--ink-ghost);
+  font-size: var(--cx-text-sm);
+  color: var(--cx-ink-ghost);
   flex-shrink: 0;
 }
 
 /* Override indicator — value turns blue when changed from default */
 .cortex-numeric-input--overridden .cortex-numeric-input__value {
-  color: var(--select-hover);
+  color: var(--cx-select-hover);
   transition: color 150ms ease-out;
 }
 
 /* Mixed indicator — shows '--' placeholder when shared elements have different values */
 .cortex-numeric-input--mixed .cortex-numeric-input__value::placeholder {
-  color: var(--ink-tertiary);
+  color: var(--cx-ink-tertiary);
   font-style: italic;
   opacity: 1;
 }
 
 .cortex-color-input--mixed .cortex-color-input__swatch {
   background: repeating-linear-gradient(
-    45deg, var(--well) 0px, var(--well) 4px, var(--rule) 4px, var(--rule) 8px
+    45deg, var(--cx-well) 0px, var(--cx-well) 4px, var(--cx-rule) 4px, var(--cx-rule) 8px
   ) !important;
 }
 
 .cortex-color-input--mixed .cortex-color-input__hex {
-  color: var(--ink-tertiary);
+  color: var(--cx-ink-tertiary);
   font-style: italic;
 }
 
 .cortex-color-input--overridden .cortex-color-input__hex {
-  color: var(--select-hover);
+  color: var(--cx-select-hover);
   transition: color 150ms ease-out;
 }
 
 .cortex-dropdown--overridden .cortex-dropdown__value {
-  color: var(--select-hover);
+  color: var(--cx-select-hover);
   transition: color 150ms ease-out;
 }
 
@@ -784,7 +850,7 @@
 .cortex-spacing-section {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-5);
+  gap: var(--cx-sp-5);
 }
 
 .cortex-spacing-group__header {
@@ -795,10 +861,10 @@
 }
 
 .cortex-section-label {
-  font-size: var(--text-xs);
-  font-weight: var(--weight-value);
+  font-size: var(--cx-text-xs);
+  font-weight: var(--cx-weight-value);
   letter-spacing: 0.01em;
-  color: var(--ink-ghost);
+  color: var(--cx-ink-ghost);
 }
 
 /* ── Section group (category wrapper) ────────── */
@@ -817,29 +883,102 @@
 .cortex-panel--entering .cortex-section-group:nth-child(3) { animation-delay: 300ms; }
 .cortex-panel--entering .cortex-section-group:nth-child(4) { animation-delay: 400ms; }
 .cortex-panel--entering .cortex-section-group:nth-child(5) { animation-delay: 500ms; }
+.cortex-panel--entering .cortex-section-group:nth-child(6) { animation-delay: 600ms; }
+.cortex-panel--entering .cortex-section-group:nth-child(7) { animation-delay: 700ms; }
+.cortex-panel--entering .cortex-section-group:nth-child(8) { animation-delay: 800ms; }
 
 /* Divider between groups — space does the heavy lifting, rule is accent */
 .cortex-section-group + .cortex-section-group {
-  border-top: 1px solid var(--rule);
-  margin-top: var(--sp-4);
+  border-top: 1px solid var(--cx-rule);
+}
+
+/* Resize handle between Elements and the next section — replaces the
+   standard group divider so there's only one visual line. */
+.cortex-section-resize {
+  cursor: row-resize;
+  height: 5px;
+  margin: -2px 0;
+  position: relative;
+}
+.cortex-section-resize::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 2px;
+  height: 1px;
+  background: var(--cx-rule);
+}
+.cortex-section-resize:hover {
+  background: var(--cx-select-muted);
+}
+.cortex-section-resize + .cortex-section-group {
+  border-top: none;
 }
 
 .cortex-section-group__header {
-  padding: var(--sp-5) var(--sp-5) var(--sp-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cx-sp-3);
+  padding: var(--cx-sp-5) var(--cx-sp-5) var(--cx-sp-4);
+}
+
+/* Sections with an empty state (Background, Border, Effects — those with a
+   `+` header-action button for adding the first value) need balanced
+   vertical padding so the label visually centers against the 28px add
+   button. Without this, the 8px bottom vs 12px top shifts the label 2px
+   off center. `:has()` scopes this to exactly the headers that render a
+   header-action slot, so the other 5 sections (Position, Layout, Appearance,
+   Typography, Spacing — content always rendered) keep their current padding. */
+.cortex-section-group__header:has(.cortex-section-group__header-action) {
+  padding: var(--cx-sp-5);
 }
 
 .cortex-section-group__title {
-  font-size: var(--text-sm);
-  font-weight: var(--weight-value);
-  color: var(--ink-secondary);
+  font-size: var(--cx-text-lg);
+  font-weight: var(--cx-weight-heading);
+  color: var(--cx-ink);
   letter-spacing: 0.01em;
+}
+
+/* Right-aligned slot inside the section-group header for per-section
+   affordances (Typography T toggle, Position lock, etc.). Task 4 introduces
+   the wrapper; Tasks 5-16 fill it with concrete controls. Flex child is
+   constrained so long section titles still ellipsize cleanly. */
+.cortex-section-group__header-action {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* Sub-section label — lightweight divider + caption used inside a section
+   group to introduce a nested block (e.g. Spacing inside Layout, per-corner
+   radius inside Appearance). Lives next to the parent section-group rules
+   because the two evolve together. */
+.cortex-subsection-label {
+  font-size: var(--cx-text-md);
+  font-weight: var(--cx-weight-heading);
+  color: var(--cx-ink-ghost);
+  padding: 8px 0;
+  margin: 0;
 }
 
 .cortex-section-group__content {
   display: flex;
   flex-direction: column;
-  padding: var(--sp-3) var(--sp-5) var(--sp-5);
-  gap: var(--sp-5);
+  padding: 0 var(--cx-sp-5) var(--cx-sp-5);
+  gap: var(--cx-sp-5);
+}
+
+/* When a section has nothing to render (e.g. Background with no fill, Border
+   with no border) the SectionGroup wrapper still mounts but its content div
+   becomes :empty. Drop the bottom padding so the group collapses to just the
+   header row — otherwise the empty white space below the header reads as a
+   vertical rhythm bug. Preact doesn't emit whitespace text nodes from
+   `{false && ...}` conditional children, so :empty matches reliably. */
+.cortex-section-group__content:empty {
+  padding-bottom: 0;
 }
 
 /* ── Property section wrapper ──────────────── */
@@ -847,28 +986,28 @@
 .cortex-collapsible {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
+  gap: var(--cx-sp-3);
 }
 
 .cortex-collapsible__header {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: var(--cx-sp-2);
   min-width: 0;
 }
 
 .cortex-collapsible__label {
-  font-size: var(--text-sm);
-  font-weight: var(--weight-label);
+  font-size: var(--cx-text-sm);
+  font-weight: var(--cx-weight-label);
   letter-spacing: 0.01em;
-  color: var(--ink-ghost);
+  color: var(--cx-ink-ghost);
 }
 
 .cortex-collapsible__summary {
-  font-size: var(--text-sm);
-  font-weight: var(--weight-value);
-  color: var(--ink);
-  font-family: var(--mono);
+  font-size: var(--cx-text-sm);
+  font-weight: var(--cx-weight-value);
+  color: var(--cx-ink);
+  font-family: var(--cx-mono);
   letter-spacing: -0.02em;
   white-space: nowrap;
   overflow: hidden;
@@ -885,22 +1024,22 @@
   margin-left: auto;
   border: none;
   background: transparent;
-  color: var(--ink-tertiary);
+  color: var(--cx-ink-tertiary);
   cursor: pointer;
-  border-radius: var(--radius-sm);
+  border-radius: var(--cx-radius-sm);
   padding: 0;
   font-size: 14px;
   transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out;
 }
 
 .cortex-collapsible__btn:hover {
-  background: var(--well);
-  color: var(--ink-secondary);
+  background: var(--cx-well);
+  color: var(--cx-ink-secondary);
 }
 
 .cortex-collapsible__btn--remove:hover {
-  color: var(--destructive);
-  background: var(--destructive-surface);
+  color: var(--cx-destructive);
+  background: var(--cx-destructive-surface);
 }
 
 .cortex-collapsible__btn:active {
@@ -909,7 +1048,7 @@
 
 .cortex-collapsible__btn:focus-visible {
   outline: 2px solid transparent;
-  outline-color: var(--select-muted);
+  outline-color: var(--cx-select-muted);
 }
 
 .cortex-collapsible__body {
@@ -935,59 +1074,59 @@
   height: 20px;
   border: none;
   background: transparent;
-  color: var(--ink-tertiary);
+  color: var(--cx-ink-tertiary);
   cursor: pointer;
-  border-radius: var(--radius-sm);
+  border-radius: var(--cx-radius-sm);
   padding: 0;
   font-size: 14px;
   transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out, transform 100ms ease-out;
 }
 
 .cortex-spacing-group__toggle:hover {
-  background: var(--well);
-  color: var(--ink-secondary);
+  background: var(--cx-well);
+  color: var(--cx-ink-secondary);
 }
 
 .cortex-spacing-group__row {
   display: flex;
-  gap: var(--sp-3);
+  gap: var(--cx-sp-3);
   align-items: center;
 }
 
 .cortex-spacing-group__grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--sp-3);
+  gap: var(--cx-sp-3);
 }
 
 .cortex-spacing-section__toggles {
   display: flex;
-  gap: var(--sp-3);
+  gap: var(--cx-sp-3);
 }
 
 .cortex-spacing-section__toggle-group {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: var(--sp-1);
+  gap: var(--cx-sp-1);
 }
 
 /* ── Source attribution ──────────────────────── */
 
 .cortex-attribution {
-  font-size: var(--text-sm);
-  color: var(--ink-tertiary);
+  font-size: var(--cx-text-sm);
+  color: var(--cx-ink-tertiary);
   text-align: right;
-  margin-top: var(--sp-2);
+  margin-top: var(--cx-sp-2);
 }
 
 .cortex-attribution--clickable {
   cursor: pointer;
-  color: var(--ink-secondary);
+  color: var(--cx-ink-secondary);
 }
 
 .cortex-attribution--clickable:hover {
-  color: var(--select);
+  color: var(--cx-select);
   text-decoration: underline;
 }
 
@@ -996,20 +1135,20 @@
 }
 
 .cortex-attribution--writing {
-  color: var(--ink-secondary);
+  color: var(--cx-ink-secondary);
 }
 
 .cortex-attribution--processing {
-  color: var(--select);
+  color: var(--cx-select);
 }
 
 .cortex-attribution--completed {
-  color: var(--success);
+  color: var(--cx-success);
   animation: cortex-flash 500ms ease-out;
 }
 
 .cortex-attribution--error {
-  color: var(--warning);
+  color: var(--cx-warning);
   cursor: help;
 }
 
@@ -1024,11 +1163,11 @@
   display: flex;
   align-items: center;
   position: relative;
-  background: var(--well);
-  border-radius: var(--radius-md);
+  background: var(--cx-well);
+  border-radius: var(--cx-radius-md);
   padding: 2px;
   gap: 0;
-  box-shadow: var(--well-shadow);
+  box-shadow: var(--cx-well-shadow);
 }
 
 .cortex-segmented__indicator {
@@ -1036,8 +1175,8 @@
   top: 2px;
   left: 0;
   height: calc(100% - 4px);
-  background: var(--paper);
-  border-radius: var(--radius-sm);
+  background: var(--cx-paper);
+  border-radius: var(--cx-radius-sm);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
   transition: transform 150ms ease-out, width 150ms ease-out;
   pointer-events: none;
@@ -1049,37 +1188,40 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--sp-2);
-  height: 26px;
+  gap: var(--cx-sp-2);
+  height: 28px;
   padding: 0 10px;
   border: none;
   background: transparent;
-  font-size: var(--text-sm);
-  font-weight: var(--weight-value);
-  color: var(--ink-tertiary);
+  font-size: var(--cx-text-sm);
+  font-weight: var(--cx-weight-value);
+  color: var(--cx-ink-tertiary);
   cursor: pointer;
   white-space: nowrap;
-  border-radius: var(--radius-sm);
+  border-radius: var(--cx-radius-sm);
   flex: 1;
   transition: color 150ms ease-out;
 }
 
 .cortex-segmented__option:hover:not(.cortex-segmented__option--active) {
-  color: var(--ink);
+  color: var(--cx-ink);
 }
 
 .cortex-segmented__option--active {
-  color: var(--ink);
-  font-weight: var(--weight-value);
+  color: var(--cx-ink);
+  font-weight: var(--cx-weight-value);
 }
 
 .cortex-segmented--sm .cortex-segmented__option {
-  padding: 0 var(--sp-3);
+  height: 22px;
+  padding: 0 var(--cx-sp-3);
   min-width: 28px;
   flex: 0;
 }
 
 .cortex-segmented__icon {
+  display: inline-flex;
+  align-items: center;
   font-size: 14px;
   line-height: 1;
 }
@@ -1096,21 +1238,21 @@
   align-items: center;
   width: 100%;
   height: 28px;
-  padding: 0 var(--sp-4);
-  background: var(--well);
+  padding: 0 var(--cx-sp-4);
+  background: var(--cx-well);
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--cx-radius-md);
   cursor: pointer;
-  font-size: var(--text-md);
-  font-weight: var(--weight-value);
-  color: var(--ink);
+  font-size: var(--cx-text-md);
+  font-weight: var(--cx-weight-value);
+  color: var(--cx-ink);
   text-align: left;
-  box-shadow: var(--well-shadow);
+  box-shadow: var(--cx-well-shadow);
   transition: background 150ms ease-out;
 }
 
 .cortex-dropdown__trigger:hover {
-  background: var(--well-hover);
+  background: var(--cx-btn-hover);
 }
 
 .cortex-dropdown__value {
@@ -1123,9 +1265,9 @@
 
 .cortex-dropdown__chevron {
   flex-shrink: 0;
-  font-size: var(--text-md);
-  color: var(--ink-tertiary);
-  margin-left: var(--sp-2);
+  font-size: var(--cx-text-md);
+  color: var(--cx-ink-tertiary);
+  margin-left: var(--cx-sp-2);
   transition: transform 150ms ease-out;
 }
 
@@ -1143,10 +1285,10 @@
   z-index: 2;
   min-width: 120px;
   max-height: 200px;
-  background: var(--paper);
+  background: var(--cx-paper);
   animation: cortex-popover-enter 150ms ease-out;
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-lg);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1), 0 1px 4px rgba(0, 0, 0, 0.06);
   overflow: hidden;
   display: flex;
@@ -1154,48 +1296,190 @@
 }
 
 .cortex-dropdown__filter {
-  padding: var(--sp-3) var(--sp-4);
+  padding: var(--cx-sp-3) var(--cx-sp-4);
   border: none;
-  border-bottom: 1px solid var(--well);
-  font-size: var(--text-lg);
-  color: var(--ink);
+  border-bottom: 1px solid var(--cx-well);
+  font-size: var(--cx-text-lg);
+  color: var(--cx-ink);
   background: transparent;
   outline: none;
 }
 
 .cortex-dropdown__filter::placeholder {
-  color: var(--ink-tertiary);
+  color: var(--cx-ink-tertiary);
 }
 
 .cortex-dropdown__list {
   overflow-y: auto;
   max-height: 160px;
-  padding: var(--sp-2) 0;
+  padding: var(--cx-sp-2) 0;
 }
 
 .cortex-dropdown__option {
-  padding: var(--sp-3) var(--sp-4);
-  font-size: var(--text-lg);
-  color: var(--ink);
+  padding: var(--cx-sp-3) var(--cx-sp-4);
+  font-size: var(--cx-text-lg);
+  color: var(--cx-ink);
   cursor: pointer;
 }
 
 .cortex-dropdown__option:hover,
 .cortex-dropdown__option--active {
-  background: var(--well);
-  color: var(--ink);
+  background: var(--cx-well);
+  color: var(--cx-ink);
 }
 
 .cortex-dropdown__option--selected {
-  font-weight: var(--weight-value);
-  color: var(--select);
+  font-weight: var(--cx-weight-value);
+  color: var(--cx-select);
 }
 
 .cortex-dropdown__empty {
-  padding: var(--sp-4);
-  font-size: var(--text-md);
-  color: var(--ink-tertiary);
+  padding: var(--cx-sp-4);
+  font-size: var(--cx-text-md);
+  color: var(--cx-ink-tertiary);
   text-align: center;
+}
+
+/* ── PositionDropdown (Task 5 / ZF0-1183) ───── */
+/* Purpose-built picker for CSS `position` — icon + label + chevron trigger,
+   popover listing the 5 enum options with per-option icon + checkmark and
+   a description bar at the bottom. Shares @floating-ui positioning with
+   Dropdown but does NOT share DOM/CSS — keeping it separate avoids
+   polluting Dropdown's filter-based API and keeps the option-row layout
+   (icon / label / check) isolated from the generic dropdown styles. */
+
+.cortex-position-dropdown {
+  position: relative;
+  width: 100%;
+}
+
+.cortex-position-dropdown__trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--cx-sp-3);
+  width: 100%;
+  height: 28px;
+  padding: 0 var(--cx-sp-4);
+  background: var(--cx-well);
+  border: none;
+  border-radius: var(--cx-radius-md);
+  cursor: pointer;
+  font-size: var(--cx-text-md);
+  font-weight: var(--cx-weight-label);
+  color: var(--cx-ink);
+  text-align: left;
+  box-shadow: var(--cx-well-shadow);
+  transition: background 150ms ease-out;
+}
+
+.cortex-position-dropdown__trigger:hover:not(:disabled) {
+  background: var(--cx-btn-hover);
+}
+
+.cortex-position-dropdown__trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.cortex-position-dropdown__trigger-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--cx-ink-secondary);
+}
+
+.cortex-position-dropdown__trigger-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cortex-position-dropdown__chevron {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--cx-ink-tertiary);
+  transition: transform 150ms ease-out;
+}
+
+.cortex-position-dropdown__chevron--open {
+  transform: rotate(180deg);
+}
+
+.cortex-position-dropdown__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+}
+
+.cortex-position-dropdown__popover {
+  z-index: 2;
+  min-width: 180px;
+  background: var(--cx-paper);
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-lg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1), 0 1px 4px rgba(0, 0, 0, 0.06);
+  animation: cortex-popover-enter 150ms ease-out;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.cortex-position-dropdown__list {
+  padding: var(--cx-sp-2) 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cortex-position-dropdown__option {
+  display: flex;
+  align-items: center;
+  gap: var(--cx-sp-3);
+  height: 32px;
+  padding: 0 var(--cx-sp-4);
+  font-size: var(--cx-text-lg);
+  font-weight: var(--cx-weight-label);
+  color: var(--cx-ink);
+  cursor: pointer;
+}
+
+.cortex-position-dropdown__option--highlighted {
+  background: var(--cx-well);
+}
+
+.cortex-position-dropdown__option--selected {
+  color: var(--cx-select);
+  font-weight: var(--cx-weight-value);
+}
+
+.cortex-position-dropdown__option-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: currentColor;
+}
+
+.cortex-position-dropdown__option-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cortex-position-dropdown__option-check {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--cx-select);
+}
+
+.cortex-position-dropdown__description {
+  padding: var(--cx-sp-3) var(--cx-sp-4);
+  border-top: 1px solid var(--cx-rule);
+  background: var(--cx-well);
+  font-size: var(--cx-text-sm);
+  font-weight: var(--cx-weight-label);
+  color: var(--cx-ink-secondary);
+  line-height: 1.4;
 }
 
 /* ── Layout section ─────────────────────────── */
@@ -1203,13 +1487,13 @@
 .cortex-layout-section {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-6);
+  gap: var(--cx-sp-6);
 }
 
 .cortex-layout-section__group {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
+  gap: var(--cx-sp-3);
 }
 
 .cortex-layout-section__reveal {
@@ -1218,7 +1502,7 @@
 
 .cortex-layout-section__sizing {
   display: flex;
-  gap: var(--sp-3);
+  gap: var(--cx-sp-3);
   align-items: center;
 }
 
@@ -1230,25 +1514,25 @@
   height: 24px;
   border: none;
   background: transparent;
-  color: var(--ink-tertiary);
+  color: var(--cx-ink-tertiary);
   cursor: pointer;
-  border-radius: var(--radius-sm);
+  border-radius: var(--cx-radius-sm);
   flex-shrink: 0;
   padding: 0;
   transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out, transform 100ms ease-out;
 }
 
 .cortex-lock-btn:hover {
-  background: var(--well);
-  color: var(--ink-secondary);
+  background: var(--cx-well);
+  color: var(--cx-ink-secondary);
 }
 
 .cortex-lock-btn--active {
-  color: var(--select);
+  color: var(--cx-select);
 }
 
 .cortex-lock-btn--active:hover {
-  color: var(--select-hover);
+  color: var(--cx-select-hover);
 }
 
 /* ── Typography section ─────────────────────── */
@@ -1256,18 +1540,28 @@
 .cortex-typography-section {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-6);
+  gap: var(--cx-sp-6);
 }
 
-.cortex-typography-section__group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
+/* Mode A: vertical stack of token chips */
+.cortex-typography-section--mode-a {
+  gap: var(--cx-sp-3);
 }
 
+.cortex-typography-section__empty {
+  font-size: var(--cx-text-sm);
+  color: var(--cx-ink-ghost);
+  font-style: italic;
+}
+
+/* Mode B: CSS control rows */
 .cortex-typography-section__row {
   display: flex;
-  gap: var(--sp-3);
+  gap: var(--cx-sp-3);
+}
+
+.cortex-typography-section__row--full {
+  flex-direction: column;
 }
 
 .cortex-typography-section__field {
@@ -1275,15 +1569,7 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-}
-
-.cortex-typography-section__inline-label {
-  font-size: var(--text-sm);
-  font-weight: var(--weight-label);
-  letter-spacing: 0.01em;
-  color: var(--ink-tertiary);
-  flex-shrink: 0;
+  gap: var(--cx-sp-2);
 }
 
 /* ── Color input ────────────────────────────── */
@@ -1291,14 +1577,14 @@
 .cortex-color-input {
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
+  gap: var(--cx-sp-3);
 }
 
 .cortex-color-input__swatch {
   width: 16px;
   height: 16px;
   border-radius: 3px;
-  border: 1px solid var(--rule-soft);
+  border: 1px solid var(--cx-rule-soft);
   flex-shrink: 0;
   cursor: pointer;
   padding: 0;
@@ -1306,11 +1592,11 @@
 }
 
 .cortex-color-input__swatch:hover {
-  border-color: var(--rule);
+  border-color: var(--cx-rule);
 }
 
 .cortex-color-input__swatch:focus-visible {
-  box-shadow: 0 0 0 2px var(--select-muted);
+  box-shadow: 0 0 0 2px var(--cx-select-muted);
 }
 
 .cortex-color-input__native {
@@ -1322,28 +1608,40 @@
 }
 
 .cortex-color-input__hex {
+  /* Equal flex share with opacity (`flex: 1` below). Previously 2 (hex
+     dominant), but once BorderSection grew a second trailing button the
+     2:1 bias left opacity below its ~80px min-content floor and it
+     collapsed to zero width. 1:1 gives both slots a comfortable allocation
+     in single- AND double-trailing layouts without needing a scoped
+     min-width override on opacity. Hex at ~92px (Border 2-trailing) still
+     fits the size={9} input with "#ffffff" + padding with room to spare. */
   flex: 1;
   height: 28px;
-  padding: 0 var(--sp-4);
-  background: var(--well);
+  padding: 0 var(--cx-sp-4);
+  background: var(--cx-well);
   border: none;
-  border-radius: var(--radius-md);
-  font-size: var(--text-lg);
+  border-radius: var(--cx-radius-md);
+  font-size: var(--cx-text-lg);
   line-height: 1;
-  font-family: var(--mono);
-  color: var(--ink);
-  box-shadow: var(--well-shadow);
+  font-family: var(--cx-mono);
+  color: var(--cx-ink);
+  box-shadow: var(--cx-well-shadow);
   outline: none;
   transition: box-shadow 150ms ease-out;
 }
 
 .cortex-color-input__hex:focus {
-  box-shadow: 0 0 0 2px var(--select-muted);
+  box-shadow: 0 0 0 2px var(--cx-select-muted);
 }
 
+/* Opacity takes 1/3 of the row's free space (hex takes 2/3). Flex arbitrates
+   the allocation; the inner NumericInput fills its slot via the existing
+   `.cortex-numeric-input__value { width: 100% }` rule just like every other
+   constrained NumericInput consumer. The HTML `size={4}` on NumericInput's
+   inner <input> keeps the flex min-content small enough that this 1/3 slot
+   actually fits without forcing row overflow. */
 .cortex-color-input__opacity {
-  width: 66px;
-  flex-shrink: 0;
+  flex: 1;
 }
 
 /* ── Color picker popover ──────────────────── */
@@ -1357,13 +1655,13 @@
 .cortex-color-picker__popover {
   z-index: 11;
   width: 220px;
-  background: var(--paper);
+  background: var(--cx-paper);
   animation: cortex-popover-enter 150ms ease-out;
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-lg);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
   overflow: hidden;
-  padding: var(--sp-4);
+  padding: var(--cx-sp-4);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1375,12 +1673,12 @@
 }
 
 .cortex-color-picker__popover hex-color-picker::part(saturation) {
-  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  border-radius: var(--cx-radius-md) var(--cx-radius-md) 0 0;
 }
 
 .cortex-color-picker__popover hex-color-picker::part(hue) {
   height: 12px;
-  border-radius: var(--radius-md);
+  border-radius: var(--cx-radius-md);
 }
 
 .cortex-color-picker__popover hex-color-picker::part(saturation-pointer) {
@@ -1400,19 +1698,19 @@
 .cortex-color-picker__inputs {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-2);
+  gap: var(--cx-sp-2);
 }
 
 .cortex-color-picker__hex-row,
 .cortex-color-picker__alpha-row {
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
+  gap: var(--cx-sp-3);
 }
 
 .cortex-color-picker__label {
-  font-size: var(--text-sm);
-  color: var(--ink-secondary);
+  font-size: var(--cx-text-sm);
+  color: var(--cx-ink-secondary);
   width: 32px;
   flex-shrink: 0;
 }
@@ -1420,25 +1718,25 @@
 .cortex-color-picker__hex-input,
 .cortex-color-picker__alpha-input {
   flex: 1;
-  height: 26px;
-  padding: 0 var(--sp-3);
-  background: var(--well);
+  height: 28px;
+  padding: 0 var(--cx-sp-3);
+  background: var(--cx-well);
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--cx-radius-sm);
   font: 12px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  color: var(--ink);
+  color: var(--cx-ink);
   outline: none;
-  box-shadow: var(--well-shadow);
+  box-shadow: var(--cx-well-shadow);
 }
 
 .cortex-color-picker__hex-input:focus,
 .cortex-color-picker__alpha-input:focus {
-  box-shadow: 0 0 0 2px var(--select-muted);
+  box-shadow: 0 0 0 2px var(--cx-select-muted);
 }
 
 .cortex-color-picker__unit {
-  font-size: var(--text-sm);
-  color: var(--ink-tertiary);
+  font-size: var(--cx-text-sm);
+  color: var(--cx-ink-tertiary);
 }
 
 .cortex-color-picker__swatches {
@@ -1451,76 +1749,40 @@
   width: 100%;
   aspect-ratio: 1;
   border-radius: 3px;
-  border: 1px solid var(--rule-soft);
+  border: 1px solid var(--cx-rule-soft);
   cursor: pointer;
 }
 
 .cortex-color-picker__swatch:hover {
-  border-color: var(--rule);
+  border-color: var(--cx-rule);
   transform: scale(1.15);
 }
 
 .cortex-color-picker__swatch--active {
-  border-color: var(--select);
-  box-shadow: 0 0 0 1px var(--select);
+  border-color: var(--cx-select);
+  box-shadow: 0 0 0 1px var(--cx-select);
 }
 
-/* ── Fill section ──────────────────────────── */
+/* ── Background section ───────────────────── */
 
-.cortex-fill-section {
+/* Column-flex wrapper matching Typography's `__row--full` pattern. Single
+   child (ColorInput in raw mode OR a row sub-wrapper for the TokenChip
+   path) stretches horizontally via default `align-items: stretch`, with
+   content min-width protection preserved — no scoped `flex: 1` needed on
+   ColorInput, no `min-width: 0` override needed to compensate. */
+.cortex-background-section {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-6);
 }
 
-.cortex-fill-section__group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
-}
-
-.cortex-fill-section__color-row {
-  position: relative;
-}
-
-.cortex-fill-section__type-row {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
-}
-
-.cortex-fill-section__gradient-preview {
-  height: 24px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--rule);
-}
-
-.cortex-fill-section__gradient-stops {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
-}
-
-.cortex-fill-section__gradient-stop {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-}
-
-.cortex-fill-section__gradient-stop-label {
-  font-size: var(--text-sm);
-  color: var(--ink-ghost);
-  letter-spacing: 0.01em;
-}
-
-.cortex-fill-section__angle-row {
+/* Row wrapper used only in the TokenChip path where we have two children
+   (TokenChip + trailing IconButton) that need to sit side by side. Raw
+   ColorInput mode puts its own trailing inside ColorInput's flex container,
+   so this wrapper isn't used there. */
+.cortex-background-section__row {
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
-}
-
-.cortex-fill-section__angle-row .cortex-numeric-input {
-  flex: 1;
+  gap: var(--cx-sp-3);
 }
 
 /* ── Border section ────────────────────────── */
@@ -1528,161 +1790,189 @@
 .cortex-border-section {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-6);
+  gap: var(--cx-sp-6);
 }
 
-.cortex-border-section__group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
-}
-
+/* Column-flex wrapper matching Typography's `__row--full` pattern — see
+   `.cortex-background-section` for the rationale. The single child (ColorInput
+   in raw mode, or the `__token-row` sub-wrapper in TokenChip mode) stretches
+   horizontally via default `align-items: stretch`, preserving content
+   min-width protection without any scoped `flex: 1` / `min-width: 0`. */
 .cortex-border-section__color-row {
-  position: relative;
-}
-
-.cortex-border-section__radius-row {
-  display: flex;
-  gap: var(--sp-3);
-  align-items: center;
-}
-
-.cortex-border-section__corner-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: none;
-  background: transparent;
-  color: var(--ink-ghost);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  flex-shrink: 0;
-  padding: 0;
-  transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out, transform 100ms ease-out;
-}
-
-.cortex-border-section__corner-toggle:hover {
-  background: var(--well);
-  color: var(--ink-secondary);
-}
-
-.cortex-border-section__corner-toggle--active {
-  color: var(--select);
-}
-
-.cortex-border-section__corners {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--sp-3);
-}
-
-/* ── Shadow section ────────────────────────── */
-
-.cortex-shadow-section {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-6);
 }
 
-.cortex-shadow-section__row {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
-}
-
-.cortex-shadow-section__row-header {
+/* Row sub-wrapper used only in the TokenChip path where we need TokenChip +
+   eye IconButton side-by-side. Raw ColorInput mode puts its own trailing
+   inside ColorInput, so this sub-wrapper isn't used there. */
+.cortex-border-section__token-row {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: var(--cx-sp-3);
 }
 
-.cortex-shadow-section__expand-btn {
+.cortex-border-section__width-row {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-  border: none;
-  background: transparent;
-  color: var(--ink-ghost);
-  cursor: pointer;
-  padding: 0;
-  border-radius: var(--radius-sm);
-  transition: background 150ms ease-out, color 150ms ease-out, transform 150ms ease-out;
+  gap: var(--cx-sp-3);
 }
 
-.cortex-shadow-section__expand-btn svg {
-  width: 10px;
-  height: 10px;
-}
-
-.cortex-shadow-section__expand-btn:hover {
-  background: var(--well);
-  color: var(--ink-secondary);
-}
-
-.cortex-shadow-section__row[data-expanded="true"] .cortex-shadow-section__expand-btn {
-  transform: rotate(90deg);
-}
-
-.cortex-shadow-section__type {
+.cortex-border-section__width-row > .cortex-numeric-input {
   flex: 1;
   min-width: 0;
 }
 
-.cortex-shadow-section__remove {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-  border: none;
-  background: transparent;
-  color: var(--ink-ghost);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  padding: 0;
-  font-size: 14px;
-  transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out, transform 100ms ease-out;
-  line-height: 1;
-}
-
-.cortex-shadow-section__remove:hover {
-  background: var(--destructive-surface);
-  color: var(--destructive);
-}
-
-.cortex-shadow-section__detail {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
-  padding: var(--sp-3);
-  background: var(--vellum);
-  border-radius: var(--radius-sm);
-}
-
-.cortex-shadow-section__grid {
+.cortex-border-section__per-side {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--sp-3);
+  gap: var(--cx-sp-3);
 }
 
-/* ── Effects section ───────────────────────── */
+/* ── Effects section (consolidated shadow + blur) ── */
 
 .cortex-effects-section {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-6);
+  gap: var(--cx-sp-6);
 }
 
-.cortex-effects-section__group {
+.cortex-effects-section__shadows {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
+  gap: var(--cx-sp-6);
+}
+
+.cortex-effects-section__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-3);
+}
+
+.cortex-effects-section__row-header {
+  display: flex;
+  align-items: center;
+  gap: var(--cx-sp-2);
+}
+
+/* Sized to match the adjacent IconButtons (eye + minus) at 28×28 so the
+   row header has uniform visual rhythm. The old 20×20 + 10×10 SVG override
+   was tuned for the ChevronRight; the BoxShadow icon renders at its natural
+   size={14} via the JSX prop — no SVG size override needed. The rotate(90deg)
+   on expanded state is also gone (a shadow preview icon shouldn't spin). */
+.cortex-effects-section__expand-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--cx-ink-ghost);
+  cursor: pointer;
+  padding: 0;
+  border-radius: var(--cx-radius-sm);
+  transition: background 150ms ease-out, color 150ms ease-out;
+}
+
+.cortex-effects-section__expand-btn:hover {
+  background: var(--cx-btn-hover);
+  color: var(--cx-ink-secondary);
+}
+
+.cortex-effects-section__type {
+  flex: 1;
+  min-width: 0;
+}
+
+.cortex-effects-section__detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-3);
+  padding: var(--cx-sp-3);
+  background: var(--cx-vellum);
+  border-radius: var(--cx-radius-sm);
+}
+
+.cortex-effects-section__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--cx-sp-3);
+}
+
+.cortex-effects-section__blur-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-3);
+}
+
+/* Shared dimming for forced-state property comparison (all sections) */
+.cortex-control--dimmed {
+  opacity: 0.4;
+  transition: opacity 150ms ease-out;
+}
+
+/* ── Appearance section (Task 3 / ZF0-1181) ──
+ *
+ * Opacity, corner-radius, and visibility live here. Dimming uses the shared
+ * .cortex-control--dimmed class (CTF7).
+ */
+.cortex-appearance-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-3);
+}
+
+.cortex-appearance-section__row {
+  display: flex;
+  align-items: center;
+  gap: var(--cx-sp-3);
+}
+
+.cortex-appearance-section__item {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.cortex-appearance-section__item > .cortex-numeric-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.cortex-appearance-section__corner-toggle,
+.cortex-appearance-section__visibility-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--cx-radius-sm);
+  background: var(--cx-paper);
+  color: var(--cx-ink-secondary);
+  cursor: pointer;
+}
+
+.cortex-appearance-section__corner-toggle:hover,
+.cortex-appearance-section__visibility-toggle:hover {
+  background: var(--cx-btn-hover);
+  color: var(--cx-ink);
+}
+
+.cortex-appearance-section__corner-toggle--active,
+.cortex-appearance-section__visibility-toggle--hidden {
+  background: var(--cx-select-muted);
+  color: var(--cx-select);
+}
+
+.cortex-appearance-section__corners {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--cx-sp-3);
 }
 
 /* ── State Lens (on selection overlay) ─────── */
@@ -1691,8 +1981,8 @@
   display: flex;
   gap: 0;
   padding: 2px;
-  background: var(--well);
-  border-radius: var(--radius-md);
+  background: var(--cx-well);
+  border-radius: var(--cx-radius-md);
   position: fixed;
   left: 0;
   top: 0;
@@ -1703,26 +1993,26 @@
 }
 
 .cortex-state-lens__btn {
-  font-size: var(--text-sm);
+  font-size: var(--cx-text-sm);
   font-family: inherit;
   padding: 3px 10px;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--cx-radius-sm);
   background: transparent;
-  color: var(--ink-secondary);
+  color: var(--cx-ink-secondary);
   cursor: pointer;
   white-space: nowrap;
   line-height: 1.4;
 }
 
 .cortex-state-lens__btn:hover:not(.cortex-state-lens__btn--active) {
-  color: var(--ink);
+  color: var(--cx-ink);
 }
 
 .cortex-state-lens__btn--active {
-  background: var(--paper);
-  color: var(--ink);
-  font-weight: var(--weight-value);
+  background: var(--cx-paper);
+  color: var(--cx-ink);
+  font-weight: var(--cx-weight-value);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
@@ -1731,45 +2021,45 @@
 .cortex-pseudo-tabs {
   display: flex;
   flex-basis: 100%;
-  border-bottom: 1px solid var(--rule);
+  border-bottom: 1px solid var(--cx-rule);
   padding: 0 12px;
   margin-top: -2px;
 }
 
 .cortex-pseudo-tab {
-  font-size: var(--text-sm);
+  font-size: var(--cx-text-sm);
   font-family: inherit;
-  font-weight: var(--weight-value);
+  font-weight: var(--cx-weight-value);
   padding: 5px 10px;
   border: none;
   border-bottom: 2px solid transparent;
   background: transparent;
-  color: var(--ink-tertiary);
+  color: var(--cx-ink-tertiary);
   cursor: pointer;
   transition: color 150ms ease-out, border-color 150ms ease-out;
 }
 
 .cortex-pseudo-tab:hover {
-  color: var(--ink-secondary);
+  color: var(--cx-ink-secondary);
 }
 
 .cortex-pseudo-tab:focus-visible {
-  outline: 2px solid var(--select-muted);
+  outline: 2px solid var(--cx-select-muted);
   outline-offset: 1px;
 }
 
 .cortex-pseudo-tab--active {
-  color: var(--select);
-  border-bottom-color: var(--select);
+  color: var(--cx-select);
+  border-bottom-color: var(--cx-select);
 }
 
 /* ── Library badge (in panel header) ───────── */
 
 .cortex-panel-header__library {
   font-style: italic;
-  color: var(--ink-tertiary);
-  font-size: var(--text-xs);
-  margin-left: var(--sp-2);
+  color: var(--cx-ink-tertiary);
+  font-size: var(--cx-text-xs);
+  margin-left: var(--cx-sp-2);
 }
 
 /* ── Dimmed properties (in panel sections) ─── */
@@ -1787,15 +2077,15 @@
   top: 0;
   display: inline-flex;
   align-items: center;
-  gap: var(--sp-3);
-  background: var(--paper);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-lg);
+  gap: var(--cx-sp-3);
+  background: var(--cx-paper);
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-lg);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
   pointer-events: auto;
-  font-size: var(--text-md);
-  color: var(--ink);
-  padding: var(--sp-3);
+  font-size: var(--cx-text-md);
+  color: var(--cx-ink);
+  padding: var(--cx-sp-3);
   animation: cortex-toolbar-fade-in 200ms ease-out;
 }
 
@@ -1824,19 +2114,19 @@
   width: 16px;
   height: 36px;
   cursor: grab;
-  color: var(--ink-faint);
+  color: var(--cx-ink-faint);
   flex-shrink: 0;
   user-select: none;
   transition: color 150ms ease-out;
 }
 
 .cortex-toolbar__grip:hover {
-  color: var(--ink-ghost);
+  color: var(--cx-ink-ghost);
 }
 
 .cortex-toolbar__grip:active {
   cursor: grabbing;
-  color: var(--ink-tertiary);
+  color: var(--cx-ink-tertiary);
 }
 
 .cortex-toolbar__btn {
@@ -1847,9 +2137,9 @@
   height: 36px;
   border: none;
   background: transparent;
-  border-radius: var(--radius-lg-inner);
+  border-radius: var(--cx-radius-lg-inner);
   cursor: pointer;
-  color: var(--ink-secondary);
+  color: var(--cx-ink-secondary);
   padding: 0;
   flex-shrink: 0;
   transition: background 150ms ease-out, color 150ms ease-out, transform 100ms ease-out, outline-color 150ms ease-out;
@@ -1858,8 +2148,8 @@
 }
 
 .cortex-toolbar__btn:hover {
-  background: var(--well);
-  color: var(--ink);
+  background: var(--cx-well);
+  color: var(--cx-ink);
 }
 
 .cortex-toolbar__btn:active {
@@ -1867,29 +2157,29 @@
 }
 
 .cortex-toolbar__btn:focus-visible {
-  outline-color: var(--select-muted);
+  outline-color: var(--cx-select-muted);
 }
 
 .cortex-toolbar__btn--close {
-  color: var(--ink-faint);
+  color: var(--cx-ink-faint);
 }
 
 .cortex-toolbar__btn--close:hover {
-  background: var(--destructive-surface);
-  color: var(--destructive);
+  background: var(--cx-destructive-surface);
+  color: var(--cx-destructive);
 }
 
 .cortex-toolbar__badge {
-  font-size: var(--text-sm);
-  font-weight: var(--weight-value);
-  font-family: var(--mono);
+  font-size: var(--cx-text-sm);
+  font-weight: var(--cx-weight-value);
+  font-family: var(--cx-mono);
   font-variant-numeric: tabular-nums;
-  color: var(--ink);
-  padding: 0 var(--sp-4);
+  color: var(--cx-ink);
+  padding: 0 var(--cx-sp-4);
   height: 28px;
   line-height: 28px;
-  background: var(--well);
-  border-radius: var(--radius-sm);
+  background: var(--cx-well);
+  border-radius: var(--cx-radius-sm);
   white-space: nowrap;
   border: none;
   cursor: pointer;
@@ -1897,16 +2187,16 @@
 }
 
 .cortex-toolbar__badge:hover {
-  background: var(--well-hover);
+  background: var(--cx-btn-hover);
 }
 
 .cortex-toolbar__badge:active {
-  background: var(--well-active);
+  background: var(--cx-well-active);
   transform: scale(0.97);
 }
 
 .cortex-toolbar__badge:focus-visible {
-  outline: 2px solid var(--select-muted);
+  outline: 2px solid var(--cx-select-muted);
   outline-offset: 1px;
 }
 
@@ -1915,11 +2205,11 @@
   display: flex;
   align-items: center;
   position: relative;
-  background: var(--well);
-  border-radius: var(--radius-lg);
+  background: var(--cx-well);
+  border-radius: var(--cx-radius-lg);
   padding: 2px;
   gap: 0;
-  box-shadow: var(--well-shadow);
+  box-shadow: var(--cx-well-shadow);
 }
 
 /* Indicator positioned via JS translateX(btn.offsetLeft).
@@ -1931,8 +2221,8 @@
   left: 0;
   width: 36px;
   height: calc(100% - 4px);
-  background: var(--paper);
-  border-radius: var(--radius-md);
+  background: var(--cx-paper);
+  border-radius: var(--cx-radius-md);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: none;
@@ -1946,9 +2236,9 @@
   justify-content: center;
   border: none;
   background: transparent;
-  border-radius: var(--radius-md);
+  border-radius: var(--cx-radius-md);
   cursor: pointer;
-  color: var(--ink-tertiary);
+  color: var(--cx-ink-tertiary);
   position: relative;
   z-index: 1;
   transition: color 150ms ease-out, transform 100ms ease-out, outline-color 150ms ease-out;
@@ -1962,26 +2252,26 @@
 }
 
 .cortex-toolbar__mode:hover {
-  color: var(--ink-secondary);
+  color: var(--cx-ink-secondary);
 }
 
 .cortex-toolbar__mode:active:not(.cortex-toolbar__mode--active) {
-  color: var(--ink);
+  color: var(--cx-ink);
   transform: scale(0.92);
 }
 
 .cortex-toolbar__mode--active {
-  color: var(--ink);
+  color: var(--cx-ink);
 }
 
 .cortex-toolbar__mode:focus-visible {
-  outline-color: var(--select-muted);
+  outline-color: var(--cx-select-muted);
 }
 
 .cortex-toolbar__divider {
   width: 1px;
   height: 24px;
-  background: var(--rule);
+  background: var(--cx-rule);
   flex-shrink: 0;
 }
 
@@ -2001,27 +2291,27 @@
 /* ── Comment Input ───────────────────────────── */
 
 .cortex-comment-input {
-  padding: var(--sp-4) var(--sp-5);
-  border-top: 1px solid var(--rule);
+  padding: var(--cx-sp-4) var(--cx-sp-5);
+  border-top: 1px solid var(--cx-rule);
   position: relative;
   flex-shrink: 0;
 }
 
 .cortex-comment-input__field {
   width: 100%;
-  padding: var(--sp-3) var(--sp-4);
-  background: var(--well);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-sm);
-  color: var(--ink);
-  font-size: var(--text-md);
+  padding: var(--cx-sp-3) var(--cx-sp-4);
+  background: var(--cx-well);
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-sm);
+  color: var(--cx-ink);
+  font-size: var(--cx-text-md);
   outline: none;
   box-sizing: border-box;
   transition: border-color 150ms ease-out;
 }
 
 .cortex-comment-input__field:focus {
-  border-color: var(--select-muted);
+  border-color: var(--cx-select-muted);
 }
 
 .cortex-comment-input__field:disabled {
@@ -2030,7 +2320,7 @@
 }
 
 .cortex-comment-input__field::placeholder {
-  color: var(--ink-ghost);
+  color: var(--cx-ink-ghost);
 }
 
 @keyframes cortex-spin {
@@ -2043,112 +2333,112 @@
   top: calc(50% - 6px);
   width: 12px;
   height: 12px;
-  border: 1.5px solid var(--select-muted);
-  border-top-color: var(--select);
+  border: 1.5px solid var(--cx-select-muted);
+  border-top-color: var(--cx-select);
   border-radius: 50%;
   animation: cortex-spin 600ms linear infinite;
   pointer-events: none;
 }
 
 .cortex-comment-input--error .cortex-comment-input__field {
-  border-color: var(--destructive);
+  border-color: var(--cx-destructive);
 }
 
 .cortex-comment-input--error .cortex-comment-input__field::placeholder {
-  color: var(--destructive);
+  color: var(--cx-destructive);
 }
 
 .cortex-comment-input__error {
   display: block;
-  font-size: var(--text-xs);
-  color: var(--destructive);
-  margin-top: var(--sp-1);
+  font-size: var(--cx-text-xs);
+  color: var(--cx-destructive);
+  margin-top: var(--cx-sp-1);
 }
 
 /* ── Comment Thread ──────────────────────────── */
 
 .cortex-thread {
-  padding: var(--sp-4) var(--sp-5);
-  border-top: 1px solid var(--rule);
+  padding: var(--cx-sp-4) var(--cx-sp-5);
+  border-top: 1px solid var(--cx-rule);
 }
 
 .cortex-thread__header {
   display: flex;
   align-items: flex-start;
-  gap: var(--sp-3);
+  gap: var(--cx-sp-3);
 }
 
 .cortex-thread__status {
   flex-shrink: 0;
-  font-size: var(--text-md);
+  font-size: var(--cx-text-md);
   line-height: 18px;
 }
 
-.cortex-thread__status--pending { color: var(--ink-tertiary); }
-.cortex-thread__status--acknowledged { color: var(--select); }
-.cortex-thread__status--resolved { color: var(--success); }
-.cortex-thread__status--dismissed { color: var(--destructive); }
+.cortex-thread__status--pending { color: var(--cx-ink-tertiary); }
+.cortex-thread__status--acknowledged { color: var(--cx-select); }
+.cortex-thread__status--resolved { color: var(--cx-success); }
+.cortex-thread__status--dismissed { color: var(--cx-destructive); }
 
 .cortex-thread__text {
-  font-size: var(--text-md);
-  color: var(--ink);
+  font-size: var(--cx-text-md);
+  color: var(--cx-ink);
   line-height: 18px;
 }
 
 .cortex-thread__working {
-  font-size: var(--text-sm);
-  color: var(--select);
-  padding: var(--sp-2) 0 0 18px;
+  font-size: var(--cx-text-sm);
+  color: var(--cx-select);
+  padding: var(--cx-sp-2) 0 0 18px;
 }
 
 .cortex-thread__resolution {
-  font-size: var(--text-sm);
-  color: var(--success);
-  padding: var(--sp-2) 0 0 18px;
+  font-size: var(--cx-text-sm);
+  color: var(--cx-success);
+  padding: var(--cx-sp-2) 0 0 18px;
 }
 
 .cortex-thread__dismiss-reason {
-  font-size: var(--text-sm);
-  color: var(--destructive);
-  padding: var(--sp-2) 0 0 18px;
+  font-size: var(--cx-text-sm);
+  color: var(--cx-destructive);
+  padding: var(--cx-sp-2) 0 0 18px;
 }
 
 .cortex-thread__messages {
-  padding: var(--sp-2) 0 0 18px;
+  padding: var(--cx-sp-2) 0 0 18px;
 }
 
 .cortex-thread__message {
-  font-size: var(--text-sm);
-  padding: var(--sp-2) var(--sp-3);
-  border-radius: var(--radius-sm);
-  margin-top: var(--sp-2);
+  font-size: var(--cx-text-sm);
+  padding: var(--cx-sp-2) var(--cx-sp-3);
+  border-radius: var(--cx-radius-sm);
+  margin-top: var(--cx-sp-2);
 }
 
 .cortex-thread__message--user {
-  color: var(--ink);
-  background: var(--well);
+  color: var(--cx-ink);
+  background: var(--cx-well);
 }
 
 .cortex-thread__message--agent {
-  color: var(--select-hover);
-  background: var(--select-muted);
+  color: var(--cx-select-hover);
+  background: var(--cx-select-muted);
 }
 
 .cortex-thread__reply {
   width: 100%;
-  padding: var(--sp-2) var(--sp-3);
-  margin-top: var(--sp-3);
-  background: var(--well);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-sm);
-  color: var(--ink);
-  font-size: var(--text-sm);
+  padding: var(--cx-sp-2) var(--cx-sp-3);
+  margin-top: var(--cx-sp-3);
+  background: var(--cx-well);
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-sm);
+  color: var(--cx-ink);
+  font-size: var(--cx-text-sm);
   outline: none;
   box-sizing: border-box;
 }
 
 .cortex-thread__reply:focus {
-  border-color: var(--select-muted);
+  border-color: var(--cx-select-muted);
 }
 
 /* ── Comment Pin ─────────────────────────────── */
@@ -2157,7 +2447,7 @@
   position: fixed;
   width: 12px;
   height: 12px;
-  background: var(--select);
+  background: var(--cx-select);
   border-radius: 50%;
   border: 2px solid white;
   cursor: pointer;
@@ -2180,14 +2470,14 @@
 .cortex-pin__thread {
   position: fixed;
   width: 240px;
-  background: var(--paper);
-  border: 1px solid var(--rule);
+  background: var(--cx-paper);
+  border: 1px solid var(--cx-rule);
   border-radius: 12px;
   pointer-events: auto;
   z-index: 2147483644;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.04);
-  font-size: var(--text-lg);
-  color: var(--ink);
+  font-size: var(--cx-text-lg);
+  color: var(--cx-ink);
 }
 
 .cortex-pin__input {
@@ -2198,17 +2488,17 @@
 
 .cortex-pin__input-field {
   width: 200px;
-  padding: var(--sp-3) var(--sp-4);
-  background: var(--paper);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-sm);
-  color: var(--ink);
-  font-size: var(--text-md);
+  padding: var(--cx-sp-3) var(--cx-sp-4);
+  background: var(--cx-paper);
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-sm);
+  color: var(--cx-ink);
+  font-size: var(--cx-text-md);
   outline: none;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.04);
 }
 .cortex-pin__input-field:focus {
-  border-color: var(--select-muted);
+  border-color: var(--cx-select-muted);
 }
 
 /* ── Activity Log ────────────────────────────── */
@@ -2219,9 +2509,9 @@
   top: 60px;
   width: 280px;
   max-height: 320px;
-  background: var(--paper);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-lg);
+  background: var(--cx-paper);
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-lg);
   pointer-events: auto;
   z-index: 2147483643;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
@@ -2232,24 +2522,24 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--sp-4) var(--sp-5);
-  border-bottom: 1px solid var(--rule);
-  font-size: var(--text-md);
-  font-weight: var(--weight-title);
-  color: var(--ink);
+  padding: var(--cx-sp-4) var(--cx-sp-5);
+  border-bottom: 1px solid var(--cx-rule);
+  font-size: var(--cx-text-md);
+  font-weight: var(--cx-weight-title);
+  color: var(--cx-ink);
 }
 
 .cortex-activity-log__close {
   background: none;
   border: none;
-  color: var(--ink-secondary);
+  color: var(--cx-ink-secondary);
   cursor: pointer;
-  font-size: var(--text-md);
+  font-size: var(--cx-text-md);
   padding: 2px 4px;
 }
 
 .cortex-activity-log__close:hover {
-  color: var(--ink);
+  color: var(--cx-ink);
 }
 
 .cortex-activity-log__close:active {
@@ -2257,7 +2547,7 @@
 }
 
 .cortex-activity-log__close:focus-visible {
-  outline: 2px solid var(--select-muted);
+  outline: 2px solid var(--cx-select-muted);
   outline-offset: 1px;
 }
 
@@ -2267,19 +2557,19 @@
 }
 
 .cortex-activity-log__empty {
-  padding: var(--sp-7) var(--sp-5);
+  padding: var(--cx-sp-7) var(--cx-sp-5);
   text-align: center;
-  color: var(--ink-secondary);
-  font-size: var(--text-md);
+  color: var(--cx-ink-secondary);
+  font-size: var(--cx-text-md);
 }
 
 .cortex-activity-log__entry {
   display: flex;
   align-items: flex-start;
-  gap: var(--sp-3);
-  padding: var(--sp-3) var(--sp-5);
-  font-size: var(--text-sm);
-  border-bottom: 1px solid var(--rule-soft);
+  gap: var(--cx-sp-3);
+  padding: var(--cx-sp-3) var(--cx-sp-5);
+  font-size: var(--cx-text-sm);
+  border-bottom: 1px solid var(--cx-rule-soft);
 }
 
 .cortex-activity-log__icon {
@@ -2290,13 +2580,13 @@
 
 .cortex-activity-log__desc {
   flex: 1;
-  color: var(--ink);
+  color: var(--cx-ink);
   word-break: break-word;
 }
 
 .cortex-activity-log__time {
   flex-shrink: 0;
-  color: var(--ink-secondary);
+  color: var(--cx-ink-secondary);
 }
 
 /* ── Focus-visible rings ──────────────────── */
@@ -2304,13 +2594,17 @@
 .cortex-segmented__option,
 .cortex-dropdown__trigger,
 .cortex-color-input__swatch,
-.cortex-shadow-section__remove,
-.cortex-shadow-section__expand-btn,
+.cortex-effects-section__expand-btn,
 .cortex-spacing-group__toggle,
 .cortex-lock-btn,
-.cortex-border-section__corner-toggle,
-.cortex-position-section__toggle,
-.cortex-sizing-trigger {
+.cortex-icon-button,
+.cortex-position-dropdown__trigger,
+.cortex-xy-dropdown__trigger,
+.cortex-expandable-options__trigger,
+.cortex-alignment-grid__cell,
+.cortex-alignment-grid__distribute-btn,
+.cortex-sizing-trigger,
+.cortex-token-chip__unlink {
   outline: 2px solid transparent;
   outline-offset: 1px;
 }
@@ -2318,14 +2612,18 @@
 .cortex-segmented__option:focus-visible,
 .cortex-dropdown__trigger:focus-visible,
 .cortex-color-input__swatch:focus-visible,
-.cortex-shadow-section__remove:focus-visible,
-.cortex-shadow-section__expand-btn:focus-visible,
+.cortex-effects-section__expand-btn:focus-visible,
 .cortex-spacing-group__toggle:focus-visible,
 .cortex-lock-btn:focus-visible,
-.cortex-border-section__corner-toggle:focus-visible,
-.cortex-position-section__toggle:focus-visible,
-.cortex-sizing-trigger:focus-visible {
-  outline-color: var(--select-muted);
+.cortex-icon-button:focus-visible,
+.cortex-position-dropdown__trigger:focus-visible,
+.cortex-xy-dropdown__trigger:focus-visible,
+.cortex-expandable-options__trigger:focus-visible,
+.cortex-alignment-grid__cell:focus-visible,
+.cortex-alignment-grid__distribute-btn:focus-visible,
+.cortex-sizing-trigger:focus-visible,
+.cortex-token-chip__unlink:focus-visible {
+  outline-color: var(--cx-select-muted);
 }
 
 /* ── Active press feedback ────────────────── */
@@ -2338,8 +2636,7 @@
   transform: scale(0.92);
 }
 
-.cortex-shadow-section__remove:active,
-.cortex-shadow-section__expand-btn:active {
+.cortex-effects-section__expand-btn:active {
   transform: scale(0.9);
 }
 
@@ -2352,18 +2649,18 @@
 .cortex-position-section {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-6);
+  gap: var(--cx-sp-6);
 }
 
 .cortex-position-section__group {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
+  gap: var(--cx-sp-3);
 }
 
 .cortex-position-section__xy-row {
   display: flex;
-  gap: var(--sp-2);
+  gap: var(--cx-sp-2);
 }
 
 .cortex-position-section__xy-row > .cortex-numeric-input {
@@ -2385,7 +2682,7 @@
 
 .cortex-position-section__rotate-row {
   display: flex;
-  gap: var(--sp-2);
+  gap: var(--cx-sp-2);
   align-items: center;
 }
 
@@ -2394,45 +2691,661 @@
   min-width: 0;
 }
 
-.cortex-position-section__toggle {
-  width: 26px;
-  height: 26px;
+/* ── Icon Button ─────────────────────────────
+   Reusable 28px square icon button — height matches other interactive
+   panel controls (numeric input, segmented md option, sizing trigger,
+   panel header button). */
+.cortex-icon-button {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: var(--cx-radius-sm);
+  cursor: pointer;
+  color: var(--cx-ink-ghost);
+  flex-shrink: 0;
+  padding: 0;
+  transition: background 150ms ease-out, color 150ms ease-out, box-shadow 150ms ease-out;
+}
+
+.cortex-icon-button:hover:not(:disabled) {
+  background: var(--cx-well);
+  color: var(--cx-ink-secondary);
+}
+
+.cortex-icon-button:active:not(:disabled) {
+  background: var(--cx-well-hover);
+  transform: scale(0.92);
+}
+
+.cortex-icon-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.cortex-icon-button--active {
+  background: var(--cx-well);
+  color: var(--cx-ink);
+  box-shadow: var(--cx-well-shadow), 0 0 0 1.5px var(--cx-select-muted);
+}
+
+.cortex-icon-button--active:hover:not(:disabled) {
+  background: var(--cx-well-hover);
+}
+
+/* ── Alignment Grid ──────────────────────────
+   3x3 dot grid for flex/grid alignment picking. Click = position,
+   double-click = distribution overlay (replaces the target row or
+   column with a 3-button strip). Plan: conditional controls mount
+   instantly — no transitions on overlay show/hide. */
+.cortex-alignment-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: var(--cx-sp-1);
+  width: 80px;
+  aspect-ratio: 1;
+  padding: var(--cx-sp-1);
+  background: var(--cx-well);
+  border-radius: var(--cx-radius-sm);
+  box-shadow: var(--cx-well-shadow);
+  flex-shrink: 0;
+}
+
+.cortex-alignment-grid__cell {
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
   background: transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--cx-radius-sm);
+  padding: 0;
   cursor: pointer;
-  color: var(--ink-ghost);
+  color: var(--cx-ink-ghost);
+  /* Only background/color transition — no layout properties, no size
+     changes. Keeps the compositor happy and the click feel instant. */
+  transition: background 120ms ease-out, color 120ms ease-out;
+}
+
+.cortex-alignment-grid__cell:hover {
+  background: var(--cx-btn-hover);
+  color: var(--cx-ink-secondary);
+}
+
+.cortex-alignment-grid__cell--active {
+  background: var(--cx-select-muted);
+  color: var(--cx-select);
+}
+
+.cortex-alignment-grid__cell--active:hover {
+  background: var(--cx-select-muted);
+}
+
+.cortex-alignment-grid__cell__dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  display: block;
+}
+
+/* Distribution overlay — occupies the full row or column via grid-span
+   set inline on the element. Flex row of 3 labeled buttons, no icons. */
+.cortex-alignment-grid__overlay {
+  display: flex;
+  align-items: stretch;
+  gap: var(--cx-sp-1);
+  background: var(--cx-well);
+  border-radius: var(--cx-radius-sm);
+  /* Row overlay: horizontal button strip. Col overlay: vertical strip. */
+}
+
+.cortex-alignment-grid__overlay--col {
+  flex-direction: column;
+}
+
+/* Span indicator — replaces cells in a row/column with 3 bars.
+   Figma spec: 2px wide, rounded 1px, ink color, 4px gap.
+   Interactive (click → point alignment, dblclick → overlay). */
+.cortex-alignment-grid__span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  cursor: pointer;
+  border-radius: var(--cx-radius-sm);
+}
+
+/* Full-grid span: bars spread across the entire grid (both axes non-positional).
+   Figma: 3 bars at x=13, x=33, x=53 within 70px → space-between distribution. */
+.cortex-alignment-grid__span--full {
+  position: relative;
+  flex-direction: row;
+  justify-content: space-between;
+  padding: 4px 8px;
+}
+
+.cortex-alignment-grid__span--full .cortex-alignment-grid__span-bar {
+  width: 2px;
+  height: 100%;
+  background: var(--cx-ink);
+  border-radius: 1px;
+}
+
+/* Dots for space-around/evenly — absolutely positioned at grid edges,
+   outside the bar group. Bars stay in identical positions. */
+.cortex-alignment-grid__span-dot {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--cx-ink-ghost);
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.cortex-alignment-grid__span-dot--left {
+  left: 2px;
+}
+
+.cortex-alignment-grid__span-dot--right {
+  right: 2px;
+}
+
+/* Row span: bars are vertical, filling the row height */
+.cortex-alignment-grid__span--row {
+  flex-direction: row;
+}
+
+/* Row baseline: "A" icon + horizontal underline extending right.
+   Space-around adds vertical tick marks at left/right edges. */
+.cortex-alignment-grid__span--row-baseline {
+  align-items: flex-end;
+  gap: 0;
+  padding: 0 4px 2px;
+}
+
+.cortex-alignment-grid__span--row-baseline .cortex-alignment-grid__span-icon {
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
-  transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out;
-  outline: 2px solid transparent;
-  outline-offset: 1px;
 }
 
-.cortex-position-section__toggle:hover {
-  background: var(--well);
-  color: var(--ink-secondary);
+/* Horizontal underline that extends to fill the remaining row width */
+.cortex-alignment-grid__span-baseline-line {
+  flex: 1;
+  height: 2px;
+  background: var(--cx-ink);
+  border-radius: 1px;
+  margin-bottom: 1px;
 }
 
-.cortex-position-section__toggle:active {
-  background: var(--well-hover);
+/* Vertical tick marks at edges for space-around/evenly baseline */
+.cortex-alignment-grid__span-baseline-tick {
+  width: 2px;
+  height: 10px;
+  background: var(--cx-ink);
+  border-radius: 1px;
+  flex-shrink: 0;
 }
 
-.cortex-position-section__toggle:focus-visible {
-  outline-color: var(--select-muted);
+.cortex-alignment-grid__span--row .cortex-alignment-grid__span-bar {
+  width: 2px;
+  height: 100%;
+  background: var(--cx-ink);
+  border-radius: 1px;
 }
 
-.cortex-position-section__toggle--active {
-  background: var(--well);
-  color: var(--ink);
-  box-shadow: var(--well-shadow);
+/* Column span: bars are vertical, filling the full column height */
+.cortex-alignment-grid__span--col {
+  flex-direction: row;
+  padding: 4px 0;
 }
 
-.cortex-position-section__toggle--active:hover {
-  background: var(--well-hover);
+.cortex-alignment-grid__span--col .cortex-alignment-grid__span-bar {
+  width: 2px;
+  height: 100%;
+  background: var(--cx-ink);
+  border-radius: 1px;
 }
+
+/* Column baseline: dot → A icon → dot, vertically distributed.
+   Fills the column with no blank gaps — dots match the grid pattern. */
+.cortex-alignment-grid__span--col-baseline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+  color: var(--cx-ink);
+  cursor: pointer;
+  border-radius: var(--cx-radius-sm);
+}
+
+.cortex-alignment-grid__span--col-baseline .cortex-alignment-grid__cell__dot {
+  color: var(--cx-ink-ghost);
+}
+
+.cortex-alignment-grid__span-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.cortex-alignment-grid__distribute-btn {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  border: none;
+  background: var(--cx-vellum);
+  color: var(--cx-ink-secondary);
+  border-radius: var(--cx-radius-sm);
+  font-size: var(--cx-text-xs);
+  font-weight: var(--cx-weight-value);
+  font-family: inherit;
+  padding: 0 var(--cx-sp-2);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 120ms ease-out, color 120ms ease-out;
+}
+
+.cortex-alignment-grid__distribute-btn:hover {
+  background: var(--cx-btn-hover);
+  color: var(--cx-ink);
+}
+
+/* ── FlexControls (Task 8 / ZF0-1186) ───────── */
+/* Container for the complete flex sub-panel — direction segmented control,
+   AlignmentGrid + X/Y dropdowns, gap input, wrap inside "More options". */
+
+.cortex-flex-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-5);
+}
+
+.cortex-flex-controls__direction {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-3);
+}
+
+.cortex-flex-controls__align {
+  display: flex;
+  gap: var(--cx-sp-4);
+  align-items: stretch;
+}
+
+.cortex-flex-controls__xy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-2);
+}
+
+.cortex-flex-controls__xy-field {
+  display: flex;
+}
+
+.cortex-flex-controls__gap {
+  display: flex;
+  gap: var(--cx-sp-3);
+  align-items: center;
+}
+
+.cortex-flex-controls__gap > .cortex-numeric-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.cortex-flex-controls__wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-3);
+}
+
+.cortex-flex-controls__wrap .cortex-segmented {
+  width: 100%;
+}
+
+/* ── XYDropdown (Task 8 / ZF0-1186) ─────────── */
+/* Sibling of PositionDropdown but with caller-supplied options — the
+   X/Y alignment catalogs differ per axis and per display mode, so the
+   component takes options as a prop (PositionDropdown keeps options
+   module-local by design). */
+
+.cortex-xy-dropdown {
+  position: relative;
+  width: 100%;
+}
+
+.cortex-xy-dropdown__trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--cx-sp-3);
+  width: 100%;
+  height: 28px;
+  padding: 0 var(--cx-sp-4);
+  background: var(--cx-well);
+  border: none;
+  border-radius: var(--cx-radius-md);
+  cursor: pointer;
+  font-size: var(--cx-text-md);
+  font-weight: var(--cx-weight-label);
+  color: var(--cx-ink);
+  text-align: left;
+  box-shadow: var(--cx-well-shadow);
+  transition: background 150ms ease-out;
+}
+
+.cortex-xy-dropdown__trigger:hover:not(:disabled) {
+  background: var(--cx-btn-hover);
+}
+
+.cortex-xy-dropdown__trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.cortex-xy-dropdown__trigger-axis {
+  display: inline-flex;
+  flex-shrink: 0;
+  font-weight: var(--cx-weight-label);
+  color: var(--cx-ink-ghost);
+  min-width: 10px;
+}
+
+.cortex-xy-dropdown__trigger-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--cx-ink-secondary);
+}
+
+.cortex-xy-dropdown__trigger-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cortex-xy-dropdown__chevron {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--cx-ink-tertiary);
+  transition: transform 150ms ease-out;
+}
+
+.cortex-xy-dropdown__chevron--open {
+  transform: rotate(180deg);
+}
+
+.cortex-xy-dropdown__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+}
+
+.cortex-xy-dropdown__popover {
+  z-index: 2;
+  min-width: 160px;
+  background: var(--cx-paper);
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-lg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1), 0 1px 4px rgba(0, 0, 0, 0.06);
+  animation: cortex-popover-enter 150ms ease-out;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.cortex-xy-dropdown__list {
+  padding: var(--cx-sp-2) 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cortex-xy-dropdown__option {
+  display: flex;
+  align-items: center;
+  gap: var(--cx-sp-3);
+  height: 28px;
+  padding: 0 var(--cx-sp-4);
+  font-size: var(--cx-text-md);
+  font-weight: var(--cx-weight-label);
+  color: var(--cx-ink);
+  cursor: pointer;
+}
+
+.cortex-xy-dropdown__option--highlighted {
+  background: var(--cx-well);
+}
+
+.cortex-xy-dropdown__option--selected {
+  color: var(--cx-select);
+  font-weight: var(--cx-weight-value);
+}
+
+.cortex-xy-dropdown__option-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: currentColor;
+}
+
+.cortex-xy-dropdown__option-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cortex-xy-dropdown__option-check {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--cx-select);
+}
+
+/* Hint footer — describes the highlighted option */
+.cortex-xy-dropdown__hint {
+  padding: var(--cx-sp-2) var(--cx-sp-3);
+  border-top: 1px solid var(--cx-border);
+  font-size: var(--cx-text-xs);
+  color: var(--cx-ink-ghost);
+  line-height: 1.4;
+}
+
+/* ── ExpandableOptions (Task 8 / ZF0-1186) ──── */
+/* Collapsible container for secondary controls. Body stays mounted —
+   visibility flips via grid-template-rows 0fr→1fr, which is the one
+   compositor-friendly "animate auto height" technique. No `height`
+   transitions. Skipped entirely under prefers-reduced-motion. */
+
+.cortex-expandable-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-2);
+}
+
+.cortex-expandable-options__trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--cx-sp-2);
+  padding: var(--cx-sp-2) 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: var(--cx-text-sm);
+  font-weight: var(--cx-weight-value);
+  color: var(--cx-ink-ghost);
+  text-align: left;
+}
+
+.cortex-expandable-options__trigger:hover {
+  color: var(--cx-ink-secondary);
+}
+
+.cortex-expandable-options__chevron {
+  display: inline-flex;
+  flex-shrink: 0;
+  transition: transform 150ms ease-out;
+}
+
+.cortex-expandable-options__chevron--open {
+  transform: rotate(90deg);
+}
+
+.cortex-expandable-options__label {
+  font-weight: var(--cx-weight-value);
+}
+
+.cortex-expandable-options__body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 150ms ease-out;
+  overflow: hidden;
+}
+
+.cortex-expandable-options--open .cortex-expandable-options__body {
+  grid-template-rows: 1fr;
+}
+
+.cortex-expandable-options__inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cortex-expandable-options__body {
+    transition: none;
+  }
+}
+
+/* ── GridControls (Task 9 / ZF0-1187) ────────── */
+/* Structural mirror of .cortex-flex-controls — same vertical rhythm,
+   same XY/alignment row layout. Two structural differences:
+   (1) a template block at the top (simple/responsive/complex tiers);
+   (2) dual gap inputs side-by-side instead of a single linked input. */
+
+.cortex-grid-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-5);
+}
+
+.cortex-grid-controls__template {
+  display: flex;
+  gap: var(--cx-sp-3);
+  align-items: center;
+}
+
+.cortex-grid-controls__cols,
+.cortex-grid-controls__rows,
+.cortex-grid-controls__minwidth {
+  flex: 1;
+  min-width: 0;
+}
+
+.cortex-grid-controls__raw {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-1);
+  padding: var(--cx-sp-2) var(--cx-sp-3);
+  background: var(--cx-well);
+  border-radius: var(--cx-radius-md);
+  box-shadow: var(--cx-well-shadow);
+}
+
+.cortex-grid-controls__raw-label {
+  font-size: var(--cx-text-xs);
+  font-weight: var(--cx-weight-label);
+  color: var(--cx-ink-ghost);
+}
+
+.cortex-grid-controls__raw-value {
+  font-family: var(--cx-mono);
+  font-size: var(--cx-text-sm);
+  color: var(--cx-ink-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* .cortex-grid-controls__direction removed — merged into __template row */
+
+.cortex-grid-controls__align {
+  display: flex;
+  gap: var(--cx-sp-4);
+  align-items: stretch;
+}
+
+.cortex-grid-controls__xy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-sp-2);
+}
+
+.cortex-grid-controls__xy-field {
+  display: flex;
+}
+
+.cortex-grid-controls__gap {
+  display: flex;
+  gap: var(--cx-sp-3);
+  align-items: center;
+}
+
+.cortex-grid-controls__gap > .cortex-numeric-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Position Section · self-alignment button groups (Mantine-style) ─ */
+.cortex-position-section__self-align {
+  display: flex;
+  gap: var(--cx-sp-3);
+}
+
+.cortex-position-section__btn-group {
+  display: flex;
+  flex: 1;
+}
+
+.cortex-position-section__btn-group > .cortex-icon-button {
+  flex: 1;
+  border-radius: 0;
+  border-right: 1px solid var(--cx-rule-soft);
+  color: var(--cx-ink-secondary);
+}
+
+.cortex-position-section__btn-group > .cortex-icon-button:first-child {
+  border-radius: var(--cx-radius-md) 0 0 var(--cx-radius-md);
+}
+
+.cortex-position-section__btn-group > .cortex-icon-button:last-child {
+  border-radius: 0 var(--cx-radius-md) var(--cx-radius-md) 0;
+  border-right: none;
+}
+
+.cortex-position-section__btn-group > .cortex-icon-button:hover:not(:disabled) {
+  color: var(--cx-ink);
+}
+
+/* Position → Layout transition: tighter spacing */
+[data-group="position"] > .cortex-section-group__content {
+  padding-bottom: var(--cx-sp-5);
+}
+
 
 /* ── Sizing Dropdown ────────────────────────── */
 
@@ -2443,26 +3356,26 @@
 .cortex-sizing-trigger {
   display: flex;
   align-items: center;
-  gap: var(--sp-1);
-  padding: 0 var(--sp-3);
-  height: 26px;
-  background: var(--well);
+  gap: var(--cx-sp-1);
+  padding: 0 var(--cx-sp-3);
+  /* Match .cortex-numeric-input height — these are visually fused via border-left in compound W/H controls. */
+  height: 28px;
+  background: var(--cx-well);
   border: none;
-  border-left: 1px solid var(--rule-soft);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  border-radius: 0 var(--cx-radius-sm) var(--cx-radius-sm) 0;
   cursor: pointer;
-  font-size: var(--text-sm);
-  font-weight: var(--weight-value);
-  color: var(--ink-ghost);
-  box-shadow: var(--well-shadow);
+  font-size: var(--cx-text-sm);
+  font-weight: var(--cx-weight-value);
+  color: var(--cx-ink-ghost);
+  box-shadow: var(--cx-well-shadow);
   transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out;
   outline: 2px solid transparent;
   outline-offset: 1px;
 }
 
 .cortex-sizing-trigger:hover {
-  background: var(--well-hover);
-  color: var(--ink-secondary);
+  background: var(--cx-btn-hover);
+  color: var(--cx-ink-secondary);
 }
 
 .cortex-sizing-trigger:active {
@@ -2470,12 +3383,12 @@
 }
 
 .cortex-sizing-trigger:focus-visible {
-  outline-color: var(--select-muted);
+  outline-color: var(--cx-select-muted);
 }
 
 .cortex-sizing-trigger__chevron {
   font-size: 8px;
-  color: var(--ink-tertiary);
+  color: var(--cx-ink-tertiary);
   transition: transform 200ms ease-out;
 }
 
@@ -2491,51 +3404,69 @@
 
 .cortex-sizing-menu {
   z-index: 100;
-  background: var(--paper);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--radius-sm);
+  background: var(--cx-paper);
+  border: 1px solid var(--cx-rule-soft);
+  border-radius: var(--cx-radius-sm);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
-  padding: var(--sp-1) 0;
+  padding: var(--cx-sp-1) 0;
   overflow: hidden;
 }
 
 .cortex-sizing-menu__item {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-3);
-  font-size: var(--text-md);
-  font-weight: var(--weight-value);
-  color: var(--ink);
+  gap: var(--cx-sp-2);
+  padding: var(--cx-sp-2) var(--cx-sp-3);
+  font-size: var(--cx-text-md);
+  font-weight: var(--cx-weight-value);
+  color: var(--cx-ink);
   cursor: pointer;
   transition: background 150ms ease-out;
   white-space: nowrap;
 }
 
 .cortex-sizing-menu__item:hover {
-  background: var(--well);
-}
-
-.cortex-sizing-menu__item--active .cortex-sizing-menu__indicator {
-  color: var(--select);
+  background: var(--cx-well);
 }
 
 .cortex-sizing-menu__item--checked .cortex-sizing-menu__indicator {
-  color: var(--select);
+  color: var(--cx-select);
 }
 
 .cortex-sizing-menu__indicator {
   width: 14px;
-  font-size: var(--text-sm);
-  color: var(--ink-tertiary);
+  font-size: var(--cx-text-sm);
+  color: var(--cx-ink-tertiary);
   text-align: center;
   flex-shrink: 0;
 }
 
+.cortex-sizing-menu__radio {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--cx-ink-tertiary);
+  border-radius: 50%;
+  flex-shrink: 0;
+  position: relative;
+  transition: border-color 150ms ease-out;
+}
+
+.cortex-sizing-menu__radio--active {
+  border-color: var(--cx-select);
+}
+
+.cortex-sizing-menu__radio--active::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: var(--cx-select);
+}
+
 .cortex-sizing-menu__separator {
   height: 1px;
-  background: var(--rule);
-  margin: var(--sp-1) 0;
+  background: var(--cx-rule);
+  margin: var(--cx-sp-1) 0;
 }
 
 /* ── Layout Section: sizing field (NumericInput + SizingDropdown pair) ── */
@@ -2549,12 +3480,12 @@
 .cortex-layout-section__sizing-field > .cortex-numeric-input {
   flex: 1;
   min-width: 0;
-  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  border-radius: var(--cx-radius-sm) 0 0 var(--cx-radius-sm);
 }
 
 .cortex-layout-section__minmax {
   display: flex;
-  gap: var(--sp-2);
+  gap: var(--cx-sp-2);
 }
 
 .cortex-layout-section__minmax-field {
@@ -2562,7 +3493,7 @@
   flex: 1;
   min-width: 0;
   align-items: center;
-  gap: var(--sp-1);
+  gap: var(--cx-sp-1);
 }
 
 .cortex-layout-section__minmax-field > .cortex-numeric-input {
@@ -2578,16 +3509,93 @@
   justify-content: center;
   border: none;
   background: transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--cx-radius-sm);
   cursor: pointer;
-  color: var(--ink-faint);
+  color: var(--cx-ink-faint);
   flex-shrink: 0;
   transition: background 150ms ease-out, color 150ms ease-out;
 }
 
 .cortex-layout-section__minmax-dismiss:hover {
-  background: var(--destructive-surface);
-  color: var(--destructive);
+  background: var(--cx-destructive-surface);
+  color: var(--cx-destructive);
+}
+
+/* ── Checkbox control ────────────────────────── */
+
+.cortex-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--cx-sp-3);
+  cursor: pointer;
+}
+
+.cortex-checkbox__box {
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-sm);
+  flex-shrink: 0;
+  transition: background 150ms ease-out, border-color 150ms ease-out;
+}
+
+.cortex-checkbox__box--checked {
+  background: var(--cx-select);
+  border-color: var(--cx-select);
+  color: white;
+}
+
+.cortex-checkbox__label {
+  font-size: var(--cx-text-sm);
+  color: var(--cx-ink-secondary);
+}
+
+/* ── Sizing toggles (Clip content / Border box) ── */
+
+.cortex-sizing-controls {
+  display: flex;
+  flex-direction: column;
+}
+
+.cortex-sizing-controls > .cortex-subsection-label {
+  padding-top: 0;
+}
+
+.cortex-sizing-controls__toggles {
+  display: flex;
+  gap: var(--cx-sp-5);
+  margin-top: var(--cx-sp-3);
+}
+
+/* ── Spacing sub-controls (padding / margin) ── */
+
+.cortex-spacing-controls {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Remove the section-group__content gap above the spacing wrapper —
+   the "Spacing" label's 8px top padding provides separation. */
+.cortex-layout-section__group:has(> .cortex-spacing-controls) {
+  margin-top: calc(-1 * var(--cx-sp-5));
+}
+
+.cortex-spacing-controls > .cortex-spacing-row + .cortex-spacing-row {
+  margin-top: var(--cx-sp-3);
+}
+
+.cortex-spacing-row__inputs {
+  display: flex;
+  gap: var(--cx-sp-3);
+  align-items: center;
+}
+
+.cortex-spacing-row__inputs > .cortex-numeric-input {
+  flex: 1;
+  min-width: 0;
 }
 
 /* ── Connection status footer ────────────────── */
@@ -2595,14 +3603,14 @@
 .cortex-connection-status {
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
-  padding: var(--sp-2) var(--sp-4);
-  border-top: 1px solid var(--rule);
-  font-size: var(--text-sm);
-  font-family: 'Geist Sans', system-ui, sans-serif;
+  gap: var(--cx-sp-3);
+  padding: var(--cx-sp-2) var(--cx-sp-4);
+  border-top: 1px solid var(--cx-rule);
+  font-size: var(--cx-text-sm);
+  font-family: 'Geist', system-ui, sans-serif;
   flex-shrink: 0;
-  color: var(--ink-secondary);
-  background: var(--vellum);
+  color: var(--cx-ink-secondary);
+  background: var(--cx-vellum);
 }
 
 .cortex-connection-status__dot {
@@ -2624,7 +3632,7 @@
 }
 
 .cortex-connection-status--reconnecting .cortex-connection-status__dot {
-  background: var(--warning);
+  background: var(--cx-warning);
   animation: cortex-pulse 1.5s ease-in-out infinite;
 }
 
@@ -2634,11 +3642,60 @@
 }
 
 .cortex-connection-status--disconnected .cortex-connection-status__dot {
-  background: var(--destructive);
+  background: var(--cx-destructive);
 }
 
 .cortex-connection-status--reconnected .cortex-connection-status__dot {
-  background: var(--success);
+  background: var(--cx-success);
+}
+
+/* ── Token Chip (Task 11 / ZF0-1189) ────────── */
+/* Pill-shaped chip for displaying a CSS variable name with a color swatch
+   and an optional unlink button. Used by Typography, Background, and
+   Border sections. */
+
+.cortex-token-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 6px;
+  background: var(--cx-well);
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-sm);
+}
+
+.cortex-token-chip__swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--cx-radius-sm);
+  flex-shrink: 0;
+}
+
+.cortex-token-chip__name {
+  font-family: var(--cx-mono);
+  font-size: var(--cx-text-md);
+  color: var(--cx-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cortex-token-chip__unlink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  color: var(--cx-ink-ghost);
+  flex-shrink: 0;
+  transition: color 150ms ease-out;
+}
+
+.cortex-token-chip__unlink:hover {
+  color: var(--cx-ink);
 }
 
 /* ── Reduced motion ─────────────────────────── */
