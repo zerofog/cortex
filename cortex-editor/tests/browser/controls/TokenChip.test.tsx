@@ -32,7 +32,8 @@ describe('TokenChip', () => {
     )
     const swatch = container.querySelector('.cortex-token-chip__swatch') as HTMLElement
     expect(swatch).not.toBeNull()
-    expect(swatch.style.backgroundColor).toBe('#ff0000')
+    // happy-dom keeps hex as-is; real browsers serialize to rgb(). Both valid.
+    expect(swatch.style.backgroundColor).toMatch(/#ff0000|rgb\(255,\s*0,\s*0\)/)
   })
 
   it('clicking unlink calls onUnlink', () => {

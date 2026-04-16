@@ -96,58 +96,58 @@ export function SizingControls({
   const handleWidthChange = useCallback(
     (v: number) => {
       onChange({ property: 'width', value: `${v}px` })
-      if (aspectLocked && aspectRatio > 0) {
+      if (aspectLocked && canLockAspect && aspectRatio > 0) {
         onChange({ property: 'height', value: `${Math.round(v / aspectRatio)}px` })
       }
     },
-    [onChange, aspectLocked, aspectRatio],
+    [onChange, aspectLocked, canLockAspect, aspectRatio],
   )
   const handleWidthScrub = useCallback(
     (v: number) => {
       if (onScrub) onScrub({ property: 'width', value: `${v}px` })
-      if (aspectLocked && aspectRatio > 0 && onScrub) {
+      if (aspectLocked && canLockAspect && aspectRatio > 0 && onScrub) {
         onScrub({ property: 'height', value: `${Math.round(v / aspectRatio)}px` })
       }
     },
-    [onScrub, aspectLocked, aspectRatio],
+    [onScrub, aspectLocked, canLockAspect, aspectRatio],
   )
   const handleWidthScrubEnd = useCallback(
     (v: number) => {
       if (onScrubEnd) onScrubEnd({ property: 'width', value: `${v}px` })
-      if (aspectLocked && aspectRatio > 0 && onScrubEnd) {
+      if (aspectLocked && canLockAspect && aspectRatio > 0 && onScrubEnd) {
         onScrubEnd({ property: 'height', value: `${Math.round(v / aspectRatio)}px` })
       }
     },
-    [onScrubEnd, aspectLocked, aspectRatio],
+    [onScrubEnd, aspectLocked, canLockAspect, aspectRatio],
   )
 
   // ── Height handlers ─────────────────────────────────────────────
   const handleHeightChange = useCallback(
     (v: number) => {
       onChange({ property: 'height', value: `${v}px` })
-      if (aspectLocked && aspectRatio > 0) {
+      if (aspectLocked && canLockAspect && aspectRatio > 0) {
         onChange({ property: 'width', value: `${Math.round(v * aspectRatio)}px` })
       }
     },
-    [onChange, aspectLocked, aspectRatio],
+    [onChange, aspectLocked, canLockAspect, aspectRatio],
   )
   const handleHeightScrub = useCallback(
     (v: number) => {
       if (onScrub) onScrub({ property: 'height', value: `${v}px` })
-      if (aspectLocked && aspectRatio > 0 && onScrub) {
+      if (aspectLocked && canLockAspect && aspectRatio > 0 && onScrub) {
         onScrub({ property: 'width', value: `${Math.round(v * aspectRatio)}px` })
       }
     },
-    [onScrub, aspectLocked, aspectRatio],
+    [onScrub, aspectLocked, canLockAspect, aspectRatio],
   )
   const handleHeightScrubEnd = useCallback(
     (v: number) => {
       if (onScrubEnd) onScrubEnd({ property: 'height', value: `${v}px` })
-      if (aspectLocked && aspectRatio > 0 && onScrubEnd) {
+      if (aspectLocked && canLockAspect && aspectRatio > 0 && onScrubEnd) {
         onScrubEnd({ property: 'width', value: `${Math.round(v * aspectRatio)}px` })
       }
     },
-    [onScrubEnd, aspectLocked, aspectRatio],
+    [onScrubEnd, aspectLocked, canLockAspect, aspectRatio],
   )
 
   const handleToggleLock = useCallback(() => setAspectLocked((v) => !v), [])

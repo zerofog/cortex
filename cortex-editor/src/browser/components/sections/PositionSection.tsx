@@ -162,13 +162,15 @@ export function PositionSection({
   )
 
   const handleFlipH = useCallback(() => {
-    const magnitude = Math.abs(parseFloat(values.scaleX)) || 1
+    const parsed = parseFloat(values.scaleX)
+    const magnitude = Number.isNaN(parsed) ? 1 : Math.abs(parsed)
     const newX = isFlippedH ? magnitude : -magnitude
     onChange({ property: 'scale', value: `${newX} ${values.scaleY}` })
   }, [isFlippedH, values.scaleX, values.scaleY, onChange])
 
   const handleFlipV = useCallback(() => {
-    const magnitude = Math.abs(parseFloat(values.scaleY)) || 1
+    const parsed = parseFloat(values.scaleY)
+    const magnitude = Number.isNaN(parsed) ? 1 : Math.abs(parsed)
     const newY = isFlippedV ? magnitude : -magnitude
     onChange({ property: 'scale', value: `${values.scaleX} ${newY}` })
   }, [isFlippedV, values.scaleX, values.scaleY, onChange])

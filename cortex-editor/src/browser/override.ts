@@ -234,18 +234,16 @@ export class CSSOverrideManager {
     if (!pending) return
     this.pendingEdits.delete(editId)
     if (match) {
-      // Guard: if the user made a newer edit to the same property, the current
-      // override value won't match the committed value. Skip removal — the newer
-      // edit's HMR cycle will handle its own cleanup.
-      const primarySource = pending.sources[0]
-      if (primarySource) {
-        const currentValue = this.get(primarySource, pending.property, pending.pseudo)
-        if (currentValue !== undefined && currentValue !== pending.value) return
-      }
-
+      // Guard per-source: if the user made a newer edit to the same property
+      // on a specific source, skip removal for THAT source only. Previously
+      // this checked only the first source and returned early for the entire
+      // pending edit, which incorrectly prevented clearing overrides on other
+      // scope='all' sources that still matched the committed value.
       if (this.hmrAppliedPending) {
         const deferred = this.consumeDeferralSignal(editId, kind)
         for (const source of pending.sources) {
+          const currentValue = this.get(source, pending.property, pending.pseudo)
+          if (currentValue !== undefined && currentValue !== pending.value) continue
           if (deferred) {
             this.deferRemoval(source, pending.property, pending.pseudo, kind)
           } else {
@@ -254,6 +252,8 @@ export class CSSOverrideManager {
         }
       } else {
         for (const source of pending.sources) {
+          const currentValue = this.get(source, pending.property, pending.pseudo)
+          if (currentValue !== undefined && currentValue !== pending.value) continue
           this.pendingRemovals.push({ editId, source, property: pending.property, pseudo: pending.pseudo, kind })
         }
       }

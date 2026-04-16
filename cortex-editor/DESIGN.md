@@ -153,9 +153,9 @@ When a CSS value resolves to a design token or CSS variable from the user's appl
 Auto-detect user's app background luminance on activation. Apply Blueprint (dark) when the app has a dark background, Drafting Paper (light) when light.
 
 ### Token Namespace
-All CSS custom properties used by the panel MUST be prefixed with `--cx-` to prevent collision with user application tokens. CSS custom properties inherit through Shadow DOM boundaries — `--ink`, `--paper`, `--select` are common design system names that will collide. The `:host` selector must include `all: initial` to prevent inherited style leakage from the host app.
+All CSS custom properties used by the panel MUST be prefixed with `--cx-` to prevent collision with user application tokens. CSS custom properties inherit through Shadow DOM boundaries — `--ink`, `--paper`, `--select` are common design system names that will collide.
 
-**Implementation note:** The current `styles.css` uses bare names (`--ink`, `--paper`). This must be migrated to `--cx-ink`, `--cx-paper`, etc. before shipping to production. This is a P0 security/correctness fix.
+**Status:** The `--cx-` namespace migration is complete. All tokens in `styles.css` use the `--cx-` prefix (enforced by `cx-token-namespace.test.ts`). Note: `all: initial` on `:host` does NOT reset custom properties (CSS spec) — Shadow DOM boundary + the `--cx-` namespace prefix are the actual isolation mechanisms.
 
 ## Spacing
 - **Base unit:** 4px
@@ -336,7 +336,7 @@ Standard visual vocabulary. All components use design tokens from this file.
 | Component | Purpose | Height | Font |
 |-----------|---------|--------|------|
 | SectionGroup | Category wrapper (Position, Layout, Appearance) | auto | --text-lg (13px) / --weight-heading (600) / --ink |
-| CollapsibleSection | Property group with expand/collapse (Fill, Border, Shadow, Effects) | header 20px | --text-sm / --weight-label / --ink-ghost |
+| SectionGroup (with headerAction) | Property group with add/remove lifecycle (Background, Border, Effects) | auto | --text-lg (13px) / --weight-heading (600) / --ink |
 | SegmentedControl | Multi-option toggle (display, direction, wrap) | 28px (md), 22px (sm) | --text-sm / --weight-value |
 | PositionDropdown | Position property selector with icons + descriptions | trigger 28px | --text-sm / --weight-label |
 | NumericInput | Value with scrub, keyboard step, optional unit | 28px | Geist Mono --text-sm / --weight-value |

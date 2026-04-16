@@ -23,7 +23,7 @@ describe('ElementTree', () => {
     document.body.appendChild(target)
 
     render(
-      <ElementTree element={target} onSelectElement={() => {}} />,
+      <ElementTree element={target} onSelectElement={() => {}} height={200} />,
       container,
     )
 
@@ -44,7 +44,7 @@ describe('ElementTree', () => {
     document.body.appendChild(target)
 
     render(
-      <ElementTree element={target} onSelectElement={() => {}} />,
+      <ElementTree element={target} onSelectElement={() => {}} height={200} />,
       container,
     )
 
@@ -65,7 +65,7 @@ describe('ElementTree', () => {
     document.body.appendChild(parent)
 
     render(
-      <ElementTree element={child} onSelectElement={() => {}} />,
+      <ElementTree element={child} onSelectElement={() => {}} height={200} />,
       container,
     )
 
@@ -81,7 +81,7 @@ describe('ElementTree', () => {
     document.body.appendChild(container)
 
     render(
-      <ElementTree element={null} onSelectElement={() => {}} />,
+      <ElementTree element={null} onSelectElement={() => {}} height={200} />,
       container,
     )
 

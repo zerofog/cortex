@@ -114,6 +114,11 @@ function SpacingRow({
 
   const horizontal = values.left
   const vertical = values.top
+  // When left≠right (or top≠bottom), the axis summary is ambiguous — show
+  // indeterminate ('--') so the user knows the sides differ before editing.
+  // Same pattern as BorderSection's uniform-width indeterminate check.
+  const horizontalDiverges = values.left !== values.right
+  const verticalDiverges = values.top !== values.bottom
 
   return (
     <div class={`cortex-spacing-row${dimmed ? ' cortex-control--dimmed' : ''}`} data-section={prefix}>
@@ -124,7 +129,7 @@ function SpacingRow({
           prefix={`${short} \u2194`}
           tooltip={`Horizontal ${prefix}`}
           min={allowNegative ? undefined : 0}
-          mixed={mixedProperties?.has(`${prefix}-left`) || mixedProperties?.has(`${prefix}-right`)}
+          mixed={horizontalDiverges || mixedProperties?.has(`${prefix}-left`) || mixedProperties?.has(`${prefix}-right`)}
           onChange={handleHorizontalChange}
           onScrub={handleHorizontalScrub}
           onScrubEnd={handleHorizontalScrubEnd}
@@ -151,7 +156,7 @@ function SpacingRow({
           prefix={`${short} \u2195`}
           tooltip={`Vertical ${prefix}`}
           min={allowNegative ? undefined : 0}
-          mixed={mixedProperties?.has(`${prefix}-top`) || mixedProperties?.has(`${prefix}-bottom`)}
+          mixed={verticalDiverges || mixedProperties?.has(`${prefix}-top`) || mixedProperties?.has(`${prefix}-bottom`)}
           onChange={handleVerticalChange}
           onScrub={handleVerticalScrub}
           onScrubEnd={handleVerticalScrubEnd}
