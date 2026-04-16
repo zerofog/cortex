@@ -2,8 +2,8 @@
  * SpacingControls — Panel v2 Task 10 (ZF0-1188)
  *
  * Simplified spacing sub-control for Padding + Margin (gap is handled
- * by FlexControls / GridControls). Uses Lucide MoveHorizontal /
- * MoveVertical icons as NumericInput prefixes instead of text labels.
+ * by FlexControls / GridControls). Uses compact text prefixes in the
+ * NumericInput fields (e.g., "P ↔" / "P ↕") instead of icon prefixes.
  *
  * Business logic: Controls the padding and margin CSS properties of the
  * selected element. Horizontal inputs set left+right, vertical inputs

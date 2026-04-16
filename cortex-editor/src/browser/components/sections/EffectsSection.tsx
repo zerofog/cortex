@@ -140,8 +140,25 @@ export function EffectsSection({
 
   const handleRemove = useCallback(
     (index: number) => {
-      const shadow = shadows[index]
-      if (shadow) stashRef.current.delete(shadow._key)
+      // Shift stash keys down for indices above the removed shadow.
+      // _key is index-based, so when shadow B at index 1 is removed,
+      // shadow C shifts from index 2 → 1. Without shifting, C's stash
+      // (keyed under 2) becomes orphaned and the eye re-enable falls
+      // back to defaults instead of restoring the user's values.
+      const shifted = new Map<number, { x: number; y: number; blur: number; spread: number }>()
+      for (const [key, val] of stashRef.current) {
+        if (key < index) shifted.set(key, val)
+        else if (key > index) shifted.set(key - 1, val)
+        // key === index: discard (removing this shadow)
+      }
+      stashRef.current = shifted
+
+      // Shift expandedKey the same way — it also tracks _key (= index).
+      setExpandedKey(prev => {
+        if (prev === null || prev === index) return null
+        return prev > index ? prev - 1 : prev
+      })
+
       const updated = shadows.filter((_, i) => i !== index)
       emitChange(updated)
     },
