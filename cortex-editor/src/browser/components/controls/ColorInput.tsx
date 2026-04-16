@@ -1,7 +1,8 @@
-import type { JSX } from 'preact'
+import type { ComponentChildren, JSX } from 'preact'
 import { useState, useRef, useCallback } from 'preact/hooks'
 import { ColorPicker } from './ColorPicker.js'
 import { NumericInput } from './NumericInput.js'
+import { Eclipse } from '../icons.js'
 import { oklchToHex } from '../../../core/oklch.js'
 
 export interface ColorInputProps {
@@ -12,6 +13,14 @@ export interface ColorInputProps {
   swatches?: string[]
   /** When true, shows hatched swatch indicating shared elements have different colors. */
   mixed?: boolean
+  /** Optional trailing element rendered as the last flex child inside the
+   *  ColorInput row — used by BackgroundSection for the remove-fill minus,
+   *  by BorderSection for the visibility eye toggle. Lives inside the same
+   *  flex container as swatch / hex / opacity so all four items share one
+   *  layout authority — no caller has to compose its own row, and the
+   *  opacity input doesn't need a fixed width with shrink workarounds to
+   *  avoid overlapping a sibling rendered outside the ColorInput. */
+  trailing?: ComponentChildren
 }
 
 export const HEX_REGEX = /^#[0-9a-fA-F]{6}$/
@@ -107,7 +116,7 @@ export function formatColor(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${Math.round(alpha) / 100})`
 }
 
-export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, swatches, mixed }: ColorInputProps): JSX.Element {
+export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, swatches, mixed, trailing }: ColorInputProps): JSX.Element {
   const parsed = parseColor(value)
   const hexColor = parsed.hex
   const currentAlpha = alphaProp ?? parsed.alpha
@@ -176,6 +185,15 @@ export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, s
         class="cortex-color-input__hex"
         type="text"
         aria-label="Hex color value"
+        // `size={9}` drops the input's intrinsic min-content from the browser
+        // default of 20 chars (~140px) to ~63px — enough to fit "#ffffffff"
+        // (8-digit hex with alpha) plus one buffer char. Without this, the
+        // default min-content forces a ~156px content floor on the hex slot
+        // which, combined with the trailing IconButton in Background/Border,
+        // pushes the whole row past the panel width. Typography's ColorInput
+        // happens to work despite the same default because it has no trailing
+        // button and therefore an extra ~34px of free space.
+        size={9}
         value={mixed ? '--' : displayedHex}
         onInput={handleHexInput}
         onFocus={handleHexFocus}
@@ -186,12 +204,14 @@ export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, s
           <NumericInput
             value={currentAlpha}
             unit="%"
+            prefix={<Eclipse size={14} />}
             tooltip="Opacity"
             min={0}
             onChange={handleAlphaChange}
           />
         </div>
       )}
+      {trailing}
       {pickerOpen && swatchRef.current && (
         <ColorPicker
           color={hexColor}

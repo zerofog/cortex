@@ -1,14 +1,29 @@
+/**
+ * LayoutSection — Panel v2 Task 10 (ZF0-1188)
+ *
+ * Thin orchestrator (~150 LOC) that routes display state to child
+ * sub-controls: FlexControls (Task 8), GridControls (Task 9),
+ * SizingControls and SpacingControls (this task).
+ *
+ * Business logic: This section controls the CSS layout model (display,
+ * visibility), delegates flex/grid configuration to specialized
+ * sub-controls, and hosts sizing (width/height) and spacing
+ * (padding/margin) sub-controls. All CSS changes flow through the
+ * single onChange callback to the Panel's override system.
+ */
 import type { JSX } from 'preact'
-import { useState, useCallback } from 'preact/hooks'
+import { useCallback } from 'preact/hooks'
+import { isDimmed } from './types.js'
+import type { SectionChange } from './types.js'
 import { SegmentedControl } from '../controls/SegmentedControl.js'
-import { NumericInput } from '../controls/NumericInput.js'
-import { SizingDropdown } from '../controls/SizingDropdown.js'
-import type { SizingMode } from '../controls/SizingDropdown.js'
+import { FlexControls } from './FlexControls.js'
+import type { FlexValues, FlexChange } from './FlexControls.js'
+import { GridControls } from './GridControls.js'
+import type { GridValues, GridChange } from './GridControls.js'
+import { SizingControls } from './SizingControls.js'
+import { SpacingControls } from './SpacingControls.js'
 
-export interface LayoutChange {
-  property: string
-  value: string
-}
+export type LayoutChange = SectionChange
 
 export interface LayoutValues {
   display: string
@@ -16,12 +31,21 @@ export interface LayoutValues {
   flexDirection: string
   justifyContent: string
   alignItems: string
+  rowGap: number
+  columnGap: number
+  flexWrap: string
+  gridTemplateColumns: string
+  gridTemplateRows: string
+  gridAutoFlow: string
+  justifyItems: string
   width: string
   height: string
   minWidth: string
   maxWidth: string
   minHeight: string
   maxHeight: string
+  overflow: string
+  boxSizing: string
 }
 
 export interface LayoutSectionProps {
@@ -33,6 +57,14 @@ export interface LayoutSectionProps {
   dimmedProperties?: Set<string>
   /** Set of CSS properties whose values differ across selected elements. */
   mixedProperties?: Set<string>
+  /** Spacing data (passed from Panel.tsx, forwarded to SpacingControls). */
+  spacing?: {
+    padding: { top: number; right: number; bottom: number; left: number }
+    margin: { top: number; right: number; bottom: number; left: number }
+  }
+  onSpacingChange?: (change: LayoutChange) => void
+  onSpacingScrub?: (change: LayoutChange) => void
+  onSpacingScrubEnd?: (change: LayoutChange) => void
 }
 
 /** Normalize computed display values to SegmentedControl options. */
@@ -48,52 +80,33 @@ export function parseLayoutValues(cs: CSSStyleDeclaration): LayoutValues {
   return {
     display: normalizeDisplay(cs.display ?? 'block'),
     visibility: cs.visibility ?? 'visible',
-    flexDirection: cs.flexDirection ?? 'row',
-    justifyContent: cs.justifyContent ?? 'flex-start',
-    alignItems: cs.alignItems ?? 'stretch',
+    flexDirection: cs.flexDirection || 'row',
+    justifyContent: cs.justifyContent || 'flex-start',
+    alignItems: cs.alignItems || 'stretch',
+    rowGap: parseFloat(cs.rowGap || '0') || 0,
+    columnGap: parseFloat(cs.columnGap || '0') || 0,
+    flexWrap: cs.flexWrap || 'nowrap',
+    gridTemplateColumns: cs.gridTemplateColumns || 'none',
+    gridTemplateRows: cs.gridTemplateRows || 'none',
+    gridAutoFlow: cs.gridAutoFlow || 'row',
+    justifyItems: cs.justifyItems || 'stretch',
     width: cs.width ?? 'auto',
     height: cs.height ?? 'auto',
     minWidth: cs.minWidth ?? '0px',
     maxWidth: cs.maxWidth ?? 'none',
     minHeight: cs.minHeight ?? '0px',
     maxHeight: cs.maxHeight ?? 'none',
+    overflow: cs.overflow ?? 'visible',
+    boxSizing: cs.boxSizing ?? 'content-box',
   }
 }
 
 const DISPLAY_OPTIONS = [
-  { value: 'block', icon: '□', title: 'Block' },
-  { value: 'flex', icon: '⇔', title: 'Flex' },
-  { value: 'grid', icon: '⊞', title: 'Grid' },
-  { value: 'inline', icon: '↔', title: 'Inline' },
-  { value: 'none', icon: '⊘', title: 'None' },
-]
-
-const VISIBILITY_OPTIONS = [
-  { value: 'visible', label: 'visible' },
-  { value: 'hidden', label: 'hidden' },
-]
-
-const FLEX_DIRECTION_OPTIONS = [
-  { value: 'row', icon: '→', title: 'Row' },
-  { value: 'row-reverse', icon: '←', title: 'Row Reverse' },
-  { value: 'column', icon: '↓', title: 'Column' },
-  { value: 'column-reverse', icon: '↑', title: 'Column Reverse' },
-]
-
-const JUSTIFY_OPTIONS = [
-  { value: 'flex-start', icon: '⊣', title: 'Start' },
-  { value: 'center', icon: '⊡', title: 'Center' },
-  { value: 'flex-end', icon: '⊢', title: 'End' },
-  { value: 'space-between', icon: '⊞', title: 'Space Between' },
-  { value: 'space-around', icon: '⊟', title: 'Space Around' },
-]
-
-const ALIGN_OPTIONS = [
-  { value: 'flex-start', icon: '⊣', title: 'Start' },
-  { value: 'center', icon: '⊡', title: 'Center' },
-  { value: 'flex-end', icon: '⊢', title: 'End' },
-  { value: 'stretch', icon: '⊟', title: 'Stretch' },
-  { value: 'baseline', icon: '⊥', title: 'Baseline' },
+  { value: 'block', label: 'block' },
+  { value: 'flex', label: 'flex' },
+  { value: 'grid', label: 'grid' },
+  { value: 'inline', label: 'inline' },
+  { value: 'none', label: 'none' },
 ]
 
 export function LayoutSection({
@@ -101,391 +114,121 @@ export function LayoutSection({
   onChange,
   onScrub,
   onScrubEnd,
+  dimmedProperties,
   mixedProperties,
+  spacing,
+  onSpacingChange,
+  onSpacingScrub,
+  onSpacingScrubEnd,
 }: LayoutSectionProps): JSX.Element {
-  const isFlex = values.display === 'flex' || values.display === 'inline-flex'
-  const isGrid = values.display === 'grid' || values.display === 'inline-grid'
-  const isFlexOrGrid = isFlex || isGrid
+  const isFlex = values.display === 'flex'
+  const isGrid = values.display === 'grid'
   const isNone = values.display === 'none'
-  const [aspectLocked, setAspectLocked] = useState(false)
-  const [widthMode, setWidthMode] = useState<SizingMode>(
-    values.width === 'fit-content' ? 'fit'
-    : values.width === '100%' ? 'fill'
-    : 'fixed'
-  )
-  const [heightMode, setHeightMode] = useState<SizingMode>(
-    values.height === 'fit-content' ? 'fit'
-    : values.height === '100%' ? 'fill'
-    : 'fixed'
-  )
-  const [minWidthEnabled, setMinWidthEnabled] = useState(false)
-  const [maxWidthEnabled, setMaxWidthEnabled] = useState(false)
-  const [minHeightEnabled, setMinHeightEnabled] = useState(false)
-  const [maxHeightEnabled, setMaxHeightEnabled] = useState(false)
 
   const handleDisplayChange = useCallback(
     (v: string) => onChange({ property: 'display', value: v }),
     [onChange],
   )
-  const handleVisibilityChange = useCallback(
-    (v: string) => onChange({ property: 'visibility', value: v }),
-    [onChange],
-  )
-  const handleFlexDirChange = useCallback(
-    (v: string) => onChange({ property: 'flex-direction', value: v }),
-    [onChange],
-  )
-  const handleJustifyChange = useCallback(
-    (v: string) => onChange({ property: 'justify-content', value: v }),
-    [onChange],
-  )
-  const handleAlignChange = useCallback(
-    (v: string) => onChange({ property: 'align-items', value: v }),
-    [onChange],
-  )
 
-  const widthNum = parseFloat(values.width)
-  const heightNum = parseFloat(values.height)
-  const isAutoWidth = isNaN(widthNum)
-  const isAutoHeight = isNaN(heightNum)
+  // FlexChange and GridChange are structurally identical to LayoutChange
+  // (`{ property, value }`), so the parent callbacks pass through unchanged.
+  const handleFlexChange: (c: FlexChange) => void = onChange
+  const handleFlexScrub: ((c: FlexChange) => void) | undefined = onScrub
+  const handleFlexScrubEnd: ((c: FlexChange) => void) | undefined = onScrubEnd
+  const handleGridChange: (c: GridChange) => void = onChange
+  const handleGridScrub: ((c: GridChange) => void) | undefined = onScrub
+  const handleGridScrubEnd: ((c: GridChange) => void) | undefined = onScrubEnd
 
-  const canLockAspect = widthMode === 'fixed' && heightMode === 'fixed'
-  const aspectRatio = (canLockAspect && !isAutoWidth && !isAutoHeight && heightNum > 0)
-    ? widthNum / heightNum
-    : 1
-
-  const handleWidthChange = useCallback(
-    (v: number) => {
-      onChange({ property: 'width', value: `${v}px` })
-      if (aspectLocked && aspectRatio > 0) {
-        onChange({ property: 'height', value: `${Math.round(v / aspectRatio)}px` })
-      }
-    },
-    [onChange, aspectLocked, aspectRatio],
-  )
-  const handleWidthScrub = useCallback(
-    (v: number) => {
-      if (onScrub) onScrub({ property: 'width', value: `${v}px` })
-      if (aspectLocked && aspectRatio > 0 && onScrub) {
-        onScrub({ property: 'height', value: `${Math.round(v / aspectRatio)}px` })
-      }
-    },
-    [onScrub, aspectLocked, aspectRatio],
-  )
-  const handleWidthScrubEnd = useCallback(
-    (v: number) => {
-      if (onScrubEnd) onScrubEnd({ property: 'width', value: `${v}px` })
-      if (aspectLocked && aspectRatio > 0 && onScrubEnd) {
-        onScrubEnd({ property: 'height', value: `${Math.round(v / aspectRatio)}px` })
-      }
-    },
-    [onScrubEnd, aspectLocked, aspectRatio],
-  )
-  const handleHeightChange = useCallback(
-    (v: number) => {
-      onChange({ property: 'height', value: `${v}px` })
-      if (aspectLocked && aspectRatio > 0) {
-        onChange({ property: 'width', value: `${Math.round(v * aspectRatio)}px` })
-      }
-    },
-    [onChange, aspectLocked, aspectRatio],
-  )
-  const handleHeightScrub = useCallback(
-    (v: number) => {
-      if (onScrub) onScrub({ property: 'height', value: `${v}px` })
-      if (aspectLocked && aspectRatio > 0 && onScrub) {
-        onScrub({ property: 'width', value: `${Math.round(v * aspectRatio)}px` })
-      }
-    },
-    [onScrub, aspectLocked, aspectRatio],
-  )
-  const handleHeightScrubEnd = useCallback(
-    (v: number) => {
-      if (onScrubEnd) onScrubEnd({ property: 'height', value: `${v}px` })
-      if (aspectLocked && aspectRatio > 0 && onScrubEnd) {
-        onScrubEnd({ property: 'width', value: `${Math.round(v * aspectRatio)}px` })
-      }
-    },
-    [onScrubEnd, aspectLocked, aspectRatio],
-  )
-
-  const handleToggleLock = useCallback(() => setAspectLocked((v) => !v), [])
-
-  const handleWidthModeChange = useCallback((mode: SizingMode) => {
-    setWidthMode(mode)
-    if (mode === 'fit') onChange({ property: 'width', value: 'fit-content' })
-    else if (mode === 'fill') onChange({ property: 'width', value: '100%' })
-    else onChange({ property: 'width', value: `${isAutoWidth ? 0 : widthNum}px` })
-  }, [onChange, isAutoWidth, widthNum])
-
-  const handleHeightModeChange = useCallback((mode: SizingMode) => {
-    setHeightMode(mode)
-    if (mode === 'fit') onChange({ property: 'height', value: 'fit-content' })
-    else if (mode === 'fill') onChange({ property: 'height', value: '100%' })
-    else onChange({ property: 'height', value: `${isAutoHeight ? 0 : heightNum}px` })
-  }, [onChange, isAutoHeight, heightNum])
-
-  const handleMinWidthChange = useCallback(
-    (v: number) => onChange({ property: 'min-width', value: `${v}px` }),
-    [onChange],
-  )
-  const handleMaxWidthChange = useCallback(
-    (v: number) => onChange({ property: 'max-width', value: `${v}px` }),
-    [onChange],
-  )
-  const handleMinHeightChange = useCallback(
-    (v: number) => onChange({ property: 'min-height', value: `${v}px` }),
-    [onChange],
-  )
-  const handleMaxHeightChange = useCallback(
-    (v: number) => onChange({ property: 'max-height', value: `${v}px` }),
-    [onChange],
-  )
-
-  const handleToggleMinWidth = useCallback(() => {
-    setMinWidthEnabled(v => {
-      if (v) onChange({ property: 'min-width', value: '0px' })
-      return !v
-    })
-  }, [onChange])
-  const handleToggleMaxWidth = useCallback(() => {
-    setMaxWidthEnabled(v => {
-      if (v) onChange({ property: 'max-width', value: 'none' })
-      return !v
-    })
-  }, [onChange])
-  const handleToggleMinHeight = useCallback(() => {
-    setMinHeightEnabled(v => {
-      if (v) onChange({ property: 'min-height', value: '0px' })
-      return !v
-    })
-  }, [onChange])
-  const handleToggleMaxHeight = useCallback(() => {
-    setMaxHeightEnabled(v => {
-      if (v) onChange({ property: 'max-height', value: 'none' })
-      return !v
-    })
-  }, [onChange])
+  // Build explicit subsets for sub-controls (compile-time safety).
+  const flexValues: FlexValues = {
+    flexDirection: values.flexDirection,
+    justifyContent: values.justifyContent,
+    alignItems: values.alignItems,
+    rowGap: values.rowGap,
+    columnGap: values.columnGap,
+    flexWrap: values.flexWrap,
+  }
+  const gridValues: GridValues = {
+    gridTemplateColumns: values.gridTemplateColumns,
+    gridTemplateRows: values.gridTemplateRows,
+    gridAutoFlow: values.gridAutoFlow,
+    justifyItems: values.justifyItems,
+    alignItems: values.alignItems,
+    rowGap: values.rowGap,
+    columnGap: values.columnGap,
+  }
 
   return (
     <div class="cortex-layout-section" data-section-id="layout">
-      <div class="cortex-layout-section__group">
-        <span class="cortex-section-label">Display</span>
+      <div class={`cortex-layout-section__group${isDimmed(dimmedProperties, 'display') ? ' cortex-control--dimmed' : ''}`}>
         <SegmentedControl
           options={DISPLAY_OPTIONS}
           value={values.display}
           onChange={handleDisplayChange}
-          size="sm"
         />
       </div>
 
-      {/* Review finding 1a: reveal wrapper for conditional rows */}
-      {!isNone && (
-        <div class="cortex-layout-section__group cortex-layout-section__reveal" data-group="visibility">
-          <span class="cortex-section-label">Visibility</span>
-          <SegmentedControl
-            options={VISIBILITY_OPTIONS}
-            value={values.visibility}
-            onChange={handleVisibilityChange}
-          />
-        </div>
-      )}
-
-      {isNone && <div data-group="visibility" data-hidden="true" />}
-
       {isFlex && (
         <div class="cortex-layout-section__group cortex-layout-section__reveal">
-          <span class="cortex-section-label">Direction</span>
-          <SegmentedControl
-            options={FLEX_DIRECTION_OPTIONS}
-            value={values.flexDirection}
-            onChange={handleFlexDirChange}
-            size="sm"
+          <FlexControls
+            values={flexValues}
+            onChange={handleFlexChange}
+            onScrub={handleFlexScrub}
+            onScrubEnd={handleFlexScrubEnd}
+            dimmedProperties={dimmedProperties}
+            mixedProperties={mixedProperties}
           />
         </div>
       )}
 
-      {isFlexOrGrid && (
-        <>
-          <div class="cortex-layout-section__group cortex-layout-section__reveal">
-            <span class="cortex-section-label">Justify</span>
-            <SegmentedControl
-              options={JUSTIFY_OPTIONS}
-              value={values.justifyContent}
-              onChange={handleJustifyChange}
-              size="sm"
-            />
-          </div>
-          <div class="cortex-layout-section__group cortex-layout-section__reveal">
-            <span class="cortex-section-label">Align</span>
-            <SegmentedControl
-              options={ALIGN_OPTIONS}
-              value={values.alignItems}
-              onChange={handleAlignChange}
-              size="sm"
-            />
-          </div>
-        </>
+      {isGrid && (
+        <div class="cortex-layout-section__group cortex-layout-section__reveal">
+          <GridControls
+            values={gridValues}
+            onChange={handleGridChange}
+            onScrub={handleGridScrub}
+            onScrubEnd={handleGridScrubEnd}
+            dimmedProperties={dimmedProperties}
+            mixedProperties={mixedProperties}
+          />
+        </div>
       )}
 
-      <div class="cortex-layout-section__group">
-        <span class="cortex-section-label">Sizing</span>
-        <div class="cortex-layout-section__sizing">
-          <div class="cortex-layout-section__sizing-field">
-            <NumericInput
-              value={isAutoWidth ? 0 : widthNum}
-              label="W"
-              tooltip="Width"
-              min={0}
-              mixed={mixedProperties?.has('width')}
-              onChange={handleWidthChange}
-              onScrub={handleWidthScrub}
-              onScrubEnd={handleWidthScrubEnd}
-            />
-            <SizingDropdown
-              mode={widthMode}
-              minEnabled={minWidthEnabled}
-              maxEnabled={maxWidthEnabled}
-              onModeChange={handleWidthModeChange}
-              onToggleMin={handleToggleMinWidth}
-              onToggleMax={handleToggleMaxWidth}
-              dimension="Width"
-            />
-          </div>
-          <div class="cortex-layout-section__sizing-field">
-            <NumericInput
-              value={isAutoHeight ? 0 : heightNum}
-              label="H"
-              tooltip="Height"
-              min={0}
-              mixed={mixedProperties?.has('height')}
-              onChange={handleHeightChange}
-              onScrub={handleHeightScrub}
-              onScrubEnd={handleHeightScrubEnd}
-            />
-            <SizingDropdown
-              mode={heightMode}
-              minEnabled={minHeightEnabled}
-              maxEnabled={maxHeightEnabled}
-              onModeChange={handleHeightModeChange}
-              onToggleMin={handleToggleMinHeight}
-              onToggleMax={handleToggleMaxHeight}
-              dimension="Height"
-            />
-          </div>
-          <button
-            class={`cortex-lock-btn${aspectLocked ? ' cortex-lock-btn--active' : ''}`}
-            data-tooltip={aspectLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
-            onClick={handleToggleLock}
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              {aspectLocked ? (
-                <>
-                  <rect x="3" y="6.5" width="8" height="5.5" rx="1" />
-                  <path d="M4.5,6.5 V4.5 a2.5,2.5 0 0 1 5,0 V6.5" />
-                </>
-              ) : (
-                <>
-                  <rect x="3" y="6.5" width="8" height="5.5" rx="1" />
-                  <path d="M4.5,6.5 V4.5 a2.5,2.5 0 0 1 5,0" />
-                </>
-              )}
-            </svg>
-          </button>
+      {!isNone && (
+        <div class="cortex-layout-section__group">
+          <SizingControls
+            values={{
+              width: values.width,
+              height: values.height,
+              minWidth: values.minWidth,
+              maxWidth: values.maxWidth,
+              minHeight: values.minHeight,
+              maxHeight: values.maxHeight,
+              overflow: values.overflow,
+              boxSizing: values.boxSizing,
+            }}
+            onChange={onChange}
+            onScrub={onScrub}
+            onScrubEnd={onScrubEnd}
+            dimmedProperties={dimmedProperties}
+            mixedProperties={mixedProperties}
+          />
         </div>
-        {(minWidthEnabled || maxWidthEnabled || minHeightEnabled || maxHeightEnabled) && (
-          <div class="cortex-layout-section__minmax">
-            {minWidthEnabled && (
-              <div class="cortex-layout-section__minmax-field">
-                <NumericInput
-                  value={parseFloat(values.minWidth) || 0}
-                  unit="px"
-                  label="Min"
-                  tooltip="Min Width"
-                  min={0}
-                  mixed={mixedProperties?.has('min-width')}
-                  onChange={handleMinWidthChange}
-                />
-                <button
-                  class="cortex-layout-section__minmax-dismiss"
-                  type="button"
-                  data-tooltip="Remove Min Width"
-                  aria-label="Remove Min Width"
-                  onClick={handleToggleMinWidth}
-                >
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg>
-                </button>
-              </div>
-            )}
-            {maxWidthEnabled && (
-              <div class="cortex-layout-section__minmax-field">
-                <NumericInput
-                  value={values.maxWidth === 'none' ? 0 : parseFloat(values.maxWidth) || 0}
-                  unit="px"
-                  label="Max"
-                  tooltip="Max Width"
-                  min={0}
-                  mixed={mixedProperties?.has('max-width')}
-                  onChange={handleMaxWidthChange}
-                />
-                <button
-                  class="cortex-layout-section__minmax-dismiss"
-                  type="button"
-                  data-tooltip="Remove Max Width"
-                  aria-label="Remove Max Width"
-                  onClick={handleToggleMaxWidth}
-                >
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg>
-                </button>
-              </div>
-            )}
-            {minHeightEnabled && (
-              <div class="cortex-layout-section__minmax-field">
-                <NumericInput
-                  value={parseFloat(values.minHeight) || 0}
-                  unit="px"
-                  label="Min"
-                  tooltip="Min Height"
-                  min={0}
-                  mixed={mixedProperties?.has('min-height')}
-                  onChange={handleMinHeightChange}
-                />
-                <button
-                  class="cortex-layout-section__minmax-dismiss"
-                  type="button"
-                  data-tooltip="Remove Min Height"
-                  aria-label="Remove Min Height"
-                  onClick={handleToggleMinHeight}
-                >
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg>
-                </button>
-              </div>
-            )}
-            {maxHeightEnabled && (
-              <div class="cortex-layout-section__minmax-field">
-                <NumericInput
-                  value={values.maxHeight === 'none' ? 0 : parseFloat(values.maxHeight) || 0}
-                  unit="px"
-                  label="Max"
-                  tooltip="Max Height"
-                  min={0}
-                  mixed={mixedProperties?.has('max-height')}
-                  onChange={handleMaxHeightChange}
-                />
-                <button
-                  class="cortex-layout-section__minmax-dismiss"
-                  type="button"
-                  data-tooltip="Remove Max Height"
-                  aria-label="Remove Max Height"
-                  onClick={handleToggleMaxHeight}
-                >
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg>
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      )}
+
+      {!isNone && spacing && onSpacingChange && (
+        <div class="cortex-layout-section__group">
+          <SpacingControls
+            padding={spacing.padding}
+            margin={spacing.margin}
+            onChange={onSpacingChange}
+            onScrub={onSpacingScrub}
+            onScrubEnd={onSpacingScrubEnd}
+            dimmedProperties={dimmedProperties}
+            mixedProperties={mixedProperties}
+          />
+        </div>
+      )}
     </div>
   )
 }

@@ -25,12 +25,26 @@ describe('LayoutSection', () => {
     flexDirection: 'row',
     justifyContent: 'flex-start',
     alignItems: 'stretch',
+    rowGap: 0,
+    columnGap: 0,
+    flexWrap: 'nowrap',
+    gridTemplateColumns: 'none',
+    gridTemplateRows: 'none',
+    gridAutoFlow: 'row',
+    justifyItems: 'stretch',
     width: '320',
     height: '48',
     minWidth: '0px',
     maxWidth: 'none',
     minHeight: '0px',
     maxHeight: 'none',
+    overflow: 'visible',
+    boxSizing: 'content-box',
+  }
+
+  const DEFAULT_SPACING = {
+    padding: { top: 0, right: 0, bottom: 0, left: 0 },
+    margin: { top: 0, right: 0, bottom: 0, left: 0 },
   }
 
   function setup(overrides?: Partial<Parameters<typeof LayoutSection>[0]>) {
@@ -41,6 +55,8 @@ describe('LayoutSection', () => {
       <LayoutSection
         values={DEFAULT_VALUES}
         onChange={onChange}
+        spacing={DEFAULT_SPACING}
+        onSpacingChange={vi.fn()}
         {...overrides}
       />,
       container,
@@ -62,20 +78,15 @@ describe('LayoutSection', () => {
     expect(active).not.toBeNull()
   })
 
-  it('renders visibility row when display is not none', () => {
+  it('does not render visibility control (moved to AppearanceSection)', () => {
     setup()
-    expect(container.textContent).toContain('Visibility')
+    expect(container.textContent).not.toContain('Visibility')
+    expect(container.querySelector('[data-group="visibility"]')).toBeNull()
   })
 
-  it('hides visibility row when display is none', () => {
-    setup({ values: { ...DEFAULT_VALUES, display: 'none' } })
-    const visSection = container.querySelector('[data-group="visibility"]')
-    expect(visSection === null || visSection.getAttribute('data-hidden') === 'true').toBe(true)
-  })
-
-  it('shows flex direction only for flex display', () => {
+  it('shows flex direction segmented control for flex display', () => {
     setup({ values: { ...DEFAULT_VALUES, display: 'flex' } })
-    expect(container.textContent).toContain('Direction')
+    expect(container.querySelector('.cortex-flex-controls__direction [role="radiogroup"]')).not.toBeNull()
   })
 
   it('hides flex direction for block display', () => {
@@ -83,26 +94,42 @@ describe('LayoutSection', () => {
     expect(container.textContent).not.toContain('Direction')
   })
 
-  it('shows justify/align for flex display', () => {
+  it('shows FlexControls for flex display with X/Y dropdowns', () => {
     setup({ values: { ...DEFAULT_VALUES, display: 'flex' } })
-    expect(container.textContent).toContain('Justify')
-    expect(container.textContent).toContain('Align')
+    expect(container.querySelector('.cortex-flex-controls')).not.toBeNull()
+    // AlignmentGrid hidden (ZF0-1211) — X/Y dropdowns still render.
+    expect(
+      container.querySelector('[data-xy-axis="x"] .cortex-xy-dropdown__trigger'),
+    ).not.toBeNull()
+    expect(
+      container.querySelector('[data-xy-axis="y"] .cortex-xy-dropdown__trigger'),
+    ).not.toBeNull()
   })
 
-  it('shows justify/align for grid display', () => {
+  it('renders GridControls for grid display (Task 9 / ZF0-1187)', () => {
     setup({ values: { ...DEFAULT_VALUES, display: 'grid' } })
-    expect(container.textContent).toContain('Justify')
-    expect(container.textContent).toContain('Align')
+    expect(container.querySelector('.cortex-grid-controls')).not.toBeNull()
+    expect(
+      container.querySelector('.cortex-grid-controls [data-xy-axis="x"] .cortex-xy-dropdown__trigger'),
+    ).not.toBeNull()
+    expect(
+      container.querySelector('.cortex-grid-controls [data-xy-axis="y"] .cortex-xy-dropdown__trigger'),
+    ).not.toBeNull()
+    // Direction merged into template row.
+    expect(
+      container.querySelector('.cortex-grid-controls__template [role="radiogroup"]'),
+    ).not.toBeNull()
   })
 
-  it('hides justify/align for block display', () => {
+  it('hides GridControls and FlexControls for block display', () => {
     setup()
-    expect(container.textContent).not.toContain('Justify')
-    expect(container.textContent).not.toContain('Align')
+    expect(container.querySelector('.cortex-grid-controls')).toBeNull()
+    expect(container.querySelector('.cortex-flex-controls')).toBeNull()
   })
 
-  it('renders W and H sizing inputs', () => {
+  it('renders W and H sizing inputs via SizingControls', () => {
     setup()
+    expect(container.querySelector('[data-testid="sizing-controls"]')).not.toBeNull()
     expect(container.textContent).toContain('W')
     expect(container.textContent).toContain('H')
   })
@@ -114,17 +141,15 @@ describe('LayoutSection', () => {
     expect(onChange).toHaveBeenCalledWith({ property: 'display', value: 'flex' })
   })
 
-  it('emits visibility change', () => {
-    const { onChange } = setup()
-    const groups = container.querySelectorAll('[role="radiogroup"]')
-    // Visibility is the second radiogroup — assert it exists before clicking
-    expect(groups.length).toBeGreaterThanOrEqual(2)
-    const hiddenBtn = groups[1].querySelector('[data-value="hidden"]') as HTMLElement
-    hiddenBtn?.click()
-    expect(onChange).toHaveBeenCalledWith({ property: 'visibility', value: 'hidden' })
+  it('renders display as text-label segmented control (no icons)', () => {
+    setup()
+    const group = container.querySelector('[role="radiogroup"]')!
+    const options = group.querySelectorAll('[role="radio"]')
+    expect(options.length).toBe(5)
+    expect(options[0].textContent).toBe('block')
+    expect(options[4].textContent).toBe('none')
   })
 
-  // Review finding 3b: use expect().toBeDefined() instead of if guard
   it('emits width change with px suffix', () => {
     const { onChange } = setup()
     const inputs = container.querySelectorAll('.cortex-numeric-input input')
@@ -140,10 +165,13 @@ describe('LayoutSection', () => {
     expect(widthCall![0].value).toBe('400px')
   })
 
-  it('handles auto width gracefully', () => {
+  it('handles auto width gracefully — SizingControls renders with fallback value', () => {
     setup({ values: { ...DEFAULT_VALUES, width: 'auto' } })
-    const inputs = container.querySelectorAll('.cortex-numeric-input')
-    expect(inputs.length).toBeGreaterThan(0)
+    const sizingControls = container.querySelector('[data-testid="sizing-controls"]')
+    expect(sizingControls).not.toBeNull()
+    // auto width shows sizing dropdown in 'fixed' mode (px)
+    const modeLabels = container.querySelectorAll('.cortex-sizing-trigger__label')
+    expect(modeLabels[0]?.textContent).toBe('px')
   })
 
   it('renders sizing dropdown triggers for W and H', () => {
@@ -183,10 +211,51 @@ describe('LayoutSection', () => {
     expect(minToggle).not.toBeNull()
     minToggle.click()
     await new Promise((r) => setTimeout(r, 10))
-    // Re-render should show Min label
     expect(container.textContent).toContain('Min')
   })
 
+  // ── display=none hides SizingControls + SpacingControls ─────────
+  it('display=none renders neither SizingControls nor SpacingControls', () => {
+    setup({ values: { ...DEFAULT_VALUES, display: 'none' } })
+    expect(container.querySelector('[data-testid="sizing-controls"]')).toBeNull()
+    expect(container.querySelector('[data-testid="spacing-controls"]')).toBeNull()
+  })
+
+  // ── display=block renders SizingControls + SpacingControls ──────
+  it('display=block renders SizingControls + SpacingControls (no flex/grid)', () => {
+    setup()
+    expect(container.querySelector('[data-testid="sizing-controls"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="spacing-controls"]')).not.toBeNull()
+    expect(container.querySelector('.cortex-flex-controls')).toBeNull()
+    expect(container.querySelector('.cortex-grid-controls')).toBeNull()
+  })
+
+  // ── Regression: flex→block transition must not crash ────────────
+  it('survives block→flex→block re-render without errors', () => {
+    // Start with block
+    const onChange = vi.fn()
+    const baseProps = {
+      values: DEFAULT_VALUES,
+      onChange,
+      spacing: DEFAULT_SPACING,
+      onSpacingChange: vi.fn(),
+    }
+    render(<LayoutSection {...baseProps} />, container)
+    expect(container.querySelector('.cortex-flex-controls')).toBeNull()
+
+    // Switch to flex
+    render(<LayoutSection {...baseProps} values={{ ...DEFAULT_VALUES, display: 'flex' }} />, container)
+    expect(container.querySelector('.cortex-flex-controls')).not.toBeNull()
+
+    // Switch back to block — this must not throw
+    render(<LayoutSection {...baseProps} values={{ ...DEFAULT_VALUES, display: 'block' }} />, container)
+    expect(container.querySelector('.cortex-flex-controls')).toBeNull()
+    // Display segmented control still shows block
+    const active = container.querySelector('[aria-checked="true"]') as HTMLElement
+    expect(active?.getAttribute('data-value')).toBe('block')
+  })
+
+  // ── parseLayoutValues ───────────────────────────────────────────
   it('parseLayoutValues includes min/max fields', () => {
     const cs = {
       display: 'block',
@@ -204,5 +273,162 @@ describe('LayoutSection', () => {
     const result = parseLayoutValues(cs)
     expect(result.minWidth).toBe('100px')
     expect(result.maxWidth).toBe('500px')
+  })
+
+  it('parseLayoutValues reads gap and flex-wrap fields from a CSSStyleDeclaration', () => {
+    const cs = {
+      display: 'flex',
+      visibility: 'visible',
+      flexDirection: 'column-reverse',
+      justifyContent: 'center',
+      alignItems: 'flex-end',
+      rowGap: '12px',
+      columnGap: '8px',
+      flexWrap: 'wrap-reverse',
+      width: 'auto',
+      height: 'auto',
+      minWidth: '0px',
+      maxWidth: 'none',
+      minHeight: '0px',
+      maxHeight: 'none',
+    } as unknown as CSSStyleDeclaration
+    const result = parseLayoutValues(cs)
+    expect(result.rowGap).toBe(12)
+    expect(result.columnGap).toBe(8)
+    expect(result.flexWrap).toBe('wrap-reverse')
+    expect(result.flexDirection).toBe('column-reverse')
+    expect(result.justifyContent).toBe('center')
+    expect(result.alignItems).toBe('flex-end')
+  })
+
+  it('parseLayoutValues defaults gap and flex-wrap when fields are absent', () => {
+    const cs = {
+      display: 'block',
+      visibility: 'visible',
+      flexDirection: '',
+      justifyContent: '',
+      alignItems: '',
+      rowGap: '',
+      columnGap: '',
+      flexWrap: '',
+      width: 'auto',
+      height: 'auto',
+      minWidth: '0px',
+      maxWidth: 'none',
+      minHeight: '0px',
+      maxHeight: 'none',
+    } as unknown as CSSStyleDeclaration
+    const result = parseLayoutValues(cs)
+    expect(result.rowGap).toBe(0)
+    expect(result.columnGap).toBe(0)
+    expect(result.flexWrap).toBe('nowrap')
+    expect(result.flexDirection).toBe('row')
+    expect(result.justifyContent).toBe('flex-start')
+    expect(result.alignItems).toBe('stretch')
+  })
+
+  it('parseLayoutValues reads grid fields from a CSSStyleDeclaration', () => {
+    const cs = {
+      display: 'grid',
+      visibility: 'visible',
+      flexDirection: '',
+      justifyContent: '',
+      alignItems: 'center',
+      rowGap: '',
+      columnGap: '',
+      flexWrap: '',
+      gridTemplateColumns: 'repeat(3, 1fr)',
+      gridTemplateRows: 'repeat(2, 1fr)',
+      gridAutoFlow: 'column',
+      justifyItems: 'center',
+      width: 'auto',
+      height: 'auto',
+      minWidth: '0px',
+      maxWidth: 'none',
+      minHeight: '0px',
+      maxHeight: 'none',
+    } as unknown as CSSStyleDeclaration
+    const result = parseLayoutValues(cs)
+    expect(result.gridTemplateColumns).toBe('repeat(3, 1fr)')
+    expect(result.gridTemplateRows).toBe('repeat(2, 1fr)')
+    expect(result.gridAutoFlow).toBe('column')
+    expect(result.justifyItems).toBe('center')
+    expect(result.alignItems).toBe('center')
+  })
+
+  it('parseLayoutValues defaults grid fields when absent', () => {
+    const cs = {
+      display: 'block',
+      visibility: 'visible',
+      flexDirection: '',
+      justifyContent: '',
+      alignItems: '',
+      rowGap: '',
+      columnGap: '',
+      flexWrap: '',
+      gridTemplateColumns: '',
+      gridTemplateRows: '',
+      gridAutoFlow: '',
+      justifyItems: '',
+      width: 'auto',
+      height: 'auto',
+      minWidth: '0px',
+      maxWidth: 'none',
+      minHeight: '0px',
+      maxHeight: 'none',
+    } as unknown as CSSStyleDeclaration
+    const result = parseLayoutValues(cs)
+    expect(result.gridTemplateColumns).toBe('none')
+    expect(result.gridTemplateRows).toBe('none')
+    expect(result.gridAutoFlow).toBe('row')
+    expect(result.justifyItems).toBe('stretch')
+  })
+
+  // ── parseLayoutValues overflow + boxSizing ──────────────────────
+  it('parseLayoutValues includes overflow and boxSizing fields', () => {
+    const cs = {
+      display: 'block',
+      visibility: 'visible',
+      flexDirection: '',
+      justifyContent: '',
+      alignItems: '',
+      rowGap: '',
+      columnGap: '',
+      flexWrap: '',
+      gridTemplateColumns: '',
+      gridTemplateRows: '',
+      gridAutoFlow: '',
+      justifyItems: '',
+      width: 'auto',
+      height: 'auto',
+      minWidth: '0px',
+      maxWidth: 'none',
+      minHeight: '0px',
+      maxHeight: 'none',
+      overflow: 'hidden',
+      boxSizing: 'border-box',
+    } as unknown as CSSStyleDeclaration
+    const result = parseLayoutValues(cs)
+    expect(result.overflow).toBe('hidden')
+    expect(result.boxSizing).toBe('border-box')
+  })
+
+  it('parseLayoutValues defaults overflow and boxSizing when absent', () => {
+    const cs = {
+      display: 'block',
+      visibility: 'visible',
+      flexDirection: '',
+      justifyContent: '',
+      alignItems: '',
+      width: 'auto',
+      height: 'auto',
+      minWidth: '0px',
+      maxWidth: 'none',
+      minHeight: '0px',
+      maxHeight: 'none',
+    } as unknown as CSSStyleDeclaration
+    const result = parseLayoutValues(cs)
+    expect(result.overflow).toBe('visible')
+    expect(result.boxSizing).toBe('content-box')
   })
 })

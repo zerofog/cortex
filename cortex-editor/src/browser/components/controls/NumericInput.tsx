@@ -1,10 +1,24 @@
-import type { JSX } from 'preact'
+import type { ComponentChildren, JSX } from 'preact'
 import { useState, useRef, useCallback, useEffect } from 'preact/hooks'
 
 export interface NumericInputProps {
   value: number
   unit?: string
+  /**
+   * Legacy short text label rendered inside the input box at left
+   * (e.g. "T"/"R"/"B"/"L" in SpacingSection). Strings only — for icon
+   * or composite-node prefixes use {@link NumericInputProps.prefix}
+   * which renders into the same visual slot via a richer Preact child.
+   */
   label?: string
+  /**
+   * Inline ghost-coloured prefix rendered INSIDE the input box, before
+   * the value. Accepts any Preact children — used by PositionSection to
+   * render the rotate icon (`<RotateCw size={12} />`) and short axis
+   * tags ("X" / "Y" / "Z") into the same visual slot. When both
+   * `prefix` and `label` are provided, `prefix` wins.
+   */
+  prefix?: ComponentChildren
   tooltip?: string
   min?: number
   disabled?: boolean
@@ -30,6 +44,7 @@ export function NumericInput({
   value,
   unit,
   label,
+  prefix,
   tooltip,
   min,
   disabled,
@@ -82,6 +97,7 @@ export function NumericInput({
       if (!isNaN(parsed)) {
         onChange(clampValue(parsed))
       }
+      userTypedRef.current = false
       setIsEditing(false)
       inputRef.current?.blur()
     } else if (e.key === 'Escape') {
@@ -125,7 +141,7 @@ export function NumericInput({
       setLocalValue(str)
     }
     userTypedRef.current = false
-  }, [value, onChange, clampValue])
+  }, [value, onChange, clampValue, mixed])
 
   const handleInput = useCallback((e: Event) => {
     userTypedRef.current = true
@@ -213,13 +229,24 @@ export function NumericInput({
       data-tooltip={tooltip}
       aria-disabled={disabled ? 'true' : undefined}
     >
-      {label && <span class="cortex-numeric-input__label">{label}</span>}
+      {prefix !== undefined
+        ? <span class="cortex-numeric-input__prefix">{prefix}</span>
+        : (label && <span class="cortex-numeric-input__label">{label}</span>)}
       <input
         ref={inputRef}
         class="cortex-numeric-input__value"
         type="text"
         inputMode="numeric"
-        aria-label={tooltip ?? label}
+        // HTML `size` attribute governs the input's intrinsic minimum width
+        // (falls back to 20 chars by default, ≈140px). Setting it to 4 keeps
+        // the intrinsic small (≈28px) so a NumericInput can size to its
+        // content when its flex parent isn't constrained (e.g. the opacity
+        // slot inside ColorInput) without forcing row overflow. In constrained
+        // parents, the CSS `width: 100%` on __value still stretches the input
+        // to fill allocated space, so other consumers (spacing, position,
+        // grid/flex gap, etc.) are unaffected.
+        size={4}
+        aria-label={tooltip ?? label ?? (typeof prefix === 'string' ? prefix : undefined)}
         value={mixed && !isEditing ? '' : localValue}
         placeholder={mixed ? '--' : undefined}
         disabled={disabled}
