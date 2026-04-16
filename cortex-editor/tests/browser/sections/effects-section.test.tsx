@@ -383,7 +383,9 @@ describe('EffectsSection', () => {
     const filterCalls = onChange.mock.calls.filter(
       (c: any) => c[0].property === 'filter',
     )
-    expect(filterCalls.length).toBeGreaterThanOrEqual(1)
+    // ArrowUp fires exactly 1 filter change (blur 4→5). >= 1 would mask
+    // double-fire regressions; toBe(1) is precise.
+    expect(filterCalls.length).toBe(1)
     expect(filterCalls[0][0].value).toContain('blur(5px)')
   })
 

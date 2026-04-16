@@ -57,8 +57,10 @@ describe('BorderSection', () => {
   it('renders border width input with SquareDashed prefix', () => {
     setup()
     // The width row has a NumericInput with a prefix (SVG icon)
+    // With per-side collapsed: 2 prefixes — SquareDashed on the width row
+    // + Eclipse on the opacity NumericInput inside ColorInput's color row.
     const prefixes = container.querySelectorAll('.cortex-numeric-input__prefix')
-    expect(prefixes.length).toBeGreaterThanOrEqual(1)
+    expect(prefixes.length).toBe(2)
     // The prefix should contain an SVG (SquareDashed icon)
     const svg = prefixes[0]?.querySelector('svg')
     expect(svg).not.toBeNull()
@@ -127,19 +129,26 @@ describe('BorderSection', () => {
     expect(onChange).toHaveBeenCalledWith({ property: 'border-style', value: 'solid' })
   })
 
-  it('width onChange fires border-width', () => {
+  it('uniform width onChange fires all 5 width properties (shorthand + 4 per-side)', () => {
+    // The uniform handler writes all 5 so the shorthand doesn't lose the CSS
+    // cascade to orphan per-side overrides in the override manager's Map.
+    // Regression guard: a handler that only writes the shorthand would pass
+    // toHaveBeenCalledWith for 'border-width' but fail toHaveBeenCalledTimes.
     const { onChange } = setup()
-    // Find the width NumericInput's <input> — it's the one in the width row
     const widthRow = container.querySelector('.cortex-border-section__width-row')
     expect(widthRow).not.toBeNull()
     const input = widthRow!.querySelector('input') as HTMLInputElement
     expect(input).not.toBeNull()
-    // NumericInput fires onChange on Enter: focus → set value → input event → Enter
     input.focus()
     input.value = '2'
     input.dispatchEvent(new Event('input', { bubbles: true }))
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(onChange).toHaveBeenCalledTimes(5)
     expect(onChange).toHaveBeenCalledWith({ property: 'border-width', value: '2px' })
+    expect(onChange).toHaveBeenCalledWith({ property: 'border-top-width', value: '2px' })
+    expect(onChange).toHaveBeenCalledWith({ property: 'border-right-width', value: '2px' })
+    expect(onChange).toHaveBeenCalledWith({ property: 'border-bottom-width', value: '2px' })
+    expect(onChange).toHaveBeenCalledWith({ property: 'border-left-width', value: '2px' })
   })
 
   it('per-side expand toggles individual width inputs', async () => {
@@ -299,7 +308,11 @@ describe('BorderSection', () => {
       } as unknown as CSSStyleDeclaration
       const result = parseBorderValues(cs)
       expect(result.visible).toBe(false)
-      expect(result.borderWidth).toBe(2) // width is preserved — existence is independent of visibility
+      // Note: in production, CSS spec §8.5.3 zeroes computed width when style
+      // is hidden. Panel.tsx's post-process recovers it from the override manager.
+      // This unit test bypasses that zeroing because the mock supplies borderWidth
+      // directly. The parser correctly reads whatever the mock provides.
+      expect(result.borderWidth).toBe(2)
     })
 
     it('does not return borderRadius (moved to AppearanceSection)', () => {
