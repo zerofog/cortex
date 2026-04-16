@@ -419,6 +419,28 @@ export function Panel({
       position: parsePositionValues(cs),
       appearance: parseAppearanceValues(cs),
     }
+    // Per CSS spec §8.5.3, getComputedStyle zeroes border-width when
+    // border-style is 'none' or 'hidden' — which breaks the existence/
+    // visibility split used by summarizeBorder. A user-hidden border (via
+    // the eye toggle) would summarize as 'none' and the section would
+    // collapse, making "hide" indistinguishable from "delete". Same remedy
+    // as the width/height override pattern above: prefer the raw override-
+    // manager value over getComputedStyle when an override exists. The eye
+    // toggle handler in BorderSection snapshots all 5 width overrides
+    // before it flips style to 'hidden', so the override store has the
+    // specified widths available to recover here.
+    for (const [property, field] of [
+      ['border-width', 'borderWidth'],
+      ['border-top-width', 'borderTopWidth'],
+      ['border-right-width', 'borderRightWidth'],
+      ['border-bottom-width', 'borderBottomWidth'],
+      ['border-left-width', 'borderLeftWidth'],
+    ] as const) {
+      const raw = overrideManager.get(source, property, pseudo)
+      if (raw !== undefined) {
+        parsed.border[field] = parseFloat(raw) || 0
+      }
+    }
     // Read parent display inside the already-cached useMemo so we don't
     // add a second forced layout per render. Returns '' when there is no
     // parent (document root).
@@ -697,13 +719,48 @@ export function Panel({
   const handleFillRemove = useCallback(() => {
     applyOverride('background-color', 'transparent', true)
   }, [applyOverride])
-  // Batch: 3 properties → 1 undo entry.
+  // Apply one width value to the shorthand AND all 4 per-side longhands.
+  //
+  // The override manager is a flat `Map<property, value>` with no shorthand
+  // awareness: Map iteration order (= insertion order) becomes declaration
+  // order in the injected stylesheet (see override.ts rebuild()). Per CSS
+  // cascade rules, a longhand declared after a shorthand wins over the
+  // shorthand's expansion — and `Map.set` never moves existing keys. That
+  // means once `border-top-width` lands in the Map from user per-side edits
+  // or a prior minus action, any later write of `border-width` alone gets
+  // silently overruled by the stale longhand.
+  //
+  // Both `handleBorderAdd` and `handleBorderRemove` therefore write all five
+  // width properties through this helper. Add/remove become idempotent and
+  // symmetric: "+" always paints a uniform 1px border, "-" always fully
+  // zeroes every width slot regardless of prior per-side customization.
+  const setBorderWidths = useCallback((width: string) => {
+    applyOverride('border-width', width, false)
+    applyOverride('border-top-width', width, false)
+    applyOverride('border-right-width', width, false)
+    applyOverride('border-bottom-width', width, false)
+    applyOverride('border-left-width', width, false)
+  }, [applyOverride])
+  // Batch: 7 properties → 1 undo entry. All 5 width properties are written
+  // (via setBorderWidths) so any orphan per-side override from a prior
+  // remove→add cycle is cleared — otherwise the longhands would win the
+  // cascade and the new border would render with the old per-side values.
   const handleBorderAdd = useCallback(() => {
-    applyOverride('border-width', '1px', false)
+    setBorderWidths('1px')
     applyOverride('border-style', 'solid', false)
     applyOverride('border-color', '#000000', false)
     commitScrub()
-  }, [applyOverride, commitScrub])
+  }, [setBorderWidths, applyOverride, commitScrub])
+  // Inverse of handleBorderAdd. Symmetric with handleFillRemove: writes
+  // explicit 0 values rather than calling overrideManager.remove, so a
+  // Tailwind utility class like `border` or `border-t-2` on the element
+  // can't resurface through the natural cascade after removal. Style and
+  // color are left untouched — minimal surface area, and handleBorderAdd
+  // will overwrite them from defaults on the next `+` click.
+  const handleBorderRemove = useCallback(() => {
+    setBorderWidths('0px')
+    commitScrub()
+  }, [setBorderWidths, commitScrub])
   const handleShadowAdd = useCallback(() => {
     applyOverride('box-shadow', addShadow(computedStyles.effects.boxShadow), true)
   }, [computedStyles.effects.boxShadow, applyOverride])
@@ -1034,6 +1091,7 @@ export function Panel({
               onChange={handleCommit}
               onScrub={handleScrub}
               onScrubEnd={handleCommit}
+              onRemove={handleBorderRemove}
               swatches={swatches}
               dimmedProperties={dimmedProperties}
               mixedProperties={mixedProperties}

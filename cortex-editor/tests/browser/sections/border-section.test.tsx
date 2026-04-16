@@ -79,22 +79,51 @@ describe('BorderSection', () => {
     expect(swatch).toBeNull()
   })
 
-  it('eye toggle fires border-style none when visible', () => {
-    const { onChange } = setup({ values: { ...DEFAULT_VALUES, visible: true } })
-    // Find the eye toggle button (aria-label "Hide border")
+  it('eye toggle snapshots widths and fires border-style hidden when visible', () => {
+    // CSS spec §8.5.3 zeroes getComputedStyle(el).borderWidth whenever
+    // border-style is 'none' or 'hidden'. That would make a user-hidden
+    // border summarize as 'none' and unmount the whole section — "hide"
+    // becomes indistinguishable from "delete". The handler's remedy is to
+    // snapshot all 5 width properties into the override manager BEFORE
+    // flipping style to 'hidden', so Panel's useMemo can recover them from
+    // the override store regardless of the spec-mandated zeroing.
+    // Regression guard: asserts the snapshot calls fire in addition to the
+    // style call. One test covers both the contract (6 total calls, all
+    // 5 widths + style) and the correct values.
+    const { onChange } = setup({
+      values: {
+        ...DEFAULT_VALUES,
+        borderWidth: 2,
+        borderTopWidth: 2,
+        borderRightWidth: 3,
+        borderBottomWidth: 4,
+        borderLeftWidth: 5,
+        visible: true,
+      },
+    })
     const eyeBtn = container.querySelector('[aria-label="Hide border"]') as HTMLButtonElement
     expect(eyeBtn).not.toBeNull()
     eyeBtn.click()
-    expect(onChange).toHaveBeenCalledWith({ property: 'border-style', value: 'none' })
+    expect(onChange).toHaveBeenCalledTimes(6)
+    expect(onChange).toHaveBeenCalledWith({ property: 'border-width', value: '2px' })
+    expect(onChange).toHaveBeenCalledWith({ property: 'border-top-width', value: '2px' })
+    expect(onChange).toHaveBeenCalledWith({ property: 'border-right-width', value: '3px' })
+    expect(onChange).toHaveBeenCalledWith({ property: 'border-bottom-width', value: '4px' })
+    expect(onChange).toHaveBeenCalledWith({ property: 'border-left-width', value: '5px' })
+    expect(onChange).toHaveBeenCalledWith({ property: 'border-style', value: 'hidden' })
   })
 
-  it('eye toggle fires border-style solid when hidden', () => {
+  it('eye toggle fires ONLY border-style solid when re-showing a hidden border', () => {
+    // The snapshot was already written on the hide cycle; re-show only
+    // needs to flip style back. Falsifiability: asserting `toHaveBeenCalledTimes(1)`
+    // would fail if a future refactor accidentally re-snapshots on show.
     const { onChange } = setup({
-      values: { ...DEFAULT_VALUES, visible: false, borderStyle: 'none' },
+      values: { ...DEFAULT_VALUES, visible: false, borderStyle: 'hidden' },
     })
     const eyeBtn = container.querySelector('[aria-label="Show border"]') as HTMLButtonElement
     expect(eyeBtn).not.toBeNull()
     eyeBtn.click()
+    expect(onChange).toHaveBeenCalledTimes(1)
     expect(onChange).toHaveBeenCalledWith({ property: 'border-style', value: 'solid' })
   })
 
@@ -139,16 +168,89 @@ describe('BorderSection', () => {
     expandBtn.click()
     await new Promise((r) => setTimeout(r, 10))
 
-    const perSide = container.querySelector('.cortex-border-section__per-side')
-    const labels = perSide!.querySelectorAll('.cortex-numeric-input__label')
-    const topLabel = Array.from(labels).find((el) => el.textContent === 'T')
-    expect(topLabel).toBeDefined()
-    const topInput = topLabel!.closest('.cortex-numeric-input')!.querySelector('input') as HTMLInputElement
+    // The T/R/B/L text labels were replaced by prefix icons; locate the top
+    // input via its data-tooltip (which NumericInput emits on the wrapper
+    // verbatim from the `tooltip` prop) instead of textual label matching.
+    const topWrapper = container.querySelector('[data-tooltip="Border Top Width"]')
+    expect(topWrapper).not.toBeNull()
+    const topInput = topWrapper!.querySelector('input') as HTMLInputElement
     topInput.focus()
     topInput.value = '3'
     topInput.dispatchEvent(new Event('input', { bubbles: true }))
     topInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
     expect(onChange).toHaveBeenCalledWith({ property: 'border-top-width', value: '3px' })
+  })
+
+  it('per-side inputs render hand-drawn side icons in the prefix slot', async () => {
+    setup()
+    const expandBtn = container.querySelector('[aria-label="Expand per-side widths"]') as HTMLButtonElement
+    expandBtn.click()
+    await new Promise((r) => setTimeout(r, 10))
+
+    // Every per-side input has a prefix <svg> (SquareSideTop/Right/Bottom/Left),
+    // and none of them carry a textual label any more. Falsifiability check:
+    // if the icons were accidentally reverted to T/R/B/L text labels, the
+    // label-node query below would find 4 and fail.
+    const perSide = container.querySelector('.cortex-border-section__per-side')!
+    const prefixes = perSide.querySelectorAll('.cortex-numeric-input__prefix svg')
+    expect(prefixes.length).toBe(4)
+    const labels = perSide.querySelectorAll('.cortex-numeric-input__label')
+    expect(labels.length).toBe(0)
+  })
+
+  it('uniform width shows indeterminate when per-side widths diverge', () => {
+    setup({
+      values: {
+        ...DEFAULT_VALUES,
+        borderWidth: 5,
+        borderTopWidth: 5,
+        borderRightWidth: 1,
+        borderBottomWidth: 1,
+        borderLeftWidth: 1,
+      },
+    })
+    const widthRow = container.querySelector('.cortex-border-section__width-row')!
+    const numericInput = widthRow.querySelector('.cortex-numeric-input')!
+    expect(numericInput.classList.contains('cortex-numeric-input--mixed')).toBe(true)
+    const input = widthRow.querySelector('input') as HTMLInputElement
+    expect(input.placeholder).toBe('--')
+  })
+
+  it('uniform width does NOT show indeterminate when all sides match', () => {
+    setup() // DEFAULT_VALUES: all 4 sides = 1
+    const widthRow = container.querySelector('.cortex-border-section__width-row')!
+    const numericInput = widthRow.querySelector('.cortex-numeric-input')!
+    expect(numericInput.classList.contains('cortex-numeric-input--mixed')).toBe(false)
+  })
+
+  it('does not render the minus button when onRemove is omitted', () => {
+    setup() // no onRemove
+    const minusBtn = container.querySelector('[aria-label="Remove border"]')
+    expect(minusBtn).toBeNull()
+  })
+
+  it('renders the minus button when onRemove is provided', () => {
+    const onRemove = vi.fn()
+    setup({ onRemove })
+    const minusBtn = container.querySelector('[aria-label="Remove border"]')
+    expect(minusBtn).not.toBeNull()
+  })
+
+  it('fires onRemove when the minus button is clicked', () => {
+    const onRemove = vi.fn()
+    setup({ onRemove })
+    const minusBtn = container.querySelector('[aria-label="Remove border"]') as HTMLButtonElement
+    minusBtn.click()
+    expect(onRemove).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders the minus button alongside the eye in TokenChip mode too', () => {
+    const onRemove = vi.fn()
+    setup({ borderToken: 'border-blue-500', onRemove })
+    const eyeBtn = container.querySelector('[aria-label="Hide border"]')
+    const minusBtn = container.querySelector('[aria-label="Remove border"]')
+    expect(eyeBtn).not.toBeNull()
+    expect(minusBtn).not.toBeNull()
   })
 
   describe('parseBorderValues', () => {
@@ -180,6 +282,24 @@ describe('BorderSection', () => {
       expect(result.borderWidth).toBe(0)
       expect(result.borderStyle).toBe('none')
       expect(result.visible).toBe(false)
+    })
+
+    it('returns visible=false when borderStyle is hidden (eye-toggled off)', () => {
+      // `hidden` is the style the eye toggle writes when the user hides a
+      // border that still exists. parseBorderValues must treat it as
+      // non-visible just like `none`, so the eye icon flips to EyeClosed.
+      const cs = {
+        borderWidth: '2px',
+        borderTopWidth: '2px',
+        borderRightWidth: '2px',
+        borderBottomWidth: '2px',
+        borderLeftWidth: '2px',
+        borderStyle: 'hidden',
+        borderColor: 'rgb(0, 0, 0)',
+      } as unknown as CSSStyleDeclaration
+      const result = parseBorderValues(cs)
+      expect(result.visible).toBe(false)
+      expect(result.borderWidth).toBe(2) // width is preserved — existence is independent of visibility
     })
 
     it('does not return borderRadius (moved to AppearanceSection)', () => {
@@ -254,5 +374,18 @@ describe('summarizeBorder', () => {
       borderWidth: 0, borderTopWidth: 0, borderRightWidth: 0, borderBottomWidth: 0, borderLeftWidth: 0,
       borderStyle: 'solid', borderColor: '#000', borderOpacity: 100, visible: true,
     })).toBe('none')
+  })
+
+  it('returns "hidden" (not "none") when border-style is hidden — even though CSS spec zeroes width', () => {
+    // CSS spec §8.5.3 zeroes computed border-width when border-style is
+    // 'hidden'. That means parseBorderValues sees borderWidth=0. Without
+    // checking style first, summarizeBorder would return 'none' and the
+    // section would collapse — making "hide" indistinguishable from
+    // "delete". The fix: `border-style: hidden` is its own existence
+    // signal, independent of width.
+    expect(summarizeBorder({
+      borderWidth: 0, borderTopWidth: 0, borderRightWidth: 0, borderBottomWidth: 0, borderLeftWidth: 0,
+      borderStyle: 'hidden', borderColor: '#000', borderOpacity: 100, visible: false,
+    })).toBe('hidden')
   })
 })

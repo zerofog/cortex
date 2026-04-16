@@ -6,7 +6,16 @@ import { NumericInput } from '../controls/NumericInput.js'
 import { ColorInput, parseColor, formatColor } from '../controls/ColorInput.js'
 import { TokenChip } from '../controls/TokenChip.js'
 import { IconButton } from '../controls/IconButton.js'
-import { Eye, EyeOff, SquareDashed } from '../icons.js'
+import {
+  Eye,
+  EyeClosed,
+  Minus,
+  SquareDashed,
+  SquareSideTop,
+  SquareSideRight,
+  SquareSideBottom,
+  SquareSideLeft,
+} from '../icons.js'
 
 export type BorderChange = SectionChange
 
@@ -29,6 +38,8 @@ export interface BorderSectionProps {
   onChange: (change: BorderChange) => void
   onScrub?: (change: BorderChange) => void
   onScrubEnd?: (change: BorderChange) => void
+  /** When provided, renders a minus button at the row end that clears the border. */
+  onRemove?: () => void
   swatches?: string[]
   /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
   dimmedProperties?: Set<string>
@@ -43,21 +54,43 @@ export function parseBorderValues(cs: CSSStyleDeclaration): BorderValues {
   // Only match rgba() with exactly 4 values to avoid capturing the blue channel from rgb()
   const alphaMatch = color.match(/rgba\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*,\s*([\d.]+)\s*\)/)
   const alpha = alphaMatch?.[1] ? Math.round(parseFloat(alphaMatch[1]) * 100) : 100
+  const style = cs.borderStyle ?? 'none'
   return {
     borderWidth: parseFloat(cs.borderWidth) || 0,
     borderTopWidth: parseFloat(cs.borderTopWidth) || 0,
     borderRightWidth: parseFloat(cs.borderRightWidth) || 0,
     borderBottomWidth: parseFloat(cs.borderBottomWidth) || 0,
     borderLeftWidth: parseFloat(cs.borderLeftWidth) || 0,
-    borderStyle: cs.borderStyle ?? 'none',
+    borderStyle: style,
     borderColor: color,
     borderOpacity: alpha,
-    visible: (cs.borderStyle ?? 'none') !== 'none',
+    // `visible` is the RENDER bit — whether the border actually paints —
+    // not the existence bit. `hidden` and `none` both paint nothing; the
+    // eye toggle uses `hidden` so the border stays present (and the section
+    // stays open) while invisible. Existence is owned by `borderWidth` and
+    // surfaced to the panel via `summarizeBorder`.
+    visible: style !== 'none' && style !== 'hidden',
   }
 }
 
 export function summarizeBorder(values: BorderValues): string {
-  if (!values.visible || values.borderWidth === 0) return 'none'
+  // Two signals determine existence:
+  //
+  // 1. borderStyle === 'hidden' → the user actively hid this border via the
+  //    eye toggle. The border EXISTS but is invisible. Don't collapse the
+  //    section. Note: per CSS spec §8.5.3, getComputedStyle zeroes
+  //    border-width when border-style is 'none' or 'hidden', so we CANNOT
+  //    rely on borderWidth alone to detect existence in this state — the
+  //    spec forcibly sets it to 0 even though the user's specified width is
+  //    non-zero. Checking style first dodges that trap.
+  //
+  // 2. borderWidth > 0 AND borderStyle is NOT 'hidden' → normal visible
+  //    border with a painted width.
+  //
+  // Only the explicit minus button (which zeroes width AND leaves style as
+  // 'solid' or 'none') should collapse the section.
+  if (values.borderStyle === 'hidden') return 'hidden'
+  if (values.borderWidth === 0) return 'none'
   return `${values.borderWidth}px ${values.borderStyle}`
 }
 
@@ -81,6 +114,7 @@ export function BorderSection({
   onChange,
   onScrub,
   onScrubEnd,
+  onRemove,
   swatches,
   dimmedProperties,
   mixedProperties,
@@ -110,25 +144,85 @@ export function BorderSection({
   // ── Row 1: Visibility toggle ──────────────────────────────────────
 
   const handleVisibilityToggle = useCallback(() => {
+    // CSS spec §8.5.3: when border-style is 'none' or 'hidden', the UA
+    // forcibly zeroes the computed border-width regardless of the specified
+    // value. If we just flip style to 'hidden', getComputedStyle will
+    // report width=0 on the next render, summarizeBorder will return 'none',
+    // and the section will collapse — the user sees "hide" as "delete".
+    //
+    // Workaround: snapshot all 5 width properties into the override manager
+    // BEFORE the style transition, so Panel's useMemo can recover the
+    // specified widths from the override store (see the `border-*-width`
+    // override post-process block in Panel.tsx, modeled on the width/height
+    // pattern). The 6 synchronous onChange calls all land in the same
+    // scrubPreviousRef batch and commit as a single undo entry via the
+    // microtask deferred commit in applyOverride.
+    //
+    // `hidden` (rather than `none`) is chosen because it preserves the box
+    // model identically for non-table elements — no reflow when toggling.
+    // `solid` is the re-show default since BorderSection doesn't expose
+    // dashed/dotted in the v2 design.
     if (values.visible) {
-      onChange({ property: 'border-style', value: 'none' })
+      onChange({ property: 'border-width', value: `${values.borderWidth}px` })
+      onChange({ property: 'border-top-width', value: `${values.borderTopWidth}px` })
+      onChange({ property: 'border-right-width', value: `${values.borderRightWidth}px` })
+      onChange({ property: 'border-bottom-width', value: `${values.borderBottomWidth}px` })
+      onChange({ property: 'border-left-width', value: `${values.borderLeftWidth}px` })
+      onChange({ property: 'border-style', value: 'hidden' })
     } else {
       onChange({ property: 'border-style', value: 'solid' })
     }
-  }, [onChange, values.visible])
+  }, [
+    onChange,
+    values.visible,
+    values.borderWidth,
+    values.borderTopWidth,
+    values.borderRightWidth,
+    values.borderBottomWidth,
+    values.borderLeftWidth,
+  ])
 
   // ── Row 2: Width ──────────────────────────────────────────────────
+  // The uniform width input edits ALL 5 width properties (shorthand + 4
+  // per-side) in one gesture. Without this, the shorthand alone would lose
+  // the cascade to orphan per-side overrides that sit later in the
+  // override manager's Map (longhand declared after shorthand wins — see
+  // the setBorderWidths comment in Panel.tsx for the full explanation).
+  // The 5 synchronous calls batch into one undo entry via microtask commit.
 
   const handleWidthChange = useCallback(
-    (v: number) => onChange({ property: 'border-width', value: `${v}px` }),
+    (v: number) => {
+      const val = `${v}px`
+      onChange({ property: 'border-width', value: val })
+      onChange({ property: 'border-top-width', value: val })
+      onChange({ property: 'border-right-width', value: val })
+      onChange({ property: 'border-bottom-width', value: val })
+      onChange({ property: 'border-left-width', value: val })
+    },
     [onChange],
   )
   const handleWidthScrub = useCallback(
-    (v: number) => { if (onScrub) onScrub({ property: 'border-width', value: `${v}px` }) },
+    (v: number) => {
+      if (!onScrub) return
+      const val = `${v}px`
+      onScrub({ property: 'border-width', value: val })
+      onScrub({ property: 'border-top-width', value: val })
+      onScrub({ property: 'border-right-width', value: val })
+      onScrub({ property: 'border-bottom-width', value: val })
+      onScrub({ property: 'border-left-width', value: val })
+    },
     [onScrub],
   )
   const handleWidthScrubEnd = useCallback(
-    (v: number) => { if (onScrubEnd) onScrubEnd({ property: 'border-width', value: `${v}px` }) },
+    (v: number) => {
+      if (!onScrubEnd) return
+      const val = `${v}px`
+      onScrubEnd({ property: 'border-width', value: val })
+      onScrubEnd({ property: 'border-top-width', value: val })
+      onScrubEnd({ property: 'border-right-width', value: val })
+      onScrubEnd({ property: 'border-bottom-width', value: val })
+      onScrubEnd({ property: 'border-left-width', value: val })
+    },
     [onScrubEnd],
   )
 
@@ -202,11 +296,29 @@ export function BorderSection({
         {(() => {
           const eyeButton = (
             <IconButton
-              icon={values.visible ? <Eye size={14} /> : <EyeOff size={14} />}
+              icon={values.visible ? <Eye size={14} /> : <EyeClosed size={14} />}
               ariaLabel={values.visible ? 'Hide border' : 'Show border'}
               tooltip={values.visible ? 'Hide border' : 'Show border'}
               onClick={handleVisibilityToggle}
             />
+          )
+          const removeButton = onRemove ? (
+            <IconButton
+              icon={<Minus size={14} />}
+              ariaLabel="Remove border"
+              tooltip="Remove border"
+              onClick={onRemove}
+            />
+          ) : null
+          // [eye][minus]: eye first (non-destructive), minus at the far end
+          // (destructive, click last). Rendered as a fragment so both share
+          // the single `trailing` flex slot in ColorInput — same layout
+          // authority the Background section uses for its remove button.
+          const trailing = (
+            <>
+              {eyeButton}
+              {removeButton}
+            </>
           )
           return borderToken !== null ? (
             <div class="cortex-border-section__token-row">
@@ -215,7 +327,7 @@ export function BorderSection({
                 resolvedValue={values.borderColor}
                 onUnlink={handleUnlink}
               />
-              {eyeButton}
+              {trailing}
             </div>
           ) : (
             <ColorInput
@@ -225,13 +337,18 @@ export function BorderSection({
               onAlphaChange={handleAlphaChange}
               swatches={swatches}
               mixed={mixedProperties?.has('border-color')}
-              trailing={eyeButton}
+              trailing={trailing}
             />
           )
         })()}
       </div>
 
       {/* Row 2: Width + Per-side toggle */}
+      {/* Same pattern as AppearanceSection's uniform radius indeterminate
+          state: when the 4 per-side widths disagree on a SINGLE element,
+          the uniform input shows '--' (mixed). This catches the case where
+          getComputedStyle returns e.g. "5px 1px 1px 1px" and parseFloat
+          silently captures only the leading number, misrepresenting state. */}
       <div class={`cortex-border-section__width-row${isDimmed(dimmedProperties, 'border-width', 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width') ? ' cortex-control--dimmed' : ''}`}>
         <NumericInput
           value={values.borderWidth}
@@ -239,7 +356,12 @@ export function BorderSection({
           prefix={<SquareDashed size={14} />}
           tooltip="Border Width"
           min={0}
-          mixed={mixedProperties?.has('border-width')}
+          mixed={
+            mixedProperties?.has('border-width') ||
+            values.borderTopWidth !== values.borderRightWidth ||
+            values.borderTopWidth !== values.borderBottomWidth ||
+            values.borderTopWidth !== values.borderLeftWidth
+          }
           onChange={handleWidthChange}
           onScrub={handleWidthScrub}
           onScrubEnd={handleWidthScrubEnd}
@@ -253,13 +375,16 @@ export function BorderSection({
         />
       </div>
 
-      {/* Per-side expanded: 2×2 grid */}
+      {/* Per-side expanded: 2×2 grid. Each input's `label="T"/"R"/"B"/"L"`
+          was replaced by a Lucide-style per-side icon in the `prefix` slot,
+          matching the session 6 Appearance per-corner pattern. Tooltip still
+          names the side for screen readers. */}
       {perSideOpen && (
         <div class="cortex-border-section__per-side">
           <NumericInput
             value={values.borderTopWidth}
             unit="px"
-            label="T"
+            prefix={<SquareSideTop size={14} />}
             tooltip="Border Top Width"
             min={0}
             mixed={mixedProperties?.has('border-top-width')}
@@ -270,7 +395,7 @@ export function BorderSection({
           <NumericInput
             value={values.borderRightWidth}
             unit="px"
-            label="R"
+            prefix={<SquareSideRight size={14} />}
             tooltip="Border Right Width"
             min={0}
             mixed={mixedProperties?.has('border-right-width')}
@@ -281,7 +406,7 @@ export function BorderSection({
           <NumericInput
             value={values.borderBottomWidth}
             unit="px"
-            label="B"
+            prefix={<SquareSideBottom size={14} />}
             tooltip="Border Bottom Width"
             min={0}
             mixed={mixedProperties?.has('border-bottom-width')}
@@ -292,7 +417,7 @@ export function BorderSection({
           <NumericInput
             value={values.borderLeftWidth}
             unit="px"
-            label="L"
+            prefix={<SquareSideLeft size={14} />}
             tooltip="Border Left Width"
             min={0}
             mixed={mixedProperties?.has('border-left-width')}

@@ -161,6 +161,91 @@ export function SquareDashed({ size = 16, class: cls }: IconProps = {}): JSX.Ele
   )
 }
 
+// ── Per-side indicator icons (hand-written, Lucide-style) ─────────────────
+// Each icon reuses SquareDashed's exact corner arcs (so all five glyphs look
+// like members of the same family), then overlays ONE solid edge on the
+// side the icon represents and leaves the other three sides broken into
+// tick-marks. Used as NumericInput `prefix` on BorderSection's per-side
+// width inputs (T/R/B/L), replacing the earlier single-letter labels.
+//
+// Design note: we ship FOUR separate hand-drawn icons rather than rotating a
+// single SVG via CSS transform. Stroke rendering on transformed SVGs softens
+// at 14px, and session 6's CornerTopLeft/TopRight/BottomLeft/BottomRight
+// already set this precedent — pixel-perfect per-side path data is worth the
+// duplicated boilerplate.
+
+export function SquareSideTop({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <path d="M5 3a2 2 0 0 0-2 2" />
+      <path d="M19 3a2 2 0 0 1 2 2" />
+      <path d="M21 19a2 2 0 0 1-2 2" />
+      <path d="M5 21a2 2 0 0 1-2-2" />
+      <path d="M5 3h14" />
+      <path d="M9 21h1" />
+      <path d="M14 21h1" />
+      <path d="M3 9v1" />
+      <path d="M21 9v1" />
+      <path d="M3 14v1" />
+      <path d="M21 14v1" />
+    </svg>
+  )
+}
+
+export function SquareSideRight({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <path d="M5 3a2 2 0 0 0-2 2" />
+      <path d="M19 3a2 2 0 0 1 2 2" />
+      <path d="M21 19a2 2 0 0 1-2 2" />
+      <path d="M5 21a2 2 0 0 1-2-2" />
+      <path d="M21 5v14" />
+      <path d="M9 3h1" />
+      <path d="M14 3h1" />
+      <path d="M9 21h1" />
+      <path d="M14 21h1" />
+      <path d="M3 9v1" />
+      <path d="M3 14v1" />
+    </svg>
+  )
+}
+
+export function SquareSideBottom({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <path d="M5 3a2 2 0 0 0-2 2" />
+      <path d="M19 3a2 2 0 0 1 2 2" />
+      <path d="M21 19a2 2 0 0 1-2 2" />
+      <path d="M5 21a2 2 0 0 1-2-2" />
+      <path d="M5 21h14" />
+      <path d="M9 3h1" />
+      <path d="M14 3h1" />
+      <path d="M3 9v1" />
+      <path d="M21 9v1" />
+      <path d="M3 14v1" />
+      <path d="M21 14v1" />
+    </svg>
+  )
+}
+
+export function SquareSideLeft({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <path d="M5 3a2 2 0 0 0-2 2" />
+      <path d="M19 3a2 2 0 0 1 2 2" />
+      <path d="M21 19a2 2 0 0 1-2 2" />
+      <path d="M5 21a2 2 0 0 1-2-2" />
+      <path d="M3 5v14" />
+      <path d="M9 3h1" />
+      <path d="M14 3h1" />
+      <path d="M9 21h1" />
+      <path d="M14 21h1" />
+      <path d="M21 9v1" />
+      <path d="M21 14v1" />
+    </svg>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Task 4 (ZF0-1182) inventory — icons consumed by Panel v2 Tasks 5-16.
 // Each path is verbatim from lucide.dev (MIT). Do NOT simplify or reorder

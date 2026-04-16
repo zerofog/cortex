@@ -43,8 +43,10 @@ describe('icons.tsx — lucide.dev snapshot inventory', () => {
     //   +1 EyeClosed     (visibility-off toggle, replaces EyeOff semantics)
     //   +1 Eclipse       (opacity prefix, replaces Contrast)
     //   +4 Corner(TL|TR|BR|BL)  (per-corner radius prefix icons)
-    // Net delta from the 40-icon Task 4 baseline: +5 → 45.
-    expect(ICON_EXPORTS.length).toBe(45)
+    //   +4 SquareSide(Top|Right|Bottom|Left)  (per-side border-width prefixes,
+    //                                          replacing the T/R/B/L text labels)
+    // Net delta from the 40-icon Task 4 baseline: +9 → 49.
+    expect(ICON_EXPORTS.length).toBe(49)
   })
 
   it.each(ICON_EXPORTS)('<%s /> renders the lucide.dev SVG verbatim', (name, Component) => {
