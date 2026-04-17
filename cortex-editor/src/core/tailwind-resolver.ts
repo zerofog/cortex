@@ -386,6 +386,32 @@ export class TailwindResolver {
     return null
   }
 
+  /**
+   * Resolve text-component bundles from the project's Tailwind v4 @theme.
+   *
+   * A "bundle" is a token with ALL FOUR sub-properties present for the same
+   * name (font-size, line-height, letter-spacing, font-weight). Partial
+   * tokens are silently omitted — the panel renders them as unlinked raw
+   * controls, not as a typography pill.
+   *
+   * This reads only the user's @theme — it deliberately ignores Tailwind's
+   * default --text-* entries, so bundle membership is always an explicit,
+   * design-system-scoped decision.
+   *
+   * Returns null when no Tailwind v4 entry CSS is found (same contract as
+   * resolveColors' v4 fallback path).
+   */
+  static async resolveTextComponents(
+    projectRoot: string,
+  ): Promise<import('./text-components.js').TextComponent[] | null> {
+    const { findV4EntryCSS, extractThemeProperties } = await import('./tailwind-v4-parser.js')
+    const { extractTextComponents } = await import('./text-components.js')
+    const userCSS = await findV4EntryCSS(projectRoot)
+    if (!userCSS) return null
+    const properties = extractThemeProperties(userCSS)
+    return extractTextComponents(properties)
+  }
+
   private static async tryV3Colors(projectRoot: string): Promise<string[] | null> {
     let resolveConfig: (config: unknown) => { theme?: Record<string, unknown> }
     try {

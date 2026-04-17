@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { extractTextComponents } from '../../src/core/text-components.js'
+import { TailwindResolver } from '../../src/core/tailwind-resolver.js'
 
 describe('extractTextComponents', () => {
   it('returns bundle when size + line-height + letter-spacing + weight all present', () => {
@@ -70,5 +74,60 @@ describe('extractTextComponents', () => {
     ])
     const names = extractTextComponents(props).map(b => b.name)
     expect(names).toEqual(['sm', 'lg'])
+  })
+})
+
+describe('TailwindResolver.resolveTextComponents', () => {
+  it('returns null when no v4 entry CSS is found', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cortex-tc-none-'))
+    // No CSS file at all
+    const result = await TailwindResolver.resolveTextComponents(dir)
+    expect(result).toBeNull()
+  })
+
+  it('returns empty array when @theme has no text-component bundles', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cortex-tc-empty-'))
+    writeFileSync(join(dir, 'app.css'), '@import "tailwindcss";\n')
+    const result = await TailwindResolver.resolveTextComponents(dir)
+    expect(result).toEqual([])
+  })
+
+  it('returns bundles from user @theme', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cortex-tc-'))
+    writeFileSync(
+      join(dir, 'app.css'),
+      `@import "tailwindcss";
+@theme {
+  --text-body-md: 14px;
+  --text-body-md--line-height: 21px;
+  --text-body-md--letter-spacing: 0px;
+  --text-body-md--font-weight: 400;
+}
+`,
+    )
+    const result = await TailwindResolver.resolveTextComponents(dir)
+    expect(result?.map(b => b.name)).toEqual(['body-md'])
+    expect(result?.[0]).toMatchObject({
+      fontSize: '14px',
+      lineHeight: '21px',
+      letterSpacing: '0px',
+      fontWeight: '400',
+    })
+  })
+
+  it('omits partial bundles even when user defines them in @theme', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cortex-tc-partial-'))
+    writeFileSync(
+      join(dir, 'app.css'),
+      `@import "tailwindcss";
+@theme {
+  --text-partial: 14px;
+  --text-partial--line-height: 20px;
+  /* missing letter-spacing and font-weight → not a bundle */
+}
+`,
+    )
+    const result = await TailwindResolver.resolveTextComponents(dir)
+    expect(result).toEqual([])
   })
 })
