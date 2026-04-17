@@ -29,14 +29,8 @@ import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
 import { IconButton } from './controls/IconButton.js'
 import { BackgroundSection } from './sections/BackgroundSection.js'
-import { Type, Plus } from './icons.js'
+import { Plus } from './icons.js'
 import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
-
-/** Typography-related CSS properties filtered from extractedUtilities for Mode A display. */
-const TYPOGRAPHY_PROPS = new Set([
-  'font-size', 'font-weight', 'font-family', 'line-height',
-  'letter-spacing', 'text-align', 'color',
-])
 
 // ── Connection status footer ─────────────────────────────────────────
 
@@ -285,7 +279,6 @@ export function Panel({
   const [editScope, setEditScope] = useState<'instance' | 'all'>('instance')
 
   // Typography section dual-mode toggle: auto picks from detected token classes
-  const [typographyMode, setTypographyMode] = useState<'auto' | 'b'>('auto')
 
   // Elements section (LayerTree) height — owned by Panel so the resize handle
   // can sit between SectionGroups as the section divider.
@@ -339,7 +332,6 @@ export function Panel({
     if (prevElementRef.current && prevElementRef.current !== element) {
       // No cross-fade or body remount — sections update via normal prop changes.
       setActivePseudo('element') // reset pseudo tab on element change
-      setTypographyMode('auto') // reset typography mode on element change
     }
     prevElementRef.current = element
     scrubPreviousRef.current.clear() // abandon any in-progress scrub state
@@ -507,16 +499,13 @@ export function Panel({
     return extractUtilities(cls)
   }, [element, styleVersion])
 
-  // Derive typography token classes from extractedUtilities for Mode A display.
-  const detectedTypographyTokens = useMemo(() => {
-    const result: Array<{ className: string; property: string }> = []
-    for (const [property, className] of extractedUtilities) {
-      if (TYPOGRAPHY_PROPS.has(property)) {
-        result.push({ className, property })
-      }
-    }
-    return result
-  }, [extractedUtilities])
+  // Raw className attribute — TypographySection detects bundle + chip membership against it.
+  const typographyClassName = useMemo(() => {
+    if (!element) return ''
+    return typeof element.className === 'string'
+      ? element.className
+      : (element.getAttribute('class') ?? '')
+  }, [element, styleVersion])
 
   // Null-byte separator for composite scrub keys — never appears in CSS properties or source paths.
   const SEP = '\0'
@@ -758,6 +747,75 @@ export function Panel({
       }
     },
     [element, channel, onEditDispatch, applyOverride],
+  )
+
+  /**
+   * Route a TypographyChange (discriminated union) to the right dispatcher.
+   *
+   * - Plain {property, value} → applyOverride (scrub/commit dance)
+   * - link-* → applyClassChange with `add` + inline clear of the 5 props
+   * - unlink-* → applyClassChange with `remove` + inline preservation
+   * - vertical-align → three property edits fanned into one undo entry:
+   *   display:flex, flex-direction:column, align-items:<value>
+   */
+  const handleTypographyChange = useCallback(
+    (change: import('./sections/TypographySection.js').TypographyChange) => {
+      if ('property' in change) {
+        applyOverride(change.property, change.value, true)
+        return
+      }
+
+      switch (change.kind) {
+        case 'link-text-component': {
+          // When linking, clear the 5 inline typography properties so the
+          // bundle's values take over the render.
+          const inlineClear = [
+            { property: 'font-family', value: '' },
+            { property: 'font-weight', value: '' },
+            { property: 'font-size', value: '' },
+            { property: 'line-height', value: '' },
+            { property: 'letter-spacing', value: '' },
+          ]
+          applyClassChange({
+            remove: change.removeClass,
+            add: change.component.name,
+            inlineProps: inlineClear,
+          })
+          return
+        }
+        case 'unlink-text-component': {
+          applyClassChange({
+            remove: change.removeClass,
+            inlineProps: change.inline,
+          })
+          return
+        }
+        case 'link-color-chip': {
+          applyClassChange({
+            remove: change.removeClass,
+            add: `text-${change.chip.name}`,
+            inlineProps: [{ property: 'color', value: '' }],
+          })
+          return
+        }
+        case 'unlink-color-chip': {
+          applyClassChange({
+            remove: change.removeClass,
+            inlineProps: change.inline,
+          })
+          return
+        }
+        case 'vertical-align': {
+          // Three edits batched via the scrub→commit microtask queue: they
+          // all accumulate in scrubPreviousRef and commit as one PropertyEditCommand.
+          applyOverride('display', 'flex', false)
+          applyOverride('flex-direction', 'column', false)
+          applyOverride('align-items', change.value, true)
+          return
+        }
+      }
+    },
+    [applyOverride, applyClassChange],
   )
 
   // Property section state — driven by computed values, not user toggle
@@ -1073,30 +1131,19 @@ export function Panel({
           />
         </SectionGroup>
         {showTypography && (
-          <SectionGroup
-            label="Typography"
-            groupId="typography"
-            headerAction={
-              <IconButton
-                icon={<Type size={14} />}
-                ariaLabel="Toggle typography mode"
-                tooltip="Toggle token/CSS view"
-                active={typographyMode !== 'auto'}
-                onClick={() => setTypographyMode(m => m === 'auto' ? 'b' : 'auto')}
-              />
-            }
-          >
+          <SectionGroup label="Typography" groupId="typography">
             <TypographySection
               values={computedStyles.typography}
               availableWeights={availableWeights}
-              onChange={handleCommit}
+              className={typographyClassName}
+              onChange={handleTypographyChange}
               onScrub={handleScrub}
               onScrubEnd={handleCommit}
               swatches={swatches}
+              textComponents={textComponents}
+              colorChips={colorChips}
               dimmedProperties={dimmedProperties}
               mixedProperties={mixedProperties}
-              mode={typographyMode}
-              detectedTokenClasses={detectedTypographyTokens}
             />
           </SectionGroup>
         )}
