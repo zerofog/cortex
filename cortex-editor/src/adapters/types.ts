@@ -82,7 +82,24 @@ export type ServerToBrowser =
   | { type: 'cortex' }
   | { type: 'cortex-close' }
   | { type: 'cortex-toggle'; active: boolean }
-  | { type: 'hello'; protocolVersion: number; sessionId: string; swatches?: string[] }
+  | {
+      type: 'hello'
+      protocolVersion: number
+      sessionId: string
+      /** Back-compat: flat hex list used by the v1 color swatch row. */
+      swatches?: string[]
+      /** Named design-system chips (token name + browser-ready hex). */
+      colorChips?: Array<{ name: string; hex: string }>
+      /** Typography bundles — all four sub-properties present per entry. */
+      textComponents?: Array<{
+        name: string
+        fontSize: string
+        lineHeight: string
+        letterSpacing: string
+        fontWeight: string
+        fontFamily?: string
+      }>
+    }
   | { type: 'error'; code: string; message: string; editId?: string }
   | { type: 'edit_status'; editId: string; status: 'writing' | 'done' | 'failed' | 'cancelled'; newToken?: string; reason?: string; strategy?: 'immediate' | 'deferred' }
   | { type: 'undo_sync_status'; status: 'done' | 'failed'; reason?: string; reason_code?: 'empty_stack' | 'stale' | 'write_failed' }

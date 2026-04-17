@@ -21,6 +21,8 @@ vi.mock('vite', async () => {
 vi.mock('../../src/core/tailwind-resolver.js', () => ({
   TailwindResolver: {
     resolveColors: vi.fn().mockResolvedValue(null),
+    resolveColorChips: vi.fn().mockResolvedValue(null),
+    resolveTextComponents: vi.fn().mockResolvedValue(null),
     fromConfig: vi.fn().mockResolvedValue(null),
     fromTheme: vi.fn().mockReturnValue({ findClass: vi.fn() }),
   },

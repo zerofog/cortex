@@ -381,9 +381,18 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       // Cache resolved project root (avoids blocking realpathSync per comment message)
       let realRootCache: string | null = null
 
-      // Resolve Tailwind colors at server start — promise awaited in hotHandler
+      // Resolve Tailwind design-system data at server start — promises awaited in hotHandler.
+      // All three run in parallel; hello ships as fast as the slowest resolver.
       const swatchesPromise = TailwindResolver.resolveColors(config.root).catch((err) => {
         console.warn('[cortex] Tailwind color resolution failed:', err instanceof Error ? err.message : err)
+        return null
+      })
+      const colorChipsPromise = TailwindResolver.resolveColorChips(config.root).catch((err) => {
+        console.warn('[cortex] Tailwind color chip resolution failed:', err instanceof Error ? err.message : err)
+        return null
+      })
+      const textComponentsPromise = TailwindResolver.resolveTextComponents(config.root).catch((err) => {
+        console.warn('[cortex] Tailwind text component resolution failed:', err instanceof Error ? err.message : err)
         return null
       })
 
@@ -416,16 +425,21 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         if (!helloSent && currentSession!.channel) {
           helloSent = true // synchronous guard prevents duplicate sends
           const channel = currentSession!.channel
-          swatchesPromise.then((colors) => {
-            channel.send({
-              type: 'hello',
-              protocolVersion: 1,
-              sessionId: currentSession!.sessionId,
-              swatches: colors && colors.length > 0 ? colors : undefined,
+          Promise.all([swatchesPromise, colorChipsPromise, textComponentsPromise])
+            .then(([colors, chips, textComponents]) => {
+              channel.send({
+                type: 'hello',
+                protocolVersion: 1,
+                sessionId: currentSession!.sessionId,
+                swatches: colors && colors.length > 0 ? colors : undefined,
+                colorChips: chips && chips.length > 0 ? chips : undefined,
+                textComponents:
+                  textComponents && textComponents.length > 0 ? textComponents : undefined,
+              })
             })
-          }).catch((err) => {
-            console.warn('[cortex] Failed to send hello:', err instanceof Error ? err.message : err)
-          })
+            .catch((err) => {
+              console.warn('[cortex] Failed to send hello:', err instanceof Error ? err.message : err)
+            })
         }
 
         if (data.type === 'comment') {
