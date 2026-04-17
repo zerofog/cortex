@@ -41,6 +41,12 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const [hoveredElement, setHoveredElement] = useState<HTMLElement | null>(null)
   const [selectedElement, setSelectedElement] = useState<HTMLElement | null>(null)
   const [swatches, setSwatches] = useState<string[] | undefined>(undefined)
+  const [textComponents, setTextComponents] = useState<
+    import('../../core/text-components.js').TextComponent[] | undefined
+  >(undefined)
+  const [colorChips, setColorChips] = useState<
+    Array<{ name: string; hex: string }> | undefined
+  >(undefined)
   const [activeState, setActiveState] = useState<InteractionState>('default')
   const [availableStates, setAvailableStates] = useState<StateDeclarations | undefined>(undefined)
   const [hasBefore, setHasBefore] = useState(false)
@@ -135,6 +141,12 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (msg.type === 'hello') {
         if (msg.swatches && msg.swatches.length > 0) {
           setSwatches(msg.swatches)
+        }
+        if (msg.textComponents && msg.textComponents.length > 0) {
+          setTextComponents(msg.textComponents)
+        }
+        if (msg.colorChips && msg.colorChips.length > 0) {
+          setColorChips(msg.colorChips)
         }
       }
       if (msg.type === 'edit_status') {
@@ -502,6 +514,8 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           onClose={handleExit}
           onSelectElement={handleSelectElement}
           swatches={swatches}
+          textComponents={textComponents}
+          colorChips={colorChips}
           activeState={activeState}
           hasBefore={hasBefore}
           hasAfter={hasAfter}

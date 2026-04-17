@@ -180,6 +180,12 @@ export interface PanelProps {
   onClose: () => void
   onSelectElement: (el: HTMLElement | null) => void
   swatches?: string[]
+  /** Design-system text-component bundles (size + line-height + letter-spacing + weight).
+   *  Resolved once per dev-server lifetime; `undefined` = not yet received; `[]` = none defined. */
+  textComponents?: import('../../core/text-components.js').TextComponent[]
+  /** Design-system named color chips (token name + browser-ready hex). */
+  colorChips?: Array<{ name: string; hex: string }>
+
   activeState?: InteractionState
   hasBefore?: boolean
   hasAfter?: boolean
@@ -233,6 +239,8 @@ export function Panel({
   onClose,
   onSelectElement,
   swatches,
+  textComponents,
+  colorChips,
   activeState = 'default',
   hasBefore = false,
   hasAfter = false,
