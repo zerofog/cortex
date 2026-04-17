@@ -703,6 +703,55 @@ export function Panel({
   const handleCommit = useCallback((c: SectionChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleScrub = useCallback((c: SectionChange) => applyOverride(c.property, c.value, false), [applyOverride])
 
+  /**
+   * Dispatch a className mutation (classOp) to the server, optionally followed
+   * by per-property inline-style edits for the same element. Used by the new
+   * Typography section: linking a bundle is `{add: 'body-md', inlineProps: []}`
+   * (class goes on, inline styles come off), unlinking is
+   * `{remove: 'body-md', inlineProps: [{property:'font-size', value:'14px'}, ...]}`
+   * (class comes off, inline styles from the bundle preserve the rendered look).
+   *
+   * classOps bypass the scrub/commit dance — they are atomic by nature
+   * (no "half-linked" state). Follow-up inline props go through the normal
+   * applyOverride path so they participate in undo coalescing.
+   */
+  const applyClassChange = useCallback(
+    (opts: {
+      remove?: string
+      add?: string
+      inlineProps?: ReadonlyArray<{ property: string; value: string }>
+    }) => {
+      if (!element || !channel) return
+      const source = element.getAttribute('data-cortex-source')
+      if (!source) return
+
+      // Dispatch classOp first so the class mutation wins precedence on the
+      // server. Inline prop edits follow; if their corresponding class is
+      // removed here, their inline style takes over rendering immediately.
+      if (opts.remove || opts.add) {
+        const editId = crypto.randomUUID()
+        onEditDispatch?.(editId, source, '__class__', `${opts.remove ? `-${opts.remove}` : ''}${opts.add ? ` +${opts.add}` : ''}`.trim())
+        channel.send({
+          type: 'edit',
+          editId,
+          source,
+          property: '',
+          value: '',
+          elementSelector: element.tagName.toLowerCase(),
+          classOp: {
+            ...(opts.remove ? { remove: opts.remove } : {}),
+            ...(opts.add ? { add: opts.add } : {}),
+          },
+        })
+      }
+
+      for (const p of opts.inlineProps ?? []) {
+        applyOverride(p.property, p.value, true)
+      }
+    },
+    [element, channel, onEditDispatch, applyOverride],
+  )
+
   // Property section state — driven by computed values, not user toggle
   const fillSummary = useMemo(() => summarizeFill(computedStyles.fill), [computedStyles.fill])
   const fillHasValue = fillSummary !== 'transparent'
