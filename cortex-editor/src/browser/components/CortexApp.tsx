@@ -120,7 +120,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     selectionHandle.setDesignMode(false)
     selectionRef.current = selectionHandle
 
-    // Subscribe to server messages
+    // Listen-first ordering: subscribe to onMessage BEFORE sending init. The server's
+    // hello response is async, so attaching this handler first guarantees it's live
+    // when the response arrives. Emitting init before this line would race.
     const unsubscribe = channel.onMessage((msg) => {
       if (msg.type === 'cortex') {
         setActive(true)
@@ -216,6 +218,12 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         setActivityCount(c => c + 1)
       }
     })
+
+    // Handshake signal — server responds with 'hello' carrying swatches + design-system
+    // data. Placed AFTER onMessage subscription above so the response is guaranteed
+    // to reach the handler. Idempotent on the server, so strict-mode double-mount
+    // and HMR re-mount both work without special-casing.
+    channel.send({ type: 'init', sessionId: window.__CORTEX_SESSION_ID__ })
 
     // Track whether we were disconnected for the "reconnected" flash
     let wasDisconnected = false

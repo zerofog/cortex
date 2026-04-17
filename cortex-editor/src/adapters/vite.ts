@@ -397,7 +397,6 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       })
 
       // Vite 5.1+ API: server.hot replaces deprecated server.ws
-      let helloSent = false
       const hotHandler = (data: BrowserToServer) => {
         // Guard against race during session disposal or configureServer re-entry
         if (!currentSession || currentSession.isDisposed) return
@@ -421,9 +420,11 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         // Track state from browser messages
         if (data.type === 'cortex-closed') currentSession!.editorActive = false
 
-        // Send hello with swatches on first message (typically 'init') from browser
-        if (!helloSent && currentSession!.channel) {
-          helloSent = true // synchronous guard prevents duplicate sends
+        // Handshake contract: 'init' is the browser's explicit "ready" signal.
+        // Idempotent — every init gets a hello response so multi-tab, HMR re-mount,
+        // and strict-mode double-mount all work without special-casing. Resolvers
+        // are cached at server boot so repeat responses cost ~nothing.
+        if (data.type === 'init' && currentSession!.channel) {
           const channel = currentSession!.channel
           Promise.all([swatchesPromise, colorChipsPromise, textComponentsPromise])
             .then(([colors, chips, textComponents]) => {

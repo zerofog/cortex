@@ -415,7 +415,11 @@ describe('cortexEditor Vite plugin', () => {
       expect((server._sent[0].data as any).swatches).toBeUndefined()
     })
 
-    it('does not send hello twice on multiple messages', async () => {
+    it('only sends hello in response to init, not other message types', async () => {
+      // Contract: hello responds to the browser's explicit 'init' signal — not
+      // any first message. Sending edits, comments, or other types must not
+      // trigger hello. This test guards against regressions to the old
+      // "any first message" heuristic.
       mockResolveColors.mockResolvedValue(null)
       const plugin = initPlugin()
       const server = mockServer()
@@ -429,8 +433,37 @@ describe('cortexEditor Vite plugin', () => {
         expect(server._sent.find((s) => (s.data as any).type === 'hello')).toBeDefined()
       })
 
+      // Exactly one hello — from the single init. The edit after must NOT have
+      // triggered a second hello.
       const hellos = server._sent.filter((s) => (s.data as any).type === 'hello')
       expect(hellos).toHaveLength(1)
+    })
+
+    it('sends fresh hello on every init (idempotent — multi-tab + HMR re-mount support)', async () => {
+      // Contract: each init gets a hello response. Required so second browser
+      // tabs, HMR re-mounts, and strict-mode double-mounts all rebuild their
+      // session context from scratch without relying on retained state. The
+      // old `helloSent` flag broke this by silently blocking repeat sends.
+      mockResolveColors.mockResolvedValue(['#ff0000'])
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+
+      server.hot._trigger('cortex:msg', { type: 'init' })
+      await vi.waitFor(() => {
+        const hellos = server._sent.filter((s) => (s.data as any).type === 'hello')
+        expect(hellos).toHaveLength(1)
+      })
+
+      server.hot._trigger('cortex:msg', { type: 'init' })
+      await vi.waitFor(() => {
+        const hellos = server._sent.filter((s) => (s.data as any).type === 'hello')
+        expect(hellos).toHaveLength(2)
+      })
+
+      const hellos = server._sent.filter((s) => (s.data as any).type === 'hello')
+      expect((hellos[0].data as any).sessionId).toBe((hellos[1].data as any).sessionId)
+      expect((hellos[0].data as any).swatches).toEqual((hellos[1].data as any).swatches)
     })
 
     it('does not forward init to application message handlers', async () => {
