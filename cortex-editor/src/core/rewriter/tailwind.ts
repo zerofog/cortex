@@ -232,10 +232,259 @@ export class TailwindRewriter {
    */
   private replaceClassToken(classString: string, oldToken: string, newToken: string): string | null {
     const escaped = oldToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const re = new RegExp(`(?<=^|\\s)${escaped}(?=\\s|$)`)
-    const match = re.exec(classString)
+    const pattern = new RegExp(`(?<=^|\\s)${escaped}(?=\\s|$)`)
+    const match = pattern.exec(classString)
     if (!match) return null
     return classString.slice(0, match.index) + newToken + classString.slice(match.index + oldToken.length)
+  }
+
+  /**
+   * Mutate a JSX className attribute: remove and/or add a class. Unlike
+   * `rewrite()` which swaps one token for another, this handles pure addition
+   * and pure removal used by Typography v2 link/unlink flows.
+   *
+   * Semantics:
+   * - `remove` only: deletes the first occurrence of `remove` (no-op if absent)
+   * - `add` only: appends `add`, idempotent if already present
+   * - both: remove first, then add
+   * - neither: no-op (success=true, newContent=oldContent)
+   *
+   * Supports static strings, clsx/cn/classnames/cx call args, and static-string
+   * arms of a ternary. Template literals and conditional objects return
+   * success=false so the pipeline can fall back to the AI writer.
+   */
+  async rewriteClassList(request: {
+    filePath: string
+    line: number
+    col: number
+    remove?: string
+    add?: string
+  }): Promise<RewriteResult> {
+    if (this.disposed) {
+      return { success: false, filePath: request.filePath, reason: 'Rewriter is disposed' }
+    }
+    const { filePath, line, col, remove, add } = request
+
+    let oldContent: string
+    try {
+      oldContent = await readFile(filePath, 'utf-8')
+    } catch (err) {
+      return { success: false, filePath, reason: `Cannot read file: ${err instanceof Error ? err.message : err}` }
+    }
+
+    if (!remove && !add) {
+      return { success: true, filePath, oldContent, newContent: oldContent }
+    }
+
+    let project: Project
+    let SK: typeof SyntaxKindEnum
+    try {
+      const ready = await this.ensureReady()
+      project = ready.project
+      SK = ready.SK
+    } catch (err) {
+      return { success: false, filePath, reason: `Rewriter init failed: ${err instanceof Error ? err.message : err}` }
+    }
+
+    let sourceFile: SourceFile
+    const existing = project.getSourceFile(filePath)
+    if (existing) {
+      existing.replaceWithText(oldContent)
+      sourceFile = existing
+    } else {
+      sourceFile = project.createSourceFile(filePath, oldContent, { overwrite: true })
+    }
+
+    const jsxElement = findJsxElementAt(sourceFile, line, col, SK)
+    if (!jsxElement) {
+      return { success: false, filePath, reason: `No JSX element found at ${line}:${col}` }
+    }
+
+    const classAttrRaw = jsxElement.getAttribute('className') ?? jsxElement.getAttribute('class')
+    const classAttr = classAttrRaw?.asKind(SK.JsxAttribute)
+    if (!classAttr) {
+      return { success: false, filePath, reason: 'No className attribute found on element' }
+    }
+
+    const initializer = classAttr.getInitializer()
+    if (!initializer) {
+      return { success: false, filePath, reason: 'className attribute has no value' }
+    }
+
+    const kind = initializer.getKind()
+
+    if (kind === SK.StringLiteral) {
+      return this.mutateStringLiteral(initializer, remove, add, filePath, oldContent, sourceFile, SK)
+    }
+
+    if (kind === SK.JsxExpression) {
+      const expression = initializer.asKind(SK.JsxExpression)?.getExpression()
+      if (!expression) {
+        return { success: false, filePath, reason: 'Empty JSX expression in className' }
+      }
+      const exprKind = expression.getKind()
+      if (exprKind === SK.ConditionalExpression) {
+        return this.mutateTernary(expression, remove, add, filePath, oldContent, sourceFile, SK)
+      }
+      if (exprKind === SK.CallExpression) {
+        return this.mutateCallExpression(expression, remove, add, filePath, oldContent, sourceFile, SK)
+      }
+      if (exprKind === SK.TemplateExpression || exprKind === SK.NoSubstitutionTemplateLiteral) {
+        return { success: false, filePath, reason: 'Template literal in className — route to AI' }
+      }
+      return { success: false, filePath, reason: `Unsupported className expression kind: ${exprKind}` }
+    }
+
+    return { success: false, filePath, reason: `Unsupported className initializer kind: ${kind}` }
+  }
+
+  /** Apply remove/add to a space-separated class string. Pure, idempotent on add. */
+  private applyClassOp(
+    classString: string,
+    remove: string | undefined,
+    add: string | undefined,
+  ): string {
+    const tokens = classString.split(/\s+/).filter(Boolean)
+    if (remove) {
+      const idx = tokens.indexOf(remove)
+      if (idx >= 0) tokens.splice(idx, 1)
+    }
+    if (add && !tokens.includes(add)) {
+      tokens.push(add)
+    }
+    return tokens.join(' ')
+  }
+
+  private mutateStringLiteral(
+    node: Node,
+    remove: string | undefined,
+    add: string | undefined,
+    filePath: string,
+    oldContent: string,
+    sourceFile: SourceFile,
+    SK: typeof SyntaxKindEnum,
+  ): RewriteResult {
+    const literal = node.asKind(SK.StringLiteral)
+    if (!literal) {
+      return { success: false, filePath, reason: 'Expected string literal' }
+    }
+    const text = literal.getLiteralText()
+    const next = this.applyClassOp(text, remove, add)
+    if (next === text) {
+      return { success: true, filePath, oldContent, newContent: oldContent }
+    }
+    literal.setLiteralValue(next)
+    return { success: true, filePath, oldContent, newContent: sourceFile.getFullText() }
+  }
+
+  private mutateTernary(
+    expression: Node,
+    remove: string | undefined,
+    add: string | undefined,
+    filePath: string,
+    oldContent: string,
+    sourceFile: SourceFile,
+    SK: typeof SyntaxKindEnum,
+  ): RewriteResult {
+    const conditional = expression.asKind(SK.ConditionalExpression)
+    if (!conditional) {
+      return { success: false, filePath, reason: 'Expected conditional expression' }
+    }
+    // Prefer the arm containing `remove`; otherwise apply to the first static-
+    // string arm. This lets single-arm-link flows work even when the element
+    // renders without currently having the target class.
+    const arms = [conditional.getWhenTrue(), conditional.getWhenFalse()]
+    for (const branch of arms) {
+      const literal = branch.asKind(SK.StringLiteral)
+      if (!literal) continue
+      const text = literal.getLiteralText()
+      if (remove && !text.split(/\s+/).includes(remove)) continue
+      const next = this.applyClassOp(text, remove, add)
+      if (next === text) {
+        return { success: true, filePath, oldContent, newContent: oldContent }
+      }
+      literal.setLiteralValue(next)
+      return { success: true, filePath, oldContent, newContent: sourceFile.getFullText() }
+    }
+
+    if (add && !remove) {
+      for (const branch of arms) {
+        const literal = branch.asKind(SK.StringLiteral)
+        if (!literal) continue
+        const text = literal.getLiteralText()
+        const next = this.applyClassOp(text, undefined, add)
+        if (next !== text) {
+          literal.setLiteralValue(next)
+          return { success: true, filePath, oldContent, newContent: sourceFile.getFullText() }
+        }
+      }
+    }
+
+    return { success: true, filePath, oldContent, newContent: oldContent }
+  }
+
+  private mutateCallExpression(
+    expression: Node,
+    remove: string | undefined,
+    add: string | undefined,
+    filePath: string,
+    oldContent: string,
+    sourceFile: SourceFile,
+    SK: typeof SyntaxKindEnum,
+  ): RewriteResult {
+    const call = expression.asKind(SK.CallExpression)
+    if (!call) {
+      return { success: false, filePath, reason: 'Expected call expression' }
+    }
+
+    const callee = call.getExpression().getText()
+    if (!CLASSNAME_HELPERS.has(callee)) {
+      return { success: false, filePath, reason: `Unknown className function: ${callee}` }
+    }
+
+    const args = call.getArguments()
+    if (args.some((a) => a.getKind() === SK.ObjectLiteralExpression)) {
+      return { success: false, filePath, reason: 'Conditional object in className call — route to AI' }
+    }
+
+    let mutated = false
+
+    if (remove) {
+      for (const arg of args) {
+        const literal = arg.asKind(SK.StringLiteral)
+        if (!literal) continue
+        const text = literal.getLiteralText()
+        if (!text.split(/\s+/).includes(remove)) continue
+        literal.setLiteralValue(this.applyClassOp(text, remove, undefined))
+        mutated = true
+        break
+      }
+    }
+
+    if (add) {
+      const alreadyPresent = args.some((arg) => {
+        const lit = arg.asKind(SK.StringLiteral)
+        return lit ? lit.getLiteralText().split(/\s+/).includes(add) : false
+      })
+      if (!alreadyPresent) {
+        for (const arg of args) {
+          const literal = arg.asKind(SK.StringLiteral)
+          if (!literal) continue
+          const text = literal.getLiteralText()
+          const next = this.applyClassOp(text, undefined, add)
+          if (next !== text) {
+            literal.setLiteralValue(next)
+            mutated = true
+            break
+          }
+        }
+      }
+    }
+
+    if (!mutated) {
+      return { success: true, filePath, oldContent, newContent: oldContent }
+    }
+    return { success: true, filePath, oldContent, newContent: sourceFile.getFullText() }
   }
 
   dispose(): void {
