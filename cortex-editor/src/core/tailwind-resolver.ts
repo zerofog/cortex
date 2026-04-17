@@ -412,6 +412,47 @@ export class TailwindResolver {
     return extractTextComponents(properties)
   }
 
+  /**
+   * Resolve named design-system color chips from the project's Tailwind v4
+   * @theme. Returns `[{ name: 'brand-500', hex: '#3b82f6' }, ...]` — names
+   * are the token identifier stripped of `--color-`, hex is the browser-
+   * ready value after OKLCH/rgb normalization.
+   *
+   * Unlike resolveColors (which flattens to hex[]), this keeps the name so
+   * the UI can render "text-gray-900" in linked pills and pickers rather
+   * than bare hex strings.
+   *
+   * Returns null when no Tailwind v4 entry CSS is found.
+   */
+  static async resolveColorChips(
+    projectRoot: string,
+  ): Promise<Array<{ name: string; hex: string }> | null> {
+    const { findV4EntryCSS, extractThemeProperties, themePropertiesToResolved } = await import(
+      './tailwind-v4-parser.js'
+    )
+    const userCSS = await findV4EntryCSS(projectRoot)
+    if (!userCSS) return null
+
+    const properties = extractThemeProperties(userCSS)
+    const theme = themePropertiesToResolved(properties)
+    const chips: Array<{ name: string; hex: string }> = []
+
+    const flatten = (obj: Record<string, unknown>, prefix: string): void => {
+      for (const [key, val] of Object.entries(obj)) {
+        if (typeof val === 'string') {
+          chips.push({ name: prefix ? `${prefix}-${key}` : key, hex: val })
+        } else if (val && typeof val === 'object') {
+          flatten(val as Record<string, unknown>, prefix ? `${prefix}-${key}` : key)
+        }
+      }
+    }
+    if (theme.colors && typeof theme.colors === 'object') {
+      flatten(theme.colors as Record<string, unknown>, '')
+    }
+
+    return chips
+  }
+
   private static async tryV3Colors(projectRoot: string): Promise<string[] | null> {
     let resolveConfig: (config: unknown) => { theme?: Record<string, unknown> }
     try {

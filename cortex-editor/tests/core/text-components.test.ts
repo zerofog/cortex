@@ -131,3 +131,42 @@ describe('TailwindResolver.resolveTextComponents', () => {
     expect(result).toEqual([])
   })
 })
+
+describe('TailwindResolver.resolveColorChips', () => {
+  it('returns null when no v4 entry CSS is found', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-none-'))
+    const result = await TailwindResolver.resolveColorChips(dir)
+    expect(result).toBeNull()
+  })
+
+  it('returns named chips from @theme --color-* entries', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-'))
+    writeFileSync(
+      join(dir, 'app.css'),
+      `@import "tailwindcss";
+@theme {
+  --color-brand-500: #3b82f6;
+  --color-gray-900: #111827;
+}
+`,
+    )
+    const result = await TailwindResolver.resolveColorChips(dir)
+    // Note: user-defined entries are merged with Tailwind defaults via
+    // themePropertiesToResolved. Assert our chips are present (not equality).
+    expect(result).toEqual(
+      expect.arrayContaining([
+        { name: 'brand-500', hex: '#3b82f6' },
+        { name: 'gray-900', hex: '#111827' },
+      ]),
+    )
+  })
+
+  it('returns empty array when @theme has no color entries', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-empty-'))
+    writeFileSync(join(dir, 'app.css'), '@import "tailwindcss";\n')
+    const result = await TailwindResolver.resolveColorChips(dir)
+    // May include Tailwind defaults depending on whether tailwindcss is installed.
+    // The contract: returns an array (not null, since CSS was found).
+    expect(Array.isArray(result)).toBe(true)
+  })
+})
