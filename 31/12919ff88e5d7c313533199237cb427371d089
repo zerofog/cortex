@@ -1,0 +1,52 @@
+cortex-editor/tests/browser/components/controls/TokenChip.test.tsx
+  a32376dab06101ab 1-215
+cortex-editor/src/browser/components/controls/TokenChip.tsx
+  a32376dab06101ab 4-5,7,9-21,23-24,27-29,32-36,40-41,43,45-50,52-70,74,88-128
+cortex-editor/src/browser/components/controls/TextComponentPill.tsx
+  a32376dab06101ab 1-31
+cortex-editor/src/browser/components/sections/TypographySection.tsx
+  a32376dab06101ab 9,235-238
+cortex-editor/src/browser/components/controls/ColorChipPill.tsx
+  a32376dab06101ab 1-35
+cortex-editor/src/browser/components/sections/BorderSection.tsx
+  a32376dab06101ab 7,327-331
+cortex-editor/src/browser/styles.css
+  a32376dab06101ab 3668-3692
+cortex-editor/src/browser/components/sections/BackgroundSection.tsx
+  a32376dab06101ab 6,82-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "3112919ff88e5d7c313533199237cb427371d089",
+  "prompts": {
+    "132ad72d927ad21b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e2ac3347-a4fa-41da-a9eb-12962da22474",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 10851,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/a39b452c62de577627becaa72610fcf23e2946839bf7974751718955b6b61788"
+    },
+    "a32376dab06101ab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b5041c96-ad5c-48be-9ae3-051831bc7793",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 580,
+      "total_deletions": 5449,
+      "accepted_lines": 534,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/7b359eb6f8c9299007f01ee83a776a562de83f11485ebca4ef47241c5c168b94"
+    }
+  }
+}
