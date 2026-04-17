@@ -506,17 +506,14 @@ export function TypographySection({
       )}
 
       {/* ═══ Alignment row (always shown) ═══ */}
+      {/* Vertical SegmentedControl deferred — align-items/justify-content
+       * semantics needs a design pass and a defined-height story before it
+       * can ship. Horizontal stays. */}
       <div class="cortex-typography-section__align-row">
         <SegmentedControl
           options={HORIZONTAL_ALIGN_OPTIONS}
           value={values.textAlign}
           onChange={handleHorizontalAlignChange}
-          size="sm"
-        />
-        <SegmentedControl
-          options={VERTICAL_ALIGN_OPTIONS}
-          value={values.verticalAlign}
-          onChange={handleVerticalAlignChange}
           size="sm"
         />
       </div>
