@@ -1,206 +1,77 @@
 import type { JSX } from 'preact'
 import { Unlink } from '../icons.js'
 
+export type TokenChipSwatch = { kind: 'color'; value: string } | { kind: 'pattern' }
+
 export interface TokenChipProps {
-  /** CSS variable name, e.g. "--bg-surface". Displayed as-is. */
+  /** Display text for the pill body (e.g. `--bg-surface`, `body-md`, `text-gray-900`). */
   tokenName: string
-  /** Resolved CSS value — used as the swatch background-color when it
-   *  looks like a color. Non-color values get a diagonal stripe pattern. */
-  resolvedValue: string
-  /** When provided, an unlink button is rendered. Fires on click. */
+  /**
+   * Optional leading swatch. `color` renders a filled square from `value`;
+   * `pattern` renders a diagonal stripe for non-color values (spacing, size).
+   * Omit for text-only pills like TextComponentPill.
+   */
+  swatch?: TokenChipSwatch
+  /**
+   * When provided, the body becomes a clickable <button>. When omitted, the
+   * body renders as a plain <span> — a button that does nothing is an a11y
+   * trap, so absence of a handler is load-bearing here.
+   */
+  onBodyClick?: () => void
+  /** When provided, an unlink button is rendered on the trailing edge. */
   onUnlink?: () => void
+  /** Accessible label for the body button. Defaults to the tokenName. */
+  ariaLabel?: string
 }
 
-/**
- * Heuristic: returns `true` when `value` looks like a CSS color.
- * Matches hex (#abc, #aabbcc, #aabbccdd), rgb/rgba/hsl/hsla functions,
- * `transparent`, `currentColor`, `var(--…)`, and common named colors.
- * Anything else (e.g. "16px", "1rem", "auto") returns `false`.
- */
-const COLOR_RE =
-  /^(#[\da-f]{3,8}|rgba?\s*\(|hsla?\s*\(|transparent|currentcolor|var\s*\(--)/i
-
-/** Subset of CSS named colors — not exhaustive, but covers the common ones. */
-const NAMED_COLORS = new Set([
-  'aliceblue',
-  'antiquewhite',
-  'aqua',
-  'aquamarine',
-  'azure',
-  'beige',
-  'bisque',
-  'black',
-  'blanchedalmond',
-  'blue',
-  'blueviolet',
-  'brown',
-  'burlywood',
-  'cadetblue',
-  'chartreuse',
-  'chocolate',
-  'coral',
-  'cornflowerblue',
-  'cornsilk',
-  'crimson',
-  'cyan',
-  'darkblue',
-  'darkcyan',
-  'darkgoldenrod',
-  'darkgray',
-  'darkgreen',
-  'darkgrey',
-  'darkkhaki',
-  'darkmagenta',
-  'darkolivegreen',
-  'darkorange',
-  'darkorchid',
-  'darkred',
-  'darksalmon',
-  'darkseagreen',
-  'darkslateblue',
-  'darkslategray',
-  'darkslategrey',
-  'darkturquoise',
-  'darkviolet',
-  'deeppink',
-  'deepskyblue',
-  'dimgray',
-  'dimgrey',
-  'dodgerblue',
-  'firebrick',
-  'floralwhite',
-  'forestgreen',
-  'fuchsia',
-  'gainsboro',
-  'ghostwhite',
-  'gold',
-  'goldenrod',
-  'gray',
-  'green',
-  'greenyellow',
-  'grey',
-  'honeydew',
-  'hotpink',
-  'indianred',
-  'indigo',
-  'ivory',
-  'khaki',
-  'lavender',
-  'lavenderblush',
-  'lawngreen',
-  'lemonchiffon',
-  'lightblue',
-  'lightcoral',
-  'lightcyan',
-  'lightgoldenrodyellow',
-  'lightgray',
-  'lightgreen',
-  'lightgrey',
-  'lightpink',
-  'lightsalmon',
-  'lightseagreen',
-  'lightskyblue',
-  'lightslategray',
-  'lightslategrey',
-  'lightsteelblue',
-  'lightyellow',
-  'lime',
-  'limegreen',
-  'linen',
-  'magenta',
-  'maroon',
-  'mediumaquamarine',
-  'mediumblue',
-  'mediumorchid',
-  'mediumpurple',
-  'mediumseagreen',
-  'mediumslateblue',
-  'mediumspringgreen',
-  'mediumturquoise',
-  'mediumvioletred',
-  'midnightblue',
-  'mintcream',
-  'mistyrose',
-  'moccasin',
-  'navajowhite',
-  'navy',
-  'oldlace',
-  'olive',
-  'olivedrab',
-  'orange',
-  'orangered',
-  'orchid',
-  'palegoldenrod',
-  'palegreen',
-  'paleturquoise',
-  'palevioletred',
-  'papayawhip',
-  'peachpuff',
-  'peru',
-  'pink',
-  'plum',
-  'powderblue',
-  'purple',
-  'rebeccapurple',
-  'red',
-  'rosybrown',
-  'royalblue',
-  'saddlebrown',
-  'salmon',
-  'sandybrown',
-  'seagreen',
-  'seashell',
-  'sienna',
-  'silver',
-  'skyblue',
-  'slateblue',
-  'slategray',
-  'slategrey',
-  'snow',
-  'springgreen',
-  'steelblue',
-  'tan',
-  'teal',
-  'thistle',
-  'tomato',
-  'turquoise',
-  'violet',
-  'wheat',
-  'white',
-  'whitesmoke',
-  'yellow',
-  'yellowgreen',
-])
-
-function isColorLike(value: string): boolean {
-  const trimmed = value.trim().toLowerCase()
-  return COLOR_RE.test(trimmed) || NAMED_COLORS.has(trimmed)
-}
+/** Diagonal-stripe background for non-color values (e.g. spacing, sizes). */
+const PATTERN_BG =
+  'repeating-linear-gradient(45deg, var(--cx-ink-ghost) 0, var(--cx-ink-ghost) 2px, transparent 2px, transparent 6px)'
 
 /**
- * Pill-shaped chip displaying a CSS variable name with a color swatch
- * and an optional unlink button. Pure display component — no internal
- * state. Consumed by TypographySection, BackgroundSection, and
- * BorderSection.
+ * Pill-shaped chip with an optional leading swatch, clickable body, and
+ * trailing unlink button. Pure display component — no internal state.
+ *
+ * Consumed by BackgroundSection, BorderSection, TypographySection, and
+ * (via TextComponentPill/ColorChipPill) the new Typography v2 linked rows.
  */
 export function TokenChip({
   tokenName,
-  resolvedValue,
+  swatch,
+  onBodyClick,
   onUnlink,
+  ariaLabel,
 }: TokenChipProps): JSX.Element {
-  const colorLike = isColorLike(resolvedValue)
+  const swatchEl =
+    swatch === undefined ? null : swatch.kind === 'color' ? (
+      <span class="cortex-token-chip__swatch" style={{ backgroundColor: swatch.value }} />
+    ) : (
+      <span class="cortex-token-chip__swatch" style={{ background: PATTERN_BG }} />
+    )
 
-  const swatchStyle: Record<string, string> = colorLike
-    ? { backgroundColor: resolvedValue }
-    : {
-        background:
-          'repeating-linear-gradient(45deg, var(--cx-ink-ghost) 0, var(--cx-ink-ghost) 2px, transparent 2px, transparent 6px)',
-      }
+  const bodyChildren = (
+    <>
+      {swatchEl}
+      <span class="cortex-token-chip__name">{tokenName}</span>
+    </>
+  )
+
+  const body = onBodyClick ? (
+    <button
+      type="button"
+      class="cortex-token-chip__body"
+      onClick={onBodyClick}
+      aria-label={ariaLabel ?? tokenName}
+    >
+      {bodyChildren}
+    </button>
+  ) : (
+    <span class="cortex-token-chip__body">{bodyChildren}</span>
+  )
 
   return (
     <span class="cortex-token-chip">
-      <span class="cortex-token-chip__swatch" style={swatchStyle} />
-      <span class="cortex-token-chip__name">{tokenName}</span>
+      {body}
       {onUnlink && (
         <button
           type="button"
@@ -213,4 +84,46 @@ export function TokenChip({
       )}
     </span>
   )
+}
+
+/** Subset of CSS named colors — common ones only, kept in sync with browser keywords. */
+const NAMED_COLORS = new Set([
+  'aliceblue', 'antiquewhite', 'aqua', 'aquamarine', 'azure', 'beige', 'bisque', 'black',
+  'blanchedalmond', 'blue', 'blueviolet', 'brown', 'burlywood', 'cadetblue', 'chartreuse',
+  'chocolate', 'coral', 'cornflowerblue', 'cornsilk', 'crimson', 'cyan', 'darkblue',
+  'darkcyan', 'darkgoldenrod', 'darkgray', 'darkgreen', 'darkgrey', 'darkkhaki',
+  'darkmagenta', 'darkolivegreen', 'darkorange', 'darkorchid', 'darkred', 'darksalmon',
+  'darkseagreen', 'darkslateblue', 'darkslategray', 'darkslategrey', 'darkturquoise',
+  'darkviolet', 'deeppink', 'deepskyblue', 'dimgray', 'dimgrey', 'dodgerblue', 'firebrick',
+  'floralwhite', 'forestgreen', 'fuchsia', 'gainsboro', 'ghostwhite', 'gold', 'goldenrod',
+  'gray', 'green', 'greenyellow', 'grey', 'honeydew', 'hotpink', 'indianred', 'indigo',
+  'ivory', 'khaki', 'lavender', 'lavenderblush', 'lawngreen', 'lemonchiffon', 'lightblue',
+  'lightcoral', 'lightcyan', 'lightgoldenrodyellow', 'lightgray', 'lightgreen', 'lightgrey',
+  'lightpink', 'lightsalmon', 'lightseagreen', 'lightskyblue', 'lightslategray',
+  'lightslategrey', 'lightsteelblue', 'lightyellow', 'lime', 'limegreen', 'linen', 'magenta',
+  'maroon', 'mediumaquamarine', 'mediumblue', 'mediumorchid', 'mediumpurple', 'mediumseagreen',
+  'mediumslateblue', 'mediumspringgreen', 'mediumturquoise', 'mediumvioletred', 'midnightblue',
+  'mintcream', 'mistyrose', 'moccasin', 'navajowhite', 'navy', 'oldlace', 'olive', 'olivedrab',
+  'orange', 'orangered', 'orchid', 'palegoldenrod', 'palegreen', 'paleturquoise',
+  'palevioletred', 'papayawhip', 'peachpuff', 'peru', 'pink', 'plum', 'powderblue', 'purple',
+  'rebeccapurple', 'red', 'rosybrown', 'royalblue', 'saddlebrown', 'salmon', 'sandybrown',
+  'seagreen', 'seashell', 'sienna', 'silver', 'skyblue', 'slateblue', 'slategray', 'slategrey',
+  'snow', 'springgreen', 'steelblue', 'tan', 'teal', 'thistle', 'tomato', 'turquoise',
+  'violet', 'wheat', 'white', 'whitesmoke', 'yellow', 'yellowgreen',
+])
+
+const COLOR_RE = /^(#[\da-f]{3,8}|rgba?\s*\(|hsla?\s*\(|transparent|currentcolor|var\s*\(--)/i
+
+/**
+ * Heuristic: returns `true` when `value` looks like a CSS color.
+ *
+ * Matches hex (#abc, #aabbcc, #aabbccdd), rgb/rgba/hsl/hsla, `transparent`,
+ * `currentColor`, `var(--…)`, and common named colors. Anything else
+ * (e.g. "16px", "1rem", "auto") returns `false`.
+ *
+ * Callers use this to decide the `swatch` kind before rendering a TokenChip.
+ */
+export function isColorLike(value: string): boolean {
+  const trimmed = value.trim().toLowerCase()
+  return COLOR_RE.test(trimmed) || NAMED_COLORS.has(trimmed)
 }

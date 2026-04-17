@@ -6,7 +6,7 @@ import { SegmentedControl } from '../controls/SegmentedControl.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { Dropdown } from '../controls/Dropdown.js'
 import { ColorInput, parseColor, formatColor } from '../controls/ColorInput.js'
-import { TokenChip } from '../controls/TokenChip.js'
+import { TokenChip, isColorLike } from '../controls/TokenChip.js'
 import { AlignLeft, AlignCenter, AlignRight, AlignJustify, MoveVertical, MoveHorizontal } from '../icons.js'
 
 export type TypographyChange = SectionChange
@@ -232,7 +232,10 @@ export function TypographySection({
             <TokenChip
               key={entry.className}
               tokenName={entry.className}
-              resolvedValue={resolveValue(entry.property, values)}
+              swatch={(() => {
+                const v = resolveValue(entry.property, values)
+                return isColorLike(v) ? { kind: 'color', value: v } : { kind: 'pattern' }
+              })()}
               onUnlink={() => onChange({
                 property: entry.property,
                 value: resolveValue(entry.property, values),
