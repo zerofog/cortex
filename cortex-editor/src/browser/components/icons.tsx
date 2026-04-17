@@ -673,3 +673,80 @@ export function Type({ size = 16, class: cls }: IconProps = {}): JSX.Element {
     </svg>
   )
 }
+
+// Typography & color (ZF0-1215 — Typography v2) ──────────────────────────
+
+// source: custom — Figma-style "line-height" glyph in Lucide stroke style.
+// Two horizontal rails (top + bottom) bracket a capital "A" with its crossbar,
+// matching the visual convention used in design tools for line-height.
+export function LineHeightIcon({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <path d="M4 5h16" />
+      <path d="M4 19h16" />
+      <path d="M8 16 L12 7 L16 16" />
+      <path d="M9.5 13 H14.5" />
+    </svg>
+  )
+}
+
+// source: custom — Figma-style "letter-spacing" glyph in Lucide stroke style.
+// Two vertical rails (left + right) bracket a capital "A" with its crossbar,
+// matching the visual convention used in design tools for letter-spacing.
+export function LetterSpacingIcon({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <path d="M4 5 V 19" />
+      <path d="M20 5 V 19" />
+      <path d="M8 17 L12 8 L16 17" />
+      <path d="M9.5 14 H14.5" />
+    </svg>
+  )
+}
+
+// source: https://lucide.dev/icons/swatch-book
+export function SwatchBook({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <path d="M11 17a4 4 0 0 1-8 0V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2z" />
+      <path d="M16.7 13H19a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H7" />
+      <path d="M10.9 7.114l1.515-1.515a2 2 0 0 1 2.828 0l2.829 2.829a2 2 0 0 1 0 2.828l-7.071 7.071" />
+      <path d="M7 17h.01" />
+    </svg>
+  )
+}
+
+// source: https://lucide.dev/icons/arrow-up-from-line
+export function ArrowUpFromLine({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <path d="m18 9-6-6-6 6" />
+      <path d="M12 3v14" />
+      <path d="M5 21h14" />
+    </svg>
+  )
+}
+
+// source: https://lucide.dev/icons/align-center-vertical
+export function AlignCenterVertical({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <path d="M12 2v20" />
+      <path d="M8 10H4a2 2 0 0 1-2-2V6c0-1.1.9-2 2-2h4" />
+      <path d="M16 10h4a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-4" />
+      <path d="M8 20H7a2 2 0 0 1-2-2v-2c0-1.1.9-2 2-2h1" />
+      <path d="M16 14h1a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-1" />
+    </svg>
+  )
+}
+
+// source: https://lucide.dev/icons/arrow-down-to-line
+export function ArrowDownToLine({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <path d="M12 17V3" />
+      <path d="m6 11 6 6 6-6" />
+      <path d="M19 21H5" />
+    </svg>
+  )
+}
