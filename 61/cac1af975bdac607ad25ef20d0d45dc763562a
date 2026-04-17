@@ -1,0 +1,38 @@
+cortex-editor/src/browser/components/sections/TypographySection.tsx
+  70559587cec534a6 509-511
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "61cac1af975bdac607ad25ef20d0d45dc763562a",
+  "prompts": {
+    "70559587cec534a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dc553c59-0eb8-4090-af70-6a4a6cf48171",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 55,
+      "total_deletions": 3970,
+      "accepted_lines": 9,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/c97ab3c902e11080583a15c3a20c481e49fa6f336a6ee368ae8afd2136effa19"
+    },
+    "a32376dab06101ab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b5041c96-ad5c-48be-9ae3-051831bc7793",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 11727,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/b5761acdf55d4abd1e6a9d818ab2745d8df727801f8876dbbf67cbebd3eb0bd0"
+    }
+  }
+}
