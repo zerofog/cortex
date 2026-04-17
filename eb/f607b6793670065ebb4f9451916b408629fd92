@@ -1,0 +1,42 @@
+cortex-editor/src/core/tailwind-resolver.ts
+  a32376dab06101ab 389-414
+cortex-editor/tests/core/text-components.test.ts
+  a32376dab06101ab 2-4,6,79-133
+cortex-editor/src/core/tailwind-v4-parser.ts
+  a32376dab06101ab 339
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "ebf607b6793670065ebb4f9451916b408629fd92",
+  "prompts": {
+    "132ad72d927ad21b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e2ac3347-a4fa-41da-a9eb-12962da22474",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 11041,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/a39b452c62de577627becaa72610fcf23e2946839bf7974751718955b6b61788"
+    },
+    "a32376dab06101ab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b5041c96-ad5c-48be-9ae3-051831bc7793",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 243,
+      "total_deletions": 25,
+      "accepted_lines": 86,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/aef5cf71eb72f81feff9fb11a1f5906e5f7e4395ce77aa138fa63595f12a5545"
+    }
+  }
+}
