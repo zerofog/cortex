@@ -767,19 +767,15 @@ export function Panel({
 
       switch (change.kind) {
         case 'link-text-component': {
-          // When linking, clear the 5 inline typography properties so the
-          // bundle's values take over the render.
-          const inlineClear = [
-            { property: 'font-family', value: '' },
-            { property: 'font-weight', value: '' },
-            { property: 'font-size', value: '' },
-            { property: 'line-height', value: '' },
-            { property: 'letter-spacing', value: '' },
-          ]
+          // Link = classOp only. The bundle class's values apply via CSS
+          // cascade — no inline clear needed. If the user had prior inline
+          // typography styles from an unlink, those would need a separate
+          // style-prop removal edit (not yet supported); for now they
+          // linger and can be cleared manually. Crucially: never send
+          // empty-string property edits, they trigger the AI writer.
           applyClassChange({
             remove: change.removeClass,
             add: change.component.name,
-            inlineProps: inlineClear,
           })
           return
         }
@@ -791,10 +787,10 @@ export function Panel({
           return
         }
         case 'link-color-chip': {
+          // Same rationale as link-text-component — classOp only.
           applyClassChange({
             remove: change.removeClass,
             add: `text-${change.chip.name}`,
-            inlineProps: [{ property: 'color', value: '' }],
           })
           return
         }
