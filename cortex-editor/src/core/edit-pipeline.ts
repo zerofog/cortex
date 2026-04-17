@@ -33,6 +33,10 @@ export interface EditRequest {
    *  When present, used as oldToken directly — bypasses the fragile computed-style
    *  → hex → class-name reverse lookup. Sent by the browser's class extractor. */
   currentClass?: string
+  /** When present, pipeline skips the property/value path and rewrites the
+   *  element's className attribute directly. `property` and `value` are
+   *  ignored on this branch. */
+  classOp?: { remove?: string; add?: string }
 }
 
 export interface WriteIntent {
@@ -157,6 +161,28 @@ export class EditPipeline {
 
   handleEdit(edit: EditRequest): void {
     if (this.disposed) return
+
+    // classOp branch — pure className mutation. Bypasses debounce (no
+    // property key to coalesce on) and bypasses property/value validation
+    // (both are empty on link/unlink). Precedence: if classOp is present,
+    // the property-keyed path does not run even if property/value are set.
+    if (edit.classOp) {
+      const parsed = this.parseSource(edit.source)
+      if (!parsed.ok) {
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: parsed.reason })
+        return
+      }
+      this.handleClassOp(edit, parsed.resolvedPath, parsed.line, parsed.col).catch((err) => {
+        console.error('[cortex] classOp pipeline error for editId=%s:', edit.editId, err)
+        this.channel.send({
+          type: 'edit_status',
+          editId: edit.editId,
+          status: 'failed',
+          reason: err instanceof Error ? err.message : 'Unknown error',
+        })
+      })
+      return
+    }
 
     // Fast path: pure AI projects bypass the 400ms debounce and route
     // directly to DeferredWriter's 250ms coalescing window
@@ -759,6 +785,108 @@ export class EditPipeline {
     await this.withFileLock(resolvedPath, async () => {
       await this.executeAIWrite(edit, resolvedPath, line, col, failureReason)
     })
+  }
+
+  /**
+   * classOp (className mutation) branch. Mirrors the property-keyed path's
+   * guarantees: captures oldContent before the write for undo, falls back
+   * to the AI writer when the deterministic rewriter can't handle the JSX
+   * shape, serializes concurrent ops on the same file via withFileLock.
+   */
+  private async handleClassOp(
+    edit: EditRequest,
+    resolvedPath: string,
+    line: number,
+    col: number,
+  ): Promise<void> {
+    if (!edit.classOp) return // defensive — handleEdit already guards this
+
+    this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
+
+    await this.withFileLock(resolvedPath, async () => {
+      // Capture oldContent BEFORE the rewrite so the undo entry restores
+      // what the user actually had. Skip silently if we can't read — the
+      // write still proceeds, undo just won't have a revert target.
+      let oldContent: string | null = null
+      if (this.undoStack && this.readFile) {
+        try {
+          oldContent = await this.readFile(resolvedPath)
+        } catch {
+          oldContent = null
+        }
+      }
+
+      const result = await this.rewriter.rewriteClassList({
+        filePath: resolvedPath,
+        line,
+        col,
+        remove: edit.classOp!.remove,
+        add: edit.classOp!.add,
+      })
+
+      if (!result.success) {
+        // AI fallback — describe the class mutation as an instruction for the
+        // AI writer. This covers template literals and conditional objects.
+        if (this.aiWriter) {
+          const instruction = this.describeClassOpForAI(edit.classOp!, resolvedPath, line, col)
+          const reason = `Could not rewrite className deterministically (${result.reason}). Routing to AI writer.`
+          await this.executeAIWrite(
+            { ...edit, property: '__class__', value: instruction },
+            resolvedPath,
+            line,
+            col,
+            reason,
+          )
+          return
+        }
+        this.channel.send({
+          type: 'edit_status',
+          editId: edit.editId,
+          status: 'failed',
+          reason: result.reason ?? 'Could not rewrite className for this element.',
+        })
+        return
+      }
+
+      try {
+        await this.writeFile({ kind: 'immediate', filePath: resolvedPath, content: result.newContent })
+      } catch (err) {
+        this.channel.send({
+          type: 'edit_status',
+          editId: edit.editId,
+          status: 'failed',
+          reason: `Write failed: ${err instanceof Error ? err.message : String(err)}`,
+        })
+        return
+      }
+
+      if (this.undoStack && oldContent !== null) {
+        this.undoStack.push({
+          changes: [
+            {
+              filePath: resolvedPath,
+              previousContent: oldContent,
+              currentContent: result.newContent,
+            },
+          ],
+        })
+      }
+
+      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done' })
+    })
+  }
+
+  /** Build a plain-English instruction describing a classOp for the AI writer. */
+  private describeClassOpForAI(
+    op: { remove?: string; add?: string },
+    filePath: string,
+    line: number,
+    col: number,
+  ): string {
+    const parts: string[] = []
+    if (op.remove) parts.push(`remove the class "${op.remove}"`)
+    if (op.add) parts.push(`add the class "${op.add}"`)
+    return `On the JSX element at ${filePath}:${line}:${col}, ${parts.join(' and ')} in the className attribute. Preserve all other classes, ordering, and JSX structure.`
   }
 
   /** AI write without lock — used at Point B (already inside withFileLock). */
