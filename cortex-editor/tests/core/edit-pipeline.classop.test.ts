@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { EditPipeline } from '../../src/core/edit-pipeline.js'
 import type { EditRequest, WriteIntent } from '../../src/core/edit-pipeline.js'
+import { UndoStack } from '../../src/core/session/undo-stack.js'
 
 /**
  * ZF0-1215 Task 11 pipeline tests. Covers the seven invariants the
@@ -103,7 +104,7 @@ describe('EditPipeline — classOp routing', () => {
     expect(rewriter.rewrite).not.toHaveBeenCalled()
   })
 
-  it('writes new content to disk on rewriteClassList success', async () => {
+  it('writes new content to disk with suppressHmr:false so the browser re-renders', async () => {
     rewriter.rewriteClassList.mockResolvedValue({
       success: true,
       filePath: '/tmp/proj/App.tsx',
@@ -111,14 +112,23 @@ describe('EditPipeline — classOp routing', () => {
       newContent: 'NEW CONTENT',
     })
 
-    pipeline.handleEdit(baseEdit({ classOp: { remove: 'body-md' } }))
+    pipeline.handleEdit(baseEdit({ classOp: { remove: 'text-body-md' } }))
     await flush()
 
     expect(writes).toHaveLength(1)
-    expect(writes[0]?.content).toBe('NEW CONTENT')
+    // suppressHmr:false is the load-bearing invariant for ZF0-1215 Bug 3:
+    // classOp writes have no browser-side override layer, so HMR must fire
+    // for the DOM className to update. A regression here resurfaces the
+    // stale-Panel bug where every subsequent click dispatches against the
+    // pre-edit className.
+    expect(writes[0]).toMatchObject({
+      kind: 'immediate',
+      suppressHmr: false,
+      content: 'NEW CONTENT',
+    })
   })
 
-  it('pushes undo entry with captured oldContent on success', async () => {
+  it('pushes undo entry with requiresHmr=true so undo also re-renders the DOM', async () => {
     readFile.mockResolvedValue('OLD CONTENT SNAPSHOT')
     rewriter.rewriteClassList.mockResolvedValue({
       success: true,
@@ -127,9 +137,12 @@ describe('EditPipeline — classOp routing', () => {
       newContent: 'NEW',
     })
 
-    pipeline.handleEdit(baseEdit({ classOp: { remove: 'body-md' } }))
+    pipeline.handleEdit(baseEdit({ classOp: { remove: 'text-body-md' } }))
     await flush()
 
+    // requiresHmr=true is read by _doUndo/_doRedo to derive suppressHmr=false
+    // per change. Without this tag, the kind:'undo'/'redo' default restores
+    // the disk but leaves the DOM stale — the undo twin of Bug 3.
     expect(undoStack.push).toHaveBeenCalledWith(
       expect.objectContaining({
         changes: [
@@ -137,10 +150,91 @@ describe('EditPipeline — classOp routing', () => {
             filePath: '/tmp/proj/App.tsx',
             previousContent: 'OLD CONTENT SNAPSHOT',
             currentContent: 'NEW',
+            requiresHmr: true,
           }),
         ],
       }),
     )
+  })
+
+  it('_doUndo of a classOp write passes suppressHmr:false to writeFile (undo twin of Bug 3)', async () => {
+    // Invariant under test: when _doUndo replays an UndoFileChange with
+    // requiresHmr:true, it must derive suppressHmr:false for the writeFile
+    // call — NOT fall back to kind:'undo's default (suppress). That fallback
+    // would leave the DOM stale after undo, resurfacing Bug 3 on every undo.
+    //
+    // We push a change directly onto a real UndoStack so the test isolates
+    // the undo-execution path. Forward-push behavior is covered above.
+    const realUndo = new UndoStack()
+    realUndo.push({
+      changes: [
+        {
+          filePath: '/tmp/proj/App.tsx',
+          previousContent: 'PREVIOUS',
+          currentContent: 'CURRENT ON DISK',
+          requiresHmr: true,
+        },
+      ],
+    })
+
+    const undoWrites: WriteIntent[] = []
+    const undoPipeline = new EditPipeline({
+      channel: stubChannel() as never,
+      resolver: stubResolver() as never,
+      rewriter: stubRewriter() as never,
+      verifier: { verify: vi.fn() } as never,
+      writeFile: async (intent) => { undoWrites.push(intent) },
+      projectRoot: '/tmp/proj',
+      // Disk matches entry.currentContent — not stale, undo proceeds.
+      readFile: async () => 'CURRENT ON DISK',
+      undoStack: realUndo,
+    })
+
+    await undoPipeline.handleUndo()
+    await flush()
+
+    const undoWrite = undoWrites.find(w => w.kind === 'undo')
+    expect(undoWrite).toBeDefined()
+    expect(undoWrite).toMatchObject({
+      kind: 'undo',
+      suppressHmr: false,
+      content: 'PREVIOUS',
+    })
+  })
+
+  it('_doUndo of a property-edit write keeps suppressHmr:true (no re-render needed)', async () => {
+    // Symmetric to the above: property edits paint via the browser-side
+    // !important override layer, so undo suppresses HMR to avoid flicker.
+    // This test guards the policy from being collapsed into "always allow".
+    const realUndo = new UndoStack()
+    realUndo.push({
+      changes: [
+        {
+          filePath: '/tmp/proj/App.tsx',
+          previousContent: 'PREVIOUS',
+          currentContent: 'CURRENT ON DISK',
+          requiresHmr: false,
+        },
+      ],
+    })
+
+    const undoWrites: WriteIntent[] = []
+    const undoPipeline = new EditPipeline({
+      channel: stubChannel() as never,
+      resolver: stubResolver() as never,
+      rewriter: stubRewriter() as never,
+      verifier: { verify: vi.fn() } as never,
+      writeFile: async (intent) => { undoWrites.push(intent) },
+      projectRoot: '/tmp/proj',
+      readFile: async () => 'CURRENT ON DISK',
+      undoStack: realUndo,
+    })
+
+    await undoPipeline.handleUndo()
+    await flush()
+
+    const undoWrite = undoWrites.find(w => w.kind === 'undo')
+    expect(undoWrite).toMatchObject({ kind: 'undo', suppressHmr: true })
   })
 
   it('falls back to AI writer when rewriteClassList fails with an unsupported shape', async () => {

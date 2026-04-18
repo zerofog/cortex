@@ -26,27 +26,38 @@ import type { TextComponent } from '../../../core/text-components.js'
 import type { ColorChip } from '../../token-detector.js'
 import { detectTextComponent, detectColorChip } from '../../token-detector.js'
 
+/** A class name known to target a Tailwind v4 `text-*` utility — used for
+ *  bundle classes (`text-body-md` from `@theme { --text-body-md: ... }`) and
+ *  color chip classes (`text-brand-500` from `@theme { --color-brand-500 }`).
+ *
+ *  Enforced at compile time so the dispatcher sites cannot regress to the
+ *  bare-name form (Task 17 Bug 2): passing `'body-md'` where the Tailwind
+ *  utility is `.text-body-md` silently leaves the class with no CSS rule. */
+type TextUtilityClass = `text-${string}`
+
 /**
  * TypographyChange — the discriminated union the section emits to the Panel.
  *
  * - Plain {property, value} (SectionChange) for font-family, font-weight,
  *   font-size, line-height, letter-spacing, text-align, and color scrubs.
  * - link/unlink variants carry enough data for the Panel to dispatch the
- *   combination of classOp + inline-style edits in one atomic gesture.
+ *   combination of classOp + inline-style edits in one atomic gesture. The
+ *   removeClass fields are `text-${string}` so the compiler blocks a
+ *   regression to bare bundle names.
  * - vertical-align is special: the Panel expands a single value into three
  *   property edits (display, flex-direction, align-items) so a single click
  *   lands as one undo entry.
  */
 export type TypographyChange =
   | SectionChange
-  | { kind: 'link-text-component'; component: TextComponent; removeClass?: string }
+  | { kind: 'link-text-component'; component: TextComponent; removeClass?: TextUtilityClass }
   | {
       kind: 'unlink-text-component'
-      removeClass: string
+      removeClass: TextUtilityClass
       inline: Array<{ property: string; value: string }>
     }
-  | { kind: 'link-color-chip'; chip: ColorChip; removeClass?: string }
-  | { kind: 'unlink-color-chip'; removeClass: string; inline: Array<{ property: string; value: string }> }
+  | { kind: 'link-color-chip'; chip: ColorChip; removeClass?: TextUtilityClass }
+  | { kind: 'unlink-color-chip'; removeClass: TextUtilityClass; inline: Array<{ property: string; value: string }> }
   | { kind: 'vertical-align'; value: 'flex-start' | 'center' | 'flex-end' }
 
 export interface TypographyValues {
@@ -318,7 +329,7 @@ export function TypographySection({
     if (!bundle) return
     onChange({
       kind: 'unlink-text-component',
-      removeClass: bundle.name,
+      removeClass: `text-${bundle.name}`,
       inline: buildUnlinkTypography(values),
     })
   }, [bundle, onChange, values])
@@ -327,7 +338,7 @@ export function TypographySection({
       onChange({
         kind: 'link-text-component',
         component: picked,
-        removeClass: bundle?.name,
+        removeClass: bundle ? `text-${bundle.name}` : undefined,
       })
       setPickerOpen(null)
     },

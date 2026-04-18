@@ -12,8 +12,8 @@ const CHIPS = [
 ]
 
 describe('detectTextComponent', () => {
-  it('returns the bundle whose name matches a class in className', () => {
-    const got = detectTextComponent('flex body-md px-4', BUNDLES)
+  it('returns the bundle whose text-{name} form is a class in className', () => {
+    const got = detectTextComponent('flex text-body-md px-4', BUNDLES)
     expect(got?.name).toBe('body-md')
   })
 
@@ -22,22 +22,30 @@ describe('detectTextComponent', () => {
   })
 
   it('returns null when bundles list is empty', () => {
-    expect(detectTextComponent('body-md', [])).toBeNull()
+    expect(detectTextComponent('text-body-md', [])).toBeNull()
   })
 
   it('does not match partial tokens like text-sm', () => {
     expect(detectTextComponent('text-sm', BUNDLES)).toBeNull()
   })
 
+  it('does not match the bare bundle name without the text- prefix', () => {
+    // Tailwind v4 emits `.text-body-md` from `@theme { --text-body-md: ... }`,
+    // never `.body-md`. Matching the bare form would detect classes that have
+    // no corresponding CSS rule, causing silent classOp failures.
+    expect(detectTextComponent('flex body-md px-4', BUNDLES)).toBeNull()
+  })
+
   it('handles multiple spaces and tabs between classes', () => {
-    const got = detectTextComponent('flex    \t body-md   px-4', BUNDLES)
+    const got = detectTextComponent('flex    \t text-body-md   px-4', BUNDLES)
     expect(got?.name).toBe('body-md')
   })
 
   it('returns the first match when multiple bundle classes are present', () => {
     // Not a supported usage (duplicate bundles on one element is meaningless)
-    // but the detector must be deterministic — first bundle in registry order wins.
-    const got = detectTextComponent('body-md heading-1', BUNDLES)
+    // but the detector must be deterministic — first bundle encountered in
+    // className order wins.
+    const got = detectTextComponent('text-body-md text-heading-1', BUNDLES)
     expect(got?.name).toBe('body-md')
   })
 })

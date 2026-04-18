@@ -1,6 +1,7 @@
 import type { JSX } from 'preact'
-import { useEffect, useRef } from 'preact/hooks'
+import { useRef } from 'preact/hooks'
 import type { ColorChip } from '../../token-detector.js'
+import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js'
 
 export interface ColorChipPickerProps {
   chips: readonly ColorChip[]
@@ -27,20 +28,7 @@ export function ColorChipPicker({
 }: ColorChipPickerProps): JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    const handleClick = (e: MouseEvent): void => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onDismiss()
-    }
-    const handleKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onDismiss()
-    }
-    document.addEventListener('mousedown', handleClick)
-    document.addEventListener('keydown', handleKey)
-    return () => {
-      document.removeEventListener('mousedown', handleClick)
-      document.removeEventListener('keydown', handleKey)
-    }
-  }, [onDismiss])
+  useOutsideDismiss(ref, onDismiss)
 
   if (chips.length === 0) {
     return (

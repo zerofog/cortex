@@ -871,7 +871,11 @@ describe('EditPipeline', () => {
     // Undo
     await pipeline.handleUndo()
 
-    expect(writeFile).toHaveBeenCalledWith({ kind: 'undo', filePath: '/project/src/App.tsx', content: 'old' })
+    // objectContaining tolerates the suppressHmr field added for ZF0-1215
+    // classOp HMR policy (UndoFileChange.requiresHmr is translated to
+    // suppressHmr here). Property edits set requiresHmr:false, so the
+    // resulting suppressHmr is true (override-layer paints the visual).
+    expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'undo', filePath: '/project/src/App.tsx', content: 'old', suppressHmr: true }))
     const undoStatus = channel.sent.find(m => m.type === 'undo_sync_status' && (m as { status: string }).status === 'done')
     expect(undoStatus).toBeDefined()
   })
@@ -1006,7 +1010,7 @@ describe('EditPipeline', () => {
 
     // writeFile was called once for the undo, not for the cancelled edit
     expect(writeFile).toHaveBeenCalledTimes(1)
-    expect(writeFile).toHaveBeenCalledWith({ kind: 'undo', filePath: '/project/src/App.tsx', content: 'old' })
+    expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'undo', filePath: '/project/src/App.tsx', content: 'old', suppressHmr: true }))
   })
 
   it('handleRedo re-applies change after undo', async () => {
@@ -1058,7 +1062,7 @@ describe('EditPipeline', () => {
     // Redo (should verify file matches previousContent, then write currentContent)
     await pipeline.handleRedo()
 
-    expect(writeFile).toHaveBeenCalledWith({ kind: 'redo', filePath: '/project/src/App.tsx', content: 'new content' })
+    expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'redo', filePath: '/project/src/App.tsx', content: 'new content', suppressHmr: true }))
     const redoStatus = channel.sent.find(m => m.type === 'redo_sync_status' && (m as { status: string }).status === 'done')
     expect(redoStatus).toBeDefined()
   })
@@ -2600,8 +2604,10 @@ describe('EditPipeline', () => {
         detector: { hasCSSModules: false, hasTailwind: false },
       })
 
-      // Push an undo entry manually so we have something to undo
-      undoStack.push({ changes: [{ filePath: '/project/src/App.tsx', previousContent: 'old-content', currentContent: 'new-content' }] })
+      // Push an undo entry manually so we have something to undo.
+      // requiresHmr:false — this synthetic entry represents a property edit
+      // whose visual was already painted by the browser-side override layer.
+      undoStack.push({ changes: [{ filePath: '/project/src/App.tsx', previousContent: 'old-content', currentContent: 'new-content', requiresHmr: false }] })
 
       // Enqueue a deferred edit that's still pending (5s coalescing)
       deferredWriter.enqueue({
@@ -2650,8 +2656,10 @@ describe('EditPipeline', () => {
         detector: { hasCSSModules: false, hasTailwind: false },
       })
 
-      // Push an undo entry and undo it so we can redo
-      undoStack.push({ changes: [{ filePath: '/project/src/App.tsx', previousContent: 'old-content', currentContent: 'new-content' }] })
+      // Push an undo entry and undo it so we can redo.
+      // requiresHmr:false — synthetic property-edit change; the visual was
+      // painted by the override layer so redo also suppresses HMR.
+      undoStack.push({ changes: [{ filePath: '/project/src/App.tsx', previousContent: 'old-content', currentContent: 'new-content', requiresHmr: false }] })
       await pipeline.handleUndo()
       channel.sent.length = 0 // reset
 
@@ -4046,10 +4054,13 @@ describe('EditPipeline', () => {
         projectRoot: '/project', undoStack,
       })
 
-      // Manually push a compound entry
+      // Manually push a compound entry.
+      // requiresHmr is the real field on UndoFileChange (threaded in A2);
+      // these fixtures predate the field, so set false — test asserts stale
+      // detection, not HMR semantics.
       undoStack.push({ changes: [
-        { filePath: '/project/a.css', previousContent: 'old-css', currentContent: 'new-css' },
-        { filePath: '/project/a.tsx', previousContent: 'old-jsx', currentContent: 'new-jsx' },
+        { filePath: '/project/a.css', previousContent: 'old-css', currentContent: 'new-css', requiresHmr: false },
+        { filePath: '/project/a.tsx', previousContent: 'old-jsx', currentContent: 'new-jsx', requiresHmr: false },
       ] })
 
       await pipeline.handleUndo()
@@ -4089,8 +4100,8 @@ describe('EditPipeline', () => {
       })
 
       undoStack.push({ changes: [
-        { filePath: '/project/a.css', previousContent: 'old-css', currentContent: 'new-css' },
-        { filePath: '/project/a.tsx', previousContent: 'old-jsx', currentContent: 'new-jsx' },
+        { filePath: '/project/a.css', previousContent: 'old-css', currentContent: 'new-css', requiresHmr: false },
+        { filePath: '/project/a.tsx', previousContent: 'old-jsx', currentContent: 'new-jsx', requiresHmr: false },
       ] })
 
       await pipeline.handleUndo()
@@ -4125,7 +4136,7 @@ describe('EditPipeline', () => {
 
       // Push and undo to create a redo entry
       undoStack.push({ changes: [
-        { filePath: '/project/a.css', previousContent: 'old', currentContent: 'new' },
+        { filePath: '/project/a.css', previousContent: 'old', currentContent: 'new', requiresHmr: false },
       ] })
       fileContents.set('/project/a.css', 'new')
       await pipeline.handleUndo()

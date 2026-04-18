@@ -4,7 +4,7 @@ import fs from 'fs'
 import os from 'os'
 import pathMod from 'path'
 import WebSocket from 'ws'
-import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting, _getSessionTokenForTesting } from '../../src/adapters/vite.js'
+import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting, _getSessionTokenForTesting, shouldSuppressHmr, performEditWrite } from '../../src/adapters/vite.js'
 import { AnnotationStore } from '../../src/core/annotations.js'
 import type { Plugin } from 'vite'
 
@@ -1877,5 +1877,162 @@ describe('bug #20 regression: per-tab sessionId scoping', () => {
 
     // Different sessions must have different sessionIds
     expect(sessionId2).not.toBe(sessionId1)
+  })
+})
+
+// ─── shouldSuppressHmr (policy function) ─────────────────────────────────
+//
+// The write pipeline's HMR decision collapses to this pure function. Each
+// case below asserts the specific policy branch that runs, so a regression
+// that changes which branch fires fails the test rather than coincidentally
+// still passing.
+describe('shouldSuppressHmr', () => {
+  it('honors explicit suppressHmr:true regardless of kind', () => {
+    expect(shouldSuppressHmr({ kind: 'jsx-immediate', suppressHmr: true })).toBe(true)
+    expect(shouldSuppressHmr({ kind: 'deferred', suppressHmr: true })).toBe(true)
+    expect(shouldSuppressHmr({ kind: 'immediate', suppressHmr: true })).toBe(true)
+  })
+
+  it('honors explicit suppressHmr:false regardless of kind (ZF0-1215 classOp contract)', () => {
+    // classOp writes set kind:'immediate' but force suppressHmr:false because
+    // className mutations have no browser-side override. If this contract
+    // regresses the Panel's bundle detection goes stale and pills accumulate.
+    expect(shouldSuppressHmr({ kind: 'immediate', suppressHmr: false })).toBe(false)
+    expect(shouldSuppressHmr({ kind: 'undo', suppressHmr: false })).toBe(false)
+    expect(shouldSuppressHmr({ kind: 'redo', suppressHmr: false })).toBe(false)
+  })
+
+  it('defaults to suppress for kinds that paint via browser-side override', () => {
+    // The !important override already shows the correct value; HMR would
+    // only cause a repaint flash.
+    expect(shouldSuppressHmr({ kind: 'immediate' })).toBe(true)
+    expect(shouldSuppressHmr({ kind: 'undo' })).toBe(true)
+    expect(shouldSuppressHmr({ kind: 'redo' })).toBe(true)
+  })
+
+  it('defaults to NOT suppress for kinds that may restructure JSX', () => {
+    // jsx-immediate / deferred may rewrite the source beyond a single inline
+    // property — React must re-render to reflect the new source.
+    expect(shouldSuppressHmr({ kind: 'jsx-immediate' })).toBe(false)
+    expect(shouldSuppressHmr({ kind: 'deferred' })).toBe(false)
+  })
+})
+
+// ─── performEditWrite (orchestration) ────────────────────────────────────
+//
+// The writeFile closure inside configureServer collapses to this helper.
+// These tests exercise the exact side-effect contract that the ZF0-1215
+// diagnostic fix relies on: atomic write + synthesized chokidar `change`
+// event when HMR is not suppressed, nothing extra when it is suppressed.
+describe('performEditWrite', () => {
+  it('synthesizes a chokidar change event when HMR is not suppressed (ZF0-1215 Tailwind regen)', async () => {
+    const emit = vi.fn()
+    const write = vi.fn<(p: string, c: string) => Promise<void>>().mockResolvedValue(undefined)
+    const recent = new Set<string>()
+
+    await performEditWrite(
+      { kind: 'immediate', suppressHmr: false, filePath: '/project/src/App.tsx', content: 'new-source' },
+      { server: { watcher: { emit } }, recentEditWrites: recent, write },
+    )
+
+    expect(write).toHaveBeenCalledWith('/project/src/App.tsx', 'new-source')
+    // Precise event shape — Vite's internal 'change' listener is what drives
+    // moduleGraph invalidation + Tailwind re-scan.
+    expect(emit).toHaveBeenCalledTimes(1)
+    expect(emit).toHaveBeenCalledWith('change', '/project/src/App.tsx')
+    // NOT suppressed ⇒ not tracked in recentEditWrites (HMR will fire and
+    // handleHotUpdate should let it through).
+    expect(recent.has('/project/src/App.tsx')).toBe(false)
+  })
+
+  it('does NOT emit a change event when HMR is suppressed', async () => {
+    const emit = vi.fn()
+    const write = vi.fn<(p: string, c: string) => Promise<void>>().mockResolvedValue(undefined)
+    const recent = new Set<string>()
+
+    await performEditWrite(
+      { kind: 'immediate', filePath: '/project/src/styles.css', content: 'new-css' },
+      { server: { watcher: { emit } }, recentEditWrites: recent, write },
+    )
+
+    expect(write).toHaveBeenCalled()
+    expect(emit).not.toHaveBeenCalled()
+    // Suppressed ⇒ tracked so handleHotUpdate filters this event.
+    expect(recent.has('/project/src/styles.css')).toBe(true)
+  })
+
+  it('emits change for jsx-immediate kind even without explicit suppressHmr (default policy)', async () => {
+    const emit = vi.fn()
+    const write = vi.fn<(p: string, c: string) => Promise<void>>().mockResolvedValue(undefined)
+
+    await performEditWrite(
+      { kind: 'jsx-immediate', filePath: '/p.tsx', content: 'x' },
+      { server: { watcher: { emit } }, recentEditWrites: new Set(), write },
+    )
+
+    expect(emit).toHaveBeenCalledWith('change', '/p.tsx')
+  })
+
+  it('emits change for deferred kind even without explicit suppressHmr', async () => {
+    const emit = vi.fn()
+    const write = vi.fn<(p: string, c: string) => Promise<void>>().mockResolvedValue(undefined)
+
+    await performEditWrite(
+      { kind: 'deferred', filePath: '/p.tsx', content: 'x' },
+      { server: { watcher: { emit } }, recentEditWrites: new Set(), write },
+    )
+
+    expect(emit).toHaveBeenCalledWith('change', '/p.tsx')
+  })
+
+  it('propagates write errors without emitting a change event (failure must not leak HMR)', async () => {
+    const emit = vi.fn()
+    const failure = new Error('ENOSPC: disk full')
+    const write = vi.fn<(p: string, c: string) => Promise<void>>().mockRejectedValue(failure)
+
+    await expect(
+      performEditWrite(
+        { kind: 'immediate', suppressHmr: false, filePath: '/p.tsx', content: 'x' },
+        { server: { watcher: { emit } }, recentEditWrites: new Set(), write },
+      ),
+    ).rejects.toThrow('ENOSPC: disk full')
+
+    // Critical: when the write fails, no partial HMR state leaks to the
+    // browser. The user's source file is unchanged on disk (atomicWrite
+    // guarantees); firing 'change' here would kick Vite into re-compiling
+    // an unchanged file and potentially racing a rollback.
+    expect(emit).not.toHaveBeenCalled()
+  })
+
+  it('auto-clears recentEditWrites entry after the 500ms TTL when suppressed', async () => {
+    vi.useFakeTimers()
+    try {
+      const emit = vi.fn()
+      const write = vi.fn<(p: string, c: string) => Promise<void>>().mockResolvedValue(undefined)
+      const recent = new Set<string>()
+
+      await performEditWrite(
+        { kind: 'immediate', filePath: '/q.css', content: 'x' },
+        { server: { watcher: { emit } }, recentEditWrites: recent, write },
+      )
+
+      expect(recent.has('/q.css')).toBe(true)
+      vi.advanceTimersByTime(500)
+      expect(recent.has('/q.css')).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('tolerates null recentEditWrites (no active session) without crashing', async () => {
+    const emit = vi.fn()
+    const write = vi.fn<(p: string, c: string) => Promise<void>>().mockResolvedValue(undefined)
+
+    await expect(
+      performEditWrite(
+        { kind: 'immediate', filePath: '/p.css', content: 'x' },
+        { server: { watcher: { emit } }, recentEditWrites: null, write },
+      ),
+    ).resolves.toBeUndefined()
   })
 })

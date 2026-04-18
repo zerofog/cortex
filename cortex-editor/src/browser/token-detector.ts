@@ -6,11 +6,15 @@ export interface ColorChip {
 }
 
 /**
- * Return the text-component bundle whose name appears as a class in
- * `className`, or null if none match.
+ * Return the text-component bundle whose `text-{name}` form appears as a
+ * class in `className`, or null if none match.
+ *
+ * Match is Tailwind v4 utility form: a `@theme` definition of
+ * `--text-body-md: ...` emits `.text-body-md`, not `.body-md`. We match the
+ * compiled utility so detection aligns with the CSS rules actually applied.
  *
  * Match is token-set membership, not substring — `text-sm` does not match a
- * bundle named `sm`, and `body-md-alt` does not match `body-md`.
+ * bundle named `sm`, and `text-body-md-alt` does not match `body-md`.
  *
  * When multiple bundles match (unsupported usage), the first in registry
  * order wins. This keeps the function deterministic for consumers that do
@@ -21,9 +25,13 @@ export function detectTextComponent(
   bundles: readonly TextComponent[],
 ): TextComponent | null {
   if (bundles.length === 0) return null
-  const tokens = new Set(className.split(/\s+/).filter(Boolean))
-  for (const bundle of bundles) {
-    if (tokens.has(bundle.name)) return bundle
+  const bundleByName = new Map(bundles.map((b) => [b.name, b]))
+  const tokens = className.split(/\s+/).filter(Boolean)
+  for (const token of tokens) {
+    if (!token.startsWith('text-')) continue
+    const name = token.slice('text-'.length)
+    const bundle = bundleByName.get(name)
+    if (bundle) return bundle
   }
   return null
 }

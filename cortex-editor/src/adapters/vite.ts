@@ -13,7 +13,7 @@ import { TailwindRewriter } from '../core/rewriter/tailwind.js'
 import { InlineStyleRewriter } from '../core/rewriter/inline-style.js'
 import { HMRVerifier } from '../core/hmr-verifier.js'
 import { EditPipeline } from '../core/edit-pipeline.js'
-import type { EditRequest } from '../core/edit-pipeline.js'
+import type { EditRequest, WriteIntent } from '../core/edit-pipeline.js'
 import { StyleDetector } from '../core/rewriter/detector.js'
 import type { DetectionResult } from '../core/rewriter/detector.js'
 import { computeCapabilities } from '../core/capabilities.js'
@@ -24,6 +24,7 @@ import { UndoStack } from '../core/session/undo-stack.js'
 import { AIWriter } from '../core/ai-writer.js'
 import { DeferredWriter } from '../core/deferred-writer.js'
 import { CortexSession } from '../core/session.js'
+import { atomicWrite } from './atomic-write.js'
 
 export interface CortexEditorOptions {
   /** Package names in node_modules to instrument (for library component detection). */
@@ -251,6 +252,77 @@ export async function _resetForTesting(): Promise<void> {
     process.removeListener('SIGINT', shutdownHandler)
     process.removeListener('SIGTERM', shutdownHandler)
     shutdownHandler = null
+  }
+}
+
+// ── Edit-write helpers (exported for direct unit testing) ───────────────
+
+/** Minimal Vite server shape the edit-write path depends on. Narrowed from
+ *  `ViteDevServer` so tests can pass a plain object with a `watcher.emit`
+ *  spy without constructing the full server. */
+export interface EditWriteServer {
+  watcher: { emit: (event: string, path: string) => void }
+}
+
+/** Dependencies threaded into `performEditWrite`. Explicit so tests can
+ *  inject mocks for each side-effect (fs write, watcher emit, session
+ *  tracking) without needing the full plugin/pipeline wiring. */
+export interface EditWriteDeps {
+  server: EditWriteServer
+  /** Set on the active CortexSession; mutated to suppress handleHotUpdate
+   *  for cortex-originated writes. `null` when no session exists (tests). */
+  recentEditWrites: Set<string> | null
+  /** Atomic write implementation. Production uses `atomicWrite` from
+   *  `./atomic-write.js`; tests pass a `vi.fn()`. */
+  write: (filePath: string, content: string) => Promise<void>
+}
+
+/** Decide whether a WriteIntent should suppress HMR.
+ *
+ *  Policy: honor an explicit `suppressHmr`. Otherwise suppress iff the
+ *  edit paints via the browser-side `!important` override layer — i.e.,
+ *  `'immediate'`, `'undo'`, `'redo'`. Kinds that may restructure JSX
+ *  (`'jsx-immediate'`, `'deferred'`) must NOT suppress, because the
+ *  framework needs to re-render with the new source.
+ *
+ *  ZF0-1215 note: classOp writes pass `{ kind: 'immediate', suppressHmr:
+ *  false }` explicitly — className mutations have no browser-side override
+ *  layer and need HMR to re-render the element with the new class. */
+export function shouldSuppressHmr(intent: Pick<WriteIntent, 'kind' | 'suppressHmr'>): boolean {
+  return intent.suppressHmr
+    ?? (intent.kind !== 'deferred' && intent.kind !== 'jsx-immediate')
+}
+
+/** Orchestrate an edit write: atomic-rename the target file, then (if HMR
+ *  is not suppressed) synthesize a chokidar `change` event on Vite's
+ *  watcher so Tailwind v4's CSS generator re-scans the changed source.
+ *
+ *  Why the explicit watcher emit: chokidar/FSEvents (macOS) frequently
+ *  reports `fs.rename`-over-existing as unlink+add rather than change.
+ *  Vite's moduleGraph invalidation — the trigger for Tailwind's CSS
+ *  re-transform — listens on 'change' only. Emitting directly makes
+ *  the fix deterministic across platforms and watcher backends.
+ *
+ *  When HMR is suppressed, adds `filePath` to `recentEditWrites` with a
+ *  500ms TTL so `handleHotUpdate` can filter cortex-originated events
+ *  that would otherwise cause a flicker atop the browser-side override.
+ *
+ *  Throws whatever `deps.write` throws. Callers should catch
+ *  `ExternalRevertError` specifically to surface
+ *  `edit_status: { reason_code: 'external_revert' }`. */
+export async function performEditWrite(
+  intent: WriteIntent,
+  deps: EditWriteDeps,
+): Promise<void> {
+  const suppress = shouldSuppressHmr(intent)
+  if (suppress) {
+    deps.recentEditWrites?.add(intent.filePath)
+    const timer = setTimeout(() => deps.recentEditWrites?.delete(intent.filePath), 500)
+    timer.unref?.()
+  }
+  await deps.write(intent.filePath, intent.content)
+  if (!suppress) {
+    deps.server.watcher.emit('change', intent.filePath)
   }
 }
 
@@ -627,19 +699,17 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           aiWriter,
           deferredWriter,
           writeFile: async (intent) => {
-            // Suppress HMR when the override layer is the complete visual mechanism
-            // (immediate CSS edits, undo, redo). The override (!important) already
-            // shows the correct value; HMR just causes a repaint flash.
-            // Allow HMR for jsx-immediate (React must re-render to apply inline
-            // styles) and deferred/AI edits (may rewrite JSX structure, Tailwind
-            // classes, or more than the single overridden property).
-            const suppress = intent.suppressHmr
-              ?? (intent.kind !== 'deferred' && intent.kind !== 'jsx-immediate')
-            if (suppress) {
-              currentSession?.recentEditWrites.add(intent.filePath)
-              setTimeout(() => currentSession?.recentEditWrites.delete(intent.filePath), 500)
-            }
-            await fs.promises.writeFile(intent.filePath, intent.content, 'utf-8')
+            // Delegates to `performEditWrite` which atomically replaces the
+            // target file, tracks suppressed writes in recentEditWrites, and
+            // (when HMR is not suppressed) synthesizes a chokidar `change`
+            // event on `server.watcher` so Vite's moduleGraph invalidates
+            // and Tailwind v4 re-scans the source. See helper docstring
+            // above cortexEditor() for the full rationale.
+            await performEditWrite(intent, {
+              server,
+              recentEditWrites: currentSession?.recentEditWrites ?? null,
+              write: atomicWrite,
+            })
           },
           readFile: (p) => fs.promises.readFile(p, 'utf-8'),
           projectRoot,

@@ -11,6 +11,14 @@ import type { AIWriter } from './ai-writer.js'
 import type { DeferredWriter, BatchedWriteRequest } from './deferred-writer.js'
 import type { InlineStyleRewriter } from './rewriter/inline-style.js'
 import { classifyEdit } from './edit-strategy.js'
+import { ExternalRevertError } from '../adapters/atomic-write.js'
+import { validateClassOpToken } from './class-op-validator.js'
+
+/** Classify a write-time error into a reason_code for edit_status.failed.
+ *  ExternalRevertError → `'external_revert'`; everything else → `'write_failed'`. */
+function classifyWriteError(err: unknown): 'external_revert' | 'write_failed' {
+  return err instanceof ExternalRevertError ? 'external_revert' : 'write_failed'
+}
 
 export interface EditRequest {
   editId: string
@@ -167,9 +175,32 @@ export class EditPipeline {
     // (both are empty on link/unlink). Precedence: if classOp is present,
     // the property-keyed path does not run even if property/value are set.
     if (edit.classOp) {
+      // Trust-boundary validation: classOp strings come straight from the
+      // browser over the WebSocket, bypass property/value validation, and
+      // land in a JSX string literal + Tailwind compiler. ts-morph's
+      // setLiteralValue is escape-safe, but Tailwind v4's arbitrary-value
+      // bracket syntax (`bg-[url(javascript:...)]`) survives JSX escaping
+      // and executes as CSS in the user's browser on next load. Validate
+      // BEFORE any fs operation or undo push.
+      for (const field of ['remove', 'add'] as const) {
+        const token = edit.classOp[field]
+        if (token === undefined) continue
+        const result = validateClassOpToken(token)
+        if (!result.ok) {
+          this.channel.send({
+            type: 'edit_status',
+            editId: edit.editId,
+            status: 'failed',
+            reason: `Invalid classOp.${field}: ${result.reason}`,
+            reason_code: 'invalid_class_token',
+          })
+          return
+        }
+      }
+
       const parsed = this.parseSource(edit.source)
       if (!parsed.ok) {
-        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: parsed.reason })
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: parsed.reason, reason_code: 'parse_failed' })
         return
       }
       this.handleClassOp(edit, parsed.resolvedPath, parsed.line, parsed.col).catch((err) => {
@@ -179,6 +210,7 @@ export class EditPipeline {
           editId: edit.editId,
           status: 'failed',
           reason: err instanceof Error ? err.message : 'Unknown error',
+          reason_code: classifyWriteError(err),
         })
       })
       return
@@ -562,13 +594,16 @@ export class EditPipeline {
           editId: edit.editId,
           status: 'failed',
           reason: `Write failed: ${err instanceof Error ? err.message : String(err)}`,
+          reason_code: classifyWriteError(err),
         })
         return
       }
 
-      // Push to undo stack only after successful write
+      // Push to undo stack only after successful write.
+      // requiresHmr=false: inline-style property edits are painted by the
+      // browser-side !important override layer; HMR would only cause flicker.
       if (this.undoStack) {
-        this.undoStack.push({ changes: [{ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent }] })
+        this.undoStack.push({ changes: [{ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent, requiresHmr: false }] })
       }
 
       this.channel.send({
@@ -643,20 +678,24 @@ export class EditPipeline {
 
     // Write all files. Staleness already verified above.
     // On failure, roll back already-written files so the entry remains valid for retry.
-    const writtenUndo: Array<{ filePath: string; rollbackContent: string }> = []
+    const writtenUndo: Array<{ filePath: string; rollbackContent: string; requiresHmr: boolean }> = []
     try {
       for (const change of entry.changes) {
         await this.withFileLock(change.filePath, async () => {
-          await this.writeFile({ kind: 'undo', filePath: change.filePath, content: change.previousContent })
+          // Per-change HMR policy: className/JSX rewrites need a framework
+          // re-render to update the DOM; inline-style edits do not. Threading
+          // requiresHmr through UndoFileChange keeps the undo semantic honest
+          // to the forward write's semantic.
+          await this.writeFile({ kind: 'undo', suppressHmr: !change.requiresHmr, filePath: change.filePath, content: change.previousContent })
         })
-        writtenUndo.push({ filePath: change.filePath, rollbackContent: change.currentContent })
+        writtenUndo.push({ filePath: change.filePath, rollbackContent: change.currentContent, requiresHmr: change.requiresHmr })
       }
     } catch (err) {
       // Roll back already-written files so disk matches entry.currentContent again.
       for (const w of writtenUndo) {
         try {
           await this.withFileLock(w.filePath, async () => {
-            await this.writeFile({ kind: 'undo', filePath: w.filePath, content: w.rollbackContent })
+            await this.writeFile({ kind: 'undo', suppressHmr: !w.requiresHmr, filePath: w.filePath, content: w.rollbackContent })
           })
         } catch (rollbackErr) {
           console.error('[cortex] Undo rollback failed for %s:', w.filePath, rollbackErr)
@@ -728,19 +767,19 @@ export class EditPipeline {
     // Write all files, THEN pop the entry.
     // redo() is called AFTER writes succeed to prevent stack/disk divergence.
     // On failure, roll back already-written files so the entry remains valid for retry.
-    const writtenRedo: Array<{ filePath: string; rollbackContent: string }> = []
+    const writtenRedo: Array<{ filePath: string; rollbackContent: string; requiresHmr: boolean }> = []
     try {
       for (const change of entry.changes) {
         await this.withFileLock(change.filePath, async () => {
-          await this.writeFile({ kind: 'redo', filePath: change.filePath, content: change.currentContent })
+          await this.writeFile({ kind: 'redo', suppressHmr: !change.requiresHmr, filePath: change.filePath, content: change.currentContent })
         })
-        writtenRedo.push({ filePath: change.filePath, rollbackContent: change.previousContent })
+        writtenRedo.push({ filePath: change.filePath, rollbackContent: change.previousContent, requiresHmr: change.requiresHmr })
       }
     } catch (err) {
       for (const w of writtenRedo) {
         try {
           await this.withFileLock(w.filePath, async () => {
-            await this.writeFile({ kind: 'redo', filePath: w.filePath, content: w.rollbackContent })
+            await this.writeFile({ kind: 'redo', suppressHmr: !w.requiresHmr, filePath: w.filePath, content: w.rollbackContent })
           })
         } catch (rollbackErr) {
           console.error('[cortex] Redo rollback failed for %s:', w.filePath, rollbackErr)
@@ -800,6 +839,7 @@ export class EditPipeline {
     col: number,
   ): Promise<void> {
     if (!edit.classOp) return // defensive — handleEdit already guards this
+    const op = edit.classOp // narrowed; no ! needed below
 
     this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
 
@@ -820,15 +860,15 @@ export class EditPipeline {
         filePath: resolvedPath,
         line,
         col,
-        remove: edit.classOp!.remove,
-        add: edit.classOp!.add,
+        remove: op.remove,
+        add: op.add,
       })
 
       if (!result.success) {
         // AI fallback — describe the class mutation as an instruction for the
         // AI writer. This covers template literals and conditional objects.
         if (this.aiWriter) {
-          const instruction = this.describeClassOpForAI(edit.classOp!, resolvedPath, line, col)
+          const instruction = this.describeClassOpForAI(op, resolvedPath, line, col)
           const reason = `Could not rewrite className deterministically (${result.reason}). Routing to AI writer.`
           await this.executeAIWrite(
             { ...edit, property: '__class__', value: instruction },
@@ -849,24 +889,41 @@ export class EditPipeline {
       }
 
       try {
-        await this.writeFile({ kind: 'immediate', filePath: resolvedPath, content: result.newContent })
+        // classOp must NOT suppress HMR: there is no browser-side override
+        // layer for class mutations (unlike property edits which paint via
+        // !important overrides before HMR lands). If we suppress HMR here,
+        // the component never re-renders with the new className, the Panel's
+        // `typographyClassName` memo stays stale, bundle detection returns
+        // the previous bundle, and the next pick sends another accumulating
+        // classOp against the same stale state.
+        await this.writeFile({
+          kind: 'immediate',
+          suppressHmr: false,
+          filePath: resolvedPath,
+          content: result.newContent,
+        })
       } catch (err) {
         this.channel.send({
           type: 'edit_status',
           editId: edit.editId,
           status: 'failed',
           reason: `Write failed: ${err instanceof Error ? err.message : String(err)}`,
+          reason_code: classifyWriteError(err),
         })
         return
       }
 
       if (this.undoStack && oldContent !== null) {
+        // requiresHmr=true: className mutations have no browser-side override
+        // layer; undo must fire HMR so React re-renders the element with the
+        // previous className. Otherwise disk reverts but DOM stays stale.
         this.undoStack.push({
           changes: [
             {
               filePath: resolvedPath,
               previousContent: oldContent,
               currentContent: result.newContent,
+              requiresHmr: true,
             },
           ],
         })
@@ -926,12 +983,15 @@ export class EditPipeline {
         editId: edit.editId,
         status: 'failed',
         reason: `Write failed: ${err instanceof Error ? err.message : String(err)}`,
+        reason_code: classifyWriteError(err),
       })
       return
     }
 
     if (this.undoStack) {
-      this.undoStack.push({ changes: [{ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent }] })
+      // requiresHmr=true: deferred/AI writes can restructure JSX. Undo must
+      // re-render the user's component to reflect the old source.
+      this.undoStack.push({ changes: [{ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent, requiresHmr: true }] })
     }
 
     this.verifier.trackEdit({
@@ -974,10 +1034,13 @@ export class EditPipeline {
       try {
         await this.writeFile({ kind: 'immediate', filePath: resolvedCssPath, content: result.newContent })
       } catch (err) {
-        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Write failed: ${err instanceof Error ? err.message : String(err)}` })
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Write failed: ${err instanceof Error ? err.message : String(err)}`, reason_code: classifyWriteError(err) })
         return
       }
-      undoChanges.push({ filePath: resolvedCssPath, previousContent: result.oldContent, currentContent: result.newContent })
+      // requiresHmr=false: the CSS Module edit is paired with a browser-side
+      // override. HMR would cause a flicker between the override value and
+      // the stylesheet reload; suppressed by design.
+      undoChanges.push({ filePath: resolvedCssPath, previousContent: result.oldContent, currentContent: result.newContent, requiresHmr: false })
       cssSuccess = true
     })
 
@@ -1027,7 +1090,13 @@ export class EditPipeline {
               // Allowing CSS HMR causes flicker (style recalc) and breaks undo
               // (CSS value in browser can't be rolled back when undo suppresses HMR).
               await this.writeFile({ kind: 'jsx-immediate', suppressHmr: true, filePath, content: cleanup.newContent })
-              undoChanges.push({ filePath, previousContent: cleanup.oldContent, currentContent: cleanup.newContent })
+              // requiresHmr=false matches the forward write's suppressHmr=true.
+              // The cleanup removes inline styles whose visual is supplied by
+              // the browser-side CSS override; undo restores those inline
+              // styles, but the override is still present at undo time so
+              // HMR would flicker. When the override eventually clears, the
+              // inline style takes over on the next natural render.
+              undoChanges.push({ filePath, previousContent: cleanup.oldContent, currentContent: cleanup.newContent, requiresHmr: false })
               // No verifier.trackEdit — intentional. The override persists
               // (redundant but harmless once CSS HMR delivers the matching value).
               // Tracking would send hmr_verified, risking premature override
@@ -1084,12 +1153,15 @@ export class EditPipeline {
         this.channel.send({
           type: 'edit_status', editId: edit.editId, status: 'failed',
           reason: `Write failed: ${err instanceof Error ? err.message : String(err)}`,
+          reason_code: classifyWriteError(err),
         })
         handled = true // error handled — don't fall through to AI
         return
       }
       if (this.undoStack) {
-        this.undoStack.push({ changes: [{ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent }] })
+        // requiresHmr=true symmetric with forward kind='jsx-immediate': AI may
+        // restructure JSX, so undo must re-render the user's component.
+        this.undoStack.push({ changes: [{ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent, requiresHmr: true }] })
       }
       // Track for HMR verification — jsx-immediate allows HMR, so the verifier
       // can confirm the update and clean up the browser CSS override.
@@ -1215,13 +1287,15 @@ export class EditPipeline {
         await this.writeFile({ kind: 'deferred', filePath: batch.filePath, content: result.newContent })
       } catch (err) {
         const reason = `Write failed: ${err instanceof Error ? err.message : String(err)}`
-        this.sendDeferredStatus(batch.editIds, 'failed', reason)
+        this.sendDeferredStatus(batch.editIds, 'failed', reason, classifyWriteError(err))
         return { success: false, reason }
       }
 
-      // Push undo (only after successful write)
+      // Push undo (only after successful write).
+      // requiresHmr=true: deferred batch writes via AI can restructure JSX;
+      // undo must re-render to reflect the pre-batch source.
       if (this.undoStack) {
-        this.undoStack.push({ changes: [{ filePath: batch.filePath, previousContent: result.oldContent, currentContent: result.newContent }] })
+        this.undoStack.push({ changes: [{ filePath: batch.filePath, previousContent: result.oldContent, currentContent: result.newContent, requiresHmr: true }] })
       }
 
       // Track HMR for ALL changes in the batch, not just the last.
@@ -1245,7 +1319,7 @@ export class EditPipeline {
     })
   }
 
-  private sendDeferredStatus(editIds: string[], status: 'done' | 'failed' | 'cancelled', reason?: string): void {
+  private sendDeferredStatus(editIds: string[], status: 'done' | 'failed' | 'cancelled', reason?: string, reason_code?: 'external_revert' | 'invalid_class_token' | 'write_failed' | 'rewriter_failed' | 'parse_failed'): void {
     for (const editId of editIds) {
       this.channel.send({
         type: 'edit_status',
@@ -1253,6 +1327,7 @@ export class EditPipeline {
         status,
         strategy: 'deferred',
         ...(reason ? { reason } : {}),
+        ...(reason_code ? { reason_code } : {}),
       })
     }
   }
