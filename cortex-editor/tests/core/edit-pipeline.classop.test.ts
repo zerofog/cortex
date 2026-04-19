@@ -329,4 +329,95 @@ describe('EditPipeline — classOp routing', () => {
     deferred[1]?.()
     for (let i = 0; i < 20; i++) await Promise.resolve()
   })
+
+  // ─── C3: validator enforcement at the pipeline boundary ────────────
+  //
+  // The class-op-validator is unit-tested exhaustively in
+  // tests/core/class-op-validator.test.ts. These tests prove the
+  // PIPELINE actually invokes it before any fs or rewriter work —
+  // i.e., that a regression that deletes the validation block in
+  // handleEdit would be caught here, not go undetected because the
+  // validator still exists as a separate module.
+  //
+  // CLAUDE.md anti-pattern 4: "Security assertions must prove
+  // enforcement." Each test asserts:
+  //   1. rewriter.rewriteClassList NOT called (validator short-circuits)
+  //   2. writeFile NOT called (no fs side effects)
+  //   3. channel.send called with structured reason_code — NOT just
+  //      "some error happened" (falsifiable rejection mechanism)
+  describe('— validator enforcement at pipeline boundary (C3)', () => {
+    const expectRejection = (field: 'remove' | 'add'): void => {
+      expect(rewriter.rewriteClassList).not.toHaveBeenCalled()
+      expect(writes).toHaveLength(0)
+      expect(channel.send).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'edit_status',
+        editId: 'bad',
+        status: 'failed',
+        reason_code: 'invalid_class_token',
+      }))
+      // Also verify the field name propagates into reason for debuggability.
+      const call = channel.send.mock.calls.find(
+        (args) => (args[0] as { reason?: string }).reason?.includes(`classOp.${field}`),
+      )
+      expect(call).toBeDefined()
+    }
+
+    it('rejects url() payload before rewriter or writeFile — the H1 bypass class', async () => {
+      pipeline.handleEdit(baseEdit({
+        editId: 'bad',
+        classOp: { add: 'bg-[url(javascript%3Aalert(1))]' },
+      }))
+      await flush()
+      expectRejection('add')
+    })
+
+    it('rejects percent-encoded url() bypass at pipeline boundary', async () => {
+      pipeline.handleEdit(baseEdit({
+        editId: 'bad',
+        classOp: { add: 'bg-[url(data%3Aimage/svg+xml;base64,PHN2Zz4K)]' },
+      }))
+      await flush()
+      expectRejection('add')
+    })
+
+    it('rejects invalid shape (angle brackets) on the remove side', async () => {
+      pipeline.handleEdit(baseEdit({
+        editId: 'bad',
+        classOp: { remove: 'content-[<img>]' },
+      }))
+      await flush()
+      expectRejection('remove')
+    })
+
+    it('rejects whitespace tokens', async () => {
+      pipeline.handleEdit(baseEdit({
+        editId: 'bad',
+        classOp: { add: 'text-body md' },  // space in middle
+      }))
+      await flush()
+      expectRejection('add')
+    })
+
+    it('rejects overlong tokens (>128 chars)', async () => {
+      pipeline.handleEdit(baseEdit({
+        editId: 'bad',
+        classOp: { add: 'a'.repeat(200) },
+      }))
+      await flush()
+      expectRejection('add')
+    })
+
+    it('validates both fields when both are present; first failure short-circuits', async () => {
+      // remove is VALID, add is INVALID. The loop iterates
+      // ['remove', 'add'] in that order, so validation fails on the
+      // 'add' field and no write should occur. Importantly, the
+      // rewriter must not be called even partially.
+      pipeline.handleEdit(baseEdit({
+        editId: 'bad',
+        classOp: { remove: 'text-valid', add: 'bg-[url(x)]' },
+      }))
+      await flush()
+      expectRejection('add')
+    })
+  })
 })
