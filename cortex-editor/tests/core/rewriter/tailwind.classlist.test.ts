@@ -73,6 +73,51 @@ describe('TailwindRewriter.rewriteClassList', () => {
     expect(res.newContent).toMatch(/"heading-1 flex"|"flex heading-1"/)
   })
 
+  it('ternary: applies add even when remove is present in neither arm (H2 best-effort)', async () => {
+    // Scenario: user clicks "swap typography bundle" but the current
+    // rendered arm never had the old bundle — it was already absent
+    // (or applied conditionally outside this ternary). Prior behavior
+    // silently no-oped the add, so the user's click appeared to do
+    // nothing. New behavior lands the add on the first static arm.
+    //
+    // This is the H2 fix from the Round 1 architecture review — three
+    // reviewers flagged this (clink-gemini, native-mts, native-frontend).
+    const dir = mkdtempSync(join(tmpdir(), 'cx-rl-'))
+    const file = join(dir, 'Eh2.tsx')
+    writeFileSync(file, `export const E = ({on}:{on:boolean}) => <div className={on ? "flex" : "px-4"} />\n`)
+    const res = await rewriter.rewriteClassList({
+      filePath: file, line: 1, col: 43,
+      remove: 'missing-bundle',  // NOT in either arm
+      add: 'heading-1',
+    })
+    expect(res.success).toBe(true)
+    if (!res.success) throw new Error(res.reason)
+    // First static arm ("flex") absorbs the add.
+    expect(res.newContent).toMatch(/"flex heading-1"|"heading-1 flex"/)
+    // Second arm untouched (the mutation stops after the first).
+    expect(res.newContent).toContain('"px-4"')
+  })
+
+  it('ternary: no-op success when remove is missing AND add is already present in some arm', async () => {
+    // Regression guard on the H2 fix: if `add` already lives in the
+    // first static arm, we must NOT redundantly mutate (creates churn
+    // in source control) and must NOT propagate `add` to the OTHER
+    // arm (that would be a normalization semantic we don't own here).
+    // Correct outcome: idempotent success, content unchanged.
+    const dir = mkdtempSync(join(tmpdir(), 'cx-rl-'))
+    const file = join(dir, 'Eh2b.tsx')
+    const src = `export const E = ({on}:{on:boolean}) => <div className={on ? "heading-1 flex" : "px-4"} />\n`
+    writeFileSync(file, src)
+    const res = await rewriter.rewriteClassList({
+      filePath: file, line: 1, col: 43,
+      remove: 'missing-bundle',  // NOT in either arm
+      add: 'heading-1',           // already in arm 0
+    })
+    expect(res.success).toBe(true)
+    if (!res.success) throw new Error(res.reason)
+    expect(res.newContent).toBe(res.oldContent)
+  })
+
   it('handles clsx/cn call expression with static string args', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cx-rl-'))
     const file = join(dir, 'F.tsx')

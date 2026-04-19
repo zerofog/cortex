@@ -390,9 +390,13 @@ export class TailwindRewriter {
     if (!conditional) {
       return { success: false, filePath, reason: 'Expected conditional expression' }
     }
-    // Prefer the arm containing `remove`; otherwise apply to the first static-
-    // string arm. This lets single-arm-link flows work even when the element
-    // renders without currently having the target class.
+    // Phase 1: prefer the arm containing `remove` for the combined
+    // (remove + add) op. If remove is undefined, this loop still
+    // processes the first static-string arm and can apply a pure add.
+    //
+    // Why structured this way: applying both ops in one call keeps the
+    // arm's class list in a consistent order — `applyClassOp(text, r, a)`
+    // removes then adds atomically, preserving surrounding whitespace.
     const arms = [conditional.getWhenTrue(), conditional.getWhenFalse()]
     for (const branch of arms) {
       const literal = branch.asKind(SK.StringLiteral)
@@ -407,16 +411,42 @@ export class TailwindRewriter {
       return { success: true, filePath, oldContent, newContent: sourceFile.getFullText() }
     }
 
-    if (add && !remove) {
+    // Phase 2 (H2 fix): best-effort add on the FIRST static arm.
+    //
+    // Reached when Phase 1 fell through — that happens when either:
+    //   (a) no StringLiteral arm exists (e.g., template-literal arms), or
+    //   (b) `remove` was requested but not found in any arm.
+    //
+    // Previous logic gated this phase on `if (add && !remove)`, which
+    // silently dropped the add in case (b). That broke link/swap UX
+    // whenever the source ternary's rendered arm didn't currently hold
+    // the old class — the user's click appeared to do nothing.
+    //
+    // New logic: find the first static arm. If `add` is already there,
+    // return idempotent no-op (preserves existing "add is set-like"
+    // semantics — we don't normalize every arm). If `add` is missing,
+    // apply it to that arm. Second-arm processing intentionally does
+    // NOT happen: propagating `add` to arms that didn't ask for it
+    // would be a normalization operation this rewriter doesn't own.
+    //
+    // Semantics: "remove is best-effort; add lands at one arm that can
+    // hold it, preferring the first static arm as the canonical site."
+    // If future callers need to distinguish "full swap" vs "add-only
+    // best-effort", extend RewriteResult with a `removeApplied?: boolean`.
+    if (add) {
       for (const branch of arms) {
         const literal = branch.asKind(SK.StringLiteral)
         if (!literal) continue
         const text = literal.getLiteralText()
         const next = this.applyClassOp(text, undefined, add)
-        if (next !== text) {
-          literal.setLiteralValue(next)
-          return { success: true, filePath, oldContent, newContent: sourceFile.getFullText() }
+        // First static arm: if add is already present, we're done
+        // (idempotent); if absent, mutate and return. Either way, do
+        // not continue to the second arm.
+        if (next === text) {
+          return { success: true, filePath, oldContent, newContent: oldContent }
         }
+        literal.setLiteralValue(next)
+        return { success: true, filePath, oldContent, newContent: sourceFile.getFullText() }
       }
     }
 
