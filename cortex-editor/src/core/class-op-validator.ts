@@ -43,6 +43,33 @@ const MAX_LEN = 128
  *  the shape-validation layer, before any CSS tokenization occurs. */
 const SHAPE = /^[a-zA-Z0-9:_\-\/\.%]+(?:\[[a-zA-Z0-9_.\-+*/#%(),]{1,100}\])?$/
 
+/** Defense-in-depth checks that run BEFORE the shape regex. These block
+ *  the narrow set of bypass shapes that the whitelist alone cannot catch
+ *  because the shape rule only excludes CHARACTERS — not sequences.
+ *
+ *  url(...) bypass: the bracket whitelist excludes `:` (to block
+ *  `javascript:`, `data:`, etc.) but percent-encoding smuggles colons
+ *  past the character check. `bg-[url(javascript%3Aalert(1))]` is valid
+ *  under SHAPE because `%3A` is three innocent ASCII chars. Tailwind
+ *  compiles it to `background-image: url(javascript%3Aalert(1))` and
+ *  the browser's url() parser percent-decodes inside the value —
+ *  restoring the colon and the scheme. Modern browsers block the
+ *  resulting `javascript:` scheme in image loads, but:
+ *    - older browsers / embedded contexts may still execute it
+ *    - `url(data%3Aimage/svg+xml;base64,...)` preserves the same shape
+ *    - `url(//evil.com/track)` (no scheme at all) still fires a network
+ *      request, serving as a tracking pixel or data-exfil endpoint
+ *
+ *  Blocking `url(` literally removes the vector entirely. Tailwind users
+ *  who genuinely need background images should route through `@theme`
+ *  or inline `style={{ backgroundImage: ... }}`, not through classOp.
+ *
+ *  Protocol-relative `//` is never valid inside a Tailwind utility
+ *  — CSS `calc()` uses single `/` for division; `grid-cols-[1fr_1fr]`
+ *  uses `_` for spaces; no utility syntax produces `//`. Blocking it
+ *  prevents protocol-relative URL shenanigans in any bracket context. */
+const REJECT_URL = /url\s*\(/i
+
 /**
  * Validate that `token` is safe to pass into the classOp pipeline —
  * concretely, that it will be written into a `className` string attribute
@@ -59,7 +86,10 @@ const SHAPE = /^[a-zA-Z0-9:_\-\/\.%]+(?:\[[a-zA-Z0-9_.\-+*/#%(),]{1,100}\])?$/
  * Rules (each failure cites a specific reason for UX + debuggability):
  *   1. Length: 1 <= len <= 128.
  *   2. No whitespace anywhere (classOp tokens are single utility tokens).
- *   3. Shape regex: allowed leading chars + optional bracket block with
+ *   3. No `url(` sequence — defense-in-depth vs percent-encoded scheme
+ *      smuggling that the shape-regex cannot catch.
+ *   4. No `//` sequence — blocks protocol-relative paths.
+ *   5. Shape regex: allowed leading chars + optional bracket block with
  *      a strict char whitelist (no `\`, no `:`, no quotes, no HTML chars).
  */
 export function validateClassOpToken(token: string): ClassOpValidationResult {
@@ -74,6 +104,12 @@ export function validateClassOpToken(token: string): ClassOpValidationResult {
   }
   if (/\s/.test(token)) {
     return { ok: false, reason: 'classOp token must not contain whitespace' }
+  }
+  if (REJECT_URL.test(token)) {
+    return { ok: false, reason: 'classOp token must not contain url() — use @theme or inline style for background images' }
+  }
+  if (token.includes('//')) {
+    return { ok: false, reason: 'classOp token must not contain protocol-relative `//`' }
   }
   if (!SHAPE.test(token)) {
     return { ok: false, reason: 'classOp token has invalid shape (expected Tailwind utility)' }

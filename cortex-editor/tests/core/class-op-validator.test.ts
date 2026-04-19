@@ -72,12 +72,66 @@ describe('validateClassOpToken — rejects by specific rule', () => {
     if (!r.ok) expect(r.reason).toMatch(/shape/)
   })
 
-  it('rejects bracket value with url( — the core Tailwind v4 injection vector', () => {
-    // `url(javascript:alert(1))` contains `:`, which the bracket-content
-    // whitelist excludes → shape rejection.
+  it('rejects bracket value with literal url( at the url-defense layer (H1)', () => {
+    // Post-H1: url( is rejected BEFORE the shape regex runs. The specific
+    // reason proves that the dedicated url() check — not the incidental
+    // `:` exclusion in the bracket whitelist — is the rejection mechanism.
+    // This matters because the percent-encoded bypass variant below would
+    // slip past a shape-only defense.
     const r = validateClassOpToken('bg-[url(javascript:alert(1))]')
     expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.reason).toMatch(/shape/)
+    if (!r.ok) expect(r.reason).toMatch(/url\(/)
+  })
+
+  it('rejects percent-encoded colon in url() — shape-regex bypass (H1)', () => {
+    // %3A is the percent-encoded form of `:`. The three chars `%`, `3`, `A`
+    // are all in the bracket-content whitelist, so this token passes the
+    // shape regex. But the browser's url() parser percent-decodes inside
+    // the value, restoring the colon and the `javascript:` scheme. The
+    // dedicated url() rejection catches this before shape would otherwise
+    // permit it. If this test ever passes as `ok: true`, the H1 defense
+    // has regressed.
+    const r = validateClassOpToken('bg-[url(javascript%3Aalert(1))]')
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.reason).toMatch(/url\(/)
+  })
+
+  it('rejects percent-encoded data: URL in url() (H1)', () => {
+    // Same shape-bypass as the javascript%3A case — data: URLs carry SVG
+    // or HTML payloads and execute on load in some contexts.
+    const r = validateClassOpToken('bg-[url(data%3Aimage/svg+xml;base64,PHN2Zz4K)]')
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.reason).toMatch(/url\(/)
+  })
+
+  it('rejects protocol-relative // inside url() — tracker pixel vector (H1)', () => {
+    // `//evil.com/track.gif` bypasses scheme blocks because there IS no
+    // scheme. Modern browsers resolve it against the current page's
+    // protocol and still fire the image request. The `//` check catches
+    // this; url() check catches it redundantly (defense in depth).
+    const r = validateClassOpToken('bg-[url(//evil.com/track.gif)]')
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.reason).toMatch(/url\(|protocol-relative/)
+  })
+
+  it('rejects bare protocol-relative `//` in a bracket value (H1)', () => {
+    // Without url(), a raw `//` never compiles to useful CSS but still
+    // reaches ts-morph's className write. Block it so adversarial tokens
+    // don't accumulate in the user's source file even as inert bytes.
+    const r = validateClassOpToken('bg-[//evil.com]')
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.reason).toMatch(/protocol-relative/)
+  })
+
+  it('rejects case-variant url( — URL(, Url(, uRL( (H1)', () => {
+    // Case-insensitive match so attackers can't slip `URL(` past a
+    // case-sensitive check. Three variants in a row because the
+    // shape regex is case-sensitive and would only catch the common form.
+    for (const variant of ['bg-[URL(a)]', 'bg-[Url(a)]', 'bg-[uRL(a)]']) {
+      const r = validateClassOpToken(variant)
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.reason).toMatch(/url\(/)
+    }
   })
 
   it('rejects bracket value with javascript: scheme (shape-level rejection)', () => {
