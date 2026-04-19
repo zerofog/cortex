@@ -819,63 +819,113 @@ export class EditPipeline {
       this.sendDeferredStatus(cancelledIds, 'cancelled', 'Cancelled by undo')
     }
 
-    // Validate all files before writing any — partial undo would leave
-    // the codebase in an inconsistent state.
-    // NOTE: `stale` is set inside the async lock callback and read after the await.
-    // This is safe because the for-loop is sequential (not Promise.all).
-    for (const change of entry.changes) {
-      if (!this.readFile) continue
-      let stale = false
-      try {
-        await this.withFileLock(change.filePath, async () => {
+    // H-R2-4 (Round 2): validate-all + write-all under ONE continuous
+    // set of file locks, held for the duration of both phases. The
+    // prior two-phase design (validate each file under its own lock →
+    // release all → re-acquire each lock to write) left a TOCTOU
+    // window between per-file validate and write: a concurrent forward
+    // edit could slip in and invalidate the validation, then the write
+    // would clobber that edit based on the stale validation.
+    //
+    // Holding locks across validate + write closes the window without
+    // sacrificing the "validate-all-before-write-any" atomicity
+    // invariant (asserted by the scope='all' compound-undo test —
+    // partial writes must not occur even when a later file is stale).
+    //
+    // For multi-file entries (e.g. CSS Modules scope='all'), locks are
+    // acquired in sorted path order so concurrent undo/redo operations
+    // on overlapping file sets serialize rather than deadlock.
+    const sortedChanges = [...entry.changes].sort((a, b) => a.filePath.localeCompare(b.filePath))
+    const filePaths = sortedChanges.map(c => c.filePath)
+    let stale = false
+    let writeErr: unknown = null
+    const writtenUndo: Array<{ filePath: string; rollbackContent: string; requiresHmr: boolean }> = []
+
+    try {
+      await this.withMultiFileLocks(filePaths, async () => {
+        // Phase 1: validate all files. No disk writes yet.
+        if (this.readFile) {
           const current = this.undoStack!.peekUndo()
           if (!current || current.id !== entry.id) { stale = true; return }
-          const fileContent = await this.readFile!(change.filePath)
-          if (fileContent !== change.currentContent) { stale = true }
-        })
-      } catch (err) {
-        // readFile failure (ENOENT, EACCES) — file state unknown, treat as stale.
-        console.error('[cortex] Undo validation read failed for %s:', change.filePath, err)
-        stale = true
-      }
-      if (stale) {
-        this.undoStack!.removeStaleEntry(entry.id)
-        this.channel.send({ type: 'undo_sync_status', status: 'failed', reason: 'File was modified outside cortex. Undo not available for this change.', reason_code: 'stale' })
-        return
-      }
+          for (const change of sortedChanges) {
+            const fileContent = await this.readFile(change.filePath)
+            if (fileContent !== change.currentContent) { stale = true; return }
+          }
+        }
+        // Phase 2: write all files. Locks still held from Phase 1 so
+        // no external write can land between validation and write for
+        // any file in the set.
+        for (const change of sortedChanges) {
+          try {
+            await this.writeFile({ kind: 'undo', suppressHmr: !change.requiresHmr, filePath: change.filePath, content: change.previousContent })
+          } catch (err) {
+            writeErr = err
+            return
+          }
+          writtenUndo.push({ filePath: change.filePath, rollbackContent: change.currentContent, requiresHmr: change.requiresHmr })
+        }
+      })
+    } catch (err) {
+      // readFile failure (ENOENT, EACCES) surfaced out of the lock
+      // callback. File state unknown, treat as stale.
+      console.error('[cortex] Undo validation read failed:', err)
+      stale = true
     }
 
-    // Write all files. Staleness already verified above.
-    // On failure, roll back already-written files so the entry remains valid for retry.
-    const writtenUndo: Array<{ filePath: string; rollbackContent: string; requiresHmr: boolean }> = []
-    try {
-      for (const change of entry.changes) {
-        await this.withFileLock(change.filePath, async () => {
-          // Per-change HMR policy: className/JSX rewrites need a framework
-          // re-render to update the DOM; inline-style edits do not. Threading
-          // requiresHmr through UndoFileChange keeps the undo semantic honest
-          // to the forward write's semantic.
-          await this.writeFile({ kind: 'undo', suppressHmr: !change.requiresHmr, filePath: change.filePath, content: change.previousContent })
-        })
-        writtenUndo.push({ filePath: change.filePath, rollbackContent: change.currentContent, requiresHmr: change.requiresHmr })
-      }
-    } catch (err) {
-      // Roll back already-written files so disk matches entry.currentContent again.
-      for (const w of writtenUndo) {
-        try {
-          await this.withFileLock(w.filePath, async () => {
-            await this.writeFile({ kind: 'undo', suppressHmr: !w.requiresHmr, filePath: w.filePath, content: w.rollbackContent })
-          })
-        } catch (rollbackErr) {
-          console.error('[cortex] Undo rollback failed for %s:', w.filePath, rollbackErr)
-        }
-      }
-      this.channel.send({ type: 'undo_sync_status', status: 'failed', reason: `Write failed during undo: ${sanitizeErrorForClient(err)}`, reason_code: 'write_failed' })
+    if (stale) {
+      this.undoStack!.removeStaleEntry(entry.id)
+      this.channel.send({ type: 'undo_sync_status', status: 'failed', reason: 'File was modified outside cortex. Undo not available for this change.', reason_code: 'stale' })
+      return
+    }
+    if (writeErr) {
+      // Partial writes CAN occur if an early write succeeds and a
+      // later write fails (write errors mid-phase-2 are not caught by
+      // validation). Roll back the successful ones so the undo entry
+      // is retriable.
+      await this.rollbackEntryWrites(writtenUndo, 'undo')
+      this.channel.send({ type: 'undo_sync_status', status: 'failed', reason: `Write failed during undo: ${sanitizeErrorForClient(writeErr)}`, reason_code: 'write_failed' })
       return
     }
 
     this.undoStack!.undo()
     this.channel.send({ type: 'undo_sync_status', status: 'done' })
+  }
+
+  /** Acquire per-file locks for all filePaths in sorted order, then run
+   *  fn while holding all of them. Locks are released when fn returns
+   *  (or throws). Sorting prevents deadlock between concurrent
+   *  multi-file operations that touch overlapping file sets. */
+  private async withMultiFileLocks<T>(filePaths: readonly string[], fn: () => Promise<T>): Promise<T> {
+    const sorted = [...new Set(filePaths)].sort()
+    const acquire = async (idx: number): Promise<T> => {
+      const next = sorted[idx]
+      if (next === undefined) return await fn()
+      let result!: T
+      await this.withFileLock(next, async () => {
+        result = await acquire(idx + 1)
+      })
+      return result
+    }
+    return acquire(0)
+  }
+
+  /** Roll back writes made during a partial undo/redo after a later
+   *  write failed mid-phase-2. Stale-failure doesn't reach this path
+   *  (stale is detected in phase 1 before any writes), so rollback is
+   *  only needed for write-failure, not for stale-failure. */
+  private async rollbackEntryWrites(
+    written: ReadonlyArray<{ filePath: string; rollbackContent: string; requiresHmr: boolean }>,
+    kind: 'undo' | 'redo',
+  ): Promise<void> {
+    for (const w of written) {
+      try {
+        await this.withFileLock(w.filePath, async () => {
+          await this.writeFile({ kind, suppressHmr: !w.requiresHmr, filePath: w.filePath, content: w.rollbackContent })
+        })
+      } catch (rollbackErr) {
+        console.error('[cortex] %s rollback failed for %s:', kind, w.filePath, rollbackErr)
+      }
+    }
   }
 
   async handleRedo(): Promise<void> {
@@ -909,52 +959,46 @@ export class EditPipeline {
       this.sendDeferredStatus(cancelledIds, 'cancelled', 'Cancelled by redo')
     }
 
-    // Validate all files before writing — redo staleness clears the full stack
-    // (matches original single-file behavior).
-    // NOTE: `stale` is set inside the async lock callback and read after the await.
-    // This is safe because the for-loop is sequential (not Promise.all).
-    for (const change of entry.changes) {
-      if (!this.readFile) continue
-      let stale = false
-      try {
-        await this.withFileLock(change.filePath, async () => {
-          const fileContent = await this.readFile!(change.filePath)
-          if (fileContent !== change.previousContent) { stale = true }
-        })
-      } catch (err) {
-        // readFile failure (ENOENT, EACCES) — file state unknown, treat as stale.
-        console.error('[cortex] Redo validation read failed for %s:', change.filePath, err)
-        stale = true
-      }
-      if (stale) {
-        this.undoStack!.clear()
-        this.channel.send({ type: 'redo_sync_status', status: 'failed', reason: 'File was modified outside cortex. Redo not available.', reason_code: 'stale' })
-        return
-      }
+    // H-R2-4 (Round 2): same validate-all + write-all under one lock
+    // set as _doUndo. See _doUndo for the full rationale. Redo
+    // staleness clears the full stack (matches original behavior).
+    const sortedChanges = [...entry.changes].sort((a, b) => a.filePath.localeCompare(b.filePath))
+    const filePaths = sortedChanges.map(c => c.filePath)
+    let stale = false
+    let writeErr: unknown = null
+    const writtenRedo: Array<{ filePath: string; rollbackContent: string; requiresHmr: boolean }> = []
+
+    try {
+      await this.withMultiFileLocks(filePaths, async () => {
+        if (this.readFile) {
+          for (const change of sortedChanges) {
+            const fileContent = await this.readFile(change.filePath)
+            if (fileContent !== change.previousContent) { stale = true; return }
+          }
+        }
+        for (const change of sortedChanges) {
+          try {
+            await this.writeFile({ kind: 'redo', suppressHmr: !change.requiresHmr, filePath: change.filePath, content: change.currentContent })
+          } catch (err) {
+            writeErr = err
+            return
+          }
+          writtenRedo.push({ filePath: change.filePath, rollbackContent: change.previousContent, requiresHmr: change.requiresHmr })
+        }
+      })
+    } catch (err) {
+      console.error('[cortex] Redo validation read failed:', err)
+      stale = true
     }
 
-    // Write all files, THEN pop the entry.
-    // redo() is called AFTER writes succeed to prevent stack/disk divergence.
-    // On failure, roll back already-written files so the entry remains valid for retry.
-    const writtenRedo: Array<{ filePath: string; rollbackContent: string; requiresHmr: boolean }> = []
-    try {
-      for (const change of entry.changes) {
-        await this.withFileLock(change.filePath, async () => {
-          await this.writeFile({ kind: 'redo', suppressHmr: !change.requiresHmr, filePath: change.filePath, content: change.currentContent })
-        })
-        writtenRedo.push({ filePath: change.filePath, rollbackContent: change.previousContent, requiresHmr: change.requiresHmr })
-      }
-    } catch (err) {
-      for (const w of writtenRedo) {
-        try {
-          await this.withFileLock(w.filePath, async () => {
-            await this.writeFile({ kind: 'redo', suppressHmr: !w.requiresHmr, filePath: w.filePath, content: w.rollbackContent })
-          })
-        } catch (rollbackErr) {
-          console.error('[cortex] Redo rollback failed for %s:', w.filePath, rollbackErr)
-        }
-      }
-      this.channel.send({ type: 'redo_sync_status', status: 'failed', reason: `Write failed during redo: ${sanitizeErrorForClient(err)}`, reason_code: 'write_failed' })
+    if (stale) {
+      this.undoStack!.clear()
+      this.channel.send({ type: 'redo_sync_status', status: 'failed', reason: 'File was modified outside cortex. Redo not available.', reason_code: 'stale' })
+      return
+    }
+    if (writeErr) {
+      await this.rollbackEntryWrites(writtenRedo, 'redo')
+      this.channel.send({ type: 'redo_sync_status', status: 'failed', reason: `Write failed during redo: ${sanitizeErrorForClient(writeErr)}`, reason_code: 'write_failed' })
       return
     }
 

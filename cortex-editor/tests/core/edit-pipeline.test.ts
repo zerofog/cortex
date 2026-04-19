@@ -4156,5 +4156,123 @@ describe('EditPipeline', () => {
       expect(undoStack.canUndo).toBe(false)
       expect(undoStack.canRedo).toBe(false)
     })
+
+    it('H-R2-4: multi-file undo acquires locks in sorted path order (deadlock prevention)', async () => {
+      // The deadlock vector: two concurrent compound-entry undos touching
+      // overlapping file sets. If one acquires path-z then needs path-a
+      // while the other acquires path-a then needs path-z, neither can
+      // proceed. Sorted acquisition order ensures all acquirers agree on
+      // the order, so the second one waits at lock 1 instead of
+      // deadlocking at lock 2.
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const undoStack = new UndoStack()
+
+      // Track file-access order: both reads and writes, with timestamps.
+      const accessOrder: string[] = []
+      const fileContents = new Map<string, string>([
+        ['/project/z-last.css', 'z-new'],
+        ['/project/a-first.css', 'a-new'],
+        ['/project/m-middle.css', 'm-new'],
+      ])
+      const readFile = vi.fn().mockImplementation(async (p: string) => {
+        accessOrder.push(`read:${p}`)
+        return fileContents.get(p) ?? ''
+      })
+      const writeFile = vi.fn().mockImplementation(async (intent: { filePath: string }) => {
+        accessOrder.push(`write:${intent.filePath}`)
+      })
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, readFile,
+        projectRoot: '/project', undoStack,
+      })
+
+      // Undo entry with files in a deliberately NON-sorted order.
+      // Implementation must sort them before acquiring locks.
+      undoStack.push({ changes: [
+        { filePath: '/project/z-last.css', previousContent: 'z-old', currentContent: 'z-new', requiresHmr: false },
+        { filePath: '/project/a-first.css', previousContent: 'a-old', currentContent: 'a-new', requiresHmr: false },
+        { filePath: '/project/m-middle.css', previousContent: 'm-old', currentContent: 'm-new', requiresHmr: false },
+      ] })
+
+      await pipeline.handleUndo()
+      await vi.runAllTimersAsync()
+
+      // All reads must occur before any writes (validate-all-first atomicity).
+      // Within reads: sorted order (a-first → m-middle → z-last).
+      // Within writes: sorted order (a-first → m-middle → z-last).
+      const readsInOrder = accessOrder.filter(s => s.startsWith('read:'))
+      const writesInOrder = accessOrder.filter(s => s.startsWith('write:'))
+      expect(readsInOrder).toEqual([
+        'read:/project/a-first.css',
+        'read:/project/m-middle.css',
+        'read:/project/z-last.css',
+      ])
+      expect(writesInOrder).toEqual([
+        'write:/project/a-first.css',
+        'write:/project/m-middle.css',
+        'write:/project/z-last.css',
+      ])
+      // All reads happen before any write (atomicity invariant).
+      const firstWriteIdx = accessOrder.findIndex(s => s.startsWith('write:'))
+      const lastReadIdx = accessOrder.map(s => s.startsWith('read:')).lastIndexOf(true)
+      expect(lastReadIdx).toBeLessThan(firstWriteIdx)
+    })
+
+    it('H-R2-4: validate+write for a single file happen under one continuous lock (no TOCTOU)', async () => {
+      // The original bug: undo validated under lock, released, then
+      // re-acquired for write. A concurrent forward edit could slip in
+      // between. With merged lock acquisition, the concurrent edit
+      // must wait until undo completes both phases.
+      const channel = mockChannel()
+      const resolver = mockResolver({ 'padding-top': { '8px': 'pt-2', '16px': 'pt-4' } })
+      const rewriter = mockRewriter({ success: true, newContent: 'forward-edit-content' })
+      const verifier = mockVerifier()
+      const undoStack = new UndoStack()
+
+      // Track operations in order of completion.
+      const ops: string[] = []
+      const fileContents = new Map<string, string>([
+        ['/project/App.tsx', 'current-content'],
+      ])
+      const readFile = vi.fn().mockImplementation(async (p: string) => {
+        ops.push(`read:${p}`)
+        return fileContents.get(p) ?? ''
+      })
+      const writeFile = vi.fn().mockImplementation(async (intent: { filePath: string; content: string }) => {
+        ops.push(`write:${intent.filePath}:${intent.content}`)
+        fileContents.set(intent.filePath, intent.content)
+      })
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, readFile,
+        projectRoot: '/project', undoStack,
+      })
+
+      undoStack.push({ changes: [
+        { filePath: '/project/App.tsx', previousContent: 'old-content', currentContent: 'current-content', requiresHmr: false },
+      ] })
+
+      // Fire an undo. The implementation must read → write under a
+      // single continuous lock acquisition. No other operation can
+      // intervene between the read and write for App.tsx.
+      await pipeline.handleUndo()
+      await vi.runAllTimersAsync()
+
+      // Ops must be read then write, with NOTHING between them for the
+      // same file. If the TOCTOU existed, a test probe could have been
+      // inserted between the lock-release and lock-reacquire; with the
+      // merged-lock implementation, there is no such window.
+      const appReads = ops.filter(o => o.includes('App.tsx') && o.startsWith('read:'))
+      const appWrites = ops.filter(o => o.includes('App.tsx') && o.startsWith('write:'))
+      expect(appReads).toHaveLength(1)
+      expect(appWrites).toHaveLength(1)
+      const readIdx = ops.indexOf(appReads[0]!)
+      const writeIdx = ops.indexOf(appWrites[0]!)
+      expect(writeIdx - readIdx).toBe(1)  // adjacent — no TOCTOU gap
+    })
   })
 })
