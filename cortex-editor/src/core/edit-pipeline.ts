@@ -99,23 +99,45 @@ function validateInlineOps(
   return null
 }
 
+/** POSIX absolute path matcher for sanitization. Requires at least 2
+ *  `/segment` parts so single literals (`/tmp`) don't over-match, but
+ *  `/Users/alice/...`, `/home/...`, `/var/...`, `/etc/...` are all
+ *  caught. The negative lookbehind prevents matching inside a relative
+ *  path like `src/components/Hero.tsx` — the leading `/` must be
+ *  preceded by a non-path character (whitespace, quote, comma, etc.)
+ *  or string start. Character class excludes whitespace and punctuation
+ *  that commonly border paths in prose, so we stop at path boundary
+ *  rather than swallowing adjacent text. */
+const POSIX_ABS_PATH_REGEX = /(?<![\w./-])(?:\/[^\s:,'"\\]+){2,}/g
+
+/** Windows absolute path matcher. Drive letter + colon + backslash
+ *  (or forward slash) + one or more segments. Path segment char class
+ *  excludes Windows-reserved filename chars to avoid over-match. */
+const WINDOWS_ABS_PATH_REGEX = /[A-Za-z]:[\\/](?:[^\s:,'"<>?*|]+[\\/]?)+/g
+
 /** Sanitize an error for surface to the browser over the WebSocket.
  *
- *  H5 (Round 1 review): two concerns flagged independently —
+ *  H5 (Round 1 review) + H-R2-2 (Round 2 review): three concerns —
  *    - ExternalRevertError.message previously embedded the absolute
- *      file path, propagating straight to the Panel's UI
+ *      file path, propagating straight to the Panel's UI (Round 1
+ *      fixed this at the error's constructor)
  *    - ts-morph / fs errors routinely include path fragments that
- *      likewise flowed verbatim to the browser
+ *      likewise flowed verbatim to the browser (Round 1 added
+ *      truncation at MAX_CLIENT_ERROR_LEN)
+ *    - Short fs errors (e.g. ENOENT ~65 chars) fit UNDER the 200-char
+ *      truncation ceiling with the absolute path INTACT (Round 2)
  *
- *  Primary defense for the typed-error case lives in the error's
- *  own constructor (ExternalRevertError now emits a generic message
- *  while preserving `filePath` as a readonly field for server-side
- *  classification). This helper provides blanket truncation for any
- *  OTHER error source, guaranteeing a finite information-disclosure
- *  ceiling regardless of what third-party library emitted the Error. */
-function sanitizeErrorForClient(err: unknown): string {
+ *  Path-stripping happens BEFORE truncation so paths of any length
+ *  are redacted. We apply both POSIX and Windows regexes; the order
+ *  doesn't matter because replacements are static text and the
+ *  regexes match disjoint shapes (slash-leading vs drive-letter-
+ *  leading). Non-absolute paths (`./foo`, `../bar`, `src/x.tsx`)
+ *  are preserved — they don't contain deployment-specific data. */
+export function sanitizeErrorForClient(err: unknown): string {
   if (!(err instanceof Error)) return 'Unknown error'
-  const msg = err.message
+  let msg = err.message
+  msg = msg.replace(POSIX_ABS_PATH_REGEX, '<path>')
+  msg = msg.replace(WINDOWS_ABS_PATH_REGEX, '<path>')
   return msg.length <= MAX_CLIENT_ERROR_LEN
     ? msg
     : msg.slice(0, MAX_CLIENT_ERROR_LEN) + '…'
