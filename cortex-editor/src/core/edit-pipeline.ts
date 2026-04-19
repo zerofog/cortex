@@ -38,6 +38,21 @@ const MAX_INLINE_PROP_NAME_LEN = 64
  *  `linear-gradient(...)` strings without being a payload vector. */
 const MAX_INLINE_PROP_VALUE_LEN = 512
 
+/** Block `url(` substrings in inline values — same defense class-op-validator
+ *  applies to classOp tokens. Compound inline values are written as
+ *  `style={{ property: value }}` in JSX source; browsers execute
+ *  `background-image: url(...)`, `cursor: url(...)`, etc. at render time.
+ *  C-R2-2 (Round 2): H1's classOp url()-defense was not extended to the
+ *  compound protocol's new inlineSets values — closing that gap here. */
+const REJECT_URL_IN_INLINE = /url\s*\(/i
+
+/** Whitelist regex for inline property names. Matches standard CSS
+ *  (`font-size`), CSS custom properties (`--primary`), and vendor-prefixed
+ *  (`-webkit-transform`). Rejects anything outside `[a-zA-Z0-9-]` to block
+ *  JSX-attribute-breakout shapes like `\"]injection` even though ts-morph's
+ *  AST writers escape them. Defense-in-depth, not replacement. */
+const VALID_INLINE_PROP_NAME = /^-{0,2}[a-zA-Z][a-zA-Z0-9-]*$/
+
 /** Shape-validate the compound-edit inline op arrays. Returns null on
  *  success or a specific rejection reason (for reason_code propagation).
  *  Values for sets must be non-empty — empty-string inline edits were
@@ -54,11 +69,20 @@ function validateInlineOps(
     if (s.property.length > MAX_INLINE_PROP_NAME_LEN) {
       return `inlineSets property name exceeds ${MAX_INLINE_PROP_NAME_LEN} chars`
     }
+    if (!VALID_INLINE_PROP_NAME.test(s.property)) {
+      return 'inlineSets property name has invalid shape (must match CSS property name charset)'
+    }
     if (typeof s.value !== 'string' || s.value.length === 0) {
       return 'inlineSets entry has empty value — use inlineRemoves instead'
     }
     if (s.value.length > MAX_INLINE_PROP_VALUE_LEN) {
       return `inlineSets value exceeds ${MAX_INLINE_PROP_VALUE_LEN} chars`
+    }
+    if (REJECT_URL_IN_INLINE.test(s.value)) {
+      return 'inlineSets value must not contain url() — use @theme or static asset imports for images'
+    }
+    if (s.value.includes('//')) {
+      return 'inlineSets value must not contain protocol-relative `//`'
     }
   }
   for (const r of removes ?? []) {
@@ -67,6 +91,9 @@ function validateInlineOps(
     }
     if (r.property.length > MAX_INLINE_PROP_NAME_LEN) {
       return `inlineRemoves property name exceeds ${MAX_INLINE_PROP_NAME_LEN} chars`
+    }
+    if (!VALID_INLINE_PROP_NAME.test(r.property)) {
+      return 'inlineRemoves property name has invalid shape (must match CSS property name charset)'
     }
   }
   return null

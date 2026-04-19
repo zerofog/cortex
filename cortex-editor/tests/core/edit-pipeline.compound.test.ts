@@ -375,4 +375,125 @@ describe('EditPipeline — compound edit (C2)', () => {
       reason_code: 'invalid_class_token',
     }))
   })
+
+  // C-R2-2 (Round 2): validateInlineOps must apply the same url()/ //
+  // defenses to compound inline values that class-op-validator already
+  // applies to classOp tokens. Without this, the compound protocol
+  // re-opens the H1 vector that classOp closed.
+
+  it('rejects compound requests with url() in inlineSets value', async () => {
+    pipeline.handleEdit(baseEdit({
+      classOp: { add: 'bg-image-holder' },
+      inlineSets: [{ property: 'background-image', value: 'url(javascript:alert(1))' }],
+    }))
+    await flush()
+
+    expect(rewriter.rewriteClassListInTransaction).not.toHaveBeenCalled()
+    expect(writes).toHaveLength(0)
+    expect(channel.send).toHaveBeenCalledWith(expect.objectContaining({
+      editId: 'ec1',
+      status: 'failed',
+      reason_code: 'invalid_class_token',
+      reason: expect.stringContaining('url('),
+    }))
+  })
+
+  it('rejects percent-encoded url() bypass in inlineSets value', async () => {
+    // The percent-encoded colon inside url() is what made this a real
+    // attack — `javascript%3Aalert(1)` passes a char-level check but is
+    // restored to `javascript:alert(1)` by the browser's url() parser.
+    pipeline.handleEdit(baseEdit({
+      classOp: { add: 'bg-image-holder' },
+      inlineSets: [{ property: 'background-image', value: 'url(javascript%3Aalert(1))' }],
+    }))
+    await flush()
+
+    expect(rewriter.rewriteClassListInTransaction).not.toHaveBeenCalled()
+    expect(writes).toHaveLength(0)
+    expect(channel.send).toHaveBeenCalledWith(expect.objectContaining({
+      reason_code: 'invalid_class_token',
+      reason: expect.stringContaining('url('),
+    }))
+  })
+
+  it('rejects data: url() in inlineSets value (no scheme colon required to match)', async () => {
+    pipeline.handleEdit(baseEdit({
+      classOp: { add: 'bg-image-holder' },
+      inlineSets: [{ property: 'background-image', value: 'url(data:image/svg+xml;base64,PHN2Zz4=)' }],
+    }))
+    await flush()
+
+    expect(writes).toHaveLength(0)
+    expect(channel.send).toHaveBeenCalledWith(expect.objectContaining({
+      reason_code: 'invalid_class_token',
+      reason: expect.stringContaining('url('),
+    }))
+  })
+
+  it('rejects protocol-relative // in inlineSets value', async () => {
+    pipeline.handleEdit(baseEdit({
+      classOp: { add: 'bg-image-holder' },
+      inlineSets: [{ property: 'background-image', value: '//evil.com/track.gif' }],
+    }))
+    await flush()
+
+    expect(writes).toHaveLength(0)
+    expect(channel.send).toHaveBeenCalledWith(expect.objectContaining({
+      reason_code: 'invalid_class_token',
+      reason: expect.stringContaining('protocol-relative'),
+    }))
+  })
+
+  it('rejects invalid property-name charset in inlineSets', async () => {
+    pipeline.handleEdit(baseEdit({
+      classOp: { add: 'bg-image-holder' },
+      inlineSets: [{ property: '"]injection', value: '#fff' }],
+    }))
+    await flush()
+
+    expect(writes).toHaveLength(0)
+    expect(channel.send).toHaveBeenCalledWith(expect.objectContaining({
+      reason_code: 'invalid_class_token',
+      reason: expect.stringContaining('invalid shape'),
+    }))
+  })
+
+  it('rejects invalid property-name charset in inlineRemoves', async () => {
+    pipeline.handleEdit(baseEdit({
+      classOp: { remove: 'text-body-md' },
+      inlineRemoves: [{ property: 'font-size;color:red' }],
+    }))
+    await flush()
+
+    expect(writes).toHaveLength(0)
+    expect(channel.send).toHaveBeenCalledWith(expect.objectContaining({
+      reason_code: 'invalid_class_token',
+      reason: expect.stringContaining('invalid shape'),
+    }))
+  })
+
+  it('accepts legitimate CSS values (regression check — whitelist is not over-broad)', async () => {
+    // Sanity: the new checks must not reject real Tailwind/CSS usage.
+    // linear-gradient(), calc(), rgba(), kebab-case properties,
+    // CSS custom properties (--primary), and vendor-prefixes should
+    // all pass through.
+    mutateTxnInClassOp()
+    pipeline.handleEdit(baseEdit({
+      classOp: { remove: 'text-body-md' },
+      inlineSets: [
+        { property: 'font-size', value: '14px' },
+        { property: 'color', value: 'rgba(255, 0, 0, 0.5)' },
+        { property: '--primary', value: '#3b82f6' },
+        { property: '-webkit-transform', value: 'scale(1.5)' },
+        { property: 'background', value: 'linear-gradient(to right, #fff, #000)' },
+      ],
+    }))
+    await flush()
+
+    // Not rejected — compound edit proceeds.
+    expect(channel.send).not.toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed',
+      reason_code: 'invalid_class_token',
+    }))
+  })
 })
