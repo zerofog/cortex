@@ -1924,15 +1924,23 @@ describe('shouldSuppressHmr', () => {
 // These tests exercise the exact side-effect contract that the ZF0-1215
 // diagnostic fix relies on: atomic write + synthesized chokidar `change`
 // event when HMR is not suppressed, nothing extra when it is suppressed.
+//
+// C1 addendum (Round 1 review): three additional invariants tested below —
+//   (1) the timer entry lands AFTER the write succeeds (not before)
+//   (2) rapid same-path writes refresh the single timer (no stacking)
+//   (3) a failed write leaves the timers map untouched
 describe('performEditWrite', () => {
+  type Timers = Map<string, ReturnType<typeof setTimeout>>
+  const emptyTimers = (): Timers => new Map()
+
   it('synthesizes a chokidar change event when HMR is not suppressed (ZF0-1215 Tailwind regen)', async () => {
     const emit = vi.fn()
     const write = vi.fn<(p: string, c: string) => Promise<void>>().mockResolvedValue(undefined)
-    const recent = new Set<string>()
+    const timers = emptyTimers()
 
     await performEditWrite(
       { kind: 'immediate', suppressHmr: false, filePath: '/project/src/App.tsx', content: 'new-source' },
-      { server: { watcher: { emit } }, recentEditWrites: recent, write },
+      { server: { watcher: { emit } }, recentEditWriteTimers: timers, write },
     )
 
     expect(write).toHaveBeenCalledWith('/project/src/App.tsx', 'new-source')
@@ -1940,25 +1948,25 @@ describe('performEditWrite', () => {
     // moduleGraph invalidation + Tailwind re-scan.
     expect(emit).toHaveBeenCalledTimes(1)
     expect(emit).toHaveBeenCalledWith('change', '/project/src/App.tsx')
-    // NOT suppressed ⇒ not tracked in recentEditWrites (HMR will fire and
-    // handleHotUpdate should let it through).
-    expect(recent.has('/project/src/App.tsx')).toBe(false)
+    // NOT suppressed ⇒ not tracked in recentEditWriteTimers (HMR will fire
+    // and handleHotUpdate should let it through).
+    expect(timers.has('/project/src/App.tsx')).toBe(false)
   })
 
   it('does NOT emit a change event when HMR is suppressed', async () => {
     const emit = vi.fn()
     const write = vi.fn<(p: string, c: string) => Promise<void>>().mockResolvedValue(undefined)
-    const recent = new Set<string>()
+    const timers = emptyTimers()
 
     await performEditWrite(
       { kind: 'immediate', filePath: '/project/src/styles.css', content: 'new-css' },
-      { server: { watcher: { emit } }, recentEditWrites: recent, write },
+      { server: { watcher: { emit } }, recentEditWriteTimers: timers, write },
     )
 
     expect(write).toHaveBeenCalled()
     expect(emit).not.toHaveBeenCalled()
     // Suppressed ⇒ tracked so handleHotUpdate filters this event.
-    expect(recent.has('/project/src/styles.css')).toBe(true)
+    expect(timers.has('/project/src/styles.css')).toBe(true)
   })
 
   it('emits change for jsx-immediate kind even without explicit suppressHmr (default policy)', async () => {
@@ -1967,7 +1975,7 @@ describe('performEditWrite', () => {
 
     await performEditWrite(
       { kind: 'jsx-immediate', filePath: '/p.tsx', content: 'x' },
-      { server: { watcher: { emit } }, recentEditWrites: new Set(), write },
+      { server: { watcher: { emit } }, recentEditWriteTimers: emptyTimers(), write },
     )
 
     expect(emit).toHaveBeenCalledWith('change', '/p.tsx')
@@ -1979,7 +1987,7 @@ describe('performEditWrite', () => {
 
     await performEditWrite(
       { kind: 'deferred', filePath: '/p.tsx', content: 'x' },
-      { server: { watcher: { emit } }, recentEditWrites: new Set(), write },
+      { server: { watcher: { emit } }, recentEditWriteTimers: emptyTimers(), write },
     )
 
     expect(emit).toHaveBeenCalledWith('change', '/p.tsx')
@@ -1993,7 +2001,7 @@ describe('performEditWrite', () => {
     await expect(
       performEditWrite(
         { kind: 'immediate', suppressHmr: false, filePath: '/p.tsx', content: 'x' },
-        { server: { watcher: { emit } }, recentEditWrites: new Set(), write },
+        { server: { watcher: { emit } }, recentEditWriteTimers: emptyTimers(), write },
       ),
     ).rejects.toThrow('ENOSPC: disk full')
 
@@ -2004,34 +2012,105 @@ describe('performEditWrite', () => {
     expect(emit).not.toHaveBeenCalled()
   })
 
-  it('auto-clears recentEditWrites entry after the 500ms TTL when suppressed', async () => {
+  // C1 addendum: a write that fails must NOT leave the path in the
+  // suppression map. Old code added-then-awaited, so a rejection left
+  // the path suppressed for 500ms while no write had actually landed —
+  // the user's editor's own save would be filtered from HMR during that
+  // window. New code adds AFTER await: a rejection never reaches the map.
+  it('does NOT insert into recentEditWriteTimers when a suppressed write rejects (C1 ordering)', async () => {
+    const emit = vi.fn()
+    const write = vi.fn<(p: string, c: string) => Promise<void>>().mockRejectedValue(new Error('EACCES'))
+    const timers = emptyTimers()
+
+    await expect(
+      performEditWrite(
+        { kind: 'immediate', filePath: '/locked.tsx', content: 'x' },
+        { server: { watcher: { emit } }, recentEditWriteTimers: timers, write },
+      ),
+    ).rejects.toThrow('EACCES')
+
+    expect(timers.has('/locked.tsx')).toBe(false)
+    expect(timers.size).toBe(0)
+  })
+
+  // C1 addendum: two rapid writes to the same path should REFRESH the
+  // single timer, not stack independent ones. With stacked timers the
+  // first would fire mid-window and evict the entry even though the
+  // second write's TTL hadn't elapsed — leaking HMR flicker between
+  // timers. The refresh pattern (clearTimeout + setTimeout) makes TTL
+  // always measured from the most recent write.
+  it('refreshes a single timer entry on rapid consecutive writes to the same path (C1 no stacking)', async () => {
     vi.useFakeTimers()
     try {
       const emit = vi.fn()
       const write = vi.fn<(p: string, c: string) => Promise<void>>().mockResolvedValue(undefined)
-      const recent = new Set<string>()
+      const timers = emptyTimers()
 
       await performEditWrite(
-        { kind: 'immediate', filePath: '/q.css', content: 'x' },
-        { server: { watcher: { emit } }, recentEditWrites: recent, write },
+        { kind: 'immediate', filePath: '/f.css', content: 'a' },
+        { server: { watcher: { emit } }, recentEditWriteTimers: timers, write },
+      )
+      expect(timers.size).toBe(1)
+      const firstTimer = timers.get('/f.css')
+      expect(firstTimer).toBeDefined()
+
+      // Second write arrives 300ms later — well within the 500ms window.
+      vi.advanceTimersByTime(300)
+      await performEditWrite(
+        { kind: 'immediate', filePath: '/f.css', content: 'b' },
+        { server: { watcher: { emit } }, recentEditWriteTimers: timers, write },
       )
 
-      expect(recent.has('/q.css')).toBe(true)
-      vi.advanceTimersByTime(500)
-      expect(recent.has('/q.css')).toBe(false)
+      // Only ONE entry for this path, and the timer identity changed
+      // (the old one was cleared, a new one armed).
+      expect(timers.size).toBe(1)
+      const secondTimer = timers.get('/f.css')
+      expect(secondTimer).toBeDefined()
+      expect(secondTimer).not.toBe(firstTimer)
+
+      // Advance past the original 500ms mark. If timers had stacked,
+      // the old timer would now fire and evict the entry. With refresh
+      // semantics, the NEW timer's 500ms window restarted at t=300 and
+      // doesn't expire until t=800.
+      vi.advanceTimersByTime(300) // total = 600ms, old TTL expired, new still live
+      expect(timers.has('/f.css')).toBe(true)
+
+      // Advance past the new timer's expiry (t=800).
+      vi.advanceTimersByTime(300) // total = 900ms, new TTL also expired
+      expect(timers.has('/f.css')).toBe(false)
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('tolerates null recentEditWrites (no active session) without crashing', async () => {
+  it('auto-clears recentEditWriteTimers entry after the 500ms TTL when suppressed', async () => {
+    vi.useFakeTimers()
+    try {
+      const emit = vi.fn()
+      const write = vi.fn<(p: string, c: string) => Promise<void>>().mockResolvedValue(undefined)
+      const timers = emptyTimers()
+
+      await performEditWrite(
+        { kind: 'immediate', filePath: '/q.css', content: 'x' },
+        { server: { watcher: { emit } }, recentEditWriteTimers: timers, write },
+      )
+
+      expect(timers.has('/q.css')).toBe(true)
+      vi.advanceTimersByTime(500)
+      expect(timers.has('/q.css')).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('tolerates null recentEditWriteTimers (no active session) without crashing', async () => {
     const emit = vi.fn()
     const write = vi.fn<(p: string, c: string) => Promise<void>>().mockResolvedValue(undefined)
 
     await expect(
       performEditWrite(
         { kind: 'immediate', filePath: '/p.css', content: 'x' },
-        { server: { watcher: { emit } }, recentEditWrites: null, write },
+        { server: { watcher: { emit } }, recentEditWriteTimers: null, write },
       ),
     ).resolves.toBeUndefined()
   })

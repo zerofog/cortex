@@ -264,14 +264,22 @@ export interface EditWriteServer {
   watcher: { emit: (event: string, path: string) => void }
 }
 
+/** How long (ms) a path stays in the HMR-suppression window after a
+ *  cortex-originated write lands. Named constant so tests and production
+ *  can't drift. */
+export const RECENT_EDIT_WRITE_TTL_MS = 500
+
 /** Dependencies threaded into `performEditWrite`. Explicit so tests can
  *  inject mocks for each side-effect (fs write, watcher emit, session
  *  tracking) without needing the full plugin/pipeline wiring. */
 export interface EditWriteDeps {
   server: EditWriteServer
-  /** Set on the active CortexSession; mutated to suppress handleHotUpdate
-   *  for cortex-originated writes. `null` when no session exists (tests). */
-  recentEditWrites: Set<string> | null
+  /** Map from filePath → active suppression timer, lives on the active
+   *  CortexSession. `.has(path)` answers "is this path currently in the
+   *  HMR-suppression window?"; the timer values are only read by
+   *  performEditWrite to clearTimeout before arming a fresh one.
+   *  `null` when no session exists (tests). */
+  recentEditWriteTimers: Map<string, ReturnType<typeof setTimeout>> | null
   /** Atomic write implementation. Production uses `atomicWrite` from
    *  `./atomic-write.js`; tests pass a `vi.fn()`. */
   write: (filePath: string, content: string) => Promise<void>
@@ -303,9 +311,22 @@ export function shouldSuppressHmr(intent: Pick<WriteIntent, 'kind' | 'suppressHm
  *  re-transform — listens on 'change' only. Emitting directly makes
  *  the fix deterministic across platforms and watcher backends.
  *
- *  When HMR is suppressed, adds `filePath` to `recentEditWrites` with a
- *  500ms TTL so `handleHotUpdate` can filter cortex-originated events
- *  that would otherwise cause a flicker atop the browser-side override.
+ *  Suppression-window ordering (ZF0-1215 C1): the write must LAND before
+ *  the path enters the suppression window. If the map-add happened first
+ *  and `deps.write` then rejected, the path would remain suppressed for
+ *  500ms while never actually having been written, blocking the user's
+ *  own editor-save from HMR'ing through during the window. By placing
+ *  the map-add after `await deps.write`, a rejection propagates cleanly
+ *  with no suppression state leaked.
+ *
+ *  Timer refresh (ZF0-1215 C1): rapid consecutive writes to the same
+ *  path refresh the existing timer rather than stacking independent
+ *  ones. A Set + naive `setTimeout` would expire the path mid-window
+ *  when the first timer fires, re-exposing the file to chokidar events
+ *  even though a second write was still in the middle of its own TTL.
+ *  The Map<path, timer> plus clearTimeout-before-set implements a
+ *  refreshing-timeout pattern: the TTL is always measured from the
+ *  most recent write, not the first.
  *
  *  Throws whatever `deps.write` throws. Callers should catch
  *  `ExternalRevertError` specifically to surface
@@ -315,15 +336,18 @@ export async function performEditWrite(
   deps: EditWriteDeps,
 ): Promise<void> {
   const suppress = shouldSuppressHmr(intent)
-  if (suppress) {
-    deps.recentEditWrites?.add(intent.filePath)
-    const timer = setTimeout(() => deps.recentEditWrites?.delete(intent.filePath), 500)
-    timer.unref?.()
-  }
   await deps.write(intent.filePath, intent.content)
   if (!suppress) {
     deps.server.watcher.emit('change', intent.filePath)
+    return
   }
+  const timers = deps.recentEditWriteTimers
+  if (!timers) return
+  const existing = timers.get(intent.filePath)
+  if (existing !== undefined) clearTimeout(existing)
+  const timer = setTimeout(() => timers.delete(intent.filePath), RECENT_EDIT_WRITE_TTL_MS)
+  timer.unref?.()
+  timers.set(intent.filePath, timer)
 }
 
 export function cortexEditor(_options?: CortexEditorOptions): Plugin {
@@ -700,14 +724,15 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           deferredWriter,
           writeFile: async (intent) => {
             // Delegates to `performEditWrite` which atomically replaces the
-            // target file, tracks suppressed writes in recentEditWrites, and
-            // (when HMR is not suppressed) synthesizes a chokidar `change`
-            // event on `server.watcher` so Vite's moduleGraph invalidates
-            // and Tailwind v4 re-scans the source. See helper docstring
-            // above cortexEditor() for the full rationale.
+            // target file, tracks suppressed writes in
+            // recentEditWriteTimers, and (when HMR is not suppressed)
+            // synthesizes a chokidar `change` event on `server.watcher`
+            // so Vite's moduleGraph invalidates and Tailwind v4 re-scans
+            // the source. See helper docstring above cortexEditor() for
+            // the full rationale.
             await performEditWrite(intent, {
               server,
-              recentEditWrites: currentSession?.recentEditWrites ?? null,
+              recentEditWriteTimers: currentSession?.recentEditWriteTimers ?? null,
               write: atomicWrite,
             })
           },
@@ -911,11 +936,11 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       // showing the correct value. HMR would cause a full-page style recalc
       // + repaint visible as a flash. The override stays until hmr_verified
       // clears it (which is now a no-op since we handled verification above).
-      const cortexFiles = modules.filter(m => m.file && currentSession?.recentEditWrites.has(m.file))
+      const cortexFiles = modules.filter(m => m.file && currentSession?.recentEditWriteTimers.has(m.file))
 
       // Only fire HMR callbacks for non-suppressed files — otherwise the
       // verifier would track edits for files whose HMR was intentionally blocked.
-      const nonSuppressed = modules.filter(m => !m.file || !currentSession?.recentEditWrites.has(m.file))
+      const nonSuppressed = modules.filter(m => !m.file || !currentSession?.recentEditWriteTimers.has(m.file))
       const files = nonSuppressed
         .map(m => m.file)
         .filter((f): f is string => f != null && (/\.[jt]sx$/.test(f) || /\.css$/.test(f)))

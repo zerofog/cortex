@@ -50,8 +50,8 @@ export interface EditRequest {
 export interface WriteIntent {
   kind: 'immediate' | 'jsx-immediate' | 'deferred' | 'undo' | 'redo'
   /** Override HMR suppression. When set, takes precedence over kind-based default.
-   *  false = allow HMR (file not added to recentEditWrites).
-   *  true = suppress HMR (file added to recentEditWrites).
+   *  false = allow HMR (file not added to recentEditWriteTimers).
+   *  true = suppress HMR (file added to recentEditWriteTimers with a TTL).
    *  undefined = use kind-based default (immediate/undo/redo suppress; others allow). */
   suppressHmr?: boolean
   filePath: string
@@ -582,7 +582,7 @@ export class EditPipeline {
         return
       }
 
-      // Immediate writes have HMR suppressed (recentEditWrites in vite.ts),
+      // Immediate writes have HMR suppressed (recentEditWriteTimers in vite.ts),
       // so don't track for HMR verification — it would never resolve.
 
       // Write file FIRST — side effects only after successful write
