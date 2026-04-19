@@ -2,6 +2,7 @@ import type { Project, SourceFile, Node, SyntaxKind as SyntaxKindEnum } from 'ts
 import { readFile } from 'fs/promises'
 import type { RewriteRequest, RewriteResult } from './types.js'
 import { ensureTsMorph, findJsxElementAt } from './jsx-utils.js'
+import type { JsxTransactionHandle, TransactionRewriteResult } from './jsx-transaction.js'
 
 /** Recognized className helper functions (clsx, classnames, cn, cx). */
 const CLASSNAME_HELPERS = new Set(['clsx', 'classnames', 'cn', 'cx'])
@@ -336,6 +337,67 @@ export class TailwindRewriter {
     }
 
     return { success: false, filePath, reason: `Unsupported className initializer kind: ${kind}` }
+  }
+
+  /**
+   * Transaction-based equivalent of `rewriteClassList`. Operates on a
+   * pre-loaded `JsxTransactionHandle` instead of reading/writing disk.
+   *
+   * Used by EditPipeline.handleCompoundEdit (ZF0-1215 C2) so a classOp
+   * and subsequent inlineSets/inlineRemoves can share one in-memory
+   * SourceFile: one fs read, one fs write, one compound UndoFileChange.
+   *
+   * Mutation is applied directly to `txn.sourceFile` in place. Callers
+   * retrieve the post-mutation content via `txn.getCurrentContent()`.
+   * The existing mutate* helpers are reused — they accept a SourceFile
+   * and mutate it via ts-morph's `setLiteralValue`, which is exactly
+   * what the transaction flow wants. Their RewriteResult's oldContent/
+   * newContent fields are discarded since the transaction is the source
+   * of truth.
+   */
+  rewriteClassListInTransaction(
+    txn: JsxTransactionHandle,
+    request: { line: number; col: number; remove?: string; add?: string },
+  ): TransactionRewriteResult {
+    if (this.disposed) return { success: false, reason: 'TailwindRewriter is disposed' }
+    const { line, col, remove, add } = request
+    if (!remove && !add) return { success: true }
+
+    const { sourceFile, filePath, SK, initialContent } = txn
+
+    const jsxElement = findJsxElementAt(sourceFile, line, col, SK)
+    if (!jsxElement) return { success: false, reason: `No JSX element found at ${line}:${col}` }
+
+    const classAttrRaw = jsxElement.getAttribute('className') ?? jsxElement.getAttribute('class')
+    const classAttr = classAttrRaw?.asKind(SK.JsxAttribute)
+    if (!classAttr) return { success: false, reason: 'No className attribute found on element' }
+
+    const initializer = classAttr.getInitializer()
+    if (!initializer) return { success: false, reason: 'className attribute has no value' }
+
+    const kind = initializer.getKind()
+    let result: RewriteResult
+
+    if (kind === SK.StringLiteral) {
+      result = this.mutateStringLiteral(initializer, remove, add, filePath, initialContent, sourceFile, SK)
+    } else if (kind === SK.JsxExpression) {
+      const expression = initializer.asKind(SK.JsxExpression)?.getExpression()
+      if (!expression) return { success: false, reason: 'Empty JSX expression in className' }
+      const exprKind = expression.getKind()
+      if (exprKind === SK.ConditionalExpression) {
+        result = this.mutateTernary(expression, remove, add, filePath, initialContent, sourceFile, SK)
+      } else if (exprKind === SK.CallExpression) {
+        result = this.mutateCallExpression(expression, remove, add, filePath, initialContent, sourceFile, SK)
+      } else if (exprKind === SK.TemplateExpression || exprKind === SK.NoSubstitutionTemplateLiteral) {
+        return { success: false, reason: 'Template literal in className — route to AI' }
+      } else {
+        return { success: false, reason: `Unsupported className expression kind: ${exprKind}` }
+      }
+    } else {
+      return { success: false, reason: `Unsupported className initializer kind: ${kind}` }
+    }
+
+    return result.success ? { success: true } : { success: false, reason: result.reason }
   }
 
   /** Apply remove/add to a space-separated class string. Pure, idempotent on add. */

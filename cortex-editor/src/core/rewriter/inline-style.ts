@@ -13,6 +13,7 @@ import type { Project, SourceFile, SyntaxKind as SyntaxKindEnum, ObjectLiteralEx
 import { readFile } from 'fs/promises'
 import type { RewriteResult } from './types.js'
 import { ensureTsMorph, findJsxElementAt, cssPropertyToCamelCase, LONGHAND_TO_SHORTHAND } from './jsx-utils.js'
+import type { JsxTransactionHandle, TransactionRewriteResult } from './jsx-transaction.js'
 
 export interface InlineStyleRewriteRequest {
   /** Absolute path to the source file */
@@ -347,6 +348,132 @@ export class InlineStyleRewriter {
 
     const newContent = sourceFile.getFullText()
     return { success: true, filePath, oldContent, newContent }
+  }
+
+  /**
+   * Apply a batch of set and remove operations to ONE JSX element's
+   * inline style object within a shared `JsxTransaction` (ZF0-1215 C2).
+   *
+   * All-or-nothing semantics: Phase 1 prepares the style attribute (or
+   * creates it if sets are requested and none exists). Phase 2 validates
+   * that every set's existing-value slot is literal-compatible (non-
+   * literal slots route the entire compound op to the AI writer; we do
+   * NOT fall through to a partial mutation). Phase 3 applies removes
+   * first, then sets — in that order so a property appearing in BOTH
+   * lists ends up with the set's value, not nothing.
+   *
+   * Models the two-pass pattern from `removeProperties` (line 264) —
+   * collect then mutate — so a validation failure mid-request leaves
+   * the AST unchanged.
+   *
+   * Empty request (sets.length === 0 && removes.length === 0) is a
+   * success no-op rather than an error: the compound-edit protocol
+   * sends this when a classOp has no accompanying inline changes.
+   */
+  setAndRemoveInTransaction(
+    txn: JsxTransactionHandle,
+    request: {
+      line: number
+      col: number
+      sets: ReadonlyArray<{ property: string; value: string }>
+      removes: ReadonlyArray<{ property: string }>
+    },
+  ): TransactionRewriteResult {
+    if (this.disposed) return { success: false, reason: 'InlineStyleRewriter is disposed' }
+    const { line, col, sets, removes } = request
+    if (sets.length === 0 && removes.length === 0) return { success: true }
+
+    const { sourceFile, SK } = txn
+    const jsxElement = findJsxElementAt(sourceFile, line, col, SK)
+    if (!jsxElement) return { success: false, reason: `No JSX element found at ${line}:${col}` }
+
+    // Phase 1: locate or create the style object literal.
+    let styleAttr = jsxElement.getAttribute('style')?.asKind(SK.JsxAttribute)
+    let objLiteral: ObjectLiteralExpression | null = null
+
+    if (styleAttr) {
+      const initializer = styleAttr.getInitializer()
+      if (!initializer) return { success: false, reason: 'style attribute has no value' }
+      if (initializer.getKind() !== SK.JsxExpression) {
+        return { success: false, reason: 'style attribute is not a JSX expression' }
+      }
+      const expression = initializer.asKind(SK.JsxExpression)?.getExpression()
+      if (!expression) return { success: false, reason: 'Empty JSX expression in style' }
+      if (expression.getKind() !== SK.ObjectLiteralExpression) {
+        return { success: false, reason: `style is not an object literal — route to AI (found ${expression.getKindName()})` }
+      }
+      objLiteral = expression.asKind(SK.ObjectLiteralExpression) ?? null
+    } else if (sets.length > 0) {
+      jsxElement.addAttribute({ name: 'style', initializer: '{{}}' })
+      styleAttr = jsxElement.getAttribute('style')?.asKind(SK.JsxAttribute)
+      const initializer = styleAttr?.getInitializer()
+      const expression = initializer?.asKind(SK.JsxExpression)?.getExpression()
+      objLiteral = expression?.asKind(SK.ObjectLiteralExpression) ?? null
+    }
+
+    // No style attr + only removes requested: success no-op. The source
+    // has no inline style to clean up; nothing to do.
+    if (!objLiteral) return { success: true }
+
+    // Phase 2: validate all sets. If any set targets a property whose
+    // existing value is non-literal (e.g., a variable reference), bail
+    // BEFORE mutating — partial-application would be a correctness
+    // violation per the Plan agent's critique (all-or-nothing required).
+    for (const { property } of sets) {
+      const camelProp = cssPropertyToCamelCase(property)
+      for (const prop of objLiteral.getProperties()) {
+        if (prop.getKind() === SK.ShorthandPropertyAssignment) {
+          const shorthand = prop.asKind(SK.ShorthandPropertyAssignment)
+          if (shorthand?.getName() === camelProp) {
+            return { success: false, reason: `Property '${camelProp}' uses shorthand assignment — route to AI` }
+          }
+          continue
+        }
+        if (prop.getKind() !== SK.PropertyAssignment) continue
+        const propAssign = prop.asKind(SK.PropertyAssignment)
+        if (!propAssign || propAssign.getName() !== camelProp) continue
+        const propInit = propAssign.getInitializer()
+        if (!propInit) continue
+        const initKind = propInit.getKind()
+        if (initKind !== SK.StringLiteral && initKind !== SK.NumericLiteral) {
+          return { success: false, reason: `Property '${camelProp}' has non-literal value — route to AI` }
+        }
+      }
+    }
+
+    // Phase 3: apply. Removes first, then sets (correct ordering when
+    // a property appears in both lists — the set's value wins).
+    try {
+      for (const { property } of removes) {
+        this.removePropertyFromObject(objLiteral, cssPropertyToCamelCase(property), SK)
+      }
+      for (const { property, value } of sets) {
+        const camelProp = cssPropertyToCamelCase(property)
+        let updated = false
+        for (const prop of objLiteral.getProperties()) {
+          if (prop.getKind() !== SK.PropertyAssignment) continue
+          const propAssign = prop.asKind(SK.PropertyAssignment)
+          if (!propAssign || propAssign.getName() !== camelProp) continue
+          propAssign.setInitializer(JSON.stringify(value))
+          updated = true
+          break
+        }
+        if (!updated) {
+          objLiteral.addPropertyAssignment({
+            name: this.formatObjectKey(camelProp),
+            initializer: JSON.stringify(value),
+          })
+        }
+      }
+      // Empty object after removes + no sets: drop the entire style prop.
+      if (objLiteral.getProperties().length === 0 && styleAttr) {
+        styleAttr.remove()
+      }
+    } catch (err) {
+      return { success: false, reason: `AST mutation failed: ${err instanceof Error ? err.message : err}` }
+    }
+
+    return { success: true }
   }
 
   /**
