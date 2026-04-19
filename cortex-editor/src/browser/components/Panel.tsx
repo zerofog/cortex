@@ -14,7 +14,14 @@ import { ElementTree } from './sections/ElementTree.js'
 import { DEFAULT_LAYER_HEIGHT, MIN_LAYER_HEIGHT } from './LayerTree.js'
 import type { SectionChange } from './sections/types.js'
 import { LayoutSection, parseLayoutValues } from './sections/LayoutSection.js'
-import { TypographySection, parseTypographyValues, getWeightsForFamily, stripCSSQuotes } from './sections/TypographySection.js'
+import {
+  TypographySection,
+  parseTypographyValues,
+  getWeightsForFamily,
+  stripCSSQuotes,
+  TYPOGRAPHY_LINKED_PROPERTIES,
+  COLOR_LINKED_PROPERTIES,
+} from './sections/TypographySection.js'
 import { parseFillValues, summarizeFill } from './sections/fill-utils.js'
 import { BorderSection, parseBorderValues, summarizeBorder } from './sections/BorderSection.js'
 import { EffectsSection, parseEffectsValues, addShadow } from './sections/EffectsSection.js'
@@ -794,16 +801,35 @@ export function Panel({
         return
       }
 
+      // Shared by link handlers (H7 part A): clear any in-flight browser
+      // !important overrides for the properties the link is about to own.
+      // Without this, a prior scrub (e.g., user dragged font-size to 24px)
+      // leaves an override in overrideManager; when the link lands, the
+      // class's font-size: 1rem loses the cascade to the override, and
+      // the Panel shows "linked" while the visual stays at 24px. These
+      // removes are LOCAL — no WebSocket message, no source edit —
+      // the source-file inline-style cleanup is handled separately by
+      // the compound-edit message introduced in C2 (inlineRemoves).
+      const clearLinkedOverrides = (properties: ReadonlyArray<string>): void => {
+        if (!element) return
+        const source = element.getAttribute('data-cortex-source')
+        if (!source) return
+        const pseudo = activePseudo !== 'element' ? activePseudo : undefined
+        for (const property of properties) {
+          overrideManager.remove(source, property, pseudo)
+        }
+      }
+
       switch (change.kind) {
         case 'link-text-component': {
-          // Link = classOp only. The bundle class's values apply via CSS
-          // cascade — no inline clear needed. If the user had prior inline
-          // typography styles from an unlink, those would need a separate
-          // style-prop removal edit (not yet supported); for now they
-          // linger and can be cleared manually. Crucially: never send
-          // empty-string property edits, they trigger the AI writer.
+          // The bundle class's values apply via CSS cascade — but prior
+          // !important overrides in the browser would win unless we
+          // clear them first (H7 part A). Source-file inline cleanup
+          // is C2's job; this handles only the in-browser transient.
+          //
           // `text-` prefix matches Tailwind v4's generated `.text-{name}`
           // utility from `@theme { --text-{name}: ... }` definitions.
+          clearLinkedOverrides(TYPOGRAPHY_LINKED_PROPERTIES)
           applyClassChange({
             remove: change.removeClass,
             add: `text-${change.component.name}`,
@@ -818,7 +844,9 @@ export function Panel({
           return
         }
         case 'link-color-chip': {
-          // Same rationale as link-text-component — classOp only.
+          // Same H7(a) pattern for color: clear any prior color override
+          // before the chip class lands.
+          clearLinkedOverrides(COLOR_LINKED_PROPERTIES)
           applyClassChange({
             remove: change.removeClass,
             add: `text-${change.chip.name}`,

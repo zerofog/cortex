@@ -175,22 +175,49 @@ function quoteFontFamily(family: string): string {
   return /\s/.test(stripped) ? `"${stripped}"` : stripped
 }
 
-/** Build the 5 inline property edits that preserve the rendered look when unlinking typography. */
+/** CSS properties that a linked text component owns. Single source of
+ *  truth: `buildUnlinkTypography` iterates this list to produce the inline
+ *  preservation edits on unlink, and Panel's `link-text-component` handler
+ *  iterates it to clear any stale !important browser overrides so the
+ *  newly-linked class's cascade can take effect (H7 part A).
+ *
+ *  Marked `as const` so each element is a string literal — the Record
+ *  type in buildUnlinkTypography requires every property here to have a
+ *  value-derivation case, giving a compile-time consistency guarantee. */
+export const TYPOGRAPHY_LINKED_PROPERTIES = [
+  'font-family',
+  'font-weight',
+  'font-size',
+  'line-height',
+  'letter-spacing',
+] as const
+
+/** CSS properties a linked color chip owns. Same single-source-of-truth
+ *  role as TYPOGRAPHY_LINKED_PROPERTIES. */
+export const COLOR_LINKED_PROPERTIES = ['color'] as const
+
+/** Build the inline property edits that preserve the rendered look when
+ *  unlinking typography. Iterates TYPOGRAPHY_LINKED_PROPERTIES and
+ *  derives each property's preserved value from computed styles. */
 function buildUnlinkTypography(
   values: TypographyValues,
 ): Array<{ property: string; value: string }> {
-  return [
-    { property: 'font-family', value: quoteFontFamily(values.fontFamily.split(',')[0]?.trim() ?? values.fontFamily) },
-    { property: 'font-weight', value: values.fontWeight },
-    { property: 'font-size', value: `${values.fontSize}px` },
-    { property: 'line-height', value: String(values.lineHeight) },
-    { property: 'letter-spacing', value: `${values.letterSpacing}px` },
-  ]
+  const valueFor: Record<typeof TYPOGRAPHY_LINKED_PROPERTIES[number], string> = {
+    'font-family': quoteFontFamily(values.fontFamily.split(',')[0]?.trim() ?? values.fontFamily),
+    'font-weight': values.fontWeight,
+    'font-size': `${values.fontSize}px`,
+    'line-height': String(values.lineHeight),
+    'letter-spacing': `${values.letterSpacing}px`,
+  }
+  return TYPOGRAPHY_LINKED_PROPERTIES.map((property) => ({ property, value: valueFor[property] }))
 }
 
 /** Build the inline edits that preserve color when unlinking a color chip. */
 function buildUnlinkColor(values: TypographyValues): Array<{ property: string; value: string }> {
-  return [{ property: 'color', value: values.color }]
+  const valueFor: Record<typeof COLOR_LINKED_PROPERTIES[number], string> = {
+    color: values.color,
+  }
+  return COLOR_LINKED_PROPERTIES.map((property) => ({ property, value: valueFor[property] }))
 }
 
 export function TypographySection({
