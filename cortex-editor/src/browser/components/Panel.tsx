@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks'
 import type { CSSOverrideManager } from '../override.js'
 import { onOverrideChange } from '../override-bus.js'
 import { CommandStack } from '../command-stack.js'
-import { PropertyEditCommand } from '../edit-command.js'
+import { PropertyEditCommand, CompoundEditCommand } from '../edit-command.js'
 import type { PropertyChange } from '../edit-command.js'
 import { parseCortexSource, isLibraryComponent, findUserAncestor } from '../label.js'
 import { PANEL_WIDTH } from '../hooks/useSnapToEdge.js'
@@ -796,6 +796,24 @@ export function Panel({
       const pseudo = activePseudo !== 'element' ? activePseudo : undefined
       const editId = crypto.randomUUID()
 
+      // Capture previous override values BEFORE mutating, so the
+      // CompoundEditCommand can restore them on undo/redo. This must
+      // happen BEFORE the overrideManager.set/remove calls below.
+      const changes: PropertyChange[] = []
+      if (opts.inlineSets) {
+        for (const s of opts.inlineSets) {
+          const previousValue = overrideManager.get(source, s.property, pseudo) ?? ''
+          changes.push({ source, property: s.property, value: s.value, previousValue, pseudo })
+        }
+      }
+      if (opts.inlineRemoves) {
+        for (const r of opts.inlineRemoves) {
+          const previousValue = overrideManager.get(source, r.property, pseudo) ?? ''
+          if (previousValue === '') continue  // nothing to restore on undo — no-op remove
+          changes.push({ source, property: r.property, value: '', previousValue, pseudo })
+        }
+      }
+
       // Local !important overrides for IMMEDIATE visual feedback. The
       // server's HMR-verified handshake (trackPendingEdit →
       // handleHMRVerified) releases these once the source write lands
@@ -820,6 +838,16 @@ export function Panel({
         }
       }
 
+      // Record on browser commandStack so Ctrl+Z's `if (cmd)` gate fires
+      // and dispatches `{ type: 'undo' }` to the server — without this,
+      // the server's compound UndoFileChange is never popped (C-R2-1).
+      // record() stores without re-executing — overrides were already
+      // applied above, matching the PropertyEditCommand pattern.
+      if (commandStack) {
+        const cmd = new CompoundEditCommand({ changes, overrideManager, editId })
+        commandStack.record(cmd)
+      }
+
       // ONE compound WebSocket message (ZF0-1215 C2). Server routes to
       // handleCompoundEdit when classOp + (inlineSets || inlineRemoves)
       // are all present; to handleClassOp when only classOp; to the
@@ -842,7 +870,7 @@ export function Panel({
         ...(opts.inlineRemoves && opts.inlineRemoves.length > 0 ? { inlineRemoves: opts.inlineRemoves } : {}),
       })
     },
-    [element, channel, onEditDispatch, overrideManager, activePseudo],
+    [element, channel, onEditDispatch, overrideManager, activePseudo, commandStack],
   )
 
   /**
