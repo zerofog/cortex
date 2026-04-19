@@ -87,6 +87,20 @@ export type BrowserToServer =
       /** When present, the pipeline treats this as a className mutation.
        *  `property` and `value` are ignored on the classOp branch. */
       classOp?: { remove?: string; add?: string }
+      /** ZF0-1215 C2: compound-edit extension. When `classOp` AND at
+       *  least one of `inlineSets` / `inlineRemoves` is populated, the
+       *  pipeline routes to `handleCompoundEdit` which applies the
+       *  className mutation + the inline-style mutations to the same
+       *  JSX element in ONE read-mutate-write cycle, producing ONE
+       *  UndoFileChange entry. This makes a full user gesture (e.g.,
+       *  "unlink a text bundle" = remove class + write preserving
+       *  inline styles) atomic for undo purposes. */
+      inlineSets?: ReadonlyArray<{ property: string; value: string }>
+      /** Companion to inlineSets: properties to REMOVE from the JSX
+       *  element's inline style object (if present). Lands in the
+       *  same compound edit so "link a bundle while clearing stale
+       *  inline styles" is also atomic. */
+      inlineRemoves?: ReadonlyArray<{ property: string }>
     }
   | { type: 'undo'; token?: string; protocolVersion?: number; editId?: string }
   | { type: 'redo'; token?: string; protocolVersion?: number; editId?: string }

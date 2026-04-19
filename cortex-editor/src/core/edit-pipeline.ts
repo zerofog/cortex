@@ -13,6 +13,7 @@ import type { InlineStyleRewriter } from './rewriter/inline-style.js'
 import { classifyEdit } from './edit-strategy.js'
 import { ExternalRevertError } from '../adapters/atomic-write.js'
 import { validateClassOpToken } from './class-op-validator.js'
+import { createJsxTransaction } from './rewriter/jsx-transaction.js'
 
 /** Classify a write-time error into a reason_code for edit_status.failed.
  *  ExternalRevertError → `'external_revert'`; everything else → `'write_failed'`. */
@@ -28,6 +29,48 @@ function classifyWriteError(err: unknown): 'external_revert' | 'write_failed' {
  *  human-readable reason while containing the information-disclosure
  *  surface in --host mode and cross-team-shared sessions. */
 const MAX_CLIENT_ERROR_LEN = 200
+
+/** Max length for an inline-op property name. Tight bound since valid
+ *  CSS property names are ~30 chars tops (`background-clip-path`). */
+const MAX_INLINE_PROP_NAME_LEN = 64
+
+/** Max length for an inline-op value. Generous to allow `calc()` and
+ *  `linear-gradient(...)` strings without being a payload vector. */
+const MAX_INLINE_PROP_VALUE_LEN = 512
+
+/** Shape-validate the compound-edit inline op arrays. Returns null on
+ *  success or a specific rejection reason (for reason_code propagation).
+ *  Values for sets must be non-empty — empty-string inline edits were
+ *  the bug commit 11066da removed; the compound protocol inherits the
+ *  same non-empty invariant. */
+function validateInlineOps(
+  sets: ReadonlyArray<{ property: string; value: string }> | undefined,
+  removes: ReadonlyArray<{ property: string }> | undefined,
+): string | null {
+  for (const s of sets ?? []) {
+    if (typeof s.property !== 'string' || s.property.length === 0) {
+      return 'inlineSets entry has empty property name'
+    }
+    if (s.property.length > MAX_INLINE_PROP_NAME_LEN) {
+      return `inlineSets property name exceeds ${MAX_INLINE_PROP_NAME_LEN} chars`
+    }
+    if (typeof s.value !== 'string' || s.value.length === 0) {
+      return 'inlineSets entry has empty value — use inlineRemoves instead'
+    }
+    if (s.value.length > MAX_INLINE_PROP_VALUE_LEN) {
+      return `inlineSets value exceeds ${MAX_INLINE_PROP_VALUE_LEN} chars`
+    }
+  }
+  for (const r of removes ?? []) {
+    if (typeof r.property !== 'string' || r.property.length === 0) {
+      return 'inlineRemoves entry has empty property name'
+    }
+    if (r.property.length > MAX_INLINE_PROP_NAME_LEN) {
+      return `inlineRemoves property name exceeds ${MAX_INLINE_PROP_NAME_LEN} chars`
+    }
+  }
+  return null
+}
 
 /** Sanitize an error for surface to the browser over the WebSocket.
  *
@@ -76,6 +119,13 @@ export interface EditRequest {
    *  element's className attribute directly. `property` and `value` are
    *  ignored on this branch. */
   classOp?: { remove?: string; add?: string }
+  /** ZF0-1215 C2: inline property SETS applied as part of a compound
+   *  edit. Only honored when `classOp` is also present. See
+   *  handleCompoundEdit. */
+  inlineSets?: ReadonlyArray<{ property: string; value: string }>
+  /** ZF0-1215 C2: inline property REMOVES applied as part of a compound
+   *  edit. Only honored when `classOp` is also present. */
+  inlineRemoves?: ReadonlyArray<{ property: string }>
 }
 
 export interface WriteIntent {
@@ -234,6 +284,45 @@ export class EditPipeline {
         this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: parsed.reason, reason_code: 'parse_failed' })
         return
       }
+
+      // ZF0-1215 C2: compound routing. If the browser sent inline ops
+      // alongside classOp, dispatch to handleCompoundEdit so classOp +
+      // inlineSets + inlineRemoves apply to ONE source file in ONE
+      // read-mutate-write cycle producing ONE UndoFileChange. Otherwise
+      // the classOp-only path remains — simpler, doesn't need the
+      // JsxTransaction scaffold.
+      const hasInlineOps =
+        (edit.inlineSets?.length ?? 0) > 0 || (edit.inlineRemoves?.length ?? 0) > 0
+      if (hasInlineOps) {
+        // Validate inline-op shape before any fs work. Property names
+        // are lightly validated: non-empty, reasonable length cap.
+        // Values for sets must be non-empty — empty-string writes were
+        // the exact bug commit 11066da removed, and the compound-edit
+        // protocol inherits that guarantee.
+        const shapeError = validateInlineOps(edit.inlineSets, edit.inlineRemoves)
+        if (shapeError) {
+          this.channel.send({
+            type: 'edit_status',
+            editId: edit.editId,
+            status: 'failed',
+            reason: shapeError,
+            reason_code: 'invalid_class_token',
+          })
+          return
+        }
+        this.handleCompoundEdit(edit, parsed.resolvedPath, parsed.line, parsed.col).catch((err) => {
+          console.error('[cortex] compound-edit pipeline error for editId=%s:', edit.editId, err)
+          this.channel.send({
+            type: 'edit_status',
+            editId: edit.editId,
+            status: 'failed',
+            reason: sanitizeErrorForClient(err),
+            reason_code: classifyWriteError(err),
+          })
+        })
+        return
+      }
+
       this.handleClassOp(edit, parsed.resolvedPath, parsed.line, parsed.col).catch((err) => {
         console.error('[cortex] classOp pipeline error for editId=%s:', edit.editId, err)
         this.channel.send({
@@ -863,6 +952,184 @@ export class EditPipeline {
    * to the AI writer when the deterministic rewriter can't handle the JSX
    * shape, serializes concurrent ops on the same file via withFileLock.
    */
+  /**
+   * Handle a compound edit: classOp + inlineSets + inlineRemoves applied
+   * to the same JSX element in ONE read-mutate-write cycle (ZF0-1215 C2).
+   *
+   * Why one cycle: the browser sent a SINGLE WebSocket message for one
+   * user gesture (e.g., unlink-text-component = class removal + preserve
+   * font-size/weight/etc as inline styles). Processing this as N+1
+   * separate edits would produce N+1 UndoFileChange entries, making
+   * Ctrl+Z restore only one piece of the gesture. Consolidating to ONE
+   * UndoFileChange makes undo atomic.
+   *
+   * Sequence (all inside withFileLock):
+   *   1. Read file → oldContent
+   *   2. createJsxTransaction(resolvedPath, oldContent)
+   *   3. rewriter.rewriteClassListInTransaction(txn, classOp)
+   *   4. inlineStyleRewriter.setAndRemoveInTransaction(txn, {sets, removes})
+   *   5. newContent = txn.getCurrentContent()
+   *   6. atomicWrite — ONE disk write
+   *   7. undoStack.push with ONE UndoFileChange (requiresHmr: true)
+   *
+   * Failure modes (any step): no write occurs, no undo push, specific
+   * reason_code sent. This preserves the all-or-nothing invariant: disk
+   * is either fully updated or untouched. NO AI fallback for compound
+   * edits — AI could only handle the class portion; a partial compound
+   * would leak the very stale-state bug Option A exists to prevent.
+   */
+  private async handleCompoundEdit(
+    edit: EditRequest,
+    resolvedPath: string,
+    line: number,
+    col: number,
+  ): Promise<void> {
+    if (!edit.classOp) return // defensive — handleEdit guards this
+
+    // Inline-ops require the InlineStyleRewriter dep. Without it we
+    // can't apply the compound; fail with a clear reason rather than
+    // silently degrading to classOp-only (which would produce the
+    // exact partial-undo bug C2 exists to close).
+    if (!this.inlineStyleRewriter) {
+      this.channel.send({
+        type: 'edit_status',
+        editId: edit.editId,
+        status: 'failed',
+        reason: 'Compound edit requires inline-style rewriter dependency',
+        reason_code: 'parse_failed',
+      })
+      return
+    }
+    if (!this.readFile) {
+      this.channel.send({
+        type: 'edit_status',
+        editId: edit.editId,
+        status: 'failed',
+        reason: 'Compound edit requires readFile dependency',
+        reason_code: 'parse_failed',
+      })
+      return
+    }
+
+    const op = edit.classOp
+    const sets = edit.inlineSets ?? []
+    const removes = edit.inlineRemoves ?? []
+
+    this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
+
+    await this.withFileLock(resolvedPath, async () => {
+      // Step 1: read file under the lock (single source of truth for
+      // this compound edit's previousContent).
+      let oldContent: string
+      try {
+        oldContent = await this.readFile!(resolvedPath)
+      } catch (err) {
+        this.channel.send({
+          type: 'edit_status',
+          editId: edit.editId,
+          status: 'failed',
+          reason: `Cannot read file: ${sanitizeErrorForClient(err)}`,
+          reason_code: 'parse_failed',
+        })
+        return
+      }
+
+      // Step 2: create in-memory transaction seeded with oldContent.
+      let txn
+      try {
+        txn = await createJsxTransaction(resolvedPath, oldContent)
+      } catch (err) {
+        this.channel.send({
+          type: 'edit_status',
+          editId: edit.editId,
+          status: 'failed',
+          reason: `Transaction init failed: ${sanitizeErrorForClient(err)}`,
+          reason_code: 'parse_failed',
+        })
+        return
+      }
+
+      // Step 3: apply classOp. No AI fallback here — compound must be
+      // all-or-nothing at the deterministic layer.
+      const classResult = this.rewriter.rewriteClassListInTransaction(txn, {
+        line, col, remove: op.remove, add: op.add,
+      })
+      if (!classResult.success) {
+        this.channel.send({
+          type: 'edit_status',
+          editId: edit.editId,
+          status: 'failed',
+          reason: `Compound classOp failed: ${classResult.reason}`,
+          reason_code: 'parse_failed',
+        })
+        return
+      }
+
+      // Step 4: apply inline sets + removes on the SAME transaction.
+      const inlineResult = this.inlineStyleRewriter!.setAndRemoveInTransaction(txn, {
+        line, col, sets, removes,
+      })
+      if (!inlineResult.success) {
+        this.channel.send({
+          type: 'edit_status',
+          editId: edit.editId,
+          status: 'failed',
+          reason: `Compound inline ops failed: ${inlineResult.reason}`,
+          reason_code: 'parse_failed',
+        })
+        return
+      }
+
+      const newContent = txn.getCurrentContent()
+
+      // If the compound is semantically a no-op (e.g., classOp idempotent
+      // + inlineSets match existing values + inlineRemoves target absent
+      // properties), skip the write and undo push. Reporting 'done'
+      // without a push keeps the undo stack clean.
+      if (newContent === oldContent) {
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done' })
+        return
+      }
+
+      // Step 5: ONE write. suppressHmr:false because the compound
+      // includes a className change (browser has no override for it).
+      try {
+        await this.writeFile({
+          kind: 'immediate',
+          suppressHmr: false,
+          filePath: resolvedPath,
+          content: newContent,
+        })
+      } catch (err) {
+        this.channel.send({
+          type: 'edit_status',
+          editId: edit.editId,
+          status: 'failed',
+          reason: `Write failed: ${sanitizeErrorForClient(err)}`,
+          reason_code: classifyWriteError(err),
+        })
+        return
+      }
+
+      // Step 6: ONE compound UndoFileChange. requiresHmr:true because
+      // the compound mutated the className; undo must fire HMR so the
+      // DOM re-renders with the previous className + previous inline
+      // styles atomically.
+      if (this.undoStack) {
+        this.undoStack.push({
+          changes: [{
+            filePath: resolvedPath,
+            previousContent: oldContent,
+            currentContent: newContent,
+            requiresHmr: true,
+          }],
+        })
+      }
+
+      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done' })
+    })
+  }
+
   private async handleClassOp(
     edit: EditRequest,
     resolvedPath: string,
