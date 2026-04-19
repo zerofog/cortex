@@ -20,6 +20,37 @@ function classifyWriteError(err: unknown): 'external_revert' | 'write_failed' {
   return err instanceof ExternalRevertError ? 'external_revert' : 'write_failed'
 }
 
+/** Max length (chars) of an error message surfaced to the browser.
+ *  Long error messages from fs/ts-morph routinely embed absolute
+ *  filesystem paths and internal library identifiers. Truncation is
+ *  defense-in-depth atop the typed errors that already self-redact
+ *  (like ExternalRevertError). 200 chars is enough room for a useful
+ *  human-readable reason while containing the information-disclosure
+ *  surface in --host mode and cross-team-shared sessions. */
+const MAX_CLIENT_ERROR_LEN = 200
+
+/** Sanitize an error for surface to the browser over the WebSocket.
+ *
+ *  H5 (Round 1 review): two concerns flagged independently —
+ *    - ExternalRevertError.message previously embedded the absolute
+ *      file path, propagating straight to the Panel's UI
+ *    - ts-morph / fs errors routinely include path fragments that
+ *      likewise flowed verbatim to the browser
+ *
+ *  Primary defense for the typed-error case lives in the error's
+ *  own constructor (ExternalRevertError now emits a generic message
+ *  while preserving `filePath` as a readonly field for server-side
+ *  classification). This helper provides blanket truncation for any
+ *  OTHER error source, guaranteeing a finite information-disclosure
+ *  ceiling regardless of what third-party library emitted the Error. */
+function sanitizeErrorForClient(err: unknown): string {
+  if (!(err instanceof Error)) return 'Unknown error'
+  const msg = err.message
+  return msg.length <= MAX_CLIENT_ERROR_LEN
+    ? msg
+    : msg.slice(0, MAX_CLIENT_ERROR_LEN) + '…'
+}
+
 export interface EditRequest {
   editId: string
   /** data-cortex-source value: "filePath:line:col" */
@@ -209,7 +240,7 @@ export class EditPipeline {
           type: 'edit_status',
           editId: edit.editId,
           status: 'failed',
-          reason: err instanceof Error ? err.message : 'Unknown error',
+          reason: sanitizeErrorForClient(err),
           reason_code: classifyWriteError(err),
         })
       })
@@ -262,7 +293,7 @@ export class EditPipeline {
             type: 'edit_status',
             editId: edit.editId,
             status: 'failed',
-            reason: err instanceof Error ? err.message : 'Unknown error',
+            reason: sanitizeErrorForClient(err),
           })
         })
       }, this.debounceMs),
@@ -593,7 +624,7 @@ export class EditPipeline {
           type: 'edit_status',
           editId: edit.editId,
           status: 'failed',
-          reason: `Write failed: ${err instanceof Error ? err.message : String(err)}`,
+          reason: `Write failed: ${sanitizeErrorForClient(err)}`,
           reason_code: classifyWriteError(err),
         })
         return
@@ -626,7 +657,7 @@ export class EditPipeline {
       await this.undoLock
     } catch (err) {
       console.error('[cortex] Undo failed:', err)
-      this.channel.send({ type: 'undo_sync_status', status: 'failed', reason: err instanceof Error ? err.message : 'Undo failed' })
+      this.channel.send({ type: 'undo_sync_status', status: 'failed', reason: sanitizeErrorForClient(err) })
     }
   }
 
@@ -701,7 +732,7 @@ export class EditPipeline {
           console.error('[cortex] Undo rollback failed for %s:', w.filePath, rollbackErr)
         }
       }
-      this.channel.send({ type: 'undo_sync_status', status: 'failed', reason: `Write failed during undo: ${err instanceof Error ? err.message : String(err)}`, reason_code: 'write_failed' })
+      this.channel.send({ type: 'undo_sync_status', status: 'failed', reason: `Write failed during undo: ${sanitizeErrorForClient(err)}`, reason_code: 'write_failed' })
       return
     }
 
@@ -719,7 +750,7 @@ export class EditPipeline {
       await this.undoLock
     } catch (err) {
       console.error('[cortex] Redo failed:', err)
-      this.channel.send({ type: 'redo_sync_status', status: 'failed', reason: err instanceof Error ? err.message : 'Redo failed' })
+      this.channel.send({ type: 'redo_sync_status', status: 'failed', reason: sanitizeErrorForClient(err) })
     }
   }
 
@@ -785,7 +816,7 @@ export class EditPipeline {
           console.error('[cortex] Redo rollback failed for %s:', w.filePath, rollbackErr)
         }
       }
-      this.channel.send({ type: 'redo_sync_status', status: 'failed', reason: `Write failed during redo: ${err instanceof Error ? err.message : String(err)}`, reason_code: 'write_failed' })
+      this.channel.send({ type: 'redo_sync_status', status: 'failed', reason: `Write failed during redo: ${sanitizeErrorForClient(err)}`, reason_code: 'write_failed' })
       return
     }
 
@@ -907,7 +938,7 @@ export class EditPipeline {
           type: 'edit_status',
           editId: edit.editId,
           status: 'failed',
-          reason: `Write failed: ${err instanceof Error ? err.message : String(err)}`,
+          reason: `Write failed: ${sanitizeErrorForClient(err)}`,
           reason_code: classifyWriteError(err),
         })
         return
@@ -982,7 +1013,7 @@ export class EditPipeline {
         type: 'edit_status',
         editId: edit.editId,
         status: 'failed',
-        reason: `Write failed: ${err instanceof Error ? err.message : String(err)}`,
+        reason: `Write failed: ${sanitizeErrorForClient(err)}`,
         reason_code: classifyWriteError(err),
       })
       return
@@ -1034,7 +1065,7 @@ export class EditPipeline {
       try {
         await this.writeFile({ kind: 'immediate', filePath: resolvedCssPath, content: result.newContent })
       } catch (err) {
-        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Write failed: ${err instanceof Error ? err.message : String(err)}`, reason_code: classifyWriteError(err) })
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Write failed: ${sanitizeErrorForClient(err)}`, reason_code: classifyWriteError(err) })
         return
       }
       // requiresHmr=false: the CSS Module edit is paired with a browser-side
@@ -1152,7 +1183,7 @@ export class EditPipeline {
       } catch (err) {
         this.channel.send({
           type: 'edit_status', editId: edit.editId, status: 'failed',
-          reason: `Write failed: ${err instanceof Error ? err.message : String(err)}`,
+          reason: `Write failed: ${sanitizeErrorForClient(err)}`,
           reason_code: classifyWriteError(err),
         })
         handled = true // error handled — don't fall through to AI
@@ -1186,7 +1217,7 @@ export class EditPipeline {
     } catch (err) {
       // Last-resort safety net: if the inner logic throws unexpectedly,
       // ensure editIds always get a terminal status (never stuck in "writing")
-      const reason = `Unexpected error: ${err instanceof Error ? err.message : String(err)}`
+      const reason = `Unexpected error: ${sanitizeErrorForClient(err)}`
       this.sendDeferredStatus(batch.editIds, 'failed', reason)
       return { success: false, reason }
     }
@@ -1230,7 +1261,7 @@ export class EditPipeline {
         if (!this.readFile) throw new Error('readFile is not configured')
         fileContent = await this.readFile(batch.filePath)
       } catch (err) {
-        const reason = `Failed to read file: ${err instanceof Error ? err.message : String(err)}`
+        const reason = `Failed to read file: ${sanitizeErrorForClient(err)}`
         this.sendDeferredStatus(batch.editIds, 'failed', reason)
         return { success: false, reason }
       }
@@ -1286,7 +1317,7 @@ export class EditPipeline {
       try {
         await this.writeFile({ kind: 'deferred', filePath: batch.filePath, content: result.newContent })
       } catch (err) {
-        const reason = `Write failed: ${err instanceof Error ? err.message : String(err)}`
+        const reason = `Write failed: ${sanitizeErrorForClient(err)}`
         this.sendDeferredStatus(batch.editIds, 'failed', reason, classifyWriteError(err))
         return { success: false, reason }
       }

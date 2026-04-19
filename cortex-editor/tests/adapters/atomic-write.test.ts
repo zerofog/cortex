@@ -111,3 +111,46 @@ describe('atomicWrite', () => {
     }
   })
 })
+
+describe('ExternalRevertError (H5 path redaction)', () => {
+  it('does NOT include the file path in .message (browser-safe)', () => {
+    // H5: the edit-pipeline propagates err.message verbatim to the
+    // browser over the WebSocket. Shipping absolute filesystem paths
+    // leaks user-specific information — a concern in --host mode
+    // where team members share a dev server, and a general hygiene
+    // win for cross-tab sessions. Verify the message text does NOT
+    // contain the path. The test is falsifiable: a regression that
+    // re-introduces `${filePath}` into the message will fail this
+    // specific string check.
+    const path = '/Users/derricklee/secret-project/src/components/Hero.tsx'
+    const err = new ExternalRevertError(path)
+    expect(err.message).not.toContain(path)
+    expect(err.message).not.toContain('secret-project')
+    expect(err.message).not.toContain('/Users/')
+    // Message is still informative — must describe WHAT happened
+    // without disclosing WHERE.
+    expect(err.message).toMatch(/reverted/i)
+  })
+
+  it('preserves filePath as a readonly field for server-side classification', () => {
+    // filePath is inside the trust boundary (server-side logging,
+    // undo-stack classification, error categorization). It must
+    // remain accessible to handlers that need to know which file
+    // the revert targeted — just NOT surfaced over the wire.
+    const path = '/Users/alice/project/src/Button.tsx'
+    const err = new ExternalRevertError(path)
+    expect(err.filePath).toBe(path)
+  })
+
+  it('keeps instanceof and .name for classifyWriteError routing', () => {
+    // The edit-pipeline's classifyWriteError uses `err instanceof
+    // ExternalRevertError` to emit the 'external_revert' reason_code.
+    // A constructor refactor that breaks the prototype chain would
+    // silently fall through to 'write_failed' and the browser would
+    // show a confusing error instead of the editor-conflict hint.
+    const err = new ExternalRevertError('/x/y/z')
+    expect(err).toBeInstanceOf(ExternalRevertError)
+    expect(err).toBeInstanceOf(Error)
+    expect(err.name).toBe('ExternalRevertError')
+  })
+})

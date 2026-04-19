@@ -13,11 +13,19 @@ import { dirname, basename, join } from 'node:path'
  * leave the browser's view diverged from disk, cascading into stale-state
  * bugs on the next edit (the class-accumulation symptom that triggered this
  * plan).
+ *
+ * H5 (Round 1 review): the `.message` deliberately does NOT include the
+ * file path. The edit pipeline propagates `err.message` straight to the
+ * browser over the WebSocket; shipping absolute filesystem paths over
+ * the wire leaks user-specific information (a concern in --host mode
+ * where team members share a dev server). The `filePath` field is
+ * preserved for server-side classification and logging, which run
+ * inside the trust boundary.
  */
 export class ExternalRevertError extends Error {
   readonly filePath: string
   constructor(filePath: string) {
-    super(`Write to ${filePath} was reverted by another process (e.g. editor auto-save)`)
+    super('Write was reverted by an external process (e.g. editor auto-save)')
     this.name = 'ExternalRevertError'
     this.filePath = filePath
   }
