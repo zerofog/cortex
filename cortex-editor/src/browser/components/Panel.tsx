@@ -748,41 +748,101 @@ export function Panel({
    * (no "half-linked" state). Follow-up inline props go through the normal
    * applyOverride path so they participate in undo coalescing.
    */
+  // Describe a compound edit for onEditDispatch's activity log.
+  // Kept local (not exported) because it's a UI-detail formatter —
+  // the '__class__' sentinel tells consumers to render this differently
+  // than regular property edits.
+  const formatCompoundDescription = (opts: {
+    remove?: string
+    add?: string
+    inlineSets?: ReadonlyArray<{ property: string; value: string }>
+    inlineRemoves?: ReadonlyArray<{ property: string }>
+  }): string => {
+    const parts: string[] = []
+    if (opts.remove) parts.push(`-${opts.remove}`)
+    if (opts.add) parts.push(`+${opts.add}`)
+    if (opts.inlineSets?.length) parts.push(`set(${opts.inlineSets.length})`)
+    if (opts.inlineRemoves?.length) parts.push(`rm(${opts.inlineRemoves.length})`)
+    return parts.join(' ')
+  }
+
   const applyClassChange = useCallback(
     (opts: {
       remove?: string
       add?: string
-      inlineProps?: ReadonlyArray<{ property: string; value: string }>
+      /** Inline property SETS to apply alongside the class change. The
+       *  server writes these to source as `style={{...}}` properties.
+       *  Locally, they're applied as !important overrides for immediate
+       *  visual feedback while HMR processes the source write. */
+      inlineSets?: ReadonlyArray<{ property: string; value: string }>
+      /** Inline property REMOVES to apply alongside the class change.
+       *  The server removes them from source. Locally, any matching
+       *  !important overrides are cleared so the new class's cascade
+       *  takes effect immediately. */
+      inlineRemoves?: ReadonlyArray<{ property: string }>
     }) => {
       if (!element || !channel) return
       const source = element.getAttribute('data-cortex-source')
       if (!source) return
+      if (!opts.remove && !opts.add) return  // classOp required for compound path
 
-      // Dispatch classOp first so the class mutation wins precedence on the
-      // server. Inline prop edits follow; if their corresponding class is
-      // removed here, their inline style takes over rendering immediately.
-      if (opts.remove || opts.add) {
-        const editId = crypto.randomUUID()
-        onEditDispatch?.(editId, source, '__class__', `${opts.remove ? `-${opts.remove}` : ''}${opts.add ? ` +${opts.add}` : ''}`.trim())
-        channel.send({
-          type: 'edit',
-          editId,
-          source,
-          property: '',
-          value: '',
-          elementSelector: element.tagName.toLowerCase(),
-          classOp: {
-            ...(opts.remove ? { remove: opts.remove } : {}),
-            ...(opts.add ? { add: opts.add } : {}),
-          },
-        })
+      // Drain any pending property-commit microtask BEFORE issuing the
+      // compound edit. Otherwise a classOp could land in the server's
+      // file-lock queue AHEAD of a pending PropertyEditCommand, producing
+      // an inverted undo stack order. The flush is a no-op when no
+      // scrub is in flight.
+      flushCommitRef?.current?.()
+
+      const pseudo = activePseudo !== 'element' ? activePseudo : undefined
+      const editId = crypto.randomUUID()
+
+      // Local !important overrides for IMMEDIATE visual feedback. The
+      // server's HMR-verified handshake (trackPendingEdit →
+      // handleHMRVerified) releases these once the source write lands
+      // and React re-renders. Without the local override, the user sees
+      // the OLD styles until HMR completes (100-500ms).
+      if (opts.inlineSets && opts.inlineSets.length > 0) {
+        for (const s of opts.inlineSets) {
+          overrideManager.set(source, s.property, s.value, pseudo)
+          // Register the pending edit so HMR-verification removes the
+          // override when the source write lands. All properties ride
+          // the SAME editId since they're part of ONE compound edit.
+          overrideManager.trackPendingEdit(editId, source, s.property, s.value, pseudo)
+        }
+      }
+      // inlineRemoves: clear any stale overrides locally so the new
+      // class's cascade wins immediately. Structurally redundant with
+      // the H7(a) pre-clear in handleTypographyChange but idempotent
+      // and keeps this function self-contained.
+      if (opts.inlineRemoves && opts.inlineRemoves.length > 0) {
+        for (const r of opts.inlineRemoves) {
+          overrideManager.remove(source, r.property, pseudo)
+        }
       }
 
-      for (const p of opts.inlineProps ?? []) {
-        applyOverride(p.property, p.value, true)
-      }
+      // ONE compound WebSocket message (ZF0-1215 C2). Server routes to
+      // handleCompoundEdit when classOp + (inlineSets || inlineRemoves)
+      // are all present; to handleClassOp when only classOp; to the
+      // property path when only property/value. Falsifiable hook for
+      // onEditDispatch is the '__class__' sentinel — the Panel's
+      // activity log uses it to render compound ops as a single row.
+      onEditDispatch?.(editId, source, '__class__', formatCompoundDescription(opts))
+      channel.send({
+        type: 'edit',
+        editId,
+        source,
+        property: '',
+        value: '',
+        elementSelector: element.tagName.toLowerCase(),
+        classOp: {
+          ...(opts.remove ? { remove: opts.remove } : {}),
+          ...(opts.add ? { add: opts.add } : {}),
+        },
+        ...(opts.inlineSets && opts.inlineSets.length > 0 ? { inlineSets: opts.inlineSets } : {}),
+        ...(opts.inlineRemoves && opts.inlineRemoves.length > 0 ? { inlineRemoves: opts.inlineRemoves } : {}),
+      })
     },
-    [element, channel, onEditDispatch, applyOverride],
+    [element, channel, onEditDispatch, overrideManager, activePseudo],
   )
 
   /**
@@ -822,41 +882,51 @@ export function Panel({
 
       switch (change.kind) {
         case 'link-text-component': {
-          // The bundle class's values apply via CSS cascade — but prior
-          // !important overrides in the browser would win unless we
-          // clear them first (H7 part A). Source-file inline cleanup
-          // is C2's job; this handles only the in-browser transient.
+          // Compound edit (C2 + H7 part B): add the new text- class AND
+          // request removal of any stale inline style= values from the
+          // 5 typography properties. Prior to C2, link handlers only
+          // sent classOp — the rendered view still wins from inline
+          // styles left over from a prior unlink. The compound message
+          // makes link "truly fresh": new class + no stale inline.
           //
-          // `text-` prefix matches Tailwind v4's generated `.text-{name}`
-          // utility from `@theme { --text-{name}: ... }` definitions.
+          // clearLinkedOverrides is kept for IMMEDIATE visual feedback
+          // (local override clear) while the compound roundtrips to
+          // server. Redundant with applyClassChange's internal
+          // inlineRemoves clear but idempotent.
           clearLinkedOverrides(TYPOGRAPHY_LINKED_PROPERTIES)
           applyClassChange({
             remove: change.removeClass,
             add: `text-${change.component.name}`,
+            inlineRemoves: TYPOGRAPHY_LINKED_PROPERTIES.map((property) => ({ property })),
           })
           return
         }
         case 'unlink-text-component': {
+          // Compound edit: remove the bundle class AND write preserving
+          // inline styles to source IN ONE MESSAGE. Before C2 this was
+          // ONE classOp message + FIVE applyOverride edit messages,
+          // producing 6 server undo entries for one user gesture.
+          // After C2: ONE compound undo entry → one Ctrl+Z restores
+          // the whole gesture.
           applyClassChange({
             remove: change.removeClass,
-            inlineProps: change.inline,
+            inlineSets: change.inline,
           })
           return
         }
         case 'link-color-chip': {
-          // Same H7(a) pattern for color: clear any prior color override
-          // before the chip class lands.
           clearLinkedOverrides(COLOR_LINKED_PROPERTIES)
           applyClassChange({
             remove: change.removeClass,
             add: `text-${change.chip.name}`,
+            inlineRemoves: COLOR_LINKED_PROPERTIES.map((property) => ({ property })),
           })
           return
         }
         case 'unlink-color-chip': {
           applyClassChange({
             remove: change.removeClass,
-            inlineProps: change.inline,
+            inlineSets: change.inline,
           })
           return
         }

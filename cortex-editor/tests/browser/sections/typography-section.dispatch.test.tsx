@@ -130,7 +130,7 @@ describe('TypographySection — dispatch contract (Bug 2 regression guard)', () 
     expect(link?.removeClass).toBeUndefined()
   })
 
-  it('handleTypographyUnlink → emits removeClass with text- prefix', async () => {
+  it('handleTypographyUnlink → emits removeClass with text- prefix + full inline array (C2 compound shape)', async () => {
     const onChange = vi.fn()
     const root = await mountSection('text-heading-1', onChange)
 
@@ -146,5 +146,25 @@ describe('TypographySection — dispatch contract (Bug 2 regression guard)', () 
       | undefined
     expect(unlink).toBeDefined()
     expect(unlink?.removeClass).toBe('text-heading-1')
+
+    // C2 compound shape: the `inline` array carries the 5 preservation
+    // properties in a form Panel can pass directly to applyClassChange's
+    // `inlineSets`. Panel.handleTypographyChange maps
+    // change.inline → applyClassChange({inlineSets: change.inline}).
+    // If this shape regresses (e.g., empty values, missing props, wrong
+    // property names), the server-side compound edit will reject via
+    // validateInlineOps with reason_code: 'invalid_class_token'.
+    expect(unlink?.inline).toHaveLength(5)
+    const propertyNames = unlink?.inline.map((e) => e.property).sort()
+    expect(propertyNames).toEqual([
+      'font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height',
+    ])
+    // Every value must be non-empty — empty-value inline edits were the
+    // bug commit 11066da removed, and the compound protocol inherits
+    // that invariant (validateInlineOps rejects empty-string sets).
+    for (const entry of unlink?.inline ?? []) {
+      expect(entry.value).not.toBe('')
+      expect(typeof entry.value).toBe('string')
+    }
   })
 })
