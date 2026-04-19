@@ -840,6 +840,14 @@ export function Panel({
           applyOverride('align-items', change.value, true)
           return
         }
+        default: {
+          // Exhaustive check — TypeScript errors here if TypographyChange
+          // gains a new kind without a handler. Mirrors the pattern used
+          // by connectionStatusText at line 47. Runtime no-op with log
+          // so misconfigurations are observable without crashing the panel.
+          const _exhaustive: never = change
+          console.error('[cortex] Unhandled TypographyChange kind:', _exhaustive)
+        }
       }
     },
     [applyOverride, applyClassChange],

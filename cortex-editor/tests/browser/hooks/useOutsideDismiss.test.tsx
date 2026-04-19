@@ -83,6 +83,30 @@ describe('useOutsideDismiss', () => {
     expect(onDismiss).toHaveBeenCalledTimes(1)
   })
 
+  it('does NOT dismiss on Escape if an upstream handler called preventDefault (H8)', async () => {
+    // When a nested <dialog> or the CortexApp root Escape cascade handles
+    // the keystroke first (via a capture-phase listener) and calls
+    // preventDefault, the popover must NOT also dismiss. One keypress =
+    // one dismissal. Without the defaultPrevented guard, users saw both
+    // the modal close AND the open popover vanish on one Escape press.
+    const onDismiss = vi.fn()
+    mount(<Popover onDismiss={onDismiss} />)
+    await flushEffects()
+
+    const upstream = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') e.preventDefault()
+    }
+    document.addEventListener('keydown', upstream, { capture: true })
+    try {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      )
+      expect(onDismiss).not.toHaveBeenCalled()
+    } finally {
+      document.removeEventListener('keydown', upstream, { capture: true })
+    }
+  })
+
   it('does NOT dismiss on non-Escape keydowns', async () => {
     const onDismiss = vi.fn()
     mount(<Popover onDismiss={onDismiss} />)

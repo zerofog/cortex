@@ -141,15 +141,14 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         setCapabilitySystems(msg.systems.filter(s => s.status !== 'supported'))
       }
       if (msg.type === 'hello') {
-        if (msg.swatches && msg.swatches.length > 0) {
-          setSwatches(msg.swatches)
-        }
-        if (msg.textComponents && msg.textComponents.length > 0) {
-          setTextComponents(msg.textComponents)
-        }
-        if (msg.colorChips && msg.colorChips.length > 0) {
-          setColorChips(msg.colorChips)
-        }
+        // hello is authoritative state replacement, not additive. Prior
+        // pattern gated each assignment on `length > 0`, so a subsequent
+        // hello with cleared fields (e.g., the user removed a @theme
+        // block and the server restarted) left stale browser state.
+        // Unconditional ?? [] ensures server-side truth reaches the UI.
+        setSwatches(msg.swatches ?? [])
+        setTextComponents(msg.textComponents ?? [])
+        setColorChips(msg.colorChips ?? [])
       }
       if (msg.type === 'edit_status') {
         if (msg.status === 'done') {

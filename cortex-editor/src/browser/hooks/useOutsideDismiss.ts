@@ -83,7 +83,11 @@ export function useOutsideDismiss(
     }
 
     const handleKeydown = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onDismissRef.current()
+      // Respect upstream handlers that already claimed the keystroke.
+      // Without this, a nested <dialog> or the CortexApp root Escape
+      // cascade (which preventDefaults when it handles Escape) would
+      // still trigger the popover's dismiss — two actions per keypress.
+      if (e.key === 'Escape' && !e.defaultPrevented) onDismissRef.current()
     }
 
     for (const r of roots) r.addEventListener('mousedown', handleMousedown)
