@@ -13,7 +13,7 @@ import { TailwindRewriter } from '../core/rewriter/tailwind.js'
 import { InlineStyleRewriter } from '../core/rewriter/inline-style.js'
 import { HMRVerifier } from '../core/hmr-verifier.js'
 import { EditPipeline } from '../core/edit-pipeline.js'
-import type { EditRequest } from '../core/edit-pipeline.js'
+import type { EditRequest, WriteIntent } from '../core/edit-pipeline.js'
 import { StyleDetector } from '../core/rewriter/detector.js'
 import type { DetectionResult } from '../core/rewriter/detector.js'
 import { computeCapabilities } from '../core/capabilities.js'
@@ -24,6 +24,7 @@ import { UndoStack } from '../core/session/undo-stack.js'
 import { AIWriter } from '../core/ai-writer.js'
 import { DeferredWriter } from '../core/deferred-writer.js'
 import { CortexSession } from '../core/session.js'
+import { atomicWrite } from './atomic-write.js'
 
 export interface CortexEditorOptions {
   /** Package names in node_modules to instrument (for library component detection). */
@@ -254,6 +255,113 @@ export async function _resetForTesting(): Promise<void> {
   }
 }
 
+// ── Edit-write helpers (exported for direct unit testing) ───────────────
+
+/** Minimal Vite server shape the edit-write path depends on. Narrowed from
+ *  `ViteDevServer` so tests can pass a plain object with a `watcher.emit`
+ *  spy without constructing the full server. */
+export interface EditWriteServer {
+  watcher: { emit: (event: string, path: string) => void }
+}
+
+/** How long (ms) a path stays in the HMR-suppression window after a
+ *  cortex-originated write lands. Named constant so tests and production
+ *  can't drift. */
+export const RECENT_EDIT_WRITE_TTL_MS = 500
+
+/** Dependencies threaded into `performEditWrite`. Explicit so tests can
+ *  inject mocks for each side-effect (fs write, watcher emit, session
+ *  tracking) without needing the full plugin/pipeline wiring. */
+export interface EditWriteDeps {
+  server: EditWriteServer
+  /** Map from filePath → active suppression timer, lives on the active
+   *  CortexSession. `.has(path)` answers "is this path currently in the
+   *  HMR-suppression window?"; the timer values are only read by
+   *  performEditWrite to clearTimeout before arming a fresh one.
+   *  `null` when no session exists (tests). */
+  recentEditWriteTimers: Map<string, ReturnType<typeof setTimeout>> | null
+  /** Atomic write implementation. Production uses `atomicWrite` from
+   *  `./atomic-write.js`; tests pass a `vi.fn()`. */
+  write: (filePath: string, content: string) => Promise<void>
+}
+
+/** Decide whether a WriteIntent should suppress HMR.
+ *
+ *  Policy: honor an explicit `suppressHmr`. Otherwise suppress iff the
+ *  edit paints via the browser-side `!important` override layer — i.e.,
+ *  `'immediate'`, `'undo'`, `'redo'`. Kinds that may restructure JSX
+ *  (`'jsx-immediate'`, `'deferred'`) must NOT suppress, because the
+ *  framework needs to re-render with the new source.
+ *
+ *  ZF0-1215 note: classOp writes pass `{ kind: 'immediate', suppressHmr:
+ *  false }` explicitly — className mutations have no browser-side override
+ *  layer and need HMR to re-render the element with the new class. */
+export function shouldSuppressHmr(intent: Pick<WriteIntent, 'kind' | 'suppressHmr'>): boolean {
+  return intent.suppressHmr
+    ?? (intent.kind !== 'deferred' && intent.kind !== 'jsx-immediate')
+}
+
+/** Orchestrate an edit write: atomic-rename the target file, then (if HMR
+ *  is not suppressed) synthesize a chokidar `change` event on Vite's
+ *  watcher so Tailwind v4's CSS generator re-scans the changed source.
+ *
+ *  Why the explicit watcher emit: chokidar/FSEvents (macOS) frequently
+ *  reports `fs.rename`-over-existing as unlink+add rather than change.
+ *  Vite's moduleGraph invalidation — the trigger for Tailwind's CSS
+ *  re-transform — listens on 'change' only. Emitting directly makes
+ *  the fix deterministic across platforms and watcher backends.
+ *
+ *  Suppression-window ordering (ZF0-1215 C1): the write must LAND before
+ *  the path enters the suppression window. If the map-add happened first
+ *  and `deps.write` then rejected, the path would remain suppressed for
+ *  500ms while never actually having been written, blocking the user's
+ *  own editor-save from HMR'ing through during the window. By placing
+ *  the map-add after `await deps.write`, a rejection propagates cleanly
+ *  with no suppression state leaked.
+ *
+ *  Timer refresh (ZF0-1215 C1): rapid consecutive writes to the same
+ *  path refresh the existing timer rather than stacking independent
+ *  ones. A Set + naive `setTimeout` would expire the path mid-window
+ *  when the first timer fires, re-exposing the file to chokidar events
+ *  even though a second write was still in the middle of its own TTL.
+ *  The Map<path, timer> plus clearTimeout-before-set implements a
+ *  refreshing-timeout pattern: the TTL is always measured from the
+ *  most recent write, not the first.
+ *
+ *  Throws whatever `deps.write` throws. Callers should catch
+ *  `ExternalRevertError` specifically to surface
+ *  `edit_status: { reason_code: 'external_revert' }`. */
+export async function performEditWrite(
+  intent: WriteIntent,
+  deps: EditWriteDeps,
+): Promise<void> {
+  const suppress = shouldSuppressHmr(intent)
+  await deps.write(intent.filePath, intent.content)
+  if (!suppress) {
+    // Clear any existing suppression timer for this path before emitting
+    // change — otherwise a prior suppressed write's stale timer would cause
+    // handleHotUpdate to skip THIS write's HMR too, silently dropping the
+    // update. The TTL exists to debounce rapid same-kind writes; a kind
+    // transition (suppressed → non-suppressed) on the same file must reset
+    // it so non-suppressed intent is honored.
+    const timers = deps.recentEditWriteTimers
+    if (timers) {
+      const existing = timers.get(intent.filePath)
+      if (existing !== undefined) clearTimeout(existing)
+      timers.delete(intent.filePath)
+    }
+    deps.server.watcher.emit('change', intent.filePath)
+    return
+  }
+  const timers = deps.recentEditWriteTimers
+  if (!timers) return
+  const existing = timers.get(intent.filePath)
+  if (existing !== undefined) clearTimeout(existing)
+  const timer = setTimeout(() => timers.delete(intent.filePath), RECENT_EDIT_WRITE_TTL_MS)
+  timer.unref?.()
+  timers.set(intent.filePath, timer)
+}
+
 export function cortexEditor(_options?: CortexEditorOptions): Plugin {
   let config: ResolvedConfig
   let transformSource: ReturnType<typeof createSourceTransform>
@@ -381,14 +489,22 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       // Cache resolved project root (avoids blocking realpathSync per comment message)
       let realRootCache: string | null = null
 
-      // Resolve Tailwind colors at server start — promise awaited in hotHandler
+      // Resolve Tailwind design-system data at server start — promises awaited in hotHandler.
+      // All three run in parallel; hello ships as fast as the slowest resolver.
       const swatchesPromise = TailwindResolver.resolveColors(config.root).catch((err) => {
         console.warn('[cortex] Tailwind color resolution failed:', err instanceof Error ? err.message : err)
         return null
       })
+      const colorChipsPromise = TailwindResolver.resolveColorChips(config.root).catch((err) => {
+        console.warn('[cortex] Tailwind color chip resolution failed:', err instanceof Error ? err.message : err)
+        return null
+      })
+      const textComponentsPromise = TailwindResolver.resolveTextComponents(config.root).catch((err) => {
+        console.warn('[cortex] Tailwind text component resolution failed:', err instanceof Error ? err.message : err)
+        return null
+      })
 
       // Vite 5.1+ API: server.hot replaces deprecated server.ws
-      let helloSent = false
       const hotHandler = (data: BrowserToServer) => {
         // Guard against race during session disposal or configureServer re-entry
         if (!currentSession || currentSession.isDisposed) return
@@ -412,20 +528,27 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         // Track state from browser messages
         if (data.type === 'cortex-closed') currentSession!.editorActive = false
 
-        // Send hello with swatches on first message (typically 'init') from browser
-        if (!helloSent && currentSession!.channel) {
-          helloSent = true // synchronous guard prevents duplicate sends
+        // Handshake contract: 'init' is the browser's explicit "ready" signal.
+        // Idempotent — every init gets a hello response so multi-tab, HMR re-mount,
+        // and strict-mode double-mount all work without special-casing. Resolvers
+        // are cached at server boot so repeat responses cost ~nothing.
+        if (data.type === 'init' && currentSession!.channel) {
           const channel = currentSession!.channel
-          swatchesPromise.then((colors) => {
-            channel.send({
-              type: 'hello',
-              protocolVersion: 1,
-              sessionId: currentSession!.sessionId,
-              swatches: colors && colors.length > 0 ? colors : undefined,
+          Promise.all([swatchesPromise, colorChipsPromise, textComponentsPromise])
+            .then(([colors, chips, textComponents]) => {
+              channel.send({
+                type: 'hello',
+                protocolVersion: 1,
+                sessionId: currentSession!.sessionId,
+                swatches: colors && colors.length > 0 ? colors : undefined,
+                colorChips: chips && chips.length > 0 ? chips : undefined,
+                textComponents:
+                  textComponents && textComponents.length > 0 ? textComponents : undefined,
+              })
             })
-          }).catch((err) => {
-            console.warn('[cortex] Failed to send hello:', err instanceof Error ? err.message : err)
-          })
+            .catch((err) => {
+              console.warn('[cortex] Failed to send hello:', err instanceof Error ? err.message : err)
+            })
         }
 
         if (data.type === 'comment') {
@@ -612,19 +735,18 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           aiWriter,
           deferredWriter,
           writeFile: async (intent) => {
-            // Suppress HMR when the override layer is the complete visual mechanism
-            // (immediate CSS edits, undo, redo). The override (!important) already
-            // shows the correct value; HMR just causes a repaint flash.
-            // Allow HMR for jsx-immediate (React must re-render to apply inline
-            // styles) and deferred/AI edits (may rewrite JSX structure, Tailwind
-            // classes, or more than the single overridden property).
-            const suppress = intent.suppressHmr
-              ?? (intent.kind !== 'deferred' && intent.kind !== 'jsx-immediate')
-            if (suppress) {
-              currentSession?.recentEditWrites.add(intent.filePath)
-              setTimeout(() => currentSession?.recentEditWrites.delete(intent.filePath), 500)
-            }
-            await fs.promises.writeFile(intent.filePath, intent.content, 'utf-8')
+            // Delegates to `performEditWrite` which atomically replaces the
+            // target file, tracks suppressed writes in
+            // recentEditWriteTimers, and (when HMR is not suppressed)
+            // synthesizes a chokidar `change` event on `server.watcher`
+            // so Vite's moduleGraph invalidates and Tailwind v4 re-scans
+            // the source. See helper docstring above cortexEditor() for
+            // the full rationale.
+            await performEditWrite(intent, {
+              server,
+              recentEditWriteTimers: currentSession?.recentEditWriteTimers ?? null,
+              write: atomicWrite,
+            })
           },
           readFile: (p) => fs.promises.readFile(p, 'utf-8'),
           projectRoot,
@@ -826,11 +948,11 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       // showing the correct value. HMR would cause a full-page style recalc
       // + repaint visible as a flash. The override stays until hmr_verified
       // clears it (which is now a no-op since we handled verification above).
-      const cortexFiles = modules.filter(m => m.file && currentSession?.recentEditWrites.has(m.file))
+      const cortexFiles = modules.filter(m => m.file && currentSession?.recentEditWriteTimers.has(m.file))
 
       // Only fire HMR callbacks for non-suppressed files — otherwise the
       // verifier would track edits for files whose HMR was intentionally blocked.
-      const nonSuppressed = modules.filter(m => !m.file || !currentSession?.recentEditWrites.has(m.file))
+      const nonSuppressed = modules.filter(m => !m.file || !currentSession?.recentEditWriteTimers.has(m.file))
       const files = nonSuppressed
         .map(m => m.file)
         .filter((f): f is string => f != null && (/\.[jt]sx$/.test(f) || /\.css$/.test(f)))

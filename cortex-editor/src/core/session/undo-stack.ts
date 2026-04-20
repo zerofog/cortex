@@ -3,6 +3,19 @@ export interface UndoFileChange {
   readonly filePath: string
   readonly previousContent: string
   readonly currentContent: string
+  /** True when reapplying this change requires an HMR refresh because the
+   *  visual depends on a framework re-render — e.g. className mutations
+   *  (no browser-side override layer paints them) and deferred/AI rewrites
+   *  (may restructure JSX). False when the change's visual is already
+   *  painted by the browser-side `!important` override layer before the
+   *  source write lands — the common case for inline-style property edits.
+   *
+   *  Consumed by `_doUndo`/`_doRedo` in edit-pipeline.ts to compute the
+   *  `suppressHmr` flag per writeFile call. Without this field, undo/redo
+   *  fall back to the default kind-based HMR policy, which for `'undo'`/
+   *  `'redo'` means "suppress". That left undone className edits stranded:
+   *  file restored, DOM not refreshed, Panel state stale. */
+  readonly requiresHmr: boolean
 }
 
 /** A single undo entry representing one logical edit.
@@ -53,7 +66,18 @@ export class UndoStack {
         // so this map covers all changes without needing a file-expansion loop.
         const merged: UndoFileChange[] = top.changes.map(existing => {
           const nc = input.changes.find(c => c.filePath === existing.filePath)
-          return nc ? { filePath: existing.filePath, previousContent: existing.previousContent, currentContent: nc.currentContent } : existing
+          // requiresHmr is OR-combined: if either the original change or the
+          // incoming change required HMR, the merged change does too. That way
+          // one undo of the compound state restores DOM + Panel correctly even
+          // if only one of the coalesced mutations was a className write.
+          return nc
+            ? {
+                filePath: existing.filePath,
+                previousContent: existing.previousContent,
+                currentContent: nc.currentContent,
+                requiresHmr: existing.requiresHmr || nc.requiresHmr,
+              }
+            : existing
         })
         const oldBytes = this.entryBytes(top)
         const updated: UndoEntry = { id: top.id, timestamp: top.timestamp, changes: merged }

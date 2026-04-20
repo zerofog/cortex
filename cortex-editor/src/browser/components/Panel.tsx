@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks'
 import type { CSSOverrideManager } from '../override.js'
 import { onOverrideChange } from '../override-bus.js'
 import { CommandStack } from '../command-stack.js'
-import { PropertyEditCommand } from '../edit-command.js'
+import { PropertyEditCommand, CompoundEditCommand } from '../edit-command.js'
 import type { PropertyChange } from '../edit-command.js'
 import { parseCortexSource, isLibraryComponent, findUserAncestor } from '../label.js'
 import { PANEL_WIDTH } from '../hooks/useSnapToEdge.js'
@@ -14,7 +14,14 @@ import { ElementTree } from './sections/ElementTree.js'
 import { DEFAULT_LAYER_HEIGHT, MIN_LAYER_HEIGHT } from './LayerTree.js'
 import type { SectionChange } from './sections/types.js'
 import { LayoutSection, parseLayoutValues } from './sections/LayoutSection.js'
-import { TypographySection, parseTypographyValues, getWeightsForFamily, stripCSSQuotes } from './sections/TypographySection.js'
+import {
+  TypographySection,
+  parseTypographyValues,
+  getWeightsForFamily,
+  stripCSSQuotes,
+  TYPOGRAPHY_LINKED_PROPERTIES,
+  COLOR_LINKED_PROPERTIES,
+} from './sections/TypographySection.js'
 import { parseFillValues, summarizeFill } from './sections/fill-utils.js'
 import { BorderSection, parseBorderValues, summarizeBorder } from './sections/BorderSection.js'
 import { EffectsSection, parseEffectsValues, addShadow } from './sections/EffectsSection.js'
@@ -29,14 +36,8 @@ import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
 import { IconButton } from './controls/IconButton.js'
 import { BackgroundSection } from './sections/BackgroundSection.js'
-import { Type, Plus } from './icons.js'
+import { Plus } from './icons.js'
 import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
-
-/** Typography-related CSS properties filtered from extractedUtilities for Mode A display. */
-const TYPOGRAPHY_PROPS = new Set([
-  'font-size', 'font-weight', 'font-family', 'line-height',
-  'letter-spacing', 'text-align', 'color',
-])
 
 // ── Connection status footer ─────────────────────────────────────────
 
@@ -180,6 +181,12 @@ export interface PanelProps {
   onClose: () => void
   onSelectElement: (el: HTMLElement | null) => void
   swatches?: string[]
+  /** Design-system text-component bundles (size + line-height + letter-spacing + weight).
+   *  Resolved once per dev-server lifetime; `undefined` = not yet received; `[]` = none defined. */
+  textComponents?: import('../../core/text-components.js').TextComponent[]
+  /** Design-system named color chips (token name + browser-ready hex). */
+  colorChips?: Array<{ name: string; hex: string }>
+
   activeState?: InteractionState
   hasBefore?: boolean
   hasAfter?: boolean
@@ -233,6 +240,8 @@ export function Panel({
   onClose,
   onSelectElement,
   swatches,
+  textComponents,
+  colorChips,
   activeState = 'default',
   hasBefore = false,
   hasAfter = false,
@@ -277,7 +286,6 @@ export function Panel({
   const [editScope, setEditScope] = useState<'instance' | 'all'>('instance')
 
   // Typography section dual-mode toggle: auto picks from detected token classes
-  const [typographyMode, setTypographyMode] = useState<'auto' | 'b'>('auto')
 
   // Elements section (LayerTree) height — owned by Panel so the resize handle
   // can sit between SectionGroups as the section divider.
@@ -331,7 +339,6 @@ export function Panel({
     if (prevElementRef.current && prevElementRef.current !== element) {
       // No cross-fade or body remount — sections update via normal prop changes.
       setActivePseudo('element') // reset pseudo tab on element change
-      setTypographyMode('auto') // reset typography mode on element change
     }
     prevElementRef.current = element
     scrubPreviousRef.current.clear() // abandon any in-progress scrub state
@@ -376,6 +383,43 @@ export function Panel({
   useEffect(() => {
     return onOverrideChange(() => setStyleVersion(v => v + 1))
   }, [])
+
+  // Observe class AND style attribute mutations on the selected element.
+  // The Panel lives in a shadow-DOM Preact tree decoupled from the user's
+  // React tree — when HMR re-renders their component and flips className
+  // or inline style, nothing else signals the Panel. Without this, bundle
+  // detection (typographyClassName memo) keeps returning the pre-HMR class
+  // and the typography pill never updates after a classOp edit; similarly,
+  // SegmentedControl values (text-align, etc.) stay stale after an
+  // InlineStyleRewriter edit lands via HMR because the memoized
+  // `computedStyles` never refreshes.
+  //
+  // Both attributes matter because the server has two rewriter paths:
+  //   - Tailwind class swap (className changes)
+  //   - Inline style rewrite (style attribute changes, new in ZF0-1215
+  //     for properties without a matching Tailwind utility on the element)
+  //
+  // Microtask coalescing: React Fast Refresh commonly emits several
+  // mutations within a single paint (reconciler diff + side-effect passes).
+  // Collapsing them into one styleVersion bump prevents `computedStyles`
+  // from thrashing (2-3× getComputedStyle calls per property group per
+  // mutation). This is correctness-hygiene, not a perf optimization — it
+  // keeps one user-visible DOM change mapped to one Panel render.
+  useEffect(() => {
+    if (!element) return
+    let pending = false
+    const bump = (): void => {
+      if (pending) return
+      pending = true
+      queueMicrotask(() => {
+        pending = false
+        setStyleVersion(v => v + 1)
+      })
+    }
+    const observer = new MutationObserver(bump)
+    observer.observe(element, { attributes: true, attributeFilter: ['class', 'style'] })
+    return () => observer.disconnect()
+  }, [element])
 
   // C1: Cache getComputedStyle results + compute dimmed properties in a single useMemo
   // to avoid double forced layout. CRITICAL: activeState + activePseudo in deps so
@@ -499,16 +543,13 @@ export function Panel({
     return extractUtilities(cls)
   }, [element, styleVersion])
 
-  // Derive typography token classes from extractedUtilities for Mode A display.
-  const detectedTypographyTokens = useMemo(() => {
-    const result: Array<{ className: string; property: string }> = []
-    for (const [property, className] of extractedUtilities) {
-      if (TYPOGRAPHY_PROPS.has(property)) {
-        result.push({ className, property })
-      }
-    }
-    return result
-  }, [extractedUtilities])
+  // Raw className attribute — TypographySection detects bundle + chip membership against it.
+  const typographyClassName = useMemo(() => {
+    if (!element) return ''
+    return typeof element.className === 'string'
+      ? element.className
+      : (element.getAttribute('class') ?? '')
+  }, [element, styleVersion])
 
   // Null-byte separator for composite scrub keys — never appears in CSS properties or source paths.
   const SEP = '\0'
@@ -702,6 +743,251 @@ export function Panel({
 
   const handleCommit = useCallback((c: SectionChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleScrub = useCallback((c: SectionChange) => applyOverride(c.property, c.value, false), [applyOverride])
+
+  /**
+   * Dispatch a className mutation (classOp) to the server, optionally followed
+   * by per-property inline-style edits for the same element. Used by the new
+   * Typography section: linking a bundle is `{add: 'body-md', inlineProps: []}`
+   * (class goes on, inline styles come off), unlinking is
+   * `{remove: 'body-md', inlineProps: [{property:'font-size', value:'14px'}, ...]}`
+   * (class comes off, inline styles from the bundle preserve the rendered look).
+   *
+   * classOps bypass the scrub/commit dance — they are atomic by nature
+   * (no "half-linked" state). Follow-up inline props go through the normal
+   * applyOverride path so they participate in undo coalescing.
+   */
+  // Describe a compound edit for onEditDispatch's activity log.
+  // Kept local (not exported) because it's a UI-detail formatter —
+  // the '__class__' sentinel tells consumers to render this differently
+  // than regular property edits.
+  const formatCompoundDescription = (opts: {
+    remove?: string
+    add?: string
+    inlineSets?: ReadonlyArray<{ property: string; value: string }>
+    inlineRemoves?: ReadonlyArray<{ property: string }>
+  }): string => {
+    const parts: string[] = []
+    if (opts.remove) parts.push(`-${opts.remove}`)
+    if (opts.add) parts.push(`+${opts.add}`)
+    if (opts.inlineSets?.length) parts.push(`set(${opts.inlineSets.length})`)
+    if (opts.inlineRemoves?.length) parts.push(`rm(${opts.inlineRemoves.length})`)
+    return parts.join(' ')
+  }
+
+  const applyClassChange = useCallback(
+    (opts: {
+      remove?: string
+      add?: string
+      /** Inline property SETS to apply alongside the class change. The
+       *  server writes these to source as `style={{...}}` properties.
+       *  Locally, they're applied as !important overrides for immediate
+       *  visual feedback while HMR processes the source write. */
+      inlineSets?: ReadonlyArray<{ property: string; value: string }>
+      /** Inline property REMOVES to apply alongside the class change.
+       *  The server removes them from source. Locally, any matching
+       *  !important overrides are cleared so the new class's cascade
+       *  takes effect immediately. */
+      inlineRemoves?: ReadonlyArray<{ property: string }>
+    }) => {
+      if (!element || !channel) return
+      const source = element.getAttribute('data-cortex-source')
+      if (!source) return
+      if (!opts.remove && !opts.add) return  // classOp required for compound path
+
+      // Drain any pending property-commit microtask BEFORE issuing the
+      // compound edit. Otherwise a classOp could land in the server's
+      // file-lock queue AHEAD of a pending PropertyEditCommand, producing
+      // an inverted undo stack order. The flush is a no-op when no
+      // scrub is in flight.
+      flushCommitRef?.current?.()
+
+      const pseudo = activePseudo !== 'element' ? activePseudo : undefined
+      const editId = crypto.randomUUID()
+
+      // Capture previous override values BEFORE mutating, so the
+      // Single-pass iteration: snapshot previousValue, build the
+      // CompoundEditCommand change entry, AND apply the optimistic
+      // override — all in one loop per kind. The critical constraint
+      // is order: overrideManager.get must run BEFORE overrideManager.set
+      // so the snapshot reflects the pre-edit state. Single-pass
+      // respects this because get + push + set fire in that order for
+      // each property before moving to the next.
+      //
+      // Local !important overrides give IMMEDIATE visual feedback. The
+      // server's HMR-verified handshake (trackPendingEdit →
+      // handleHMRVerified) releases them once the source write lands
+      // and React re-renders. Without the local override, the user
+      // would see OLD styles until HMR completes (100-500ms).
+      const changes: PropertyChange[] = []
+      if (opts.inlineSets) {
+        for (const s of opts.inlineSets) {
+          const previousValue = overrideManager.get(source, s.property, pseudo) ?? ''
+          changes.push({ source, property: s.property, value: s.value, previousValue, pseudo })
+          overrideManager.set(source, s.property, s.value, pseudo)
+          // trackPendingEdit shares editId across the whole compound so
+          // HMR-verification releases all properties of this gesture together.
+          overrideManager.trackPendingEdit(editId, source, s.property, s.value, pseudo)
+        }
+      }
+      // inlineRemoves: clear any stale overrides locally so the new
+      // class's cascade wins immediately. Structurally redundant with
+      // the H7 part A pre-clear in handleTypographyChange but idempotent
+      // and keeps this function self-contained.
+      if (opts.inlineRemoves) {
+        for (const r of opts.inlineRemoves) {
+          const previousValue = overrideManager.get(source, r.property, pseudo) ?? ''
+          overrideManager.remove(source, r.property, pseudo)
+          if (previousValue === '') continue  // nothing to restore on undo — no-op remove
+          changes.push({ source, property: r.property, value: '', previousValue, pseudo })
+        }
+      }
+
+      // Record on browser commandStack so Ctrl+Z's `if (cmd)` gate fires
+      // and dispatches `{ type: 'undo' }` to the server — without this,
+      // the server's compound UndoFileChange is never popped.
+      // record() stores without re-executing — overrides were already
+      // applied above, matching the PropertyEditCommand pattern.
+      if (commandStack) {
+        const cmd = new CompoundEditCommand({ changes, overrideManager, editId })
+        commandStack.record(cmd)
+      } else {
+        // Observability parity with commitScrub at line 593 — a
+        // compound edit committed without a commandStack cannot be
+        // undone. Warn so missing-stack wiring is diagnosable.
+        console.warn('[cortex] Compound edit committed without undo stack — this edit cannot be undone')
+      }
+
+      // ONE compound WebSocket message. Server routes to
+      // handleCompoundEdit when classOp + (inlineSets || inlineRemoves)
+      // are all present; to handleClassOp when only classOp; to the
+      // property path when only property/value. Falsifiable hook for
+      // onEditDispatch is the '__class__' sentinel — the Panel's
+      // activity log uses it to render compound ops as a single row.
+      onEditDispatch?.(editId, source, '__class__', formatCompoundDescription(opts))
+      channel.send({
+        type: 'edit',
+        editId,
+        source,
+        property: '',
+        value: '',
+        elementSelector: element.tagName.toLowerCase(),
+        classOp:
+          opts.remove && opts.add ? { kind: 'swap' as const, remove: opts.remove, add: opts.add }
+          : opts.add ? { kind: 'add' as const, add: opts.add }
+          : opts.remove ? { kind: 'remove' as const, remove: opts.remove }
+          : undefined,
+        ...(opts.inlineSets && opts.inlineSets.length > 0 ? { inlineSets: opts.inlineSets } : {}),
+        ...(opts.inlineRemoves && opts.inlineRemoves.length > 0 ? { inlineRemoves: opts.inlineRemoves } : {}),
+      })
+    },
+    [element, channel, onEditDispatch, overrideManager, activePseudo, commandStack],
+  )
+
+  /**
+   * Route a TypographyChange (discriminated union) to the right dispatcher.
+   *
+   * - Plain {property, value} → applyOverride (scrub/commit dance)
+   * - link-* → applyClassChange with `add` + inline clear of the 5 props
+   * - unlink-* → applyClassChange with `remove` + inline preservation
+   * - vertical-align → three property edits fanned into one undo entry:
+   *   display:flex, flex-direction:column, align-items:<value>
+   */
+  const handleTypographyChange = useCallback(
+    (change: import('./sections/TypographySection.js').TypographyChange) => {
+      if ('property' in change) {
+        applyOverride(change.property, change.value, true)
+        return
+      }
+
+      // Shared by link handlers (H7 part A): clear any in-flight browser
+      // !important overrides for the properties the link is about to own.
+      // Without this, a prior scrub (e.g., user dragged font-size to 24px)
+      // leaves an override in overrideManager; when the link lands, the
+      // class's font-size: 1rem loses the cascade to the override, and
+      // the Panel shows "linked" while the visual stays at 24px. These
+      // removes are LOCAL — no WebSocket message, no source edit —
+      // the source-file inline-style cleanup is handled separately by
+      // the compound-edit message introduced in C2 (inlineRemoves).
+      const clearLinkedOverrides = (properties: ReadonlyArray<string>): void => {
+        if (!element) return
+        const source = element.getAttribute('data-cortex-source')
+        if (!source) return
+        const pseudo = activePseudo !== 'element' ? activePseudo : undefined
+        for (const property of properties) {
+          overrideManager.remove(source, property, pseudo)
+        }
+      }
+
+      switch (change.kind) {
+        case 'link-text-component': {
+          // Compound edit (C2 + H7 part B): add the new text- class AND
+          // request removal of any stale inline style= values from the
+          // 5 typography properties. Prior to C2, link handlers only
+          // sent classOp — the rendered view still wins from inline
+          // styles left over from a prior unlink. The compound message
+          // makes link "truly fresh": new class + no stale inline.
+          //
+          // clearLinkedOverrides is kept for IMMEDIATE visual feedback
+          // (local override clear) while the compound roundtrips to
+          // server. Redundant with applyClassChange's internal
+          // inlineRemoves clear but idempotent.
+          clearLinkedOverrides(TYPOGRAPHY_LINKED_PROPERTIES)
+          applyClassChange({
+            remove: change.removeClass,
+            add: `text-${change.component.name}`,
+            inlineRemoves: TYPOGRAPHY_LINKED_PROPERTIES.map((property) => ({ property })),
+          })
+          return
+        }
+        case 'unlink-text-component': {
+          // Compound edit: remove the bundle class AND write preserving
+          // inline styles to source IN ONE MESSAGE. Before C2 this was
+          // ONE classOp message + FIVE applyOverride edit messages,
+          // producing 6 server undo entries for one user gesture.
+          // After C2: ONE compound undo entry → one Ctrl+Z restores
+          // the whole gesture.
+          applyClassChange({
+            remove: change.removeClass,
+            inlineSets: change.inline,
+          })
+          return
+        }
+        case 'link-color-chip': {
+          clearLinkedOverrides(COLOR_LINKED_PROPERTIES)
+          applyClassChange({
+            remove: change.removeClass,
+            add: `text-${change.chip.name}`,
+            inlineRemoves: COLOR_LINKED_PROPERTIES.map((property) => ({ property })),
+          })
+          return
+        }
+        case 'unlink-color-chip': {
+          applyClassChange({
+            remove: change.removeClass,
+            inlineSets: change.inline,
+          })
+          return
+        }
+        case 'vertical-align': {
+          // Three edits batched via the scrub→commit microtask queue: they
+          // all accumulate in scrubPreviousRef and commit as one PropertyEditCommand.
+          applyOverride('display', 'flex', false)
+          applyOverride('flex-direction', 'column', false)
+          applyOverride('align-items', change.value, true)
+          return
+        }
+        default: {
+          // Exhaustive check — TypeScript errors here if TypographyChange
+          // gains a new kind without a handler. Mirrors the pattern used
+          // by connectionStatusText at line 47. Runtime no-op with log
+          // so misconfigurations are observable without crashing the panel.
+          const _exhaustive: never = change
+          console.error('[cortex] Unhandled TypographyChange kind:', _exhaustive)
+        }
+      }
+    },
+    [applyOverride, applyClassChange],
+  )
 
   // Property section state — driven by computed values, not user toggle
   const fillSummary = useMemo(() => summarizeFill(computedStyles.fill), [computedStyles.fill])
@@ -1016,30 +1302,19 @@ export function Panel({
           />
         </SectionGroup>
         {showTypography && (
-          <SectionGroup
-            label="Typography"
-            groupId="typography"
-            headerAction={
-              <IconButton
-                icon={<Type size={14} />}
-                ariaLabel="Toggle typography mode"
-                tooltip="Toggle token/CSS view"
-                active={typographyMode !== 'auto'}
-                onClick={() => setTypographyMode(m => m === 'auto' ? 'b' : 'auto')}
-              />
-            }
-          >
+          <SectionGroup label="Typography" groupId="typography">
             <TypographySection
               values={computedStyles.typography}
               availableWeights={availableWeights}
-              onChange={handleCommit}
+              className={typographyClassName}
+              onChange={handleTypographyChange}
               onScrub={handleScrub}
               onScrubEnd={handleCommit}
               swatches={swatches}
+              textComponents={textComponents}
+              colorChips={colorChips}
               dimmedProperties={dimmedProperties}
               mixedProperties={mixedProperties}
-              mode={typographyMode}
-              detectedTokenClasses={detectedTypographyTokens}
             />
           </SectionGroup>
         )}
