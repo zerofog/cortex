@@ -885,7 +885,7 @@ export class EditPipeline {
     // For multi-file entries (e.g. CSS Modules scope='all'), locks are
     // acquired in sorted path order so concurrent undo/redo operations
     // on overlapping file sets serialize rather than deadlock.
-    const sortedChanges = [...entry.changes].sort((a, b) => a.filePath.localeCompare(b.filePath))
+    const sortedChanges = [...entry.changes].sort((a, b) => a.filePath < b.filePath ? -1 : a.filePath > b.filePath ? 1 : 0)
     const filePaths = sortedChanges.map(c => c.filePath)
     let stale = false
     let writeErr: unknown = null
@@ -957,7 +957,15 @@ export class EditPipeline {
   /** Acquire per-file locks for all filePaths in sorted order, then run
    *  fn while holding all of them. Locks are released when fn returns
    *  (or throws). Sorting prevents deadlock between concurrent
-   *  multi-file operations that touch overlapping file sets. */
+   *  multi-file operations that touch overlapping file sets.
+   *
+   *  M-R3-1 (Round 3): codepoint order (JS default `.sort()`) — MUST
+   *  match the sort strategy used in _doUndo/_doRedo. Any locale-
+   *  sensitive comparator (`.localeCompare`) would diverge under
+   *  case-insensitive locales, causing two concurrent compound
+   *  operations to acquire locks in DIFFERENT orders for the same
+   *  file set — re-opening the deadlock vector this sort is meant
+   *  to close. Do NOT change to localeCompare. */
   private async withMultiFileLocks<T>(filePaths: readonly string[], fn: () => Promise<T>): Promise<T> {
     const sorted = [...new Set(filePaths)].sort()
     const acquire = async (idx: number): Promise<T> => {
@@ -1006,7 +1014,7 @@ export class EditPipeline {
     // H-R2-4 (Round 2): same validate-all + write-all under one lock
     // set as _doUndo. See _doUndo for the full rationale. Redo
     // staleness clears the full stack (matches original behavior).
-    const sortedChanges = [...entry.changes].sort((a, b) => a.filePath.localeCompare(b.filePath))
+    const sortedChanges = [...entry.changes].sort((a, b) => a.filePath < b.filePath ? -1 : a.filePath > b.filePath ? 1 : 0)
     const filePaths = sortedChanges.map(c => c.filePath)
     let stale = false
     let writeErr: unknown = null
