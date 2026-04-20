@@ -96,6 +96,48 @@ describe('InlineStyleRewriter', () => {
     }
   })
 
+  // ZF0-1215 Bug A repro: h1 in cortex-test has a multi-line style with
+  // 4 properties (textAlign, display, flexDirection, alignItems). User
+  // edited textAlign left → center but source stayed "left", preview
+  // showed center (override), control read "left" from source. If this
+  // test fails, the rewriter's update-existing-property loop doesn't
+  // handle multi-line object literals correctly. If it passes, the bug
+  // is in the Panel's dispatch path, not the rewriter.
+  it('updates textAlign on a multi-line style with multiple properties (Bug A repro)', async () => {
+    const source = `export function App() {
+  return <h1 className="text-heading-1 text-gray-900" style={{
+    textAlign: "left",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center"
+  }}>Scenario 1</h1>
+}`
+    const filePath = createTempFile(source)
+    try {
+      const rewriter = new InlineStyleRewriter()
+      const result = await rewriter.rewrite({
+        filePath,
+        line: 2,
+        col: 10,
+        property: 'text-align',
+        value: 'center',
+      })
+
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.newContent).toContain('textAlign: "center"')
+        expect(result.newContent).not.toContain('textAlign: "left"')
+        // Other properties must be preserved — no accidental deletion.
+        expect(result.newContent).toContain('display: "flex"')
+        expect(result.newContent).toContain('flexDirection: "column"')
+        expect(result.newContent).toContain('alignItems: "center"')
+      }
+      rewriter.dispose()
+    } finally {
+      cleanupTempFile(filePath)
+    }
+  })
+
   it('bails on style={variable}', async () => {
     const source = `export function App() {
   return <div style={myStyles}>Hello</div>

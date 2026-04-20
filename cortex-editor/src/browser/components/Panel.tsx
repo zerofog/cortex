@@ -384,19 +384,27 @@ export function Panel({
     return onOverrideChange(() => setStyleVersion(v => v + 1))
   }, [])
 
-  // Observe class attribute mutations on the selected element. The Panel lives
-  // in a shadow-DOM Preact tree decoupled from the user's React tree — when
-  // HMR re-renders their component and flips className, nothing else signals
-  // the Panel. Without this, bundle detection (typographyClassName memo) keeps
-  // returning the pre-HMR class and the typography pill never updates after a
-  // classOp edit.
+  // Observe class AND style attribute mutations on the selected element.
+  // The Panel lives in a shadow-DOM Preact tree decoupled from the user's
+  // React tree — when HMR re-renders their component and flips className
+  // or inline style, nothing else signals the Panel. Without this, bundle
+  // detection (typographyClassName memo) keeps returning the pre-HMR class
+  // and the typography pill never updates after a classOp edit; similarly,
+  // SegmentedControl values (text-align, etc.) stay stale after an
+  // InlineStyleRewriter edit lands via HMR because the memoized
+  // `computedStyles` never refreshes.
   //
-  // Microtask coalescing: React Fast Refresh commonly emits several class
+  // Both attributes matter because the server has two rewriter paths:
+  //   - Tailwind class swap (className changes)
+  //   - Inline style rewrite (style attribute changes, new in ZF0-1215
+  //     for properties without a matching Tailwind utility on the element)
+  //
+  // Microtask coalescing: React Fast Refresh commonly emits several
   // mutations within a single paint (reconciler diff + side-effect passes).
-  // Collapsing them into one styleVersion bump prevents `computedStyles` from
-  // thrashing (2-3× getComputedStyle calls per property group per mutation).
-  // This is correctness-hygiene, not a perf optimization — it keeps one
-  // user-visible class change mapped to one Panel render.
+  // Collapsing them into one styleVersion bump prevents `computedStyles`
+  // from thrashing (2-3× getComputedStyle calls per property group per
+  // mutation). This is correctness-hygiene, not a perf optimization — it
+  // keeps one user-visible DOM change mapped to one Panel render.
   useEffect(() => {
     if (!element) return
     let pending = false
@@ -409,7 +417,7 @@ export function Panel({
       })
     }
     const observer = new MutationObserver(bump)
-    observer.observe(element, { attributes: true, attributeFilter: ['class'] })
+    observer.observe(element, { attributes: true, attributeFilter: ['class', 'style'] })
     return () => observer.disconnect()
   }, [element])
 
