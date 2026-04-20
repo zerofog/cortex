@@ -333,10 +333,10 @@ export class TailwindRewriter {
       if (exprKind === SK.TemplateExpression || exprKind === SK.NoSubstitutionTemplateLiteral) {
         return { success: false, filePath, reason: 'Template literal in className — route to AI' }
       }
-      return { success: false, filePath, reason: `Unsupported className expression kind: ${exprKind}` }
+      return { success: false, filePath, reason: `Unsupported className expression kind: ${expression.getKindName()}` }
     }
 
-    return { success: false, filePath, reason: `Unsupported className initializer kind: ${kind}` }
+    return { success: false, filePath, reason: `Unsupported className initializer kind: ${initializer.getKindName()}` }
   }
 
   /**
@@ -391,10 +391,10 @@ export class TailwindRewriter {
       } else if (exprKind === SK.TemplateExpression || exprKind === SK.NoSubstitutionTemplateLiteral) {
         return { success: false, reason: 'Template literal in className — route to AI' }
       } else {
-        return { success: false, reason: `Unsupported className expression kind: ${exprKind}` }
+        return { success: false, reason: `Unsupported className expression kind: ${expression.getKindName()}` }
       }
     } else {
-      return { success: false, reason: `Unsupported className initializer kind: ${kind}` }
+      return { success: false, reason: `Unsupported className initializer kind: ${initializer.getKindName()}` }
     }
 
     return result.success ? { success: true } : { success: false, reason: result.reason }

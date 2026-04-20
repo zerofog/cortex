@@ -338,6 +338,18 @@ export async function performEditWrite(
   const suppress = shouldSuppressHmr(intent)
   await deps.write(intent.filePath, intent.content)
   if (!suppress) {
+    // Clear any existing suppression timer for this path before emitting
+    // change — otherwise a prior suppressed write's stale timer would cause
+    // handleHotUpdate to skip THIS write's HMR too, silently dropping the
+    // update. The TTL exists to debounce rapid same-kind writes; a kind
+    // transition (suppressed → non-suppressed) on the same file must reset
+    // it so non-suppressed intent is honored.
+    const timers = deps.recentEditWriteTimers
+    if (timers) {
+      const existing = timers.get(intent.filePath)
+      if (existing !== undefined) clearTimeout(existing)
+      timers.delete(intent.filePath)
+    }
     deps.server.watcher.emit('change', intent.filePath)
     return
   }

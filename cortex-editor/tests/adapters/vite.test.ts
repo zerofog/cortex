@@ -1953,6 +1953,38 @@ describe('performEditWrite', () => {
     expect(timers.has('/project/src/App.tsx')).toBe(false)
   })
 
+  // Copilot review finding (ZF0-1215 Step 12, PR #71): a prior suppressed
+  // write's TTL timer would be left in recentEditWriteTimers, causing a
+  // subsequent non-suppressed write on the same path (within TTL) to be
+  // treated as suppressed in handleHotUpdate → HMR silently dropped.
+  // The fix clears any existing timer before emitting the non-suppressed
+  // change event so a kind transition (suppressed → non-suppressed) on
+  // the same file honors the new intent.
+  it('clears stale suppression timer when a non-suppressed write follows a suppressed one on the same path', async () => {
+    const emit = vi.fn()
+    const write = vi.fn<(p: string, c: string) => Promise<void>>().mockResolvedValue(undefined)
+    const timers = emptyTimers()
+
+    // First: suppressed write leaves a timer for this path.
+    await performEditWrite(
+      { kind: 'immediate', filePath: '/project/src/styles.css', content: 'first' },
+      { server: { watcher: { emit } }, recentEditWriteTimers: timers, write },
+    )
+    expect(timers.has('/project/src/styles.css')).toBe(true)
+
+    // Second: non-suppressed write on the same path within the TTL window.
+    // Without the fix: the stale timer would block handleHotUpdate from
+    // forwarding this write's HMR. Regression guard: the timer must be
+    // cleared BEFORE emit fires, so handleHotUpdate sees the path as
+    // fresh and lets the 'change' event through.
+    await performEditWrite(
+      { kind: 'immediate', suppressHmr: false, filePath: '/project/src/styles.css', content: 'second' },
+      { server: { watcher: { emit } }, recentEditWriteTimers: timers, write },
+    )
+    expect(emit).toHaveBeenCalledWith('change', '/project/src/styles.css')
+    expect(timers.has('/project/src/styles.css')).toBe(false)
+  })
+
   it('does NOT emit a change event when HMR is suppressed', async () => {
     const emit = vi.fn()
     const write = vi.fn<(p: string, c: string) => Promise<void>>().mockResolvedValue(undefined)
