@@ -1105,18 +1105,28 @@ export class EditPipeline {
 
     await this.withFileLock(resolvedPath, async () => {
       // Step 1: read file under the lock (single source of truth for
-      // this compound edit's previousContent).
-      let oldContent: string
-      try {
-        oldContent = await this.readFile!(resolvedPath)
-      } catch (err) {
+      // Local failure helper — every step below dispatches the same
+      // shape of edit_status:failed message, differing only in reason
+      // and (sometimes) reason_code. Factoring to `fail()` reduces
+      // visual nesting from 4 levels to 2 and makes the happy path
+      // scan linearly. Returns nothing; caller must `return` after.
+      type ReasonCode = 'external_revert' | 'invalid_class_token' | 'write_failed' | 'rewriter_failed' | 'parse_failed'
+      const fail = (reason: string, reasonCode: ReasonCode = 'parse_failed'): void => {
         this.channel.send({
           type: 'edit_status',
           editId: edit.editId,
           status: 'failed',
-          reason: `Cannot read file: ${sanitizeErrorForClient(err)}`,
-          reason_code: 'parse_failed',
+          reason,
+          reason_code: reasonCode,
         })
+      }
+
+      // Step 1: read source file.
+      let oldContent: string
+      try {
+        oldContent = await this.readFile!(resolvedPath)
+      } catch (err) {
+        fail(`Cannot read file: ${sanitizeErrorForClient(err)}`)
         return
       }
 
@@ -1125,13 +1135,7 @@ export class EditPipeline {
       try {
         txn = await createJsxTransaction(resolvedPath, oldContent)
       } catch (err) {
-        this.channel.send({
-          type: 'edit_status',
-          editId: edit.editId,
-          status: 'failed',
-          reason: `Transaction init failed: ${sanitizeErrorForClient(err)}`,
-          reason_code: 'parse_failed',
-        })
+        fail(`Transaction init failed: ${sanitizeErrorForClient(err)}`)
         return
       }
 
@@ -1141,13 +1145,7 @@ export class EditPipeline {
         line, col, remove: classOpRemove, add: classOpAdd,
       })
       if (!classResult.success) {
-        this.channel.send({
-          type: 'edit_status',
-          editId: edit.editId,
-          status: 'failed',
-          reason: `Compound classOp failed: ${classResult.reason}`,
-          reason_code: 'parse_failed',
-        })
+        fail(`Compound classOp failed: ${classResult.reason}`)
         return
       }
 
@@ -1156,13 +1154,7 @@ export class EditPipeline {
         line, col, sets, removes,
       })
       if (!inlineResult.success) {
-        this.channel.send({
-          type: 'edit_status',
-          editId: edit.editId,
-          status: 'failed',
-          reason: `Compound inline ops failed: ${inlineResult.reason}`,
-          reason_code: 'parse_failed',
-        })
+        fail(`Compound inline ops failed: ${inlineResult.reason}`)
         return
       }
 
@@ -1187,13 +1179,7 @@ export class EditPipeline {
           content: newContent,
         })
       } catch (err) {
-        this.channel.send({
-          type: 'edit_status',
-          editId: edit.editId,
-          status: 'failed',
-          reason: `Write failed: ${sanitizeErrorForClient(err)}`,
-          reason_code: classifyWriteError(err),
-        })
+        fail(`Write failed: ${sanitizeErrorForClient(err)}`, classifyWriteError(err))
         return
       }
 
