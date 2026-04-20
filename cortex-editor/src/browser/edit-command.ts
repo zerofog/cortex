@@ -18,34 +18,46 @@ export interface EditCommand {
   undo(): void
 }
 
-export interface PropertyEditCommandInit {
+/** Shared init shape for both PropertyEditCommand and CompoundEditCommand —
+ *  structurally identical so the inputs live in ONE type. */
+export interface EditCommandInit {
   changes: PropertyChange[]
   overrideManager: CSSOverrideManager
   editId?: string
 }
 
-/**
- * Captures a user gesture (one or more CSS property changes) as a command.
- * execute() applies overrides; undo() reverts to previousValue.
- * Multi-property changes (e.g., fill type switch) are atomic — one command, one undo.
- */
-export class PropertyEditCommand implements EditCommand {
+/** Back-compat aliases for the init type — preserved so existing
+ *  callers referencing the specific names keep compiling. */
+export type PropertyEditCommandInit = EditCommandInit
+export type CompoundEditCommandInit = EditCommandInit
+
+/** Shared base: constructor + undo() are identical across both command
+ *  classes. Subclasses differ ONLY in execute() semantics:
+ *    - PropertyEditCommand always sets (scrub-produced values are
+ *      never empty).
+ *    - CompoundEditCommand honors value === '' as "remove this
+ *      override" because compound edits mix inlineSets (value set)
+ *      and inlineRemoves (value empty) in one changes[] array.
+ *
+ *  Subclassing expresses the semantic difference declaratively — the
+ *  alternative (a runtime executeMode flag) would hide two distinct
+ *  behaviors behind a branch. */
+abstract class BaseEditCommand implements EditCommand {
   readonly editId: string
   readonly changes: readonly PropertyChange[]
-  private readonly overrideManager: CSSOverrideManager
+  protected readonly overrideManager: CSSOverrideManager
 
-  constructor(init: PropertyEditCommandInit) {
+  constructor(init: EditCommandInit) {
     this.editId = init.editId ?? crypto.randomUUID()
     this.changes = init.changes
     this.overrideManager = init.overrideManager
   }
 
-  execute(): void {
-    for (const c of this.changes) {
-      this.overrideManager.set(c.source, c.property, c.value, c.pseudo)
-    }
-  }
+  abstract execute(): void
 
+  /** Revert each change: previousValue === '' removes the override;
+   *  otherwise restores the prior value. Same logic for both subclasses
+   *  because undo reads the captured previousValue, not the forward value. */
   undo(): void {
     for (const c of this.changes) {
       if (c.previousValue === '') {
@@ -57,10 +69,17 @@ export class PropertyEditCommand implements EditCommand {
   }
 }
 
-export interface CompoundEditCommandInit {
-  changes: PropertyChange[]
-  overrideManager: CSSOverrideManager
-  editId?: string
+/**
+ * Captures a user gesture (one or more CSS property changes) as a command.
+ * execute() applies overrides; undo() reverts to previousValue.
+ * Multi-property changes (e.g., fill type switch) are atomic — one command, one undo.
+ */
+export class PropertyEditCommand extends BaseEditCommand {
+  execute(): void {
+    for (const c of this.changes) {
+      this.overrideManager.set(c.source, c.property, c.value, c.pseudo)
+    }
+  }
 }
 
 /**
@@ -78,33 +97,13 @@ export interface CompoundEditCommandInit {
  * (className add/remove) is NOT tracked by this command — it is reverted
  * purely via the server's compound UndoFileChange + HMR re-render.
  */
-export class CompoundEditCommand implements EditCommand {
-  readonly editId: string
-  readonly changes: readonly PropertyChange[]
-  private readonly overrideManager: CSSOverrideManager
-
-  constructor(init: CompoundEditCommandInit) {
-    this.editId = init.editId ?? crypto.randomUUID()
-    this.changes = init.changes
-    this.overrideManager = init.overrideManager
-  }
-
+export class CompoundEditCommand extends BaseEditCommand {
   execute(): void {
     for (const c of this.changes) {
       if (c.value === '') {
         this.overrideManager.remove(c.source, c.property, c.pseudo)
       } else {
         this.overrideManager.set(c.source, c.property, c.value, c.pseudo)
-      }
-    }
-  }
-
-  undo(): void {
-    for (const c of this.changes) {
-      if (c.previousValue === '') {
-        this.overrideManager.remove(c.source, c.property, c.pseudo)
-      } else {
-        this.overrideManager.set(c.source, c.property, c.previousValue, c.pseudo)
       }
     }
   }
