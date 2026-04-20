@@ -144,4 +144,25 @@ describe('rejectCommonInjectionPatterns', () => {
     const err = rejectCommonInjectionPatterns('url(//evil.com/x)', 'value')
     expect(err).toContain('url()')
   })
+
+  // M1 (from Step 6 security review): bring inlineSets value strictness
+  // to parity with the regular property-keyed path, where VALID_VALUE's
+  // charset allowlist excludes `;`. Without this check, a compound edit
+  // like value:'red; --injected: 1' passes `rejectCommonInjectionPatterns`
+  // and reaches the write layer. JSON.stringify at serialization
+  // neutralizes the actual injection (the value lands as a JS string
+  // literal inside a React style prop, not as raw CSS), so this is
+  // defense-in-depth consistency, not an exploit gap — but the regular
+  // path would have rejected it and the compound path shouldn't
+  // diverge from that contract.
+  it('rejects semicolons (M1 — inlineSets value parity with regular-value charset)', () => {
+    const err = rejectCommonInjectionPatterns('red; --injected: 1', 'inlineSets value')
+    expect(err).toContain('semicolon')
+    expect(err).toContain('inlineSets value')
+  })
+
+  it('rejects semicolons even when mixed with otherwise-legitimate content (M1)', () => {
+    // Realistic injection shape: legitimate value prefix, `;`, attacker's payload.
+    expect(rejectCommonInjectionPatterns('14px;color:red', 'value')).toContain('semicolon')
+  })
 })

@@ -458,6 +458,26 @@ describe('EditPipeline — compound edit (C2)', () => {
     }))
   })
 
+  // M1 (Step 6 security review): inlineSets value strictness must match
+  // the regular property-keyed path, where VALID_VALUE's charset gate
+  // rejects `;`. Before this fix, 'red; --injected: 1' passed the
+  // compound validator and reached the write layer — JSON.stringify
+  // neutralized the actual injection, but the divergence is a consistency
+  // bug: the two paths should validate identically.
+  it('rejects semicolon in inlineSets value (M1 — value-charset parity)', async () => {
+    pipeline.handleEdit(baseEdit({
+      classOp: { kind: 'add', add: 'bg-image-holder' },
+      inlineSets: [{ property: 'color', value: 'red; --injected: 1' }],
+    }))
+    await flush()
+
+    expect(writes).toHaveLength(0)
+    expect(channel.send).toHaveBeenCalledWith(expect.objectContaining({
+      reason_code: 'invalid_class_token',
+      reason: expect.stringContaining('semicolon'),
+    }))
+  })
+
   it('rejects invalid property-name charset in inlineRemoves', async () => {
     pipeline.handleEdit(baseEdit({
       classOp: { kind: 'remove', remove: 'text-body-md' },

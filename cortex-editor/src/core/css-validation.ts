@@ -71,8 +71,16 @@ export function validatePropertyName(
  *      (`\75 rl(...)` → `url(...)` at CSS tokenization).
  *    - `/*` substring: blocks CSS comment injection
  *      (`url/**\/(...)` → `url(...)` at CSS tokenization).
+ *    - `;` substring: brings inlineSets value strictness to parity
+ *      with the regular property-keyed path, whose VALID_VALUE
+ *      charset gate excludes `;`. JSON.stringify at serialization
+ *      neutralizes the actual CSS injection for React style props,
+ *      so this is defense-in-depth consistency rather than an
+ *      exploit block — but the two paths should validate
+ *      identically. Checked last so the more-specific url/`///`\/`\*`
+ *      reasons surface first for shapes that match multiple rules.
  *
- *  These four checks together close the vulnerability class of
+ *  These checks together close the vulnerability class of
  *  attacker-controlled values flowing into inline styles or
  *  classOp tokens and being decoded into `url(...)` at render
  *  time. The `ctx` prefix tailors the error for the caller's
@@ -92,6 +100,9 @@ export function rejectCommonInjectionPatterns(
   }
   if (value.includes('/*')) {
     return `${ctx} must not contain /* (blocks CSS comment-injection bypass)`
+  }
+  if (value.includes(';')) {
+    return `${ctx} must not contain semicolon (charset parity with regular-value path)`
   }
   return null
 }
