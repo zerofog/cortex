@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
 import type { CortexChannel, ConnectionDisplay, Annotation, ActivityEntry, StyleCapability } from '../../adapters/types.js'
 import type { EditError } from './EditErrorCard.js'
 import { CSSOverrideManager } from '../override.js'
+import { onDivergence } from '../override-bus.js'
 import { CommandStack } from '../command-stack.js'
 import { initSelection } from '../selection.js'
 import type { SelectionHandle } from '../selection.js'
@@ -116,6 +117,18 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       setHoveredElement,
       setSelectedElement,
     )
+
+    // Debug-only test bridge — exposed when `window.__CORTEX_DEBUG_OVERRIDES__`
+    // is set in devtools. Lets Playwright/debuggers drive the override lifecycle
+    // directly (skipping the Panel UI) to reproduce timing-sensitive bugs like
+    // ZF0-1235. Zero cost in production builds where the flag is never set.
+    if ((window as unknown as { __CORTEX_DEBUG_OVERRIDES__?: boolean }).__CORTEX_DEBUG_OVERRIDES__) {
+      ;(window as unknown as { __CORTEX_TEST__?: unknown }).__CORTEX_TEST__ = {
+        overrideManager,
+        channel,
+        selectElement: setSelectedElement,
+      }
+    }
     // Start with design mode disabled — don't intercept events until activated
     selectionHandle.setDesignMode(false)
     selectionRef.current = selectionHandle
@@ -153,9 +166,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (msg.type === 'edit_status') {
         if (msg.status === 'done') {
           setActivityCount(c => c + 1)
-          if (msg.strategy === 'deferred') {
-            overrideRef.current?.markDeferred(msg.editId)
-          }
+          // Deferred strategy is carried on the subsequent hmr_verified message via
+          // its `kind` field — the override manager derives defer behavior from
+          // there, so no separate marking is required.
           // Clear any error for this edit's source+property
           const dispatch = editDispatchRef.current.get(msg.editId)
           if (dispatch) {
@@ -251,9 +264,30 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       }
     })
 
+    // Override divergence → Panel error card. Fires when the browser-side verifier
+    // determines the source write succeeded per the server but the DOM didn't
+    // reflect the expected value (e.g., React Fast Refresh skipped the element).
+    // The override preview is preserved; surfacing the mismatch prevents silent reverts.
+    const unsubDivergence = onDivergence((d) => {
+      const key = `${d.source}\0${d.property}`
+      // Always replace — later divergences carry more accurate `actual` values
+      // than earlier ones, and an older divergence should never mask a newer one.
+      setEditErrors(prev => {
+        const next = new Map(prev)
+        next.set(key, {
+          source: d.source,
+          property: d.property,
+          value: d.expected,
+          reason: `Preview shows "${d.expected}" but the saved file renders "${d.actual || '(empty)'}". The edit may not have propagated.`,
+        })
+        return next
+      })
+    })
+
     return () => {
       unsubscribe()
       unsubStatus()
+      unsubDivergence()
       if (reconnectedTimer !== undefined) clearTimeout(reconnectedTimer)
       selectionHandle.cleanup()
       selectionRef.current = null
@@ -341,7 +375,11 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (firstKey) map.delete(firstKey)
     }
     map.set(editId, { source, property, value })
-  }, [])
+    // A new edit supersedes any prior divergence card for the same source+property.
+    // Without this, a stale divergence from the previous edit would persist through
+    // the new edit's lifecycle and mislead the user.
+    clearEditError(`${source}\0${property}`)
+  }, [clearEditError])
 
   const handleDismissError = clearEditError
 
