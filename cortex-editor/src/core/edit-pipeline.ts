@@ -84,6 +84,25 @@ function validateInlineOps(
     if (s.value.includes('//')) {
       return 'inlineSets value must not contain protocol-relative `//`'
     }
+    // C-R3-1 (Round 3): reject backslash. No legitimate inline-style value
+    // needs it, and it is the entry-point for CSS Unicode escape bypass —
+    // `\75 rl(javascript:alert(1))` survives REJECT_URL_IN_INLINE (starts
+    // with `\`, not `u`), gets written to JSX as `"\\75 rl(...)"`, and is
+    // decoded by the CSS tokenizer when React assigns to element.style
+    // (CSSOM setProperty invokes the value parser per CSSOM 6.7). The
+    // resulting token is `url(...)`. Blocking `\` closes the entire
+    // escape-decoding class at the validator layer, mirroring H1's
+    // whitelist approach for classOp tokens.
+    if (s.value.includes('\\')) {
+      return 'inlineSets value must not contain backslash (blocks CSS Unicode escape bypass)'
+    }
+    // C-R3-1 (Round 3): reject CSS comment openers. The CSS tokenizer
+    // strips `/* ... */` comments BEFORE function-name matching, so
+    // `url/**/(evil)` decodes to `url(evil)` — another path around
+    // REJECT_URL_IN_INLINE.
+    if (s.value.includes('/*')) {
+      return 'inlineSets value must not contain /* (blocks CSS comment-injection bypass)'
+    }
   }
   for (const r of removes ?? []) {
     if (typeof r.property !== 'string' || r.property.length === 0) {

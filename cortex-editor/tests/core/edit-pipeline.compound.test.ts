@@ -496,4 +496,82 @@ describe('EditPipeline — compound edit (C2)', () => {
       reason_code: 'invalid_class_token',
     }))
   })
+
+  // C-R3-1 (Round 3 Critical): validateInlineOps must reject backslash
+  // and /* because the server-side REJECT_URL_IN_INLINE regex only
+  // matches the literal token `url(`. CSS Unicode escapes (`\75` → 'u')
+  // and comment injection (`url/**/(`) both decode to `url(...)` at
+  // CSS tokenization — which runs on element.style assignment per
+  // CSSOM 6.7. Blocking `\` and `/*` at the validator layer closes
+  // the entire escape-decoding class, mirroring H1's whitelist
+  // approach for classOp tokens.
+
+  it('rejects backslash in inlineSets value (blocks CSS Unicode escape bypass)', async () => {
+    pipeline.handleEdit(baseEdit({
+      classOp: { add: 'bg-image-holder' },
+      // `\75` is hex 0x75 = 'u'. At CSS tokenization, `\75 ` decodes
+      // to 'u', so the token `\75 rl(` becomes `url(`. The server's
+      // REJECT_URL_IN_INLINE regex sees the literal chars `\75 rl(`
+      // and does NOT match (starts with `\`, not `u`) — which is why
+      // we need a separate backslash-rejection check.
+      inlineSets: [{ property: 'background-image', value: '\\75 rl(javascript:alert(1))' }],
+    }))
+    await flush()
+
+    expect(writes).toHaveLength(0)
+    expect(channel.send).toHaveBeenCalledWith(expect.objectContaining({
+      reason_code: 'invalid_class_token',
+      reason: expect.stringContaining('backslash'),
+    }))
+  })
+
+  it('rejects 6-digit Unicode escape in inlineSets value', async () => {
+    // Full 6-digit form `\000075` also decodes to 'u'. Still contains
+    // a backslash so our check catches it.
+    pipeline.handleEdit(baseEdit({
+      classOp: { add: 'bg-image-holder' },
+      inlineSets: [{ property: 'background-image', value: '\\000075 rl(data:image/svg+xml,foo)' }],
+    }))
+    await flush()
+
+    expect(writes).toHaveLength(0)
+    expect(channel.send).toHaveBeenCalledWith(expect.objectContaining({
+      reason_code: 'invalid_class_token',
+      reason: expect.stringContaining('backslash'),
+    }))
+  })
+
+  it('rejects CSS comment injection in inlineSets value (url/**/() bypass)', async () => {
+    // The CSS tokenizer strips comments BEFORE function-name matching,
+    // so `url/**/(evil)` becomes `url(evil)`. Blocking `/*` at the
+    // validator layer closes this bypass.
+    pipeline.handleEdit(baseEdit({
+      classOp: { add: 'bg-image-holder' },
+      inlineSets: [{ property: 'background-image', value: 'url/**/(evil.gif)' }],
+    }))
+    await flush()
+
+    expect(writes).toHaveLength(0)
+    expect(channel.send).toHaveBeenCalledWith(expect.objectContaining({
+      reason_code: 'invalid_class_token',
+      reason: expect.stringContaining('/*'),
+    }))
+  })
+
+  it('rejects comment-open even on non-url() values (defense-in-depth)', async () => {
+    // `/*` is never legitimate inside a CSS property value regardless
+    // of property; blocking it universally is defense-in-depth against
+    // future CSS-parser behaviors we haven't enumerated.
+    pipeline.handleEdit(baseEdit({
+      classOp: { add: 'holder' },
+      inlineSets: [{ property: 'color', value: 'red /* injected */ !important' }],
+    }))
+    await flush()
+
+    expect(writes).toHaveLength(0)
+    expect(channel.send).toHaveBeenCalledWith(expect.objectContaining({
+      reason_code: 'invalid_class_token',
+      reason: expect.stringContaining('/*'),
+    }))
+  })
 })
