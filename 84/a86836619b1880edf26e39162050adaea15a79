@@ -1,0 +1,48 @@
+cortex-editor/tests/browser/panel.test.tsx
+  fb96bb4a527511f1 262,297,607
+cortex-editor/src/browser/override.ts
+  fb96bb4a527511f1 3,8-18,85,93,109-121,123,125,128-155,158-159,164-169,172-174,176,179-182,184-216,218-259,262-366,410-412,420-428,432-435,437-444,448,451-459,461,464-480,489-490,492-497,501,508-509,512,534-535,546-547,553-556
+cortex-editor/tests/browser/override.test.ts
+  fb96bb4a527511f1 15-17,19,26-27,644-645,672,679-680,697-704,708,710,712,714,716,718-719,722-727,732,737-739,744-745,748-761,765,769,771-773,775-776,778-783,786-794,798,802,804-807,810-812,815,824-827,829-830,833,835-836,841,850-858,860,862-864,866,872,878-880,885,889-890,897-901,905-907,910-911,913,916-923,927,930-932,934,937-944,946-949,951-952,954-956,958,961-971,973-980,982-987,989-990,992-995,997-998
+cortex-editor/src/browser/components/CortexApp.tsx
+  fb96bb4a527511f1 6,120-131,169-171,267-286,290,378-382
+cortex-editor/src/browser/override-bus.ts
+  fb96bb4a527511f1 2,5,7-11,23-39
+cortex-editor/src/core/edit-pipeline.ts
+  fb96bb4a527511f1 1336-1350
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "84a86836619b1880edf26e39162050adaea15a79",
+  "prompts": {
+    "458c225009fe5c27": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "883d6a7f-483c-4bde-92d4-b016d80882d0",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 4336,
+      "total_deletions": 0,
+      "accepted_lines": 4332,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/0799bbd0284647d22fc90c5012cf2aa97590bb77653871468317a9c58b663b00"
+    },
+    "fb96bb4a527511f1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5309eb80-ae50-46f3-a494-4cb152750395",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 1475,
+      "total_deletions": 611,
+      "accepted_lines": 670,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/fed72eff9c97e35d843b659e6c5a5377ce8052c1aeeffd59d05f90b115f90299"
+    }
+  }
+}
