@@ -4116,6 +4116,67 @@ describe('EditPipeline', () => {
       expect(fileContents.get('/project/a.css')).toBe('new-css')
     })
 
+    // H-R3-1 (Round 3): closes pr-test-analyzer M-1 coverage gap.
+    // The undo rollback path is tested above; redo has symmetric code
+    // (diff confirms parallel structure) but was previously untested,
+    // so a redo-specific regression could land undetected.
+    it('redo with write failure rolls back already-written files and preserves entry', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const undoStack = new UndoStack()
+
+      // Starting state: both files already at previousContent (pre-redo).
+      const fileContents = new Map<string, string>([
+        ['/project/a.css', 'old-css'],
+        ['/project/a.tsx', 'old-jsx'],
+      ])
+      const readFile = vi.fn().mockImplementation(async (p: string) => fileContents.get(p) ?? '')
+      let writeCount = 0
+      const writeFile = vi.fn().mockImplementation(async (intent: any) => {
+        writeCount++
+        // First redo write (CSS) succeeds, second (JSX) fails mid-way.
+        if (writeCount === 2) throw new Error('ENOSPC: disk full')
+        fileContents.set(intent.filePath, intent.content)
+      })
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, readFile,
+        projectRoot: '/project', undoStack,
+      })
+
+      // Build a redo entry: push + undo so the entry moves from undo → redo stack.
+      // We'll skip that dance and inject directly via the test harness —
+      // undoStack.push lands it on the undo stack, we call undo to move it.
+      undoStack.push({ changes: [
+        { filePath: '/project/a.css', previousContent: 'old-css', currentContent: 'new-css', requiresHmr: false },
+        { filePath: '/project/a.tsx', previousContent: 'old-jsx', currentContent: 'new-jsx', requiresHmr: false },
+      ] })
+      // Move entry to redo stack by invoking undo() on the stack directly.
+      // (The real flow would land this via pipeline.handleUndo, but we test
+      // redo in isolation here.)
+      undoStack.undo()
+      expect(undoStack.canRedo).toBe(true)
+
+      channel.sent.length = 0
+      writeCount = 0
+      await pipeline.handleRedo()
+      await vi.runAllTimersAsync()
+
+      const msg = channel.sent.find(m => m.type === 'redo_sync_status') as { status: string; reason?: string }
+      expect(msg.status).toBe('failed')
+      expect(msg.reason).toContain('Write failed during redo')
+      // Entry stays on redo stack — user can retry the redo.
+      expect(undoStack.canRedo).toBe(true)
+      // CSS file should be rolled back to previousContent (the pre-redo
+      // state) — NOT left at currentContent. This is the load-bearing
+      // assertion: without the inline rollback, the file would be in a
+      // mixed state (CSS = new, JSX = old).
+      expect(fileContents.get('/project/a.css')).toBe('old-css')
+      expect(fileContents.get('/project/a.tsx')).toBe('old-jsx')
+    })
+
     it('redo with stale file clears entire stack', async () => {
       const channel = mockChannel()
       const resolver = mockResolver({})

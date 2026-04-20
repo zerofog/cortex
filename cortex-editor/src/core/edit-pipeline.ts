@@ -874,11 +874,27 @@ export class EditPipeline {
         // Phase 2: write all files. Locks still held from Phase 1 so
         // no external write can land between validation and write for
         // any file in the set.
+        //
+        // H-R3-1 (Round 3): rollback-on-write-failure runs INSIDE this
+        // lock scope so the same TOCTOU closure applies to recovery.
+        // The prior design released all locks before calling a separate
+        // rollback helper, opening a window where a concurrent forward
+        // edit could land and then be clobbered by the rollback's
+        // stale currentContent. With rollback inline, locks are held
+        // continuously from validate through recovery — the same
+        // invariant as the happy path.
         for (const change of sortedChanges) {
           try {
             await this.writeFile({ kind: 'undo', suppressHmr: !change.requiresHmr, filePath: change.filePath, content: change.previousContent })
           } catch (err) {
             writeErr = err
+            for (const w of [...writtenUndo].reverse()) {
+              try {
+                await this.writeFile({ kind: 'undo', suppressHmr: !w.requiresHmr, filePath: w.filePath, content: w.rollbackContent })
+              } catch (rollbackErr) {
+                console.error('[cortex] Undo rollback failed for %s:', w.filePath, rollbackErr)
+              }
+            }
             return
           }
           writtenUndo.push({ filePath: change.filePath, rollbackContent: change.currentContent, requiresHmr: change.requiresHmr })
@@ -897,11 +913,8 @@ export class EditPipeline {
       return
     }
     if (writeErr) {
-      // Partial writes CAN occur if an early write succeeds and a
-      // later write fails (write errors mid-phase-2 are not caught by
-      // validation). Roll back the successful ones so the undo entry
-      // is retriable.
-      await this.rollbackEntryWrites(writtenUndo, 'undo')
+      // Rollback already ran inside the lock scope above. Only the
+      // status dispatch remains — no disk ops.
       this.channel.send({ type: 'undo_sync_status', status: 'failed', reason: `Write failed during undo: ${sanitizeErrorForClient(writeErr)}`, reason_code: 'write_failed' })
       return
     }
@@ -926,25 +939,6 @@ export class EditPipeline {
       return result
     }
     return acquire(0)
-  }
-
-  /** Roll back writes made during a partial undo/redo after a later
-   *  write failed mid-phase-2. Stale-failure doesn't reach this path
-   *  (stale is detected in phase 1 before any writes), so rollback is
-   *  only needed for write-failure, not for stale-failure. */
-  private async rollbackEntryWrites(
-    written: ReadonlyArray<{ filePath: string; rollbackContent: string; requiresHmr: boolean }>,
-    kind: 'undo' | 'redo',
-  ): Promise<void> {
-    for (const w of written) {
-      try {
-        await this.withFileLock(w.filePath, async () => {
-          await this.writeFile({ kind, suppressHmr: !w.requiresHmr, filePath: w.filePath, content: w.rollbackContent })
-        })
-      } catch (rollbackErr) {
-        console.error('[cortex] %s rollback failed for %s:', kind, w.filePath, rollbackErr)
-      }
-    }
   }
 
   async handleRedo(): Promise<void> {
@@ -995,11 +989,20 @@ export class EditPipeline {
             if (fileContent !== change.previousContent) { stale = true; return }
           }
         }
+        // H-R3-1 (Round 3): rollback-on-write-failure runs INSIDE the
+        // lock scope — see _doUndo for full rationale.
         for (const change of sortedChanges) {
           try {
             await this.writeFile({ kind: 'redo', suppressHmr: !change.requiresHmr, filePath: change.filePath, content: change.currentContent })
           } catch (err) {
             writeErr = err
+            for (const w of [...writtenRedo].reverse()) {
+              try {
+                await this.writeFile({ kind: 'redo', suppressHmr: !w.requiresHmr, filePath: w.filePath, content: w.rollbackContent })
+              } catch (rollbackErr) {
+                console.error('[cortex] Redo rollback failed for %s:', w.filePath, rollbackErr)
+              }
+            }
             return
           }
           writtenRedo.push({ filePath: change.filePath, rollbackContent: change.previousContent, requiresHmr: change.requiresHmr })
@@ -1016,7 +1019,7 @@ export class EditPipeline {
       return
     }
     if (writeErr) {
-      await this.rollbackEntryWrites(writtenRedo, 'redo')
+      // Rollback already ran inside the lock scope above.
       this.channel.send({ type: 'redo_sync_status', status: 'failed', reason: `Write failed during redo: ${sanitizeErrorForClient(writeErr)}`, reason_code: 'write_failed' })
       return
     }
