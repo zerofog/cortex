@@ -72,13 +72,13 @@ function validateInlineOps(
   return null
 }
 
-/** H-R3-2 (Round 3): quoted-path pre-pass for sanitizer. Node.js fs
+/** Quoted-path pre-pass for sanitizer. Node.js fs
  *  errors follow the convention of wrapping absolute paths in single
  *  or double quotes: `ENOENT: ... open '/Users/John Doe/Hero.tsx'`.
  *  A regex that matches between quotes captures paths CONTAINING
  *  SPACES — which the unquoted-regex fallback cannot, because its
  *  character class stops at whitespace. This closes the macOS
- *  Display Name leak that 4 Round 3 reviewers flagged independently.
+ *  Display Name leak pattern (common on macOS home directories).
  *
  *  Backreference `\1` ensures we match matching quote pairs. Inside,
  *  `\/[^'"]*` requires a leading slash (absolute POSIX) followed by
@@ -112,15 +112,16 @@ const WINDOWS_ABS_PATH_REGEX = /[A-Za-z]:[\\/](?:[^\s:,'"<>?*|]+[\\/]?)+/g
 
 /** Sanitize an error for surface to the browser over the WebSocket.
  *
- *  H5 (Round 1 review) + H-R2-2 (Round 2 review): three concerns —
- *    - ExternalRevertError.message previously embedded the absolute
- *      file path, propagating straight to the Panel's UI (Round 1
- *      fixed this at the error's constructor)
+ *  Three concerns this helper defends against:
+ *    - ExternalRevertError.message once embedded the absolute file
+ *      path, propagating straight to the Panel's UI (now redacted at
+ *      the error's own constructor; defense still applied here).
  *    - ts-morph / fs errors routinely include path fragments that
- *      likewise flowed verbatim to the browser (Round 1 added
- *      truncation at MAX_CLIENT_ERROR_LEN)
+ *      would otherwise flow verbatim to the browser — truncated at
+ *      MAX_CLIENT_ERROR_LEN.
  *    - Short fs errors (e.g. ENOENT ~65 chars) fit UNDER the 200-char
- *      truncation ceiling with the absolute path INTACT (Round 2)
+ *      truncation ceiling with the absolute path INTACT — handled
+ *      via the path-stripping regexes (applied before truncation).
  *
  *  Path-stripping happens BEFORE truncation so paths of any length
  *  are redacted. We apply both POSIX and Windows regexes; the order
@@ -131,7 +132,7 @@ const WINDOWS_ABS_PATH_REGEX = /[A-Za-z]:[\\/](?:[^\s:,'"<>?*|]+[\\/]?)+/g
 export function sanitizeErrorForClient(err: unknown): string {
   if (!(err instanceof Error)) return 'Unknown error'
   let msg = err.message
-  // Pass 1 (H-R3-2, Round 3): quoted absolute paths. Supports embedded
+  // Pass 1: quoted absolute paths. Supports embedded
   // spaces (macOS Display Name home dirs like `/Users/John Doe/...`).
   // Node fs errors always quote paths, so this pre-pass handles the
   // common case. Runs first so the path inside the quotes is replaced
@@ -173,11 +174,11 @@ export interface EditRequest {
    *  element's className attribute directly. `property` and `value` are
    *  ignored on this branch. */
   classOp?: ClassOp
-  /** ZF0-1215 C2: inline property SETS applied as part of a compound
+  /** Inline property SETS applied as part of a compound
    *  edit. Only honored when `classOp` is also present. See
    *  handleCompoundEdit. */
   inlineSets?: ReadonlyArray<{ property: string; value: string }>
-  /** ZF0-1215 C2: inline property REMOVES applied as part of a compound
+  /** Inline property REMOVES applied as part of a compound
    *  edit. Only honored when `classOp` is also present. */
   inlineRemoves?: ReadonlyArray<{ property: string }>
 }
@@ -345,7 +346,7 @@ export class EditPipeline {
         return
       }
 
-      // ZF0-1215 C2: compound routing. If the browser sent inline ops
+      // Compound routing. If the browser sent inline ops
       // alongside classOp, dispatch to handleCompoundEdit so classOp +
       // inlineSets + inlineRemoves apply to ONE source file in ONE
       // read-mutate-write cycle producing ONE UndoFileChange. Otherwise
@@ -1039,7 +1040,7 @@ export class EditPipeline {
 
   /**
    * Handle a compound edit: classOp + inlineSets + inlineRemoves applied
-   * to the same JSX element in ONE read-mutate-write cycle (ZF0-1215 C2).
+   * to the same JSX element in ONE read-mutate-write cycle.
    *
    * Why one cycle: the browser sent a SINGLE WebSocket message for one
    * user gesture (e.g., unlink-text-component = class removal + preserve

@@ -1,7 +1,7 @@
 /**
  * JsxTransaction — a shared in-memory ts-morph SourceFile scoped to one
  * file, used by TailwindRewriter and InlineStyleRewriter together during
- * compound operations (ZF0-1215 C2).
+ * compound operations.
  *
  * Why this exists: before C2, a compound edit (e.g., "link a text
  * bundle") fired as a classOp + N inline-property edits, producing N+1

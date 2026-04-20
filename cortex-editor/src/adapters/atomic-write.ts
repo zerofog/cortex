@@ -14,7 +14,7 @@ import { dirname, basename, join } from 'node:path'
  * bugs on the next edit (the class-accumulation symptom that triggered this
  * plan).
  *
- * H5 (Round 1 review): the `.message` deliberately does NOT include the
+ * The `.message` deliberately does NOT include the
  * file path. The edit pipeline propagates `err.message` straight to the
  * browser over the WebSocket; shipping absolute filesystem paths over
  * the wire leaks user-specific information (a concern in --host mode

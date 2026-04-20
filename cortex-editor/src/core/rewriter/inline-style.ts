@@ -352,7 +352,7 @@ export class InlineStyleRewriter {
 
   /**
    * Apply a batch of set and remove operations to ONE JSX element's
-   * inline style object within a shared `JsxTransaction` (ZF0-1215 C2).
+   * inline style object within a shared `JsxTransaction`.
    *
    * All-or-nothing semantics: Phase 1 prepares the style attribute (or
    * creates it if sets are requested and none exists). Phase 2 validates

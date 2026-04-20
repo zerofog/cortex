@@ -343,7 +343,7 @@ export class TailwindRewriter {
    * Transaction-based equivalent of `rewriteClassList`. Operates on a
    * pre-loaded `JsxTransactionHandle` instead of reading/writing disk.
    *
-   * Used by EditPipeline.handleCompoundEdit (ZF0-1215 C2) so a classOp
+   * Used by EditPipeline.handleCompoundEdit so a classOp
    * and subsequent inlineSets/inlineRemoves can share one in-memory
    * SourceFile: one fs read, one fs write, one compound UndoFileChange.
    *

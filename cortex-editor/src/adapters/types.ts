@@ -106,7 +106,7 @@ export type BrowserToServer =
        *  routing and downstream rewriter calls unambiguously read the
        *  required fields — no more optional-both-optional-neither ambiguity. */
       classOp?: ClassOp
-      /** ZF0-1215 C2: compound-edit extension. When `classOp` AND at
+      /** Compound-edit extension. When `classOp` AND at
        *  least one of `inlineSets` / `inlineRemoves` is populated, the
        *  pipeline routes to `handleCompoundEdit` which applies the
        *  className mutation + the inline-style mutations to the same

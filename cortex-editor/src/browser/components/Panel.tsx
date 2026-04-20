@@ -836,7 +836,7 @@ export function Panel({
 
       // Record on browser commandStack so Ctrl+Z's `if (cmd)` gate fires
       // and dispatches `{ type: 'undo' }` to the server — without this,
-      // the server's compound UndoFileChange is never popped (C-R2-1).
+      // the server's compound UndoFileChange is never popped.
       // record() stores without re-executing — overrides were already
       // applied above, matching the PropertyEditCommand pattern.
       if (commandStack) {
@@ -849,7 +849,7 @@ export function Panel({
         console.warn('[cortex] Compound edit committed without undo stack — this edit cannot be undone')
       }
 
-      // ONE compound WebSocket message (ZF0-1215 C2). Server routes to
+      // ONE compound WebSocket message. Server routes to
       // handleCompoundEdit when classOp + (inlineSets || inlineRemoves)
       // are all present; to handleClassOp when only classOp; to the
       // property path when only property/value. Falsifiable hook for
