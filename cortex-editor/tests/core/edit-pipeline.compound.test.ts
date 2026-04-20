@@ -225,10 +225,12 @@ describe('EditPipeline — compound edit (C2)', () => {
     expect(inlineStyleRewriter.setAndRemoveInTransaction).not.toHaveBeenCalled()
     expect(writes).toHaveLength(0)
     expect(undoStack.push).not.toHaveBeenCalled()
+    // Step 10 E-1: rewriter-step failures use 'rewriter_failed', not
+    // 'parse_failed' — the JSX parsed fine, the rewriter refused the op.
     expect(channel.send).toHaveBeenCalledWith(expect.objectContaining({
       editId: 'ec1',
       status: 'failed',
-      reason_code: 'parse_failed',
+      reason_code: 'rewriter_failed',
       reason: expect.stringContaining('Template literal'),
     }))
   })
@@ -247,10 +249,11 @@ describe('EditPipeline — compound edit (C2)', () => {
     // classOp mutation was in-memory only — never hit disk. No write.
     expect(writes).toHaveLength(0)
     expect(undoStack.push).not.toHaveBeenCalled()
+    // Step 10 E-1: symmetric with the classOp-failure test above.
     expect(channel.send).toHaveBeenCalledWith(expect.objectContaining({
       editId: 'ec1',
       status: 'failed',
-      reason_code: 'parse_failed',
+      reason_code: 'rewriter_failed',
       reason: expect.stringContaining('non-literal'),
     }))
   })

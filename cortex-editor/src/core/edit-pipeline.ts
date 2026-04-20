@@ -1079,22 +1079,29 @@ export class EditPipeline {
     // silently degrading to classOp-only (which would produce the
     // exact partial-undo bug C2 exists to close).
     if (!this.inlineStyleRewriter) {
+      // Server configuration error — the inline rewriter dependency wasn't
+      // wired during plugin init. Classified as 'rewriter_failed' because
+      // from the browser's perspective the rewriter step can't proceed —
+      // same failure class as a rewriter that tried and returned success:false.
       this.channel.send({
         type: 'edit_status',
         editId: edit.editId,
         status: 'failed',
         reason: 'Compound edit requires inline-style rewriter dependency',
-        reason_code: 'parse_failed',
+        reason_code: 'rewriter_failed',
       })
       return
     }
     if (!this.readFile) {
+      // Server configuration error — read capability is unavailable. Uses
+      // 'read_failed' for parity with the runtime read-error path below;
+      // both represent "the server could not read the source file."
       this.channel.send({
         type: 'edit_status',
         editId: edit.editId,
         status: 'failed',
         reason: 'Compound edit requires readFile dependency',
-        reason_code: 'parse_failed',
+        reason_code: 'read_failed',
       })
       return
     }
@@ -1146,7 +1153,10 @@ export class EditPipeline {
         line, col, remove: classOpRemove, add: classOpAdd,
       })
       if (!classResult.success) {
-        fail(`Compound classOp failed: ${classResult.reason}`)
+        // The rewriter attempted the classOp and refused — same failure
+        // class as the property-keyed rewrite path's 'rewriter_failed'
+        // (not a parse failure; the JSX itself parsed fine).
+        fail(`Compound classOp failed: ${classResult.reason}`, 'rewriter_failed')
         return
       }
 
@@ -1155,7 +1165,7 @@ export class EditPipeline {
         line, col, sets, removes,
       })
       if (!inlineResult.success) {
-        fail(`Compound inline ops failed: ${inlineResult.reason}`)
+        fail(`Compound inline ops failed: ${inlineResult.reason}`, 'rewriter_failed')
         return
       }
 
