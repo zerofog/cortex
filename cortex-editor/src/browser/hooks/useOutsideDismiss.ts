@@ -17,6 +17,15 @@ import type { RefObject } from 'preact'
  * that boundary. Taking `composedPath().includes(ref.current)` across the
  * union of listeners catches shadow-internal clicks regardless of depth.
  *
+ * Trigger-aware bypass (`triggerRefs`): when a popover is opened by a
+ * button outside the popover itself (e.g. a T-icon toggle next to a
+ * font-family dropdown), a click on that button must NOT be treated as
+ * "outside." Without a bypass, mousedown fires first and dismisses the
+ * popover, then the button's click handler re-opens it — the user sees
+ * the popover stay open. Any ref passed in `triggerRefs` is treated as
+ * an extension of the popover's dismiss boundary; the button's own
+ * onClick decides whether to toggle or re-open.
+ *
  * Two additional correctness properties worth documenting:
  *   - `onDismiss` is captured via a ref so listener identity stays stable
  *     across parent re-renders. A parent passing an inline arrow would
@@ -35,11 +44,21 @@ import type { RefObject } from 'preact'
 export function useOutsideDismiss(
   ref: RefObject<Element>,
   onDismiss: () => void,
+  triggerRefs?: ReadonlyArray<RefObject<Element>>,
 ): void {
   const onDismissRef = useRef(onDismiss)
   useEffect(() => {
     onDismissRef.current = onDismiss
   }, [onDismiss])
+
+  // Trigger refs captured via ref so listener identity stays stable even
+  // if the caller passes a new array literal each render. The array length
+  // and the individual ref identities are stable for the popover's lifetime,
+  // so reading .current at event time is correct.
+  const triggerRefsBox = useRef(triggerRefs)
+  useEffect(() => {
+    triggerRefsBox.current = triggerRefs
+  }, [triggerRefs])
 
   useEffect(() => {
     const node = ref.current
@@ -78,6 +97,17 @@ export function useOutsideDismiss(
       // clicks retarget to a host we recorded. Bail for those too.
       for (const h of hosts) {
         if (path.includes(h)) return
+      }
+      // Trigger-aware bypass: if the click originated on a registered
+      // trigger element (the button that toggles this popover), let the
+      // trigger's own onClick handle the state. Without this, the trigger
+      // click would dismiss the popover AND re-open it in the same gesture.
+      const triggers = triggerRefsBox.current
+      if (triggers) {
+        for (const t of triggers) {
+          const el = t.current
+          if (el && path.includes(el)) return
+        }
       }
       onDismissRef.current()
     }

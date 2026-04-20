@@ -1,4 +1,4 @@
-import type { JSX } from 'preact'
+import type { JSX, RefObject } from 'preact'
 import { TokenChip } from './TokenChip.js'
 
 export interface TextComponentPillProps {
@@ -8,6 +8,9 @@ export interface TextComponentPillProps {
   onSwap: () => void
   /** Remove the bundle class and replace with inline styles (unlink). */
   onUnlink: () => void
+  /** Ref attached to the clickable pill body. Forwarded to TokenChip so
+   *  callers can register the body as a popover trigger (see TokenChip bodyRef). */
+  bodyRef?: RefObject<HTMLButtonElement>
 }
 
 /**
@@ -19,6 +22,7 @@ export function TextComponentPill({
   tokenName,
   onSwap,
   onUnlink,
+  bodyRef,
 }: TextComponentPillProps): JSX.Element {
   return (
     <TokenChip
@@ -26,6 +30,7 @@ export function TextComponentPill({
       onBodyClick={onSwap}
       onUnlink={onUnlink}
       ariaLabel={`Swap text component (currently ${tokenName})`}
+      bodyRef={bodyRef}
     />
   )
 }

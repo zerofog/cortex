@@ -1,4 +1,4 @@
-import type { JSX } from 'preact'
+import type { JSX, RefObject } from 'preact'
 import { Unlink } from '../icons.js'
 
 export type TokenChipSwatch = { kind: 'color'; value: string } | { kind: 'pattern' }
@@ -22,6 +22,11 @@ export interface TokenChipProps {
   onUnlink?: () => void
   /** Accessible label for the body button. Defaults to the tokenName. */
   ariaLabel?: string
+  /** Attach a ref to the body element. Used by Typography v2 so a popover
+   *  opened by clicking the pill body can exempt the body from its
+   *  outside-dismiss boundary (prevents mousedown-dismiss /
+   *  click-reopen race when re-clicking the pill to close). */
+  bodyRef?: RefObject<HTMLButtonElement>
 }
 
 /** Diagonal-stripe background for non-color values (e.g. spacing, sizes). */
@@ -41,6 +46,7 @@ export function TokenChip({
   onBodyClick,
   onUnlink,
   ariaLabel,
+  bodyRef,
 }: TokenChipProps): JSX.Element {
   const swatchEl =
     swatch === undefined ? null : swatch.kind === 'color' ? (
@@ -58,6 +64,7 @@ export function TokenChip({
 
   const body = onBodyClick ? (
     <button
+      ref={bodyRef}
       type="button"
       class="cortex-token-chip__body"
       onClick={onBodyClick}

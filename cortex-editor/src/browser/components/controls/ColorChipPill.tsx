@@ -1,4 +1,4 @@
-import type { JSX } from 'preact'
+import type { JSX, RefObject } from 'preact'
 import { TokenChip } from './TokenChip.js'
 
 export interface ColorChipPillProps {
@@ -10,6 +10,9 @@ export interface ColorChipPillProps {
   onSwap: () => void
   /** Remove the color class and replace with inline color (unlink). */
   onUnlink: () => void
+  /** Ref attached to the clickable pill body. Forwarded to TokenChip so
+   *  callers can register the body as a popover trigger (see TokenChip bodyRef). */
+  bodyRef?: RefObject<HTMLButtonElement>
 }
 
 /**
@@ -22,6 +25,7 @@ export function ColorChipPill({
   hex,
   onSwap,
   onUnlink,
+  bodyRef,
 }: ColorChipPillProps): JSX.Element {
   return (
     <TokenChip
@@ -30,6 +34,7 @@ export function ColorChipPill({
       onBodyClick={onSwap}
       onUnlink={onUnlink}
       ariaLabel={`Swap color chip (currently ${tokenName})`}
+      bodyRef={bodyRef}
     />
   )
 }

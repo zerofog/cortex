@@ -179,4 +179,80 @@ describe('useOutsideDismiss', () => {
     // "happy-dom theatre" pattern CLAUDE.md forbids. Covered by manual
     // verification and (TODO) a Playwright suite against a real browser.
   })
+
+  // ─── Trigger-aware bypass ──────────────────────────────────────────
+  //
+  // Without the trigger bypass, mousedown on the popover's own toggle
+  // button fires useOutsideDismiss → onDismiss → state goes closed;
+  // then click on the same button re-opens it. Net: popover appears
+  // stuck open, user cannot close it by re-clicking the trigger.
+  //
+  // The triggerRefs prop extends the popover's dismiss boundary to
+  // include the trigger element, letting the trigger's own onClick
+  // be the single source of toggle truth.
+  describe('triggerRefs — trigger-aware dismiss bypass', () => {
+    function PopoverWithTrigger(props: {
+      onDismiss: () => void
+      includeTrigger: boolean
+    }): VNode {
+      const ref = useRef<HTMLDivElement>(null)
+      const triggerRef = useRef<HTMLButtonElement>(null)
+      useOutsideDismiss(
+        ref,
+        props.onDismiss,
+        props.includeTrigger ? [triggerRef] : undefined,
+      )
+      return (
+        <>
+          <button ref={triggerRef} type="button" data-testid="trigger">
+            toggle
+          </button>
+          <div ref={ref} data-testid="popover">
+            body
+          </div>
+        </>
+      )
+    }
+
+    it('does NOT dismiss when mousedown hits a registered trigger element', async () => {
+      const onDismiss = vi.fn()
+      mount(<PopoverWithTrigger onDismiss={onDismiss} includeTrigger={true} />)
+      await flushEffects()
+
+      const trigger = container.querySelector('[data-testid="trigger"]') as HTMLButtonElement
+      trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+
+      expect(onDismiss).not.toHaveBeenCalled()
+    })
+
+    it('DOES dismiss when mousedown hits the trigger WITHOUT the bypass registered (proves the bypass is load-bearing)', async () => {
+      // Falsifiability: run the exact same scenario but without the
+      // trigger bypass, and confirm dismissal fires. If this didn't
+      // fire, the bypass test above would be testing nothing.
+      const onDismiss = vi.fn()
+      mount(<PopoverWithTrigger onDismiss={onDismiss} includeTrigger={false} />)
+      await flushEffects()
+
+      const trigger = container.querySelector('[data-testid="trigger"]') as HTMLButtonElement
+      trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+
+      expect(onDismiss).toHaveBeenCalledTimes(1)
+    })
+
+    it('still dismisses on clicks that are NOT on the registered trigger', async () => {
+      const onDismiss = vi.fn()
+      const outside = document.createElement('div')
+      document.body.appendChild(outside)
+      try {
+        mount(<PopoverWithTrigger onDismiss={onDismiss} includeTrigger={true} />)
+        await flushEffects()
+
+        outside.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+
+        expect(onDismiss).toHaveBeenCalledTimes(1)
+      } finally {
+        outside.remove()
+      }
+    })
+  })
 })

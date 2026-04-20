@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useCallback, useMemo, useState } from 'preact/hooks'
+import { useCallback, useMemo, useRef, useState } from 'preact/hooks'
 import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { SegmentedControl } from '../controls/SegmentedControl.js'
@@ -349,8 +349,36 @@ export function TypographySection({
     [onChange],
   )
 
+  // Refs for picker trigger elements — passed to the pickers so
+  // useOutsideDismiss treats them as part of the popover boundary. Without
+  // this, mousedown on the trigger dismisses the picker just before click
+  // re-opens it, and the picker appears stuck open.
+  const typographyTriggerPillRef = useRef<HTMLButtonElement>(null)
+  const typographyTriggerTButtonRef = useRef<HTMLButtonElement>(null)
+  const colorTriggerPillRef = useRef<HTMLButtonElement>(null)
+  const colorTriggerSwatchButtonRef = useRef<HTMLButtonElement>(null)
+  // Memoized trigger arrays. Both pill + button refs are passed; only the
+  // active one will have a live `.current` at event time because the
+  // linked/unlinked states are mutually exclusive — the hook reads
+  // `.current` at dismissal-check time and skips nulls.
+  const typographyTriggerRefs = useMemo(
+    () => [typographyTriggerPillRef, typographyTriggerTButtonRef],
+    [],
+  )
+  const colorTriggerRefs = useMemo(
+    () => [colorTriggerPillRef, colorTriggerSwatchButtonRef],
+    [],
+  )
+
   // Typography group link/unlink.
-  const handleTypographyOpenPicker = useCallback(() => setPickerOpen('text'), [])
+  // Toggle semantics: if the picker is already open for this group, close
+  // it. Otherwise open it. The useOutsideDismiss trigger-ref bypass blocks
+  // the mousedown-dismiss before this click fires, so the toggle here is
+  // the single source of truth for open/close state.
+  const handleTypographyOpenPicker = useCallback(
+    () => setPickerOpen(prev => (prev === 'text' ? null : 'text')),
+    [],
+  )
   const handleTypographyClosePicker = useCallback(() => setPickerOpen(null), [])
   const handleTypographyUnlink = useCallback(() => {
     if (!bundle) return
@@ -373,7 +401,10 @@ export function TypographySection({
   )
 
   // Color group link/unlink.
-  const handleColorOpenPicker = useCallback(() => setPickerOpen('color'), [])
+  const handleColorOpenPicker = useCallback(
+    () => setPickerOpen(prev => (prev === 'color' ? null : 'color')),
+    [],
+  )
   const handleColorClosePicker = useCallback(() => setPickerOpen(null), [])
   const handleColorUnlink = useCallback(() => {
     if (!chip) return
@@ -404,6 +435,7 @@ export function TypographySection({
             tokenName={bundle.name}
             onSwap={handleTypographyOpenPicker}
             onUnlink={handleTypographyUnlink}
+            bodyRef={typographyTriggerPillRef}
           />
           {pickerOpen === 'text' && (
             <TextComponentPicker
@@ -411,6 +443,7 @@ export function TypographySection({
               currentName={bundle.name}
               onPick={handleTypographyPick}
               onDismiss={handleTypographyClosePicker}
+              triggerRefs={typographyTriggerRefs}
             />
           )}
         </div>
@@ -425,6 +458,7 @@ export function TypographySection({
               onChange={handleFamilyChange}
             />
             <button
+              ref={typographyTriggerTButtonRef}
               type="button"
               class="cortex-typography-section__t-button"
               onClick={handleTypographyOpenPicker}
@@ -438,6 +472,7 @@ export function TypographySection({
                 currentName={null}
                 onPick={handleTypographyPick}
                 onDismiss={handleTypographyClosePicker}
+                triggerRefs={typographyTriggerRefs}
               />
             )}
           </div>
@@ -502,6 +537,7 @@ export function TypographySection({
             hex={chip.hex}
             onSwap={handleColorOpenPicker}
             onUnlink={handleColorUnlink}
+            bodyRef={colorTriggerPillRef}
           />
           {pickerOpen === 'color' && (
             <ColorChipPicker
@@ -509,6 +545,7 @@ export function TypographySection({
               currentName={chip.name}
               onPick={handleColorPick}
               onDismiss={handleColorClosePicker}
+              triggerRefs={colorTriggerRefs}
             />
           )}
         </div>
@@ -525,6 +562,7 @@ export function TypographySection({
             mixed={mixedProperties?.has('color')}
           />
           <button
+            ref={colorTriggerSwatchButtonRef}
             type="button"
             class="cortex-typography-section__swatchbook-button"
             onClick={handleColorOpenPicker}
@@ -538,6 +576,7 @@ export function TypographySection({
               currentName={null}
               onPick={handleColorPick}
               onDismiss={handleColorClosePicker}
+              triggerRefs={colorTriggerRefs}
             />
           )}
         </div>

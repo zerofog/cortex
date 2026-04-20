@@ -1,4 +1,4 @@
-import type { JSX } from 'preact'
+import type { JSX, RefObject } from 'preact'
 import { useRef } from 'preact/hooks'
 import type { TextComponent } from '../../../core/text-components.js'
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js'
@@ -14,6 +14,11 @@ export interface TextComponentPickerProps {
   /** Fired on outside click or Escape key — the caller is responsible for
    *  unmounting the picker. */
   onDismiss: () => void
+  /** Elements that opened this popover. Clicks on them are treated as
+   *  part of the popover surface so the trigger's own onClick is the
+   *  single source of toggle truth. Prevents the mousedown-dismiss /
+   *  click-reopen race on toggle buttons. */
+  triggerRefs?: ReadonlyArray<RefObject<Element>>
 }
 
 /**
@@ -31,9 +36,10 @@ export function TextComponentPicker({
   currentName,
   onPick,
   onDismiss,
+  triggerRefs,
 }: TextComponentPickerProps): JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
-  useOutsideDismiss(ref, onDismiss)
+  useOutsideDismiss(ref, onDismiss, triggerRefs)
 
   if (components.length === 0) {
     return (

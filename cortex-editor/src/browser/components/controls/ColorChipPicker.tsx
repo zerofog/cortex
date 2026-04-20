@@ -1,4 +1,4 @@
-import type { JSX } from 'preact'
+import type { JSX, RefObject } from 'preact'
 import { useRef } from 'preact/hooks'
 import type { ColorChip } from '../../token-detector.js'
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js'
@@ -9,6 +9,11 @@ export interface ColorChipPickerProps {
   currentName: string | null
   onPick: (chip: ColorChip) => void
   onDismiss: () => void
+  /** Elements that opened this popover. Clicks on them are treated as
+   *  part of the popover surface so the trigger's own onClick is the
+   *  single source of toggle truth. Prevents the mousedown-dismiss /
+   *  click-reopen race on toggle buttons. */
+  triggerRefs?: ReadonlyArray<RefObject<Element>>
 }
 
 /**
@@ -25,10 +30,11 @@ export function ColorChipPicker({
   currentName,
   onPick,
   onDismiss,
+  triggerRefs,
 }: ColorChipPickerProps): JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
 
-  useOutsideDismiss(ref, onDismiss)
+  useOutsideDismiss(ref, onDismiss, triggerRefs)
 
   if (chips.length === 0) {
     return (
