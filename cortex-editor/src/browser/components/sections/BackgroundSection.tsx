@@ -3,7 +3,7 @@ import { useCallback, useMemo } from 'preact/hooks'
 import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { ColorInput, parseColor, formatColor } from '../controls/ColorInput.js'
-import { TokenChip } from '../controls/TokenChip.js'
+import { TokenChip, isColorLike } from '../controls/TokenChip.js'
 import { IconButton } from '../controls/IconButton.js'
 import { Minus } from '../icons.js'
 
@@ -79,7 +79,11 @@ export function BackgroundSection({
         <div class="cortex-background-section__row">
           <TokenChip
             tokenName={backgroundToken}
-            resolvedValue={backgroundColor}
+            swatch={
+              isColorLike(backgroundColor)
+                ? { kind: 'color', value: backgroundColor }
+                : { kind: 'pattern' }
+            }
             onUnlink={handleUnlink}
           />
           {removeButton}

@@ -336,7 +336,7 @@ export function themePropertiesToResolved(properties: Map<string, string>): Reso
  * Scan CSS files in projectRoot (excluding node_modules) recursively for
  * `@import "tailwindcss"`. Returns the file content if found, null otherwise.
  */
-async function findV4EntryCSS(projectRoot: string): Promise<string | null> {
+export async function findV4EntryCSS(projectRoot: string): Promise<string | null> {
   let entries: string[]
   try {
     entries = await readdir(projectRoot, { recursive: true }) as string[]

@@ -201,7 +201,7 @@
   text-overflow: ellipsis;
   border-radius: var(--cx-radius-sm);
   pointer-events: none;
-  z-index: 10;
+  z-index: 11;
   opacity: 0;
   transition: opacity 150ms ease-out, transform 150ms ease-out;
 }
@@ -1543,25 +1543,24 @@
   gap: var(--cx-sp-6);
 }
 
-/* Mode A: vertical stack of token chips */
-.cortex-typography-section--mode-a {
-  gap: var(--cx-sp-3);
-}
-
-.cortex-typography-section__empty {
-  font-size: var(--cx-text-sm);
-  color: var(--cx-ink-ghost);
-  font-style: italic;
-}
-
-/* Mode B: CSS control rows */
+/* Typography v2 rows */
 .cortex-typography-section__row {
   display: flex;
+  align-items: center;
   gap: var(--cx-sp-3);
+  position: relative; /* picker popover anchors against this */
 }
 
-.cortex-typography-section__row--full {
-  flex-direction: column;
+/* Family dropdown + trailing T button row */
+.cortex-typography-section__row--with-t > .cortex-dropdown {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Color input + trailing SwatchBook button row */
+.cortex-typography-section__row--with-swatch > .cortex-color-input {
+  flex: 1;
+  min-width: 0;
 }
 
 .cortex-typography-section__field {
@@ -1570,6 +1569,184 @@
   display: flex;
   align-items: center;
   gap: var(--cx-sp-2);
+}
+
+/* Trailing icon buttons (T for typography link, SwatchBook for color link) */
+.cortex-typography-section__t-button,
+.cortex-typography-section__swatchbook-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--cx-rule);
+  background: var(--cx-well);
+  color: var(--cx-ink-ghost);
+  border-radius: var(--cx-radius-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 150ms ease-out, border-color 150ms ease-out;
+}
+
+.cortex-typography-section__t-button:hover,
+.cortex-typography-section__swatchbook-button:hover {
+  color: var(--cx-ink);
+  border-color: var(--cx-select);
+}
+
+.cortex-typography-section__t-button:focus-visible,
+.cortex-typography-section__swatchbook-button:focus-visible {
+  outline: 2px solid var(--cx-select);
+  outline-offset: 2px;
+}
+
+/* Alignment row: horizontal + vertical segmented controls side by side */
+.cortex-typography-section__align-row {
+  display: flex;
+  gap: var(--cx-sp-3);
+}
+
+.cortex-typography-section__align-row > .cortex-segmented-control {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── TextComponentPicker popover ───────────────── */
+.cortex-text-component-picker {
+  position: absolute;
+  top: calc(100% + var(--cx-sp-1));
+  left: 0;
+  right: 0;
+  z-index: 11;
+  display: flex;
+  flex-direction: column;
+  background: var(--cx-paper);
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-sm);
+  box-shadow:
+    0 8px 24px rgb(0 0 0 / 0.12),
+    0 2px 6px rgb(0 0 0 / 0.06);
+  max-height: 240px;
+  overflow-y: auto;
+  padding: var(--cx-sp-1);
+}
+
+.cortex-text-component-picker--empty {
+  padding: var(--cx-sp-3);
+  color: var(--cx-ink-ghost);
+  font-style: italic;
+  font-size: var(--cx-text-sm);
+  text-align: center;
+}
+
+.cortex-text-component-picker__option {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--cx-sp-3);
+  padding: var(--cx-sp-2) var(--cx-sp-3);
+  background: transparent;
+  border: none;
+  border-radius: var(--cx-radius-sm);
+  color: var(--cx-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cortex-text-component-picker__option:hover {
+  background: var(--cx-well);
+}
+
+.cortex-text-component-picker__option--active {
+  background: color-mix(in srgb, var(--cx-select) 12%, transparent);
+  color: var(--cx-select);
+}
+
+.cortex-text-component-picker__name {
+  font-family: var(--cx-mono);
+  font-size: var(--cx-text-md);
+}
+
+.cortex-text-component-picker__meta {
+  font-size: var(--cx-text-xs);
+  color: var(--cx-ink-ghost);
+  white-space: nowrap;
+}
+
+/* ── ColorChipPicker popover ───────────────────── */
+.cortex-color-chip-picker {
+  position: absolute;
+  top: calc(100% + var(--cx-sp-1));
+  left: 0;
+  right: 0;
+  z-index: 11;
+  display: flex;
+  flex-direction: column;
+  background: var(--cx-paper);
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-sm);
+  box-shadow:
+    0 8px 24px rgb(0 0 0 / 0.12),
+    0 2px 6px rgb(0 0 0 / 0.06);
+  max-height: 240px;
+  overflow-y: auto;
+  padding: var(--cx-sp-1);
+}
+
+.cortex-color-chip-picker--empty {
+  padding: var(--cx-sp-3);
+  color: var(--cx-ink-ghost);
+  font-style: italic;
+  font-size: var(--cx-text-sm);
+  text-align: center;
+}
+
+.cortex-color-chip-picker__option {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  align-items: center;
+  gap: var(--cx-sp-3);
+  padding: var(--cx-sp-2) var(--cx-sp-3);
+  background: transparent;
+  border: none;
+  border-radius: var(--cx-radius-sm);
+  color: var(--cx-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cortex-color-chip-picker__option:hover {
+  background: var(--cx-well);
+}
+
+.cortex-color-chip-picker__option--active {
+  background: color-mix(in srgb, var(--cx-select) 12%, transparent);
+  color: var(--cx-select);
+}
+
+.cortex-color-chip-picker__swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--cx-radius-sm);
+  border: 1px solid var(--cx-rule);
+}
+
+.cortex-color-chip-picker__name {
+  font-family: var(--cx-mono);
+  font-size: var(--cx-text-md);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cortex-color-chip-picker__hex {
+  font-family: var(--cx-mono);
+  font-size: var(--cx-text-xs);
+  color: var(--cx-ink-ghost);
+  white-space: nowrap;
 }
 
 /* ── Color input ────────────────────────────── */
@@ -1649,7 +1826,7 @@
 .cortex-color-picker__backdrop {
   position: fixed;
   inset: 0;
-  z-index: 10;
+  z-index: 11;
 }
 
 .cortex-color-picker__popover {
@@ -3663,6 +3840,31 @@
   background: var(--cx-well);
   border: 1px solid var(--cx-rule);
   border-radius: var(--cx-radius-sm);
+}
+
+/* Body wraps swatch + name and may render as <button> (swap) or <span>
+ * (display-only). Reset button chrome so visual output matches the span path. */
+.cortex-token-chip__body {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+button.cortex-token-chip__body {
+  cursor: pointer;
+}
+
+button.cortex-token-chip__body:focus-visible {
+  outline: 2px solid var(--cx-focus, currentColor);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 .cortex-token-chip__swatch {

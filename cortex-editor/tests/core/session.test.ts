@@ -51,7 +51,7 @@ describe('CortexSession', () => {
     it('initializes empty collections', () => {
       expect(session.cliClients.size).toBe(0)
       expect(session.hmrCallbacks).toEqual([])
-      expect(session.recentEditWrites.size).toBe(0)
+      expect(session.recentEditWriteTimers.size).toBe(0)
     })
 
     it('initializes nullable state to null', () => {
@@ -171,7 +171,10 @@ describe('CortexSession', () => {
       session.editorActive = true
       session.browserConnected = true
       session.hmrCallbacks.push(() => {})
-      session.recentEditWrites.add('file.tsx')
+      // Use a never-firing timer so dispose's clearTimeout path is
+      // exercised without a real wait. Value-shape must match the
+      // Map's type signature (ReturnType<typeof setTimeout>).
+      session.recentEditWriteTimers.set('file.tsx', setTimeout(() => {}, 999999))
       session.capabilitiesCache = [{ name: 'Tailwind', status: 'supported' }]
 
       await session.dispose()
@@ -179,7 +182,7 @@ describe('CortexSession', () => {
       expect(session.editorActive).toBe(false)
       expect(session.browserConnected).toBe(false)
       expect(session.hmrCallbacks).toHaveLength(0)
-      expect(session.recentEditWrites.size).toBe(0)
+      expect(session.recentEditWriteTimers.size).toBe(0)
       expect(session.capabilitiesCache).toBeNull()
       expect(session.upgradeHandlerRef).toBeNull()
     })

@@ -66,12 +66,61 @@ export interface ServerChannel {
  *  'deferred': AI/deferred edit, override cleared after double-rAF (framework re-render). */
 export type EditKind = 'immediate' | 'jsx-immediate' | 'deferred'
 
+/** Discriminated union for className mutations. The `kind` discriminator
+ *  forces callers to declare intent; pipeline routing reads only the
+ *  fields guaranteed present for each variant. */
+export type ClassOp =
+  | { kind: 'add'; add: string }
+  | { kind: 'remove'; remove: string }
+  | { kind: 'swap'; remove: string; add: string }
+
 // === Message protocol ===
 
 export type BrowserToServer =
   | { type: 'init'; sessionId?: string }
   | { type: 'cortex-closed' }
-  | { type: 'edit'; token?: string; protocolVersion?: number; editId: string; property: string; value: string; source: string; elementSelector: string; cssMapping?: string; scope?: 'instance' | 'all'; instanceSources?: string[]; currentClass?: string }
+  | {
+      type: 'edit'
+      token?: string
+      protocolVersion?: number
+      editId: string
+      property: string
+      value: string
+      source: string
+      elementSelector: string
+      cssMapping?: string
+      scope?: 'instance' | 'all'
+      instanceSources?: string[]
+      currentClass?: string
+      /** When present, the pipeline treats this as a className mutation.
+       *  `property` and `value` are ignored on the classOp branch.
+       *
+       *  Discriminated by `kind`:
+       *    - 'add': pure class addition (e.g., linking a new text-component
+       *      with no prior class on the element)
+       *    - 'remove': pure class removal (e.g., unlinking to clear styles)
+       *    - 'swap': atomic remove-then-add (e.g., swapping text-body-md
+       *      for text-heading-1 in one gesture)
+       *
+       *  The kind makes caller intent explicit at the type level. Pipeline
+       *  routing and downstream rewriter calls unambiguously read the
+       *  required fields — no more optional-both-optional-neither ambiguity. */
+      classOp?: ClassOp
+      /** Compound-edit extension. When `classOp` AND at
+       *  least one of `inlineSets` / `inlineRemoves` is populated, the
+       *  pipeline routes to `handleCompoundEdit` which applies the
+       *  className mutation + the inline-style mutations to the same
+       *  JSX element in ONE read-mutate-write cycle, producing ONE
+       *  UndoFileChange entry. This makes a full user gesture (e.g.,
+       *  "unlink a text bundle" = remove class + write preserving
+       *  inline styles) atomic for undo purposes. */
+      inlineSets?: ReadonlyArray<{ property: string; value: string }>
+      /** Companion to inlineSets: properties to REMOVE from the JSX
+       *  element's inline style object (if present). Lands in the
+       *  same compound edit so "link a bundle while clearing stale
+       *  inline styles" is also atomic. */
+      inlineRemoves?: ReadonlyArray<{ property: string }>
+    }
   | { type: 'undo'; token?: string; protocolVersion?: number; editId?: string }
   | { type: 'redo'; token?: string; protocolVersion?: number; editId?: string }
   | { type: 'comment'; token?: string; protocolVersion?: number; elementSource: string; text: string; elementContext?: ElementContext; currentStyles?: Record<string, string>; pinPosition?: { x: number; y: number }; kind?: AnnotationKind; fixMeta?: FixMeta }
@@ -82,9 +131,26 @@ export type ServerToBrowser =
   | { type: 'cortex' }
   | { type: 'cortex-close' }
   | { type: 'cortex-toggle'; active: boolean }
-  | { type: 'hello'; protocolVersion: number; sessionId: string; swatches?: string[] }
+  | {
+      type: 'hello'
+      protocolVersion: number
+      sessionId: string
+      /** Back-compat: flat hex list used by the v1 color swatch row. */
+      swatches?: string[]
+      /** Named design-system chips (token name + browser-ready hex). */
+      colorChips?: Array<{ name: string; hex: string }>
+      /** Typography bundles — all four sub-properties present per entry. */
+      textComponents?: Array<{
+        name: string
+        fontSize: string
+        lineHeight: string
+        letterSpacing: string
+        fontWeight: string
+        fontFamily?: string
+      }>
+    }
   | { type: 'error'; code: string; message: string; editId?: string }
-  | { type: 'edit_status'; editId: string; status: 'writing' | 'done' | 'failed' | 'cancelled'; newToken?: string; reason?: string; strategy?: 'immediate' | 'deferred' }
+  | { type: 'edit_status'; editId: string; status: 'writing' | 'done' | 'failed' | 'cancelled'; newToken?: string; reason?: string; reason_code?: 'external_revert' | 'invalid_class_token' | 'write_failed' | 'rewriter_failed' | 'parse_failed' | 'read_failed'; strategy?: 'immediate' | 'deferred' }
   | { type: 'undo_sync_status'; status: 'done' | 'failed'; reason?: string; reason_code?: 'empty_stack' | 'stale' | 'write_failed' }
   | { type: 'redo_sync_status'; status: 'done' | 'failed'; reason?: string; reason_code?: 'empty_stack' | 'stale' | 'write_failed' }
   | { type: 'hmr_verified'; editId: string; match: boolean; expected?: string; actual?: string; kind?: EditKind }

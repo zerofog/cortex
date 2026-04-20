@@ -127,8 +127,10 @@ export function bootstrap(): void {
     activeChannel = createWebSocketChannel()
   }
 
-  // Trigger server handshake — server responds with hello + swatches
-  activeChannel.send({ type: 'init', sessionId: window.__CORTEX_SESSION_ID__ })
+  // Init signal is sent from CortexApp's useEffect AFTER it subscribes to onMessage.
+  // This enforces listen-first ordering: the server's hello response is async, so we
+  // must guarantee a handler is attached before signaling readiness. Emitting init
+  // here would create a race where hello arrives before the subscriber exists.
 
   // Read initial active state from DOM attribute (set by toggle shortcut before bootstrap)
   const initialActive = document.documentElement.hasAttribute('data-cortex-active')

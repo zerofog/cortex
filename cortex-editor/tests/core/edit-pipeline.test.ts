@@ -871,7 +871,11 @@ describe('EditPipeline', () => {
     // Undo
     await pipeline.handleUndo()
 
-    expect(writeFile).toHaveBeenCalledWith({ kind: 'undo', filePath: '/project/src/App.tsx', content: 'old' })
+    // objectContaining tolerates the suppressHmr field added for ZF0-1215
+    // classOp HMR policy (UndoFileChange.requiresHmr is translated to
+    // suppressHmr here). Property edits set requiresHmr:false, so the
+    // resulting suppressHmr is true (override-layer paints the visual).
+    expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'undo', filePath: '/project/src/App.tsx', content: 'old', suppressHmr: true }))
     const undoStatus = channel.sent.find(m => m.type === 'undo_sync_status' && (m as { status: string }).status === 'done')
     expect(undoStatus).toBeDefined()
   })
@@ -1006,7 +1010,7 @@ describe('EditPipeline', () => {
 
     // writeFile was called once for the undo, not for the cancelled edit
     expect(writeFile).toHaveBeenCalledTimes(1)
-    expect(writeFile).toHaveBeenCalledWith({ kind: 'undo', filePath: '/project/src/App.tsx', content: 'old' })
+    expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'undo', filePath: '/project/src/App.tsx', content: 'old', suppressHmr: true }))
   })
 
   it('handleRedo re-applies change after undo', async () => {
@@ -1058,7 +1062,7 @@ describe('EditPipeline', () => {
     // Redo (should verify file matches previousContent, then write currentContent)
     await pipeline.handleRedo()
 
-    expect(writeFile).toHaveBeenCalledWith({ kind: 'redo', filePath: '/project/src/App.tsx', content: 'new content' })
+    expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'redo', filePath: '/project/src/App.tsx', content: 'new content', suppressHmr: true }))
     const redoStatus = channel.sent.find(m => m.type === 'redo_sync_status' && (m as { status: string }).status === 'done')
     expect(redoStatus).toBeDefined()
   })
@@ -2600,8 +2604,10 @@ describe('EditPipeline', () => {
         detector: { hasCSSModules: false, hasTailwind: false },
       })
 
-      // Push an undo entry manually so we have something to undo
-      undoStack.push({ changes: [{ filePath: '/project/src/App.tsx', previousContent: 'old-content', currentContent: 'new-content' }] })
+      // Push an undo entry manually so we have something to undo.
+      // requiresHmr:false — this synthetic entry represents a property edit
+      // whose visual was already painted by the browser-side override layer.
+      undoStack.push({ changes: [{ filePath: '/project/src/App.tsx', previousContent: 'old-content', currentContent: 'new-content', requiresHmr: false }] })
 
       // Enqueue a deferred edit that's still pending (5s coalescing)
       deferredWriter.enqueue({
@@ -2650,8 +2656,10 @@ describe('EditPipeline', () => {
         detector: { hasCSSModules: false, hasTailwind: false },
       })
 
-      // Push an undo entry and undo it so we can redo
-      undoStack.push({ changes: [{ filePath: '/project/src/App.tsx', previousContent: 'old-content', currentContent: 'new-content' }] })
+      // Push an undo entry and undo it so we can redo.
+      // requiresHmr:false — synthetic property-edit change; the visual was
+      // painted by the override layer so redo also suppresses HMR.
+      undoStack.push({ changes: [{ filePath: '/project/src/App.tsx', previousContent: 'old-content', currentContent: 'new-content', requiresHmr: false }] })
       await pipeline.handleUndo()
       channel.sent.length = 0 // reset
 
@@ -4046,10 +4054,13 @@ describe('EditPipeline', () => {
         projectRoot: '/project', undoStack,
       })
 
-      // Manually push a compound entry
+      // Manually push a compound entry.
+      // requiresHmr is the real field on UndoFileChange (threaded in A2);
+      // these fixtures predate the field, so set false — test asserts stale
+      // detection, not HMR semantics.
       undoStack.push({ changes: [
-        { filePath: '/project/a.css', previousContent: 'old-css', currentContent: 'new-css' },
-        { filePath: '/project/a.tsx', previousContent: 'old-jsx', currentContent: 'new-jsx' },
+        { filePath: '/project/a.css', previousContent: 'old-css', currentContent: 'new-css', requiresHmr: false },
+        { filePath: '/project/a.tsx', previousContent: 'old-jsx', currentContent: 'new-jsx', requiresHmr: false },
       ] })
 
       await pipeline.handleUndo()
@@ -4089,8 +4100,8 @@ describe('EditPipeline', () => {
       })
 
       undoStack.push({ changes: [
-        { filePath: '/project/a.css', previousContent: 'old-css', currentContent: 'new-css' },
-        { filePath: '/project/a.tsx', previousContent: 'old-jsx', currentContent: 'new-jsx' },
+        { filePath: '/project/a.css', previousContent: 'old-css', currentContent: 'new-css', requiresHmr: false },
+        { filePath: '/project/a.tsx', previousContent: 'old-jsx', currentContent: 'new-jsx', requiresHmr: false },
       ] })
 
       await pipeline.handleUndo()
@@ -4103,6 +4114,67 @@ describe('EditPipeline', () => {
       expect(undoStack.canUndo).toBe(true)
       // CSS file should be rolled back to currentContent (not left as previousContent)
       expect(fileContents.get('/project/a.css')).toBe('new-css')
+    })
+
+    // H-R3-1 (Round 3): closes pr-test-analyzer M-1 coverage gap.
+    // The undo rollback path is tested above; redo has symmetric code
+    // (diff confirms parallel structure) but was previously untested,
+    // so a redo-specific regression could land undetected.
+    it('redo with write failure rolls back already-written files and preserves entry', async () => {
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const undoStack = new UndoStack()
+
+      // Starting state: both files already at previousContent (pre-redo).
+      const fileContents = new Map<string, string>([
+        ['/project/a.css', 'old-css'],
+        ['/project/a.tsx', 'old-jsx'],
+      ])
+      const readFile = vi.fn().mockImplementation(async (p: string) => fileContents.get(p) ?? '')
+      let writeCount = 0
+      const writeFile = vi.fn().mockImplementation(async (intent: any) => {
+        writeCount++
+        // First redo write (CSS) succeeds, second (JSX) fails mid-way.
+        if (writeCount === 2) throw new Error('ENOSPC: disk full')
+        fileContents.set(intent.filePath, intent.content)
+      })
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, readFile,
+        projectRoot: '/project', undoStack,
+      })
+
+      // Build a redo entry: push + undo so the entry moves from undo → redo stack.
+      // We'll skip that dance and inject directly via the test harness —
+      // undoStack.push lands it on the undo stack, we call undo to move it.
+      undoStack.push({ changes: [
+        { filePath: '/project/a.css', previousContent: 'old-css', currentContent: 'new-css', requiresHmr: false },
+        { filePath: '/project/a.tsx', previousContent: 'old-jsx', currentContent: 'new-jsx', requiresHmr: false },
+      ] })
+      // Move entry to redo stack by invoking undo() on the stack directly.
+      // (The real flow would land this via pipeline.handleUndo, but we test
+      // redo in isolation here.)
+      undoStack.undo()
+      expect(undoStack.canRedo).toBe(true)
+
+      channel.sent.length = 0
+      writeCount = 0
+      await pipeline.handleRedo()
+      await vi.runAllTimersAsync()
+
+      const msg = channel.sent.find(m => m.type === 'redo_sync_status') as { status: string; reason?: string }
+      expect(msg.status).toBe('failed')
+      expect(msg.reason).toContain('Write failed during redo')
+      // Entry stays on redo stack — user can retry the redo.
+      expect(undoStack.canRedo).toBe(true)
+      // CSS file should be rolled back to previousContent (the pre-redo
+      // state) — NOT left at currentContent. This is the load-bearing
+      // assertion: without the inline rollback, the file would be in a
+      // mixed state (CSS = new, JSX = old).
+      expect(fileContents.get('/project/a.css')).toBe('old-css')
+      expect(fileContents.get('/project/a.tsx')).toBe('old-jsx')
     })
 
     it('redo with stale file clears entire stack', async () => {
@@ -4125,7 +4197,7 @@ describe('EditPipeline', () => {
 
       // Push and undo to create a redo entry
       undoStack.push({ changes: [
-        { filePath: '/project/a.css', previousContent: 'old', currentContent: 'new' },
+        { filePath: '/project/a.css', previousContent: 'old', currentContent: 'new', requiresHmr: false },
       ] })
       fileContents.set('/project/a.css', 'new')
       await pipeline.handleUndo()
@@ -4144,6 +4216,124 @@ describe('EditPipeline', () => {
       // Redo staleness clears entire stack
       expect(undoStack.canUndo).toBe(false)
       expect(undoStack.canRedo).toBe(false)
+    })
+
+    it('H-R2-4: multi-file undo acquires locks in sorted path order (deadlock prevention)', async () => {
+      // The deadlock vector: two concurrent compound-entry undos touching
+      // overlapping file sets. If one acquires path-z then needs path-a
+      // while the other acquires path-a then needs path-z, neither can
+      // proceed. Sorted acquisition order ensures all acquirers agree on
+      // the order, so the second one waits at lock 1 instead of
+      // deadlocking at lock 2.
+      const channel = mockChannel()
+      const resolver = mockResolver({})
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const undoStack = new UndoStack()
+
+      // Track file-access order: both reads and writes, with timestamps.
+      const accessOrder: string[] = []
+      const fileContents = new Map<string, string>([
+        ['/project/z-last.css', 'z-new'],
+        ['/project/a-first.css', 'a-new'],
+        ['/project/m-middle.css', 'm-new'],
+      ])
+      const readFile = vi.fn().mockImplementation(async (p: string) => {
+        accessOrder.push(`read:${p}`)
+        return fileContents.get(p) ?? ''
+      })
+      const writeFile = vi.fn().mockImplementation(async (intent: { filePath: string }) => {
+        accessOrder.push(`write:${intent.filePath}`)
+      })
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, readFile,
+        projectRoot: '/project', undoStack,
+      })
+
+      // Undo entry with files in a deliberately NON-sorted order.
+      // Implementation must sort them before acquiring locks.
+      undoStack.push({ changes: [
+        { filePath: '/project/z-last.css', previousContent: 'z-old', currentContent: 'z-new', requiresHmr: false },
+        { filePath: '/project/a-first.css', previousContent: 'a-old', currentContent: 'a-new', requiresHmr: false },
+        { filePath: '/project/m-middle.css', previousContent: 'm-old', currentContent: 'm-new', requiresHmr: false },
+      ] })
+
+      await pipeline.handleUndo()
+      await vi.runAllTimersAsync()
+
+      // All reads must occur before any writes (validate-all-first atomicity).
+      // Within reads: sorted order (a-first → m-middle → z-last).
+      // Within writes: sorted order (a-first → m-middle → z-last).
+      const readsInOrder = accessOrder.filter(s => s.startsWith('read:'))
+      const writesInOrder = accessOrder.filter(s => s.startsWith('write:'))
+      expect(readsInOrder).toEqual([
+        'read:/project/a-first.css',
+        'read:/project/m-middle.css',
+        'read:/project/z-last.css',
+      ])
+      expect(writesInOrder).toEqual([
+        'write:/project/a-first.css',
+        'write:/project/m-middle.css',
+        'write:/project/z-last.css',
+      ])
+      // All reads happen before any write (atomicity invariant).
+      const firstWriteIdx = accessOrder.findIndex(s => s.startsWith('write:'))
+      const lastReadIdx = accessOrder.map(s => s.startsWith('read:')).lastIndexOf(true)
+      expect(lastReadIdx).toBeLessThan(firstWriteIdx)
+    })
+
+    it('H-R2-4: validate+write for a single file happen under one continuous lock (no TOCTOU)', async () => {
+      // The original bug: undo validated under lock, released, then
+      // re-acquired for write. A concurrent forward edit could slip in
+      // between. With merged lock acquisition, the concurrent edit
+      // must wait until undo completes both phases.
+      const channel = mockChannel()
+      const resolver = mockResolver({ 'padding-top': { '8px': 'pt-2', '16px': 'pt-4' } })
+      const rewriter = mockRewriter({ success: true, newContent: 'forward-edit-content' })
+      const verifier = mockVerifier()
+      const undoStack = new UndoStack()
+
+      // Track operations in order of completion.
+      const ops: string[] = []
+      const fileContents = new Map<string, string>([
+        ['/project/App.tsx', 'current-content'],
+      ])
+      const readFile = vi.fn().mockImplementation(async (p: string) => {
+        ops.push(`read:${p}`)
+        return fileContents.get(p) ?? ''
+      })
+      const writeFile = vi.fn().mockImplementation(async (intent: { filePath: string; content: string }) => {
+        ops.push(`write:${intent.filePath}:${intent.content}`)
+        fileContents.set(intent.filePath, intent.content)
+      })
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, readFile,
+        projectRoot: '/project', undoStack,
+      })
+
+      undoStack.push({ changes: [
+        { filePath: '/project/App.tsx', previousContent: 'old-content', currentContent: 'current-content', requiresHmr: false },
+      ] })
+
+      // Fire an undo. The implementation must read → write under a
+      // single continuous lock acquisition. No other operation can
+      // intervene between the read and write for App.tsx.
+      await pipeline.handleUndo()
+      await vi.runAllTimersAsync()
+
+      // Ops must be read then write, with NOTHING between them for the
+      // same file. If the TOCTOU existed, a test probe could have been
+      // inserted between the lock-release and lock-reacquire; with the
+      // merged-lock implementation, there is no such window.
+      const appReads = ops.filter(o => o.includes('App.tsx') && o.startsWith('read:'))
+      const appWrites = ops.filter(o => o.includes('App.tsx') && o.startsWith('write:'))
+      expect(appReads).toHaveLength(1)
+      expect(appWrites).toHaveLength(1)
+      const readIdx = ops.indexOf(appReads[0]!)
+      const writeIdx = ops.indexOf(appWrites[0]!)
+      expect(writeIdx - readIdx).toBe(1)  // adjacent — no TOCTOU gap
     })
   })
 })

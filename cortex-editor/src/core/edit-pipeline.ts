@@ -1,6 +1,6 @@
 import { resolve, sep } from 'path'
 import { realpathSync } from 'fs'
-import type { ServerChannel } from '../adapters/types.js'
+import type { ServerChannel, ClassOp } from '../adapters/types.js'
 import type { TailwindResolver } from './tailwind-resolver.js'
 import type { TailwindRewriter } from './rewriter/tailwind.js'
 import type { HMRVerifier } from './hmr-verifier.js'
@@ -11,6 +11,143 @@ import type { AIWriter } from './ai-writer.js'
 import type { DeferredWriter, BatchedWriteRequest } from './deferred-writer.js'
 import type { InlineStyleRewriter } from './rewriter/inline-style.js'
 import { classifyEdit } from './edit-strategy.js'
+import { ExternalRevertError } from '../adapters/atomic-write.js'
+import { validateClassOpToken } from './class-op-validator.js'
+import { validatePropertyName, rejectCommonInjectionPatterns } from './css-validation.js'
+import { createJsxTransaction } from './rewriter/jsx-transaction.js'
+
+/** Classify a write-time error into a reason_code for edit_status.failed.
+ *  ExternalRevertError → `'external_revert'`; everything else → `'write_failed'`. */
+function classifyWriteError(err: unknown): 'external_revert' | 'write_failed' {
+  return err instanceof ExternalRevertError ? 'external_revert' : 'write_failed'
+}
+
+/** Max length (chars) of an error message surfaced to the browser.
+ *  Long error messages from fs/ts-morph routinely embed absolute
+ *  filesystem paths and internal library identifiers. Truncation is
+ *  defense-in-depth atop the typed errors that already self-redact
+ *  (like ExternalRevertError). 200 chars is enough room for a useful
+ *  human-readable reason while containing the information-disclosure
+ *  surface in --host mode and cross-team-shared sessions. */
+const MAX_CLIENT_ERROR_LEN = 200
+
+/** Max length for an inline-op property name. Tight bound since valid
+ *  CSS property names are ~30 chars tops (`background-clip-path`). */
+const MAX_INLINE_PROP_NAME_LEN = 64
+
+/** Max length for an inline-op value. Generous to allow `calc()` and
+ *  `linear-gradient(...)` strings without being a payload vector. */
+const MAX_INLINE_PROP_VALUE_LEN = 512
+
+/** Shape-validate the compound-edit inline op arrays. Returns null on
+ *  success or a specific rejection reason (for reason_code propagation).
+ *  Values for sets must be non-empty — empty-string inline edits were
+ *  the bug commit 11066da removed; the compound protocol inherits the
+ *  same non-empty invariant.
+ *
+ *  Injection-shape rejection (url(), //, backslash for Unicode escape,
+ *  /* for comment injection) is centralized in
+ *  rejectCommonInjectionPatterns so the server has ONE source of truth
+ *  for the attack-class blocklist — shared with validateClassOpToken. */
+function validateInlineOps(
+  sets: ReadonlyArray<{ property: string; value: string }> | undefined,
+  removes: ReadonlyArray<{ property: string }> | undefined,
+): string | null {
+  for (const s of sets ?? []) {
+    const nameErr = validatePropertyName(s.property, MAX_INLINE_PROP_NAME_LEN, 'inlineSets')
+    if (nameErr) return nameErr
+    if (typeof s.value !== 'string' || s.value.length === 0) {
+      return 'inlineSets entry has empty value — use inlineRemoves instead'
+    }
+    if (s.value.length > MAX_INLINE_PROP_VALUE_LEN) {
+      return `inlineSets value exceeds ${MAX_INLINE_PROP_VALUE_LEN} chars`
+    }
+    const injectErr = rejectCommonInjectionPatterns(s.value, 'inlineSets value')
+    if (injectErr) return injectErr
+  }
+  for (const r of removes ?? []) {
+    const nameErr = validatePropertyName(r.property, MAX_INLINE_PROP_NAME_LEN, 'inlineRemoves')
+    if (nameErr) return nameErr
+  }
+  return null
+}
+
+/** Quoted-path pre-pass for sanitizer. Node.js fs
+ *  errors follow the convention of wrapping absolute paths in single
+ *  or double quotes: `ENOENT: ... open '/Users/John Doe/Hero.tsx'`.
+ *  A regex that matches between quotes captures paths CONTAINING
+ *  SPACES — which the unquoted-regex fallback cannot, because its
+ *  character class stops at whitespace. This closes the macOS
+ *  Display Name leak pattern (common on macOS home directories).
+ *
+ *  Backreference `\1` ensures we match matching quote pairs. Inside,
+ *  `\/[^'"]*` requires a leading slash (absolute POSIX) followed by
+ *  any non-quote chars — spaces, slashes, dots all allowed. */
+const QUOTED_POSIX_PATH_REGEX = /(['"])(\/[^'"]*)\1/g
+
+/** Windows quoted-path equivalent: drive letter + colon + separator. */
+const QUOTED_WIN_PATH_REGEX = /(['"])([A-Za-z]:[\\/][^'"]*)\1/g
+
+/** POSIX absolute path matcher for sanitization (unquoted fallback).
+ *  Requires at least 2 `/segment` parts so single literals (`/tmp`)
+ *  don't over-match, but `/Users/alice/...`, `/home/...`, `/var/...`,
+ *  `/etc/...` are all caught. The negative lookbehind prevents
+ *  matching inside a relative path like `src/components/Hero.tsx`.
+ *  Character class excludes whitespace — which means this regex
+ *  CANNOT handle paths with spaces. That case is handled by the
+ *  QUOTED_POSIX_PATH_REGEX pre-pass (runs first), which covers the
+ *  Node fs error convention of quoting paths.
+ *
+ *  Documented limitation: unquoted paths WITH spaces followed by
+ *  prose (`at /Users/John Doe/foo because X`) still partially leak.
+ *  This case is rare (Node fs errors always quote), and full handling
+ *  requires prose-vs-path disambiguation which is unsolvable without
+ *  a wrapping delimiter. See the `it.skip` in sanitize.test.ts. */
+const POSIX_ABS_PATH_REGEX = /(?<![\w./-])(?:\/[^\s:,'"\\]+){2,}/g
+
+/** Windows absolute path matcher (unquoted fallback). Drive letter +
+ *  colon + separator + segments. Same space-handling limitation as
+ *  POSIX_ABS_PATH_REGEX — handled by the quoted-path pre-pass. */
+const WINDOWS_ABS_PATH_REGEX = /[A-Za-z]:[\\/](?:[^\s:,'"<>?*|]+[\\/]?)+/g
+
+/** Sanitize an error for surface to the browser over the WebSocket.
+ *
+ *  Three concerns this helper defends against:
+ *    - ExternalRevertError.message once embedded the absolute file
+ *      path, propagating straight to the Panel's UI (now redacted at
+ *      the error's own constructor; defense still applied here).
+ *    - ts-morph / fs errors routinely include path fragments that
+ *      would otherwise flow verbatim to the browser — truncated at
+ *      MAX_CLIENT_ERROR_LEN.
+ *    - Short fs errors (e.g. ENOENT ~65 chars) fit UNDER the 200-char
+ *      truncation ceiling with the absolute path INTACT — handled
+ *      via the path-stripping regexes (applied before truncation).
+ *
+ *  Path-stripping happens BEFORE truncation so paths of any length
+ *  are redacted. We apply both POSIX and Windows regexes; the order
+ *  doesn't matter because replacements are static text and the
+ *  regexes match disjoint shapes (slash-leading vs drive-letter-
+ *  leading). Non-absolute paths (`./foo`, `../bar`, `src/x.tsx`)
+ *  are preserved — they don't contain deployment-specific data. */
+export function sanitizeErrorForClient(err: unknown): string {
+  if (!(err instanceof Error)) return 'Unknown error'
+  let msg = err.message
+  // Pass 1: quoted absolute paths. Supports embedded
+  // spaces (macOS Display Name home dirs like `/Users/John Doe/...`).
+  // Node fs errors always quote paths, so this pre-pass handles the
+  // common case. Runs first so the path inside the quotes is replaced
+  // with `<path>` (quotes preserved via the $1 backreferences) before
+  // the unquoted fallback can partial-match the inside.
+  msg = msg.replace(QUOTED_POSIX_PATH_REGEX, '$1<path>$1')
+  msg = msg.replace(QUOTED_WIN_PATH_REGEX, '$1<path>$1')
+  // Pass 2: unquoted absolute paths. Handles ts-morph / ESBuild
+  // error messages that interpolate paths without quotes.
+  msg = msg.replace(POSIX_ABS_PATH_REGEX, '<path>')
+  msg = msg.replace(WINDOWS_ABS_PATH_REGEX, '<path>')
+  return msg.length <= MAX_CLIENT_ERROR_LEN
+    ? msg
+    : msg.slice(0, MAX_CLIENT_ERROR_LEN) + '…'
+}
 
 export interface EditRequest {
   editId: string
@@ -33,13 +170,24 @@ export interface EditRequest {
    *  When present, used as oldToken directly — bypasses the fragile computed-style
    *  → hex → class-name reverse lookup. Sent by the browser's class extractor. */
   currentClass?: string
+  /** When present, pipeline skips the property/value path and rewrites the
+   *  element's className attribute directly. `property` and `value` are
+   *  ignored on this branch. */
+  classOp?: ClassOp
+  /** Inline property SETS applied as part of a compound
+   *  edit. Only honored when `classOp` is also present. See
+   *  handleCompoundEdit. */
+  inlineSets?: ReadonlyArray<{ property: string; value: string }>
+  /** Inline property REMOVES applied as part of a compound
+   *  edit. Only honored when `classOp` is also present. */
+  inlineRemoves?: ReadonlyArray<{ property: string }>
 }
 
 export interface WriteIntent {
   kind: 'immediate' | 'jsx-immediate' | 'deferred' | 'undo' | 'redo'
   /** Override HMR suppression. When set, takes precedence over kind-based default.
-   *  false = allow HMR (file not added to recentEditWrites).
-   *  true = suppress HMR (file added to recentEditWrites).
+   *  false = allow HMR (file not added to recentEditWriteTimers).
+   *  true = suppress HMR (file added to recentEditWriteTimers with a TTL).
    *  undefined = use kind-based default (immediate/undo/redo suppress; others allow). */
   suppressHmr?: boolean
   filePath: string
@@ -158,6 +306,97 @@ export class EditPipeline {
   handleEdit(edit: EditRequest): void {
     if (this.disposed) return
 
+    // classOp branch — pure className mutation. Bypasses debounce (no
+    // property key to coalesce on) and bypasses property/value validation
+    // (both are empty on link/unlink). Precedence: if classOp is present,
+    // the property-keyed path does not run even if property/value are set.
+    if (edit.classOp) {
+      // Trust-boundary validation: classOp strings come straight from the
+      // browser over the WebSocket, bypass property/value validation, and
+      // land in a JSX string literal + Tailwind compiler. ts-morph's
+      // setLiteralValue is escape-safe, but Tailwind v4's arbitrary-value
+      // bracket syntax (`bg-[url(javascript:...)]`) survives JSX escaping
+      // and executes as CSS in the user's browser on next load. Validate
+      // BEFORE any fs operation or undo push.
+      const classOp = edit.classOp
+      const tokensToValidate: Array<{ field: 'remove' | 'add'; token: string }> = []
+      if (classOp.kind === 'remove' || classOp.kind === 'swap') {
+        tokensToValidate.push({ field: 'remove', token: classOp.remove })
+      }
+      if (classOp.kind === 'add' || classOp.kind === 'swap') {
+        tokensToValidate.push({ field: 'add', token: classOp.add })
+      }
+      for (const { field, token } of tokensToValidate) {
+        const result = validateClassOpToken(token)
+        if (!result.ok) {
+          this.channel.send({
+            type: 'edit_status',
+            editId: edit.editId,
+            status: 'failed',
+            reason: `Invalid classOp.${field}: ${result.reason}`,
+            reason_code: 'invalid_class_token',
+          })
+          return
+        }
+      }
+
+      const parsed = this.parseSource(edit.source)
+      if (!parsed.ok) {
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: parsed.reason, reason_code: 'parse_failed' })
+        return
+      }
+
+      // Compound routing. If the browser sent inline ops
+      // alongside classOp, dispatch to handleCompoundEdit so classOp +
+      // inlineSets + inlineRemoves apply to ONE source file in ONE
+      // read-mutate-write cycle producing ONE UndoFileChange. Otherwise
+      // the classOp-only path remains — simpler, doesn't need the
+      // JsxTransaction scaffold.
+      const hasInlineOps =
+        (edit.inlineSets?.length ?? 0) > 0 || (edit.inlineRemoves?.length ?? 0) > 0
+      if (hasInlineOps) {
+        // Validate inline-op shape before any fs work. Property names
+        // are lightly validated: non-empty, reasonable length cap.
+        // Values for sets must be non-empty — empty-string writes were
+        // the exact bug commit 11066da removed, and the compound-edit
+        // protocol inherits that guarantee.
+        const shapeError = validateInlineOps(edit.inlineSets, edit.inlineRemoves)
+        if (shapeError) {
+          this.channel.send({
+            type: 'edit_status',
+            editId: edit.editId,
+            status: 'failed',
+            reason: shapeError,
+            reason_code: 'invalid_class_token',
+          })
+          return
+        }
+        this.handleCompoundEdit(edit, parsed.resolvedPath, parsed.line, parsed.col).catch((err) => {
+          console.error('[cortex] compound-edit pipeline error for editId=%s:', edit.editId, err)
+          this.channel.send({
+            type: 'edit_status',
+            editId: edit.editId,
+            status: 'failed',
+            reason: sanitizeErrorForClient(err),
+            reason_code: classifyWriteError(err),
+          })
+        })
+        return
+      }
+
+      this.handleClassOp(edit, parsed.resolvedPath, parsed.line, parsed.col).catch((err) => {
+        console.error('[cortex] classOp pipeline error for editId=%s:', edit.editId, err)
+        this.channel.send({
+          type: 'edit_status',
+          editId: edit.editId,
+          status: 'failed',
+          reason: sanitizeErrorForClient(err),
+          reason_code: classifyWriteError(err),
+        })
+      })
+      return
+    }
+
     // Fast path: pure AI projects bypass the 400ms debounce and route
     // directly to DeferredWriter's 250ms coalescing window
     if (this.shouldBypassDebounce(edit)) {
@@ -204,7 +443,7 @@ export class EditPipeline {
             type: 'edit_status',
             editId: edit.editId,
             status: 'failed',
-            reason: err instanceof Error ? err.message : 'Unknown error',
+            reason: sanitizeErrorForClient(err),
           })
         })
       }, this.debounceMs),
@@ -524,7 +763,7 @@ export class EditPipeline {
         return
       }
 
-      // Immediate writes have HMR suppressed (recentEditWrites in vite.ts),
+      // Immediate writes have HMR suppressed (recentEditWriteTimers in vite.ts),
       // so don't track for HMR verification — it would never resolve.
 
       // Write file FIRST — side effects only after successful write
@@ -535,14 +774,17 @@ export class EditPipeline {
           type: 'edit_status',
           editId: edit.editId,
           status: 'failed',
-          reason: `Write failed: ${err instanceof Error ? err.message : String(err)}`,
+          reason: `Write failed: ${sanitizeErrorForClient(err)}`,
+          reason_code: classifyWriteError(err),
         })
         return
       }
 
-      // Push to undo stack only after successful write
+      // Push to undo stack only after successful write.
+      // requiresHmr=false: inline-style property edits are painted by the
+      // browser-side !important override layer; HMR would only cause flicker.
       if (this.undoStack) {
-        this.undoStack.push({ changes: [{ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent }] })
+        this.undoStack.push({ changes: [{ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent, requiresHmr: false }] })
       }
 
       this.channel.send({
@@ -555,27 +797,53 @@ export class EditPipeline {
     })
   }
 
-  async handleUndo(): Promise<void> {
+  async handleUndo(): Promise<void> { return this._handleUndoRedoPublic('undo') }
+  async handleRedo(): Promise<void> { return this._handleUndoRedoPublic('redo') }
+
+  /** Shared public-wrapper for handleUndo/handleRedo. Chains on undoLock
+   *  so concurrent invocations serialize; catches + surfaces errors via
+   *  the direction-appropriate sync-status channel message. */
+  private async _handleUndoRedoPublic(direction: 'undo' | 'redo'): Promise<void> {
     if (this.disposed || !this.undoStack) return
     this.undoLock = this.undoLock.then(
-      () => this._doUndo(),
-      (err) => { console.error('[cortex] Prior undo error:', err); return this._doUndo() },
+      () => this._doUndoRedo(direction),
+      (err) => { console.error('[cortex] Prior %s error:', direction, err); return this._doUndoRedo(direction) },
     )
     try {
       await this.undoLock
     } catch (err) {
-      console.error('[cortex] Undo failed:', err)
-      this.channel.send({ type: 'undo_sync_status', status: 'failed', reason: err instanceof Error ? err.message : 'Undo failed' })
+      console.error('[cortex] %s failed:', direction, err)
+      this.channel.send({ type: `${direction}_sync_status`, status: 'failed', reason: sanitizeErrorForClient(err) })
     }
   }
 
-  private async _doUndo(): Promise<void> {
+  /** Typed result from the lock-held phase-1+phase-2 execution.
+   *  Replaces the prior pattern of outer-closure sentinel mutation
+   *  (let stale = false; let writeErr: unknown = null) with an
+   *  explicit return value whose shape the compiler can check. */
+  private static readonly UNDO_REDO_DONE = { outcome: 'done' as const }
+  private static readonly UNDO_REDO_STALE = { outcome: 'stale' as const }
+
+  /** Unified undo/redo executor. Extracted from the former _doUndo +
+   *  _doRedo pair which shared ~95% of their bodies. Direction-specific
+   *  branches are isolated to the peek/write-content/stack-response
+   *  selectors below; the bulk (debounce clear, deferred-writer
+   *  cancellation, multi-file-lock validate-all + write-all with inline
+   *  rollback) is now written once.
+   *
+   *  Side effect: debounce timers are now cleared for BOTH undo and
+   *  redo. Prior to extraction, only undo cleared them — a latent
+   *  inconsistency the duplication hid. Clearing on redo is consistent
+   *  with the undo semantic (the user-originated in-flight edit the
+   *  debounce represents is about to be superseded by the redo write). */
+  private async _doUndoRedo(direction: 'undo' | 'redo'): Promise<void> {
     for (const timer of this.debounceTimers.values()) clearTimeout(timer)
     this.debounceTimers.clear()
 
-    const entry = this.undoStack!.peekUndo()
+    const statusType = `${direction}_sync_status` as const
+    const entry = direction === 'undo' ? this.undoStack!.peekUndo() : this.undoStack!.peekRedo()
     if (!entry) {
-      this.channel.send({ type: 'undo_sync_status', status: 'failed', reason: 'Nothing to undo.', reason_code: 'empty_stack' })
+      this.channel.send({ type: statusType, status: 'failed', reason: `Nothing to ${direction}.`, reason_code: 'empty_stack' })
       return
     }
 
@@ -586,146 +854,155 @@ export class EditPipeline {
         }
       }
       const cancelledIds = this.deferredWriter?.cancelForFile(change.filePath) ?? []
-      this.sendDeferredStatus(cancelledIds, 'cancelled', 'Cancelled by undo')
+      this.sendDeferredStatus(cancelledIds, 'cancelled', `Cancelled by ${direction}`)
     }
 
-    // Validate all files before writing any — partial undo would leave
-    // the codebase in an inconsistent state.
-    // NOTE: `stale` is set inside the async lock callback and read after the await.
-    // This is safe because the for-loop is sequential (not Promise.all).
-    for (const change of entry.changes) {
-      if (!this.readFile) continue
-      let stale = false
-      try {
-        await this.withFileLock(change.filePath, async () => {
-          const current = this.undoStack!.peekUndo()
-          if (!current || current.id !== entry.id) { stale = true; return }
-          const fileContent = await this.readFile!(change.filePath)
-          if (fileContent !== change.currentContent) { stale = true }
-        })
-      } catch (err) {
-        // readFile failure (ENOENT, EACCES) — file state unknown, treat as stale.
-        console.error('[cortex] Undo validation read failed for %s:', change.filePath, err)
-        stale = true
-      }
-      if (stale) {
-        this.undoStack!.removeStaleEntry(entry.id)
-        this.channel.send({ type: 'undo_sync_status', status: 'failed', reason: 'File was modified outside cortex. Undo not available for this change.', reason_code: 'stale' })
-        return
-      }
-    }
+    // Validate-all + write-all under ONE continuous set of file locks,
+    // held for the duration of both phases. Closes the TOCTOU window
+    // between per-file validate and write: a concurrent forward edit
+    // cannot slip in and be clobbered by a stale-validation-based
+    // write. Also preserves the "validate-all-before-write-any"
+    // atomicity invariant (asserted by the scope='all' compound-undo
+    // test — partial writes must not occur when a later file is stale).
+    //
+    // Rollback-on-write-failure runs INSIDE the same lock scope, so
+    // the TOCTOU closure applies to the recovery path too.
+    //
+    // For multi-file entries (e.g. CSS Modules scope='all'), locks are
+    // acquired in sorted path order so concurrent undo/redo operations
+    // on overlapping file sets serialize rather than deadlock.
+    const sortedChanges = [...entry.changes].sort((a, b) => a.filePath < b.filePath ? -1 : a.filePath > b.filePath ? 1 : 0)
+    const filePaths = sortedChanges.map(c => c.filePath)
 
-    // Write all files. Staleness already verified above.
-    // On failure, roll back already-written files so the entry remains valid for retry.
-    const writtenUndo: Array<{ filePath: string; rollbackContent: string }> = []
-    try {
-      for (const change of entry.changes) {
-        await this.withFileLock(change.filePath, async () => {
-          await this.writeFile({ kind: 'undo', filePath: change.filePath, content: change.previousContent })
-        })
-        writtenUndo.push({ filePath: change.filePath, rollbackContent: change.currentContent })
-      }
-    } catch (err) {
-      // Roll back already-written files so disk matches entry.currentContent again.
-      for (const w of writtenUndo) {
-        try {
-          await this.withFileLock(w.filePath, async () => {
-            await this.writeFile({ kind: 'undo', filePath: w.filePath, content: w.rollbackContent })
-          })
-        } catch (rollbackErr) {
-          console.error('[cortex] Undo rollback failed for %s:', w.filePath, rollbackErr)
-        }
-      }
-      this.channel.send({ type: 'undo_sync_status', status: 'failed', reason: `Write failed during undo: ${err instanceof Error ? err.message : String(err)}`, reason_code: 'write_failed' })
-      return
-    }
+    // Direction-specific selectors. Undo writes `previousContent`
+    // and treats `currentContent` as validation target + rollback
+    // target. Redo is the mirror.
+    const validateContent = (c: UndoFileChange) => direction === 'undo' ? c.currentContent : c.previousContent
+    const writeContent = (c: UndoFileChange) => direction === 'undo' ? c.previousContent : c.currentContent
+    const rollbackContent = (c: UndoFileChange) => direction === 'undo' ? c.currentContent : c.previousContent
 
-    this.undoStack!.undo()
-    this.channel.send({ type: 'undo_sync_status', status: 'done' })
-  }
-
-  async handleRedo(): Promise<void> {
-    if (this.disposed || !this.undoStack) return
-    this.undoLock = this.undoLock.then(
-      () => this._doRedo(),
-      (err) => { console.error('[cortex] Prior redo error:', err); return this._doRedo() },
+    const result = await this._runUndoRedoUnderLocks(
+      filePaths,
+      sortedChanges,
+      direction,
+      entry.id,
+      validateContent,
+      writeContent,
+      rollbackContent,
     )
-    try {
-      await this.undoLock
-    } catch (err) {
-      console.error('[cortex] Redo failed:', err)
-      this.channel.send({ type: 'redo_sync_status', status: 'failed', reason: err instanceof Error ? err.message : 'Redo failed' })
+
+    if (result.outcome === 'stale') {
+      if (direction === 'undo') this.undoStack!.removeStaleEntry(entry.id)
+      else this.undoStack!.clear()
+      const reason = direction === 'undo'
+        ? 'File was modified outside cortex. Undo not available for this change.'
+        : 'File was modified outside cortex. Redo not available.'
+      this.channel.send({ type: statusType, status: 'failed', reason, reason_code: 'stale' })
+      return
     }
+    if (result.outcome === 'write_failed') {
+      // Rollback already ran inside the lock scope. Only the status
+      // dispatch remains — no disk ops.
+      this.channel.send({
+        type: statusType,
+        status: 'failed',
+        reason: `Write failed during ${direction}: ${sanitizeErrorForClient(result.err)}`,
+        reason_code: 'write_failed',
+      })
+      return
+    }
+
+    // Commit the stack state transition AFTER the writes succeed.
+    if (direction === 'undo') this.undoStack!.undo()
+    else this.undoStack!.redo()
+    this.channel.send({ type: statusType, status: 'done' })
   }
 
-  private async _doRedo(): Promise<void> {
-    const entry = this.undoStack!.peekRedo()
-    if (!entry) {
-      this.channel.send({ type: 'redo_sync_status', status: 'failed', reason: 'Nothing to redo.', reason_code: 'empty_stack' })
-      return
-    }
+  /** Phase-1 validate + phase-2 write (with inline rollback on write
+   *  failure) under a single continuous multi-file lock acquisition.
+   *  Returns a typed Result so the caller's status dispatch is
+   *  unambiguous without closure-sentinel tracing. */
+  private async _runUndoRedoUnderLocks(
+    filePaths: readonly string[],
+    sortedChanges: readonly UndoFileChange[],
+    direction: 'undo' | 'redo',
+    entryId: number,
+    validateContent: (c: UndoFileChange) => string,
+    writeContent: (c: UndoFileChange) => string,
+    rollbackContent: (c: UndoFileChange) => string,
+  ): Promise<{ outcome: 'done' } | { outcome: 'stale' } | { outcome: 'write_failed'; err: unknown }> {
+    let result: { outcome: 'done' } | { outcome: 'stale' } | { outcome: 'write_failed'; err: unknown } = EditPipeline.UNDO_REDO_DONE
+    const committedWrites: Array<{ filePath: string; rollbackContent: string; requiresHmr: boolean }> = []
 
-    for (const change of entry.changes) {
-      for (const [key] of this.lastValues) {
-        if (key.startsWith(change.filePath + ':')) {
-          this.lastValues.delete(key)
-        }
-      }
-      const cancelledIds = this.deferredWriter?.cancelForFile(change.filePath) ?? []
-      this.sendDeferredStatus(cancelledIds, 'cancelled', 'Cancelled by redo')
-    }
-
-    // Validate all files before writing — redo staleness clears the full stack
-    // (matches original single-file behavior).
-    // NOTE: `stale` is set inside the async lock callback and read after the await.
-    // This is safe because the for-loop is sequential (not Promise.all).
-    for (const change of entry.changes) {
-      if (!this.readFile) continue
-      let stale = false
-      try {
-        await this.withFileLock(change.filePath, async () => {
-          const fileContent = await this.readFile!(change.filePath)
-          if (fileContent !== change.previousContent) { stale = true }
-        })
-      } catch (err) {
-        // readFile failure (ENOENT, EACCES) — file state unknown, treat as stale.
-        console.error('[cortex] Redo validation read failed for %s:', change.filePath, err)
-        stale = true
-      }
-      if (stale) {
-        this.undoStack!.clear()
-        this.channel.send({ type: 'redo_sync_status', status: 'failed', reason: 'File was modified outside cortex. Redo not available.', reason_code: 'stale' })
-        return
-      }
-    }
-
-    // Write all files, THEN pop the entry.
-    // redo() is called AFTER writes succeed to prevent stack/disk divergence.
-    // On failure, roll back already-written files so the entry remains valid for retry.
-    const writtenRedo: Array<{ filePath: string; rollbackContent: string }> = []
     try {
-      for (const change of entry.changes) {
-        await this.withFileLock(change.filePath, async () => {
-          await this.writeFile({ kind: 'redo', filePath: change.filePath, content: change.currentContent })
-        })
-        writtenRedo.push({ filePath: change.filePath, rollbackContent: change.previousContent })
-      }
-    } catch (err) {
-      for (const w of writtenRedo) {
-        try {
-          await this.withFileLock(w.filePath, async () => {
-            await this.writeFile({ kind: 'redo', filePath: w.filePath, content: w.rollbackContent })
-          })
-        } catch (rollbackErr) {
-          console.error('[cortex] Redo rollback failed for %s:', w.filePath, rollbackErr)
+      await this.withMultiFileLocks(filePaths, async () => {
+        // Phase 1: validate all files. No disk writes yet. Undo also
+        // checks stack identity — guards against a concurrent
+        // clearUndoStack mutating the stack between the outer peek
+        // and lock acquisition.
+        if (this.readFile) {
+          if (direction === 'undo') {
+            const current = this.undoStack!.peekUndo()
+            if (!current || current.id !== entryId) { result = EditPipeline.UNDO_REDO_STALE; return }
+          }
+          for (const change of sortedChanges) {
+            const fileContent = await this.readFile(change.filePath)
+            if (fileContent !== validateContent(change)) { result = EditPipeline.UNDO_REDO_STALE; return }
+          }
         }
-      }
-      this.channel.send({ type: 'redo_sync_status', status: 'failed', reason: `Write failed during redo: ${err instanceof Error ? err.message : String(err)}`, reason_code: 'write_failed' })
-      return
+        // Phase 2: write all files. Locks still held; no external
+        // write can interleave. On failure, rollback in reverse order
+        // while locks are still held.
+        for (const change of sortedChanges) {
+          try {
+            await this.writeFile({ kind: direction, suppressHmr: !change.requiresHmr, filePath: change.filePath, content: writeContent(change) })
+          } catch (err) {
+            result = { outcome: 'write_failed', err }
+            for (const w of [...committedWrites].reverse()) {
+              try {
+                await this.writeFile({ kind: direction, suppressHmr: !w.requiresHmr, filePath: w.filePath, content: w.rollbackContent })
+              } catch (rollbackErr) {
+                console.error('[cortex] %s rollback failed for %s:', direction, w.filePath, rollbackErr)
+              }
+            }
+            return
+          }
+          committedWrites.push({ filePath: change.filePath, rollbackContent: rollbackContent(change), requiresHmr: change.requiresHmr })
+        }
+      })
+    } catch (err) {
+      // readFile failure (ENOENT, EACCES) surfaced out of the lock
+      // callback. File state unknown, treat as stale.
+      console.error('[cortex] %s validation read failed:', direction, err)
+      return EditPipeline.UNDO_REDO_STALE
     }
 
-    this.undoStack!.redo()
-    this.channel.send({ type: 'redo_sync_status', status: 'done' })
+    return result
+  }
+
+  /** Acquire per-file locks for all filePaths in sorted order, then run
+   *  fn while holding all of them. Locks are released when fn returns
+   *  (or throws). Sorting prevents deadlock between concurrent
+   *  multi-file operations that touch overlapping file sets.
+   *
+   *  Codepoint order (JS default `.sort()`) — MUST match the sort
+   *  strategy used in _doUndoRedo. Any locale-sensitive comparator
+   *  (`.localeCompare`) would diverge under case-insensitive locales,
+   *  causing two concurrent compound operations to acquire locks in
+   *  DIFFERENT orders for the same file set — re-opening the deadlock
+   *  vector this sort is meant to close. Do NOT change to localeCompare. */
+  private async withMultiFileLocks<T>(filePaths: readonly string[], fn: () => Promise<T>): Promise<T> {
+    const sorted = [...new Set(filePaths)].sort()
+    const acquire = async (idx: number): Promise<T> => {
+      const next = sorted[idx]
+      if (next === undefined) return await fn()
+      let result!: T
+      await this.withFileLock(next, async () => {
+        result = await acquire(idx + 1)
+      })
+      return result
+    }
+    return acquire(0)
   }
 
   clearUndoStack(): void {
@@ -759,6 +1036,318 @@ export class EditPipeline {
     await this.withFileLock(resolvedPath, async () => {
       await this.executeAIWrite(edit, resolvedPath, line, col, failureReason)
     })
+  }
+
+  /**
+   * Handle a compound edit: classOp + inlineSets + inlineRemoves applied
+   * to the same JSX element in ONE read-mutate-write cycle.
+   *
+   * Why one cycle: the browser sent a SINGLE WebSocket message for one
+   * user gesture (e.g., unlink-text-component = class removal + preserve
+   * font-size/weight/etc as inline styles). Processing this as N+1
+   * separate edits would produce N+1 UndoFileChange entries, making
+   * Ctrl+Z restore only one piece of the gesture. Consolidating to ONE
+   * UndoFileChange makes undo atomic.
+   *
+   * Sequence (all inside withFileLock):
+   *   1. Read file → oldContent
+   *   2. createJsxTransaction(resolvedPath, oldContent)
+   *   3. rewriter.rewriteClassListInTransaction(txn, classOp)
+   *   4. inlineStyleRewriter.setAndRemoveInTransaction(txn, {sets, removes})
+   *   5. newContent = txn.getCurrentContent()
+   *   6. atomicWrite — ONE disk write
+   *   7. undoStack.push with ONE UndoFileChange (requiresHmr: true)
+   *
+   * Failure modes (any step): no write occurs, no undo push, specific
+   * reason_code sent. This preserves the all-or-nothing invariant: disk
+   * is either fully updated or untouched. NO AI fallback for compound
+   * edits — AI could only handle the class portion; a partial compound
+   * would leak the very stale-state bug Option A exists to prevent.
+   */
+  private async handleCompoundEdit(
+    edit: EditRequest,
+    resolvedPath: string,
+    line: number,
+    col: number,
+  ): Promise<void> {
+    if (!edit.classOp) return // defensive — handleEdit guards this
+    const classOpRemove = edit.classOp.kind !== 'add' ? edit.classOp.remove : undefined
+    const classOpAdd = edit.classOp.kind !== 'remove' ? edit.classOp.add : undefined
+
+    // Inline-ops require the InlineStyleRewriter dep. Without it we
+    // can't apply the compound; fail with a clear reason rather than
+    // silently degrading to classOp-only (which would produce the
+    // exact partial-undo bug C2 exists to close).
+    if (!this.inlineStyleRewriter) {
+      // Server configuration error — the inline rewriter dependency wasn't
+      // wired during plugin init. Classified as 'rewriter_failed' because
+      // from the browser's perspective the rewriter step can't proceed —
+      // same failure class as a rewriter that tried and returned success:false.
+      this.channel.send({
+        type: 'edit_status',
+        editId: edit.editId,
+        status: 'failed',
+        reason: 'Compound edit requires inline-style rewriter dependency',
+        reason_code: 'rewriter_failed',
+      })
+      return
+    }
+    if (!this.readFile) {
+      // Server configuration error — read capability is unavailable. Uses
+      // 'read_failed' for parity with the runtime read-error path below;
+      // both represent "the server could not read the source file."
+      this.channel.send({
+        type: 'edit_status',
+        editId: edit.editId,
+        status: 'failed',
+        reason: 'Compound edit requires readFile dependency',
+        reason_code: 'read_failed',
+      })
+      return
+    }
+
+    const sets = edit.inlineSets ?? []
+    const removes = edit.inlineRemoves ?? []
+
+    this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
+
+    await this.withFileLock(resolvedPath, async () => {
+      // Step 1: read file under the lock (single source of truth for
+      // Local failure helper — every step below dispatches the same
+      // shape of edit_status:failed message, differing only in reason
+      // and (sometimes) reason_code. Factoring to `fail()` reduces
+      // visual nesting from 4 levels to 2 and makes the happy path
+      // scan linearly. Returns nothing; caller must `return` after.
+      type ReasonCode = 'external_revert' | 'invalid_class_token' | 'write_failed' | 'rewriter_failed' | 'parse_failed' | 'read_failed'
+      const fail = (reason: string, reasonCode: ReasonCode = 'parse_failed'): void => {
+        this.channel.send({
+          type: 'edit_status',
+          editId: edit.editId,
+          status: 'failed',
+          reason,
+          reason_code: reasonCode,
+        })
+      }
+
+      // Step 1: read source file.
+      let oldContent: string
+      try {
+        oldContent = await this.readFile!(resolvedPath)
+      } catch (err) {
+        fail(`Cannot read file: ${sanitizeErrorForClient(err)}`, 'read_failed')
+        return
+      }
+
+      // Step 2: create in-memory transaction seeded with oldContent.
+      let txn
+      try {
+        txn = await createJsxTransaction(resolvedPath, oldContent)
+      } catch (err) {
+        fail(`Transaction init failed: ${sanitizeErrorForClient(err)}`)
+        return
+      }
+
+      // Step 3: apply classOp. No AI fallback here — compound must be
+      // all-or-nothing at the deterministic layer.
+      const classResult = this.rewriter.rewriteClassListInTransaction(txn, {
+        line, col, remove: classOpRemove, add: classOpAdd,
+      })
+      if (!classResult.success) {
+        // The rewriter attempted the classOp and refused — same failure
+        // class as the property-keyed rewrite path's 'rewriter_failed'
+        // (not a parse failure; the JSX itself parsed fine).
+        fail(`Compound classOp failed: ${classResult.reason}`, 'rewriter_failed')
+        return
+      }
+
+      // Step 4: apply inline sets + removes on the SAME transaction.
+      const inlineResult = this.inlineStyleRewriter!.setAndRemoveInTransaction(txn, {
+        line, col, sets, removes,
+      })
+      if (!inlineResult.success) {
+        fail(`Compound inline ops failed: ${inlineResult.reason}`, 'rewriter_failed')
+        return
+      }
+
+      const newContent = txn.getCurrentContent()
+
+      // If the compound is semantically a no-op (e.g., classOp idempotent
+      // + inlineSets match existing values + inlineRemoves target absent
+      // properties), skip the write and undo push. Reporting 'done'
+      // without a push keeps the undo stack clean.
+      if (newContent === oldContent) {
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done' })
+        return
+      }
+
+      // Step 5: ONE write. suppressHmr:false because the compound
+      // includes a className change (browser has no override for it).
+      try {
+        await this.writeFile({
+          kind: 'immediate',
+          suppressHmr: false,
+          filePath: resolvedPath,
+          content: newContent,
+        })
+      } catch (err) {
+        fail(`Write failed: ${sanitizeErrorForClient(err)}`, classifyWriteError(err))
+        return
+      }
+
+      // Step 6: ONE compound UndoFileChange. requiresHmr:true because
+      // the compound mutated the className; undo must fire HMR so the
+      // DOM re-renders with the previous className + previous inline
+      // styles atomically.
+      if (this.undoStack) {
+        this.undoStack.push({
+          changes: [{
+            filePath: resolvedPath,
+            previousContent: oldContent,
+            currentContent: newContent,
+            requiresHmr: true,
+          }],
+        })
+      }
+
+      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done' })
+    })
+  }
+
+  /**
+   * classOp (className mutation) branch. Mirrors the property-keyed path's
+   * guarantees: captures oldContent before the write for undo, falls back
+   * to the AI writer when the deterministic rewriter can't handle the JSX
+   * shape, serializes concurrent ops on the same file via withFileLock.
+   */
+  private async handleClassOp(
+    edit: EditRequest,
+    resolvedPath: string,
+    line: number,
+    col: number,
+  ): Promise<void> {
+    if (!edit.classOp) return // defensive — handleEdit already guards this
+    const classOpRemove = edit.classOp.kind !== 'add' ? edit.classOp.remove : undefined
+    const classOpAdd = edit.classOp.kind !== 'remove' ? edit.classOp.add : undefined
+
+    this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
+
+    await this.withFileLock(resolvedPath, async () => {
+      // Capture oldContent BEFORE the rewrite so the undo entry restores
+      // what the user actually had. If reading fails here, we fail fast:
+      // proceeding would either succeed silently without undo (user's
+      // Ctrl+Z becomes a mystery no-op — SF-H-1) or fail at writeFile
+      // anyway with the same underlying fs error. Matches
+      // handleCompoundEdit's read-fail policy for consistency.
+      let oldContent: string | null = null
+      if (this.undoStack && this.readFile) {
+        try {
+          oldContent = await this.readFile(resolvedPath)
+        } catch (err) {
+          this.channel.send({
+            type: 'edit_status',
+            editId: edit.editId,
+            status: 'failed',
+            reason: `Cannot read file: ${sanitizeErrorForClient(err)}`,
+            reason_code: 'read_failed',
+          })
+          return
+        }
+      }
+
+      const result = await this.rewriter.rewriteClassList({
+        filePath: resolvedPath,
+        line,
+        col,
+        remove: classOpRemove,
+        add: classOpAdd,
+      })
+
+      if (!result.success) {
+        // AI fallback — describe the class mutation as an instruction for the
+        // AI writer. This covers template literals and conditional objects.
+        if (this.aiWriter) {
+          const instruction = this.describeClassOpForAI(
+            { remove: classOpRemove, add: classOpAdd },
+            resolvedPath,
+            line,
+            col,
+          )
+          const reason = `Could not rewrite className deterministically (${result.reason}). Routing to AI writer.`
+          await this.executeAIWrite(
+            { ...edit, property: '__class__', value: instruction },
+            resolvedPath,
+            line,
+            col,
+            reason,
+          )
+          return
+        }
+        this.channel.send({
+          type: 'edit_status',
+          editId: edit.editId,
+          status: 'failed',
+          reason: result.reason ?? 'Could not rewrite className for this element.',
+          reason_code: 'rewriter_failed',
+        })
+        return
+      }
+
+      try {
+        // classOp must NOT suppress HMR: there is no browser-side override
+        // layer for class mutations (unlike property edits which paint via
+        // !important overrides before HMR lands). If we suppress HMR here,
+        // the component never re-renders with the new className, the Panel's
+        // `typographyClassName` memo stays stale, bundle detection returns
+        // the previous bundle, and the next pick sends another accumulating
+        // classOp against the same stale state.
+        await this.writeFile({
+          kind: 'immediate',
+          suppressHmr: false,
+          filePath: resolvedPath,
+          content: result.newContent,
+        })
+      } catch (err) {
+        this.channel.send({
+          type: 'edit_status',
+          editId: edit.editId,
+          status: 'failed',
+          reason: `Write failed: ${sanitizeErrorForClient(err)}`,
+          reason_code: classifyWriteError(err),
+        })
+        return
+      }
+
+      if (this.undoStack && oldContent !== null) {
+        // requiresHmr=true: className mutations have no browser-side override
+        // layer; undo must fire HMR so React re-renders the element with the
+        // previous className. Otherwise disk reverts but DOM stays stale.
+        this.undoStack.push({
+          changes: [
+            {
+              filePath: resolvedPath,
+              previousContent: oldContent,
+              currentContent: result.newContent,
+              requiresHmr: true,
+            },
+          ],
+        })
+      }
+
+      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done' })
+    })
+  }
+
+  /** Build a plain-English instruction describing a classOp for the AI writer. */
+  private describeClassOpForAI(
+    op: { remove?: string; add?: string },
+    filePath: string,
+    line: number,
+    col: number,
+  ): string {
+    const parts: string[] = []
+    if (op.remove) parts.push(`remove the class "${op.remove}"`)
+    if (op.add) parts.push(`add the class "${op.add}"`)
+    return `On the JSX element at ${filePath}:${line}:${col}, ${parts.join(' and ')} in the className attribute. Preserve all other classes, ordering, and JSX structure.`
   }
 
   /** AI write without lock — used at Point B (already inside withFileLock). */
@@ -797,13 +1386,16 @@ export class EditPipeline {
         type: 'edit_status',
         editId: edit.editId,
         status: 'failed',
-        reason: `Write failed: ${err instanceof Error ? err.message : String(err)}`,
+        reason: `Write failed: ${sanitizeErrorForClient(err)}`,
+        reason_code: classifyWriteError(err),
       })
       return
     }
 
     if (this.undoStack) {
-      this.undoStack.push({ changes: [{ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent }] })
+      // requiresHmr=true: deferred/AI writes can restructure JSX. Undo must
+      // re-render the user's component to reflect the old source.
+      this.undoStack.push({ changes: [{ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent, requiresHmr: true }] })
     }
 
     this.verifier.trackEdit({
@@ -846,10 +1438,13 @@ export class EditPipeline {
       try {
         await this.writeFile({ kind: 'immediate', filePath: resolvedCssPath, content: result.newContent })
       } catch (err) {
-        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Write failed: ${err instanceof Error ? err.message : String(err)}` })
+        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Write failed: ${sanitizeErrorForClient(err)}`, reason_code: classifyWriteError(err) })
         return
       }
-      undoChanges.push({ filePath: resolvedCssPath, previousContent: result.oldContent, currentContent: result.newContent })
+      // requiresHmr=false: the CSS Module edit is paired with a browser-side
+      // override. HMR would cause a flicker between the override value and
+      // the stylesheet reload; suppressed by design.
+      undoChanges.push({ filePath: resolvedCssPath, previousContent: result.oldContent, currentContent: result.newContent, requiresHmr: false })
       cssSuccess = true
     })
 
@@ -899,7 +1494,13 @@ export class EditPipeline {
               // Allowing CSS HMR causes flicker (style recalc) and breaks undo
               // (CSS value in browser can't be rolled back when undo suppresses HMR).
               await this.writeFile({ kind: 'jsx-immediate', suppressHmr: true, filePath, content: cleanup.newContent })
-              undoChanges.push({ filePath, previousContent: cleanup.oldContent, currentContent: cleanup.newContent })
+              // requiresHmr=false matches the forward write's suppressHmr=true.
+              // The cleanup removes inline styles whose visual is supplied by
+              // the browser-side CSS override; undo restores those inline
+              // styles, but the override is still present at undo time so
+              // HMR would flicker. When the override eventually clears, the
+              // inline style takes over on the next natural render.
+              undoChanges.push({ filePath, previousContent: cleanup.oldContent, currentContent: cleanup.newContent, requiresHmr: false })
               // No verifier.trackEdit — intentional. The override persists
               // (redundant but harmless once CSS HMR delivers the matching value).
               // Tracking would send hmr_verified, risking premature override
@@ -955,13 +1556,16 @@ export class EditPipeline {
       } catch (err) {
         this.channel.send({
           type: 'edit_status', editId: edit.editId, status: 'failed',
-          reason: `Write failed: ${err instanceof Error ? err.message : String(err)}`,
+          reason: `Write failed: ${sanitizeErrorForClient(err)}`,
+          reason_code: classifyWriteError(err),
         })
         handled = true // error handled — don't fall through to AI
         return
       }
       if (this.undoStack) {
-        this.undoStack.push({ changes: [{ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent }] })
+        // requiresHmr=true symmetric with forward kind='jsx-immediate': AI may
+        // restructure JSX, so undo must re-render the user's component.
+        this.undoStack.push({ changes: [{ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent, requiresHmr: true }] })
       }
       // Track for HMR verification — jsx-immediate allows HMR, so the verifier
       // can confirm the update and clean up the browser CSS override.
@@ -986,7 +1590,7 @@ export class EditPipeline {
     } catch (err) {
       // Last-resort safety net: if the inner logic throws unexpectedly,
       // ensure editIds always get a terminal status (never stuck in "writing")
-      const reason = `Unexpected error: ${err instanceof Error ? err.message : String(err)}`
+      const reason = `Unexpected error: ${sanitizeErrorForClient(err)}`
       this.sendDeferredStatus(batch.editIds, 'failed', reason)
       return { success: false, reason }
     }
@@ -1030,7 +1634,7 @@ export class EditPipeline {
         if (!this.readFile) throw new Error('readFile is not configured')
         fileContent = await this.readFile(batch.filePath)
       } catch (err) {
-        const reason = `Failed to read file: ${err instanceof Error ? err.message : String(err)}`
+        const reason = `Failed to read file: ${sanitizeErrorForClient(err)}`
         this.sendDeferredStatus(batch.editIds, 'failed', reason)
         return { success: false, reason }
       }
@@ -1086,14 +1690,16 @@ export class EditPipeline {
       try {
         await this.writeFile({ kind: 'deferred', filePath: batch.filePath, content: result.newContent })
       } catch (err) {
-        const reason = `Write failed: ${err instanceof Error ? err.message : String(err)}`
-        this.sendDeferredStatus(batch.editIds, 'failed', reason)
+        const reason = `Write failed: ${sanitizeErrorForClient(err)}`
+        this.sendDeferredStatus(batch.editIds, 'failed', reason, classifyWriteError(err))
         return { success: false, reason }
       }
 
-      // Push undo (only after successful write)
+      // Push undo (only after successful write).
+      // requiresHmr=true: deferred batch writes via AI can restructure JSX;
+      // undo must re-render to reflect the pre-batch source.
       if (this.undoStack) {
-        this.undoStack.push({ changes: [{ filePath: batch.filePath, previousContent: result.oldContent, currentContent: result.newContent }] })
+        this.undoStack.push({ changes: [{ filePath: batch.filePath, previousContent: result.oldContent, currentContent: result.newContent, requiresHmr: true }] })
       }
 
       // Track HMR for ALL changes in the batch, not just the last.
@@ -1117,7 +1723,7 @@ export class EditPipeline {
     })
   }
 
-  private sendDeferredStatus(editIds: string[], status: 'done' | 'failed' | 'cancelled', reason?: string): void {
+  private sendDeferredStatus(editIds: string[], status: 'done' | 'failed' | 'cancelled', reason?: string, reason_code?: 'external_revert' | 'invalid_class_token' | 'write_failed' | 'rewriter_failed' | 'parse_failed' | 'read_failed'): void {
     for (const editId of editIds) {
       this.channel.send({
         type: 'edit_status',
@@ -1125,6 +1731,7 @@ export class EditPipeline {
         status,
         strategy: 'deferred',
         ...(reason ? { reason } : {}),
+        ...(reason_code ? { reason_code } : {}),
       })
     }
   }

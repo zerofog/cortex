@@ -47,7 +47,16 @@ describe('icons.tsx — lucide.dev snapshot inventory', () => {
     //                                          replacing the T/R/B/L text labels)
     //   +1 BoxShadow     (shadow row expand icon, replaces ChevronRight)
     // Net delta from the 40-icon Task 4 baseline: +10 → 50.
-    expect(ICON_EXPORTS.length).toBe(50)
+    //
+    // ZF0-1215 Typography v2 added six more:
+    //   +1 LineHeightIcon       (custom — A between horizontal bars)
+    //   +1 LetterSpacingIcon    (custom — A between vertical bars)
+    //   +1 SwatchBook           (re-link color group)
+    //   +1 ArrowUpFromLine      (vertical-align: top)
+    //   +1 AlignCenterVertical  (vertical-align: middle)
+    //   +1 ArrowDownToLine      (vertical-align: bottom)
+    // Net new baseline: 50 + 6 = 56.
+    expect(ICON_EXPORTS.length).toBe(56)
   })
 
   it.each(ICON_EXPORTS)('<%s /> renders the lucide.dev SVG verbatim', (name, Component) => {

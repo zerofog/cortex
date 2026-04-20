@@ -41,6 +41,12 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const [hoveredElement, setHoveredElement] = useState<HTMLElement | null>(null)
   const [selectedElement, setSelectedElement] = useState<HTMLElement | null>(null)
   const [swatches, setSwatches] = useState<string[] | undefined>(undefined)
+  const [textComponents, setTextComponents] = useState<
+    import('../../core/text-components.js').TextComponent[] | undefined
+  >(undefined)
+  const [colorChips, setColorChips] = useState<
+    Array<{ name: string; hex: string }> | undefined
+  >(undefined)
   const [activeState, setActiveState] = useState<InteractionState>('default')
   const [availableStates, setAvailableStates] = useState<StateDeclarations | undefined>(undefined)
   const [hasBefore, setHasBefore] = useState(false)
@@ -114,7 +120,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     selectionHandle.setDesignMode(false)
     selectionRef.current = selectionHandle
 
-    // Subscribe to server messages
+    // Listen-first ordering: subscribe to onMessage BEFORE sending init. The server's
+    // hello response is async, so attaching this handler first guarantees it's live
+    // when the response arrives. Emitting init before this line would race.
     const unsubscribe = channel.onMessage((msg) => {
       if (msg.type === 'cortex') {
         setActive(true)
@@ -133,9 +141,14 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         setCapabilitySystems(msg.systems.filter(s => s.status !== 'supported'))
       }
       if (msg.type === 'hello') {
-        if (msg.swatches && msg.swatches.length > 0) {
-          setSwatches(msg.swatches)
-        }
+        // hello is authoritative state replacement, not additive. Prior
+        // pattern gated each assignment on `length > 0`, so a subsequent
+        // hello with cleared fields (e.g., the user removed a @theme
+        // block and the server restarted) left stale browser state.
+        // Unconditional ?? [] ensures server-side truth reaches the UI.
+        setSwatches(msg.swatches ?? [])
+        setTextComponents(msg.textComponents ?? [])
+        setColorChips(msg.colorChips ?? [])
       }
       if (msg.type === 'edit_status') {
         if (msg.status === 'done') {
@@ -204,6 +217,12 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         setActivityCount(c => c + 1)
       }
     })
+
+    // Handshake signal — server responds with 'hello' carrying swatches + design-system
+    // data. Placed AFTER onMessage subscription above so the response is guaranteed
+    // to reach the handler. Idempotent on the server, so strict-mode double-mount
+    // and HMR re-mount both work without special-casing.
+    channel.send({ type: 'init', sessionId: window.__CORTEX_SESSION_ID__ })
 
     // Track whether we were disconnected for the "reconnected" flash
     let wasDisconnected = false
@@ -502,6 +521,8 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           onClose={handleExit}
           onSelectElement={handleSelectElement}
           swatches={swatches}
+          textComponents={textComponents}
+          colorChips={colorChips}
           activeState={activeState}
           hasBefore={hasBefore}
           hasAfter={hasAfter}

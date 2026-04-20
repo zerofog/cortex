@@ -178,6 +178,71 @@ describe('Panel', () => {
   // that never rendered and were only passing-or-timing-out at random due to
   // a vi.useFakeTimers() cleanup that the failing assertion skipped. Deleted
   // as dead zombie tests rather than ported.
+
+  it('re-detects typography bundle when element.className mutates (ZF0-1215 class observer)', async () => {
+    // Invariant under test: Panel lives in a Preact shadow tree decoupled
+    // from the user's React tree. When HMR rewrites the user's className,
+    // the Panel MUST observe the mutation and re-run bundle detection so
+    // the typography pill reflects the current class.
+    //
+    // Before the Task 17 observer fix, this test would show a stale bundle
+    // name after className mutation because nothing bumped styleVersion.
+    const BUNDLES = [
+      { name: 'body-md', fontSize: '14px', lineHeight: '21px', letterSpacing: '0px', fontWeight: '400' },
+      { name: 'heading-1', fontSize: '32px', lineHeight: '40px', letterSpacing: '-0.5px', fontWeight: '700' },
+    ]
+
+    const target = document.createElement('p')
+    target.setAttribute('data-cortex-source', 'src/App.tsx:10:5')
+    target.appendChild(document.createTextNode('Scenario'))
+    target.className = 'text-heading-1'
+    document.body.appendChild(target)
+    const restoreStyles = mockGetComputedStyle(target, {
+      fontSize: '32px',
+      fontFamily: 'Inter',
+      fontWeight: '700',
+      lineHeight: '40px',
+      letterSpacing: '-0.5px',
+      textAlign: 'left',
+      color: 'rgb(0,0,0)',
+      display: 'block',
+    })
+
+    const overrideManager = {
+      set: vi.fn(), get: vi.fn(), remove: vi.fn(),
+      clearAll: vi.fn(), dispose: vi.fn(), flush: vi.fn(),
+    }
+    const result = renderInShadow(
+      <Panel
+        element={target}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        textComponents={BUNDLES}
+        {...panelPositionProps}
+      />
+    )
+    cleanup = () => {
+      result.cleanup()
+      target.remove()
+      restoreStyles()
+    }
+
+    // Initial render: pill shows heading-1.
+    const typographySection = result.root.querySelector('[data-section-id="type"]')
+    expect(typographySection).not.toBeNull()
+    expect(typographySection!.textContent).toContain('heading-1')
+    expect(typographySection!.textContent).not.toContain('body-md')
+
+    // Mutate className — simulates React re-rendering after an HMR update.
+    target.className = 'text-body-md'
+
+    // Wait for MutationObserver callback + microtask coalescing + Preact re-render.
+    await new Promise((r) => setTimeout(r, 20))
+
+    expect(typographySection!.textContent).toContain('body-md')
+    expect(typographySection!.textContent).not.toContain('heading-1')
+  })
 })
 
 describe('Panel — library detection wiring', () => {

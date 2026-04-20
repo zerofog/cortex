@@ -4,7 +4,7 @@ import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { ColorInput, parseColor, formatColor } from '../controls/ColorInput.js'
-import { TokenChip } from '../controls/TokenChip.js'
+import { TokenChip, isColorLike } from '../controls/TokenChip.js'
 import { IconButton } from '../controls/IconButton.js'
 import {
   Eye,
@@ -324,7 +324,11 @@ export function BorderSection({
             <div class="cortex-border-section__token-row">
               <TokenChip
                 tokenName={borderToken}
-                resolvedValue={values.borderColor}
+                swatch={
+                  isColorLike(values.borderColor)
+                    ? { kind: 'color', value: values.borderColor }
+                    : { kind: 'pattern' }
+                }
                 onUnlink={handleUnlink}
               />
               {trailing}
