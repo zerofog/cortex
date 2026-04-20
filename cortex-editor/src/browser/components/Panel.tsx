@@ -842,6 +842,11 @@ export function Panel({
       if (commandStack) {
         const cmd = new CompoundEditCommand({ changes, overrideManager, editId })
         commandStack.record(cmd)
+      } else {
+        // Observability parity with commitScrub at line 593 — a
+        // compound edit committed without a commandStack cannot be
+        // undone. Warn so missing-stack wiring is diagnosable.
+        console.warn('[cortex] Compound edit committed without undo stack — this edit cannot be undone')
       }
 
       // ONE compound WebSocket message (ZF0-1215 C2). Server routes to
