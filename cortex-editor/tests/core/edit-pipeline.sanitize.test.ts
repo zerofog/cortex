@@ -145,4 +145,93 @@ describe('sanitizeErrorForClient', () => {
     const result = sanitizeErrorForClient(err)
     expect(result).toBe("wrote temp file to /tmp")
   })
+
+  // H-R3-2 (Round 3): quoted-path pre-pass closes the macOS Display
+  // Name leak. Node's fs errors always wrap absolute paths in quotes,
+  // so the pre-pass handles space-containing paths that the unquoted
+  // char-class regex cannot.
+
+  it('strips single-quoted POSIX path with space (macOS Display Name home dir)', () => {
+    const err = new Error("ENOENT: no such file or directory, open '/Users/John Doe/project/Hero.tsx'")
+    const result = sanitizeErrorForClient(err)
+    expect(result).not.toContain('/Users/John')
+    expect(result).not.toContain('Doe')
+    expect(result).not.toContain('project')
+    expect(result).not.toContain('Hero.tsx')
+    expect(result).toContain("'<path>'")
+    expect(result).toContain('ENOENT')
+  })
+
+  it('strips double-quoted POSIX path with space', () => {
+    const err = new Error('failed opening "/Users/Foo Bar/src/file.ts"')
+    const result = sanitizeErrorForClient(err)
+    expect(result).not.toContain('/Users/Foo')
+    expect(result).not.toContain('Bar')
+    expect(result).not.toContain('src/file.ts')
+    expect(result).toContain('"<path>"')
+  })
+
+  it('strips BOTH paths in a multi-path quoted error (cross-device rename)', () => {
+    const err = new Error(
+      "cross-device link not permitted: rename '/Users/A Name/src/old.tsx' -> '/Users/B Name/dest/old.tsx'"
+    )
+    const result = sanitizeErrorForClient(err)
+    expect(result).not.toContain('/Users/A')
+    expect(result).not.toContain('/Users/B')
+    expect(result).not.toContain('Name/src')
+    expect(result).not.toContain('Name/dest')
+    // Both paths replaced — two quoted <path> tokens.
+    const occurrences = (result.match(/'<path>'/g) ?? []).length
+    expect(occurrences).toBe(2)
+  })
+
+  it('strips quoted Windows path with space (Program Files / Display Name)', () => {
+    const err = new Error("ENOENT: no such file or directory, open 'C:\\Users\\John Doe\\project\\Hero.tsx'")
+    const result = sanitizeErrorForClient(err)
+    expect(result).not.toContain('C:\\Users')
+    expect(result).not.toContain('John Doe')
+    expect(result).not.toContain('Hero.tsx')
+    expect(result).toContain("'<path>'")
+  })
+
+  it('handles mixed quoted + unquoted paths in one message', () => {
+    // Rare but possible: one path quoted (gets quoted-path pass) and
+    // another unquoted (falls through to the POSIX_ABS_PATH regex).
+    const err = new Error(
+      "write to /tmp/log.txt failed while processing '/Users/Foo Bar/Hero.tsx'"
+    )
+    const result = sanitizeErrorForClient(err)
+    // Quoted path fully stripped
+    expect(result).not.toContain('/Users/Foo')
+    expect(result).not.toContain('Bar')
+    expect(result).toContain("'<path>'")
+    // Unquoted path fully stripped (no spaces — regular path)
+    expect(result).not.toContain('/tmp/log.txt')
+    expect(result).toContain('<path>')
+  })
+
+  it('preserves punctuation around stripped quoted paths', () => {
+    // The `$1<path>$1` replacement pattern preserves the matched
+    // quote character (single or double), so surrounding prose
+    // remains intact and readable.
+    const err = new Error("open '/Users/a/x.ts' failed, errno -2")
+    const result = sanitizeErrorForClient(err)
+    expect(result).toBe("open '<path>' failed, errno -2")
+  })
+
+  // Documented limitation: unquoted paths WITH spaces followed by
+  // prose cannot be reliably stripped without prose-vs-path
+  // disambiguation, which is unsolvable generally. Node fs errors
+  // always quote, so this is an edge case. When/if an error source
+  // violates the quoting convention, leakage of post-space tail is
+  // accepted. See M-R3-* follow-up ticket.
+  it.skip('unquoted path with spaces followed by prose — KNOWN LIMITATION', () => {
+    // TODO: unquoted-with-spaces requires prose-vs-path disambiguation
+    // that the char-class regex cannot provide. Tracked as follow-up.
+    const err = new Error("write failed at /Users/Foo Bar/Hero.tsx because of disk space")
+    const result = sanitizeErrorForClient(err)
+    // Would-be assertion if we solved this case:
+    expect(result).not.toContain('/Users/Foo')
+    expect(result).not.toContain('Bar')
+  })
 })

@@ -118,20 +118,42 @@ function validateInlineOps(
   return null
 }
 
-/** POSIX absolute path matcher for sanitization. Requires at least 2
- *  `/segment` parts so single literals (`/tmp`) don't over-match, but
- *  `/Users/alice/...`, `/home/...`, `/var/...`, `/etc/...` are all
- *  caught. The negative lookbehind prevents matching inside a relative
- *  path like `src/components/Hero.tsx` — the leading `/` must be
- *  preceded by a non-path character (whitespace, quote, comma, etc.)
- *  or string start. Character class excludes whitespace and punctuation
- *  that commonly border paths in prose, so we stop at path boundary
- *  rather than swallowing adjacent text. */
+/** H-R3-2 (Round 3): quoted-path pre-pass for sanitizer. Node.js fs
+ *  errors follow the convention of wrapping absolute paths in single
+ *  or double quotes: `ENOENT: ... open '/Users/John Doe/Hero.tsx'`.
+ *  A regex that matches between quotes captures paths CONTAINING
+ *  SPACES — which the unquoted-regex fallback cannot, because its
+ *  character class stops at whitespace. This closes the macOS
+ *  Display Name leak that 4 Round 3 reviewers flagged independently.
+ *
+ *  Backreference `\1` ensures we match matching quote pairs. Inside,
+ *  `\/[^'"]*` requires a leading slash (absolute POSIX) followed by
+ *  any non-quote chars — spaces, slashes, dots all allowed. */
+const QUOTED_POSIX_PATH_REGEX = /(['"])(\/[^'"]*)\1/g
+
+/** Windows quoted-path equivalent: drive letter + colon + separator. */
+const QUOTED_WIN_PATH_REGEX = /(['"])([A-Za-z]:[\\/][^'"]*)\1/g
+
+/** POSIX absolute path matcher for sanitization (unquoted fallback).
+ *  Requires at least 2 `/segment` parts so single literals (`/tmp`)
+ *  don't over-match, but `/Users/alice/...`, `/home/...`, `/var/...`,
+ *  `/etc/...` are all caught. The negative lookbehind prevents
+ *  matching inside a relative path like `src/components/Hero.tsx`.
+ *  Character class excludes whitespace — which means this regex
+ *  CANNOT handle paths with spaces. That case is handled by the
+ *  QUOTED_POSIX_PATH_REGEX pre-pass (runs first), which covers the
+ *  Node fs error convention of quoting paths.
+ *
+ *  Documented limitation: unquoted paths WITH spaces followed by
+ *  prose (`at /Users/John Doe/foo because X`) still partially leak.
+ *  This case is rare (Node fs errors always quote), and full handling
+ *  requires prose-vs-path disambiguation which is unsolvable without
+ *  a wrapping delimiter. See the `it.skip` in sanitize.test.ts. */
 const POSIX_ABS_PATH_REGEX = /(?<![\w./-])(?:\/[^\s:,'"\\]+){2,}/g
 
-/** Windows absolute path matcher. Drive letter + colon + backslash
- *  (or forward slash) + one or more segments. Path segment char class
- *  excludes Windows-reserved filename chars to avoid over-match. */
+/** Windows absolute path matcher (unquoted fallback). Drive letter +
+ *  colon + separator + segments. Same space-handling limitation as
+ *  POSIX_ABS_PATH_REGEX — handled by the quoted-path pre-pass. */
 const WINDOWS_ABS_PATH_REGEX = /[A-Za-z]:[\\/](?:[^\s:,'"<>?*|]+[\\/]?)+/g
 
 /** Sanitize an error for surface to the browser over the WebSocket.
@@ -155,6 +177,15 @@ const WINDOWS_ABS_PATH_REGEX = /[A-Za-z]:[\\/](?:[^\s:,'"<>?*|]+[\\/]?)+/g
 export function sanitizeErrorForClient(err: unknown): string {
   if (!(err instanceof Error)) return 'Unknown error'
   let msg = err.message
+  // Pass 1 (H-R3-2, Round 3): quoted absolute paths. Supports embedded
+  // spaces (macOS Display Name home dirs like `/Users/John Doe/...`).
+  // Node fs errors always quote paths, so this pre-pass handles the
+  // common case. Runs first so the quotes are stripped to `<path>`
+  // before the unquoted fallback can partial-match the inside.
+  msg = msg.replace(QUOTED_POSIX_PATH_REGEX, '$1<path>$1')
+  msg = msg.replace(QUOTED_WIN_PATH_REGEX, '$1<path>$1')
+  // Pass 2: unquoted absolute paths. Handles ts-morph / ESBuild
+  // error messages that interpolate paths without quotes.
   msg = msg.replace(POSIX_ABS_PATH_REGEX, '<path>')
   msg = msg.replace(WINDOWS_ABS_PATH_REGEX, '<path>')
   return msg.length <= MAX_CLIENT_ERROR_LEN
