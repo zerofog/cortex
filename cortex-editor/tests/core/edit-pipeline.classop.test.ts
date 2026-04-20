@@ -252,7 +252,7 @@ describe('EditPipeline — classOp routing', () => {
     expect(callArg?.value).toContain('body-md')
   })
 
-  it('sends edit_status failed when rewriteClassList fails AND no AI writer is wired', async () => {
+  it('sends edit_status failed with reason_code:rewriter_failed when rewriteClassList fails AND no AI writer is wired (SF-M-1)', async () => {
     const bareChannel = stubChannel()
     const bareRewriter = stubRewriter()
     const barePipeline = new EditPipeline({
@@ -266,16 +266,30 @@ describe('EditPipeline — classOp routing', () => {
     bareRewriter.rewriteClassList.mockResolvedValue({
       success: false,
       filePath: '/tmp/proj/App.tsx',
-      reason: 'x',
+      reason: 'template literal not supported',
     })
 
     barePipeline.handleEdit(baseEdit({ classOp: { kind: 'remove', remove: 'y' } }))
     await flush()
 
+    // Exactly one failed status message (not zero, not duplicate).
     const failedCalls = bareChannel.send.mock.calls.filter(
       ([m]) => (m as { status?: string }).status === 'failed',
     )
     expect(failedCalls.length).toBe(1)
+
+    // Structured rejection: rewriter failures are discriminable from
+    // other terminal failures (write_failed, invalid_class_token,
+    // read_failed, parse_failed). Without this, the browser can't
+    // distinguish "the rewriter doesn't support this JSX shape" from
+    // "the file couldn't be written" — identical UX for two very
+    // different root causes.
+    expect(failedCalls[0]?.[0]).toMatchObject({
+      type: 'edit_status',
+      status: 'failed',
+      reason_code: 'rewriter_failed',
+      reason: expect.stringContaining('template literal not supported'),
+    })
   })
 
   // ─── SF-H-1: handleClassOp fails fast on readFile error ───────────

@@ -1277,6 +1277,7 @@ export class EditPipeline {
           editId: edit.editId,
           status: 'failed',
           reason: result.reason ?? 'Could not rewrite className for this element.',
+          reason_code: 'rewriter_failed',
         })
         return
       }
