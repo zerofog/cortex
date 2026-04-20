@@ -13,6 +13,7 @@ import type { InlineStyleRewriter } from './rewriter/inline-style.js'
 import { classifyEdit } from './edit-strategy.js'
 import { ExternalRevertError } from '../adapters/atomic-write.js'
 import { validateClassOpToken } from './class-op-validator.js'
+import { validatePropertyName, rejectCommonInjectionPatterns } from './css-validation.js'
 import { createJsxTransaction } from './rewriter/jsx-transaction.js'
 
 /** Classify a write-time error into a reason_code for edit_status.failed.
@@ -38,82 +39,35 @@ const MAX_INLINE_PROP_NAME_LEN = 64
  *  `linear-gradient(...)` strings without being a payload vector. */
 const MAX_INLINE_PROP_VALUE_LEN = 512
 
-/** Block `url(` substrings in inline values — same defense class-op-validator
- *  applies to classOp tokens. Compound inline values are written as
- *  `style={{ property: value }}` in JSX source; browsers execute
- *  `background-image: url(...)`, `cursor: url(...)`, etc. at render time.
- *  C-R2-2 (Round 2): H1's classOp url()-defense was not extended to the
- *  compound protocol's new inlineSets values — closing that gap here. */
-const REJECT_URL_IN_INLINE = /url\s*\(/i
-
-/** Whitelist regex for inline property names. Matches standard CSS
- *  (`font-size`), CSS custom properties (`--primary`), and vendor-prefixed
- *  (`-webkit-transform`). Rejects anything outside `[a-zA-Z0-9-]` to block
- *  JSX-attribute-breakout shapes like `\"]injection` even though ts-morph's
- *  AST writers escape them. Defense-in-depth, not replacement. */
-const VALID_INLINE_PROP_NAME = /^-{0,2}[a-zA-Z][a-zA-Z0-9-]*$/
-
 /** Shape-validate the compound-edit inline op arrays. Returns null on
  *  success or a specific rejection reason (for reason_code propagation).
  *  Values for sets must be non-empty — empty-string inline edits were
  *  the bug commit 11066da removed; the compound protocol inherits the
- *  same non-empty invariant. */
+ *  same non-empty invariant.
+ *
+ *  Injection-shape rejection (url(), //, backslash for Unicode escape,
+ *  /* for comment injection) is centralized in
+ *  rejectCommonInjectionPatterns so the server has ONE source of truth
+ *  for the attack-class blocklist — shared with validateClassOpToken. */
 function validateInlineOps(
   sets: ReadonlyArray<{ property: string; value: string }> | undefined,
   removes: ReadonlyArray<{ property: string }> | undefined,
 ): string | null {
   for (const s of sets ?? []) {
-    if (typeof s.property !== 'string' || s.property.length === 0) {
-      return 'inlineSets entry has empty property name'
-    }
-    if (s.property.length > MAX_INLINE_PROP_NAME_LEN) {
-      return `inlineSets property name exceeds ${MAX_INLINE_PROP_NAME_LEN} chars`
-    }
-    if (!VALID_INLINE_PROP_NAME.test(s.property)) {
-      return 'inlineSets property name has invalid shape (must match CSS property name charset)'
-    }
+    const nameErr = validatePropertyName(s.property, MAX_INLINE_PROP_NAME_LEN, 'inlineSets')
+    if (nameErr) return nameErr
     if (typeof s.value !== 'string' || s.value.length === 0) {
       return 'inlineSets entry has empty value — use inlineRemoves instead'
     }
     if (s.value.length > MAX_INLINE_PROP_VALUE_LEN) {
       return `inlineSets value exceeds ${MAX_INLINE_PROP_VALUE_LEN} chars`
     }
-    if (REJECT_URL_IN_INLINE.test(s.value)) {
-      return 'inlineSets value must not contain url() — use @theme or static asset imports for images'
-    }
-    if (s.value.includes('//')) {
-      return 'inlineSets value must not contain protocol-relative `//`'
-    }
-    // C-R3-1 (Round 3): reject backslash. No legitimate inline-style value
-    // needs it, and it is the entry-point for CSS Unicode escape bypass —
-    // `\75 rl(javascript:alert(1))` survives REJECT_URL_IN_INLINE (starts
-    // with `\`, not `u`), gets written to JSX as `"\\75 rl(...)"`, and is
-    // decoded by the CSS tokenizer when React assigns to element.style
-    // (CSSOM setProperty invokes the value parser per CSSOM 6.7). The
-    // resulting token is `url(...)`. Blocking `\` closes the entire
-    // escape-decoding class at the validator layer, mirroring H1's
-    // whitelist approach for classOp tokens.
-    if (s.value.includes('\\')) {
-      return 'inlineSets value must not contain backslash (blocks CSS Unicode escape bypass)'
-    }
-    // C-R3-1 (Round 3): reject CSS comment openers. The CSS tokenizer
-    // strips `/* ... */` comments BEFORE function-name matching, so
-    // `url/**/(evil)` decodes to `url(evil)` — another path around
-    // REJECT_URL_IN_INLINE.
-    if (s.value.includes('/*')) {
-      return 'inlineSets value must not contain /* (blocks CSS comment-injection bypass)'
-    }
+    const injectErr = rejectCommonInjectionPatterns(s.value, 'inlineSets value')
+    if (injectErr) return injectErr
   }
   for (const r of removes ?? []) {
-    if (typeof r.property !== 'string' || r.property.length === 0) {
-      return 'inlineRemoves entry has empty property name'
-    }
-    if (r.property.length > MAX_INLINE_PROP_NAME_LEN) {
-      return `inlineRemoves property name exceeds ${MAX_INLINE_PROP_NAME_LEN} chars`
-    }
-    if (!VALID_INLINE_PROP_NAME.test(r.property)) {
-      return 'inlineRemoves property name has invalid shape (must match CSS property name charset)'
-    }
+    const nameErr = validatePropertyName(r.property, MAX_INLINE_PROP_NAME_LEN, 'inlineRemoves')
+    if (nameErr) return nameErr
   }
   return null
 }

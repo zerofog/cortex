@@ -172,13 +172,17 @@ describe('validateClassOpToken — rejects by specific rule', () => {
     // before any CSS tokenization runs.
     const r = validateClassOpToken('bg-[\\75rl(javascript:alert(1))]')
     expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.reason).toMatch(/shape/)
+    // Post-simplify (Step 5 C9): shared rejectCommonInjectionPatterns
+    // gives a more specific error message — "backslash" — before the
+    // SHAPE regex gets to reject for charset violation. More precise
+    // is strictly better for debugging and falsifiability.
+    if (!r.ok) expect(r.reason).toMatch(/backslash|shape/)
   })
 
   it('rejects backslash inside bracket value (no CSS escapes)', () => {
     const r = validateClassOpToken('bg-[\\20]')
     expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.reason).toMatch(/shape/)
+    if (!r.ok) expect(r.reason).toMatch(/backslash|shape/)
   })
 
   it('rejects single-quote inside bracket value (no quoted content strings)', () => {
