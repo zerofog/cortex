@@ -797,34 +797,27 @@ export function Panel({
       const editId = crypto.randomUUID()
 
       // Capture previous override values BEFORE mutating, so the
-      // CompoundEditCommand can restore them on undo/redo. This must
-      // happen BEFORE the overrideManager.set/remove calls below.
+      // Single-pass iteration: snapshot previousValue, build the
+      // CompoundEditCommand change entry, AND apply the optimistic
+      // override — all in one loop per kind. The critical constraint
+      // is order: overrideManager.get must run BEFORE overrideManager.set
+      // so the snapshot reflects the pre-edit state. Single-pass
+      // respects this because get + push + set fire in that order for
+      // each property before moving to the next.
+      //
+      // Local !important overrides give IMMEDIATE visual feedback. The
+      // server's HMR-verified handshake (trackPendingEdit →
+      // handleHMRVerified) releases them once the source write lands
+      // and React re-renders. Without the local override, the user
+      // would see OLD styles until HMR completes (100-500ms).
       const changes: PropertyChange[] = []
       if (opts.inlineSets) {
         for (const s of opts.inlineSets) {
           const previousValue = overrideManager.get(source, s.property, pseudo) ?? ''
           changes.push({ source, property: s.property, value: s.value, previousValue, pseudo })
-        }
-      }
-      if (opts.inlineRemoves) {
-        for (const r of opts.inlineRemoves) {
-          const previousValue = overrideManager.get(source, r.property, pseudo) ?? ''
-          if (previousValue === '') continue  // nothing to restore on undo — no-op remove
-          changes.push({ source, property: r.property, value: '', previousValue, pseudo })
-        }
-      }
-
-      // Local !important overrides for IMMEDIATE visual feedback. The
-      // server's HMR-verified handshake (trackPendingEdit →
-      // handleHMRVerified) releases these once the source write lands
-      // and React re-renders. Without the local override, the user sees
-      // the OLD styles until HMR completes (100-500ms).
-      if (opts.inlineSets && opts.inlineSets.length > 0) {
-        for (const s of opts.inlineSets) {
           overrideManager.set(source, s.property, s.value, pseudo)
-          // Register the pending edit so HMR-verification removes the
-          // override when the source write lands. All properties ride
-          // the SAME editId since they're part of ONE compound edit.
+          // trackPendingEdit shares editId across the whole compound so
+          // HMR-verification releases all properties of this gesture together.
           overrideManager.trackPendingEdit(editId, source, s.property, s.value, pseudo)
         }
       }
@@ -832,9 +825,12 @@ export function Panel({
       // class's cascade wins immediately. Structurally redundant with
       // the H7 part A pre-clear in handleTypographyChange but idempotent
       // and keeps this function self-contained.
-      if (opts.inlineRemoves && opts.inlineRemoves.length > 0) {
+      if (opts.inlineRemoves) {
         for (const r of opts.inlineRemoves) {
+          const previousValue = overrideManager.get(source, r.property, pseudo) ?? ''
           overrideManager.remove(source, r.property, pseudo)
+          if (previousValue === '') continue  // nothing to restore on undo — no-op remove
+          changes.push({ source, property: r.property, value: '', previousValue, pseudo })
         }
       }
 
