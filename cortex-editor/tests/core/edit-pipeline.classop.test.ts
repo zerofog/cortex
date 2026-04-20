@@ -278,6 +278,38 @@ describe('EditPipeline — classOp routing', () => {
     expect(failedCalls.length).toBe(1)
   })
 
+  // ─── SF-H-1: handleClassOp fails fast on readFile error ───────────
+  //
+  // Before this fix, the catch at handleClassOp swallowed read errors
+  // silently and let the write proceed without an undo entry. The user
+  // would see edit_status: 'done', attempt Ctrl+Z, and nothing happens —
+  // no error, no log, no recovery path. By failing fast with a
+  // dedicated reason_code, the browser + analytics can distinguish
+  // a read failure from every other failure mode, and the user
+  // learns their edit didn't land instead of silently losing undo.
+  it('fails with reason_code:read_failed when readFile throws before the rewrite (SF-H-1)', async () => {
+    readFile.mockRejectedValue(new Error("ENOENT: no such file, open '/tmp/proj/App.tsx'"))
+
+    pipeline.handleEdit(baseEdit({ classOp: { kind: 'add', add: 'body-md' } }))
+    await flush()
+
+    // No side effects: the rewriter never ran, no write hit disk, no undo push.
+    expect(rewriter.rewriteClassList).not.toHaveBeenCalled()
+    expect(writes).toHaveLength(0)
+    expect(undoStack.push).not.toHaveBeenCalled()
+
+    // Structured rejection mechanism: caller can discriminate this path.
+    const failedCall = channel.send.mock.calls.find(
+      ([m]) => (m as { status?: string }).status === 'failed',
+    )?.[0] as { reason?: string; reason_code?: string } | undefined
+    expect(failedCall?.reason_code).toBe('read_failed')
+    expect(failedCall?.reason).toContain('Cannot read file')
+
+    // Path sanitization: the absolute path must not leak to the browser.
+    expect(failedCall?.reason).not.toContain('/tmp/proj/App.tsx')
+    expect(failedCall?.reason).toContain('<path>')
+  })
+
   it('classOp takes precedence when both classOp and property are present', async () => {
     rewriter.rewriteClassList.mockResolvedValue({
       success: true,

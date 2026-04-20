@@ -1111,7 +1111,7 @@ export class EditPipeline {
       // and (sometimes) reason_code. Factoring to `fail()` reduces
       // visual nesting from 4 levels to 2 and makes the happy path
       // scan linearly. Returns nothing; caller must `return` after.
-      type ReasonCode = 'external_revert' | 'invalid_class_token' | 'write_failed' | 'rewriter_failed' | 'parse_failed'
+      type ReasonCode = 'external_revert' | 'invalid_class_token' | 'write_failed' | 'rewriter_failed' | 'parse_failed' | 'read_failed'
       const fail = (reason: string, reasonCode: ReasonCode = 'parse_failed'): void => {
         this.channel.send({
           type: 'edit_status',
@@ -1127,7 +1127,7 @@ export class EditPipeline {
       try {
         oldContent = await this.readFile!(resolvedPath)
       } catch (err) {
-        fail(`Cannot read file: ${sanitizeErrorForClient(err)}`)
+        fail(`Cannot read file: ${sanitizeErrorForClient(err)}`, 'read_failed')
         return
       }
 
@@ -1223,14 +1223,24 @@ export class EditPipeline {
 
     await this.withFileLock(resolvedPath, async () => {
       // Capture oldContent BEFORE the rewrite so the undo entry restores
-      // what the user actually had. Skip silently if we can't read — the
-      // write still proceeds, undo just won't have a revert target.
+      // what the user actually had. If reading fails here, we fail fast:
+      // proceeding would either succeed silently without undo (user's
+      // Ctrl+Z becomes a mystery no-op — SF-H-1) or fail at writeFile
+      // anyway with the same underlying fs error. Matches
+      // handleCompoundEdit's read-fail policy for consistency.
       let oldContent: string | null = null
       if (this.undoStack && this.readFile) {
         try {
           oldContent = await this.readFile(resolvedPath)
-        } catch {
-          oldContent = null
+        } catch (err) {
+          this.channel.send({
+            type: 'edit_status',
+            editId: edit.editId,
+            status: 'failed',
+            reason: `Cannot read file: ${sanitizeErrorForClient(err)}`,
+            reason_code: 'read_failed',
+          })
+          return
         }
       }
 
@@ -1702,7 +1712,7 @@ export class EditPipeline {
     })
   }
 
-  private sendDeferredStatus(editIds: string[], status: 'done' | 'failed' | 'cancelled', reason?: string, reason_code?: 'external_revert' | 'invalid_class_token' | 'write_failed' | 'rewriter_failed' | 'parse_failed'): void {
+  private sendDeferredStatus(editIds: string[], status: 'done' | 'failed' | 'cancelled', reason?: string, reason_code?: 'external_revert' | 'invalid_class_token' | 'write_failed' | 'rewriter_failed' | 'parse_failed' | 'read_failed'): void {
     for (const editId of editIds) {
       this.channel.send({
         type: 'edit_status',
