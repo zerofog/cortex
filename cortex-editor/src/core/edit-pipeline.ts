@@ -1,6 +1,6 @@
 import { resolve, sep } from 'path'
 import { realpathSync } from 'fs'
-import type { ServerChannel } from '../adapters/types.js'
+import type { ServerChannel, ClassOp } from '../adapters/types.js'
 import type { TailwindResolver } from './tailwind-resolver.js'
 import type { TailwindRewriter } from './rewriter/tailwind.js'
 import type { HMRVerifier } from './hmr-verifier.js'
@@ -172,7 +172,7 @@ export interface EditRequest {
   /** When present, pipeline skips the property/value path and rewrites the
    *  element's className attribute directly. `property` and `value` are
    *  ignored on this branch. */
-  classOp?: { remove?: string; add?: string }
+  classOp?: ClassOp
   /** ZF0-1215 C2: inline property SETS applied as part of a compound
    *  edit. Only honored when `classOp` is also present. See
    *  handleCompoundEdit. */
@@ -317,9 +317,15 @@ export class EditPipeline {
       // bracket syntax (`bg-[url(javascript:...)]`) survives JSX escaping
       // and executes as CSS in the user's browser on next load. Validate
       // BEFORE any fs operation or undo push.
-      for (const field of ['remove', 'add'] as const) {
-        const token = edit.classOp[field]
-        if (token === undefined) continue
+      const classOp = edit.classOp
+      const tokensToValidate: Array<{ field: 'remove' | 'add'; token: string }> = []
+      if (classOp.kind === 'remove' || classOp.kind === 'swap') {
+        tokensToValidate.push({ field: 'remove', token: classOp.remove })
+      }
+      if (classOp.kind === 'add' || classOp.kind === 'swap') {
+        tokensToValidate.push({ field: 'add', token: classOp.add })
+      }
+      for (const { field, token } of tokensToValidate) {
         const result = validateClassOpToken(token)
         if (!result.ok) {
           this.channel.send({
@@ -1064,6 +1070,8 @@ export class EditPipeline {
     col: number,
   ): Promise<void> {
     if (!edit.classOp) return // defensive — handleEdit guards this
+    const classOpRemove = edit.classOp.kind !== 'add' ? edit.classOp.remove : undefined
+    const classOpAdd = edit.classOp.kind !== 'remove' ? edit.classOp.add : undefined
 
     // Inline-ops require the InlineStyleRewriter dep. Without it we
     // can't apply the compound; fail with a clear reason rather than
@@ -1090,7 +1098,6 @@ export class EditPipeline {
       return
     }
 
-    const op = edit.classOp
     const sets = edit.inlineSets ?? []
     const removes = edit.inlineRemoves ?? []
 
@@ -1131,7 +1138,7 @@ export class EditPipeline {
       // Step 3: apply classOp. No AI fallback here — compound must be
       // all-or-nothing at the deterministic layer.
       const classResult = this.rewriter.rewriteClassListInTransaction(txn, {
-        line, col, remove: op.remove, add: op.add,
+        line, col, remove: classOpRemove, add: classOpAdd,
       })
       if (!classResult.success) {
         this.channel.send({
@@ -1222,7 +1229,8 @@ export class EditPipeline {
     col: number,
   ): Promise<void> {
     if (!edit.classOp) return // defensive — handleEdit already guards this
-    const op = edit.classOp // narrowed; no ! needed below
+    const classOpRemove = edit.classOp.kind !== 'add' ? edit.classOp.remove : undefined
+    const classOpAdd = edit.classOp.kind !== 'remove' ? edit.classOp.add : undefined
 
     this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
 
@@ -1243,15 +1251,20 @@ export class EditPipeline {
         filePath: resolvedPath,
         line,
         col,
-        remove: op.remove,
-        add: op.add,
+        remove: classOpRemove,
+        add: classOpAdd,
       })
 
       if (!result.success) {
         // AI fallback — describe the class mutation as an instruction for the
         // AI writer. This covers template literals and conditional objects.
         if (this.aiWriter) {
-          const instruction = this.describeClassOpForAI(op, resolvedPath, line, col)
+          const instruction = this.describeClassOpForAI(
+            { remove: classOpRemove, add: classOpAdd },
+            resolvedPath,
+            line,
+            col,
+          )
           const reason = `Could not rewrite className deterministically (${result.reason}). Routing to AI writer.`
           await this.executeAIWrite(
             { ...edit, property: '__class__', value: instruction },

@@ -66,6 +66,14 @@ export interface ServerChannel {
  *  'deferred': AI/deferred edit, override cleared after double-rAF (framework re-render). */
 export type EditKind = 'immediate' | 'jsx-immediate' | 'deferred'
 
+/** Discriminated union for className mutations. The `kind` discriminator
+ *  forces callers to declare intent; pipeline routing reads only the
+ *  fields guaranteed present for each variant. */
+export type ClassOp =
+  | { kind: 'add'; add: string }
+  | { kind: 'remove'; remove: string }
+  | { kind: 'swap'; remove: string; add: string }
+
 // === Message protocol ===
 
 export type BrowserToServer =
@@ -85,8 +93,19 @@ export type BrowserToServer =
       instanceSources?: string[]
       currentClass?: string
       /** When present, the pipeline treats this as a className mutation.
-       *  `property` and `value` are ignored on the classOp branch. */
-      classOp?: { remove?: string; add?: string }
+       *  `property` and `value` are ignored on the classOp branch.
+       *
+       *  Discriminated by `kind`:
+       *    - 'add': pure class addition (e.g., linking a new text-component
+       *      with no prior class on the element)
+       *    - 'remove': pure class removal (e.g., unlinking to clear styles)
+       *    - 'swap': atomic remove-then-add (e.g., swapping text-body-md
+       *      for text-heading-1 in one gesture)
+       *
+       *  The kind makes caller intent explicit at the type level. Pipeline
+       *  routing and downstream rewriter calls unambiguously read the
+       *  required fields — no more optional-both-optional-neither ambiguity. */
+      classOp?: ClassOp
       /** ZF0-1215 C2: compound-edit extension. When `classOp` AND at
        *  least one of `inlineSets` / `inlineRemoves` is populated, the
        *  pipeline routes to `handleCompoundEdit` which applies the

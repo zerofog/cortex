@@ -95,7 +95,7 @@ describe('EditPipeline — classOp routing', () => {
       newContent: 'NEW',
     })
 
-    pipeline.handleEdit(baseEdit({ classOp: { remove: 'body-md', add: 'heading-1' } }))
+    pipeline.handleEdit(baseEdit({ classOp: { kind: 'swap', remove: 'body-md', add: 'heading-1' } }))
     await flush()
 
     expect(rewriter.rewriteClassList).toHaveBeenCalledWith(
@@ -112,7 +112,7 @@ describe('EditPipeline — classOp routing', () => {
       newContent: 'NEW CONTENT',
     })
 
-    pipeline.handleEdit(baseEdit({ classOp: { remove: 'text-body-md' } }))
+    pipeline.handleEdit(baseEdit({ classOp: { kind: 'remove', remove: 'text-body-md' } }))
     await flush()
 
     expect(writes).toHaveLength(1)
@@ -137,7 +137,7 @@ describe('EditPipeline — classOp routing', () => {
       newContent: 'NEW',
     })
 
-    pipeline.handleEdit(baseEdit({ classOp: { remove: 'text-body-md' } }))
+    pipeline.handleEdit(baseEdit({ classOp: { kind: 'remove', remove: 'text-body-md' } }))
     await flush()
 
     // requiresHmr=true is read by _doUndo/_doRedo to derive suppressHmr=false
@@ -244,7 +244,7 @@ describe('EditPipeline — classOp routing', () => {
       reason: 'template literal not supported',
     })
 
-    pipeline.handleEdit(baseEdit({ classOp: { add: 'body-md' } }))
+    pipeline.handleEdit(baseEdit({ classOp: { kind: 'add', add: 'body-md' } }))
     await flush()
 
     expect(aiWriter.write).toHaveBeenCalled()
@@ -269,7 +269,7 @@ describe('EditPipeline — classOp routing', () => {
       reason: 'x',
     })
 
-    barePipeline.handleEdit(baseEdit({ classOp: { remove: 'y' } }))
+    barePipeline.handleEdit(baseEdit({ classOp: { kind: 'remove', remove: 'y' } }))
     await flush()
 
     const failedCalls = bareChannel.send.mock.calls.filter(
@@ -287,7 +287,7 @@ describe('EditPipeline — classOp routing', () => {
     })
 
     pipeline.handleEdit(
-      baseEdit({ property: 'font-size', value: '14px', classOp: { remove: 'body-md' } }),
+      baseEdit({ property: 'font-size', value: '14px', classOp: { kind: 'remove', remove: 'body-md' } }),
     )
     await flush()
 
@@ -311,8 +311,8 @@ describe('EditPipeline — classOp routing', () => {
         }),
     )
 
-    pipeline.handleEdit(baseEdit({ editId: 'e1', classOp: { add: 'body-md' } }))
-    pipeline.handleEdit(baseEdit({ editId: 'e2', classOp: { add: 'heading-1' } }))
+    pipeline.handleEdit(baseEdit({ editId: 'e1', classOp: { kind: 'add', add: 'body-md' } }))
+    pipeline.handleEdit(baseEdit({ editId: 'e2', classOp: { kind: 'add', add: 'heading-1' } }))
 
     // Drain microtasks until the first handler has called rewriteClassList
     // (entering the lock) and the second is blocked behind the lock.
@@ -365,7 +365,7 @@ describe('EditPipeline — classOp routing', () => {
     it('rejects url() payload before rewriter or writeFile — the H1 bypass class', async () => {
       pipeline.handleEdit(baseEdit({
         editId: 'bad',
-        classOp: { add: 'bg-[url(javascript%3Aalert(1))]' },
+        classOp: { kind: 'add', add: 'bg-[url(javascript%3Aalert(1))]' },
       }))
       await flush()
       expectRejection('add')
@@ -374,7 +374,7 @@ describe('EditPipeline — classOp routing', () => {
     it('rejects percent-encoded url() bypass at pipeline boundary', async () => {
       pipeline.handleEdit(baseEdit({
         editId: 'bad',
-        classOp: { add: 'bg-[url(data%3Aimage/svg+xml;base64,PHN2Zz4K)]' },
+        classOp: { kind: 'add', add: 'bg-[url(data%3Aimage/svg+xml;base64,PHN2Zz4K)]' },
       }))
       await flush()
       expectRejection('add')
@@ -383,7 +383,7 @@ describe('EditPipeline — classOp routing', () => {
     it('rejects invalid shape (angle brackets) on the remove side', async () => {
       pipeline.handleEdit(baseEdit({
         editId: 'bad',
-        classOp: { remove: 'content-[<img>]' },
+        classOp: { kind: 'remove', remove: 'content-[<img>]' },
       }))
       await flush()
       expectRejection('remove')
@@ -392,7 +392,7 @@ describe('EditPipeline — classOp routing', () => {
     it('rejects whitespace tokens', async () => {
       pipeline.handleEdit(baseEdit({
         editId: 'bad',
-        classOp: { add: 'text-body md' },  // space in middle
+        classOp: { kind: 'add', add: 'text-body md' },  // space in middle
       }))
       await flush()
       expectRejection('add')
@@ -401,7 +401,7 @@ describe('EditPipeline — classOp routing', () => {
     it('rejects overlong tokens (>128 chars)', async () => {
       pipeline.handleEdit(baseEdit({
         editId: 'bad',
-        classOp: { add: 'a'.repeat(200) },
+        classOp: { kind: 'add', add: 'a'.repeat(200) },
       }))
       await flush()
       expectRejection('add')
@@ -414,7 +414,7 @@ describe('EditPipeline — classOp routing', () => {
       // rewriter must not be called even partially.
       pipeline.handleEdit(baseEdit({
         editId: 'bad',
-        classOp: { remove: 'text-valid', add: 'bg-[url(x)]' },
+        classOp: { kind: 'swap', remove: 'text-valid', add: 'bg-[url(x)]' },
       }))
       await flush()
       expectRejection('add')

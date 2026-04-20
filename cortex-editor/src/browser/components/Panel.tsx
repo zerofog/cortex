@@ -862,10 +862,11 @@ export function Panel({
         property: '',
         value: '',
         elementSelector: element.tagName.toLowerCase(),
-        classOp: {
-          ...(opts.remove ? { remove: opts.remove } : {}),
-          ...(opts.add ? { add: opts.add } : {}),
-        },
+        classOp:
+          opts.remove && opts.add ? { kind: 'swap' as const, remove: opts.remove, add: opts.add }
+          : opts.add ? { kind: 'add' as const, add: opts.add }
+          : opts.remove ? { kind: 'remove' as const, remove: opts.remove }
+          : undefined,
         ...(opts.inlineSets && opts.inlineSets.length > 0 ? { inlineSets: opts.inlineSets } : {}),
         ...(opts.inlineRemoves && opts.inlineRemoves.length > 0 ? { inlineRemoves: opts.inlineRemoves } : {}),
       })

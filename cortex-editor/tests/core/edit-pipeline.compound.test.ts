@@ -137,7 +137,7 @@ describe('EditPipeline — compound edit (C2)', () => {
   it('routes compound edits (classOp + inlineSets) to handleCompoundEdit', async () => {
     mutateTxnInClassOp()
     pipeline.handleEdit(baseEdit({
-      classOp: { remove: 'text-body-md' },
+      classOp: { kind: 'remove', remove: 'text-body-md' },
       inlineSets: [
         { property: 'font-size', value: '14px' },
         { property: 'font-weight', value: '600' },
@@ -154,7 +154,7 @@ describe('EditPipeline — compound edit (C2)', () => {
   it('routes compound edits (classOp + inlineRemoves) to handleCompoundEdit', async () => {
     mutateTxnInClassOp()
     pipeline.handleEdit(baseEdit({
-      classOp: { add: 'text-heading-1' },
+      classOp: { kind: 'add', add: 'text-heading-1' },
       inlineRemoves: [{ property: 'font-size' }],
     }))
     await flush()
@@ -177,7 +177,7 @@ describe('EditPipeline — compound edit (C2)', () => {
       oldContent: 'OLD',
       newContent: 'NEW',
     })
-    pipeline.handleEdit(baseEdit({ classOp: { add: 'text-heading-1' } }))
+    pipeline.handleEdit(baseEdit({ classOp: { kind: 'add', add: 'text-heading-1' } }))
     await flush()
 
     expect(rewriter.rewriteClassListInTransaction).not.toHaveBeenCalled()
@@ -188,7 +188,7 @@ describe('EditPipeline — compound edit (C2)', () => {
   it('writes ONE file with suppressHmr:false and pushes ONE compound UndoFileChange', async () => {
     mutateTxnInClassOp()
     pipeline.handleEdit(baseEdit({
-      classOp: { remove: 'text-body-md' },
+      classOp: { kind: 'remove', remove: 'text-body-md' },
       inlineSets: [{ property: 'font-size', value: '14px' }],
     }))
     await flush()
@@ -216,7 +216,7 @@ describe('EditPipeline — compound edit (C2)', () => {
       success: false, reason: 'Template literal in className',
     })
     pipeline.handleEdit(baseEdit({
-      classOp: { add: 'text-heading-1' },
+      classOp: { kind: 'add', add: 'text-heading-1' },
       inlineSets: [{ property: 'font-size', value: '14px' }],
     }))
     await flush()
@@ -239,7 +239,7 @@ describe('EditPipeline — compound edit (C2)', () => {
       success: false, reason: "Property 'font-size' has non-literal value",
     })
     pipeline.handleEdit(baseEdit({
-      classOp: { remove: 'text-body-md' },
+      classOp: { kind: 'remove', remove: 'text-body-md' },
       inlineSets: [{ property: 'font-size', value: '14px' }],
     }))
     await flush()
@@ -258,7 +258,7 @@ describe('EditPipeline — compound edit (C2)', () => {
   it('fails cleanly when readFile rejects', async () => {
     readFile.mockRejectedValue(new Error('ENOENT'))
     pipeline.handleEdit(baseEdit({
-      classOp: { remove: 'text-body-md' },
+      classOp: { kind: 'remove', remove: 'text-body-md' },
       inlineSets: [{ property: 'font-size', value: '14px' }],
     }))
     await flush()
@@ -279,7 +279,7 @@ describe('EditPipeline — compound edit (C2)', () => {
     // (rewriter.rewriteClassListInTransaction default: returns success
     //  without mutating the sourceFile.)
     pipeline.handleEdit(baseEdit({
-      classOp: { add: 'text-body-md' },  // idempotent add
+      classOp: { kind: 'add', add: 'text-body-md' },  // idempotent add
       inlineSets: [{ property: 'font-size', value: '14px' }],
     }))
     await flush()
@@ -312,7 +312,7 @@ describe('EditPipeline — compound edit (C2)', () => {
 
     mutateTxnInClassOp()
     p2.handleEdit(baseEdit({
-      classOp: { remove: 'text-body-md' },
+      classOp: { kind: 'remove', remove: 'text-body-md' },
       inlineSets: [{ property: 'font-size', value: '14px' }],
     }))
     await flush()
@@ -326,7 +326,7 @@ describe('EditPipeline — compound edit (C2)', () => {
     // preserve that invariant — validateInlineOps rejects at the shape
     // boundary before any fs work.
     pipeline.handleEdit(baseEdit({
-      classOp: { remove: 'text-body-md' },
+      classOp: { kind: 'remove', remove: 'text-body-md' },
       inlineSets: [{ property: 'font-size', value: '' }],
     }))
     await flush()
@@ -343,7 +343,7 @@ describe('EditPipeline — compound edit (C2)', () => {
 
   it('rejects compound requests with empty-string property names', async () => {
     pipeline.handleEdit(baseEdit({
-      classOp: { remove: 'text-body-md' },
+      classOp: { kind: 'remove', remove: 'text-body-md' },
       inlineRemoves: [{ property: '' }],
     }))
     await flush()
@@ -362,7 +362,7 @@ describe('EditPipeline — compound edit (C2)', () => {
     // before handleCompoundEdit runs, the classOp validator catches bad
     // tokens. This test locks that ordering.
     pipeline.handleEdit(baseEdit({
-      classOp: { add: 'bg-[url(javascript%3Aalert(1))]' },
+      classOp: { kind: 'add', add: 'bg-[url(javascript%3Aalert(1))]' },
       inlineSets: [{ property: 'font-size', value: '14px' }],
     }))
     await flush()
@@ -383,7 +383,7 @@ describe('EditPipeline — compound edit (C2)', () => {
 
   it('rejects compound requests with url() in inlineSets value', async () => {
     pipeline.handleEdit(baseEdit({
-      classOp: { add: 'bg-image-holder' },
+      classOp: { kind: 'add', add: 'bg-image-holder' },
       inlineSets: [{ property: 'background-image', value: 'url(javascript:alert(1))' }],
     }))
     await flush()
@@ -403,7 +403,7 @@ describe('EditPipeline — compound edit (C2)', () => {
     // attack — `javascript%3Aalert(1)` passes a char-level check but is
     // restored to `javascript:alert(1)` by the browser's url() parser.
     pipeline.handleEdit(baseEdit({
-      classOp: { add: 'bg-image-holder' },
+      classOp: { kind: 'add', add: 'bg-image-holder' },
       inlineSets: [{ property: 'background-image', value: 'url(javascript%3Aalert(1))' }],
     }))
     await flush()
@@ -418,7 +418,7 @@ describe('EditPipeline — compound edit (C2)', () => {
 
   it('rejects data: url() in inlineSets value (no scheme colon required to match)', async () => {
     pipeline.handleEdit(baseEdit({
-      classOp: { add: 'bg-image-holder' },
+      classOp: { kind: 'add', add: 'bg-image-holder' },
       inlineSets: [{ property: 'background-image', value: 'url(data:image/svg+xml;base64,PHN2Zz4=)' }],
     }))
     await flush()
@@ -432,7 +432,7 @@ describe('EditPipeline — compound edit (C2)', () => {
 
   it('rejects protocol-relative // in inlineSets value', async () => {
     pipeline.handleEdit(baseEdit({
-      classOp: { add: 'bg-image-holder' },
+      classOp: { kind: 'add', add: 'bg-image-holder' },
       inlineSets: [{ property: 'background-image', value: '//evil.com/track.gif' }],
     }))
     await flush()
@@ -446,7 +446,7 @@ describe('EditPipeline — compound edit (C2)', () => {
 
   it('rejects invalid property-name charset in inlineSets', async () => {
     pipeline.handleEdit(baseEdit({
-      classOp: { add: 'bg-image-holder' },
+      classOp: { kind: 'add', add: 'bg-image-holder' },
       inlineSets: [{ property: '"]injection', value: '#fff' }],
     }))
     await flush()
@@ -460,7 +460,7 @@ describe('EditPipeline — compound edit (C2)', () => {
 
   it('rejects invalid property-name charset in inlineRemoves', async () => {
     pipeline.handleEdit(baseEdit({
-      classOp: { remove: 'text-body-md' },
+      classOp: { kind: 'remove', remove: 'text-body-md' },
       inlineRemoves: [{ property: 'font-size;color:red' }],
     }))
     await flush()
@@ -479,7 +479,7 @@ describe('EditPipeline — compound edit (C2)', () => {
     // all pass through.
     mutateTxnInClassOp()
     pipeline.handleEdit(baseEdit({
-      classOp: { remove: 'text-body-md' },
+      classOp: { kind: 'remove', remove: 'text-body-md' },
       inlineSets: [
         { property: 'font-size', value: '14px' },
         { property: 'color', value: 'rgba(255, 0, 0, 0.5)' },
@@ -508,7 +508,7 @@ describe('EditPipeline — compound edit (C2)', () => {
 
   it('rejects backslash in inlineSets value (blocks CSS Unicode escape bypass)', async () => {
     pipeline.handleEdit(baseEdit({
-      classOp: { add: 'bg-image-holder' },
+      classOp: { kind: 'add', add: 'bg-image-holder' },
       // `\75` is hex 0x75 = 'u'. At CSS tokenization, `\75 ` decodes
       // to 'u', so the token `\75 rl(` becomes `url(`. The server's
       // REJECT_URL_IN_INLINE regex sees the literal chars `\75 rl(`
@@ -529,7 +529,7 @@ describe('EditPipeline — compound edit (C2)', () => {
     // Full 6-digit form `\000075` also decodes to 'u'. Still contains
     // a backslash so our check catches it.
     pipeline.handleEdit(baseEdit({
-      classOp: { add: 'bg-image-holder' },
+      classOp: { kind: 'add', add: 'bg-image-holder' },
       inlineSets: [{ property: 'background-image', value: '\\000075 rl(data:image/svg+xml,foo)' }],
     }))
     await flush()
@@ -546,7 +546,7 @@ describe('EditPipeline — compound edit (C2)', () => {
     // so `url/**/(evil)` becomes `url(evil)`. Blocking `/*` at the
     // validator layer closes this bypass.
     pipeline.handleEdit(baseEdit({
-      classOp: { add: 'bg-image-holder' },
+      classOp: { kind: 'add', add: 'bg-image-holder' },
       inlineSets: [{ property: 'background-image', value: 'url/**/(evil.gif)' }],
     }))
     await flush()
@@ -563,7 +563,7 @@ describe('EditPipeline — compound edit (C2)', () => {
     // of property; blocking it universally is defense-in-depth against
     // future CSS-parser behaviors we haven't enumerated.
     pipeline.handleEdit(baseEdit({
-      classOp: { add: 'holder' },
+      classOp: { kind: 'add', add: 'holder' },
       inlineSets: [{ property: 'color', value: 'red /* injected */ !important' }],
     }))
     await flush()
