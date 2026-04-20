@@ -180,8 +180,9 @@ export function sanitizeErrorForClient(err: unknown): string {
   // Pass 1 (H-R3-2, Round 3): quoted absolute paths. Supports embedded
   // spaces (macOS Display Name home dirs like `/Users/John Doe/...`).
   // Node fs errors always quote paths, so this pre-pass handles the
-  // common case. Runs first so the quotes are stripped to `<path>`
-  // before the unquoted fallback can partial-match the inside.
+  // common case. Runs first so the path inside the quotes is replaced
+  // with `<path>` (quotes preserved via the $1 backreferences) before
+  // the unquoted fallback can partial-match the inside.
   msg = msg.replace(QUOTED_POSIX_PATH_REGEX, '$1<path>$1')
   msg = msg.replace(QUOTED_WIN_PATH_REGEX, '$1<path>$1')
   // Pass 2: unquoted absolute paths. Handles ts-morph / ESBuild
@@ -1101,12 +1102,6 @@ export class EditPipeline {
   }
 
   /**
-   * classOp (className mutation) branch. Mirrors the property-keyed path's
-   * guarantees: captures oldContent before the write for undo, falls back
-   * to the AI writer when the deterministic rewriter can't handle the JSX
-   * shape, serializes concurrent ops on the same file via withFileLock.
-   */
-  /**
    * Handle a compound edit: classOp + inlineSets + inlineRemoves applied
    * to the same JSX element in ONE read-mutate-write cycle (ZF0-1215 C2).
    *
@@ -1284,6 +1279,12 @@ export class EditPipeline {
     })
   }
 
+  /**
+   * classOp (className mutation) branch. Mirrors the property-keyed path's
+   * guarantees: captures oldContent before the write for undo, falls back
+   * to the AI writer when the deterministic rewriter can't handle the JSX
+   * shape, serializes concurrent ops on the same file via withFileLock.
+   */
   private async handleClassOp(
     edit: EditRequest,
     resolvedPath: string,

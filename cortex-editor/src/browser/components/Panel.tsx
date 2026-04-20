@@ -830,7 +830,7 @@ export function Panel({
       }
       // inlineRemoves: clear any stale overrides locally so the new
       // class's cascade wins immediately. Structurally redundant with
-      // the H7(a) pre-clear in handleTypographyChange but idempotent
+      // the H7 part A pre-clear in handleTypographyChange but idempotent
       // and keeps this function self-contained.
       if (opts.inlineRemoves && opts.inlineRemoves.length > 0) {
         for (const r of opts.inlineRemoves) {

@@ -26,8 +26,9 @@
  * Scope: one file per transaction. Compound edits on a single user gesture
  * touch a single JSX element in a single file; multi-file compounds (e.g.,
  * CSS Modules scope='all') continue to use the existing sequential pattern
- * in edit-pipeline.ts:1013-1127. That path already accumulates
- * UndoFileChange entries correctly and does NOT need a transaction.
+ * — see commitCSSModulesRewrite in edit-pipeline.ts. That path
+ * already accumulates UndoFileChange entries sequentially and does
+ * NOT need a transaction.
  */
 import type { Project, SourceFile, SyntaxKind as SyntaxKindEnum } from 'ts-morph'
 import { ensureTsMorph } from './jsx-utils.js'
