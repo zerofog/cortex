@@ -8,11 +8,13 @@ const PENDING_EDIT_TTL_MS = 35_000
 /** Diagnostic trace — gated by window.__CORTEX_DEBUG_OVERRIDES__. Set it to true in
  *  devtools to log every step of the override lifecycle. Intentionally lightweight —
  *  no allocation when disabled. Used to diagnose ZF0-1235 and similar HMR/preview races. */
-const trace = (event: string, payload?: unknown): void => {
-  if (typeof window === 'undefined') return
-  if (!(window as unknown as { __CORTEX_DEBUG_OVERRIDES__?: boolean }).__CORTEX_DEBUG_OVERRIDES__) return
-  const t = performance.now().toFixed(1)
+const isTraceEnabled = (): boolean =>
+  typeof window !== 'undefined' &&
+  !!(window as unknown as { __CORTEX_DEBUG_OVERRIDES__?: boolean }).__CORTEX_DEBUG_OVERRIDES__
 
+const trace = (event: string, payload?: unknown): void => {
+  if (!isTraceEnabled()) return
+  const t = performance.now().toFixed(1)
   console.log(`[cortex:trace ${t}ms] ${event}`, payload ?? '')
 }
 
@@ -90,7 +92,10 @@ export class CSSOverrideManager {
    *  Pass `pseudo` to target a pseudo-element override. */
   remove(source: string, property?: string, pseudo?: '::before' | '::after'): void {
     const key = `${source}${pseudo ?? ''}`
-    trace('remove', { source, property, pseudo, caller: new Error().stack?.split('\n')[2]?.trim() })
+    // Stack-trace capture is expensive; only build it when tracing is active.
+    if (isTraceEnabled()) {
+      trace('remove', { source, property, pseudo, caller: new Error().stack?.split('\n')[2]?.trim() })
+    }
     if (property) {
       this.overrides.get(key)?.delete(property)
       // Clean up empty source entries
@@ -153,19 +158,26 @@ export class CSSOverrideManager {
     pseudo?: '::before' | '::after',
     kind?: EditKind,
   ): void {
+    // Guard: override already gone (via clearAll / dispose / explicit remove).
+    // Without this, a pending double-rAF from a disposed manager could still
+    // arm a retry observer and emit divergence for an override that no longer exists.
+    const currentOverride = this.get(source, property, pseudo)
+    if (currentOverride === undefined) {
+      trace('verify:already-removed', { source, property })
+      return
+    }
+    // Guard: if the override has been superseded by a newer edit to the same
+    // source+property, leave the newer value intact and skip this removal.
+    if (currentOverride !== expectedValue) {
+      trace('verify:superseded', { source, property, currentOverride, expectedValue })
+      return
+    }
+
     const el = document.querySelector(`[data-cortex-source="${CSS.escape(source)}"]`)
     if (!el) {
       // Element gone (unmounted). Nothing left to preview — drop the override.
       trace('verify:no-element', { source, property })
       this.remove(source, property, pseudo)
-      return
-    }
-
-    // Guard: if the override has been superseded by a newer edit to the same
-    // source+property, leave the newer value intact and skip this removal.
-    const currentOverride = this.get(source, property, pseudo)
-    if (currentOverride !== undefined && currentOverride !== expectedValue) {
-      trace('verify:superseded', { source, property, currentOverride, expectedValue })
       return
     }
 
@@ -218,14 +230,30 @@ export class CSSOverrideManager {
     const tryVerify = (isFinal: boolean): void => {
       if (disposed) return
       try {
-        // Supersede guard — a newer edit may have replaced this override value.
+        // Supersede / already-gone guard — skip if the override is missing or
+        // has been replaced by a newer edit.
         const currentOverride = this.get(source, property, pseudo)
-        if (currentOverride !== undefined && currentOverride !== expectedValue) {
+        if (currentOverride === undefined) {
+          trace('verify:retry-removed', { source, property })
+          dispose()
+          return
+        }
+        if (currentOverride !== expectedValue) {
           trace('verify:retry-superseded', { source, property })
           dispose()
           return
         }
-        const actual = this.readUnderlyingValue(el, property, pseudo, kind)
+        // Re-query the element every attempt — the original `el` reference
+        // may be stale if React unmounted/replaced the node during the retry
+        // window. data-cortex-source is stable across HMR, so it re-resolves.
+        const currentEl = document.querySelector(`[data-cortex-source="${CSS.escape(source)}"]`)
+        if (!currentEl) {
+          trace('verify:retry-no-element', { source, property })
+          dispose()
+          this.remove(source, property, pseudo)
+          return
+        }
+        const actual = this.readUnderlyingValue(currentEl, property, pseudo, kind)
         if (this.valuesMatch(actual, expectedValue, property)) {
           trace('verify:match-after-retry', { source, property, expectedValue })
           dispose()

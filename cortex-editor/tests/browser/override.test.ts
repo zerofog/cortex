@@ -750,37 +750,47 @@ describe('CSSOverrideManager', () => {
       // element's inline style stays at the OLD value (e.g., React Fast Refresh
       // skipped this component). After the retry window elapses without a match,
       // the override is preserved and a divergence event fires — no silent revert.
-      const { onDivergence } = await import('../../src/browser/override-bus.js')
-      const divergences: Array<{ source: string; property: string; expected: string; actual: string }> = []
-      const unsub = onDivergence(d => divergences.push({ source: d.source, property: d.property, expected: d.expected, actual: d.actual }))
+      // Shrink the retry window so the test is fast + deterministic.
+      const originalWindow = CSSOverrideManager.VERIFY_RETRY_WINDOW_MS
+      const originalPoll = CSSOverrideManager.VERIFY_POLL_INTERVAL_MS
+      CSSOverrideManager.VERIFY_RETRY_WINDOW_MS = 60
+      CSSOverrideManager.VERIFY_POLL_INTERVAL_MS = 20
+      try {
+        const { onDivergence } = await import('../../src/browser/override-bus.js')
+        const divergences: Array<{ source: string; property: string; expected: string; actual: string }> = []
+        const unsub = onDivergence(d => divergences.push({ source: d.source, property: d.property, expected: d.expected, actual: d.actual }))
 
-      const target = document.createElement('div')
-      target.setAttribute('data-cortex-source', 'a:1:1')
-      target.style.color = 'green'
-      document.body.appendChild(target)
+        const target = document.createElement('div')
+        target.setAttribute('data-cortex-source', 'a:1:1')
+        target.style.color = 'green'
+        document.body.appendChild(target)
 
-      manager.set('a:1:1', 'color', 'red')
-      flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
-      manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
-      manager.onHMRApplied()
+        manager.set('a:1:1', 'color', 'red')
+        flushRAF()
+        manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+        manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
+        manager.onHMRApplied()
 
-      flushRAF()
-      flushRAF() // double-rAF — first verify fails, retry observer arms
+        flushRAF()
+        flushRAF() // double-rAF — first verify fails, retry observer arms
 
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toContain('color: red')
-      expect(divergences).toHaveLength(0) // not emitted yet — retry window active
+        const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+        expect(styleEl.textContent).toContain('color: red')
+        expect(divergences).toHaveLength(0) // not emitted yet — retry window active
 
-      // Wait for the retry window to elapse without any style-attribute mutation.
-      await new Promise(resolve => setTimeout(resolve, 800))
+        // Wait for the shrunk retry window to elapse.
+        await new Promise(resolve => setTimeout(resolve, 100))
 
-      expect(styleEl.textContent).toContain('color: red') // still preserved
-      expect(divergences).toHaveLength(1)
-      expect(divergences[0]).toMatchObject({ source: 'a:1:1', property: 'color', expected: 'red', actual: 'green' })
+        expect(styleEl.textContent).toContain('color: red') // still preserved
+        expect(divergences).toHaveLength(1)
+        expect(divergences[0]).toMatchObject({ source: 'a:1:1', property: 'color', expected: 'red', actual: 'green' })
 
-      unsub()
-      target.remove()
+        unsub()
+        target.remove()
+      } finally {
+        CSSOverrideManager.VERIFY_RETRY_WINDOW_MS = originalWindow
+        CSSOverrideManager.VERIFY_POLL_INTERVAL_MS = originalPoll
+      }
     })
 
     it('ZF0-1235 happy case: retry mutation observer catches slow React and cleanly removes', async () => {

@@ -122,7 +122,8 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     // is set in devtools. Lets Playwright/debuggers drive the override lifecycle
     // directly (skipping the Panel UI) to reproduce timing-sensitive bugs like
     // ZF0-1235. Zero cost in production builds where the flag is never set.
-    if ((window as unknown as { __CORTEX_DEBUG_OVERRIDES__?: boolean }).__CORTEX_DEBUG_OVERRIDES__) {
+    const debugFlag = !!(window as unknown as { __CORTEX_DEBUG_OVERRIDES__?: boolean }).__CORTEX_DEBUG_OVERRIDES__
+    if (debugFlag) {
       ;(window as unknown as { __CORTEX_TEST__?: unknown }).__CORTEX_TEST__ = {
         overrideManager,
         channel,
@@ -268,6 +269,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     // determines the source write succeeded per the server but the DOM didn't
     // reflect the expected value (e.g., React Fast Refresh skipped the element).
     // The override preview is preserved; surfacing the mismatch prevents silent reverts.
+    // Key uses source\0property to stay consistent with the edit_status:failed and
+    // annotation-update paths. Element-level and pseudo divergences for the same
+    // property will share a card — a known tradeoff documented in ZF0-1293.
     const unsubDivergence = onDivergence((d) => {
       const key = `${d.source}\0${d.property}`
       // Always replace — later divergences carry more accurate `actual` values
@@ -295,6 +299,11 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       overrideRef.current = null
       commandStack.clear()
       commandStackRef.current = null
+      // Clear the debug bridge so a remount (strict mode, HMR, route change)
+      // doesn't leave a stale reference to the now-disposed overrideManager.
+      if (debugFlag) {
+        delete (window as unknown as { __CORTEX_TEST__?: unknown }).__CORTEX_TEST__
+      }
     }
   }, [channel, shadowRoot])
 
