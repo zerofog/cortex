@@ -1,0 +1,26 @@
+cortex-editor/tests/browser/hooks/useOutsideDismiss.test.tsx
+  1683ab6c782fa5fb 183-214
+cortex-editor/src/browser/hooks/useOutsideDismiss.ts
+  1683ab6c782fa5fb 90-95,102-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "db627d03c78a3f03cafeaceffcc54ec430799bea",
+  "prompts": {
+    "1683ab6c782fa5fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b6f3bd66-a1b5-4397-8501-1575dc5e7bd2",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 53,
+      "total_deletions": 4,
+      "accepted_lines": 1569,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/427377f3cac32850d3ab2ef25f6d8d0847522cd7a31abaa287cab4adc05678b5"
+    }
+  }
+}
