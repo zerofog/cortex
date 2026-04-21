@@ -230,10 +230,16 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
             // nodes share the same attribute value. Picking the first match
             // could silently re-bind to a different logical item — clearing
             // selection is safer and prompts the user to re-select.
-            const matches = document.querySelectorAll(
-              `[data-cortex-source="${CSS.escape(source)}"]`,
-            )
-            setSelectedElement(matches.length === 1 ? (matches[0] as HTMLElement) : null)
+            //
+            // Filter to HTMLElement to honor the invariant at selection.ts:34
+            // (`if (!el || !(el instanceof HTMLElement)) return null`) and the
+            // `selectedElement: HTMLElement | null` state type. querySelectorAll
+            // returns Element, so SVG/MathML nodes with data-cortex-source would
+            // otherwise slip through.
+            const matches = Array.from(
+              document.querySelectorAll(`[data-cortex-source="${CSS.escape(source)}"]`),
+            ).filter((match): match is HTMLElement => match instanceof HTMLElement)
+            setSelectedElement(matches.length === 1 ? (matches[0] ?? null) : null)
           }
         }
       }

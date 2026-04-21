@@ -363,15 +363,21 @@ export function Panel({
   // Clear blast-radius highlights and remove injected style tag on unmount
   useEffect(() => () => { clearHighlights(); removeBlastRadiusStyle() }, [])
 
-  // Detect shared CSS classes when a new element is selected (ZF0-1018).
-  // Resets scope to 'instance' (safe default) on every element change.
-  // Clear stale blast-radius highlights from previous selection (ZF0-1019).
-  // Re-runs on hmrAppliedVersion bumps (ZF0-1292) because `sharedInfo.elements`
-  // caches DOM refs; a stylesheet-only HMR edit can add or remove siblings
-  // matching the shared selector without mutating the primary element —
-  // without this, the cached element list goes stale.
+  // Scope reset + blast-radius highlight clear fire on element change only
+  // (ZF0-1018/1019). This was originally one effect with sharedInfo detection;
+  // keeping scope reset pinned to [element] prevents the scope-reset regression
+  // where an HMR bump would silently flip a user's "All" scope back to
+  // "instance" mid-edit (cubic + Copilot flagged in ZF0-1292 review).
   useEffect(() => {
     clearHighlights()
+    setEditScope('instance')
+  }, [element])
+
+  // Detect shared CSS classes when a new element is selected (ZF0-1018), and
+  // re-run on hmrAppliedVersion bumps (ZF0-1292) because `sharedInfo.elements`
+  // caches DOM refs — a stylesheet-only HMR edit can add or remove siblings
+  // matching the shared selector without mutating the primary element.
+  useEffect(() => {
     if (element) {
       try {
         setSharedInfo(detectSharedClasses(element))
@@ -381,7 +387,6 @@ export function Panel({
     } else {
       setSharedInfo(null)
     }
-    setEditScope('instance')
   }, [element, hmrAppliedVersion])
 
 
