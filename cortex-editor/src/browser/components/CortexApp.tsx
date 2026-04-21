@@ -124,17 +124,16 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     const commandStack = new CommandStack()
     commandStackRef.current = commandStack
 
-    // Initialize selection system. Wrap the setSelectedElement callback
-    // with metadata capture — every positive selection must populate
-    // selectionMetadataRef so the HMR re-resolver has identity signals.
-    const selectWithMeta = (el: HTMLElement | null): void => {
-      selectionMetadataRef.current = el ? captureSelectionMetadata(el) : null
-      setSelectedElement(el)
-    }
+    // Initialize selection system. The `setSelectionWithMetadata` wrapper
+    // (defined in a useCallback below) is the ONE point of entry for
+    // populating `selectedElement` — the mount effect uses it here, and
+    // every keyboard/click handler routes through it. This prevents a new
+    // contributor from introducing a fresh selection path that bypasses
+    // metadata capture (Round 2 frontend-clink + mts-native finding).
     const selectionHandle = initSelection(
       shadowRoot,
       setHoveredElement,
-      selectWithMeta,
+      setSelectionWithMetadata,
     )
 
     // Debug-only test bridge — exposed when `window.__CORTEX_DEBUG_OVERRIDES__`
@@ -146,7 +145,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       ;(window as unknown as { __CORTEX_TEST__?: unknown }).__CORTEX_TEST__ = {
         overrideManager,
         channel,
-        selectElement: selectWithMeta,
+        selectElement: setSelectionWithMetadata,
       }
     }
     // Start with design mode disabled — don't intercept events until activated
@@ -231,11 +230,14 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         // Gate the Panel refresh (getComputedStyle cascade + detectSharedClasses
         // over full DOM) on whether the changed files can possibly affect the
         // selected element. Skip only when we're confident: server provided a
-        // file list AND no CSS files AND no ancestor source file is in the list
-        // (up to 20 levels). Otherwise — including when `files` is absent for
-        // backward-compat — refresh as before. ZF0-1292 follow-up.
+        // non-empty file list AND no CSS files AND no ancestor source file is
+        // in the list (up to 20 levels). Otherwise — including when `files`
+        // is absent (older server / backward-compat) OR empty (server signaled
+        // a cycle but couldn't list the files, e.g. CSS-in-JS runtime
+        // injection) — err toward refresh. ZF0-1292 Round 2 decision: empty
+        // array means "unknown", not "nothing changed".
         const current = selectedElementRef.current
-        const shouldRefresh = !msg.files || !current
+        const shouldRefresh = !msg.files || msg.files.length === 0 || !current
           ? true
           : hmrFilesAffectElement(msg.files, current)
         if (shouldRefresh) {

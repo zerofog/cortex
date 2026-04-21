@@ -1554,12 +1554,13 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
   it('triggers Panel refresh when hmr-applied has an empty files array (treat as unknown)', async () => {
     const { channel, gcs } = await setup('src/foo.tsx:10:5')
     const before = gcs.mock.calls.length
-    // Empty list is ambiguous; hmrFilesAffectElement returns false for it,
-    // which means "no match" — so refresh is SKIPPED. This test locks in
-    // that contract: an empty list means "no files changed, nothing to do".
+    // Round 2 decision: empty files array means "server signaled a cycle
+    // but couldn't list files" (e.g. CSS-in-JS runtime injection, future
+    // Vite payload edge cases). Err toward refresh — same posture as
+    // when `files` is absent entirely.
     channel._simulateMessage({ type: 'hmr-applied', files: [] })
     await new Promise(r => setTimeout(r, 50))
-    expect(gcs.mock.calls.length).toBe(before)
+    expect(gcs.mock.calls.length).toBeGreaterThan(before)
     gcs.mockRestore()
   })
 })

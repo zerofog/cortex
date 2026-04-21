@@ -134,9 +134,23 @@ export function reResolveSelection(meta: SelectionMetadata): HTMLElement | null 
   // Content differs at the saved index. Check if the saved content lives
   // elsewhere (list was reordered). Skip the search for empty content — it
   // would false-positive on the first icon-only element.
+  //
+  // Tie-break: if multiple matches carry the saved content (e.g., `[A, B, A]`
+  // reordered to `[A, A, B]` — both zeroth and first carry the user's "A"),
+  // prefer the candidate closest to the saved index. This handles the
+  // duplicate-content reorder case where a naive find() would collapse to
+  // index 0.
   if (meta.contentHash !== '') {
-    const byContent = matches.find(m => m.textContent?.trim() === meta.contentHash)
-    if (byContent) return byContent
+    const candidates: number[] = []
+    for (let i = 0; i < matches.length; i++) {
+      if (matches[i]?.textContent?.trim() === meta.contentHash) candidates.push(i)
+    }
+    if (candidates.length > 0) {
+      const nearest = candidates.reduce((best, idx) =>
+        Math.abs(idx - meta.index) < Math.abs(best - meta.index) ? idx : best,
+      )
+      return matches[nearest] ?? null
+    }
   }
 
   // Content edited in place: preserve at saved index.
@@ -177,7 +191,16 @@ export function hmrFilesAffectElement(
   // Any CSS file: cascade may affect anything visible.
   if (files.some(f => CSS_EXT.test(f))) return true
 
-  // Walk ancestors comparing data-cortex-source file prefix against the list.
+  // Path normalization: Vite's `update.updates[].path` is URL-style with a
+  // leading `/` (e.g. `/src/App.tsx`) and may include query strings. The
+  // source-transform stores `data-cortex-source` as relative without the
+  // leading slash (e.g. `src/App.tsx:12:3`). Normalize both sides to the
+  // same shape before comparing, or the filter never matches JSX edits —
+  // Round 2 ship-blocker.
+  const normalizePath = (p: string): string =>
+    p.replace(/^\/+/, '').split('?')[0] ?? ''
+  const normalizedFiles = new Set(files.map(normalizePath))
+
   // Source format is `relativePath:line:col` (per source-transform.ts:252);
   // strip only the trailing `:line:col` so file paths containing colons (rare
   // but possible on Unix) don't get truncated.
@@ -188,7 +211,7 @@ export function hmrFilesAffectElement(
     const src = current.getAttribute('data-cortex-source')
     if (src) {
       const file = stripLineCol(src)
-      if (file && files.includes(file)) return true
+      if (file && normalizedFiles.has(file)) return true
     }
     current = current.parentElement
     depth++

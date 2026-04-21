@@ -1,5 +1,9 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { hmrFilesAffectElement } from '../../src/browser/selection-metadata.js'
+import {
+  hmrFilesAffectElement,
+  reResolveSelection,
+  captureSelectionMetadata,
+} from '../../src/browser/selection-metadata.js'
 
 describe('hmrFilesAffectElement', () => {
   const orphans: HTMLElement[] = []
@@ -94,5 +98,168 @@ describe('hmrFilesAffectElement', () => {
   it('returns false when the element has no source and no ancestor source matches', () => {
     const el = build([null, null, null])
     expect(hmrFilesAffectElement(['src/unrelated.tsx'], el)).toBe(false)
+  })
+
+  it('normalizes Vite URL-style paths (leading slash + query string) before comparing', () => {
+    // Regression test for the Round 2 ship-blocker (C1): Vite's
+    // vite:afterUpdate payload sends `/src/App.tsx?t=123` (URL-style with
+    // leading slash, optional query string). data-cortex-source stores
+    // `src/App.tsx:10:5` (relative). The filter must normalize both sides
+    // or the ancestor-match path silently returns false for every JSX edit.
+    const el = build(['src/leaf.tsx:5:3'])
+    expect(hmrFilesAffectElement(['/src/leaf.tsx'], el)).toBe(true)
+    expect(hmrFilesAffectElement(['/src/leaf.tsx?t=12345'], el)).toBe(true)
+    expect(hmrFilesAffectElement(['//src/leaf.tsx'], el)).toBe(true) // double slash tolerated
+    // Sanity: unrelated URL-style path doesn't match
+    expect(hmrFilesAffectElement(['/src/other.tsx'], el)).toBe(false)
+  })
+
+  it('matches CSS extensions on every supported extension', () => {
+    const el = build(['src/leaf.tsx:5:3'])
+    for (const ext of ['.css', '.scss', '.sass', '.less', '.styl', '.stylus']) {
+      expect(hmrFilesAffectElement([`styles/foo${ext}`], el)).toBe(true)
+    }
+  })
+})
+
+describe('reResolveSelection', () => {
+  const orphans: HTMLElement[] = []
+
+  afterEach(() => {
+    for (const el of orphans) el.remove()
+    orphans.length = 0
+  })
+
+  function buildSiblings(source: string, contents: string[]): HTMLElement[] {
+    return contents.map((content) => {
+      const el = document.createElement('div')
+      el.setAttribute('data-cortex-source', source)
+      if (content) el.appendChild(document.createTextNode(content))
+      document.body.appendChild(el)
+      orphans.push(el)
+      return el
+    })
+  }
+
+  it('returns null when source is null (never-selected element)', () => {
+    const result = reResolveSelection({
+      source: null, index: -1, contentHash: '', inShadowRoot: false,
+    })
+    expect(result).toBeNull()
+  })
+
+  it('returns null when no matches exist (element removed)', () => {
+    const result = reResolveSelection({
+      source: 'src/ghost.tsx:1:1', index: 0, contentHash: 'X', inShadowRoot: false,
+    })
+    expect(result).toBeNull()
+  })
+
+  it('preserves selection at saved index when content is unchanged', () => {
+    const source = 'src/list.tsx:10:5'
+    const siblings = buildSiblings(source, ['A', 'B', 'C'])
+    const result = reResolveSelection({
+      source, index: 1, contentHash: 'B', inShadowRoot: false,
+    })
+    expect(result).toBe(siblings[1])
+  })
+
+  it('follows content to new index when the list is reordered', () => {
+    const source = 'src/list.tsx:10:5'
+    const siblings = buildSiblings(source, ['B', 'C', 'A'])
+    // User had selected index 0 when content was "A"; after reorder, "A" is at index 2.
+    const result = reResolveSelection({
+      source, index: 0, contentHash: 'A', inShadowRoot: false,
+    })
+    expect(result).toBe(siblings[2])
+  })
+
+  it('preserves at saved index when content was edited in place (no match elsewhere)', () => {
+    const source = 'src/list.tsx:10:5'
+    const siblings = buildSiblings(source, ['Hello, world', 'B', 'C'])
+    // User had selected index 0 when content was "Hello"; content was edited to
+    // "Hello, world" in place. Saved content "Hello" not found elsewhere → preserve position.
+    const result = reResolveSelection({
+      source, index: 0, contentHash: 'Hello', inShadowRoot: false,
+    })
+    expect(result).toBe(siblings[0])
+  })
+
+  it('returns null when list shrinks past saved index', () => {
+    const source = 'src/list.tsx:10:5'
+    buildSiblings(source, ['A', 'B']) // only 2 left
+    const result = reResolveSelection({
+      source, index: 2, contentHash: 'C', inShadowRoot: false,
+    })
+    expect(result).toBeNull()
+  })
+
+  it('empty contentHash preserves at saved index (icon-only element)', () => {
+    const source = 'src/icons.tsx:5:3'
+    const siblings = buildSiblings(source, ['', '', ''])
+    // Icon-only elements have empty textContent. Skip byContent search
+    // (would false-positive on first empty sibling); preserve at index.
+    const result = reResolveSelection({
+      source, index: 1, contentHash: '', inShadowRoot: false,
+    })
+    expect(result).toBe(siblings[1])
+  })
+
+  it('tie-breaks duplicate-content reorder by preferring nearest index', () => {
+    // `[A, B, A]` — user selected index 2 (third "A"). Reorder to `[A, A, B]`
+    // — "A" exists at both index 0 AND index 1. Nearest to saved index 2 is
+    // index 1. Without the tie-break, `matches.find()` would collapse to
+    // index 0 (the first "A") — wrong logical element.
+    const source = 'src/list.tsx:10:5'
+    const siblings = buildSiblings(source, ['A', 'A', 'B'])
+    const result = reResolveSelection({
+      source, index: 2, contentHash: 'A', inShadowRoot: false,
+    })
+    expect(result).toBe(siblings[1])
+  })
+})
+
+describe('captureSelectionMetadata', () => {
+  const orphans: HTMLElement[] = []
+
+  afterEach(() => {
+    for (const el of orphans) el.remove()
+    orphans.length = 0
+  })
+
+  it('returns null source + -1 index when element has no data-cortex-source', () => {
+    const el = document.createElement('div')
+    el.appendChild(document.createTextNode('hi'))
+    document.body.appendChild(el)
+    orphans.push(el)
+    const meta = captureSelectionMetadata(el)
+    expect(meta.source).toBeNull()
+    expect(meta.index).toBe(-1)
+    expect(meta.contentHash).toBe('hi')
+    expect(meta.inShadowRoot).toBe(false)
+  })
+
+  it('captures nth index among siblings sharing the same source', () => {
+    const source = 'src/list.tsx:10:5'
+    const sibs = ['A', 'B', 'C'].map((content) => {
+      const el = document.createElement('div')
+      el.setAttribute('data-cortex-source', source)
+      el.appendChild(document.createTextNode(content))
+      document.body.appendChild(el)
+      orphans.push(el)
+      return el
+    })
+    expect(captureSelectionMetadata(sibs[0]!).index).toBe(0)
+    expect(captureSelectionMetadata(sibs[1]!).index).toBe(1)
+    expect(captureSelectionMetadata(sibs[2]!).index).toBe(2)
+  })
+
+  it('trims textContent whitespace when capturing contentHash', () => {
+    const el = document.createElement('div')
+    el.setAttribute('data-cortex-source', 'src/a.tsx:1:1')
+    el.appendChild(document.createTextNode('  hello  \n'))
+    document.body.appendChild(el)
+    orphans.push(el)
+    expect(captureSelectionMetadata(el).contentHash).toBe('hello')
   })
 })
