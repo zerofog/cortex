@@ -778,8 +778,11 @@ describe('CSSOverrideManager', () => {
         expect(styleEl.textContent).toContain('color: red')
         expect(divergences).toHaveLength(0) // not emitted yet — retry window active
 
-        // Wait for the shrunk retry window to elapse.
+        // Wait for the shrunk retry window to elapse, then flush the rAF-aligned
+        // final verify (MTS-C2 fix: the final timeout schedules a rAF to read
+        // post-layout before emitting divergence).
         await new Promise(resolve => setTimeout(resolve, 100))
+        flushRAF()
 
         expect(styleEl.textContent).toContain('color: red') // still preserved
         expect(divergences).toHaveLength(1)

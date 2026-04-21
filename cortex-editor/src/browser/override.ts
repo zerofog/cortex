@@ -277,12 +277,26 @@ export class CSSOverrideManager {
       }
     }
 
+    // jsx-immediate commits land on the element itself (style or className) —
+    // observe both. Stylesheet-scoped kinds (classOp, CSS Module, deferred)
+    // never mutate element attributes when the value lands; observing 'class'
+    // would flood the callback with unrelated Tailwind-JIT className churn
+    // (hover/focus/etc) that can't possibly satisfy the expected value.
+    // For those kinds we only observe 'style' (rare but possible if the host
+    // toggles inline styles) and rely on polling for stylesheet changes.
+    const attributeFilter = kind === 'jsx-immediate' ? ['style', 'class'] : ['style']
     observer = new MutationObserver(() => tryVerify(false))
-    observer.observe(el, { attributes: true, attributeFilter: ['style', 'class'] })
+    observer.observe(el, { attributes: true, attributeFilter })
 
     pollId = window.setInterval(() => tryVerify(false), CSSOverrideManager.VERIFY_POLL_INTERVAL_MS)
 
-    timeoutId = window.setTimeout(() => tryVerify(true), CSSOverrideManager.VERIFY_RETRY_WINDOW_MS)
+    // Final verify aligned to rAF — a raw setTimeout can fire between a style
+    // commit and its paint, and `getComputedStyle` inside that gap may still
+    // report the pre-commit value. One rAF ensures we're reading post-layout.
+    timeoutId = window.setTimeout(() => {
+      if (disposed) return
+      requestAnimationFrame(() => tryVerify(true))
+    }, CSSOverrideManager.VERIFY_RETRY_WINDOW_MS)
 
     this.verifyRetryObservers.set(key, { dispose })
   }
@@ -381,7 +395,12 @@ export class CSSOverrideManager {
     if (!this.canaryEl) {
       this.canaryEl = document.createElement('div')
       this.canaryEl.setAttribute('data-cortex-canary', '')
-      this.canaryEl.style.cssText = 'position:fixed;top:-9999px;left:-9999px;visibility:hidden'
+      // `all: initial` isolates the canary from the host page's cascade so
+      // inherited properties (color, font-*, line-height, etc.) and universal
+      // selectors (`* { ... }`) can't contaminate canonicalization results.
+      // Without this, `getComputedStyle(canary).color` would pick up the host
+      // app's body color and match against the user's edited color incorrectly.
+      this.canaryEl.style.cssText = 'all:initial;position:fixed;top:-9999px;left:-9999px;visibility:hidden'
       document.body.appendChild(this.canaryEl)
     }
     try {
@@ -435,54 +454,57 @@ export class CSSOverrideManager {
   trackPendingEdit(editId: string, sources: string | string[], property: string, value: string, pseudo?: '::before' | '::after'): void {
     const sourceArray = Array.isArray(sources) ? sources : [sources]
     this.evictStalePendingEdits()
-    trace('trackPendingEdit', { editId, sources: sourceArray, property, value, pseudo, prevHmrAppliedInCycle: this.hmrAppliedInCycle })
-    // A fresh edit starts a new HMR cycle from the browser's perspective.
-    this.hmrAppliedInCycle = false
-    // Supersede any prior pending edit for overlapping targets
+    trace('trackPendingEdit', { editId, sources: sourceArray, property, value, pseudo })
+    // Supersede prior pending edits AND dispose matching in-flight retry observers.
+    // Without the observer dispose, a stale retry from the superseded edit would
+    // continue polling against the NEW expected value in its closure and could
+    // emit a false divergence against the user's newer intent.
     for (const [existingId, entry] of this.pendingEdits) {
       if (entry.property === property && entry.pseudo === pseudo &&
           entry.sources.some(s => sourceArray.includes(s))) {
         this.pendingEdits.delete(existingId)
       }
     }
-    // Drop queued removals that this new edit supersedes. Without this, a queued
-    // removal for the old value could drain when `onHMRApplied` later fires for
-    // a different cycle, targeting the wrong expectedValue and either removing
-    // the newer override or emitting a stale divergence.
-    if (this.pendingRemovals.length > 0) {
-      this.pendingRemovals = this.pendingRemovals.filter(r =>
-        r.property !== property || r.pseudo !== pseudo || !sourceArray.includes(r.source)
-      )
+    for (const source of sourceArray) {
+      const retryKey = `${source}:${property}${pseudo ?? ''}`
+      this.verifyRetryObservers.get(retryKey)?.dispose()
     }
     this.pendingEdits.set(editId, { sources: sourceArray, property, value, pseudo, timestamp: Date.now() })
   }
 
-  /** Queued verifications waiting for the next onHMRApplied tick. Populated by
-   *  handleHMRVerified when the verified signal beats the HMR-applied signal;
-   *  drained in onHMRApplied once the browser has processed the HMR update. */
-  private pendingRemovals: Array<{ editId: string; source: string; property: string; pseudo?: '::before' | '::after'; value: string; kind?: EditKind }> = []
   private pendingClearAll = false
-  /** True once onHMRApplied has fired for the current HMR cycle. Reset by
-   *  trackPendingEdit when a new edit is dispatched — that edit's verified
-   *  signal will trigger a new cycle. */
-  private hmrAppliedInCycle = false
 
-  /** Called when the server confirms an edit landed via HMR. If the browser has
-   *  already seen vite:afterUpdate for this cycle, schedule verification immediately
-   *  (one double-rAF tick); otherwise queue for the next onHMRApplied drain. */
+  /** Recently-verified editIds — short-lived dedup cache for at-least-once delivery
+   *  from the server. If the server reconnects and replays `hmr_verified` for an
+   *  editId we've already handled, we want a silent no-op rather than an unknown-edit
+   *  path that could reach into stale state. TTL matches the verifier's 30s. */
+  private recentlyVerified = new Map<string, number>()
+  private static readonly RECENTLY_VERIFIED_TTL_MS = 30_000
+
+  /** Called when the server confirms an edit landed via HMR. Always schedules
+   *  verification via double-rAF — the retry mechanism inside verifyAndRemove
+   *  handles the timing race whether the browser's vite:afterUpdate lands before
+   *  or after this verified signal. Eliminates the `hmrAppliedInCycle` flag that
+   *  misfired across rapid consecutive edits (frontend C3 / distsys C3). */
   handleHMRVerified(editId: string, match: boolean, kind?: EditKind): void {
     this.evictStalePendingEdits()
+    this.evictRecentlyVerified()
+    // Dedup: server may replay hmr_verified across reconnects or TTL retries.
+    if (this.recentlyVerified.has(editId)) {
+      trace('handleHMRVerified:duplicate', { editId })
+      return
+    }
     const pending = this.pendingEdits.get(editId)
-    trace('handleHMRVerified', { editId, match, kind, hasPending: !!pending, hmrAppliedInCycle: this.hmrAppliedInCycle })
+    trace('handleHMRVerified', { editId, match, kind, hasPending: !!pending })
     if (!pending) return
     this.pendingEdits.delete(editId)
+    this.recentlyVerified.set(editId, Date.now())
+
     if (!match) {
       // Server said "I wrote the file, but the HMR-applied value doesn't match
       // the expected value" — typically a TTL-eviction (30s with no HMR) or a
       // reader divergence. Surface this immediately: the override stays, but the
       // Panel gets a divergence card so the user learns something went wrong.
-      // Without this, a failed-verify edit would be indistinguishable from a
-      // successful one until the user noticed the preview wasn't reflected.
       for (const source of pending.sources) {
         emitDivergence({ source, property: pending.property, expected: pending.value, actual: '', pseudo: pending.pseudo })
       }
@@ -492,19 +514,20 @@ export class CSSOverrideManager {
     // Per-source guard: if the user made a newer edit to the same property on a
     // specific source, skip verification for THAT source only — the newer override
     // has its own pending edit awaiting verification.
-    const mode = this.hmrAppliedInCycle ? 'schedule-immediate' : 'queue'
-    trace(`handleHMRVerified:${mode}`, { editId })
     for (const source of pending.sources) {
       const currentValue = this.get(source, pending.property, pending.pseudo)
       if (currentValue !== undefined && currentValue !== pending.value) {
         trace('handleHMRVerified:skip-stale', { source, property: pending.property, currentValue, expected: pending.value })
         continue
       }
-      if (this.hmrAppliedInCycle) {
-        this.scheduleVerifyAndRemove(source, pending.property, pending.value, pending.pseudo, kind)
-      } else {
-        this.pendingRemovals.push({ editId, source, property: pending.property, pseudo: pending.pseudo, value: pending.value, kind })
-      }
+      this.scheduleVerifyAndRemove(source, pending.property, pending.value, pending.pseudo, kind)
+    }
+  }
+
+  private evictRecentlyVerified(): void {
+    const cutoff = Date.now() - CSSOverrideManager.RECENTLY_VERIFIED_TTL_MS
+    for (const [id, ts] of this.recentlyVerified) {
+      if (ts < cutoff) this.recentlyVerified.delete(id)
     }
   }
 
@@ -514,30 +537,21 @@ export class CSSOverrideManager {
   }
 
   /** Called when the browser confirms HMR stylesheet update has been applied
-   *  (vite:afterUpdate). Drains queued verifications. No more heuristic sweeping —
-   *  every override has an explicit tracked owner and removes only after verification. */
+   *  (vite:afterUpdate). Only responsibility now: drain a queued clearAll.
+   *  Verifications are scheduled directly from handleHMRVerified — no queue to
+   *  drain here, which eliminates the ordering race where vite:afterUpdate's
+   *  double-fire and rapid consecutive edits could flip a shared boolean flag
+   *  to the wrong value. The retry mechanism inside armVerifyRetry catches any
+   *  framework-commit latency. */
   onHMRApplied(): void {
     trace('onHMRApplied:enter', {
       pendingClearAll: this.pendingClearAll,
-      pendingRemovalsLen: this.pendingRemovals.length,
-      hmrAppliedInCycle: this.hmrAppliedInCycle,
       activeOverrideCount: this.overrides.size,
     })
     if (this.pendingClearAll) {
       this.pendingClearAll = false
-      this.pendingRemovals.length = 0
-      this.hmrAppliedInCycle = false
       this.clearAll()
-      return
     }
-    if (this.pendingRemovals.length > 0) {
-      const removals = this.pendingRemovals.splice(0)
-      for (const r of removals) {
-        trace('onHMRApplied:drain', { editId: r.editId, source: r.source, property: r.property, kind: r.kind })
-        this.scheduleVerifyAndRemove(r.source, r.property, r.value, r.pseudo, r.kind)
-      }
-    }
-    this.hmrAppliedInCycle = true
   }
 
   private evictStalePendingEdits(): void {
@@ -558,9 +572,8 @@ export class CSSOverrideManager {
 
   /** Clear all overrides (e.g. on SPA navigation) */
   clearAll(): void {
-    this.pendingRemovals.length = 0
-    this.hmrAppliedInCycle = false
     this.disposeVerifyRetryObservers()
+    this.recentlyVerified.clear()
     this.overrides.clear()
     this.stateOverrides.clear()
     this.pendingEdits.clear()
@@ -570,9 +583,8 @@ export class CSSOverrideManager {
 
   /** Remove the <style> element from the DOM */
   dispose(): void {
-    this.pendingRemovals.length = 0
-    this.hmrAppliedInCycle = false
     this.disposeVerifyRetryObservers()
+    this.recentlyVerified.clear()
     this.cancelPendingRebuild()
     this.overrides.clear()
     this.stateOverrides.clear()
