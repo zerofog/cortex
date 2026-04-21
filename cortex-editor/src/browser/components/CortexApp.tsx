@@ -117,6 +117,17 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // Canvas zoom (disabled — preserved for future re-enablement)
   useCanvasZoom(false)
 
+  // Selection setter that keeps selectionMetadataRef in sync. Every path
+  // that sets a positive `selectedElement` must go through this helper so
+  // the HMR re-resolver has valid metadata. Null paths (exit, escape,
+  // failed re-resolve) also clear metadata here.
+  // Declared above the mount effect so later readers see it before its
+  // first use — avoids the forward-reference ambiguity a reviewer flagged.
+  const setSelectionWithMetadata = useCallback((el: HTMLElement | null): void => {
+    selectionMetadataRef.current = el ? captureSelectionMetadata(el) : null
+    setSelectedElement(el)
+  }, [])
+
   useEffect(() => {
     // Initialize CSS override manager and command stack
     const overrideManager = new CSSOverrideManager()
@@ -432,15 +443,6 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const handleCommentReply = useCallback((annotationId: string, text: string) => {
     channel.send({ type: 'comment-reply', annotationId, text })
   }, [channel])
-
-  // Selection setter that keeps selectionMetadataRef in sync. Every path
-  // that sets a positive `selectedElement` must go through this helper so
-  // the HMR re-resolver has valid metadata. Null paths (exit, escape,
-  // failed re-resolve) also clear metadata here.
-  const setSelectionWithMetadata = useCallback((el: HTMLElement | null): void => {
-    selectionMetadataRef.current = el ? captureSelectionMetadata(el) : null
-    setSelectedElement(el)
-  }, [])
 
   const handleSelectElement = useCallback(
     (el: HTMLElement | null) => setSelectionWithMetadata(el),

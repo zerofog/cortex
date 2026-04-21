@@ -1,24 +1,11 @@
 /**
- * Selection metadata — captures enough identity signals at selection time
- * to survive HMR-induced DOM node replacement (ZF0-1292 follow-up).
+ * Selection metadata — identity signals that survive HMR-induced DOM replacement.
  *
- * The core problem: `data-cortex-source` is per *source location* (file:line:col
- * set by the source-transform at build time), not per *rendered instance*.
- * Two rendered siblings from the same `.map()` share the attribute. When HMR
- * replaces DOM nodes, naive `document.querySelector('[data-cortex-source="..."]')`
- * can pick the wrong sibling.
- *
- * This module captures three identity signals at selection time:
- *   1. Position — nth among siblings sharing the same source
- *   2. Content — textContent snapshot (for reorder detection)
- *   3. Tree — whether the element lives inside an open shadow root
- *
- * `reResolveSelection` consumes those signals with a smart-fallback algorithm:
- *   primary   → matches[savedIndex]           (position stable, common case)
- *   secondary → find(m => textContent === hash) if position-content mismatch
- *               (reorder detected — follow content to new index)
- *   tertiary  → matches[savedIndex]           (content edited in place)
- *   clear     → matches empty OR index out of bounds
+ * `data-cortex-source` is per *source location*, not per *rendered instance*.
+ * Two siblings from the same `.map()` share the attribute, so naive
+ * `querySelector` can pick the wrong one after HMR swaps nodes. We capture
+ * position (nth-index), content (textContent hash), and tree location
+ * (shadow root) at selection time so we can re-resolve deterministically.
  */
 
 const isHTMLElement = (el: Element | null): el is HTMLElement =>
@@ -56,21 +43,22 @@ export function captureSelectionMetadata(el: HTMLElement): SelectionMetadata {
     return { source: null, index: -1, contentHash, inShadowRoot }
   }
 
-  const selector = `[data-cortex-source="${CSS.escape(source)}"]`
-  const flat = flatQueryAll(selector)
-  // If the element lives inside a shadow root, the flat query won't see it —
-  // compute the index among its shadow-tree siblings via deep traversal.
-  // Mirrors the fallback used in `reResolveSelection` for consistency.
-  const siblings = (flat.length === 0 && inShadowRoot)
-    ? deepQuerySelectorAll(selector)
-    : flat
+  const siblings = findSourceMatches(source, inShadowRoot)
   const index = siblings.indexOf(el)
   return { source, index, contentHash, inShadowRoot }
 }
 
-/** Standard top-level-document attribute query, filtered to HTMLElement. */
-function flatQueryAll(selector: string): HTMLElement[] {
-  return Array.from(document.querySelectorAll(selector)).filter(isHTMLElement)
+/**
+ * Locate all elements sharing a `data-cortex-source` value. Tries the flat
+ * top-level query first; falls back to a shadow-DOM-piercing walk only when
+ * the caller knows the element lived in a shadow tree AND the flat query
+ * came up empty. Keeps capture/re-resolve in lock-step — a regression where
+ * only one side runs the deep query would silently desync.
+ */
+function findSourceMatches(source: string, inShadowRoot: boolean): HTMLElement[] {
+  const selector = `[data-cortex-source="${CSS.escape(source)}"]`
+  const flat = Array.from(document.querySelectorAll(selector)).filter(isHTMLElement)
+  return (flat.length === 0 && inShadowRoot) ? deepQuerySelectorAll(selector) : flat
 }
 
 /**
@@ -102,27 +90,19 @@ export function deepQuerySelectorAll(
 /**
  * Re-resolve a selection after HMR using the captured metadata.
  *
- * Smart-fallback algorithm (confirmed by user 2026-04-21):
- *   1. If no matches at all → null (element removed)
- *   2. If `matches[savedIndex]` exists:
- *      a. content at that index === savedContent → return it (stable)
- *      b. saved content exists elsewhere in matches → return that element
- *         (reorder detected; selection follows content)
- *      c. saved content not found anywhere → return matches[savedIndex]
- *         (content edited in place; preserve position)
- *   3. If savedIndex is out of bounds → null (list shrank past the index)
+ * Algorithm is position-first, content-second, preserve-third:
+ *   - stable position + matching content → keep as-is
+ *   - stable position + changed content + content found elsewhere → follow content (reorder)
+ *   - stable position + changed content + content not found → preserve position (edited in place)
+ *   - no element at saved index → clear
  *
- * The `byContent` search is skipped for empty contentHash to avoid matching
- * the first empty-content element when the selected element was icon-only.
+ * The content-search branch is gated on `meta.contentHash !== ''` because an
+ * empty hash would false-match the first icon-only element in the list.
  */
 export function reResolveSelection(meta: SelectionMetadata): HTMLElement | null {
   if (!meta.source) return null
 
-  const selector = `[data-cortex-source="${CSS.escape(meta.source)}"]`
-  const flat = flatQueryAll(selector)
-  const matches = (flat.length === 0 && meta.inShadowRoot)
-    ? deepQuerySelectorAll(selector)
-    : flat
+  const matches = findSourceMatches(meta.source, meta.inShadowRoot)
 
   if (matches.length === 0) return null
 
