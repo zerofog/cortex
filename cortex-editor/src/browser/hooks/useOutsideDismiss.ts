@@ -87,16 +87,33 @@ export function useOutsideDismiss(
       cursor = root.host
     }
 
+    // Popover's own root — the ShadowRoot (or document) that directly
+    // contains `ref.current`. At this level composedPath() is honest about
+    // inside-shadow nodes, so `path.includes(current)` alone decides
+    // whether the click was inside the popover.
+    const ownRoot = roots[0]
+
     const handleMousedown = (e: Event): void => {
       const current = ref.current
       if (!current) return
       const path = e.composedPath()
       // Inside the popover, as seen at THIS listener's scope.
       if (path.includes(current)) return
-      // At outer scopes (higher shadow root or document), inside-shadow
-      // clicks retarget to a host we recorded. Bail for those too.
-      for (const h of hosts) {
-        if (path.includes(h)) return
+      // At OUTER listeners (a document or parent shadow root above
+      // ours), a click inside our shadow retargets to the host we
+      // recorded — composedPath here is truncated at the closed-shadow
+      // boundary and won't contain `current`. Bail when we see the host
+      // in the path, otherwise we'd misclassify every inside-popover
+      // click as "outside" once it bubbles past the shadow boundary.
+      // Critically, this check is skipped at the popover's OWN root —
+      // there, the host is always in the path for every shadow-internal
+      // click, so applying this check would block every legitimate
+      // outside-popover dismiss. (currentTarget is the listener's own
+      // root; comparing against `ownRoot` isolates the inner listener.)
+      if (e.currentTarget !== ownRoot) {
+        for (const h of hosts) {
+          if (path.includes(h)) return
+        }
       }
       // Trigger-aware bypass: if the click originated on a registered
       // trigger element (the button that toggles this popover), let the
