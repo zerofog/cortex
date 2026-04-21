@@ -23,7 +23,7 @@ import { CapabilityBanner } from './CapabilityBanner.js'
 import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
 import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
-import { captureSelectionMetadata, reResolveSelection } from '../selection-metadata.js'
+import { captureSelectionMetadata, reResolveSelection, hmrFilesAffectElement } from '../selection-metadata.js'
 import type { SelectionMetadata } from '../selection-metadata.js'
 
 const MAX_ACTIVITY_ENTRIES = 200
@@ -227,7 +227,20 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       }
       if (msg.type === 'hmr-applied') {
         overrideRef.current?.onHMRApplied()
-        setHmrAppliedVersion(v => v + 1)
+
+        // Gate the Panel refresh (getComputedStyle cascade + detectSharedClasses
+        // over full DOM) on whether the changed files can possibly affect the
+        // selected element. Skip only when we're confident: server provided a
+        // file list AND no CSS files AND no ancestor source file is in the list
+        // (up to 20 levels). Otherwise — including when `files` is absent for
+        // backward-compat — refresh as before. ZF0-1292 follow-up.
+        const current = selectedElementRef.current
+        const shouldRefresh = !msg.files || !current
+          ? true
+          : hmrFilesAffectElement(msg.files, current)
+        if (shouldRefresh) {
+          setHmrAppliedVersion(v => v + 1)
+        }
 
         // Re-resolve the selection after HMR node replacement. Runs
         // synchronously (catches CSS-only / classname-flip cases where the

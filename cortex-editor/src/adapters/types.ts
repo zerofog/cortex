@@ -154,7 +154,13 @@ export type ServerToBrowser =
   | { type: 'undo_sync_status'; status: 'done' | 'failed'; reason?: string; reason_code?: 'empty_stack' | 'stale' | 'write_failed' }
   | { type: 'redo_sync_status'; status: 'done' | 'failed'; reason?: string; reason_code?: 'empty_stack' | 'stale' | 'write_failed' }
   | { type: 'hmr_verified'; editId: string; match: boolean; expected?: string; actual?: string; kind?: EditKind }
-  | { type: 'hmr-applied' }
+  /** HMR cycle applied. Optional `files` carries the paths of modules
+   *  changed in this cycle (from Vite's `vite:afterUpdate` update array).
+   *  Browser uses the list to skip Panel refresh when the change is
+   *  unrelated to the currently selected element's ancestry. Older server
+   *  versions omit the field — treat absence as "all files may be
+   *  affected" (backward-compat full refresh). ZF0-1292 follow-up. */
+  | { type: 'hmr-applied'; files?: string[] }
   | { type: 'annotation-created'; annotation: Annotation }
   | { type: 'annotation-updated'; annotation: Annotation }
   | { type: 'agent-status'; connected: boolean }

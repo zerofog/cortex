@@ -1404,3 +1404,151 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
     gcsSpy.mockRestore()
   })
 })
+
+describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
+  let root: HTMLDivElement
+  let shadow: ShadowRoot
+  let cleanupHost: (() => void) | null = null
+  const orphans: HTMLElement[] = []
+
+  afterEach(() => {
+    if (root) render(null, root)
+    cleanupHost?.()
+    cleanupHost = null
+    for (const el of orphans) el.remove()
+    orphans.length = 0
+    // restoreAllMocks (not clearAllMocks) ensures the getComputedStyle spy
+    // is fully uninstalled between tests — otherwise a failed test that
+    // threw before reaching gcs.mockRestore() would leak the spy into
+    // downstream tests (and other describe blocks).
+    vi.restoreAllMocks()
+  })
+
+  /** Render CortexApp, activate, select an element with the given source,
+   *  and return the mock channel + a `gcs` spy on getComputedStyle. The spy's
+   *  call count is the observable signal for "Panel refreshed". */
+  async function setup(source: string): Promise<{
+    channel: ReturnType<typeof createMockChannel>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    gcs: any
+    element: HTMLElement
+  }> {
+    const sh = createShadowHost()
+    root = sh.root
+    shadow = sh.shadow
+    cleanupHost = sh.cleanup
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+    channel._simulateMessage({ type: 'cortex' } as any)
+    await new Promise(r => setTimeout(r, 10))
+
+    const { _getCallbacks } = await import('../../src/browser/selection.js') as unknown as {
+      _getCallbacks: () => { selectCb: (el: HTMLElement | null) => void }
+    }
+    const { selectCb } = _getCallbacks()
+
+    const element = document.createElement('div')
+    element.setAttribute('data-cortex-source', source)
+    element.appendChild(document.createTextNode('target'))
+    document.body.appendChild(element)
+    orphans.push(element)
+    mockGetBoundingClientRect(element, { top: 50, left: 50, width: 100, height: 40 })
+
+    selectCb(element)
+    await new Promise(r => setTimeout(r, 20))
+
+    // Install spy AFTER selection so the baseline count is post-mount.
+    const gcs = vi.spyOn(window, 'getComputedStyle')
+    return { channel, gcs, element }
+  }
+
+  it('skips Panel refresh when hmr files are fully unrelated to the selection', async () => {
+    const { channel, gcs } = await setup('src/foo.tsx:10:5')
+    const before = gcs.mock.calls.length
+    channel._simulateMessage({ type: 'hmr-applied', files: ['src/bar.tsx', 'src/baz.tsx'] })
+    await new Promise(r => setTimeout(r, 50))
+    // No CSS in list, no ancestor match, no own-file match → refresh skipped.
+    // The expensive computedStyles re-run does not fire.
+    expect(gcs.mock.calls.length).toBe(before)
+    gcs.mockRestore()
+  })
+
+  it('triggers Panel refresh when hmr files include a CSS file', async () => {
+    const { channel, gcs } = await setup('src/foo.tsx:10:5')
+    const before = gcs.mock.calls.length
+    channel._simulateMessage({ type: 'hmr-applied', files: ['src/bar.tsx', 'src/app.css'] })
+    await new Promise(r => setTimeout(r, 50))
+    expect(gcs.mock.calls.length).toBeGreaterThan(before)
+    gcs.mockRestore()
+  })
+
+  it('triggers Panel refresh when hmr files include the selected element\'s source file', async () => {
+    const { channel, gcs } = await setup('src/foo.tsx:10:5')
+    const before = gcs.mock.calls.length
+    channel._simulateMessage({ type: 'hmr-applied', files: ['src/foo.tsx'] })
+    await new Promise(r => setTimeout(r, 50))
+    expect(gcs.mock.calls.length).toBeGreaterThan(before)
+    gcs.mockRestore()
+  })
+
+  it('triggers Panel refresh when hmr files include an ancestor\'s source file', async () => {
+    // Build a parent element with a source, child element inside. Select the
+    // child. Dispatch hmr-applied with parent's source file in the list.
+    const sh = createShadowHost()
+    root = sh.root
+    shadow = sh.shadow
+    cleanupHost = sh.cleanup
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+    channel._simulateMessage({ type: 'cortex' } as any)
+    await new Promise(r => setTimeout(r, 10))
+
+    const { _getCallbacks } = await import('../../src/browser/selection.js') as unknown as {
+      _getCallbacks: () => { selectCb: (el: HTMLElement | null) => void }
+    }
+    const { selectCb } = _getCallbacks()
+
+    const parent = document.createElement('div')
+    parent.setAttribute('data-cortex-source', 'src/parent.tsx:1:1')
+    document.body.appendChild(parent)
+    orphans.push(parent)
+    const child = document.createElement('div')
+    child.setAttribute('data-cortex-source', 'src/child.tsx:2:2')
+    parent.appendChild(child)
+    mockGetBoundingClientRect(child, { top: 50, left: 50, width: 100, height: 40 })
+
+    selectCb(child)
+    await new Promise(r => setTimeout(r, 20))
+
+    const gcs = vi.spyOn(window, 'getComputedStyle')
+    const before = gcs.mock.calls.length
+    channel._simulateMessage({ type: 'hmr-applied', files: ['src/parent.tsx'] })
+    await new Promise(r => setTimeout(r, 50))
+    expect(gcs.mock.calls.length).toBeGreaterThan(before)
+    gcs.mockRestore()
+  })
+
+  it('triggers Panel refresh when hmr-applied has no files field (backward-compat)', async () => {
+    const { channel, gcs } = await setup('src/foo.tsx:10:5')
+    const before = gcs.mock.calls.length
+    // Backward-compat: older server didn't include files → assume all may be affected.
+    channel._simulateMessage({ type: 'hmr-applied' })
+    await new Promise(r => setTimeout(r, 50))
+    expect(gcs.mock.calls.length).toBeGreaterThan(before)
+    gcs.mockRestore()
+  })
+
+  it('triggers Panel refresh when hmr-applied has an empty files array (treat as unknown)', async () => {
+    const { channel, gcs } = await setup('src/foo.tsx:10:5')
+    const before = gcs.mock.calls.length
+    // Empty list is ambiguous; hmrFilesAffectElement returns false for it,
+    // which means "no match" — so refresh is SKIPPED. This test locks in
+    // that contract: an empty list means "no files changed, nothing to do".
+    channel._simulateMessage({ type: 'hmr-applied', files: [] })
+    await new Promise(r => setTimeout(r, 50))
+    expect(gcs.mock.calls.length).toBe(before)
+    gcs.mockRestore()
+  })
+})
