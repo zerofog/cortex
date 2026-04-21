@@ -215,8 +215,13 @@ export interface PanelProps {
    *  covering out-of-band source edits that don't mutate the selected
    *  element's own class/style attributes — stylesheet rule changes, @theme
    *  token changes, and ancestor cascade changes — which the
-   *  MutationObserver cannot see. */
-  hmrAppliedVersion?: number
+   *  MutationObserver cannot see.
+   *
+   *  Required (not optional): forgetting to pass it leaves the Panel silently
+   *  unable to react to HMR. Architecture review flagged the original
+   *  optional signature as a silent-failure hazard for future integration
+   *  sites. Tests must pass `hmrAppliedVersion={0}` explicitly. */
+  hmrAppliedVersion: number
 }
 
 function parseSpacingValues(cs: CSSStyleDeclaration) {
@@ -269,7 +274,7 @@ export function Panel({
   editErrors,
   onEditDispatch,
   onDismissError,
-  hmrAppliedVersion = 0,
+  hmrAppliedVersion,
 }: PanelProps): JSX.Element | null {
   // ALL hooks first — no conditional returns before hooks
   const [isEntering, setIsEntering] = useState(true)

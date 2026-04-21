@@ -10,6 +10,10 @@ const panelPositionProps = {
   panelPointerMove: vi.fn(),
   panelPointerUp: vi.fn(),
   panelPointerCancel: vi.fn(),
+  // ZF0-1292: required since the architecture-review follow-up made the
+  // prop mandatory. Tests that don't exercise HMR behavior pass 0 to keep
+  // the Panel stable (no version bumps fired during the test body).
+  hmrAppliedVersion: 0,
 }
 
 // Global defense-in-depth against fake-timer leakage across tests.
@@ -745,8 +749,8 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
           overrideManager={overrideManager as any}
           onClose={() => {}}
           onSelectElement={() => {}}
-          hmrAppliedVersion={version}
           {...panelPositionProps}
+          hmrAppliedVersion={version}
         />,
         shadowRoot,
       )
@@ -862,8 +866,8 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
           overrideManager={overrideManager as any}
           onClose={() => {}}
           onSelectElement={() => {}}
-          hmrAppliedVersion={version}
           {...panelPositionProps}
+          hmrAppliedVersion={version}
         />,
         shadowRoot,
       )
