@@ -90,9 +90,15 @@ if (import.meta.hot) {
   // can skip the (expensive) Panel refresh when the change is unrelated to
   // the currently selected element (ZF0-1292 follow-up).
   import.meta.hot.on('vite:afterUpdate', (update) => {
-    const files = Array.isArray(update?.updates)
-      ? update.updates.map((u) => u.path).filter((p) => typeof p === 'string')
-      : undefined;
+    var files;
+    if (Array.isArray(update?.updates)) {
+      files = update.updates.map((u) => u.path).filter((p) => typeof p === 'string');
+    } else if (update != null) {
+      // Vite schema drift: log once so silent degradation to full-refresh
+      // mode leaves a breadcrumb in devtools instead of disappearing.
+      console.warn('[cortex] unexpected vite:afterUpdate shape', update);
+      files = undefined;
+    }
     window.__cortex_channel__?.handleServerMessage({ type: 'hmr-applied', files });
   });
   if (!Object.prototype.hasOwnProperty.call(window, '__cortex_send__')) {

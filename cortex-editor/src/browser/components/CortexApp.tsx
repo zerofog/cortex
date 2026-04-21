@@ -238,19 +238,25 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (msg.type === 'hmr-applied') {
         overrideRef.current?.onHMRApplied()
 
+        // Defensive: even though the types declare files?: string[], the
+        // channel is trusted to enforce the contract. A malformed non-array
+        // `files` from a future adapter bug would crash .some() / .map().
+        // Normalize to undefined so the downstream gate treats it as "unknown".
+        const rawFiles = msg.files
+        const files: string[] | undefined = Array.isArray(rawFiles) && rawFiles.every(f => typeof f === 'string')
+          ? rawFiles
+          : undefined
+
         // Gate the Panel refresh (getComputedStyle cascade + detectSharedClasses
         // over full DOM) on whether the changed files can possibly affect the
         // selected element. Skip only when we're confident: server provided a
-        // non-empty file list AND no CSS files AND no ancestor source file is
-        // in the list (up to 20 levels). Otherwise — including when `files`
-        // is absent (older server / backward-compat) OR empty (server signaled
-        // a cycle but couldn't list the files, e.g. CSS-in-JS runtime
-        // injection) — err toward refresh. ZF0-1292 Round 2 decision: empty
-        // array means "unknown", not "nothing changed".
+        // non-empty file list AND no CSS/virtual files AND no ancestor source
+        // is in the list (up to 20 levels). Otherwise — absent / empty / typo
+        // — err toward refresh.
         const current = selectedElementRef.current
-        const shouldRefresh = !msg.files || msg.files.length === 0 || !current
+        const shouldRefresh = !files || files.length === 0 || !current
           ? true
-          : hmrFilesAffectElement(msg.files, current)
+          : hmrFilesAffectElement(files, current)
         if (shouldRefresh) {
           setHmrAppliedVersion(v => v + 1)
         }
@@ -265,13 +271,21 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         // secondary=content-search for reorder detection, tertiary=preserve
         // at index for in-place content edits. See selection-metadata.ts.
         const attemptReResolve = (): void => {
-          const current = selectedElementRef.current
-          const meta = selectionMetadataRef.current
-          if (!current || !meta) return
-          if (current.isConnected) return // still mounted — nothing to re-resolve
-          // Route through the metadata-aware setter so the next HMR cycle
-          // sees fresh position (content-based fallback may have jumped index).
-          setSelectionWithMetadata(reResolveSelection(meta))
+          try {
+            const current = selectedElementRef.current
+            const meta = selectionMetadataRef.current
+            if (!current || !meta) return
+            if (current.isConnected) return // still mounted — nothing to re-resolve
+            // Route through the metadata-aware setter so the next HMR cycle
+            // sees fresh position (content-based fallback may have jumped index).
+            setSelectionWithMetadata(reResolveSelection(meta))
+          } catch (err) {
+            // Don't let a re-resolution throw kill the message loop or leak
+            // into rAF's uncaught-error path. Clear selection — safer than
+            // leaving the user pointed at a detached node.
+            console.warn('[cortex] reResolveSelection failed', err)
+            setSelectionWithMetadata(null)
+          }
         }
 
         attemptReResolve()

@@ -120,6 +120,19 @@ describe('hmrFilesAffectElement', () => {
       expect(hmrFilesAffectElement([`styles/foo${ext}`], el)).toBe(true)
     }
   })
+
+  it('treats virtual modules as unknown → refresh (Tailwind JIT, virtual:, /@id/, null-prefix)', () => {
+    // Vite and plugins emit non-file paths for CSS-in-JS runtimes, virtual
+    // imports, and Rollup virtual module IDs. We can't classify their impact,
+    // so the safe posture is to refresh rather than silently skip.
+    const el = build(['src/leaf.tsx:5:3'])
+    expect(hmrFilesAffectElement(['virtual:tailwind-jit'], el)).toBe(true)
+    expect(hmrFilesAffectElement(['/@id/virtual:cortex-client'], el)).toBe(true)
+    expect(hmrFilesAffectElement(['/@fs/some/absolute/path'], el)).toBe(true)
+    expect(hmrFilesAffectElement(['\0rollup-virtual'], el)).toBe(true)
+    // A mixed list where only one entry is virtual still triggers refresh.
+    expect(hmrFilesAffectElement(['src/other.tsx', 'virtual:foo'], el)).toBe(true)
+  })
 })
 
 describe('reResolveSelection', () => {

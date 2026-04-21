@@ -56,9 +56,17 @@ export function captureSelectionMetadata(el: HTMLElement): SelectionMetadata {
  * only one side runs the deep query would silently desync.
  */
 function findSourceMatches(source: string, inShadowRoot: boolean): HTMLElement[] {
-  const selector = `[data-cortex-source="${CSS.escape(source)}"]`
-  const flat = Array.from(document.querySelectorAll(selector)).filter(isHTMLElement)
-  return (flat.length === 0 && inShadowRoot) ? deepQuerySelectorAll(selector) : flat
+  try {
+    const selector = `[data-cortex-source="${CSS.escape(source)}"]`
+    const flat = Array.from(document.querySelectorAll(selector)).filter(isHTMLElement)
+    return (flat.length === 0 && inShadowRoot) ? deepQuerySelectorAll(selector) : flat
+  } catch (err) {
+    // CSS.escape spec-throws on unpaired surrogates; querySelectorAll throws
+    // SyntaxError on malformed selectors. Treat as "no matches" so the caller
+    // falls into the clear-selection path rather than the channel pump dying.
+    console.warn('[cortex] findSourceMatches selector error', { source, err })
+    return []
+  }
 }
 
 /**
@@ -142,6 +150,13 @@ export function reResolveSelection(meta: SelectionMetadata): HTMLElement | null 
  *  cascade changes can affect any element. */
 const CSS_EXT = /\.(css|scss|sass|less|styl|stylus)$/i
 
+/** Virtual/synthetic module paths that Vite and plugins emit for CSS-in-JS
+ *  runtimes (Tailwind JIT, Linaria, Emotion compile mode), virtual:* imports,
+ *  Rollup's `\0`-prefixed module IDs, and `/@id/` / `/@fs/` synthetic paths.
+ *  We can't classify what these affect, so err toward refresh rather than
+ *  silently skip. Missing this broke real Tailwind theme edits in testing. */
+const VIRTUAL_MODULE = /(^\0|^\/@|virtual:)/
+
 /** Default maximum depth for ancestor walk in `hmrFilesAffectElement`. Chosen
  *  empirically — 20 levels covers typical React component nesting without the
  *  unbounded-walk cost on pathological trees. Override via the `maxDepth`
@@ -168,8 +183,11 @@ export function hmrFilesAffectElement(
   element: HTMLElement,
   maxDepth: number = DEFAULT_ANCESTOR_DEPTH,
 ): boolean {
-  // Any CSS file: cascade may affect anything visible.
-  if (files.some(f => CSS_EXT.test(f))) return true
+  // Any CSS file OR virtual module: cascade (or runtime-injected styles)
+  // may affect anything visible. Virtual modules are non-classifiable — we
+  // default to refreshing rather than risking a stale Panel on Tailwind JIT
+  // regenerations, CSS-in-JS runtime updates, or Vite plugin synthetics.
+  if (files.some(f => CSS_EXT.test(f) || VIRTUAL_MODULE.test(f))) return true
 
   // Path normalization: Vite's `update.updates[].path` is URL-style with a
   // leading `/` (e.g. `/src/App.tsx`) and may include query strings. The

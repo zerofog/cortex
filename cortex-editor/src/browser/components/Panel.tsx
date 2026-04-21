@@ -387,9 +387,9 @@ export function Panel({
       try {
         setSharedInfo(detectSharedClasses(element))
       } catch (err) {
-        // Cross-origin CSSOM access throws SecurityError — that's a known,
-        // expected degradation path (scope toggle just won't show). Any other
-        // error is a genuine bug and should surface, not be swallowed.
+        // Cross-origin CSSOM access throws SecurityError — known path, don't
+        // warn. Anything else is a bug; log it so it shows up in devtools.
+        // Either way, disable the scope toggle so the Panel stays usable.
         if (!(err instanceof DOMException && err.name === 'SecurityError')) {
           console.warn('[cortex] detectSharedClasses unexpected error', err)
         }
