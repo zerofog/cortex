@@ -1136,22 +1136,36 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
     expect(root.textContent).toContain('Click any element to start editing')
   })
 
-  it('leaves selection untouched when the selected element is still connected after HMR', async () => {
+  it('leaves selection untouched and re-reads computed styles when the selected element is still connected after HMR', async () => {
     // Stylesheet-only HMR case: the element stays in place, but the Panel
     // must still receive the version bump so computed styles re-read.
-    // This test guards against an over-eager re-resolver that would clear
-    // selection on every HMR cycle.
+    // This test guards against both:
+    //  (1) An over-eager re-resolver that would clear selection on every HMR cycle.
+    //  (2) A silent-no-op where the hmr-applied handler doesn't actually bump
+    //      styleVersion (the assertion on (1) alone would still pass).
     const SOURCE = 'src/stable-el.tsx:3:1'
+
+    // Count getComputedStyle invocations as a falsifiable proxy for the re-read.
+    // If the bump path is broken, the count stays flat after hmr-applied.
+    const gcsSpy = vi.spyOn(window, 'getComputedStyle')
+
     const { channel, el } = await setupAndSelect(SOURCE, 'div')
 
     expect(root.textContent).toContain('<div>')
     expect(el.isConnected).toBe(true)
+    const gcsBefore = gcsSpy.mock.calls.length
+    expect(gcsBefore).toBeGreaterThan(0) // sanity: Panel already read styles on mount
 
     channel._simulateMessage({ type: 'hmr-applied' })
     await new Promise(r => setTimeout(r, 30))
 
-    // Selection preserved — still showing the same element.
+    // (1) Selection preserved — still showing the same element.
     expect(root.textContent).toContain('<div>')
     expect(root.textContent).not.toContain('Click any element to start editing')
+    // (2) Panel re-read computed styles — proves the version-bump path fired
+    // and propagated through to Panel's computedStyles useMemo invalidation.
+    expect(gcsSpy.mock.calls.length).toBeGreaterThan(gcsBefore)
+
+    gcsSpy.mockRestore()
   })
 })

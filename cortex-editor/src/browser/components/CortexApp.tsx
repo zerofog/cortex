@@ -217,6 +217,11 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         // ZF0-1292: refresh Panel after out-of-band source edits and re-resolve
         // the selection when HMR Fast Refresh replaces the DOM node.
         setHmrAppliedVersion(v => v + 1)
+        // Read via the ref (not the closure'd `selectedElement` state) because
+        // `onMessage` is registered once per render of this effect and its
+        // closure would otherwise hold a stale selection across subsequent
+        // renders. The ref is reassigned on every render at line 94 so
+        // `.current` always reflects the latest selection.
         const current = selectedElementRef.current
         if (current && !current.isConnected) {
           const source = current.getAttribute('data-cortex-source')
