@@ -25,6 +25,7 @@ import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
 import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
 import { captureSelectionMetadata, reResolveSelection, hmrFilesAffectElement } from '../selection-metadata.js'
 import type { SelectionMetadata } from '../selection-metadata.js'
+import { dismissTopmostPopover } from '../popover-stack.js'
 
 const MAX_ACTIVITY_ENTRIES = 200
 
@@ -516,6 +517,16 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       // Priority 2: Exit comment mode
       if (commentModeRef.current) {
         setCommentMode(false)
+        e.stopPropagation()
+        e.preventDefault()
+        return
+      }
+
+      // Priority 2.5: Dismiss the topmost open popover (chip picker, etc.)
+      // before falling through to deselect. Without this, one Escape press
+      // would collapse two UI layers — close the picker AND deselect the
+      // element — which users reported as "Escape closes the panel."
+      if (dismissTopmostPopover()) {
         e.stopPropagation()
         e.preventDefault()
         return

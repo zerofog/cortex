@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'preact/hooks'
 import type { RefObject } from 'preact'
+import { registerPopoverDismiss } from '../popover-stack.js'
 
 /**
  * Dismiss a popover-like element on outside click or Escape. Shadow-DOM-aware.
@@ -59,6 +60,16 @@ export function useOutsideDismiss(
   useEffect(() => {
     triggerRefsBox.current = triggerRefs
   }, [triggerRefs])
+
+  // Register with the popover stack so CortexApp's Escape cascade can
+  // defer to the topmost open popover. Without this, a picker-open +
+  // Escape collapses the Panel because CortexApp's window-capture listener
+  // reaches "deselect element" before our document-bubble Escape listener
+  // fires. The registry is per-popover, not per-render — a ref guards
+  // re-registration if `onDismiss` identity changes.
+  useEffect(() => {
+    return registerPopoverDismiss(() => onDismissRef.current())
+  }, [])
 
   useEffect(() => {
     const node = ref.current
