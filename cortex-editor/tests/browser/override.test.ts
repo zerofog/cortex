@@ -12,14 +12,19 @@ describe('CSSOverrideManager', () => {
       cb(performance.now())
       return 0
     }) as typeof requestAnimationFrame
-    // Clean up any leftover style elements
+    // Clean up any leftover elements from previous tests — sources are shared
+    // across the suite (e.g. 'a:1:1') and a leftover target would poison the
+    // next test's querySelector for `[data-cortex-source=...]`.
     document.querySelectorAll('[data-cortex-override]').forEach(el => el.remove())
+    document.querySelectorAll('[data-cortex-source]').forEach(el => el.remove())
     manager = new CSSOverrideManager()
   })
 
   afterEach(() => {
     window.requestAnimationFrame = originalRAF
     window.cancelAnimationFrame = originalCAF
+    // Belt-and-suspenders cleanup for test-created elements.
+    document.querySelectorAll('[data-cortex-source]').forEach(el => el.remove())
   })
 
   it('creates a <style data-cortex-override> element in document.head', () => {
@@ -491,14 +496,6 @@ describe('CSSOverrideManager', () => {
       expect(styleEl.textContent).toBe('')
     })
 
-    it('handleHMRVerified(match=false) keeps the override', () => {
-      manager.set('Hero.tsx:5:3', 'padding', '24px')
-      manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'padding', '24px')
-      manager.handleHMRVerified('edit-1', false)
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toContain('padding')
-    })
-
     it('handleHMRVerified with unknown editId is a no-op', () => {
       manager.set('Hero.tsx:5:3', 'padding', '24px')
       manager.handleHMRVerified('unknown-id', true)
@@ -636,6 +633,8 @@ describe('CSSOverrideManager', () => {
         manager.trackPendingEdit('edit-2', 'a:1:1', 'margin', 'test-value')
         manager.handleHMRVerified('edit-1', true)
         manager.onHMRApplied()
+        // Drain the double-rAF verification schedule — fake timers intercept RAF.
+        vi.runAllTimers()
         manager.flush()
         const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
         expect(styleEl.textContent).not.toContain('color')
@@ -662,14 +661,15 @@ describe('CSSOverrideManager', () => {
     })
   })
 
-  describe('deferred override removal', () => {
+  describe('verified override removal', () => {
     let rafCallbacks: Map<number, FrameRequestCallback>
     let nextId: number
 
     beforeEach(() => {
       rafCallbacks = new Map()
       nextId = 1
-      // Capture RAF calls instead of executing them synchronously
+      // Capture RAF calls instead of executing them synchronously so each test
+      // can advance the double-rAF schedule step-by-step.
       window.requestAnimationFrame = ((cb: FrameRequestCallback) => {
         const id = nextId++
         rafCallbacks.set(id, cb)
@@ -686,120 +686,123 @@ describe('CSSOverrideManager', () => {
       cbs.forEach(cb => cb(performance.now()))
     }
 
-    it('ordering A: hmr_verified → onHMRApplied (normal order)', () => {
+    // Call-order invariance: whether vite:afterUpdate lands before or after the
+    // server's hmr_verified signal, the final state is the same — override is
+    // removed after the double-rAF verification tick. Pre-refactor these took
+    // different code paths via an in-cycle flag; post-refactor handleHMRVerified
+    // always schedules via double-rAF so ordering is behaviorally equivalent.
+    // Parameterized to prevent regression to an order-sensitive lifecycle.
+    it.each([
+      ['hmr_verified → onHMRApplied', (m: CSSOverrideManager) => {
+        m.handleHMRVerified('edit-1', true, 'jsx-immediate')
+        m.onHMRApplied()
+      }],
+      ['onHMRApplied → hmr_verified (late arrival)', (m: CSSOverrideManager) => {
+        m.onHMRApplied()
+        m.handleHMRVerified('edit-1', true, 'jsx-immediate')
+      }],
+    ])('ordering — %s: override removed after double-rAF', (_label, sequence) => {
+      const target = document.createElement('div')
+      target.setAttribute('data-cortex-source', 'a:1:1')
+      target.style.color = 'red'
+      document.body.appendChild(target)
+
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
-      manager.markDeferred('edit-1')
-      manager.handleHMRVerified('edit-1', true) // queued in pendingRemovals
+      sequence(manager)
 
-      // onHMRApplied drains the queue — deferred removal via double-rAF
-      manager.onHMRApplied()
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toContain('color: red')
-
-      flushRAF()
-      expect(styleEl.textContent).toContain('color: red')
-
-      flushRAF()
-      expect(styleEl.textContent).toBe('')
-    })
-
-    it('ordering B: onHMRApplied → hmr_verified (late arrival)', () => {
-      manager.set('a:1:1', 'color', 'red')
-      flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
-      manager.markDeferred('edit-1')
-
-      // onHMRApplied fires first — nothing to drain → sets hmrAppliedPending
-      manager.onHMRApplied()
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toContain('color: red')
-
-      // hmr_verified arrives late — sees hmrAppliedPending → deferRemoval immediately
-      manager.handleHMRVerified('edit-1', true)
-      expect(styleEl.textContent).toContain('color: red')
+      expect(styleEl.textContent).toContain('color: red') // double-rAF pending
 
       flushRAF()
       flushRAF()
       expect(styleEl.textContent).toBe('')
+
+      target.remove()
     })
 
-    it('ordering C: hmr_verified → markDeferred → onHMRApplied', () => {
-      // handleHMRVerified runs before markDeferred — editId not in deferredEditIds yet
+    it('ZF0-1235: keeps override and emits divergence when inline never matches within retry window', async () => {
+      // Simulates the observed failure mode: source verified by server but the
+      // element's inline style stays at the OLD value (e.g., React Fast Refresh
+      // skipped this component). After the retry window elapses without a match,
+      // the override is preserved and a divergence event fires — no silent revert.
+      // Shrink the retry window so the test is fast + deterministic.
+      const originalWindow = CSSOverrideManager.VERIFY_RETRY_WINDOW_MS
+      const originalPoll = CSSOverrideManager.VERIFY_POLL_INTERVAL_MS
+      CSSOverrideManager.VERIFY_RETRY_WINDOW_MS = 60
+      CSSOverrideManager.VERIFY_POLL_INTERVAL_MS = 20
+      try {
+        const { onDivergence } = await import('../../src/browser/override-bus.js')
+        const divergences: Array<{ source: string; property: string; expected: string; actual: string }> = []
+        const unsub = onDivergence(d => divergences.push({ source: d.source, property: d.property, expected: d.expected, actual: d.actual }))
+
+        const target = document.createElement('div')
+        target.setAttribute('data-cortex-source', 'a:1:1')
+        target.style.color = 'green'
+        document.body.appendChild(target)
+
+        manager.set('a:1:1', 'color', 'red')
+        flushRAF()
+        manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+        manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
+        manager.onHMRApplied()
+
+        flushRAF()
+        flushRAF() // double-rAF — first verify fails, retry observer arms
+
+        const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+        expect(styleEl.textContent).toContain('color: red')
+        expect(divergences).toHaveLength(0) // not emitted yet — retry window active
+
+        // Wait for the shrunk retry window to elapse, then flush the rAF-aligned
+        // final verify (MTS-C2 fix: the final timeout schedules a rAF to read
+        // post-layout before emitting divergence).
+        await new Promise(resolve => setTimeout(resolve, 100))
+        flushRAF()
+
+        expect(styleEl.textContent).toContain('color: red') // still preserved
+        expect(divergences).toHaveLength(1)
+        expect(divergences[0]).toMatchObject({ source: 'a:1:1', property: 'color', expected: 'red', actual: 'green' })
+
+        unsub()
+        target.remove()
+      } finally {
+        CSSOverrideManager.VERIFY_RETRY_WINDOW_MS = originalWindow
+        CSSOverrideManager.VERIFY_POLL_INTERVAL_MS = originalPoll
+      }
+    })
+
+    it('ZF0-1235 happy case: retry mutation observer catches slow React and cleanly removes', async () => {
+      // React Fast Refresh is sometimes delayed — the retry observer re-verifies
+      // when the element's style attribute finally changes. If the new inline
+      // style matches expected, the override is removed cleanly (no divergence).
+      const target = document.createElement('div')
+      target.setAttribute('data-cortex-source', 'a:1:1')
+      target.style.color = 'green' // old value — React hasn't caught up yet
+      document.body.appendChild(target)
+
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
-      manager.handleHMRVerified('edit-1', true) // queued (not deferred yet)
-      manager.markDeferred('edit-1') // adds editId to deferredEditIds
-
-      // onHMRApplied drains — checks deferredEditIds at drain time → deferRemoval
+      manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
       manager.onHMRApplied()
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toContain('color: red')
 
       flushRAF()
-      flushRAF()
-      expect(styleEl.textContent).toBe('')
+      flushRAF() // first verify fails → retry armed
+
+      // Simulate React catching up and committing the new inline style.
+      target.style.color = 'red'
+
+      await new Promise(resolve => setTimeout(resolve, 20))
+
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toBe('') // override removed cleanly
+
+      target.remove()
     })
 
-    it('non-deferred removal clears override synchronously on onHMRApplied', () => {
-      manager.set('a:1:1', 'color', 'red')
-      flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
-      manager.handleHMRVerified('edit-1', true)
-
-
-      manager.onHMRApplied()
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      // Override removed immediately (synchronous remove)
-      expect(styleEl.textContent).toBe('')
-    })
-
-    it('deferred vs non-deferred edits are handled independently', () => {
-      // First edit: deferred
-      manager.set('a:1:1', 'color', 'red')
-      flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
-      manager.markDeferred('edit-1')
-      manager.handleHMRVerified('edit-1', true) // queued
-
-      // Second edit: non-deferred
-      manager.set('b:1:1', 'margin', '0')
-      flushRAF()
-      manager.trackPendingEdit('edit-2', 'b:1:1', 'margin', '0')
-      manager.handleHMRVerified('edit-2', true) // queued
-
-
-      // onHMRApplied drains both — checks deferredEditIds per removal
-      manager.onHMRApplied()
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      // margin removed immediately (non-deferred)
-      expect(styleEl.textContent).not.toContain('margin')
-      // color still present (deferred, double-rAF pending)
-      expect(styleEl.textContent).toContain('color: red')
-
-      flushRAF()
-      flushRAF()
-      expect(styleEl.textContent).toBe('')
-    })
-
-    it('pendingClearAll takes precedence over deferred removals', () => {
-      manager.set('a:1:1', 'color', 'red')
-      flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
-      manager.handleHMRVerified('edit-1', true)
-      manager.markDeferred('edit-1')
-      manager.queueClearAll()
-
-      manager.onHMRApplied()
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      // clearAll takes priority — everything gone immediately
-      expect(styleEl.textContent).toBe('')
-    })
-
-    it('ordering A + kind: jsx-immediate — waits for inline style mutation before removing', async () => {
-      // Create a target element with data-cortex-source so MutationObserver can find it
+    it('superseded edit: newer override is preserved when older verified edit arrives', () => {
       const target = document.createElement('div')
       target.setAttribute('data-cortex-source', 'a:1:1')
       document.body.appendChild(target)
@@ -808,28 +811,29 @@ describe('CSSOverrideManager', () => {
       flushRAF()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
 
-      manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
-
-      manager.onHMRApplied()
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-
-      // Override stays — MutationObserver is watching for inline style change
-      expect(styleEl.textContent).toContain('color: red')
+      // User edits again before the first verify completes.
+      manager.set('a:1:1', 'color', 'blue')
       flushRAF()
-      expect(styleEl.textContent).toContain('color: red')
+      manager.trackPendingEdit('edit-2', 'a:1:1', 'color', 'blue')
 
-      // Simulate React re-rendering with new inline style
-      target.style.color = 'blue'
+      // Older edit's verified signal — should be filtered out by the stale guard.
+      manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
+      manager.onHMRApplied()
+      flushRAF()
+      flushRAF()
 
-      // MutationObserver fires asynchronously — wait for it
-      await new Promise(resolve => setTimeout(resolve, 0))
-
-      expect(styleEl.textContent).toBe('')
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('color: blue')
 
       target.remove()
     })
 
-    it('ordering B + kind: jsx-immediate — late arrival waits for inline style mutation', async () => {
+    it('non-jsx kind detaches the override <style> before reading computed value', () => {
+      // The detach is the whole point of non-jsx verification: without it,
+      // `getComputedStyle` would keep reporting the override value and the
+      // override would never be removable. This test proves the detach happened
+      // by observing the DOM state mid-call — if production skipped the detach
+      // or forgot to reattach, the assertions below fail.
       const target = document.createElement('div')
       target.setAttribute('data-cortex-source', 'a:1:1')
       document.body.appendChild(target)
@@ -838,181 +842,129 @@ describe('CSSOverrideManager', () => {
       flushRAF()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
 
-
-      manager.onHMRApplied()
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toContain('color: red')
-
-      // Late arrival with jsx-immediate — sets up MutationObserver immediately
-      manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
-      expect(styleEl.textContent).toContain('color: red')
-
-      // Simulate React re-rendering
-      target.style.color = 'blue'
-      await new Promise(resolve => setTimeout(resolve, 0))
-
-      expect(styleEl.textContent).toBe('')
-
-      target.remove()
-    })
-
-    it('jsx-immediate without target element — falls back to immediate removal', () => {
-      // No element with data-cortex-source="a:1:1" in DOM
-      manager.set('a:1:1', 'color', 'red')
-      flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
-
-      manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
-
-      manager.onHMRApplied()
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      // No element found → immediate removal
-      expect(styleEl.textContent).toBe('')
-    })
-
-    // Safety timeout (1s fallback if React never re-renders) is verified
-    // by manual QA — fake timers conflict with the manual RAF capture in this suite.
-
-    it('ordering A + kind: immediate — sync removal (no deferral)', () => {
-      // kind: immediate → sync remove(), same as existing non-deferred behavior
-      manager.set('a:1:1', 'color', 'red')
-      flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
-
-      manager.handleHMRVerified('edit-1', true, 'immediate') // queued with kind
-
-      // onHMRApplied drains — kind:immediate → sync remove()
-      manager.onHMRApplied()
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toBe('')
-    })
-
-    it('hmrAppliedPending resets between edit cycles — no premature removal', () => {
-      // Cycle 1: set override, track, HMR apply, then verify
-      manager.set('a:1:1', 'color', 'red')
-      flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
-
-      manager.handleHMRVerified('edit-1', true)
-      manager.onHMRApplied() // sets hmrAppliedPending = true after draining
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toBe('') // cycle 1 override removed ✓
-
-      // Cycle 2: new edit — hmrAppliedPending should reset
-      manager.set('b:1:1', 'margin', '8px')
-      flushRAF()
-      manager.trackPendingEdit('edit-2', 'b:1:1', 'margin', '8px')
-
-
-      // handleHMRVerified fires BEFORE onHMRApplied for cycle 2
-      // BUG: without fix, hmrAppliedPending is still true from cycle 1
-      //       → removes override immediately → flash
-      // FIX: trackPendingEdit resets flag → queues for onHMRApplied
-      manager.handleHMRVerified('edit-2', true)
-
-      // Override should still be present (queued, not yet removed)
-      expect(styleEl.textContent).toContain('margin: 8px')
-
-      // Now onHMRApplied for cycle 2 drains the queue safely
-      manager.onHMRApplied()
-      expect(styleEl.textContent).toBe('')
-    })
-
-    it('ordering with kind: undefined — falls back to deferredEditIds behavior (backward compat)', () => {
-      // No kind → existing deferredEditIds-based behavior
-      manager.set('a:1:1', 'color', 'red')
-      flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
-      manager.markDeferred('edit-1') // deferred via markDeferred
-      manager.handleHMRVerified('edit-1', true) // no kind argument → undefined
-
-      // onHMRApplied drains — falls back to deferredEditIds → deferRemoval
-      manager.onHMRApplied()
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toContain('color: red')
-
-      flushRAF()
-      flushRAF()
-      expect(styleEl.textContent).toBe('')
-    })
-  })
-
-  describe('HMR stale override sweep', () => {
-    it('preserves override when getComputedStyle returns empty (happy-dom limitation)', () => {
-      manager.set('Hero.tsx:5:3', 'color', 'red')
-      manager.flush()
-      // happy-dom returns '' for getComputedStyle — sweep skips empty computed values,
-      // so the override survives. Real sweep behavior tested in next test via mock.
-      manager.onHMRApplied()
-      const style = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(style.textContent).toContain('color: red')
-    })
-
-    it('preserves overrides when element is not found', () => {
-      // No element with this source exists in the DOM
-      manager.set('Missing.tsx:1:1', 'color', 'red')
-      manager.flush()
-      manager.onHMRApplied()
-      const style = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(style.textContent).toContain('color: red')
-    })
-
-    it('sweeps override when computed style matches', () => {
-      // Create an element and override
-      const el = document.createElement('div')
-      el.setAttribute('data-cortex-source', 'Sweep.tsx:5:3')
-      el.style.color = 'red'
-      document.body.appendChild(el)
-
-      manager.set('Sweep.tsx:5:3', 'color', 'red')
-      manager.flush()
-
-      // Mock getComputedStyle to return matching value
+      let overrideStyleDetachedDuringCall = false
       const original = window.getComputedStyle
       window.getComputedStyle = ((element: Element, pseudo?: string | null) => {
-        if (element === el && !pseudo) {
+        if (element === target) {
+          // The override <style> must be out of the DOM right now — that's the
+          // mechanism under test. Record the observation for a post-assertion.
+          const overrideStyle = document.head.querySelector('[data-cortex-override]')
+          overrideStyleDetachedDuringCall = overrideStyle === null
           return { getPropertyValue: (prop: string) => prop === 'color' ? 'red' : '' } as CSSStyleDeclaration
         }
         return original.call(window, element, pseudo)
       }) as typeof window.getComputedStyle
 
+      manager.handleHMRVerified('edit-1', true, 'immediate') // classOp kind
       manager.onHMRApplied()
-
+      flushRAF()
+      flushRAF()
       window.getComputedStyle = original
 
-      // The override should be removed (computed matches override)
-      const style = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(style.textContent).not.toContain('Sweep')
+      expect(overrideStyleDetachedDuringCall).toBe(true) // detach actually happened
+      // Reattach must also have succeeded — the <style> is back in document.head.
+      expect(document.head.querySelector('[data-cortex-override]')).not.toBeNull()
 
-      el.remove()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toBe('')
+
+      target.remove()
     })
 
-    it('preserves override when computed style differs', () => {
-      const el = document.createElement('div')
-      el.setAttribute('data-cortex-source', 'Keep.tsx:5:3')
-      document.body.appendChild(el)
+    it('non-matching verify — element gone — removes override (nothing to preview)', () => {
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+      manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
+      manager.onHMRApplied()
+      flushRAF()
+      flushRAF() // element never existed — verify drops override
 
-      manager.set('Keep.tsx:5:3', 'color', 'red')
-      manager.flush()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toBe('')
+    })
 
-      // Mock getComputedStyle to return different value
-      const original = window.getComputedStyle
-      window.getComputedStyle = ((element: Element, pseudo?: string | null) => {
-        if (element === el && !pseudo) {
-          return { getPropertyValue: (prop: string) => prop === 'color' ? 'blue' : '' } as CSSStyleDeclaration
-        }
-        return original.call(window, element, pseudo)
-      }) as typeof window.getComputedStyle
+    it('pendingClearAll takes precedence over pending verifications', () => {
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+      manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
+      manager.queueClearAll()
 
       manager.onHMRApplied()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toBe('')
+    })
 
-      window.getComputedStyle = original
+    it('emits divergence when server reports match=false (ZF0-1126 precursor)', async () => {
+      // The server's HMR verifier sends match=false on TTL eviction — "the
+      // file was written but no HMR landed within 30s." Without surfacing this
+      // the user would see a stale preview with no error signal.
+      const { onDivergence } = await import('../../src/browser/override-bus.js')
+      const divergences: Array<{ source: string; property: string }> = []
+      const unsub = onDivergence(d => divergences.push({ source: d.source, property: d.property }))
 
-      // Override should be preserved (computed differs)
-      const style = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(style.textContent).toContain('color: red')
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+      manager.handleHMRVerified('edit-1', false, 'jsx-immediate')
 
-      el.remove()
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('color: red') // override preserved
+      expect(divergences).toHaveLength(1)
+      expect(divergences[0]).toMatchObject({ source: 'a:1:1', property: 'color' })
+
+      unsub()
+    })
+
+    it.skip('canonicalizes CSS values before declaring divergence (hex vs rgb)', () => {
+      // TODO: requires real CSSOM. happy-dom's getComputedStyle does not reliably
+      // canonicalize color formats (`#ffffff` → `rgb(255, 255, 255)`), so this
+      // test would silently pass via valuesMatch's trivial string-equality fast
+      // path rather than exercising canonicalizeCssValue. Real coverage lives in
+      // a Playwright e2e spec against a live dev server where the browser's CSS
+      // engine actually canonicalizes.
+    })
+
+    it('two sequential edit cycles both verify and remove their overrides', () => {
+      // Guards against regressions where per-cycle state (flags, queues, caches)
+      // fails to reset between edits and the second cycle silently no-ops.
+      // Both targets start with their expected post-edit inline value so each
+      // verify matches on the first attempt (no retry window delays the test).
+      const targetA = document.createElement('div')
+      targetA.setAttribute('data-cortex-source', 'a:1:1')
+      targetA.style.color = 'red'
+      document.body.appendChild(targetA)
+      const targetB = document.createElement('div')
+      targetB.setAttribute('data-cortex-source', 'b:1:1')
+      targetB.style.margin = '8px'
+      document.body.appendChild(targetB)
+
+      // Cycle 1.
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+      manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
+      manager.onHMRApplied()
+      flushRAF()
+      flushRAF()
+
+      // Cycle 2 — different source + property.
+      manager.set('b:1:1', 'margin', '8px')
+      flushRAF()
+      manager.trackPendingEdit('edit-2', 'b:1:1', 'margin', '8px')
+      manager.handleHMRVerified('edit-2', true, 'jsx-immediate')
+
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).toContain('margin: 8px') // double-rAF pending
+
+      manager.onHMRApplied()
+      flushRAF()
+      flushRAF()
+      expect(styleEl.textContent).toBe('')
+
+      targetA.remove()
+      targetB.remove()
     })
   })
 })

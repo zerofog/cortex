@@ -1333,6 +1333,27 @@ export class EditPipeline {
         })
       }
 
+      // Track the edit for HMR verification. Previously classOp was the one
+      // edit path that skipped trackEdit — the browser relied on sweepStaleOverrides
+      // to clean up the preview override, which fired on every HMR and caused
+      // spurious reverts (ZF0-1235). Now classOp goes through the same verified
+      // removal pipeline as every other kind. `kind: 'immediate'` signals that
+      // the new value lives in a stylesheet rule (from the Tailwind class swap),
+      // so the browser reads it via a single detach-and-read-computed pass.
+      //
+      // classOp's protocol-level `property`/`value` fields are empty strings —
+      // the real change lives in the op's add/remove. We pass a stable marker
+      // for `property` so logs and traces stay intelligible; the actual value
+      // to verify comes from the browser's own trackPendingEdit (which knows
+      // the intended per-property target value the Panel resolved pre-dispatch).
+      this.verifier.trackEdit({
+        editId: edit.editId,
+        filePath: resolvedPath,
+        expectedValue: '',
+        property: '__class__',
+        kind: 'immediate',
+      })
+
       this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done' })
     })
   }

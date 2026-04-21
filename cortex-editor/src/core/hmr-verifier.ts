@@ -36,12 +36,15 @@ export class HMRVerifier {
     this.channel = channel
   }
 
-  /** Register an edit that's waiting for HMR confirmation. */
+  /** Register an edit that's waiting for HMR confirmation.
+   *  Keyed by editId — unique per edit — so compound/classOp edits with empty
+   *  property don't collide on the same file, and concurrent edits to the same
+   *  property on one file don't silently overwrite each other server-side. The
+   *  browser handles supersession via its own pendingEdits map. */
   trackEdit(edit: PendingEdit): void {
     if (this.disposed) return
     this.evictStale()
-    const key = `${edit.filePath}:${edit.property}`
-    this.pending.set(key, { ...edit, timestamp: Date.now() })
+    this.pending.set(edit.editId, { ...edit, timestamp: Date.now() })
   }
 
   /** Called when HMR fires. Checks if any pending edits match. */

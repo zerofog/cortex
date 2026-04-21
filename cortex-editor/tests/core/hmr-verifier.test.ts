@@ -81,7 +81,9 @@ describe('HMRVerifier', () => {
     expect((channel.sent[0] as { editId: string }).editId).toBe('edit-1')
   })
 
-  it('cancels pending edit when same file gets new edit', () => {
+  it('fires hmr_verified for every pending edit on the same file', () => {
+    // Keyed by editId, so concurrent edits to the same file no longer supersede
+    // each other server-side. Browser's pendingEdits map handles supersession.
     verifier.trackEdit({
       editId: 'edit-1',
       filePath: 'src/App.tsx',
@@ -97,8 +99,9 @@ describe('HMRVerifier', () => {
 
     verifier.onHMRUpdate(['src/App.tsx'])
 
-    expect(channel.sent).toHaveLength(1)
-    expect((channel.sent[0] as { editId: string }).editId).toBe('edit-2')
+    expect(channel.sent).toHaveLength(2)
+    const ids = channel.sent.map(m => (m as { editId: string }).editId).sort()
+    expect(ids).toEqual(['edit-1', 'edit-2'])
   })
 
   describe('kind propagation', () => {

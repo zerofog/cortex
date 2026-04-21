@@ -259,7 +259,7 @@ describe('Panel — library detection wiring', () => {
     document.body.appendChild(parent)
 
     const overrideManager = {
-      set: vi.fn(), remove: vi.fn(), clearAll: vi.fn(),
+      set: vi.fn(), get: vi.fn(), remove: vi.fn(), clearAll: vi.fn(),
       dispose: vi.fn(), flush: vi.fn(),
     }
 
@@ -294,7 +294,7 @@ describe('Panel — library detection wiring', () => {
     document.body.appendChild(userEl)
 
     const overrideManager = {
-      set: vi.fn(), remove: vi.fn(), clearAll: vi.fn(),
+      set: vi.fn(), get: vi.fn(), remove: vi.fn(), clearAll: vi.fn(),
       dispose: vi.fn(), flush: vi.fn(),
     }
 
@@ -604,7 +604,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
       document.body.appendChild(el2)
 
       const overrideManager = {
-        set: vi.fn(), remove: vi.fn(), clearAll: vi.fn(),
+        set: vi.fn(), get: vi.fn(), remove: vi.fn(), clearAll: vi.fn(),
         dispose: vi.fn(), flush: vi.fn(),
       }
 
