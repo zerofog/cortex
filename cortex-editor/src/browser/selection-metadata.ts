@@ -178,12 +178,16 @@ export function hmrFilesAffectElement(
   if (files.some(f => CSS_EXT.test(f))) return true
 
   // Walk ancestors comparing data-cortex-source file prefix against the list.
+  // Source format is `relativePath:line:col` (per source-transform.ts:252);
+  // strip only the trailing `:line:col` so file paths containing colons (rare
+  // but possible on Unix) don't get truncated.
+  const stripLineCol = (src: string): string => src.replace(/:\d+:\d+$/, '')
   let current: HTMLElement | null = element
   let depth = 0
   while (current && depth < maxDepth) {
     const src = current.getAttribute('data-cortex-source')
     if (src) {
-      const file = src.split(':')[0]
+      const file = stripLineCol(src)
       if (file && files.includes(file)) return true
     }
     current = current.parentElement
