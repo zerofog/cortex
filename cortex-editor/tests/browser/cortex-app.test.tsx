@@ -1099,28 +1099,263 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
     expect(root.textContent).toContain('<span>')
   })
 
-  it('clears selection when HMR leaves multiple matches for data-cortex-source', async () => {
-    const SOURCE = 'src/items.tsx:20:3'
-    const { channel, el: elA } = await setupAndSelect(SOURCE, 'li')
+  /** Helper: select the nth element among siblings sharing a source value.
+   *  Builds a full list first so selection metadata captures the correct
+   *  nth-index, then routes selection through the mocked selection module's
+   *  selectCb (which is the `selectWithMeta` wrapper in CortexApp). */
+  async function setupListAndSelect(
+    source: string,
+    items: Array<{ tag: string; content: string }>,
+    selectIndex: number,
+  ): Promise<{
+    channel: ReturnType<typeof createMockChannel>
+    elements: HTMLElement[]
+    selected: HTMLElement
+  }> {
+    const sh = createShadowHost()
+    root = sh.root
+    shadow = sh.shadow
+    cleanupHost = sh.cleanup
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
 
-    // Two loop siblings with the same source value land after HMR. elA is
-    // detached; elB and elC share the source. The re-resolver cannot pick
-    // the "right" one and must clear selection rather than silently jump.
-    elA.remove()
-    const elB = document.createElement('li')
-    elB.setAttribute('data-cortex-source', SOURCE)
-    document.body.appendChild(elB)
-    orphans.push(elB)
-    const elC = document.createElement('li')
-    elC.setAttribute('data-cortex-source', SOURCE)
-    document.body.appendChild(elC)
-    orphans.push(elC)
+    channel._simulateMessage({ type: 'cortex' } as any)
+    await new Promise(r => setTimeout(r, 10))
+
+    const { _getCallbacks } = await import('../../src/browser/selection.js') as unknown as {
+      _getCallbacks: () => { selectCb: (el: HTMLElement | null) => void }
+    }
+    const { selectCb } = _getCallbacks()
+
+    const elements: HTMLElement[] = []
+    items.forEach(({ tag, content }, i) => {
+      const el = document.createElement(tag)
+      el.setAttribute('data-cortex-source', source)
+      el.appendChild(document.createTextNode(content))
+      document.body.appendChild(el)
+      orphans.push(el)
+      mockGetBoundingClientRect(el, { top: 50 + i * 50, left: 50, width: 100, height: 40 })
+      elements.push(el)
+    })
+
+    const selected = elements[selectIndex]!
+    selectCb(selected)
+    await new Promise(r => setTimeout(r, 20))
+
+    return { channel, elements, selected }
+  }
+
+  /** Swap the list in-place, keeping the same source value. Returns the new
+   *  elements in rendered order. Simulates a React Fast Refresh that replaces
+   *  DOM nodes. */
+  function swapListInPlace(
+    oldElements: HTMLElement[],
+    newItems: Array<{ tag: string; content: string }>,
+    source: string,
+  ): HTMLElement[] {
+    for (const el of oldElements) el.remove()
+    const next: HTMLElement[] = []
+    newItems.forEach(({ tag, content }, i) => {
+      const el = document.createElement(tag)
+      el.setAttribute('data-cortex-source', source)
+      el.appendChild(document.createTextNode(content))
+      document.body.appendChild(el)
+      orphans.push(el)
+      mockGetBoundingClientRect(el, { top: 50 + i * 50, left: 50, width: 100, height: 40 })
+      next.push(el)
+    })
+    return next
+  }
+
+  it('preserves selection at same index when HMR leaves multiple matches (nth-index)', async () => {
+    // Array of 2 siblings; select index 0. Post-HMR, both nodes replaced
+    // (different content). Smart fallback: content-hash mismatches, search
+    // for old content fails — fall through to "preserve at saved index".
+    // Net: selection is new-index-0.
+    const SOURCE = 'src/items.tsx:20:3'
+    const { channel, elements, selected } = await setupListAndSelect(
+      SOURCE,
+      [{ tag: 'li', content: 'Item A' }, { tag: 'li', content: 'Item B' }],
+      0,
+    )
+    expect(selected.textContent).toBe('Item A')
+
+    const next = swapListInPlace(
+      elements,
+      [{ tag: 'li', content: 'New First' }, { tag: 'li', content: 'New Second' }],
+      SOURCE,
+    )
 
     channel._simulateMessage({ type: 'hmr-applied' })
-    await new Promise(r => setTimeout(r, 30))
+    await new Promise(r => setTimeout(r, 50))
 
-    // Empty-state panel message indicates selectedElement = null.
+    // Selection preserved at index 0 — but now points to the new DOM node
+    // whose content has changed (treated as in-place content edit).
+    expect(root.textContent).not.toContain('Click any element to start editing')
+    expect(next[0]!.isConnected).toBe(true)
+  })
+
+  it('preserves selection at same index when content is unchanged', async () => {
+    // Select index 1 with content "Item B". Swap list but keep the same
+    // items at the same positions — content-hash matches, position stable.
+    const SOURCE = 'src/items.tsx:20:3'
+    const { channel, elements } = await setupListAndSelect(
+      SOURCE,
+      [{ tag: 'li', content: 'Item A' }, { tag: 'li', content: 'Item B' }],
+      1,
+    )
+    const next = swapListInPlace(
+      elements,
+      [{ tag: 'li', content: 'Item A' }, { tag: 'li', content: 'Item B' }],
+      SOURCE,
+    )
+    channel._simulateMessage({ type: 'hmr-applied' })
+    await new Promise(r => setTimeout(r, 50))
+    expect(next[1]!.isConnected).toBe(true)
+    expect(root.textContent).not.toContain('Click any element to start editing')
+  })
+
+  it('switches selection to element carrying original content when list is reordered', async () => {
+    // Select "Item A" at index 0. Post-HMR, swap order so "Item A" is at
+    // index 1. Smart fallback: index-0 now has "Item B" (mismatch); search
+    // finds "Item A" at index 1 — selection follows content there.
+    const SOURCE = 'src/items.tsx:20:3'
+    const { channel, elements, selected } = await setupListAndSelect(
+      SOURCE,
+      [{ tag: 'li', content: 'Item A' }, { tag: 'li', content: 'Item B' }],
+      0,
+    )
+    expect(selected.textContent).toBe('Item A')
+
+    const next = swapListInPlace(
+      elements,
+      [{ tag: 'li', content: 'Item B' }, { tag: 'li', content: 'Item A' }],
+      SOURCE,
+    )
+    channel._simulateMessage({ type: 'hmr-applied' })
+    await new Promise(r => setTimeout(r, 50))
+
+    // "Item A" is now at new index 1; selection should have followed it.
+    expect(next[1]!.textContent).toBe('Item A')
+    expect(next[1]!.isConnected).toBe(true)
+    expect(root.textContent).not.toContain('Click any element to start editing')
+  })
+
+  it('clears selection when HMR shrinks the list below the saved index', async () => {
+    // Select index 2 of 3. Post-HMR, only 2 elements remain — index 2 is
+    // out of bounds. Smart fallback returns null; selection clears.
+    const SOURCE = 'src/items.tsx:20:3'
+    const { channel, elements } = await setupListAndSelect(
+      SOURCE,
+      [{ tag: 'li', content: 'A' }, { tag: 'li', content: 'B' }, { tag: 'li', content: 'C' }],
+      2,
+    )
+    swapListInPlace(
+      elements,
+      [{ tag: 'li', content: 'A' }, { tag: 'li', content: 'B' }],
+      SOURCE,
+    )
+    channel._simulateMessage({ type: 'hmr-applied' })
+    await new Promise(r => setTimeout(r, 50))
+
     expect(root.textContent).toContain('Click any element to start editing')
+  })
+
+  it('re-resolves across Shadow DOM via deep-query fallback', async () => {
+    // Host an open shadow root containing an annotated element. Select it,
+    // then swap the shadow-contained node. The flat top-level query returns
+    // 0 matches (shadow is opaque to document.querySelectorAll), so the
+    // re-resolver's `inShadowRoot` flag triggers the deep-query fallback.
+    const sh = createShadowHost()
+    root = sh.root
+    shadow = sh.shadow
+    cleanupHost = sh.cleanup
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+    channel._simulateMessage({ type: 'cortex' } as any)
+    await new Promise(r => setTimeout(r, 10))
+
+    const { _getCallbacks } = await import('../../src/browser/selection.js') as unknown as {
+      _getCallbacks: () => { selectCb: (el: HTMLElement | null) => void }
+    }
+    const { selectCb } = _getCallbacks()
+
+    // Create a custom-element-style host with an open shadow root, place an
+    // annotated span inside it.
+    const SOURCE = 'src/shadow-child.tsx:12:5'
+    const shadowHost = document.createElement('div')
+    shadowHost.className = 'shadow-host'
+    document.body.appendChild(shadowHost)
+    orphans.push(shadowHost)
+    const hostShadow = shadowHost.attachShadow({ mode: 'open' })
+    const shadowChild = document.createElement('span')
+    shadowChild.setAttribute('data-cortex-source', SOURCE)
+    shadowChild.textContent = 'Shadow child'
+    hostShadow.appendChild(shadowChild)
+    mockGetBoundingClientRect(shadowChild, { top: 50, left: 50, width: 100, height: 40 })
+
+    selectCb(shadowChild)
+    await new Promise(r => setTimeout(r, 20))
+
+    // Detach the original and insert a replacement inside the same shadow.
+    shadowChild.remove()
+    const replacement = document.createElement('span')
+    replacement.setAttribute('data-cortex-source', SOURCE)
+    replacement.textContent = 'Shadow child'
+    hostShadow.appendChild(replacement)
+    mockGetBoundingClientRect(replacement, { top: 50, left: 50, width: 100, height: 40 })
+
+    // Sanity check the trust model: a document-level query can't see into
+    // the open shadow — that's why we need the deep-query fallback.
+    expect(document.querySelectorAll(`[data-cortex-source="${SOURCE}"]`).length).toBe(0)
+
+    channel._simulateMessage({ type: 'hmr-applied' })
+    await new Promise(r => setTimeout(r, 50))
+
+    expect(replacement.isConnected).toBe(true)
+    expect(root.textContent).not.toContain('Click any element to start editing')
+  })
+
+  it('retries re-resolution via double-rAF when Fast Refresh commit is deferred', async () => {
+    // Simulate framework-commit latency: element is STILL connected at the
+    // sync-handler tick (Fast Refresh hasn't run yet). The sync pass in the
+    // HMR handler early-returns (isConnected === true). Then we defer the
+    // actual swap to land between the two rAFs. The async pass should
+    // re-check and resolve to the replacement.
+    const SOURCE = 'src/deferred.tsx:8:3'
+    const { channel, el } = await setupAndSelect(SOURCE, 'p')
+    expect(el.isConnected).toBe(true)
+
+    // Fire hmr-applied while the element is still connected.
+    channel._simulateMessage({ type: 'hmr-applied' })
+
+    // Between sync pass and double-rAF: defer swap by one microtask so the
+    // sync handler has already returned. Then use an rAF to detach+insert
+    // the replacement before the retry fires.
+    await new Promise<void>(resolve => {
+      requestAnimationFrame(() => {
+        el.remove()
+        const replacement = document.createElement('p')
+        replacement.setAttribute('data-cortex-source', SOURCE)
+        replacement.textContent = 'Original'
+        document.body.appendChild(replacement)
+        orphans.push(replacement)
+        mockGetBoundingClientRect(replacement, { top: 50, left: 50, width: 100, height: 40 })
+        resolve()
+      })
+    })
+
+    // Wait for the second rAF + Preact commit.
+    await new Promise(r => setTimeout(r, 50))
+
+    // Selection should have been re-resolved to the replacement by the
+    // async (double-rAF) pass.
+    expect(root.textContent).not.toContain('Click any element to start editing')
+    const replacementNode = document.querySelector(`[data-cortex-source="${SOURCE}"]`)
+    expect(replacementNode).not.toBeNull()
+    expect((replacementNode as HTMLElement).isConnected).toBe(true)
   })
 
   it('clears selection when HMR removes the selected element entirely', async () => {

@@ -23,6 +23,8 @@ import { CapabilityBanner } from './CapabilityBanner.js'
 import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
 import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
+import { captureSelectionMetadata, reResolveSelection } from '../selection-metadata.js'
+import type { SelectionMetadata } from '../selection-metadata.js'
 
 const MAX_ACTIVITY_ENTRIES = 200
 
@@ -98,6 +100,11 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const selectionRef = useRef<SelectionHandle | null>(null)
   const selectedElementRef = useRef<HTMLElement | null>(null)
   selectedElementRef.current = selectedElement
+  // Metadata captured at selection time — survives HMR node replacement
+  // and drives the smart-fallback re-resolution (ZF0-1292 architecture
+  // review: nth-index + content-hash + shadow-root flag). Null whenever
+  // selectedElement is null.
+  const selectionMetadataRef = useRef<SelectionMetadata | null>(null)
   const handleExitRef = useRef<(() => void) | null>(null)
 
   // Panel positioning
@@ -117,11 +124,17 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     const commandStack = new CommandStack()
     commandStackRef.current = commandStack
 
-    // Initialize selection system
+    // Initialize selection system. Wrap the setSelectedElement callback
+    // with metadata capture — every positive selection must populate
+    // selectionMetadataRef so the HMR re-resolver has identity signals.
+    const selectWithMeta = (el: HTMLElement | null): void => {
+      selectionMetadataRef.current = el ? captureSelectionMetadata(el) : null
+      setSelectedElement(el)
+    }
     const selectionHandle = initSelection(
       shadowRoot,
       setHoveredElement,
-      setSelectedElement,
+      selectWithMeta,
     )
 
     // Debug-only test bridge — exposed when `window.__CORTEX_DEBUG_OVERRIDES__`
@@ -133,7 +146,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       ;(window as unknown as { __CORTEX_TEST__?: unknown }).__CORTEX_TEST__ = {
         overrideManager,
         channel,
-        selectElement: setSelectedElement,
+        selectElement: selectWithMeta,
       }
     }
     // Start with design mode disabled — don't intercept events until activated
@@ -214,39 +227,31 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       }
       if (msg.type === 'hmr-applied') {
         overrideRef.current?.onHMRApplied()
-        // ZF0-1292: refresh Panel after out-of-band source edits and re-resolve
-        // the selection when HMR Fast Refresh replaces the DOM node.
         setHmrAppliedVersion(v => v + 1)
-        // Read via the ref (not the closure'd `selectedElement` state) because
-        // `onMessage` is registered once per render of this effect and its
-        // closure would otherwise hold a stale selection across subsequent
-        // renders. The ref is reassigned on every render at line 94 so
-        // `.current` always reflects the latest selection.
-        const current = selectedElementRef.current
-        if (current && !current.isConnected) {
-          const source = current.getAttribute('data-cortex-source')
-          if (!source) {
-            // Cannot re-find without a source identifier — drop the selection.
-            setSelectedElement(null)
-          } else {
-            // `data-cortex-source` is per source location, not per rendered
-            // instance (source-transform assigns `file:line:col` at compile
-            // time). For an element rendered inside a loop, multiple live
-            // nodes share the same attribute value. Picking the first match
-            // could silently re-bind to a different logical item — clearing
-            // selection is safer and prompts the user to re-select.
-            //
-            // Filter to HTMLElement to honor the invariant at selection.ts:34
-            // (`if (!el || !(el instanceof HTMLElement)) return null`) and the
-            // `selectedElement: HTMLElement | null` state type. querySelectorAll
-            // returns Element, so SVG/MathML nodes with data-cortex-source would
-            // otherwise slip through.
-            const matches = Array.from(
-              document.querySelectorAll(`[data-cortex-source="${CSS.escape(source)}"]`),
-            ).filter((match): match is HTMLElement => match instanceof HTMLElement)
-            setSelectedElement(matches.length === 1 ? (matches[0] ?? null) : null)
-          }
+
+        // Re-resolve the selection after HMR node replacement. Runs
+        // synchronously (catches CSS-only / classname-flip cases where the
+        // DOM is already committed) AND after double-rAF (catches React
+        // Fast Refresh, which schedules DOM commits via the React scheduler
+        // past `vite:afterUpdate`'s firing point).
+        //
+        // Smart-fallback via `reResolveSelection`: primary=nth-index match,
+        // secondary=content-search for reorder detection, tertiary=preserve
+        // at index for in-place content edits. See selection-metadata.ts.
+        const attemptReResolve = (): void => {
+          const current = selectedElementRef.current
+          const meta = selectionMetadataRef.current
+          if (!current || !meta) return
+          if (current.isConnected) return // still mounted — nothing to re-resolve
+          // Route through the metadata-aware setter so the next HMR cycle
+          // sees fresh position (content-based fallback may have jumped index).
+          setSelectionWithMetadata(reResolveSelection(meta))
         }
+
+        attemptReResolve()
+        // Idempotent: if the sync pass succeeded, the element is now
+        // connected and the async pass early-returns.
+        requestAnimationFrame(() => requestAnimationFrame(attemptReResolve))
       }
       if (msg.type === 'annotation-created') {
         setAnnotations(prev => new Map(prev).set(msg.annotation.id, msg.annotation))
@@ -413,7 +418,19 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     channel.send({ type: 'comment-reply', annotationId, text })
   }, [channel])
 
-  const handleSelectElement = useCallback((el: HTMLElement | null) => setSelectedElement(el), [])
+  // Selection setter that keeps selectionMetadataRef in sync. Every path
+  // that sets a positive `selectedElement` must go through this helper so
+  // the HMR re-resolver has valid metadata. Null paths (exit, escape,
+  // failed re-resolve) also clear metadata here.
+  const setSelectionWithMetadata = useCallback((el: HTMLElement | null): void => {
+    selectionMetadataRef.current = el ? captureSelectionMetadata(el) : null
+    setSelectedElement(el)
+  }, [])
+
+  const handleSelectElement = useCallback(
+    (el: HTMLElement | null) => setSelectionWithMetadata(el),
+    [setSelectionWithMetadata],
+  )
   const handleToggleHover = useCallback(() => setHoverEnabled(v => !v), [])
 
   const handleEditDispatch = useCallback((editId: string, source: string, property: string, value: string) => {
@@ -435,10 +452,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // Exit handler — notify server, deactivate
   const handleExit = useCallback(() => {
     setCommentMode(false)
-    setSelectedElement(null)
+    setSelectionWithMetadata(null)
     setActive(false)
     channel.send({ type: 'cortex-closed' })
-  }, [channel])
+  }, [channel, setSelectionWithMetadata])
   handleExitRef.current = handleExit
 
   // Cascading Escape — capture phase for host app compat
@@ -475,7 +492,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
 
       // Priority 3: Deselect element
       if (selectedElementRef.current) {
-        setSelectedElement(null)
+        setSelectionWithMetadata(null)
         e.stopPropagation()
         e.preventDefault()
         return
