@@ -41,6 +41,12 @@ export interface CortexAppProps {
 export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps): JSX.Element | null {
   const [hoveredElement, setHoveredElement] = useState<HTMLElement | null>(null)
   const [selectedElement, setSelectedElement] = useState<HTMLElement | null>(null)
+  // Monotonic counter bumped on every `hmr-applied` message (ZF0-1292).
+  // Flowed to Panel so stylesheet-only source edits (App.css rule changes,
+  // @theme token changes, ancestor cascade changes) force a getComputedStyle
+  // re-read and shared-class re-detect. The MutationObserver in Panel only
+  // sees the selected element's own attributes — it cannot catch these.
+  const [hmrAppliedVersion, setHmrAppliedVersion] = useState(0)
   const [swatches, setSwatches] = useState<string[] | undefined>(undefined)
   const [textComponents, setTextComponents] = useState<
     import('../../core/text-components.js').TextComponent[] | undefined
@@ -208,6 +214,28 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       }
       if (msg.type === 'hmr-applied') {
         overrideRef.current?.onHMRApplied()
+        // ZF0-1292: refresh Panel after out-of-band source edits and re-resolve
+        // the selection when HMR Fast Refresh replaces the DOM node.
+        setHmrAppliedVersion(v => v + 1)
+        const current = selectedElementRef.current
+        if (current && !current.isConnected) {
+          const source = current.getAttribute('data-cortex-source')
+          if (!source) {
+            // Cannot re-find without a source identifier — drop the selection.
+            setSelectedElement(null)
+          } else {
+            // `data-cortex-source` is per source location, not per rendered
+            // instance (source-transform assigns `file:line:col` at compile
+            // time). For an element rendered inside a loop, multiple live
+            // nodes share the same attribute value. Picking the first match
+            // could silently re-bind to a different logical item — clearing
+            // selection is safer and prompts the user to re-select.
+            const matches = document.querySelectorAll(
+              `[data-cortex-source="${CSS.escape(source)}"]`,
+            )
+            setSelectedElement(matches.length === 1 ? (matches[0] as HTMLElement) : null)
+          }
+        }
       }
       if (msg.type === 'annotation-created') {
         setAnnotations(prev => new Map(prev).set(msg.annotation.id, msg.annotation))
@@ -588,6 +616,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           editErrors={editErrors}
           onEditDispatch={handleEditDispatch}
           onDismissError={handleDismissError}
+          hmrAppliedVersion={hmrAppliedVersion}
         />
       )}
       <Toolbar

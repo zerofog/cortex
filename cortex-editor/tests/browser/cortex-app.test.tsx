@@ -1021,3 +1021,137 @@ describe('CortexApp', () => {
     })
   })
 })
+
+describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
+  let root: HTMLDivElement
+  let shadow: ShadowRoot
+  let cleanupHost: (() => void) | null = null
+  const orphans: HTMLElement[] = []
+
+  afterEach(() => {
+    if (root) render(null, root)
+    cleanupHost?.()
+    cleanupHost = null
+    for (const el of orphans) el.remove()
+    orphans.length = 0
+    vi.clearAllMocks()
+  })
+
+  async function setupAndSelect(
+    sourceValue: string,
+    tag: string,
+  ): Promise<{ channel: ReturnType<typeof createMockChannel>; el: HTMLElement }> {
+    const sh = createShadowHost()
+    root = sh.root
+    shadow = sh.shadow
+    cleanupHost = sh.cleanup
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+
+    // Activate editor.
+    channel._simulateMessage({ type: 'cortex' } as any)
+    await new Promise(r => setTimeout(r, 10))
+
+    // Select an element.
+    const { _getCallbacks } = await import('../../src/browser/selection.js') as unknown as {
+      _getCallbacks: () => { selectCb: (el: HTMLElement | null) => void }
+    }
+    const { selectCb } = _getCallbacks()
+
+    const el = document.createElement(tag)
+    el.setAttribute('data-cortex-source', sourceValue)
+    document.body.appendChild(el)
+    orphans.push(el)
+    mockGetBoundingClientRect(el, { top: 50, left: 50, width: 100, height: 40 })
+
+    selectCb(el)
+    await new Promise(r => setTimeout(r, 20))
+
+    return { channel, el }
+  }
+
+  it('re-resolves selectedElement via data-cortex-source when HMR replaces the DOM node', async () => {
+    // Lowercase filename → parseCortexSource leaves componentName null →
+    // PanelHeader falls back to `<tagName>`, which is what lets us
+    // distinguish elA (div) from elB (span) in the rendered header text.
+    const SOURCE = 'src/page.tsx:10:5'
+    const { channel, el: elA } = await setupAndSelect(SOURCE, 'div')
+
+    // Sanity: Panel header shows `<div>` for elA.
+    expect(root.textContent).toContain('<div>')
+    expect(root.textContent).not.toContain('<span>')
+
+    // Simulate React Fast Refresh: detach elA, insert elB with SAME source
+    // but a different tag so we can distinguish in the Panel header.
+    elA.remove()
+    const elB = document.createElement('span')
+    elB.setAttribute('data-cortex-source', SOURCE)
+    document.body.appendChild(elB)
+    orphans.push(elB)
+    mockGetBoundingClientRect(elB, { top: 100, left: 50, width: 100, height: 40 })
+
+    channel._simulateMessage({ type: 'hmr-applied' })
+    await new Promise(r => setTimeout(r, 30))
+
+    // Panel header now reflects elB's tag — proving the selection was
+    // re-resolved to the new DOM node.
+    expect(root.textContent).toContain('<span>')
+  })
+
+  it('clears selection when HMR leaves multiple matches for data-cortex-source', async () => {
+    const SOURCE = 'src/items.tsx:20:3'
+    const { channel, el: elA } = await setupAndSelect(SOURCE, 'li')
+
+    // Two loop siblings with the same source value land after HMR. elA is
+    // detached; elB and elC share the source. The re-resolver cannot pick
+    // the "right" one and must clear selection rather than silently jump.
+    elA.remove()
+    const elB = document.createElement('li')
+    elB.setAttribute('data-cortex-source', SOURCE)
+    document.body.appendChild(elB)
+    orphans.push(elB)
+    const elC = document.createElement('li')
+    elC.setAttribute('data-cortex-source', SOURCE)
+    document.body.appendChild(elC)
+    orphans.push(elC)
+
+    channel._simulateMessage({ type: 'hmr-applied' })
+    await new Promise(r => setTimeout(r, 30))
+
+    // Empty-state panel message indicates selectedElement = null.
+    expect(root.textContent).toContain('Click any element to start editing')
+  })
+
+  it('clears selection when HMR removes the selected element entirely', async () => {
+    const SOURCE = 'src/removed.tsx:7:1'
+    const { channel, el } = await setupAndSelect(SOURCE, 'p')
+
+    // Element is gone from the DOM; no replacement.
+    el.remove()
+
+    channel._simulateMessage({ type: 'hmr-applied' })
+    await new Promise(r => setTimeout(r, 30))
+
+    expect(root.textContent).toContain('Click any element to start editing')
+  })
+
+  it('leaves selection untouched when the selected element is still connected after HMR', async () => {
+    // Stylesheet-only HMR case: the element stays in place, but the Panel
+    // must still receive the version bump so computed styles re-read.
+    // This test guards against an over-eager re-resolver that would clear
+    // selection on every HMR cycle.
+    const SOURCE = 'src/stable-el.tsx:3:1'
+    const { channel, el } = await setupAndSelect(SOURCE, 'div')
+
+    expect(root.textContent).toContain('<div>')
+    expect(el.isConnected).toBe(true)
+
+    channel._simulateMessage({ type: 'hmr-applied' })
+    await new Promise(r => setTimeout(r, 30))
+
+    // Selection preserved — still showing the same element.
+    expect(root.textContent).toContain('<div>')
+    expect(root.textContent).not.toContain('Click any element to start editing')
+  })
+})

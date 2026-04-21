@@ -210,6 +210,13 @@ export interface PanelProps {
   editErrors?: Map<string, EditError>
   onEditDispatch?: (editId: string, source: string, property: string, value: string) => void
   onDismissError?: (key: string) => void
+  /** Monotonic counter bumped by CortexApp on every `hmr-applied` message
+   *  (ZF0-1292). Forces a getComputedStyle re-read and shared-class re-detect,
+   *  covering out-of-band source edits that don't mutate the selected
+   *  element's own class/style attributes — stylesheet rule changes, @theme
+   *  token changes, and ancestor cascade changes — which the
+   *  MutationObserver cannot see. */
+  hmrAppliedVersion?: number
 }
 
 function parseSpacingValues(cs: CSSStyleDeclaration) {
@@ -262,6 +269,7 @@ export function Panel({
   editErrors,
   onEditDispatch,
   onDismissError,
+  hmrAppliedVersion = 0,
 }: PanelProps): JSX.Element | null {
   // ALL hooks first — no conditional returns before hooks
   const [isEntering, setIsEntering] = useState(true)
@@ -358,6 +366,10 @@ export function Panel({
   // Detect shared CSS classes when a new element is selected (ZF0-1018).
   // Resets scope to 'instance' (safe default) on every element change.
   // Clear stale blast-radius highlights from previous selection (ZF0-1019).
+  // Re-runs on hmrAppliedVersion bumps (ZF0-1292) because `sharedInfo.elements`
+  // caches DOM refs; a stylesheet-only HMR edit can add or remove siblings
+  // matching the shared selector without mutating the primary element —
+  // without this, the cached element list goes stale.
   useEffect(() => {
     clearHighlights()
     if (element) {
@@ -370,7 +382,7 @@ export function Panel({
       setSharedInfo(null)
     }
     setEditScope('instance')
-  }, [element])
+  }, [element, hmrAppliedVersion])
 
 
   // Sync strategy: bump counter on committed changes to force getComputedStyle re-read.
@@ -383,6 +395,16 @@ export function Panel({
   useEffect(() => {
     return onOverrideChange(() => setStyleVersion(v => v + 1))
   }, [])
+
+  // Re-read computed styles when CortexApp signals a vite:afterUpdate (ZF0-1292).
+  // Covers stylesheet-only source edits (App.css rule changes, @theme token
+  // changes, ancestor cascade changes) that don't mutate the selected
+  // element's own class/style attributes and therefore don't trip the
+  // MutationObserver below. The initial-mount bump is harmless — the
+  // computedStyles useMemo is idempotent.
+  useEffect(() => {
+    setStyleVersion(v => v + 1)
+  }, [hmrAppliedVersion])
 
   // Observe class AND style attribute mutations on the selected element.
   // The Panel lives in a shadow-DOM Preact tree decoupled from the user's
