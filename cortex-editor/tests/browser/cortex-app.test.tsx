@@ -1023,6 +1023,10 @@ describe('CortexApp', () => {
 })
 
 describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
+  // Track elements by attribute prefix so we can sweep any stragglers at
+  // end-of-test even if a prior run's cleanup missed them. This defends
+  // against the cross-test state leak patterns that produce intermittent
+  // failures in the combined-run scenario.
   let root: HTMLDivElement
   let shadow: ShadowRoot
   let cleanupHost: (() => void) | null = null
@@ -1034,7 +1038,14 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
     cleanupHost = null
     for (const el of orphans) el.remove()
     orphans.length = 0
-    vi.clearAllMocks()
+    // Sweep any data-cortex-source elements that leaked out of `orphans`
+    // tracking (e.g., from a test that threw before push). Without this,
+    // stale elements survive into the next test and pollute document-level
+    // queries in selection-metadata helpers, producing intermittent failures.
+    for (const el of document.querySelectorAll('[data-cortex-source]')) el.remove()
+    // restoreAllMocks rather than clearAllMocks to fully uninstall any
+    // spies (getComputedStyle, etc.) a failed test may have left behind.
+    vi.restoreAllMocks()
   })
 
   async function setupAndSelect(
