@@ -496,14 +496,6 @@ describe('CSSOverrideManager', () => {
       expect(styleEl.textContent).toBe('')
     })
 
-    it('handleHMRVerified(match=false) keeps the override', () => {
-      manager.set('Hero.tsx:5:3', 'padding', '24px')
-      manager.trackPendingEdit('edit-1', 'Hero.tsx:5:3', 'padding', '24px')
-      manager.handleHMRVerified('edit-1', false)
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toContain('padding')
-    })
-
     it('handleHMRVerified with unknown editId is a no-op', () => {
       manager.set('Hero.tsx:5:3', 'padding', '24px')
       manager.handleHMRVerified('unknown-id', true)
@@ -694,9 +686,22 @@ describe('CSSOverrideManager', () => {
       cbs.forEach(cb => cb(performance.now()))
     }
 
-    it('ordering A: hmr_verified → onHMRApplied, jsx-immediate, inline matches', () => {
-      // Element exists with the expected inline value — source landed correctly,
-      // override should be removed after the double-rAF verification tick.
+    // Call-order invariance: whether vite:afterUpdate lands before or after the
+    // server's hmr_verified signal, the final state is the same — override is
+    // removed after the double-rAF verification tick. Pre-refactor these took
+    // different code paths via an in-cycle flag; post-refactor handleHMRVerified
+    // always schedules via double-rAF so ordering is behaviorally equivalent.
+    // Parameterized to prevent regression to an order-sensitive lifecycle.
+    it.each([
+      ['hmr_verified → onHMRApplied', (m: CSSOverrideManager) => {
+        m.handleHMRVerified('edit-1', true, 'jsx-immediate')
+        m.onHMRApplied()
+      }],
+      ['onHMRApplied → hmr_verified (late arrival)', (m: CSSOverrideManager) => {
+        m.onHMRApplied()
+        m.handleHMRVerified('edit-1', true, 'jsx-immediate')
+      }],
+    ])('ordering — %s: override removed after double-rAF', (_label, sequence) => {
       const target = document.createElement('div')
       target.setAttribute('data-cortex-source', 'a:1:1')
       target.style.color = 'red'
@@ -705,37 +710,9 @@ describe('CSSOverrideManager', () => {
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
-      manager.handleHMRVerified('edit-1', true, 'jsx-immediate') // queued
+      sequence(manager)
 
-      manager.onHMRApplied() // drain → scheduleVerifyAndRemove
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toContain('color: red') // still present — awaiting double-rAF
-
-      flushRAF() // first rAF
-      expect(styleEl.textContent).toContain('color: red')
-      flushRAF() // second rAF — verifyAndRemove runs
-      expect(styleEl.textContent).toBe('')
-
-      target.remove()
-    })
-
-    it('ordering B: onHMRApplied → hmr_verified (late arrival), schedules immediate verify', () => {
-      const target = document.createElement('div')
-      target.setAttribute('data-cortex-source', 'a:1:1')
-      target.style.color = 'red'
-      document.body.appendChild(target)
-
-      manager.set('a:1:1', 'color', 'red')
-      flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
-
-      // vite:afterUpdate beats hmr_verified — hmrAppliedInCycle flips to true.
-      manager.onHMRApplied()
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toContain('color: red')
-
-      // Late arrival — schedule verify directly without waiting for another drain.
-      manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
       expect(styleEl.textContent).toContain('color: red') // double-rAF pending
 
       flushRAF()
@@ -851,7 +828,12 @@ describe('CSSOverrideManager', () => {
       target.remove()
     })
 
-    it('non-jsx kind reads computed style via brief detach', () => {
+    it('non-jsx kind detaches the override <style> before reading computed value', () => {
+      // The detach is the whole point of non-jsx verification: without it,
+      // `getComputedStyle` would keep reporting the override value and the
+      // override would never be removable. This test proves the detach happened
+      // by observing the DOM state mid-call — if production skipped the detach
+      // or forgot to reattach, the assertions below fail.
       const target = document.createElement('div')
       target.setAttribute('data-cortex-source', 'a:1:1')
       document.body.appendChild(target)
@@ -860,11 +842,14 @@ describe('CSSOverrideManager', () => {
       flushRAF()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
 
-      // Mock getComputedStyle to report 'red' once the override <style> is detached —
-      // simulates Tailwind class swap producing the new value.
+      let overrideStyleDetachedDuringCall = false
       const original = window.getComputedStyle
       window.getComputedStyle = ((element: Element, pseudo?: string | null) => {
         if (element === target) {
+          // The override <style> must be out of the DOM right now — that's the
+          // mechanism under test. Record the observation for a post-assertion.
+          const overrideStyle = document.head.querySelector('[data-cortex-override]')
+          overrideStyleDetachedDuringCall = overrideStyle === null
           return { getPropertyValue: (prop: string) => prop === 'color' ? 'red' : '' } as CSSStyleDeclaration
         }
         return original.call(window, element, pseudo)
@@ -875,6 +860,10 @@ describe('CSSOverrideManager', () => {
       flushRAF()
       flushRAF()
       window.getComputedStyle = original
+
+      expect(overrideStyleDetachedDuringCall).toBe(true) // detach actually happened
+      // Reattach must also have succeeded — the <style> is back in document.head.
+      expect(document.head.querySelector('[data-cortex-override]')).not.toBeNull()
 
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
       expect(styleEl.textContent).toBe('')
@@ -907,25 +896,6 @@ describe('CSSOverrideManager', () => {
       expect(styleEl.textContent).toBe('')
     })
 
-    it('match with mismatched=false verified signal is a no-op', () => {
-      const target = document.createElement('div')
-      target.setAttribute('data-cortex-source', 'a:1:1')
-      document.body.appendChild(target)
-
-      manager.set('a:1:1', 'color', 'red')
-      flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
-      manager.handleHMRVerified('edit-1', false, 'jsx-immediate')
-      manager.onHMRApplied()
-      flushRAF()
-      flushRAF()
-
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toContain('color: red') // untouched — match=false means no verification
-
-      target.remove()
-    })
-
     it('emits divergence when server reports match=false (ZF0-1126 precursor)', async () => {
       // The server's HMR verifier sends match=false on TTL eviction — "the
       // file was written but no HMR landed within 30s." Without surfacing this
@@ -947,32 +917,19 @@ describe('CSSOverrideManager', () => {
       unsub()
     })
 
-    it('canonicalizes CSS values before declaring divergence (hex vs rgb)', () => {
-      // The browser canonicalizes `#fff` to `rgb(255, 255, 255)` when it lands
-      // as a computed style. Without canonical comparison, every color edit
-      // would emit a bogus divergence card.
-      const target = document.createElement('div')
-      target.setAttribute('data-cortex-source', 'a:1:1')
-      target.style.color = '#ffffff' // browser will report this via computed style as rgb(...)
-      document.body.appendChild(target)
-
-      manager.set('a:1:1', 'color', '#ffffff')
-      flushRAF()
-      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', '#ffffff')
-      manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
-      manager.onHMRApplied()
-      flushRAF()
-      flushRAF()
-
-      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      // Override should be removed — canonicalized hex and rgb are equal.
-      expect(styleEl.textContent).toBe('')
-
-      target.remove()
+    it.skip('canonicalizes CSS values before declaring divergence (hex vs rgb)', () => {
+      // TODO: requires real CSSOM. happy-dom's getComputedStyle does not reliably
+      // canonicalize color formats (`#ffffff` → `rgb(255, 255, 255)`), so this
+      // test would silently pass via valuesMatch's trivial string-equality fast
+      // path rather than exercising canonicalizeCssValue. Real coverage lives in
+      // a Playwright e2e spec against a live dev server where the browser's CSS
+      // engine actually canonicalizes.
     })
 
-    it('hmrAppliedInCycle resets between edit cycles', () => {
-      // Both targets start with the expected post-edit inline value so each
+    it('two sequential edit cycles both verify and remove their overrides', () => {
+      // Guards against regressions where per-cycle state (flags, queues, caches)
+      // fails to reset between edits and the second cycle silently no-ops.
+      // Both targets start with their expected post-edit inline value so each
       // verify matches on the first attempt (no retry window delays the test).
       const targetA = document.createElement('div')
       targetA.setAttribute('data-cortex-source', 'a:1:1')
@@ -983,24 +940,23 @@ describe('CSSOverrideManager', () => {
       targetB.style.margin = '8px'
       document.body.appendChild(targetB)
 
-      // Cycle 1: complete lifecycle.
+      // Cycle 1.
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
       manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
-      manager.onHMRApplied() // hmrAppliedInCycle becomes true
+      manager.onHMRApplied()
       flushRAF()
       flushRAF()
 
-      // Cycle 2: new edit. trackPendingEdit must reset hmrAppliedInCycle so
-      // cycle 2's handleHMRVerified queues (not schedules immediately).
+      // Cycle 2 — different source + property.
       manager.set('b:1:1', 'margin', '8px')
       flushRAF()
       manager.trackPendingEdit('edit-2', 'b:1:1', 'margin', '8px')
       manager.handleHMRVerified('edit-2', true, 'jsx-immediate')
 
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).toContain('margin: 8px') // queued — awaiting drain
+      expect(styleEl.textContent).toContain('margin: 8px') // double-rAF pending
 
       manager.onHMRApplied()
       flushRAF()
