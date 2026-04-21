@@ -270,10 +270,11 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     // reflect the expected value (e.g., React Fast Refresh skipped the element).
     // The override preview is preserved; surfacing the mismatch prevents silent reverts.
     // Key uses source\0property to stay consistent with the edit_status:failed and
-    // annotation-update paths. Element-level and pseudo divergences for the same
-    // property will share a card — a known tradeoff documented in ZF0-1293.
+    // annotation-update paths. Pseudo goes into the key so an element-level
+    // divergence and a ::before/::after divergence on the same property don't
+    // collide and mask each other.
     const unsubDivergence = onDivergence((d) => {
-      const key = `${d.source}\0${d.property}`
+      const key = `${d.source}\0${d.property}\0${d.pseudo ?? ''}`
       // Always replace — later divergences carry more accurate `actual` values
       // than earlier ones, and an older divergence should never mask a newer one.
       setEditErrors(prev => {

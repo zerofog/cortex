@@ -1340,11 +1340,17 @@ export class EditPipeline {
       // removal pipeline as every other kind. `kind: 'immediate'` signals that
       // the new value lives in a stylesheet rule (from the Tailwind class swap),
       // so the browser reads it via a single detach-and-read-computed pass.
+      //
+      // classOp's protocol-level `property`/`value` fields are empty strings —
+      // the real change lives in the op's add/remove. We pass a stable marker
+      // for `property` so logs and traces stay intelligible; the actual value
+      // to verify comes from the browser's own trackPendingEdit (which knows
+      // the intended per-property target value the Panel resolved pre-dispatch).
       this.verifier.trackEdit({
         editId: edit.editId,
         filePath: resolvedPath,
-        expectedValue: edit.value,
-        property: edit.property,
+        expectedValue: '',
+        property: '__class__',
         kind: 'immediate',
       })
 
