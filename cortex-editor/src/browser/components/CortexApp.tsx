@@ -656,6 +656,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         activeState={activeState}
         onStateChange={handleStateChange}
         overlaysVisible={hoverEnabled}
+        hmrAppliedVersion={hmrAppliedVersion}
       />
       {overrideRef.current && (
         <Panel

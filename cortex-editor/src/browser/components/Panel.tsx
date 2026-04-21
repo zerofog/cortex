@@ -1305,7 +1305,7 @@ export function Panel({
             Typography conditional on hasTypographyContent; Position hidden
             in shared-class "All" scope. */}
         <SectionGroup label="Elements" groupId="elements">
-          <ElementTree element={element} onSelectElement={onSelectElement} height={layerHeight} />
+          <ElementTree element={element} onSelectElement={onSelectElement} height={layerHeight} hmrAppliedVersion={hmrAppliedVersion} />
         </SectionGroup>
         <div
           class="cortex-section-resize"
