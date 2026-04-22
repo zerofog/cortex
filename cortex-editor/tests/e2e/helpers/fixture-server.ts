@@ -34,28 +34,32 @@ export const FIXTURE_URL = `${FIXTURE_ORIGIN}/`
 export const FIXTURE_SEED_SELECTOR = '#center'
 export const FIXTURE_SEED_SOURCE = 'fixture:1:1'
 
-export interface FixtureServerOptions {
-  /** Absolute path to the built IIFE bundle. Defaults to
-   *  `cortex-editor/dist/browser/index.js`. Override for tests that
-   *  need to serve a hand-crafted bundle. */
-  bundlePath?: string
-  /** Absolute path to the fixture HTML. Defaults to `basic.html`. */
-  fixturePath?: string
+/** Module-scoped file cache. The IIFE bundle is built once via
+ *  `npm run build` before `npm run test:e2e` and doesn't change mid-run,
+ *  so reading 22 times across specs+workers just wastes syscalls. A
+ *  per-worker cache (module state is per-worker under Playwright's
+ *  process model) makes the second+ `installFixtureServer` call O(0)
+ *  on disk. */
+const fileCache = new Map<string, string>()
+
+function readCached(p: string): string {
+  const hit = fileCache.get(p)
+  if (hit !== undefined) return hit
+  const content = readFileSync(p, 'utf8')
+  fileCache.set(p, content)
+  return content
 }
 
 /**
  * Install `page.route()` handlers that serve the fixture HTML and IIFE
  * bundle for requests under `FIXTURE_ORIGIN`. Call BEFORE `page.goto`.
  */
-export async function installFixtureServer(
-  page: Page,
-  opts: FixtureServerOptions = {},
-): Promise<void> {
-  // Default resolution is relative to this file: tests/e2e/helpers → up
-  // two levels to tests/e2e, then into fixtures/. Bundle lives at
+export async function installFixtureServer(page: Page): Promise<void> {
+  // Resolution is relative to this file: tests/e2e/helpers → up two
+  // levels to tests/e2e, then into fixtures/. Bundle lives at
   // cortex-editor/dist/browser/index.js (repo root of the package).
-  const fixturePath = opts.fixturePath ?? resolve(__dirname, '..', 'fixtures', 'basic.html')
-  const bundlePath = opts.bundlePath ?? resolve(__dirname, '..', '..', '..', 'dist', 'browser', 'index.js')
+  const fixturePath = resolve(__dirname, '..', 'fixtures', 'basic.html')
+  const bundlePath = resolve(__dirname, '..', '..', '..', 'dist', 'browser', 'index.js')
 
   if (!existsSync(bundlePath)) {
     throw new Error(
@@ -66,9 +70,9 @@ export async function installFixtureServer(
     throw new Error(`[fixture-server] fixture HTML not found at ${fixturePath}`)
   }
 
-  // Read once at setup time — specs don't rebuild between requests.
-  const fixtureHtml = readFileSync(fixturePath, 'utf8')
-  const bundleJs = readFileSync(bundlePath, 'utf8')
+  // Read once per worker — specs don't rebuild between requests.
+  const fixtureHtml = readCached(fixturePath)
+  const bundleJs = readCached(bundlePath)
 
   await page.route(`${FIXTURE_ORIGIN}/**`, async (route) => {
     const url = new URL(route.request().url())

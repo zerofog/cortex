@@ -28,61 +28,17 @@
  */
 import { test, expect } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import { FIXTURE_SEED_SELECTOR, FIXTURE_SEED_SOURCE } from './helpers/fixture-server.js'
+import { bootFixture } from './helpers/boot.js'
 import {
-  installFixtureServer,
-  FIXTURE_URL,
-  FIXTURE_SEED_SELECTOR,
-  FIXTURE_SEED_SOURCE,
-} from './helpers/fixture-server.js'
-import {
-  setupDebugBridge,
-  activateDesignMode,
-  waitForBridge,
-  collectDivergences,
   getEditErrorCardState,
   clickEditErrorCardDismiss,
+  type CortexTestBridge,
+  type DivergenceCollector,
 } from './helpers/bridge.js'
 
 /** Generous upper bound on VERIFY_RETRY_WINDOW_MS (750ms) + scheduling slack. */
 const RETRY_BUDGET_MS = 1500
-
-/**
- * Boot a fixture page with the debug bridge + fixture server armed,
- * then select the seed element so the Panel renders the EditErrorCard
- * for divergences on that source. Returns the collector wired in at
- * bridge startup so callers can assert on events + clean up.
- */
-async function bootAndSelect(page: Page): Promise<Awaited<ReturnType<typeof collectDivergences>>> {
-  await setupDebugBridge(page)
-  // Panel is gated on `active === true`; without pre-activation it
-  // never renders and EditErrorCard assertions time out. See helper
-  // comment for the contract.
-  await activateDesignMode(page)
-  await installFixtureServer(page)
-  await page.goto(FIXTURE_URL)
-  await page.waitForFunction(
-    () => typeof (globalThis as unknown as { CortexEditor?: unknown }).CortexEditor !== 'undefined',
-    null,
-    { timeout: 5000 },
-  )
-  await waitForBridge(page)
-
-  // Select the seed element — Panel only renders EditErrorCard when the
-  // currently-selected element has `data-cortex-source` matching the
-  // divergence event. `selectElement` wants a real DOM node, so we
-  // resolve and hand it off inside the browser context.
-  await page.evaluate((selector) => {
-    const el = document.querySelector<HTMLElement>(selector)
-    if (!el) throw new Error(`fixture seed missing: ${selector}`)
-    const bridge = (globalThis as unknown as {
-      __CORTEX_TEST__?: { selectElement: (el: HTMLElement) => void }
-    }).__CORTEX_TEST__
-    if (!bridge?.selectElement) throw new Error('selectElement not on bridge')
-    bridge.selectElement(el)
-  }, FIXTURE_SEED_SELECTOR)
-
-  return await collectDivergences(page)
-}
 
 /** Read the `<style data-cortex-override>` text. Returns empty string if
  *  the element is absent. Callers assert substring presence of the
@@ -97,23 +53,16 @@ async function overrideStyleText(page: Page): Promise<string> {
 
 test.describe('override divergence card (ZF0-1315)', () => {
   test('server-mismatch divergence: override preserved + card visible with Debug disclosure', async ({ page }) => {
-    const { events, unsubscribe } = await bootAndSelect(page)
+    const { events, unsubscribe }: DivergenceCollector = (await bootFixture(page, {
+      activateDesignMode: true,
+      selectElement: FIXTURE_SEED_SELECTOR,
+    }))!
 
     // Drive the bridge: set override, flush pending, track the edit,
     // then force server-mismatch with match=false. No retry window —
     // override.ts:624-631 emits divergence immediately.
     await page.evaluate((source) => {
-      const bridge = (globalThis as unknown as {
-        __CORTEX_TEST__?: {
-          overrideManager: {
-            set: (s: string, p: string, v: string) => void
-            flush: () => void
-            trackPendingEdit: (id: string, s: string, p: string, v: string) => void
-            handleHMRVerified: (id: string, match: boolean, kind: string) => void
-          }
-        }
-      }).__CORTEX_TEST__
-      if (!bridge) throw new Error('bridge missing')
+      const bridge = (globalThis as unknown as { __CORTEX_TEST__: CortexTestBridge }).__CORTEX_TEST__
       const editId = 'divergence-server-mismatch-1'
       bridge.overrideManager.set(source, 'padding-top', '32px')
       bridge.overrideManager.flush()
@@ -155,7 +104,10 @@ test.describe('override divergence card (ZF0-1315)', () => {
   })
 
   test('retry-timeout divergence: override preserved + card reports both expected and actual', async ({ page }) => {
-    const { events, unsubscribe } = await bootAndSelect(page)
+    const { events, unsubscribe }: DivergenceCollector = (await bootFixture(page, {
+      activateDesignMode: true,
+      selectElement: FIXTURE_SEED_SELECTOR,
+    }))!
 
     // The fixture seed ships with inline `padding-top: 10px`. We do
     // NOT mutate it — when the retry window (VERIFY_RETRY_WINDOW_MS)
@@ -163,17 +115,7 @@ test.describe('override divergence card (ZF0-1315)', () => {
     // emits divergence with the read-back value (`10px`) and the
     // inline-style read path.
     await page.evaluate((source) => {
-      const bridge = (globalThis as unknown as {
-        __CORTEX_TEST__?: {
-          overrideManager: {
-            set: (s: string, p: string, v: string) => void
-            flush: () => void
-            trackPendingEdit: (id: string, s: string, p: string, v: string) => void
-            handleHMRVerified: (id: string, match: boolean, kind: string) => void
-          }
-        }
-      }).__CORTEX_TEST__
-      if (!bridge) throw new Error('bridge missing')
+      const bridge = (globalThis as unknown as { __CORTEX_TEST__: CortexTestBridge }).__CORTEX_TEST__
       const editId = 'divergence-retry-timeout-1'
       bridge.overrideManager.set(source, 'padding-top', '32px')
       bridge.overrideManager.flush()
@@ -229,23 +171,16 @@ test.describe('override divergence card (ZF0-1315)', () => {
   })
 
   test('Dismiss clears the error card from the Panel', async ({ page }) => {
-    const { events, unsubscribe } = await bootAndSelect(page)
+    const { events, unsubscribe }: DivergenceCollector = (await bootFixture(page, {
+      activateDesignMode: true,
+      selectElement: FIXTURE_SEED_SELECTOR,
+    }))!
 
     // Reuse case 1's server-mismatch path to get a card on screen fast —
     // no retry delay, deterministic setup, same assertions already
     // covered above so we don't duplicate the surface checks.
     await page.evaluate((source) => {
-      const bridge = (globalThis as unknown as {
-        __CORTEX_TEST__?: {
-          overrideManager: {
-            set: (s: string, p: string, v: string) => void
-            flush: () => void
-            trackPendingEdit: (id: string, s: string, p: string, v: string) => void
-            handleHMRVerified: (id: string, match: boolean, kind: string) => void
-          }
-        }
-      }).__CORTEX_TEST__
-      if (!bridge) throw new Error('bridge missing')
+      const bridge = (globalThis as unknown as { __CORTEX_TEST__: CortexTestBridge }).__CORTEX_TEST__
       const editId = 'divergence-dismiss-1'
       bridge.overrideManager.set(source, 'padding-top', '32px')
       bridge.overrideManager.flush()

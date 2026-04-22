@@ -19,46 +19,43 @@ Every spec follows this shape. Copy-paste ready:
 
 ```ts
 import { test, expect } from '@playwright/test'
-import {
-  installFixtureServer,
-  FIXTURE_URL,
-  FIXTURE_SEED_SELECTOR,
-  FIXTURE_SEED_SOURCE,
-} from './helpers/fixture-server.js'
-import {
-  setupDebugBridge,
-  activateDesignMode,    // only if you assert on Panel UI
-  waitForBridge,
-  collectDivergences,
-} from './helpers/bridge.js'
+import { FIXTURE_SEED_SELECTOR, FIXTURE_SEED_SOURCE } from './helpers/fixture-server.js'
+import { bootFixture } from './helpers/boot.js'
+import type { CortexTestBridge } from './helpers/bridge.js'
 
 test.describe('my feature', () => {
   test('happy path', async ({ page }) => {
-    // 1. Arm the bridge BEFORE navigation. addInitScript only applies
-    //    to SUBSEQUENT navigations — calling these post-goto throws.
-    await setupDebugBridge(page)
-    await activateDesignMode(page) // omit if no Panel assertions
-    await installFixtureServer(page)
+    // `bootFixture` is the one-line orchestrator: it arms the debug
+    // bridge, optionally activates design mode, installs route
+    // interception, navigates, waits for bundle boot + bridge online,
+    // optionally selects an element, and returns a divergence collector.
+    const { events, unsubscribe } = (await bootFixture(page, {
+      activateDesignMode: true,        // omit if no Panel assertions
+      selectElement: FIXTURE_SEED_SELECTOR, // omit if no selection needed
+    }))!
 
-    // 2. Navigate and wait for the bundle to boot.
-    await page.goto(FIXTURE_URL)
-    await page.waitForFunction(
-      () => typeof (globalThis as unknown as { CortexEditor?: unknown }).CortexEditor !== 'undefined',
-      null,
-      { timeout: 5000 },
-    )
-    await waitForBridge(page)
+    // Drive the bridge via the typed `CortexTestBridge` handle. Inside
+    // `page.evaluate` the type annotation is Node-side only — the cast
+    // is still required because `window.__CORTEX_TEST__` is untyped in
+    // the browser context.
+    await page.evaluate((source) => {
+      const bridge = (globalThis as unknown as { __CORTEX_TEST__: CortexTestBridge }).__CORTEX_TEST__
+      bridge.overrideManager.set(source, 'padding-top', '32px')
+      // ... drive the lifecycle
+    }, FIXTURE_SEED_SOURCE)
 
-    // 3. Collect divergence events (ONE collector per Page).
-    const { events, unsubscribe } = await collectDivergences(page)
-
-    // 4. Drive the bridge + assert observable outcomes.
-    //    See existing specs for concrete patterns.
+    // Assert observable outcomes. See existing specs for concrete patterns.
 
     await unsubscribe()
   })
 })
 ```
+
+For finer-grained control — e.g. asserting that the bundle fails to boot, or
+running a spec with a custom ordering of init-scripts — the primitive
+helpers (`setupDebugBridge`, `activateDesignMode`, `installFixtureServer`,
+`waitForBridge`, `collectDivergences`) remain importable from
+`helpers/bridge.js` and `helpers/fixture-server.js`.
 
 ## Four tripwires (read before writing your first spec)
 
@@ -141,11 +138,14 @@ When a spec fails in GitHub Actions:
 
 ## Helper surface reference
 
+### `helpers/boot.ts`
+- `bootFixture(page, opts?)` — one-line orchestrator that composes the primitives below into the canonical 5-step arm sequence; returns a ready-to-use `DivergenceCollector | null`
+
 ### `helpers/fixture-server.ts`
 - `FIXTURE_URL` — `https://cortex-fixture.test/` (synthetic, no DNS)
 - `FIXTURE_SEED_SELECTOR` — `#center`
 - `FIXTURE_SEED_SOURCE` — `fixture:1:1`
-- `installFixtureServer(page, opts?)` — route-intercepts fixture HTML + bundle
+- `installFixtureServer(page)` — route-intercepts fixture HTML + bundle
 
 ### `helpers/bridge.ts`
 - `setupDebugBridge(page)` — pre-goto; sets debug flag + scoped attachShadow patch + WS stub
@@ -155,7 +155,7 @@ When a spec fails in GitHub Actions:
 - `getEditErrorCardState(page)` — shadow-DOM query for Panel's EditErrorCard
 - `clickEditErrorCardDismiss(page)` — clicks the Dismiss button; returns `boolean`
 
-Types exported: `OverrideDivergenceEvent`, `DivergenceCollector`, `EditErrorCardState`.
+Types exported: `CortexTestBridge`, `DivergenceCollector`, `EditErrorCardState`. The `OverrideDivergence` event type is re-exported from the main `cortex-editor` package.
 
 ## Why route interception, not `cortex-demo`?
 

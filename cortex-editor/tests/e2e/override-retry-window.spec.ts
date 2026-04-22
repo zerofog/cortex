@@ -24,7 +24,7 @@
  *      but either way the observer resource is leaked and the timing
  *      contract is fragile. We assert absence of any late divergence.
  *
- * Constants under test (override.ts:321-322):
+ * Constants under test (override.ts:229,233):
  *   - VERIFY_RETRY_WINDOW_MS = 750
  *   - VERIFY_POLL_INTERVAL_MS = 100
  * Timings chosen relative to those constants:
@@ -108,38 +108,13 @@
  */
 import { test, expect } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import { FIXTURE_SEED_SELECTOR, FIXTURE_SEED_SOURCE } from './helpers/fixture-server.js'
+import { bootFixture } from './helpers/boot.js'
 import {
-  installFixtureServer,
-  FIXTURE_URL,
-  FIXTURE_SEED_SELECTOR,
-  FIXTURE_SEED_SOURCE,
-} from './helpers/fixture-server.js'
-import {
-  setupDebugBridge,
-  activateDesignMode,
-  waitForBridge,
-  collectDivergences,
   getEditErrorCardState,
+  type CortexTestBridge,
+  type DivergenceCollector,
 } from './helpers/bridge.js'
-
-/** Boot the fixture with the debug bridge, fixture server, and divergence
- *  collector wired in. Factored out so each case reads as pure timing +
- *  assertions. Same contract as the divergence-card spec's `bootAndSelect`
- *  but without the `selectElement` call — two of the three cases here do
- *  not touch the Panel (they assert on override style text + bus events). */
-async function boot(page: Page): Promise<Awaited<ReturnType<typeof collectDivergences>>> {
-  await setupDebugBridge(page)
-  await activateDesignMode(page)
-  await installFixtureServer(page)
-  await page.goto(FIXTURE_URL)
-  await page.waitForFunction(
-    () => typeof (globalThis as unknown as { CortexEditor?: unknown }).CortexEditor !== 'undefined',
-    null,
-    { timeout: 5000 },
-  )
-  await waitForBridge(page)
-  return await collectDivergences(page)
-}
 
 /** Read the current `<style data-cortex-override>` text, or '' if absent.
  *  Case 1 asserts the override removed (empty or no padding-top rule).
@@ -153,7 +128,9 @@ async function overrideStyleText(page: Page): Promise<string> {
 
 test.describe('override retry window (ZF0-1316)', () => {
   test('late commit WITHIN 750ms window → clean removal (MO catches)', async ({ page }) => {
-    const { events, unsubscribe } = await boot(page)
+    const { events, unsubscribe }: DivergenceCollector = (await bootFixture(page, {
+      activateDesignMode: true,
+    }))!
 
     // Drive the bridge: arm a `padding-top: 32px` override against the
     // seed (which ships with inline `padding-top: 10px`), flush so the
@@ -173,17 +150,7 @@ test.describe('override retry window (ZF0-1316)', () => {
     // a comfortable lead.
     await page.evaluate(
       ({ source, selector }) => {
-        const bridge = (globalThis as unknown as {
-          __CORTEX_TEST__?: {
-            overrideManager: {
-              set: (s: string, p: string, v: string) => void
-              flush: () => void
-              trackPendingEdit: (id: string, s: string, p: string, v: string) => void
-              handleHMRVerified: (id: string, match: boolean, kind: string) => void
-            }
-          }
-        }).__CORTEX_TEST__
-        if (!bridge) throw new Error('bridge missing')
+        const bridge = (globalThis as unknown as { __CORTEX_TEST__: CortexTestBridge }).__CORTEX_TEST__
         const editId = 'retry-window-within-1'
         bridge.overrideManager.set(source, 'padding-top', '32px')
         bridge.overrideManager.flush()
@@ -236,7 +203,9 @@ test.describe('override retry window (ZF0-1316)', () => {
   })
 
   test('late commit BEYOND 750ms window → divergence, override preserved', async ({ page }) => {
-    const { events, unsubscribe } = await boot(page)
+    const { events, unsubscribe }: DivergenceCollector = (await bootFixture(page, {
+      activateDesignMode: true,
+    }))!
 
     // Same arm as case 1, but we delay the inline-style mutation to
     // ~900ms — past the 750ms final-timeout boundary. By the time the
@@ -255,17 +224,7 @@ test.describe('override retry window (ZF0-1316)', () => {
     // racing the final timeout.
     await page.evaluate(
       ({ source, selector }) => {
-        const bridge = (globalThis as unknown as {
-          __CORTEX_TEST__?: {
-            overrideManager: {
-              set: (s: string, p: string, v: string) => void
-              flush: () => void
-              trackPendingEdit: (id: string, s: string, p: string, v: string) => void
-              handleHMRVerified: (id: string, match: boolean, kind: string) => void
-            }
-          }
-        }).__CORTEX_TEST__
-        if (!bridge) throw new Error('bridge missing')
+        const bridge = (globalThis as unknown as { __CORTEX_TEST__: CortexTestBridge }).__CORTEX_TEST__
         const editId = 'retry-window-beyond-1'
         bridge.overrideManager.set(source, 'padding-top', '32px')
         bridge.overrideManager.flush()
@@ -309,7 +268,9 @@ test.describe('override retry window (ZF0-1316)', () => {
   })
 
   test('supersede while retry in flight → no stale divergence from first edit', async ({ page }) => {
-    const { events, unsubscribe } = await boot(page)
+    const { events, unsubscribe }: DivergenceCollector = (await bootFixture(page, {
+      activateDesignMode: true,
+    }))!
 
     // Arm edit A (`32px`) and let its retry begin, then at ~100ms arm
     // edit B (`70px`) on the same source+property. Per
@@ -326,17 +287,7 @@ test.describe('override retry window (ZF0-1316)', () => {
     //     before B's 750ms timeout. B's MO fires, removes override.
     await page.evaluate(
       ({ source, selector }) => {
-        const bridge = (globalThis as unknown as {
-          __CORTEX_TEST__?: {
-            overrideManager: {
-              set: (s: string, p: string, v: string) => void
-              flush: () => void
-              trackPendingEdit: (id: string, s: string, p: string, v: string) => void
-              handleHMRVerified: (id: string, match: boolean, kind: string) => void
-            }
-          }
-        }).__CORTEX_TEST__
-        if (!bridge) throw new Error('bridge missing')
+        const bridge = (globalThis as unknown as { __CORTEX_TEST__: CortexTestBridge }).__CORTEX_TEST__
         const editA = 'retry-supersede-A'
         const editB = 'retry-supersede-B'
         // Edit A: 32px

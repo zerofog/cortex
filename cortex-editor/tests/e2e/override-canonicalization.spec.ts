@@ -1,7 +1,7 @@
 /**
  * Live-browser counterpart to the `it.skip`'d F6 unit test at
  * `tests/browser/override.test.ts:1303`. Proves that
- * `canonicalizeCssValue` (override.ts:509-534) correctly matches hex
+ * `canonicalizeCssValue` (override.ts:509-530) correctly matches hex
  * against rgb so the override is removed cleanly rather than surfacing
  * a bogus divergence card.
  *
@@ -19,7 +19,7 @@
  * Anti-Patterns §2 — assertions must be falsifiable):
  *
  *   Mutation: temporarily patched `canonicalizeCssValue` at
- *   override.ts:509-534 to `return ''` unconditionally, rebuilt the
+ *   override.ts:509-530 to `return ''` unconditionally, rebuilt the
  *   bundle with `npm run build`, re-ran this spec.
  *
  *   Observed failure:
@@ -42,13 +42,9 @@
  * ----------------------------------------------------------------------
  */
 import { test, expect } from '@playwright/test'
-import {
-  installFixtureServer,
-  FIXTURE_URL,
-  FIXTURE_SEED_SELECTOR,
-  FIXTURE_SEED_SOURCE,
-} from './helpers/fixture-server.js'
-import { setupDebugBridge, waitForBridge, collectDivergences } from './helpers/bridge.js'
+import { FIXTURE_SEED_SELECTOR, FIXTURE_SEED_SOURCE } from './helpers/fixture-server.js'
+import { bootFixture } from './helpers/boot.js'
+import { getEditErrorCardState, type CortexTestBridge } from './helpers/bridge.js'
 
 /**
  * Read the current `color:` declaration from the
@@ -69,20 +65,6 @@ async function colorOverrideDeclaration(page: import('@playwright/test').Page): 
   })
 }
 
-/**
- * Count any `.cortex-error-card` nodes rendered in the Panel's Shadow
- * DOM. Relies on `setupDebugBridge` having patched `attachShadow` to
- * `open` mode, so the root is accessible from Playwright.
- */
-async function errorCardCount(page: import('@playwright/test').Page): Promise<number> {
-  return await page.evaluate(() => {
-    const host = document.querySelector('[data-cortex-host]')
-    const root = host && (host as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot
-    if (!root) return 0
-    return root.querySelectorAll('.cortex-error-card').length
-  })
-}
-
 test.describe('override canonicalization (ZF0-1314 — closes F6 happy-dom gap)', () => {
   // Enough to cover VERIFY_RETRY_WINDOW_MS (750ms) + scheduling slack.
   const RETRY_BUDGET_MS = 1500
@@ -93,13 +75,7 @@ test.describe('override canonicalization (ZF0-1314 — closes F6 happy-dom gap)'
     canonicalInline: string,
     editId: string,
   ): Promise<void> {
-    await setupDebugBridge(page)
-    await installFixtureServer(page)
-    await page.goto(FIXTURE_URL)
-    await page.waitForFunction(() => typeof (globalThis as unknown as { CortexEditor?: unknown }).CortexEditor !== 'undefined', null, { timeout: 5000 })
-    await waitForBridge(page)
-
-    const { events, unsubscribe } = await collectDivergences(page)
+    const { events, unsubscribe } = (await bootFixture(page))!
 
     // Simulate the React commit that the Code Translator would produce:
     // the inline `color` on the seed element is already the browser's
@@ -117,7 +93,7 @@ test.describe('override canonicalization (ZF0-1314 — closes F6 happy-dom gap)'
 
     await page.evaluate(
       ({ source, value, id }) => {
-        const bridge = (globalThis as unknown as { __CORTEX_TEST__?: { overrideManager: { set: (s: string, p: string, v: string) => void; flush: () => void; trackPendingEdit: (id: string, s: string, p: string, v: string) => void; handleHMRVerified: (id: string, match: boolean, kind: string) => void } } }).__CORTEX_TEST__!
+        const bridge = (globalThis as unknown as { __CORTEX_TEST__: CortexTestBridge }).__CORTEX_TEST__
         bridge.overrideManager.set(source, 'color', value)
         bridge.overrideManager.flush()
         bridge.overrideManager.trackPendingEdit(id, source, 'color', value)
@@ -139,8 +115,9 @@ test.describe('override canonicalization (ZF0-1314 — closes F6 happy-dom gap)'
 
     // No EditErrorCard rendered — the Panel subscribes to the same bus
     // and renders a card on divergence. This guards against silent UI
-    // regressions that don't fire the debug listener.
-    expect(await errorCardCount(page)).toBe(0)
+    // regressions that don't fire the debug listener. Reuses the shared
+    // helper instead of a local shadow-DOM count to avoid drift.
+    expect((await getEditErrorCardState(page)).visible).toBe(false)
 
     await unsubscribe()
   }

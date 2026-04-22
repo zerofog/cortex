@@ -17,37 +17,27 @@
  * the same events the Panel surfaces as EditErrorCards in Task 3.
  */
 import type { Page } from '@playwright/test'
+import type { OverrideDivergence } from 'cortex-editor'
 
-// Shape mirrors `OverrideDivergence` in src/browser/override-bus.ts.
-// Duplicated intentionally — specs live outside the package's rootDir
-// and can't import internals without dragging the JSX toolchain in.
-// If the production shape changes in a way that matters to tests, this
-// interface should move with it.
-export interface OverrideDivergenceEvent {
-  source: string
-  property: string
-  expected: string
-  actual: string
-  pseudo?: '::before' | '::after'
-  diagnostics: {
-    actualReadFrom: 'inline-style' | 'computed-style' | 'server-mismatch'
-    kindUsed?: 'immediate' | 'jsx-immediate' | 'deferred'
-    priorValues: readonly string[]
-    retryDurationMs?: number
-    errorMessage?: string
+/** Shape of `window.__CORTEX_TEST__` — exposed by CortexApp when the
+ *  debug flag is set (see `index.tsx` bootstrap + `CortexApp` mount).
+ *  Centralizing this type ends the inline-literal duplication that used
+ *  to live at every `page.evaluate` call site. Fields are optional where
+ *  CortexApp only attaches them in specific states (selection handlers,
+ *  divergence bus); `overrideManager` is always present when the bridge
+ *  has resolved (`waitForBridge` guarantees it). */
+export interface CortexTestBridge {
+  overrideManager: {
+    set: (source: string, property: string, value: string) => void
+    flush: () => void
+    trackPendingEdit: (editId: string, source: string, property: string, value: string) => void
+    handleHMRVerified: (editId: string, match: boolean, kind: string) => void
   }
+  channel?: unknown
+  selectElement?: (el: HTMLElement | null) => void
+  onDivergence?: (cb: (d: OverrideDivergence) => void) => () => void
 }
 
-/**
- * Arm the debug bridge and force open Shadow DOM. MUST be called before
- * `page.goto` — `addInitScript` only fires on subsequent navigations.
- *
- * The open-shadow patch is load-bearing: CortexApp does
- * `attachShadow({ mode: 'closed' })` by default, which makes Panel DOM
- * inaccessible from Playwright. Overriding `mode` at the prototype level
- * is the only reliable way; the hack is documented in the ZF0-1235 live
- * repros that this harness replaces.
- */
 /** Guard for helpers that MUST run before `page.goto`. Playwright's
  *  `addInitScript` only applies to subsequent navigations — calling a
  *  setup helper after the first goto silently no-ops, leading to a
@@ -63,6 +53,16 @@ function assertPreNavigation(page: Page, helperName: string): void {
   }
 }
 
+/**
+ * Arm the debug bridge and force open Shadow DOM. MUST be called before
+ * `page.goto` — `addInitScript` only fires on subsequent navigations.
+ *
+ * The open-shadow patch is load-bearing: CortexApp does
+ * `attachShadow({ mode: 'closed' })` by default, which makes Panel DOM
+ * inaccessible from Playwright. Overriding `mode` at the prototype level
+ * is the only reliable way; the hack is documented in the ZF0-1235 live
+ * repros that this harness replaces.
+ */
 export async function setupDebugBridge(page: Page): Promise<void> {
   assertPreNavigation(page, 'setupDebugBridge')
   await page.addInitScript(() => {
@@ -170,6 +170,14 @@ export async function waitForBridge(page: Page, timeoutMs: number = 5000): Promi
   }
 }
 
+/** Return shape of `collectDivergences` — exported so specs can name
+ *  the type explicitly (e.g. in helper signatures) instead of chaining
+ *  `Awaited<ReturnType<typeof collectDivergences>>`. */
+export interface DivergenceCollector {
+  events: OverrideDivergence[]
+  unsubscribe: () => Promise<void>
+}
+
 /**
  * Subscribe (Node-side) to divergence events emitted by the page's
  * override-bus. Returns `{ events, unsubscribe }`.
@@ -195,18 +203,10 @@ export async function waitForBridge(page: Page, timeoutMs: number = 5000): Promi
  * call `unsubscribe()` first or factor assertions into separate `test()`
  * blocks (each gets a fresh Page).
  */
-/** Return shape of `collectDivergences` — exported so specs can name
- *  the type explicitly (e.g. in helper signatures) instead of chaining
- *  `Awaited<ReturnType<typeof collectDivergences>>`. */
-export interface DivergenceCollector {
-  events: OverrideDivergenceEvent[]
-  unsubscribe: () => Promise<void>
-}
-
 export async function collectDivergences(page: Page): Promise<DivergenceCollector> {
-  const events: OverrideDivergenceEvent[] = []
+  const events: OverrideDivergence[] = []
 
-  await page.exposeFunction('__cortexOnDivergence', (event: OverrideDivergenceEvent) => {
+  await page.exposeFunction('__cortexOnDivergence', (event: OverrideDivergence) => {
     events.push(event)
   })
 

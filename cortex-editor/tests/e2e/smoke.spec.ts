@@ -10,28 +10,15 @@
  * further e2e specs can be trusted.
  */
 import { test, expect } from '@playwright/test'
-import {
-  installFixtureServer,
-  FIXTURE_URL,
-  FIXTURE_SEED_SELECTOR,
-  FIXTURE_SEED_SOURCE,
-} from './helpers/fixture-server.js'
-import { setupDebugBridge, waitForBridge, collectDivergences } from './helpers/bridge.js'
+import { FIXTURE_SEED_SELECTOR, FIXTURE_SEED_SOURCE } from './helpers/fixture-server.js'
+import { bootFixture } from './helpers/boot.js'
+import type { CortexTestBridge } from './helpers/bridge.js'
 
 test.describe('harness smoke', () => {
   test('fixture loads, CortexEditor bundle boots, debug bridge exposes overrideManager + channel', async ({ page }) => {
-    // Arm the debug flag + open Shadow DOM BEFORE navigation, then
-    // install route interception for the synthetic fixture origin.
-    await setupDebugBridge(page)
-    await installFixtureServer(page)
-
-    await page.goto(FIXTURE_URL)
-
-    // The IIFE auto-bootstraps on DOMContentLoaded; wait for its globals.
-    await page.waitForFunction(() => typeof (globalThis as unknown as { CortexEditor?: unknown }).CortexEditor !== 'undefined', null, { timeout: 5000 })
-
-    // Debug bridge must come online once CortexApp mounts.
-    await waitForBridge(page)
+    // `collectDivergences: false` — this spec asserts on bridge shape
+    // only, not on divergence events.
+    await bootFixture(page, { collectDivergences: false })
 
     // Shape check: the two handles Tasks 2–4 will import must be present.
     const bridgeShape = await page.evaluate(() => {
@@ -62,13 +49,7 @@ test.describe('harness smoke', () => {
     // Node-side collector stops receiving events, the round-trip assertion
     // breaks immediately. Without it the stub-to-real fix could silently
     // rot back into "events array always empty" (the original defect).
-    await setupDebugBridge(page)
-    await installFixtureServer(page)
-    await page.goto(FIXTURE_URL)
-    await page.waitForFunction(() => typeof (globalThis as unknown as { CortexEditor?: unknown }).CortexEditor !== 'undefined', null, { timeout: 5000 })
-    await waitForBridge(page)
-
-    const { events, unsubscribe } = await collectDivergences(page)
+    const { events, unsubscribe } = (await bootFixture(page))!
 
     // Force a server-mismatch divergence via the bridge:
     //   - set an override on the seed element
@@ -78,7 +59,7 @@ test.describe('harness smoke', () => {
     //     emits divergence immediately without the retry window
     //     (override.ts:624-631).
     await page.evaluate((source) => {
-      const bridge = (globalThis as unknown as { __CORTEX_TEST__?: { overrideManager: { set: (s: string, p: string, v: string) => void; flush: () => void; trackPendingEdit: (id: string, s: string, p: string, v: string) => void; handleHMRVerified: (id: string, match: boolean, kind: string) => void } } }).__CORTEX_TEST__!
+      const bridge = (globalThis as unknown as { __CORTEX_TEST__: CortexTestBridge }).__CORTEX_TEST__
       const editId = 'smoke-divergence-1'
       bridge.overrideManager.set(source, 'padding-top', '99px')
       bridge.overrideManager.flush()
