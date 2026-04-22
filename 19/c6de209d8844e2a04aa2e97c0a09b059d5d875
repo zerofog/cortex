@@ -1,0 +1,32 @@
+cortex-editor/tests/e2e/README.md
+  e21f4f7d384a18ae 1-180
+cortex-editor/tests/e2e/override-canonicalization.spec.ts
+  e21f4f7d384a18ae 99,120
+cortex-editor/tests/e2e/helpers/bridge.ts
+  e21f4f7d384a18ae 71-82,84-88,91-94,148-170
+cortex-editor/tests/e2e/smoke.spec.ts
+  e21f4f7d384a18ae 31,68,81
+cortex-editor/.github/workflows/ci.yml
+  e21f4f7d384a18ae 34-36,41-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "19c6de209d8844e2a04aa2e97c0a09b059d5d875",
+  "prompts": {
+    "e21f4f7d384a18ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "acbcfb70-5ad0-434f-b82f-fe13efa7ed90",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 237,
+      "total_deletions": 17,
+      "accepted_lines": 243,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/77d0f716721da4affad853a51c70fd70ba29aeb8913264970d497fe029e670f0"
+    }
+  }
+}
