@@ -449,6 +449,45 @@
   background: var(--cx-select-hover);
 }
 
+/* ZF0-1293: divergence debug disclosure. Only rendered when
+ * window.__CORTEX_DEBUG_OVERRIDES__ is true. Deliberately dense — this is a
+ * developer tool for root-causing mystery divergences. */
+.cortex-error-card__debug {
+  margin-top: var(--cx-sp-2);
+  font-size: var(--cx-text-xs);
+  color: var(--cx-ink-secondary);
+}
+
+.cortex-error-card__debug-summary {
+  cursor: pointer;
+  padding: var(--cx-sp-1) 0;
+  font-weight: var(--cx-weight-value);
+  color: var(--cx-ink);
+  user-select: none;
+}
+
+.cortex-error-card__debug-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--cx-sp-1) var(--cx-sp-3);
+  margin: var(--cx-sp-1) 0 0 0;
+  padding: var(--cx-sp-2);
+  background: var(--cx-well);
+  border-radius: var(--cx-radius-sm);
+}
+
+.cortex-error-card__debug-grid dt {
+  color: var(--cx-ink-secondary);
+  margin: 0;
+}
+
+.cortex-error-card__debug-grid dd {
+  margin: 0;
+  color: var(--cx-ink);
+  font-family: var(--cx-font-mono, ui-monospace, monospace);
+  word-break: break-all;
+}
+
 /* ── Panel shell ─────────────────────────────── */
 
 .cortex-panel {

@@ -412,6 +412,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           property: d.property,
           value: d.expected,
           reason: `Preview shows "${d.expected}" but the saved file renders "${d.actual || '(empty)'}". The edit may not have propagated.`,
+          // ZF0-1293: pass diagnostics through for the Debug disclosure. Safe
+          // to forward as-is — EditErrorCard gates rendering on the debug flag.
+          diagnostics: d.diagnostics,
         })
         return next
       })

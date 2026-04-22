@@ -461,6 +461,190 @@ describe('InlineStyleRewriter', () => {
     }
   })
 
+  // ── ZF0-1293: shorthand-clobber guard ──────────────────────────
+  //
+  // React iterates the style object literal in insertion order and applies
+  // each key via `el.style[key] = value`. CSS shorthand properties (`padding`,
+  // `margin`, etc.) EXPAND into longhands when set. So if a JSX element's
+  // style has `{ paddingBottom: X, padding: Y }` in that order, React will:
+  //   1. set el.style.paddingBottom = X
+  //   2. set el.style.padding = Y   ← expands and OVERWRITES paddingBottom
+  // The user's paddingBottom edit is silently clobbered by the shorthand.
+  //
+  // Guard: after updating/adding a longhand, ensure it appears AFTER any
+  // parent shorthand in the object literal. If the ordering is unsafe,
+  // move the longhand to the end.
+
+  describe('shorthand-clobber guard (ZF0-1293)', () => {
+    it('re-orders longhand after shorthand when source has longhand first (unsafe)', async () => {
+      // The bug scenario: a human-authored source has paddingBottom BEFORE
+      // padding. Updating paddingBottom without re-ordering leaves it
+      // clobbered by the subsequent padding shorthand.
+      const source = `export function App() {
+  return <div style={{ paddingBottom: "10px", padding: "30px" }}>Hello</div>
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.rewrite({
+          filePath,
+          line: 2,
+          col: 10,
+          property: 'padding-bottom',
+          value: '16px',
+        })
+
+        expect(result.success).toBe(true)
+        if (result.success) {
+          // paddingBottom must now appear AFTER padding in source order —
+          // React will then set padding first, paddingBottom second, so the
+          // longhand wins.
+          const idxPadding = result.newContent.indexOf('padding:')
+          const idxPaddingBottom = result.newContent.indexOf('paddingBottom:')
+          expect(idxPadding).toBeGreaterThan(-1)
+          expect(idxPaddingBottom).toBeGreaterThan(-1)
+          expect(idxPaddingBottom).toBeGreaterThan(idxPadding)
+          // And the value must be the newly-written one.
+          expect(result.newContent).toContain('paddingBottom: "16px"')
+          // The shorthand must still be preserved (we don't silently remove it).
+          expect(result.newContent).toContain('padding: "30px"')
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
+
+    it('preserves order when shorthand already precedes longhand (safe, no re-order)', async () => {
+      // Safe starting order — no re-order needed. Must not churn whitespace or
+      // introduce unnecessary diffs.
+      const source = `export function App() {
+  return <div style={{ padding: "24px", paddingBottom: "10px" }}>Hello</div>
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.rewrite({
+          filePath,
+          line: 2,
+          col: 10,
+          property: 'padding-bottom',
+          value: '16px',
+        })
+
+        expect(result.success).toBe(true)
+        if (result.success) {
+          const idxPadding = result.newContent.indexOf('padding:')
+          const idxPaddingBottom = result.newContent.indexOf('paddingBottom:')
+          expect(idxPaddingBottom).toBeGreaterThan(idxPadding)
+          expect(result.newContent).toContain('paddingBottom: "16px"')
+          expect(result.newContent).toContain('padding: "24px"')
+          // No duplicate paddingBottom keys (a naive "always move to end" that
+          // forgot to remove the old one would leave two).
+          expect(result.newContent.match(/paddingBottom/g)?.length).toBe(1)
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
+
+    it('appends longhand safely when only shorthand is present', async () => {
+      // Mirrors the dev-app `<ul id="verify" style={{ padding: "24px", ... }}>`
+      // case. No existing longhand — just append, which naturally goes after
+      // the shorthand. This test guards against a future "re-order everything"
+      // refactor from breaking the trivially-safe case.
+      const source = `export function App() {
+  return <div style={{ padding: "24px", border: "1px solid" }}>Hello</div>
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.rewrite({
+          filePath,
+          line: 2,
+          col: 10,
+          property: 'padding-bottom',
+          value: '16px',
+        })
+
+        expect(result.success).toBe(true)
+        if (result.success) {
+          const idxPadding = result.newContent.indexOf('padding:')
+          const idxPaddingBottom = result.newContent.indexOf('paddingBottom:')
+          expect(idxPaddingBottom).toBeGreaterThan(idxPadding)
+          expect(result.newContent).toContain('paddingBottom: "16px"')
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
+
+    it('no shorthand present: longhand behavior unchanged (regression guard)', async () => {
+      // Pure safety test: if no parent shorthand exists, the guard must not
+      // touch the ordering. Prevents over-eager re-ordering churn.
+      const source = `export function App() {
+  return <div style={{ color: "red", paddingBottom: "10px" }}>Hello</div>
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.rewrite({
+          filePath,
+          line: 2,
+          col: 10,
+          property: 'padding-bottom',
+          value: '16px',
+        })
+
+        expect(result.success).toBe(true)
+        if (result.success) {
+          const idxColor = result.newContent.indexOf('color:')
+          const idxPaddingBottom = result.newContent.indexOf('paddingBottom:')
+          // Order preserved — color before paddingBottom as authored.
+          expect(idxColor).toBeLessThan(idxPaddingBottom)
+          expect(result.newContent).toContain('paddingBottom: "16px"')
+          // paddingBottom appears exactly once.
+          expect(result.newContent.match(/paddingBottom/g)?.length).toBe(1)
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
+
+    it('margin parent re-orders marginBottom — guard is generic to all shorthands', async () => {
+      // SHORTHAND_LONGHANDS contains margin/padding/borderRadius/etc. Prove
+      // the guard treats them uniformly rather than special-casing padding.
+      const source = `export function App() {
+  return <div style={{ marginBottom: "8px", margin: "24px" }}>Hello</div>
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.rewrite({
+          filePath,
+          line: 2,
+          col: 10,
+          property: 'margin-bottom',
+          value: '12px',
+        })
+
+        expect(result.success).toBe(true)
+        if (result.success) {
+          const idxMargin = result.newContent.search(/\bmargin:/)
+          const idxMarginBottom = result.newContent.indexOf('marginBottom:')
+          expect(idxMarginBottom).toBeGreaterThan(idxMargin)
+          expect(result.newContent).toContain('marginBottom: "12px"')
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
+  })
+
   // --- removeProperty ---
 
   describe('removeProperty', () => {

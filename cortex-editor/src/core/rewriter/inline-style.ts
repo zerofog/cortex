@@ -153,6 +153,7 @@ export class InlineStyleRewriter {
     }
 
     // Check for existing property
+    let existingAssignment: import('ts-morph').PropertyAssignment | null = null
     for (const prop of objLiteral.getProperties()) {
       const propKind = prop.getKind()
 
@@ -187,21 +188,70 @@ export class InlineStyleRewriter {
           return { success: false, filePath, reason: `Property '${camelProp}' has non-literal value — route to AI` }
         }
 
-        // Update the value
-        propAssign.setInitializer(JSON.stringify(value))
-        const newContent = sourceFile.getFullText()
-        return { success: true, filePath, oldContent, newContent }
+        existingAssignment = propAssign
+        break
       }
     }
 
-    // Property not found — add it
+    // ZF0-1293: shorthand-clobber guard. React iterates the style object in
+    // insertion order and applies each key via `el.style[key] = value`. A CSS
+    // shorthand setter expands into longhands — so if a longhand appears
+    // BEFORE its parent shorthand in the object literal, the shorthand wins
+    // and the longhand is silently clobbered. Correct the order here: if the
+    // longhand currently precedes its parent shorthand, remove it and
+    // re-append at the end (which is always after the shorthand, since the
+    // shorthand was already somewhere in the literal).
     const propKey = this.formatObjectKey(camelProp)
+    if (existingAssignment) {
+      if (this.needsShorthandReorder(objLiteral, existingAssignment, camelProp, SK)) {
+        existingAssignment.remove()
+        const appended = objLiteral.addPropertyAssignment({ name: propKey, initializer: JSON.stringify(value) })
+        // Defensive post-condition: re-scan and confirm the reorder actually
+        // achieved safe ordering. Guards against a future ts-morph change
+        // (e.g., insertion before a trailing comma) that would leave the
+        // longhand still clobbered despite reporting success.
+        if (this.needsShorthandReorder(objLiteral, appended, camelProp, SK)) {
+          return { success: false, filePath, reason: `shorthand reorder for '${camelProp}' did not take effect` }
+        }
+      } else {
+        existingAssignment.setInitializer(JSON.stringify(value))
+      }
+      const newContent = sourceFile.getFullText()
+      return { success: true, filePath, oldContent, newContent }
+    }
+
+    // Property not found — add it at the end (always safe: addPropertyAssignment
+    // appends, which puts the new longhand after any shorthand already present).
     objLiteral.addPropertyAssignment({
       name: propKey,
       initializer: JSON.stringify(value),
     })
     const newContent = sourceFile.getFullText()
     return { success: true, filePath, oldContent, newContent }
+  }
+
+  /** ZF0-1293: Does the longhand assignment need to be moved after its parent
+   *  shorthand? Returns true iff a parent shorthand exists in the same object
+   *  literal AND appears at a LATER source position than the longhand. */
+  private needsShorthandReorder(
+    objLiteral: ObjectLiteralExpression,
+    longhand: import('ts-morph').PropertyAssignment,
+    camelProp: string,
+    SK: typeof SyntaxKindEnum,
+  ): boolean {
+    const shorthandName = LONGHAND_TO_SHORTHAND[camelProp]
+    if (!shorthandName) return false
+    const longhandPos = longhand.getStart()
+    for (const prop of objLiteral.getProperties()) {
+      const kind = prop.getKind()
+      if (kind !== SK.PropertyAssignment && kind !== SK.ShorthandPropertyAssignment) continue
+      const name = kind === SK.PropertyAssignment
+        ? prop.asKind(SK.PropertyAssignment)?.getName()
+        : prop.asKind(SK.ShorthandPropertyAssignment)?.getName()
+      if (name !== shorthandName) continue
+      if (prop.getStart() > longhandPos) return true // shorthand clobbers longhand
+    }
+    return false
   }
 
   /**
@@ -449,16 +499,24 @@ export class InlineStyleRewriter {
       }
       for (const { property, value } of sets) {
         const camelProp = cssPropertyToCamelCase(property)
-        let updated = false
+        let existing: import('ts-morph').PropertyAssignment | null = null
         for (const prop of objLiteral.getProperties()) {
           if (prop.getKind() !== SK.PropertyAssignment) continue
           const propAssign = prop.asKind(SK.PropertyAssignment)
           if (!propAssign || propAssign.getName() !== camelProp) continue
-          propAssign.setInitializer(JSON.stringify(value))
-          updated = true
+          existing = propAssign
           break
         }
-        if (!updated) {
+        // Same shorthand-clobber guard as `rewrite()` — see comment there.
+        if (existing && this.needsShorthandReorder(objLiteral, existing, camelProp, SK)) {
+          existing.remove()
+          objLiteral.addPropertyAssignment({
+            name: this.formatObjectKey(camelProp),
+            initializer: JSON.stringify(value),
+          })
+        } else if (existing) {
+          existing.setInitializer(JSON.stringify(value))
+        } else {
           objLiteral.addPropertyAssignment({
             name: this.formatObjectKey(camelProp),
             initializer: JSON.stringify(value),

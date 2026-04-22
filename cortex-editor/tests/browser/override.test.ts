@@ -734,8 +734,8 @@ describe('CSSOverrideManager', () => {
       CSSOverrideManager.VERIFY_POLL_INTERVAL_MS = 20
       try {
         const { onDivergence } = await import('../../src/browser/override-bus.js')
-        const divergences: Array<{ source: string; property: string; expected: string; actual: string }> = []
-        const unsub = onDivergence(d => divergences.push({ source: d.source, property: d.property, expected: d.expected, actual: d.actual }))
+        const divergences: Array<import('../../src/browser/override-bus.js').OverrideDivergence> = []
+        const unsub = onDivergence(d => divergences.push(d))
 
         const target = document.createElement('div')
         target.setAttribute('data-cortex-source', 'a:1:1')
@@ -764,6 +764,319 @@ describe('CSSOverrideManager', () => {
         expect(styleEl.textContent).toContain('color: red') // still preserved
         expect(divergences).toHaveLength(1)
         expect(divergences[0]).toMatchObject({ source: 'a:1:1', property: 'color', expected: 'red', actual: 'green' })
+
+        // ZF0-1293: divergence payload carries diagnostics — exercises the
+        // retry-timeout emit path's enrichment. Without these, a mystery
+        // divergence (like ZF0-1293's padding-bottom 30px) cannot distinguish
+        // "inline style was stale" from "computed style was wrong".
+        expect(divergences[0].diagnostics).toBeDefined()
+        expect(divergences[0].diagnostics?.actualReadFrom).toBe('inline-style')
+        expect(divergences[0].diagnostics?.kindUsed).toBe('jsx-immediate')
+        expect(divergences[0].diagnostics?.priorValues).toEqual(['red'])
+        // retryDurationMs should be >= the shrunk window (60ms) but well below
+        // a generous upper bound (1s) to prove the arm-to-emit duration was
+        // actually measured, not hardcoded.
+        expect(divergences[0].diagnostics?.retryDurationMs).toBeGreaterThanOrEqual(50)
+        expect(divergences[0].diagnostics?.retryDurationMs).toBeLessThan(1000)
+
+        unsub()
+        target.remove()
+      } finally {
+        CSSOverrideManager.VERIFY_RETRY_WINDOW_MS = originalWindow
+        CSSOverrideManager.VERIFY_POLL_INTERVAL_MS = originalPoll
+      }
+    })
+
+    it('ZF0-1293: prior-values ring buffer records last 5 set() values per key', async () => {
+      // Core diagnostic for the 16px-expected/30px-actual mystery: if the user
+      // previously scrubbed to 30px earlier in the session, the ring buffer
+      // preserves that history so a future divergence card can show "you set
+      // this to 30px earlier — the retry read an inline style that's still 30px".
+      const originalWindow = CSSOverrideManager.VERIFY_RETRY_WINDOW_MS
+      const originalPoll = CSSOverrideManager.VERIFY_POLL_INTERVAL_MS
+      CSSOverrideManager.VERIFY_RETRY_WINDOW_MS = 60
+      CSSOverrideManager.VERIFY_POLL_INTERVAL_MS = 20
+      try {
+        const { onDivergence } = await import('../../src/browser/override-bus.js')
+        const divergences: Array<import('../../src/browser/override-bus.js').OverrideDivergence> = []
+        const unsub = onDivergence(d => divergences.push(d))
+
+        const target = document.createElement('div')
+        target.setAttribute('data-cortex-source', 'App.tsx:13:5')
+        // Simulate a DOM that still reports 30px from a prior session edit.
+        target.style.setProperty('padding-bottom', '30px')
+        document.body.appendChild(target)
+
+        // Earlier in the session the user scrubbed through several values.
+        manager.set('App.tsx:13:5', 'padding-bottom', '24px')
+        manager.set('App.tsx:13:5', 'padding-bottom', '30px')
+        manager.set('App.tsx:13:5', 'padding-bottom', '20px')
+        manager.set('App.tsx:13:5', 'padding-bottom', '18px')
+        manager.set('App.tsx:13:5', 'padding-bottom', '16px') // final value
+        flushRAF()
+        manager.trackPendingEdit('edit-final', 'App.tsx:13:5', 'padding-bottom', '16px')
+        manager.handleHMRVerified('edit-final', true, 'jsx-immediate')
+        manager.onHMRApplied()
+        flushRAF()
+        flushRAF()
+
+        await new Promise(r => setTimeout(r, 100))
+        flushRAF()
+
+        expect(divergences).toHaveLength(1)
+        const d = divergences[0]
+        expect(d.actual).toBe('30px')
+        expect(d.expected).toBe('16px')
+        expect(d.diagnostics?.actualReadFrom).toBe('inline-style')
+        // Ring buffer is capped at 5 — all five sets survive in FIFO order.
+        expect(d.diagnostics?.priorValues).toEqual(['24px', '30px', '20px', '18px', '16px'])
+
+        unsub()
+        target.remove()
+      } finally {
+        CSSOverrideManager.VERIFY_RETRY_WINDOW_MS = originalWindow
+        CSSOverrideManager.VERIFY_POLL_INTERVAL_MS = originalPoll
+      }
+    })
+
+    it('ZF0-1293: prior-values ring buffer drops oldest when capacity exceeded', async () => {
+      // Regression test for the bound: a long scrub gesture can emit many
+      // set() calls. The buffer must not grow unbounded.
+      const originalWindow = CSSOverrideManager.VERIFY_RETRY_WINDOW_MS
+      const originalPoll = CSSOverrideManager.VERIFY_POLL_INTERVAL_MS
+      CSSOverrideManager.VERIFY_RETRY_WINDOW_MS = 60
+      CSSOverrideManager.VERIFY_POLL_INTERVAL_MS = 20
+      try {
+        const { onDivergence } = await import('../../src/browser/override-bus.js')
+        const divergences: Array<import('../../src/browser/override-bus.js').OverrideDivergence> = []
+        const unsub = onDivergence(d => divergences.push(d))
+
+        const target = document.createElement('div')
+        target.setAttribute('data-cortex-source', 'a:1:1')
+        target.style.color = 'hotpink' // DOM value will never match
+        document.body.appendChild(target)
+
+        // Eight set() calls — only the last five must survive.
+        for (const v of ['red', 'orange', 'yellow', 'green', 'blue', 'indigo', 'violet', 'black']) {
+          manager.set('a:1:1', 'color', v)
+        }
+        flushRAF()
+        manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'black')
+        manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
+        manager.onHMRApplied()
+        flushRAF()
+        flushRAF()
+        await new Promise(r => setTimeout(r, 100))
+        flushRAF()
+
+        expect(divergences).toHaveLength(1)
+        expect(divergences[0].diagnostics?.priorValues).toEqual(['green', 'blue', 'indigo', 'violet', 'black'])
+
+        unsub()
+        target.remove()
+      } finally {
+        CSSOverrideManager.VERIFY_RETRY_WINDOW_MS = originalWindow
+        CSSOverrideManager.VERIFY_POLL_INTERVAL_MS = originalPoll
+      }
+    })
+
+    it('ZF0-1293: server-mismatch emits divergence with server-mismatch readFrom, no retry duration', async () => {
+      // handleHMRVerified(match=false) path: server refused the edit. No DOM
+      // read happens, so actualReadFrom must be 'server-mismatch' and
+      // retryDurationMs must be undefined. This lets the Panel's Debug
+      // disclosure distinguish "server said no" from "DOM read stale".
+      const { onDivergence } = await import('../../src/browser/override-bus.js')
+      const divergences: Array<import('../../src/browser/override-bus.js').OverrideDivergence> = []
+      const unsub = onDivergence(d => divergences.push(d))
+
+      const target = document.createElement('div')
+      target.setAttribute('data-cortex-source', 'a:1:1')
+      document.body.appendChild(target)
+
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+      manager.handleHMRVerified('edit-1', false, 'jsx-immediate') // server said no
+
+      expect(divergences).toHaveLength(1)
+      expect(divergences[0].actual).toBe('')
+      expect(divergences[0].diagnostics?.actualReadFrom).toBe('server-mismatch')
+      expect(divergences[0].diagnostics?.kindUsed).toBe('jsx-immediate')
+      expect(divergences[0].diagnostics?.retryDurationMs).toBeUndefined()
+      expect(divergences[0].diagnostics?.priorValues).toEqual(['red'])
+
+      unsub()
+      target.remove()
+    })
+
+    it('ZF0-1293: remove() clears prior-values for the key so later episodes start fresh', async () => {
+      // Without this clear, a successfully-verified-and-removed edit leaves
+      // its priorValues in the buffer. A later unrelated edit on the same
+      // key would surface those historical values on its divergence card,
+      // misleading the developer into chasing a value that was long since
+      // resolved.
+      const originalWindow = CSSOverrideManager.VERIFY_RETRY_WINDOW_MS
+      const originalPoll = CSSOverrideManager.VERIFY_POLL_INTERVAL_MS
+      CSSOverrideManager.VERIFY_RETRY_WINDOW_MS = 60
+      CSSOverrideManager.VERIFY_POLL_INTERVAL_MS = 20
+      try {
+        const { onDivergence } = await import('../../src/browser/override-bus.js')
+        const divergences: Array<import('../../src/browser/override-bus.js').OverrideDivergence> = []
+        const unsub = onDivergence(d => divergences.push(d))
+
+        const target = document.createElement('div')
+        target.setAttribute('data-cortex-source', 'a:1:1')
+        document.body.appendChild(target)
+
+        // Episode 1 — resolved cleanly.
+        manager.set('a:1:1', 'color', 'red')
+        manager.remove('a:1:1', 'color')
+        // Episode 2 — starts fresh. Only "blue" should appear in priorValues.
+        target.style.color = 'hotpink'
+        manager.set('a:1:1', 'color', 'blue')
+        flushRAF()
+        manager.trackPendingEdit('edit-2', 'a:1:1', 'color', 'blue')
+        manager.handleHMRVerified('edit-2', true, 'jsx-immediate')
+        manager.onHMRApplied()
+        flushRAF()
+        flushRAF()
+        await new Promise(r => setTimeout(r, 100))
+        flushRAF()
+
+        expect(divergences).toHaveLength(1)
+        // "red" from the resolved prior episode MUST NOT appear.
+        expect(divergences[0].diagnostics?.priorValues).toEqual(['blue'])
+
+        unsub()
+        target.remove()
+      } finally {
+        CSSOverrideManager.VERIFY_RETRY_WINDOW_MS = originalWindow
+        CSSOverrideManager.VERIFY_POLL_INTERVAL_MS = originalPoll
+      }
+    })
+
+    it('ZF0-1293: retry-error path includes errorMessage and distinguishes from stale-value divergence', async () => {
+      // The retry-error catch path fires when the verifier's read throws.
+      // Without errorMessage, the resulting card looks identical to a
+      // "Fast Refresh was slow" divergence — but the user needs to know
+      // the verifier itself failed, not the framework.
+      const originalWindow = CSSOverrideManager.VERIFY_RETRY_WINDOW_MS
+      const originalPoll = CSSOverrideManager.VERIFY_POLL_INTERVAL_MS
+      CSSOverrideManager.VERIFY_RETRY_WINDOW_MS = 60
+      CSSOverrideManager.VERIFY_POLL_INTERVAL_MS = 20
+      try {
+        const { onDivergence } = await import('../../src/browser/override-bus.js')
+        const divergences: Array<import('../../src/browser/override-bus.js').OverrideDivergence> = []
+        const unsub = onDivergence(d => divergences.push(d))
+
+        const target = document.createElement('div')
+        target.setAttribute('data-cortex-source', 'a:1:1')
+        document.body.appendChild(target)
+
+        // The outer tryVerify catch (inside armVerifyRetry) fires only when
+        // something throws OUTSIDE `readUnderlyingValue`'s own catch. Force
+        // it by making `valuesMatch` throw ONLY on retry calls, not on the
+        // first-pass call from `verifyAndRemove` (which runs before
+        // armVerifyRetry and would propagate uncaught if it threw).
+        const origConsoleWarn = console.warn
+        console.warn = () => {}
+        const origValuesMatch = (CSSOverrideManager.prototype as unknown as { valuesMatch: (...a: unknown[]) => boolean }).valuesMatch
+        let valuesMatchCalls = 0
+        ;(CSSOverrideManager.prototype as unknown as { valuesMatch: () => boolean }).valuesMatch = function () {
+          valuesMatchCalls++
+          if (valuesMatchCalls === 1) {
+            // First-pass call from verifyAndRemove — return false so retry arms.
+            return false
+          }
+          throw new TypeError('simulated CSSOM failure')
+        }
+
+        try {
+          manager.set('a:1:1', 'color', 'red')
+          flushRAF()
+          manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+          manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
+          manager.onHMRApplied()
+          flushRAF()
+          flushRAF()
+          await new Promise(r => setTimeout(r, 100))
+          flushRAF()
+        } finally {
+          ;(CSSOverrideManager.prototype as unknown as { valuesMatch: (...a: unknown[]) => boolean }).valuesMatch = origValuesMatch
+          console.warn = origConsoleWarn
+        }
+
+        expect(divergences.length).toBeGreaterThanOrEqual(1)
+        const errored = divergences.find(d => d.diagnostics?.errorMessage !== undefined)
+        expect(errored).toBeDefined()
+        expect(errored?.diagnostics?.errorMessage).toContain('simulated CSSOM failure')
+        // Actual is empty — the read was aborted, so there's no value to report.
+        expect(errored?.actual).toBe('')
+
+        unsub()
+        target.remove()
+      } finally {
+        CSSOverrideManager.VERIFY_RETRY_WINDOW_MS = originalWindow
+        CSSOverrideManager.VERIFY_POLL_INTERVAL_MS = originalPoll
+      }
+    })
+
+    it('ZF0-1293: computed-style read (non-jsx kind) is tagged as computed-style', async () => {
+      // Disambiguation: when kind is classOp/deferred, readUnderlyingValue
+      // detaches the override <style> and uses getComputedStyle. The
+      // actualReadFrom tag must reflect that path.
+      const originalWindow = CSSOverrideManager.VERIFY_RETRY_WINDOW_MS
+      const originalPoll = CSSOverrideManager.VERIFY_POLL_INTERVAL_MS
+      CSSOverrideManager.VERIFY_RETRY_WINDOW_MS = 60
+      CSSOverrideManager.VERIFY_POLL_INTERVAL_MS = 20
+      try {
+        const { onDivergence } = await import('../../src/browser/override-bus.js')
+        const divergences: Array<import('../../src/browser/override-bus.js').OverrideDivergence> = []
+        const unsub = onDivergence(d => divergences.push(d))
+
+        const target = document.createElement('div')
+        target.setAttribute('data-cortex-source', 'a:1:1')
+        document.body.appendChild(target)
+
+        // Mock getComputedStyle to return a mismatching value regardless of
+        // DOM state — proves the computed-style path was taken. Also records
+        // whether the override <style> was detached at the moment of call —
+        // that detach is the real purpose of the computed-style branch, and
+        // a regression that skipped it would produce wrong values in prod.
+        let styleDetachedAtReadTime = false
+        const origCS = window.getComputedStyle
+        window.getComputedStyle = ((el: Element, ps?: string | null) => {
+          if (el === target) {
+            if (document.head.querySelector('[data-cortex-override]') === null) {
+              styleDetachedAtReadTime = true
+            }
+            return { getPropertyValue: (_prop: string) => 'purple' } as CSSStyleDeclaration
+          }
+          return origCS.call(window, el, ps)
+        }) as typeof window.getComputedStyle
+
+        try {
+          manager.set('a:1:1', 'color', 'red')
+          flushRAF()
+          manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+          manager.handleHMRVerified('edit-1', true, 'immediate') // classOp kind → computed-style path
+          manager.onHMRApplied()
+          flushRAF()
+          flushRAF()
+          await new Promise(r => setTimeout(r, 100))
+          flushRAF()
+        } finally {
+          window.getComputedStyle = origCS
+        }
+
+        expect(divergences).toHaveLength(1)
+        expect(divergences[0].diagnostics?.actualReadFrom).toBe('computed-style')
+        expect(divergences[0].diagnostics?.kindUsed).toBe('immediate')
+        expect(divergences[0].actual).toBe('purple')
+        // The detach-before-read is the whole point of the computed-style branch:
+        // without it, `getComputedStyle` would pick up the override `!important`
+        // rule and the override could never be removed.
+        expect(styleDetachedAtReadTime).toBe(true)
 
         unsub()
         target.remove()
