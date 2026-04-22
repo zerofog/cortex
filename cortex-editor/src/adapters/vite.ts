@@ -94,9 +94,13 @@ if (import.meta.hot) {
     if (Array.isArray(update?.updates)) {
       files = update.updates.map((u) => u.path).filter((p) => typeof p === 'string');
     } else if (update != null) {
-      // Vite schema drift: log once so silent degradation to full-refresh
-      // mode leaves a breadcrumb in devtools instead of disappearing.
-      console.warn('[cortex] unexpected vite:afterUpdate shape', update);
+      // Vite schema drift: log ONCE so the first divergence leaves a
+      // breadcrumb in devtools; without a guard, every subsequent HMR
+      // cycle would spam the same warning.
+      if (!window.__cortex_vite_shape_warned__) {
+        window.__cortex_vite_shape_warned__ = true;
+        console.warn('[cortex] unexpected vite:afterUpdate shape', update);
+      }
       files = undefined;
     }
     window.__cortex_channel__?.handleServerMessage({ type: 'hmr-applied', files });

@@ -121,6 +121,41 @@ describe('hmrFilesAffectElement', () => {
     }
   })
 
+  it('crosses shadow boundaries during ancestor walk (regression — Copilot review)', () => {
+    // Selected element inside a web-component's shadow tree: `parentElement`
+    // returns null at the shadow root, but the HOST has a data-cortex-source
+    // in the light tree that should match. Without the shadow-host handoff,
+    // the filter silently skipped refresh for shadow-hosted selections.
+    const host = document.createElement('div')
+    host.setAttribute('data-cortex-source', 'src/ancestor.tsx:10:1')
+    document.body.appendChild(host)
+    orphans.push(host)
+    const shadow = host.attachShadow({ mode: 'open' })
+    const inner = document.createElement('div')
+    inner.setAttribute('data-cortex-source', 'src/leaf.tsx:5:3')
+    shadow.appendChild(inner)
+    // Ancestor source file is present in the HMR files list; the walk must
+    // cross the shadow boundary to find it.
+    expect(hmrFilesAffectElement(['src/ancestor.tsx'], inner)).toBe(true)
+    // Self-source still matches (doesn't require crossing).
+    expect(hmrFilesAffectElement(['src/leaf.tsx'], inner)).toBe(true)
+    // Unrelated file: still false.
+    expect(hmrFilesAffectElement(['src/unrelated.tsx'], inner)).toBe(false)
+  })
+
+  it('matches CSS files that have a cache-bust query string (regression — Copilot review)', () => {
+    // Vite appends `?t=<timestamp>` to asset paths on HMR. Because `CSS_EXT`
+    // is anchored on `$`, the classification has to happen AFTER query-string
+    // stripping. Without this, every stylesheet HMR cycle silently fell
+    // through the extension check and the Panel stayed stale on real Vite
+    // — would have caught the ship-blocker in automated tests if it had
+    // existed at the time.
+    const el = build(['src/leaf.tsx:5:3'])
+    expect(hmrFilesAffectElement(['/src/app.css?t=12345'], el)).toBe(true)
+    expect(hmrFilesAffectElement(['styles/theme.scss?import'], el)).toBe(true)
+    expect(hmrFilesAffectElement(['/src/app.css?t=1&inline'], el)).toBe(true)
+  })
+
   it('treats virtual modules as unknown → refresh (Tailwind JIT, virtual:, /@id/, null-prefix)', () => {
     // Vite and plugins emit non-file paths for CSS-in-JS runtimes, virtual
     // imports, and Rollup virtual module IDs. We can't classify their impact,

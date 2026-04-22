@@ -17,9 +17,14 @@ export interface SelectionMetadata {
   /** `data-cortex-source` value (file:line:col) at selection time.
    *  Null if the selected element had no source attribute. */
   source: string | null
-  /** Zero-based index among siblings sharing the same `source`. `-1` when
-   *  source is null or the element isn't among its own siblings (shouldn't
-   *  happen in practice; guarded). */
+  /** Zero-based index among elements returned by `findSourceMatches()` for
+   *  the same `source` — which are all elements bearing that `data-cortex-
+   *  source` value across the document (and open shadow roots, via
+   *  fallback), not just DOM siblings. For the typical `.map()` case this
+   *  is the sibling index; for loop-rendered elements scattered across
+   *  different parent subtrees it's still a stable position within the
+   *  source group. `-1` when source is null or the element isn't among
+   *  matches (shouldn't happen in practice; guarded). */
   index: number
   /** Trimmed textContent at selection time. Used to distinguish array
    *  reorder from in-place content edit. Empty string is a valid hash for
@@ -152,10 +157,12 @@ const CSS_EXT = /\.(css|scss|sass|less|styl|stylus)$/i
 
 /** Virtual/synthetic module paths that Vite and plugins emit for CSS-in-JS
  *  runtimes (Tailwind JIT, Linaria, Emotion compile mode), virtual:* imports,
- *  Rollup's `\0`-prefixed module IDs, and `/@id/` / `/@fs/` synthetic paths.
+ *  Rollup's `\0`-prefixed module IDs, and `@id/` / `@fs/` / `@vite/` Vite
+ *  synthetic prefixes. Matched AFTER path normalization (leading `/` and
+ *  query string already stripped), so `/@id/...` shows up here as `@id/...`.
  *  We can't classify what these affect, so err toward refresh rather than
  *  silently skip. Missing this broke real Tailwind theme edits in testing. */
-const VIRTUAL_MODULE = /(^\0|^\/@|virtual:)/
+const VIRTUAL_MODULE = /^(\0|@id\/|@fs\/|@vite\/|virtual:)/
 
 /** Default maximum depth for ancestor walk in `hmrFilesAffectElement`. Chosen
  *  empirically — 20 levels covers typical React component nesting without the
@@ -183,26 +190,34 @@ export function hmrFilesAffectElement(
   element: HTMLElement,
   maxDepth: number = DEFAULT_ANCESTOR_DEPTH,
 ): boolean {
+  // Normalize paths FIRST so classification (CSS_EXT, VIRTUAL_MODULE) and
+  // ancestor-file lookup both operate on the same shape. Vite's
+  // `update.updates[].path` is URL-style with a leading `/` and may include
+  // a cache-bust query string (e.g. `/src/app.css?t=12345`). `CSS_EXT` is
+  // anchored on `$`, so a query string would silently defeat the CSS short-
+  // circuit and skip the refresh on stylesheet-only HMR cycles.
+  // `data-cortex-source` stores the relative form without leading slash,
+  // which is what ancestor-walk comparison expects.
+  const normalized = files.map(p => p.replace(/^\/+/, '').split('?')[0] ?? '')
+
   // Any CSS file OR virtual module: cascade (or runtime-injected styles)
   // may affect anything visible. Virtual modules are non-classifiable — we
   // default to refreshing rather than risking a stale Panel on Tailwind JIT
   // regenerations, CSS-in-JS runtime updates, or Vite plugin synthetics.
-  if (files.some(f => CSS_EXT.test(f) || VIRTUAL_MODULE.test(f))) return true
+  if (normalized.some(f => CSS_EXT.test(f) || VIRTUAL_MODULE.test(f))) return true
 
-  // Path normalization: Vite's `update.updates[].path` is URL-style with a
-  // leading `/` (e.g. `/src/App.tsx`) and may include query strings. The
-  // source-transform stores `data-cortex-source` as relative without the
-  // leading slash (e.g. `src/App.tsx:12:3`). Normalize both sides to the
-  // same shape before comparing, or the filter never matches JSX edits —
-  // Round 2 ship-blocker.
-  const normalizePath = (p: string): string =>
-    p.replace(/^\/+/, '').split('?')[0] ?? ''
-  const normalizedFiles = new Set(files.map(normalizePath))
+  const normalizedFiles = new Set(normalized)
 
   // Source format is `relativePath:line:col` (per source-transform.ts:252);
   // strip only the trailing `:line:col` so file paths containing colons (rare
   // but possible on Unix) don't get truncated.
   const stripLineCol = (src: string): string => src.replace(/:\d+:\d+$/, '')
+
+  // Ancestor walk with shadow-boundary crossing. When `parentElement` is null
+  // and the current node is inside a ShadowRoot, continue from the host so
+  // shadow-hosted selections still pick up ancestor source-file changes (e.g.
+  // a web-component host app where cortex is selecting elements inside the
+  // light-tree projection of a shadow component).
   let current: HTMLElement | null = element
   let depth = 0
   while (current && depth < maxDepth) {
@@ -211,7 +226,13 @@ export function hmrFilesAffectElement(
       const file = stripLineCol(src)
       if (file && normalizedFiles.has(file)) return true
     }
-    current = current.parentElement
+    const parentEl: HTMLElement | null = current.parentElement
+    if (parentEl) {
+      current = parentEl
+    } else {
+      const root = current.getRootNode()
+      current = root instanceof ShadowRoot ? (root.host as HTMLElement) : null
+    }
     depth++
   }
   return false

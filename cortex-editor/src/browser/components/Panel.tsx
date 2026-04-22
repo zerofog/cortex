@@ -412,15 +412,13 @@ export function Panel({
     return onOverrideChange(() => setStyleVersion(v => v + 1))
   }, [])
 
-  // Re-read computed styles when CortexApp signals a vite:afterUpdate (ZF0-1292).
-  // Covers stylesheet-only source edits (App.css rule changes, @theme token
+  // `hmrAppliedVersion` is a dep on the `computedStyles` useMemo below so
+  // HMR-driven invalidation happens in the render pass triggered by the
+  // prop change — no intermediate state bump, no extra render. Covers
+  // stylesheet-only source edits (App.css rule changes, @theme token
   // changes, ancestor cascade changes) that don't mutate the selected
   // element's own class/style attributes and therefore don't trip the
-  // MutationObserver below. The initial-mount bump is harmless — the
-  // computedStyles useMemo is idempotent.
-  useEffect(() => {
-    setStyleVersion(v => v + 1)
-  }, [hmrAppliedVersion])
+  // MutationObserver below.
 
   // Observe class AND style attribute mutations on the selected element.
   // The Panel lives in a shadow-DOM Preact tree decoupled from the user's
@@ -559,7 +557,7 @@ export function Panel({
     }
 
     return { computedStyles: parsed, dimmedProperties: dimmed, mixedProperties: mixed, parentDisplay: computedParentDisplay }
-  }, [element, styleVersion, activeState, activePseudo, sharedInfo, editScope])
+  }, [element, styleVersion, hmrAppliedVersion, activeState, activePseudo, sharedInfo, editScope])
 
   const availableWeights = useMemo(
     () => {
