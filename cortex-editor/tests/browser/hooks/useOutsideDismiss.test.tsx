@@ -188,9 +188,10 @@ describe('useOutsideDismiss', () => {
     // legitimate outside-popover dismiss. Symptom: clicking elsewhere
     // inside the Panel's shadow left the chip picker stuck open.
     //
-    // Open shadow is used here because happy-dom retargets composedPath
-    // reliably for open roots; the fix applies identically to closed
-    // roots where the document-level listener is the fallback path.
+    // Open shadow is used because happy-dom retargets composedPath
+    // reliably for open roots. The closed-shadow case shares the same
+    // `ownRoot` branch but can't be verified here — see the `it.skip`
+    // above; coverage is deferred to a real-browser Playwright suite.
     const host = document.createElement('div')
     document.body.appendChild(host)
     const shadow = host.attachShadow({ mode: 'open' })

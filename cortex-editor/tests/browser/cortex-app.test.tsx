@@ -1361,12 +1361,14 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
     // Wait for the second rAF + Preact commit.
     await new Promise(r => setTimeout(r, 50))
 
-    // Selection should have been re-resolved to the replacement by the
-    // async (double-rAF) pass.
+    // Falsifiable observable: the Panel stays populated. If the async
+    // (double-rAF) pass didn't re-resolve, `selectedElement` would be
+    // null (the original <p> was removed), and the Panel would render
+    // its empty-state prompt. The tag swap from <p> to <span> via the
+    // replacement node is observable through the header label too, but
+    // the empty-state guard is the tightest assertion for "async
+    // retry actually happened."
     expect(root.textContent).not.toContain('Click any element to start editing')
-    const replacementNode = document.querySelector(`[data-cortex-source="${SOURCE}"]`)
-    expect(replacementNode).not.toBeNull()
-    expect((replacementNode as HTMLElement).isConnected).toBe(true)
   })
 
   it('clears selection when HMR removes the selected element entirely', async () => {
@@ -1485,19 +1487,23 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     gcs.mockRestore()
   })
 
-  it('triggers Panel refresh when hmr files include a CSS file', async () => {
+  // All positive "files ∈ refresh branch" cases share the same setup and
+  // observable (gcs call count bumps). Parameterizing by the files payload
+  // keeps the branch coverage explicit and collapses four near-identical
+  // tests into one. Negative case + ancestor-match remain separate (unique
+  // DOM setup / inverted assertion).
+  it.each<{ label: string; files: string[] | undefined }>([
+    { label: 'CSS file in list', files: ['src/bar.tsx', 'src/app.css'] },
+    { label: "selected element's own source file", files: ['src/foo.tsx'] },
+    { label: 'no files field (backward-compat with older server)', files: undefined },
+    { label: 'empty files array (server signaled a cycle but could not enumerate files)', files: [] },
+  ])('triggers Panel refresh when hmr-applied has $label', async ({ files }) => {
     const { channel, gcs } = await setup('src/foo.tsx:10:5')
     const before = gcs.mock.calls.length
-    channel._simulateMessage({ type: 'hmr-applied', files: ['src/bar.tsx', 'src/app.css'] })
-    await new Promise(r => setTimeout(r, 50))
-    expect(gcs.mock.calls.length).toBeGreaterThan(before)
-    gcs.mockRestore()
-  })
-
-  it('triggers Panel refresh when hmr files include the selected element\'s source file', async () => {
-    const { channel, gcs } = await setup('src/foo.tsx:10:5')
-    const before = gcs.mock.calls.length
-    channel._simulateMessage({ type: 'hmr-applied', files: ['src/foo.tsx'] })
+    const msg = files === undefined
+      ? { type: 'hmr-applied' as const }
+      : { type: 'hmr-applied' as const, files }
+    channel._simulateMessage(msg)
     await new Promise(r => setTimeout(r, 50))
     expect(gcs.mock.calls.length).toBeGreaterThan(before)
     gcs.mockRestore()
@@ -1541,26 +1547,4 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     gcs.mockRestore()
   })
 
-  it('triggers Panel refresh when hmr-applied has no files field (backward-compat)', async () => {
-    const { channel, gcs } = await setup('src/foo.tsx:10:5')
-    const before = gcs.mock.calls.length
-    // Backward-compat: older server didn't include files → assume all may be affected.
-    channel._simulateMessage({ type: 'hmr-applied' })
-    await new Promise(r => setTimeout(r, 50))
-    expect(gcs.mock.calls.length).toBeGreaterThan(before)
-    gcs.mockRestore()
-  })
-
-  it('triggers Panel refresh when hmr-applied has an empty files array (treat as unknown)', async () => {
-    const { channel, gcs } = await setup('src/foo.tsx:10:5')
-    const before = gcs.mock.calls.length
-    // Round 2 decision: empty files array means "server signaled a cycle
-    // but couldn't list files" (e.g. CSS-in-JS runtime injection, future
-    // Vite payload edge cases). Err toward refresh — same posture as
-    // when `files` is absent entirely.
-    channel._simulateMessage({ type: 'hmr-applied', files: [] })
-    await new Promise(r => setTimeout(r, 50))
-    expect(gcs.mock.calls.length).toBeGreaterThan(before)
-    gcs.mockRestore()
-  })
 })
