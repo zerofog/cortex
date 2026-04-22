@@ -220,6 +220,97 @@ describe('InlineStyleRewriter.setAndRemoveInTransaction', () => {
     expect(res.success).toBe(true)
     expect(txn.getCurrentContent()).toBe(content)
   })
+
+  // ── ZF0-1293: shorthand-clobber guard (transaction path) ──────
+  //
+  // Shared guard scenarios (family-specific inputs, same `needsShorthandReorder`
+  // branch) are covered in inline-style.test.ts. These two tests cover the
+  // DISTINCT behavior of `setAndRemoveInTransaction` — the collect-move-verify
+  // fix-up pass that runs AFTER the sets loop, which handles cases the per-set
+  // guard in `rewrite()` cannot reach.
+
+  describe('shorthand-clobber fix-up pass in setAndRemoveInTransaction (ZF0-1293)', () => {
+    it('fix-up pass re-orders a longhand set when a shorthand exists later in the literal', async () => {
+      // Basic transaction-path coverage — proves the fix-up pass runs for
+      // the same unsafe-order scenario as rewrite(). If this fails while
+      // inline-style.test.ts passes, the fix-up pass is broken independently.
+      const content = 'export const A = () => <div style={{ paddingBottom: "10px", padding: "30px" }} />\n'
+      const txn = await createJsxTransaction('/v/A.tsx', content)
+      const res = rewriter.setAndRemoveInTransaction(txn, {
+        line: 1, col: 25,
+        sets: [{ property: 'padding-bottom', value: '16px' }],
+        removes: [],
+      })
+      expect(res.success).toBe(true)
+      const out = txn.getCurrentContent()
+      expect(out.indexOf('paddingBottom:')).toBeGreaterThan(out.indexOf('padding:'))
+      expect(out).toContain('paddingBottom: "16px"')
+      expect(out).toContain('padding: "30px"')
+    })
+
+    it('triple-shorthand chain: border + borderWidth + borderTopWidth stabilize to correct cascade order', async () => {
+      // Adversarial-review finding: the fix-up pass previously used
+      // collect-then-apply-in-collection-order which produced the wrong
+      // final order for multi-level chains. After moving borderTopWidth
+      // to the end, borderWidth still needed moving past border — but
+      // the original algorithm had already committed its decisions and
+      // appended borderWidth AFTER borderTopWidth, re-introducing the
+      // clobber. The iterate-until-stable algorithm handles this by
+      // restarting the scan after each move.
+      //
+      // Required final order: border → borderWidth → borderTopWidth so
+      // React applies them in CSS-cascade-correct specificity order
+      // (border sets all 4 sides thick; borderWidth overrides all 4
+      // widths to 2px; borderTopWidth overrides top-width only).
+      const content = 'export const A = () => <div style={{ borderTopWidth: "1px", borderWidth: "2px", border: "thick solid red" }} />\n'
+      const txn = await createJsxTransaction('/v/A.tsx', content)
+      const res = rewriter.setAndRemoveInTransaction(txn, {
+        line: 1, col: 25,
+        // Update the most-specific longhand. Forces the fix-up to reorder
+        // the full three-level chain.
+        sets: [{ property: 'border-top-width', value: '4px' }],
+        removes: [],
+      })
+      expect(res.success).toBe(true)
+      const out = txn.getCurrentContent()
+      const idxBorder = out.search(/\bborder:/)
+      const idxBorderWidth = out.search(/\bborderWidth:/)
+      const idxBorderTopWidth = out.indexOf('borderTopWidth:')
+      expect(idxBorder).toBeGreaterThan(-1)
+      expect(idxBorderWidth).toBeGreaterThan(-1)
+      expect(idxBorderTopWidth).toBeGreaterThan(-1)
+      // Final order: border → borderWidth → borderTopWidth
+      expect(idxBorderWidth).toBeGreaterThan(idxBorder)
+      expect(idxBorderTopWidth).toBeGreaterThan(idxBorderWidth)
+      expect(out).toContain('borderTopWidth: "4px"')
+      expect(out).toContain('borderWidth: "2px"')  // preserved, now safely ordered
+      expect(out).toContain('border: "thick solid red"')
+    })
+
+    it('compound sets: fix-up pass handles shorthand-AFTER-longhand added in same call (bidirectional)', async () => {
+      // The unique-to-transaction branch: the caller adds BOTH a longhand
+      // and its parent shorthand in one `sets` array. Each `set` individually
+      // looks safe (no existing longhand before shorthand, or vice versa),
+      // but the combined insertion order puts longhand before shorthand.
+      // The rewrite() path can't hit this branch — only the fix-up pass
+      // catches it.
+      const content = 'export const A = () => <div style={{ color: "red" }} />\n'
+      const txn = await createJsxTransaction('/v/A.tsx', content)
+      const res = rewriter.setAndRemoveInTransaction(txn, {
+        line: 1, col: 25,
+        sets: [
+          { property: 'padding-bottom', value: '16px' },  // would land first
+          { property: 'padding', value: '30px' },          // would land after → unsafe
+        ],
+        removes: [],
+      })
+      expect(res.success).toBe(true)
+      const out = txn.getCurrentContent()
+      expect(out.indexOf('paddingBottom:')).toBeGreaterThan(out.search(/\bpadding:/))
+      expect(out).toContain('paddingBottom: "16px"')
+      expect(out).toContain('padding: "30px"')
+    })
+  })
 })
 
 describe('compound transaction: classOp + inline ops on the same element', () => {

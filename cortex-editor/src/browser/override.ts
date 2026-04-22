@@ -1,9 +1,17 @@
 import type { EditKind } from '../adapters/types.js'
 import { VALID_PROPERTY, VALID_VALUE, REJECT_URL, REJECT_COMMENT } from './css-validation.js'
 import { emitOverrideChange, emitDivergence } from './override-bus.js'
+import type { DivergenceSource, OverrideDivergenceDiagnostics } from './override-bus.js'
 
 /** Client-side TTL for pending edits — slightly longer than server's 30s to account for transit */
 const PENDING_EDIT_TTL_MS = 35_000
+
+/** Default `DivergenceSource` mapping for an EditKind — matches the dispatch
+ *  in `readUnderlyingValue`. Kept as a module-scope helper so the retry-error
+ *  fallback emission uses the same mapping as the main read path. */
+function defaultReadFromForKind(kind: EditKind | undefined): DivergenceSource {
+  return kind === 'jsx-immediate' ? 'inline-style' : 'computed-style'
+}
 
 /** Diagnostic trace — gated by window.__CORTEX_DEBUG_OVERRIDES__. Set it to true in
  *  devtools to log every step of the override lifecycle. Intentionally lightweight —
@@ -33,6 +41,14 @@ export class CSSOverrideManager {
   private overrides = new Map<string, Map<string, string>>()
   private stateOverrides = new Map<string, Map<string, string>>()
   private pendingEdits = new Map<string, { sources: string[]; property: string; value: string; pseudo?: '::before' | '::after'; timestamp: number }>()
+
+  /** ZF0-1293: per-key ring buffer of recent `set()` values. When a divergence
+   *  fires with an unexplained `actual`, this buffer tells us whether the
+   *  user previously set that property to that exact value — the typical
+   *  signature of a stale-inline-style / Fast-Refresh-stall scenario.
+   *  Bounded at 5 most-recent per key; no growth risk (key-level cap, not global). */
+  private static readonly PRIOR_VALUES_MAX = 5
+  private priorValues = new Map<string, string[]>()
 
   constructor() {
     this.styleEl = document.createElement('style')
@@ -84,8 +100,64 @@ export class CSSOverrideManager {
       this.overrides.set(key, props)
     }
     props.set(property, value)
+    this.recordPriorValue(source, property, pseudo, value)
     trace('set', { source, property, value, pseudo })
     this.scheduleRebuild()
+  }
+
+  /** Ring-buffer the last N values set for this source+property+pseudo key.
+   *  Dropped silently when the cap is reached (oldest first). Read back via
+   *  `getPriorValues` for divergence diagnostics. */
+  private recordPriorValue(source: string, property: string, pseudo: '::before' | '::after' | undefined, value: string): void {
+    const key = this.priorValuesKey(source, property, pseudo)
+    const buf = this.priorValues.get(key)
+    if (!buf) {
+      this.priorValues.set(key, [value])
+      return
+    }
+    // On each push, if the buffer is at capacity, drop exactly one oldest.
+    // `shift()` is O(cap) — fine at cap=5 — and idiomatic; avoids `splice`'s
+    // extra allocation for the return array. Invariant: after every push,
+    // buf.length <= PRIOR_VALUES_MAX.
+    buf.push(value)
+    if (buf.length > CSSOverrideManager.PRIOR_VALUES_MAX) buf.shift()
+  }
+
+  private priorValuesKey(source: string, property: string, pseudo: '::before' | '::after' | undefined): string {
+    return `${source}\0${property}\0${pseudo ?? ''}`
+  }
+
+  /** Snapshot — returns a COPY of the buffer, not the live reference.
+   *  Critical for diagnostic-payload immutability: `recordPriorValue` mutates
+   *  the underlying array in place via push/shift, so handing out the live
+   *  reference would cause already-emitted divergence payloads (and UI state
+   *  derived from them) to change retroactively when later `set()` calls fire
+   *  on the same key. The `readonly string[]` return type is TypeScript-only
+   *  (doesn't prevent runtime mutation by callers with the original ref). */
+  private getPriorValues(source: string, property: string, pseudo: '::before' | '::after' | undefined): readonly string[] {
+    const buf = this.priorValues.get(this.priorValuesKey(source, property, pseudo))
+    return buf ? [...buf] : []
+  }
+
+  /** Assemble the diagnostics payload attached to a divergence emission.
+   *  Kept separate from the emit sites so the shape stays consistent across
+   *  retry-timeout, retry-error, and server-mismatch paths. */
+  private buildDiagnostics(
+    source: string,
+    property: string,
+    pseudo: '::before' | '::after' | undefined,
+    kind: EditKind | undefined,
+    readFrom: DivergenceSource,
+    retryStartedAt: number | null,
+    errorMessage?: string,
+  ): OverrideDivergenceDiagnostics {
+    return {
+      actualReadFrom: readFrom,
+      kindUsed: kind,
+      priorValues: this.getPriorValues(source, property, pseudo),
+      retryDurationMs: retryStartedAt === null ? undefined : performance.now() - retryStartedAt,
+      errorMessage,
+    }
   }
 
   /** Remove an override. If property omitted, removes all overrides for source(+pseudo).
@@ -102,8 +174,27 @@ export class CSSOverrideManager {
       if (this.overrides.get(key)?.size === 0) {
         this.overrides.delete(key)
       }
+      // ZF0-1293: an override's episode ends here — the verifier accepted
+      // the committed value or the user explicitly cleared it. Drop the
+      // prior-values buffer for this key so a later set()→diverge cycle
+      // doesn't surface historically-stale values as if they were recent
+      // scrubs within the same episode.
+      this.priorValues.delete(this.priorValuesKey(source, property, pseudo))
     } else {
       this.overrides.delete(key)
+      // Same reasoning, but for all properties on this source+pseudo.
+      // Collect-then-delete — iterating and mutating a Map is spec-safe but
+      // a recurring review footgun that can be silently broken by a naive
+      // refactor. The snapshot pattern makes the safety self-evident.
+      const prefix = `${source}\0`
+      const suffix = `\0${pseudo ?? ''}`
+      const toDelete: string[] = []
+      for (const pvKey of this.priorValues.keys()) {
+        if (pvKey.startsWith(prefix) && pvKey.endsWith(suffix)) {
+          toDelete.push(pvKey)
+        }
+      }
+      for (const pvKey of toDelete) this.priorValues.delete(pvKey)
     }
     // Synchronous rebuild — prevents one-frame flicker when HMR clears overrides.
     // RAF batching would show the old override for one extra frame before removal.
@@ -181,7 +272,7 @@ export class CSSOverrideManager {
       return
     }
 
-    const actual = this.readUnderlyingValue(el, property, pseudo, kind)
+    const { value: actual } = this.readUnderlyingValue(el, property, pseudo, kind)
     if (this.valuesMatch(actual, expectedValue, property)) {
       trace('verify:match', { source, property, expectedValue })
       this.remove(source, property, pseudo)
@@ -217,6 +308,10 @@ export class CSSOverrideManager {
     let observer: MutationObserver | null = null
     let pollId: number | null = null
     let timeoutId: number | null = null
+    // ZF0-1293: track arm → emit duration so divergence diagnostics reveal
+    // whether the retry window was exhausted (slow React) or short-circuited
+    // (e.g., retry-error path with no polling attempts).
+    const retryStartedAt = performance.now()
 
     const dispose = (): void => {
       if (disposed) return
@@ -253,7 +348,7 @@ export class CSSOverrideManager {
           this.remove(source, property, pseudo)
           return
         }
-        const actual = this.readUnderlyingValue(currentEl, property, pseudo, kind)
+        const { value: actual, readFrom } = this.readUnderlyingValue(currentEl, property, pseudo, kind)
         if (this.valuesMatch(actual, expectedValue, property)) {
           trace('verify:match-after-retry', { source, property, expectedValue })
           dispose()
@@ -263,7 +358,10 @@ export class CSSOverrideManager {
         if (isFinal) {
           trace('verify:retry-timeout', { source, property, expectedValue, actual })
           dispose()
-          emitDivergence({ source, property, expected: expectedValue, actual, pseudo })
+          emitDivergence({
+            source, property, expected: expectedValue, actual, pseudo,
+            diagnostics: this.buildDiagnostics(source, property, pseudo, kind, readFrom, retryStartedAt),
+          })
         }
       } catch (err) {
         // Throwing inside a MutationObserver callback is silently swallowed by
@@ -273,7 +371,18 @@ export class CSSOverrideManager {
         console.warn('[cortex] override verify retry error:', err)
         trace('verify:retry-error', { source, property })
         dispose()
-        emitDivergence({ source, property, expected: expectedValue, actual: '', pseudo })
+        emitDivergence({
+          source, property, expected: expectedValue, actual: '', pseudo,
+          // Read path unknown (exception aborted the read) — mark with the
+          // kind's default path (same mapping as `readUnderlyingValue`) so
+          // downstream consumers still see a coherent signal. The caught
+          // error is preserved in `errorMessage` so the Debug disclosure
+          // distinguishes this from a "stale inline style" divergence.
+          diagnostics: this.buildDiagnostics(
+            source, property, pseudo, kind,
+            defaultReadFromForKind(kind), retryStartedAt, String(err),
+          ),
+        })
       }
     }
 
@@ -319,22 +428,28 @@ export class CSSOverrideManager {
     property: string,
     pseudo: '::before' | '::after' | undefined,
     kind: EditKind | undefined,
-  ): string {
+  ): { value: string; readFrom: DivergenceSource } {
     if (kind === 'jsx-immediate') {
-      return (el as HTMLElement).style.getPropertyValue(property).trim()
+      return {
+        value: (el as HTMLElement).style.getPropertyValue(property).trim(),
+        readFrom: 'inline-style',
+      }
     }
     const parent = this.styleEl.parentNode
     const nextSibling = this.styleEl.nextSibling
     if (parent) parent.removeChild(this.styleEl)
     try {
-      return getComputedStyle(el, pseudo || undefined).getPropertyValue(property).trim()
+      return {
+        value: getComputedStyle(el, pseudo || undefined).getPropertyValue(property).trim(),
+        readFrom: 'computed-style',
+      }
     } catch (err) {
       // Unexpected: getComputedStyle should not throw for any attached element
       // + valid property combo. Log so the failure reaches a developer; the
       // empty-string return will trip divergence with actual='' so the user
       // is notified too (no silent revert).
       console.warn('[cortex] readUnderlyingValue failed for', property, err)
-      return ''
+      return { value: '', readFrom: 'computed-style' }
     } finally {
       if (parent) {
         try {
@@ -461,7 +576,7 @@ export class CSSOverrideManager {
     // emit a false divergence against the user's newer intent.
     for (const [existingId, entry] of this.pendingEdits) {
       if (entry.property === property && entry.pseudo === pseudo &&
-          entry.sources.some(s => sourceArray.includes(s))) {
+        entry.sources.some(s => sourceArray.includes(s))) {
         this.pendingEdits.delete(existingId)
       }
     }
@@ -506,7 +621,13 @@ export class CSSOverrideManager {
       // reader divergence. Surface this immediately: the override stays, but the
       // Panel gets a divergence card so the user learns something went wrong.
       for (const source of pending.sources) {
-        emitDivergence({ source, property: pending.property, expected: pending.value, actual: '', pseudo: pending.pseudo })
+        emitDivergence({
+          source, property: pending.property, expected: pending.value, actual: '', pseudo: pending.pseudo,
+          // No DOM read happened — the signal came from the server. Distinct
+          // from the retry-timeout case so the card's Debug disclosure can
+          // display "server mismatch" rather than "DOM read mismatch".
+          diagnostics: this.buildDiagnostics(source, pending.property, pending.pseudo, kind, 'server-mismatch', null),
+        })
       }
       return
     }
@@ -577,6 +698,7 @@ export class CSSOverrideManager {
     this.overrides.clear()
     this.stateOverrides.clear()
     this.pendingEdits.clear()
+    this.priorValues.clear()
     this.cancelPendingRebuild()
     this.rebuild()
   }
@@ -589,6 +711,7 @@ export class CSSOverrideManager {
     this.overrides.clear()
     this.stateOverrides.clear()
     this.pendingEdits.clear()
+    this.priorValues.clear()
     this.styleEl.remove()
     if (this.canaryEl) {
       this.canaryEl.remove()
@@ -603,8 +726,8 @@ export class CSSOverrideManager {
     for (const compositeKey of allKeys) {
       // Split pseudo suffix from the composite key
       const pseudoSuffix = compositeKey.endsWith('::before') ? '::before'
-                         : compositeKey.endsWith('::after') ? '::after'
-                         : ''
+        : compositeKey.endsWith('::after') ? '::after'
+          : ''
       const rawSource = pseudoSuffix ? compositeKey.slice(0, -pseudoSuffix.length) : compositeKey
 
       const userProps = this.overrides.get(compositeKey)
