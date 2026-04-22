@@ -110,7 +110,7 @@ describe('EditErrorCard', () => {
   describe('debug disclosure (ZF0-1293)', () => {
     const diagnostics = {
       actualReadFrom: 'inline-style' as const,
-      kindUsed: 'jsx-immediate',
+      kindUsed: 'jsx-immediate' as const,
       priorValues: ['24px', '30px', '16px'],
       retryDurationMs: 812,
     }
@@ -193,7 +193,7 @@ describe('EditErrorCard', () => {
           reason: 'Preview shows "red" but the saved file renders "(empty)". The edit may not have propagated.',
           diagnostics: {
             actualReadFrom: 'computed-style' as const,
-            kindUsed: 'immediate',
+            kindUsed: 'immediate' as const,
             priorValues: ['red'],
             retryDurationMs: 72,
             errorMessage: 'TypeError: simulated CSSOM failure',
@@ -220,7 +220,7 @@ describe('EditErrorCard', () => {
           reason: 'Server refused the edit.',
           diagnostics: {
             actualReadFrom: 'server-mismatch' as const,
-            kindUsed: 'jsx-immediate',
+            kindUsed: 'jsx-immediate' as const,
             priorValues: ['red'],
             retryDurationMs: undefined,
           },

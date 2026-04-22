@@ -10,6 +10,8 @@
  * surface the mismatch as an edit error, preserving the override preview
  * rather than reverting silently.
  */
+import type { EditKind } from '../adapters/types.js'
+
 const bus = new EventTarget()
 
 export function emitOverrideChange(): void {
@@ -49,8 +51,11 @@ export interface OverrideDivergence {
 export interface OverrideDivergenceDiagnostics {
   /** Which DOM read path produced `actual`. */
   actualReadFrom: DivergenceSource
-  /** The EditKind carried through the verify pipeline, if any. */
-  kindUsed?: string
+  /** The EditKind carried through the verify pipeline, if any. Typed as
+   *  `EditKind` (not `string`) so new kinds added to the union are enforced
+   *  at compile time at every consumer — the debug disclosure and any
+   *  future telemetry consumer must handle each variant explicitly. */
+  kindUsed?: EditKind
   /** Bounded ring buffer (most recent last, capped at 5) of values passed to
    *  `CSSOverrideManager.set()` for this source+property+pseudo during the
    *  session. Helps identify "was `actual` something we set earlier?" */

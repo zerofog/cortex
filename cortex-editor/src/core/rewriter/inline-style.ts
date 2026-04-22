@@ -238,10 +238,24 @@ export class InlineStyleRewriter {
    *  Walks the full parent list from `LONGHAND_TO_SHORTHANDS` — a longhand
    *  can have multiple parents (borderTopWidth is clobbered by both
    *  borderWidth and border). If any of them appear after the longhand,
-   *  React will clobber at render time. Computed-key and spread-assignment
-   *  properties return `getName() === undefined` from ts-morph; they're
-   *  intentionally excluded — we can't statically determine what a computed
-   *  key resolves to, and spreads are already bailed on by Phase 2 validation. */
+   *  React will clobber at render time.
+   *
+   *  Intentionally excluded (with known limitations):
+   *  - Computed keys (`[expr]: value`): `getName()` returns undefined; we
+   *    can't statically resolve what property the computed key names.
+   *  - SpreadAssignment (`...rest`): skipped in this scan. We CANNOT tell
+   *    at static-analysis time whether `rest` contains a parent shorthand.
+   *    If an edited longhand appears before a `...rest` whose runtime value
+   *    holds `padding: "30px"`, React will clobber the longhand at render
+   *    time and this guard will NOT reorder. The runtime divergence system
+   *    is the catch-net — the clobber fires as a divergence card with
+   *    `actualReadFrom: 'inline-style'` and the user's edited value NOT in
+   *    `priorValues` matching `actual`, making the spread-clobber cause
+   *    distinguishable from a stale-inline-style divergence (H1).
+   *  - ShorthandPropertyAssignment (`{ padding }`): bailed by Phase 2 when
+   *    the edit targets the shorthand itself (routed to AI writer). Other
+   *    shorthand-property-assignments in the literal are skipped here —
+   *    same "can't statically analyze" reasoning as spreads. */
   private needsShorthandReorder(
     objLiteral: ObjectLiteralExpression,
     longhand: import('ts-morph').PropertyAssignment,
