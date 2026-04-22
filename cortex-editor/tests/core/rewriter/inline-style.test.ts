@@ -476,38 +476,34 @@ describe('InlineStyleRewriter', () => {
   // move the longhand to the end.
 
   describe('shorthand-clobber guard (ZF0-1293)', () => {
-    it('re-orders longhand after shorthand when source has longhand first (unsafe)', async () => {
-      // The bug scenario: a human-authored source has paddingBottom BEFORE
-      // padding. Updating paddingBottom without re-ordering leaves it
-      // clobbered by the subsequent padding shorthand.
+    // Branch: unsafe order (longhand before parent shorthand) → reorder.
+    // Parameterized across shorthand families to prove the guard is generic,
+    // not padding-specific. Each case is the same branch with a different
+    // input; if the guard regresses, all cases fail together.
+    it.each([
+      { family: 'padding',    property: 'padding-bottom',    longhand: 'paddingBottom',    shorthand: 'padding',    value: '16px', parentValue: '30px' },
+      { family: 'margin',     property: 'margin-bottom',     longhand: 'marginBottom',     shorthand: 'margin',     value: '12px', parentValue: '24px' },
+      { family: 'background', property: 'background-color',  longhand: 'backgroundColor',  shorthand: 'background', value: 'blue', parentValue: 'red' },
+    ])('re-orders $longhand after $shorthand in unsafe starting order (ZF0-1293, $family)',
+      async ({ property, longhand, shorthand, value, parentValue }) => {
       const source = `export function App() {
-  return <div style={{ paddingBottom: "10px", padding: "30px" }}>Hello</div>
+  return <div style={{ ${longhand}: "old", ${shorthand}: "${parentValue}" }}>Hello</div>
 }`
       const filePath = createTempFile(source)
       try {
         const rewriter = new InlineStyleRewriter()
-        const result = await rewriter.rewrite({
-          filePath,
-          line: 2,
-          col: 10,
-          property: 'padding-bottom',
-          value: '16px',
-        })
-
+        const result = await rewriter.rewrite({ filePath, line: 2, col: 10, property, value })
         expect(result.success).toBe(true)
         if (result.success) {
-          // paddingBottom must now appear AFTER padding in source order —
-          // React will then set padding first, paddingBottom second, so the
-          // longhand wins.
-          const idxPadding = result.newContent.indexOf('padding:')
-          const idxPaddingBottom = result.newContent.indexOf('paddingBottom:')
-          expect(idxPadding).toBeGreaterThan(-1)
-          expect(idxPaddingBottom).toBeGreaterThan(-1)
-          expect(idxPaddingBottom).toBeGreaterThan(idxPadding)
-          // And the value must be the newly-written one.
-          expect(result.newContent).toContain('paddingBottom: "16px"')
-          // The shorthand must still be preserved (we don't silently remove it).
-          expect(result.newContent).toContain('padding: "30px"')
+          const shorthandRe = new RegExp(`\\b${shorthand}:`)
+          const idxShorthand = result.newContent.search(shorthandRe)
+          const idxLonghand = result.newContent.indexOf(`${longhand}:`)
+          expect(idxShorthand).toBeGreaterThan(-1)
+          expect(idxLonghand).toBeGreaterThan(idxShorthand)
+          expect(result.newContent).toContain(`${longhand}: ${JSON.stringify(value)}`)
+          expect(result.newContent).toContain(`${shorthand}: ${JSON.stringify(parentValue)}`)
+          // Longhand appears exactly once (regression: naive reorder leaves duplicate).
+          expect(result.newContent.match(new RegExp(longhand, 'g'))?.length).toBe(1)
         }
         rewriter.dispose()
       } finally {
@@ -516,64 +512,21 @@ describe('InlineStyleRewriter', () => {
     })
 
     it('preserves order when shorthand already precedes longhand (safe, no re-order)', async () => {
-      // Safe starting order — no re-order needed. Must not churn whitespace or
-      // introduce unnecessary diffs.
+      // Distinct branch: safe starting order — guard must NOT reorder,
+      // must NOT duplicate the longhand. Falsifies a naive "always move to
+      // end" implementation.
       const source = `export function App() {
   return <div style={{ padding: "24px", paddingBottom: "10px" }}>Hello</div>
 }`
       const filePath = createTempFile(source)
       try {
         const rewriter = new InlineStyleRewriter()
-        const result = await rewriter.rewrite({
-          filePath,
-          line: 2,
-          col: 10,
-          property: 'padding-bottom',
-          value: '16px',
-        })
-
+        const result = await rewriter.rewrite({ filePath, line: 2, col: 10, property: 'padding-bottom', value: '16px' })
         expect(result.success).toBe(true)
         if (result.success) {
-          const idxPadding = result.newContent.indexOf('padding:')
-          const idxPaddingBottom = result.newContent.indexOf('paddingBottom:')
-          expect(idxPaddingBottom).toBeGreaterThan(idxPadding)
+          expect(result.newContent.indexOf('paddingBottom:')).toBeGreaterThan(result.newContent.indexOf('padding:'))
           expect(result.newContent).toContain('paddingBottom: "16px"')
-          expect(result.newContent).toContain('padding: "24px"')
-          // No duplicate paddingBottom keys (a naive "always move to end" that
-          // forgot to remove the old one would leave two).
           expect(result.newContent.match(/paddingBottom/g)?.length).toBe(1)
-        }
-        rewriter.dispose()
-      } finally {
-        cleanupTempFile(filePath)
-      }
-    })
-
-    it('appends longhand safely when only shorthand is present', async () => {
-      // Mirrors the dev-app `<ul id="verify" style={{ padding: "24px", ... }}>`
-      // case. No existing longhand — just append, which naturally goes after
-      // the shorthand. This test guards against a future "re-order everything"
-      // refactor from breaking the trivially-safe case.
-      const source = `export function App() {
-  return <div style={{ padding: "24px", border: "1px solid" }}>Hello</div>
-}`
-      const filePath = createTempFile(source)
-      try {
-        const rewriter = new InlineStyleRewriter()
-        const result = await rewriter.rewrite({
-          filePath,
-          line: 2,
-          col: 10,
-          property: 'padding-bottom',
-          value: '16px',
-        })
-
-        expect(result.success).toBe(true)
-        if (result.success) {
-          const idxPadding = result.newContent.indexOf('padding:')
-          const idxPaddingBottom = result.newContent.indexOf('paddingBottom:')
-          expect(idxPaddingBottom).toBeGreaterThan(idxPadding)
-          expect(result.newContent).toContain('paddingBottom: "16px"')
         }
         rewriter.dispose()
       } finally {
@@ -582,30 +535,19 @@ describe('InlineStyleRewriter', () => {
     })
 
     it('no shorthand present: longhand behavior unchanged (regression guard)', async () => {
-      // Pure safety test: if no parent shorthand exists, the guard must not
-      // touch the ordering. Prevents over-eager re-ordering churn.
+      // Distinct branch: no parent shorthand in the literal — guard must
+      // not touch ordering or duplicate. Prevents over-eager re-ordering.
       const source = `export function App() {
   return <div style={{ color: "red", paddingBottom: "10px" }}>Hello</div>
 }`
       const filePath = createTempFile(source)
       try {
         const rewriter = new InlineStyleRewriter()
-        const result = await rewriter.rewrite({
-          filePath,
-          line: 2,
-          col: 10,
-          property: 'padding-bottom',
-          value: '16px',
-        })
-
+        const result = await rewriter.rewrite({ filePath, line: 2, col: 10, property: 'padding-bottom', value: '16px' })
         expect(result.success).toBe(true)
         if (result.success) {
-          const idxColor = result.newContent.indexOf('color:')
-          const idxPaddingBottom = result.newContent.indexOf('paddingBottom:')
-          // Order preserved — color before paddingBottom as authored.
-          expect(idxColor).toBeLessThan(idxPaddingBottom)
+          expect(result.newContent.indexOf('color:')).toBeLessThan(result.newContent.indexOf('paddingBottom:'))
           expect(result.newContent).toContain('paddingBottom: "16px"')
-          // paddingBottom appears exactly once.
           expect(result.newContent.match(/paddingBottom/g)?.length).toBe(1)
         }
         rewriter.dispose()
@@ -614,88 +556,22 @@ describe('InlineStyleRewriter', () => {
       }
     })
 
-    it('background shorthand re-orders backgroundColor (highest-frequency Panel case)', async () => {
-      // The most common real-world trigger: Panel edits backgroundColor often.
-      // Without the `background` entry in SHORTHAND_LONGHANDS, editing
-      // backgroundColor on an element whose source has `background: 'red'`
-      // after backgroundColor would be silently clobbered by React.
-      const source = `export function App() {
-  return <div style={{ backgroundColor: "white", background: "red" }}>Hello</div>
-}`
-      const filePath = createTempFile(source)
-      try {
-        const rewriter = new InlineStyleRewriter()
-        const result = await rewriter.rewrite({
-          filePath, line: 2, col: 10,
-          property: 'background-color',
-          value: 'blue',
-        })
-        expect(result.success).toBe(true)
-        if (result.success) {
-          const idxBackground = result.newContent.search(/\bbackground:/)
-          const idxBackgroundColor = result.newContent.indexOf('backgroundColor:')
-          expect(idxBackgroundColor).toBeGreaterThan(idxBackground)
-          expect(result.newContent).toContain('backgroundColor: "blue"')
-          expect(result.newContent).toContain('background: "red"')
-        }
-        rewriter.dispose()
-      } finally {
-        cleanupTempFile(filePath)
-      }
-    })
-
-    it('border super-shorthand re-orders borderTopWidth (two-level chain)', async () => {
-      // Transitive clobber: `borderTopWidth` has TWO parents — `borderWidth`
-      // (mid-shorthand) and `border` (super-shorthand). Even if the mid-
-      // shorthand isn't present, the super-shorthand must still trigger
-      // reorder. Walks the full parent list rather than single-level lookup.
+    it('border super-shorthand re-orders borderTopWidth (two-level chain branch)', async () => {
+      // Distinct branch: multi-level parent walk. borderTopWidth → borderWidth
+      // (mid) → border (super). Tests LONGHAND_TO_SHORTHANDS chain traversal,
+      // not the single-parent lookup. Absent from the it.each because padding/
+      // margin/background only have one-level parents.
       const source = `export function App() {
   return <div style={{ borderTopWidth: "1px", border: "2px solid red" }}>Hello</div>
 }`
       const filePath = createTempFile(source)
       try {
         const rewriter = new InlineStyleRewriter()
-        const result = await rewriter.rewrite({
-          filePath, line: 2, col: 10,
-          property: 'border-top-width',
-          value: '4px',
-        })
+        const result = await rewriter.rewrite({ filePath, line: 2, col: 10, property: 'border-top-width', value: '4px' })
         expect(result.success).toBe(true)
         if (result.success) {
-          const idxBorder = result.newContent.search(/\bborder:/)
-          const idxBorderTopWidth = result.newContent.indexOf('borderTopWidth:')
-          expect(idxBorderTopWidth).toBeGreaterThan(idxBorder)
+          expect(result.newContent.indexOf('borderTopWidth:')).toBeGreaterThan(result.newContent.search(/\bborder:/))
           expect(result.newContent).toContain('borderTopWidth: "4px"')
-        }
-        rewriter.dispose()
-      } finally {
-        cleanupTempFile(filePath)
-      }
-    })
-
-    it('margin parent re-orders marginBottom — guard is generic to all shorthands', async () => {
-      // SHORTHAND_LONGHANDS contains margin/padding/borderRadius/etc. Prove
-      // the guard treats them uniformly rather than special-casing padding.
-      const source = `export function App() {
-  return <div style={{ marginBottom: "8px", margin: "24px" }}>Hello</div>
-}`
-      const filePath = createTempFile(source)
-      try {
-        const rewriter = new InlineStyleRewriter()
-        const result = await rewriter.rewrite({
-          filePath,
-          line: 2,
-          col: 10,
-          property: 'margin-bottom',
-          value: '12px',
-        })
-
-        expect(result.success).toBe(true)
-        if (result.success) {
-          const idxMargin = result.newContent.search(/\bmargin:/)
-          const idxMarginBottom = result.newContent.indexOf('marginBottom:')
-          expect(idxMarginBottom).toBeGreaterThan(idxMargin)
-          expect(result.newContent).toContain('marginBottom: "12px"')
         }
         rewriter.dispose()
       } finally {

@@ -64,7 +64,6 @@
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^3.0.0",
     "happy-dom": "^15.0.0",
-    "jsdom": "^29.0.2",
     "magic-string": "^0.30.21",
     "postcss": "^8.5.8",
     "tsup": "^8.3.5",

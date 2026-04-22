@@ -146,8 +146,11 @@ describe('EditErrorCard', () => {
       expect(debug).not.toBeNull()
       expect(debug!.textContent).toContain('inline-style')
       expect(debug!.textContent).toContain('jsx-immediate')
-      // Prior values rendered as arrow-joined sequence — preserves order info.
-      expect(debug!.textContent).toContain('24px → 30px → 16px')
+      // Prior values must render in chronological order. Match the three
+      // values with ANY non-digit separator between them (the current impl
+      // uses `→`, but the behavioral contract is "order preserved" — a
+      // refactor to comma-joined or bulleted should not break this test).
+      expect(debug!.textContent).toMatch(/24px\D+30px\D+16px/)
       // Retry duration formatted as ms integer.
       expect(debug!.textContent).toContain('812ms')
     })

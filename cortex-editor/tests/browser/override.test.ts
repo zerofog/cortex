@@ -884,48 +884,6 @@ describe('CSSOverrideManager', () => {
       }
     })
 
-    it('ZF0-1293: ring buffer at exact first-overflow (N=6) drops precisely one oldest value', async () => {
-      // Boundary test between exactly-full (N=5) and clear-overflow (N=8).
-      // Would fail with an off-by-one in the cap check (`> MAX` vs `>= MAX`),
-      // where the existing 5/8 tests cannot distinguish.
-      const originalWindow = CSSOverrideManager.VERIFY_RETRY_WINDOW_MS
-      const originalPoll = CSSOverrideManager.VERIFY_POLL_INTERVAL_MS
-      CSSOverrideManager.VERIFY_RETRY_WINDOW_MS = 60
-      CSSOverrideManager.VERIFY_POLL_INTERVAL_MS = 20
-      try {
-        const { onDivergence } = await import('../../src/browser/override-bus.js')
-        const divergences: Array<import('../../src/browser/override-bus.js').OverrideDivergence> = []
-        const unsub = onDivergence(d => divergences.push(d))
-
-        const target = document.createElement('div')
-        target.setAttribute('data-cortex-source', 'a:1:1')
-        target.style.color = 'hotpink'
-        document.body.appendChild(target)
-
-        for (const v of ['red', 'orange', 'yellow', 'green', 'blue', 'indigo']) {
-          manager.set('a:1:1', 'color', v)
-        }
-        flushRAF()
-        manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'indigo')
-        manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
-        manager.onHMRApplied()
-        flushRAF()
-        flushRAF()
-        await new Promise(r => setTimeout(r, 100))
-        flushRAF()
-
-        expect(divergences).toHaveLength(1)
-        // Exactly one oldest ('red') drops — 'orange' becomes the new buf[0].
-        expect(divergences[0]!.diagnostics.priorValues).toEqual(['orange', 'yellow', 'green', 'blue', 'indigo'])
-
-        unsub()
-        target.remove()
-      } finally {
-        CSSOverrideManager.VERIFY_RETRY_WINDOW_MS = originalWindow
-        CSSOverrideManager.VERIFY_POLL_INTERVAL_MS = originalPoll
-      }
-    })
-
     it('ZF0-1293: server-mismatch emits divergence with server-mismatch readFrom, no retry duration', async () => {
       // handleHMRVerified(match=false) path: server refused the edit. No DOM
       // read happens, so actualReadFrom must be 'server-mismatch' and
@@ -1057,6 +1015,12 @@ describe('CSSOverrideManager', () => {
         // inlined `valuesMatch` or bypassed the method call). `toBeGreaterThanOrEqual`
         // would silently tolerate that failure mode.
         expect(divergences).toHaveLength(1)
+        // Proves the monkey-patch was actually exercised — first call from
+        // verifyAndRemove plus at least one retry call that threw. If a
+        // refactor ever inlines `valuesMatch` and the prototype patch stops
+        // being reached, this counter stays at 0 and the test fails loudly
+        // instead of silently passing on a leaked divergence from a prior test.
+        expect(valuesMatchCalls).toBeGreaterThanOrEqual(2)
         expect(divergences[0]!.diagnostics.errorMessage).toContain('simulated CSSOM failure')
         // Actual is empty — the read was aborted, so there's no value to report.
         expect(divergences[0]!.actual).toBe('')

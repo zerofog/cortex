@@ -104,6 +104,17 @@ export function cssPropertyToCamelCase(property: string): string {
 // ── Shorthand parent lookup (camelCase) ────────────────────────
 // CSS shorthand → longhands. Adding a new shorthand = one entry here,
 // LONGHAND_TO_SHORTHAND is derived automatically.
+//
+// WHY this table exists (ZF0-1293): when React applies a style={{}} prop,
+// it iterates keys in insertion order and calls `el.style[key] = value`
+// for each. CSSOM expands shorthands into longhands on assignment (per
+// CSS Cascading and Inheritance L4 §3 and MDN "Shorthand properties"),
+// so setting `el.style.padding = '30px'` AFTER `el.style.paddingBottom = '16px'`
+// overwrites paddingBottom back to 30px. The InlineStyleRewriter uses
+// this table to detect and re-order object-literal properties so the
+// longhand comes AFTER its parent shorthand in source, preventing React
+// from clobbering user edits at render time. See `needsShorthandReorder`
+// in inline-style.ts for the enforcement.
 
 const SHORTHAND_LONGHANDS: Record<string, readonly string[]> = {
   padding: ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'],

@@ -568,7 +568,7 @@ export class CSSOverrideManager {
     // emit a false divergence against the user's newer intent.
     for (const [existingId, entry] of this.pendingEdits) {
       if (entry.property === property && entry.pseudo === pseudo &&
-          entry.sources.some(s => sourceArray.includes(s))) {
+        entry.sources.some(s => sourceArray.includes(s))) {
         this.pendingEdits.delete(existingId)
       }
     }
@@ -718,8 +718,8 @@ export class CSSOverrideManager {
     for (const compositeKey of allKeys) {
       // Split pseudo suffix from the composite key
       const pseudoSuffix = compositeKey.endsWith('::before') ? '::before'
-                         : compositeKey.endsWith('::after') ? '::after'
-                         : ''
+        : compositeKey.endsWith('::after') ? '::after'
+          : ''
       const rawSource = pseudoSuffix ? compositeKey.slice(0, -pseudoSuffix.length) : compositeKey
 
       const userProps = this.overrides.get(compositeKey)
