@@ -65,8 +65,9 @@ export function useOutsideDismiss(
   // defer to the topmost open popover. Without this, a picker-open +
   // Escape collapses the Panel because CortexApp's window-capture listener
   // reaches "deselect element" before our document-bubble Escape listener
-  // fires. The registry is per-popover, not per-render — a ref guards
-  // re-registration if `onDismiss` identity changes.
+  // fires. The registry is per-popover, not per-render; this effect
+  // registers once, and the registered callback reads `onDismissRef.current`
+  // so it always invokes the latest `onDismiss` without re-registering.
   useEffect(() => {
     return registerPopoverDismiss(() => onDismissRef.current())
   }, [])

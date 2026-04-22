@@ -130,6 +130,14 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   }, [])
 
   useEffect(() => {
+    // Disposal guard for async work (HMR re-resolution timers, rAF callbacks)
+    // scheduled from the message handler. When CortexApp unmounts — route
+    // change, test teardown — pending timers must not fire state updates
+    // against a disposed component. The flag flips in cleanup and is read
+    // by attemptReResolve below; timers become no-ops rather than throwing
+    // state-update-after-unmount warnings.
+    let disposed = false
+
     // Initialize CSS override manager and command stack
     const overrideManager = new CSSOverrideManager()
     overrideRef.current = overrideManager
@@ -253,11 +261,12 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         // selected element. Skip only when we're confident: server provided a
         // non-empty file list AND no CSS/virtual files AND no ancestor source
         // is in the list (up to 20 levels). Otherwise — absent / empty / typo
-        // — err toward refresh.
+        // — err toward refresh. If nothing is selected, there is nothing to
+        // refresh (Panel renders empty state, no overlay, no Layer Tree),
+        // so skip the version bump outright.
         const current = selectedElementRef.current
-        const shouldRefresh = !files || files.length === 0 || !current
-          ? true
-          : hmrFilesAffectElement(files, current)
+        const shouldRefresh = current != null
+          && (!files || files.length === 0 || hmrFilesAffectElement(files, current))
         if (shouldRefresh) {
           setHmrAppliedVersion(v => v + 1)
         }
@@ -278,6 +287,8 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         // so at that moment the selected node is still connected *in the
         // old DOM tree* that's about to be replaced.
         const attemptReResolve = (): void => {
+          // Disposal guard: pending timers/rAFs fire as no-ops after unmount.
+          if (disposed) return
           try {
             const current = selectedElementRef.current
             const meta = selectionMetadataRef.current
@@ -407,6 +418,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     })
 
     return () => {
+      disposed = true
       unsubscribe()
       unsubStatus()
       unsubDivergence()

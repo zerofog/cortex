@@ -13,8 +13,8 @@
  *   - Popover unmounts → call the unregister fn (removes that specific entry,
  *     not the top — unmount order isn't guaranteed to be LIFO if React
  *     unmounts parents first).
- *   - CortexApp's Escape handler calls `dismissTopmost()` before its own
- *     cascade steps, bailing out if any popover was dismissed.
+ *   - CortexApp's Escape handler calls `dismissTopmostPopover()` before its
+ *     own cascade steps, bailing out if any popover was dismissed.
  *
  * Not a context/prop because popovers can be rendered anywhere in the tree
  * and the alternative (bus through Preact context) would force every
