@@ -1,0 +1,26 @@
+cortex-editor/src/core/rewriter/inline-style.ts
+  c4d80b17e05db82b 535-549,557-567,571-574,576-581,583-586,588-590
+cortex-editor/tests/core/rewriter/jsx-transaction.test.ts
+  c4d80b17e05db82b 251-289
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "a571e0a756fe155bb6f5a4e3e5fada08bbe5dd2f",
+  "prompts": {
+    "c4d80b17e05db82b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3d1c876e-bfad-43db-bf6d-47507953aad9",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 129,
+      "total_deletions": 1988,
+      "accepted_lines": 691,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/08616ac5c00341cb5d7939ea7b6dd44b980a3840c8f2607ea0feeb13231691d1"
+    }
+  }
+}
