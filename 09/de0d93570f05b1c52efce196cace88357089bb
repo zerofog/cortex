@@ -1,0 +1,28 @@
+cortex-editor/src/core/rewriter/inline-style.ts
+  c4d80b17e05db82b 241-258
+cortex-editor/tests/browser/edit-error-card.test.tsx
+  c4d80b17e05db82b 113,196,223
+cortex-editor/src/browser/override-bus.ts
+  c4d80b17e05db82b 13-14,54-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "09de0d93570f05b1c52efce196cace88357089bb",
+  "prompts": {
+    "c4d80b17e05db82b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3d1c876e-bfad-43db-bf6d-47507953aad9",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 751,
+      "total_deletions": 972,
+      "accepted_lines": 636,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/dbeb33e6e9fe4e57d4cf42d9b66beee82c182ab90b36a908310d2a92e667e3d6"
+    }
+  }
+}
