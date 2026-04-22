@@ -886,6 +886,56 @@ describe('CortexApp', () => {
         target.remove()
       }
     })
+
+    it('ZF0-1293: divergence with diagnostics flows end-to-end to Debug disclosure', async () => {
+      // Integration test for the diagnostics wiring: if CortexApp.tsx drops
+      // the `diagnostics: d.diagnostics` pass-through on the EditError, the
+      // Debug disclosure in EditErrorCard would silently stop receiving data
+      // in production. Each unit test layer (override.ts emits, EditErrorCard
+      // renders) would still pass. This test closes that gap by driving the
+      // full path: emitDivergence → CortexApp handler → EditError map →
+      // EditErrorCard filter → DebugDisclosure render.
+      ;(window as unknown as { __CORTEX_DEBUG_OVERRIDES__: boolean }).__CORTEX_DEBUG_OVERRIDES__ = true
+      setup()
+      channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+      await activateEditor(channel)
+
+      const target = await setupWithSelectedElement(channel)
+      try {
+        const { emitDivergence } = await import('../../src/browser/override-bus.js')
+
+        emitDivergence({
+          source: 'Hero.tsx:5:3', // matches setupWithSelectedElement's source
+          property: 'padding-bottom',
+          expected: '16px',
+          actual: '30px',
+          diagnostics: {
+            actualReadFrom: 'inline-style',
+            kindUsed: 'jsx-immediate',
+            priorValues: ['24px', '30px', '16px'],
+            retryDurationMs: 812,
+          },
+        })
+        await new Promise(r => setTimeout(r, 50))
+
+        const card = root.querySelector('.cortex-error-card')
+        expect(card).not.toBeNull()
+        const debug = card!.querySelector('.cortex-error-card__debug')
+        expect(debug).not.toBeNull()
+        // Falsifiability: assertions below fail if the pass-through in
+        // CortexApp.tsx is removed (err.diagnostics becomes undefined →
+        // DebugDisclosure is not rendered).
+        expect(debug!.textContent).toContain('inline-style')
+        expect(debug!.textContent).toContain('jsx-immediate')
+        expect(debug!.textContent).toContain('24px → 30px → 16px')
+        expect(debug!.textContent).toContain('812ms')
+      } finally {
+        target.remove()
+        delete (window as unknown as { __CORTEX_DEBUG_OVERRIDES__?: boolean }).__CORTEX_DEBUG_OVERRIDES__
+      }
+    })
   })
 
   describe('connection status', () => {

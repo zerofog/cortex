@@ -507,20 +507,55 @@ export class InlineStyleRewriter {
           existing = propAssign
           break
         }
-        // Same shorthand-clobber guard as `rewrite()` — see comment there.
-        if (existing && this.needsShorthandReorder(objLiteral, existing, camelProp, SK)) {
-          existing.remove()
-          objLiteral.addPropertyAssignment({
-            name: this.formatObjectKey(camelProp),
-            initializer: JSON.stringify(value),
-          })
-        } else if (existing) {
+        if (existing) {
           existing.setInitializer(JSON.stringify(value))
         } else {
           objLiteral.addPropertyAssignment({
             name: this.formatObjectKey(camelProp),
             initializer: JSON.stringify(value),
           })
+        }
+      }
+      // ZF0-1293: shorthand-clobber fix-up pass. Runs after ALL sets are
+      // applied so it handles both directions — longhand being set on an
+      // object with a trailing shorthand, AND shorthand being set on an
+      // object with leading longhands. Simpler than per-set guards, and
+      // correctly handles compound edits that add both sides at once.
+      // Two-phase: collect unsafe longhands first (so iteration isn't
+      // invalidated by mutation), then remove-and-re-append each to push
+      // it after its parent shorthand. Final verification catches a future
+      // ts-morph change that could place the appended node in an unsafe
+      // position; failing loudly beats silently producing source that
+      // React clobbers at render time.
+      const toReorder: Array<{ name: string; initText: string }> = []
+      for (const prop of objLiteral.getProperties()) {
+        if (prop.getKind() !== SK.PropertyAssignment) continue
+        const pa = prop.asKind(SK.PropertyAssignment)
+        if (!pa) continue
+        const name = pa.getName()
+        if (this.needsShorthandReorder(objLiteral, pa, name, SK)) {
+          toReorder.push({ name, initText: pa.getInitializerOrThrow().getText() })
+        }
+      }
+      for (const { name, initText } of toReorder) {
+        for (const prop of objLiteral.getProperties()) {
+          if (prop.getKind() !== SK.PropertyAssignment) continue
+          const pa = prop.asKind(SK.PropertyAssignment)
+          if (!pa || pa.getName() !== name) continue
+          pa.remove()
+          break
+        }
+        objLiteral.addPropertyAssignment({
+          name: this.formatObjectKey(name),
+          initializer: initText,
+        })
+      }
+      for (const prop of objLiteral.getProperties()) {
+        if (prop.getKind() !== SK.PropertyAssignment) continue
+        const pa = prop.asKind(SK.PropertyAssignment)
+        if (!pa) continue
+        if (this.needsShorthandReorder(objLiteral, pa, pa.getName(), SK)) {
+          return { success: false, reason: `shorthand reorder did not stabilize for '${pa.getName()}'` }
         }
       }
       // Empty object after removes + no sets: drop the entire style prop.

@@ -220,6 +220,128 @@ describe('InlineStyleRewriter.setAndRemoveInTransaction', () => {
     expect(res.success).toBe(true)
     expect(txn.getCurrentContent()).toBe(content)
   })
+
+  // ── ZF0-1293: shorthand-clobber guard (transaction path) ──────
+  //
+  // Mirror of the guard tests in inline-style.test.ts `shorthand-clobber guard
+  // (ZF0-1293)`. The same `needsShorthandReorder` logic runs inside
+  // `setAndRemoveInTransaction`, and without dedicated coverage a regression
+  // in that path would pass CI.
+
+  describe('shorthand-clobber guard in setAndRemoveInTransaction', () => {
+    it('re-orders longhand after shorthand when source has longhand first (unsafe)', async () => {
+      const content = 'export const A = () => <div style={{ paddingBottom: "10px", padding: "30px" }} />\n'
+      const txn = await createJsxTransaction('/v/A.tsx', content)
+      const res = rewriter.setAndRemoveInTransaction(txn, {
+        line: 1, col: 25,
+        sets: [{ property: 'padding-bottom', value: '16px' }],
+        removes: [],
+      })
+      expect(res.success).toBe(true)
+      const out = txn.getCurrentContent()
+      const idxPadding = out.indexOf('padding:')
+      const idxPaddingBottom = out.indexOf('paddingBottom:')
+      expect(idxPaddingBottom).toBeGreaterThan(idxPadding)
+      expect(out).toContain('paddingBottom: "16px"')
+      expect(out).toContain('padding: "30px"')
+    })
+
+    it('preserves order when shorthand already precedes longhand (no re-order)', async () => {
+      const content = 'export const A = () => <div style={{ padding: "24px", paddingBottom: "10px" }} />\n'
+      const txn = await createJsxTransaction('/v/A.tsx', content)
+      const res = rewriter.setAndRemoveInTransaction(txn, {
+        line: 1, col: 25,
+        sets: [{ property: 'padding-bottom', value: '16px' }],
+        removes: [],
+      })
+      expect(res.success).toBe(true)
+      const out = txn.getCurrentContent()
+      const idxPadding = out.indexOf('padding:')
+      const idxPaddingBottom = out.indexOf('paddingBottom:')
+      expect(idxPaddingBottom).toBeGreaterThan(idxPadding)
+      expect(out).toContain('paddingBottom: "16px"')
+      expect(out).toContain('padding: "24px"')
+      // No duplicate paddingBottom from a "always move to end" that forgot to
+      // remove the old.
+      expect(out.match(/paddingBottom/g)?.length).toBe(1)
+    })
+
+    it('appends longhand safely when only shorthand is present', async () => {
+      const content = 'export const A = () => <div style={{ padding: "24px", border: "1px solid" }} />\n'
+      const txn = await createJsxTransaction('/v/A.tsx', content)
+      const res = rewriter.setAndRemoveInTransaction(txn, {
+        line: 1, col: 25,
+        sets: [{ property: 'padding-bottom', value: '16px' }],
+        removes: [],
+      })
+      expect(res.success).toBe(true)
+      const out = txn.getCurrentContent()
+      expect(out.indexOf('paddingBottom:')).toBeGreaterThan(out.indexOf('padding:'))
+      expect(out).toContain('paddingBottom: "16px"')
+    })
+
+    it('no shorthand present: ordering unchanged (regression guard)', async () => {
+      const content = 'export const A = () => <div style={{ color: "red", paddingBottom: "10px" }} />\n'
+      const txn = await createJsxTransaction('/v/A.tsx', content)
+      const res = rewriter.setAndRemoveInTransaction(txn, {
+        line: 1, col: 25,
+        sets: [{ property: 'padding-bottom', value: '16px' }],
+        removes: [],
+      })
+      expect(res.success).toBe(true)
+      const out = txn.getCurrentContent()
+      expect(out.indexOf('color:')).toBeLessThan(out.indexOf('paddingBottom:'))
+      expect(out).toContain('paddingBottom: "16px"')
+      expect(out.match(/paddingBottom/g)?.length).toBe(1)
+    })
+
+    it('margin parent re-orders marginBottom (generic across shorthand families)', async () => {
+      const content = 'export const A = () => <div style={{ marginBottom: "8px", margin: "24px" }} />\n'
+      const txn = await createJsxTransaction('/v/A.tsx', content)
+      const res = rewriter.setAndRemoveInTransaction(txn, {
+        line: 1, col: 25,
+        sets: [{ property: 'margin-bottom', value: '12px' }],
+        removes: [],
+      })
+      expect(res.success).toBe(true)
+      const out = txn.getCurrentContent()
+      const idxMargin = out.search(/\bmargin:/)
+      const idxMarginBottom = out.indexOf('marginBottom:')
+      expect(idxMarginBottom).toBeGreaterThan(idxMargin)
+      expect(out).toContain('marginBottom: "12px"')
+    })
+
+    it('compound sets: longhand + shorthand together — guard fires on the new pair', async () => {
+      // Pathological case: the transaction is ADDING both the longhand and
+      // the shorthand in a single call. Whichever order the caller lists
+      // them, the final source must have shorthand BEFORE longhand so React
+      // doesn't clobber at render time.
+      const content = 'export const A = () => <div style={{ color: "red" }} />\n'
+      const txn = await createJsxTransaction('/v/A.tsx', content)
+      const res = rewriter.setAndRemoveInTransaction(txn, {
+        line: 1, col: 25,
+        // Caller lists paddingBottom first, THEN padding. Without the guard,
+        // addPropertyAssignment appends both in-order → { color, paddingBottom, padding }
+        // which clobbers paddingBottom.
+        sets: [
+          { property: 'padding-bottom', value: '16px' },
+          { property: 'padding', value: '30px' },
+        ],
+        removes: [],
+      })
+      expect(res.success).toBe(true)
+      const out = txn.getCurrentContent()
+      // paddingBottom must appear AFTER padding in final source — the guard
+      // re-orders on the second iteration when it sees the just-appended
+      // shorthand is now after the longhand.
+      const idxPadding = out.search(/\bpadding:/)
+      const idxPaddingBottom = out.indexOf('paddingBottom:')
+      expect(idxPadding).toBeGreaterThan(-1)
+      expect(idxPaddingBottom).toBeGreaterThan(idxPadding)
+      expect(out).toContain('paddingBottom: "16px"')
+      expect(out).toContain('padding: "30px"')
+    })
+  })
 })
 
 describe('compound transaction: classOp + inline ops on the same element', () => {

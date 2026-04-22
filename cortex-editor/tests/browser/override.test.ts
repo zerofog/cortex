@@ -872,6 +872,18 @@ describe('CSSOverrideManager', () => {
         expect(divergences).toHaveLength(1)
         expect(divergences[0].diagnostics?.priorValues).toEqual(['green', 'blue', 'indigo', 'violet', 'black'])
 
+        // ZF0-1293: explicit FIFO disambiguation. The array-equality above
+        // locks the contents but not the direction — a LIFO implementation
+        // that reversed the order could pass the same assertion with a
+        // reversed expected array. These positional assertions document
+        // the contract: index 0 is the OLDEST surviving value (the first
+        // one NOT dropped by the cap), the last index is the MOST RECENT
+        // set() call. Chronological order is what a developer reading the
+        // Debug disclosure needs to mentally replay the session.
+        const buf = divergences[0].diagnostics!.priorValues
+        expect(buf[0]).toBe('green')               // oldest kept (red/orange/yellow dropped)
+        expect(buf[buf.length - 1]).toBe('black')  // most recent set() value
+
         unsub()
         target.remove()
       } finally {
