@@ -1,0 +1,26 @@
+cortex-editor/tests/e2e/override-canonicalization.spec.ts
+  e21f4f7d384a18ae 47,116-121
+cortex-editor/tests/e2e/README.md
+  e21f4f7d384a18ae 158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "f317c288d4886f1a3257fde2f286ef87a0cb870b",
+  "prompts": {
+    "e21f4f7d384a18ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "acbcfb70-5ad0-434f-b82f-fe13efa7ed90",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 9,
+      "total_deletions": 331,
+      "accepted_lines": 2268,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/2fe818c722b1cbb5d5f1ab1e75005a68bc1ec6a006c94385eb24cf452dae1376"
+    }
+  }
+}
