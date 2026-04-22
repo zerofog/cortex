@@ -96,7 +96,7 @@ test.describe('override canonicalization (ZF0-1314 — closes F6 happy-dom gap)'
     await setupDebugBridge(page)
     await installFixtureServer(page)
     await page.goto(FIXTURE_URL)
-    await page.waitForFunction(() => typeof (globalThis as any).CortexEditor !== 'undefined', null, { timeout: 5000 })
+    await page.waitForFunction(() => typeof (globalThis as unknown as { CortexEditor?: unknown }).CortexEditor !== 'undefined', null, { timeout: 5000 })
     await waitForBridge(page)
 
     const { events, unsubscribe } = await collectDivergences(page)
@@ -117,7 +117,7 @@ test.describe('override canonicalization (ZF0-1314 — closes F6 happy-dom gap)'
 
     await page.evaluate(
       ({ source, value, id }) => {
-        const bridge = (globalThis as any).__CORTEX_TEST__
+        const bridge = (globalThis as unknown as { __CORTEX_TEST__?: { overrideManager: { set: (s: string, p: string, v: string) => void; flush: () => void; trackPendingEdit: (id: string, s: string, p: string, v: string) => void; handleHMRVerified: (id: string, match: boolean, kind: string) => void } } }).__CORTEX_TEST__!
         bridge.overrideManager.set(source, 'color', value)
         bridge.overrideManager.flush()
         bridge.overrideManager.trackPendingEdit(id, source, 'color', value)

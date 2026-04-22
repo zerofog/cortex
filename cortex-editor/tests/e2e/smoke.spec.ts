@@ -28,7 +28,7 @@ test.describe('harness smoke', () => {
     await page.goto(FIXTURE_URL)
 
     // The IIFE auto-bootstraps on DOMContentLoaded; wait for its globals.
-    await page.waitForFunction(() => typeof (globalThis as any).CortexEditor !== 'undefined', null, { timeout: 5000 })
+    await page.waitForFunction(() => typeof (globalThis as unknown as { CortexEditor?: unknown }).CortexEditor !== 'undefined', null, { timeout: 5000 })
 
     // Debug bridge must come online once CortexApp mounts.
     await waitForBridge(page)
@@ -65,7 +65,7 @@ test.describe('harness smoke', () => {
     await setupDebugBridge(page)
     await installFixtureServer(page)
     await page.goto(FIXTURE_URL)
-    await page.waitForFunction(() => typeof (globalThis as any).CortexEditor !== 'undefined', null, { timeout: 5000 })
+    await page.waitForFunction(() => typeof (globalThis as unknown as { CortexEditor?: unknown }).CortexEditor !== 'undefined', null, { timeout: 5000 })
     await waitForBridge(page)
 
     const { events, unsubscribe } = await collectDivergences(page)
@@ -78,7 +78,7 @@ test.describe('harness smoke', () => {
     //     emits divergence immediately without the retry window
     //     (override.ts:624-631).
     await page.evaluate((source) => {
-      const bridge = (globalThis as any).__CORTEX_TEST__
+      const bridge = (globalThis as unknown as { __CORTEX_TEST__?: { overrideManager: { set: (s: string, p: string, v: string) => void; flush: () => void; trackPendingEdit: (id: string, s: string, p: string, v: string) => void; handleHMRVerified: (id: string, match: boolean, kind: string) => void } } }).__CORTEX_TEST__!
       const editId = 'smoke-divergence-1'
       bridge.overrideManager.set(source, 'padding-top', '99px')
       bridge.overrideManager.flush()

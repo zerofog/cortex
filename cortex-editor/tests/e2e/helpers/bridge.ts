@@ -68,12 +68,30 @@ export async function setupDebugBridge(page: Page): Promise<void> {
   await page.addInitScript(() => {
     ;(globalThis as unknown as { __CORTEX_DEBUG_OVERRIDES__?: boolean }).__CORTEX_DEBUG_OVERRIDES__ = true
 
+    // Stub `__cortex_send__` to a no-op so the bundle's Vite channel branch
+    // fires (index.tsx:123) instead of falling through to the WebSocket
+    // fallback (index.tsx:125-128). Without this, every spec hits a real
+    // `new WebSocket('ws://cortex-fixture.test:24678/cortex')` whose failure
+    // triggers an exponential-backoff reconnect storm — spam in CI logs,
+    // a flaky "Reconnecting" chip in Panel screenshots, and silent queueing
+    // of any `channel.send` calls a future spec makes. The spread preserves
+    // the shape expected by `createViteChannel`; the function body discards.
+    ;(globalThis as unknown as { __cortex_send__?: (msg: unknown) => void }).__cortex_send__ = () => {
+      /* no-op: fixture runs offline */
+    }
+
     // Patch attachShadow so the Cortex host's closed root becomes open.
-    // Applies to EVERY attachShadow call — benign for other hosts in
-    // tests, and the fixture has none.
+    // Scoped to `[data-cortex-host]` so third-party widgets in future
+    // richer fixtures (Stripe Elements, reCAPTCHA, etc.) keep their
+    // closed roots — avoids silently mutating unrelated shadow trees.
+    // The `{ ...init }` spread preserves `delegatesFocus` and
+    // `slotAssignment` from the original init — only `mode` is overridden.
     const original = Element.prototype.attachShadow
     Element.prototype.attachShadow = function patchedAttachShadow(init: ShadowRootInit) {
-      return original.call(this, { ...init, mode: 'open' })
+      if ((this as Element).matches?.('[data-cortex-host]')) {
+        return original.call(this, { ...init, mode: 'open' })
+      }
+      return original.call(this, init)
     }
   })
 }
@@ -127,14 +145,29 @@ export async function activateDesignMode(page: Page): Promise<void> {
  * timeout, which is almost always a bundle/boot failure.
  */
 export async function waitForBridge(page: Page, timeoutMs: number = 5000): Promise<void> {
-  await page.waitForFunction(
-    () => {
-      const bridge = (globalThis as unknown as { __CORTEX_TEST__?: Record<string, unknown> }).__CORTEX_TEST__
-      return !!bridge && !!bridge.overrideManager && !!bridge.channel
-    },
-    null,
-    { timeout: timeoutMs },
-  )
+  try {
+    await page.waitForFunction(
+      () => {
+        const bridge = (globalThis as unknown as { __CORTEX_TEST__?: Record<string, unknown> }).__CORTEX_TEST__
+        return !!bridge && !!bridge.overrideManager && !!bridge.channel
+      },
+      null,
+      { timeout: timeoutMs },
+    )
+  } catch (err) {
+    // Rewrap Playwright's generic timeout into an actionable message.
+    // The three likely causes are ordered by prior incidence; a spec
+    // author reading this in CI logs can triage in seconds instead of
+    // chasing a mystery product bug.
+    throw new Error(
+      `[bridge] waitForBridge timed out after ${timeoutMs}ms. Likely causes:\n` +
+        `  1. setupDebugBridge not called before page.goto (addInitScript is no-op post-nav).\n` +
+        `  2. Bundle failed to boot — check Playwright console/page-error output for bundle errors.\n` +
+        `  3. __CORTEX_DEBUG_OVERRIDES__ flag didn't reach the bundle — confirm setupDebugBridge armed.\n` +
+        `Page URL: ${page.url()}\n` +
+        `Original error: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
 }
 
 /**

@@ -31,11 +31,16 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:coverage
       - run: npm run build
+      - name: Resolve Playwright version
+        id: playwright_version
+        run: echo "version=$(node -p "require('./node_modules/@playwright/test/package.json').version")" >> $GITHUB_OUTPUT
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('cortex-editor/package-lock.json') }}
+          key: playwright-${{ runner.os }}-${{ steps.playwright_version.outputs.version }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - name: Upload Playwright report
