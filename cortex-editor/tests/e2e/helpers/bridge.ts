@@ -31,7 +31,7 @@ export interface OverrideDivergenceEvent {
   pseudo?: '::before' | '::after'
   diagnostics: {
     actualReadFrom: 'inline-style' | 'computed-style' | 'server-mismatch'
-    kindUsed?: string
+    kindUsed?: 'immediate' | 'jsx-immediate' | 'deferred'
     priorValues: readonly string[]
     retryDurationMs?: number
     errorMessage?: string
@@ -96,6 +96,13 @@ export async function waitForBridge(page: Page, timeoutMs: number = 5000): Promi
  * and forward each event through `page.exposeFunction` into Node. The
  * returned `unsubscribe` calls the real teardown closure to detach the
  * listener before releasing handles.
+ *
+ * Constraint: ONE collector per Page. Calling this helper twice on the
+ * same `page` throws — Playwright's `exposeFunction` rejects duplicate
+ * names, and a shared unsubscribe slot on `window` would let the second
+ * call silently clobber the first. If a spec needs nested collection,
+ * call `unsubscribe()` first or factor assertions into separate `test()`
+ * blocks (each gets a fresh Page).
  */
 export async function collectDivergences(
   page: Page,
@@ -112,6 +119,13 @@ export async function collectDivergences(
   // unsubscribe closure on `window` so the teardown path below can reach
   // it without serializing a function across the evaluate boundary.
   await page.evaluate(() => {
+    // Loud fail on double-call: the unsub slot is single-tenant. Without
+    // this guard a second caller would replace the first's unsubscribe
+    // closure, and the first's `unsubscribe()` would silently tear down
+    // the second's listener — nightmare to debug.
+    if ((globalThis as unknown as { __cortexDivergenceUnsub?: () => void }).__cortexDivergenceUnsub) {
+      throw new Error('[bridge] collectDivergences already active on this page — call unsubscribe() before starting another collector')
+    }
     const bridge = (globalThis as unknown as {
       __CORTEX_TEST__?: { onDivergence?: (cb: (d: unknown) => void) => () => void }
     }).__CORTEX_TEST__
