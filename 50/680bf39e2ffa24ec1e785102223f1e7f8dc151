@@ -1,0 +1,24 @@
+cortex-editor/tests/e2e/helpers/boot.ts
+  e21f4f7d384a18ae 67-87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "50680bf39e2ffa24ec1e785102223f1e7f8dc151",
+  "prompts": {
+    "e21f4f7d384a18ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "acbcfb70-5ad0-434f-b82f-fe13efa7ed90",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 21,
+      "total_deletions": 104,
+      "accepted_lines": 2229,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/dc9bb83bb2a2192af5f2fc1059937f7432b789513d258d1fe750bfa71176651e"
+    }
+  }
+}
