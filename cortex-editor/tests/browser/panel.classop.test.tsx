@@ -76,6 +76,7 @@ async function mountPanelWithLinkedHeading(
       channel={channel}
       onClose={vi.fn()}
       onSelectElement={vi.fn()}
+      hmrAppliedVersion={0}
       swatches={[]}
       textComponents={[...BUNDLES]}
       colorChips={[...CHIPS]}

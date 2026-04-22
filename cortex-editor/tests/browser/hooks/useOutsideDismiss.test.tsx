@@ -180,6 +180,39 @@ describe('useOutsideDismiss', () => {
     // verification and (TODO) a Playwright suite against a real browser.
   })
 
+  it('dismisses when mousedown hits a shadow-sibling outside the popover (ZF0-1292 follow-up)', async () => {
+    // Regression test for the bug where the hook's `hosts` retargeting
+    // check fired at the popover's OWN shadow-root listener. At that
+    // scope, composedPath() already includes the host for every
+    // inside-shadow click, so the hosts-check would bail on every
+    // legitimate outside-popover dismiss. Symptom: clicking elsewhere
+    // inside the Panel's shadow left the chip picker stuck open.
+    //
+    // Open shadow is used because happy-dom retargets composedPath
+    // reliably for open roots. The closed-shadow case shares the same
+    // `ownRoot` branch but can't be verified here — see the `it.skip`
+    // above; coverage is deferred to a real-browser Playwright suite.
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const shadow = host.attachShadow({ mode: 'open' })
+    const shadowContainer = document.createElement('div')
+    const sibling = document.createElement('button')
+    sibling.setAttribute('data-testid', 'shadow-sibling')
+    shadow.appendChild(shadowContainer)
+    shadow.appendChild(sibling)
+    try {
+      const onDismiss = vi.fn()
+      render(<Popover onDismiss={onDismiss} />, shadowContainer)
+      await flushEffects()
+      // Click a sibling inside the same shadow root, OUTSIDE the popover.
+      sibling.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+      expect(onDismiss).toHaveBeenCalled()
+      render(null, shadowContainer)
+    } finally {
+      host.remove()
+    }
+  })
+
   // ─── Trigger-aware bypass ──────────────────────────────────────────
   //
   // Without the trigger bypass, mousedown on the popover's own toggle
