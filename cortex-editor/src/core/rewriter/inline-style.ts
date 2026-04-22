@@ -531,12 +531,22 @@ export class InlineStyleRewriter {
       // object with a trailing shorthand, AND shorthand being set on an
       // object with leading longhands. Simpler than per-set guards, and
       // correctly handles compound edits that add both sides at once.
-      // Two-phase: collect unsafe longhands first (so iteration isn't
-      // invalidated by mutation), then remove-and-re-append each to push
-      // it after its parent shorthand. Final verification catches a future
-      // ts-morph change that could place the appended node in an unsafe
-      // position; failing loudly beats silently producing source that
-      // React clobbers at render time.
+      //
+      // Algorithm: iterate-until-stable. On each pass, find the FIRST
+      // property in source order that's unsafe (has a parent shorthand
+      // appearing later) and move it to the end. Restart the scan because
+      // positions shifted. Loop until no unsafe property remains, or we
+      // hit the iteration cap (more iterations than properties means a
+      // cycle — ts-morph regression — fail loudly).
+      //
+      // Why not collect-then-apply: for multi-level chains like
+      // `{ borderTopWidth, borderWidth, border }`, moving borderTopWidth
+      // first leaves borderWidth still before border. A second pass moves
+      // borderWidth past border. A third pass moves borderTopWidth past
+      // the now-trailing borderWidth. The "collect in source order and
+      // apply" variant produces the wrong final order because the
+      // append-in-collection-order step places borderWidth AFTER
+      // borderTopWidth in the final literal, re-introducing the clobber.
       //
       // Intentionally excluded:
       // - SpreadAssignment (`...rest`): bailed on by Phase 2 validation;
@@ -544,29 +554,40 @@ export class InlineStyleRewriter {
       // - Computed keys (`[expr]: value`): `getName()` returns undefined
       //   from ts-morph; can't know which shorthand it resolves to.
       // - ShorthandPropertyAssignment (`{ padding }`): bailed by Phase 2.
-      const toReorder: Array<{ name: string; initText: string }> = []
-      for (const prop of objLiteral.getProperties()) {
-        if (prop.getKind() !== SK.PropertyAssignment) continue
-        const pa = prop.asKind(SK.PropertyAssignment)
-        if (!pa) continue
-        const name = pa.getName()
-        if (this.needsShorthandReorder(objLiteral, pa, name, SK)) {
-          toReorder.push({ name, initText: pa.getInitializerOrThrow().getText() })
-        }
-      }
-      for (const { name, initText } of toReorder) {
+      // Cap: each move pushes one property to the end. Worst case is
+      // N moves for N properties (one per unsafe node). Double as headroom
+      // for multi-level chains where one move can expose another unsafe
+      // node that was previously hidden. Plus one so an empty/single-prop
+      // literal doesn't trip the cycle-detection branch on its first
+      // no-op scan.
+      const maxIterations = objLiteral.getProperties().length * 2 + 2
+      let iterations = 0
+      let stabilized = false
+      while (iterations++ < maxIterations) {
+        let didMove = false
         for (const prop of objLiteral.getProperties()) {
           if (prop.getKind() !== SK.PropertyAssignment) continue
           const pa = prop.asKind(SK.PropertyAssignment)
-          if (!pa || pa.getName() !== name) continue
+          if (!pa) continue
+          const name = pa.getName()
+          if (!this.needsShorthandReorder(objLiteral, pa, name, SK)) continue
+          const initText = pa.getInitializerOrThrow().getText()
           pa.remove()
-          break
+          objLiteral.addPropertyAssignment({
+            name: this.formatObjectKey(name),
+            initializer: initText,
+          })
+          didMove = true
+          break // restart scan — positions shifted
         }
-        objLiteral.addPropertyAssignment({
-          name: this.formatObjectKey(name),
-          initializer: initText,
-        })
+        if (!didMove) { stabilized = true; break }
       }
+      if (!stabilized) {
+        return { success: false, reason: 'shorthand reorder did not stabilize (cycle or ts-morph regression)' }
+      }
+      // Final verification — even with a stable loop, assert no unsafe
+      // orderings remain. Catches a future ts-morph change where
+      // addPropertyAssignment places the node in an unsafe position.
       for (const prop of objLiteral.getProperties()) {
         if (prop.getKind() !== SK.PropertyAssignment) continue
         const pa = prop.asKind(SK.PropertyAssignment)

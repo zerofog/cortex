@@ -248,6 +248,45 @@ describe('InlineStyleRewriter.setAndRemoveInTransaction', () => {
       expect(out).toContain('padding: "30px"')
     })
 
+    it('triple-shorthand chain: border + borderWidth + borderTopWidth stabilize to correct cascade order', async () => {
+      // Adversarial-review finding: the fix-up pass previously used
+      // collect-then-apply-in-collection-order which produced the wrong
+      // final order for multi-level chains. After moving borderTopWidth
+      // to the end, borderWidth still needed moving past border — but
+      // the original algorithm had already committed its decisions and
+      // appended borderWidth AFTER borderTopWidth, re-introducing the
+      // clobber. The iterate-until-stable algorithm handles this by
+      // restarting the scan after each move.
+      //
+      // Required final order: border → borderWidth → borderTopWidth so
+      // React applies them in CSS-cascade-correct specificity order
+      // (border sets all 4 sides thick; borderWidth overrides all 4
+      // widths to 2px; borderTopWidth overrides top-width only).
+      const content = 'export const A = () => <div style={{ borderTopWidth: "1px", borderWidth: "2px", border: "thick solid red" }} />\n'
+      const txn = await createJsxTransaction('/v/A.tsx', content)
+      const res = rewriter.setAndRemoveInTransaction(txn, {
+        line: 1, col: 25,
+        // Update the most-specific longhand. Forces the fix-up to reorder
+        // the full three-level chain.
+        sets: [{ property: 'border-top-width', value: '4px' }],
+        removes: [],
+      })
+      expect(res.success).toBe(true)
+      const out = txn.getCurrentContent()
+      const idxBorder = out.search(/\bborder:/)
+      const idxBorderWidth = out.search(/\bborderWidth:/)
+      const idxBorderTopWidth = out.indexOf('borderTopWidth:')
+      expect(idxBorder).toBeGreaterThan(-1)
+      expect(idxBorderWidth).toBeGreaterThan(-1)
+      expect(idxBorderTopWidth).toBeGreaterThan(-1)
+      // Final order: border → borderWidth → borderTopWidth
+      expect(idxBorderWidth).toBeGreaterThan(idxBorder)
+      expect(idxBorderTopWidth).toBeGreaterThan(idxBorderWidth)
+      expect(out).toContain('borderTopWidth: "4px"')
+      expect(out).toContain('borderWidth: "2px"')  // preserved, now safely ordered
+      expect(out).toContain('border: "thick solid red"')
+    })
+
     it('compound sets: fix-up pass handles shorthand-AFTER-longhand added in same call (bidirectional)', async () => {
       // The unique-to-transaction branch: the caller adds BOTH a longhand
       // and its parent shorthand in one `sets` array. Each `set` individually
