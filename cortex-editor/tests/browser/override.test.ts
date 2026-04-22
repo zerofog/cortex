@@ -870,19 +870,53 @@ describe('CSSOverrideManager', () => {
         flushRAF()
 
         expect(divergences).toHaveLength(1)
-        expect(divergences[0].diagnostics?.priorValues).toEqual(['green', 'blue', 'indigo', 'violet', 'black'])
+        // Chronological order: oldest kept at index 0, most recent at last.
+        // `toEqual` with an ordered array literal asserts both contents AND
+        // direction — a LIFO reversal would produce the reversed array and
+        // fail this assertion. No redundant positional assertions needed.
+        expect(divergences[0]!.diagnostics.priorValues).toEqual(['green', 'blue', 'indigo', 'violet', 'black'])
 
-        // ZF0-1293: explicit FIFO disambiguation. The array-equality above
-        // locks the contents but not the direction — a LIFO implementation
-        // that reversed the order could pass the same assertion with a
-        // reversed expected array. These positional assertions document
-        // the contract: index 0 is the OLDEST surviving value (the first
-        // one NOT dropped by the cap), the last index is the MOST RECENT
-        // set() call. Chronological order is what a developer reading the
-        // Debug disclosure needs to mentally replay the session.
-        const buf = divergences[0].diagnostics!.priorValues
-        expect(buf[0]).toBe('green')               // oldest kept (red/orange/yellow dropped)
-        expect(buf[buf.length - 1]).toBe('black')  // most recent set() value
+        unsub()
+        target.remove()
+      } finally {
+        CSSOverrideManager.VERIFY_RETRY_WINDOW_MS = originalWindow
+        CSSOverrideManager.VERIFY_POLL_INTERVAL_MS = originalPoll
+      }
+    })
+
+    it('ZF0-1293: ring buffer at exact first-overflow (N=6) drops precisely one oldest value', async () => {
+      // Boundary test between exactly-full (N=5) and clear-overflow (N=8).
+      // Would fail with an off-by-one in the cap check (`> MAX` vs `>= MAX`),
+      // where the existing 5/8 tests cannot distinguish.
+      const originalWindow = CSSOverrideManager.VERIFY_RETRY_WINDOW_MS
+      const originalPoll = CSSOverrideManager.VERIFY_POLL_INTERVAL_MS
+      CSSOverrideManager.VERIFY_RETRY_WINDOW_MS = 60
+      CSSOverrideManager.VERIFY_POLL_INTERVAL_MS = 20
+      try {
+        const { onDivergence } = await import('../../src/browser/override-bus.js')
+        const divergences: Array<import('../../src/browser/override-bus.js').OverrideDivergence> = []
+        const unsub = onDivergence(d => divergences.push(d))
+
+        const target = document.createElement('div')
+        target.setAttribute('data-cortex-source', 'a:1:1')
+        target.style.color = 'hotpink'
+        document.body.appendChild(target)
+
+        for (const v of ['red', 'orange', 'yellow', 'green', 'blue', 'indigo']) {
+          manager.set('a:1:1', 'color', v)
+        }
+        flushRAF()
+        manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'indigo')
+        manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
+        manager.onHMRApplied()
+        flushRAF()
+        flushRAF()
+        await new Promise(r => setTimeout(r, 100))
+        flushRAF()
+
+        expect(divergences).toHaveLength(1)
+        // Exactly one oldest ('red') drops — 'orange' becomes the new buf[0].
+        expect(divergences[0]!.diagnostics.priorValues).toEqual(['orange', 'yellow', 'green', 'blue', 'indigo'])
 
         unsub()
         target.remove()
@@ -1018,12 +1052,14 @@ describe('CSSOverrideManager', () => {
           console.warn = origConsoleWarn
         }
 
-        expect(divergences.length).toBeGreaterThanOrEqual(1)
-        const errored = divergences.find(d => d.diagnostics?.errorMessage !== undefined)
-        expect(errored).toBeDefined()
-        expect(errored?.diagnostics?.errorMessage).toContain('simulated CSSOM failure')
+        // Exactly one divergence from the catch path — any other count means
+        // the monkey-patch didn't hit the expected code path (e.g., refactor
+        // inlined `valuesMatch` or bypassed the method call). `toBeGreaterThanOrEqual`
+        // would silently tolerate that failure mode.
+        expect(divergences).toHaveLength(1)
+        expect(divergences[0]!.diagnostics.errorMessage).toContain('simulated CSSOM failure')
         // Actual is empty — the read was aborted, so there's no value to report.
-        expect(errored?.actual).toBe('')
+        expect(divergences[0]!.actual).toBe('')
 
         unsub()
         target.remove()

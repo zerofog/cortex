@@ -926,11 +926,16 @@ describe('CortexApp', () => {
         expect(debug).not.toBeNull()
         // Falsifiability: assertions below fail if the pass-through in
         // CortexApp.tsx is removed (err.diagnostics becomes undefined →
-        // DebugDisclosure is not rendered).
+        // DebugDisclosure is not rendered). We test that the DATA reached
+        // the disclosure, not the FORMATTING (that's edit-error-card.test's
+        // job — asserting the arrow separator here would couple this
+        // integration test to a presentation detail).
         expect(debug!.textContent).toContain('inline-style')
         expect(debug!.textContent).toContain('jsx-immediate')
-        expect(debug!.textContent).toContain('24px → 30px → 16px')
-        expect(debug!.textContent).toContain('812ms')
+        expect(debug!.textContent).toContain('24px')
+        expect(debug!.textContent).toContain('30px')
+        expect(debug!.textContent).toContain('16px')
+        expect(debug!.textContent).toContain('812') // retry duration number
       } finally {
         target.remove()
         delete (window as unknown as { __CORTEX_DEBUG_OVERRIDES__?: boolean }).__CORTEX_DEBUG_OVERRIDES__

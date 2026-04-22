@@ -12,7 +12,7 @@
 import type { Project, SourceFile, SyntaxKind as SyntaxKindEnum, ObjectLiteralExpression } from 'ts-morph'
 import { readFile } from 'fs/promises'
 import type { RewriteResult } from './types.js'
-import { ensureTsMorph, findJsxElementAt, cssPropertyToCamelCase, LONGHAND_TO_SHORTHAND } from './jsx-utils.js'
+import { ensureTsMorph, findJsxElementAt, cssPropertyToCamelCase, LONGHAND_TO_SHORTHAND, LONGHAND_TO_SHORTHANDS } from './jsx-utils.js'
 import type { JsxTransactionHandle, TransactionRewriteResult } from './jsx-transaction.js'
 
 export interface InlineStyleRewriteRequest {
@@ -231,25 +231,35 @@ export class InlineStyleRewriter {
   }
 
   /** ZF0-1293: Does the longhand assignment need to be moved after its parent
-   *  shorthand? Returns true iff a parent shorthand exists in the same object
-   *  literal AND appears at a LATER source position than the longhand. */
+   *  shorthand? Returns true iff ANY parent shorthand (mid-level like
+   *  `borderWidth` or super-level like `border`) exists in the same object
+   *  literal AND appears at a LATER source position than the longhand.
+   *
+   *  Walks the full parent list from `LONGHAND_TO_SHORTHANDS` — a longhand
+   *  can have multiple parents (borderTopWidth is clobbered by both
+   *  borderWidth and border). If any of them appear after the longhand,
+   *  React will clobber at render time. Computed-key and spread-assignment
+   *  properties return `getName() === undefined` from ts-morph; they're
+   *  intentionally excluded — we can't statically determine what a computed
+   *  key resolves to, and spreads are already bailed on by Phase 2 validation. */
   private needsShorthandReorder(
     objLiteral: ObjectLiteralExpression,
     longhand: import('ts-morph').PropertyAssignment,
     camelProp: string,
     SK: typeof SyntaxKindEnum,
   ): boolean {
-    const shorthandName = LONGHAND_TO_SHORTHAND[camelProp]
-    if (!shorthandName) return false
+    const parents = LONGHAND_TO_SHORTHANDS[camelProp]
+    if (!parents || parents.length === 0) return false
     const longhandPos = longhand.getStart()
+    const parentSet = new Set(parents)
     for (const prop of objLiteral.getProperties()) {
       const kind = prop.getKind()
       if (kind !== SK.PropertyAssignment && kind !== SK.ShorthandPropertyAssignment) continue
       const name = kind === SK.PropertyAssignment
         ? prop.asKind(SK.PropertyAssignment)?.getName()
         : prop.asKind(SK.ShorthandPropertyAssignment)?.getName()
-      if (name !== shorthandName) continue
-      if (prop.getStart() > longhandPos) return true // shorthand clobbers longhand
+      if (!name || !parentSet.has(name)) continue
+      if (prop.getStart() > longhandPos) return true // some parent clobbers longhand
     }
     return false
   }
@@ -527,6 +537,13 @@ export class InlineStyleRewriter {
       // ts-morph change that could place the appended node in an unsafe
       // position; failing loudly beats silently producing source that
       // React clobbers at render time.
+      //
+      // Intentionally excluded:
+      // - SpreadAssignment (`...rest`): bailed on by Phase 2 validation;
+      //   can't statically analyze its contents.
+      // - Computed keys (`[expr]: value`): `getName()` returns undefined
+      //   from ts-morph; can't know which shorthand it resolves to.
+      // - ShorthandPropertyAssignment (`{ padding }`): bailed by Phase 2.
       const toReorder: Array<{ name: string; initText: string }> = []
       for (const prop of objLiteral.getProperties()) {
         if (prop.getKind() !== SK.PropertyAssignment) continue

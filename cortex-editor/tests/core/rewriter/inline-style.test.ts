@@ -614,6 +614,65 @@ describe('InlineStyleRewriter', () => {
       }
     })
 
+    it('background shorthand re-orders backgroundColor (highest-frequency Panel case)', async () => {
+      // The most common real-world trigger: Panel edits backgroundColor often.
+      // Without the `background` entry in SHORTHAND_LONGHANDS, editing
+      // backgroundColor on an element whose source has `background: 'red'`
+      // after backgroundColor would be silently clobbered by React.
+      const source = `export function App() {
+  return <div style={{ backgroundColor: "white", background: "red" }}>Hello</div>
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.rewrite({
+          filePath, line: 2, col: 10,
+          property: 'background-color',
+          value: 'blue',
+        })
+        expect(result.success).toBe(true)
+        if (result.success) {
+          const idxBackground = result.newContent.search(/\bbackground:/)
+          const idxBackgroundColor = result.newContent.indexOf('backgroundColor:')
+          expect(idxBackgroundColor).toBeGreaterThan(idxBackground)
+          expect(result.newContent).toContain('backgroundColor: "blue"')
+          expect(result.newContent).toContain('background: "red"')
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
+
+    it('border super-shorthand re-orders borderTopWidth (two-level chain)', async () => {
+      // Transitive clobber: `borderTopWidth` has TWO parents — `borderWidth`
+      // (mid-shorthand) and `border` (super-shorthand). Even if the mid-
+      // shorthand isn't present, the super-shorthand must still trigger
+      // reorder. Walks the full parent list rather than single-level lookup.
+      const source = `export function App() {
+  return <div style={{ borderTopWidth: "1px", border: "2px solid red" }}>Hello</div>
+}`
+      const filePath = createTempFile(source)
+      try {
+        const rewriter = new InlineStyleRewriter()
+        const result = await rewriter.rewrite({
+          filePath, line: 2, col: 10,
+          property: 'border-top-width',
+          value: '4px',
+        })
+        expect(result.success).toBe(true)
+        if (result.success) {
+          const idxBorder = result.newContent.search(/\bborder:/)
+          const idxBorderTopWidth = result.newContent.indexOf('borderTopWidth:')
+          expect(idxBorderTopWidth).toBeGreaterThan(idxBorder)
+          expect(result.newContent).toContain('borderTopWidth: "4px"')
+        }
+        rewriter.dispose()
+      } finally {
+        cleanupTempFile(filePath)
+      }
+    })
+
     it('margin parent re-orders marginBottom — guard is generic to all shorthands', async () => {
       // SHORTHAND_LONGHANDS contains margin/padding/borderRadius/etc. Prove
       // the guard treats them uniformly rather than special-casing padding.

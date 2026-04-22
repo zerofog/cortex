@@ -33,11 +33,11 @@ export interface OverrideDivergence {
   expected: string
   actual: string
   pseudo?: '::before' | '::after'
-  /** Optional diagnostic enrichment — not load-bearing for UX, only surfaced
-   *  when `window.__CORTEX_DEBUG_OVERRIDES__ = true`. Present on all new
-   *  emissions from `override.ts`; absent on older call sites (type is optional
-   *  for backward compatibility with external consumers). */
-  diagnostics?: OverrideDivergenceDiagnostics
+  /** Diagnostic enrichment — required on every emission. The type is
+   *  internal (not a public SDK surface), so making this required enforces
+   *  the contract at compile time rather than relying on `?.` chains in
+   *  every consumer. All three emit sites in `override.ts` populate this. */
+  diagnostics: OverrideDivergenceDiagnostics
 }
 
 /** ZF0-1293: diagnostic context that makes a mystery divergence self-diagnosing.

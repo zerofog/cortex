@@ -112,13 +112,50 @@ const SHORTHAND_LONGHANDS: Record<string, readonly string[]> = {
   borderWidth: ['borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth'],
   borderStyle: ['borderTopStyle', 'borderRightStyle', 'borderBottomStyle', 'borderLeftStyle'],
   borderColor: ['borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor'],
+  // Super-shorthand: `border: 1px solid red` resets the width/style/color
+  // triad (NOT border-radius or border-image). Children include BOTH the
+  // mid-level shorthands (borderWidth/Style/Color) and their per-side
+  // longhands, so the parent-chain walk in `needsShorthandReorder` catches
+  // both direct (border→borderTopWidth) and transitive (border→borderWidth
+  // →borderTopWidth) paths.
+  border: [
+    'borderWidth', 'borderStyle', 'borderColor',
+    'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+    'borderTopStyle', 'borderRightStyle', 'borderBottomStyle', 'borderLeftStyle',
+    'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor',
+  ],
   gap: ['rowGap', 'columnGap'],
+  // High-frequency in Panel UI edits (backgroundColor especially).
+  background: [
+    'backgroundColor', 'backgroundImage', 'backgroundRepeat', 'backgroundPosition',
+    'backgroundSize', 'backgroundOrigin', 'backgroundClip', 'backgroundAttachment',
+  ],
+  // Panel edits font-size, font-weight, line-height, font-family, letter-spacing.
+  // `font` shorthand resets all of these (plus font-style, font-variant, font-stretch).
+  font: ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fontVariant', 'fontStretch', 'lineHeight'],
+  flex: ['flexGrow', 'flexShrink', 'flexBasis'],
+  transition: ['transitionProperty', 'transitionDuration', 'transitionTimingFunction', 'transitionDelay'],
+  animation: ['animationName', 'animationDuration', 'animationTimingFunction', 'animationDelay', 'animationIterationCount', 'animationDirection', 'animationFillMode', 'animationPlayState'],
+  outline: ['outlineWidth', 'outlineStyle', 'outlineColor'],
 }
 
-// Derived inverse: longhand → shorthand parent
-export const LONGHAND_TO_SHORTHAND: Record<string, string> = Object.create(null)
+/** Derived inverse: longhand → list of shorthand parents. A longhand can
+ *  have MULTIPLE parents (e.g., borderTopWidth is clobbered by both
+ *  borderWidth and border). Consumers walk the list to check all parents. */
+export const LONGHAND_TO_SHORTHANDS: Record<string, readonly string[]> = Object.create(null)
 for (const [shorthand, longhands] of Object.entries(SHORTHAND_LONGHANDS)) {
   for (const longhand of longhands) {
-    LONGHAND_TO_SHORTHAND[longhand] = shorthand
+    const existing = LONGHAND_TO_SHORTHANDS[longhand]
+    LONGHAND_TO_SHORTHANDS[longhand] = existing ? [...existing, shorthand] : [shorthand]
   }
+}
+
+/** Back-compat single-parent accessor for callers that only care about one
+ *  parent (the `removePropertyFromObject` path removes just the immediate
+ *  parent shorthand to unblock a CSS class write; it does NOT need to walk
+ *  the super-shorthand chain, since writing the class wins against the
+ *  remaining parents). Returns the FIRST parent if multiple exist. */
+export const LONGHAND_TO_SHORTHAND: Record<string, string> = Object.create(null)
+for (const [longhand, parents] of Object.entries(LONGHAND_TO_SHORTHANDS)) {
+  LONGHAND_TO_SHORTHAND[longhand] = parents[0]!
 }

@@ -115,10 +115,12 @@ export class CSSOverrideManager {
       this.priorValues.set(key, [value])
       return
     }
+    // On each push, if the buffer is at capacity, drop exactly one oldest.
+    // `shift()` is O(cap) — fine at cap=5 — and idiomatic; avoids `splice`'s
+    // extra allocation for the return array. Invariant: after every push,
+    // buf.length <= PRIOR_VALUES_MAX.
     buf.push(value)
-    if (buf.length > CSSOverrideManager.PRIOR_VALUES_MAX) {
-      buf.splice(0, buf.length - CSSOverrideManager.PRIOR_VALUES_MAX)
-    }
+    if (buf.length > CSSOverrideManager.PRIOR_VALUES_MAX) buf.shift()
   }
 
   private priorValuesKey(source: string, property: string, pseudo: '::before' | '::after' | undefined): string {
@@ -173,11 +175,18 @@ export class CSSOverrideManager {
     } else {
       this.overrides.delete(key)
       // Same reasoning, but for all properties on this source+pseudo.
+      // Collect-then-delete — iterating and mutating a Map is spec-safe but
+      // a recurring review footgun that can be silently broken by a naive
+      // refactor. The snapshot pattern makes the safety self-evident.
+      const prefix = `${source}\0`
+      const suffix = `\0${pseudo ?? ''}`
+      const toDelete: string[] = []
       for (const pvKey of this.priorValues.keys()) {
-        if (pvKey.startsWith(`${source}\0`) && pvKey.endsWith(`\0${pseudo ?? ''}`)) {
-          this.priorValues.delete(pvKey)
+        if (pvKey.startsWith(prefix) && pvKey.endsWith(suffix)) {
+          toDelete.push(pvKey)
         }
       }
+      for (const pvKey of toDelete) this.priorValues.delete(pvKey)
     }
     // Synchronous rebuild — prevents one-frame flicker when HMR clears overrides.
     // RAF batching would show the old override for one extra frame before removal.
