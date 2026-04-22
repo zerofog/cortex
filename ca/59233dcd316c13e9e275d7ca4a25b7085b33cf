@@ -1,0 +1,30 @@
+cortex-editor/src/index.ts
+  e21f4f7d384a18ae 56
+cortex-editor/tests/e2e/helpers/bridge.ts
+  e21f4f7d384a18ae 20-49
+cortex-editor/tests/e2e/helpers/fixture-server.ts
+  e21f4f7d384a18ae 99-109
+.github/workflows/cortex-editor-ci.yml
+  e21f4f7d384a18ae 1,5,8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "ca59233dcd316c13e9e275d7ca4a25b7085b33cf",
+  "prompts": {
+    "e21f4f7d384a18ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "acbcfb70-5ad0-434f-b82f-fe13efa7ed90",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 97,
+      "total_deletions": 531,
+      "accepted_lines": 2305,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/d98f376e721faf779b50303801982ee9ee2435aeb9a013a7900785e96c958423"
+    }
+  }
+}
