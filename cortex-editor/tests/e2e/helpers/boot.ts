@@ -64,11 +64,27 @@ export async function bootFixture(
   if (opts.activateDesignMode) await activateDesignMode(page)
   await installFixtureServer(page)
   await page.goto(FIXTURE_URL)
-  await page.waitForFunction(
-    () => typeof (globalThis as unknown as { CortexEditor?: unknown }).CortexEditor !== 'undefined',
-    null,
-    { timeout: 5000 },
-  )
+  // Bundle-boot wait: this is the FIRST wait to fire after navigation,
+  // so its timeout is what users see on infra regression (bundle 404,
+  // bundle threw on load, fixture served wrong content). Rewrap the
+  // generic Playwright timeout with actionable triage — matches the
+  // pattern in waitForBridge.
+  try {
+    await page.waitForFunction(
+      () => typeof (globalThis as unknown as { CortexEditor?: unknown }).CortexEditor !== 'undefined',
+      null,
+      { timeout: 5000 },
+    )
+  } catch (err) {
+    throw new Error(
+      `[bootFixture] CortexEditor bundle did not boot within 5000ms. Likely causes:\n` +
+        `  1. Bundle missing — run \`npm run build\` to produce dist/browser/index.js.\n` +
+        `  2. Fixture server serving wrong content — check installFixtureServer routes.\n` +
+        `  3. Bundle threw on load — check page.on('pageerror') output.\n` +
+        `Page URL: ${page.url()}\n` +
+        `Original error: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
   await waitForBridge(page)
   if (opts.selectElement) {
     await page.evaluate((selector) => {
