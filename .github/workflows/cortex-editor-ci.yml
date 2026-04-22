@@ -1,11 +1,11 @@
-name: CI
+name: cortex-editor CI
 on:
   push:
     branches: [main]
-    paths: ['cortex-editor/**']
+    paths: ['cortex-editor/**', '.github/workflows/cortex-editor-ci.yml']
   pull_request:
     branches: [main]
-    paths: ['cortex-editor/**']
+    paths: ['cortex-editor/**', '.github/workflows/cortex-editor-ci.yml']
 
 permissions:
   contents: read

@@ -17,7 +17,36 @@
  * the same events the Panel surfaces as EditErrorCards in Task 3.
  */
 import type { Page } from '@playwright/test'
-import type { OverrideDivergence } from 'cortex-editor'
+
+/**
+ * Shape of the divergence event emitted by `src/browser/override-bus.ts`.
+ *
+ * Hand-copy rather than import: the e2e tsconfig is a separate project
+ * (`rootDir: "."` under `tests/e2e/`) and cannot resolve into `../../src/`,
+ * and the package self-import (`import from 'cortex-editor'`) resolves to
+ * `dist/index.d.ts` which is gitignored — so clean CI clones would fail
+ * typecheck before build runs.
+ *
+ * The actual source of truth is `OverrideDivergence` +
+ * `OverrideDivergenceDiagnostics` in `src/browser/override-bus.ts`. If
+ * that shape changes in a way specs depend on, update this interface to
+ * match. The shape is small + stable; the duplication cost is lower
+ * than either alternative.
+ */
+export interface OverrideDivergence {
+  source: string
+  property: string
+  expected: string
+  actual: string
+  pseudo?: '::before' | '::after'
+  diagnostics: {
+    actualReadFrom: 'inline-style' | 'computed-style' | 'server-mismatch'
+    kindUsed?: 'immediate' | 'jsx-immediate' | 'deferred'
+    priorValues: readonly string[]
+    retryDurationMs?: number
+    errorMessage?: string
+  }
+}
 
 /** Shape of `window.__CORTEX_TEST__` — exposed by CortexApp when the
  *  debug flag is set (see `index.tsx` bootstrap + `CortexApp` mount).

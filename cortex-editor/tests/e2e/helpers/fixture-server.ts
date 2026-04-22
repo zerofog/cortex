@@ -96,4 +96,15 @@ export async function installFixtureServer(page: Page): Promise<void> {
     // explicitly so mistakes are loud.
     await route.fulfill({ status: 404, body: `not found: ${url.pathname}` })
   })
+
+  // Block external fonts so the harness is truly hermetic. CortexApp's
+  // `bootstrap()` injects a <link> to fonts.googleapis.com for Geist —
+  // left unintercepted, every spec fires live HTTPS requests (flaky on
+  // restricted runners, misleading network traces). Abort with
+  // `internetdisconnected` so the browser logs a network error rather
+  // than silently hanging. Fixture-relative CSS already ships inside the
+  // IIFE bundle; external fonts degrade gracefully to system fallbacks.
+  await page.route(/fonts\.(googleapis|gstatic)\.com/, async (route) => {
+    await route.abort('internetdisconnected')
+  })
 }
