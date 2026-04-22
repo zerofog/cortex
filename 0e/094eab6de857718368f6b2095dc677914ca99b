@@ -1,0 +1,24 @@
+cortex-editor/tests/e2e/override-retry-window.spec.ts
+  e21f4f7d384a18ae 1-390
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "0e094eab6de857718368f6b2095dc677914ca99b",
+  "prompts": {
+    "e21f4f7d384a18ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "acbcfb70-5ad0-434f-b82f-fe13efa7ed90",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 438,
+      "total_deletions": 1197,
+      "accepted_lines": 396,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/7c0acc025bb39fad5462e4c9ea9e2581975fa13dc13ed8ed929b1818a4b024fa"
+    }
+  }
+}
