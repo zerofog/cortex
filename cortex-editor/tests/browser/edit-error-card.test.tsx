@@ -126,7 +126,7 @@ describe('EditErrorCard', () => {
       delete (window as unknown as { __CORTEX_DEBUG_OVERRIDES__?: boolean }).__CORTEX_DEBUG_OVERRIDES__
     })
 
-    it('renders Debug disclosure only when __CORTEX_DEBUG_OVERRIDES__ is truthy', () => {
+    it('renders Debug disclosure only when __CORTEX_DEBUG_OVERRIDES__ is strictly true', () => {
       // Flag off — no debug section. Guards against accidentally leaking internal
       // diagnostics to end users who haven't opted into the debug mode.
       render(

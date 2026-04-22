@@ -884,6 +884,64 @@ describe('CSSOverrideManager', () => {
       }
     })
 
+    it('ZF0-1293: emitted diagnostics.priorValues is an immutable snapshot (no retroactive mutation)', async () => {
+      // Copilot PR #74 review finding: getPriorValues() previously returned
+      // the same live array stored in this.priorValues. Because recordPriorValue
+      // mutates that array in place (push/shift), later set() calls would
+      // retroactively change the priorValues field in already-emitted
+      // divergences — and any UI derived from them. This test captures a
+      // divergence, fires more set() calls after emission, and asserts the
+      // captured priorValues array is unaffected.
+      const originalWindow = CSSOverrideManager.VERIFY_RETRY_WINDOW_MS
+      const originalPoll = CSSOverrideManager.VERIFY_POLL_INTERVAL_MS
+      CSSOverrideManager.VERIFY_RETRY_WINDOW_MS = 60
+      CSSOverrideManager.VERIFY_POLL_INTERVAL_MS = 20
+      try {
+        const { onDivergence } = await import('../../src/browser/override-bus.js')
+        const divergences: Array<import('../../src/browser/override-bus.js').OverrideDivergence> = []
+        const unsub = onDivergence(d => divergences.push(d))
+
+        const target = document.createElement('div')
+        target.setAttribute('data-cortex-source', 'a:1:1')
+        target.style.color = 'hotpink'
+        document.body.appendChild(target)
+
+        // Scrub through a few values → divergence captures priorValues=['red', 'orange', 'yellow']
+        for (const v of ['red', 'orange', 'yellow']) manager.set('a:1:1', 'color', v)
+        flushRAF()
+        manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'yellow')
+        manager.handleHMRVerified('edit-1', true, 'jsx-immediate')
+        manager.onHMRApplied()
+        flushRAF()
+        flushRAF()
+        await new Promise(r => setTimeout(r, 100))
+        flushRAF()
+
+        expect(divergences).toHaveLength(1)
+        const capturedBefore = [...divergences[0]!.diagnostics.priorValues]
+        expect(capturedBefore).toEqual(['red', 'orange', 'yellow'])
+
+        // Fire more set() calls AFTER the divergence was emitted. If
+        // priorValues was a live reference, these pushes would mutate the
+        // array the divergence payload holds — and `diagnostics.priorValues`
+        // would silently grow.
+        manager.set('a:1:1', 'color', 'green')
+        manager.set('a:1:1', 'color', 'blue')
+        manager.set('a:1:1', 'color', 'indigo')
+        manager.set('a:1:1', 'color', 'violet')  // now 7 total values, would overflow the cap AND retroactively mutate
+
+        // The previously-captured array must be exactly what it was at emission.
+        expect(divergences[0]!.diagnostics.priorValues).toEqual(capturedBefore)
+        expect(divergences[0]!.diagnostics.priorValues).toEqual(['red', 'orange', 'yellow'])
+
+        unsub()
+        target.remove()
+      } finally {
+        CSSOverrideManager.VERIFY_RETRY_WINDOW_MS = originalWindow
+        CSSOverrideManager.VERIFY_POLL_INTERVAL_MS = originalPoll
+      }
+    })
+
     it('ZF0-1293: server-mismatch emits divergence with server-mismatch readFrom, no retry duration', async () => {
       // handleHMRVerified(match=false) path: server refused the edit. No DOM
       // read happens, so actualReadFrom must be 'server-mismatch' and

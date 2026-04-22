@@ -99,8 +99,9 @@ export function EditErrorCard({ errors, elementSource, agentConnected, onDismiss
 }
 
 /** ZF0-1293: collapsible diagnostic panel for divergence investigation. Only
- *  rendered when `window.__CORTEX_DEBUG_OVERRIDES__` is truthy. Plain <details>
- *  keeps the interaction keyboard-accessible without extra state management. */
+ *  rendered when `window.__CORTEX_DEBUG_OVERRIDES__ === true` (strict, not
+ *  truthy — see `isDebugEnabled()` above). Plain <details> keeps the
+ *  interaction keyboard-accessible without extra state management. */
 function DebugDisclosure({ diagnostics }: { diagnostics: OverrideDivergenceDiagnostics }): JSX.Element {
   const { actualReadFrom, kindUsed, priorValues, retryDurationMs, errorMessage } = diagnostics
   return (

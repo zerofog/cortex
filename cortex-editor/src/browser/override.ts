@@ -127,8 +127,16 @@ export class CSSOverrideManager {
     return `${source}\0${property}\0${pseudo ?? ''}`
   }
 
+  /** Snapshot — returns a COPY of the buffer, not the live reference.
+   *  Critical for diagnostic-payload immutability: `recordPriorValue` mutates
+   *  the underlying array in place via push/shift, so handing out the live
+   *  reference would cause already-emitted divergence payloads (and UI state
+   *  derived from them) to change retroactively when later `set()` calls fire
+   *  on the same key. The `readonly string[]` return type is TypeScript-only
+   *  (doesn't prevent runtime mutation by callers with the original ref). */
   private getPriorValues(source: string, property: string, pseudo: '::before' | '::after' | undefined): readonly string[] {
-    return this.priorValues.get(this.priorValuesKey(source, property, pseudo)) ?? []
+    const buf = this.priorValues.get(this.priorValuesKey(source, property, pseudo))
+    return buf ? [...buf] : []
   }
 
   /** Assemble the diagnostics payload attached to a divergence emission.
