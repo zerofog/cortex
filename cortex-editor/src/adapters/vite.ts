@@ -86,8 +86,24 @@ if (import.meta.hot) {
   });
   // Notify browser when HMR stylesheet update is applied — override clearing
   // must wait for this to avoid flash (hmr_verified arrives before HMR applies).
-  import.meta.hot.on('vite:afterUpdate', () => {
-    window.__cortex_channel__?.handleServerMessage({ type: 'hmr-applied' });
+  // Include the changed file paths from the Vite update payload so the browser
+  // can skip the (expensive) Panel refresh when the change is unrelated to
+  // the currently selected element (ZF0-1292 follow-up).
+  import.meta.hot.on('vite:afterUpdate', (update) => {
+    var files;
+    if (Array.isArray(update?.updates)) {
+      files = update.updates.map((u) => u.path).filter((p) => typeof p === 'string');
+    } else if (update != null) {
+      // Vite schema drift: log ONCE so the first divergence leaves a
+      // breadcrumb in devtools; without a guard, every subsequent HMR
+      // cycle would spam the same warning.
+      if (!window.__cortex_vite_shape_warned__) {
+        window.__cortex_vite_shape_warned__ = true;
+        console.warn('[cortex] unexpected vite:afterUpdate shape', update);
+      }
+      files = undefined;
+    }
+    window.__cortex_channel__?.handleServerMessage({ type: 'hmr-applied', files });
   });
   if (!Object.prototype.hasOwnProperty.call(window, '__cortex_send__')) {
     Object.defineProperty(window, '__cortex_send__', {

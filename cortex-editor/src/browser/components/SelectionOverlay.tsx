@@ -11,13 +11,19 @@ export interface SelectionOverlayProps {
   activeState?: InteractionState
   onStateChange?: (state: InteractionState) => void
   overlaysVisible?: boolean
+  /** Counter that bumps on every HMR cycle. Forces the RAF tracking loop
+   *  to re-initialize so layout changes from source-edit reorders (where
+   *  the selected element moves position but stays connected) are picked
+   *  up. Without this dep, the loop's idle-until-change optimization
+   *  leaves the overlay glued to the old position — ZF0-1292. */
+  hmrAppliedVersion?: number
 }
 
 /**
  * Persistent selection outline with transition. Uses RAF to track position
  * continuously (element may move from scroll/resize while selected).
  */
-export function SelectionOverlay({ element, availableStates, activeState, onStateChange, overlaysVisible = true }: SelectionOverlayProps): JSX.Element | null {
+export function SelectionOverlay({ element, availableStates, activeState, onStateChange, overlaysVisible = true, hmrAppliedVersion = 0 }: SelectionOverlayProps): JSX.Element | null {
   const overlayRef = useRef<HTMLDivElement>(null)
   const lensRef = useRef<HTMLDivElement>(null)
   const labelRef = useRef<HTMLSpanElement>(null)
@@ -224,7 +230,12 @@ export function SelectionOverlay({ element, availableStates, activeState, onStat
       window.removeEventListener('scroll', restartLoop, { capture: true })
       window.removeEventListener('resize', restartLoop)
     }
-  }, [element])
+    // hmrAppliedVersion is in deps so the effect re-initializes on every HMR
+    // cycle — the teardown cancels the idle RAF loop and the fresh setup
+    // runs update() synchronously with the new getBoundingClientRect. This
+    // catches loop-reorder cases where the selected element's DOM node is
+    // preserved (isConnected stays true) but its layout position changed.
+  }, [element, hmrAppliedVersion])
 
   if (!element) return null
 

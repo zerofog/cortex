@@ -73,6 +73,11 @@ interface LayerTreeProps {
   element: HTMLElement | null
   onSelectElement: (el: HTMLElement) => void
   height: number
+  /** Counter that bumps on every HMR cycle. Forces `buildScopedTree` to
+   *  rebuild when the selected element's DOM node is preserved but its
+   *  sibling layout changed (e.g., array reorder in a .map() loop).
+   *  Without this dep, the memo keeps the stale sibling order. */
+  hmrAppliedVersion?: number
 }
 
 function TreeNodeRow({ node, onSelectElement }: { node: TreeNode; onSelectElement: (el: HTMLElement) => void }): JSX.Element {
@@ -120,8 +125,8 @@ function TreeNodeRow({ node, onSelectElement }: { node: TreeNode; onSelectElemen
 export const DEFAULT_LAYER_HEIGHT = 160
 export const MIN_LAYER_HEIGHT = 60
 
-export function LayerTree({ element, onSelectElement, height }: LayerTreeProps): JSX.Element | null {
-  const tree = useMemo(() => buildScopedTree(element), [element])
+export function LayerTree({ element, onSelectElement, height, hmrAppliedVersion = 0 }: LayerTreeProps): JSX.Element | null {
+  const tree = useMemo(() => buildScopedTree(element), [element, hmrAppliedVersion])
 
   if (!tree) return null
 

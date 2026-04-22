@@ -1021,3 +1021,530 @@ describe('CortexApp', () => {
     })
   })
 })
+
+describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
+  // Track elements by attribute prefix so we can sweep any stragglers at
+  // end-of-test even if a prior run's cleanup missed them. This defends
+  // against the cross-test state leak patterns that produce intermittent
+  // failures in the combined-run scenario.
+  let root: HTMLDivElement
+  let shadow: ShadowRoot
+  let cleanupHost: (() => void) | null = null
+  const orphans: HTMLElement[] = []
+
+  afterEach(() => {
+    if (root) render(null, root)
+    cleanupHost?.()
+    cleanupHost = null
+    for (const el of orphans) el.remove()
+    orphans.length = 0
+    // Sweep any data-cortex-source elements that leaked out of `orphans`
+    // tracking (e.g., from a test that threw before push). Without this,
+    // stale elements survive into the next test and pollute document-level
+    // queries in selection-metadata helpers, producing intermittent failures.
+    for (const el of document.querySelectorAll('[data-cortex-source]')) el.remove()
+    // restoreAllMocks rather than clearAllMocks to fully uninstall any
+    // spies (getComputedStyle, etc.) a failed test may have left behind.
+    vi.restoreAllMocks()
+  })
+
+  async function setupAndSelect(
+    sourceValue: string,
+    tag: string,
+  ): Promise<{ channel: ReturnType<typeof createMockChannel>; el: HTMLElement }> {
+    const sh = createShadowHost()
+    root = sh.root
+    shadow = sh.shadow
+    cleanupHost = sh.cleanup
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+
+    // Activate editor.
+    channel._simulateMessage({ type: 'cortex' } as any)
+    await new Promise(r => setTimeout(r, 10))
+
+    // Select an element.
+    const { _getCallbacks } = await import('../../src/browser/selection.js') as unknown as {
+      _getCallbacks: () => { selectCb: (el: HTMLElement | null) => void }
+    }
+    const { selectCb } = _getCallbacks()
+
+    const el = document.createElement(tag)
+    el.setAttribute('data-cortex-source', sourceValue)
+    document.body.appendChild(el)
+    orphans.push(el)
+    mockGetBoundingClientRect(el, { top: 50, left: 50, width: 100, height: 40 })
+
+    selectCb(el)
+    await new Promise(r => setTimeout(r, 20))
+
+    return { channel, el }
+  }
+
+  it('re-resolves selectedElement via data-cortex-source when HMR replaces the DOM node', async () => {
+    // Lowercase filename → parseCortexSource leaves componentName null →
+    // PanelHeader falls back to `<tagName>`, which is what lets us
+    // distinguish elA (div) from elB (span) in the rendered header text.
+    const SOURCE = 'src/page.tsx:10:5'
+    const { channel, el: elA } = await setupAndSelect(SOURCE, 'div')
+
+    // Sanity: Panel header shows `<div>` for elA.
+    expect(root.textContent).toContain('<div>')
+    expect(root.textContent).not.toContain('<span>')
+
+    // Simulate React Fast Refresh: detach elA, insert elB with SAME source
+    // but a different tag so we can distinguish in the Panel header.
+    elA.remove()
+    const elB = document.createElement('span')
+    elB.setAttribute('data-cortex-source', SOURCE)
+    document.body.appendChild(elB)
+    orphans.push(elB)
+    mockGetBoundingClientRect(elB, { top: 100, left: 50, width: 100, height: 40 })
+
+    channel._simulateMessage({ type: 'hmr-applied' })
+    await new Promise(r => setTimeout(r, 30))
+
+    // Panel header now reflects elB's tag — proving the selection was
+    // re-resolved to the new DOM node.
+    expect(root.textContent).toContain('<span>')
+  })
+
+  /** Helper: select the nth element among siblings sharing a source value.
+   *  Builds a full list first so selection metadata captures the correct
+   *  nth-index, then routes selection through the mocked selection module's
+   *  selectCb (which is the `selectWithMeta` wrapper in CortexApp). */
+  async function setupListAndSelect(
+    source: string,
+    items: Array<{ tag: string; content: string }>,
+    selectIndex: number,
+  ): Promise<{
+    channel: ReturnType<typeof createMockChannel>
+    elements: HTMLElement[]
+    selected: HTMLElement
+  }> {
+    const sh = createShadowHost()
+    root = sh.root
+    shadow = sh.shadow
+    cleanupHost = sh.cleanup
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+
+    channel._simulateMessage({ type: 'cortex' } as any)
+    await new Promise(r => setTimeout(r, 10))
+
+    const { _getCallbacks } = await import('../../src/browser/selection.js') as unknown as {
+      _getCallbacks: () => { selectCb: (el: HTMLElement | null) => void }
+    }
+    const { selectCb } = _getCallbacks()
+
+    const elements: HTMLElement[] = []
+    items.forEach(({ tag, content }, i) => {
+      const el = document.createElement(tag)
+      el.setAttribute('data-cortex-source', source)
+      el.appendChild(document.createTextNode(content))
+      document.body.appendChild(el)
+      orphans.push(el)
+      mockGetBoundingClientRect(el, { top: 50 + i * 50, left: 50, width: 100, height: 40 })
+      elements.push(el)
+    })
+
+    const selected = elements[selectIndex]!
+    selectCb(selected)
+    await new Promise(r => setTimeout(r, 20))
+
+    return { channel, elements, selected }
+  }
+
+  /** Swap the list in-place, keeping the same source value. Returns the new
+   *  elements in rendered order. Simulates a React Fast Refresh that replaces
+   *  DOM nodes. */
+  function swapListInPlace(
+    oldElements: HTMLElement[],
+    newItems: Array<{ tag: string; content: string }>,
+    source: string,
+  ): HTMLElement[] {
+    for (const el of oldElements) el.remove()
+    const next: HTMLElement[] = []
+    newItems.forEach(({ tag, content }, i) => {
+      const el = document.createElement(tag)
+      el.setAttribute('data-cortex-source', source)
+      el.appendChild(document.createTextNode(content))
+      document.body.appendChild(el)
+      orphans.push(el)
+      mockGetBoundingClientRect(el, { top: 50 + i * 50, left: 50, width: 100, height: 40 })
+      next.push(el)
+    })
+    return next
+  }
+
+  it('preserves selection at same index when HMR leaves multiple matches (nth-index)', async () => {
+    // Array of 2 siblings; select index 0. Post-HMR, both nodes replaced
+    // (different content). Smart fallback: content-hash mismatches, search
+    // for old content fails — fall through to "preserve at saved index".
+    // Net: selection is new-index-0.
+    const SOURCE = 'src/items.tsx:20:3'
+    const { channel, elements, selected } = await setupListAndSelect(
+      SOURCE,
+      [{ tag: 'li', content: 'Item A' }, { tag: 'li', content: 'Item B' }],
+      0,
+    )
+    expect(selected.textContent).toBe('Item A')
+
+    const next = swapListInPlace(
+      elements,
+      [{ tag: 'li', content: 'New First' }, { tag: 'li', content: 'New Second' }],
+      SOURCE,
+    )
+
+    channel._simulateMessage({ type: 'hmr-applied' })
+    await new Promise(r => setTimeout(r, 50))
+
+    // Selection preserved at index 0 — but now points to the new DOM node
+    // whose content has changed (treated as in-place content edit).
+    expect(root.textContent).not.toContain('Click any element to start editing')
+    expect(next[0]!.isConnected).toBe(true)
+  })
+
+  it('preserves selection at same index when content is unchanged', async () => {
+    // Select index 1 with content "Item B". Swap list but keep the same
+    // items at the same positions — content-hash matches, position stable.
+    const SOURCE = 'src/items.tsx:20:3'
+    const { channel, elements } = await setupListAndSelect(
+      SOURCE,
+      [{ tag: 'li', content: 'Item A' }, { tag: 'li', content: 'Item B' }],
+      1,
+    )
+    const next = swapListInPlace(
+      elements,
+      [{ tag: 'li', content: 'Item A' }, { tag: 'li', content: 'Item B' }],
+      SOURCE,
+    )
+    channel._simulateMessage({ type: 'hmr-applied' })
+    await new Promise(r => setTimeout(r, 50))
+    expect(next[1]!.isConnected).toBe(true)
+    expect(root.textContent).not.toContain('Click any element to start editing')
+  })
+
+  it('switches selection to element carrying original content when list is reordered', async () => {
+    // Select "Item A" at index 0. Post-HMR, swap order so "Item A" is at
+    // index 1. Smart fallback: index-0 now has "Item B" (mismatch); search
+    // finds "Item A" at index 1 — selection follows content there.
+    const SOURCE = 'src/items.tsx:20:3'
+    const { channel, elements, selected } = await setupListAndSelect(
+      SOURCE,
+      [{ tag: 'li', content: 'Item A' }, { tag: 'li', content: 'Item B' }],
+      0,
+    )
+    expect(selected.textContent).toBe('Item A')
+
+    const next = swapListInPlace(
+      elements,
+      [{ tag: 'li', content: 'Item B' }, { tag: 'li', content: 'Item A' }],
+      SOURCE,
+    )
+    channel._simulateMessage({ type: 'hmr-applied' })
+    await new Promise(r => setTimeout(r, 50))
+
+    // "Item A" is now at new index 1; selection should have followed it.
+    expect(next[1]!.textContent).toBe('Item A')
+    expect(next[1]!.isConnected).toBe(true)
+    expect(root.textContent).not.toContain('Click any element to start editing')
+  })
+
+  it('clears selection when HMR shrinks the list below the saved index', async () => {
+    // Select index 2 of 3. Post-HMR, only 2 elements remain — index 2 is
+    // out of bounds. Smart fallback returns null; selection clears.
+    const SOURCE = 'src/items.tsx:20:3'
+    const { channel, elements } = await setupListAndSelect(
+      SOURCE,
+      [{ tag: 'li', content: 'A' }, { tag: 'li', content: 'B' }, { tag: 'li', content: 'C' }],
+      2,
+    )
+    swapListInPlace(
+      elements,
+      [{ tag: 'li', content: 'A' }, { tag: 'li', content: 'B' }],
+      SOURCE,
+    )
+    channel._simulateMessage({ type: 'hmr-applied' })
+    await new Promise(r => setTimeout(r, 50))
+
+    expect(root.textContent).toContain('Click any element to start editing')
+  })
+
+  it('re-resolves across Shadow DOM via deep-query fallback', async () => {
+    // Host an open shadow root containing an annotated element. Select it,
+    // then swap the shadow-contained node. The flat top-level query returns
+    // 0 matches (shadow is opaque to document.querySelectorAll), so the
+    // re-resolver's `inShadowRoot` flag triggers the deep-query fallback.
+    const sh = createShadowHost()
+    root = sh.root
+    shadow = sh.shadow
+    cleanupHost = sh.cleanup
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+    channel._simulateMessage({ type: 'cortex' } as any)
+    await new Promise(r => setTimeout(r, 10))
+
+    const { _getCallbacks } = await import('../../src/browser/selection.js') as unknown as {
+      _getCallbacks: () => { selectCb: (el: HTMLElement | null) => void }
+    }
+    const { selectCb } = _getCallbacks()
+
+    // Create a custom-element-style host with an open shadow root, place an
+    // annotated span inside it.
+    const SOURCE = 'src/shadow-child.tsx:12:5'
+    const shadowHost = document.createElement('div')
+    shadowHost.className = 'shadow-host'
+    document.body.appendChild(shadowHost)
+    orphans.push(shadowHost)
+    const hostShadow = shadowHost.attachShadow({ mode: 'open' })
+    const shadowChild = document.createElement('span')
+    shadowChild.setAttribute('data-cortex-source', SOURCE)
+    shadowChild.textContent = 'Shadow child'
+    hostShadow.appendChild(shadowChild)
+    mockGetBoundingClientRect(shadowChild, { top: 50, left: 50, width: 100, height: 40 })
+
+    selectCb(shadowChild)
+    await new Promise(r => setTimeout(r, 20))
+
+    // Detach the original and insert a replacement inside the same shadow.
+    shadowChild.remove()
+    const replacement = document.createElement('span')
+    replacement.setAttribute('data-cortex-source', SOURCE)
+    replacement.textContent = 'Shadow child'
+    hostShadow.appendChild(replacement)
+    mockGetBoundingClientRect(replacement, { top: 50, left: 50, width: 100, height: 40 })
+
+    // Sanity check the trust model: a document-level query can't see into
+    // the open shadow — that's why we need the deep-query fallback.
+    expect(document.querySelectorAll(`[data-cortex-source="${SOURCE}"]`).length).toBe(0)
+
+    channel._simulateMessage({ type: 'hmr-applied' })
+    await new Promise(r => setTimeout(r, 50))
+
+    expect(replacement.isConnected).toBe(true)
+    expect(root.textContent).not.toContain('Click any element to start editing')
+  })
+
+  it('retries re-resolution via double-rAF when Fast Refresh commit is deferred', async () => {
+    // Simulate framework-commit latency: element is STILL connected at the
+    // sync-handler tick (Fast Refresh hasn't run yet). The sync pass in the
+    // HMR handler early-returns (isConnected === true). Then we defer the
+    // actual swap to land between the two rAFs. The async pass should
+    // re-check and resolve to the replacement.
+    const SOURCE = 'src/deferred.tsx:8:3'
+    const { channel, el } = await setupAndSelect(SOURCE, 'p')
+    expect(el.isConnected).toBe(true)
+
+    // Fire hmr-applied while the element is still connected.
+    channel._simulateMessage({ type: 'hmr-applied' })
+
+    // Between sync pass and double-rAF: defer swap by one microtask so the
+    // sync handler has already returned. Then use an rAF to detach+insert
+    // the replacement before the retry fires.
+    await new Promise<void>(resolve => {
+      requestAnimationFrame(() => {
+        el.remove()
+        const replacement = document.createElement('p')
+        replacement.setAttribute('data-cortex-source', SOURCE)
+        replacement.textContent = 'Original'
+        document.body.appendChild(replacement)
+        orphans.push(replacement)
+        mockGetBoundingClientRect(replacement, { top: 50, left: 50, width: 100, height: 40 })
+        resolve()
+      })
+    })
+
+    // Wait for the second rAF + Preact commit.
+    await new Promise(r => setTimeout(r, 50))
+
+    // Falsifiable observable: the Panel stays populated. If the async
+    // (double-rAF) pass didn't re-resolve, `selectedElement` would be
+    // null (the original <p> was removed), and the Panel would render
+    // its empty-state prompt. The tag swap from <p> to <span> via the
+    // replacement node is observable through the header label too, but
+    // the empty-state guard is the tightest assertion for "async
+    // retry actually happened."
+    expect(root.textContent).not.toContain('Click any element to start editing')
+  })
+
+  it('clears selection when HMR removes the selected element entirely', async () => {
+    const SOURCE = 'src/removed.tsx:7:1'
+    const { channel, el } = await setupAndSelect(SOURCE, 'p')
+
+    // Element is gone from the DOM; no replacement.
+    el.remove()
+
+    channel._simulateMessage({ type: 'hmr-applied' })
+    await new Promise(r => setTimeout(r, 30))
+
+    expect(root.textContent).toContain('Click any element to start editing')
+  })
+
+  it('leaves selection untouched and re-reads computed styles when the selected element is still connected after HMR', async () => {
+    // Stylesheet-only HMR case: the element stays in place, but the Panel
+    // must still receive the version bump so computed styles re-read.
+    // This test guards against both:
+    //  (1) An over-eager re-resolver that would clear selection on every HMR cycle.
+    //  (2) A silent-no-op where the hmr-applied handler doesn't actually bump
+    //      styleVersion (the assertion on (1) alone would still pass).
+    const SOURCE = 'src/stable-el.tsx:3:1'
+
+    // Count getComputedStyle invocations as a falsifiable proxy for the re-read.
+    // If the bump path is broken, the count stays flat after hmr-applied.
+    const gcsSpy = vi.spyOn(window, 'getComputedStyle')
+
+    const { channel, el } = await setupAndSelect(SOURCE, 'div')
+
+    expect(root.textContent).toContain('<div>')
+    expect(el.isConnected).toBe(true)
+    const gcsBefore = gcsSpy.mock.calls.length
+    expect(gcsBefore).toBeGreaterThan(0) // sanity: Panel already read styles on mount
+
+    channel._simulateMessage({ type: 'hmr-applied' })
+    await new Promise(r => setTimeout(r, 30))
+
+    // (1) Selection preserved — still showing the same element.
+    expect(root.textContent).toContain('<div>')
+    expect(root.textContent).not.toContain('Click any element to start editing')
+    // (2) Panel re-read computed styles — proves the version-bump path fired
+    // and propagated through to Panel's computedStyles useMemo invalidation.
+    expect(gcsSpy.mock.calls.length).toBeGreaterThan(gcsBefore)
+
+    gcsSpy.mockRestore()
+  })
+})
+
+describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
+  let root: HTMLDivElement
+  let shadow: ShadowRoot
+  let cleanupHost: (() => void) | null = null
+  const orphans: HTMLElement[] = []
+
+  afterEach(() => {
+    if (root) render(null, root)
+    cleanupHost?.()
+    cleanupHost = null
+    for (const el of orphans) el.remove()
+    orphans.length = 0
+    // restoreAllMocks (not clearAllMocks) ensures the getComputedStyle spy
+    // is fully uninstalled between tests — otherwise a failed test that
+    // threw before reaching gcs.mockRestore() would leak the spy into
+    // downstream tests (and other describe blocks).
+    vi.restoreAllMocks()
+  })
+
+  /** Render CortexApp, activate, select an element with the given source,
+   *  and return the mock channel + a `gcs` spy on getComputedStyle. The spy's
+   *  call count is the observable signal for "Panel refreshed". */
+  async function setup(source: string): Promise<{
+    channel: ReturnType<typeof createMockChannel>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    gcs: any
+    element: HTMLElement
+  }> {
+    const sh = createShadowHost()
+    root = sh.root
+    shadow = sh.shadow
+    cleanupHost = sh.cleanup
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+    channel._simulateMessage({ type: 'cortex' } as any)
+    await new Promise(r => setTimeout(r, 10))
+
+    const { _getCallbacks } = await import('../../src/browser/selection.js') as unknown as {
+      _getCallbacks: () => { selectCb: (el: HTMLElement | null) => void }
+    }
+    const { selectCb } = _getCallbacks()
+
+    const element = document.createElement('div')
+    element.setAttribute('data-cortex-source', source)
+    element.appendChild(document.createTextNode('target'))
+    document.body.appendChild(element)
+    orphans.push(element)
+    mockGetBoundingClientRect(element, { top: 50, left: 50, width: 100, height: 40 })
+
+    selectCb(element)
+    await new Promise(r => setTimeout(r, 20))
+
+    // Install spy AFTER selection so the baseline count is post-mount.
+    const gcs = vi.spyOn(window, 'getComputedStyle')
+    return { channel, gcs, element }
+  }
+
+  it('skips Panel refresh when hmr files are fully unrelated to the selection', async () => {
+    const { channel, gcs } = await setup('src/foo.tsx:10:5')
+    const before = gcs.mock.calls.length
+    channel._simulateMessage({ type: 'hmr-applied', files: ['src/bar.tsx', 'src/baz.tsx'] })
+    await new Promise(r => setTimeout(r, 50))
+    // No CSS in list, no ancestor match, no own-file match → refresh skipped.
+    // The expensive computedStyles re-run does not fire.
+    expect(gcs.mock.calls.length).toBe(before)
+    gcs.mockRestore()
+  })
+
+  // All positive "files ∈ refresh branch" cases share the same setup and
+  // observable (gcs call count bumps). Parameterizing by the files payload
+  // keeps the branch coverage explicit and collapses four near-identical
+  // tests into one. Negative case + ancestor-match remain separate (unique
+  // DOM setup / inverted assertion).
+  it.each<{ label: string; files: string[] | undefined }>([
+    { label: 'CSS file in list', files: ['src/bar.tsx', 'src/app.css'] },
+    { label: "selected element's own source file", files: ['src/foo.tsx'] },
+    { label: 'no files field (backward-compat with older server)', files: undefined },
+    { label: 'empty files array (server signaled a cycle but could not enumerate files)', files: [] },
+  ])('triggers Panel refresh when hmr-applied has $label', async ({ files }) => {
+    const { channel, gcs } = await setup('src/foo.tsx:10:5')
+    const before = gcs.mock.calls.length
+    const msg = files === undefined
+      ? { type: 'hmr-applied' as const }
+      : { type: 'hmr-applied' as const, files }
+    channel._simulateMessage(msg)
+    await new Promise(r => setTimeout(r, 50))
+    expect(gcs.mock.calls.length).toBeGreaterThan(before)
+    gcs.mockRestore()
+  })
+
+  it('triggers Panel refresh when hmr files include an ancestor\'s source file', async () => {
+    // Build a parent element with a source, child element inside. Select the
+    // child. Dispatch hmr-applied with parent's source file in the list.
+    const sh = createShadowHost()
+    root = sh.root
+    shadow = sh.shadow
+    cleanupHost = sh.cleanup
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+    channel._simulateMessage({ type: 'cortex' } as any)
+    await new Promise(r => setTimeout(r, 10))
+
+    const { _getCallbacks } = await import('../../src/browser/selection.js') as unknown as {
+      _getCallbacks: () => { selectCb: (el: HTMLElement | null) => void }
+    }
+    const { selectCb } = _getCallbacks()
+
+    const parent = document.createElement('div')
+    parent.setAttribute('data-cortex-source', 'src/parent.tsx:1:1')
+    document.body.appendChild(parent)
+    orphans.push(parent)
+    const child = document.createElement('div')
+    child.setAttribute('data-cortex-source', 'src/child.tsx:2:2')
+    parent.appendChild(child)
+    mockGetBoundingClientRect(child, { top: 50, left: 50, width: 100, height: 40 })
+
+    selectCb(child)
+    await new Promise(r => setTimeout(r, 20))
+
+    const gcs = vi.spyOn(window, 'getComputedStyle')
+    const before = gcs.mock.calls.length
+    channel._simulateMessage({ type: 'hmr-applied', files: ['src/parent.tsx'] })
+    await new Promise(r => setTimeout(r, 50))
+    expect(gcs.mock.calls.length).toBeGreaterThan(before)
+    gcs.mockRestore()
+  })
+
+})

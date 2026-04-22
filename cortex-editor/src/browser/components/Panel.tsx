@@ -210,6 +210,18 @@ export interface PanelProps {
   editErrors?: Map<string, EditError>
   onEditDispatch?: (editId: string, source: string, property: string, value: string) => void
   onDismissError?: (key: string) => void
+  /** Monotonic counter bumped by CortexApp on every `hmr-applied` message
+   *  (ZF0-1292). Forces a getComputedStyle re-read and shared-class re-detect,
+   *  covering out-of-band source edits that don't mutate the selected
+   *  element's own class/style attributes — stylesheet rule changes, @theme
+   *  token changes, and ancestor cascade changes — which the
+   *  MutationObserver cannot see.
+   *
+   *  Required (not optional): forgetting to pass it leaves the Panel silently
+   *  unable to react to HMR. Architecture review flagged the original
+   *  optional signature as a silent-failure hazard for future integration
+   *  sites. Tests must pass `hmrAppliedVersion={0}` explicitly. */
+  hmrAppliedVersion: number
 }
 
 function parseSpacingValues(cs: CSSStyleDeclaration) {
@@ -262,6 +274,7 @@ export function Panel({
   editErrors,
   onEditDispatch,
   onDismissError,
+  hmrAppliedVersion,
 }: PanelProps): JSX.Element | null {
   // ALL hooks first — no conditional returns before hooks
   const [isEntering, setIsEntering] = useState(true)
@@ -355,22 +368,37 @@ export function Panel({
   // Clear blast-radius highlights and remove injected style tag on unmount
   useEffect(() => () => { clearHighlights(); removeBlastRadiusStyle() }, [])
 
-  // Detect shared CSS classes when a new element is selected (ZF0-1018).
-  // Resets scope to 'instance' (safe default) on every element change.
-  // Clear stale blast-radius highlights from previous selection (ZF0-1019).
+  // Scope reset + blast-radius highlight clear fire on element change only
+  // (ZF0-1018/1019). This was originally one effect with sharedInfo detection;
+  // keeping scope reset pinned to [element] prevents the scope-reset regression
+  // where an HMR bump would silently flip a user's "All" scope back to
+  // "instance" mid-edit (cubic + Copilot flagged in ZF0-1292 review).
   useEffect(() => {
     clearHighlights()
+    setEditScope('instance')
+  }, [element])
+
+  // Detect shared CSS classes when a new element is selected (ZF0-1018), and
+  // re-run on hmrAppliedVersion bumps (ZF0-1292) because `sharedInfo.elements`
+  // caches DOM refs — a stylesheet-only HMR edit can add or remove siblings
+  // matching the shared selector without mutating the primary element.
+  useEffect(() => {
     if (element) {
       try {
         setSharedInfo(detectSharedClasses(element))
-      } catch {
-        setSharedInfo(null) // degrade gracefully — editing still works, just no scope toggle
+      } catch (err) {
+        // Cross-origin CSSOM access throws SecurityError — known path, don't
+        // warn. Anything else is a bug; log it so it shows up in devtools.
+        // Either way, disable the scope toggle so the Panel stays usable.
+        if (!(err instanceof DOMException && err.name === 'SecurityError')) {
+          console.warn('[cortex] detectSharedClasses unexpected error', err)
+        }
+        setSharedInfo(null)
       }
     } else {
       setSharedInfo(null)
     }
-    setEditScope('instance')
-  }, [element])
+  }, [element, hmrAppliedVersion])
 
 
   // Sync strategy: bump counter on committed changes to force getComputedStyle re-read.
@@ -383,6 +411,14 @@ export function Panel({
   useEffect(() => {
     return onOverrideChange(() => setStyleVersion(v => v + 1))
   }, [])
+
+  // `hmrAppliedVersion` is a dep on the `computedStyles` useMemo below so
+  // HMR-driven invalidation happens in the render pass triggered by the
+  // prop change — no intermediate state bump, no extra render. Covers
+  // stylesheet-only source edits (App.css rule changes, @theme token
+  // changes, ancestor cascade changes) that don't mutate the selected
+  // element's own class/style attributes and therefore don't trip the
+  // MutationObserver below.
 
   // Observe class AND style attribute mutations on the selected element.
   // The Panel lives in a shadow-DOM Preact tree decoupled from the user's
@@ -521,7 +557,7 @@ export function Panel({
     }
 
     return { computedStyles: parsed, dimmedProperties: dimmed, mixedProperties: mixed, parentDisplay: computedParentDisplay }
-  }, [element, styleVersion, activeState, activePseudo, sharedInfo, editScope])
+  }, [element, styleVersion, hmrAppliedVersion, activeState, activePseudo, sharedInfo, editScope])
 
   const availableWeights = useMemo(
     () => {
@@ -1267,7 +1303,7 @@ export function Panel({
             Typography conditional on hasTypographyContent; Position hidden
             in shared-class "All" scope. */}
         <SectionGroup label="Elements" groupId="elements">
-          <ElementTree element={element} onSelectElement={onSelectElement} height={layerHeight} />
+          <ElementTree element={element} onSelectElement={onSelectElement} height={layerHeight} hmrAppliedVersion={hmrAppliedVersion} />
         </SectionGroup>
         <div
           class="cortex-section-resize"

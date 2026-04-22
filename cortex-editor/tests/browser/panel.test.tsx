@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
 import { Panel } from '../../src/browser/components/Panel.js'
-import { renderInShadow, mockGetComputedStyle } from './helpers.js'
+import { renderInShadow, mockGetComputedStyle, createShadowHost } from './helpers.js'
 
 const panelPositionProps = {
   position: { x: 1000, y: 12 },
@@ -10,6 +10,10 @@ const panelPositionProps = {
   panelPointerMove: vi.fn(),
   panelPointerUp: vi.fn(),
   panelPointerCancel: vi.fn(),
+  // ZF0-1292: required since the architecture-review follow-up made the
+  // prop mandatory. Tests that don't exercise HMR behavior pass 0 to keep
+  // the Panel stable (no version bumps fired during the test body).
+  hmrAppliedVersion: 0,
 }
 
 // Global defense-in-depth against fake-timer leakage across tests.
@@ -692,5 +696,221 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     container.remove()
     el1.remove()
     el2.remove()
+  })
+})
+
+describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
+  let cleanup: (() => void) | null = null
+
+  afterEach(() => {
+    cleanup?.()
+    cleanup = null
+    vi.useRealTimers()
+  })
+
+  it('re-reads computed styles when hmrAppliedVersion prop changes', async () => {
+    // Invariant: Panel must refresh when an out-of-band source edit (CSS file,
+    // @theme token, parent cascade) changes computed styles without mutating
+    // the selected element's own class/style attributes. MutationObserver
+    // does not fire for stylesheet-level changes; the hmrAppliedVersion prop
+    // is the escape hatch.
+    const target = document.createElement('p')
+    target.setAttribute('data-cortex-source', 'src/hero.tsx:10:5')
+    target.appendChild(document.createTextNode('Heading'))
+    document.body.appendChild(target)
+
+    // Mutable style ref — we swap values on the same object so
+    // mockGetComputedStyle always returns the current snapshot (the mock
+    // spreads `...styles` on every call). This lets us simulate a
+    // stylesheet edit without re-invoking mockGetComputedStyle.
+    const styles: Record<string, string> = {
+      textAlign: 'left',
+      fontSize: '32px',
+      fontFamily: 'Inter',
+      fontWeight: '700',
+      lineHeight: '40px',
+      letterSpacing: '0px',
+      color: 'rgb(0,0,0)',
+      display: 'block',
+    }
+    const restoreStyles = mockGetComputedStyle(target, styles)
+
+    const overrideManager = {
+      set: vi.fn(), get: vi.fn(), remove: vi.fn(),
+      clearAll: vi.fn(), dispose: vi.fn(), flush: vi.fn(),
+    }
+
+    const { host, shadow, root: shadowRoot, cleanup: removeHost } =
+      createShadowHost()
+    const renderPanel = (version: number): void => {
+      render(
+        <Panel
+          element={target}
+          overrideManager={overrideManager as any}
+          onClose={() => {}}
+          onSelectElement={() => {}}
+          {...panelPositionProps}
+          hmrAppliedVersion={version}
+        />,
+        shadowRoot,
+      )
+    }
+
+    renderPanel(0)
+    cleanup = () => {
+      render(null, shadowRoot)
+      removeHost()
+      target.remove()
+      restoreStyles()
+      // Silence unused warnings for host/shadow — retained for potential future debugging.
+      void host
+      void shadow
+    }
+    await new Promise(r => setTimeout(r, 10))
+
+    // Initial render: SegmentedControl marks "left" as the active option.
+    expect(
+      shadowRoot.querySelector('.cortex-segmented__option--active[data-value="left"]'),
+    ).not.toBeNull()
+
+    // Simulate a stylesheet edit that changes the computed text-align
+    // WITHOUT mutating any attribute on the target element.
+    styles.textAlign = 'center'
+
+    // Observer path is dormant — assert still stale.
+    await new Promise(r => setTimeout(r, 20))
+    expect(
+      shadowRoot.querySelector('.cortex-segmented__option--active[data-value="left"]'),
+    ).not.toBeNull()
+
+    // Re-render with bumped hmrAppliedVersion.
+    renderPanel(1)
+    await new Promise(r => setTimeout(r, 20))
+
+    // Panel has re-read getComputedStyle and reflects the new value.
+    expect(
+      shadowRoot.querySelector('.cortex-segmented__option--active[data-value="center"]'),
+    ).not.toBeNull()
+    expect(
+      shadowRoot.querySelector('.cortex-segmented__option--active[data-value="left"]'),
+    ).toBeNull()
+  })
+
+  // The paired behavior — sharedInfo useEffect re-runs on hmrAppliedVersion —
+  // is covered by inspection of the deps list in Panel.tsx ("re-runs on
+  // hmrAppliedVersion bumps" comment). A standalone behavioral test would
+  // require module-level mocking of detectSharedClasses with vi.resetModules,
+  // which pollutes Preact's module-scoped hook state and breaks sibling
+  // tests (confirmed by running the blast-radius unmount test downstream).
+  // The integration path is covered end-to-end in Step 9.5 manual
+  // verification (scenario (d) — React Fast Refresh adds/removes siblings
+  // sharing a class with the selected element).
+
+  it('preserves editScope across hmrAppliedVersion bumps (split-useEffect regression guard)', async () => {
+    // Locks in the commit f9b0e13 architectural fix: scope reset +
+    // highlight clear fire ONLY on `[element]` changes, NOT on
+    // `hmrAppliedVersion`. Without this split, an HMR cycle after the user
+    // toggled to "All" scope would silently flip them back to "instance"
+    // mid-edit. Flagged as HIGH by three independent reviewers in the
+    // ZF0-1292 architecture review. If someone merges the two useEffects
+    // back into one, this test fails.
+
+    // Create two siblings annotated with `data-cortex-css` pointing at the
+    // same CSS module file + selector — this is what `detectSharedClasses`
+    // treats as a shared class (count > 1).
+    const sharedCss = 'Component.module.css:.badge'
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/component.tsx:5:3')
+    target.setAttribute('data-cortex-css', sharedCss)
+    target.appendChild(document.createTextNode('Target'))
+    document.body.appendChild(target)
+
+    const sibling = document.createElement('div')
+    sibling.setAttribute('data-cortex-source', 'src/component.tsx:10:3')
+    sibling.setAttribute('data-cortex-css', sharedCss)
+    document.body.appendChild(sibling)
+
+    // When scope === 'all', Panel iterates sharedInfo.elements and calls
+    // `cs.getPropertyValue(prop)` on both the target's and siblings' computed
+    // styles. The default mockGetComputedStyle returns a spread object that
+    // drops the CSSStyleDeclaration prototype, so getPropertyValue is missing.
+    // Install a Proxy-based mock that provides getPropertyValue on any element.
+    const originalGCS = window.getComputedStyle
+    const defaultStyles: Record<string, string> = { display: 'block' }
+    const makeProxy = (styles: Record<string, string>): CSSStyleDeclaration =>
+      new Proxy(styles, {
+        get(obj, prop) {
+          if (prop === 'getPropertyValue') {
+            return (p: string) => {
+              const camel = p.replace(/-([a-z])/g, (_, c) => c.toUpperCase())
+              return (obj as Record<string, string>)[camel] ?? (obj as Record<string, string>)[p] ?? ''
+            }
+          }
+          return (obj as Record<string, string>)[prop as string] ?? ''
+        },
+      }) as unknown as CSSStyleDeclaration
+    window.getComputedStyle = ((_el: Element, _pseudo?: string | null) =>
+      makeProxy(defaultStyles)) as typeof window.getComputedStyle
+    const restoreStyles = (): void => { window.getComputedStyle = originalGCS }
+
+    const overrideManager = {
+      set: vi.fn(), get: vi.fn(), remove: vi.fn(),
+      clearAll: vi.fn(), dispose: vi.fn(), flush: vi.fn(),
+    }
+
+    const { shadow, root: shadowRoot, cleanup: removeHost } = createShadowHost()
+    const renderPanel = (version: number): void => {
+      render(
+        <Panel
+          element={target}
+          overrideManager={overrideManager as any}
+          onClose={() => {}}
+          onSelectElement={() => {}}
+          {...panelPositionProps}
+          hmrAppliedVersion={version}
+        />,
+        shadowRoot,
+      )
+    }
+
+    renderPanel(0)
+    cleanup = () => {
+      render(null, shadowRoot)
+      removeHost()
+      target.remove()
+      sibling.remove()
+      restoreStyles()
+      void shadow
+    }
+    await new Promise(r => setTimeout(r, 20))
+
+    // Sanity: the scope toggle is rendered, meaning detectSharedClasses
+    // found 2+ matching elements and sharedInfo is non-null.
+    const allBtn = shadowRoot.querySelector('.cortex-panel__scope-btn:last-child') as HTMLButtonElement | null
+    expect(allBtn).not.toBeNull()
+    expect(allBtn!.textContent).toContain('All')
+
+    // Initial state: "This element" is active (default from setEditScope('instance')).
+    const instanceBtn = shadowRoot.querySelector('.cortex-panel__scope-btn:first-child') as HTMLButtonElement
+    expect(instanceBtn.classList.contains('cortex-panel__scope-btn--active')).toBe(true)
+    expect(allBtn!.classList.contains('cortex-panel__scope-btn--active')).toBe(false)
+
+    // User clicks "All" to switch scope.
+    allBtn!.click()
+    await new Promise(r => setTimeout(r, 20))
+
+    expect(allBtn!.classList.contains('cortex-panel__scope-btn--active')).toBe(true)
+    expect(instanceBtn.classList.contains('cortex-panel__scope-btn--active')).toBe(false)
+
+    // Now bump hmrAppliedVersion — simulates an HMR cycle (stylesheet edit,
+    // @theme token change, etc). The invariant under test: scope stays "All".
+    renderPanel(1)
+    await new Promise(r => setTimeout(r, 20))
+
+    // Re-query because Preact may have reconciled the buttons.
+    const allBtnAfter = shadowRoot.querySelector('.cortex-panel__scope-btn:last-child') as HTMLButtonElement
+    const instanceBtnAfter = shadowRoot.querySelector('.cortex-panel__scope-btn:first-child') as HTMLButtonElement
+    expect(allBtnAfter.classList.contains('cortex-panel__scope-btn--active')).toBe(true)
+    expect(instanceBtnAfter.classList.contains('cortex-panel__scope-btn--active')).toBe(false)
   })
 })

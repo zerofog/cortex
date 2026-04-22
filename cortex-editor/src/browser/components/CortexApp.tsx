@@ -23,6 +23,9 @@ import { CapabilityBanner } from './CapabilityBanner.js'
 import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
 import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
+import { captureSelectionMetadata, reResolveSelection, hmrFilesAffectElement } from '../selection-metadata.js'
+import type { SelectionMetadata } from '../selection-metadata.js'
+import { dismissTopmostPopover } from '../popover-stack.js'
 
 const MAX_ACTIVITY_ENTRIES = 200
 
@@ -41,6 +44,12 @@ export interface CortexAppProps {
 export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps): JSX.Element | null {
   const [hoveredElement, setHoveredElement] = useState<HTMLElement | null>(null)
   const [selectedElement, setSelectedElement] = useState<HTMLElement | null>(null)
+  // Monotonic counter bumped on every `hmr-applied` message (ZF0-1292).
+  // Flowed to Panel so stylesheet-only source edits (App.css rule changes,
+  // @theme token changes, ancestor cascade changes) force a getComputedStyle
+  // re-read and shared-class re-detect. The MutationObserver in Panel only
+  // sees the selected element's own attributes — it cannot catch these.
+  const [hmrAppliedVersion, setHmrAppliedVersion] = useState(0)
   const [swatches, setSwatches] = useState<string[] | undefined>(undefined)
   const [textComponents, setTextComponents] = useState<
     import('../../core/text-components.js').TextComponent[] | undefined
@@ -92,6 +101,11 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const selectionRef = useRef<SelectionHandle | null>(null)
   const selectedElementRef = useRef<HTMLElement | null>(null)
   selectedElementRef.current = selectedElement
+  // Metadata captured at selection time — survives HMR node replacement
+  // and drives the smart-fallback re-resolution (ZF0-1292 architecture
+  // review: nth-index + content-hash + shadow-root flag). Null whenever
+  // selectedElement is null.
+  const selectionMetadataRef = useRef<SelectionMetadata | null>(null)
   const handleExitRef = useRef<(() => void) | null>(null)
 
   // Panel positioning
@@ -104,18 +118,42 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // Canvas zoom (disabled — preserved for future re-enablement)
   useCanvasZoom(false)
 
+  // Selection setter that keeps selectionMetadataRef in sync. Every path
+  // that sets a positive `selectedElement` must go through this helper so
+  // the HMR re-resolver has valid metadata. Null paths (exit, escape,
+  // failed re-resolve) also clear metadata here.
+  // Declared above the mount effect so later readers see it before its
+  // first use — avoids the forward-reference ambiguity a reviewer flagged.
+  const setSelectionWithMetadata = useCallback((el: HTMLElement | null): void => {
+    selectionMetadataRef.current = el ? captureSelectionMetadata(el) : null
+    setSelectedElement(el)
+  }, [])
+
   useEffect(() => {
+    // Disposal guard for async work (HMR re-resolution timers, rAF callbacks)
+    // scheduled from the message handler. When CortexApp unmounts — route
+    // change, test teardown — pending timers must not fire state updates
+    // against a disposed component. The flag flips in cleanup and is read
+    // by attemptReResolve below; timers become no-ops rather than throwing
+    // state-update-after-unmount warnings.
+    let disposed = false
+
     // Initialize CSS override manager and command stack
     const overrideManager = new CSSOverrideManager()
     overrideRef.current = overrideManager
     const commandStack = new CommandStack()
     commandStackRef.current = commandStack
 
-    // Initialize selection system
+    // Initialize selection system. The `setSelectionWithMetadata` wrapper
+    // (defined in a useCallback below) is the ONE point of entry for
+    // populating `selectedElement` — the mount effect uses it here, and
+    // every keyboard/click handler routes through it. This prevents a new
+    // contributor from introducing a fresh selection path that bypasses
+    // metadata capture (Round 2 frontend-clink + mts-native finding).
     const selectionHandle = initSelection(
       shadowRoot,
       setHoveredElement,
-      setSelectedElement,
+      setSelectionWithMetadata,
     )
 
     // Debug-only test bridge — exposed when `window.__CORTEX_DEBUG_OVERRIDES__`
@@ -127,7 +165,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       ;(window as unknown as { __CORTEX_TEST__?: unknown }).__CORTEX_TEST__ = {
         overrideManager,
         channel,
-        selectElement: setSelectedElement,
+        selectElement: setSelectionWithMetadata,
       }
     }
     // Start with design mode disabled — don't intercept events until activated
@@ -208,6 +246,96 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       }
       if (msg.type === 'hmr-applied') {
         overrideRef.current?.onHMRApplied()
+
+        // Defensive: even though the types declare files?: string[], the
+        // channel is trusted to enforce the contract. A malformed non-array
+        // `files` from a future adapter bug would crash .some() / .map().
+        // Normalize to undefined so the downstream gate treats it as "unknown".
+        const rawFiles = msg.files
+        const files: string[] | undefined = Array.isArray(rawFiles) && rawFiles.every(f => typeof f === 'string')
+          ? rawFiles
+          : undefined
+
+        // Gate the Panel refresh (getComputedStyle cascade + detectSharedClasses
+        // over full DOM) on whether the changed files can possibly affect the
+        // selected element. Skip only when we're confident: server provided a
+        // non-empty file list AND no CSS/virtual files AND no ancestor source
+        // is in the list (up to 20 levels). Otherwise — absent / empty / typo
+        // — err toward refresh. If nothing is selected, there is nothing to
+        // refresh (Panel renders empty state, no overlay, no Layer Tree),
+        // so skip the version bump outright.
+        const current = selectedElementRef.current
+        const shouldRefresh = current != null
+          && (!files || files.length === 0 || hmrFilesAffectElement(files, current))
+        if (shouldRefresh) {
+          setHmrAppliedVersion(v => v + 1)
+        }
+
+        // Re-resolve the selection after HMR node replacement. Runs
+        // synchronously (catches CSS-only / classname-flip cases where the
+        // DOM is already committed) AND after double-rAF (catches React
+        // Fast Refresh, which schedules DOM commits via the React scheduler
+        // past `vite:afterUpdate`'s firing point).
+        //
+        // Smart-fallback via `reResolveSelection`: primary=nth-index match,
+        // secondary=content-search for reorder detection, tertiary=preserve
+        // at index for in-place content edits. See selection-metadata.ts.
+        // Re-run the resolver against the LIVE DOM. If the saved element is
+        // no longer the right answer, swap. This replaces the earlier
+        // `isConnected`-gated version — which missed the case where React
+        // Fast Refresh defers its DOM commit past the hmr-applied signal,
+        // so at that moment the selected node is still connected *in the
+        // old DOM tree* that's about to be replaced.
+        const attemptReResolve = (): void => {
+          // Disposal guard: pending timers/rAFs fire as no-ops after unmount.
+          if (disposed) return
+          try {
+            const current = selectedElementRef.current
+            const meta = selectionMetadataRef.current
+            if (!current || !meta) return
+            const resolved = reResolveSelection(meta)
+            if (resolved !== current) {
+              // Ref has drifted (element removed, list shrunk, Fast Refresh
+              // replaced the node, or content-hash fallback found a better
+              // match at a different position). Swap.
+              setSelectionWithMetadata(resolved)
+              return
+            }
+            // Same DOM node, but its position in siblings may have shifted
+            // (e.g. reorder preserved the Cherry <li> via `key=` but its
+            // index changed from 2 → 0). Recapture metadata so the next
+            // HMR cycle starts from the correct index.
+            if (resolved) {
+              const newMeta = captureSelectionMetadata(resolved)
+              const indexShifted = newMeta.index !== meta.index
+              selectionMetadataRef.current = newMeta
+              // If the position drifted, views that cached against the OLD
+              // DOM layout (LayerTree's sibling list, SelectionOverlay's
+              // position) need to re-read. Bumping hmrAppliedVersion again
+              // triggers a fresh Panel render that happens AFTER React Fast
+              // Refresh has committed — which the initial bump in the
+              // message handler couldn't guarantee because Preact microtasks
+              // run before React's scheduler tasks.
+              if (indexShifted) {
+                setHmrAppliedVersion(v => v + 1)
+              }
+            }
+          } catch (err) {
+            console.warn('[cortex] reResolveSelection failed', err)
+            setSelectionWithMetadata(null)
+          }
+        }
+
+        attemptReResolve()
+        // Frame-deferred: catches React sync commits + most Fast Refresh commits.
+        requestAnimationFrame(() => requestAnimationFrame(attemptReResolve))
+        // Scheduler-deferred: React 18's concurrent mode can schedule commits
+        // through its priority scheduler beyond 2 rAFs. 100ms is empirically
+        // sufficient for typical updates; 250ms is the safety net for slow
+        // machines or heavy subtree remounts. Both are bounded and idempotent —
+        // if the selection is already settled, each call is a ~microsecond no-op.
+        setTimeout(attemptReResolve, 100)
+        setTimeout(attemptReResolve, 250)
       }
       if (msg.type === 'annotation-created') {
         setAnnotations(prev => new Map(prev).set(msg.annotation.id, msg.annotation))
@@ -290,6 +418,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     })
 
     return () => {
+      disposed = true
       unsubscribe()
       unsubStatus()
       unsubDivergence()
@@ -374,7 +503,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     channel.send({ type: 'comment-reply', annotationId, text })
   }, [channel])
 
-  const handleSelectElement = useCallback((el: HTMLElement | null) => setSelectedElement(el), [])
+  const handleSelectElement = useCallback(
+    (el: HTMLElement | null) => setSelectionWithMetadata(el),
+    [setSelectionWithMetadata],
+  )
   const handleToggleHover = useCallback(() => setHoverEnabled(v => !v), [])
 
   const handleEditDispatch = useCallback((editId: string, source: string, property: string, value: string) => {
@@ -396,10 +528,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // Exit handler — notify server, deactivate
   const handleExit = useCallback(() => {
     setCommentMode(false)
-    setSelectedElement(null)
+    setSelectionWithMetadata(null)
     setActive(false)
     channel.send({ type: 'cortex-closed' })
-  }, [channel])
+  }, [channel, setSelectionWithMetadata])
   handleExitRef.current = handleExit
 
   // Cascading Escape — capture phase for host app compat
@@ -434,9 +566,19 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         return
       }
 
+      // Priority 2.5: Dismiss the topmost open popover (chip picker, etc.)
+      // before falling through to deselect. Without this, one Escape press
+      // would collapse two UI layers — close the picker AND deselect the
+      // element — which users reported as "Escape closes the panel."
+      if (dismissTopmostPopover()) {
+        e.stopPropagation()
+        e.preventDefault()
+        return
+      }
+
       // Priority 3: Deselect element
       if (selectedElementRef.current) {
-        setSelectedElement(null)
+        setSelectionWithMetadata(null)
         e.stopPropagation()
         e.preventDefault()
         return
@@ -558,6 +700,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         activeState={activeState}
         onStateChange={handleStateChange}
         overlaysVisible={hoverEnabled}
+        hmrAppliedVersion={hmrAppliedVersion}
       />
       {overrideRef.current && (
         <Panel
@@ -588,6 +731,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           editErrors={editErrors}
           onEditDispatch={handleEditDispatch}
           onDismissError={handleDismissError}
+          hmrAppliedVersion={hmrAppliedVersion}
         />
       )}
       <Toolbar
