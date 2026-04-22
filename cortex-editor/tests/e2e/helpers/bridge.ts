@@ -63,6 +63,47 @@ export async function setupDebugBridge(page: Page): Promise<void> {
 }
 
 /**
+ * Arm the Panel's "active" state (design mode on) BEFORE bootstrap.
+ *
+ * Why this exists: CortexApp gates its render on `active === true`
+ * (see `CortexApp.tsx:698`). In production that flips via a server-sent
+ * `cortex`/`cortex-toggle` message; in e2e specs there's no server, and
+ * without it the Panel — and therefore the EditErrorCard — never
+ * render no matter how many divergences fire. `index.tsx:136` reads
+ * `document.documentElement.hasAttribute('data-cortex-active')` at
+ * bootstrap time and feeds it into CortexApp as `initialActive`, which
+ * is the documented escape hatch for pre-activating the editor.
+ *
+ * Call BEFORE `page.goto` (same constraint as `setupDebugBridge`) —
+ * the attribute must be present when `bootstrap()` runs, not after.
+ * Specs that only assert bus events without touching the Panel (smoke
+ * test, canonicalization spec) don't need this; anything that reaches
+ * into the shadow DOM for a Panel element does.
+ */
+export async function activateDesignMode(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    // `addInitScript` runs at document_start — BEFORE `<html>` is
+    // parsed, so `document.documentElement` is `null`. Setting the
+    // attribute synchronously at that moment throws. Use a
+    // `readystatechange` listener: by the time the doctype/`<html>`
+    // lands, `readyState` transitions to `interactive` (or goes
+    // straight from `loading`) and `documentElement` is available.
+    // Must fire before the IIFE bundle's `bootstrap()` reads the
+    // attribute — bootstrap is wired to `DOMContentLoaded`, which
+    // fires AFTER `readystatechange` to `interactive`, so the
+    // ordering is safe.
+    const setFlag = () => {
+      document.documentElement?.setAttribute('data-cortex-active', '')
+    }
+    if (document.documentElement) {
+      setFlag()
+    } else {
+      document.addEventListener('readystatechange', setFlag, { once: true })
+    }
+  })
+}
+
+/**
  * Wait for `window.__CORTEX_TEST__` to exist — i.e., CortexApp has
  * mounted and seen the debug flag. Event-based only (no
  * `waitForTimeout`); raises if the bridge doesn't show up within the
@@ -152,4 +193,74 @@ export async function collectDivergences(
       })
     },
   }
+}
+
+/**
+ * Snapshot of the EditErrorCard surface for assertions. Returns the first
+ * card's rendered state — Panel currently renders at most one card per
+ * source+property, and the Task 3 spec only ever triggers a single
+ * divergence per assertion, so pinning to `[0]` keeps call sites tidy.
+ *
+ * Shape:
+ *  - `visible`: true if any `.cortex-error-card` is mounted in the
+ *    Panel's Shadow DOM. Opens up the "no card rendered" failure mode
+ *    without callers needing to reason about DOM traversal.
+ *  - `property`: text content of `.cortex-error-card__property` (e.g.
+ *    `"padding-top edit failed"`). Helps callers assert the card
+ *    belongs to the property under test.
+ *  - `reason`: text content of `.cortex-error-card__reason`. This is the
+ *    human-visible divergence message ("Preview shows 32px but live
+ *    value is 10px…") — Task 3's acceptance criteria asserts substring
+ *    matches against it.
+ *  - `hasDebugDisclosure`: true iff a `<details>` element is nested
+ *    inside the card (Debug disclosure, gated by
+ *    `__CORTEX_DEBUG_OVERRIDES__ === true`). Callers verify the gate.
+ *
+ * Assumes `setupDebugBridge` has forced the cortex host's Shadow DOM
+ * open — if called without that patch, `host.shadowRoot` is null and
+ * every field falls back to its empty default.
+ */
+export interface EditErrorCardState {
+  visible: boolean
+  property: string | null
+  reason: string | null
+  hasDebugDisclosure: boolean
+}
+
+export async function getEditErrorCardState(page: Page): Promise<EditErrorCardState> {
+  return await page.evaluate(() => {
+    const host = document.querySelector('[data-cortex-host]')
+    const root = host && (host as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot
+    if (!root) return { visible: false, property: null, reason: null, hasDebugDisclosure: false }
+    const card = root.querySelector('.cortex-error-card')
+    if (!card) return { visible: false, property: null, reason: null, hasDebugDisclosure: false }
+    const property = card.querySelector('.cortex-error-card__property')?.textContent?.trim() ?? null
+    const reason = card.querySelector('.cortex-error-card__reason')?.textContent?.trim() ?? null
+    const hasDebugDisclosure = !!card.querySelector('details')
+    return { visible: true, property, reason, hasDebugDisclosure }
+  })
+}
+
+/**
+ * Click the Dismiss button on the first EditErrorCard in the Panel's
+ * Shadow DOM. Returns true if a button was found and clicked, false
+ * otherwise — callers should assert `true` so a missing/renamed button
+ * fails loudly instead of silently succeeding.
+ *
+ * The selector is keyed on `data-action="dismiss"` (see
+ * `EditErrorCard.tsx`) — more resilient than a text-content match if
+ * the button label ever gets localized, but still pinned to the
+ * specific action so a future "Dismiss all" button wouldn't be clicked
+ * accidentally.
+ */
+export async function clickEditErrorCardDismiss(page: Page): Promise<boolean> {
+  return await page.evaluate(() => {
+    const host = document.querySelector('[data-cortex-host]')
+    const root = host && (host as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot
+    if (!root) return false
+    const btn = root.querySelector<HTMLButtonElement>('.cortex-error-card button[data-action="dismiss"]')
+    if (!btn) return false
+    btn.click()
+    return true
+  })
 }
