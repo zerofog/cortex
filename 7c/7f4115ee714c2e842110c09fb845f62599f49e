@@ -1,0 +1,26 @@
+cortex-editor/tests/e2e/override-divergence-card.spec.ts
+  e21f4f7d384a18ae 1-279
+cortex-editor/tests/e2e/helpers/bridge.ts
+  e21f4f7d384a18ae 66-105,197-266
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "7c7f4115ee714c2e842110c09fb845f62599f49e",
+  "prompts": {
+    "e21f4f7d384a18ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "acbcfb70-5ad0-434f-b82f-fe13efa7ed90",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 459,
+      "total_deletions": 671,
+      "accepted_lines": 393,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/52f9153baf784ae72359faee91d7edae978776c761e1a7d18f1c74be2bacd2c6"
+    }
+  }
+}
