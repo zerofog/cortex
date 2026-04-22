@@ -27,6 +27,13 @@ const __dirname = dirname(__filename)
 export const FIXTURE_ORIGIN = 'https://cortex-fixture.test'
 export const FIXTURE_URL = `${FIXTURE_ORIGIN}/`
 
+/** The single seed element rendered in `fixtures/basic.html`. Its selector
+ *  (`#center`) and data-cortex-source identifier (`fixture:1:1`) are shared
+ *  across every e2e spec — keep them here so specs stay DRY and future
+ *  fixture changes propagate through one import. */
+export const FIXTURE_SEED_SELECTOR = '#center'
+export const FIXTURE_SEED_SOURCE = 'fixture:1:1'
+
 export interface FixtureServerOptions {
   /** Absolute path to the built IIFE bundle. Defaults to
    *  `cortex-editor/dist/browser/index.js`. Override for tests that

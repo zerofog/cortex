@@ -42,10 +42,13 @@
  * ----------------------------------------------------------------------
  */
 import { test, expect } from '@playwright/test'
-import { installFixtureServer, FIXTURE_URL } from './helpers/fixture-server.js'
+import {
+  installFixtureServer,
+  FIXTURE_URL,
+  FIXTURE_SEED_SELECTOR,
+  FIXTURE_SEED_SOURCE,
+} from './helpers/fixture-server.js'
 import { setupDebugBridge, waitForBridge, collectDivergences } from './helpers/bridge.js'
-
-const SOURCE = 'fixture:1:1'
 
 /**
  * Read the current `color:` declaration from the
@@ -103,11 +106,14 @@ test.describe('override canonicalization (ZF0-1314 — closes F6 happy-dom gap)'
     // canonical serialization of `editValue`. The OverrideManager must
     // match the edit (in original shape) against this inline value via
     // `canonicalizeCssValue`.
-    await page.evaluate((canonical) => {
-      const el = document.querySelector<HTMLElement>('#center')
-      if (!el) throw new Error('fixture seed element missing')
-      el.style.color = canonical
-    }, canonicalInline)
+    await page.evaluate(
+      ({ canonical, selector }) => {
+        const el = document.querySelector<HTMLElement>(selector)
+        if (!el) throw new Error('fixture seed element missing')
+        el.style.color = canonical
+      },
+      { canonical: canonicalInline, selector: FIXTURE_SEED_SELECTOR },
+    )
 
     await page.evaluate(
       ({ source, value, id }) => {
@@ -117,7 +123,7 @@ test.describe('override canonicalization (ZF0-1314 — closes F6 happy-dom gap)'
         bridge.overrideManager.trackPendingEdit(id, source, 'color', value)
         bridge.overrideManager.handleHMRVerified(id, true, 'jsx-immediate')
       },
-      { source: SOURCE, value: editValue, id: editId },
+      { source: FIXTURE_SEED_SOURCE, value: editValue, id: editId },
     )
 
     // Override must be removed within the retry budget — poll on the

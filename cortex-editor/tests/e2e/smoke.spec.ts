@@ -10,7 +10,12 @@
  * further e2e specs can be trusted.
  */
 import { test, expect } from '@playwright/test'
-import { installFixtureServer, FIXTURE_URL } from './helpers/fixture-server.js'
+import {
+  installFixtureServer,
+  FIXTURE_URL,
+  FIXTURE_SEED_SELECTOR,
+  FIXTURE_SEED_SOURCE,
+} from './helpers/fixture-server.js'
 import { setupDebugBridge, waitForBridge, collectDivergences } from './helpers/bridge.js'
 
 test.describe('harness smoke', () => {
@@ -47,7 +52,7 @@ test.describe('harness smoke', () => {
     })
 
     // Fixture seed element must exist — confirms our HTML reached the page.
-    const seedHandle = page.locator('#center[data-cortex-source="fixture:1:1"]')
+    const seedHandle = page.locator(`${FIXTURE_SEED_SELECTOR}[data-cortex-source="${FIXTURE_SEED_SOURCE}"]`)
     await expect(seedHandle).toHaveCount(1)
   })
 
@@ -72,19 +77,18 @@ test.describe('harness smoke', () => {
     //   - call handleHMRVerified(..., false, ...) — the match=false path
     //     emits divergence immediately without the retry window
     //     (override.ts:624-631).
-    await page.evaluate(() => {
+    await page.evaluate((source) => {
       const bridge = (globalThis as any).__CORTEX_TEST__
-      const source = 'fixture:1:1'
       const editId = 'smoke-divergence-1'
       bridge.overrideManager.set(source, 'padding-top', '99px')
       bridge.overrideManager.flush()
       bridge.overrideManager.trackPendingEdit(editId, source, 'padding-top', '99px')
       bridge.overrideManager.handleHMRVerified(editId, false, 'jsx-immediate')
-    })
+    }, FIXTURE_SEED_SOURCE)
 
     await expect.poll(() => events.length, { timeout: 2000 }).toBeGreaterThan(0)
     expect(events[0]).toMatchObject({
-      source: 'fixture:1:1',
+      source: FIXTURE_SEED_SOURCE,
       property: 'padding-top',
       expected: '99px',
     })
