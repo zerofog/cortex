@@ -48,7 +48,23 @@ export interface OverrideDivergenceEvent {
  * is the only reliable way; the hack is documented in the ZF0-1235 live
  * repros that this harness replaces.
  */
+/** Guard for helpers that MUST run before `page.goto`. Playwright's
+ *  `addInitScript` only applies to subsequent navigations — calling a
+ *  setup helper after the first goto silently no-ops, leading to a
+ *  downstream "visible: false" failure that reads like a product bug.
+ *  Throw at the source instead. */
+function assertPreNavigation(page: Page, helperName: string): void {
+  const url = page.url()
+  if (url && url !== 'about:blank') {
+    throw new Error(
+      `[bridge] ${helperName}() must be called BEFORE page.goto — ` +
+        `page is already at ${url}. addInitScript only affects subsequent navigations.`,
+    )
+  }
+}
+
 export async function setupDebugBridge(page: Page): Promise<void> {
+  assertPreNavigation(page, 'setupDebugBridge')
   await page.addInitScript(() => {
     ;(globalThis as unknown as { __CORTEX_DEBUG_OVERRIDES__?: boolean }).__CORTEX_DEBUG_OVERRIDES__ = true
 
@@ -81,6 +97,7 @@ export async function setupDebugBridge(page: Page): Promise<void> {
  * into the shadow DOM for a Panel element does.
  */
 export async function activateDesignMode(page: Page): Promise<void> {
+  assertPreNavigation(page, 'activateDesignMode')
   await page.addInitScript(() => {
     // `addInitScript` runs at document_start — BEFORE `<html>` is
     // parsed, so `document.documentElement` is `null`. Setting the
@@ -145,9 +162,15 @@ export async function waitForBridge(page: Page, timeoutMs: number = 5000): Promi
  * call `unsubscribe()` first or factor assertions into separate `test()`
  * blocks (each gets a fresh Page).
  */
-export async function collectDivergences(
-  page: Page,
-): Promise<{ events: OverrideDivergenceEvent[]; unsubscribe: () => Promise<void> }> {
+/** Return shape of `collectDivergences` — exported so specs can name
+ *  the type explicitly (e.g. in helper signatures) instead of chaining
+ *  `Awaited<ReturnType<typeof collectDivergences>>`. */
+export interface DivergenceCollector {
+  events: OverrideDivergenceEvent[]
+  unsubscribe: () => Promise<void>
+}
+
+export async function collectDivergences(page: Page): Promise<DivergenceCollector> {
   const events: OverrideDivergenceEvent[] = []
 
   await page.exposeFunction('__cortexOnDivergence', (event: OverrideDivergenceEvent) => {
@@ -229,6 +252,10 @@ export interface EditErrorCardState {
 
 export async function getEditErrorCardState(page: Page): Promise<EditErrorCardState> {
   return await page.evaluate(() => {
+    // Shared shadow-root resolver inline — addInitScript patches
+    // attachShadow to `open` so the host's shadowRoot is reachable.
+    // Task 4 and future Panel-asserting helpers can copy this 3-line
+    // dance (host lookup → shadowRoot access → null fallback).
     const host = document.querySelector('[data-cortex-host]')
     const root = host && (host as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot
     if (!root) return { visible: false, property: null, reason: null, hasDebugDisclosure: false }
