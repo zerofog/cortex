@@ -1,0 +1,28 @@
+cortex-editor/tests/e2e/helpers/bridge.ts
+  e21f4f7d384a18ae 92-98,105,109-125,127-128,134-138
+cortex-editor/src/browser/components/CortexApp.tsx
+  e21f4f7d384a18ae 169-175
+cortex-editor/tests/e2e/smoke.spec.ts
+  e21f4f7d384a18ae 14,53-93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "6a65c37f7e7826e576a7618c2666ab69bb7afa63",
+  "prompts": {
+    "e21f4f7d384a18ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "acbcfb70-5ad0-434f-b82f-fe13efa7ed90",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 81,
+      "total_deletions": 32,
+      "accepted_lines": 81,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/1996032924e8e965371ad93fc88d48665ce87054334709db98d1a2ed1e439554"
+    }
+  }
+}
