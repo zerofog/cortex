@@ -12,7 +12,7 @@
 import type { Project, SourceFile, SyntaxKind as SyntaxKindEnum, ObjectLiteralExpression } from 'ts-morph'
 import { readFile } from 'fs/promises'
 import type { RewriteResult } from './types.js'
-import { ensureTsMorph, findJsxElementAt, cssPropertyToCamelCase, LONGHAND_TO_SHORTHAND } from './jsx-utils.js'
+import { ensureTsMorph, findJsxElementAt, cssPropertyToCamelCase, LONGHAND_TO_SHORTHAND, LONGHAND_TO_SHORTHANDS } from './jsx-utils.js'
 import type { JsxTransactionHandle, TransactionRewriteResult } from './jsx-transaction.js'
 
 export interface InlineStyleRewriteRequest {
@@ -153,6 +153,7 @@ export class InlineStyleRewriter {
     }
 
     // Check for existing property
+    let existingAssignment: import('ts-morph').PropertyAssignment | null = null
     for (const prop of objLiteral.getProperties()) {
       const propKind = prop.getKind()
 
@@ -187,21 +188,94 @@ export class InlineStyleRewriter {
           return { success: false, filePath, reason: `Property '${camelProp}' has non-literal value — route to AI` }
         }
 
-        // Update the value
-        propAssign.setInitializer(JSON.stringify(value))
-        const newContent = sourceFile.getFullText()
-        return { success: true, filePath, oldContent, newContent }
+        existingAssignment = propAssign
+        break
       }
     }
 
-    // Property not found — add it
+    // ZF0-1293: shorthand-clobber guard. React iterates the style object in
+    // insertion order and applies each key via `el.style[key] = value`. A CSS
+    // shorthand setter expands into longhands — so if a longhand appears
+    // BEFORE its parent shorthand in the object literal, the shorthand wins
+    // and the longhand is silently clobbered. Correct the order here: if the
+    // longhand currently precedes its parent shorthand, remove it and
+    // re-append at the end (which is always after the shorthand, since the
+    // shorthand was already somewhere in the literal).
     const propKey = this.formatObjectKey(camelProp)
+    if (existingAssignment) {
+      if (this.needsShorthandReorder(objLiteral, existingAssignment, camelProp, SK)) {
+        existingAssignment.remove()
+        const appended = objLiteral.addPropertyAssignment({ name: propKey, initializer: JSON.stringify(value) })
+        // Defensive post-condition: re-scan and confirm the reorder actually
+        // achieved safe ordering. Guards against a future ts-morph change
+        // (e.g., insertion before a trailing comma) that would leave the
+        // longhand still clobbered despite reporting success.
+        if (this.needsShorthandReorder(objLiteral, appended, camelProp, SK)) {
+          return { success: false, filePath, reason: `shorthand reorder for '${camelProp}' did not take effect` }
+        }
+      } else {
+        existingAssignment.setInitializer(JSON.stringify(value))
+      }
+      const newContent = sourceFile.getFullText()
+      return { success: true, filePath, oldContent, newContent }
+    }
+
+    // Property not found — add it at the end (always safe: addPropertyAssignment
+    // appends, which puts the new longhand after any shorthand already present).
     objLiteral.addPropertyAssignment({
       name: propKey,
       initializer: JSON.stringify(value),
     })
     const newContent = sourceFile.getFullText()
     return { success: true, filePath, oldContent, newContent }
+  }
+
+  /** ZF0-1293: Does the longhand assignment need to be moved after its parent
+   *  shorthand? Returns true iff ANY parent shorthand (mid-level like
+   *  `borderWidth` or super-level like `border`) exists in the same object
+   *  literal AND appears at a LATER source position than the longhand.
+   *
+   *  Walks the full parent list from `LONGHAND_TO_SHORTHANDS` — a longhand
+   *  can have multiple parents (borderTopWidth is clobbered by both
+   *  borderWidth and border). If any of them appear after the longhand,
+   *  React will clobber at render time.
+   *
+   *  Intentionally excluded (with known limitations):
+   *  - Computed keys (`[expr]: value`): `getName()` returns undefined; we
+   *    can't statically resolve what property the computed key names.
+   *  - SpreadAssignment (`...rest`): skipped in this scan. We CANNOT tell
+   *    at static-analysis time whether `rest` contains a parent shorthand.
+   *    If an edited longhand appears before a `...rest` whose runtime value
+   *    holds `padding: "30px"`, React will clobber the longhand at render
+   *    time and this guard will NOT reorder. The runtime divergence system
+   *    is the catch-net — the clobber fires as a divergence card with
+   *    `actualReadFrom: 'inline-style'` and the user's edited value NOT in
+   *    `priorValues` matching `actual`, making the spread-clobber cause
+   *    distinguishable from a stale-inline-style divergence (H1).
+   *  - ShorthandPropertyAssignment (`{ padding }`): bailed by Phase 2 when
+   *    the edit targets the shorthand itself (routed to AI writer). Other
+   *    shorthand-property-assignments in the literal are skipped here —
+   *    same "can't statically analyze" reasoning as spreads. */
+  private needsShorthandReorder(
+    objLiteral: ObjectLiteralExpression,
+    longhand: import('ts-morph').PropertyAssignment,
+    camelProp: string,
+    SK: typeof SyntaxKindEnum,
+  ): boolean {
+    const parents = LONGHAND_TO_SHORTHANDS[camelProp]
+    if (!parents || parents.length === 0) return false
+    const longhandPos = longhand.getStart()
+    const parentSet = new Set(parents)
+    for (const prop of objLiteral.getProperties()) {
+      const kind = prop.getKind()
+      if (kind !== SK.PropertyAssignment && kind !== SK.ShorthandPropertyAssignment) continue
+      const name = kind === SK.PropertyAssignment
+        ? prop.asKind(SK.PropertyAssignment)?.getName()
+        : prop.asKind(SK.ShorthandPropertyAssignment)?.getName()
+      if (!name || !parentSet.has(name)) continue
+      if (prop.getStart() > longhandPos) return true // some parent clobbers longhand
+    }
+    return false
   }
 
   /**
@@ -449,20 +523,91 @@ export class InlineStyleRewriter {
       }
       for (const { property, value } of sets) {
         const camelProp = cssPropertyToCamelCase(property)
-        let updated = false
+        let existing: import('ts-morph').PropertyAssignment | null = null
         for (const prop of objLiteral.getProperties()) {
           if (prop.getKind() !== SK.PropertyAssignment) continue
           const propAssign = prop.asKind(SK.PropertyAssignment)
           if (!propAssign || propAssign.getName() !== camelProp) continue
-          propAssign.setInitializer(JSON.stringify(value))
-          updated = true
+          existing = propAssign
           break
         }
-        if (!updated) {
+        if (existing) {
+          existing.setInitializer(JSON.stringify(value))
+        } else {
           objLiteral.addPropertyAssignment({
             name: this.formatObjectKey(camelProp),
             initializer: JSON.stringify(value),
           })
+        }
+      }
+      // ZF0-1293: shorthand-clobber fix-up pass. Runs after ALL sets are
+      // applied so it handles both directions — longhand being set on an
+      // object with a trailing shorthand, AND shorthand being set on an
+      // object with leading longhands. Simpler than per-set guards, and
+      // correctly handles compound edits that add both sides at once.
+      //
+      // Algorithm: iterate-until-stable. On each pass, find the FIRST
+      // property in source order that's unsafe (has a parent shorthand
+      // appearing later) and move it to the end. Restart the scan because
+      // positions shifted. Loop until no unsafe property remains, or we
+      // hit the iteration cap (more iterations than properties means a
+      // cycle — ts-morph regression — fail loudly).
+      //
+      // Why not collect-then-apply: for multi-level chains like
+      // `{ borderTopWidth, borderWidth, border }`, moving borderTopWidth
+      // first leaves borderWidth still before border. A second pass moves
+      // borderWidth past border. A third pass moves borderTopWidth past
+      // the now-trailing borderWidth. The "collect in source order and
+      // apply" variant produces the wrong final order because the
+      // append-in-collection-order step places borderWidth AFTER
+      // borderTopWidth in the final literal, re-introducing the clobber.
+      //
+      // Intentionally excluded:
+      // - SpreadAssignment (`...rest`): bailed on by Phase 2 validation;
+      //   can't statically analyze its contents.
+      // - Computed keys (`[expr]: value`): `getName()` returns undefined
+      //   from ts-morph; can't know which shorthand it resolves to.
+      // - ShorthandPropertyAssignment (`{ padding }`): bailed by Phase 2.
+      // Cap: each move pushes one property to the end. Worst case is
+      // N moves for N properties (one per unsafe node). Double as headroom
+      // for multi-level chains where one move can expose another unsafe
+      // node that was previously hidden. Plus one so an empty/single-prop
+      // literal doesn't trip the cycle-detection branch on its first
+      // no-op scan.
+      const maxIterations = objLiteral.getProperties().length * 2 + 2
+      let iterations = 0
+      let stabilized = false
+      while (iterations++ < maxIterations) {
+        let didMove = false
+        for (const prop of objLiteral.getProperties()) {
+          if (prop.getKind() !== SK.PropertyAssignment) continue
+          const pa = prop.asKind(SK.PropertyAssignment)
+          if (!pa) continue
+          const name = pa.getName()
+          if (!this.needsShorthandReorder(objLiteral, pa, name, SK)) continue
+          const initText = pa.getInitializerOrThrow().getText()
+          pa.remove()
+          objLiteral.addPropertyAssignment({
+            name: this.formatObjectKey(name),
+            initializer: initText,
+          })
+          didMove = true
+          break // restart scan — positions shifted
+        }
+        if (!didMove) { stabilized = true; break }
+      }
+      if (!stabilized) {
+        return { success: false, reason: 'shorthand reorder did not stabilize (cycle or ts-morph regression)' }
+      }
+      // Final verification — even with a stable loop, assert no unsafe
+      // orderings remain. Catches a future ts-morph change where
+      // addPropertyAssignment places the node in an unsafe position.
+      for (const prop of objLiteral.getProperties()) {
+        if (prop.getKind() !== SK.PropertyAssignment) continue
+        const pa = prop.asKind(SK.PropertyAssignment)
+        if (!pa) continue
+        if (this.needsShorthandReorder(objLiteral, pa, pa.getName(), SK)) {
+          return { success: false, reason: `shorthand reorder did not stabilize for '${pa.getName()}'` }
         }
       }
       // Empty object after removes + no sets: drop the entire style prop.

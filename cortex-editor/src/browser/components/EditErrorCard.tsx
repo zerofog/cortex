@@ -1,9 +1,25 @@
 import type { JSX } from 'preact'
 import { useState, useMemo, useRef, useCallback } from 'preact/hooks'
 import type { FixMeta } from '../../adapters/types.js'
+import type { OverrideDivergenceDiagnostics } from '../override-bus.js'
 
 export interface EditError extends FixMeta {
   source: string
+  /** ZF0-1293: optional diagnostic payload attached when the error came from
+   *  a divergence event. Only surfaced to the user via the Debug disclosure,
+   *  which is gated by `window.__CORTEX_DEBUG_OVERRIDES__`. */
+  diagnostics?: OverrideDivergenceDiagnostics
+}
+
+/** Whether debug diagnostics should be rendered on error cards. Evaluated
+ *  per-render rather than captured once — devs commonly flip the flag in
+ *  devtools during a live investigation without reloading. Strict `=== true`
+ *  check (not truthy coercion) so stringy values ("false", "0") can't
+ *  accidentally expose the Debug panel to end users — the documented
+ *  contract on the flag is "only when set to boolean true". */
+function isDebugEnabled(): boolean {
+  if (typeof window === 'undefined') return false
+  return (window as unknown as { __CORTEX_DEBUG_OVERRIDES__?: boolean }).__CORTEX_DEBUG_OVERRIDES__ === true
 }
 
 interface EditErrorCardProps {
@@ -50,6 +66,9 @@ export function EditErrorCard({ errors, elementSource, agentConnected, onDismiss
             <span class="cortex-error-card__property">{err.property} edit failed</span>
           </div>
           <div class="cortex-error-card__reason">{err.reason}</div>
+          {isDebugEnabled() && err.diagnostics && (
+            <DebugDisclosure diagnostics={err.diagnostics} />
+          )}
           <div class="cortex-error-card__actions">
             <button
               type="button"
@@ -76,5 +95,34 @@ export function EditErrorCard({ errors, elementSource, agentConnected, onDismiss
         </div>
       ))}
     </div>
+  )
+}
+
+/** ZF0-1293: collapsible diagnostic panel for divergence investigation. Only
+ *  rendered when `window.__CORTEX_DEBUG_OVERRIDES__ === true` (strict, not
+ *  truthy — see `isDebugEnabled()` above). Plain <details> keeps the
+ *  interaction keyboard-accessible without extra state management. */
+function DebugDisclosure({ diagnostics }: { diagnostics: OverrideDivergenceDiagnostics }): JSX.Element {
+  const { actualReadFrom, kindUsed, priorValues, retryDurationMs, errorMessage } = diagnostics
+  return (
+    <details class="cortex-error-card__debug">
+      <summary class="cortex-error-card__debug-summary">Debug</summary>
+      <dl class="cortex-error-card__debug-grid">
+        <dt>actual read from</dt>
+        <dd>{actualReadFrom}</dd>
+        <dt>kind</dt>
+        <dd>{kindUsed ?? '(none)'}</dd>
+        <dt>prior values</dt>
+        <dd>{priorValues.length === 0 ? '(none)' : priorValues.join(' → ')}</dd>
+        <dt>retry duration</dt>
+        <dd>{retryDurationMs === undefined ? '(n/a)' : `${retryDurationMs.toFixed(0)}ms`}</dd>
+        {errorMessage !== undefined && (
+          <>
+            <dt>read error</dt>
+            <dd>{errorMessage}</dd>
+          </>
+        )}
+      </dl>
+    </details>
   )
 }

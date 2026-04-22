@@ -105,4 +105,136 @@ describe('EditErrorCard', () => {
       reason: 'fail',
     })
   })
+
+  // ── ZF0-1293: debug disclosure ─────────────────────────────────
+  describe('debug disclosure (ZF0-1293)', () => {
+    const diagnostics = {
+      actualReadFrom: 'inline-style' as const,
+      kindUsed: 'jsx-immediate' as const,
+      priorValues: ['24px', '30px', '16px'],
+      retryDurationMs: 812,
+    }
+    const errorsWithDiag = () => new Map([
+      ['file.tsx:10:5\0padding-bottom', {
+        source: 'file.tsx:10:5', property: 'padding-bottom', value: '16px',
+        reason: 'Preview shows "16px" but the saved file renders "30px". The edit may not have propagated.',
+        diagnostics,
+      }],
+    ])
+
+    afterEach(() => {
+      delete (window as unknown as { __CORTEX_DEBUG_OVERRIDES__?: boolean }).__CORTEX_DEBUG_OVERRIDES__
+    })
+
+    it('renders Debug disclosure only when __CORTEX_DEBUG_OVERRIDES__ is strictly true', () => {
+      // Flag off — no debug section. Guards against accidentally leaking internal
+      // diagnostics to end users who haven't opted into the debug mode.
+      render(
+        <EditErrorCard errors={errorsWithDiag()} elementSource="file.tsx:10:5" agentConnected={false} onDismiss={() => {}} onAskAI={() => {}} />,
+        container,
+      )
+      expect(container.querySelector('.cortex-error-card__debug')).toBeNull()
+
+      // Flag on — debug section renders with all four fields.
+      ;(window as unknown as { __CORTEX_DEBUG_OVERRIDES__: boolean }).__CORTEX_DEBUG_OVERRIDES__ = true
+      render(null, container) // reset so the next render remounts with the flag visible
+      render(
+        <EditErrorCard errors={errorsWithDiag()} elementSource="file.tsx:10:5" agentConnected={false} onDismiss={() => {}} onAskAI={() => {}} />,
+        container,
+      )
+      const debug = container.querySelector('.cortex-error-card__debug')
+      expect(debug).not.toBeNull()
+      expect(debug!.textContent).toContain('inline-style')
+      expect(debug!.textContent).toContain('jsx-immediate')
+      // Prior values must render in chronological order. Match the three
+      // values with ANY non-digit separator between them (the current impl
+      // uses `→`, but the behavioral contract is "order preserved" — a
+      // refactor to comma-joined or bulleted should not break this test).
+      expect(debug!.textContent).toMatch(/24px\D+30px\D+16px/)
+      // Retry duration formatted as ms integer.
+      expect(debug!.textContent).toContain('812ms')
+    })
+
+    it('omits Debug section when diagnostics is undefined (backward-compat)', () => {
+      // Errors without diagnostics (legacy emitters or non-divergence sources)
+      // must still render — just without the debug panel.
+      ;(window as unknown as { __CORTEX_DEBUG_OVERRIDES__: boolean }).__CORTEX_DEBUG_OVERRIDES__ = true
+      const errors = new Map([
+        ['file.tsx:10:5\0font-size', { source: 'file.tsx:10:5', property: 'font-size', value: '17px', reason: 'fail' }],
+      ])
+      render(
+        <EditErrorCard errors={errors} elementSource="file.tsx:10:5" agentConnected={false} onDismiss={() => {}} onAskAI={() => {}} />,
+        container,
+      )
+      expect(container.querySelector('.cortex-error-card')).not.toBeNull()
+      expect(container.querySelector('.cortex-error-card__debug')).toBeNull()
+    })
+
+    it('does not render Debug section when flag is a truthy non-true value ("false", 1, "yes")', () => {
+      // The gate must be strict `=== true`. A dev setting the flag via
+      // localStorage plumbing or a typo could end up with the string "false"
+      // or the number 1 — neither should expose diagnostics.
+      for (const fake of ['false', '1', 'yes', 1, {}, [] as unknown]) {
+        ;(window as unknown as { __CORTEX_DEBUG_OVERRIDES__: unknown }).__CORTEX_DEBUG_OVERRIDES__ = fake
+        render(null, container)
+        render(
+          <EditErrorCard errors={errorsWithDiag()} elementSource="file.tsx:10:5" agentConnected={false} onDismiss={() => {}} onAskAI={() => {}} />,
+          container,
+        )
+        expect(container.querySelector('.cortex-error-card__debug')).toBeNull()
+      }
+    })
+
+    it('renders read error message in Debug disclosure when diagnostics carries errorMessage', () => {
+      ;(window as unknown as { __CORTEX_DEBUG_OVERRIDES__: boolean }).__CORTEX_DEBUG_OVERRIDES__ = true
+      const errors = new Map([
+        ['file.tsx:10:5\0color', {
+          source: 'file.tsx:10:5', property: 'color', value: 'red',
+          reason: 'Preview shows "red" but the saved file renders "(empty)". The edit may not have propagated.',
+          diagnostics: {
+            actualReadFrom: 'computed-style' as const,
+            kindUsed: 'immediate' as const,
+            priorValues: ['red'],
+            retryDurationMs: 72,
+            errorMessage: 'TypeError: simulated CSSOM failure',
+          },
+        }],
+      ])
+      render(
+        <EditErrorCard errors={errors} elementSource="file.tsx:10:5" agentConnected={false} onDismiss={() => {}} onAskAI={() => {}} />,
+        container,
+      )
+      const debug = container.querySelector('.cortex-error-card__debug')
+      expect(debug).not.toBeNull()
+      // The errorMessage field must appear — without it, this card would be
+      // indistinguishable from a "React Fast Refresh was slow" divergence.
+      expect(debug!.textContent).toContain('TypeError: simulated CSSOM failure')
+      expect(debug!.textContent).toContain('read error')
+    })
+
+    it('renders server-mismatch readFrom with n/a retry duration', () => {
+      ;(window as unknown as { __CORTEX_DEBUG_OVERRIDES__: boolean }).__CORTEX_DEBUG_OVERRIDES__ = true
+      const errors = new Map([
+        ['file.tsx:10:5\0color', {
+          source: 'file.tsx:10:5', property: 'color', value: 'red',
+          reason: 'Server refused the edit.',
+          diagnostics: {
+            actualReadFrom: 'server-mismatch' as const,
+            kindUsed: 'jsx-immediate' as const,
+            priorValues: ['red'],
+            retryDurationMs: undefined,
+          },
+        }],
+      ])
+      render(
+        <EditErrorCard errors={errors} elementSource="file.tsx:10:5" agentConnected={false} onDismiss={() => {}} onAskAI={() => {}} />,
+        container,
+      )
+      const debug = container.querySelector('.cortex-error-card__debug')
+      expect(debug).not.toBeNull()
+      expect(debug!.textContent).toContain('server-mismatch')
+      // n/a placeholder proves the undefined branch renders — not a blank field.
+      expect(debug!.textContent).toContain('(n/a)')
+    })
+  })
 })
