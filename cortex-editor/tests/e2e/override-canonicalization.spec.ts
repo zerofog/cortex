@@ -44,7 +44,7 @@
 import { test, expect } from '@playwright/test'
 import { FIXTURE_SEED_SELECTOR, FIXTURE_SEED_SOURCE } from './helpers/fixture-server.js'
 import { bootFixture } from './helpers/boot.js'
-import { getEditErrorCardState, type CortexTestBridge } from './helpers/bridge.js'
+import { type CortexTestBridge } from './helpers/bridge.js'
 
 /**
  * Read the current `color:` declaration from the
@@ -113,11 +113,12 @@ test.describe('override canonicalization (ZF0-1314 — closes F6 happy-dom gap)'
     // resolves — there should still be none.
     expect(events).toHaveLength(0)
 
-    // No EditErrorCard rendered — the Panel subscribes to the same bus
-    // and renders a card on divergence. This guards against silent UI
-    // regressions that don't fire the debug listener. Reuses the shared
-    // helper instead of a local shadow-DOM count to avoid drift.
-    expect((await getEditErrorCardState(page)).visible).toBe(false)
+    // NB: no EditErrorCard check here. The Panel only renders when
+    // `activateDesignMode` is set on bootFixture — canon spec deliberately
+    // doesn't activate it (this spec tests canonicalization, not Panel
+    // render), so `getEditErrorCardState(...).visible` would be
+    // tautologically false. Panel-render coverage lives in
+    // override-divergence-card.spec.ts where activation is armed.
 
     await unsubscribe()
   }

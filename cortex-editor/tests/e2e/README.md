@@ -155,7 +155,7 @@ When a spec fails in GitHub Actions:
 - `getEditErrorCardState(page)` — shadow-DOM query for Panel's EditErrorCard
 - `clickEditErrorCardDismiss(page)` — clicks the Dismiss button; returns `boolean`
 
-Types exported: `CortexTestBridge`, `DivergenceCollector`, `EditErrorCardState`. The `OverrideDivergence` event type is re-exported from the main `cortex-editor` package.
+Types exported: `CortexTestBridge`, `DivergenceCollector`, `EditErrorCardState`. The `OverrideDivergence` event shape is hand-copied in `bridge.ts` with a cross-ref comment pointing to `src/browser/override-bus.ts` as the source of truth — the e2e tsconfig (`rootDir: "."`) cannot reach `../../src/` and self-importing through `'cortex-editor'` resolves to gitignored `dist/`, which breaks clean-clone CI.
 
 ## Why route interception, not `cortex-demo`?
 
