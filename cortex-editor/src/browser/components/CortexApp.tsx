@@ -271,28 +271,60 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         // Smart-fallback via `reResolveSelection`: primary=nth-index match,
         // secondary=content-search for reorder detection, tertiary=preserve
         // at index for in-place content edits. See selection-metadata.ts.
+        // Re-run the resolver against the LIVE DOM. If the saved element is
+        // no longer the right answer, swap. This replaces the earlier
+        // `isConnected`-gated version — which missed the case where React
+        // Fast Refresh defers its DOM commit past the hmr-applied signal,
+        // so at that moment the selected node is still connected *in the
+        // old DOM tree* that's about to be replaced.
         const attemptReResolve = (): void => {
           try {
             const current = selectedElementRef.current
             const meta = selectionMetadataRef.current
             if (!current || !meta) return
-            if (current.isConnected) return // still mounted — nothing to re-resolve
-            // Route through the metadata-aware setter so the next HMR cycle
-            // sees fresh position (content-based fallback may have jumped index).
-            setSelectionWithMetadata(reResolveSelection(meta))
+            const resolved = reResolveSelection(meta)
+            if (resolved !== current) {
+              // Ref has drifted (element removed, list shrunk, Fast Refresh
+              // replaced the node, or content-hash fallback found a better
+              // match at a different position). Swap.
+              setSelectionWithMetadata(resolved)
+              return
+            }
+            // Same DOM node, but its position in siblings may have shifted
+            // (e.g. reorder preserved the Cherry <li> via `key=` but its
+            // index changed from 2 → 0). Recapture metadata so the next
+            // HMR cycle starts from the correct index.
+            if (resolved) {
+              const newMeta = captureSelectionMetadata(resolved)
+              const indexShifted = newMeta.index !== meta.index
+              selectionMetadataRef.current = newMeta
+              // If the position drifted, views that cached against the OLD
+              // DOM layout (LayerTree's sibling list, SelectionOverlay's
+              // position) need to re-read. Bumping hmrAppliedVersion again
+              // triggers a fresh Panel render that happens AFTER React Fast
+              // Refresh has committed — which the initial bump in the
+              // message handler couldn't guarantee because Preact microtasks
+              // run before React's scheduler tasks.
+              if (indexShifted) {
+                setHmrAppliedVersion(v => v + 1)
+              }
+            }
           } catch (err) {
-            // Don't let a re-resolution throw kill the message loop or leak
-            // into rAF's uncaught-error path. Clear selection — safer than
-            // leaving the user pointed at a detached node.
             console.warn('[cortex] reResolveSelection failed', err)
             setSelectionWithMetadata(null)
           }
         }
 
         attemptReResolve()
-        // Idempotent: if the sync pass succeeded, the element is now
-        // connected and the async pass early-returns.
+        // Frame-deferred: catches React sync commits + most Fast Refresh commits.
         requestAnimationFrame(() => requestAnimationFrame(attemptReResolve))
+        // Scheduler-deferred: React 18's concurrent mode can schedule commits
+        // through its priority scheduler beyond 2 rAFs. 100ms is empirically
+        // sufficient for typical updates; 250ms is the safety net for slow
+        // machines or heavy subtree remounts. Both are bounded and idempotent —
+        // if the selection is already settled, each call is a ~microsecond no-op.
+        setTimeout(attemptReResolve, 100)
+        setTimeout(attemptReResolve, 250)
       }
       if (msg.type === 'annotation-created') {
         setAnnotations(prev => new Map(prev).set(msg.annotation.id, msg.annotation))
