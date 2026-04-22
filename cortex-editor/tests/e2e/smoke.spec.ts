@@ -11,7 +11,7 @@
  */
 import { test, expect } from '@playwright/test'
 import { installFixtureServer, FIXTURE_URL } from './helpers/fixture-server.js'
-import { setupDebugBridge, waitForBridge } from './helpers/bridge.js'
+import { setupDebugBridge, waitForBridge, collectDivergences } from './helpers/bridge.js'
 
 test.describe('harness smoke', () => {
   test('fixture loads, CortexEditor bundle boots, debug bridge exposes overrideManager + channel', async ({ page }) => {
@@ -49,5 +49,46 @@ test.describe('harness smoke', () => {
     // Fixture seed element must exist — confirms our HTML reached the page.
     const seedHandle = page.locator('#center[data-cortex-source="fixture:1:1"]')
     await expect(seedHandle).toHaveCount(1)
+  })
+
+  test('divergence listener round-trip — forced server-mismatch reaches Node collector', async ({ page }) => {
+    // Business purpose: this test fails the moment the divergence bridge
+    // regresses — if `__CORTEX_TEST__.onDivergence` stops working, or the
+    // Node-side collector stops receiving events, the round-trip assertion
+    // breaks immediately. Without it the stub-to-real fix could silently
+    // rot back into "events array always empty" (the original defect).
+    await setupDebugBridge(page)
+    await installFixtureServer(page)
+    await page.goto(FIXTURE_URL)
+    await page.waitForFunction(() => typeof (globalThis as any).CortexEditor !== 'undefined', null, { timeout: 5000 })
+    await waitForBridge(page)
+
+    const { events, unsubscribe } = await collectDivergences(page)
+
+    // Force a server-mismatch divergence via the bridge:
+    //   - set an override on the seed element
+    //   - flush pending rebuild so the override is live
+    //   - track the edit
+    //   - call handleHMRVerified(..., false, ...) — the match=false path
+    //     emits divergence immediately without the retry window
+    //     (override.ts:624-631).
+    await page.evaluate(() => {
+      const bridge = (globalThis as any).__CORTEX_TEST__
+      const source = 'fixture:1:1'
+      const editId = 'smoke-divergence-1'
+      bridge.overrideManager.set(source, 'padding-top', '99px')
+      bridge.overrideManager.flush()
+      bridge.overrideManager.trackPendingEdit(editId, source, 'padding-top', '99px')
+      bridge.overrideManager.handleHMRVerified(editId, false, 'jsx-immediate')
+    })
+
+    await expect.poll(() => events.length, { timeout: 2000 }).toBeGreaterThan(0)
+    expect(events[0]).toMatchObject({
+      source: 'fixture:1:1',
+      property: 'padding-top',
+      expected: '99px',
+    })
+
+    await unsubscribe()
   })
 })

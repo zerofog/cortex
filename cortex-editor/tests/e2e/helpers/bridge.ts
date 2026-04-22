@@ -89,52 +89,53 @@ export async function waitForBridge(page: Page, timeoutMs: number = 5000): Promi
  * `expect.poll(() => events.length).toBeGreaterThan(0)` (event-based,
  * no fixed timeout).
  *
- * Implementation note: we reach into override-bus via the debug bridge.
- * The bridge currently exposes `overrideManager`; the bus itself is
- * module-scoped and private. We piggyback by monkey-patching
- * `emitDivergence` callers — specifically, the `CSSOverrideManager`
- * instance on the bridge — after listening via `onDivergence` isn't
- * possible from outside. For now we install a page-side subscriber via
- * a small hook script that finds the bus through the manager's module.
- *
- * For Task 3 specifically (override-divergence-card.spec.ts) we listen
- * through the DOM instead: EditErrorCard renders on divergence, and
- * asserting on DOM is what the spec is about. This helper is provided
- * for specs that need to assert on raw events (e.g., timing in Task 4).
+ * Implementation: the debug bridge exposes `onDivergence` — a direct
+ * reference to `override-bus.ts`'s module-scoped subscriber. We call it
+ * from a `page.evaluate` block (AFTER `waitForBridge` has resolved —
+ * `addInitScript` would run too early, before CortexApp has mounted)
+ * and forward each event through `page.exposeFunction` into Node. The
+ * returned `unsubscribe` calls the real teardown closure to detach the
+ * listener before releasing handles.
  */
 export async function collectDivergences(
   page: Page,
 ): Promise<{ events: OverrideDivergenceEvent[]; unsubscribe: () => Promise<void> }> {
   const events: OverrideDivergenceEvent[] = []
 
-  await page.exposeFunction('__cortexCollectDivergence', (event: OverrideDivergenceEvent) => {
+  await page.exposeFunction('__cortexOnDivergence', (event: OverrideDivergenceEvent) => {
     events.push(event)
   })
 
-  // Install a page-side hook that dispatches any `divergence` CustomEvent
-  // fired on the window (bridge) to our collector. Task 2/3/4 specs are
-  // free to re-dispatch bus events onto window if they need richer
-  // payloads, or to extend the bridge later (ZF0-1298 may refactor).
-  const hookHandle = await page.evaluateHandle(() => {
-    const handler = (e: Event): void => {
-      const detail = (e as CustomEvent).detail
-      if (detail) {
-        ;(globalThis as unknown as {
-          __cortexCollectDivergence?: (d: unknown) => void
-        }).__cortexCollectDivergence?.(detail)
-      }
+  // Wire the page-side subscriber. Must run after CortexApp has mounted
+  // (waitForBridge should have resolved before calling this helper) —
+  // only then is `__CORTEX_TEST__.onDivergence` present. We stash the
+  // unsubscribe closure on `window` so the teardown path below can reach
+  // it without serializing a function across the evaluate boundary.
+  await page.evaluate(() => {
+    const bridge = (globalThis as unknown as {
+      __CORTEX_TEST__?: { onDivergence?: (cb: (d: unknown) => void) => () => void }
+    }).__CORTEX_TEST__
+    if (!bridge?.onDivergence) {
+      throw new Error('[bridge] __CORTEX_TEST__.onDivergence not present — is the debug flag set and CortexApp mounted?')
     }
-    window.addEventListener('cortex-divergence', handler)
-    return handler
+    const forward = (globalThis as unknown as {
+      __cortexOnDivergence?: (d: unknown) => void
+    }).__cortexOnDivergence
+    if (!forward) {
+      throw new Error('[bridge] __cortexOnDivergence not exposed — exposeFunction must run first')
+    }
+    const unsub = bridge.onDivergence((d) => forward(d))
+    ;(globalThis as unknown as { __cortexDivergenceUnsub?: () => void }).__cortexDivergenceUnsub = unsub
   })
 
   return {
     events,
     unsubscribe: async () => {
-      await page.evaluate((h) => {
-        window.removeEventListener('cortex-divergence', h as EventListener)
-      }, hookHandle)
-      await hookHandle.dispose()
+      await page.evaluate(() => {
+        const unsub = (globalThis as unknown as { __cortexDivergenceUnsub?: () => void }).__cortexDivergenceUnsub
+        unsub?.()
+        delete (globalThis as unknown as { __cortexDivergenceUnsub?: () => void }).__cortexDivergenceUnsub
+      })
     },
   }
 }
