@@ -1,0 +1,54 @@
+cortex-editor/tests/e2e/helpers/bridge.ts
+  e21f4f7d384a18ae 1-140
+cortex-editor/tests/e2e/tsconfig.json
+  e21f4f7d384a18ae 1-13
+cortex-editor/tests/e2e/smoke.spec.ts
+  e21f4f7d384a18ae 1-53
+cortex-editor/tests/e2e/fixtures/basic.html
+  e21f4f7d384a18ae 1-24
+cortex-editor/package.json
+  e21f4f7d384a18ae 59-60,64
+cortex-editor/.github/workflows/ci.yml
+  e21f4f7d384a18ae 34-47
+cortex-editor/tests/e2e/helpers/fixture-server.ts
+  e21f4f7d384a18ae 1-88
+cortex-editor/playwright.config.ts
+  e21f4f7d384a18ae 1-46
+cortex-editor/.gitignore
+  e21f4f7d384a18ae 5-7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "637f371f6c0256cfc6ebb6dfac1c0011ccfcdaef",
+  "prompts": {
+    "c4d80b17e05db82b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3d1c876e-bfad-43db-bf6d-47507953aad9",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 888,
+      "total_deletions": 0,
+      "accepted_lines": 888,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/6e922aea11a2eb74135601360929b2b5e6372105ea2b6b1093d6c1bd4e2e3807"
+    },
+    "e21f4f7d384a18ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "acbcfb70-5ad0-434f-b82f-fe13efa7ed90",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 384,
+      "total_deletions": 1,
+      "accepted_lines": 384,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/a3831c60d844897700c86926ae38864e19b61f553f905a7d7cca56576bcb5502"
+    }
+  }
+}
