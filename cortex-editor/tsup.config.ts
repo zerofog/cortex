@@ -75,6 +75,11 @@ export default defineConfig([
       // gets `false` and esbuild DCE strips the entire guarded block from the
       // production bundle. Values must be string-encoded JS expressions because
       // esbuild.define parses them — `'true'` / `'false'`, not booleans.
+      //
+      // The `...options.define` spread is load-bearing, not defensive: tsup
+      // pre-populates `options.define` with `TSUP_FORMAT` and env-derived
+      // `process.env.*` entries before calling this hook. Dropping the spread
+      // would silently clobber tsup's format detection.
       options.define = {
         ...options.define,
         __CORTEX_TEST_BUILD__: process.env.CORTEX_TEST_BUILD === 'true' ? 'true' : 'false',

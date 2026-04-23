@@ -1,14 +1,15 @@
 /**
  * Integration tests for the debug-bridge build-time gate (ZF0-1298).
  *
- * Runs both build variants and inspects the resulting IIFE bundle to prove:
- *   - `npm run build` produces a bundle with the bridge DCE'd out.
- *   - `npm run build:test` produces a bundle with the bridge intact.
+ * Runs both build variants ONCE per test file (in `beforeAll`) and asserts
+ * on the captured bundle contents. Bounded at exactly 2 tsup invocations
+ * regardless of assertion count — lets Task 2 append more assertions
+ * against `prodBundle` / `testBundle` without additional build cost.
  *
  * Uses `execFileSync` (not `exec`) per the cortex-editor safe-exec convention
  * in `src/cli/demo.ts` — no shell, args as array, no injection surface.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { readFileSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -17,19 +18,35 @@ const REPO_ROOT = resolve(__dirname, '../..')
 const BROWSER_BUNDLE = resolve(REPO_ROOT, 'dist/browser/index.js')
 
 describe('debug bridge build-time gate', () => {
-  describe('Task 1 — define reaches esbuild', () => {
-    it('npm run build replaces __CORTEX_TEST_BUILD__ identifier (no bare token remains)', () => {
-      execFileSync('npm', ['run', 'build'], { cwd: REPO_ROOT, stdio: 'inherit' })
-      expect(existsSync(BROWSER_BUNDLE)).toBe(true)
-      const bundle = readFileSync(BROWSER_BUNDLE, 'utf8')
-      expect(bundle).not.toMatch(/\b__CORTEX_TEST_BUILD__\b/)
-    }, 60_000)
+  let prodBundle = ''
+  let testBundle = ''
 
-    it('npm run build:test replaces __CORTEX_TEST_BUILD__ identifier (no bare token remains)', () => {
-      execFileSync('npm', ['run', 'build:test'], { cwd: REPO_ROOT, stdio: 'inherit' })
-      expect(existsSync(BROWSER_BUNDLE)).toBe(true)
-      const bundle = readFileSync(BROWSER_BUNDLE, 'utf8')
-      expect(bundle).not.toMatch(/\b__CORTEX_TEST_BUILD__\b/)
-    }, 60_000)
+  beforeAll(() => {
+    // Prod build first so the on-disk artifact ends up as the test bundle —
+    // `test:e2e` rebuilds via `build:test` anyway, but a dev inspecting
+    // `dist/browser/` after a cold `npm test` sees the bridge-armed variant
+    // (the one the Playwright harness consumes), which matches the directory
+    // content `test:e2e` expects next.
+    execFileSync('npm', ['run', 'build'], { cwd: REPO_ROOT, stdio: 'inherit' })
+    if (!existsSync(BROWSER_BUNDLE)) {
+      throw new Error(`production build produced no bundle at ${BROWSER_BUNDLE}`)
+    }
+    prodBundle = readFileSync(BROWSER_BUNDLE, 'utf8')
+
+    execFileSync('npm', ['run', 'build:test'], { cwd: REPO_ROOT, stdio: 'inherit' })
+    if (!existsSync(BROWSER_BUNDLE)) {
+      throw new Error(`test build produced no bundle at ${BROWSER_BUNDLE}`)
+    }
+    testBundle = readFileSync(BROWSER_BUNDLE, 'utf8')
+  }, 180_000)
+
+  describe('esbuild define injection', () => {
+    it('production build replaces __CORTEX_TEST_BUILD__ identifier (no bare token remains)', () => {
+      expect(prodBundle).not.toMatch(/\b__CORTEX_TEST_BUILD__\b/)
+    })
+
+    it('test build replaces __CORTEX_TEST_BUILD__ identifier (no bare token remains)', () => {
+      expect(testBundle).not.toMatch(/\b__CORTEX_TEST_BUILD__\b/)
+    })
   })
 })
