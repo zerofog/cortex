@@ -166,6 +166,13 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         overrideManager,
         channel,
         selectElement: setSelectionWithMetadata,
+        // Expose the page-side `onDivergence` subscription so Playwright
+        // specs can collect divergence events through Node-side callbacks.
+        // The bus itself is module-scoped (private), but routing through
+        // the bridge is strictly better than leaking events onto window:
+        // the surface stays minimal, stays gated by __CORTEX_DEBUG_OVERRIDES__,
+        // and keeps the same type contract as the internal subscriber.
+        onDivergence,
       }
     }
     // Start with design mode disabled — don't intercept events until activated
