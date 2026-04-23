@@ -52,5 +52,3 @@ export { computeCapabilities } from './core/capabilities.js'
 export type { StyleCapability, CapabilityStatus, ResolverState } from './core/capabilities.js'
 export { parseV4Theme } from './core/tailwind-v4-parser.js'
 export { oklchToHex } from './core/oklch.js'
-
-
