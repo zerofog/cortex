@@ -456,7 +456,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       // Clear the debug bridge so a remount (strict mode, HMR, route change)
       // doesn't leave a stale reference to the now-disposed overrideManager.
       // Dual-gate matches the install site — in production bundles this
-      // entire block is DCE'd along with the unreferenced `debugFlag` read.
+      // `if` block is DCE'd by esbuild `minifySyntax`. The `debugFlag` read
+      // on mount (~line 177) survives DCE (constant folding doesn't remove
+      // unused `const` declarations), but the read is side-effect-free
+      // (boolean coercion only) and never touches `window.__CORTEX_TEST__`.
       if (__CORTEX_TEST_BUILD__ && debugFlag) {
         delete (window as unknown as { __CORTEX_TEST__?: unknown }).__CORTEX_TEST__
       }
