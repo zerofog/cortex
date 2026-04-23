@@ -12,7 +12,15 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { readFileSync, existsSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+// Canonical ESM pattern — matches tests/browser/cx-token-namespace.test.ts,
+// tests/e2e/helpers/fixture-server.ts, src/adapters/{next,vite}.ts, and
+// src/cli/demo.ts. `__dirname` works under vitest's esbuild transform, but
+// the explicit derivation is portable outside vitest too.
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
 
 const REPO_ROOT = resolve(__dirname, '../..')
 // Same bundle path as tests/e2e/helpers/fixture-server.ts — consolidate into a
