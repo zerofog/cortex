@@ -49,4 +49,24 @@ describe('debug bridge build-time gate', () => {
       expect(testBundle).not.toMatch(/\b__CORTEX_TEST_BUILD__\b/)
     })
   })
+
+  describe('bridge DCE in prod, present in test bundle', () => {
+    it('production bundle does NOT contain bridge installation tokens', () => {
+      // The bridge installs `window.__CORTEX_TEST__` — if DCE worked, this
+      // string should not appear anywhere in the built bundle. Falsifiable:
+      // adding a new bridge consumer OR regressing the gate to a runtime-only
+      // check would both leave the literal in the bundle and fail this test.
+      expect(prodBundle).not.toContain('__CORTEX_TEST__')
+      // `selectElement:` (the bridge's object-literal key) is a sufficiently
+      // specific token that its absence is a strong signal the gated block
+      // was stripped. It does not collide with the selection system's
+      // `setSelectionWithMetadata` helper.
+      expect(prodBundle).not.toContain('selectElement:')
+    })
+
+    it('test bundle DOES contain bridge installation tokens', () => {
+      expect(testBundle).toContain('__CORTEX_TEST__')
+      expect(testBundle).toContain('selectElement:')
+    })
+  })
 })
