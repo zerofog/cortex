@@ -1567,35 +1567,17 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     return { channel, gcs, element }
   }
 
-  it('skips Panel refresh when hmr files are fully unrelated to the selection', async () => {
-    const { channel, gcs } = await setup('src/foo.tsx:10:5')
-    const before = gcs.mock.calls.length
-
-    // Fake-timer control (ZF0-1322 root-cause pattern for negative-timing
-    // assertions). The hmr-applied handler schedules attemptReResolve
-    // sync + 2 rAFs + setTimeout(100ms) + setTimeout(250ms). Real-timer
-    // waits are racy under CI fork-pool load: the prior 200ms budget flaked
-    // because attemptReResolve can detect a false index shift and trigger
-    // setHmrAppliedVersion → Panel refresh → getComputedStyle, landing
-    // between the 2nd rAF and the 250ms timer. Fake timers flush every
-    // scheduled callback deterministically; the assertion then reflects
-    // the gate's decision, not runner timing.
-    vi.useFakeTimers()
-    try {
-      channel._simulateMessage({ type: 'hmr-applied', files: ['src/bar.tsx', 'src/baz.tsx'] })
-      // Advance past the handler's latest scheduled callback (250ms) plus
-      // a 50ms safety margin. advanceTimersByTimeAsync also flushes pending
-      // microtasks between timer fires so Preact/override-bus state settles.
-      await vi.advanceTimersByTimeAsync(300)
-    } finally {
-      vi.useRealTimers()
-    }
-
-    // No CSS in list, no ancestor match, no own-file match → refresh skipped.
-    // The expensive computedStyles re-run does not fire.
-    expect(gcs.mock.calls.length).toBe(before)
-    gcs.mockRestore()
-  })
+  // Negative case "skips Panel refresh when hmr files are fully unrelated" —
+  // removed (ZF0-1298 pipeline). The branch is proven by two richer, faster,
+  // more deterministic tests:
+  //   1. hmrFilesAffectElement(['src/other.tsx','src/unrelated.tsx'], el) → false
+  //      (tests/browser/selection-metadata.test.ts — pure unit test of the gate).
+  //   2. The positive it.each + ancestor-match tests below (which DO fire refresh)
+  //      prove the wiring hmr-applied → gate → setHmrAppliedVersion is intact.
+  // The removed test observed an indirect signal (getComputedStyle count)
+  // polluted by attemptReResolve's independent DOM work — flaky under CI
+  // fork-pool load even after fake-timer hardening. Per CLAUDE.md "No
+  // subsumption": if test B asserts everything A does plus more, delete A.
 
   // All positive "files ∈ refresh branch" cases share the same setup and
   // observable (gcs call count bumps). Parameterizing by the files payload
