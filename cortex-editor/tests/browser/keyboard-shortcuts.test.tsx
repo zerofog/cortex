@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render } from 'preact'
 import * as focusUtils from '../../src/browser/focus-utils.js'
-import { dispatchKeyboardEvent, createShadowHost, createMockChannel, mockGetBoundingClientRect } from './helpers.js'
+import { dispatchKeyboardEvent, createShadowHost, createMockChannel, mockGetBoundingClientRect, cleanDocumentHead } from './helpers.js'
+import { _resetBusForTesting } from '../../src/browser/override-bus.js'
 
 // tinykeys maps $mod to Meta on Mac, Control elsewhere.
 // happy-dom navigator.platform is not Mac, so $mod → Control.
@@ -51,7 +52,9 @@ vi.mock('../../src/browser/command-stack.js', () => ({
   }
 }))
 
-// Mock the selection module (same pattern as cortex-app.test.tsx)
+// Mock the selection module (same pattern as cortex-app.test.tsx).
+// _resetCallbacks nulls the module-scope closure so a prior test's callbacks
+// cannot be returned under async timing (ZF0-1297 test-hygiene fix).
 vi.mock('../../src/browser/selection.js', () => {
   const cleanupFn = vi.fn()
   const setDesignModeFn = vi.fn()
@@ -66,6 +69,7 @@ vi.mock('../../src/browser/selection.js', () => {
       return { cleanup: cleanupFn, setDesignMode: setDesignModeFn, setInterceptClicks: setInterceptClicksFn }
     }),
     _getCallbacks: () => ({ hoverCb, selectCb }),
+    _resetCallbacks: () => { hoverCb = null; selectCb = null },
     _cleanup: cleanupFn,
   }
 })
@@ -74,7 +78,14 @@ vi.mock('../../src/browser/selection.js', () => {
 beforeEach(() => {
   vi.spyOn(focusUtils, 'isRealEvent').mockReturnValue(true)
 })
-afterEach(() => {
+afterEach(async () => {
+  // Reset cross-test state that persists despite vi.restoreAllMocks:
+  // module-scope selection-mock closures + override-bus listeners +
+  // document.head style tags. See ZF0-1297 Step 12 hygiene fix.
+  const mod = await import('../../src/browser/selection.js') as unknown as { _resetCallbacks?: () => void }
+  mod._resetCallbacks?.()
+  _resetBusForTesting()
+  cleanDocumentHead()
   vi.restoreAllMocks()
 })
 

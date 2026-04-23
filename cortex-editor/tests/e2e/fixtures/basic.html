@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Cortex E2E Fixture</title>
+  </head>
+  <body>
+    <!--
+      Seed element used by override-lifecycle specs (ZF0-1314 / 1315 / 1316).
+      Business purpose: every spec mutates `padding-top` and `color` on this
+      element to exercise the full override → verify → divergence pipeline
+      without depending on a real user app.
+    -->
+    <section
+      id="center"
+      data-cortex-source="fixture:1:1"
+      style="padding-top: 10px; color: rgb(107, 99, 117);"
+    >
+      Fixture content
+    </section>
+    <script src="./cortex-bundle.js"></script>
+  </body>
+</html>
