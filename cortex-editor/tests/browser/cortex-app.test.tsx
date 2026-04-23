@@ -1570,12 +1570,27 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
   it('skips Panel refresh when hmr files are fully unrelated to the selection', async () => {
     const { channel, gcs } = await setup('src/foo.tsx:10:5')
     const before = gcs.mock.calls.length
-    channel._simulateMessage({ type: 'hmr-applied', files: ['src/bar.tsx', 'src/baz.tsx'] })
-    // Negative assertion: wait long enough that if a refresh were going to
-    // fire, it would have dispatched within the debounce window. 50ms flaked
-    // on CI (observed 6 calls on Node 20 + 22); 200ms covers runner contention.
-    // vi.waitFor cannot help here — you can't poll for a thing NOT happening.
-    await new Promise(r => setTimeout(r, 200))
+
+    // Fake-timer control (ZF0-1322 root-cause pattern for negative-timing
+    // assertions). The hmr-applied handler schedules attemptReResolve
+    // sync + 2 rAFs + setTimeout(100ms) + setTimeout(250ms). Real-timer
+    // waits are racy under CI fork-pool load: the prior 200ms budget flaked
+    // because attemptReResolve can detect a false index shift and trigger
+    // setHmrAppliedVersion → Panel refresh → getComputedStyle, landing
+    // between the 2nd rAF and the 250ms timer. Fake timers flush every
+    // scheduled callback deterministically; the assertion then reflects
+    // the gate's decision, not runner timing.
+    vi.useFakeTimers()
+    try {
+      channel._simulateMessage({ type: 'hmr-applied', files: ['src/bar.tsx', 'src/baz.tsx'] })
+      // Advance past the handler's latest scheduled callback (250ms) plus
+      // a 50ms safety margin. advanceTimersByTimeAsync also flushes pending
+      // microtasks between timer fires so Preact/override-bus state settles.
+      await vi.advanceTimersByTimeAsync(300)
+    } finally {
+      vi.useRealTimers()
+    }
+
     // No CSS in list, no ancestor match, no own-file match → refresh skipped.
     // The expensive computedStyles re-run does not fire.
     expect(gcs.mock.calls.length).toBe(before)
