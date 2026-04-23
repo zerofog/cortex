@@ -1,0 +1,28 @@
+cortex-editor/package.json
+  8c297fae67baab8f 55,69
+cortex-editor/tsup.config.ts
+  8c297fae67baab8f 78-82
+cortex-editor/tests/integration/debug-bridge-build-gate.test.ts
+  8c297fae67baab8f 4-7,12,21-22,24-50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "90186aeec5d846d891d2589f5c6794bf4858f6e9",
+  "prompts": {
+    "8c297fae67baab8f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2c5e6c90-3d26-4922-b897-818a3425039d",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 42,
+      "total_deletions": 19,
+      "accepted_lines": 42,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/c59a47a017edcf09475d39b2563218446bfbf6755ebee347e9aebcb4a25e5ddb"
+    }
+  }
+}
