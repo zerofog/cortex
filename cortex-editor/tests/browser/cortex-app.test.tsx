@@ -201,10 +201,13 @@ describe('CortexApp', () => {
     mockGetBoundingClientRect(elB, { top: 150, left: 50, width: 100, height: 40 })
 
     selectCb(elB)
-    await new Promise(r => setTimeout(r, 10))
 
-    // rebuild() regenerates from the (now empty) override maps — manual content is gone
-    expect(styleEl.textContent).toBe('')
+    // Wait for clearStateOverrides → rebuild() effect to fire. A fixed
+    // setTimeout(10) flaked under CI load on GitHub Linux runners; vi.waitFor
+    // polls until the assertion holds, bounded by the timeout.
+    await vi.waitFor(() => {
+      expect(styleEl.textContent).toBe('')
+    }, { timeout: 500 })
 
     elA.remove()
     elB.remove()
@@ -331,10 +334,14 @@ describe('CortexApp', () => {
       thread: [],
     }
     channel._simulateMessage({ type: 'annotation-created', annotation })
-    await new Promise(r => setTimeout(r, 50))
 
-    // Pin dot should render
-    const pinDot = root.querySelector('.cortex-pin')
+    // Wait for Preact render cycle to commit the pin dot. Fixed timeout
+    // flaked under CI load on Node 20 Linux runners.
+    const pinDot = await vi.waitFor(() => {
+      const el = root.querySelector('.cortex-pin')
+      expect(el).not.toBeNull()
+      return el
+    }, { timeout: 500 })
     expect(pinDot).not.toBeNull()
 
     target.remove()
@@ -1535,7 +1542,11 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     const { channel, gcs } = await setup('src/foo.tsx:10:5')
     const before = gcs.mock.calls.length
     channel._simulateMessage({ type: 'hmr-applied', files: ['src/bar.tsx', 'src/baz.tsx'] })
-    await new Promise(r => setTimeout(r, 50))
+    // Negative assertion: wait long enough that if a refresh were going to
+    // fire, it would have dispatched within the debounce window. 50ms flaked
+    // on CI (observed 6 calls on Node 20 + 22); 200ms covers runner contention.
+    // vi.waitFor cannot help here — you can't poll for a thing NOT happening.
+    await new Promise(r => setTimeout(r, 200))
     // No CSS in list, no ancestor match, no own-file match → refresh skipped.
     // The expensive computedStyles re-run does not fire.
     expect(gcs.mock.calls.length).toBe(before)

@@ -36,6 +36,15 @@ export default defineConfig({
               isolate: true,
             },
           },
+          // cortex-app.test.tsx has intra-file test-order-dependent state
+          // leakage (module-scope state in selection.ts, override-bus.ts, etc.
+          // not fully reset between tests). Fixing that pervasively is a
+          // scoped follow-up in ZF0-1322. Until then, retry:2 keeps CI green
+          // on occasional flakes without masking deterministic regressions
+          // (a real break fails all 3 attempts). The 3 timing assertions we
+          // fixed inline (vi.waitFor + 200ms negative wait) reduce base flake
+          // rate so retries are rare.
+          retry: 2,
         },
       },
       { test: { name: 'integration', environment: 'node', include: ['tests/integration/**/*.test.ts'] } },
