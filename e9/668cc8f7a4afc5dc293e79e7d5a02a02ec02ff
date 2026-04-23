@@ -1,0 +1,24 @@
+cortex-editor/tests/integration/debug-bridge-build-gate.test.ts
+  8c297fae67baab8f 15-23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "e9668cc8f7a4afc5dc293e79e7d5a02a02ec02ff",
+  "prompts": {
+    "8c297fae67baab8f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2c5e6c90-3d26-4922-b897-818a3425039d",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 9,
+      "total_deletions": 76,
+      "accepted_lines": 28,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/dbd3009c13477a2a33806984e6320fe6aa1425a05ac3c24c206e49f029565225"
+    }
+  }
+}
