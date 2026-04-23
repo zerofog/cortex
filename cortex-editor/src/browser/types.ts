@@ -26,7 +26,24 @@ declare global {
  *  `true` only in bundles produced by `npm run build:test`; `false` in all
  *  production builds. Referenced in `CortexApp.tsx` to gate the debug bridge
  *  so esbuild DCE strips it from production bundles. `vitest.config.ts`
- *  mirrors the define so happy-dom tests see the bridge path as live. */
+ *  mirrors the define so happy-dom tests see the bridge path as live.
+ *
+ *  DCE operator contract (load-bearing — security depends on this):
+ *  ALWAYS combine as `if (__CORTEX_TEST_BUILD__ && <condition>)` — the `&&`
+ *  operator is what lets esbuild's `minifySyntax: true` (see tsup.config.ts
+ *  browser entry) fold the branch to dead code and strip it from the prod
+ *  bundle. Do NOT:
+ *    - use `||` or `??` (esbuild folds to the other operand; branch survives)
+ *    - hoist into `const x = __CORTEX_TEST_BUILD__ && …; if (x) { ... }`
+ *      (const initializers at statement level are not reliably folded)
+ *    - wrap in a helper function `isTestBuild()` (breaks inline constant folding)
+ *  Always inline the identifier directly in the `if` condition.
+ *
+ *  Scope: this declaration is ambient to everything tsconfig includes
+ *  (src/**), but the identifier is ONLY substituted by esbuild in the
+ *  browser bundle entry. Node.js bundles (adapters, CLI) would ship a bare
+ *  `__CORTEX_TEST_BUILD__` reference that crashes at startup — so this
+ *  identifier is valid only inside `src/browser/`. */
 declare global {
   const __CORTEX_TEST_BUILD__: boolean
 }
