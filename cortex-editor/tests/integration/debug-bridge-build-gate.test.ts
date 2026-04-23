@@ -15,6 +15,9 @@ import { readFileSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const REPO_ROOT = resolve(__dirname, '../..')
+// Same bundle path as tests/e2e/helpers/fixture-server.ts — consolidate into a
+// shared constant if a third consumer appears (today the two live in separate
+// vitest sub-projects / Playwright and can't cleanly share a module).
 const BROWSER_BUNDLE = resolve(REPO_ROOT, 'dist/browser/index.js')
 
 describe('debug bridge build-time gate', () => {
@@ -23,10 +26,8 @@ describe('debug bridge build-time gate', () => {
 
   beforeAll(() => {
     // Prod build first so the on-disk artifact ends up as the test bundle —
-    // `test:e2e` rebuilds via `build:test` anyway, but a dev inspecting
-    // `dist/browser/` after a cold `npm test` sees the bridge-armed variant
-    // (the one the Playwright harness consumes), which matches the directory
-    // content `test:e2e` expects next.
+    // a dev inspecting `dist/browser/` after a cold `npm test` sees the
+    // bridge-armed variant the Playwright harness consumes next.
     execFileSync('npm', ['run', 'build'], { cwd: REPO_ROOT, stdio: 'inherit' })
     if (!existsSync(BROWSER_BUNDLE)) {
       throw new Error(`production build produced no bundle at ${BROWSER_BUNDLE}`)

@@ -39,11 +39,10 @@ declare global {
  *    - wrap in a helper function `isTestBuild()` (breaks inline constant folding)
  *  Always inline the identifier directly in the `if` condition.
  *
- *  Scope: this declaration is ambient to everything tsconfig includes
- *  (src/**), but the identifier is ONLY substituted by esbuild in the
- *  browser bundle entry. Node.js bundles (adapters, CLI) would ship a bare
- *  `__CORTEX_TEST_BUILD__` reference that crashes at startup — so this
- *  identifier is valid only inside `src/browser/`. */
+ *  Scope: ONLY substituted inside the browser bundle. Using this identifier
+ *  in Node.js adapters (src/adapters/) or the CLI (src/cli/) would ship a
+ *  bare `__CORTEX_TEST_BUILD__` reference that crashes at startup. Valid
+ *  only inside `src/browser/`. */
 declare global {
   const __CORTEX_TEST_BUILD__: boolean
 }
