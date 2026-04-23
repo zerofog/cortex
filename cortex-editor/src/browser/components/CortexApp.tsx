@@ -347,16 +347,28 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           }
         }
 
-        attemptReResolve()
-        // Frame-deferred: catches React sync commits + most Fast Refresh commits.
-        requestAnimationFrame(() => requestAnimationFrame(attemptReResolve))
-        // Scheduler-deferred: React 18's concurrent mode can schedule commits
-        // through its priority scheduler beyond 2 rAFs. 100ms is empirically
-        // sufficient for typical updates; 250ms is the safety net for slow
-        // machines or heavy subtree remounts. Both are bounded and idempotent —
-        // if the selection is already settled, each call is a ~microsecond no-op.
-        setTimeout(attemptReResolve, 100)
-        setTimeout(attemptReResolve, 250)
+        // Gate re-resolution on the same predicate as the version bump
+        // (ZF0-1298 follow-up). If the HMR files don't affect our selection,
+        // React Fast Refresh can't have swapped the selected DOM node — so
+        // `attemptReResolve` has nothing to resolve and its 5 fan-outs
+        // (sync + 2 rAFs + 100ms + 250ms setTimeouts) are pure waste.
+        // Previously ungated, which meant every HMR event (even unrelated
+        // ones) ran reResolveSelection + captureSelectionMetadata against
+        // the live DOM. Observable in the "skips Panel refresh when hmr
+        // files are fully unrelated" test — the 6 getComputedStyle calls
+        // that flaked CI were this ungated work, not the gated refresh.
+        if (shouldRefresh) {
+          attemptReResolve()
+          // Frame-deferred: catches React sync commits + most Fast Refresh commits.
+          requestAnimationFrame(() => requestAnimationFrame(attemptReResolve))
+          // Scheduler-deferred: React 18's concurrent mode can schedule commits
+          // through its priority scheduler beyond 2 rAFs. 100ms is empirically
+          // sufficient for typical updates; 250ms is the safety net for slow
+          // machines or heavy subtree remounts. Both are bounded and idempotent —
+          // if the selection is already settled, each call is a ~microsecond no-op.
+          setTimeout(attemptReResolve, 100)
+          setTimeout(attemptReResolve, 250)
+        }
       }
       if (msg.type === 'annotation-created') {
         setAnnotations(prev => new Map(prev).set(msg.annotation.id, msg.annotation))

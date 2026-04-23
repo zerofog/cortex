@@ -1567,17 +1567,23 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     return { channel, gcs, element }
   }
 
-  // Negative case "skips Panel refresh when hmr files are fully unrelated" —
-  // removed (ZF0-1298 pipeline). The branch is proven by two richer, faster,
-  // more deterministic tests:
-  //   1. hmrFilesAffectElement(['src/other.tsx','src/unrelated.tsx'], el) → false
-  //      (tests/browser/selection-metadata.test.ts — pure unit test of the gate).
-  //   2. The positive it.each + ancestor-match tests below (which DO fire refresh)
-  //      prove the wiring hmr-applied → gate → setHmrAppliedVersion is intact.
-  // The removed test observed an indirect signal (getComputedStyle count)
-  // polluted by attemptReResolve's independent DOM work — flaky under CI
-  // fork-pool load even after fake-timer hardening. Per CLAUDE.md "No
-  // subsumption": if test B asserts everything A does plus more, delete A.
+  it('skips Panel refresh when hmr files are fully unrelated to the selection', async () => {
+    const { channel, gcs } = await setup('src/foo.tsx:10:5')
+    const before = gcs.mock.calls.length
+    channel._simulateMessage({ type: 'hmr-applied', files: ['src/bar.tsx', 'src/baz.tsx'] })
+    // Negative assertion: the handler's shouldRefresh gate now short-circuits
+    // BOTH the version bump AND the attemptReResolve fan-out (ZF0-1298 root-
+    // cause fix — previously, re-resolve ran unconditionally and contributed
+    // ~6 getComputedStyle calls under CI load, making this assertion flake).
+    // 200ms gives ample headroom for any residual async work; with the gate
+    // in place no such work is expected. vi.waitFor cannot help here — you
+    // can't poll for a thing NOT happening.
+    await new Promise(r => setTimeout(r, 200))
+    // No CSS in list, no ancestor match, no own-file match → gate returns
+    // false → neither the version bump nor the re-resolve fan-out fires.
+    expect(gcs.mock.calls.length).toBe(before)
+    gcs.mockRestore()
+  })
 
   // All positive "files ∈ refresh branch" cases share the same setup and
   // observable (gcs call count bumps). Parameterizing by the files payload
