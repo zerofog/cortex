@@ -12,7 +12,7 @@
  */
 import type { EditKind } from '../adapters/types.js'
 
-const bus = new EventTarget()
+let bus = new EventTarget()
 
 export function emitOverrideChange(): void {
   bus.dispatchEvent(new Event('change'))
@@ -21,6 +21,20 @@ export function emitOverrideChange(): void {
 export function onOverrideChange(cb: () => void): () => void {
   bus.addEventListener('change', cb)
   return () => bus.removeEventListener('change', cb)
+}
+
+/**
+ * Test-only: replace the module-scope EventTarget with a fresh one so that
+ * any listeners from a prior test are garbage-collected with the old bus.
+ * The Panel / CortexApp effects reference `bus` by closure through the
+ * emit/subscribe helpers, so the next call picks up the new instance. Call
+ * from `beforeEach` in any test that mounts components which subscribe to
+ * this bus — otherwise leaked listeners from the previous test fire on the
+ * current test's emissions and contaminate assertions (ZF0-1297 test-hygiene
+ * fix; supersedes retry:2 workaround from ZF0-1322).
+ */
+export function _resetBusForTesting(): void {
+  bus = new EventTarget()
 }
 
 /** Where `actual` was read from — disambiguates bug classes:

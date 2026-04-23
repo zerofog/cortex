@@ -1,10 +1,14 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render } from 'preact'
 import { CortexApp } from '../../src/browser/components/CortexApp.js'
-import { createShadowHost, createMockChannel, mockGetBoundingClientRect, dispatchKeyboardEvent } from './helpers.js'
+import { createShadowHost, createMockChannel, mockGetBoundingClientRect, dispatchKeyboardEvent, cleanDocumentHead } from './helpers.js'
 import * as focusUtils from '../../src/browser/focus-utils.js'
+import { _resetBusForTesting } from '../../src/browser/override-bus.js'
 
-// Mock the selection module to verify it's called correctly
+// Mock the selection module to verify it's called correctly.
+// _resetCallbacks nulls the module-scope hoverCb/selectCb closure so a prior
+// test's unmounted-component callbacks cannot be returned by _getCallbacks
+// under async timing — call from beforeEach (ZF0-1297 test-hygiene fix).
 vi.mock('../../src/browser/selection.js', () => {
   const cleanupFn = vi.fn()
   const setDesignModeFn = vi.fn()
@@ -19,6 +23,7 @@ vi.mock('../../src/browser/selection.js', () => {
       return { cleanup: cleanupFn, setDesignMode: setDesignModeFn, setInterceptClicks: setInterceptClicksFn }
     }),
     _getCallbacks: () => ({ hoverCb, selectCb }),
+    _resetCallbacks: () => { hoverCb = null; selectCb = null },
     _cleanup: cleanupFn,
   }
 })
@@ -31,9 +36,16 @@ describe('CortexApp', () => {
   let shadow: ShadowRoot
   let cleanupHost: () => void
 
-  afterEach(() => {
+  afterEach(async () => {
     if (root) render(null, root)
     if (cleanupHost) cleanupHost()
+    // Reset cross-test state that persists despite vi.clearAllMocks:
+    // module-scope selection-mock closures + override-bus listeners +
+    // document.head style tags. See ZF0-1297 Step 12 hygiene fix.
+    const mod = await import('../../src/browser/selection.js') as unknown as { _resetCallbacks?: () => void }
+    mod._resetCallbacks?.()
+    _resetBusForTesting()
+    cleanDocumentHead()
     vi.clearAllMocks()
   })
 
@@ -120,10 +132,10 @@ describe('CortexApp', () => {
     mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
 
     selectCb(target)
-    await new Promise(r => setTimeout(r, 0))
 
-    const overlay = root.querySelector('.cortex-selection-overlay')
-    expect(overlay).not.toBeNull()
+    await vi.waitFor(() => {
+      expect(root.querySelector('.cortex-selection-overlay')).not.toBeNull()
+    }, { timeout: 500 })
 
     target.remove()
   })
@@ -271,8 +283,9 @@ describe('CortexApp', () => {
     render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
     await new Promise(r => setTimeout(r, 10))
     channel._simulateMessage({ type: 'cortex' } as any)
-    await new Promise(r => setTimeout(r, 10))
-    expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
+    await vi.waitFor(() => {
+      expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
+    }, { timeout: 500 })
   })
 
   it('ignores duplicate cortex message when already active', async () => {
@@ -282,7 +295,10 @@ describe('CortexApp', () => {
     await new Promise(r => setTimeout(r, 10))
     channel._simulateMessage({ type: 'cortex' } as any)
     channel._simulateMessage({ type: 'cortex' } as any)
-    await new Promise(r => setTimeout(r, 10))
+    // Wait for the first (and only) toolbar to render, then assert uniqueness.
+    await vi.waitFor(() => {
+      expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
+    }, { timeout: 500 })
     // Should still have exactly one toolbar
     const toolbars = root.querySelectorAll('.cortex-toolbar')
     expect(toolbars.length).toBe(1)
@@ -990,15 +1006,16 @@ describe('CortexApp', () => {
       await new Promise(r => setTimeout(r, 10))
 
       channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 2, maxRetries: 5 })
-      // 50ms to allow Preact batch render to flush under full-suite memory pressure
-      await new Promise(r => setTimeout(r, 50))
-
-      const footer = root.querySelector('.cortex-connection-status')
-      expect(footer).not.toBeNull()
-      expect(footer!.getAttribute('role')).toBe('status')
-      expect(footer!.textContent).toContain('Reconnecting')
-      expect(footer!.textContent).toContain('2/5')
-      expect(footer!.classList.contains('cortex-connection-status--reconnecting')).toBe(true)
+      // Poll for Preact batch render to commit. Fixed 50ms flaked under CI load.
+      const footer = await vi.waitFor(() => {
+        const el = root.querySelector('.cortex-connection-status')
+        expect(el).not.toBeNull()
+        return el!
+      }, { timeout: 500 })
+      expect(footer.getAttribute('role')).toBe('status')
+      expect(footer.textContent).toContain('Reconnecting')
+      expect(footer.textContent).toContain('2/5')
+      expect(footer.classList.contains('cortex-connection-status--reconnecting')).toBe(true)
     })
 
     it('renders disconnected footer with warning message', async () => {
@@ -1008,11 +1025,12 @@ describe('CortexApp', () => {
       await new Promise(r => setTimeout(r, 10))
 
       channel._simulateConnectionChange({ status: 'disconnected' })
-      await new Promise(r => setTimeout(r, 50))
-
-      const footer = root.querySelector('.cortex-connection-status')
-      expect(footer).not.toBeNull()
-      expect(footer!.textContent).toContain('Disconnected')
+      const footer = await vi.waitFor(() => {
+        const el = root.querySelector('.cortex-connection-status')
+        expect(el).not.toBeNull()
+        return el!
+      }, { timeout: 500 })
+      expect(footer.textContent).toContain('Disconnected')
       expect(footer!.textContent).toContain('won\u2019t save')
       expect(footer!.classList.contains('cortex-connection-status--disconnected')).toBe(true)
     })
@@ -1054,11 +1072,13 @@ describe('CortexApp', () => {
 
       // Simulate reconnecting then connected to trigger "reconnected" flash
       channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 1, maxRetries: 5 })
-      await new Promise(r => setTimeout(r, 10))
 
-      // Verify reconnecting footer first
-      expect(root.querySelector('.cortex-connection-status')).not.toBeNull()
-      expect(root.querySelector('.cortex-connection-status')!.textContent).toContain('Reconnecting')
+      // Wait for reconnecting footer to render before proceeding.
+      await vi.waitFor(() => {
+        const el = root.querySelector('.cortex-connection-status')
+        expect(el).not.toBeNull()
+        expect(el!.textContent).toContain('Reconnecting')
+      }, { timeout: 500 })
 
       vi.useFakeTimers()
       try {
@@ -1094,7 +1114,7 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
   let cleanupHost: (() => void) | null = null
   const orphans: HTMLElement[] = []
 
-  afterEach(() => {
+  afterEach(async () => {
     if (root) render(null, root)
     cleanupHost?.()
     cleanupHost = null
@@ -1105,6 +1125,10 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
     // stale elements survive into the next test and pollute document-level
     // queries in selection-metadata helpers, producing intermittent failures.
     for (const el of document.querySelectorAll('[data-cortex-source]')) el.remove()
+    const mod = await import('../../src/browser/selection.js') as unknown as { _resetCallbacks?: () => void }
+    mod._resetCallbacks?.()
+    _resetBusForTesting()
+    cleanDocumentHead()
     // restoreAllMocks rather than clearAllMocks to fully uninstall any
     // spies (getComputedStyle, etc.) a failed test may have left behind.
     vi.restoreAllMocks()
@@ -1441,9 +1465,9 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
     el.remove()
 
     channel._simulateMessage({ type: 'hmr-applied' })
-    await new Promise(r => setTimeout(r, 30))
-
-    expect(root.textContent).toContain('Click any element to start editing')
+    await vi.waitFor(() => {
+      expect(root.textContent).toContain('Click any element to start editing')
+    }, { timeout: 500 })
   })
 
   it('leaves selection untouched and re-reads computed styles when the selected element is still connected after HMR', async () => {
@@ -1486,12 +1510,17 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
   let cleanupHost: (() => void) | null = null
   const orphans: HTMLElement[] = []
 
-  afterEach(() => {
+  afterEach(async () => {
     if (root) render(null, root)
     cleanupHost?.()
     cleanupHost = null
     for (const el of orphans) el.remove()
     orphans.length = 0
+    for (const el of document.querySelectorAll('[data-cortex-source]')) el.remove()
+    const mod = await import('../../src/browser/selection.js') as unknown as { _resetCallbacks?: () => void }
+    mod._resetCallbacks?.()
+    _resetBusForTesting()
+    cleanDocumentHead()
     // restoreAllMocks (not clearAllMocks) ensures the getComputedStyle spy
     // is fully uninstalled between tests — otherwise a failed test that
     // threw before reaching gcs.mockRestore() would leak the spy into
@@ -1538,17 +1567,7 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     return { channel, gcs, element }
   }
 
-  // TODO(ZF0-1322): deterministic CI Linux failure — expected 0 gcs calls, got 6.
-  // retry:2 exhausts all 3 attempts with the same count, indicating either:
-  //   (a) Panel re-renders on every HMR message (calling getComputedStyle even
-  //       for unrelated files), making this test's premise wrong, or
-  //   (b) intra-file state leakage from a prior test's deferred Panel refresh
-  //       settles AFTER the gcs spy is installed.
-  // Bumped the negative-assertion wait 50ms→200ms; did not help. This is an
-  // implementation-detail test (gcs-call-count as proxy for "refresh skipped")
-  // that the ZF0-1322 rewrite should either fix properly or replace with a
-  // behavior-level assertion.
-  it.skip('skips Panel refresh when hmr files are fully unrelated to the selection', async () => {
+  it('skips Panel refresh when hmr files are fully unrelated to the selection', async () => {
     const { channel, gcs } = await setup('src/foo.tsx:10:5')
     const before = gcs.mock.calls.length
     channel._simulateMessage({ type: 'hmr-applied', files: ['src/bar.tsx', 'src/baz.tsx'] })
@@ -1580,8 +1599,11 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
       ? { type: 'hmr-applied' as const }
       : { type: 'hmr-applied' as const, files }
     channel._simulateMessage(msg)
-    await new Promise(r => setTimeout(r, 50))
-    expect(gcs.mock.calls.length).toBeGreaterThan(before)
+    // Positive assertion: poll until gcs call count increments. Fixed 50ms
+    // timeout flaked under CI Linux load. vi.waitFor polls the condition.
+    await vi.waitFor(() => {
+      expect(gcs.mock.calls.length).toBeGreaterThan(before)
+    }, { timeout: 500 })
     gcs.mockRestore()
   })
 
@@ -1618,8 +1640,11 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     const gcs = vi.spyOn(window, 'getComputedStyle')
     const before = gcs.mock.calls.length
     channel._simulateMessage({ type: 'hmr-applied', files: ['src/parent.tsx'] })
-    await new Promise(r => setTimeout(r, 50))
-    expect(gcs.mock.calls.length).toBeGreaterThan(before)
+    // Positive assertion: poll for call-count increment. Same rationale as
+    // the it.each variants above.
+    await vi.waitFor(() => {
+      expect(gcs.mock.calls.length).toBeGreaterThan(before)
+    }, { timeout: 500 })
     gcs.mockRestore()
   })
 

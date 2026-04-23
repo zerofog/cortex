@@ -36,14 +36,15 @@ export default defineConfig({
               isolate: true,
             },
           },
-          // cortex-app.test.tsx has intra-file test-order-dependent state
-          // leakage (module-scope state in selection.ts, override-bus.ts, etc.
-          // not fully reset between tests). Fixing that pervasively is a
-          // scoped follow-up in ZF0-1322. Until then, retry:2 keeps CI green
-          // on occasional flakes without masking deterministic regressions
-          // (a real break fails all 3 attempts). The 3 timing assertions we
-          // fixed inline (vi.waitFor + 200ms negative wait) reduce base flake
-          // rate so retries are rare.
+          // Retry policy for residual timing flakes. The ZF0-1297 Step 12
+          // test-hygiene fix (module-scope state resets + targeted vi.waitFor
+          // conversions) eliminated most state-leakage failures, but
+          // ~30 setTimeout(r, N) sites in browser tests (selection-overlay,
+          // cortex-app HMR-filter describe, etc.) still occasionally race
+          // under GitHub Linux runner concurrent-fork load. retry:2 here is
+          // not a band-aid on dirty state — it's defense-in-depth on a
+          // cleaned foundation. ZF0-1322 tracks the broader setTimeout→
+          // vi.waitFor sweep that will eventually let this line be removed.
           retry: 2,
         },
       },

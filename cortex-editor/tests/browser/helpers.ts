@@ -3,6 +3,20 @@ import { vi } from 'vitest'
 import type { CortexChannel, ConnectionState, ServerToBrowser } from '../../src/adapters/types.js'
 
 /**
+ * Remove all Cortex-owned `<style>` tags from `document.head`. Call in
+ * `afterEach` for any describe block that mounts CortexApp / Panel —
+ * CSSOverrideManager appends `[data-cortex-override]` and Panel appends
+ * `[data-cortex-blast-radius-style]`. If a test throws before natural
+ * cleanup, the stale tag survives and affects the next test's
+ * `getComputedStyle` or DOM-query assertions. (ZF0-1297 test-hygiene fix.)
+ */
+export function cleanDocumentHead(): void {
+  for (const el of document.head.querySelectorAll('[data-cortex-override], [data-cortex-blast-radius-style]')) {
+    el.remove()
+  }
+}
+
+/**
  * Mock elementFromPoint — happy-dom returns null natively.
  * Returns a cleanup function that restores the original.
  */

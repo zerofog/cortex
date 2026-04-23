@@ -284,7 +284,9 @@ describe('useCanvasZoom', () => {
   it('cursor restores on Space release', async () => {
     document.body.style.cursor = 'crosshair'
     const { unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise(r => setTimeout(r, 10))
+    // Setup wait: give the hook's useEffect time to install the keydown/keyup
+    // handlers on window. 10ms flaked on CI Linux under fork concurrency.
+    await new Promise(r => setTimeout(r, 50))
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }))
     expect(document.body.style.cursor).toBe('grab')
     window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', bubbles: true }))
