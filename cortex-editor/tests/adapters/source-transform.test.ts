@@ -541,7 +541,11 @@ const el = <div>
 
       times.sort((a, b) => a - b)
       const median = times[1]!
-      expect(median).toBeLessThan(50)
+      // GitHub Actions ubuntu-latest runners are ~2× slower than dev machines
+      // under contention; 50ms is too tight in CI (observed 60-65ms).
+      // Keep the dev budget tight so real regressions are caught locally.
+      const BUDGET_MS = process.env.CI ? 100 : 50
+      expect(median).toBeLessThan(BUDGET_MS)
     })
   })
 })
