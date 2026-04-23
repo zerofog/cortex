@@ -22,6 +22,15 @@ declare global {
   }
 }
 
+/** Ambient build-time constant injected by tsup esbuild.define (ZF0-1298).
+ *  `true` only in bundles produced by `npm run build:test`; `false` in all
+ *  production builds. Referenced in `CortexApp.tsx` to gate the debug bridge
+ *  so esbuild DCE strips it from production bundles. `vitest.config.ts`
+ *  mirrors the define so happy-dom tests see the bridge path as live. */
+declare global {
+  const __CORTEX_TEST_BUILD__: boolean
+}
+
 /** Declare vanilla-colorful Web Component for JSX/TSX usage */
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace

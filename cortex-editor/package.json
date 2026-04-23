@@ -52,11 +52,12 @@
   ],
   "scripts": {
     "build": "tsup",
+    "build:test": "CORTEX_TEST_BUILD=true tsup",
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
+    "test:e2e": "npm run build:test && playwright test",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests/e2e/tsconfig.json"
   },
   "devDependencies": {

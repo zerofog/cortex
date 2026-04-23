@@ -5,6 +5,14 @@ export default defineConfig({
     jsx: 'automatic',
     jsxImportSource: 'preact',
   },
+  // Mirror the tsup browser bundle's define (ZF0-1298) so happy-dom browser
+  // tests and source-compiled imports see the bridge path as live. Tests
+  // compile source directly — without this mirror, `__CORTEX_TEST_BUILD__`
+  // becomes a ReferenceError at test runtime. `'true'` matches the
+  // `build:test` bundle: tests exercise the bridge-armed variant.
+  define: {
+    __CORTEX_TEST_BUILD__: 'true',
+  },
   test: {
     coverage: {
       provider: 'v8',

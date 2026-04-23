@@ -70,6 +70,15 @@ export default defineConfig([
     esbuildOptions(options) {
       options.jsx = 'automatic'
       options.jsxImportSource = 'preact'
+      // Build-time gate for the debug bridge (ZF0-1298). `CORTEX_TEST_BUILD=true`
+      // flips the identifier to `true` so the bridge installs; every other build
+      // gets `false` and esbuild DCE strips the entire guarded block from the
+      // production bundle. Values must be string-encoded JS expressions because
+      // esbuild.define parses them — `'true'` / `'false'`, not booleans.
+      options.define = {
+        ...options.define,
+        __CORTEX_TEST_BUILD__: process.env.CORTEX_TEST_BUILD === 'true' ? 'true' : 'false',
+      }
     },
     loader: { '.css': 'text' },
   },
