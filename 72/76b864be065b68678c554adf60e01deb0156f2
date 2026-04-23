@@ -1,0 +1,26 @@
+cortex-editor/tests/browser/cortex-app.test.tsx
+  8c297fae67baab8f 1570-1586
+cortex-editor/src/browser/components/CortexApp.tsx
+  8c297fae67baab8f 350-371
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "7276b864be065b68678c554adf60e01deb0156f2",
+  "prompts": {
+    "8c297fae67baab8f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2c5e6c90-3d26-4922-b897-818a3425039d",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 2513,
+      "total_deletions": 2483,
+      "accepted_lines": 83,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/c0e8e9a44ab0ef830e3bd2135e0e3524441721725aa2df2d9442c82a8a55e1e9"
+    }
+  }
+}
