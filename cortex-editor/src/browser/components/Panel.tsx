@@ -58,7 +58,7 @@ function connectionStatusText(status: ConnectionDisplay): string {
   }
 }
 
-function ConnectionStatusFooter({ status }: { status?: ConnectionDisplay }): JSX.Element {
+export function ConnectionStatusFooter({ status }: { status?: ConnectionDisplay }): JSX.Element {
   // aria-live regions must exist in DOM BEFORE content is injected —
   // screen readers observe mutations to existing regions, not newly inserted ones.
   // Always render the container; gate only the visible content.
