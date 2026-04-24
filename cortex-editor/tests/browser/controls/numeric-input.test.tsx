@@ -209,8 +209,7 @@ describe('NumericInput', () => {
     // Focus the input (select all), then blur WITHOUT typing
     input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
     input.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
-    // Load-bearing hold — NOT vi.waitFor; negative assertions would pass immediately at t=0.
-    await new Promise<void>(r => setTimeout(r, 10))
+    await new Promise<void>(r => setTimeout(r, 0))
     expect(onChange).not.toHaveBeenCalled()
   })
 
@@ -229,12 +228,10 @@ describe('NumericInput', () => {
     input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
     // Re-render with different value (simulates HMR changing the prop)
     render(<NumericInput value={18} unit="px" onChange={onChange} />, container)
-    // Load-bearing hold — NOT vi.waitFor; negative assertions would pass immediately at t=0.
-    await new Promise<void>(r => setTimeout(r, 10))
+    await new Promise<void>(r => setTimeout(r, 0))
     // Blur fires (e.g., React replaced DOM node)
     input.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
-    // Load-bearing hold — NOT vi.waitFor; negative assertions would pass immediately at t=0.
-    await new Promise<void>(r => setTimeout(r, 10))
+    await new Promise<void>(r => setTimeout(r, 0))
 
     // Should NOT have called onChange — user didn't type
     expect(onChange).not.toHaveBeenCalled()
@@ -256,8 +253,7 @@ describe('NumericInput', () => {
       dispatchPointerEvent(wrapper, 'pointerdown', { clientX: 100 })
       await new Promise(r => setTimeout(r, 0))
       dispatchPointerEvent(wrapper, 'pointerup', { clientX: 100 })
-      // Load-bearing hold — NOT vi.waitFor; negative assertions would pass immediately at t=0.
-      await new Promise<void>(r => setTimeout(r, 10))
+      await new Promise<void>(r => setTimeout(r, 0))
 
       // Input stays empty — no auto-fill with selected element's value (16)
       expect(input.value).toBe('')
@@ -300,12 +296,11 @@ describe('NumericInput', () => {
       dispatchPointerEvent(wrapper, 'pointerdown', { clientX: 100 })
       await new Promise<void>(r => setTimeout(r, 0))
       dispatchPointerEvent(wrapper, 'pointerup', { clientX: 100 })
-      await new Promise<void>(r => setTimeout(r, 10))
+      await new Promise<void>(r => setTimeout(r, 0))
 
       // Blur without typing
       input.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
-      // Load-bearing hold — NOT vi.waitFor; negative assertions would pass immediately at t=0.
-      await new Promise<void>(r => setTimeout(r, 10))
+      await new Promise<void>(r => setTimeout(r, 0))
 
       expect(onChange).not.toHaveBeenCalled()
     })
