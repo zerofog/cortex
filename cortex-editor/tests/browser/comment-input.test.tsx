@@ -147,4 +147,30 @@ describe('CommentInput', () => {
 
     vi.useRealTimers()
   })
+
+  it('re-enables input when agentConnected changes from false to true', async () => {
+    // Leaf contract for the agentConnected prop toggle. The full cascade
+    // (agent-status channel message → CortexApp state → CommentInput prop) is
+    // an integration concern covered in cortex-app.test.tsx; this test
+    // documents the prop-to-DOM contract in isolation.
+    render(<CommentInput onSubmit={vi.fn().mockResolvedValue(undefined)} agentConnected={false} />, container)
+    const input = container.querySelector('input') as HTMLInputElement
+    expect(input.disabled).toBe(true)
+    expect(input.placeholder).toContain('Waiting for agent')
+
+    render(<CommentInput onSubmit={vi.fn().mockResolvedValue(undefined)} agentConnected={true} />, container)
+    await flush()
+    expect(input.disabled).toBe(false)
+    expect(input.placeholder).toBe('Ask the AI agent...')
+  })
+
+  it('does not call onSubmit when agentConnected is false', () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    render(<CommentInput onSubmit={onSubmit} agentConnected={false} />, container)
+    const input = container.querySelector('input') as HTMLInputElement
+    // Even if somehow a keydown arrives (e.g. programmatic dispatch),
+    // the input is disabled so Enter should not trigger onSubmit.
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
 })
