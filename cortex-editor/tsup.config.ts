@@ -70,6 +70,26 @@ export default defineConfig([
     esbuildOptions(options) {
       options.jsx = 'automatic'
       options.jsxImportSource = 'preact'
+      // Enable syntax-level minification (constant folding + DCE) without
+      // full identifier minification. Required for `if (false && ...)` blocks
+      // inserted by the `define` substitution below to be physically stripped
+      // from the output — esbuild only DCEs dead branches when minifySyntax is
+      // true (without it, `if (false) { ... }` is emitted verbatim).
+      options.minifySyntax = true
+      // Build-time gate for the debug bridge (ZF0-1298). `CORTEX_TEST_BUILD=true`
+      // flips the identifier to `true` so the bridge installs; every other build
+      // gets `false` and esbuild DCE strips the entire guarded block from the
+      // production bundle. Values must be string-encoded JS expressions because
+      // esbuild.define parses them — `'true'` / `'false'`, not booleans.
+      //
+      // The `...options.define` spread is load-bearing, not defensive: tsup
+      // pre-populates `options.define` with `TSUP_FORMAT` and env-derived
+      // `process.env.*` entries before calling this hook. Dropping the spread
+      // would silently clobber tsup's format detection.
+      options.define = {
+        ...options.define,
+        __CORTEX_TEST_BUILD__: process.env.CORTEX_TEST_BUILD === 'true' ? 'true' : 'false',
+      }
     },
     loader: { '.css': 'text' },
   },

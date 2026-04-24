@@ -22,6 +22,31 @@ declare global {
   }
 }
 
+/** Ambient build-time constant injected by tsup esbuild.define (ZF0-1298).
+ *  `true` only in bundles produced by `npm run build:test`; `false` in all
+ *  production builds. Referenced in `CortexApp.tsx` to gate the debug bridge
+ *  so esbuild DCE strips it from production bundles. `vitest.config.ts`
+ *  mirrors the define so happy-dom tests see the bridge path as live.
+ *
+ *  DCE operator contract (load-bearing — security depends on this):
+ *  ALWAYS combine as `if (__CORTEX_TEST_BUILD__ && <condition>)` — the `&&`
+ *  operator is what lets esbuild's `minifySyntax: true` (see tsup.config.ts
+ *  browser entry) fold the branch to dead code and strip it from the prod
+ *  bundle. Do NOT:
+ *    - use `||` or `??` (esbuild folds to the other operand; branch survives)
+ *    - hoist into `const x = __CORTEX_TEST_BUILD__ && …; if (x) { ... }`
+ *      (const initializers at statement level are not reliably folded)
+ *    - wrap in a helper function `isTestBuild()` (breaks inline constant folding)
+ *  Always inline the identifier directly in the `if` condition.
+ *
+ *  Scope: ONLY substituted inside the browser bundle. Using this identifier
+ *  in Node.js adapters (src/adapters/) or the CLI (src/cli/) would ship a
+ *  bare `__CORTEX_TEST_BUILD__` reference that crashes at startup. Valid
+ *  only inside `src/browser/`. */
+declare global {
+  const __CORTEX_TEST_BUILD__: boolean
+}
+
 /** Declare vanilla-colorful Web Component for JSX/TSX usage */
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
