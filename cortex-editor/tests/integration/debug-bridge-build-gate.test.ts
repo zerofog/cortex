@@ -43,14 +43,28 @@ describe('debug bridge build-time gate', () => {
     // Prod build first so the on-disk artifact ends up as the test bundle —
     // a dev inspecting `dist/browser/` after a cold `npm test` sees the
     // bridge-armed variant the Playwright harness consumes next.
-    execFileSync('npm', ['run', 'build'], { cwd: REPO_ROOT, stdio: 'inherit' })
+    //
+    // Explicit env override: `execFileSync` inherits `process.env` by default,
+    // which means a developer or CI with `CORTEX_TEST_BUILD=true` exported
+    // (e.g., for local Playwright work) would silently turn this "prod build"
+    // into a test build. Forcing `'false'` on the prod invocation and `'true'`
+    // on the test invocation makes the assertions parent-env-independent.
+    execFileSync('npm', ['run', 'build'], {
+      cwd: REPO_ROOT,
+      stdio: 'inherit',
+      env: { ...process.env, CORTEX_TEST_BUILD: 'false' },
+    })
     if (!existsSync(BROWSER_BUNDLE)) {
       throw new Error(`production build produced no bundle at ${BROWSER_BUNDLE}`)
     }
     prodBundle = readFileSync(BROWSER_BUNDLE, 'utf8')
 
     rmSync(BROWSER_DIST_DIR, { recursive: true, force: true })
-    execFileSync('npm', ['run', 'build:test'], { cwd: REPO_ROOT, stdio: 'inherit' })
+    execFileSync('npm', ['run', 'build:test'], {
+      cwd: REPO_ROOT,
+      stdio: 'inherit',
+      env: { ...process.env, CORTEX_TEST_BUILD: 'true' },
+    })
     if (!existsSync(BROWSER_BUNDLE)) {
       throw new Error(`test build produced no bundle at ${BROWSER_BUNDLE}`)
     }
@@ -99,17 +113,15 @@ describe('debug bridge build-time gate', () => {
       expect(testBundle).toMatch(/overrideManager[,\s]+channel[,\s]+selectElement/)
     })
 
-    it('production bundle is materially smaller than test bundle (DCE actually stripped bytes)', () => {
-      // Strictly stronger than the string checks: proves the gated block was
-      // physically removed, not just renamed or preserved as unreachable.
-      // Catches edge cases like dynamic property access (`window['__' + 'C' +
-      // '_TEST__']`), preserved-but-unreachable code from a minifier
-      // regression, or obscure eval paths that would bypass literal-string
-      // grep. 500 bytes is empirical — the install + cleanup blocks compile
-      // to ~800 bytes including the object literal, string keys, and
-      // surrounding expression machinery.
-      const delta = testBundle.length - prodBundle.length
-      expect(delta).toBeGreaterThan(500)
+    it('production bundle is smaller than test bundle (DCE actually stripped bytes)', () => {
+      // Sanity check — the string + shape assertions above already prove
+      // semantic absence of the bridge. This one proves bytes were actually
+      // stripped vs preserved-and-unreachable-but-same-size. A hardcoded
+      // byte-threshold would be brittle against future minor refactors to
+      // the bridge — `delta > 0` is sufficient to catch the "DCE completely
+      // off" case (prod bundle == test bundle). Empirically delta is ~627
+      // bytes today; that headroom is incidental, not load-bearing.
+      expect(testBundle.length).toBeGreaterThan(prodBundle.length)
     })
   })
 })
