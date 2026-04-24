@@ -156,12 +156,26 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       setSelectionWithMetadata,
     )
 
-    // Debug-only test bridge — exposed when `window.__CORTEX_DEBUG_OVERRIDES__`
-    // is set in devtools. Lets Playwright/debuggers drive the override lifecycle
-    // directly (skipping the Panel UI) to reproduce timing-sensitive bugs like
-    // ZF0-1235. Zero cost in production builds where the flag is never set.
+    // Debug-only test bridge — dual-gated to close ZF0-1298 (XSS via dev server).
+    //
+    // `__CORTEX_TEST_BUILD__` is a build-time constant injected by esbuild
+    // `define` in tsup.config.ts. Production `npm run build` sets it to `false`;
+    // esbuild DCE strips this entire block from the production bundle — the
+    // bridge code simply does not exist in customer-shipped bundles, so no
+    // runtime flag flip can revive it. `npm run build:test` sets it to `true`,
+    // producing the bundle the Playwright harness consumes.
+    //
+    // `debugFlag` (reading `window.__CORTEX_DEBUG_OVERRIDES__`) is preserved
+    // as a defense-in-depth runtime opt-in inside test bundles. Specs arm it
+    // explicitly via `setupDebugBridge` in tests/e2e/helpers/bridge.ts.
+    //
+    // Why dual-gate and not just flip to build-time-only? An attacker who
+    // compromises a test fixture still has to flip a second flag to reach
+    // the bridge, and `__CORTEX_DEBUG_OVERRIDES__`'s other (legitimate)
+    // uses — tracing in override.ts, Debug disclosure in EditErrorCard,
+    // debug styles — stay orthogonal to the bridge gate.
     const debugFlag = !!(window as unknown as { __CORTEX_DEBUG_OVERRIDES__?: boolean }).__CORTEX_DEBUG_OVERRIDES__
-    if (debugFlag) {
+    if (__CORTEX_TEST_BUILD__ && debugFlag) {
       ;(window as unknown as { __CORTEX_TEST__?: unknown }).__CORTEX_TEST__ = {
         overrideManager,
         channel,
@@ -170,8 +184,8 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         // specs can collect divergence events through Node-side callbacks.
         // The bus itself is module-scoped (private), but routing through
         // the bridge is strictly better than leaking events onto window:
-        // the surface stays minimal, stays gated by __CORTEX_DEBUG_OVERRIDES__,
-        // and keeps the same type contract as the internal subscriber.
+        // the surface stays minimal, dual-gated, and keeps the same type
+        // contract as the internal subscriber.
         onDivergence,
       }
     }
@@ -333,16 +347,28 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           }
         }
 
-        attemptReResolve()
-        // Frame-deferred: catches React sync commits + most Fast Refresh commits.
-        requestAnimationFrame(() => requestAnimationFrame(attemptReResolve))
-        // Scheduler-deferred: React 18's concurrent mode can schedule commits
-        // through its priority scheduler beyond 2 rAFs. 100ms is empirically
-        // sufficient for typical updates; 250ms is the safety net for slow
-        // machines or heavy subtree remounts. Both are bounded and idempotent —
-        // if the selection is already settled, each call is a ~microsecond no-op.
-        setTimeout(attemptReResolve, 100)
-        setTimeout(attemptReResolve, 250)
+        // Gate re-resolution on the same predicate as the version bump
+        // (ZF0-1298 follow-up). If the HMR files don't affect our selection,
+        // React Fast Refresh can't have swapped the selected DOM node — so
+        // `attemptReResolve` has nothing to resolve and its 5 fan-outs
+        // (sync + 2 rAFs + 100ms + 250ms setTimeouts) are pure waste.
+        // Previously ungated, which meant every HMR event (even unrelated
+        // ones) ran reResolveSelection + captureSelectionMetadata against
+        // the live DOM. Observable in the "skips Panel refresh when hmr
+        // files are fully unrelated" test — the 6 getComputedStyle calls
+        // that flaked CI were this ungated work, not the gated refresh.
+        if (shouldRefresh) {
+          attemptReResolve()
+          // Frame-deferred: catches React sync commits + most Fast Refresh commits.
+          requestAnimationFrame(() => requestAnimationFrame(attemptReResolve))
+          // Scheduler-deferred: React 18's concurrent mode can schedule commits
+          // through its priority scheduler beyond 2 rAFs. 100ms is empirically
+          // sufficient for typical updates; 250ms is the safety net for slow
+          // machines or heavy subtree remounts. Both are bounded and idempotent —
+          // if the selection is already settled, each call is a ~microsecond no-op.
+          setTimeout(attemptReResolve, 100)
+          setTimeout(attemptReResolve, 250)
+        }
       }
       if (msg.type === 'annotation-created') {
         setAnnotations(prev => new Map(prev).set(msg.annotation.id, msg.annotation))
@@ -441,7 +467,12 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       commandStackRef.current = null
       // Clear the debug bridge so a remount (strict mode, HMR, route change)
       // doesn't leave a stale reference to the now-disposed overrideManager.
-      if (debugFlag) {
+      // Dual-gate matches the install site — in production bundles this
+      // `if` block is DCE'd by esbuild `minifySyntax`. The `debugFlag` read
+      // on mount (~line 177) survives DCE (constant folding doesn't remove
+      // unused `const` declarations), but the read is side-effect-free
+      // (boolean coercion only) and never touches `window.__CORTEX_TEST__`.
+      if (__CORTEX_TEST_BUILD__ && debugFlag) {
         delete (window as unknown as { __CORTEX_TEST__?: unknown }).__CORTEX_TEST__
       }
     }

@@ -52,11 +52,12 @@
   ],
   "scripts": {
     "build": "tsup",
+    "build:test": "cross-env CORTEX_TEST_BUILD=true tsup",
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
+    "test:e2e": "npm run build:test && playwright test",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests/e2e/tsconfig.json"
   },
   "devDependencies": {
@@ -65,6 +66,7 @@
     "@types/node": "^20",
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^3.0.0",
+    "cross-env": "^10.1.0",
     "happy-dom": "^15.0.0",
     "magic-string": "^0.30.21",
     "postcss": "^8.5.8",
