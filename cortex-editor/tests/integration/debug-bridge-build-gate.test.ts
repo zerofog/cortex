@@ -11,7 +11,7 @@
  */
 import { describe, it, expect, beforeAll } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, rmSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -27,12 +27,19 @@ const REPO_ROOT = resolve(__dirname, '../..')
 // shared constant if a third consumer appears (today the two live in separate
 // vitest sub-projects / Playwright and can't cleanly share a module).
 const BROWSER_BUNDLE = resolve(REPO_ROOT, 'dist/browser/index.js')
+const BROWSER_DIST_DIR = resolve(REPO_ROOT, 'dist/browser')
 
 describe('debug bridge build-time gate', () => {
   let prodBundle = ''
   let testBundle = ''
 
   beforeAll(() => {
+    // Stale-bundle guard: delete dist/browser/ before each build. Without this,
+    // a failed build would leave the PRIOR bundle on disk and `readFileSync`
+    // would return stale content — the assertions could then false-pass on
+    // whichever variant was written last. Clean slate → `existsSync` below
+    // becomes a meaningful health check.
+    rmSync(BROWSER_DIST_DIR, { recursive: true, force: true })
     // Prod build first so the on-disk artifact ends up as the test bundle —
     // a dev inspecting `dist/browser/` after a cold `npm test` sees the
     // bridge-armed variant the Playwright harness consumes next.
@@ -42,6 +49,7 @@ describe('debug bridge build-time gate', () => {
     }
     prodBundle = readFileSync(BROWSER_BUNDLE, 'utf8')
 
+    rmSync(BROWSER_DIST_DIR, { recursive: true, force: true })
     execFileSync('npm', ['run', 'build:test'], { cwd: REPO_ROOT, stdio: 'inherit' })
     if (!existsSync(BROWSER_BUNDLE)) {
       throw new Error(`test build produced no bundle at ${BROWSER_BUNDLE}`)
@@ -70,6 +78,38 @@ describe('debug bridge build-time gate', () => {
 
     it('test bundle DOES contain the bridge installation token', () => {
       expect(testBundle).toContain('__CORTEX_TEST__')
+    })
+
+    it('production bundle does NOT contain the bridge object shape (rename-resistant)', () => {
+      // Rename-bypass guard: if someone renames `window.__CORTEX_TEST__` to
+      // `window.__CORTEX_BRIDGE__` without updating the test token above, the
+      // string-literal check would silent-pass. The bridge's object-literal
+      // shape (`overrideManager`, `channel`, `selectElement` in sequence) is
+      // the load-bearing signature — those 3 keys appear together ONLY at the
+      // bridge install site (CortexApp.tsx ~line 178). Any rename to a
+      // differently-named global would still produce the same object shape in
+      // the emitted code, caught by this regex regardless of the property name.
+      expect(prodBundle).not.toMatch(/overrideManager[,\s]+channel[,\s]+selectElement/)
+    })
+
+    it('test bundle DOES contain the bridge object shape', () => {
+      // Positive side of the rename-resistance check: proves the shape-regex
+      // is correctly calibrated (if it never matched anything, the prod check
+      // above would be vacuous).
+      expect(testBundle).toMatch(/overrideManager[,\s]+channel[,\s]+selectElement/)
+    })
+
+    it('production bundle is materially smaller than test bundle (DCE actually stripped bytes)', () => {
+      // Strictly stronger than the string checks: proves the gated block was
+      // physically removed, not just renamed or preserved as unreachable.
+      // Catches edge cases like dynamic property access (`window['__' + 'C' +
+      // '_TEST__']`), preserved-but-unreachable code from a minifier
+      // regression, or obscure eval paths that would bypass literal-string
+      // grep. 500 bytes is empirical — the install + cleanup blocks compile
+      // to ~800 bytes including the object literal, string keys, and
+      // surrounding expression machinery.
+      const delta = testBundle.length - prodBundle.length
+      expect(delta).toBeGreaterThan(500)
     })
   })
 })

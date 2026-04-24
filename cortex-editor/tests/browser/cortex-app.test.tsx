@@ -1573,12 +1573,13 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     channel._simulateMessage({ type: 'hmr-applied', files: ['src/bar.tsx', 'src/baz.tsx'] })
     // Negative assertion: the handler's shouldRefresh gate now short-circuits
     // BOTH the version bump AND the attemptReResolve fan-out (ZF0-1298 root-
-    // cause fix — previously, re-resolve ran unconditionally and contributed
-    // ~6 getComputedStyle calls under CI load, making this assertion flake).
-    // 200ms gives ample headroom for any residual async work; with the gate
-    // in place no such work is expected. vi.waitFor cannot help here — you
-    // can't poll for a thing NOT happening.
-    await new Promise(r => setTimeout(r, 200))
+    // cause fix). The handler's LATEST scheduled callback is
+    // `setTimeout(attemptReResolve, 250)` — so the wait must exceed 250ms to
+    // catch a regression where someone reverts the gate and the 250ms timer
+    // fires AFTER the assertion window. 300ms = 250ms + 50ms safety margin.
+    // With the gate in place nothing fires regardless of wait length.
+    // vi.waitFor cannot help here — you can't poll for a thing NOT happening.
+    await new Promise(r => setTimeout(r, 300))
     // No CSS in list, no ancestor match, no own-file match → gate returns
     // false → neither the version bump nor the re-resolve fan-out fires.
     expect(gcs.mock.calls.length).toBe(before)
