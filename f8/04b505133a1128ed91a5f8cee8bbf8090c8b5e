@@ -1,0 +1,40 @@
+cortex-editor/tests/browser/connection-status.test.tsx
+  a27bebb451c90054 1-77
+cortex-editor/src/browser/components/Panel.tsx
+  a27bebb451c90054 61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "f804b505133a1128ed91a5f8cee8bbf8090c8b5e",
+  "prompts": {
+    "211e15307b9fcb53": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bf87f7f9-9e48-4fad-8f60-a145b276955e",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 296,
+      "total_deletions": 0,
+      "accepted_lines": 266,
+      "overriden_lines": 20,
+      "messages_url": "https://usegitai.com/cas/92fb80bf6f14c77142e8eaa064d5758237a3c765f19e81f3c56b7eacf5b2cb35"
+    },
+    "a27bebb451c90054": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2fc37017-5294-4605-90ed-fa6925f82c87",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 80,
+      "total_deletions": 106,
+      "accepted_lines": 78,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/51d70707f90aba2e9a6a961f058445e764d343bcc1574c2f383703fe68381b4a"
+    }
+  }
+}
