@@ -137,8 +137,10 @@ describe('PositionDropdown', () => {
     await vi.waitFor(() => {
       expect(onChange).toHaveBeenCalledTimes(1)
       expect(onChange).toHaveBeenCalledWith('absolute')
-      expect(getPopover()).toBeNull()
     }, { timeout: 500 })
+    // Load-bearing hold — NOT vi.waitFor; negative assertions would pass immediately at t=0.
+    await new Promise<void>(r => setTimeout(r, 20))
+    expect(getPopover()).toBeNull()
   })
 
   // 5. Escape closes without calling onChange

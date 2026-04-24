@@ -209,7 +209,8 @@ describe('NumericInput', () => {
     // Focus the input (select all), then blur WITHOUT typing
     input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
     input.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
-    await new Promise<void>(r => setTimeout(r, 0))
+    // Load-bearing hold — NOT vi.waitFor; negative assertions would pass immediately at t=0.
+    await new Promise<void>(r => setTimeout(r, 10))
     expect(onChange).not.toHaveBeenCalled()
   })
 
@@ -228,10 +229,12 @@ describe('NumericInput', () => {
     input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
     // Re-render with different value (simulates HMR changing the prop)
     render(<NumericInput value={18} unit="px" onChange={onChange} />, container)
-    await new Promise<void>(r => setTimeout(r, 0))
+    // Load-bearing hold — NOT vi.waitFor; negative assertions would pass immediately at t=0.
+    await new Promise<void>(r => setTimeout(r, 10))
     // Blur fires (e.g., React replaced DOM node)
     input.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
-    await new Promise<void>(r => setTimeout(r, 0))
+    // Load-bearing hold — NOT vi.waitFor; negative assertions would pass immediately at t=0.
+    await new Promise<void>(r => setTimeout(r, 10))
 
     // Should NOT have called onChange — user didn't type
     expect(onChange).not.toHaveBeenCalled()
@@ -253,14 +256,15 @@ describe('NumericInput', () => {
       dispatchPointerEvent(wrapper, 'pointerdown', { clientX: 100 })
       await new Promise(r => setTimeout(r, 0))
       dispatchPointerEvent(wrapper, 'pointerup', { clientX: 100 })
-      await new Promise<void>(r => setTimeout(r, 0))
+      // Load-bearing hold — NOT vi.waitFor; negative assertions would pass immediately at t=0.
+      await new Promise<void>(r => setTimeout(r, 10))
 
       // Input stays empty — no auto-fill with selected element's value (16)
       expect(input.value).toBe('')
     })
 
     it('accepts keystrokes after click-to-focus', async () => {
-      const { input } = setup({ value: 16, mixed: true })
+      const { input, onChange } = setup({ value: 16, mixed: true })
       const wrapper = input.closest('.cortex-numeric-input') as HTMLElement
 
       // Click to focus
@@ -269,11 +273,12 @@ describe('NumericInput', () => {
       dispatchPointerEvent(wrapper, 'pointerup', { clientX: 100 })
       await new Promise<void>(r => setTimeout(r, 0))
 
-      // Simulate typing "30"
+      // Simulate typing "30" then blur — proves keystrokes are accepted and committed
       input.value = '30'
       input.dispatchEvent(new Event('input', { bubbles: true }))
+      input.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
       await vi.waitFor(() => {
-        expect(input.value).toBe('30')
+        expect(onChange).toHaveBeenCalledWith(30)
       }, { timeout: 500 })
     })
 
@@ -296,11 +301,12 @@ describe('NumericInput', () => {
       dispatchPointerEvent(wrapper, 'pointerdown', { clientX: 100 })
       await new Promise<void>(r => setTimeout(r, 0))
       dispatchPointerEvent(wrapper, 'pointerup', { clientX: 100 })
-      await new Promise<void>(r => setTimeout(r, 0))
+      await new Promise<void>(r => setTimeout(r, 10))
 
       // Blur without typing
       input.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
-      await new Promise<void>(r => setTimeout(r, 0))
+      // Load-bearing hold — NOT vi.waitFor; negative assertions would pass immediately at t=0.
+      await new Promise<void>(r => setTimeout(r, 10))
 
       expect(onChange).not.toHaveBeenCalled()
     })

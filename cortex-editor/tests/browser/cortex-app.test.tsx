@@ -928,6 +928,7 @@ describe('CortexApp', () => {
       // full path: emitDivergence → CortexApp handler → EditError map →
       // EditErrorCard filter → DebugDisclosure render.
       ;(window as unknown as { __CORTEX_DEBUG_OVERRIDES__: boolean }).__CORTEX_DEBUG_OVERRIDES__ = true
+      expect((window as any).__CORTEX_DEBUG_OVERRIDES__).toBe(true)
       setup()
       channel = createMockChannel()
       render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
