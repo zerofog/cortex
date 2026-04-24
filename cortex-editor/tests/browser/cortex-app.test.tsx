@@ -1003,6 +1003,54 @@ describe('CortexApp', () => {
       }
     })
 
+    it('reconnected footer auto-dismisses after 2s timer fires', async () => {
+      // Covers the FIRES branch of the reconnected timer: CortexApp's 2s
+      // setTimeout callback must flip connectionStatus from 'reconnected' →
+      // 'connected', which hides the footer. The sibling 'clears reconnected
+      // timer...' test covers the CANCEL branch; this one covers the fire path.
+      //
+      // Uses real timers during setup (waits for useEffect to subscribe
+      // onConnectionChange and for Preact to commit the reconnecting render),
+      // then switches to fake timers to drive the 2s auto-dismiss deterministically.
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
+      await new Promise(r => setTimeout(r, 10))
+
+      // Reconnecting → marks wasDisconnected=true internally. Wait for
+      // Preact commit so Panel is mounted before we trigger the flash.
+      channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 1, maxRetries: 5 })
+      await vi.waitFor(() => {
+        const el = root.querySelector('.cortex-connection-status')
+        expect(el).not.toBeNull()
+        expect(el!.textContent).toContain('Reconnecting')
+      }, { timeout: 500 })
+
+      vi.useFakeTimers()
+      try {
+        // Connected + wasDisconnected → CortexApp flips status to 'reconnected'
+        // and starts the 2s auto-dismiss timer.
+        channel._simulateConnectionChange({ status: 'connected' })
+        await vi.advanceTimersByTimeAsync(50)
+
+        const reconnectedFooter = root.querySelector('.cortex-connection-status')
+        expect(reconnectedFooter).not.toBeNull()
+        expect(reconnectedFooter!.textContent).toContain('Reconnected')
+        expect(reconnectedFooter!.classList.contains('cortex-connection-status--reconnected')).toBe(true)
+
+        // Fire the 2s timer — callback must setConnectionStatus('connected'),
+        // which hides the footer (empty aria-live container + --hidden class).
+        await vi.advanceTimersByTimeAsync(2000)
+
+        const dismissed = root.querySelector('.cortex-connection-status')
+        expect(dismissed).not.toBeNull()
+        expect(dismissed!.classList.contains('cortex-connection-status--hidden')).toBe(true)
+        expect(dismissed!.textContent?.trim()).toBe('')
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
   })
 })
 
