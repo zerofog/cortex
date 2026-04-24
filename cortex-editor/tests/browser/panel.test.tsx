@@ -652,7 +652,6 @@ describe('Panel — activeState + activePseudo + dimming', () => {
       container.remove()
       el.remove()
       el2.remove()
-      vi.useRealTimers()
     }
   })
 
