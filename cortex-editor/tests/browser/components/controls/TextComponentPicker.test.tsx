@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import type { VNode } from 'preact'
 import { render } from 'preact'
 import type { TextComponent } from '../../../../src/core/text-components.js'
@@ -24,6 +24,11 @@ function mount(vnode: VNode): HTMLDivElement {
   render(vnode, container)
   return container
 }
+
+/** Yield 10ms so Preact useEffect installs document-level listeners.
+ *  0ms is insufficient when another test's cleanup may lag; 10ms matches
+ *  the original contract for useOutsideDismiss-style effects. */
+const flushEffects = () => new Promise<void>(r => setTimeout(r, 10))
 
 describe('TextComponentPicker', () => {
   it('renders an option button per bundle in registry order', () => {
@@ -97,7 +102,8 @@ describe('TextComponentPicker', () => {
         onDismiss={() => { dismissed++ }}
       />,
     )
-    await new Promise((r) => setTimeout(r, 10))
+    // Yield one macrotask so useEffect installs the document keydown listener
+    await flushEffects()
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     expect(dismissed).toBe(1)
   })
@@ -112,7 +118,8 @@ describe('TextComponentPicker', () => {
         onDismiss={() => { dismissed++ }}
       />,
     )
-    await new Promise((r) => setTimeout(r, 10))
+    // Yield one macrotask so useEffect installs the document mousedown listener
+    await flushEffects()
 
     // Click inside — should NOT dismiss
     ;(root.querySelector('button.cortex-text-component-picker__option') as HTMLButtonElement).dispatchEvent(
@@ -136,10 +143,12 @@ describe('TextComponentPicker', () => {
       />
     )
     mount(picker)
-    await new Promise((r) => setTimeout(r, 10))
+    // Yield so useEffect installs listeners
+    await flushEffects()
     // Unmount
     render(null, container)
-    await new Promise((r) => setTimeout(r, 10))
+    // Yield so useEffect cleanup runs
+    await flushEffects()
     // Now an Escape after unmount must NOT call the stale onDismiss
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     expect(dismissed).toBe(0)

@@ -78,7 +78,7 @@ describe('FlexControls', () => {
 
   // Preact batches hook updates — tests asserting on post-state-change DOM
   // must await a tick. Matches AlignmentGrid test + PositionDropdown test.
-  const tick = (ms = 10) => new Promise<void>((r) => setTimeout(r, ms))
+  const tick = () => new Promise<void>((r) => setTimeout(r, 0))
 
   function getDirectionOptions(): HTMLElement[] {
     // The direction SegmentedControl is the first radiogroup inside the
@@ -104,12 +104,16 @@ describe('FlexControls', () => {
 
   async function openXDropdown(): Promise<void> {
     getXDropdownTrigger().click()
-    await tick()
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-xy-dropdown__popover')).not.toBeNull()
+    }, { timeout: 500 })
   }
 
   async function openYDropdown(): Promise<void> {
     getYDropdownTrigger().click()
-    await tick()
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-xy-dropdown__popover')).not.toBeNull()
+    }, { timeout: 500 })
   }
 
   function getOpenXYOption(value: string): HTMLElement {
@@ -135,54 +139,55 @@ describe('FlexControls', () => {
     const { onChange } = setup({ values: { flexDirection: 'row' } })
     await openXDropdown()
     getOpenXYOption('center').click()
-    await tick()
-    const justify = calls(onChange, 'justify-content')
-    const alignItems = calls(onChange, 'align-items')
-    expect(justify).toEqual([{ property: 'justify-content', value: 'center' }])
-    expect(alignItems).toEqual([])
+    await vi.waitFor(() => {
+      const justify = calls(onChange, 'justify-content')
+      expect(justify).toEqual([{ property: 'justify-content', value: 'center' }])
+    }, { timeout: 500 })
+    expect(calls(onChange, 'align-items')).toEqual([])
   })
 
   it('row direction: Y dropdown change emits align-items (not justify-content)', async () => {
     const { onChange } = setup({ values: { flexDirection: 'row' } })
     await openYDropdown()
     getOpenXYOption('flex-start').click()
-    await tick()
-    const justify = calls(onChange, 'justify-content')
-    const alignItems = calls(onChange, 'align-items')
-    expect(alignItems).toEqual([{ property: 'align-items', value: 'flex-start' }])
-    expect(justify).toEqual([])
+    await vi.waitFor(() => {
+      const alignItems = calls(onChange, 'align-items')
+      expect(alignItems).toEqual([{ property: 'align-items', value: 'flex-start' }])
+    }, { timeout: 500 })
+    expect(calls(onChange, 'justify-content')).toEqual([])
   })
 
   it('column direction: X dropdown change emits align-items (SWAPPED from row)', async () => {
     const { onChange } = setup({ values: { flexDirection: 'column' } })
     await openXDropdown()
     getOpenXYOption('center').click()
-    await tick()
-    const alignItems = calls(onChange, 'align-items')
-    const justify = calls(onChange, 'justify-content')
-    expect(alignItems).toEqual([{ property: 'align-items', value: 'center' }])
-    expect(justify).toEqual([])
+    await vi.waitFor(() => {
+      const alignItems = calls(onChange, 'align-items')
+      expect(alignItems).toEqual([{ property: 'align-items', value: 'center' }])
+    }, { timeout: 500 })
+    expect(calls(onChange, 'justify-content')).toEqual([])
   })
 
   it('column direction: Y dropdown change emits justify-content (SWAPPED from row)', async () => {
     const { onChange } = setup({ values: { flexDirection: 'column' } })
     await openYDropdown()
     getOpenXYOption('flex-start').click()
-    await tick()
-    const justify = calls(onChange, 'justify-content')
-    const alignItems = calls(onChange, 'align-items')
-    expect(justify).toEqual([{ property: 'justify-content', value: 'flex-start' }])
-    expect(alignItems).toEqual([])
+    await vi.waitFor(() => {
+      const justify = calls(onChange, 'justify-content')
+      expect(justify).toEqual([{ property: 'justify-content', value: 'flex-start' }])
+    }, { timeout: 500 })
+    expect(calls(onChange, 'align-items')).toEqual([])
   })
 
   it('row-reverse direction: X dropdown still emits justify-content', async () => {
     const { onChange } = setup({ values: { flexDirection: 'row-reverse' } })
     await openXDropdown()
     getOpenXYOption('flex-end').click()
-    await tick()
-    expect(calls(onChange, 'justify-content')).toEqual([
-      { property: 'justify-content', value: 'flex-end' },
-    ])
+    await vi.waitFor(() => {
+      expect(calls(onChange, 'justify-content')).toEqual([
+        { property: 'justify-content', value: 'flex-end' },
+      ])
+    }, { timeout: 500 })
   })
 
   it('column-reverse direction: Y dropdown emits justify-content', async () => {
@@ -191,10 +196,11 @@ describe('FlexControls', () => {
     const { onChange } = setup({ values: { flexDirection: 'column-reverse' } })
     await openYDropdown()
     getOpenXYOption('flex-start').click()
-    await tick()
-    expect(calls(onChange, 'justify-content')).toEqual([
-      { property: 'justify-content', value: 'flex-start' },
-    ])
+    await vi.waitFor(() => {
+      expect(calls(onChange, 'justify-content')).toEqual([
+        { property: 'justify-content', value: 'flex-start' },
+      ])
+    }, { timeout: 500 })
     expect(calls(onChange, 'align-items')).toEqual([])
   })
 
@@ -460,7 +466,10 @@ describe('FlexControls', () => {
     ) as HTMLButtonElement
     expect(toggle).not.toBeNull()
     toggle.click()
-    await tick()
+    await vi.waitFor(() => {
+      const expandable = container.querySelector('.cortex-expandable-options')
+      expect(expandable!.getAttribute('aria-expanded')).toBe('true')
+    }, { timeout: 500 })
     const expandable = container.querySelector('.cortex-expandable-options')
     expect(expandable!.getAttribute('aria-expanded')).toBe('true')
     const body = container.querySelector('.cortex-expandable-options__body')
@@ -485,7 +494,9 @@ describe('FlexControls', () => {
       '.cortex-expandable-options__trigger',
     ) as HTMLButtonElement
     toggle.click()
-    await tick()
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-expandable-options')!.getAttribute('aria-expanded')).toBe('true')
+    }, { timeout: 500 })
     const btn = container.querySelector(
       `.cortex-flex-controls__wrap [data-value="${value}"]`,
     ) as HTMLElement
@@ -509,7 +520,9 @@ describe('FlexControls', () => {
       ;(container.querySelector(
         '.cortex-expandable-options__trigger',
       ) as HTMLButtonElement).click()
-      await tick()
+      await vi.waitFor(() => {
+        expect(container.querySelector('.cortex-expandable-options')!.getAttribute('aria-expanded')).toBe('true')
+      }, { timeout: 500 })
       const rebtn = container.querySelector(
         `.cortex-flex-controls__wrap [data-value="${value}"]`,
       ) as HTMLElement
@@ -583,8 +596,9 @@ describe('FlexControls', () => {
     const popover = container.querySelector('.cortex-xy-dropdown__popover')
     expect(popover).not.toBeNull()
     dispatchKeyboardEvent(getXDropdownTrigger(), 'keydown', { key: 'Escape' })
-    await tick()
-    expect(container.querySelector('.cortex-xy-dropdown__popover')).toBeNull()
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-xy-dropdown__popover')).toBeNull()
+    }, { timeout: 500 })
     expect(onChange).not.toHaveBeenCalled()
   })
 

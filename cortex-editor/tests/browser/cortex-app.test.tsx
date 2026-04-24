@@ -135,11 +135,9 @@ describe('CortexApp', () => {
 
     // Trigger hover
     hoverCb(target)
-    // Preact re-renders synchronously
-    await new Promise(r => setTimeout(r, 0))
-
-    const overlay = root.querySelector('.cortex-hover-overlay')
-    expect(overlay).not.toBeNull()
+    await vi.waitFor(() => {
+      expect(root.querySelector('.cortex-hover-overlay')).not.toBeNull()
+    }, { timeout: 500 })
   })
 
   it('select callback updates SelectionOverlay', async () => {
@@ -181,9 +179,9 @@ describe('CortexApp', () => {
     const channel = createMockChannel()
     const spy = vi.spyOn(channel, 'onMessage')
     render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
-    await new Promise(r => setTimeout(r, 10))
-
-    expect(spy).toHaveBeenCalledWith(expect.any(Function))
+    await vi.waitFor(() => {
+      expect(spy).toHaveBeenCalledWith(expect.any(Function))
+    }, { timeout: 500 })
   })
 
   it('cleanup calls onMessage unsubscribe', async () => {
@@ -196,9 +194,9 @@ describe('CortexApp', () => {
 
     // Unmount to trigger cleanup
     render(null, root)
-    await new Promise(r => setTimeout(r, 10))
-
-    expect(unsubscribe).toHaveBeenCalled()
+    await vi.waitFor(() => {
+      expect(unsubscribe).toHaveBeenCalled()
+    }, { timeout: 500 })
   })
 
   it('switching elements clears state overrides', async () => {
@@ -221,11 +219,12 @@ describe('CortexApp', () => {
     mockGetBoundingClientRect(elA, { top: 50, left: 50, width: 100, height: 40 })
 
     selectCb(elA)
-    await new Promise(r => setTimeout(r, 10))
-
     // Verify CSSOverrideManager style element exists
-    const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-    expect(styleEl).not.toBeNull()
+    const styleEl = await vi.waitFor(() => {
+      const el = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(el).not.toBeNull()
+      return el
+    }, { timeout: 500 })
 
     // Inject state override content to make the assertion falsifiable.
     // clearStateOverrides() calls rebuild() which regenerates from the internal maps.
@@ -262,13 +261,11 @@ describe('CortexApp', () => {
 
     // Unmount
     render(null, root)
-    await new Promise(r => setTimeout(r, 10))
-
-    expect(_cleanup).toHaveBeenCalled()
-
-    // CSSOverrideManager should be disposed (style element removed)
-    const styleEl = document.head.querySelector('[data-cortex-override]')
-    expect(styleEl).toBeNull()
+    await vi.waitFor(() => {
+      expect(_cleanup).toHaveBeenCalled()
+      // CSSOverrideManager should be disposed (style element removed)
+      expect(document.head.querySelector('[data-cortex-override]')).toBeNull()
+    }, { timeout: 500 })
   })
 
   it('renders toolbar even without selection', async () => {
@@ -277,9 +274,9 @@ describe('CortexApp', () => {
     render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
     await new Promise(r => setTimeout(r, 20))
     await activateEditor(channel)
-    await new Promise(r => setTimeout(r, 10))
-    const toolbar = root.querySelector('.cortex-toolbar')
-    expect(toolbar).not.toBeNull()
+    await vi.waitFor(() => {
+      expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
+    }, { timeout: 500 })
   })
 
   it('tracks activity count from edit_status done messages', async () => {
@@ -289,9 +286,11 @@ describe('CortexApp', () => {
     await new Promise(r => setTimeout(r, 10))
     await activateEditor(channel)
     channel._simulateMessage({ type: 'edit_status', editId: 'e1', status: 'done' })
-    await new Promise(r => setTimeout(r, 10))
-    const badge = root.querySelector('.cortex-toolbar__badge')
-    expect(badge?.textContent).toContain('1')
+    await vi.waitFor(() => {
+      const badge = root.querySelector('.cortex-toolbar__badge')
+      expect(badge).not.toBeNull()
+      expect(badge!.textContent).toContain('1')
+    }, { timeout: 500 })
   })
 
   it('starts inactive — no toolbar or overlays rendered', async () => {
@@ -411,16 +410,16 @@ describe('CortexApp', () => {
       thread: [],
     }
     channel._simulateMessage({ type: 'annotation-created', annotation })
-    await new Promise(r => setTimeout(r, 50))
-
     // Click pin to open thread
-    const pinDot = root.querySelector('.cortex-pin') as HTMLDivElement
-    expect(pinDot).not.toBeNull()
+    const pinDot = await vi.waitFor(() => {
+      const el = root.querySelector('.cortex-pin') as HTMLDivElement
+      expect(el).not.toBeNull()
+      return el
+    }, { timeout: 500 })
     pinDot.click()
-    await new Promise(r => setTimeout(r, 10))
-
-    // Thread should show pending status
-    expect(root.querySelector('.cortex-thread__status--pending')).not.toBeNull()
+    await vi.waitFor(() => {
+      expect(root.querySelector('.cortex-thread__status--pending')).not.toBeNull()
+    }, { timeout: 500 })
 
     // Update annotation to resolved
     const updated = {
@@ -430,11 +429,10 @@ describe('CortexApp', () => {
       updatedAt: Date.now() + 1000,
     }
     channel._simulateMessage({ type: 'annotation-updated', annotation: updated })
-    await new Promise(r => setTimeout(r, 10))
-
-    // Thread should now show resolved status
-    expect(root.querySelector('.cortex-thread__status--resolved')).not.toBeNull()
-    expect(root.textContent).toContain('Increased font-size to xl')
+    await vi.waitFor(() => {
+      expect(root.querySelector('.cortex-thread__status--resolved')).not.toBeNull()
+      expect(root.textContent).toContain('Increased font-size to xl')
+    }, { timeout: 500 })
   })
 
   it('agent-status connected=false disables comment input in panel', async () => {
@@ -461,14 +459,16 @@ describe('CortexApp', () => {
 
     // Agent disconnected — input should be disabled
     channel._simulateMessage({ type: 'agent-status', connected: false })
-    await new Promise(r => setTimeout(r, 10))
-    expect(commentInput.disabled).toBe(true)
-    expect(commentInput.placeholder).toContain('Waiting for agent')
+    await vi.waitFor(() => {
+      expect(commentInput.disabled).toBe(true)
+      expect(commentInput.placeholder).toContain('Waiting for agent')
+    }, { timeout: 500 })
 
     // Agent connected — input should be enabled
     channel._simulateMessage({ type: 'agent-status', connected: true })
-    await new Promise(r => setTimeout(r, 10))
-    expect(commentInput.disabled).toBe(false)
+    await vi.waitFor(() => {
+      expect(commentInput.disabled).toBe(false)
+    }, { timeout: 500 })
   })
 
   it('activity-entry increments badge count', async () => {
@@ -485,11 +485,12 @@ describe('CortexApp', () => {
       description: 'User commented on Hero',
     }
     channel._simulateMessage({ type: 'activity-entry', entry })
-    await new Promise(r => setTimeout(r, 10))
-
-    // activity-entry also increments activityCount, so badge should update
-    const badge = root.querySelector('.cortex-toolbar__badge')
-    expect(badge?.textContent).toContain('1')
+    await vi.waitFor(() => {
+      // activity-entry also increments activityCount, so badge should update
+      const badge = root.querySelector('.cortex-toolbar__badge')
+      expect(badge).not.toBeNull()
+      expect(badge!.textContent).toContain('1')
+    }, { timeout: 500 })
   })
 
   it('Escape with selection deselects but does not exit', async () => {
@@ -567,16 +568,16 @@ describe('CortexApp', () => {
 
     // Press Enter to submit reply
     replyInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    await new Promise(r => setTimeout(r, 10))
-
-    // Verify it sends comment-reply, NOT comment
-    expect(channel._lastSent).toHaveLength(1)
-    const msg = channel._lastSent[0] as any
-    expect(msg.type).toBe('comment-reply')
-    expect(msg.annotationId).toBe('ann-reply-test')
-    expect(msg.text).toBe('How much bigger?')
-    // Should NOT have elementSource (that's the old comment pattern)
-    expect(msg.elementSource).toBeUndefined()
+    await vi.waitFor(() => {
+      // Verify it sends comment-reply, NOT comment
+      expect(channel._lastSent).toHaveLength(1)
+      const msg = channel._lastSent[0] as any
+      expect(msg.type).toBe('comment-reply')
+      expect(msg.annotationId).toBe('ann-reply-test')
+      expect(msg.text).toBe('How much bigger?')
+      // Should NOT have elementSource (that's the old comment pattern)
+      expect(msg.elementSource).toBeUndefined()
+    }, { timeout: 500 })
   })
 
   it('comment input shows spinner until annotation is acknowledged', async () => {
@@ -608,11 +609,11 @@ describe('CortexApp', () => {
     input.dispatchEvent(new Event('input', { bubbles: true }))
     await new Promise(r => setTimeout(r, 10))
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    await new Promise(r => setTimeout(r, 10))
-
-    // Spinner should be visible
-    expect(root.querySelector('.cortex-comment-input__spinner')).not.toBeNull()
-    expect(input.disabled).toBe(true)
+    await vi.waitFor(() => {
+      // Spinner should be visible
+      expect(root.querySelector('.cortex-comment-input__spinner')).not.toBeNull()
+      expect(input.disabled).toBe(true)
+    }, { timeout: 500 })
 
     // Simulate server creating the annotation
     const annotation = {
@@ -625,11 +626,11 @@ describe('CortexApp', () => {
       thread: [],
     }
     channel._simulateMessage({ type: 'annotation-created', annotation })
-    await new Promise(r => setTimeout(r, 10))
-
-    // Spinner should be gone — comment resolves on annotation-created (not on acknowledge)
-    expect(root.querySelector('.cortex-comment-input__spinner')).toBeNull()
-    expect(input.disabled).toBe(false)
+    await vi.waitFor(() => {
+      // Spinner should be gone — comment resolves on annotation-created (not on acknowledge)
+      expect(root.querySelector('.cortex-comment-input__spinner')).toBeNull()
+      expect(input.disabled).toBe(false)
+    }, { timeout: 500 })
   })
 
   describe('server undo sync failure', () => {
@@ -644,9 +645,9 @@ describe('CortexApp', () => {
       channel._lastSent.length = 0
 
       channel._simulateMessage({ type: 'undo_sync_status', status: 'failed', reason: 'stale file', reason_code: 'stale' })
-      await new Promise(r => setTimeout(r, 10))
-
-      expect(channel._lastSent).toContainEqual({ type: 'clear_server_undo' })
+      await vi.waitFor(() => {
+        expect(channel._lastSent).toContainEqual({ type: 'clear_server_undo' })
+      }, { timeout: 500 })
     })
 
     it('sends clear_server_undo when redo sync fails', async () => {
@@ -659,9 +660,9 @@ describe('CortexApp', () => {
       channel._lastSent.length = 0
 
       channel._simulateMessage({ type: 'redo_sync_status', status: 'failed', reason: 'stale file', reason_code: 'stale' })
-      await new Promise(r => setTimeout(r, 10))
-
-      expect(channel._lastSent).toContainEqual({ type: 'clear_server_undo' })
+      await vi.waitFor(() => {
+        expect(channel._lastSent).toContainEqual({ type: 'clear_server_undo' })
+      }, { timeout: 500 })
     })
 
     it('does not send clear_server_undo on sync success', async () => {
@@ -750,13 +751,14 @@ describe('CortexApp', () => {
       targetSegment!.click()
 
       // Wait for microtask commit + Preact re-render
-      await new Promise(r => setTimeout(r, 50))
-
-      // Extract editId from the sent 'edit' message
-      const editMsg = channel._lastSent.find((m: any) => m.type === 'edit') as any
-      expect(editMsg).toBeDefined()
-      expect(editMsg.editId).toBeDefined()
-      return editMsg.editId
+      let editId!: string
+      await vi.waitFor(() => {
+        const editMsg = channel._lastSent.find((m: any) => m.type === 'edit') as any
+        expect(editMsg).toBeDefined()
+        expect(editMsg.editId).toBeDefined()
+        editId = editMsg.editId
+      }, { timeout: 500 })
+      return editId
     }
 
     // Shared channel reference for triggerEditViaUI
@@ -772,12 +774,12 @@ describe('CortexApp', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       try {
         channel._simulateMessage({ type: 'edit_status', editId: 'untracked-123', status: 'failed', reason: 'File not found' })
-        await new Promise(r => setTimeout(r, 10))
-
-        expect(warnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('untracked editId untracked-123'),
-          // Not asserting exact string — just that editId and reason are mentioned
-        )
+        await vi.waitFor(() => {
+          expect(warnSpy).toHaveBeenCalledWith(
+            expect.stringContaining('untracked editId untracked-123'),
+            // Not asserting exact string — just that editId and reason are mentioned
+          )
+        }, { timeout: 500 })
       } finally {
         warnSpy.mockRestore()
       }
@@ -795,13 +797,13 @@ describe('CortexApp', () => {
 
       // Simulate server failure for this edit
       channel._simulateMessage({ type: 'edit_status', editId, status: 'failed', reason: 'CSS parse error' })
-      await new Promise(r => setTimeout(r, 50))
-
-      // Error card should be visible
-      const errorCard = root.querySelector('.cortex-error-card')
-      expect(errorCard).not.toBeNull()
-      expect(errorCard!.textContent).toContain('edit failed')
-      expect(errorCard!.textContent).toContain('CSS parse error')
+      await vi.waitFor(() => {
+        // Error card should be visible
+        const errorCard = root.querySelector('.cortex-error-card')
+        expect(errorCard).not.toBeNull()
+        expect(errorCard!.textContent).toContain('edit failed')
+        expect(errorCard!.textContent).toContain('CSS parse error')
+      }, { timeout: 500 })
     })
 
     it('edit_status:done clears error for the same source+property', async () => {
@@ -815,10 +817,10 @@ describe('CortexApp', () => {
       // Trigger first edit — will fail
       const editId1 = await triggerEditViaUI()
       channel._simulateMessage({ type: 'edit_status', editId: editId1, status: 'failed', reason: 'Write error' })
-      await new Promise(r => setTimeout(r, 50))
-
-      // Error card should be visible
-      expect(root.querySelector('.cortex-error-card')).not.toBeNull()
+      await vi.waitFor(() => {
+        // Error card should be visible
+        expect(root.querySelector('.cortex-error-card')).not.toBeNull()
+      }, { timeout: 500 })
 
       // Clear sent messages and trigger a second edit on the same property
       channel._lastSent.length = 0
@@ -826,10 +828,10 @@ describe('CortexApp', () => {
 
       // Second edit succeeds — should clear the error for this source+property
       channel._simulateMessage({ type: 'edit_status', editId: editId2, status: 'done' })
-      await new Promise(r => setTimeout(r, 50))
-
-      // Error card should be gone
-      expect(root.querySelector('.cortex-error-card')).toBeNull()
+      await vi.waitFor(() => {
+        // Error card should be gone
+        expect(root.querySelector('.cortex-error-card')).toBeNull()
+      }, { timeout: 500 })
     })
 
     it('annotation-updated with resolved fix-request clears error card', async () => {
@@ -848,8 +850,9 @@ describe('CortexApp', () => {
 
       // Simulate failure
       channel._simulateMessage({ type: 'edit_status', editId, status: 'failed', reason: 'Merge conflict' })
-      await new Promise(r => setTimeout(r, 50))
-      expect(root.querySelector('.cortex-error-card')).not.toBeNull()
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-error-card')).not.toBeNull()
+      }, { timeout: 500 })
 
       // Simulate annotation-updated with resolved fix-request that matches
       channel._simulateMessage({
@@ -867,10 +870,10 @@ describe('CortexApp', () => {
           thread: [],
         },
       })
-      await new Promise(r => setTimeout(r, 50))
-
-      // Error card should be cleared
-      expect(root.querySelector('.cortex-error-card')).toBeNull()
+      await vi.waitFor(() => {
+        // Error card should be cleared
+        expect(root.querySelector('.cortex-error-card')).toBeNull()
+      }, { timeout: 500 })
     })
 
     it('annotation-updated with dismissed fix-request also clears error card', async () => {
@@ -887,8 +890,9 @@ describe('CortexApp', () => {
 
       // Simulate failure
       channel._simulateMessage({ type: 'edit_status', editId, status: 'failed', reason: 'Unknown error' })
-      await new Promise(r => setTimeout(r, 50))
-      expect(root.querySelector('.cortex-error-card')).not.toBeNull()
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-error-card')).not.toBeNull()
+      }, { timeout: 500 })
 
       // Simulate dismissed fix-request
       channel._simulateMessage({
@@ -906,10 +910,10 @@ describe('CortexApp', () => {
           thread: [],
         },
       })
-      await new Promise(r => setTimeout(r, 50))
-
-      // Error card should be cleared
-      expect(root.querySelector('.cortex-error-card')).toBeNull()
+      await vi.waitFor(() => {
+        // Error card should be cleared
+        expect(root.querySelector('.cortex-error-card')).toBeNull()
+      }, { timeout: 500 })
     })
 
     it('ZF0-1293: divergence with diagnostics flows end-to-end to Debug disclosure', async () => {
@@ -942,24 +946,24 @@ describe('CortexApp', () => {
           retryDurationMs: 812,
         },
       })
-      await new Promise(r => setTimeout(r, 50))
-
-      const card = root.querySelector('.cortex-error-card')
-      expect(card).not.toBeNull()
-      const debug = card!.querySelector('.cortex-error-card__debug')
-      expect(debug).not.toBeNull()
-      // Falsifiability: assertions below fail if the pass-through in
-      // CortexApp.tsx is removed (err.diagnostics becomes undefined →
-      // DebugDisclosure is not rendered). We test that the DATA reached
-      // the disclosure, not the FORMATTING (that's edit-error-card.test's
-      // job — asserting the arrow separator here would couple this
-      // integration test to a presentation detail).
-      expect(debug!.textContent).toContain('inline-style')
-      expect(debug!.textContent).toContain('jsx-immediate')
-      expect(debug!.textContent).toContain('24px')
-      expect(debug!.textContent).toContain('30px')
-      expect(debug!.textContent).toContain('16px')
-      expect(debug!.textContent).toContain('812') // retry duration number
+      await vi.waitFor(() => {
+        const card = root.querySelector('.cortex-error-card')
+        expect(card).not.toBeNull()
+        const debug = card!.querySelector('.cortex-error-card__debug')
+        expect(debug).not.toBeNull()
+        // Falsifiability: assertions below fail if the pass-through in
+        // CortexApp.tsx is removed (err.diagnostics becomes undefined →
+        // DebugDisclosure is not rendered). We test that the DATA reached
+        // the disclosure, not the FORMATTING (that's edit-error-card.test's
+        // job — asserting the arrow separator here would couple this
+        // integration test to a presentation detail).
+        expect(debug!.textContent).toContain('inline-style')
+        expect(debug!.textContent).toContain('jsx-immediate')
+        expect(debug!.textContent).toContain('24px')
+        expect(debug!.textContent).toContain('30px')
+        expect(debug!.textContent).toContain('16px')
+        expect(debug!.textContent).toContain('812') // retry duration number
+      }, { timeout: 500 })
     })
   })
 
@@ -1191,11 +1195,11 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
     mockGetBoundingClientRect(elB, { top: 100, left: 50, width: 100, height: 40 })
 
     channel._simulateMessage({ type: 'hmr-applied' })
-    await new Promise(r => setTimeout(r, 30))
-
-    // Panel header now reflects elB's tag — proving the selection was
-    // re-resolved to the new DOM node.
-    expect(root.textContent).toContain('<span>')
+    await vi.waitFor(() => {
+      // Panel header now reflects elB's tag — proving the selection was
+      // re-resolved to the new DOM node.
+      expect(root.textContent).toContain('<span>')
+    }, { timeout: 500 })
   })
 
   /** Helper: select the nth element among siblings sharing a source value.
@@ -1287,12 +1291,12 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
     )
 
     channel._simulateMessage({ type: 'hmr-applied' })
-    await new Promise(r => setTimeout(r, 50))
-
-    // Selection preserved at index 0 — but now points to the new DOM node
-    // whose content has changed (treated as in-place content edit).
-    expect(root.textContent).not.toContain('Click any element to start editing')
-    expect(next[0]!.isConnected).toBe(true)
+    await vi.waitFor(() => {
+      // Selection preserved at index 0 — but now points to the new DOM node
+      // whose content has changed (treated as in-place content edit).
+      expect(root.textContent).not.toContain('Click any element to start editing')
+      expect(next[0]!.isConnected).toBe(true)
+    }, { timeout: 500 })
   })
 
   it('preserves selection at same index when content is unchanged', async () => {
@@ -1310,9 +1314,10 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
       SOURCE,
     )
     channel._simulateMessage({ type: 'hmr-applied' })
-    await new Promise(r => setTimeout(r, 50))
-    expect(next[1]!.isConnected).toBe(true)
-    expect(root.textContent).not.toContain('Click any element to start editing')
+    await vi.waitFor(() => {
+      expect(next[1]!.isConnected).toBe(true)
+      expect(root.textContent).not.toContain('Click any element to start editing')
+    }, { timeout: 500 })
   })
 
   it('switches selection to element carrying original content when list is reordered', async () => {
@@ -1333,12 +1338,12 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
       SOURCE,
     )
     channel._simulateMessage({ type: 'hmr-applied' })
-    await new Promise(r => setTimeout(r, 50))
-
-    // "Item A" is now at new index 1; selection should have followed it.
-    expect(next[1]!.textContent).toBe('Item A')
-    expect(next[1]!.isConnected).toBe(true)
-    expect(root.textContent).not.toContain('Click any element to start editing')
+    await vi.waitFor(() => {
+      // "Item A" is now at new index 1; selection should have followed it.
+      expect(next[1]!.textContent).toBe('Item A')
+      expect(next[1]!.isConnected).toBe(true)
+      expect(root.textContent).not.toContain('Click any element to start editing')
+    }, { timeout: 500 })
   })
 
   it('clears selection when HMR shrinks the list below the saved index', async () => {
@@ -1356,9 +1361,9 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
       SOURCE,
     )
     channel._simulateMessage({ type: 'hmr-applied' })
-    await new Promise(r => setTimeout(r, 50))
-
-    expect(root.textContent).toContain('Click any element to start editing')
+    await vi.waitFor(() => {
+      expect(root.textContent).toContain('Click any element to start editing')
+    }, { timeout: 500 })
   })
 
   it('re-resolves across Shadow DOM via deep-query fallback', async () => {
@@ -1411,10 +1416,10 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
     expect(document.querySelectorAll(`[data-cortex-source="${SOURCE}"]`).length).toBe(0)
 
     channel._simulateMessage({ type: 'hmr-applied' })
-    await new Promise(r => setTimeout(r, 50))
-
-    expect(replacement.isConnected).toBe(true)
-    expect(root.textContent).not.toContain('Click any element to start editing')
+    await vi.waitFor(() => {
+      expect(replacement.isConnected).toBe(true)
+      expect(root.textContent).not.toContain('Click any element to start editing')
+    }, { timeout: 500 })
   })
 
   it('retries re-resolution via double-rAF when Fast Refresh commit is deferred', async () => {
@@ -1447,16 +1452,16 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
     })
 
     // Wait for the second rAF + Preact commit.
-    await new Promise(r => setTimeout(r, 50))
-
-    // Falsifiable observable: the Panel stays populated. If the async
-    // (double-rAF) pass didn't re-resolve, `selectedElement` would be
-    // null (the original <p> was removed), and the Panel would render
-    // its empty-state prompt. The tag swap from <p> to <span> via the
-    // replacement node is observable through the header label too, but
-    // the empty-state guard is the tightest assertion for "async
-    // retry actually happened."
-    expect(root.textContent).not.toContain('Click any element to start editing')
+    await vi.waitFor(() => {
+      // Falsifiable observable: the Panel stays populated. If the async
+      // (double-rAF) pass didn't re-resolve, `selectedElement` would be
+      // null (the original <p> was removed), and the Panel would render
+      // its empty-state prompt. The tag swap from <p> to <span> via the
+      // replacement node is observable through the header label too, but
+      // the empty-state guard is the tightest assertion for "async
+      // retry actually happened."
+      expect(root.textContent).not.toContain('Click any element to start editing')
+    }, { timeout: 500 })
   })
 
   it('clears selection when HMR removes the selected element entirely', async () => {
@@ -1493,14 +1498,14 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
     expect(gcsBefore).toBeGreaterThan(0) // sanity: Panel already read styles on mount
 
     channel._simulateMessage({ type: 'hmr-applied' })
-    await new Promise(r => setTimeout(r, 30))
-
-    // (1) Selection preserved — still showing the same element.
-    expect(root.textContent).toContain('<div>')
-    expect(root.textContent).not.toContain('Click any element to start editing')
-    // (2) Panel re-read computed styles — proves the version-bump path fired
-    // and propagated through to Panel's computedStyles useMemo invalidation.
-    expect(gcsSpy.mock.calls.length).toBeGreaterThan(gcsBefore)
+    await vi.waitFor(() => {
+      // (1) Selection preserved — still showing the same element.
+      expect(root.textContent).toContain('<div>')
+      expect(root.textContent).not.toContain('Click any element to start editing')
+      // (2) Panel re-read computed styles — proves the version-bump path fired
+      // and propagated through to Panel's computedStyles useMemo invalidation.
+      expect(gcsSpy.mock.calls.length).toBeGreaterThan(gcsBefore)
+    }, { timeout: 500 })
 
     gcsSpy.mockRestore()
   })

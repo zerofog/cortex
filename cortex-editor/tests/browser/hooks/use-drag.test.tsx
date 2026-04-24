@@ -62,8 +62,9 @@ describe('useDrag', () => {
     dispatchPointerEvent(el, 'pointerdown', { clientX: 150, clientY: 150 })
     await new Promise(r => setTimeout(r, 0))
     dispatchPointerEvent(el, 'pointermove', { clientX: 200, clientY: 200 })
-    await new Promise(r => setTimeout(r, 0))
-    expect(onPositionChange).toHaveBeenCalled()
+    await vi.waitFor(() => {
+      expect(onPositionChange).toHaveBeenCalled()
+    }, { timeout: 500 })
   })
 
   it('does not start drag on interactive elements', async () => {
@@ -88,8 +89,9 @@ describe('useDrag', () => {
     dispatchPointerEvent(el, 'pointerdown', { clientX: 150, clientY: 150 })
     await new Promise(r => setTimeout(r, 0))
     dispatchPointerEvent(el, 'pointermove', { clientX: 200, clientY: 200 })
-    await new Promise(r => setTimeout(r, 0))
-    expect(onPositionChange).toHaveBeenCalledWith(150, 150)
+    await vi.waitFor(() => {
+      expect(onPositionChange).toHaveBeenCalledWith(150, 150)
+    }, { timeout: 500 })
   })
 
   it('stops drag on pointerup', async () => {
@@ -126,7 +128,8 @@ describe('useDrag', () => {
     dispatchPointerEvent(el, 'pointermove', { clientX: 200, clientY: 200 })
     await new Promise(r => setTimeout(r, 0))
     dispatchPointerEvent(el, 'pointercancel')
-    await new Promise(r => setTimeout(r, 0))
-    expect(onDragEnd).toHaveBeenCalled()
+    await vi.waitFor(() => {
+      expect(onDragEnd).toHaveBeenCalled()
+    }, { timeout: 500 })
   })
 })

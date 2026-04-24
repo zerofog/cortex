@@ -10,7 +10,8 @@ function deferred<T = void>() {
   return { promise, resolve, reject }
 }
 
-const flush = () => new Promise(r => setTimeout(r, 10))
+/** Yield one macrotask so Preact effects and state updates flush. */
+const flush = () => new Promise<void>(r => setTimeout(r, 0))
 
 async function typeAndSubmit(input: HTMLInputElement, text: string) {
   input.value = text
@@ -100,9 +101,10 @@ describe('CommentInput', () => {
     await typeAndSubmit(input, 'Make this blue')
     expect(container.querySelector('.cortex-comment-input__spinner')).toBeTruthy()
     resolve()
-    await flush()
-    expect(container.querySelector('.cortex-comment-input__spinner')).toBeFalsy()
-    expect(input.disabled).toBe(false)
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-comment-input__spinner')).toBeFalsy()
+      expect(input.disabled).toBe(false)
+    }, { timeout: 500 })
   })
 
   it('shows error state on reject', async () => {
@@ -112,11 +114,12 @@ describe('CommentInput', () => {
     const input = container.querySelector('input') as HTMLInputElement
     await typeAndSubmit(input, 'Make this blue')
     reject(new Error('timeout'))
-    await flush()
-    expect(container.querySelector('.cortex-comment-input__spinner')).toBeFalsy()
-    const wrapper = container.querySelector('.cortex-comment-input')
-    expect(wrapper?.classList.contains('cortex-comment-input--error')).toBe(true)
-    expect(input.placeholder).toBe('No response')
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-comment-input__spinner')).toBeFalsy()
+      const wrapper = container.querySelector('.cortex-comment-input')
+      expect(wrapper?.classList.contains('cortex-comment-input--error')).toBe(true)
+      expect(input.placeholder).toBe('No response')
+    }, { timeout: 500 })
   })
 
   it('error state auto-clears after 3 seconds', async () => {

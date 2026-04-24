@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import type { VNode } from 'preact'
 import { render } from 'preact'
 import type { ColorChip } from '../../../../src/browser/token-detector.js'
@@ -24,6 +24,11 @@ function mount(vnode: VNode): HTMLDivElement {
   render(vnode, container)
   return container
 }
+
+/** Yield 10ms so Preact useEffect installs document-level listeners.
+ *  0ms is insufficient when another test's cleanup may lag; 10ms matches
+ *  the original contract for useOutsideDismiss-style effects. */
+const flushEffects = () => new Promise<void>(r => setTimeout(r, 10))
 
 describe('ColorChipPicker', () => {
   it('renders an option button per chip in registry order', () => {
@@ -99,7 +104,8 @@ describe('ColorChipPicker', () => {
         onDismiss={() => { dismissed++ }}
       />,
     )
-    await new Promise((r) => setTimeout(r, 10))
+    // Yield one macrotask so useEffect installs the document keydown listener
+    await flushEffects()
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     expect(dismissed).toBe(1)
   })
@@ -114,7 +120,8 @@ describe('ColorChipPicker', () => {
         onDismiss={() => { dismissed++ }}
       />,
     )
-    await new Promise((r) => setTimeout(r, 10))
+    // Yield one macrotask so useEffect installs the document mousedown listener
+    await flushEffects()
 
     ;(root.querySelector('button.cortex-color-chip-picker__option') as HTMLButtonElement).dispatchEvent(
       new MouseEvent('mousedown', { bubbles: true }),

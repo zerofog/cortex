@@ -62,10 +62,11 @@ describe('CommentPin', () => {
 
   it('renders pin dot for annotation with pinPosition and matching DOM element', async () => {
     render(<CommentPin annotations={[pinAnnotation]} commentMode={false} channel={mockChannel()} onReply={vi.fn()} />, container)
-    await new Promise(r => setTimeout(r, 20)) // let useEffect + rAF flush
-
-    const pin = container.querySelector('.cortex-pin') as HTMLDivElement
-    expect(pin).toBeTruthy()
+    const pin = await vi.waitFor(() => {
+      const el = container.querySelector('.cortex-pin') as HTMLDivElement
+      expect(el).not.toBeNull()
+      return el
+    }, { timeout: 500 })
     // Position: left = rect.left + 0.5*rect.width - 6 = 100 + 150 - 6 = 244
     // Position: top = rect.top + 0.3*rect.height - 6 = 200 + 30 - 6 = 224
     expect(pin.style.left).toBe('244px')
@@ -79,8 +80,8 @@ describe('CommentPin', () => {
       toJSON() { return this },
     })
     render(<CommentPin annotations={[pinAnnotation]} commentMode={false} channel={mockChannel()} onReply={vi.fn()} />, container)
-    await new Promise(r => setTimeout(r, 20))
-
+    // Wait one tick for useEffect to run, then assert nothing rendered.
+    await new Promise<void>(r => setTimeout(r, 0))
     expect(container.querySelector('.cortex-pin')).toBeNull()
   })
 
@@ -96,30 +97,35 @@ describe('CommentPin', () => {
 
   it('clicking pin dot opens thread card', async () => {
     render(<CommentPin annotations={[pinAnnotation]} commentMode={false} channel={mockChannel()} onReply={vi.fn()} />, container)
-    await new Promise(r => setTimeout(r, 20))
-
-    const pin = container.querySelector('.cortex-pin') as HTMLDivElement
-    expect(pin).toBeTruthy()
+    const pin = await vi.waitFor(() => {
+      const el = container.querySelector('.cortex-pin') as HTMLDivElement
+      expect(el).not.toBeNull()
+      return el
+    }, { timeout: 500 })
     pin.click()
-    await new Promise(r => setTimeout(r, 10))
-
-    const thread = container.querySelector('.cortex-pin__thread')
-    expect(thread).toBeTruthy()
-    // Thread should show the annotation text
-    expect(thread?.textContent).toContain('Fix this')
+    await vi.waitFor(() => {
+      const thread = container.querySelector('.cortex-pin__thread')
+      expect(thread).not.toBeNull()
+      // Thread should show the annotation text
+      expect(thread?.textContent).toContain('Fix this')
+    }, { timeout: 500 })
   })
 
   it('clicking pin dot again closes thread card', async () => {
     render(<CommentPin annotations={[pinAnnotation]} commentMode={false} channel={mockChannel()} onReply={vi.fn()} />, container)
-    await new Promise(r => setTimeout(r, 20))
-
-    const pin = container.querySelector('.cortex-pin') as HTMLDivElement
+    const pin = await vi.waitFor(() => {
+      const el = container.querySelector('.cortex-pin') as HTMLDivElement
+      expect(el).not.toBeNull()
+      return el
+    }, { timeout: 500 })
     pin.click()
-    await new Promise(r => setTimeout(r, 10))
-    expect(container.querySelector('.cortex-pin__thread')).toBeTruthy()
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-pin__thread')).not.toBeNull()
+    }, { timeout: 500 })
 
     pin.click()
-    await new Promise(r => setTimeout(r, 10))
-    expect(container.querySelector('.cortex-pin__thread')).toBeNull()
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-pin__thread')).toBeNull()
+    }, { timeout: 500 })
   })
 })

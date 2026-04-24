@@ -242,10 +242,10 @@ describe('Panel', () => {
     target.className = 'text-body-md'
 
     // Wait for MutationObserver callback + microtask coalescing + Preact re-render.
-    await new Promise((r) => setTimeout(r, 20))
-
-    expect(typographySection!.textContent).toContain('body-md')
-    expect(typographySection!.textContent).not.toContain('heading-1')
+    await vi.waitFor(() => {
+      expect(typographySection!.textContent).toContain('body-md')
+      expect(typographySection!.textContent).not.toContain('heading-1')
+    }, { timeout: 500 })
   })
 })
 
@@ -280,12 +280,12 @@ describe('Panel — library detection wiring', () => {
       />,
       container,
     )
-    await new Promise(r => setTimeout(r, 0))
-
     // PanelHeader should show "(library)" badge
-    const badge = container.querySelector('.cortex-panel-header__library')
-    expect(badge).not.toBeNull()
-    expect(badge?.textContent).toContain('library')
+    await vi.waitFor(() => {
+      const badge = container.querySelector('.cortex-panel-header__library')
+      expect(badge).not.toBeNull()
+      expect(badge?.textContent).toContain('library')
+    }, { timeout: 500 })
 
     render(null, container)
     container.remove()
@@ -387,10 +387,10 @@ describe('Panel — activeState + activePseudo + dimming', () => {
       />,
       container,
     )
-    await new Promise(r => setTimeout(r, 0))
-
     // useMemo must re-run when activeState changes — proves it's in the dep array
-    expect(targetCallCount).toBeGreaterThanOrEqual(1)
+    await vi.waitFor(() => {
+      expect(targetCallCount).toBeGreaterThanOrEqual(1)
+    }, { timeout: 500 })
 
     cleanupMock()
     render(null, container)
@@ -430,11 +430,11 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     const pseudoTab = container.querySelector('[data-pseudo="::before"]') as HTMLButtonElement
     expect(pseudoTab).not.toBeNull()
     pseudoTab?.click()
-    await new Promise(r => setTimeout(r, 0))
-
     // Verify getComputedStyle was called with '::before' pseudo
-    const pseudoCalls = gcsCallLog.filter(c => c.target === target && c.pseudo === '::before')
-    expect(pseudoCalls.length).toBeGreaterThan(0)
+    await vi.waitFor(() => {
+      const pseudoCalls = gcsCallLog.filter(c => c.target === target && c.pseudo === '::before')
+      expect(pseudoCalls.length).toBeGreaterThan(0)
+    }, { timeout: 500 })
 
     window.getComputedStyle = original
     render(null, container)
@@ -467,12 +467,13 @@ describe('Panel — activeState + activePseudo + dimming', () => {
       />,
       container,
     )
-    await new Promise(r => setTimeout(r, 0))
-    const initialCount = gcsCallCount
-
     // The defaultStylesRef should have been populated by the useEffect on [element].
     // Verify it was called at least once for the snapshot.
-    expect(initialCount).toBeGreaterThanOrEqual(1)
+    let initialCount!: number
+    await vi.waitFor(() => {
+      expect(gcsCallCount).toBeGreaterThanOrEqual(1)
+      initialCount = gcsCallCount
+    }, { timeout: 500 })
 
     window.getComputedStyle = original
     render(null, container)
@@ -504,16 +505,13 @@ describe('Panel — activeState + activePseudo + dimming', () => {
       />,
       container,
     )
-    await new Promise(r => setTimeout(r, 0))
-
     // Should render pseudo tabs
-    const tabs = container.querySelector('.cortex-pseudo-tabs')
-    expect(tabs).not.toBeNull()
-
-    const beforeTab = container.querySelector('[data-pseudo="::before"]')
-    const afterTab = container.querySelector('[data-pseudo="::after"]')
-    expect(beforeTab).not.toBeNull()
-    expect(afterTab).not.toBeNull()
+    await vi.waitFor(() => {
+      const tabs = container.querySelector('.cortex-pseudo-tabs')
+      expect(tabs).not.toBeNull()
+      expect(container.querySelector('[data-pseudo="::before"]')).not.toBeNull()
+      expect(container.querySelector('[data-pseudo="::after"]')).not.toBeNull()
+    }, { timeout: 500 })
 
     render(null, container)
     container.remove()
@@ -568,22 +566,22 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     // Click the ::before pseudo tab
     const pseudoTab = container.querySelector('[data-pseudo="::before"]') as HTMLButtonElement
     pseudoTab?.click()
-    await new Promise(r => setTimeout(r, 0))
-
-    expect(pseudoTab?.classList.contains('cortex-pseudo-tab--active')).toBe(true)
+    await vi.waitFor(() => {
+      expect(pseudoTab?.classList.contains('cortex-pseudo-tab--active')).toBe(true)
+    }, { timeout: 500 })
 
     // Trigger a property change via ArrowUp on a NumericInput to exercise the
     // applyOverride → overrideManager.set path with the pseudo parameter.
     const numericInput = container.querySelector('.cortex-numeric-input__value') as HTMLInputElement
     expect(numericInput).not.toBeNull()
     numericInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
-    await new Promise(r => setTimeout(r, 0))
-
     // overrideManager.set must have been called with '::before' as the pseudo parameter
-    const setCall = (overrideManager.set as ReturnType<typeof vi.fn>).mock.calls.find(
-      (args: unknown[]) => args[3] === '::before'
-    )
-    expect(setCall).toBeDefined()
+    await vi.waitFor(() => {
+      const setCall = (overrideManager.set as ReturnType<typeof vi.fn>).mock.calls.find(
+        (args: unknown[]) => args[3] === '::before'
+      )
+      expect(setCall).toBeDefined()
+    }, { timeout: 500 })
 
     render(null, container)
     container.remove()
@@ -675,7 +673,9 @@ describe('Panel — activeState + activePseudo + dimming', () => {
 
     const pseudoTab = container.querySelector('[data-pseudo="::before"]') as HTMLButtonElement
     pseudoTab?.click()
-    await new Promise(r => setTimeout(r, 0))
+    await vi.waitFor(() => {
+      expect(pseudoTab?.classList.contains('cortex-pseudo-tab--active')).toBe(true)
+    }, { timeout: 500 })
 
     // Switch to a different element
     render(
@@ -689,14 +689,13 @@ describe('Panel — activeState + activePseudo + dimming', () => {
       />,
       container,
     )
-    // Two microtask cycles: first for useEffect on [element] to fire setActivePseudo('element'),
-    // second for the re-render triggered by that state change to complete.
-    await new Promise(r => setTimeout(r, 0))
-    await new Promise(r => setTimeout(r, 0))
-
     // The element tab should be active (reset on element change)
-    const elementTab = container.querySelector('[data-pseudo="element"]') as HTMLButtonElement
-    expect(elementTab?.classList.contains('cortex-pseudo-tab--active')).toBe(true)
+    // Two microtask cycles needed: useEffect on [element] fires setActivePseudo('element'),
+    // then re-render completes.
+    await vi.waitFor(() => {
+      const elementTab = container.querySelector('[data-pseudo="element"]') as HTMLButtonElement
+      expect(elementTab?.classList.contains('cortex-pseudo-tab--active')).toBe(true)
+    }, { timeout: 500 })
 
     render(null, container)
     container.remove()
@@ -791,15 +790,15 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
 
     // Re-render with bumped hmrAppliedVersion.
     renderPanel(1)
-    await new Promise(r => setTimeout(r, 20))
-
     // Panel has re-read getComputedStyle and reflects the new value.
-    expect(
-      shadowRoot.querySelector('.cortex-segmented__option--active[data-value="center"]'),
-    ).not.toBeNull()
-    expect(
-      shadowRoot.querySelector('.cortex-segmented__option--active[data-value="left"]'),
-    ).toBeNull()
+    await vi.waitFor(() => {
+      expect(
+        shadowRoot.querySelector('.cortex-segmented__option--active[data-value="center"]'),
+      ).not.toBeNull()
+      expect(
+        shadowRoot.querySelector('.cortex-segmented__option--active[data-value="left"]'),
+      ).toBeNull()
+    }, { timeout: 500 })
   })
 
   // The paired behavior — sharedInfo useEffect re-runs on hmrAppliedVersion —
@@ -888,35 +887,37 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
       restoreStyles()
       void shadow
     }
-    await new Promise(r => setTimeout(r, 20))
 
     // Sanity: the scope toggle is rendered, meaning detectSharedClasses
     // found 2+ matching elements and sharedInfo is non-null.
-    const allBtn = shadowRoot.querySelector('.cortex-panel__scope-btn:last-child') as HTMLButtonElement | null
-    expect(allBtn).not.toBeNull()
-    expect(allBtn!.textContent).toContain('All')
-
-    // Initial state: "This element" is active (default from setEditScope('instance')).
-    const instanceBtn = shadowRoot.querySelector('.cortex-panel__scope-btn:first-child') as HTMLButtonElement
-    expect(instanceBtn.classList.contains('cortex-panel__scope-btn--active')).toBe(true)
-    expect(allBtn!.classList.contains('cortex-panel__scope-btn--active')).toBe(false)
+    let allBtn!: HTMLButtonElement
+    let instanceBtn!: HTMLButtonElement
+    await vi.waitFor(() => {
+      allBtn = shadowRoot.querySelector('.cortex-panel__scope-btn:last-child') as HTMLButtonElement
+      expect(allBtn).not.toBeNull()
+      expect(allBtn!.textContent).toContain('All')
+      instanceBtn = shadowRoot.querySelector('.cortex-panel__scope-btn:first-child') as HTMLButtonElement
+      // Initial state: "This element" is active (default from setEditScope('instance')).
+      expect(instanceBtn.classList.contains('cortex-panel__scope-btn--active')).toBe(true)
+      expect(allBtn!.classList.contains('cortex-panel__scope-btn--active')).toBe(false)
+    }, { timeout: 500 })
 
     // User clicks "All" to switch scope.
     allBtn!.click()
-    await new Promise(r => setTimeout(r, 20))
-
-    expect(allBtn!.classList.contains('cortex-panel__scope-btn--active')).toBe(true)
-    expect(instanceBtn.classList.contains('cortex-panel__scope-btn--active')).toBe(false)
+    await vi.waitFor(() => {
+      expect(allBtn!.classList.contains('cortex-panel__scope-btn--active')).toBe(true)
+      expect(instanceBtn.classList.contains('cortex-panel__scope-btn--active')).toBe(false)
+    }, { timeout: 500 })
 
     // Now bump hmrAppliedVersion — simulates an HMR cycle (stylesheet edit,
     // @theme token change, etc). The invariant under test: scope stays "All".
     renderPanel(1)
-    await new Promise(r => setTimeout(r, 20))
-
     // Re-query because Preact may have reconciled the buttons.
-    const allBtnAfter = shadowRoot.querySelector('.cortex-panel__scope-btn:last-child') as HTMLButtonElement
-    const instanceBtnAfter = shadowRoot.querySelector('.cortex-panel__scope-btn:first-child') as HTMLButtonElement
-    expect(allBtnAfter.classList.contains('cortex-panel__scope-btn--active')).toBe(true)
-    expect(instanceBtnAfter.classList.contains('cortex-panel__scope-btn--active')).toBe(false)
+    await vi.waitFor(() => {
+      const allBtnAfter = shadowRoot.querySelector('.cortex-panel__scope-btn:last-child') as HTMLButtonElement
+      const instanceBtnAfter = shadowRoot.querySelector('.cortex-panel__scope-btn:first-child') as HTMLButtonElement
+      expect(allBtnAfter.classList.contains('cortex-panel__scope-btn--active')).toBe(true)
+      expect(instanceBtnAfter.classList.contains('cortex-panel__scope-btn--active')).toBe(false)
+    }, { timeout: 500 })
   })
 })

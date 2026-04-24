@@ -173,7 +173,7 @@ describe('HoverOverlay', () => {
     await vi.waitFor(() => {
       overlay = root.querySelector('.cortex-hover-overlay') as HTMLElement
       expect(overlay.style.transform).toBe('translate(250px, 150px)')
-    })
+    }, { timeout: 500 })
 
     target.remove()
   })

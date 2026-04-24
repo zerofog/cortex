@@ -132,12 +132,12 @@ describe('Panel.applyClassChange records on commandStack (C-R2-1 regression)', (
     expect(unlinkButton, 'Detach token button should render when element has text-* class').not.toBeNull()
 
     unlinkButton!.click()
-    await flushEffects()
-
-    // LOAD-BEARING: commandStack must have one new entry AND it must be a
-    // CompoundEditCommand. Without this push, CortexApp's `if (cmd)` gate
-    // blocks the server-side `{ type: 'undo' }` dispatch on Ctrl+Z.
-    expect(commandStack.undoCount).toBe(1)
+    await vi.waitFor(() => {
+      // LOAD-BEARING: commandStack must have one new entry AND it must be a
+      // CompoundEditCommand. Without this push, CortexApp's `if (cmd)` gate
+      // blocks the server-side `{ type: 'undo' }` dispatch on Ctrl+Z.
+      expect(commandStack.undoCount).toBe(1)
+    }, { timeout: 500 })
     const cmd = commandStack.peekUndo()
     expect(cmd, 'peekUndo must return the recorded command').not.toBeNull()
     expect(cmd).toBeInstanceOf(CompoundEditCommand)
@@ -148,7 +148,10 @@ describe('Panel.applyClassChange records on commandStack (C-R2-1 regression)', (
 
     const unlinkButton = container.querySelector('button[aria-label="Detach token"]') as HTMLElement
     unlinkButton.click()
-    await flushEffects()
+    await vi.waitFor(() => {
+      const cmd = commandStack.peekUndo()
+      expect(cmd).toBeInstanceOf(CompoundEditCommand)
+    }, { timeout: 500 })
 
     const cmd = commandStack.peekUndo() as CompoundEditCommand
     expect(cmd).toBeInstanceOf(CompoundEditCommand)
@@ -168,7 +171,9 @@ describe('Panel.applyClassChange records on commandStack (C-R2-1 regression)', (
 
     const unlinkButton = container.querySelector('button[aria-label="Detach token"]') as HTMLElement
     unlinkButton.click()
-    await flushEffects()
+    await vi.waitFor(() => {
+      expect(commandStack.undoCount).toBeGreaterThan(0)
+    }, { timeout: 500 })
 
     // Simulate what CortexApp's Cmd+Z handler does:
     //   const cmd = commandStackRef.current?.undo()

@@ -200,9 +200,10 @@ describe('TypographySection v2 — rendering', () => {
   describe('linked typography group (bundle class detected)', () => {
     it('renders a pill whose text contains the bundle name', async () => {
       setup({ className: 'text-body-md' })
-      await flushEffects()
-      const pill = container.querySelector('.cortex-token-chip')
-      expect(pill?.textContent).toContain('body-md')
+      await vi.waitFor(() => {
+        const pill = container.querySelector('.cortex-token-chip')
+        expect(pill?.textContent).toContain('body-md')
+      }, { timeout: 500 })
     })
 
     it('does NOT render T button or raw weight/size/line/letter controls', async () => {
@@ -210,22 +211,24 @@ describe('TypographySection v2 — rendering', () => {
       // for alpha) nor the typography raw controls are present. Asserting on
       // a mixed state would confuse alpha's NumericInput with a typography one.
       setup({ className: 'text-body-md text-brand-500' })
-      await flushEffects()
-      expect(container.querySelector('.cortex-typography-section__t-button')).toBeNull()
-      expect(container.querySelectorAll('.cortex-numeric-input')).toHaveLength(0)
+      await vi.waitFor(() => {
+        expect(container.querySelector('.cortex-typography-section__t-button')).toBeNull()
+        expect(container.querySelectorAll('.cortex-numeric-input')).toHaveLength(0)
+      }, { timeout: 500 })
     })
   })
 
   describe('linked color group (chip class detected)', () => {
     it('renders color chip pill with name, and hides ColorInput + SwatchBook', async () => {
       setup({ className: 'text-brand-500' })
-      await flushEffects()
-      const pill = container.querySelector('.cortex-token-chip')
-      expect(pill?.textContent).toContain('brand-500')
-      expect(container.querySelector('.cortex-color-input__hex')).toBeNull()
-      expect(
-        container.querySelector('.cortex-typography-section__swatchbook-button'),
-      ).toBeNull()
+      await vi.waitFor(() => {
+        const pill = container.querySelector('.cortex-token-chip')
+        expect(pill?.textContent).toContain('brand-500')
+        expect(container.querySelector('.cortex-color-input__hex')).toBeNull()
+        expect(
+          container.querySelector('.cortex-typography-section__swatchbook-button'),
+        ).toBeNull()
+      }, { timeout: 500 })
     })
   })
 
@@ -238,18 +241,20 @@ describe('TypographySection v2 — rendering', () => {
       // the className has a matching chip, so we check the typography-side
       // specifically by asserting the T button is back.
       setup({ className: 'text-body-md', textComponents: [] })
-      await flushEffects()
-      expect(container.querySelector('.cortex-typography-section__t-button')).not.toBeNull()
-      // Typography raw controls must be present (weight/size/line/letter).
-      expect(findInputByValue('16')).toBeDefined()
+      await vi.waitFor(() => {
+        expect(container.querySelector('.cortex-typography-section__t-button')).not.toBeNull()
+        // Typography raw controls must be present (weight/size/line/letter).
+        expect(findInputByValue('16')).toBeDefined()
+      }, { timeout: 500 })
     })
 
     it('forces UNLINKED color when colorChips is empty, even with matching className', async () => {
       setup({ className: 'text-brand-500', colorChips: [] })
-      await flushEffects()
-      expect(
-        container.querySelector('.cortex-typography-section__swatchbook-button'),
-      ).not.toBeNull()
+      await vi.waitFor(() => {
+        expect(
+          container.querySelector('.cortex-typography-section__swatchbook-button'),
+        ).not.toBeNull()
+      }, { timeout: 500 })
     })
 
     it('renders UNLINKED for a partial-token className (e.g. text-sm with no matching bundle)', () => {
@@ -297,8 +302,9 @@ describe('TypographySection v2 — plain property dispatch', () => {
     hex.dispatchEvent(new Event('input', { bubbles: true }))
     await flushEffects()
     hex.dispatchEvent(new Event('blur', { bubbles: true }))
-    await flushEffects()
-    expect(findPropertyChange(onChange, 'color')?.value).toBe('#ff0000')
+    await vi.waitFor(() => {
+      expect(findPropertyChange(onChange, 'color')?.value).toBe('#ff0000')
+    }, { timeout: 500 })
   })
 
   it('reverts invalid hex input on blur AND suppresses color emission', async () => {
@@ -333,35 +339,51 @@ describe('TypographySection v2 — color chip dispatch', () => {
       '.cortex-typography-section__swatchbook-button',
     ) as HTMLElement
     swatchBtn.click()
-    await flushEffects()
+    // Wait for picker popover to render
+    await vi.waitFor(() => {
+      const brandOpt = Array.from(
+        container.querySelectorAll('.cortex-color-chip-picker__option'),
+      ).find((o) => o.textContent?.includes('brand-500'))
+      expect(brandOpt).toBeTruthy()
+    }, { timeout: 500 })
     const brandOpt = Array.from(
       container.querySelectorAll('.cortex-color-chip-picker__option'),
     ).find((o) => o.textContent?.includes('brand-500')) as HTMLElement
-    expect(brandOpt).toBeTruthy()
     brandOpt.click()
-    await flushEffects()
-    const link = findChange(onChange, 'link-color-chip')
-    expect(link?.chip.name).toBe('brand-500')
-    expect(link?.removeClass).toBeUndefined()
+    await vi.waitFor(() => {
+      const link = findChange(onChange, 'link-color-chip')
+      expect(link?.chip.name).toBe('brand-500')
+      expect(link?.removeClass).toBeUndefined()
+    }, { timeout: 500 })
   })
 
   it('link-color-chip (linked → swap via pill): removeClass is text-{prev}', async () => {
     const { onChange } = setup({ className: 'text-gray-500' })
-    await flushEffects()
-    const pill =
-      (container.querySelector('.cortex-token-chip__body') as HTMLElement) ??
-      (container.querySelector('button[aria-label*="Swap"]') as HTMLElement)
-    expect(pill).toBeTruthy()
+    // Wait for token detection to render the pill
+    let pill!: HTMLElement
+    await vi.waitFor(() => {
+      pill =
+        (container.querySelector('.cortex-token-chip__body') as HTMLElement) ??
+        (container.querySelector('button[aria-label*="Swap"]') as HTMLElement)
+      expect(pill).toBeTruthy()
+    }, { timeout: 500 })
     pill.click()
-    await flushEffects()
+    // Wait for picker popover to render
+    await vi.waitFor(() => {
+      const brandOpt = Array.from(
+        container.querySelectorAll('.cortex-color-chip-picker__option'),
+      ).find((o) => o.textContent?.includes('brand-500'))
+      expect(brandOpt).toBeTruthy()
+    }, { timeout: 500 })
     const brandOpt = Array.from(
       container.querySelectorAll('.cortex-color-chip-picker__option'),
     ).find((o) => o.textContent?.includes('brand-500')) as HTMLElement
     brandOpt.click()
-    await flushEffects()
-    const link = findChange(onChange, 'link-color-chip')
-    expect(link?.chip.name).toBe('brand-500')
-    expect(link?.removeClass).toBe('text-gray-500')
+    await vi.waitFor(() => {
+      const link = findChange(onChange, 'link-color-chip')
+      expect(link?.chip.name).toBe('brand-500')
+      expect(link?.removeClass).toBe('text-gray-500')
+    }, { timeout: 500 })
   })
 
   it('unlink-color-chip: emits removeClass with text- prefix + inline color preserving rendered value', async () => {
@@ -369,16 +391,18 @@ describe('TypographySection v2 — color chip dispatch', () => {
       className: 'text-gray-500',
       values: { ...DEFAULT_VALUES, color: 'rgb(107, 114, 128)' },
     })
-    await flushEffects()
-    const unlinkBtn = container.querySelector(
-      'button[aria-label="Detach token"]',
-    ) as HTMLElement
-    expect(unlinkBtn).toBeTruthy()
+    // Wait for token detection to render the unlink button
+    let unlinkBtn!: HTMLElement
+    await vi.waitFor(() => {
+      unlinkBtn = container.querySelector('button[aria-label="Detach token"]') as HTMLElement
+      expect(unlinkBtn).toBeTruthy()
+    }, { timeout: 500 })
     unlinkBtn.click()
-    await flushEffects()
-    const unlink = findChange(onChange, 'unlink-color-chip')
-    expect(unlink?.removeClass).toBe('text-gray-500')
-    expect(unlink?.inline).toEqual([{ property: 'color', value: 'rgb(107, 114, 128)' }])
+    await vi.waitFor(() => {
+      const unlink = findChange(onChange, 'unlink-color-chip')
+      expect(unlink?.removeClass).toBe('text-gray-500')
+      expect(unlink?.inline).toEqual([{ property: 'color', value: 'rgb(107, 114, 128)' }])
+    }, { timeout: 500 })
   })
 })
 
