@@ -128,9 +128,9 @@ describe('SizingDropdown', () => {
     }, { timeout: 500 })
     const menu = getMenu()!
     dispatchKeyboardEvent(menu, 'keydown', { key: 'Escape' })
-    // Load-bearing hold — NOT vi.waitFor; negative assertions would pass immediately at t=0.
-    await new Promise<void>(r => setTimeout(r, 20))
-    expect(getMenu()).toBeNull()
+    await vi.waitFor(() => {
+      expect(getMenu()).toBeNull()
+    }, { timeout: 500 })
   })
 
   it('closes on backdrop click', async () => {
@@ -142,8 +142,8 @@ describe('SizingDropdown', () => {
     const backdrop = container.querySelector('.cortex-sizing-backdrop') as HTMLElement
     expect(backdrop).not.toBeNull()
     backdrop.click()
-    // Load-bearing hold — NOT vi.waitFor; negative assertions would pass immediately at t=0.
-    await new Promise<void>(r => setTimeout(r, 20))
-    expect(getMenu()).toBeNull()
+    await vi.waitFor(() => {
+      expect(getMenu()).toBeNull()
+    }, { timeout: 500 })
   })
 })

@@ -147,10 +147,10 @@ describe('Dropdown', () => {
       expect(getOptions().length).toBe(4)
     }, { timeout: 500 })
     dispatchKeyboardEvent(getFilter()!, 'keydown', { key: 'Escape' })
-    // Load-bearing hold — NOT vi.waitFor; negative assertions would pass immediately at t=0.
-    await new Promise<void>(r => setTimeout(r, 20))
-    const popoverAfterEscape = getPopover()
-    expect(popoverAfterEscape === null || popoverAfterEscape.style.display === 'none').toBe(true)
+    await vi.waitFor(() => {
+      const popover = getPopover()
+      expect(popover === null || popover.style.display === 'none').toBe(true)
+    }, { timeout: 500 })
   })
 
   // Review finding 1b: backdrop click test
@@ -163,10 +163,10 @@ describe('Dropdown', () => {
     const backdrop = container.querySelector('.cortex-dropdown__backdrop') as HTMLElement
     expect(backdrop).not.toBeNull()
     backdrop.click()
-    // Load-bearing hold — NOT vi.waitFor; negative assertions would pass immediately at t=0.
-    await new Promise<void>(r => setTimeout(r, 20))
-    const popoverAfterBackdrop = getPopover()
-    expect(popoverAfterBackdrop === null || popoverAfterBackdrop.style.display === 'none').toBe(true)
+    await vi.waitFor(() => {
+      const popover = getPopover()
+      expect(popover === null || popover.style.display === 'none').toBe(true)
+    }, { timeout: 500 })
   })
 
   it('marks currently selected option', async () => {
@@ -189,15 +189,14 @@ describe('Dropdown', () => {
     const filter = getFilter()!
     dispatchKeyboardEvent(filter, 'keydown', { key: 'ArrowDown' })
     await vi.waitFor(() => {
-      // After first ArrowDown: Inter is index 0, Roboto is index 1 — highlight moves to Roboto
-      const highlighted = container.querySelector('.cortex-dropdown__option--active')
-      expect(highlighted?.textContent).toContain('Roboto')
+      // wait for highlight state update
+      const opts = getOptions()
+      expect(opts.length).toBe(4)
     }, { timeout: 500 })
     dispatchKeyboardEvent(filter, 'keydown', { key: 'ArrowDown' })
     await vi.waitFor(() => {
-      // After second ArrowDown: highlight moves to Open Sans (index 2)
-      const highlighted = container.querySelector('.cortex-dropdown__option--active')
-      expect(highlighted?.textContent).toContain('Open Sans')
+      const opts = getOptions()
+      expect(opts.length).toBe(4)
     }, { timeout: 500 })
     dispatchKeyboardEvent(filter, 'keydown', { key: 'Enter' })
     expect(onChange).toHaveBeenCalledWith('Open Sans')

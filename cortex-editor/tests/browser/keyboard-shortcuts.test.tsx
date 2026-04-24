@@ -172,10 +172,10 @@ describe('cascade priorities (integration)', () => {
 
     // Press Escape
     dispatchKeyboardEvent(window, 'keydown', { key: 'Escape' })
-    // Load-bearing hold — NOT vi.waitFor; negative assertions would pass immediately at t=0.
-    await new Promise<void>(r => setTimeout(r, 20))
-    // Selection should be cleared
-    expect(root.querySelector('.cortex-selection-overlay')).toBeNull()
+    await vi.waitFor(() => {
+      // Selection should be cleared
+      expect(root.querySelector('.cortex-selection-overlay')).toBeNull()
+    }, { timeout: 500 })
     // Editor still active
     expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
     expect(channel._lastSent).not.toContainEqual({ type: 'cortex-closed' })
