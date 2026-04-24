@@ -1,0 +1,28 @@
+cortex-editor/tests/browser/capability-banner.test.tsx
+  a27bebb451c90054 1-51
+cortex-editor/tests/browser/error-toast.test.tsx
+  a27bebb451c90054 1-66
+cortex-editor/tests/browser/comment-input.test.tsx
+  a27bebb451c90054 150-175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "b1371ef858bfc69d092231307eaaf8a47e9ec61e",
+  "prompts": {
+    "a27bebb451c90054": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2fc37017-5294-4605-90ed-fa6925f82c87",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 190,
+      "total_deletions": 16,
+      "accepted_lines": 2130,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/11e6dce64dbdb887624d41f568462b417d4b82fe71352405ba8803dafa9990b4"
+    }
+  }
+}
