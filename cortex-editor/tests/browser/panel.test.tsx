@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
+import { act } from 'preact/test-utils'
 import { Panel } from '../../src/browser/components/Panel.js'
 import { renderInShadow, mockGetComputedStyle, createShadowHost } from './helpers.js'
 
@@ -590,16 +591,19 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     target.remove()
   })
 
-  // Bug #17: blast-radius style tag removed on unmount
-  // TODO(ZF0-1321): flaky under vitest fake timers — Preact schedules useEffect
-  // cleanup via microtasks that vi.advanceTimersByTimeAsync(0) doesn't reliably
-  // drain. Partial workaround (useRealTimers + setTimeout(0)) still passed only
-  // 1–2 of 3 runs. Skipping to unblock CI while the harness fix is designed
-  // (see ticket for options). Production cleanup in Panel.tsx:369 is correct;
-  // the fix is test-harness only — do NOT change src.
-  it.skip('removes blast-radius style tag from document.head on unmount', async () => {
-    vi.useFakeTimers()
-
+  // Bug #17: blast-radius style tag removed on unmount (ZF0-1321).
+  // Preact's useEffect cleanup is registered only after the mount effect runs.
+  // Under fake timers the mount effect is scheduled via an rAF/setTimeout race
+  // inside preact/hooks `afterNextFrame`, and under concurrent fork load that
+  // schedule doesn't reliably drain with `vi.advanceTimersByTimeAsync`. If the
+  // mount effect never ran, `hook._cleanup` stays undefined, so Preact's
+  // synchronous `options.unmount` -> `invokeCleanup` is a no-op and the style
+  // tag survives. `act()` from preact/test-utils patches
+  // `options.requestAnimationFrame` and synchronously drains the effect queue,
+  // so wrapping mount AND unmount in act() guarantees `_cleanup` is set before
+  // unmount. preact/test-utils ships with the preact package (no new dep) —
+  // same primitive @testing-library/preact uses.
+  it('removes blast-radius style tag from document.head on unmount', async () => {
     const el = document.createElement('div')
     const el2 = document.createElement('div')
     const container = document.createElement('div')
@@ -620,12 +624,13 @@ describe('Panel — activeState + activePseudo + dimming', () => {
 
       document.body.appendChild(container)
 
-      render(
-        <Panel element={el} overrideManager={overrideManager as any}
-          onClose={() => {}} onSelectElement={() => {}} {...panelPositionProps} />,
-        container,
-      )
-      await vi.advanceTimersByTimeAsync(50)
+      await act(() => {
+        render(
+          <Panel element={el} overrideManager={overrideManager as any}
+            onClose={() => {}} onSelectElement={() => {}} {...panelPositionProps} />,
+          container,
+        )
+      })
 
       // Manually inject the blast-radius style tag to simulate a highlight having occurred.
       // The style is lazily injected on first highlightSharedElements() call, not on mount.
@@ -638,7 +643,9 @@ describe('Panel — activeState + activePseudo + dimming', () => {
 
       expect(document.head.querySelector('[data-cortex-blast-radius-style]')).not.toBeNull()
 
-      render(null, container)
+      await act(() => {
+        render(null, container)
+      })
 
       expect(document.head.querySelector('[data-cortex-blast-radius-style]')).toBeNull()
     } finally {
