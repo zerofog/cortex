@@ -1050,7 +1050,6 @@ describe('CortexApp', () => {
         vi.useRealTimers()
       }
     })
-
   })
 })
 

@@ -58,6 +58,7 @@ function connectionStatusText(status: ConnectionDisplay): string {
   }
 }
 
+/** Connection-status footer. Exported for direct-render leaf testing. */
 export function ConnectionStatusFooter({ status }: { status?: ConnectionDisplay }): JSX.Element {
   // aria-live regions must exist in DOM BEFORE content is injected —
   // screen readers observe mutations to existing regions, not newly inserted ones.
