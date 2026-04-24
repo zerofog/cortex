@@ -1,0 +1,36 @@
+cortex-editor/tests/browser/controls/PositionDropdown.test.tsx
+  211e15307b9fcb53 141-143
+cortex-editor/tests/browser/controls/numeric-input.test.tsx
+  211e15307b9fcb53 212-213,232-233,236-237,259-260,267,276,279,281,304,308-309
+cortex-editor/tests/browser/keyboard-shortcuts.test.tsx
+  211e15307b9fcb53 175-178
+cortex-editor/tests/browser/comment-pin.test.tsx
+  211e15307b9fcb53 83-84,127-129
+cortex-editor/tests/browser/controls/dropdown.test.tsx
+  211e15307b9fcb53 150-153,166-169,192-194,198-200
+cortex-editor/tests/browser/controls/sizing-dropdown.test.tsx
+  211e15307b9fcb53 131-133,145-147
+cortex-editor/tests/browser/cortex-app.test.tsx
+  211e15307b9fcb53 931
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "a6b2cb788dbe060df715732757529c64da9199d6",
+  "prompts": {
+    "211e15307b9fcb53": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bf87f7f9-9e48-4fad-8f60-a145b276955e",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 306,
+      "total_deletions": 296,
+      "accepted_lines": 48,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/a53406c9bc06089f8aa51b960940a915a9de21b5c2144f27ad0343d4d3ab05e7"
+    }
+  }
+}
