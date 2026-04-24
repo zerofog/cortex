@@ -3,8 +3,12 @@ import { render } from 'preact'
 import { ErrorToast } from '../../src/browser/components/ErrorToast.js'
 import { createMockChannel } from './helpers.js'
 
-/** Yield enough time for Preact useEffect subscriptions to register. */
-const waitForEffects = () => new Promise<void>(r => setTimeout(r, 50))
+/**
+ * Yield for Preact's useEffect to commit before sending channel messages.
+ * happy-dom requires ~10ms for Preact's effect commit phase to run and register
+ * the channel.onMessage subscription; 0ms (microtask flush only) is insufficient.
+ */
+const flush = () => new Promise<void>(r => setTimeout(r, 10))
 
 describe('ErrorToast', () => {
   let container: HTMLDivElement
@@ -23,8 +27,9 @@ describe('ErrorToast', () => {
     const channel = createMockChannel()
     render(<ErrorToast channel={channel} />, container)
 
-    // Wait for the useEffect subscription to register before sending a message
-    await waitForEffects()
+    // Yield one macrotask so the useEffect subscription commits before we
+    // send a message. Matches the existing `flush` pattern in comment-input.test.tsx.
+    await flush()
 
     // No toast initially
     expect(container.querySelector('[role="alert"]')).toBeNull()
@@ -50,8 +55,7 @@ describe('ErrorToast', () => {
     const channel = createMockChannel()
     render(<ErrorToast channel={channel} />, container)
 
-    // Wait for the useEffect subscription to register before sending a message
-    await waitForEffects()
+    await flush()
 
     channel._simulateMessage({
       type: 'undo_sync_status',
@@ -61,6 +65,34 @@ describe('ErrorToast', () => {
     })
     // Give Preact a macrotask to flush — no toast should appear for empty_stack
     await new Promise<void>(r => setTimeout(r, 20))
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+  })
+
+  it('auto-dismisses toast after 5s', async () => {
+    // Mount under real timers so Preact's useEffect can commit and register
+    // the channel subscription. Then switch to fake timers to advance past
+    // the 5000ms auto-dismiss without a wall-clock wait.
+    container = document.createElement('div')
+    document.body.appendChild(container)
+
+    const channel = createMockChannel()
+    render(<ErrorToast channel={channel} />, container)
+    await flush()
+
+    vi.useFakeTimers()
+
+    channel._simulateMessage({
+      type: 'undo_sync_status',
+      status: 'failed',
+      reason: 'stale file',
+      reason_code: 'stale',
+    })
+
+    await vi.advanceTimersByTimeAsync(10)
+    expect(container.querySelector('[role="alert"]')).not.toBeNull()
+
+    // Auto-dismiss fires at 5000ms (ErrorToast.tsx:35 passes 5000 to addToast)
+    await vi.advanceTimersByTimeAsync(5000)
     expect(container.querySelector('[role="alert"]')).toBeNull()
   })
 })

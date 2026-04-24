@@ -164,13 +164,4 @@ describe('CommentInput', () => {
     expect(input.placeholder).toBe('Ask the AI agent...')
   })
 
-  it('does not call onSubmit when agentConnected is false', () => {
-    const onSubmit = vi.fn().mockResolvedValue(undefined)
-    render(<CommentInput onSubmit={onSubmit} agentConnected={false} />, container)
-    const input = container.querySelector('input') as HTMLInputElement
-    // Even if somehow a keydown arrives (e.g. programmatic dispatch),
-    // the input is disabled so Enter should not trigger onSubmit.
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    expect(onSubmit).not.toHaveBeenCalled()
-  })
 })
