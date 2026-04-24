@@ -1185,9 +1185,14 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
     const SOURCE = 'src/page.tsx:10:5'
     const { channel, el: elA } = await setupAndSelect(SOURCE, 'div')
 
-    // Sanity: Panel header shows `<div>` for elA.
-    expect(root.textContent).toContain('<div>')
-    expect(root.textContent).not.toContain('<span>')
+    // Sanity: Panel header shows `<div>` for elA. Wrapped in vi.waitFor because
+    // under serial-loop thermal load, setupAndSelect's 20ms hold can race with
+    // the Panel header render; the positive toContain gates retries so the
+    // negative not.toContain isn't evaluated until DOM has settled.
+    await vi.waitFor(() => {
+      expect(root.textContent).toContain('<div>')
+      expect(root.textContent).not.toContain('<span>')
+    }, { timeout: 1500 })
 
     // Simulate React Fast Refresh: detach elA, insert elB with SAME source
     // but a different tag so we can distinguish in the Panel header.
