@@ -290,7 +290,7 @@ describe('CortexApp', () => {
       const badge = root.querySelector('.cortex-toolbar__badge')
       expect(badge).not.toBeNull()
       expect(badge!.textContent).toContain('1')
-    }, { timeout: 500 })
+    }, { timeout: 1500 })
   })
 
   it('starts inactive — no toolbar or overlays rendered', async () => {
@@ -334,9 +334,12 @@ describe('CortexApp', () => {
     render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
     await new Promise(r => setTimeout(r, 10))
 
-    // Activate
+    // Activate — wait for toolbar to appear before proceeding (avoids 10ms
+    // settle flake under serial-loop load where Preact scheduling takes >10ms)
     channel._simulateMessage({ type: 'cortex' } as any)
-    await new Promise(r => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
+    }, { timeout: 1500 })
 
     // Escape with no selection, no comment mode — should NOT close
     vi.spyOn(focusUtils, 'isRealEvent').mockReturnValue(true)
@@ -1030,7 +1033,7 @@ describe('CortexApp', () => {
         const el = root.querySelector('.cortex-connection-status')
         expect(el).not.toBeNull()
         return el!
-      }, { timeout: 500 })
+      }, { timeout: 1500 })
       expect(footer.textContent).toContain('Disconnected')
       expect(footer!.textContent).toContain('won\u2019t save')
       expect(footer!.classList.contains('cortex-connection-status--disconnected')).toBe(true)
@@ -1572,7 +1575,11 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     mockGetBoundingClientRect(element, { top: 50, left: 50, width: 100, height: 40 })
 
     selectCb(element)
-    await new Promise(r => setTimeout(r, 20))
+    // Wait for Panel to fully settle (initial getComputedStyle calls complete)
+    // before installing the spy. Under serial-loop load 20ms wasn't enough —
+    // ambient effects continued into the 200ms observation window and inflated
+    // gcs.mock.calls.length before the hmr-applied message was even sent.
+    await new Promise(r => setTimeout(r, 50))
 
     // Install spy AFTER selection so the baseline count is post-mount.
     const gcs = vi.spyOn(window, 'getComputedStyle')
@@ -1626,7 +1633,7 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     // timeout flaked under CI Linux load. vi.waitFor polls the condition.
     await vi.waitFor(() => {
       expect(gcs.mock.calls.length).toBeGreaterThan(before)
-    }, { timeout: 500 })
+    }, { timeout: 1500 })
     gcs.mockRestore()
   })
 
@@ -1667,7 +1674,7 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     // the it.each variants above.
     await vi.waitFor(() => {
       expect(gcs.mock.calls.length).toBeGreaterThan(before)
-    }, { timeout: 500 })
+    }, { timeout: 1500 })
     gcs.mockRestore()
   })
 

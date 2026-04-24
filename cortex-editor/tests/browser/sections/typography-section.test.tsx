@@ -211,10 +211,10 @@ describe('TypographySection v2 — rendering', () => {
       // for alpha) nor the typography raw controls are present. Asserting on
       // a mixed state would confuse alpha's NumericInput with a typography one.
       setup({ className: 'text-body-md text-brand-500' })
-      await vi.waitFor(() => {
-        expect(container.querySelector('.cortex-typography-section__t-button')).toBeNull()
-        expect(container.querySelectorAll('.cortex-numeric-input')).toHaveLength(0)
-      }, { timeout: 500 })
+      // Load-bearing hold — NOT vi.waitFor; negative assertions would pass immediately.
+      await flushEffects()
+      expect(container.querySelector('.cortex-typography-section__t-button')).toBeNull()
+      expect(container.querySelectorAll('.cortex-numeric-input')).toHaveLength(0)
     })
   })
 

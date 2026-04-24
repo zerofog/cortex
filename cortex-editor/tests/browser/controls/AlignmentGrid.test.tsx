@@ -82,6 +82,14 @@ describe('AlignmentGrid', () => {
     dispatchMouseEvent(el, 'dblclick')
   }
 
+  // Preact batches hook state updates via a microtask — tests that assert
+  // on post-state-update DOM must await a tick. This matches the pattern
+  // used by the existing PositionDropdown tests (the `openPopover`
+  // helper awaits a 10ms timeout for the same reason).
+  async function tick(): Promise<void> {
+    await new Promise((r) => setTimeout(r, 10))
+  }
+
   // ── render ────────────────────────────────────────────────────────
 
   it('renders exactly 9 cells', () => {
@@ -406,11 +414,11 @@ describe('AlignmentGrid', () => {
     // by handleCellClick's overlay guard. The overlay shouldn't forward
     // the click as a distribution selection either.
     getCell(1, 1).click()
-    await vi.waitFor(() => {
-      expect(onJustify).not.toHaveBeenCalled()
-      expect(onAlign).not.toHaveBeenCalled()
-      expect(onDistribute).not.toHaveBeenCalled()
-    }, { timeout: 500 })
+    // Load-bearing hold — NOT vi.waitFor; negative assertions would pass immediately.
+    await tick()
+    expect(onJustify).not.toHaveBeenCalled()
+    expect(onAlign).not.toHaveBeenCalled()
+    expect(onDistribute).not.toHaveBeenCalled()
   })
 
   it('native dblclick sequence (click+click+dblclick) fires position callbacks exactly once', async () => {

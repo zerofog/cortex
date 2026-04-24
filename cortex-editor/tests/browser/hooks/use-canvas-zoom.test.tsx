@@ -272,10 +272,13 @@ describe('useCanvasZoom', () => {
 
   it('Space hold shows grab cursor', async () => {
     const { unmount } = renderHook(() => useCanvasZoom(true))
-    // 10ms needed for useEffect to install window key/pointer handlers in happy-dom
-    await new Promise<void>(r => setTimeout(r, 10))
-    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }))
-    expect(document.body.style.cursor).toBe('grab')
+    // Dispatch inside vi.waitFor so if useEffect hasn't installed the handler
+    // yet (possible under serial-loop load), we retry until it responds.
+    // Load-bearing — positive assertion waits for state to settle.
+    await vi.waitFor(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }))
+      expect(document.body.style.cursor).toBe('grab')
+    }, { timeout: 1000 })
     window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', bubbles: true }))
     unmount()
   })
@@ -295,11 +298,13 @@ describe('useCanvasZoom', () => {
   it('cursor restores on Space release', async () => {
     document.body.style.cursor = 'crosshair'
     const { unmount } = renderHook(() => useCanvasZoom(true))
-    // Setup wait: give the hook's useEffect time to install the keydown/keyup
-    // handlers on window. 0ms flaked on CI Linux under fork concurrency — keep 50ms.
-    await new Promise<void>(r => setTimeout(r, 50))
-    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }))
-    expect(document.body.style.cursor).toBe('grab')
+    // Dispatch inside vi.waitFor so if useEffect hasn't installed the handler
+    // yet (possible under serial-loop load), we retry until keydown responds.
+    // Load-bearing — positive assertion waits for state to settle.
+    await vi.waitFor(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }))
+      expect(document.body.style.cursor).toBe('grab')
+    }, { timeout: 1000 })
     window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', bubbles: true }))
     expect(document.body.style.cursor).toBe('crosshair')
     unmount()
@@ -398,7 +403,12 @@ describe('useCanvasZoom', () => {
 
     it('wheel-to-pan has momentum after scroll stops', async () => {
       const { unmount } = renderHook(() => useCanvasZoom(true))
-      await new Promise<void>(r => setTimeout(r, 10))
+      // Structural hold: wait for useEffect (wheel handler) to be installed.
+      // useLayoutEffect sets the initial transform synchronously, but the wheel
+      // listener is added by a separate useEffect that runs async. 10ms flaked
+      // under serial-loop load — 50ms gives the same margin as the cursor tests.
+      // Load-bearing — NOT vi.waitFor; structural event-ordering wait.
+      await new Promise<void>(r => setTimeout(r, 50))
       installRAFMock()
 
       const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
