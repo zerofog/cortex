@@ -3,6 +3,8 @@ import { render } from 'preact'
 import { act } from 'preact/test-utils'
 import { Panel } from '../../src/browser/components/Panel.js'
 import { renderInShadow, mockGetComputedStyle, createShadowHost } from './helpers.js'
+import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
+import { _resetBusForTesting } from '../../src/browser/override-bus.js'
 
 const panelPositionProps = {
   position: { x: 1000, y: 12 },
@@ -25,6 +27,13 @@ const panelPositionProps = {
 // hang forever. See panel-section-order.test.ts for the same guard.
 afterEach(() => {
   vi.useRealTimers()
+  // Reset module-scope event-bus listeners (override-bus + transform-bus).
+  // Panel + overlays subscribe to these in useEffect; a leaked listener from
+  // a prior test (e.g., one that threw before unmount) fires on the next
+  // test's emissions and contaminates assertions on render counts /
+  // computed-style polling. ZF0-1322 root-cause fix.
+  _resetBusForTesting()
+  _resetTransformBusForTesting()
 })
 
 describe('Panel', () => {
