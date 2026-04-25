@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import type { VNode } from 'preact'
 import { render } from 'preact'
 import type { TextComponent } from '../../../../src/core/text-components.js'

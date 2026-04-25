@@ -7,8 +7,10 @@ describe('CapabilityBanner', () => {
   let container: HTMLDivElement
 
   afterEach(() => {
-    render(null, container)
-    container?.remove()
+    if (container) {
+      render(null, container)
+      container.remove()
+    }
   })
 
   it('renders system name and status text for each system', () => {

@@ -14,13 +14,15 @@ describe('ErrorToast', () => {
   let container: HTMLDivElement
 
   afterEach(() => {
-    render(null, container)
-    container?.remove()
+    if (container) {
+      render(null, container)
+      container.remove()
+    }
     vi.useRealTimers()
     vi.clearAllMocks()
   })
 
-  it('renders a toast when undo_sync_status fails with non-empty_stack reason', async () => {
+  it('renders a toast when undo_sync_status fails with a non-empty_stack reason (stale)', async () => {
     container = document.createElement('div')
     document.body.appendChild(container)
 
