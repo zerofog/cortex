@@ -81,7 +81,9 @@ describe('PositionDropdown', () => {
 
   async function openPopover() {
     getTrigger().click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(getPopover()).not.toBeNull()
+    }, { timeout: 500 })
   }
 
   // 1. Trigger renders selected option label
@@ -132,10 +134,11 @@ describe('PositionDropdown', () => {
     const options = getOptions()
     const absoluteRow = options.find((o) => o.id === 'cortex-position-opt-absolute')!
     absoluteRow.click()
-    await new Promise((r) => setTimeout(r, 10))
-    expect(onChange).toHaveBeenCalledTimes(1)
-    expect(onChange).toHaveBeenCalledWith('absolute')
-    expect(getPopover()).toBeNull()
+    await vi.waitFor(() => {
+      expect(onChange).toHaveBeenCalledTimes(1)
+      expect(onChange).toHaveBeenCalledWith('absolute')
+      expect(getPopover()).toBeNull()
+    }, { timeout: 500 })
   })
 
   // 5. Escape closes without calling onChange
@@ -144,8 +147,9 @@ describe('PositionDropdown', () => {
     await openPopover()
     expect(getPopover()).not.toBeNull()
     dispatchKeyboardEvent(getTrigger(), 'keydown', { key: 'Escape' })
-    await new Promise((r) => setTimeout(r, 10))
-    expect(getPopover()).toBeNull()
+    await vi.waitFor(() => {
+      expect(getPopover()).toBeNull()
+    }, { timeout: 500 })
     expect(onChange).not.toHaveBeenCalled()
   })
 
@@ -159,11 +163,12 @@ describe('PositionDropdown', () => {
     )
     expect(initialHighlighted?.id).toBe('cortex-position-opt-static')
     dispatchKeyboardEvent(getTrigger(), 'keydown', { key: 'ArrowDown' })
-    await new Promise((r) => setTimeout(r, 10))
-    const nextHighlighted = container.querySelector(
-      '.cortex-position-dropdown__option--highlighted',
-    )
-    expect(nextHighlighted?.id).toBe('cortex-position-opt-relative')
+    await vi.waitFor(() => {
+      const nextHighlighted = container.querySelector(
+        '.cortex-position-dropdown__option--highlighted',
+      )
+      expect(nextHighlighted?.id).toBe('cortex-position-opt-relative')
+    }, { timeout: 500 })
   })
 
   // 7. Enter on a highlighted option calls onChange with that value
@@ -172,14 +177,15 @@ describe('PositionDropdown', () => {
     await openPopover()
     // Move highlight twice: static -> relative -> absolute
     dispatchKeyboardEvent(getTrigger(), 'keydown', { key: 'ArrowDown' })
-    await new Promise((r) => setTimeout(r, 10))
+    await new Promise<void>(r => setTimeout(r, 0))
     dispatchKeyboardEvent(getTrigger(), 'keydown', { key: 'ArrowDown' })
-    await new Promise((r) => setTimeout(r, 10))
+    await new Promise<void>(r => setTimeout(r, 0))
     dispatchKeyboardEvent(getTrigger(), 'keydown', { key: 'Enter' })
-    await new Promise((r) => setTimeout(r, 10))
-    expect(onChange).toHaveBeenCalledTimes(1)
-    expect(onChange).toHaveBeenCalledWith('absolute')
-    expect(getPopover()).toBeNull()
+    await vi.waitFor(() => {
+      expect(onChange).toHaveBeenCalledTimes(1)
+      expect(onChange).toHaveBeenCalledWith('absolute')
+      expect(getPopover()).toBeNull()
+    }, { timeout: 500 })
   })
 
   // 8. Checkmark appears ONLY on the currently-selected option
@@ -219,14 +225,16 @@ describe('PositionDropdown', () => {
     const options = getOptions()
     const fixedRow = options.find((o) => o.id === 'cortex-position-opt-fixed')!
     dispatchMouseEvent(fixedRow, 'mouseenter')
-    await new Promise((r) => setTimeout(r, 10))
-    expect(getDescription()!.textContent).toBe(DESCRIPTIONS.fixed)
+    await vi.waitFor(() => {
+      expect(getDescription()!.textContent).toBe(DESCRIPTIONS.fixed)
+    }, { timeout: 500 })
     // And on mouseleave it falls back to the highlighted (now "fixed")
     // option — not silently reverting to the selection, which would be
     // a UX regression. This asserts the priority: hover > highlight > selection.
     dispatchMouseEvent(fixedRow, 'mouseleave')
-    await new Promise((r) => setTimeout(r, 10))
-    expect(getDescription()!.textContent).toBe(DESCRIPTIONS.fixed)
+    await vi.waitFor(() => {
+      expect(getDescription()!.textContent).toBe(DESCRIPTIONS.fixed)
+    }, { timeout: 500 })
   })
 
   // 11. Disabled state prevents opening
@@ -234,7 +242,7 @@ describe('PositionDropdown', () => {
     const { onChange } = setup({ disabled: true })
     expect(getTrigger().disabled).toBe(true)
     getTrigger().click()
-    await new Promise((r) => setTimeout(r, 10))
+    await new Promise<void>(r => setTimeout(r, 0))
     expect(getPopover()).toBeNull()
     expect(onChange).not.toHaveBeenCalled()
   })
@@ -266,8 +274,9 @@ describe('PositionDropdown', () => {
     trigger.blur()
     expect(document.activeElement).not.toBe(trigger)
     dispatchKeyboardEvent(trigger, 'keydown', { key: 'Escape' })
-    await new Promise((r) => setTimeout(r, 10))
-    expect(document.activeElement).toBe(getTrigger())
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(getTrigger())
+    }, { timeout: 500 })
   })
 
   // Bonus: Arrow-key wrap-around (documented behavior — ArrowUp from first
@@ -277,10 +286,11 @@ describe('PositionDropdown', () => {
     setup({ value: 'static' })
     await openPopover()
     dispatchKeyboardEvent(getTrigger(), 'keydown', { key: 'ArrowUp' })
-    await new Promise((r) => setTimeout(r, 10))
-    const highlighted = container.querySelector(
-      '.cortex-position-dropdown__option--highlighted',
-    )
-    expect(highlighted?.id).toBe('cortex-position-opt-sticky')
+    await vi.waitFor(() => {
+      const highlighted = container.querySelector(
+        '.cortex-position-dropdown__option--highlighted',
+      )
+      expect(highlighted?.id).toBe('cortex-position-opt-sticky')
+    }, { timeout: 500 })
   })
 })

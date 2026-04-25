@@ -78,84 +78,103 @@ describe('Dropdown', () => {
   it('click trigger opens popover', async () => {
     setup()
     getTrigger().click()
-    await new Promise((r) => setTimeout(r, 10))
-    const popover = getPopover()
-    expect(popover).not.toBeNull()
-    expect(popover!.style.display).not.toBe('none')
+    await vi.waitFor(() => {
+      const popover = getPopover()
+      expect(popover).not.toBeNull()
+      expect(popover!.style.display).not.toBe('none')
+    }, { timeout: 500 })
   })
 
   it('shows all options when open', async () => {
     setup()
     getTrigger().click()
-    await new Promise((r) => setTimeout(r, 10))
-    expect(getOptions().length).toBe(4)
+    await vi.waitFor(() => {
+      expect(getOptions().length).toBe(4)
+    }, { timeout: 500 })
   })
 
   it('filters options on type', async () => {
     setup()
     getTrigger().click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(getOptions().length).toBe(4)
+    }, { timeout: 500 })
     const filter = getFilter()!
     filter.value = 'rob'
     filter.dispatchEvent(new Event('input', { bubbles: true }))
-    await new Promise((r) => setTimeout(r, 10))
-    const visibleOptions = getOptions()
-    expect(visibleOptions.length).toBe(1)
-    expect(visibleOptions[0].textContent).toContain('Roboto')
+    await vi.waitFor(() => {
+      const visibleOptions = getOptions()
+      expect(visibleOptions.length).toBe(1)
+      expect(visibleOptions[0].textContent).toContain('Roboto')
+    }, { timeout: 500 })
   })
 
   it('shows no matches message when filter has zero results', async () => {
     setup()
     getTrigger().click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(getOptions().length).toBe(4)
+    }, { timeout: 500 })
     const filter = getFilter()!
     filter.value = 'zzzzz'
     filter.dispatchEvent(new Event('input', { bubbles: true }))
-    await new Promise((r) => setTimeout(r, 10))
-    const empty = container.querySelector('.cortex-dropdown__empty')
-    expect(empty).not.toBeNull()
-    expect(empty!.textContent).toContain('No matches')
+    await vi.waitFor(() => {
+      const empty = container.querySelector('.cortex-dropdown__empty')
+      expect(empty).not.toBeNull()
+      expect(empty!.textContent).toContain('No matches')
+    }, { timeout: 500 })
   })
 
   it('click option selects and closes', async () => {
     const { onChange } = setup()
     getTrigger().click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(getOptions().length).toBe(4)
+    }, { timeout: 500 })
     const options = getOptions()
     ;(options[1] as HTMLElement).click()
-    await new Promise((r) => setTimeout(r, 10))
-    expect(onChange).toHaveBeenCalledWith('Roboto')
-    const popover = getPopover()
-    expect(popover === null || popover.style.display === 'none').toBe(true)
+    await vi.waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith('Roboto')
+      const popover = getPopover()
+      expect(popover === null || popover.style.display === 'none').toBe(true)
+    }, { timeout: 500 })
   })
 
   it('escape closes popover', async () => {
     setup()
     getTrigger().click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(getOptions().length).toBe(4)
+    }, { timeout: 500 })
     dispatchKeyboardEvent(getFilter()!, 'keydown', { key: 'Escape' })
-    await new Promise((r) => setTimeout(r, 10))
-    const popover = getPopover()
-    expect(popover === null || popover.style.display === 'none').toBe(true)
+    await vi.waitFor(() => {
+      const popover = getPopover()
+      expect(popover === null || popover.style.display === 'none').toBe(true)
+    }, { timeout: 500 })
   })
 
   // Review finding 1b: backdrop click test
   it('backdrop click closes popover (light dismiss)', async () => {
     setup()
     getTrigger().click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(getOptions().length).toBe(4)
+    }, { timeout: 500 })
     const backdrop = container.querySelector('.cortex-dropdown__backdrop') as HTMLElement
     expect(backdrop).not.toBeNull()
     backdrop.click()
-    await new Promise((r) => setTimeout(r, 10))
-    const popover = getPopover()
-    expect(popover === null || popover.style.display === 'none').toBe(true)
+    await vi.waitFor(() => {
+      const popover = getPopover()
+      expect(popover === null || popover.style.display === 'none').toBe(true)
+    }, { timeout: 500 })
   })
 
   it('marks currently selected option', async () => {
     setup({ value: 'Roboto' })
     getTrigger().click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(getOptions().length).toBe(4)
+    }, { timeout: 500 })
     const selected = container.querySelector('.cortex-dropdown__option--selected')
     expect(selected).not.toBeNull()
     expect(selected!.textContent).toContain('Roboto')
@@ -164,12 +183,21 @@ describe('Dropdown', () => {
   it('arrow keys navigate options', async () => {
     const { onChange } = setup()
     getTrigger().click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(getOptions().length).toBe(4)
+    }, { timeout: 500 })
     const filter = getFilter()!
     dispatchKeyboardEvent(filter, 'keydown', { key: 'ArrowDown' })
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      // wait for highlight state update
+      const opts = getOptions()
+      expect(opts.length).toBe(4)
+    }, { timeout: 500 })
     dispatchKeyboardEvent(filter, 'keydown', { key: 'ArrowDown' })
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      const opts = getOptions()
+      expect(opts.length).toBe(4)
+    }, { timeout: 500 })
     dispatchKeyboardEvent(filter, 'keydown', { key: 'Enter' })
     expect(onChange).toHaveBeenCalledWith('Open Sans')
   })

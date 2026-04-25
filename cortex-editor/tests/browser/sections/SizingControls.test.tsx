@@ -75,9 +75,10 @@ describe('SizingControls', () => {
     const { onChange } = setup()
     const triggers = container.querySelectorAll('.cortex-sizing-trigger')
     ;(triggers[0] as HTMLElement).click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-value="fit"]')).not.toBeNull()
+    }, { timeout: 500 })
     const fitOption = container.querySelector('[data-value="fit"]') as HTMLElement
-    expect(fitOption).not.toBeNull()
     fitOption.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'width', value: 'fit-content' })
   })
@@ -86,9 +87,10 @@ describe('SizingControls', () => {
     const { onChange } = setup()
     const triggers = container.querySelectorAll('.cortex-sizing-trigger')
     ;(triggers[0] as HTMLElement).click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-value="fill"]')).not.toBeNull()
+    }, { timeout: 500 })
     const fillOption = container.querySelector('[data-value="fill"]') as HTMLElement
-    expect(fillOption).not.toBeNull()
     fillOption.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'width', value: '100%' })
   })
@@ -151,8 +153,9 @@ describe('SizingControls', () => {
     const lockBtn = container.querySelector('.cortex-lock-btn') as HTMLElement
     expect(lockBtn).not.toBeNull()
     lockBtn.click()
-    // Allow Preact to flush state update
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(lockBtn.getAttribute('aria-pressed')).toBe('true')
+    }, { timeout: 500 })
     // Now change width — need to re-query since the component re-rendered
     const inputs = container.querySelectorAll('.cortex-numeric-input input')
     const widthInput = inputs[0] as HTMLInputElement
@@ -170,9 +173,10 @@ describe('SizingControls', () => {
     const { onChange } = setup()
     const triggers = container.querySelectorAll('.cortex-sizing-trigger')
     ;(triggers[0] as HTMLElement).click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-action="toggle-min"]')).not.toBeNull()
+    }, { timeout: 500 })
     const minToggle = container.querySelector('[data-action="toggle-min"]') as HTMLElement
-    expect(minToggle).not.toBeNull()
     minToggle.click()
     // Should fire onChange to set min-width to a nonzero value
     expect(onChange).toHaveBeenCalledWith({ property: 'min-width', value: '1px' })
@@ -182,9 +186,10 @@ describe('SizingControls', () => {
     const { onChange } = setup()
     const triggers = container.querySelectorAll('.cortex-sizing-trigger')
     ;(triggers[0] as HTMLElement).click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-action="toggle-max"]')).not.toBeNull()
+    }, { timeout: 500 })
     const maxToggle = container.querySelector('[data-action="toggle-max"]') as HTMLElement
-    expect(maxToggle).not.toBeNull()
     maxToggle.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'max-width', value: '9999px' })
   })

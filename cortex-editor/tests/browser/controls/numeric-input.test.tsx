@@ -87,9 +87,10 @@ describe('NumericInput', () => {
     input.dispatchEvent(new Event('input', { bubbles: true }))
     dispatchKeyboardEvent(input, 'keydown', { key: 'Enter' })
     // Enter calls blur() internally — wait for blur handler to run
-    await new Promise(r => setTimeout(r, 10))
-    expect(onChange).toHaveBeenCalledTimes(1)
-    expect(onChange).toHaveBeenCalledWith(24)
+    await vi.waitFor(() => {
+      expect(onChange).toHaveBeenCalledTimes(1)
+      expect(onChange).toHaveBeenCalledWith(24)
+    }, { timeout: 500 })
   })
 
   it('reverts invalid text on blur', async () => {
@@ -98,8 +99,9 @@ describe('NumericInput', () => {
     input.dispatchEvent(new Event('input', { bubbles: true }))
     input.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
     // Flush Preact's async re-render after setLocalValue in handleBlur
-    await new Promise(r => setTimeout(r, 10))
-    expect(input.value).toBe('16')
+    await vi.waitFor(() => {
+      expect(input.value).toBe('16')
+    }, { timeout: 500 })
     expect(onChange).not.toHaveBeenCalled()
   })
 
@@ -146,10 +148,10 @@ describe('NumericInput', () => {
 
     // Drag 20px right — value should be 16 + 20 = 36
     dispatchPointerEvent(wrapper, 'pointermove', { clientX: 120 })
-    await new Promise(r => setTimeout(r, 0))
-
-    expect(input.value).toBe('36')
-    expect(onScrub).toHaveBeenCalledWith(36)
+    await vi.waitFor(() => {
+      expect(input.value).toBe('36')
+      expect(onScrub).toHaveBeenCalledWith(36)
+    }, { timeout: 500 })
 
     // Release
     dispatchPointerEvent(wrapper, 'pointerup', { clientX: 120 })
@@ -197,8 +199,9 @@ describe('NumericInput', () => {
     input.value = '24'
     input.dispatchEvent(new Event('input', { bubbles: true }))
     input.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
-    await new Promise(r => setTimeout(r, 10))
-    expect(onChange).toHaveBeenCalledWith(24)
+    await vi.waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith(24)
+    }, { timeout: 500 })
   })
 
   it('does NOT commit on blur if user did not type (HMR safety)', async () => {
@@ -206,7 +209,7 @@ describe('NumericInput', () => {
     // Focus the input (select all), then blur WITHOUT typing
     input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
     input.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
-    await new Promise(r => setTimeout(r, 10))
+    await new Promise<void>(r => setTimeout(r, 0))
     expect(onChange).not.toHaveBeenCalled()
   })
 
@@ -225,10 +228,10 @@ describe('NumericInput', () => {
     input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
     // Re-render with different value (simulates HMR changing the prop)
     render(<NumericInput value={18} unit="px" onChange={onChange} />, container)
-    await new Promise(r => setTimeout(r, 10))
+    await new Promise<void>(r => setTimeout(r, 0))
     // Blur fires (e.g., React replaced DOM node)
     input.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
-    await new Promise(r => setTimeout(r, 10))
+    await new Promise<void>(r => setTimeout(r, 0))
 
     // Should NOT have called onChange — user didn't type
     expect(onChange).not.toHaveBeenCalled()
@@ -250,7 +253,7 @@ describe('NumericInput', () => {
       dispatchPointerEvent(wrapper, 'pointerdown', { clientX: 100 })
       await new Promise(r => setTimeout(r, 0))
       dispatchPointerEvent(wrapper, 'pointerup', { clientX: 100 })
-      await new Promise(r => setTimeout(r, 10))
+      await new Promise<void>(r => setTimeout(r, 0))
 
       // Input stays empty — no auto-fill with selected element's value (16)
       expect(input.value).toBe('')
@@ -262,16 +265,16 @@ describe('NumericInput', () => {
 
       // Click to focus
       dispatchPointerEvent(wrapper, 'pointerdown', { clientX: 100 })
-      await new Promise(r => setTimeout(r, 0))
+      await new Promise<void>(r => setTimeout(r, 0))
       dispatchPointerEvent(wrapper, 'pointerup', { clientX: 100 })
-      await new Promise(r => setTimeout(r, 10))
+      await new Promise<void>(r => setTimeout(r, 0))
 
       // Simulate typing "30"
       input.value = '30'
       input.dispatchEvent(new Event('input', { bubbles: true }))
-      await new Promise(r => setTimeout(r, 10))
-
-      expect(input.value).toBe('30')
+      await vi.waitFor(() => {
+        expect(input.value).toBe('30')
+      }, { timeout: 500 })
     })
 
     it('commits typed value on Enter', () => {
@@ -291,13 +294,13 @@ describe('NumericInput', () => {
 
       // Click to focus
       dispatchPointerEvent(wrapper, 'pointerdown', { clientX: 100 })
-      await new Promise(r => setTimeout(r, 0))
+      await new Promise<void>(r => setTimeout(r, 0))
       dispatchPointerEvent(wrapper, 'pointerup', { clientX: 100 })
-      await new Promise(r => setTimeout(r, 10))
+      await new Promise<void>(r => setTimeout(r, 0))
 
       // Blur without typing
       input.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
-      await new Promise(r => setTimeout(r, 10))
+      await new Promise<void>(r => setTimeout(r, 0))
 
       expect(onChange).not.toHaveBeenCalled()
     })

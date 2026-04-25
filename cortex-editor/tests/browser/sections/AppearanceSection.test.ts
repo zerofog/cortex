@@ -258,12 +258,12 @@ describe('AppearanceSection', () => {
     expect(toggle).not.toBeNull()
     expect(toggle.getAttribute('aria-pressed')).toBe('false')
     toggle.click()
-    // Preact state flush is async via setTimeout(0) — give it a tick.
-    await new Promise((r) => setTimeout(r, 10))
-    const toggleAfter = container.querySelector(
-      '.cortex-appearance-section__corner-toggle',
-    ) as HTMLButtonElement
-    expect(toggleAfter.getAttribute('aria-pressed')).toBe('true')
+    await vi.waitFor(() => {
+      const toggleAfter = container.querySelector(
+        '.cortex-appearance-section__corner-toggle',
+      ) as HTMLButtonElement
+      expect(toggleAfter.getAttribute('aria-pressed')).toBe('true')
+    }, { timeout: 500 })
     // Each per-corner NumericInput is identified by its semantic tooltip
     // (the Panel v2 polish replaced the earlier TL/TR/BR/BL text labels
     // with Lucide-style corner-bracket prefix icons — see CornerTopLeft,
@@ -410,12 +410,13 @@ describe('AppearanceSection', () => {
         '.cortex-appearance-section__corner-toggle',
       ) as HTMLButtonElement
       firstToggle.click()
-      await new Promise((r) => setTimeout(r, 10))
-      expect(
-        (container.querySelector(
-          '.cortex-appearance-section__corner-toggle',
-        ) as HTMLButtonElement).getAttribute('aria-pressed'),
-      ).toBe('true')
+      await vi.waitFor(() => {
+        expect(
+          (container.querySelector(
+            '.cortex-appearance-section__corner-toggle',
+          ) as HTMLButtonElement).getAttribute('aria-pressed'),
+        ).toBe('true')
+      }, { timeout: 500 })
 
       // Re-render with a new resetKey — per-corner UI must collapse again
       render(
@@ -426,11 +427,12 @@ describe('AppearanceSection', () => {
         }),
         container,
       )
-      await new Promise((r) => setTimeout(r, 10))
-      const afterToggle = container.querySelector(
-        '.cortex-appearance-section__corner-toggle',
-      ) as HTMLButtonElement
-      expect(afterToggle.getAttribute('aria-pressed')).toBe('false')
+      await vi.waitFor(() => {
+        const afterToggle = container.querySelector(
+          '.cortex-appearance-section__corner-toggle',
+        ) as HTMLButtonElement
+        expect(afterToggle.getAttribute('aria-pressed')).toBe('false')
+      }, { timeout: 500 })
     })
 
     // Negative control: the invariant the above test does NOT prove is that a
@@ -457,17 +459,18 @@ describe('AppearanceSection', () => {
         '.cortex-appearance-section__corner-toggle',
       ) as HTMLButtonElement
       firstToggle.click()
-      await new Promise((r) => setTimeout(r, 10))
-      expect(
-        (container.querySelector(
-          '.cortex-appearance-section__corner-toggle',
-        ) as HTMLButtonElement).getAttribute('aria-pressed'),
-      ).toBe('true')
-      // Sanity check: corner inputs are visible.
-      // Sanity: the per-corner Top-Left input renders with its tooltip.
-      expect(
-        container.querySelector('[data-tooltip="Top Left Radius"]'),
-      ).not.toBeNull()
+      await vi.waitFor(() => {
+        expect(
+          (container.querySelector(
+            '.cortex-appearance-section__corner-toggle',
+          ) as HTMLButtonElement).getAttribute('aria-pressed'),
+        ).toBe('true')
+        // Sanity check: corner inputs are visible.
+        // Sanity: the per-corner Top-Left input renders with its tooltip.
+        expect(
+          container.querySelector('[data-tooltip="Top Left Radius"]'),
+        ).not.toBeNull()
+      }, { timeout: 500 })
 
       // Re-render with the SAME resetKey but a different unrelated prop value
       // (opacity jumps 80 → 60). The mount-skip guard must suppress the reset.
@@ -479,16 +482,17 @@ describe('AppearanceSection', () => {
         }),
         container,
       )
-      await new Promise((r) => setTimeout(r, 10))
-      const afterToggle = container.querySelector(
-        '.cortex-appearance-section__corner-toggle',
-      ) as HTMLButtonElement
-      expect(afterToggle.getAttribute('aria-pressed')).toBe('true')
-      // All 4 per-corner inputs must still be rendered, identified by tooltip.
-      expect(container.querySelector('[data-tooltip="Top Left Radius"]')).not.toBeNull()
-      expect(container.querySelector('[data-tooltip="Top Right Radius"]')).not.toBeNull()
-      expect(container.querySelector('[data-tooltip="Bottom Right Radius"]')).not.toBeNull()
-      expect(container.querySelector('[data-tooltip="Bottom Left Radius"]')).not.toBeNull()
+      await vi.waitFor(() => {
+        const afterToggle = container.querySelector(
+          '.cortex-appearance-section__corner-toggle',
+        ) as HTMLButtonElement
+        expect(afterToggle.getAttribute('aria-pressed')).toBe('true')
+        // All 4 per-corner inputs must still be rendered, identified by tooltip.
+        expect(container.querySelector('[data-tooltip="Top Left Radius"]')).not.toBeNull()
+        expect(container.querySelector('[data-tooltip="Top Right Radius"]')).not.toBeNull()
+        expect(container.querySelector('[data-tooltip="Bottom Right Radius"]')).not.toBeNull()
+        expect(container.querySelector('[data-tooltip="Bottom Left Radius"]')).not.toBeNull()
+      }, { timeout: 500 })
     })
   })
 })

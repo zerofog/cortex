@@ -156,11 +156,12 @@ describe('PositionSection', () => {
     ) as HTMLButtonElement
     expect(trigger).not.toBeNull()
     trigger.click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(container.querySelector('#cortex-position-opt-absolute')).not.toBeNull()
+    }, { timeout: 500 })
     const absOption = container.querySelector(
       '#cortex-position-opt-absolute',
     ) as HTMLElement
-    expect(absOption).not.toBeNull()
     absOption.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'position', value: 'absolute' })
   })

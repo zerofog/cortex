@@ -180,14 +180,14 @@ describe('Panel — canonical section ordering', () => {
     const { root } = mount(a)
 
     // detectSharedClasses runs in a useEffect, so the scope toggle only
-    // appears after Preact flushes effects. Two microtask cycles are
-    // required: one for the useEffect to fire and call setSharedInfo(),
-    // and a second for Preact to flush the resulting re-render.
-    await new Promise(r => setTimeout(r, 0))
-    await new Promise(r => setTimeout(r, 0))
-
-    // Scope defaults to 'instance', so Position should be visible initially.
-    expect(root.querySelector('[data-group="position"]')).not.toBeNull()
+    // appears after Preact flushes effects. Both position group and the
+    // scope button must be present before proceeding.
+    await vi.waitFor(() => {
+      // Scope defaults to 'instance', so Position should be visible initially.
+      expect(root.querySelector('[data-group="position"]')).not.toBeNull()
+      // Scope button must also be present (requires second effect flush after setSharedInfo).
+      expect(root.querySelector('.cortex-panel__scope-btn:last-child')).not.toBeNull()
+    }, { timeout: 500 })
 
     // Click the "All" scope button (scope toggle is rendered when sharedInfo detected).
     const allButton = root.querySelector<HTMLButtonElement>(
@@ -195,10 +195,10 @@ describe('Panel — canonical section ordering', () => {
     )
     expect(allButton).not.toBeNull()
     allButton!.click()
-    await new Promise(r => setTimeout(r, 0))
-
-    // Position group should now be hidden.
-    expect(root.querySelector('[data-group="position"]')).toBeNull()
+    await vi.waitFor(() => {
+      // Position group should now be hidden.
+      expect(root.querySelector('[data-group="position"]')).toBeNull()
+    }, { timeout: 500 })
 
     // And the remaining groups should be 6 (Elements, Layout, Appearance,
     // Background, Border, Effects) — Typography omitted for a non-text

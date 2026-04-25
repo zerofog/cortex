@@ -184,9 +184,10 @@ describe('LayoutSection', () => {
     const { onChange } = setup()
     const triggers = container.querySelectorAll('.cortex-sizing-trigger')
     ;(triggers[0] as HTMLElement).click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-value="fit"]')).not.toBeNull()
+    }, { timeout: 500 })
     const fitOption = container.querySelector('[data-value="fit"]') as HTMLElement
-    expect(fitOption).not.toBeNull()
     fitOption.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'width', value: 'fit-content' })
   })
@@ -195,9 +196,10 @@ describe('LayoutSection', () => {
     const { onChange } = setup()
     const triggers = container.querySelectorAll('.cortex-sizing-trigger')
     ;(triggers[0] as HTMLElement).click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-value="fill"]')).not.toBeNull()
+    }, { timeout: 500 })
     const fillOption = container.querySelector('[data-value="fill"]') as HTMLElement
-    expect(fillOption).not.toBeNull()
     fillOption.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'width', value: '100%' })
   })
@@ -206,12 +208,14 @@ describe('LayoutSection', () => {
     setup()
     const triggers = container.querySelectorAll('.cortex-sizing-trigger')
     ;(triggers[0] as HTMLElement).click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-action="toggle-min"]')).not.toBeNull()
+    }, { timeout: 500 })
     const minToggle = container.querySelector('[data-action="toggle-min"]') as HTMLElement
-    expect(minToggle).not.toBeNull()
     minToggle.click()
-    await new Promise((r) => setTimeout(r, 10))
-    expect(container.textContent).toContain('Min')
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain('Min')
+    }, { timeout: 500 })
   })
 
   // ── display=none hides SizingControls + SpacingControls ─────────

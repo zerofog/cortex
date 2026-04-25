@@ -160,14 +160,13 @@ describe('BorderSection', () => {
     const expandBtn = container.querySelector('[aria-label="Expand per-side widths"]') as HTMLButtonElement
     expect(expandBtn).not.toBeNull()
     expandBtn.click()
-    // Preact state flush is async via setTimeout(0) — give it a tick.
-    await new Promise((r) => setTimeout(r, 10))
-
-    // Now per-side grid should be visible with 4 inputs
-    const perSide = container.querySelector('.cortex-border-section__per-side')
-    expect(perSide).not.toBeNull()
-    const inputs = perSide!.querySelectorAll('input')
-    expect(inputs.length).toBe(4)
+    await vi.waitFor(() => {
+      // Now per-side grid should be visible with 4 inputs
+      const perSide = container.querySelector('.cortex-border-section__per-side')
+      expect(perSide).not.toBeNull()
+      const inputs = perSide!.querySelectorAll('input')
+      expect(inputs.length).toBe(4)
+    }, { timeout: 500 })
   })
 
   it('per-side T input fires border-top-width', async () => {
@@ -175,7 +174,9 @@ describe('BorderSection', () => {
     // Open per-side
     const expandBtn = container.querySelector('[aria-label="Expand per-side widths"]') as HTMLButtonElement
     expandBtn.click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-border-section__per-side')).not.toBeNull()
+    }, { timeout: 500 })
 
     // The T/R/B/L text labels were replaced by prefix icons; locate the top
     // input via its data-tooltip (which NumericInput emits on the wrapper
@@ -194,7 +195,9 @@ describe('BorderSection', () => {
     setup()
     const expandBtn = container.querySelector('[aria-label="Expand per-side widths"]') as HTMLButtonElement
     expandBtn.click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-border-section__per-side')).not.toBeNull()
+    }, { timeout: 500 })
 
     // Every per-side input has a prefix <svg> (SquareSideTop/Right/Bottom/Left),
     // and none of them carry a textual label any more. Falsifiability check:

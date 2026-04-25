@@ -109,8 +109,9 @@ describe('useCanvasZoom', () => {
     const { rerender, unmount } = renderHook(() => useCanvasZoom(true))
     expect(document.body.style.transform).toContain('scale(')
     rerender(() => useCanvasZoom(false))
-    await new Promise(r => setTimeout(r, 0))
-    expect(document.body.style.transform).toBe('')
+    await vi.waitFor(() => {
+      expect(document.body.style.transform).toBe('')
+    }, { timeout: 500 })
     unmount()
   })
 
@@ -151,37 +152,43 @@ describe('useCanvasZoom', () => {
 
   it('Cmd+scroll down decreases scale', async () => {
     const { result, rerender, unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise(r => setTimeout(r, 10))
+    await new Promise<void>(r => setTimeout(r, 10))
     const initialScale = result.current.scale
     dispatchWheel(100, true)
-    await new Promise(r => setTimeout(r, 10))
-    rerender(() => useCanvasZoom(true))
-    expect(result.current.scale).toBeLessThan(initialScale)
+    await vi.waitFor(() => {
+      rerender(() => useCanvasZoom(true))
+      expect(result.current.scale).toBeLessThan(initialScale)
+    }, { timeout: 500 })
     unmount()
   })
 
   it('Cmd+scroll up increases scale', async () => {
     const { result, rerender, unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise(r => setTimeout(r, 10))
+    await new Promise<void>(r => setTimeout(r, 10))
     dispatchWheel(100, true) // zoom out first
-    await new Promise(r => setTimeout(r, 10))
-    rerender(() => useCanvasZoom(true))
-    const zoomedOut = result.current.scale
+    let zoomedOut!: number
+    await vi.waitFor(() => {
+      rerender(() => useCanvasZoom(true))
+      zoomedOut = result.current.scale
+      expect(zoomedOut).toBeLessThan(1) // ensure zoom-out completed
+    }, { timeout: 500 })
     dispatchWheel(-100, true) // zoom back in
-    await new Promise(r => setTimeout(r, 10))
-    rerender(() => useCanvasZoom(true))
-    expect(result.current.scale).toBeGreaterThan(zoomedOut)
+    await vi.waitFor(() => {
+      rerender(() => useCanvasZoom(true))
+      expect(result.current.scale).toBeGreaterThan(zoomedOut)
+    }, { timeout: 500 })
     unmount()
   })
 
   it('regular scroll without Cmd does not change scale', async () => {
     const { result, rerender, unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise(r => setTimeout(r, 10))
+    await new Promise<void>(r => setTimeout(r, 10))
     const initialScale = result.current.scale
     dispatchWheel(100, false)
-    await new Promise(r => setTimeout(r, 10))
     rerender(() => useCanvasZoom(true))
-    expect(result.current.scale).toBe(initialScale)
+    await vi.waitFor(() => {
+      expect(result.current.scale).toBe(initialScale)
+    }, { timeout: 500 })
     unmount()
   })
 
@@ -191,15 +198,15 @@ describe('useCanvasZoom', () => {
     document.body.style.transformOrigin = 'center center'
 
     const { rerender, unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise(r => setTimeout(r, 0))
     // Canvas zoom should override
     expect(document.body.style.transform).toContain('scale(')
 
     // Disable — should restore originals
     rerender(() => useCanvasZoom(false))
-    await new Promise(r => setTimeout(r, 0))
-    expect(document.body.style.transform).toBe('translateY(-100px)')
-    expect(document.body.style.transformOrigin).toBe('center center')
+    await vi.waitFor(() => {
+      expect(document.body.style.transform).toBe('translateY(-100px)')
+      expect(document.body.style.transformOrigin).toBe('center center')
+    }, { timeout: 500 })
 
     unmount()
   })
@@ -218,61 +225,68 @@ describe('useCanvasZoom', () => {
 
   it('regular scroll pans vertically', async () => {
     const { unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise(r => setTimeout(r, 10))
+    await new Promise<void>(r => setTimeout(r, 10))
     const before = document.body.style.transform
     dispatchWheel(100, false)
-    await new Promise(r => setTimeout(r, 10))
-    const after = document.body.style.transform
-    expect(after).not.toBe(before)
-    // The y-offset in translate should have decreased (scrolled down → pan up)
     const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
-    expect(getY(after)).toBeLessThan(getY(before))
+    await vi.waitFor(() => {
+      const after = document.body.style.transform
+      expect(after).not.toBe(before)
+      // The y-offset in translate should have decreased (scrolled down → pan up)
+      expect(getY(after)).toBeLessThan(getY(before))
+    }, { timeout: 500 })
     unmount()
   })
 
   it('regular scroll pans horizontally', async () => {
     const { unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise(r => setTimeout(r, 10))
+    await new Promise<void>(r => setTimeout(r, 10))
     const before = document.body.style.transform
     dispatchWheel(0, false, 100)
-    await new Promise(r => setTimeout(r, 10))
-    const after = document.body.style.transform
-    expect(after).not.toBe(before)
-    // The x-offset in translate should have decreased (scrolled right → pan left)
     const getX = (t: string) => parseFloat(t.match(/translate\(([^p]+)px/)![1])
-    expect(getX(after)).toBeLessThan(getX(before))
+    await vi.waitFor(() => {
+      const after = document.body.style.transform
+      expect(after).not.toBe(before)
+      // The x-offset in translate should have decreased (scrolled right → pan left)
+      expect(getX(after)).toBeLessThan(getX(before))
+    }, { timeout: 500 })
     unmount()
   })
 
   it('pan offset is clamped to prevent canvas from going off-screen', async () => {
     const { unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise(r => setTimeout(r, 10))
+    await new Promise<void>(r => setTimeout(r, 10))
 
     const getX = (t: string) => parseFloat(t.match(/translate\(([^p]+)px/)![1])
 
     // Try to pan 50000px to the right
     dispatchWheel(0, false, -50000)
-    await new Promise(r => setTimeout(r, 10))
-    const x = getX(document.body.style.transform)
-
-    // Dynamic bounds: maxX = (max(vpW, scaledBodyW) + vpW) / 2
-    // With vpW=1440, this is at most a few thousand px, never 50000
-    expect(Math.abs(x)).toBeLessThan(5000)
+    await vi.waitFor(() => {
+      const x = getX(document.body.style.transform)
+      // Dynamic bounds: maxX = (max(vpW, scaledBodyW) + vpW) / 2
+      // With vpW=1440, this is at most a few thousand px, never 50000
+      expect(Math.abs(x)).toBeLessThan(5000)
+    }, { timeout: 500 })
     unmount()
   })
 
   it('Space hold shows grab cursor', async () => {
     const { unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise(r => setTimeout(r, 10))
-    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }))
-    expect(document.body.style.cursor).toBe('grab')
+    // Dispatch inside vi.waitFor so if useEffect hasn't installed the handler
+    // yet (possible under serial-loop load), we retry until it responds.
+    // Load-bearing — positive assertion waits for state to settle.
+    await vi.waitFor(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }))
+      expect(document.body.style.cursor).toBe('grab')
+    }, { timeout: 1000 })
     window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', bubbles: true }))
     unmount()
   })
 
   it('Space+drag shows grabbing cursor', async () => {
     const { unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise(r => setTimeout(r, 10))
+    // 10ms needed for useEffect to install window key/pointer handlers in happy-dom
+    await new Promise<void>(r => setTimeout(r, 10))
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }))
     window.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true }))
     expect(document.body.style.cursor).toBe('grabbing')
@@ -284,11 +298,13 @@ describe('useCanvasZoom', () => {
   it('cursor restores on Space release', async () => {
     document.body.style.cursor = 'crosshair'
     const { unmount } = renderHook(() => useCanvasZoom(true))
-    // Setup wait: give the hook's useEffect time to install the keydown/keyup
-    // handlers on window. 10ms flaked on CI Linux under fork concurrency.
-    await new Promise(r => setTimeout(r, 50))
-    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }))
-    expect(document.body.style.cursor).toBe('grab')
+    // Dispatch inside vi.waitFor so if useEffect hasn't installed the handler
+    // yet (possible under serial-loop load), we retry until keydown responds.
+    // Load-bearing — positive assertion waits for state to settle.
+    await vi.waitFor(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }))
+      expect(document.body.style.cursor).toBe('grab')
+    }, { timeout: 1000 })
     window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', bubbles: true }))
     expect(document.body.style.cursor).toBe('crosshair')
     unmount()
@@ -296,7 +312,8 @@ describe('useCanvasZoom', () => {
 
   it('Space+drag pointer up returns to grab (not grabbing)', async () => {
     const { unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise(r => setTimeout(r, 10))
+    // 10ms needed for useEffect to install window key/pointer handlers in happy-dom
+    await new Promise<void>(r => setTimeout(r, 10))
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }))
     window.dispatchEvent(new PointerEvent('pointerdown', { clientX: 50, clientY: 50, bubbles: true }))
     expect(document.body.style.cursor).toBe('grabbing')
@@ -308,42 +325,44 @@ describe('useCanvasZoom', () => {
 
   it('zooming preserves pan offset', async () => {
     const { result, rerender, unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise(r => setTimeout(r, 10))
+    await new Promise<void>(r => setTimeout(r, 10))
+
+    const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
 
     // Pan the canvas
     dispatchWheel(200, false)
-    await new Promise(r => setTimeout(r, 10))
-    const panTransform = document.body.style.transform
-    const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
-    const panY = getY(panTransform)
+    let panY!: number
+    await vi.waitFor(() => {
+      const t = document.body.style.transform
+      panY = getY(t)
+      expect(isNaN(panY)).toBe(false)
+    }, { timeout: 500 })
 
     // Zoom — should preserve pan offset, not reset it
     dispatchWheel(100, true)
-    await new Promise(r => setTimeout(r, 10))
-    rerender(() => useCanvasZoom(true))
-    await new Promise(r => setTimeout(r, 10))
-    const zoomTransform = document.body.style.transform
-    const zoomY = getY(zoomTransform)
-
-    // The y-offset should reflect the pan, not be reset to the default margin
-    expect(Math.abs(zoomY - panY)).toBeLessThan(50) // allows for margin recalc on scale change
+    await vi.waitFor(() => {
+      rerender(() => useCanvasZoom(true))
+      const zoomY = getY(document.body.style.transform)
+      // The y-offset should reflect the pan, not be reset to the default margin
+      expect(Math.abs(zoomY - panY)).toBeLessThan(50) // allows for margin recalc on scale change
+    }, { timeout: 500 })
     unmount()
   })
 
   it('normalizes line-based deltaMode for Firefox mouse', async () => {
     const { unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise(r => setTimeout(r, 10))
+    await new Promise<void>(r => setTimeout(r, 10))
     const before = document.body.style.transform
     const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
 
     // Simulate Firefox mouse: deltaMode=1 (lines), deltaY=3
     dispatchWheel(3, false, 0, 1) // deltaMode=1 (DOM_DELTA_LINE)
-    await new Promise(r => setTimeout(r, 10))
-
-    const after = document.body.style.transform
-    // 3 lines * ~40px/line = ~120px of pan, not 3px
-    const deltaY = getY(before) - getY(after)
-    expect(deltaY).toBeGreaterThan(50)
+    await vi.waitFor(() => {
+      const after = document.body.style.transform
+      // 3 lines * ~40px/line = ~120px of pan, not 3px
+      const deltaY = getY(before) - getY(after)
+      expect(deltaY).toBeGreaterThan(50)
+    }, { timeout: 500 })
     unmount()
   })
 
@@ -384,7 +403,12 @@ describe('useCanvasZoom', () => {
 
     it('wheel-to-pan has momentum after scroll stops', async () => {
       const { unmount } = renderHook(() => useCanvasZoom(true))
-      await new Promise(r => setTimeout(r, 10))
+      // Structural hold: wait for useEffect (wheel handler) to be installed.
+      // useLayoutEffect sets the initial transform synchronously, but the wheel
+      // listener is added by a separate useEffect that runs async. 10ms flaked
+      // under serial-loop load — 50ms gives the same margin as the cursor tests.
+      // Load-bearing — NOT vi.waitFor; structural event-ordering wait.
+      await new Promise<void>(r => setTimeout(r, 50))
       installRAFMock()
 
       const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
@@ -405,7 +429,7 @@ describe('useCanvasZoom', () => {
 
     it('momentum stops within expected frame count', async () => {
       const { unmount } = renderHook(() => useCanvasZoom(true))
-      await new Promise(r => setTimeout(r, 10))
+      await new Promise<void>(r => setTimeout(r, 10))
       installRAFMock()
 
       const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
@@ -423,7 +447,7 @@ describe('useCanvasZoom', () => {
 
     it('new wheel event cancels existing momentum', async () => {
       const { unmount } = renderHook(() => useCanvasZoom(true))
-      await new Promise(r => setTimeout(r, 10))
+      await new Promise<void>(r => setTimeout(r, 10))
       installRAFMock()
 
       const getX = (t: string) => parseFloat(t.match(/translate\(([^p]+)px/)![1])
@@ -444,7 +468,7 @@ describe('useCanvasZoom', () => {
 
     it('Cmd+scroll cancels momentum and changes scale', async () => {
       const { result, rerender, unmount } = renderHook(() => useCanvasZoom(true))
-      await new Promise(r => setTimeout(r, 10))
+      await new Promise<void>(r => setTimeout(r, 10))
       installRAFMock()
 
       const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
@@ -463,15 +487,16 @@ describe('useCanvasZoom', () => {
 
       // Verify scale changed
       restoreRAFMock()
-      await new Promise(r => setTimeout(r, 10))
-      rerender(() => useCanvasZoom(true))
-      expect(result.current.scale).toBeLessThan(0.85)
+      await vi.waitFor(() => {
+        rerender(() => useCanvasZoom(true))
+        expect(result.current.scale).toBeLessThan(0.85)
+      }, { timeout: 500 })
       unmount()
     })
 
     it('disabling canvas mode during momentum stops animation', async () => {
       const { rerender, unmount } = renderHook(() => useCanvasZoom(true))
-      await new Promise(r => setTimeout(r, 10))
+      await new Promise<void>(r => setTimeout(r, 10))
       installRAFMock()
 
       dispatchWheel(100, false) // start momentum
@@ -480,10 +505,10 @@ describe('useCanvasZoom', () => {
       // Disable canvas mode
       restoreRAFMock()
       rerender(() => useCanvasZoom(false))
-      await new Promise(r => setTimeout(r, 0))
-
       // Styles should be restored, not still animating
-      expect(document.body.style.transform).toBe('')
+      await vi.waitFor(() => {
+        expect(document.body.style.transform).toBe('')
+      }, { timeout: 500 })
       unmount()
     })
   })

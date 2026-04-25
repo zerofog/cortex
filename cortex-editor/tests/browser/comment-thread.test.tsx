@@ -79,7 +79,7 @@ describe('CommentThread', () => {
     // Set value directly then dispatch input event, then await Preact flush
     input.value = 'Blue please'
     input.dispatchEvent(new Event('input', { bubbles: true }))
-    await new Promise(r => setTimeout(r, 10))
+    await new Promise<void>(r => setTimeout(r, 0))
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
     expect(onReply).toHaveBeenCalledWith('ann-1', 'Blue please')
   })

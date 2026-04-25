@@ -38,11 +38,11 @@ describe('SelectionOverlay', () => {
     expect(overlay).not.toBeNull()
 
     // Initial render uses static placeholders; RAF sets real position
-    await new Promise(r => requestAnimationFrame(() => r(undefined)))
-    await new Promise(r => setTimeout(r, 0))
-    expect(overlay.style.transform).toBe('translate(200px, 100px)')
-    expect(overlay.style.width).toBe('300px')
-    expect(overlay.style.height).toBe('50px')
+    await vi.waitFor(() => {
+      expect(overlay.style.transform).toBe('translate(200px, 100px)')
+      expect(overlay.style.width).toBe('300px')
+      expect(overlay.style.height).toBe('50px')
+    }, { timeout: 500 })
 
     restore()
     target.remove()
@@ -382,28 +382,31 @@ describe('state lens', () => {
     const onStateChange = vi.fn()
     render(<SelectionOverlay element={element} availableStates={hoverOnlyStates} activeState="default" onStateChange={onStateChange} />, container)
 
-    // Wait for initial RAF to fire
+    // Wait for initial RAF to fire so lens position is set from the initial rect.
+    // Using a real rAF pump here rather than vi.waitFor because the overlay uses
+    // idle-frame detection: too many unchanged frames stop the loop, and vi.waitFor
+    // polling fires many frames in the 10ms retry window.
     await new Promise(r => requestAnimationFrame(() => r(undefined)))
     await new Promise(r => setTimeout(r, 0))
 
     const lens = container.querySelector('.cortex-state-lens') as HTMLElement
     expect(lens).not.toBeNull()
-    const initialTransform = lens?.style.transform
+    const initialTransform = lens.style.transform
 
     // Simulate scroll — element moves up
     mockGetBoundingClientRect(element, { top: 50, left: 100, width: 300, height: 50 })
 
-    // Wait for RAF update
+    // Pump one RAF frame so the overlay's position-update loop re-reads
+    // the element rect (idle loop is still alive after a single rAF pump).
     await new Promise(r => requestAnimationFrame(() => r(undefined)))
     await new Promise(r => setTimeout(r, 0))
 
-    // Lens position should have updated to reflect the new element rect
-    expect(lens?.style.transform).not.toBe(initialTransform)
     // Assert specific position — lens centered on element (left=100, width=300)
     // NOTE: happy-dom returns simplified transform values; real browsers may
     // produce sub-pixel differences. This asserts the centering logic is correct
     // in the test environment, not exact browser rendering.
-    expect(lens?.style.transform).toBe('translate(190px, 18px)')
+    expect(lens.style.transform).not.toBe(initialTransform)
+    expect(lens.style.transform).toBe('translate(190px, 18px)')
   })
 
   it('positions lens below element when near top of viewport', async () => {
@@ -411,13 +414,13 @@ describe('state lens', () => {
     render(<SelectionOverlay element={element} availableStates={hoverOnlyStates} activeState="default" />, container)
 
     // Wait for RAF to update lens position
-    await new Promise(r => requestAnimationFrame(() => r(undefined)))
-    await new Promise(r => setTimeout(r, 0))
-
-    const lens = container.querySelector('.cortex-state-lens') as HTMLElement
-    // Lens should be below the element — extract Y from translate(Xpx, Ypx)
-    const match = lens.style.transform.match(/translate\([^,]+,\s*([^)]+)px\)/)
-    const lensTop = match ? parseFloat(match[1]) : 0
-    expect(lensTop).toBeGreaterThan(70) // below element bottom (20 + 50)
+    await vi.waitFor(() => {
+      const lens = container.querySelector('.cortex-state-lens') as HTMLElement
+      expect(lens).not.toBeNull()
+      // Lens should be below the element — extract Y from translate(Xpx, Ypx)
+      const match = lens.style.transform.match(/translate\([^,]+,\s*([^)]+)px\)/)
+      const lensTop = match ? parseFloat(match[1]) : 0
+      expect(lensTop).toBeGreaterThan(70) // below element bottom (20 + 50)
+    }, { timeout: 500 })
   })
 })

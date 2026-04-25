@@ -231,107 +231,121 @@ describe('AlignmentGrid', () => {
     setup()
     expect(getOverlay()).toBeNull()
     dblclick(getCell(0, 1))
-    await tick()
-    const overlay = getOverlay()
-    expect(overlay).not.toBeNull()
-    expect(overlay!.classList.contains('cortex-alignment-grid__overlay--row')).toBe(true)
-    // The row's 3 cells (row=0) must be removed from the DOM — the
-    // overlay takes their place. This is the "replaces" contract.
-    expect(getCell(0, 0)).toBeNull()
-    expect(getCell(0, 1)).toBeNull()
-    expect(getCell(0, 2)).toBeNull()
-    // The remaining 6 cells (rows 1 and 2) are still rendered.
-    expect(getCells().length).toBe(6)
-    expect(getCell(1, 0)).not.toBeNull()
-    expect(getCell(2, 2)).not.toBeNull()
+    await vi.waitFor(() => {
+      const overlay = getOverlay()
+      expect(overlay).not.toBeNull()
+      expect(overlay!.classList.contains('cortex-alignment-grid__overlay--row')).toBe(true)
+      // The row's 3 cells (row=0) must be removed from the DOM — the
+      // overlay takes their place. This is the "replaces" contract.
+      expect(getCell(0, 0)).toBeNull()
+      expect(getCell(0, 1)).toBeNull()
+      expect(getCell(0, 2)).toBeNull()
+      // The remaining 6 cells (rows 1 and 2) are still rendered.
+      expect(getCells().length).toBe(6)
+      expect(getCell(1, 0)).not.toBeNull()
+      expect(getCell(2, 2)).not.toBeNull()
+    }, { timeout: 500 })
   })
 
   it('row overlay renders exactly 3 distribution buttons with the canonical labels', async () => {
     setup()
     dblclick(getCell(0, 0))
-    await tick()
-    const buttons = getDistributeButtons()
-    expect(buttons.length).toBe(3)
-    expect(buttons.map((b) => b.textContent)).toEqual([
-      'Space Between',
-      'Space Around',
-      'Space Evenly',
-    ])
-    // Each button carries a falsifiable aria-label including the axis
-    // so screen readers disambiguate main vs cross.
-    expect(buttons[0]?.getAttribute('aria-label')).toBe('Space Between cross axis')
-    expect(buttons[1]?.getAttribute('aria-label')).toBe('Space Around cross axis')
-    expect(buttons[2]?.getAttribute('aria-label')).toBe('Space Evenly cross axis')
+    await vi.waitFor(() => {
+      const buttons = getDistributeButtons()
+      expect(buttons.length).toBe(3)
+      expect(buttons.map((b) => b.textContent)).toEqual([
+        'Space Between',
+        'Space Around',
+        'Space Evenly',
+      ])
+      // Each button carries a falsifiable aria-label including the axis
+      // so screen readers disambiguate main vs cross.
+      expect(buttons[0]?.getAttribute('aria-label')).toBe('Space Between cross axis')
+      expect(buttons[1]?.getAttribute('aria-label')).toBe('Space Around cross axis')
+      expect(buttons[2]?.getAttribute('aria-label')).toBe('Space Evenly cross axis')
+    }, { timeout: 500 })
   })
 
   it('clicking a row-overlay distribution button fires onDistribute(cross, value) and dismisses the overlay', async () => {
     const { onDistribute } = setup()
     dblclick(getCell(0, 1))
-    await tick()
-    expect(getOverlay()).not.toBeNull()
+    await vi.waitFor(() => {
+      expect(getOverlay()).not.toBeNull()
+    }, { timeout: 500 })
     const buttons = getDistributeButtons()
     // Click "Space Between" — index 0
     buttons[0]!.click()
-    await tick()
-    expect(onDistribute).toHaveBeenCalledTimes(1)
-    expect(onDistribute).toHaveBeenCalledWith('cross', 'space-between')
-    // Overlay dismissed — full 9-cell grid restored.
-    expect(getOverlay()).toBeNull()
-    expect(getCells().length).toBe(9)
+    await vi.waitFor(() => {
+      expect(onDistribute).toHaveBeenCalledTimes(1)
+      expect(onDistribute).toHaveBeenCalledWith('cross', 'space-between')
+      // Overlay dismissed — full 9-cell grid restored.
+      expect(getOverlay()).toBeNull()
+      expect(getCells().length).toBe(9)
+    }, { timeout: 500 })
   })
 
   it('a second dblclick while a row overlay is open transitions to a column overlay', async () => {
     setup()
     // Open row overlay first.
     dblclick(getCell(0, 1))
-    await tick()
-    const firstOverlay = getOverlay()
-    expect(firstOverlay?.classList.contains('cortex-alignment-grid__overlay--row')).toBe(true)
+    await vi.waitFor(() => {
+      expect(getOverlay()?.classList.contains('cortex-alignment-grid__overlay--row')).toBe(true)
+    }, { timeout: 500 })
     // Second dblclick on a cell that's still in the DOM (rows 1 or 2)
     // — the column index is what drives the col overlay. Pick (2, 2)
     // so the expected column is 2.
     dblclick(getCell(2, 2))
-    await tick()
-    const secondOverlay = getOverlay()
-    expect(secondOverlay).not.toBeNull()
-    expect(secondOverlay!.classList.contains('cortex-alignment-grid__overlay--col')).toBe(true)
-    // Column 2 is now covered → its 3 cells (0,2), (1,2), (2,2) are gone.
-    expect(getCell(0, 2)).toBeNull()
-    expect(getCell(1, 2)).toBeNull()
-    expect(getCell(2, 2)).toBeNull()
-    // Cells in columns 0 and 1 remain.
-    expect(getCell(0, 0)).not.toBeNull()
-    expect(getCell(1, 1)).not.toBeNull()
+    await vi.waitFor(() => {
+      const secondOverlay = getOverlay()
+      expect(secondOverlay).not.toBeNull()
+      expect(secondOverlay!.classList.contains('cortex-alignment-grid__overlay--col')).toBe(true)
+      // Column 2 is now covered → its 3 cells (0,2), (1,2), (2,2) are gone.
+      expect(getCell(0, 2)).toBeNull()
+      expect(getCell(1, 2)).toBeNull()
+      expect(getCell(2, 2)).toBeNull()
+      // Cells in columns 0 and 1 remain.
+      expect(getCell(0, 0)).not.toBeNull()
+      expect(getCell(1, 1)).not.toBeNull()
+    }, { timeout: 500 })
   })
 
   it('clicking a column-overlay distribution button fires onDistribute(main, value)', async () => {
     const { onDistribute } = setup()
     dblclick(getCell(0, 2)) // open row overlay
-    await tick()
+    await vi.waitFor(() => {
+      expect(getOverlay()).not.toBeNull()
+    }, { timeout: 500 })
     dblclick(getCell(2, 0)) // transition to column overlay (col 0)
-    await tick()
+    await vi.waitFor(() => {
+      expect(getOverlay()?.classList.contains('cortex-alignment-grid__overlay--col')).toBe(true)
+    }, { timeout: 500 })
     const buttons = getDistributeButtons()
     expect(buttons.length).toBe(3)
     // Click "Space Evenly" — index 2.
     buttons[2]!.click()
-    await tick()
-    expect(onDistribute).toHaveBeenCalledTimes(1)
-    expect(onDistribute).toHaveBeenCalledWith('main', 'space-evenly')
-    expect(getOverlay()).toBeNull()
+    await vi.waitFor(() => {
+      expect(onDistribute).toHaveBeenCalledTimes(1)
+      expect(onDistribute).toHaveBeenCalledWith('main', 'space-evenly')
+      expect(getOverlay()).toBeNull()
+    }, { timeout: 500 })
   })
 
   it('a third dblclick after a col overlay cycles back to a row overlay', async () => {
     setup()
     dblclick(getCell(0, 0)) // row overlay
-    await tick()
+    await vi.waitFor(() => {
+      expect(getOverlay()).not.toBeNull()
+    }, { timeout: 500 })
     dblclick(getCell(1, 1)) // col overlay
-    await tick()
-    expect(getOverlay()?.classList.contains('cortex-alignment-grid__overlay--col')).toBe(true)
+    await vi.waitFor(() => {
+      expect(getOverlay()?.classList.contains('cortex-alignment-grid__overlay--col')).toBe(true)
+    }, { timeout: 500 })
     dblclick(getCell(2, 2)) // back to row overlay
-    await tick()
-    const overlay = getOverlay()
-    expect(overlay).not.toBeNull()
-    expect(overlay!.classList.contains('cortex-alignment-grid__overlay--row')).toBe(true)
+    await vi.waitFor(() => {
+      const overlay = getOverlay()
+      expect(overlay).not.toBeNull()
+      expect(overlay!.classList.contains('cortex-alignment-grid__overlay--row')).toBe(true)
+    }, { timeout: 500 })
   })
 
   // ── outside-click dismissal ───────────────────────────────────────
@@ -339,15 +353,17 @@ describe('AlignmentGrid', () => {
   it('clicking outside the grid dismisses an open overlay WITHOUT firing onDistribute', async () => {
     const { onDistribute } = setup()
     dblclick(getCell(0, 1))
-    await tick()
-    expect(getOverlay()).not.toBeNull()
+    await vi.waitFor(() => {
+      expect(getOverlay()).not.toBeNull()
+    }, { timeout: 500 })
     // Dispatch a mousedown on document.body (outside the grid).
     dispatchMouseEvent(document.body, 'mousedown')
-    await tick()
-    expect(getOverlay()).toBeNull()
-    expect(onDistribute).not.toHaveBeenCalled()
-    // Grid restored to 9 cells.
-    expect(getCells().length).toBe(9)
+    await vi.waitFor(() => {
+      expect(getOverlay()).toBeNull()
+      expect(onDistribute).not.toHaveBeenCalled()
+      // Grid restored to 9 cells.
+      expect(getCells().length).toBe(9)
+    }, { timeout: 500 })
   })
 
   // ── optional onDistribute ─────────────────────────────────────────
@@ -367,15 +383,17 @@ describe('AlignmentGrid', () => {
       container,
     )
     dblclick(getCell(0, 0))
-    await tick()
-    expect(getOverlay()).not.toBeNull()
+    await vi.waitFor(() => {
+      expect(getOverlay()).not.toBeNull()
+    }, { timeout: 500 })
     const buttons = getDistributeButtons()
     expect(buttons.length).toBe(3)
     // This must not throw even though onDistribute is undefined.
     expect(() => buttons[0]!.click()).not.toThrow()
-    await tick()
     // And the overlay still dismisses after the click.
-    expect(getOverlay()).toBeNull()
+    await vi.waitFor(() => {
+      expect(getOverlay()).toBeNull()
+    }, { timeout: 500 })
   })
 
   // ── click-vs-dblclick isolation ───────────────────────────────────
@@ -387,13 +405,16 @@ describe('AlignmentGrid', () => {
     // overlay via a stray onJustify/onAlign fire.
     const { onJustify, onAlign, onDistribute } = setup()
     dblclick(getCell(0, 0)) // row 0 overlay
-    await tick()
+    await vi.waitFor(() => {
+      expect(getOverlay()).not.toBeNull()
+    }, { timeout: 500 })
     onJustify.mockClear()
     onAlign.mockClear()
     // Click a cell in row 1 (still in DOM) — this IS currently handled
     // by handleCellClick's overlay guard. The overlay shouldn't forward
     // the click as a distribution selection either.
     getCell(1, 1).click()
+    // Load-bearing hold — NOT vi.waitFor; negative assertions would pass immediately.
     await tick()
     expect(onJustify).not.toHaveBeenCalled()
     expect(onAlign).not.toHaveBeenCalled()
@@ -411,16 +432,17 @@ describe('AlignmentGrid', () => {
     dispatchMouseEvent(cell, 'click', { detail: 1 })
     dispatchMouseEvent(cell, 'click', { detail: 2 })
     dispatchMouseEvent(cell, 'dblclick')
-    await tick()
-    // Exactly one fire, not two. The first click sets the position;
-    // the dblclick opens the overlay on top of that state.
-    expect(onJustify).toHaveBeenCalledTimes(1)
-    expect(onJustify).toHaveBeenCalledWith('flex-end')
-    expect(onAlign).toHaveBeenCalledTimes(1)
-    expect(onAlign).toHaveBeenCalledWith('flex-end')
-    // And the overlay is open (row overlay, since it's the first dblclick).
-    const overlay = getOverlay()
-    expect(overlay).not.toBeNull()
-    expect(overlay!.classList.contains('cortex-alignment-grid__overlay--row')).toBe(true)
+    await vi.waitFor(() => {
+      // Exactly one fire, not two. The first click sets the position;
+      // the dblclick opens the overlay on top of that state.
+      expect(onJustify).toHaveBeenCalledTimes(1)
+      expect(onJustify).toHaveBeenCalledWith('flex-end')
+      expect(onAlign).toHaveBeenCalledTimes(1)
+      expect(onAlign).toHaveBeenCalledWith('flex-end')
+      // And the overlay is open (row overlay, since it's the first dblclick).
+      const overlay = getOverlay()
+      expect(overlay).not.toBeNull()
+      expect(overlay!.classList.contains('cortex-alignment-grid__overlay--row')).toBe(true)
+    }, { timeout: 500 })
   })
 })

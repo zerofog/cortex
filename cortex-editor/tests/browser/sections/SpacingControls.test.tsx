@@ -92,7 +92,9 @@ describe('SpacingControls', () => {
     const lockBtn = paddingSection.querySelector('.cortex-lock-btn') as HTMLElement
     expect(lockBtn).not.toBeNull()
     lockBtn.click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(lockBtn.getAttribute('aria-pressed')).toBe('true')
+    }, { timeout: 500 })
 
     const inputs = paddingSection.querySelectorAll('.cortex-numeric-input input')
     const hInput = inputs[0] as HTMLInputElement
