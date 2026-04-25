@@ -355,15 +355,15 @@ describe('EffectsSection', () => {
     )
     expect(expandBtn).not.toBeNull()
     expandBtn!.click()
-    // Flush Preact's async rendering
-    await new Promise(r => setTimeout(r, 0))
-    // Detail should now be visible
-    expect(container.querySelector('.cortex-effects-section__detail')).not.toBeNull()
-    // Should have X, Y, B, S inputs
-    const grid = container.querySelector('.cortex-effects-section__grid')
-    expect(grid).not.toBeNull()
-    const numericInputs = grid!.querySelectorAll('.cortex-numeric-input')
-    expect(numericInputs.length).toBe(4)
+    await vi.waitFor(() => {
+      // Detail should now be visible
+      expect(container.querySelector('.cortex-effects-section__detail')).not.toBeNull()
+      // Should have X, Y, B, S inputs
+      const grid = container.querySelector('.cortex-effects-section__grid')
+      expect(grid).not.toBeNull()
+      const numericInputs = grid!.querySelectorAll('.cortex-numeric-input')
+      expect(numericInputs.length).toBe(4)
+    }, { timeout: 500 })
   })
 
   // Spec test 6: Blur NumericInput fires filter change

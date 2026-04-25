@@ -44,16 +44,11 @@ export default defineConfig({
               isolate: true,
             },
           },
-          // Retry policy for residual timing flakes. The ZF0-1297 Step 12
-          // test-hygiene fix (module-scope state resets + targeted vi.waitFor
-          // conversions) eliminated most state-leakage failures, but
-          // ~30 setTimeout(r, N) sites in browser tests (selection-overlay,
-          // cortex-app HMR-filter describe, etc.) still occasionally race
-          // under GitHub Linux runner concurrent-fork load. retry:2 here is
-          // not a band-aid on dirty state — it's defense-in-depth on a
-          // cleaned foundation. ZF0-1322 tracks the broader setTimeout→
-          // vi.waitFor sweep that will eventually let this line be removed.
-          retry: 2,
+          // retry:2 was removed in ZF0-1322 after the cortex-app state-leakage
+          // fix (ZF0-1332) and the browser-test setTimeout→vi.waitFor sweep
+          // (ZF0-1341) made 10× serial CI=true vitest run --project browser
+          // pass cleanly. Any new browser-test flake should be root-caused,
+          // not masked.
         },
       },
       { test: { name: 'integration', environment: 'node', include: ['tests/integration/**/*.test.ts'] } },

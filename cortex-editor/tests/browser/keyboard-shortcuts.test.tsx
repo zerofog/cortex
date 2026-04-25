@@ -137,17 +137,17 @@ describe('cascade priorities (integration)', () => {
     const commentBtn = root.querySelector('[data-mode="comment"]') as HTMLButtonElement
     expect(commentBtn).not.toBeNull()
     commentBtn.click()
-    await new Promise(r => setTimeout(r, SETTLE))
-
-    // Verify comment mode is active
-    expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(true)
+    await vi.waitFor(() => {
+      // Verify comment mode is active
+      expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(true)
+    }, { timeout: 500 })
 
     // Press Escape
     dispatchKeyboardEvent(window, 'keydown', { key: 'Escape' })
-    await new Promise(r => setTimeout(r, SETTLE))
-
-    // Comment mode should be off, editor should still be active
-    expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(false)
+    await vi.waitFor(() => {
+      // Comment mode should be off, editor should still be active
+      expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(false)
+    }, { timeout: 500 })
     expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
   })
 
@@ -172,10 +172,11 @@ describe('cascade priorities (integration)', () => {
 
     // Press Escape
     dispatchKeyboardEvent(window, 'keydown', { key: 'Escape' })
-    await new Promise(r => setTimeout(r, SETTLE))
-
-    // Selection should be cleared, editor still active
-    expect(root.querySelector('.cortex-selection-overlay')).toBeNull()
+    await vi.waitFor(() => {
+      // Selection should be cleared
+      expect(root.querySelector('.cortex-selection-overlay')).toBeNull()
+    }, { timeout: 500 })
+    // Editor still active
     expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
     expect(channel._lastSent).not.toContainEqual({ type: 'cortex-closed' })
 
@@ -230,14 +231,15 @@ describe('tinykeys shortcut integration', () => {
     // Enter comment mode
     const commentBtn = root.querySelector('[data-mode="comment"]') as HTMLButtonElement
     commentBtn.click()
-    await new Promise(r => setTimeout(r, SETTLE))
-    expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(true)
+    await vi.waitFor(() => {
+      expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(true)
+    }, { timeout: 500 })
 
     // Press V — should exit comment mode
     dispatchKeyboardEvent(window, 'keydown', { key: 'v' })
-    await new Promise(r => setTimeout(r, SETTLE))
-
-    expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(false)
+    await vi.waitFor(() => {
+      expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(false)
+    }, { timeout: 500 })
   })
 
   it('C key toggles comment mode on', async () => {
@@ -251,9 +253,9 @@ describe('tinykeys shortcut integration', () => {
 
     // Press C — should toggle comment mode on
     dispatchKeyboardEvent(window, 'keydown', { key: 'c' })
-    await new Promise(r => setTimeout(r, SETTLE))
-
-    expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(true)
+    await vi.waitFor(() => {
+      expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(true)
+    }, { timeout: 500 })
   })
 
   it('C key toggles comment mode off when already on', async () => {
@@ -265,14 +267,15 @@ describe('tinykeys shortcut integration', () => {
     // Enter comment mode
     const commentBtn = root.querySelector('[data-mode="comment"]') as HTMLButtonElement
     commentBtn.click()
-    await new Promise(r => setTimeout(r, SETTLE))
-    expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(true)
+    await vi.waitFor(() => {
+      expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(true)
+    }, { timeout: 500 })
 
     // Press C — should toggle comment mode off
     dispatchKeyboardEvent(window, 'keydown', { key: 'c' })
-    await new Promise(r => setTimeout(r, SETTLE))
-
-    expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(false)
+    await vi.waitFor(() => {
+      expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(false)
+    }, { timeout: 500 })
   })
 
   it('Cmd+Z sends undo message when command stack has entries', async () => {
@@ -288,10 +291,10 @@ describe('tinykeys shortcut integration', () => {
 
     // Press Cmd+Z (metaKey on Mac, ctrlKey on other platforms)
     dispatchKeyboardEvent(window, 'keydown', { key: 'z', [modKey]: true })
-    await new Promise(r => setTimeout(r, SETTLE))
-
-    expect(_commandStackMock.undo).toHaveBeenCalled()
-    expect(channel._lastSent).toContainEqual({ type: 'undo' })
+    await vi.waitFor(() => {
+      expect(_commandStackMock.undo).toHaveBeenCalled()
+      expect(channel._lastSent).toContainEqual({ type: 'undo' })
+    }, { timeout: 500 })
   })
 
   it('Cmd+Z does NOT send undo when command stack is empty', async () => {
@@ -326,10 +329,10 @@ describe('tinykeys shortcut integration', () => {
 
     // Press Cmd+Shift+Z
     dispatchKeyboardEvent(window, 'keydown', { key: 'z', [modKey]: true, shiftKey: true })
-    await new Promise(r => setTimeout(r, SETTLE))
-
-    expect(_commandStackMock.redo).toHaveBeenCalled()
-    expect(channel._lastSent).toContainEqual({ type: 'redo' })
+    await vi.waitFor(() => {
+      expect(_commandStackMock.redo).toHaveBeenCalled()
+      expect(channel._lastSent).toContainEqual({ type: 'redo' })
+    }, { timeout: 500 })
   })
 
   it('Cmd+Shift+Z does NOT send redo when command stack is empty', async () => {
@@ -425,9 +428,9 @@ describe('tinykeys shortcut integration', () => {
 
     // Press Cmd+Z — should send undo because only isCortexUIFocused, not isInputFocused
     dispatchKeyboardEvent(window, 'keydown', { key: 'z', [modKey]: true })
-    await new Promise(r => setTimeout(r, SETTLE))
-
-    expect(channel._lastSent).toContainEqual({ type: 'undo' })
+    await vi.waitFor(() => {
+      expect(channel._lastSent).toContainEqual({ type: 'undo' })
+    }, { timeout: 500 })
   })
 
   it('shortcuts are inactive when editor is not active', async () => {

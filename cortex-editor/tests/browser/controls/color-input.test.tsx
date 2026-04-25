@@ -2,6 +2,9 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
 import { ColorInput, rgbToHex, parseColor, formatColor } from '../../../src/browser/components/controls/ColorInput.js'
 
+/** Yield one macrotask so Preact state updates flush between events. */
+const flush = () => new Promise<void>(r => setTimeout(r, 0))
+
 describe('ColorInput', () => {
   let container: HTMLDivElement
 
@@ -53,25 +56,26 @@ describe('ColorInput', () => {
     const { onChange } = setup()
     const hex = container.querySelector('.cortex-color-input__hex') as HTMLInputElement
     hex.dispatchEvent(new Event('focus', { bubbles: true }))
-    await new Promise(r => setTimeout(r, 10))
+    await flush()
     hex.value = '#ff0000'
     hex.dispatchEvent(new Event('input', { bubbles: true }))
-    await new Promise(r => setTimeout(r, 10))
+    await flush()
     hex.dispatchEvent(new Event('blur', { bubbles: true }))
-    await new Promise(r => setTimeout(r, 10))
-    expect(onChange).toHaveBeenCalledWith('#ff0000')
+    await vi.waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith('#ff0000')
+    }, { timeout: 500 })
   })
 
   it('does not commit invalid hex on blur', async () => {
     const { onChange } = setup()
     const hex = container.querySelector('.cortex-color-input__hex') as HTMLInputElement
     hex.dispatchEvent(new Event('focus', { bubbles: true }))
-    await new Promise(r => setTimeout(r, 10))
+    await flush()
     hex.value = 'notahex'
     hex.dispatchEvent(new Event('input', { bubbles: true }))
-    await new Promise(r => setTimeout(r, 10))
+    await flush()
     hex.dispatchEvent(new Event('blur', { bubbles: true }))
-    await new Promise(r => setTimeout(r, 10))
+    await flush()
     expect(onChange).not.toHaveBeenCalled()
   })
 

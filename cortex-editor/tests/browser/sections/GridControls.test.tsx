@@ -181,12 +181,16 @@ describe('GridControls', () => {
 
   async function openXDropdown(): Promise<void> {
     getXDropdownTrigger().click()
-    await tick()
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-xy-dropdown__popover')).not.toBeNull()
+    }, { timeout: 500 })
   }
 
   async function openYDropdown(): Promise<void> {
     getYDropdownTrigger().click()
-    await tick()
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-xy-dropdown__popover')).not.toBeNull()
+    }, { timeout: 500 })
   }
 
   function getOpenXYOption(value: string): HTMLElement {
@@ -210,10 +214,11 @@ describe('GridControls', () => {
     const { onChange } = setup()
     await openXDropdown()
     getOpenXYOption('center').click()
-    await tick()
-    expect(calls(onChange, 'justify-items')).toEqual([
-      { property: 'justify-items', value: 'center' },
-    ])
+    await vi.waitFor(() => {
+      expect(calls(onChange, 'justify-items')).toEqual([
+        { property: 'justify-items', value: 'center' },
+      ])
+    }, { timeout: 500 })
     // Negative control: align-items is NOT touched by the X dropdown.
     expect(calls(onChange, 'align-items')).toEqual([])
   })
@@ -222,10 +227,11 @@ describe('GridControls', () => {
     const { onChange } = setup()
     await openYDropdown()
     getOpenXYOption('start').click()
-    await tick()
-    expect(calls(onChange, 'align-items')).toEqual([
-      { property: 'align-items', value: 'start' },
-    ])
+    await vi.waitFor(() => {
+      expect(calls(onChange, 'align-items')).toEqual([
+        { property: 'align-items', value: 'start' },
+      ])
+    }, { timeout: 500 })
     expect(calls(onChange, 'justify-items')).toEqual([])
   })
 
@@ -236,10 +242,11 @@ describe('GridControls', () => {
     const { onChange } = setup({ values: { gridAutoFlow: 'column' } })
     await openXDropdown()
     getOpenXYOption('center').click()
-    await tick()
-    expect(calls(onChange, 'justify-items')).toEqual([
-      { property: 'justify-items', value: 'center' },
-    ])
+    await vi.waitFor(() => {
+      expect(calls(onChange, 'justify-items')).toEqual([
+        { property: 'justify-items', value: 'center' },
+      ])
+    }, { timeout: 500 })
     expect(calls(onChange, 'align-items')).toEqual([])
   })
 
@@ -584,7 +591,9 @@ describe('GridControls', () => {
     // Unlock
     const lockBtn = container.querySelector('.cortex-grid-controls__gap .cortex-lock-btn') as HTMLButtonElement
     lockBtn.click()
-    await tick()
+    await vi.waitFor(() => {
+      expect(container.querySelectorAll('.cortex-grid-controls__gap input').length).toBe(2)
+    }, { timeout: 500 })
     const inputs = container.querySelectorAll('.cortex-grid-controls__gap input')
     expect(inputs.length).toBe(2)
     const input = inputs[0] as HTMLInputElement
@@ -605,7 +614,9 @@ describe('GridControls', () => {
     const { onChange } = setup({ values: { columnGap: 4, rowGap: 4 } })
     const lockBtn = container.querySelector('.cortex-grid-controls__gap .cortex-lock-btn') as HTMLButtonElement
     lockBtn.click()
-    await tick()
+    await vi.waitFor(() => {
+      expect(container.querySelectorAll('.cortex-grid-controls__gap input').length).toBe(2)
+    }, { timeout: 500 })
     const inputs = container.querySelectorAll('.cortex-grid-controls__gap input')
     const input = inputs[1] as HTMLInputElement
     input.focus()
@@ -625,7 +636,9 @@ describe('GridControls', () => {
     setup()
     const lockBtn = container.querySelector('.cortex-grid-controls__gap .cortex-lock-btn') as HTMLButtonElement
     lockBtn.click()
-    await tick()
+    await vi.waitFor(() => {
+      expect(container.querySelectorAll('.cortex-grid-controls__gap input').length).toBe(2)
+    }, { timeout: 500 })
     const prefixes = container.querySelectorAll('.cortex-grid-controls__gap .cortex-numeric-input__prefix')
     expect(prefixes.length).toBe(2)
     expect(prefixes[0]!.textContent).toBe('Cols')
@@ -653,8 +666,9 @@ describe('GridControls', () => {
     const popover = container.querySelector('.cortex-xy-dropdown__popover')
     expect(popover).not.toBeNull()
     dispatchKeyboardEvent(getXDropdownTrigger(), 'keydown', { key: 'Escape' })
-    await tick()
-    expect(container.querySelector('.cortex-xy-dropdown__popover')).toBeNull()
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-xy-dropdown__popover')).toBeNull()
+    }, { timeout: 500 })
     expect(onChange).not.toHaveBeenCalled()
   })
 

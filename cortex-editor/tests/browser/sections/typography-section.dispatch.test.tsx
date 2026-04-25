@@ -86,23 +86,26 @@ describe('TypographySection — dispatch contract (Bug 2 regression guard)', () 
     const pill = root.querySelector('.cortex-token-chip__body, button[aria-label*="Swap"]') as HTMLElement
     expect(pill).toBeTruthy()
     pill.click()
-    await flushEffects()
+    // Wait for picker popover to render
+    await vi.waitFor(() => {
+      expect(root.querySelectorAll('.cortex-text-component-picker__option').length).toBeGreaterThan(0)
+    }, { timeout: 500 })
 
     // Pick heading-1 from the picker.
     const options = root.querySelectorAll('.cortex-text-component-picker__option')
     const headingOpt = Array.from(options).find((o) => o.textContent?.includes('heading-1')) as HTMLElement
     expect(headingOpt).toBeTruthy()
     headingOpt.click()
-    await flushEffects()
-
-    const calls = onChange.mock.calls.map(([c]) => c as TypographyChange)
-    const link = calls.find((c) => 'kind' in c && c.kind === 'link-text-component') as
-      | { kind: 'link-text-component'; component: TextComponent; removeClass?: string }
-      | undefined
-    expect(link).toBeDefined()
-    expect(link?.component.name).toBe('heading-1')
-    // THE assertion: removeClass is the text- prefixed form, NOT bare name.
-    expect(link?.removeClass).toBe('text-body-md')
+    await vi.waitFor(() => {
+      const calls = onChange.mock.calls.map(([c]) => c as TypographyChange)
+      const link = calls.find((c) => 'kind' in c && c.kind === 'link-text-component') as
+        | { kind: 'link-text-component'; component: TextComponent; removeClass?: string }
+        | undefined
+      expect(link).toBeDefined()
+      expect(link?.component.name).toBe('heading-1')
+      // THE assertion: removeClass is the text- prefixed form, NOT bare name.
+      expect(link?.removeClass).toBe('text-body-md')
+    }, { timeout: 500 })
   })
 
   it('handleTypographyPick when NOT linked (no bundle class) → emits removeClass undefined', async () => {
@@ -113,21 +116,24 @@ describe('TypographySection — dispatch contract (Bug 2 regression guard)', () 
     const tButton = root.querySelector('button[aria-label="Link to text component"]') as HTMLElement
     expect(tButton).toBeTruthy()
     tButton.click()
-    await flushEffects()
+    // Wait for picker popover to render
+    await vi.waitFor(() => {
+      expect(root.querySelectorAll('.cortex-text-component-picker__option').length).toBeGreaterThan(0)
+    }, { timeout: 500 })
 
     const options = root.querySelectorAll('.cortex-text-component-picker__option')
     const bodyOpt = Array.from(options).find((o) => o.textContent?.includes('body-md')) as HTMLElement
     expect(bodyOpt).toBeTruthy()
     bodyOpt.click()
-    await flushEffects()
-
-    const calls = onChange.mock.calls.map(([c]) => c as TypographyChange)
-    const link = calls.find((c) => 'kind' in c && c.kind === 'link-text-component') as
-      | { kind: 'link-text-component'; component: TextComponent; removeClass?: string }
-      | undefined
-    expect(link).toBeDefined()
-    // No prior bundle → removeClass is undefined (nothing to remove).
-    expect(link?.removeClass).toBeUndefined()
+    await vi.waitFor(() => {
+      const calls = onChange.mock.calls.map(([c]) => c as TypographyChange)
+      const link = calls.find((c) => 'kind' in c && c.kind === 'link-text-component') as
+        | { kind: 'link-text-component'; component: TextComponent; removeClass?: string }
+        | undefined
+      expect(link).toBeDefined()
+      // No prior bundle → removeClass is undefined (nothing to remove).
+      expect(link?.removeClass).toBeUndefined()
+    }, { timeout: 500 })
   })
 
   it('handleTypographyUnlink → emits removeClass with text- prefix + full inline array (C2 compound shape)', async () => {
@@ -138,14 +144,19 @@ describe('TypographySection — dispatch contract (Bug 2 regression guard)', () 
     const unlinkButton = root.querySelector('button[aria-label="Detach token"]') as HTMLElement
     expect(unlinkButton).toBeTruthy()
     unlinkButton.click()
-    await flushEffects()
+    await vi.waitFor(() => {
+      const calls = onChange.mock.calls.map(([c]) => c as TypographyChange)
+      const unlink = calls.find((c) => 'kind' in c && c.kind === 'unlink-text-component') as
+        | { kind: 'unlink-text-component'; removeClass: string; inline: Array<{ property: string; value: string }> }
+        | undefined
+      expect(unlink).toBeDefined()
+      expect(unlink?.removeClass).toBe('text-heading-1')
+    }, { timeout: 500 })
 
     const calls = onChange.mock.calls.map(([c]) => c as TypographyChange)
     const unlink = calls.find((c) => 'kind' in c && c.kind === 'unlink-text-component') as
       | { kind: 'unlink-text-component'; removeClass: string; inline: Array<{ property: string; value: string }> }
       | undefined
-    expect(unlink).toBeDefined()
-    expect(unlink?.removeClass).toBe('text-heading-1')
 
     // C2 compound shape: the `inline` array carries the 5 preservation
     // properties in a form Panel can pass directly to applyClassChange's

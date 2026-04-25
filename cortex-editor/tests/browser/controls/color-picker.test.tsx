@@ -9,6 +9,9 @@ vi.mock('@floating-ui/dom', () => ({
   shift: vi.fn().mockReturnValue({}),
 }))
 
+/** Yield one macrotask so Preact state updates flush between events. */
+const flush = () => new Promise<void>(r => setTimeout(r, 0))
+
 describe('ColorPicker', () => {
   let container: HTMLDivElement
   let anchor: HTMLDivElement
@@ -92,33 +95,35 @@ describe('ColorPicker', () => {
     const { onChange } = setup()
     const swatches = container.querySelectorAll('.cortex-color-picker__swatch')
     ;(swatches[0] as HTMLElement).click()
-    await new Promise((r) => setTimeout(r, 10))
-    expect(onChange).toHaveBeenCalledWith('#ef4444')
+    await vi.waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith('#ef4444')
+    }, { timeout: 500 })
   })
 
   it('calls onChange when valid hex committed via input', async () => {
     const { onChange } = setup()
     const input = container.querySelector('.cortex-color-picker__hex-input') as HTMLInputElement
     input.dispatchEvent(new Event('focus', { bubbles: true }))
-    await new Promise((r) => setTimeout(r, 10))
+    await flush()
     input.value = '#ff0000'
     input.dispatchEvent(new Event('input', { bubbles: true }))
-    await new Promise((r) => setTimeout(r, 10))
+    await flush()
     input.dispatchEvent(new Event('blur', { bubbles: true }))
-    await new Promise((r) => setTimeout(r, 10))
-    expect(onChange).toHaveBeenCalledWith('#ff0000')
+    await vi.waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith('#ff0000')
+    }, { timeout: 500 })
   })
 
   it('does not call onChange when invalid hex committed via input', async () => {
     const { onChange } = setup()
     const input = container.querySelector('.cortex-color-picker__hex-input') as HTMLInputElement
     input.dispatchEvent(new Event('focus', { bubbles: true }))
-    await new Promise((r) => setTimeout(r, 10))
+    await flush()
     input.value = 'notahex'
     input.dispatchEvent(new Event('input', { bubbles: true }))
-    await new Promise((r) => setTimeout(r, 10))
+    await flush()
     input.dispatchEvent(new Event('blur', { bubbles: true }))
-    await new Promise((r) => setTimeout(r, 10))
+    await flush()
     expect(onChange).not.toHaveBeenCalled()
   })
 })

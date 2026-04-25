@@ -59,50 +59,62 @@ describe('SizingDropdown', () => {
     setup()
     expect(getMenu()).toBeNull()
     getTrigger().click()
-    await new Promise((r) => setTimeout(r, 10))
-    expect(getMenu()).not.toBeNull()
+    await vi.waitFor(() => {
+      expect(getMenu()).not.toBeNull()
+    }, { timeout: 500 })
   })
 
   it('mode selection emits onModeChange and closes menu', async () => {
     const { onModeChange } = setup()
     getTrigger().click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(getMenu()).not.toBeNull()
+    }, { timeout: 500 })
     const fitItem = container.querySelector('[data-value="fit"]') as HTMLElement
     expect(fitItem).not.toBeNull()
     fitItem.click()
-    await new Promise((r) => setTimeout(r, 10))
-    expect(onModeChange).toHaveBeenCalledWith('fit')
-    expect(getMenu()).toBeNull()
+    await vi.waitFor(() => {
+      expect(onModeChange).toHaveBeenCalledWith('fit')
+      expect(getMenu()).toBeNull()
+    }, { timeout: 500 })
   })
 
   it('toggle selection emits onToggleMin without closing menu', async () => {
     const { onToggleMin } = setup()
     getTrigger().click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(getMenu()).not.toBeNull()
+    }, { timeout: 500 })
     const toggleMin = container.querySelector('[data-action="toggle-min"]') as HTMLElement
     expect(toggleMin).not.toBeNull()
     toggleMin.click()
-    await new Promise((r) => setTimeout(r, 10))
-    expect(onToggleMin).toHaveBeenCalled()
+    await vi.waitFor(() => {
+      expect(onToggleMin).toHaveBeenCalled()
+    }, { timeout: 500 })
     expect(getMenu()).not.toBeNull()
   })
 
   it('toggle selection emits onToggleMax without closing menu', async () => {
     const { onToggleMax } = setup()
     getTrigger().click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(getMenu()).not.toBeNull()
+    }, { timeout: 500 })
     const toggleMax = container.querySelector('[data-action="toggle-max"]') as HTMLElement
     expect(toggleMax).not.toBeNull()
     toggleMax.click()
-    await new Promise((r) => setTimeout(r, 10))
-    expect(onToggleMax).toHaveBeenCalled()
+    await vi.waitFor(() => {
+      expect(onToggleMax).toHaveBeenCalled()
+    }, { timeout: 500 })
     expect(getMenu()).not.toBeNull()
   })
 
   it('shows checkmark when min is enabled', async () => {
     setup({ minEnabled: true })
     getTrigger().click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(getMenu()).not.toBeNull()
+    }, { timeout: 500 })
     const toggleMin = container.querySelector('[data-action="toggle-min"]') as HTMLElement
     expect(toggleMin).not.toBeNull()
     expect(toggleMin.getAttribute('aria-checked')).toBe('true')
@@ -111,23 +123,27 @@ describe('SizingDropdown', () => {
   it('closes on Escape', async () => {
     setup()
     getTrigger().click()
-    await new Promise((r) => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(getMenu()).not.toBeNull()
+    }, { timeout: 500 })
     const menu = getMenu()!
-    expect(menu).not.toBeNull()
     dispatchKeyboardEvent(menu, 'keydown', { key: 'Escape' })
-    await new Promise((r) => setTimeout(r, 10))
-    expect(getMenu()).toBeNull()
+    await vi.waitFor(() => {
+      expect(getMenu()).toBeNull()
+    }, { timeout: 500 })
   })
 
   it('closes on backdrop click', async () => {
     setup()
     getTrigger().click()
-    await new Promise((r) => setTimeout(r, 10))
-    expect(getMenu()).not.toBeNull()
+    await vi.waitFor(() => {
+      expect(getMenu()).not.toBeNull()
+    }, { timeout: 500 })
     const backdrop = container.querySelector('.cortex-sizing-backdrop') as HTMLElement
     expect(backdrop).not.toBeNull()
     backdrop.click()
-    await new Promise((r) => setTimeout(r, 10))
-    expect(getMenu()).toBeNull()
+    await vi.waitFor(() => {
+      expect(getMenu()).toBeNull()
+    }, { timeout: 500 })
   })
 })

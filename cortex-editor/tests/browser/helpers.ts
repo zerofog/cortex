@@ -3,15 +3,21 @@ import { vi } from 'vitest'
 import type { CortexChannel, ConnectionState, ServerToBrowser } from '../../src/adapters/types.js'
 
 /**
- * Remove all Cortex-owned `<style>` tags from `document.head`. Call in
- * `afterEach` for any describe block that mounts CortexApp / Panel —
- * CSSOverrideManager appends `[data-cortex-override]` and Panel appends
- * `[data-cortex-blast-radius-style]`. If a test throws before natural
- * cleanup, the stale tag survives and affects the next test's
- * `getComputedStyle` or DOM-query assertions. (ZF0-1297 test-hygiene fix.)
+ * Remove all Cortex-owned `<style>` tags from `document.head` and the
+ * CSSOverrideManager canary div from `document.body`. Call in `afterEach`
+ * for any describe block that mounts CortexApp / Panel:
+ *   - CSSOverrideManager appends `[data-cortex-override]` to head.
+ *   - Panel appends `[data-cortex-blast-radius-style]` to head.
+ *   - CSSOverrideManager appends `[data-cortex-canary]` to body on first
+ *     canonicalization; override.ts disposes it on unmount but a test that
+ *     throws before unmount leaks it into the next test's DOM queries.
+ * (ZF0-1297 + ZF0-1332 test-hygiene fixes.)
  */
 export function cleanDocumentHead(): void {
   for (const el of document.head.querySelectorAll('[data-cortex-override], [data-cortex-blast-radius-style]')) {
+    el.remove()
+  }
+  for (const el of document.body.querySelectorAll('[data-cortex-canary]')) {
     el.remove()
   }
 }

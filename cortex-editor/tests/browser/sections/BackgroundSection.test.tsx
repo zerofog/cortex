@@ -80,16 +80,17 @@ describe('BackgroundSection', () => {
     const hexInput = container.querySelector('.cortex-color-input__hex') as HTMLInputElement
     expect(hexInput).not.toBeNull()
     hexInput.dispatchEvent(new Event('focus', { bubbles: true }))
-    await new Promise((r) => setTimeout(r, 10))
+    await new Promise<void>((r) => setTimeout(r, 0))
     hexInput.value = '#ff0000'
     hexInput.dispatchEvent(new Event('input', { bubbles: true }))
-    await new Promise((r) => setTimeout(r, 10))
+    await new Promise<void>((r) => setTimeout(r, 0))
     hexInput.dispatchEvent(new Event('blur', { bubbles: true }))
-    await new Promise((r) => setTimeout(r, 10))
-    const calls = onChange.mock.calls
-    const bgCall = calls.find((c: any) => c[0]?.property === 'background-color')
-    expect(bgCall).toBeDefined()
-    expect(bgCall![0].value).toBe('#ff0000')
+    await vi.waitFor(() => {
+      const calls = onChange.mock.calls
+      const bgCall = calls.find((c: any) => c[0]?.property === 'background-color')
+      expect(bgCall).toBeDefined()
+      expect(bgCall![0].value).toBe('#ff0000')
+    }, { timeout: 500 })
   })
 
   // Test 5: Degrades gracefully with gradient value (no crash, shows ColorInput)
