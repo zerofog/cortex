@@ -4,7 +4,6 @@ import { CortexApp } from '../../src/browser/components/CortexApp.js'
 import { createShadowHost, createMockChannel, mockGetBoundingClientRect, dispatchKeyboardEvent, cleanDocumentHead } from './helpers.js'
 import * as focusUtils from '../../src/browser/focus-utils.js'
 import { _resetBusForTesting } from '../../src/browser/override-bus.js'
-import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
 import { _resetPopoverStackForTesting } from '../../src/browser/popover-stack.js'
 
 // Mock the selection module to verify it's called correctly.
@@ -66,7 +65,6 @@ describe('CortexApp', () => {
     const mod = await import('../../src/browser/selection.js') as unknown as { _resetCallbacks?: () => void }
     mod._resetCallbacks?.()
     _resetBusForTesting()
-    _resetTransformBusForTesting()
     _resetPopoverStackForTesting()
     cleanDocumentHead()
     // Defensive real-timer reset — several tests use vi.useFakeTimers() in a
@@ -1082,7 +1080,6 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
     const mod = await import('../../src/browser/selection.js') as unknown as { _resetCallbacks?: () => void }
     mod._resetCallbacks?.()
     _resetBusForTesting()
-    _resetTransformBusForTesting()
     _resetPopoverStackForTesting()
     cleanDocumentHead()
     vi.useRealTimers()
@@ -1481,7 +1478,6 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     const mod = await import('../../src/browser/selection.js') as unknown as { _resetCallbacks?: () => void }
     mod._resetCallbacks?.()
     _resetBusForTesting()
-    _resetTransformBusForTesting()
     _resetPopoverStackForTesting()
     cleanDocumentHead()
     vi.useRealTimers()

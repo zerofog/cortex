@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
 import { HoverOverlay } from '../../src/browser/components/HoverOverlay.js'
-import { emitTransformUpdate, _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
+import { emitTransformUpdate } from '../../src/browser/transform-bus.js'
 import { createShadowHost, mockGetBoundingClientRect } from './helpers.js'
 
 describe('HoverOverlay', () => {
@@ -17,12 +17,6 @@ describe('HoverOverlay', () => {
 
   afterEach(() => {
     if (cleanupHost) cleanupHost()
-    // Reset module-scope transform-bus listeners so a leaked subscriber from
-    // the previous test (e.g., test that threw before unmount) cannot fire
-    // during the current test's emitTransformUpdate and contaminate the
-    // re-render-count assertion. Mirrors override-bus reset pattern
-    // (ZF0-1322 root-cause fix).
-    _resetTransformBusForTesting()
   })
 
   it('renders nothing when element is null', () => {
