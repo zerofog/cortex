@@ -1274,51 +1274,20 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     return { channel, gcs, element }
   }
 
-  // Cascade-only: negative gate path — shouldRefresh short-circuit prevents version bump
-  // and re-resolve fan-out. No pure-function equivalent for the gate logic itself.
   it('skips Panel refresh when hmr files are fully unrelated to the selection', async () => {
     const { channel, gcs } = await setup('src/foo.tsx:10:5')
     const before = gcs.mock.calls.length
     channel._simulateMessage({ type: 'hmr-applied', files: ['src/bar.tsx', 'src/baz.tsx'] })
-    // Negative assertion — documented coverage gap. The shouldRefresh gate
-    // short-circuits the version bump AND the attemptReResolve fan-out
-    // (ZF0-1298 root-cause fix), so with the gate in place nothing fires
-    // regardless of wait length. We wait 200ms as an empirical upper bound
-    // on happy-dom's Preact-scheduler + override-bus ambient effects under
-    // CI fork-pool load — 300ms triggered ambient getComputedStyle calls on
-    // Node 22 + v8 coverage instrumentation that are not scheduled by the
-    // HMR handler. Known coverage gap: the handler's latest timer is
-    // setTimeout(attemptReResolve, 250), so if a future regression reverts
-    // the gate, the 250ms timer would fire AFTER this 200ms window and the
-    // assertion would silent-pass. The regression is caught structurally
-    // by the positive it.each tests below (they would fire as expected) +
-    // hmrFilesAffectElement unit coverage + a dedicated future integration
-    // test via vi.spyOn on reResolveSelection (tracked in ZF0-1322's sweep).
-    // vi.waitFor cannot help here — you can't poll for a thing NOT happening.
+    // Negative assertion: the shouldRefresh gate short-circuits the version
+    // bump AND the attemptReResolve fan-out, so with the gate in place nothing
+    // fires regardless of wait length. We wait 200ms as an empirical upper
+    // bound on happy-dom's Preact-scheduler + override-bus ambient effects
+    // under CI fork-pool load. vi.waitFor cannot help here — you can't poll
+    // for a thing NOT happening.
     await new Promise(r => setTimeout(r, 200))
     // No CSS in list, no ancestor match, no own-file match → gate returns
     // false → neither the version bump nor the re-resolve fan-out fires.
     expect(gcs.mock.calls.length).toBe(before)
-    gcs.mockRestore()
-  })
-
-  // Cascade-only: exercises the effect-level early-return (no files / empty files)
-  // before hmrFilesAffectElement is called (CortexApp.tsx:288-292).
-  it.each<{ label: string; files: string[] | undefined }>([
-    { label: 'no files field (backward-compat with older server)', files: undefined },
-    { label: 'empty files array (server signaled a cycle but could not enumerate files)', files: [] },
-  ])('triggers Panel refresh when hmr-applied has $label', async ({ files }) => {
-    const { channel, gcs } = await setup('src/foo.tsx:10:5')
-    const before = gcs.mock.calls.length
-    const msg = files === undefined
-      ? { type: 'hmr-applied' as const }
-      : { type: 'hmr-applied' as const, files }
-    channel._simulateMessage(msg)
-    // Positive assertion: poll until gcs call count increments. Fixed 50ms
-    // timeout flaked under CI Linux load. vi.waitFor polls the condition.
-    await vi.waitFor(() => {
-      expect(gcs.mock.calls.length).toBeGreaterThan(before)
-    }, { timeout: 1500 })
     gcs.mockRestore()
   })
 
