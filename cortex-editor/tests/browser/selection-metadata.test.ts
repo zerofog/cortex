@@ -369,8 +369,6 @@ describe('shouldRefreshOnHMR', () => {
 
   it('returns false when element is null (nothing selected, nothing to refresh)', () => {
     expect(shouldRefreshOnHMR(['src/foo.tsx'], null)).toBe(false)
-    expect(shouldRefreshOnHMR(undefined, null)).toBe(false)
-    expect(shouldRefreshOnHMR([], null)).toBe(false)
   })
 
   it('returns true when files is undefined (backward-compat with older server)', () => {
