@@ -1,0 +1,24 @@
+cortex-editor/tests/browser/selection-metadata.test.ts
+  f31e2c4e97c75377 273
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "5aa2c61ef2dfa158c7d7eb894bd2770e6d414273",
+  "prompts": {
+    "f31e2c4e97c75377": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "128fd78b-2653-4851-a207-1f54cfa1505e",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dklzf",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 4,
+      "accepted_lines": 547,
+      "overriden_lines": 1,
+      "messages_url": "https://usegitai.com/cas/077fc8e90208bfc256579eef3951496b78d82f8b415cf1a07fe110d75c823b2e"
+    }
+  }
+}
