@@ -100,7 +100,7 @@ describe('computePanelStyleSnapshot', () => {
 
     // overrideManager.get returns keyword for width
     const overrideManager = { get: vi.fn() }
-    overrideManager.get.mockImplementation((source: string, prop: string, _pseudo?: string) => {
+    overrideManager.get.mockImplementation((_source: string, prop: string, _pseudo?: string) => {
       if (prop === 'width') return '100%'
       if (prop === 'height') return 'fit-content'
       return undefined

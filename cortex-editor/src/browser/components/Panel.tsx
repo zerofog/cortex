@@ -13,20 +13,19 @@ import { PanelHeader } from './PanelHeader.js'
 import { ElementTree } from './sections/ElementTree.js'
 import { DEFAULT_LAYER_HEIGHT, MIN_LAYER_HEIGHT } from './LayerTree.js'
 import type { SectionChange } from './sections/types.js'
-import { LayoutSection, parseLayoutValues } from './sections/LayoutSection.js'
+import { LayoutSection } from './sections/LayoutSection.js'
 import {
   TypographySection,
-  parseTypographyValues,
   getWeightsForFamily,
   stripCSSQuotes,
   TYPOGRAPHY_LINKED_PROPERTIES,
   COLOR_LINKED_PROPERTIES,
 } from './sections/TypographySection.js'
-import { parseFillValues, summarizeFill } from './sections/fill-utils.js'
-import { BorderSection, parseBorderValues, summarizeBorder } from './sections/BorderSection.js'
-import { EffectsSection, parseEffectsValues, addShadow } from './sections/EffectsSection.js'
-import { PositionSection, parsePositionValues } from './sections/PositionSection.js'
-import { AppearanceSection, parseAppearanceValues } from './sections/AppearanceSection.js'
+import { summarizeFill } from './sections/fill-utils.js'
+import { BorderSection, summarizeBorder } from './sections/BorderSection.js'
+import { EffectsSection, addShadow } from './sections/EffectsSection.js'
+import { PositionSection } from './sections/PositionSection.js'
+import { AppearanceSection } from './sections/AppearanceSection.js'
 import type { InteractionState } from '../state-detector.js'
 import { detectSharedClasses } from '../shared-class-detector.js'
 import type { SharedClassInfo } from '../shared-class-detector.js'
