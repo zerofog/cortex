@@ -38,7 +38,7 @@ import { BackgroundSection } from './sections/BackgroundSection.js'
 import { Plus } from './icons.js'
 import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
 import { computePanelStyleSnapshot } from './panel-style-snapshot.js'
-import { parseSpacingValues, ALL_DIMMING_PROPERTIES } from './sections/spacing-utils.js'
+import { ALL_DIMMING_PROPERTIES } from './sections/spacing-utils.js'
 
 // ── Connection status footer ─────────────────────────────────────────
 
