@@ -2,14 +2,14 @@
  * computePanelStyleSnapshot
  *
  * Extracted in ZF0-1360 (rescope) to make the hmrAppliedVersion-triggered
- * re-read testable as a pure function. See
+ * re-read testable as a side-effect-free helper. See
  * `tests/browser/components/panel-style-snapshot.test.ts` for the unit tests;
  * the originating flaky integration test in
  * `panel.test.tsx > Panel — hmrAppliedVersion (ZF0-1292)` was deleted.
  *
  * The function is the verbatim body of Panel's
  * `useMemo(() => { ... }, [element, styleVersion, hmrAppliedVersion, activeState,
- * activePseudo, sharedInfo, editScope])` at Panel.tsx:463-561. The deps array
+ * activePseudo, sharedInfo, editScope])` for derived `computedStyles` / `dimmedProperties` / `mixedProperties`. The deps array
  * stays identical in Panel.tsx, preserving the exact re-run-on-hmrAppliedVersion-
  * bump contract.
  */
