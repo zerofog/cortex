@@ -728,103 +728,13 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
     vi.useRealTimers()
   })
 
-  it('re-reads computed styles when hmrAppliedVersion prop changes', async () => {
-    // Invariant: Panel must refresh when an out-of-band source edit (CSS file,
-    // @theme token, parent cascade) changes computed styles without mutating
-    // the selected element's own class/style attributes. MutationObserver
-    // does not fire for stylesheet-level changes; the hmrAppliedVersion prop
-    // is the escape hatch.
-    const target = document.createElement('p')
-    target.setAttribute('data-cortex-source', 'src/hero.tsx:10:5')
-    target.appendChild(document.createTextNode('Heading'))
-    document.body.appendChild(target)
-
-    // Mutable style ref — we swap values on the same object so
-    // mockGetComputedStyle always returns the current snapshot (the mock
-    // spreads `...styles` on every call). This lets us simulate a
-    // stylesheet edit without re-invoking mockGetComputedStyle.
-    const styles: Record<string, string> = {
-      textAlign: 'left',
-      fontSize: '32px',
-      fontFamily: 'Inter',
-      fontWeight: '700',
-      lineHeight: '40px',
-      letterSpacing: '0px',
-      color: 'rgb(0,0,0)',
-      display: 'block',
-    }
-    const restoreStyles = mockGetComputedStyle(target, styles)
-
-    const overrideManager = {
-      set: vi.fn(), get: vi.fn(), remove: vi.fn(),
-      clearAll: vi.fn(), dispose: vi.fn(), flush: vi.fn(),
-    }
-
-    const { host, shadow, root: shadowRoot, cleanup: removeHost } =
-      createShadowHost()
-    const renderPanel = (version: number): void => {
-      render(
-        <Panel
-          element={target}
-          overrideManager={overrideManager as any}
-          onClose={() => {}}
-          onSelectElement={() => {}}
-          {...panelPositionProps}
-          hmrAppliedVersion={version}
-        />,
-        shadowRoot,
-      )
-    }
-
-    renderPanel(0)
-    cleanup = () => {
-      render(null, shadowRoot)
-      removeHost()
-      target.remove()
-      restoreStyles()
-      // Silence unused warnings for host/shadow — retained for potential future debugging.
-      void host
-      void shadow
-    }
-    await new Promise(r => setTimeout(r, 10))
-
-    // Initial render: SegmentedControl marks "left" as the active option.
-    expect(
-      shadowRoot.querySelector('.cortex-segmented__option--active[data-value="left"]'),
-    ).not.toBeNull()
-
-    // Simulate a stylesheet edit that changes the computed text-align
-    // WITHOUT mutating any attribute on the target element.
-    styles.textAlign = 'center'
-
-    // Observer path is dormant — assert still stale.
-    await new Promise(r => setTimeout(r, 20))
-    expect(
-      shadowRoot.querySelector('.cortex-segmented__option--active[data-value="left"]'),
-    ).not.toBeNull()
-
-    // Re-render with bumped hmrAppliedVersion.
-    renderPanel(1)
-    // Panel has re-read getComputedStyle and reflects the new value.
-    await vi.waitFor(() => {
-      expect(
-        shadowRoot.querySelector('.cortex-segmented__option--active[data-value="center"]'),
-      ).not.toBeNull()
-      expect(
-        shadowRoot.querySelector('.cortex-segmented__option--active[data-value="left"]'),
-      ).toBeNull()
-    }, { timeout: 500 })
-  })
-
-  // The paired behavior — sharedInfo useEffect re-runs on hmrAppliedVersion —
-  // is covered by inspection of the deps list in Panel.tsx ("re-runs on
-  // hmrAppliedVersion bumps" comment). A standalone behavioral test would
-  // require module-level mocking of detectSharedClasses with vi.resetModules,
-  // which pollutes Preact's module-scoped hook state and breaks sibling
-  // tests (confirmed by running the blast-radius unmount test downstream).
-  // The integration path is covered end-to-end in Step 9.5 manual
-  // verification (scenario (d) — React Fast Refresh adds/removes siblings
-  // sharing a class with the selected element).
+  // Panel — hmrAppliedVersion (ZF0-1292): the integration test that previously
+  // lived here was deleted as part of ZF0-1360 rescope. The contract it verified
+  // (Panel re-reads computed styles when hmrAppliedVersion prop changes) is now
+  // covered by direct unit tests of `computePanelStyleSnapshot` in
+  // tests/browser/components/panel-style-snapshot.test.ts. The integration test
+  // was deterministically flaky on Linux Node 22 due to render-scheduler timing
+  // pressure; the pure-function unit test is synchronous and immune.
 
   it('preserves editScope across hmrAppliedVersion bumps (split-useEffect regression guard)', async () => {
     // Locks in the commit f9b0e13 architectural fix: scope reset +

@@ -1,0 +1,155 @@
+/**
+ * computePanelStyleSnapshot
+ *
+ * Extracted in ZF0-1360 (rescope) to make the hmrAppliedVersion-triggered
+ * re-read testable as a pure function. See
+ * `tests/browser/components/panel-style-snapshot.test.ts` for the unit tests;
+ * the originating flaky integration test in
+ * `panel.test.tsx > Panel — hmrAppliedVersion (ZF0-1292)` was deleted.
+ *
+ * The function is the verbatim body of Panel's
+ * `useMemo(() => { ... }, [element, styleVersion, hmrAppliedVersion, activeState,
+ * activePseudo, sharedInfo, editScope])` at Panel.tsx:463-561. The deps array
+ * stays identical in Panel.tsx, preserving the exact re-run-on-hmrAppliedVersion-
+ * bump contract.
+ */
+
+import type { InteractionState } from '../state-detector.js'
+import type { SharedClassInfo } from '../shared-class-detector.js'
+import { parseLayoutValues } from './sections/LayoutSection.js'
+import { parseTypographyValues } from './sections/TypographySection.js'
+import { parseFillValues } from './sections/fill-utils.js'
+import { parseBorderValues } from './sections/BorderSection.js'
+import { parseEffectsValues } from './sections/EffectsSection.js'
+import { parsePositionValues } from './sections/PositionSection.js'
+import { parseAppearanceValues } from './sections/AppearanceSection.js'
+import { parseSpacingValues, ALL_DIMMING_PROPERTIES } from './Panel.js'
+
+export interface ComputePanelStyleSnapshotInput {
+  element: HTMLElement | null
+  activePseudo: 'element' | '::before' | '::after'
+  activeState: InteractionState
+  sharedInfo: SharedClassInfo | null
+  editScope: 'instance' | 'all'
+  overrideManager: { get: (source: string, prop: string, pseudo?: '::before' | '::after') => string | undefined }
+  /** Snapshot of the element's default-state computed styles, captured by Panel's
+   *  `defaultStylesRef`. Pass the ref's `.current` value at call time. */
+  defaultStyles: Record<string, string> | null
+}
+
+export interface ComputePanelStyleSnapshotResult {
+  computedStyles: {
+    spacing: ReturnType<typeof parseSpacingValues>
+    layout: ReturnType<typeof parseLayoutValues>
+    typography: ReturnType<typeof parseTypographyValues>
+    fill: ReturnType<typeof parseFillValues>
+    border: ReturnType<typeof parseBorderValues>
+    effects: ReturnType<typeof parseEffectsValues>
+    position: ReturnType<typeof parsePositionValues>
+    appearance: ReturnType<typeof parseAppearanceValues>
+  }
+  dimmedProperties: Set<string> | undefined
+  mixedProperties: Set<string> | undefined
+  parentDisplay: string
+}
+
+export function computePanelStyleSnapshot(input: ComputePanelStyleSnapshotInput): ComputePanelStyleSnapshotResult {
+  const { element, activePseudo, activeState, sharedInfo, editScope, overrideManager, defaultStyles } = input
+
+  if (!element) {
+    return {
+      computedStyles: {
+        spacing: parseSpacingValues({} as CSSStyleDeclaration),
+        layout: parseLayoutValues({} as CSSStyleDeclaration),
+        typography: parseTypographyValues({} as CSSStyleDeclaration),
+        fill: parseFillValues({} as CSSStyleDeclaration),
+        border: parseBorderValues({} as CSSStyleDeclaration),
+        effects: parseEffectsValues({} as CSSStyleDeclaration),
+        position: parsePositionValues({} as CSSStyleDeclaration),
+        appearance: parseAppearanceValues({} as CSSStyleDeclaration),
+      },
+      dimmedProperties: undefined as Set<string> | undefined,
+      mixedProperties: undefined as Set<string> | undefined,
+      parentDisplay: '',
+    }
+  }
+  const pseudo = activePseudo !== 'element' ? activePseudo : undefined
+  const cs = getComputedStyle(element, pseudo)
+  const source = element.getAttribute('data-cortex-source') ?? ''
+  const layout = parseLayoutValues(cs)
+  // Override width/height with raw override values so deriveSizingMode
+  // sees keywords like 'fit-content' / '100%' instead of resolved pixels.
+  const widthOverride = overrideManager.get(source, 'width', pseudo)
+  const heightOverride = overrideManager.get(source, 'height', pseudo)
+  if (widthOverride !== undefined) layout.width = widthOverride
+  if (heightOverride !== undefined) layout.height = heightOverride
+
+  const parsed = {
+    spacing: parseSpacingValues(cs),
+    layout,
+    typography: parseTypographyValues(cs),
+    fill: parseFillValues(cs),
+    border: parseBorderValues(cs),
+    effects: parseEffectsValues(cs),
+    position: parsePositionValues(cs),
+    appearance: parseAppearanceValues(cs),
+  }
+  // Per CSS spec §8.5.3, getComputedStyle zeroes border-width when
+  // border-style is 'none' or 'hidden' — which breaks the existence/
+  // visibility split used by summarizeBorder. A user-hidden border (via
+  // the eye toggle) would summarize as 'none' and the section would
+  // collapse, making "hide" indistinguishable from "delete". Same remedy
+  // as the width/height override pattern above: prefer the raw override-
+  // manager value over getComputedStyle when an override exists. The eye
+  // toggle handler in BorderSection snapshots all 5 width overrides
+  // before it flips style to 'hidden', so the override store has the
+  // specified widths available to recover here.
+  for (const [property, field] of [
+    ['border-width', 'borderWidth'],
+    ['border-top-width', 'borderTopWidth'],
+    ['border-right-width', 'borderRightWidth'],
+    ['border-bottom-width', 'borderBottomWidth'],
+    ['border-left-width', 'borderLeftWidth'],
+  ] as const) {
+    const raw = overrideManager.get(source, property, pseudo)
+    if (raw !== undefined) {
+      parsed.border[field] = parseFloat(raw) || 0
+    }
+  }
+  // Read parent display inside the already-cached useMemo so we don't
+  // add a second forced layout per render. Returns '' when there is no
+  // parent (document root).
+  const parent = element.parentElement
+  const computedParentDisplay = parent ? getComputedStyle(parent).display : ''
+
+  let dimmed: Set<string> | undefined
+  if (activeState !== 'default' && defaultStyles) {
+    dimmed = new Set<string>()
+    const defaultCs = pseudo ? getComputedStyle(element) : cs
+    if (typeof defaultCs.getPropertyValue === 'function') {
+      for (const prop of ALL_DIMMING_PROPERTIES) {
+        if (defaultCs.getPropertyValue(prop) !== defaultStyles[prop]) dimmed.add(prop)
+      }
+    }
+  }
+
+  // Compare computed styles across shared elements when editing "All" scope.
+  // Properties where siblings differ from the selected element are "mixed".
+  let mixed: Set<string> | undefined
+  if (sharedInfo && editScope === 'all') {
+    mixed = new Set<string>()
+    for (const sibling of sharedInfo.elements) {
+      if (sibling === element) continue
+      const siblingCs = getComputedStyle(sibling, pseudo)
+      for (const prop of ALL_DIMMING_PROPERTIES) {
+        if (mixed.has(prop)) continue
+        if (cs.getPropertyValue(prop) !== siblingCs.getPropertyValue(prop)) {
+          mixed.add(prop)
+        }
+      }
+    }
+    if (mixed.size === 0) mixed = undefined
+  }
+
+  return { computedStyles: parsed, dimmedProperties: dimmed, mixedProperties: mixed, parentDisplay: computedParentDisplay }
+}
