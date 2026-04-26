@@ -150,6 +150,19 @@ export function reResolveSelection(meta: SelectionMetadata): HTMLElement | null 
   return atIndex
 }
 
+/** Decides whether a Panel refresh / re-resolution attempt should run on
+ *  hmr-applied. Returns false when nothing is selected; returns true on
+ *  unknown file lists (server signaled a cycle but did not enumerate files);
+ *  otherwise delegates to hmrFilesAffectElement. */
+export function shouldRefreshOnHMR(
+  files: string[] | undefined,
+  element: HTMLElement | null,
+): boolean {
+  if (!element) return false
+  if (!files || files.length === 0) return true
+  return hmrFilesAffectElement(files, element)
+}
+
 /** File extensions treated as CSS for HMR-filter purposes. Any file in the
  *  HMR change list matching this regex triggers a full Panel refresh because
  *  cascade changes can affect any element. */
