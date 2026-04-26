@@ -1122,7 +1122,7 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
     return { channel, el }
   }
 
-  // Cascade-only: exercises rAF/setTimeout retry fan-out in CortexApp.tsx:367-371.
+  // Cascade-only: exercises rAF/setTimeout retry fan-out inside CortexApp.tsx attemptReResolve.
   // No pure-function equivalent — retry logic is bound to the effect.
   it('retries re-resolution via double-rAF when Fast Refresh commit is deferred', async () => {
     // Simulate framework-commit latency: element is STILL connected at the

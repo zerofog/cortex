@@ -270,8 +270,7 @@ describe('reResolveSelection', () => {
   it('finds element inside an open shadow root via deep-query fallback', () => {
     // When inShadowRoot is true and the flat document query returns nothing
     // (shadow DOM is opaque to querySelectorAll), findSourceMatches falls back
-    // to deepQuerySelectorAll. This is the pure-function parallel of the
-    // integration test "re-resolves across Shadow DOM via deep-query fallback".
+    // to deepQuerySelectorAll.
     const host = document.createElement('div')
     document.body.appendChild(host)
     orphans.push(host)
