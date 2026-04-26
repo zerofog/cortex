@@ -23,7 +23,7 @@ import { parseBorderValues } from './sections/BorderSection.js'
 import { parseEffectsValues } from './sections/EffectsSection.js'
 import { parsePositionValues } from './sections/PositionSection.js'
 import { parseAppearanceValues } from './sections/AppearanceSection.js'
-import { parseSpacingValues, ALL_DIMMING_PROPERTIES } from './Panel.js'
+import { parseSpacingValues, ALL_DIMMING_PROPERTIES } from './sections/spacing-utils.js'
 
 export interface ComputePanelStyleSnapshotInput {
   element: HTMLElement | null
@@ -50,7 +50,6 @@ export interface ComputePanelStyleSnapshotResult {
   }
   dimmedProperties: Set<string> | undefined
   mixedProperties: Set<string> | undefined
-  parentDisplay: string
 }
 
 export function computePanelStyleSnapshot(input: ComputePanelStyleSnapshotInput): ComputePanelStyleSnapshotResult {
@@ -70,7 +69,6 @@ export function computePanelStyleSnapshot(input: ComputePanelStyleSnapshotInput)
       },
       dimmedProperties: undefined as Set<string> | undefined,
       mixedProperties: undefined as Set<string> | undefined,
-      parentDisplay: '',
     }
   }
   const pseudo = activePseudo !== 'element' ? activePseudo : undefined
@@ -116,12 +114,6 @@ export function computePanelStyleSnapshot(input: ComputePanelStyleSnapshotInput)
       parsed.border[field] = parseFloat(raw) || 0
     }
   }
-  // Read parent display inside the already-cached useMemo so we don't
-  // add a second forced layout per render. Returns '' when there is no
-  // parent (document root).
-  const parent = element.parentElement
-  const computedParentDisplay = parent ? getComputedStyle(parent).display : ''
-
   let dimmed: Set<string> | undefined
   if (activeState !== 'default' && defaultStyles) {
     dimmed = new Set<string>()
@@ -151,5 +143,5 @@ export function computePanelStyleSnapshot(input: ComputePanelStyleSnapshotInput)
     if (mixed.size === 0) mixed = undefined
   }
 
-  return { computedStyles: parsed, dimmedProperties: dimmed, mixedProperties: mixed, parentDisplay: computedParentDisplay }
+  return { computedStyles: parsed, dimmedProperties: dimmed, mixedProperties: mixed }
 }

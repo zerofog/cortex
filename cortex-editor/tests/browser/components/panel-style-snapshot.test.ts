@@ -25,7 +25,6 @@ describe('computePanelStyleSnapshot', () => {
     // dimmedProperties and mixedProperties must be undefined from the early-return path
     expect(result.dimmedProperties).toBeUndefined()
     expect(result.mixedProperties).toBeUndefined()
-    expect(result.parentDisplay).toBe('')
   })
 
   it('returns text-align from getComputedStyle', () => {
@@ -306,58 +305,4 @@ describe('computePanelStyleSnapshot', () => {
     }
   })
 
-  it('parentDisplay returns parent getComputedStyle().display', () => {
-    const parent = document.createElement('div')
-    const target = document.createElement('p')
-    target.setAttribute('data-cortex-source', 'src/hero.tsx:10:5')
-    parent.appendChild(target)
-    document.body.appendChild(parent)
-
-    // Mock getComputedStyle to return display: 'flex' for the parent
-    const originalGCS = window.getComputedStyle
-    window.getComputedStyle = ((el: Element, _pseudo?: string | null) => {
-      if (el === parent) return { display: 'flex', getPropertyValue: () => '' } as unknown as CSSStyleDeclaration
-      return { ...originalGCS.call(window, el), getPropertyValue: () => '' } as CSSStyleDeclaration
-    }) as typeof window.getComputedStyle
-
-    try {
-      const result = computePanelStyleSnapshot({
-        element: target,
-        activePseudo: 'element',
-        activeState: 'default',
-        sharedInfo: null,
-        editScope: 'instance',
-        overrideManager: { get: vi.fn().mockReturnValue(undefined) },
-        defaultStyles: null,
-      })
-      expect(result.parentDisplay).toBe('flex')
-    } finally {
-      window.getComputedStyle = originalGCS
-      target.remove()
-      parent.remove()
-    }
-  })
-
-  it('parentDisplay returns empty string when element has no parent', () => {
-    // Detached element — parentElement is null
-    const target = document.createElement('div')
-    target.setAttribute('data-cortex-source', 'src/comp.tsx:5:3')
-
-    const restoreStyles = mockGetComputedStyle(target, {})
-
-    try {
-      const result = computePanelStyleSnapshot({
-        element: target,
-        activePseudo: 'element',
-        activeState: 'default',
-        sharedInfo: null,
-        editScope: 'instance',
-        overrideManager: { get: vi.fn().mockReturnValue(undefined) },
-        defaultStyles: null,
-      })
-      expect(result.parentDisplay).toBe('')
-    } finally {
-      restoreStyles()
-    }
-  })
 })

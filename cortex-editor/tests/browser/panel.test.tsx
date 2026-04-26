@@ -736,6 +736,76 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
   // was deterministically flaky on Linux Node 22 due to render-scheduler timing
   // pressure; the pure-function unit test is synchronous and immune.
 
+  it('Panel re-runs computed-style read when hmrAppliedVersion bumps (deps-array contract)', () => {
+    // Render with reference-stable props except hmrAppliedVersion. Spy on
+    // window.getComputedStyle and assert call count strictly grows after
+    // a version bump. This is the deterministic replacement for the
+    // deleted integration test's deps-array assertion — synchronous,
+    // no scheduler waits.
+    const target = document.createElement('p')
+    target.setAttribute('data-cortex-source', 'src/dummy.tsx:1:1')
+    document.body.appendChild(target)
+
+    const styles: Record<string, string> = {
+      textAlign: 'left',
+      fontSize: '16px',
+      fontFamily: 'Inter',
+      fontWeight: '400',
+      lineHeight: '24px',
+      letterSpacing: '0px',
+      color: 'rgb(0,0,0)',
+      display: 'block',
+    }
+    const restoreStyles = mockGetComputedStyle(target, styles)
+
+    const overrideManager = {
+      set: vi.fn(), get: vi.fn(), remove: vi.fn(),
+      clearAll: vi.fn(), dispose: vi.fn(), flush: vi.fn(),
+    }
+
+    // Capture every getComputedStyle invocation since the spy is set.
+    const gcsSpy = vi.spyOn(window, 'getComputedStyle')
+
+    const { root: shadowRoot, cleanup: removeHost } = createShadowHost()
+
+    const renderPanel = (version: number): void => {
+      render(
+        <Panel
+          element={target}
+          overrideManager={overrideManager as any}
+          onClose={() => {}}
+          onSelectElement={() => {}}
+          {...panelPositionProps}
+          hmrAppliedVersion={version}
+        />,
+        shadowRoot,
+      )
+    }
+
+    try {
+      renderPanel(0)
+      const callsAfterFirstRender = gcsSpy.mock.calls.length
+      expect(callsAfterFirstRender).toBeGreaterThan(0)
+
+      // Bump version. All other props are reference-stable
+      // (overrideManager same instance, panelPositionProps spread,
+      // identity callbacks unchanged across the synchronous re-render).
+      renderPanel(1)
+      const callsAfterSecondRender = gcsSpy.mock.calls.length
+
+      // The deps-array contract: hmrAppliedVersion change forces useMemo
+      // re-run, which calls getComputedStyle again. Assertion is on
+      // strict growth — exact count varies by platform but must increase.
+      expect(callsAfterSecondRender).toBeGreaterThan(callsAfterFirstRender)
+    } finally {
+      gcsSpy.mockRestore()
+      render(null, shadowRoot)
+      removeHost()
+      target.remove()
+      restoreStyles()
+    }
+  })
+
   it('preserves editScope across hmrAppliedVersion bumps (split-useEffect regression guard)', async () => {
     // Locks in the commit f9b0e13 architectural fix: scope reset +
     // highlight clear fire ONLY on `[element]` changes, NOT on
