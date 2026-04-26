@@ -36,20 +36,20 @@ export default defineConfig({
           // contamination (document.head style leaks, persistent mocks on
           // getComputedStyle, module-scoped state in override-bus, etc.).
           //
-          // singleFork: true forces serial execution of all 72 browser test
-          // files in one long-lived worker process. Why: under the default
-          // parallel pool (maxForks ≈ os.availableParallelism()), heavy
-          // happy-dom files (cortex-app.test.tsx, panel.test.tsx,
-          // use-canvas-zoom.test.tsx) ran concurrently and starved each
-          // other's setTimeout/vi.waitFor schedulers, producing intermittent
-          // ~30%-per-suite-run flake on tight-timeout positive assertions
-          // (ZF0-1297 → ZF0-1322 → ZF0-1360 root cause). isolate: true still
-          // resets the test environment (happy-dom + module registry) between
-          // files, so cross-file state does not leak — only the OS-level
-          // parallelism is removed.
+          // singleFork: true forces the browser tests to run serially in one
+          // long-lived worker process. Why: under the default parallel pool
+          // (maxForks ≈ os.availableParallelism()), heavy happy-dom files
+          // (cortex-app.test.tsx, panel.test.tsx, use-canvas-zoom.test.tsx)
+          // ran concurrently and starved each other's setTimeout/vi.waitFor
+          // schedulers, producing intermittent flake on tight-timeout
+          // positive assertions (ZF0-1297 → ZF0-1322 → ZF0-1360 root cause).
+          // isolate: true still resets the test environment (happy-dom +
+          // module registry) between files, so cross-file state does not
+          // leak — only the OS-level parallelism is removed.
           //
-          // Trade-off: full browser project takes ~33s serial vs ~8s
-          // parallel. The server + integration projects remain parallel.
+          // Trade-off: the browser project is noticeably slower when
+          // serialized, but the server + integration projects remain
+          // parallel.
           pool: 'forks',
           poolOptions: {
             forks: {
