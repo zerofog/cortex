@@ -23,7 +23,7 @@ import { CapabilityBanner } from './CapabilityBanner.js'
 import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
 import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
-import { captureSelectionMetadata, reResolveSelection, hmrFilesAffectElement } from '../selection-metadata.js'
+import { captureSelectionMetadata, reResolveSelection, shouldRefreshOnHMR } from '../selection-metadata.js'
 import type { SelectionMetadata } from '../selection-metadata.js'
 import { dismissTopmostPopover } from '../popover-stack.js'
 
@@ -285,9 +285,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         // — err toward refresh. If nothing is selected, there is nothing to
         // refresh (Panel renders empty state, no overlay, no Layer Tree),
         // so skip the version bump outright.
-        const current = selectedElementRef.current
-        const shouldRefresh = current != null
-          && (!files || files.length === 0 || hmrFilesAffectElement(files, current))
+        const shouldRefresh = shouldRefreshOnHMR(files, selectedElementRef.current)
         if (shouldRefresh) {
           setHmrAppliedVersion(v => v + 1)
         }

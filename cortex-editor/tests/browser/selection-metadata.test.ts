@@ -3,6 +3,7 @@ import {
   hmrFilesAffectElement,
   reResolveSelection,
   captureSelectionMetadata,
+  shouldRefreshOnHMR,
 } from '../../src/browser/selection-metadata.js'
 
 describe('hmrFilesAffectElement', () => {
@@ -265,6 +266,31 @@ describe('reResolveSelection', () => {
     })
     expect(result).toBe(siblings[1])
   })
+
+  it('finds element inside an open shadow root via deep-query fallback', () => {
+    // When inShadowRoot is true and the flat document query returns nothing
+    // (shadow DOM is opaque to querySelectorAll), findSourceMatches falls back
+    // to deepQuerySelectorAll.
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    orphans.push(host)
+    const shadow = host.attachShadow({ mode: 'open' })
+    const inner = document.createElement('span')
+    inner.setAttribute('data-cortex-source', 'src/shadow.tsx:5:1')
+    inner.appendChild(document.createTextNode('Shadow content'))
+    shadow.appendChild(inner)
+
+    // Sanity: flat query cannot see it.
+    expect(document.querySelectorAll('[data-cortex-source="src/shadow.tsx:5:1"]').length).toBe(0)
+
+    const result = reResolveSelection({
+      source: 'src/shadow.tsx:5:1',
+      index: 0,
+      contentHash: 'Shadow content',
+      inShadowRoot: true,
+    })
+    expect(result).toBe(inner)
+  })
 })
 
 describe('captureSelectionMetadata', () => {
@@ -309,5 +335,55 @@ describe('captureSelectionMetadata', () => {
     document.body.appendChild(el)
     orphans.push(el)
     expect(captureSelectionMetadata(el).contentHash).toBe('hello')
+  })
+
+  it('sets inShadowRoot true when element is inside an open shadow root', () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    orphans.push(host)
+    const shadow = host.attachShadow({ mode: 'open' })
+    const el = document.createElement('span')
+    el.setAttribute('data-cortex-source', 'src/widget.tsx:3:2')
+    shadow.appendChild(el)
+    const meta = captureSelectionMetadata(el)
+    expect(meta.inShadowRoot).toBe(true)
+    expect(meta.source).toBe('src/widget.tsx:3:2')
+  })
+})
+
+describe('shouldRefreshOnHMR', () => {
+  const orphans: HTMLElement[] = []
+
+  afterEach(() => {
+    for (const el of orphans) el.remove()
+    orphans.length = 0
+  })
+
+  function build(source: string): HTMLElement {
+    const el = document.createElement('div')
+    el.setAttribute('data-cortex-source', source)
+    document.body.appendChild(el)
+    orphans.push(el)
+    return el
+  }
+
+  it('returns false when element is null (nothing selected, nothing to refresh)', () => {
+    expect(shouldRefreshOnHMR(['src/foo.tsx'], null)).toBe(false)
+  })
+
+  it('returns true when files is undefined (backward-compat with older server)', () => {
+    const el = build('src/foo.tsx:1:1')
+    expect(shouldRefreshOnHMR(undefined, el)).toBe(true)
+  })
+
+  it('returns true when files is empty (server signaled cycle but could not enumerate)', () => {
+    const el = build('src/foo.tsx:1:1')
+    expect(shouldRefreshOnHMR([], el)).toBe(true)
+  })
+
+  it('delegates to hmrFilesAffectElement when files is non-empty', () => {
+    const el = build('src/foo.tsx:1:1')
+    expect(shouldRefreshOnHMR(['src/foo.tsx'], el)).toBe(true)
+    expect(shouldRefreshOnHMR(['src/bar.tsx'], el)).toBe(false)
   })
 })
