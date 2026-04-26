@@ -265,6 +265,32 @@ describe('reResolveSelection', () => {
     })
     expect(result).toBe(siblings[1])
   })
+
+  it('finds element inside an open shadow root via deep-query fallback', () => {
+    // When inShadowRoot is true and the flat document query returns nothing
+    // (shadow DOM is opaque to querySelectorAll), findSourceMatches falls back
+    // to deepQuerySelectorAll. This is the pure-function parallel of the
+    // integration test "re-resolves across Shadow DOM via deep-query fallback".
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    orphans.push(host)
+    const shadow = host.attachShadow({ mode: 'open' })
+    const inner = document.createElement('span')
+    inner.setAttribute('data-cortex-source', 'src/shadow.tsx:5:1')
+    inner.appendChild(document.createTextNode('Shadow content'))
+    shadow.appendChild(inner)
+
+    // Sanity: flat query cannot see it.
+    expect(document.querySelectorAll('[data-cortex-source="src/shadow.tsx:5:1"]').length).toBe(0)
+
+    const result = reResolveSelection({
+      source: 'src/shadow.tsx:5:1',
+      index: 0,
+      contentHash: 'Shadow content',
+      inShadowRoot: true,
+    })
+    expect(result).toBe(inner)
+  })
 })
 
 describe('captureSelectionMetadata', () => {
@@ -309,5 +335,18 @@ describe('captureSelectionMetadata', () => {
     document.body.appendChild(el)
     orphans.push(el)
     expect(captureSelectionMetadata(el).contentHash).toBe('hello')
+  })
+
+  it('sets inShadowRoot true when element is inside an open shadow root', () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    orphans.push(host)
+    const shadow = host.attachShadow({ mode: 'open' })
+    const el = document.createElement('span')
+    el.setAttribute('data-cortex-source', 'src/widget.tsx:3:2')
+    shadow.appendChild(el)
+    const meta = captureSelectionMetadata(el)
+    expect(meta.inShadowRoot).toBe(true)
+    expect(meta.source).toBe('src/widget.tsx:3:2')
   })
 })
