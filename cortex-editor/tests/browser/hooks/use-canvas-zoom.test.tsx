@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render } from 'preact'
+import { act } from 'preact/test-utils'
 import { useCanvasZoom } from '../../../src/browser/hooks/useCanvasZoom.js'
 
 function renderHook<T>(hookFn: () => T): { result: { current: T }; unmount: () => void; rerender: (newHookFn: () => T) => void } {
@@ -350,19 +351,30 @@ describe('useCanvasZoom', () => {
   })
 
   it('normalizes line-based deltaMode for Firefox mouse', async () => {
-    const { unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise<void>(r => setTimeout(r, 10))
+    // Wrap mount in act() so the useEffect that registers the wheel listener
+    // runs synchronously before we read `before` and dispatch. The initial
+    // transform comes from a useLayoutEffect (useCanvasZoom.ts:130-136), not
+    // useEffect. Per ZF0-1361 cross-model review: trigger-only act() leaves the
+    // mount-effect race intact.
+    let unmount!: () => void
+    await act(() => {
+      ;({ unmount } = renderHook(() => useCanvasZoom(true)))
+    })
     const before = document.body.style.transform
     const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
 
     // Simulate Firefox mouse: deltaMode=1 (lines), deltaY=3
-    dispatchWheel(3, false, 0, 1) // deltaMode=1 (DOM_DELTA_LINE)
-    await vi.waitFor(() => {
-      const after = document.body.style.transform
-      // 3 lines * ~40px/line = ~120px of pan, not 3px
-      const deltaY = getY(before) - getY(after)
-      expect(deltaY).toBeGreaterThan(50)
-    }, { timeout: 500 })
+    // act() drains any Preact rerender/effect queue at the await boundary. The pan
+    // path here writes body.style.transform synchronously without setState, but
+    // act() future-proofs against added setState. Codebase precedent for act() on
+    // mount + trigger: panel.test.tsx (ZF0-1321). Replaces vi.waitFor per ZF0-1361.
+    await act(() => {
+      dispatchWheel(3, false, 0, 1) // deltaMode=1 (DOM_DELTA_LINE)
+    })
+    const after = document.body.style.transform
+    // 3 lines * ~40px/line = ~120px of pan, not 3px
+    const deltaY = getY(before) - getY(after)
+    expect(deltaY).toBeGreaterThan(50)
     unmount()
   })
 
