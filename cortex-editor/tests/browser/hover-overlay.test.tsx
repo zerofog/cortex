@@ -161,10 +161,12 @@ describe('HoverOverlay', () => {
       top: 100, left: 200, width: 300, height: 50,
     })
 
-    render(<HoverOverlay element={target} />, root)
-
-    // Wait for Preact effects to initialize (useEffect fires on microtask)
-    await new Promise(r => setTimeout(r, 10))
+    // Wrap mount in act() so the useEffect that subscribes to the transform bus
+    // runs synchronously before the trigger emit. Per ZF0-1361 cross-model review:
+    // act() on the trigger alone leaves the mount-effect-installation race intact.
+    await act(() => {
+      render(<HoverOverlay element={target} />, root)
+    })
 
     // Verify initial position
     let overlay = root.querySelector('.cortex-hover-overlay') as HTMLElement

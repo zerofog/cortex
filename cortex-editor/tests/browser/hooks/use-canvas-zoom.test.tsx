@@ -351,8 +351,14 @@ describe('useCanvasZoom', () => {
   })
 
   it('normalizes line-based deltaMode for Firefox mouse', async () => {
-    const { unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise<void>(r => setTimeout(r, 10))
+    // Wrap mount in act() so the useEffect that registers the wheel listener and
+    // applies the initial transform runs synchronously before we read `before` and
+    // dispatch. Per ZF0-1361 cross-model review: trigger-only act() leaves the
+    // mount-effect race intact.
+    let unmount!: () => void
+    await act(() => {
+      ;({ unmount } = renderHook(() => useCanvasZoom(true)))
+    })
     const before = document.body.style.transform
     const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
 

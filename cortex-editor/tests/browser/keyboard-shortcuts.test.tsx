@@ -246,8 +246,12 @@ describe('tinykeys shortcut integration', () => {
   it('C key toggles comment mode on', async () => {
     setup()
     const channel = createMockChannel()
-    render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
-    await new Promise(r => setTimeout(r, SETTLE))
+    // Wrap mount in act() so the useEffect that installs tinykeys' keydown listener
+    // runs synchronously before we dispatch. Per ZF0-1361 cross-model review:
+    // act() on the dispatch alone leaves the listener-installation race intact.
+    await act(() => {
+      render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
+    })
 
     const commentBtn = root.querySelector('[data-mode="comment"]') as HTMLButtonElement
     expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(false)
