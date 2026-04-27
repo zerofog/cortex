@@ -1,7 +1,58 @@
 import { defineConfig } from 'tsup'
+import type { BuildOptions } from 'esbuild'
 
 // Externalized packages: optional peer deps + heavy runtime deps (lazy-loaded)
 const externals = ['vite', 'next', 'webpack', 'tailwindcss', 'ts-morph', 'ws', 'postcss']
+
+/**
+ * Factory for browser-IIFE tsup entries (ZF0-1326 Task 3).
+ *
+ * The security invariants — `minifySyntax: true` and the
+ * `__CORTEX_TEST_BUILD__` esbuild define — must apply to EVERY browser
+ * bundle entry. Pre-factory, those invariants lived inline in the single
+ * browser entry; a contributor adding a second entry (e.g., a lean widget
+ * bundle) could silently omit either by copy-pasting the skeleton without
+ * the full `esbuildOptions` body. This factory makes both invariants
+ * non-optional by construction — they're inside the closure that every
+ * caller spreads.
+ *
+ * Exported so a unit test can verify the factory's output without booting
+ * tsup.
+ */
+export const browserBundleBase = (entry: string, outDir: string) => ({
+  entry: [entry],
+  format: ['iife'] as ['iife'],
+  target: 'es2020',
+  platform: 'browser' as const,
+  outDir,
+  sourcemap: false,
+  outExtension: () => ({ js: '.js' }),
+  esbuildOptions(options: BuildOptions) {
+    options.jsx = 'automatic'
+    options.jsxImportSource = 'preact'
+    // Enable syntax-level minification (constant folding + DCE) without
+    // full identifier minification. Required for `if (false && ...)` blocks
+    // inserted by the `define` substitution below to be physically stripped
+    // from the output — esbuild only DCEs dead branches when minifySyntax is
+    // true (without it, `if (false) { ... }` is emitted verbatim).
+    options.minifySyntax = true
+    // Build-time gate for the debug bridge (ZF0-1298). `CORTEX_TEST_BUILD=true`
+    // flips the identifier to `true` so the bridge installs; every other build
+    // gets `false` and esbuild DCE strips the entire guarded block from the
+    // production bundle. Values must be string-encoded JS expressions because
+    // esbuild.define parses them — `'true'` / `'false'`, not booleans.
+    //
+    // The `...options.define` spread is load-bearing, not defensive: tsup
+    // pre-populates `options.define` with `TSUP_FORMAT` and env-derived
+    // `process.env.*` entries before calling this hook. Dropping the spread
+    // would silently clobber tsup's format detection.
+    options.define = {
+      ...options.define,
+      __CORTEX_TEST_BUILD__: process.env.CORTEX_TEST_BUILD === 'true' ? 'true' : 'false',
+    }
+  },
+  loader: { '.css': 'text' as const },
+})
 
 export default defineConfig([
   // Server-side: core types + source transform
@@ -57,41 +108,14 @@ export default defineConfig([
     banner: { js: '#!/usr/bin/env node' },
     external: [...externals, '@modelcontextprotocol/sdk', 'zod'],
   },
-  // Browser-side: Preact UI bundled as IIFE for Shadow DOM injection
+  // Browser-side: Preact UI bundled as IIFE for Shadow DOM injection.
+  // Spread from the browserBundleBase factory above so `minifySyntax` + the
+  // __CORTEX_TEST_BUILD__ define invariants are enforced by construction
+  // (ZF0-1326 Task 3). A second IIFE entry (lean widget, etc.) added later
+  // becomes a one-line spread; omission of either invariant is impossible.
   {
-    entry: ['src/browser/index.tsx'],
-    format: ['iife'],
-    target: 'es2020',
-    platform: 'browser',
-    outDir: 'dist/browser',
-    sourcemap: false,
+    ...browserBundleBase('src/browser/index.tsx', 'dist/browser'),
     globalName: 'CortexEditor',
-    outExtension: () => ({ js: '.js' }),
-    esbuildOptions(options) {
-      options.jsx = 'automatic'
-      options.jsxImportSource = 'preact'
-      // Enable syntax-level minification (constant folding + DCE) without
-      // full identifier minification. Required for `if (false && ...)` blocks
-      // inserted by the `define` substitution below to be physically stripped
-      // from the output — esbuild only DCEs dead branches when minifySyntax is
-      // true (without it, `if (false) { ... }` is emitted verbatim).
-      options.minifySyntax = true
-      // Build-time gate for the debug bridge (ZF0-1298). `CORTEX_TEST_BUILD=true`
-      // flips the identifier to `true` so the bridge installs; every other build
-      // gets `false` and esbuild DCE strips the entire guarded block from the
-      // production bundle. Values must be string-encoded JS expressions because
-      // esbuild.define parses them — `'true'` / `'false'`, not booleans.
-      //
-      // The `...options.define` spread is load-bearing, not defensive: tsup
-      // pre-populates `options.define` with `TSUP_FORMAT` and env-derived
-      // `process.env.*` entries before calling this hook. Dropping the spread
-      // would silently clobber tsup's format detection.
-      options.define = {
-        ...options.define,
-        __CORTEX_TEST_BUILD__: process.env.CORTEX_TEST_BUILD === 'true' ? 'true' : 'false',
-      }
-    },
-    loader: { '.css': 'text' },
   },
   // DTS-only pass: generates all declarations in a single tsc invocation.
   // Before: 4 configs × dts:true = 4 parallel tsc runs (~16s total).
