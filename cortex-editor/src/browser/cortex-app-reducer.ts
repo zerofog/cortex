@@ -1,9 +1,10 @@
 /**
  * Pure reducer for CortexApp message-handling logic.
  *
- * Extracted from the inline if-chain in CortexApp.tsx (lines 199-392) and
- * the onDivergence subscriber (lines 435-452). No production behaviour change —
- * the reducer is exported but not yet wired; Sub B (ZF0-1380) will do that.
+ * Extracted from the inline if-chain in the channel.onMessage handler in
+ * CortexApp.tsx and the onDivergence subscriber in CortexApp.tsx. No
+ * production behaviour change — the reducer is exported but not yet wired;
+ * Sub B (ZF0-1380) will do that.
  *
  * Follows the selection-metadata.ts module conventions:
  * - Named exports only (no default export)
@@ -12,28 +13,22 @@
  * - Type-only imports separated from value imports
  */
 
-import type { Annotation, ActivityEntry, StyleCapability } from '../adapters/types.js'
+import type { Annotation, ActivityEntry, BrowserToServer, EditKind, StyleCapability } from '../adapters/types.js'
+import type { TextComponent } from '../core/text-components.js'
 import type { EditError } from './components/EditErrorCard.js'
 import type { OverrideDivergence } from './override-bus.js'
-import type { EditKind, BrowserToServer } from '../adapters/types.js'
 
 // ---------------------------------------------------------------------------
 // Local types
 // ---------------------------------------------------------------------------
 
-/** Shape of each entry in the editDispatch ref (CortexApp.tsx:82).
+/** Shape of each entry in the editDispatch ref in CortexApp.tsx.
  *  Defined locally because no shared type exists yet; Sub B may consolidate. */
 export interface EditDispatchEntry {
   source: string
   property: string
   value: string
 }
-
-/** Type alias for the `match` field on `hmr_verified` ServerToBrowser messages. */
-export type HMRMatch = boolean
-
-/** Type alias for the `kind` field on `hmr_verified` ServerToBrowser messages. */
-export type HMRKind = EditKind | undefined
 
 // ---------------------------------------------------------------------------
 // State
@@ -49,7 +44,7 @@ export interface CortexAppReducerState {
   /** Flat hex list of design-system colour swatches (undefined = not yet received). */
   swatches: string[] | undefined
   /** Typography bundles from the `hello` handshake (undefined = not yet received). */
-  textComponents: import('../core/text-components.js').TextComponent[] | undefined
+  textComponents: TextComponent[] | undefined
   /** Named colour chips from the `hello` handshake (undefined = not yet received). */
   colorChips: Array<{ name: string; hex: string }> | undefined
   /** Non-supported styling systems — filtered from `capabilities` messages. */
@@ -72,8 +67,8 @@ export interface CortexAppReducerState {
 
 /** Discriminated union of all actions the reducer handles.
  *
- * Each action variant corresponds to one branch of the inline if-chain in
- * CortexApp.tsx lines 199-392, plus the onDivergence subscriber at 435-452.
+ * Each action variant corresponds to one branch of the channel.onMessage
+ * handler in CortexApp.tsx, plus the onDivergence subscriber in CortexApp.tsx.
  */
 export type CortexAppAction =
   | { type: 'cortex' }
@@ -83,7 +78,7 @@ export type CortexAppAction =
   | {
       type: 'hello'
       swatches?: string[]
-      textComponents?: import('../core/text-components.js').TextComponent[]
+      textComponents?: TextComponent[]
       colorChips?: Array<{ name: string; hex: string }>
     }
   | { type: 'edit_status'; status: 'done'; editId: string; dispatch?: EditDispatchEntry }
@@ -94,7 +89,7 @@ export type CortexAppAction =
       reason?: string
       dispatch?: EditDispatchEntry
     }
-  | { type: 'hmr_verified'; editId: string; match: HMRMatch; kind: HMRKind }
+  | { type: 'hmr_verified'; editId: string; match: boolean; kind: EditKind | undefined }
   | {
       type: 'undo_sync_status' | 'redo_sync_status'
       status: 'failed' | 'done'
@@ -120,7 +115,7 @@ export type CortexAppEffect =
   | { type: 'send'; message: BrowserToServer }
   | { type: 'log_warning'; message: string }
   | { type: 'invoke_exit' }
-  | { type: 'apply_hmr_verified'; editId: string; match: HMRMatch; kind: HMRKind }
+  | { type: 'apply_hmr_verified'; editId: string; match: boolean; kind: EditKind | undefined }
 
 // ---------------------------------------------------------------------------
 // Initial state
@@ -177,14 +172,7 @@ export function cortexAppReducer(
 
     // -----------------------------------------------------------------------
     case 'cortex-toggle': {
-      if (action.active) {
-        if (state.active) {
-          return { state, effects: [] }
-        }
-        return { state: { ...state, active: true }, effects: [] }
-      }
-      // active = false → invoke_exit, no state change
-      return { state, effects: [{ type: 'invoke_exit' }] }
+      return cortexAppReducer(state, action.active ? { type: 'cortex' } : { type: 'cortex-close' })
     }
 
     // -----------------------------------------------------------------------
@@ -367,8 +355,7 @@ export function cortexAppReducer(
     // -----------------------------------------------------------------------
     default: {
       const _exhaustive: never = action
-      void _exhaustive
-      return { state, effects: [] }
+      throw new Error(`Unhandled cortex-app-reducer action: ${JSON.stringify(_exhaustive)}`)
     }
   }
 }
