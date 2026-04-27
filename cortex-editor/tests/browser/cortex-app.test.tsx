@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
 import { CortexApp } from '../../src/browser/components/CortexApp.js'
 import { createShadowHost, createMockChannel, mockGetBoundingClientRect, dispatchKeyboardEvent, cleanDocumentHead } from './helpers.js'
@@ -502,7 +502,7 @@ describe('CortexApp', () => {
 
   describe('error tracking', () => {
     /** Helper: mount CortexApp, activate, select element, return refs. */
-    async function setupWithSelectedElement(channel: ReturnType<typeof createMockChannel>) {
+    async function setupWithSelectedElement() {
       const { _getCallbacks } = await import('../../src/browser/selection.js') as any
       const { selectCb } = _getCallbacks()
 
@@ -571,7 +571,7 @@ describe('CortexApp', () => {
       await new Promise(r => setTimeout(r, 10))
       await activateEditor(channel)
 
-      await setupWithSelectedElement(channel)
+      await setupWithSelectedElement()
       const editId = await triggerEditViaUI()
 
       // Simulate server failure for this edit
@@ -600,7 +600,7 @@ describe('CortexApp', () => {
       await new Promise(r => setTimeout(r, 10))
       await activateEditor(channel)
 
-      await setupWithSelectedElement(channel)
+      await setupWithSelectedElement()
       const { emitDivergence } = await import('../../src/browser/override-bus.js')
 
       emitDivergence({
