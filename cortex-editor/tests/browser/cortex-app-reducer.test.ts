@@ -277,23 +277,30 @@ describe('edit_status:failed action', () => {
     expect(state.editErrors.get(key)!.reason).toBe('Unknown error')
   })
 
+  // Hardcode the expected substring for each row rather than recomputing
+  // it from the input via `?? 'Unknown'` — the reducer uses the same nullish
+  // coalesce internally, so deriving the expected from the input is a shadow
+  // copy of the production fallback (CLAUDE.md anti-pattern §1).
   it.each([
-    ['coalesced' as string | undefined],
-    [undefined],
-  ])('emits log_warning when dispatch absent (reason=%s)', (reason) => {
-    const { state, effects } = cortexAppReducer(baseState, {
-      type: 'edit_status',
-      status: 'failed',
-      editId: 'edit-99',
-      reason,
-    })
-    expect(state).toBe(baseState)
-    expect(effects).toHaveLength(1)
-    const warn = effects[0]
-    expectLogWarning(warn)
-    expect(warn.message).toContain('edit-99')
-    expect(warn.message).toContain(reason ?? 'Unknown')
-  })
+    ['coalesced', 'coalesced'],
+    [undefined, 'Unknown'],
+  ] as Array<[string | undefined, string]>)(
+    'emits log_warning when dispatch absent (reason=%s)',
+    (reason, expectedSubstring) => {
+      const { state, effects } = cortexAppReducer(baseState, {
+        type: 'edit_status',
+        status: 'failed',
+        editId: 'edit-99',
+        reason,
+      })
+      expect(state).toBe(baseState)
+      expect(effects).toHaveLength(1)
+      const warn = effects[0]
+      expectLogWarning(warn)
+      expect(warn.message).toContain('edit-99')
+      expect(warn.message).toContain(expectedSubstring)
+    },
+  )
 })
 
 // ---------------------------------------------------------------------------

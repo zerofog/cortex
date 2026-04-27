@@ -256,7 +256,17 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         reducerStateRef.current = next
         applyReducerState(next, prev)
       }
-      for (const effect of effects) runEffect(effect)
+      // Per-effect isolation: a throw in one handler (e.g., channel.send
+      // closing mid-flight) must not drop subsequent effects from the same
+      // dispatch. log_warning + send for undo_sync_status:failed is the
+      // canonical case where order matters and silent drop would be visible.
+      for (const effect of effects) {
+        try {
+          runEffect(effect)
+        } catch (err) {
+          console.warn('[cortex] runEffect failed', err)
+        }
+      }
     }
     dispatchRef.current = dispatch
 
