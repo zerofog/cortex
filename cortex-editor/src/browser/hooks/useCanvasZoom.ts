@@ -24,6 +24,87 @@ function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v))
 }
 
+// ─── Exported pure functions (used by the hook; tested in isolation) ─────────
+
+export interface MomentumState {
+  pan: { x: number; y: number }
+  velocity: { x: number; y: number }
+}
+
+export interface PanBounds {
+  minX: number
+  maxX: number
+  minY: number
+  maxY: number
+}
+
+export interface MomentumStepResult {
+  state: MomentumState
+  shouldStop: boolean
+}
+
+/** Apply one momentum coast step.
+ * @param state  Current pan + velocity
+ * @param dt     Time delta normalized to 60fps basis (raw_ms / 16.667), capped at 50ms
+ * @param bounds Pan clamp limits
+ */
+export function stepMomentum(
+  state: MomentumState,
+  dt: number,
+  bounds: PanBounds,
+): MomentumStepResult {
+  const cappedDt = Math.min(dt, 50 / 16.667)
+  const friction = Math.pow(FRICTION, cappedDt)
+  let vx = state.velocity.x * friction
+  let vy = state.velocity.y * friction
+  let px = state.pan.x + vx
+  let py = state.pan.y + vy
+  const clampedPx = clamp(px, bounds.minX, bounds.maxX)
+  const clampedPy = clamp(py, bounds.minY, bounds.maxY)
+  if (clampedPx !== px) vx = 0
+  if (clampedPy !== py) vy = 0
+  px = clampedPx
+  py = clampedPy
+  return {
+    state: { pan: { x: px, y: py }, velocity: { x: vx, y: vy } },
+    shouldStop: Math.abs(vx) + Math.abs(vy) < STOP_THRESHOLD,
+  }
+}
+
+export interface PanDelta {
+  dx: number
+  dy: number
+}
+
+export interface PanStepResult {
+  pan: { x: number; y: number }
+  clampedX: boolean
+  clampedY: boolean
+}
+
+/** Compute the result of applying a wheel delta to the current pan position.
+ * @param pan    Current pan offset
+ * @param delta  Wheel delta (positive dx = scroll right = pan moves left)
+ * @param bounds Pan clamp limits
+ */
+export function computePanStep(
+  pan: { x: number; y: number },
+  delta: PanDelta,
+  bounds: PanBounds,
+): PanStepResult {
+  const targetX = pan.x - delta.dx
+  const targetY = pan.y - delta.dy
+  const clampedX = clamp(targetX, bounds.minX, bounds.maxX)
+  const clampedY = clamp(targetY, bounds.minY, bounds.maxY)
+  return {
+    pan: { x: clampedX, y: clampedY },
+    clampedX: clampedX !== targetX,
+    clampedY: clampedY !== targetY,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
   const [scale, setScale] = useState(() => 0.85)
   const scaleRef = useRef(scale)
@@ -154,20 +235,28 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
     let lastTs = 0
     let disposed = false
 
+    function currentBounds(): PanBounds {
+      const vpW = vpRef.current.w
+      const vpH = vpRef.current.h
+      const topMargin = Math.max(CANVAS_MIN_MARGIN, (vpH - cachedBodyH.current) / 2)
+      const maxX = (cachedBodyW.current + vpW) / 2
+      return {
+        minX: -maxX,
+        maxX,
+        minY: -(cachedBodyH.current + topMargin),
+        maxY: vpH - topMargin,
+      }
+    }
+
     function coastLoop(ts: number): void {
       if (disposed) return
       const dt = Math.min(ts - lastTs, 50) / 16.667 // normalize to 60fps basis
       lastTs = ts
-      const friction = Math.pow(FRICTION, dt)
-      velocity.x *= friction
-      velocity.y *= friction
-      panRef.current.x += velocity.x
-      panRef.current.y += velocity.y
-      const coast = clampPan()
-      if (coast.clampedX) velocity.x = 0
-      if (coast.clampedY) velocity.y = 0
+      const r = stepMomentum({ pan: panRef.current, velocity }, dt, currentBounds())
+      panRef.current = r.state.pan
+      velocity = r.state.velocity
       applyTransformPosition(scaleRef.current)
-      if (Math.abs(velocity.x) + Math.abs(velocity.y) < STOP_THRESHOLD) {
+      if (r.shouldStop) {
         momentumRafRef.current = 0
         return
       }
@@ -184,13 +273,11 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
         setScale(s => clamp(s + delta, MIN_ZOOM, MAX_ZOOM))
       } else {
         const { dx, dy } = normalizeDelta(e)
-        // Apply immediate pan
-        panRef.current.x -= dx
-        panRef.current.y -= dy
-        const wheel = clampPan()
+        // Apply immediate pan, then start momentum coast
+        const wheel = computePanStep(panRef.current, { dx, dy }, currentBounds())
+        panRef.current = wheel.pan
         applyTransformPosition(scaleRef.current)
-        // Set velocity and start momentum coast
-        // (velocity = negative delta, same direction as the pan)
+        // velocity = negative delta, same direction as the pan
         velocity.x = wheel.clampedX ? 0 : -dx
         velocity.y = wheel.clampedY ? 0 : -dy
         lastTs = performance.now()
