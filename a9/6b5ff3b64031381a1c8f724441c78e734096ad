@@ -1,0 +1,24 @@
+cortex-editor/tests/browser/hooks/use-canvas-zoom.test.tsx
+  6c95c55d114dd86f 413-421
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "a96b5ff3b64031381a1c8f724441c78e734096ad",
+  "prompts": {
+    "6c95c55d114dd86f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5b916eb3-9cea-48d3-9284-98692ceee7c4",
+        "model": "<synthetic>"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 9,
+      "total_deletions": 1,
+      "accepted_lines": 555,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/138ef495cb754e3a7e48a4eef9e4fc7121260af05fe5226ebf404f7575bbb7a4"
+    }
+  }
+}
