@@ -17,6 +17,8 @@ describe('SelectionOverlay', () => {
   }
 
   afterEach(() => {
+    // Unmount before host removal so useEffect cleanups fire.
+    if (root) render(null, root)
     if (cleanupHost) cleanupHost()
     // SelectionOverlay subscribes to transform-bus in useEffect; resetting
     // the bus between tests prevents leaked listeners from a prior test
