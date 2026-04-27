@@ -316,14 +316,15 @@ describe('useCanvasZoom', () => {
     await new Promise<void>(r => setTimeout(r, 10))
 
     const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
+    const beforeY = getY(document.body.style.transform)
 
-    // Pan the canvas
+    // Pan the canvas — positive deltaY → pan moves up → translate.y decreases
     dispatchWheel(200, false)
     let panY!: number
     await vi.waitFor(() => {
       const t = document.body.style.transform
       panY = getY(t)
-      expect(isNaN(panY)).toBe(false)
+      expect(panY).toBeLessThan(beforeY) // directional: Y-axis wheel→pan wiring
     }, { timeout: 500 })
 
     // Zoom — should preserve pan offset, not reset it
@@ -409,14 +410,16 @@ describe('useCanvasZoom', () => {
 
       const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
 
-      dispatchWheel(10, false) // 10px delta
+      dispatchWheel(10, false) // positive deltaY → pan moves up → translate.y decreases
       const immediate = getY(document.body.style.transform)
       stepRAF(3)
       const midCoast = getY(document.body.style.transform)
-      // Coast frames must actually mutate body.style.transform with non-stationary
-      // values — guards against a regression where coastLoop runs stepMomentum
-      // but forgets applyTransformPosition, or velocity is zeroed after frame 1.
-      expect(midCoast).not.toBe(immediate)
+      // Coast frames must actually mutate body.style.transform AND continue in the
+      // same direction as the wheel. Guards against (a) coastLoop forgetting
+      // applyTransformPosition (midCoast === immediate would pass), and (b)
+      // velocity sign flip in the wheel→momentum wiring (`velocity.y = dy` instead
+      // of `-dy` would coast in the wrong direction).
+      expect(midCoast).toBeLessThan(immediate)
 
       stepRAF(22) // 25 total frames — well beyond expected ~17
       const settled = getY(document.body.style.transform)

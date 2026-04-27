@@ -81,8 +81,9 @@ describe('stepMomentum', () => {
         stoppedAt = i + 1
       }
     }
-    // Should have stopped within N steps (±1 tolerance for floating point)
-    expect(stoppedAt).toBeGreaterThan(0)
+    // Convergence rate matters: stoppedAt must be near N, not 1 (would imply
+    // immediate-stop mutation that always returns shouldStop=true).
+    expect(stoppedAt).toBeGreaterThan(N - 3)
     expect(stoppedAt).toBeLessThanOrEqual(N + 1)
   })
 
@@ -133,6 +134,11 @@ describe('stepMomentum', () => {
     // If dt is capped inside stepMomentum, both results should be equal
     expect(r1.state.velocity.x).toBeCloseTo(r2.state.velocity.x, 6)
     expect(r1.state.pan.x).toBeCloseTo(r2.state.pan.x, 6)
+
+    // Verify the cap value is exactly 50/16.667 (≈3.0). Catches mutations
+    // like Math.min(dt, 30/16.667) where r1==r2 holds but the cap is wrong.
+    const expectedFriction = Math.pow(FRICTION, 50 / 16.667)
+    expect(r1.state.velocity.x).toBeCloseTo(10 * expectedFriction, 6)
   })
 
   it('shouldStop fires when |vx| + |vy| < STOP_THRESHOLD', () => {
@@ -144,6 +150,18 @@ describe('stepMomentum', () => {
     const { shouldStop } = stepMomentum(state, DT_ONE_FRAME, infiniteBounds())
     // After one friction step the velocity will be even smaller — definitely stopped
     expect(shouldStop).toBe(true)
+  })
+
+  it('shouldStop uses sum-of-magnitudes, not max — vx=vy=0.1 (sum > threshold) does NOT stop', () => {
+    // Distinguishes the production sum semantics from a `Math.max(|vx|, |vy|)`
+    // mutation. Inputs: vx=vy=0.1 → after friction = 0.075 each → sum=0.15 (>0.1)
+    // but max=0.075 (<0.1). Production must NOT stop here; max-mutation would.
+    const state: MomentumState = {
+      pan: { x: 0, y: 0 },
+      velocity: { x: 0.1, y: 0.1 },
+    }
+    const { shouldStop } = stepMomentum(state, DT_ONE_FRAME, infiniteBounds())
+    expect(shouldStop).toBe(false)
   })
 })
 

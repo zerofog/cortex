@@ -11,7 +11,7 @@ const FRICTION = 0.75
 const STOP_THRESHOLD = 0.1
 const LINE_HEIGHT = 40 // px — CSS standard approximation for deltaMode=1
 
-function normalizeDelta(e: WheelEvent): { dx: number; dy: number } {
+function normalizeDelta(e: WheelEvent): PanDelta {
   const mult = e.deltaMode === 1 ? LINE_HEIGHT : e.deltaMode === 2 ? window.innerHeight : 1
   return { dx: e.deltaX * mult, dy: e.deltaY * mult }
 }
@@ -31,6 +31,11 @@ export interface MomentumState {
   velocity: { x: number; y: number }
 }
 
+/** Pan-clamping limits along both axes.
+ *  Invariant (caller-enforced): minX ≤ maxX, minY ≤ maxY. Inverted ranges
+ *  silently produce a constant value (Math.max(min, Math.min(max, v))) — there
+ *  is no internal validation because the only constructors are inside this
+ *  file (currentBounds, clampPan) and are derived from non-negative dimensions. */
 export interface PanBounds {
   minX: number
   maxX: number
@@ -38,7 +43,7 @@ export interface PanBounds {
   maxY: number
 }
 
-export interface MomentumStepResult {
+interface MomentumStepResult {
   state: MomentumState
   shouldStop: boolean
 }
@@ -79,7 +84,7 @@ export interface PanDelta {
   dy: number
 }
 
-export interface PanStepResult {
+interface PanStepResult {
   pan: { x: number; y: number }
   clampedX: boolean
   clampedY: boolean
