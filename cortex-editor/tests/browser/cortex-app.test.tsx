@@ -765,12 +765,15 @@ describe('CortexApp', () => {
 
       expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('Unhandled cortex-app-reducer'))
 
-      // Entry survived — subsequent done should bump activity without error
-      channel._simulateMessage({ type: 'edit_status', editId: trackedEditId, status: 'done' } as any)
-      await new Promise(r => setTimeout(r, 10))
-
-      // No error card means the done was processed normally
-      expect(root.querySelector('.cortex-error-card')).toBeNull()
+      // Entry survived — proven by sending failed after cancelled and asserting
+      // the error card surfaces with the dispatch entry's reason. (Without the
+      // dispatch entry, failed would only emit a log_warning, not an error card.)
+      channel._simulateMessage({ type: 'edit_status', editId: trackedEditId, status: 'failed', reason: 'post-cancelled-fail' } as any)
+      await vi.waitFor(() => {
+        const card = root.querySelector('.cortex-error-card')
+        expect(card).not.toBeNull()
+        expect(card!.textContent).toContain('post-cancelled-fail')
+      }, { timeout: 500 })
     })
 
     it('error channel message does not throw and does not reach reducer', async () => {
