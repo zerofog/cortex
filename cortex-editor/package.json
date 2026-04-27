@@ -59,7 +59,7 @@
     "test:watch": "vitest",
     "test:e2e": "npm run build:test && playwright test",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests/e2e/tsconfig.json",
-    "prepublishOnly": "cross-env CORTEX_TEST_BUILD=false npm run build"
+    "prepublishOnly": "rm -rf dist && cross-env CORTEX_TEST_BUILD=false npm run build"
   },
   "devDependencies": {
     "@babel/parser": "^7.27.0",

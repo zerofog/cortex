@@ -73,14 +73,6 @@ export default defineConfig([
     format: ['esm', 'cjs'],
     target: 'node20',
     sourcemap: true,
-    // ZF0-1326 Task 2 follow-up (Step 4 review fix): clean: true on the first
-    // entry wipes dist/ before any tsup config runs. Without this, repeated
-    // builds accumulate content-hashed chunk and dts files in dist/* — the
-    // package's `files: ["dist"]` would then ship them all on `npm publish`,
-    // bloating the tarball with stale build artifacts. The IIFE entry is
-    // overwritten by name on every build (so the security gate is preserved
-    // independently), but adjacent dist subdirs accumulate without this.
-    clean: true,
     // DTS for ALL entries generated in one pass below — not per-config
     external: externals,
   },
