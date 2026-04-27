@@ -8,7 +8,7 @@ import { CommandStack } from '../command-stack.js'
 import { initSelection } from '../selection.js'
 import type { SelectionHandle } from '../selection.js'
 import { cortexAppReducer, initialCortexAppReducerState } from '../cortex-app-reducer.js'
-import type { CortexAppReducerState, CortexAppAction, CortexAppEffect } from '../cortex-app-reducer.js'
+import type { CortexAppReducerState, CortexAppAction, CortexAppEffect, EditDispatchEntry } from '../cortex-app-reducer.js'
 // @ts-ignore — tinykeys has types but exports field doesn't include a "types" condition (TODO: add declare module shim when tinykeys updates)
 import { tinykeys } from 'tinykeys'
 import { getDeepActiveElement, isInputFocused, isCortexUIFocused, isRealEvent } from '../focus-utils.js'
@@ -197,6 +197,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     // `initialActive` prop overrides the reducer's default `active: false`.
     const reducerStateRef = { current: { ...initialCortexAppReducerState, active: initialActive ?? false } }
 
+    // Per-slice setters (not a single setState over the whole state) so Preact
+    // can bail out per consumer. The reducer's reference-equality discipline
+    // makes each `next.X !== prev.X` a meaningful guard rather than a tautology.
     const applyReducerState = (next: CortexAppReducerState, prev: CortexAppReducerState): void => {
       if (next.active !== prev.active) setActive(next.active)
       if (next.swatches !== prev.swatches) setSwatches(next.swatches)
@@ -224,6 +227,14 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         case 'apply_hmr_verified':
           overrideRef.current?.handleHMRVerified(effect.editId, effect.match, effect.kind)
           return
+        default: {
+          // Compile-time exhaustiveness — mirrors the reducer's `never` default.
+          // Forces TS to error if a new CortexAppEffect variant is added without
+          // a matching wiring case here. Runtime throw makes the gap observable
+          // even if a cast bypasses TS.
+          const _exhaustive: never = effect
+          throw new Error(`Unhandled cortex-app effect: ${JSON.stringify(_exhaustive)}`)
+        }
       }
     }
 
@@ -235,6 +246,16 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         applyReducerState(next, prev)
       }
       for (const effect of effects) runEffect(effect)
+    }
+
+    // editDispatchRef is React-side state; the pure reducer can't read refs,
+    // so we snapshot the entry into the action before dispatching. Only consume
+    // (delete) the entry on terminal statuses — `writing`/`cancelled` keep the
+    // entry alive so the eventual `done`/`failed` can consume it.
+    const popDispatchEntry = (editId: string): EditDispatchEntry | undefined => {
+      const entry = editDispatchRef.current.get(editId)
+      if (entry) editDispatchRef.current.delete(editId)
+      return entry
     }
 
     // Listen-first ordering: subscribe to onMessage BEFORE sending init. The server's
@@ -251,13 +272,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         // entry (a `done` typically follows; the entry must survive). This mirrors
         // the legacy if-chain which only deleted the entry inside done/failed.
         if (msg.status === 'done') {
-          const entry = editDispatchRef.current.get(msg.editId)
-          if (entry) editDispatchRef.current.delete(msg.editId)
-          dispatch({ type: 'edit_status', status: 'done', editId: msg.editId, dispatch: entry })
+          dispatch({ type: 'edit_status', status: 'done', editId: msg.editId, dispatch: popDispatchEntry(msg.editId) })
         } else if (msg.status === 'failed') {
-          const entry = editDispatchRef.current.get(msg.editId)
-          if (entry) editDispatchRef.current.delete(msg.editId)
-          dispatch({ type: 'edit_status', status: 'failed', editId: msg.editId, reason: msg.reason, dispatch: entry })
+          dispatch({ type: 'edit_status', status: 'failed', editId: msg.editId, reason: msg.reason, dispatch: popDispatchEntry(msg.editId) })
         }
         return
       }
@@ -377,11 +394,14 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       // exhaustive throw doesn't fire on every error message.
       if (msg.type === 'error') return
 
-      // All other channel messages route through the reducer.
-      // The ServerToBrowser union includes 'edit_status', 'hmr-applied', and 'error'
-      // (handled above) plus all action types that the reducer covers. After excluding
-      // those three, the remaining messages map directly to CortexAppAction variants.
-      dispatch(msg as unknown as CortexAppAction)
+      // All other channel messages route through the reducer. After the three
+      // early returns above, control-flow narrows `msg` to the union of
+      // reducer-handled message types. Each remaining ServerToBrowser variant
+      // is structurally compatible with its CortexAppAction counterpart (extra
+      // optional fields like protocolVersion are tolerated). A direct cast lets
+      // TS catch real shape drift if a new ServerToBrowser variant is added
+      // without a matching CortexAppAction case — `as unknown as` would mask it.
+      dispatch(msg as CortexAppAction)
     })
 
     // Handshake signal — server responds with 'hello' carrying swatches + design-system
