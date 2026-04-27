@@ -224,7 +224,7 @@ describe('useCanvasZoom', () => {
     expect(document.body.style.transformOrigin).toBe('50% 50%')
   })
 
-  // deleted: subsumed by tests/core/use-canvas-zoom-pure.test.ts (math) + sibling test L242 (wiring)
+  // deleted: subsumed by tests/core/use-canvas-zoom-pure.test.ts (math) + sibling 'regular scroll pans horizontally' below (wiring) + 'zooming preserves pan offset' (vertical pan + topMargin)
 
   it('regular scroll pans horizontally', async () => {
     const { unmount } = renderHook(() => useCanvasZoom(true))
