@@ -141,14 +141,18 @@ describe('stepMomentum', () => {
     expect(r1.state.velocity.x).toBeCloseTo(10 * expectedFriction, 6)
   })
 
-  it('shouldStop fires when |vx| + |vy| < STOP_THRESHOLD', () => {
-    // velocity just below threshold
+  it('shouldStop checks POST-friction velocity, not pre-friction', () => {
+    // Inputs picked so pre-friction sum is ABOVE threshold but post-friction sum
+    // is BELOW. This distinguishes the production semantics (`shouldStop` is
+    // computed AFTER friction is applied) from a mutation that checks the
+    // pre-friction velocity instead. With these values:
+    //   pre-sum  = 0.065 + 0.065 = 0.13     (>= 0.1, mutation would say false)
+    //   post-sum = (0.065 * 0.75) * 2 = 0.0975  (< 0.1, production says true)
     const state: MomentumState = {
       pan: { x: 0, y: 0 },
-      velocity: { x: 0.04, y: 0.04 }, // sum = 0.08 < 0.1
+      velocity: { x: 0.065, y: 0.065 },
     }
     const { shouldStop } = stepMomentum(state, DT_ONE_FRAME, infiniteBounds())
-    // After one friction step the velocity will be even smaller — definitely stopped
     expect(shouldStop).toBe(true)
   })
 
