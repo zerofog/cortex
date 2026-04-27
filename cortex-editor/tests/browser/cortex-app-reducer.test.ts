@@ -1,0 +1,592 @@
+/**
+ * Unit tests for cortex-app-reducer.ts.
+ *
+ * One describe per action type. All assertions synchronous — no mount, render,
+ * or waitFor. Mirrors the selection-metadata.test.ts conventions.
+ */
+
+import { describe, it, expect } from 'vitest'
+import {
+  cortexAppReducer,
+  initialCortexAppReducerState,
+  MAX_ACTIVITY_ENTRIES,
+} from '../../src/browser/cortex-app-reducer.js'
+import type {
+  CortexAppReducerState,
+  CortexAppAction,
+  EditDispatchEntry,
+} from '../../src/browser/cortex-app-reducer.js'
+import type { Annotation, ActivityEntry, StyleCapability } from '../../src/adapters/types.js'
+import type { OverrideDivergence, OverrideDivergenceDiagnostics } from '../../src/browser/override-bus.js'
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function reduce(
+  state: CortexAppReducerState,
+  action: CortexAppAction,
+) {
+  return cortexAppReducer(state, action)
+}
+
+function makeAnnotation(overrides: Partial<Annotation> = {}): Annotation {
+  return {
+    id: 'ann-1',
+    status: 'pending',
+    elementSource: 'src/App.tsx:10:3',
+    text: 'test',
+    createdAt: 0,
+    updatedAt: 0,
+    thread: [],
+    ...overrides,
+  }
+}
+
+function makeActivityEntry(overrides: Partial<ActivityEntry> = {}): ActivityEntry {
+  return {
+    id: 'entry-1',
+    type: 'edit',
+    timestamp: 0,
+    description: 'test edit',
+    ...overrides,
+  }
+}
+
+function makeDivergence(overrides: Partial<OverrideDivergence> = {}): OverrideDivergence {
+  const diagnostics: OverrideDivergenceDiagnostics = {
+    actualReadFrom: 'computed-style',
+    priorValues: [],
+  }
+  return {
+    source: 'src/App.tsx:10:3',
+    property: 'color',
+    expected: 'red',
+    actual: 'blue',
+    diagnostics,
+    ...overrides,
+  }
+}
+
+function makeDispatch(overrides: Partial<EditDispatchEntry> = {}): EditDispatchEntry {
+  return {
+    source: 'src/App.tsx:10:3',
+    property: 'color',
+    value: 'red',
+    ...overrides,
+  }
+}
+
+const baseState = initialCortexAppReducerState
+
+// ---------------------------------------------------------------------------
+// cortex
+// ---------------------------------------------------------------------------
+
+describe('cortex action', () => {
+  it('activates from inactive state', () => {
+    const { state, effects } = reduce(baseState, { type: 'cortex' })
+    expect(state.active).toBe(true)
+    expect(effects).toEqual([])
+  })
+
+  it('is idempotent when already active — returns same state reference', () => {
+    const activeState: CortexAppReducerState = { ...baseState, active: true }
+    const { state, effects } = reduce(activeState, { type: 'cortex' })
+    expect(state).toBe(activeState) // reference equality
+    expect(effects).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// cortex-close
+// ---------------------------------------------------------------------------
+
+describe('cortex-close action', () => {
+  it('emits invoke_exit and does not change state', () => {
+    const { state, effects } = reduce(baseState, { type: 'cortex-close' })
+    expect(state).toBe(baseState) // no state change
+    expect(effects).toEqual([{ type: 'invoke_exit' }])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// cortex-toggle
+// ---------------------------------------------------------------------------
+
+describe('cortex-toggle action', () => {
+  it('activates when active=true and panel is currently closed', () => {
+    const { state, effects } = reduce(baseState, { type: 'cortex-toggle', active: true })
+    expect(state.active).toBe(true)
+    expect(effects).toEqual([])
+  })
+
+  it('emits invoke_exit when active=false', () => {
+    const { state, effects } = reduce(baseState, { type: 'cortex-toggle', active: false })
+    expect(state).toBe(baseState)
+    expect(effects).toEqual([{ type: 'invoke_exit' }])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// capabilities
+// ---------------------------------------------------------------------------
+
+describe('capabilities action', () => {
+  const systems: StyleCapability[] = [
+    { name: 'Tailwind', status: 'supported' },
+    { name: 'CSS Modules', status: 'preview-only' },
+    { name: 'CSS-in-JS', status: 'ai-required' },
+  ]
+
+  it('filters out supported systems and keeps unsupported ones', () => {
+    const { state, effects } = reduce(baseState, { type: 'capabilities', systems })
+    expect(state.capabilitySystems).toHaveLength(2)
+    expect(state.capabilitySystems.map(s => s.name)).toEqual(['CSS Modules', 'CSS-in-JS'])
+    expect(effects).toEqual([])
+  })
+
+  it('produces empty array when all systems are supported', () => {
+    const allSupported: StyleCapability[] = [
+      { name: 'Tailwind', status: 'supported' },
+    ]
+    const { state } = reduce(baseState, { type: 'capabilities', systems: allSupported })
+    expect(state.capabilitySystems).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// hello
+// ---------------------------------------------------------------------------
+
+describe('hello action', () => {
+  it('replaces swatches/textComponents/colorChips with received values', () => {
+    const { state, effects } = reduce(baseState, {
+      type: 'hello',
+      swatches: ['#fff', '#000'],
+      textComponents: [],
+      colorChips: [{ name: 'primary', hex: '#123456' }],
+    })
+    expect(state.swatches).toEqual(['#fff', '#000'])
+    expect(state.textComponents).toEqual([])
+    expect(state.colorChips).toEqual([{ name: 'primary', hex: '#123456' }])
+    expect(effects).toEqual([])
+  })
+
+  it('defaults undefined fields to empty arrays (not undefined)', () => {
+    const { state } = reduce(baseState, { type: 'hello' })
+    expect(state.swatches).toEqual([])
+    expect(state.textComponents).toEqual([])
+    expect(state.colorChips).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// edit_status: done
+// ---------------------------------------------------------------------------
+
+describe('edit_status:done action', () => {
+  it('increments activityCount and clears matching editError when dispatch present', () => {
+    const dispatch = makeDispatch()
+    const key = `${dispatch.source}\0${dispatch.property}`
+    const stateWithError: CortexAppReducerState = {
+      ...baseState,
+      editErrors: new Map([[key, { source: dispatch.source, property: dispatch.property, value: dispatch.value, reason: 'oops' }]]),
+    }
+    const { state, effects } = reduce(stateWithError, {
+      type: 'edit_status',
+      status: 'done',
+      editId: 'edit-1',
+      dispatch,
+    })
+    expect(state.activityCount).toBe(1)
+    expect(state.editErrors.has(key)).toBe(false)
+    expect(effects).toEqual([])
+  })
+
+  it('increments activityCount and does NOT clear errors when dispatch absent', () => {
+    const key = 'src/App.tsx:10:3\0color'
+    const stateWithError: CortexAppReducerState = {
+      ...baseState,
+      editErrors: new Map([[key, { source: 'src/App.tsx:10:3', property: 'color', value: 'red', reason: 'oops' }]]),
+    }
+    const { state, effects } = reduce(stateWithError, {
+      type: 'edit_status',
+      status: 'done',
+      editId: 'edit-1',
+    })
+    expect(state.activityCount).toBe(1)
+    expect(state.editErrors.has(key)).toBe(true) // untouched
+    expect(effects).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// edit_status: failed
+// ---------------------------------------------------------------------------
+
+describe('edit_status:failed action', () => {
+  it('sets editError with reason ?? "Unknown error" when dispatch present', () => {
+    const dispatch = makeDispatch()
+    const key = `${dispatch.source}\0${dispatch.property}`
+    const { state, effects } = reduce(baseState, {
+      type: 'edit_status',
+      status: 'failed',
+      editId: 'edit-1',
+      reason: 'write failed',
+      dispatch,
+    })
+    const err = state.editErrors.get(key)
+    expect(err).toBeDefined()
+    expect(err!.source).toBe(dispatch.source)
+    expect(err!.property).toBe(dispatch.property)
+    expect(err!.value).toBe(dispatch.value)
+    expect(err!.reason).toBe('write failed')
+    expect(effects).toEqual([])
+  })
+
+  it('uses "Unknown error" as fallback when reason is absent', () => {
+    const dispatch = makeDispatch()
+    const key = `${dispatch.source}\0${dispatch.property}`
+    const { state } = reduce(baseState, {
+      type: 'edit_status',
+      status: 'failed',
+      editId: 'edit-1',
+      dispatch,
+    })
+    expect(state.editErrors.get(key)!.reason).toBe('Unknown error')
+  })
+
+  it('emits log_warning effect when dispatch absent', () => {
+    const { state, effects } = reduce(baseState, {
+      type: 'edit_status',
+      status: 'failed',
+      editId: 'edit-99',
+      reason: 'coalesced',
+    })
+    expect(state).toBe(baseState)
+    expect(effects).toHaveLength(1)
+    expect(effects[0].type).toBe('log_warning')
+    expect((effects[0] as { type: 'log_warning'; message: string }).message).toContain('edit-99')
+    expect((effects[0] as { type: 'log_warning'; message: string }).message).toContain('coalesced')
+  })
+
+  it('log_warning uses "Unknown" when reason is absent', () => {
+    const { effects } = reduce(baseState, {
+      type: 'edit_status',
+      status: 'failed',
+      editId: 'edit-99',
+    })
+    const warn = effects[0] as { type: 'log_warning'; message: string }
+    expect(warn.message).toContain('Unknown')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// hmr_verified
+// ---------------------------------------------------------------------------
+
+describe('hmr_verified action', () => {
+  it('emits apply_hmr_verified effect and does not change state', () => {
+    const { state, effects } = reduce(baseState, {
+      type: 'hmr_verified',
+      editId: 'e1',
+      match: true,
+      kind: 'immediate',
+    })
+    expect(state).toBe(baseState)
+    expect(effects).toEqual([
+      { type: 'apply_hmr_verified', editId: 'e1', match: true, kind: 'immediate' },
+    ])
+  })
+
+  it('passes undefined kind through', () => {
+    const { effects } = reduce(baseState, {
+      type: 'hmr_verified',
+      editId: 'e2',
+      match: false,
+      kind: undefined,
+    })
+    expect(effects[0]).toMatchObject({ type: 'apply_hmr_verified', kind: undefined })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// undo_sync_status / redo_sync_status
+// ---------------------------------------------------------------------------
+
+describe.each([
+  { msgType: 'undo_sync_status' as const, verb: 'undo' },
+  { msgType: 'redo_sync_status' as const, verb: 'redo' },
+])('$msgType action', ({ msgType, verb }) => {
+  it(`emits log_warning + send(clear_server_undo) when status=failed reason_code=stale`, () => {
+    const { state, effects } = reduce(baseState, {
+      type: msgType,
+      status: 'failed',
+      reason: 'stale snapshot',
+      reason_code: 'stale',
+    })
+    expect(state).toBe(baseState)
+    expect(effects).toHaveLength(2)
+    const warn = effects[0] as { type: 'log_warning'; message: string }
+    expect(warn.type).toBe('log_warning')
+    expect(warn.message).toContain(verb)
+    expect(warn.message).toContain('stale snapshot')
+    expect(effects[1]).toEqual({ type: 'send', message: { type: 'clear_server_undo' } })
+  })
+
+  it(`emits log_warning + send(clear_server_undo) when status=failed reason_code=write_failed`, () => {
+    const { effects } = reduce(baseState, {
+      type: msgType,
+      status: 'failed',
+      reason: 'disk error',
+      reason_code: 'write_failed',
+    })
+    expect(effects).toHaveLength(2)
+    expect(effects[1]).toEqual({ type: 'send', message: { type: 'clear_server_undo' } })
+  })
+
+  it(`emits log_warning only when status=failed reason_code=empty_stack`, () => {
+    const { effects } = reduce(baseState, {
+      type: msgType,
+      status: 'failed',
+      reason: 'nothing to undo',
+      reason_code: 'empty_stack',
+    })
+    expect(effects).toHaveLength(1)
+    expect(effects[0].type).toBe('log_warning')
+  })
+
+  it(`emits log_warning only when status=failed reason_code=undefined (defensive)`, () => {
+    const { effects } = reduce(baseState, {
+      type: msgType,
+      status: 'failed',
+      reason: 'transient error',
+    })
+    expect(effects).toHaveLength(1)
+    expect(effects[0].type).toBe('log_warning')
+  })
+
+  it(`is a no-op when status=done`, () => {
+    const { state, effects } = reduce(baseState, { type: msgType, status: 'done' })
+    expect(state).toBe(baseState)
+    expect(effects).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// annotation-created
+// ---------------------------------------------------------------------------
+
+describe('annotation-created action', () => {
+  it('adds the annotation to the map', () => {
+    const ann = makeAnnotation({ id: 'ann-abc' })
+    const { state, effects } = reduce(baseState, {
+      type: 'annotation-created',
+      annotation: ann,
+    })
+    expect(state.annotations.get('ann-abc')).toBe(ann)
+    expect(effects).toEqual([])
+  })
+
+  it('allocates a new Map (does not mutate prior state)', () => {
+    const ann = makeAnnotation({ id: 'ann-abc' })
+    const { state } = reduce(baseState, { type: 'annotation-created', annotation: ann })
+    expect(state.annotations).not.toBe(baseState.annotations)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// annotation-updated
+// ---------------------------------------------------------------------------
+
+describe('annotation-updated action', () => {
+  it('replaces an existing annotation in the map', () => {
+    const original = makeAnnotation({ id: 'ann-1', text: 'original' })
+    const updated = makeAnnotation({ id: 'ann-1', text: 'updated' })
+    const stateWithAnn: CortexAppReducerState = {
+      ...baseState,
+      annotations: new Map([['ann-1', original]]),
+    }
+    const { state, effects } = reduce(stateWithAnn, {
+      type: 'annotation-updated',
+      annotation: updated,
+    })
+    expect(state.annotations.get('ann-1')!.text).toBe('updated')
+    expect(effects).toEqual([])
+  })
+
+  it('clears editError when fix-request annotation resolves', () => {
+    const key = 'src/App.tsx:10:3\0color'
+    const stateWithError: CortexAppReducerState = {
+      ...baseState,
+      editErrors: new Map([[key, { source: 'src/App.tsx:10:3', property: 'color', value: 'red', reason: 'fix me' }]]),
+    }
+    const ann = makeAnnotation({
+      kind: 'fix-request',
+      status: 'resolved',
+      elementSource: 'src/App.tsx:10:3',
+      fixMeta: { property: 'color', value: 'red', reason: 'wrong colour' },
+    })
+    const { state } = reduce(stateWithError, { type: 'annotation-updated', annotation: ann })
+    expect(state.editErrors.has(key)).toBe(false)
+  })
+
+  it('clears editError when fix-request annotation is dismissed', () => {
+    const key = 'src/App.tsx:10:3\0color'
+    const stateWithError: CortexAppReducerState = {
+      ...baseState,
+      editErrors: new Map([[key, { source: 'src/App.tsx:10:3', property: 'color', value: 'red', reason: 'fix me' }]]),
+    }
+    const ann = makeAnnotation({
+      kind: 'fix-request',
+      status: 'dismissed',
+      elementSource: 'src/App.tsx:10:3',
+      fixMeta: { property: 'color', value: 'red', reason: 'wrong colour' },
+    })
+    const { state } = reduce(stateWithError, { type: 'annotation-updated', annotation: ann })
+    expect(state.editErrors.has(key)).toBe(false)
+  })
+
+  it('does NOT clear editError for non-fix-request annotation update (regression)', () => {
+    const key = 'src/App.tsx:10:3\0color'
+    const stateWithError: CortexAppReducerState = {
+      ...baseState,
+      editErrors: new Map([[key, { source: 'src/App.tsx:10:3', property: 'color', value: 'red', reason: 'fix me' }]]),
+    }
+    const ann = makeAnnotation({
+      kind: 'comment', // not fix-request
+      status: 'resolved',
+      elementSource: 'src/App.tsx:10:3',
+      fixMeta: { property: 'color', value: 'red', reason: 'wrong colour' },
+    })
+    const { state } = reduce(stateWithError, { type: 'annotation-updated', annotation: ann })
+    expect(state.editErrors.has(key)).toBe(true) // preserved
+  })
+
+  it('does NOT clear editError for fix-request with pending status', () => {
+    const key = 'src/App.tsx:10:3\0color'
+    const stateWithError: CortexAppReducerState = {
+      ...baseState,
+      editErrors: new Map([[key, { source: 'src/App.tsx:10:3', property: 'color', value: 'red', reason: 'fix me' }]]),
+    }
+    const ann = makeAnnotation({
+      kind: 'fix-request',
+      status: 'pending', // not resolved or dismissed
+      elementSource: 'src/App.tsx:10:3',
+      fixMeta: { property: 'color', value: 'red', reason: 'wrong colour' },
+    })
+    const { state } = reduce(stateWithError, { type: 'annotation-updated', annotation: ann })
+    expect(state.editErrors.has(key)).toBe(true) // preserved
+  })
+})
+
+// ---------------------------------------------------------------------------
+// agent-status
+// ---------------------------------------------------------------------------
+
+describe('agent-status action', () => {
+  it('sets agentConnected to false', () => {
+    const connectedState: CortexAppReducerState = { ...baseState, agentConnected: true }
+    const { state, effects } = reduce(connectedState, { type: 'agent-status', connected: false })
+    expect(state.agentConnected).toBe(false)
+    expect(effects).toEqual([])
+  })
+
+  it('sets agentConnected to true', () => {
+    const { state } = reduce(baseState, { type: 'agent-status', connected: true })
+    expect(state.agentConnected).toBe(true)
+  })
+
+  it('is idempotent when value is unchanged — returns same reference', () => {
+    const { state } = reduce(baseState, { type: 'agent-status', connected: false })
+    expect(state).toBe(baseState)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// activity-entry
+// ---------------------------------------------------------------------------
+
+describe('activity-entry action', () => {
+  it('appends entry and increments activityCount', () => {
+    const entry = makeActivityEntry({ id: 'e1' })
+    const { state, effects } = reduce(baseState, { type: 'activity-entry', entry })
+    expect(state.activityEntries).toHaveLength(1)
+    expect(state.activityEntries[0]).toBe(entry)
+    expect(state.activityCount).toBe(1)
+    expect(effects).toEqual([])
+  })
+
+  it('caps activity entries at MAX_ACTIVITY_ENTRIES (ring-buffer behaviour)', () => {
+    // Build state with exactly MAX_ACTIVITY_ENTRIES entries
+    const entries: ActivityEntry[] = Array.from({ length: MAX_ACTIVITY_ENTRIES }, (_, i) =>
+      makeActivityEntry({ id: `e${i}`, description: `edit ${i}` }),
+    )
+    const fullState: CortexAppReducerState = {
+      ...baseState,
+      activityEntries: entries,
+    }
+    const newEntry = makeActivityEntry({ id: 'new', description: 'new edit' })
+    const { state } = reduce(fullState, { type: 'activity-entry', entry: newEntry })
+    expect(state.activityEntries).toHaveLength(MAX_ACTIVITY_ENTRIES)
+    // New entry is last
+    expect(state.activityEntries[MAX_ACTIVITY_ENTRIES - 1]).toBe(newEntry)
+    // First entry (oldest) was dropped
+    expect(state.activityEntries[0].id).toBe('e1')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// divergence
+// ---------------------------------------------------------------------------
+
+describe('divergence action', () => {
+  it('sets editError with source\\0property\\0pseudo key', () => {
+    const diag = makeDivergence({
+      source: 'src/App.tsx:10:3',
+      property: 'color',
+      expected: 'red',
+      actual: 'blue',
+      pseudo: '::before',
+    })
+    const { state, effects } = reduce(baseState, {
+      type: 'divergence',
+      diagnostic: diag,
+    })
+    const key = 'src/App.tsx:10:3\0color\0::before'
+    const err = state.editErrors.get(key)
+    expect(err).toBeDefined()
+    expect(err!.source).toBe('src/App.tsx:10:3')
+    expect(err!.property).toBe('color')
+    expect(err!.value).toBe('red')
+    expect(err!.reason).toContain('"red"')
+    expect(err!.reason).toContain('"blue"')
+    expect(err!.diagnostics).toBe(diag.diagnostics)
+    expect(effects).toEqual([])
+  })
+
+  it('uses empty string for pseudo when absent', () => {
+    const diag = makeDivergence({ pseudo: undefined })
+    const { state } = reduce(baseState, { type: 'divergence', diagnostic: diag })
+    const key = `${diag.source}\0${diag.property}\0`
+    expect(state.editErrors.has(key)).toBe(true)
+  })
+
+  it('uses "(empty)" when actual is falsy', () => {
+    const diag = makeDivergence({ actual: '' })
+    const { state } = reduce(baseState, { type: 'divergence', diagnostic: diag })
+    const key = `${diag.source}\0${diag.property}\0`
+    const err = state.editErrors.get(key)!
+    expect(err.reason).toContain('(empty)')
+  })
+
+  it('overwrites a prior divergence for the same key', () => {
+    const diag1 = makeDivergence({ actual: 'old' })
+    const diag2 = makeDivergence({ actual: 'new' })
+    const { state: s1 } = reduce(baseState, { type: 'divergence', diagnostic: diag1 })
+    const { state: s2 } = reduce(s1, { type: 'divergence', diagnostic: diag2 })
+    const key = `${diag2.source}\0${diag2.property}\0`
+    expect(s2.editErrors.get(key)!.reason).toContain('"new"')
+  })
+})
