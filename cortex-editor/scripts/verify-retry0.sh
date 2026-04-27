@@ -9,11 +9,11 @@
 # yet another version instead of extending this one.
 #
 # Usage:
-#   scripts/verify-retry0.sh                       # 10× --project browser
-#   scripts/verify-retry0.sh --runs 5              # 5× --project browser
-#   scripts/verify-retry0.sh --coverage            # 10× full test:coverage
-#   scripts/verify-retry0.sh --coverage --runs 3   # 3× full test:coverage
-#   scripts/verify-retry0.sh --out /tmp/my-verify  # custom output directory
+#   bash scripts/verify-retry0.sh                       # 10× --project browser
+#   bash scripts/verify-retry0.sh --runs 5              # 5× --project browser
+#   bash scripts/verify-retry0.sh --coverage            # 10× full test:coverage
+#   bash scripts/verify-retry0.sh --coverage --runs 3   # 3× full test:coverage
+#   bash scripts/verify-retry0.sh --out /tmp/my-verify  # custom output directory
 #
 # Output:
 #   <out>/run-NN.log        per-iteration full vitest output
@@ -92,11 +92,9 @@ summary="$out/summary.txt"
 case "$mode" in
   browser)
     cmd=(npx vitest run --project browser --retry=0)
-    label="browser"
     ;;
   coverage)
     cmd=(npm run test:coverage -- --retry=0)
-    label="coverage"
     ;;
 esac
 
@@ -110,7 +108,7 @@ fail=0
 {
   echo "verify-retry0.sh: mode=$mode runs=$runs out=$out"
   echo "command: ${cmd[*]}"
-  echo "started: $(date -Iseconds)"
+  echo "started: $(date +%Y-%m-%dT%H:%M:%S%z)"
   echo
 } | tee -a "$summary"
 
@@ -121,7 +119,7 @@ for i in $(seq 1 "$runs"); do
   printf -v idx "%0${pad}d" "$i"
   log="$out/run-${idx}.log"
 
-  echo "=== Run $idx start: $(date -Iseconds) ===" | tee -a "$summary"
+  echo "=== Run $idx start: $(date +%Y-%m-%dT%H:%M:%S%z) ===" | tee -a "$summary"
 
   start=$(date +%s)
   CI=true "${cmd[@]}" > "$log" 2>&1
@@ -147,7 +145,7 @@ done
 {
   echo
   echo "TOTAL: ${pass} passed, ${fail} failed (out of ${runs})"
-  echo "DONE:  $(date -Iseconds)"
+  echo "DONE:  $(date +%Y-%m-%dT%H:%M:%S%z)"
 } | tee -a "$summary"
 
 (( fail == 0 ))
