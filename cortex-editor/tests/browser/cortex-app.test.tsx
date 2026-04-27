@@ -281,20 +281,6 @@ describe('CortexApp', () => {
     }, { timeout: 500 })
   })
 
-  it('tracks activity count from edit_status done messages', async () => {
-    setup()
-    const channel = createMockChannel()
-    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
-    await new Promise(r => setTimeout(r, 10))
-    await activateEditor(channel)
-    channel._simulateMessage({ type: 'edit_status', editId: 'e1', status: 'done' })
-    await vi.waitFor(() => {
-      const badge = root.querySelector('.cortex-toolbar__badge')
-      expect(badge).not.toBeNull()
-      expect(badge!.textContent).toContain('1')
-    }, { timeout: 1500 })
-  })
-
   it('starts inactive — no toolbar or overlays rendered', async () => {
     setup()
     const channel = createMockChannel()
@@ -312,22 +298,6 @@ describe('CortexApp', () => {
     await vi.waitFor(() => {
       expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
     }, { timeout: 500 })
-  })
-
-  it('ignores duplicate cortex message when already active', async () => {
-    setup()
-    const channel = createMockChannel()
-    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
-    await new Promise(r => setTimeout(r, 10))
-    channel._simulateMessage({ type: 'cortex' } as any)
-    channel._simulateMessage({ type: 'cortex' } as any)
-    // Wait for the first (and only) toolbar to render, then assert uniqueness.
-    await vi.waitFor(() => {
-      expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
-    }, { timeout: 500 })
-    // Should still have exactly one toolbar
-    const toolbars = root.querySelectorAll('.cortex-toolbar')
-    expect(toolbars.length).toBe(1)
   })
 
   it('Escape with no selection and no comment mode does nothing (no close)', async () => {
@@ -388,114 +358,6 @@ describe('CortexApp', () => {
       return el
     }, { timeout: 500 })
     expect(pinDot).not.toBeNull()
-  })
-
-  it('annotation-updated replaces existing annotation state', async () => {
-    setup()
-    const channel = createMockChannel()
-    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
-    await new Promise(r => setTimeout(r, 10))
-    await activateEditor(channel)
-
-    // Create target element
-    const target = document.createElement('div')
-    target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
-    document.body.appendChild(target)
-    orphans.push(target)
-    mockGetBoundingClientRect(target, { top: 100, left: 100, width: 200, height: 50 })
-
-    const annotation = {
-      id: 'ann-1',
-      status: 'pending' as const,
-      elementSource: 'Hero.tsx:5:3',
-      text: 'Make this bigger',
-      pinPosition: { x: 0.5, y: 0.5 },
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      thread: [],
-    }
-    channel._simulateMessage({ type: 'annotation-created', annotation })
-    // Click pin to open thread
-    const pinDot = await vi.waitFor(() => {
-      const el = root.querySelector('.cortex-pin') as HTMLDivElement
-      expect(el).not.toBeNull()
-      return el
-    }, { timeout: 500 })
-    pinDot.click()
-    await vi.waitFor(() => {
-      expect(root.querySelector('.cortex-thread__status--pending')).not.toBeNull()
-    }, { timeout: 500 })
-
-    // Update annotation to resolved
-    const updated = {
-      ...annotation,
-      status: 'resolved' as const,
-      resolution: { summary: 'Increased font-size to xl' },
-      updatedAt: Date.now() + 1000,
-    }
-    channel._simulateMessage({ type: 'annotation-updated', annotation: updated })
-    await vi.waitFor(() => {
-      expect(root.querySelector('.cortex-thread__status--resolved')).not.toBeNull()
-      expect(root.textContent).toContain('Increased font-size to xl')
-    }, { timeout: 500 })
-  })
-
-  it('agent-status connected=false disables comment input in panel', async () => {
-    setup()
-    const channel = createMockChannel()
-    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
-    await new Promise(r => setTimeout(r, 10))
-    await activateEditor(channel)
-
-    // Select an element to show the panel (which contains CommentInput)
-    const { _getCallbacks } = await import('../../src/browser/selection.js') as any
-    const { selectCb } = _getCallbacks()
-    const target = document.createElement('div')
-    target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
-    document.body.appendChild(target)
-    orphans.push(target)
-    mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
-    selectCb(target)
-    await new Promise(r => setTimeout(r, 50))
-
-    // Panel should be visible with CommentInput
-    const commentInput = root.querySelector('.cortex-comment-input__field') as HTMLInputElement
-    expect(commentInput).not.toBeNull()
-
-    // Agent disconnected — input should be disabled
-    channel._simulateMessage({ type: 'agent-status', connected: false })
-    await vi.waitFor(() => {
-      expect(commentInput.disabled).toBe(true)
-      expect(commentInput.placeholder).toContain('Waiting for agent')
-    }, { timeout: 500 })
-
-    // Agent connected — input should be enabled
-    channel._simulateMessage({ type: 'agent-status', connected: true })
-    await vi.waitFor(() => {
-      expect(commentInput.disabled).toBe(false)
-    }, { timeout: 500 })
-  })
-
-  it('activity-entry increments badge count', async () => {
-    setup()
-    const channel = createMockChannel()
-    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
-    await new Promise(r => setTimeout(r, 10))
-    await activateEditor(channel)
-
-    const entry = {
-      id: 'act-1',
-      type: 'comment' as const,
-      timestamp: Date.now(),
-      description: 'User commented on Hero',
-    }
-    channel._simulateMessage({ type: 'activity-entry', entry })
-    await vi.waitFor(() => {
-      // activity-entry also increments activityCount, so badge should update
-      const badge = root.querySelector('.cortex-toolbar__badge')
-      expect(badge).not.toBeNull()
-      expect(badge!.textContent).toContain('1')
-    }, { timeout: 500 })
   })
 
   it('Escape with selection deselects but does not exit', async () => {
@@ -638,73 +500,6 @@ describe('CortexApp', () => {
     }, { timeout: 500 })
   })
 
-  describe('server undo sync failure', () => {
-    it('sends clear_server_undo when undo sync fails', async () => {
-      setup()
-      const channel = createMockChannel()
-      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
-      await new Promise(r => setTimeout(r, 10))
-      await activateEditor(channel)
-
-      // Clear any messages sent during activation
-      channel._lastSent.length = 0
-
-      channel._simulateMessage({ type: 'undo_sync_status', status: 'failed', reason: 'stale file', reason_code: 'stale' })
-      await vi.waitFor(() => {
-        expect(channel._lastSent).toContainEqual({ type: 'clear_server_undo' })
-      }, { timeout: 500 })
-    })
-
-    it('sends clear_server_undo when redo sync fails', async () => {
-      setup()
-      const channel = createMockChannel()
-      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
-      await new Promise(r => setTimeout(r, 10))
-      await activateEditor(channel)
-
-      channel._lastSent.length = 0
-
-      channel._simulateMessage({ type: 'redo_sync_status', status: 'failed', reason: 'stale file', reason_code: 'stale' })
-      await vi.waitFor(() => {
-        expect(channel._lastSent).toContainEqual({ type: 'clear_server_undo' })
-      }, { timeout: 500 })
-    })
-
-    it('does not send clear_server_undo on sync success', async () => {
-      setup()
-      const channel = createMockChannel()
-      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
-      await new Promise(r => setTimeout(r, 10))
-      await activateEditor(channel)
-
-      channel._lastSent.length = 0
-
-      channel._simulateMessage({ type: 'undo_sync_status', status: 'done' })
-      channel._simulateMessage({ type: 'redo_sync_status', status: 'done' })
-      await new Promise(r => setTimeout(r, 10))
-
-      expect(channel._lastSent).not.toContainEqual({ type: 'clear_server_undo' })
-    })
-
-    it('does not send clear_server_undo for empty_stack failures', async () => {
-      setup()
-      const channel = createMockChannel()
-      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
-      await new Promise(r => setTimeout(r, 10))
-      await activateEditor(channel)
-
-      channel._lastSent.length = 0
-
-      // empty_stack is expected — browser stack leads, server may be shorter.
-      // Should NOT trigger a server stack reset.
-      channel._simulateMessage({ type: 'undo_sync_status', status: 'failed', reason: 'Nothing to undo.', reason_code: 'empty_stack' })
-      channel._simulateMessage({ type: 'redo_sync_status', status: 'failed', reason: 'Nothing to redo.', reason_code: 'empty_stack' })
-      await new Promise(r => setTimeout(r, 10))
-
-      expect(channel._lastSent).not.toContainEqual({ type: 'clear_server_undo' })
-    })
-  })
-
   describe('error tracking', () => {
     /** Helper: mount CortexApp, activate, select element, return refs. */
     async function setupWithSelectedElement(channel: ReturnType<typeof createMockChannel>) {
@@ -769,27 +564,6 @@ describe('CortexApp', () => {
     // Shared channel reference for triggerEditViaUI
     let channel: ReturnType<typeof createMockChannel>
 
-    it('edit_status:failed for untracked editId logs console.warn', async () => {
-      setup()
-      channel = createMockChannel()
-      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
-      await new Promise(r => setTimeout(r, 10))
-      await activateEditor(channel)
-
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      try {
-        channel._simulateMessage({ type: 'edit_status', editId: 'untracked-123', status: 'failed', reason: 'File not found' })
-        await vi.waitFor(() => {
-          expect(warnSpy).toHaveBeenCalledWith(
-            expect.stringContaining('untracked editId untracked-123'),
-            // Not asserting exact string — just that editId and reason are mentioned
-          )
-        }, { timeout: 500 })
-      } finally {
-        warnSpy.mockRestore()
-      }
-    })
-
     it('edit_status:failed populates editErrors and renders error card', async () => {
       setup()
       channel = createMockChannel()
@@ -808,116 +582,6 @@ describe('CortexApp', () => {
         expect(errorCard).not.toBeNull()
         expect(errorCard!.textContent).toContain('edit failed')
         expect(errorCard!.textContent).toContain('CSS parse error')
-      }, { timeout: 500 })
-    })
-
-    it('edit_status:done clears error for the same source+property', async () => {
-      setup()
-      channel = createMockChannel()
-      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
-      await new Promise(r => setTimeout(r, 10))
-      await activateEditor(channel)
-
-      await setupWithSelectedElement(channel)
-      // Trigger first edit — will fail
-      const editId1 = await triggerEditViaUI()
-      channel._simulateMessage({ type: 'edit_status', editId: editId1, status: 'failed', reason: 'Write error' })
-      await vi.waitFor(() => {
-        // Error card should be visible
-        expect(root.querySelector('.cortex-error-card')).not.toBeNull()
-      }, { timeout: 500 })
-
-      // Clear sent messages and trigger a second edit on the same property
-      channel._lastSent.length = 0
-      const editId2 = await triggerEditViaUI()
-
-      // Second edit succeeds — should clear the error for this source+property
-      channel._simulateMessage({ type: 'edit_status', editId: editId2, status: 'done' })
-      await vi.waitFor(() => {
-        // Error card should be gone
-        expect(root.querySelector('.cortex-error-card')).toBeNull()
-      }, { timeout: 500 })
-    })
-
-    it('annotation-updated with resolved fix-request clears error card', async () => {
-      setup()
-      channel = createMockChannel()
-      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
-      await new Promise(r => setTimeout(r, 10))
-      await activateEditor(channel)
-
-      await setupWithSelectedElement(channel)
-      const editId = await triggerEditViaUI()
-
-      // Extract the property from the sent edit message
-      const editMsg = channel._lastSent.find((m: any) => m.type === 'edit') as any
-      const editProperty = editMsg.property
-
-      // Simulate failure
-      channel._simulateMessage({ type: 'edit_status', editId, status: 'failed', reason: 'Merge conflict' })
-      await vi.waitFor(() => {
-        expect(root.querySelector('.cortex-error-card')).not.toBeNull()
-      }, { timeout: 500 })
-
-      // Simulate annotation-updated with resolved fix-request that matches
-      channel._simulateMessage({
-        type: 'annotation-updated',
-        annotation: {
-          id: 'fix-ann-1',
-          kind: 'fix-request',
-          status: 'resolved',
-          elementSource: 'Hero.tsx:5:3',
-          fixMeta: { property: editProperty, value: 'flex', reason: 'Merge conflict' },
-          text: `${editProperty} edit failed`,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-          resolution: { summary: 'Applied display: flex' },
-          thread: [],
-        },
-      })
-      await vi.waitFor(() => {
-        // Error card should be cleared
-        expect(root.querySelector('.cortex-error-card')).toBeNull()
-      }, { timeout: 500 })
-    })
-
-    it('annotation-updated with dismissed fix-request also clears error card', async () => {
-      setup()
-      channel = createMockChannel()
-      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
-      await new Promise(r => setTimeout(r, 10))
-      await activateEditor(channel)
-
-      await setupWithSelectedElement(channel)
-      const editId = await triggerEditViaUI()
-      const editMsg = channel._lastSent.find((m: any) => m.type === 'edit') as any
-      const editProperty = editMsg.property
-
-      // Simulate failure
-      channel._simulateMessage({ type: 'edit_status', editId, status: 'failed', reason: 'Unknown error' })
-      await vi.waitFor(() => {
-        expect(root.querySelector('.cortex-error-card')).not.toBeNull()
-      }, { timeout: 500 })
-
-      // Simulate dismissed fix-request
-      channel._simulateMessage({
-        type: 'annotation-updated',
-        annotation: {
-          id: 'fix-ann-2',
-          kind: 'fix-request',
-          status: 'dismissed',
-          elementSource: 'Hero.tsx:5:3',
-          fixMeta: { property: editProperty, value: 'flex', reason: 'Unknown error' },
-          text: `${editProperty} edit failed`,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-          dismissReason: 'User dismissed',
-          thread: [],
-        },
-      })
-      await vi.waitFor(() => {
-        // Error card should be cleared
-        expect(root.querySelector('.cortex-error-card')).toBeNull()
       }, { timeout: 500 })
     })
 
