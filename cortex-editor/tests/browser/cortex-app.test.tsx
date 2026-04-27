@@ -10,7 +10,7 @@ import { _resetPopoverStackForTesting } from '../../src/browser/popover-stack.js
 // Mock the selection module to verify it's called correctly.
 // _resetCallbacks nulls the module-scope hoverCb/selectCb closure so a prior
 // test's unmounted-component callbacks cannot be returned by _getCallbacks
-// under async timing — call from beforeEach (ZF0-1297 test-hygiene fix).
+// under async timing — call from afterEach (ZF0-1297 test-hygiene fix).
 vi.mock('../../src/browser/selection.js', () => {
   const cleanupFn = vi.fn()
   const setDesignModeFn = vi.fn()
@@ -525,7 +525,7 @@ describe('CortexApp', () => {
      * which calls onEditDispatch and channel.send({type:'edit', editId, ...}).
      * Returns the editId from the sent message.
      */
-    async function triggerEditViaUI(): Promise<string> {
+    async function triggerEditViaUI(channel: ReturnType<typeof createMockChannel>): Promise<string> {
       // Find the Layout section's Display SegmentedControl
       const layoutSection = root.querySelector('[data-section-id="layout"]')
       expect(layoutSection).not.toBeNull()
@@ -561,18 +561,15 @@ describe('CortexApp', () => {
       return editId
     }
 
-    // Shared channel reference for triggerEditViaUI
-    let channel: ReturnType<typeof createMockChannel>
-
     it('edit_status:failed populates editErrors and renders error card', async () => {
       setup()
-      channel = createMockChannel()
+      const channel = createMockChannel()
       render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
       await new Promise(r => setTimeout(r, 10))
       await activateEditor(channel)
 
       await setupWithSelectedElement()
-      const editId = await triggerEditViaUI()
+      const editId = await triggerEditViaUI(channel)
 
       // Simulate server failure for this edit
       channel._simulateMessage({ type: 'edit_status', editId, status: 'failed', reason: 'CSS parse error' })
@@ -595,7 +592,7 @@ describe('CortexApp', () => {
       // EditErrorCard filter → DebugDisclosure render.
       ;(window as unknown as { __CORTEX_DEBUG_OVERRIDES__: boolean }).__CORTEX_DEBUG_OVERRIDES__ = true
       setup()
-      channel = createMockChannel()
+      const channel = createMockChannel()
       render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
       await new Promise(r => setTimeout(r, 10))
       await activateEditor(channel)
