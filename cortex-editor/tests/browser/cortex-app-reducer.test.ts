@@ -13,7 +13,6 @@ import {
 } from '../../src/browser/cortex-app-reducer.js'
 import type {
   CortexAppReducerState,
-  CortexAppAction,
   CortexAppEffect,
   EditDispatchEntry,
 } from '../../src/browser/cortex-app-reducer.js'
