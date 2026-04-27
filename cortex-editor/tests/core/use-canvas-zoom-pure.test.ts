@@ -1,6 +1,9 @@
 /**
  * Leaf-unit tests for the pure math functions extracted from useCanvasZoom.
- * No DOM, no Preact, no rAF — pure synchronous arithmetic.
+ * Tests only call the pure exported functions — no DOM, no rAF, no
+ * happy-dom required. (Preact is a transitive import of the source module
+ * but is not invoked here, so these tests run cleanly under the server
+ * (node) project.)
  */
 import { describe, it, expect } from 'vitest'
 import {
@@ -31,10 +34,10 @@ function tightBounds(): PanBounds {
   return { minX: -100, maxX: 100, minY: -100, maxY: 100 }
 }
 
-// dt=1 → normalize to 1 frame at 60fps basis (dt = 1ms / 16.667 * 16.667 normalised?)
-// Actually: dt in stepMomentum is already the normalized value (milliseconds / 16.667).
-// At dt=1 (one 60fps frame worth): friction = FRICTION^1 = 0.75
-const DT_ONE_FRAME = 1 // normalized to 60fps basis
+// dt in stepMomentum is already normalized to a 60fps frame basis
+// (raw milliseconds / 16.667), so dt=1 means one 60fps frame.
+// At dt=1: friction = FRICTION^1 = 0.75.
+const DT_ONE_FRAME = 1 // one normalized 60fps frame
 
 // ─── stepMomentum ───────────────────────────────────────────────────────────
 

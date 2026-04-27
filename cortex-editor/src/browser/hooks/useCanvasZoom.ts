@@ -260,7 +260,9 @@ export function useCanvasZoom(enabled: boolean): UseCanvasZoomResult {
 
     function coastLoop(ts: number): void {
       if (disposed) return
-      const dt = Math.min(ts - lastTs, 50) / 16.667 // normalize to 60fps basis
+      // Pass uncapped normalized dt; stepMomentum applies the 50ms-equivalent
+      // cap internally. Single source of truth — see useCanvasZoom.ts:48-58.
+      const dt = (ts - lastTs) / 16.667
       lastTs = ts
       const r = stepMomentum({ pan: panRef.current, velocity }, dt, currentBounds())
       panRef.current = r.state.pan
