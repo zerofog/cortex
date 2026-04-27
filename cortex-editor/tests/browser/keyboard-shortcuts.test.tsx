@@ -255,7 +255,7 @@ describe('tinykeys shortcut integration', () => {
     // Press C — should toggle comment mode on
     // act() wraps the dispatch so tinykeys handler → setState → effect commit drains
     // synchronously. Replaces vi.waitFor polling race per ZF0-1361.
-    await act(async () => {
+    await act(() => {
       dispatchKeyboardEvent(window, 'keydown', { key: 'c' })
     })
     expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(true)

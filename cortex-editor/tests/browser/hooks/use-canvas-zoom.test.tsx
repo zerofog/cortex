@@ -357,9 +357,11 @@ describe('useCanvasZoom', () => {
     const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
 
     // Simulate Firefox mouse: deltaMode=1 (lines), deltaY=3
-    // act() wraps the wheel dispatch so the wheel handler's setState + body-transform
-    // effect drain synchronously. Replaces vi.waitFor polling race per ZF0-1361.
-    await act(async () => {
+    // act() drains any Preact rerender/effect queue at the await boundary. The pan
+    // path here writes body.style.transform synchronously without setState, but
+    // act() future-proofs against added setState and matches the file convention.
+    // Replaces vi.waitFor polling race per ZF0-1361.
+    await act(() => {
       dispatchWheel(3, false, 0, 1) // deltaMode=1 (DOM_DELTA_LINE)
     })
     const after = document.body.style.transform

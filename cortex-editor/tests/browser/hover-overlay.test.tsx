@@ -176,7 +176,7 @@ describe('HoverOverlay', () => {
     })
     // Wrap in act() so Preact's effect commit (re-render after transform-bus emit) drains
     // synchronously before assertion. Replaces vi.waitFor polling race per ZF0-1361.
-    await act(async () => {
+    await act(() => {
       emitTransformUpdate()
     })
     overlay = root.querySelector('.cortex-hover-overlay') as HTMLElement
