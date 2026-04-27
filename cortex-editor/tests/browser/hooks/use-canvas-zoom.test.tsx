@@ -401,7 +401,7 @@ describe('useCanvasZoom', () => {
   describe('momentum', () => {
     afterEach(() => restoreRAFMock())
 
-    // deleted: subsumed by tests/core/use-canvas-zoom-pure.test.ts (math) + sibling test L405 (wiring)
+    // deleted: subsumed by tests/core/use-canvas-zoom-pure.test.ts (math) + sibling 'momentum stops within expected frame count' below (wiring)
 
     it('momentum stops within expected frame count', async () => {
       const { unmount } = renderHook(() => useCanvasZoom(true))
