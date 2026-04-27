@@ -210,9 +210,12 @@ export function cortexAppReducer(
           const key = `${source}\0${property}`
           // Only allocate a new Map when the key is actually present —
           // mirrors the legacy clearEditError bail-out (I2 fix, ZF0-1363).
-          const nextErrors = state.editErrors.has(key)
-            ? (() => { const m = new Map(state.editErrors); m.delete(key); return m })()
-            : state.editErrors
+          // Same shape as the annotation-updated branch below.
+          let nextErrors = state.editErrors
+          if (nextErrors.has(key)) {
+            nextErrors = new Map(nextErrors)
+            nextErrors.delete(key)
+          }
           return {
             state: {
               ...state,
@@ -222,7 +225,6 @@ export function cortexAppReducer(
             effects: [],
           }
         }
-        // done without dispatch — just bump the counter
         return {
           state: { ...state, activityCount: state.activityCount + 1 },
           effects: [],
