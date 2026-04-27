@@ -6,6 +6,9 @@ describe('createViteChannel', () => {
   beforeEach(() => {
     delete window.__cortex_send__
     delete window.__cortex_channel__
+    // ZF0-1326 Task 1: __CORTEX_TOKEN__ is now closure-captured + tombstoned
+    // by createViteChannel, so cross-test state must clean it too.
+    delete window.__CORTEX_TOKEN__
   })
 
   it('implements CortexChannel interface', () => {
@@ -14,6 +17,40 @@ describe('createViteChannel', () => {
     expect(channel).toHaveProperty('send')
     expect(channel).toHaveProperty('onMessage')
     expect(channel).toHaveProperty('connected')
+  })
+
+  // ZF0-1326 Task 1 — tombstone semantic
+  it('tombstones __cortex_send__ and __CORTEX_TOKEN__ on window post-create', () => {
+    window.__cortex_send__ = vi.fn()
+    window.__CORTEX_TOKEN__ = 'test-token-xyz'
+    createViteChannel()
+    // Both globals must be undefined post-boot — closes the XSS-via-dev-server
+    // RCE vector. A hostile script loaded after channel boot cannot reach
+    // either primitive on window.
+    expect(window.__cortex_send__).toBeUndefined()
+    expect(window.__CORTEX_TOKEN__).toBeUndefined()
+  })
+
+  it('captures __CORTEX_TOKEN__ into closure and stamps it on send', () => {
+    const mockSend = vi.fn()
+    window.__cortex_send__ = mockSend
+    window.__CORTEX_TOKEN__ = 'closure-token'
+    const channel = createViteChannel()
+
+    // Simulate a hostile-script attempt to overwrite the global AFTER capture.
+    // The channel's closure-captured token is unaffected.
+    window.__CORTEX_TOKEN__ = 'attacker-token'
+
+    channel.send({
+      type: 'edit', protocolVersion: 1, editId: '1',
+      property: 'color', value: 'red', source: 'a:1:1', elementSelector: 'div',
+    })
+
+    expect(mockSend).toHaveBeenCalledWith({
+      type: 'edit', protocolVersion: 1, editId: '1',
+      property: 'color', value: 'red', source: 'a:1:1', elementSelector: 'div',
+      token: 'closure-token', // captured value, not the overwritten one
+    })
   })
 
   it('send() calls window.__cortex_send__', () => {
@@ -205,10 +242,57 @@ describe('createWebSocketChannel', () => {
     // @ts-expect-error — mock WebSocket global
     globalThis.WebSocket = MockWebSocket
     delete window.__cortex_ws_port__
+    // ZF0-1326 Task 1: __CORTEX_TOKEN__ closure-captured + tombstoned
+    delete window.__CORTEX_TOKEN__
   })
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  // ZF0-1326 Task 1 — tombstone semantic for the WebSocket channel
+  it('tombstones __CORTEX_TOKEN__ on window post-create', () => {
+    window.__CORTEX_TOKEN__ = 'ws-test-token'
+    createWebSocketChannel({ url: 'ws://test' })
+    expect(window.__CORTEX_TOKEN__).toBeUndefined()
+  })
+
+  it('stamps the closure-captured token on outgoing messages', () => {
+    window.__CORTEX_TOKEN__ = 'ws-token-abc'
+    const channel = createWebSocketChannel({ url: 'ws://test' })
+    const ws = mockInstances[0]!
+    ws._simulateOpen()
+
+    // Hostile-script-style overwrite after capture — closure value wins
+    window.__CORTEX_TOKEN__ = 'attacker-token'
+
+    channel.send({
+      type: 'edit' as const, protocolVersion: 1, editId: '1',
+      property: 'color', value: 'red', source: 'a:1:1', elementSelector: 'div',
+    })
+
+    const sent = JSON.parse(ws.send.mock.calls[0]![0] as string)
+    expect(sent.token).toBe('ws-token-abc')
+  })
+
+  it('uses the closure-captured token even after reconnect-flush', () => {
+    window.__CORTEX_TOKEN__ = 'reconnect-token'
+    const channel = createWebSocketChannel({ url: 'ws://test', maxRetries: 3 })
+
+    // Queue while disconnected — token is closure-stamped at flush time
+    channel.send({
+      type: 'edit' as const, protocolVersion: 1, editId: '1',
+      property: 'color', value: 'red', source: 'a:1:1', elementSelector: 'div',
+    })
+
+    // Hostile-script-style overwrite mid-flight
+    window.__CORTEX_TOKEN__ = 'attacker-token'
+
+    const ws = mockInstances[0]!
+    ws._simulateOpen()
+
+    const flushed = JSON.parse(ws.send.mock.calls[0]![0] as string)
+    expect(flushed.token).toBe('reconnect-token')
   })
 
   it('connected is false until onopen fires', () => {

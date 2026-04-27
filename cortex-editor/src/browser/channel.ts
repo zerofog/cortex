@@ -7,9 +7,35 @@ const MAX_QUEUE_SIZE = 100
 /**
  * Create a channel using Vite HMR custom events.
  * Requires window.__cortex_send__ (injected by the Vite adapter CLIENT_SCRIPT).
+ *
+ * ZF0-1326 Task 1 — closure-capture + tombstone:
+ * `__cortex_send__` is the underlying edit primitive (calls `import.meta.hot.send`)
+ * and `__CORTEX_TOKEN__` is the WS auth token. Both are injected on `window` at
+ * bootstrap. If left there post-boot, an XSS payload reads the token and calls
+ * the send primitive directly for a fully-authed RCE through cortex's edit
+ * pipeline (server-side WRITE_TYPES check accepts because token is real).
+ *
+ * We capture both into closure scope at channel-create time, then delete them
+ * from window. Trusted callers (this channel's `send`) use the closure pair;
+ * any post-boot script — hostile or otherwise — sees `undefined` on window and
+ * has no path to forge an authed message.
+ *
+ * Note on idempotency: if `createViteChannel()` is called twice on the same
+ * page (not expected in production — pages instantiate one channel), the
+ * second call captures `undefined` for both globals and returns a no-op send.
+ * Tests that need a fresh channel must reset `window.__cortex_send__` and
+ * `window.__CORTEX_TOKEN__` before each call.
  */
 export function createViteChannel(): CortexChannel {
   const handlers: Array<(msg: ServerToBrowser) => void> = []
+
+  // Capture-and-delete the bootstrap-injected primitives (ZF0-1326 Task 1).
+  // Order matters: capture first, delete second. The deletes require
+  // `configurable: true` on the bootstrap descriptor (vite.ts).
+  const capturedSend = window.__cortex_send__
+  const capturedToken = window.__CORTEX_TOKEN__
+  delete window.__cortex_send__
+  delete window.__CORTEX_TOKEN__
 
   // Register receiver — Vite adapter calls handleServerMessage when server sends data
   Object.defineProperty(window, '__cortex_channel__', {
@@ -28,7 +54,7 @@ export function createViteChannel(): CortexChannel {
 
   return {
     send(msg: BrowserToServer): void {
-      window.__cortex_send__?.({ ...msg, token: window.__CORTEX_TOKEN__ })
+      capturedSend?.({ ...msg, token: capturedToken })
     },
     onMessage(handler: (msg: ServerToBrowser) => void): () => void {
       handlers.push(handler)
@@ -42,7 +68,7 @@ export function createViteChannel(): CortexChannel {
       return () => {}
     },
     get connected(): boolean {
-      return typeof window.__cortex_send__ === 'function'
+      return typeof capturedSend === 'function'
     },
     dispose(): void {
       handlers.length = 0
@@ -63,12 +89,27 @@ export interface WebSocketChannelOptions {
  * Create a channel using WebSocket (for Next.js or standalone).
  * Handles reconnection with exponential backoff.
  * Port defaults to window.__cortex_ws_port__ ?? 24678 (Fix 6).
+ *
+ * ZF0-1326 Task 1 — token closure-capture + tombstone:
+ * `__CORTEX_TOKEN__` is captured into closure scope and deleted from window
+ * at channel-create time. This closes the token-leak leg of the XSS RCE
+ * vector — post-boot scripts cannot read the token off window. The captured
+ * token is then stamped on every send (matches the pre-tombstone behavior
+ * where channel.send re-read window.__CORTEX_TOKEN__ at send time, and on
+ * each reconnect-flush). For tests that need a fresh channel, reset
+ * `window.__CORTEX_TOKEN__` before each call.
  */
 export function createWebSocketChannel(options?: WebSocketChannelOptions): CortexChannel {
   const port = window.__cortex_ws_port__ ?? 24678
   const defaultProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const url = options?.url ?? `${defaultProtocol}//${location.hostname}:${port}/cortex`
   const maxRetries = options?.maxRetries ?? 5
+
+  // Capture-and-delete the bootstrap-injected token (ZF0-1326 Task 1).
+  // No `__cortex_send__` capture needed here — this channel uses the native
+  // WebSocket constructor directly, not the Vite HMR send primitive.
+  const capturedToken = window.__CORTEX_TOKEN__
+  delete window.__CORTEX_TOKEN__
 
   const handlers: Array<(msg: ServerToBrowser) => void> = []
   const statusHandlers: Array<(state: ConnectionState) => void> = []
@@ -118,7 +159,7 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
       // so reconnection to a restarted server uses the fresh token.
       while (queue.length > 0) {
         const msg = queue.shift()!
-        ws!.send(JSON.stringify({ ...msg, token: window.__CORTEX_TOKEN__ }))
+        ws!.send(JSON.stringify({ ...msg, token: capturedToken }))
       }
     }
 
@@ -166,11 +207,11 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
     send(msg: BrowserToServer): void {
       if (disposed) return
       if (connected && ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ ...msg, token: window.__CORTEX_TOKEN__ }))
+        ws.send(JSON.stringify({ ...msg, token: capturedToken }))
       } else {
         // Fix 5: cap queue size, drop oldest. Queue raw messages —
-        // token is stamped at send time, not enqueue time, so reconnection
-        // to a restarted server uses the fresh token from window globals.
+        // token is stamped at send time from the closure-captured value
+        // (ZF0-1326 Task 1), so the queue itself stays token-free until flush.
         if (queue.length >= MAX_QUEUE_SIZE) {
           queue.shift()
         }

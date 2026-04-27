@@ -106,9 +106,13 @@ if (import.meta.hot) {
     window.__cortex_channel__?.handleServerMessage({ type: 'hmr-applied', files });
   });
   if (!Object.prototype.hasOwnProperty.call(window, '__cortex_send__')) {
+    // configurable: true is load-bearing (ZF0-1326 Task 1).
+    // The browser channel captures this primitive into closure scope and
+    // then deletes it from window to close the XSS-via-dev-server RCE
+    // vector. configurable: false would block the delete — keep this true.
     Object.defineProperty(window, '__cortex_send__', {
       value: (msg) => import.meta.hot.send('${CORTEX_MSG_EVENT}', msg),
-      writable: false, configurable: false,
+      writable: false, configurable: true,
     });
   }
 }
