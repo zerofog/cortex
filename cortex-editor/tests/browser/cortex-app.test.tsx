@@ -695,11 +695,10 @@ describe('CortexApp', () => {
           '.cortex-segmented__option:not(.cortex-segmented__option--active)',
         ) as HTMLButtonElement | null
       }
-      if (!targetSegment) {
-        // Skip if no interactive segment is available — not a test infra failure
-        return
-      }
-      targetSegment.click()
+      // Test infrastructure must produce a clickable segment — silent
+      // no-op early returns mask regressions (anti-pattern §3).
+      expect(targetSegment).not.toBeNull()
+      targetSegment!.click()
       let trackedEditId!: string
       await vi.waitFor(() => {
         const editMsg = channel._lastSent.find((m: any) => m.type === 'edit') as any
@@ -748,9 +747,11 @@ describe('CortexApp', () => {
           '.cortex-segmented__option:not(.cortex-segmented__option--active)',
         ) as HTMLButtonElement | null
       }
-      if (!targetSegment) return
+      // Test infrastructure must produce a clickable segment — silent
+      // no-op early returns mask regressions (anti-pattern §3).
+      expect(targetSegment).not.toBeNull()
 
-      targetSegment.click()
+      targetSegment!.click()
       let trackedEditId!: string
       await vi.waitFor(() => {
         const editMsg = channel._lastSent.find((m: any) => m.type === 'edit') as any
