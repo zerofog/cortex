@@ -1,0 +1,26 @@
+cortex-editor/vitest.config.ts
+  2562b1cf54a9890a 64-65
+cortex-editor/scripts/verify-retry0.sh
+  2562b1cf54a9890a 1-153
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "c60096433b662b62aae5f6ff957a92f43f128ae4",
+  "prompts": {
+    "2562b1cf54a9890a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "84aedc73-c9f1-4687-965c-5d7e2d4a6338",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 701,
+      "total_deletions": 1,
+      "accepted_lines": 701,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/1ebf70c88f34d07407aae2e0c3ac53dccec7b0e1db30ebf5dac388aa70d5038d"
+    }
+  }
+}
