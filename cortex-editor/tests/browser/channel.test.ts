@@ -19,16 +19,21 @@ describe('createViteChannel', () => {
     expect(channel).toHaveProperty('connected')
   })
 
-  // ZF0-1326 Task 1 — tombstone semantic
-  it('tombstones __cortex_send__ and __CORTEX_TOKEN__ on window post-create', () => {
+  // ZF0-1326 Task 1 — tombstone semantic.
+  //
+  // The `'X' in window` check (vs `=== undefined`) is load-bearing: it
+  // distinguishes a `delete`d property from one that was assigned undefined.
+  // A future regression like `window.__cortex_send__ = undefined` (instead
+  // of `delete`) would still pass an `=== undefined` assertion but the
+  // property would still be enumerable and reachable via descriptor. Only
+  // `delete` produces `'X' in window === false`. This is the actual
+  // security invariant — own-property absence, not value emptiness.
+  it('deletes __cortex_send__ and __CORTEX_TOKEN__ from window post-create (own-property absence)', () => {
     window.__cortex_send__ = vi.fn()
     window.__CORTEX_TOKEN__ = 'test-token-xyz'
     createViteChannel()
-    // Both globals must be undefined post-boot — closes the XSS-via-dev-server
-    // RCE vector. A hostile script loaded after channel boot cannot reach
-    // either primitive on window.
-    expect(window.__cortex_send__).toBeUndefined()
-    expect(window.__CORTEX_TOKEN__).toBeUndefined()
+    expect('__cortex_send__' in window).toBe(false)
+    expect('__CORTEX_TOKEN__' in window).toBe(false)
   })
 
   it('captures __CORTEX_TOKEN__ into closure and stamps it on send', () => {
@@ -36,10 +41,6 @@ describe('createViteChannel', () => {
     window.__cortex_send__ = mockSend
     window.__CORTEX_TOKEN__ = 'closure-token'
     const channel = createViteChannel()
-
-    // Simulate a hostile-script attempt to overwrite the global AFTER capture.
-    // The channel's closure-captured token is unaffected.
-    window.__CORTEX_TOKEN__ = 'attacker-token'
 
     channel.send({
       type: 'edit', protocolVersion: 1, editId: '1',
@@ -49,8 +50,21 @@ describe('createViteChannel', () => {
     expect(mockSend).toHaveBeenCalledWith({
       type: 'edit', protocolVersion: 1, editId: '1',
       property: 'color', value: 'red', source: 'a:1:1', elementSelector: 'div',
-      token: 'closure-token', // captured value, not the overwritten one
+      token: 'closure-token',
     })
+  })
+
+  it('dispose() does not re-leak captured globals to window (ZF0-1326 Task 1)', () => {
+    window.__cortex_send__ = vi.fn()
+    window.__CORTEX_TOKEN__ = 'token-x'
+    const channel = createViteChannel()
+    channel.dispose!()
+    // Captured primitives must remain tombstoned post-dispose. A misguided
+    // "cleanup" change that restored the globals (e.g.,
+    // `window.__CORTEX_TOKEN__ = capturedToken` to "preserve for re-use")
+    // would silently re-open the XSS vector. Pin the invariant.
+    expect('__cortex_send__' in window).toBe(false)
+    expect('__CORTEX_TOKEN__' in window).toBe(false)
   })
 
   it('send() calls window.__cortex_send__', () => {
@@ -250,11 +264,13 @@ describe('createWebSocketChannel', () => {
     vi.useRealTimers()
   })
 
-  // ZF0-1326 Task 1 — tombstone semantic for the WebSocket channel
-  it('tombstones __CORTEX_TOKEN__ on window post-create', () => {
+  // ZF0-1326 Task 1 — tombstone semantic for the WebSocket channel.
+  // See createViteChannel block above for the rationale on `'X' in window`
+  // vs `=== undefined`.
+  it('deletes __CORTEX_TOKEN__ from window post-create (own-property absence)', () => {
     window.__CORTEX_TOKEN__ = 'ws-test-token'
     createWebSocketChannel({ url: 'ws://test' })
-    expect(window.__CORTEX_TOKEN__).toBeUndefined()
+    expect('__CORTEX_TOKEN__' in window).toBe(false)
   })
 
   it('stamps the closure-captured token on outgoing messages', () => {
@@ -262,9 +278,6 @@ describe('createWebSocketChannel', () => {
     const channel = createWebSocketChannel({ url: 'ws://test' })
     const ws = mockInstances[0]!
     ws._simulateOpen()
-
-    // Hostile-script-style overwrite after capture — closure value wins
-    window.__CORTEX_TOKEN__ = 'attacker-token'
 
     channel.send({
       type: 'edit' as const, protocolVersion: 1, editId: '1',
@@ -275,24 +288,49 @@ describe('createWebSocketChannel', () => {
     expect(sent.token).toBe('ws-token-abc')
   })
 
-  it('uses the closure-captured token even after reconnect-flush', () => {
+  it('uses the closure-captured token across a real close→reconnect→flush cycle', () => {
+    // The previous "reconnect-flush" test was subsumed by the closure-capture
+    // assertion above — both queue-flush and immediate-send branches use the
+    // same `capturedToken` local, so testing one tested the other.
+    //
+    // This replacement exercises the load-bearing scenario: a message queued
+    // while disconnected, then a CLOSE event triggering reconnect, the
+    // setTimeout firing, a NEW WebSocket instance being constructed, and
+    // FINALLY the flush firing on that fresh socket. A regression that
+    // re-read `window.__CORTEX_TOKEN__` inside `onopen` (rather than using
+    // the closure) would survive the previous test and fail this one.
     window.__CORTEX_TOKEN__ = 'reconnect-token'
     const channel = createWebSocketChannel({ url: 'ws://test', maxRetries: 3 })
 
-    // Queue while disconnected — token is closure-stamped at flush time
+    // Queue while initial socket is still pre-open
     channel.send({
       type: 'edit' as const, protocolVersion: 1, editId: '1',
       property: 'color', value: 'red', source: 'a:1:1', elementSelector: 'div',
     })
 
-    // Hostile-script-style overwrite mid-flight
+    // Trigger reconnect cycle: close the initial socket, advance timer,
+    // verify a brand-new WebSocket instance was created.
+    mockInstances[0]!._simulateClose()
+    vi.advanceTimersByTime(1000)
+    expect(mockInstances).toHaveLength(2)
+
+    // Open the SECOND socket. Flush should fire on it. Even though
+    // `window.__CORTEX_TOKEN__` is now reassigned (or absent), the captured
+    // closure value is what the flush uses.
     window.__CORTEX_TOKEN__ = 'attacker-token'
+    mockInstances[1]!._simulateOpen()
 
-    const ws = mockInstances[0]!
-    ws._simulateOpen()
-
-    const flushed = JSON.parse(ws.send.mock.calls[0]![0] as string)
+    expect(mockInstances[1]!.send).toHaveBeenCalled()
+    const flushed = JSON.parse(mockInstances[1]!.send.mock.calls[0]![0] as string)
     expect(flushed.token).toBe('reconnect-token')
+  })
+
+  it('dispose() does not re-leak captured token to window (ZF0-1326 Task 1)', () => {
+    window.__CORTEX_TOKEN__ = 'ws-token-x'
+    const channel = createWebSocketChannel({ url: 'ws://test' })
+    mockInstances[0]!._simulateOpen()
+    channel.dispose!()
+    expect('__CORTEX_TOKEN__' in window).toBe(false)
   })
 
   it('connected is false until onopen fires', () => {

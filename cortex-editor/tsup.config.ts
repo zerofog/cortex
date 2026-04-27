@@ -10,11 +10,23 @@ const externals = ['vite', 'next', 'webpack', 'tailwindcss', 'ts-morph', 'ws', '
  * The security invariants — `minifySyntax: true` and the
  * `__CORTEX_TEST_BUILD__` esbuild define — must apply to EVERY browser
  * bundle entry. Pre-factory, those invariants lived inline in the single
- * browser entry; a contributor adding a second entry (e.g., a lean widget
- * bundle) could silently omit either by copy-pasting the skeleton without
- * the full `esbuildOptions` body. This factory makes both invariants
- * non-optional by construction — they're inside the closure that every
- * caller spreads.
+ * browser entry; a contributor adding a second entry could silently omit
+ * either by copy-pasting the skeleton without the full `esbuildOptions`
+ * body. This factory makes both invariants the path of least resistance
+ * for new entries — a callsite that uses the standard
+ * `{ ...browserBundleBase('src/x.ts', 'dist/x'), globalName: 'X' }`
+ * spread inherits both invariants automatically.
+ *
+ * Caveat (Step 4 review honesty): the JS spread operator allows a caller
+ * to override `esbuildOptions` after spreading the factory result, which
+ * would silently drop the security invariants. So this is "by convention,
+ * audited per-entry" rather than "by construction". Mitigation: any new
+ * IIFE entry should be reviewed for the spread shape, and the structural
+ * test at `tests/integration/tsup-config.test.ts` asserts the factory's
+ * output preserves the invariants when used unmodified. Hardening to
+ * actually-by-construction would require a composer API
+ * (`browserBundleEntry(entry, outDir, { globalName })`) that owns
+ * `esbuildOptions` — tracked as a deferred follow-up.
  *
  * Exported so a unit test can verify the factory's output without booting
  * tsup.
@@ -61,6 +73,14 @@ export default defineConfig([
     format: ['esm', 'cjs'],
     target: 'node20',
     sourcemap: true,
+    // ZF0-1326 Task 2 follow-up (Step 4 review fix): clean: true on the first
+    // entry wipes dist/ before any tsup config runs. Without this, repeated
+    // builds accumulate content-hashed chunk and dts files in dist/* — the
+    // package's `files: ["dist"]` would then ship them all on `npm publish`,
+    // bloating the tarball with stale build artifacts. The IIFE entry is
+    // overwritten by name on every build (so the security gate is preserved
+    // independently), but adjacent dist subdirs accumulate without this.
+    clean: true,
     // DTS for ALL entries generated in one pass below — not per-config
     external: externals,
   },

@@ -70,20 +70,14 @@ describe('browserBundleBase factory (ZF0-1326 Task 3)', () => {
     expect(fakeOptions.define!.__CORTEX_TEST_BUILD__).toBeDefined()
   })
 
-  it('a second factory call with different inputs still enforces the invariants (by construction)', () => {
-    // Simulates the "future second browser bundle entry" scenario from the
-    // ticket. The factory must produce the same security guarantees for any
-    // entry/outDir pair — this is what "enforced by construction" means in
-    // practice.
-    const widget = browserBundleBase('src/widget/index.tsx', 'dist/widget')
-    expect(widget.entry).toEqual(['src/widget/index.tsx'])
-    expect(widget.outDir).toBe('dist/widget')
-
-    const fakeOptions: BuildOptions = {}
-    widget.esbuildOptions(fakeOptions)
-    expect(fakeOptions.minifySyntax).toBe(true)
-    expect(fakeOptions.define!.__CORTEX_TEST_BUILD__).toBeDefined()
-  })
+  // The "second factory call with different inputs" test was deleted in the
+  // Step 4 review fix as subsumed by the per-invariant tests above (per
+  // CLAUDE.md test anti-pattern #5). The invariants the deleted test
+  // asserted (minifySyntax + define) are already covered for the single-call
+  // case; the factory contains no input-dependent branches that could
+  // silently fail for a different entry/outDir. The honest scope is:
+  // "factory output invariants per call." See tsup.config.ts factory
+  // docstring for the by-convention-not-by-construction caveat.
 
   it('factory sets jsx automatic + preact import source (Preact baseline)', () => {
     const config = browserBundleBase('src/foo.tsx', 'dist/foo')

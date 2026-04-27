@@ -72,20 +72,12 @@ describe('cortex_send + CORTEX_TOKEN tombstone (ZF0-1326 Task 1)', () => {
     expect(prodBundle).toContain('delete window.__CORTEX_TOKEN__')
   })
 
-  it('production bundle does NOT read window.__CORTEX_TOKEN__ at send time (closure-only)', () => {
-    // Negative side of the closure-capture invariant. The pre-tombstone code
-    // shape was `window.__cortex_send__?.({ ...msg, token: window.__CORTEX_TOKEN__ })`
-    // and `ws.send(JSON.stringify({ ...msg, token: window.__CORTEX_TOKEN__ }))`.
-    // Both call sites must be migrated to the closure-captured `capturedToken`
-    // local. If `token: window.__CORTEX_TOKEN__` reappears anywhere in the
-    // bundle, the runtime is reading a tombstoned global → all messages get
-    // `token: undefined` → server-side WRITE_TYPES check rejects every edit
-    // with AUTH_FAILED → dev experience silently breaks.
-    //
-    // Note: the `window.__CORTEX_TOKEN__` identifier still appears in the
-    // bundle (in `capturedToken = window.__CORTEX_TOKEN__` and `delete
-    // window.__CORTEX_TOKEN__`), so we cannot assert its absence outright.
-    // Instead, assert the SEND-time read pattern is gone.
-    expect(prodBundle).not.toMatch(/token:\s*window\.__CORTEX_TOKEN__/)
-  })
+  // Note: a previous version of this test asserted
+  //   expect(prodBundle).not.toMatch(/token:\s*window\.__CORTEX_TOKEN__/)
+  // to catch send-time global reads. Removed in Step 4 review fix because
+  // the regex is brittle to esbuild output transforms (e.g., bracket-form
+  // `window["__CORTEX_TOKEN__"]`, future minifier choices). Replaced with
+  // a source-level invariant test in `tests/integration/channel-source-invariants.test.ts`
+  // that asserts the SOURCE has exactly 2 `window.__CORTEX_TOKEN__` reads
+  // (the two capture sites) — rename-resistant AND minifier-independent.
 })
