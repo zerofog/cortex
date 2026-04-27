@@ -61,7 +61,8 @@ export default defineConfig({
           // fix (ZF0-1332) and the browser-test setTimeout→vi.waitFor sweep
           // (ZF0-1341) made 10× serial CI=true vitest run --project browser
           // pass cleanly. ZF0-1354 verified retry:0 stability on the CI
-          // matrix (Node 20 + Node 22). Any new browser-test flake should
+          // matrix (Node 20 + Node 22). To re-verify locally, use
+          // `scripts/verify-retry0.sh`. Any new browser-test flake should
           // be root-caused, not masked.
         },
       },
