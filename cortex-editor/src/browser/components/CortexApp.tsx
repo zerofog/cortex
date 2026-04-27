@@ -83,7 +83,11 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // Active errors keyed by source\0property
   const [editErrors, setEditErrors] = useState<Map<string, EditError>>(new Map())
 
-  /** Remove an error by key — avoids new Map allocation when key is absent. */
+  /**
+   * Remove an error by key — avoids new Map allocation when key is absent.
+   * Mirrors the change into reducerStateRef so the next reducer dispatch
+   * doesn't reintroduce the cleared key from a stale snapshot.
+   */
   const clearEditError = useCallback((key: string): void => {
     setEditErrors(prev => {
       if (!prev.has(key)) return prev
@@ -91,6 +95,11 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       next.delete(key)
       return next
     })
+    if (reducerStateRef.current.editErrors.has(key)) {
+      const nextErrors = new Map(reducerStateRef.current.editErrors)
+      nextErrors.delete(key)
+      reducerStateRef.current = { ...reducerStateRef.current, editErrors: nextErrors }
+    }
   }, [])
   const commentModeRef = useRef(false)
   commentModeRef.current = commentMode
@@ -109,9 +118,18 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const handleExitRef = useRef<(() => void) | null>(null)
   // Exposed outside the useEffect so UI handlers (X-button, Toolbar close) can
   // route through the reducer rather than calling setActive(false) directly.
-  // Populated by the mount effect — guaranteed non-null while the component is
-  // mounted (handlers that use it only fire while active === true).
+  // Populated by the mount effect — may be null during first paint when
+  // initialActive is true (handleClose has a fallback for that case).
   const dispatchRef = useRef<((action: CortexAppAction) => void) | null>(null)
+  // Component-scope mirror of the reducer's state. Component handlers that
+  // mutate reducer-owned slices (clearEditError, handleActivityToggle's badge
+  // reset, handleExit's safety-net setActive(false)) must keep this in sync,
+  // otherwise the next reducer dispatch would overwrite their changes with a
+  // stale slice value (Copilot review on PR #84).
+  const reducerStateRef = useRef<CortexAppReducerState>({
+    ...initialCortexAppReducerState,
+    active: initialActive ?? false,
+  })
 
   // Panel positioning
   const { position: panelPosition, isSnapping: panelSnapping, setPosition: setPanelPosition, snap: panelSnap } = useSnapToEdge()
@@ -198,9 +216,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     selectionHandle.setDesignMode(false)
     selectionRef.current = selectionHandle
 
-    // Reducer state mirror — drives setter fan-out per action.
-    // `initialActive` prop overrides the reducer's default `active: false`.
-    const reducerStateRef = { current: { ...initialCortexAppReducerState, active: initialActive ?? false } }
+    // reducerStateRef is component-scope (declared at line ~115) so component
+    // handlers can keep it in sync when they bypass dispatch. The mount effect
+    // re-uses that ref directly — no separate local copy.
 
     // Per-slice setters (not a single setState over the whole state) so Preact
     // can bail out per consumer. The reducer's reference-equality discipline
@@ -548,7 +566,12 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const handleCommentMode = useCallback(() => setCommentMode(m => !m), [])
   const handleActivityToggle = useCallback(() => {
     setShowActivity(prev => {
-      if (!prev) setActivityCount(0) // reset badge on open
+      if (!prev) {
+        setActivityCount(0) // reset badge on open
+        // Mirror into reducerStateRef so the next activity-entry dispatch
+        // increments from 0, not from the pre-reset count.
+        reducerStateRef.current = { ...reducerStateRef.current, activityCount: 0 }
+      }
       return !prev
     })
   }, [])
@@ -580,13 +603,16 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
 
   // Exit handler — notify server, deactivate.
   // Called by the invoke_exit effect (which fires when the reducer processes a
-  // cortex-close action). setActive(false) here is a safety net for any edge
-  // path where handleExit is reached without going through the reducer; the
-  // normal path already has active: false in reducer state by this point.
+  // cortex-close action). The setActive(false) + reducerStateRef sync below is
+  // a safety net for paths that reach handleExit without going through dispatch
+  // (e.g., handleClose's first-paint fallback when dispatchRef isn't yet
+  // populated). The normal path already has active: false in reducer state by
+  // this point, so the sync is a no-op there.
   const handleExit = useCallback(() => {
     setCommentMode(false)
     setSelectionWithMetadata(null)
     setActive(false)
+    reducerStateRef.current = { ...reducerStateRef.current, active: false }
     channel.send({ type: 'cortex-closed' })
   }, [channel, setSelectionWithMetadata])
   handleExitRef.current = handleExit
@@ -595,9 +621,18 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // Routes through the reducer so reducerStateRef.active stays in sync —
   // preventing the close→reopen desync where cortex-close left active: true
   // in the reducer ref while React state was false (C1 fix, ZF0-1363).
+  // First-paint fallback: dispatchRef is populated inside the mount useEffect.
+  // When initialActive is true the toolbar renders before the effect fires, so
+  // a click on the close button can race with mount. Falling back to handleExit
+  // (which keeps reducerStateRef in sync) makes early closes deactivate
+  // correctly without reintroducing the C1 desync (Copilot review on PR #84).
   const handleClose = useCallback(() => {
-    dispatchRef.current?.({ type: 'cortex-close' })
-  }, [])
+    if (dispatchRef.current) {
+      dispatchRef.current({ type: 'cortex-close' })
+      return
+    }
+    handleExit()
+  }, [handleExit])
 
   // Cascading Escape — capture phase for host app compat
   useEffect(() => {

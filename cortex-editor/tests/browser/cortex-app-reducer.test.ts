@@ -100,9 +100,20 @@ describe('cortex action', () => {
 // ---------------------------------------------------------------------------
 
 describe('cortex-close action', () => {
-  it('emits invoke_exit and does not change state', () => {
+  it('emits invoke_exit when already inactive (idempotent — same reference)', () => {
     const { state, effects } = cortexAppReducer(baseState, { type: 'cortex-close' })
     expect(state).toBe(baseState) // no state change
+    expect(effects).toEqual([{ type: 'invoke_exit' }])
+  })
+
+  it('deactivates panel and emits invoke_exit when currently active', () => {
+    // C1 regression: this is the path that prevents close→reopen desync —
+    // the reducer must flip active to false (not return same state) so
+    // applyReducerState fires setActive(false) on the React side.
+    const activeState: CortexAppReducerState = { ...baseState, active: true }
+    const { state, effects } = cortexAppReducer(activeState, { type: 'cortex-close' })
+    expect(state.active).toBe(false)
+    expect(state).not.toBe(activeState)
     expect(effects).toEqual([{ type: 'invoke_exit' }])
   })
 })

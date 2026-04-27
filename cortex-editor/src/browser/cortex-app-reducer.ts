@@ -2,9 +2,9 @@
  * Pure reducer for CortexApp message-handling logic.
  *
  * Extracted from the inline if-chain in the channel.onMessage handler in
- * CortexApp.tsx and the onDivergence subscriber in CortexApp.tsx. No
- * production behaviour change — the reducer is exported but not yet wired;
- * Sub B (ZF0-1380) will do that.
+ * CortexApp.tsx and the onDivergence subscriber in CortexApp.tsx, and now
+ * wired into CortexApp.tsx for those update paths without changing
+ * production behaviour.
  *
  * Follows the selection-metadata.ts module conventions:
  * - Named exports only (no default export)
