@@ -246,11 +246,17 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       // We must read AND mutate the ref BEFORE dispatching, so the reducer receives a
       // stable action snapshot.
       if (msg.type === 'edit_status') {
-        const entry = editDispatchRef.current.get(msg.editId)
-        if (entry) editDispatchRef.current.delete(msg.editId)
+        // Only `done` and `failed` are reducer-modeled. `writing` and `cancelled`
+        // pass through silently — and crucially must NOT consume the dispatch
+        // entry (a `done` typically follows; the entry must survive). This mirrors
+        // the legacy if-chain which only deleted the entry inside done/failed.
         if (msg.status === 'done') {
+          const entry = editDispatchRef.current.get(msg.editId)
+          if (entry) editDispatchRef.current.delete(msg.editId)
           dispatch({ type: 'edit_status', status: 'done', editId: msg.editId, dispatch: entry })
         } else if (msg.status === 'failed') {
+          const entry = editDispatchRef.current.get(msg.editId)
+          if (entry) editDispatchRef.current.delete(msg.editId)
           dispatch({ type: 'edit_status', status: 'failed', editId: msg.editId, reason: msg.reason, dispatch: entry })
         }
         return
@@ -365,10 +371,16 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         return
       }
 
+      // 'error' channel messages aren't reducer-modeled. Other consumers
+      // (ErrorToast subscribes to the channel directly) handle them. The legacy
+      // if-chain silently fell through; preserve that semantics so the reducer's
+      // exhaustive throw doesn't fire on every error message.
+      if (msg.type === 'error') return
+
       // All other channel messages route through the reducer.
-      // The ServerToBrowser union includes 'edit_status' and 'hmr-applied' (handled above)
-      // plus all action types that the reducer covers. After excluding those two,
-      // the remaining messages map directly to CortexAppAction variants.
+      // The ServerToBrowser union includes 'edit_status', 'hmr-applied', and 'error'
+      // (handled above) plus all action types that the reducer covers. After excluding
+      // those three, the remaining messages map directly to CortexAppAction variants.
       dispatch(msg as unknown as CortexAppAction)
     })
 
