@@ -684,15 +684,10 @@ describe('CortexApp', () => {
       selectCb(target)
       await new Promise(r => setTimeout(r, 50))
 
-      const editId = 'test-edit-writing-1'
-      // Simulate the channel registering a dispatch entry via an edit message —
-      // we push directly into editDispatchRef via the onEditDispatch callback.
-      // Easiest path: send a status:writing message (which should be silently
-      // skipped) and then verify a subsequent status:failed still produces an error.
-      // We need an entry in editDispatchRef first — trigger it via UI or inject
-      // it by sending an edit message that Panel would respond to. Simplest:
-      // use channel._simulateMessage with a fake edit message to seed a real
-      // dispatch entry by clicking UI.
+      // Trigger an edit through the UI to seed a real dispatch entry in
+      // editDispatchRef, then send a `writing` status (which should be silently
+      // skipped without consuming the entry), and finally verify the eventual
+      // `failed` still produces an error card — proves the entry survived.
       const layoutSection = root.querySelector('[data-section-id="layout"]')
       let targetSegment: HTMLButtonElement | null = null
       if (layoutSection) {
