@@ -224,20 +224,7 @@ describe('useCanvasZoom', () => {
     expect(document.body.style.transformOrigin).toBe('50% 50%')
   })
 
-  it('regular scroll pans vertically', async () => {
-    const { unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise<void>(r => setTimeout(r, 10))
-    const before = document.body.style.transform
-    dispatchWheel(100, false)
-    const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
-    await vi.waitFor(() => {
-      const after = document.body.style.transform
-      expect(after).not.toBe(before)
-      // The y-offset in translate should have decreased (scrolled down → pan up)
-      expect(getY(after)).toBeLessThan(getY(before))
-    }, { timeout: 500 })
-    unmount()
-  })
+  // deleted: subsumed by tests/core/use-canvas-zoom-pure.test.ts (math) + sibling 'regular scroll pans horizontally' below (wiring) + 'zooming preserves pan offset' (vertical pan + topMargin)
 
   it('regular scroll pans horizontally', async () => {
     const { unmount } = renderHook(() => useCanvasZoom(true))
@@ -329,14 +316,15 @@ describe('useCanvasZoom', () => {
     await new Promise<void>(r => setTimeout(r, 10))
 
     const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
+    const beforeY = getY(document.body.style.transform)
 
-    // Pan the canvas
+    // Pan the canvas — positive deltaY → pan moves up → translate.y decreases
     dispatchWheel(200, false)
     let panY!: number
     await vi.waitFor(() => {
       const t = document.body.style.transform
       panY = getY(t)
-      expect(isNaN(panY)).toBe(false)
+      expect(panY).toBeLessThan(beforeY) // directional: Y-axis wheel→pan wiring
     }, { timeout: 500 })
 
     // Zoom — should preserve pan offset, not reset it
@@ -413,31 +401,7 @@ describe('useCanvasZoom', () => {
   describe('momentum', () => {
     afterEach(() => restoreRAFMock())
 
-    it('wheel-to-pan has momentum after scroll stops', async () => {
-      const { unmount } = renderHook(() => useCanvasZoom(true))
-      // Structural hold: wait for useEffect (wheel handler) to be installed.
-      // useLayoutEffect sets the initial transform synchronously, but the wheel
-      // listener is added by a separate useEffect that runs async. 10ms flaked
-      // under serial-loop load — 50ms gives the same margin as the cursor tests.
-      // Load-bearing — NOT vi.waitFor; structural event-ordering wait.
-      await new Promise<void>(r => setTimeout(r, 50))
-      installRAFMock()
-
-      const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
-      const beforeWheel = getY(document.body.style.transform)
-
-      // Dispatch wheel (applies immediate delta + starts momentum)
-      dispatchWheel(100, false)
-      const afterWheel = getY(document.body.style.transform)
-
-      // Step a few rAF frames — position should keep changing (momentum)
-      stepRAF(3)
-      const afterMomentum = getY(document.body.style.transform)
-
-      expect(afterWheel).toBeLessThan(beforeWheel) // immediate pan
-      expect(afterMomentum).toBeLessThan(afterWheel) // momentum continued
-      unmount()
-    })
+    // deleted: subsumed by tests/core/use-canvas-zoom-pure.test.ts (math) + sibling 'momentum stops within expected frame count' below (wiring)
 
     it('momentum stops within expected frame count', async () => {
       const { unmount } = renderHook(() => useCanvasZoom(true))
@@ -446,8 +410,18 @@ describe('useCanvasZoom', () => {
 
       const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
 
-      dispatchWheel(10, false) // 10px delta
-      stepRAF(25) // well beyond expected ~17 frames
+      dispatchWheel(10, false) // positive deltaY → pan moves up → translate.y decreases
+      const immediate = getY(document.body.style.transform)
+      stepRAF(3)
+      const midCoast = getY(document.body.style.transform)
+      // Coast frames must actually mutate body.style.transform AND continue in the
+      // same direction as the wheel. Guards against (a) coastLoop forgetting
+      // applyTransformPosition (midCoast === immediate would pass), and (b)
+      // velocity sign flip in the wheel→momentum wiring (`velocity.y = dy` instead
+      // of `-dy` would coast in the wrong direction).
+      expect(midCoast).toBeLessThan(immediate)
+
+      stepRAF(22) // 25 total frames — well beyond expected ~17
       const settled = getY(document.body.style.transform)
 
       stepRAF(10) // 10 more frames
