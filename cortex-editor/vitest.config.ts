@@ -60,8 +60,9 @@ export default defineConfig({
           // retry:2 was removed in ZF0-1322 after the cortex-app state-leakage
           // fix (ZF0-1332) and the browser-test setTimeout→vi.waitFor sweep
           // (ZF0-1341) made 10× serial CI=true vitest run --project browser
-          // pass cleanly. Any new browser-test flake should be root-caused,
-          // not masked.
+          // pass cleanly. ZF0-1354 verified retry:0 stability on the CI
+          // matrix (Node 20 + Node 22). Any new browser-test flake should
+          // be root-caused, not masked.
         },
       },
       { test: { name: 'integration', environment: 'node', include: ['tests/integration/**/*.test.ts'] } },
