@@ -1,0 +1,24 @@
+cortex-editor/tests/browser/cortex-app.test.tsx
+  01f0210b9bccc047 13,528,566,572,595
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "a806e469d13636a466a8ee62fb1eebd3a3d63eb8",
+  "prompts": {
+    "01f0210b9bccc047": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "31f7ed20-b1f4-4dc8-8f7d-3b9f0cf854d5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 964,
+      "total_deletions": 967,
+      "accepted_lines": 793,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/50944cc984a80be11d34ba9aff795ea51ed826beb1bbb8740c2619a9d3347183"
+    }
+  }
+}
