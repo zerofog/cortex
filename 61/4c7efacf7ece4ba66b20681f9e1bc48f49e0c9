@@ -1,0 +1,26 @@
+cortex-editor/tests/core/use-canvas-zoom-pure.test.ts
+  6c95c55d114dd86f 1-195
+cortex-editor/src/browser/hooks/useCanvasZoom.ts
+  6c95c55d114dd86f 27-107,238-250,255-257,259,276-278,280
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "614c7efacf7ece4ba66b20681f9e1bc48f49e0c9",
+  "prompts": {
+    "6c95c55d114dd86f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5b916eb3-9cea-48d3-9284-98692ceee7c4",
+        "model": "<synthetic>"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 297,
+      "total_deletions": 15,
+      "accepted_lines": 297,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/eb3ee4bcde4b1d2066e0dd84d218fad63d7c13243820740418965948bc2f43ef"
+    }
+  }
+}
