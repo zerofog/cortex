@@ -216,6 +216,29 @@ describe('edit_status:done action', () => {
     expect(state.editErrors.has(key)).toBe(true) // untouched
     expect(effects).toEqual([])
   })
+
+  it('I2 (ZF0-1363): returns same editErrors reference when dispatch key is absent', () => {
+    // Verifies the bail-out added in I2: only allocate a new Map when the key
+    // actually exists. Without the bail-out, every done with dispatch would
+    // unconditionally create a new Map() even when nothing was deleted.
+    const existingKey = 'src/Other.tsx:1:1\0color'
+    const stateWithUnrelatedError: CortexAppReducerState = {
+      ...baseState,
+      editErrors: new Map([[existingKey, { source: 'src/Other.tsx:1:1', property: 'color', value: 'blue', reason: 'err' }]]),
+    }
+    const dispatch = makeDispatch({ source: 'src/App.tsx:10:3', property: 'font-size', value: '16px' })
+    // The dispatch key (App.tsx\0font-size) is NOT in editErrors — bail-out must fire.
+    const { state } = cortexAppReducer(stateWithUnrelatedError, {
+      type: 'edit_status',
+      status: 'done',
+      editId: 'edit-bail',
+      dispatch,
+    })
+    // Same reference proves no new Map was allocated.
+    expect(state.editErrors).toBe(stateWithUnrelatedError.editErrors)
+    // Activity counter still bumped
+    expect(state.activityCount).toBe(1)
+  })
 })
 
 // ---------------------------------------------------------------------------

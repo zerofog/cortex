@@ -167,7 +167,15 @@ export function cortexAppReducer(
 
     // -----------------------------------------------------------------------
     case 'cortex-close': {
-      return { state, effects: [{ type: 'invoke_exit' }] }
+      if (!state.active) {
+        // Already inactive — emit invoke_exit but don't allocate a new state object.
+        return { state, effects: [{ type: 'invoke_exit' }] }
+      }
+      // Set active: false so the reducer is the single source of truth.
+      // applyReducerState will call setActive(false) via the normal slice-setter
+      // path, keeping reducerStateRef in sync. handleExit (called via invoke_exit)
+      // also calls setActive(false) — the double-call is idempotent.
+      return { state: { ...state, active: false }, effects: [{ type: 'invoke_exit' }] }
     }
 
     // -----------------------------------------------------------------------
@@ -200,8 +208,11 @@ export function cortexAppReducer(
         if (action.dispatch) {
           const { source, property } = action.dispatch
           const key = `${source}\0${property}`
-          const nextErrors = new Map(state.editErrors)
-          nextErrors.delete(key)
+          // Only allocate a new Map when the key is actually present —
+          // mirrors the legacy clearEditError bail-out (I2 fix, ZF0-1363).
+          const nextErrors = state.editErrors.has(key)
+            ? (() => { const m = new Map(state.editErrors); m.delete(key); return m })()
+            : state.editErrors
           return {
             state: {
               ...state,

@@ -107,6 +107,11 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // selectedElement is null.
   const selectionMetadataRef = useRef<SelectionMetadata | null>(null)
   const handleExitRef = useRef<(() => void) | null>(null)
+  // Exposed outside the useEffect so UI handlers (X-button, Toolbar close) can
+  // route through the reducer rather than calling setActive(false) directly.
+  // Populated by the mount effect — guaranteed non-null while the component is
+  // mounted (handlers that use it only fire while active === true).
+  const dispatchRef = useRef<((action: CortexAppAction) => void) | null>(null)
 
   // Panel positioning
   const { position: panelPosition, isSnapping: panelSnapping, setPosition: setPanelPosition, snap: panelSnap } = useSnapToEdge()
@@ -214,6 +219,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     }
 
     const runEffect = (effect: CortexAppEffect): void => {
+      // I4: Guard against effects firing after disposal (e.g., a queued
+      // microtask from a channel message that arrived during cleanup).
+      if (disposed) return
       switch (effect.type) {
         case 'send':
           channel.send(effect.message)
@@ -239,6 +247,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     }
 
     const dispatch = (action: CortexAppAction): void => {
+      // I4: Guard against in-flight microtasks after disposal (channel message
+      // arrives between disposed=true and unsubscribe taking effect).
+      if (disposed) return
       const prev = reducerStateRef.current
       const { state: next, effects } = cortexAppReducer(prev, action)
       if (next !== prev) {
@@ -247,6 +258,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       }
       for (const effect of effects) runEffect(effect)
     }
+    dispatchRef.current = dispatch
 
     // editDispatchRef is React-side state; the pure reducer can't read refs,
     // so we snapshot the entry into the action before dispatching. Only consume
@@ -394,13 +406,12 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       // exhaustive throw doesn't fire on every error message.
       if (msg.type === 'error') return
 
-      // All other channel messages route through the reducer. After the three
-      // early returns above, control-flow narrows `msg` to the union of
-      // reducer-handled message types. Each remaining ServerToBrowser variant
-      // is structurally compatible with its CortexAppAction counterpart (extra
-      // optional fields like protocolVersion are tolerated). A direct cast lets
-      // TS catch real shape drift if a new ServerToBrowser variant is added
-      // without a matching CortexAppAction case — `as unknown as` would mask it.
+      // After the early returns above (edit_status, hmr-applied, error), `msg.type`
+      // matches a CortexAppAction discriminant. The cast is a forcing cast — TS
+      // does not narrow ServerToBrowser to CortexAppAction across the assignment.
+      // The reducer's exhaustive `never` default is the runtime safety net: any
+      // new ServerToBrowser variant not modeled by CortexAppAction will throw at
+      // dispatch time, surfacing the drift in CI.
       dispatch(msg as CortexAppAction)
     })
 
@@ -455,6 +466,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       overrideRef.current = null
       commandStack.clear()
       commandStackRef.current = null
+      dispatchRef.current = null
       // Clear the debug bridge so a remount (strict mode, HMR, route change)
       // doesn't leave a stale reference to the now-disposed overrideManager.
       // Dual-gate matches the install site — in production bundles this
@@ -556,7 +568,11 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
 
   const handleDismissError = clearEditError
 
-  // Exit handler — notify server, deactivate
+  // Exit handler — notify server, deactivate.
+  // Called by the invoke_exit effect (which fires when the reducer processes a
+  // cortex-close action). setActive(false) here is a safety net for any edge
+  // path where handleExit is reached without going through the reducer; the
+  // normal path already has active: false in reducer state by this point.
   const handleExit = useCallback(() => {
     setCommentMode(false)
     setSelectionWithMetadata(null)
@@ -564,6 +580,14 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     channel.send({ type: 'cortex-closed' })
   }, [channel, setSelectionWithMetadata])
   handleExitRef.current = handleExit
+
+  // Close handler for UI elements (X-button, Toolbar close).
+  // Routes through the reducer so reducerStateRef.active stays in sync —
+  // preventing the close→reopen desync where cortex-close left active: true
+  // in the reducer ref while React state was false (C1 fix, ZF0-1363).
+  const handleClose = useCallback(() => {
+    dispatchRef.current?.({ type: 'cortex-close' })
+  }, [])
 
   // Cascading Escape — capture phase for host app compat
   useEffect(() => {
@@ -740,7 +764,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           commandStack={commandStackRef.current}
           flushCommitRef={flushCommitRef}
           undoInProgressRef={undoInProgressRef}
-          onClose={handleExit}
+          onClose={handleClose}
           onSelectElement={handleSelectElement}
           swatches={swatches}
           textComponents={textComponents}
@@ -767,7 +791,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       )}
       <Toolbar
         activityCount={activityCount}
-        onClose={handleExit}
+        onClose={handleClose}
         commentMode={commentMode}
         onCommentMode={handleCommentMode}
         onActivityToggle={handleActivityToggle}
