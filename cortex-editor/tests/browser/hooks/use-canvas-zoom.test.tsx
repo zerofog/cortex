@@ -410,7 +410,15 @@ describe('useCanvasZoom', () => {
       const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
 
       dispatchWheel(10, false) // 10px delta
-      stepRAF(25) // well beyond expected ~17 frames
+      const immediate = getY(document.body.style.transform)
+      stepRAF(3)
+      const midCoast = getY(document.body.style.transform)
+      // Coast frames must actually mutate body.style.transform with non-stationary
+      // values — guards against a regression where coastLoop runs stepMomentum
+      // but forgets applyTransformPosition, or velocity is zeroed after frame 1.
+      expect(midCoast).not.toBe(immediate)
+
+      stepRAF(22) // 25 total frames — well beyond expected ~17
       const settled = getY(document.body.style.transform)
 
       stepRAF(10) // 10 more frames
