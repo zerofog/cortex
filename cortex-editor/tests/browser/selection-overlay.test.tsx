@@ -3,6 +3,7 @@ import { render } from 'preact'
 import { SelectionOverlay } from '../../src/browser/components/SelectionOverlay.js'
 import { createShadowHost, mockGetBoundingClientRect } from './helpers.js'
 import type { StateDeclarations } from '../../src/browser/state-detector.js'
+import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
 
 describe('SelectionOverlay', () => {
   let root: HTMLDivElement
@@ -17,6 +18,10 @@ describe('SelectionOverlay', () => {
 
   afterEach(() => {
     if (cleanupHost) cleanupHost()
+    // SelectionOverlay subscribes to transform-bus in useEffect; resetting
+    // the bus between tests prevents leaked listeners from a prior test
+    // firing during the current test's lifecycle. ZF0-1322 root-cause fix.
+    _resetTransformBusForTesting()
   })
 
   it('renders nothing when element is null', () => {
