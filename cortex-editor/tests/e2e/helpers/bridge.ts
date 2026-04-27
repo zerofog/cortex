@@ -193,6 +193,7 @@ export async function waitForBridge(page: Page, timeoutMs: number = 5000): Promi
         `  1. setupDebugBridge not called before page.goto (addInitScript is no-op post-nav).\n` +
         `  2. Bundle failed to boot — check Playwright console/page-error output for bundle errors.\n` +
         `  3. __CORTEX_DEBUG_OVERRIDES__ flag didn't reach the bundle — confirm setupDebugBridge armed.\n` +
+        `  4. Built with 'npm run dev' (prod bundle — bridge DCE'd) — use 'npm run build:test' before running Playwright.\n` +
         `Page URL: ${page.url()}\n` +
         `Original error: ${err instanceof Error ? err.message : String(err)}`,
     )
