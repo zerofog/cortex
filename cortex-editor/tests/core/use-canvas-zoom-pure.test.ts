@@ -50,6 +50,21 @@ describe('stepMomentum', () => {
     expect(shouldStop).toBe(false)
   })
 
+  it('preserves sign of velocity through unclamped friction step', () => {
+    // Catches mutations like `vx = Math.abs(velocity.x * friction)` that would
+    // pass every other test (which use positive starting velocity, or zero the
+    // negative axis via clamping).
+    const state: MomentumState = {
+      pan: { x: 0, y: 0 },
+      velocity: { x: -8, y: -3 },
+    }
+    const { state: next } = stepMomentum(state, DT_ONE_FRAME, infiniteBounds())
+    expect(next.velocity.x).toBeLessThan(0)
+    expect(next.velocity.y).toBeLessThan(0)
+    expect(next.pan.x).toBeLessThan(0)
+    expect(next.pan.y).toBeLessThan(0)
+  })
+
   it('multi-step: starting from velocity (10, 0) at dt=1, shouldStop becomes true after ~17 steps', () => {
     const N = Math.ceil(Math.log(STOP_THRESHOLD / 10) / Math.log(FRICTION))
     // N should be ~17 (verify: FRICTION^17 * 10 ≈ 0.75^17 * 10 ≈ 0.075 < 0.1 but per-axis)

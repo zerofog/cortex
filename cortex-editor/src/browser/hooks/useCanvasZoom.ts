@@ -45,7 +45,10 @@ export interface MomentumStepResult {
 
 /** Apply one momentum coast step.
  * @param state  Current pan + velocity
- * @param dt     Time delta normalized to 60fps basis (raw_ms / 16.667), capped at 50ms
+ * @param dt     Time delta in normalized 60fps units (raw_ms / 16.667). Capped
+ *               internally at 50ms-equivalent (50 / 16.667 ≈ 3.0) so callers
+ *               that pass an unbounded dt (e.g. tab return after long pause)
+ *               cannot snap pan across the viewport in a single step.
  * @param bounds Pan clamp limits
  */
 export function stepMomentum(
