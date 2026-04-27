@@ -17,6 +17,8 @@ describe('HoverOverlay', () => {
   }
 
   afterEach(() => {
+    // Unmount before host removal so useEffect cleanups fire.
+    if (root) render(null, root)
     if (cleanupHost) cleanupHost()
     // Reset module-scope transform-bus listeners so a leaked subscriber from
     // the previous test (e.g., test that threw before unmount) cannot fire
