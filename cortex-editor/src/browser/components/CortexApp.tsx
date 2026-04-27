@@ -7,7 +7,7 @@ import { onDivergence } from '../override-bus.js'
 import { CommandStack } from '../command-stack.js'
 import { initSelection } from '../selection.js'
 import type { SelectionHandle } from '../selection.js'
-import { cortexAppReducer, initialCortexAppReducerState, MAX_ACTIVITY_ENTRIES } from '../cortex-app-reducer.js'
+import { cortexAppReducer, initialCortexAppReducerState } from '../cortex-app-reducer.js'
 import type { CortexAppReducerState, CortexAppAction, CortexAppEffect } from '../cortex-app-reducer.js'
 // @ts-ignore — tinykeys has types but exports field doesn't include a "types" condition (TODO: add declare module shim when tinykeys updates)
 import { tinykeys } from 'tinykeys'
