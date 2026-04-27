@@ -1,0 +1,24 @@
+cortex-editor/package.json
+  211bd5a54bf7e07b 61-62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "fa78526a4a69703e439eda737c366a394550d901",
+  "prompts": {
+    "211bd5a54bf7e07b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "16871bfb-ed13-4ef7-a85f-bd99c65386af",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 109,
+      "accepted_lines": 2,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/c4ca902f00a2907200229fb1bc71a55eb3bb9d3e584c0624c8cc240383d3ad5a"
+    }
+  }
+}
