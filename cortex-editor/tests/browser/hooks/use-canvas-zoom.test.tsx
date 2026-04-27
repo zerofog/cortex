@@ -224,20 +224,7 @@ describe('useCanvasZoom', () => {
     expect(document.body.style.transformOrigin).toBe('50% 50%')
   })
 
-  it('regular scroll pans vertically', async () => {
-    const { unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise<void>(r => setTimeout(r, 10))
-    const before = document.body.style.transform
-    dispatchWheel(100, false)
-    const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
-    await vi.waitFor(() => {
-      const after = document.body.style.transform
-      expect(after).not.toBe(before)
-      // The y-offset in translate should have decreased (scrolled down → pan up)
-      expect(getY(after)).toBeLessThan(getY(before))
-    }, { timeout: 500 })
-    unmount()
-  })
+  // deleted: subsumed by tests/core/use-canvas-zoom-pure.test.ts (math) + sibling test L242 (wiring)
 
   it('regular scroll pans horizontally', async () => {
     const { unmount } = renderHook(() => useCanvasZoom(true))
@@ -413,31 +400,7 @@ describe('useCanvasZoom', () => {
   describe('momentum', () => {
     afterEach(() => restoreRAFMock())
 
-    it('wheel-to-pan has momentum after scroll stops', async () => {
-      const { unmount } = renderHook(() => useCanvasZoom(true))
-      // Structural hold: wait for useEffect (wheel handler) to be installed.
-      // useLayoutEffect sets the initial transform synchronously, but the wheel
-      // listener is added by a separate useEffect that runs async. 10ms flaked
-      // under serial-loop load — 50ms gives the same margin as the cursor tests.
-      // Load-bearing — NOT vi.waitFor; structural event-ordering wait.
-      await new Promise<void>(r => setTimeout(r, 50))
-      installRAFMock()
-
-      const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
-      const beforeWheel = getY(document.body.style.transform)
-
-      // Dispatch wheel (applies immediate delta + starts momentum)
-      dispatchWheel(100, false)
-      const afterWheel = getY(document.body.style.transform)
-
-      // Step a few rAF frames — position should keep changing (momentum)
-      stepRAF(3)
-      const afterMomentum = getY(document.body.style.transform)
-
-      expect(afterWheel).toBeLessThan(beforeWheel) // immediate pan
-      expect(afterMomentum).toBeLessThan(afterWheel) // momentum continued
-      unmount()
-    })
+    // deleted: subsumed by tests/core/use-canvas-zoom-pure.test.ts (math) + sibling test L405 (wiring)
 
     it('momentum stops within expected frame count', async () => {
       const { unmount } = renderHook(() => useCanvasZoom(true))
