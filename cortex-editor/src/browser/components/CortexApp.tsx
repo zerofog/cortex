@@ -7,6 +7,8 @@ import { onDivergence } from '../override-bus.js'
 import { CommandStack } from '../command-stack.js'
 import { initSelection } from '../selection.js'
 import type { SelectionHandle } from '../selection.js'
+import { cortexAppReducer, initialCortexAppReducerState } from '../cortex-app-reducer.js'
+import type { CortexAppReducerState, CortexAppAction, CortexAppEffect, EditDispatchEntry } from '../cortex-app-reducer.js'
 // @ts-ignore — tinykeys has types but exports field doesn't include a "types" condition (TODO: add declare module shim when tinykeys updates)
 import { tinykeys } from 'tinykeys'
 import { getDeepActiveElement, isInputFocused, isCortexUIFocused, isRealEvent } from '../focus-utils.js'
@@ -26,8 +28,6 @@ import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
 import { captureSelectionMetadata, reResolveSelection, shouldRefreshOnHMR } from '../selection-metadata.js'
 import type { SelectionMetadata } from '../selection-metadata.js'
 import { dismissTopmostPopover } from '../popover-stack.js'
-
-const MAX_ACTIVITY_ENTRIES = 200
 
 export interface CortexAppProps {
   channel: CortexChannel
@@ -83,7 +83,11 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // Active errors keyed by source\0property
   const [editErrors, setEditErrors] = useState<Map<string, EditError>>(new Map())
 
-  /** Remove an error by key — avoids new Map allocation when key is absent. */
+  /**
+   * Remove an error by key — avoids new Map allocation when key is absent.
+   * Mirrors the change into reducerStateRef so the next reducer dispatch
+   * doesn't reintroduce the cleared key from a stale snapshot.
+   */
   const clearEditError = useCallback((key: string): void => {
     setEditErrors(prev => {
       if (!prev.has(key)) return prev
@@ -91,6 +95,11 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       next.delete(key)
       return next
     })
+    if (reducerStateRef.current.editErrors.has(key)) {
+      const nextErrors = new Map(reducerStateRef.current.editErrors)
+      nextErrors.delete(key)
+      reducerStateRef.current = { ...reducerStateRef.current, editErrors: nextErrors }
+    }
   }, [])
   const commentModeRef = useRef(false)
   commentModeRef.current = commentMode
@@ -107,6 +116,20 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // selectedElement is null.
   const selectionMetadataRef = useRef<SelectionMetadata | null>(null)
   const handleExitRef = useRef<(() => void) | null>(null)
+  // Exposed outside the useEffect so UI handlers (X-button, Toolbar close) can
+  // route through the reducer rather than calling setActive(false) directly.
+  // Populated by the mount effect — may be null during first paint when
+  // initialActive is true (handleClose has a fallback for that case).
+  const dispatchRef = useRef<((action: CortexAppAction) => void) | null>(null)
+  // Component-scope mirror of the reducer's state. Component handlers that
+  // mutate reducer-owned slices (clearEditError, handleActivityToggle's badge
+  // reset, handleExit's safety-net setActive(false)) must keep this in sync,
+  // otherwise the next reducer dispatch would overwrite their changes with a
+  // stale slice value (Copilot review on PR #84).
+  const reducerStateRef = useRef<CortexAppReducerState>({
+    ...initialCortexAppReducerState,
+    active: initialActive ?? false,
+  })
 
   // Panel positioning
   const { position: panelPosition, isSnapping: panelSnapping, setPosition: setPanelPosition, snap: panelSnap } = useSnapToEdge()
@@ -193,78 +216,113 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     selectionHandle.setDesignMode(false)
     selectionRef.current = selectionHandle
 
+    // reducerStateRef is component-scope (declared at line ~115) so component
+    // handlers can keep it in sync when they bypass dispatch. The mount effect
+    // re-uses that ref directly — no separate local copy.
+
+    // Per-slice setters (not a single setState over the whole state) so Preact
+    // can bail out per consumer. The reducer's reference-equality discipline
+    // makes each `next.X !== prev.X` a meaningful guard rather than a tautology.
+    const applyReducerState = (next: CortexAppReducerState, prev: CortexAppReducerState): void => {
+      if (next.active !== prev.active) setActive(next.active)
+      if (next.swatches !== prev.swatches) setSwatches(next.swatches)
+      if (next.textComponents !== prev.textComponents) setTextComponents(next.textComponents)
+      if (next.colorChips !== prev.colorChips) setColorChips(next.colorChips)
+      if (next.capabilitySystems !== prev.capabilitySystems) setCapabilitySystems(next.capabilitySystems)
+      if (next.activityCount !== prev.activityCount) setActivityCount(next.activityCount)
+      if (next.editErrors !== prev.editErrors) setEditErrors(next.editErrors)
+      if (next.annotations !== prev.annotations) setAnnotations(next.annotations)
+      if (next.agentConnected !== prev.agentConnected) setAgentConnected(next.agentConnected)
+      if (next.activityEntries !== prev.activityEntries) setActivityEntries(next.activityEntries)
+    }
+
+    const runEffect = (effect: CortexAppEffect): void => {
+      // I4: Guard against effects firing after disposal (e.g., a queued
+      // microtask from a channel message that arrived during cleanup).
+      if (disposed) return
+      switch (effect.type) {
+        case 'send':
+          channel.send(effect.message)
+          return
+        case 'log_warning':
+          console.warn(effect.message)
+          return
+        case 'invoke_exit':
+          handleExitRef.current?.()
+          return
+        case 'apply_hmr_verified':
+          overrideRef.current?.handleHMRVerified(effect.editId, effect.match, effect.kind)
+          return
+        default: {
+          // Compile-time exhaustiveness — mirrors the reducer's `never` default.
+          // Forces TS to error if a new CortexAppEffect variant is added without
+          // a matching wiring case here. Runtime throw makes the gap observable
+          // even if a cast bypasses TS.
+          const _exhaustive: never = effect
+          throw new Error(`Unhandled cortex-app effect: ${JSON.stringify(_exhaustive)}`)
+        }
+      }
+    }
+
+    const dispatch = (action: CortexAppAction): void => {
+      // I4: Guard against in-flight microtasks after disposal (channel message
+      // arrives between disposed=true and unsubscribe taking effect).
+      if (disposed) return
+      const prev = reducerStateRef.current
+      const { state: next, effects } = cortexAppReducer(prev, action)
+      if (next !== prev) {
+        reducerStateRef.current = next
+        applyReducerState(next, prev)
+      }
+      // Per-effect isolation: a throw in one handler (e.g., channel.send
+      // closing mid-flight) must not drop subsequent effects from the same
+      // dispatch. log_warning + send for undo_sync_status:failed is the
+      // canonical case where order matters and silent drop would be visible.
+      for (const effect of effects) {
+        try {
+          runEffect(effect)
+        } catch (err) {
+          console.warn('[cortex] runEffect failed', err)
+        }
+      }
+    }
+    dispatchRef.current = dispatch
+
+    // editDispatchRef is React-side state; the pure reducer can't read refs,
+    // so we snapshot the entry into the action before dispatching. Only consume
+    // (delete) the entry on terminal statuses — `writing`/`cancelled` keep the
+    // entry alive so the eventual `done`/`failed` can consume it.
+    const popDispatchEntry = (editId: string): EditDispatchEntry | undefined => {
+      const entry = editDispatchRef.current.get(editId)
+      if (entry) editDispatchRef.current.delete(editId)
+      return entry
+    }
+
     // Listen-first ordering: subscribe to onMessage BEFORE sending init. The server's
     // hello response is async, so attaching this handler first guarantees it's live
     // when the response arrives. Emitting init before this line would race.
     const unsubscribe = channel.onMessage((msg) => {
-      if (msg.type === 'cortex') {
-        setActive(true)
-      }
-      if (msg.type === 'cortex-close') {
-        handleExitRef.current?.()
-      }
-      if (msg.type === 'cortex-toggle') {
-        if (msg.active) {
-          setActive(true)
-        } else {
-          handleExitRef.current?.()
-        }
-      }
-      if (msg.type === 'capabilities') {
-        setCapabilitySystems(msg.systems.filter(s => s.status !== 'supported'))
-      }
-      if (msg.type === 'hello') {
-        // hello is authoritative state replacement, not additive. Prior
-        // pattern gated each assignment on `length > 0`, so a subsequent
-        // hello with cleared fields (e.g., the user removed a @theme
-        // block and the server restarted) left stale browser state.
-        // Unconditional ?? [] ensures server-side truth reaches the UI.
-        setSwatches(msg.swatches ?? [])
-        setTextComponents(msg.textComponents ?? [])
-        setColorChips(msg.colorChips ?? [])
-      }
+      // edit_status: ref-lookup before dispatch (impure boundary).
+      // The dispatch entry comes from editDispatchRef which is mutable React-side state.
+      // We must read AND mutate the ref BEFORE dispatching, so the reducer receives a
+      // stable action snapshot.
       if (msg.type === 'edit_status') {
+        // Only `done` and `failed` are reducer-modeled. `writing` and `cancelled`
+        // pass through silently — and crucially must NOT consume the dispatch
+        // entry (a `done` typically follows; the entry must survive). This mirrors
+        // the legacy if-chain which only deleted the entry inside done/failed.
         if (msg.status === 'done') {
-          setActivityCount(c => c + 1)
-          // Deferred strategy is carried on the subsequent hmr_verified message via
-          // its `kind` field — the override manager derives defer behavior from
-          // there, so no separate marking is required.
-          // Clear any error for this edit's source+property
-          const dispatch = editDispatchRef.current.get(msg.editId)
-          if (dispatch) {
-            editDispatchRef.current.delete(msg.editId)
-            clearEditError(`${dispatch.source}\0${dispatch.property}`)
-          }
+          dispatch({ type: 'edit_status', status: 'done', editId: msg.editId, dispatch: popDispatchEntry(msg.editId) })
+        } else if (msg.status === 'failed') {
+          dispatch({ type: 'edit_status', status: 'failed', editId: msg.editId, reason: msg.reason, dispatch: popDispatchEntry(msg.editId) })
         }
-        if (msg.status === 'failed' && msg.editId) {
-          const dispatch = editDispatchRef.current.get(msg.editId)
-          if (dispatch) {
-            editDispatchRef.current.delete(msg.editId)
-            const key = `${dispatch.source}\0${dispatch.property}`
-            setEditErrors(prev => {
-              const next = new Map(prev)
-              next.set(key, { source: dispatch.source, property: dispatch.property, value: dispatch.value, reason: msg.reason ?? 'Unknown error' })
-              return next
-            })
-          } else {
-            // editId not tracked — may have been coalesced during rapid scrub editing
-            console.warn(`[cortex] edit_status:failed for untracked editId ${msg.editId}: ${msg.reason ?? 'Unknown'}`)
-          }
-        }
+        return
       }
-      if (msg.type === 'hmr_verified') {
-        overrideRef.current?.handleHMRVerified(msg.editId, msg.match, msg.kind)
-      }
-      // Undo/redo sync failure: reset server stack only for stack-invalidating
-      // failures (stale file, write error). empty_stack is expected (browser stack
-      // leads, server may be shorter). Unknown/missing reason_codes may be transient
-      // adapter errors — don't clear server state for those.
-      if ((msg.type === 'undo_sync_status' || msg.type === 'redo_sync_status') && msg.status === 'failed') {
-        console.warn(`[cortex] Server ${msg.type === 'undo_sync_status' ? 'undo' : 'redo'} sync failed:`, msg.reason)
-        if (msg.reason_code === 'stale' || msg.reason_code === 'write_failed') {
-          channel.send({ type: 'clear_server_undo' })
-        }
-      }
+
+      // hmr-applied: STAYS INLINE — out of scope for ZF0-1363 (handled by ZF0-1362's
+      // selection-metadata.ts pure functions). The complex HMR re-resolution logic
+      // (rAF + setTimeout fan-out, disposal guards, selection-metadata refresh) is
+      // not yet modelable as effects-as-data without re-architecting that ticket.
       if (msg.type === 'hmr-applied') {
         overrideRef.current?.onHMRApplied()
 
@@ -367,28 +425,22 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           setTimeout(attemptReResolve, 100)
           setTimeout(attemptReResolve, 250)
         }
+        return
       }
-      if (msg.type === 'annotation-created') {
-        setAnnotations(prev => new Map(prev).set(msg.annotation.id, msg.annotation))
-      }
-      if (msg.type === 'annotation-updated') {
-        setAnnotations(prev => new Map(prev).set(msg.annotation.id, msg.annotation))
-        // Clear error card when fix-request annotation resolves
-        if (msg.annotation.kind === 'fix-request' && (msg.annotation.status === 'resolved' || msg.annotation.status === 'dismissed') && msg.annotation.fixMeta) {
-          clearEditError(`${msg.annotation.elementSource}\0${msg.annotation.fixMeta.property}`)
-        }
-      }
-      if (msg.type === 'agent-status') {
-        setAgentConnected(msg.connected)
-      }
-      if (msg.type === 'activity-entry') {
-        setActivityEntries(prev =>
-          prev.length >= MAX_ACTIVITY_ENTRIES
-            ? [...prev.slice(-(MAX_ACTIVITY_ENTRIES - 1)), msg.entry]
-            : [...prev, msg.entry]
-        )
-        setActivityCount(c => c + 1)
-      }
+
+      // 'error' channel messages aren't reducer-modeled. Other consumers
+      // (ErrorToast subscribes to the channel directly) handle them. The legacy
+      // if-chain silently fell through; preserve that semantics so the reducer's
+      // exhaustive throw doesn't fire on every error message.
+      if (msg.type === 'error') return
+
+      // After the early returns above (edit_status, hmr-applied, error), `msg.type`
+      // matches a CortexAppAction discriminant. The cast is a forcing cast — TS
+      // does not narrow ServerToBrowser to CortexAppAction across the assignment.
+      // The reducer's exhaustive `never` default is the runtime safety net: any
+      // new ServerToBrowser variant not modeled by CortexAppAction will throw at
+      // dispatch time, surfacing the drift in CI.
+      dispatch(msg as CortexAppAction)
     })
 
     // Handshake signal — server responds with 'hello' carrying swatches + design-system
@@ -427,29 +479,8 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     // Override divergence → Panel error card. Fires when the browser-side verifier
     // determines the source write succeeded per the server but the DOM didn't
     // reflect the expected value (e.g., React Fast Refresh skipped the element).
-    // The override preview is preserved; surfacing the mismatch prevents silent reverts.
-    // Key uses source\0property to stay consistent with the edit_status:failed and
-    // annotation-update paths. Pseudo goes into the key so an element-level
-    // divergence and a ::before/::after divergence on the same property don't
-    // collide and mask each other.
-    const unsubDivergence = onDivergence((d) => {
-      const key = `${d.source}\0${d.property}\0${d.pseudo ?? ''}`
-      // Always replace — later divergences carry more accurate `actual` values
-      // than earlier ones, and an older divergence should never mask a newer one.
-      setEditErrors(prev => {
-        const next = new Map(prev)
-        next.set(key, {
-          source: d.source,
-          property: d.property,
-          value: d.expected,
-          reason: `Preview shows "${d.expected}" but the saved file renders "${d.actual || '(empty)'}". The edit may not have propagated.`,
-          // ZF0-1293: pass diagnostics through for the Debug disclosure. Safe
-          // to forward as-is — EditErrorCard gates rendering on the debug flag.
-          diagnostics: d.diagnostics,
-        })
-        return next
-      })
-    })
+    // Dispatched through the reducer so editErrors is a single source of truth.
+    const unsubDivergence = onDivergence((d) => dispatch({ type: 'divergence', diagnostic: d }))
 
     return () => {
       disposed = true
@@ -463,6 +494,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       overrideRef.current = null
       commandStack.clear()
       commandStackRef.current = null
+      dispatchRef.current = null
       // Clear the debug bridge so a remount (strict mode, HMR, route change)
       // doesn't leave a stale reference to the now-disposed overrideManager.
       // Dual-gate matches the install site — in production bundles this
@@ -534,7 +566,12 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const handleCommentMode = useCallback(() => setCommentMode(m => !m), [])
   const handleActivityToggle = useCallback(() => {
     setShowActivity(prev => {
-      if (!prev) setActivityCount(0) // reset badge on open
+      if (!prev) {
+        setActivityCount(0) // reset badge on open
+        // Mirror into reducerStateRef so the next activity-entry dispatch
+        // increments from 0, not from the pre-reset count.
+        reducerStateRef.current = { ...reducerStateRef.current, activityCount: 0 }
+      }
       return !prev
     })
   }, [])
@@ -564,14 +601,38 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
 
   const handleDismissError = clearEditError
 
-  // Exit handler — notify server, deactivate
+  // Exit handler — notify server, deactivate.
+  // Called by the invoke_exit effect (which fires when the reducer processes a
+  // cortex-close action). The setActive(false) + reducerStateRef sync below is
+  // a safety net for paths that reach handleExit without going through dispatch
+  // (e.g., handleClose's first-paint fallback when dispatchRef isn't yet
+  // populated). The normal path already has active: false in reducer state by
+  // this point, so the sync is a no-op there.
   const handleExit = useCallback(() => {
     setCommentMode(false)
     setSelectionWithMetadata(null)
     setActive(false)
+    reducerStateRef.current = { ...reducerStateRef.current, active: false }
     channel.send({ type: 'cortex-closed' })
   }, [channel, setSelectionWithMetadata])
   handleExitRef.current = handleExit
+
+  // Close handler for UI elements (X-button, Toolbar close).
+  // Routes through the reducer so reducerStateRef.active stays in sync —
+  // preventing the close→reopen desync where cortex-close left active: true
+  // in the reducer ref while React state was false (C1 fix, ZF0-1363).
+  // First-paint fallback: dispatchRef is populated inside the mount useEffect.
+  // When initialActive is true the toolbar renders before the effect fires, so
+  // a click on the close button can race with mount. Falling back to handleExit
+  // (which keeps reducerStateRef in sync) makes early closes deactivate
+  // correctly without reintroducing the C1 desync (Copilot review on PR #84).
+  const handleClose = useCallback(() => {
+    if (dispatchRef.current) {
+      dispatchRef.current({ type: 'cortex-close' })
+      return
+    }
+    handleExit()
+  }, [handleExit])
 
   // Cascading Escape — capture phase for host app compat
   useEffect(() => {
@@ -748,7 +809,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           commandStack={commandStackRef.current}
           flushCommitRef={flushCommitRef}
           undoInProgressRef={undoInProgressRef}
-          onClose={handleExit}
+          onClose={handleClose}
           onSelectElement={handleSelectElement}
           swatches={swatches}
           textComponents={textComponents}
@@ -775,7 +836,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       )}
       <Toolbar
         activityCount={activityCount}
-        onClose={handleExit}
+        onClose={handleClose}
         commentMode={commentMode}
         onCommentMode={handleCommentMode}
         onActivityToggle={handleActivityToggle}
