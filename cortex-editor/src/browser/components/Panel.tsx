@@ -13,20 +13,19 @@ import { PanelHeader } from './PanelHeader.js'
 import { ElementTree } from './sections/ElementTree.js'
 import { DEFAULT_LAYER_HEIGHT, MIN_LAYER_HEIGHT } from './LayerTree.js'
 import type { SectionChange } from './sections/types.js'
-import { LayoutSection, parseLayoutValues } from './sections/LayoutSection.js'
+import { LayoutSection } from './sections/LayoutSection.js'
 import {
   TypographySection,
-  parseTypographyValues,
   getWeightsForFamily,
   stripCSSQuotes,
   TYPOGRAPHY_LINKED_PROPERTIES,
   COLOR_LINKED_PROPERTIES,
 } from './sections/TypographySection.js'
-import { parseFillValues, summarizeFill } from './sections/fill-utils.js'
-import { BorderSection, parseBorderValues, summarizeBorder } from './sections/BorderSection.js'
-import { EffectsSection, parseEffectsValues, addShadow } from './sections/EffectsSection.js'
-import { PositionSection, parsePositionValues } from './sections/PositionSection.js'
-import { AppearanceSection, parseAppearanceValues } from './sections/AppearanceSection.js'
+import { summarizeFill } from './sections/fill-utils.js'
+import { BorderSection, summarizeBorder } from './sections/BorderSection.js'
+import { EffectsSection, addShadow } from './sections/EffectsSection.js'
+import { PositionSection } from './sections/PositionSection.js'
+import { AppearanceSection } from './sections/AppearanceSection.js'
 import type { InteractionState } from '../state-detector.js'
 import { detectSharedClasses } from '../shared-class-detector.js'
 import type { SharedClassInfo } from '../shared-class-detector.js'
@@ -38,6 +37,8 @@ import { IconButton } from './controls/IconButton.js'
 import { BackgroundSection } from './sections/BackgroundSection.js'
 import { Plus } from './icons.js'
 import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
+import { computePanelStyleSnapshot } from './panel-style-snapshot.js'
+import { ALL_DIMMING_PROPERTIES } from './sections/spacing-utils.js'
 
 // ── Connection status footer ─────────────────────────────────────────
 
@@ -127,34 +128,6 @@ function removeBlastRadiusStyle(): void {
   document.head.querySelector('[data-cortex-blast-radius-style]')?.remove()
 }
 
-/**
- * All CSS properties checked for dimming (default vs forced-state comparison).
- * Covers every section's managed properties.
- *
- * Panel v2 additions (ZF0-1180): self-alignment, flex-wrap, grid template +
- * auto-flow, per-side border widths, and per-corner border radii. `row-gap`,
- * `column-gap`, `visibility`, and `box-shadow` were already in the list and
- * are deliberately not duplicated.
- */
-export const ALL_DIMMING_PROPERTIES = [
-  'display', 'visibility', 'flex-direction', 'flex-wrap',
-  'justify-content', 'align-items', 'align-content', 'justify-items',
-  'justify-self', 'align-self',
-  'width', 'height',
-  'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
-  'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'row-gap', 'column-gap',
-  'grid-template-columns', 'grid-template-rows', 'grid-auto-flow',
-  'font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'color', 'text-align',
-  'background-color', 'background-image',
-  'border-width', 'border-style', 'border-color', 'border-radius',
-  'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
-  'border-top-left-radius', 'border-top-right-radius',
-  'border-bottom-left-radius', 'border-bottom-right-radius',
-  'box-shadow',
-  'opacity', 'overflow', 'box-sizing', 'cursor', 'filter', 'backdrop-filter',
-  'position', 'left', 'top', 'z-index', 'rotate', 'scale',
-  'min-width', 'max-width', 'min-height', 'max-height',
-] as const
 
 /**
  * True when `element` has at least one non-empty (trimmed) `TEXT_NODE` child.
@@ -223,28 +196,6 @@ export interface PanelProps {
    *  optional signature as a silent-failure hazard for future integration
    *  sites. Tests must pass `hmrAppliedVersion={0}` explicitly. */
   hmrAppliedVersion: number
-}
-
-function parseSpacingValues(cs: CSSStyleDeclaration) {
-  return {
-    padding: {
-      top: parseFloat(cs.paddingTop) || 0,
-      right: parseFloat(cs.paddingRight) || 0,
-      bottom: parseFloat(cs.paddingBottom) || 0,
-      left: parseFloat(cs.paddingLeft) || 0,
-    },
-    margin: {
-      top: parseFloat(cs.marginTop) || 0,
-      right: parseFloat(cs.marginRight) || 0,
-      bottom: parseFloat(cs.marginBottom) || 0,
-      left: parseFloat(cs.marginLeft) || 0,
-    },
-    gap: {
-      row: parseFloat(cs.rowGap) || 0,
-      column: parseFloat(cs.columnGap) || 0,
-    },
-    boxSizing: cs.boxSizing || 'content-box',
-  }
 }
 
 export function Panel({
@@ -461,104 +412,18 @@ export function Panel({
   // C1: Cache getComputedStyle results + compute dimmed properties in a single useMemo
   // to avoid double forced layout. CRITICAL: activeState + activePseudo in deps so
   // useMemo re-runs after state forcing (getComputedStyle returns a live reference).
-  const { computedStyles, dimmedProperties, mixedProperties } = useMemo(() => {
-    if (!element) {
-      return {
-        computedStyles: {
-          spacing: parseSpacingValues({} as CSSStyleDeclaration),
-          layout: parseLayoutValues({} as CSSStyleDeclaration),
-          typography: parseTypographyValues({} as CSSStyleDeclaration),
-          fill: parseFillValues({} as CSSStyleDeclaration),
-          border: parseBorderValues({} as CSSStyleDeclaration),
-          effects: parseEffectsValues({} as CSSStyleDeclaration),
-          position: parsePositionValues({} as CSSStyleDeclaration),
-          appearance: parseAppearanceValues({} as CSSStyleDeclaration),
-        },
-        dimmedProperties: undefined as Set<string> | undefined,
-        mixedProperties: undefined as Set<string> | undefined,
-        parentDisplay: '',
-      }
-    }
-    const pseudo = activePseudo !== 'element' ? activePseudo : undefined
-    const cs = getComputedStyle(element, pseudo)
-    const source = element.getAttribute('data-cortex-source') ?? ''
-    const layout = parseLayoutValues(cs)
-    // Override width/height with raw override values so deriveSizingMode
-    // sees keywords like 'fit-content' / '100%' instead of resolved pixels.
-    const widthOverride = overrideManager.get(source, 'width', pseudo)
-    const heightOverride = overrideManager.get(source, 'height', pseudo)
-    if (widthOverride !== undefined) layout.width = widthOverride
-    if (heightOverride !== undefined) layout.height = heightOverride
-
-    const parsed = {
-      spacing: parseSpacingValues(cs),
-      layout,
-      typography: parseTypographyValues(cs),
-      fill: parseFillValues(cs),
-      border: parseBorderValues(cs),
-      effects: parseEffectsValues(cs),
-      position: parsePositionValues(cs),
-      appearance: parseAppearanceValues(cs),
-    }
-    // Per CSS spec §8.5.3, getComputedStyle zeroes border-width when
-    // border-style is 'none' or 'hidden' — which breaks the existence/
-    // visibility split used by summarizeBorder. A user-hidden border (via
-    // the eye toggle) would summarize as 'none' and the section would
-    // collapse, making "hide" indistinguishable from "delete". Same remedy
-    // as the width/height override pattern above: prefer the raw override-
-    // manager value over getComputedStyle when an override exists. The eye
-    // toggle handler in BorderSection snapshots all 5 width overrides
-    // before it flips style to 'hidden', so the override store has the
-    // specified widths available to recover here.
-    for (const [property, field] of [
-      ['border-width', 'borderWidth'],
-      ['border-top-width', 'borderTopWidth'],
-      ['border-right-width', 'borderRightWidth'],
-      ['border-bottom-width', 'borderBottomWidth'],
-      ['border-left-width', 'borderLeftWidth'],
-    ] as const) {
-      const raw = overrideManager.get(source, property, pseudo)
-      if (raw !== undefined) {
-        parsed.border[field] = parseFloat(raw) || 0
-      }
-    }
-    // Read parent display inside the already-cached useMemo so we don't
-    // add a second forced layout per render. Returns '' when there is no
-    // parent (document root).
-    const parent = element.parentElement
-    const computedParentDisplay = parent ? getComputedStyle(parent).display : ''
-
-    let dimmed: Set<string> | undefined
-    if (activeState !== 'default' && defaultStylesRef.current) {
-      dimmed = new Set<string>()
-      const defaultCs = pseudo ? getComputedStyle(element) : cs
-      if (typeof defaultCs.getPropertyValue === 'function') {
-        for (const prop of ALL_DIMMING_PROPERTIES) {
-          if (defaultCs.getPropertyValue(prop) !== defaultStylesRef.current[prop]) dimmed.add(prop)
-        }
-      }
-    }
-
-    // Compare computed styles across shared elements when editing "All" scope.
-    // Properties where siblings differ from the selected element are "mixed".
-    let mixed: Set<string> | undefined
-    if (sharedInfo && editScope === 'all') {
-      mixed = new Set<string>()
-      for (const sibling of sharedInfo.elements) {
-        if (sibling === element) continue
-        const siblingCs = getComputedStyle(sibling, pseudo)
-        for (const prop of ALL_DIMMING_PROPERTIES) {
-          if (mixed.has(prop)) continue
-          if (cs.getPropertyValue(prop) !== siblingCs.getPropertyValue(prop)) {
-            mixed.add(prop)
-          }
-        }
-      }
-      if (mixed.size === 0) mixed = undefined
-    }
-
-    return { computedStyles: parsed, dimmedProperties: dimmed, mixedProperties: mixed, parentDisplay: computedParentDisplay }
-  }, [element, styleVersion, hmrAppliedVersion, activeState, activePseudo, sharedInfo, editScope])
+  const { computedStyles, dimmedProperties, mixedProperties } = useMemo(
+    () => computePanelStyleSnapshot({
+      element,
+      activePseudo,
+      activeState,
+      sharedInfo,
+      editScope,
+      overrideManager,
+      defaultStyles: defaultStylesRef.current,
+    }),
+    [element, styleVersion, hmrAppliedVersion, activeState, activePseudo, sharedInfo, editScope],
+  )
 
   const availableWeights = useMemo(
     () => {
