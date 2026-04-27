@@ -13,6 +13,11 @@ import type {
   PanDelta,
 } from '../../src/browser/hooks/useCanvasZoom.js'
 
+// Local copies of source constants. Must match useCanvasZoom.ts — but
+// divergence does NOT silently pass: every test computes its expected
+// value FROM these locals (e.g. `expectedVx = 10 * FRICTION`), so a source
+// change makes the math diverge and the test fails loudly. Kept local on
+// purpose to avoid widening the hook's public API for a test-only need.
 const FRICTION = 0.75
 const STOP_THRESHOLD = 0.1
 
