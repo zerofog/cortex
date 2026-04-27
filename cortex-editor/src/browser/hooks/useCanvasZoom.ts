@@ -34,8 +34,10 @@ export interface MomentumState {
 /** Pan-clamping limits along both axes.
  *  Invariant (caller-enforced): minX ≤ maxX, minY ≤ maxY. Inverted ranges
  *  silently produce a constant value (Math.max(min, Math.min(max, v))) — there
- *  is no internal validation because the only constructors are inside this
- *  file (currentBounds, clampPan) and are derived from non-negative dimensions. */
+ *  is no internal validation because the sole constructor (currentBounds,
+ *  inside this file) derives bounds from non-negative window/document
+ *  dimensions. clampPan computes its own clamping inline against the same
+ *  formula but does not construct a PanBounds value. */
 export interface PanBounds {
   minX: number
   maxX: number

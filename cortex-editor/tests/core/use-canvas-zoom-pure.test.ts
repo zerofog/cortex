@@ -22,8 +22,8 @@ function infiniteBounds(): PanBounds {
   return { minX: -Infinity, maxX: Infinity, minY: -Infinity, maxY: Infinity }
 }
 
-function tightBounds(cx = 0, cy = 0): PanBounds {
-  return { minX: cx - 100, maxX: cx + 100, minY: cy - 100, maxY: cy + 100 }
+function tightBounds(): PanBounds {
+  return { minX: -100, maxX: 100, minY: -100, maxY: 100 }
 }
 
 // dt=1 → normalize to 1 frame at 60fps basis (dt = 1ms / 16.667 * 16.667 normalised?)
