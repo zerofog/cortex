@@ -1,0 +1,28 @@
+cortex-editor/tests/browser/hooks/use-canvas-zoom.test.tsx
+  be689b454347dddc 360-364
+cortex-editor/tests/browser/hover-overlay.test.tsx
+  be689b454347dddc 179
+cortex-editor/tests/browser/keyboard-shortcuts.test.tsx
+  be689b454347dddc 258
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "f18a849167e9d0c4ab8ac70ced93956abc8f8ff8",
+  "prompts": {
+    "be689b454347dddc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f4ef6229-8fad-455c-a1b8-76b0fcebea15",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 527,
+      "total_deletions": 5,
+      "accepted_lines": 7,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/51a474cb85f586a53efe5a95fe1dca6377b9c23e717321fe0e9cbd3947a84ca0"
+    }
+  }
+}
