@@ -1,0 +1,24 @@
+cortex-editor/src/browser/cortex-app-reducer.ts
+  01f0210b9bccc047 213-218
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "6498bc81202adb35bac62b3464ecb9b78bab3b5b",
+  "prompts": {
+    "01f0210b9bccc047": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "31f7ed20-b1f4-4dc8-8f7d-3b9f0cf854d5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 380,
+      "total_deletions": 4,
+      "accepted_lines": 790,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/1c7827e8a95834fd4d213317d92eb47cf7d17d57c2e035f1f6cea64bf896b64e"
+    }
+  }
+}
