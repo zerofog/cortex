@@ -1,0 +1,40 @@
+cortex-editor/tests/browser/selection-overlay.test.tsx
+  7e6d3a7cb6f0413b 20-21
+cortex-editor/tests/browser/hover-overlay.test.tsx
+  7e6d3a7cb6f0413b 20-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "afc2d7cc48d4eb66df42aad3287aadd15bf8a933",
+  "prompts": {
+    "01f0210b9bccc047": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "31f7ed20-b1f4-4dc8-8f7d-3b9f0cf854d5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 857,
+      "total_deletions": 0,
+      "accepted_lines": 857,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/f5b0a415eefee3b2755173a90daed286cfdc5a25b2cd8e11a269fafb7255f985"
+    },
+    "7e6d3a7cb6f0413b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cca3429b-2a75-4b20-93ad-f56837501822",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 646,
+      "total_deletions": 11,
+      "accepted_lines": 5,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/06e4cd48bd63951ea6e622117bd4399b6e2c5cef5afe85403d00a464e8602c8b"
+    }
+  }
+}
