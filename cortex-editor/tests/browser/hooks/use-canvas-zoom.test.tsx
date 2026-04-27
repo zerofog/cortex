@@ -351,9 +351,10 @@ describe('useCanvasZoom', () => {
   })
 
   it('normalizes line-based deltaMode for Firefox mouse', async () => {
-    // Wrap mount in act() so the useEffect that registers the wheel listener and
-    // applies the initial transform runs synchronously before we read `before` and
-    // dispatch. Per ZF0-1361 cross-model review: trigger-only act() leaves the
+    // Wrap mount in act() so the useEffect that registers the wheel listener
+    // runs synchronously before we read `before` and dispatch. The initial
+    // transform comes from a useLayoutEffect (useCanvasZoom.ts:130-136), not
+    // useEffect. Per ZF0-1361 cross-model review: trigger-only act() leaves the
     // mount-effect race intact.
     let unmount!: () => void
     await act(() => {
@@ -365,8 +366,8 @@ describe('useCanvasZoom', () => {
     // Simulate Firefox mouse: deltaMode=1 (lines), deltaY=3
     // act() drains any Preact rerender/effect queue at the await boundary. The pan
     // path here writes body.style.transform synchronously without setState, but
-    // act() future-proofs against added setState and matches the file convention.
-    // Replaces vi.waitFor polling race per ZF0-1361.
+    // act() future-proofs against added setState. Codebase precedent for act() on
+    // mount + trigger: panel.test.tsx (ZF0-1321). Replaces vi.waitFor per ZF0-1361.
     await act(() => {
       dispatchWheel(3, false, 0, 1) // deltaMode=1 (DOM_DELTA_LINE)
     })
