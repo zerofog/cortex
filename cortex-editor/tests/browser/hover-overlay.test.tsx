@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import { render } from 'preact'
+import { act } from 'preact/test-utils'
 import { HoverOverlay } from '../../src/browser/components/HoverOverlay.js'
 import { emitTransformUpdate, _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
 import { createShadowHost, mockGetBoundingClientRect } from './helpers.js'
@@ -173,13 +174,13 @@ describe('HoverOverlay', () => {
     mockGetBoundingClientRect(target, {
       top: 150, left: 250, width: 300, height: 50,
     })
-    emitTransformUpdate()
-
-    // Preact batches setState; wait for re-render flush
-    await vi.waitFor(() => {
-      overlay = root.querySelector('.cortex-hover-overlay') as HTMLElement
-      expect(overlay.style.transform).toBe('translate(250px, 150px)')
-    }, { timeout: 500 })
+    // Wrap in act() so Preact's effect commit (re-render after transform-bus emit) drains
+    // synchronously before assertion. Replaces vi.waitFor polling race per ZF0-1361.
+    await act(async () => {
+      emitTransformUpdate()
+    })
+    overlay = root.querySelector('.cortex-hover-overlay') as HTMLElement
+    expect(overlay.style.transform).toBe('translate(250px, 150px)')
 
     target.remove()
   })

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render } from 'preact'
+import { act } from 'preact/test-utils'
 import * as focusUtils from '../../src/browser/focus-utils.js'
 import { dispatchKeyboardEvent, createShadowHost, createMockChannel, mockGetBoundingClientRect, cleanDocumentHead } from './helpers.js'
 import { _resetBusForTesting } from '../../src/browser/override-bus.js'
@@ -252,10 +253,12 @@ describe('tinykeys shortcut integration', () => {
     expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(false)
 
     // Press C — should toggle comment mode on
-    dispatchKeyboardEvent(window, 'keydown', { key: 'c' })
-    await vi.waitFor(() => {
-      expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(true)
-    }, { timeout: 500 })
+    // act() wraps the dispatch so tinykeys handler → setState → effect commit drains
+    // synchronously. Replaces vi.waitFor polling race per ZF0-1361.
+    await act(async () => {
+      dispatchKeyboardEvent(window, 'keydown', { key: 'c' })
+    })
+    expect(commentBtn.classList.contains('cortex-toolbar__mode--active')).toBe(true)
   })
 
   it('C key toggles comment mode off when already on', async () => {

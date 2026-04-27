@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render } from 'preact'
+import { act } from 'preact/test-utils'
 import { useCanvasZoom } from '../../../src/browser/hooks/useCanvasZoom.js'
 
 function renderHook<T>(hookFn: () => T): { result: { current: T }; unmount: () => void; rerender: (newHookFn: () => T) => void } {
@@ -356,13 +357,15 @@ describe('useCanvasZoom', () => {
     const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
 
     // Simulate Firefox mouse: deltaMode=1 (lines), deltaY=3
-    dispatchWheel(3, false, 0, 1) // deltaMode=1 (DOM_DELTA_LINE)
-    await vi.waitFor(() => {
-      const after = document.body.style.transform
-      // 3 lines * ~40px/line = ~120px of pan, not 3px
-      const deltaY = getY(before) - getY(after)
-      expect(deltaY).toBeGreaterThan(50)
-    }, { timeout: 500 })
+    // act() wraps the wheel dispatch so the wheel handler's setState + body-transform
+    // effect drain synchronously. Replaces vi.waitFor polling race per ZF0-1361.
+    await act(async () => {
+      dispatchWheel(3, false, 0, 1) // deltaMode=1 (DOM_DELTA_LINE)
+    })
+    const after = document.body.style.transform
+    // 3 lines * ~40px/line = ~120px of pan, not 3px
+    const deltaY = getY(before) - getY(after)
+    expect(deltaY).toBeGreaterThan(50)
     unmount()
   })
 
