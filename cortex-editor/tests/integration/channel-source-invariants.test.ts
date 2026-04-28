@@ -48,9 +48,9 @@ describe('channel.ts source-level invariants (ZF0-1326 Task 1)', () => {
 
   const code = stripComments(source)
 
-  it('contains exactly 2 references to `window.__CORTEX_TOKEN__` (capture + delete in createViteChannel only — createWebSocketChannel adds 2 more for a total of 4)', () => {
-    // Vite channel: capture (line 35) + delete (line 38) = 2
-    // WS channel: capture (line 111) + delete (line 112) = 2
+  it('contains exactly 4 references to `window.__CORTEX_TOKEN__` (capture+delete pair in each of Vite + WebSocket channels)', () => {
+    // Vite channel: capture + delete = 2
+    // WS channel: capture + delete = 2
     // Total: 4. A regression that re-reads window.__CORTEX_TOKEN__ at
     // send time (e.g., reverting `token: capturedToken` back to
     // `token: window.__CORTEX_TOKEN__`) bumps the count to 5+.
@@ -58,7 +58,7 @@ describe('channel.ts source-level invariants (ZF0-1326 Task 1)', () => {
     expect(matches.length).toBe(4)
   })
 
-  it('contains exactly 2 references to `window.__cortex_send__` (capture + delete in createViteChannel only)', () => {
+  it('contains exactly 2 references to `window.__cortex_send__` (capture + delete in createViteChannel only — WebSocket channel uses native WebSocket, not the HMR primitive)', () => {
     // Vite channel: capture (line 35) + delete (line 37) = 2
     // WS channel: 0 references (uses native WebSocket, not the HMR primitive)
     // Total: 2. A regression that re-reads window.__cortex_send__ at

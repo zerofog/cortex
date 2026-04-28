@@ -155,8 +155,13 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
       connected = true
       retryCount = 0
       fireStatus({ status: 'connected' })
-      // Flush queued messages — stamp token at send time (not enqueue time)
-      // so reconnection to a restarted server uses the fresh token.
+      // Flush queued messages — stamp token from the closure-captured value
+      // (ZF0-1326 Task 1). Pre-tombstone, this read window.__CORTEX_TOKEN__
+      // fresh on every flush so a restarted server's fresh token would be
+      // picked up; post-tombstone, the closure value is the single source.
+      // If a server restart issues a new token, the page must reload to pick
+      // it up — acceptable trade-off for closing the XSS-via-dev-server
+      // RCE vector.
       while (queue.length > 0) {
         const msg = queue.shift()!
         ws!.send(JSON.stringify({ ...msg, token: capturedToken }))

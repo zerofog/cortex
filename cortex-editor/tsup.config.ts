@@ -122,9 +122,12 @@ export default defineConfig([
   },
   // Browser-side: Preact UI bundled as IIFE for Shadow DOM injection.
   // Spread from the browserBundleBase factory above so `minifySyntax` + the
-  // __CORTEX_TEST_BUILD__ define invariants are enforced by construction
+  // __CORTEX_TEST_BUILD__ define invariants are inherited by convention
   // (ZF0-1326 Task 3). A second IIFE entry (lean widget, etc.) added later
-  // becomes a one-line spread; omission of either invariant is impossible.
+  // becomes a one-line spread that picks up the same baseline. See the
+  // factory's docstring for the honest caveat: a caller can override
+  // esbuildOptions after the spread, so any new IIFE entry should be
+  // architecturally reviewed for the spread shape.
   {
     ...browserBundleBase('src/browser/index.tsx', 'dist/browser'),
     globalName: 'CortexEditor',

@@ -1,17 +1,19 @@
 /**
  * Structural test for the `browserBundleBase` factory (ZF0-1326 Task 3).
  *
- * The factory exists to enforce the security-critical invariants
- * (`minifySyntax: true` and the `__CORTEX_TEST_BUILD__` esbuild define)
- * by construction across every browser-IIFE bundle entry. The test calls
- * the factory with arbitrary inputs and asserts the invariants survive,
- * proving "by construction" is real and not just discipline.
+ * The factory centralizes the security-critical baseline (`minifySyntax: true`
+ * and the `__CORTEX_TEST_BUILD__` esbuild define) for browser-IIFE bundle
+ * configs. This test calls the factory with arbitrary inputs and asserts
+ * the invariants survive in the returned config object — i.e., the factory
+ * itself is well-formed.
  *
- * If a future contributor adds a second IIFE entry without the spread, this
- * test does NOT catch it directly — but the factory's existence makes the
- * spread the path of least resistance, and a per-entry inline duplication
- * would be visible in tsup.config.ts diffs as a deviation from the established
- * pattern. The architectural review for the second entry would catch it.
+ * Important scope note: this test does NOT prove that every tsup entry
+ * actually uses the factory. The JS spread API allows an entry to override
+ * `esbuildOptions` after spreading the factory result, which would silently
+ * drop the invariants. The factory's docstring acknowledges this is "by
+ * convention, audited per-entry" rather than truly "by construction" — a
+ * future composer-pattern API could close that gap. Today, the architectural
+ * review for any new IIFE entry catches deviations.
  */
 import { describe, it, expect } from 'vitest'
 import type { BuildOptions } from 'esbuild'
