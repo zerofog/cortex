@@ -383,14 +383,15 @@ describe('state lens', () => {
     expect(onStateChange).toHaveBeenCalledWith('default')
   })
 
-  it.skip('updates lens position when element rect changes (scroll simulation) — Playwright coverage pending', () => {
+  it.skip('updates lens position when element rect changes (scroll simulation) — Playwright coverage pending (ZF0-1387)', () => {
     // happy-dom does not reliably pump rAF frames inside the SelectionOverlay
     // idle-loop, so the post-rect-change re-read is non-deterministic in this
-    // environment. Per CLAUDE.md anti-pattern 3 ("happy-dom theatre"), an
-    // assertion that passes/fails based on environment quirks is worse than no
-    // test. Initial-mount lens position is exercised by the sibling
-    // 'positions lens below element when near top of viewport' test below;
-    // only the cross-rAF-frame rect re-read needs real-browser coverage.
+    // environment. Assertions that pass or fail based on test-environment
+    // quirks are not reliable unit tests, so this scenario is better covered
+    // in a real browser. Initial-mount lens position is exercised by the
+    // sibling 'positions lens below element when near top of viewport' test
+    // below; only the cross-rAF-frame rect re-read needs real-browser
+    // coverage.
     //
     // Coverage is pending (NOT yet migrated). TODO(ZF0-1387 follow-up): port
     // this case to Playwright once the e2e harness gains a generic-UI test
