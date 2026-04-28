@@ -67,7 +67,30 @@ export default defineConfig({
           // new browser-test flake should be root-caused, not masked.
         },
       },
-      { test: { name: 'integration', environment: 'node', include: ['tests/integration/**/*.test.ts'] } },
+      {
+        test: {
+          name: 'integration',
+          environment: 'node',
+          include: ['tests/integration/**/*.test.ts'],
+          // ZF0-1326 Step 4 review fix: serialize integration tests.
+          // Multiple files (debug-bridge-build-gate.test.ts,
+          // cortex-send-tombstone.test.ts) run `npm run build` and write
+          // to dist/browser/ in their beforeAll. Under the default
+          // parallel pool, the two builds can race-wipe each other's
+          // dist (tsup writes incrementally; one process reading
+          // dist/browser/index.js mid-rebuild gets ENOENT or torn
+          // content). singleFork: true forces serial execution of all
+          // integration tests in one long-lived worker, eliminating the
+          // race without changing test logic.
+          pool: 'forks',
+          poolOptions: {
+            forks: {
+              isolate: true,
+              singleFork: true,
+            },
+          },
+        },
+      },
     ],
   },
 })
