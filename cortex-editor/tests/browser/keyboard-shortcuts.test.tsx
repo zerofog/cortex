@@ -347,15 +347,22 @@ describe('tinykeys shortcut integration', () => {
     const channel = createMockChannel()
     // Mock redo to return null (empty stack)
     _commandStackMock.redo.mockReturnValueOnce(null)
-    render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
-    await new Promise(r => setTimeout(r, SETTLE))
+    // Wrap mount in act() so the useEffect that installs tinykeys' keydown
+    // listener runs synchronously before we dispatch. Per ZF0-1361 cross-model
+    // review: act() on the dispatch alone leaves the listener-installation
+    // race intact.
+    await act(() => {
+      render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
+    })
 
     // Clear any sent messages from activation
     channel._lastSent.length = 0
 
-    // Press Cmd+Shift+Z
-    dispatchKeyboardEvent(window, 'keydown', { key: 'z', [modKey]: true, shiftKey: true })
-    await new Promise(r => setTimeout(r, SETTLE))
+    // act() wraps the dispatch so tinykeys handler → setState → effect commit
+    // drains synchronously. Replaces SETTLE polling race per ZF0-1387 / ZF0-1361.
+    await act(() => {
+      dispatchKeyboardEvent(window, 'keydown', { key: 'z', [modKey]: true, shiftKey: true })
+    })
 
     expect(_commandStackMock.redo).toHaveBeenCalled()
     expect(channel._lastSent).not.toContainEqual({ type: 'redo' })
