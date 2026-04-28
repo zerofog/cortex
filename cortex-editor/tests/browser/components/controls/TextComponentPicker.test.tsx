@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import type { VNode } from 'preact'
 import { render } from 'preact'
+import { act } from 'preact/test-utils'
 import type { TextComponent } from '../../../../src/core/text-components.js'
 import { TextComponentPicker } from '../../../../src/browser/components/controls/TextComponentPicker.js'
 
@@ -110,16 +111,21 @@ describe('TextComponentPicker', () => {
 
   it('fires onDismiss on outside mousedown', async () => {
     let dismissed = 0
-    const root = mount(
-      <TextComponentPicker
-        components={BUNDLES}
-        currentName={null}
-        onPick={() => {}}
-        onDismiss={() => { dismissed++ }}
-      />,
-    )
-    // Yield one macrotask so useEffect installs the document mousedown listener
-    await flushEffects()
+    // Wrap mount in act() so the useEffect that installs the document-level
+    // mousedown listener runs synchronously before we dispatch. Per ZF0-1361
+    // cross-model review: act() on the dispatch alone leaves the
+    // listener-installation race intact.
+    let root!: HTMLDivElement
+    await act(() => {
+      root = mount(
+        <TextComponentPicker
+          components={BUNDLES}
+          currentName={null}
+          onPick={() => {}}
+          onDismiss={() => { dismissed++ }}
+        />,
+      )
+    })
 
     // Click inside — should NOT dismiss
     ;(root.querySelector('button.cortex-text-component-picker__option') as HTMLButtonElement).dispatchEvent(
@@ -128,7 +134,11 @@ describe('TextComponentPicker', () => {
     expect(dismissed).toBe(0)
 
     // Click outside — should dismiss
-    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    // act() wraps the dispatch so handler → setState → effect commit drains
+    // synchronously. Replaces flushEffects() polling race per ZF0-1387 / ZF0-1361.
+    await act(() => {
+      document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    })
     expect(dismissed).toBe(1)
   })
 

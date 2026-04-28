@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import type { VNode } from 'preact'
 import { render } from 'preact'
+import { act } from 'preact/test-utils'
 import { useRef } from 'preact/hooks'
 import { useOutsideDismiss } from '../../../src/browser/hooks/useOutsideDismiss.js'
 
@@ -56,9 +57,18 @@ describe('useOutsideDismiss', () => {
     const outside = document.createElement('div')
     document.body.appendChild(outside)
     try {
-      mount(<Popover onDismiss={onDismiss} />)
-      await flushEffects()
-      outside.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+      // Wrap mount in act() so the useEffect that installs the document-level
+      // mousedown listener runs synchronously before we dispatch. Per ZF0-1361
+      // cross-model review: act() on the dispatch alone leaves the
+      // listener-installation race intact.
+      await act(() => {
+        mount(<Popover onDismiss={onDismiss} />)
+      })
+      // act() wraps the dispatch so handler → setState → effect commit drains
+      // synchronously. Replaces flushEffects() polling race per ZF0-1387 / ZF0-1361.
+      await act(() => {
+        outside.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+      })
       expect(onDismiss).toHaveBeenCalledTimes(1)
     } finally {
       outside.remove()
@@ -77,9 +87,18 @@ describe('useOutsideDismiss', () => {
 
   it('dismisses on Escape keydown regardless of focus', async () => {
     const onDismiss = vi.fn()
-    mount(<Popover onDismiss={onDismiss} />)
-    await flushEffects()
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    // Wrap mount in act() so the useEffect that installs the document-level
+    // keydown listener runs synchronously before we dispatch. Per ZF0-1361
+    // cross-model review: act() on the dispatch alone leaves the
+    // listener-installation race intact.
+    await act(() => {
+      mount(<Popover onDismiss={onDismiss} />)
+    })
+    // act() wraps the dispatch so handler → setState → effect commit drains
+    // synchronously. Replaces flushEffects() polling race per ZF0-1387 / ZF0-1361.
+    await act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
     expect(onDismiss).toHaveBeenCalledTimes(1)
   })
 
