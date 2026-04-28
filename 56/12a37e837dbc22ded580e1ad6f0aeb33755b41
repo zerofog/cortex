@@ -1,0 +1,24 @@
+cortex-editor/tests/browser/selection-overlay.test.tsx
+  37d6958710509e99 386,395-399
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "5612a37e837dbc22ded580e1ad6f0aeb33755b41",
+  "prompts": {
+    "37d6958710509e99": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "29820910-2a72-442f-a84b-332e65544f33",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 6,
+      "total_deletions": 5,
+      "accepted_lines": 552,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/d23e059934f62f7df09fe9e2797e873f39dc83ff108b3f34210f18462982cf7e"
+    }
+  }
+}
