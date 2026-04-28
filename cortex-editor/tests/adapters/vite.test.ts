@@ -245,11 +245,24 @@ describe('cortexEditor Vite plugin', () => {
       expect(source).toContain('__cortex_send__')
     })
 
-    it('client script defines __cortex_send__ as non-writable', () => {
+    it('client script defines __cortex_send__ as non-writable but configurable (tombstone-deletable, ZF0-1326 Task 1)', () => {
       const plugin = initPlugin()
-      const source = (plugin.load as Function)('\0cortex-client')
-      expect(source).toContain('Object.defineProperty(window, \'__cortex_send__\'')
-      expect(source).toContain('writable: false')
+      const source = (plugin.load as Function)('\0cortex-client') as string
+      // Scope to just the __cortex_send__ descriptor — the unrelated
+      // __cortex_toggle_registered__ descriptor at line 117 of vite.ts uses
+      // configurable: false intentionally, so a global `not.toContain` would
+      // be coupled to unrelated code.
+      const sendBlock = source.slice(
+        source.indexOf("Object.defineProperty(window, '__cortex_send__'"),
+        source.indexOf("// Toggle shortcut"),
+      )
+      expect(sendBlock).toContain('writable: false')
+      // ZF0-1326 Task 1: configurable MUST be true so the browser channel can
+      // closure-capture and then `delete window.__cortex_send__`. Flipping
+      // this back to false would silently re-open the XSS-via-dev-server RCE
+      // vector — the delete becomes a no-op and the global stays callable.
+      expect(sendBlock).toContain('configurable: true')
+      expect(sendBlock).not.toContain('configurable: false')
     })
 
     it('client script includes onerror on browser script tag', () => {
