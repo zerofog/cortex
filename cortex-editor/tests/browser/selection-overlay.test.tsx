@@ -383,7 +383,7 @@ describe('state lens', () => {
     expect(onStateChange).toHaveBeenCalledWith('default')
   })
 
-  it.skip('updates lens position when element rect changes (scroll simulation) — moved to Playwright e2e', () => {
+  it.skip('updates lens position when element rect changes (scroll simulation) — Playwright coverage pending', () => {
     // happy-dom does not reliably pump rAF frames inside the SelectionOverlay
     // idle-loop, so the post-rect-change re-read is non-deterministic in this
     // environment. Per CLAUDE.md anti-pattern 3 ("happy-dom theatre"), an
@@ -392,10 +392,11 @@ describe('state lens', () => {
     // 'positions lens below element when near top of viewport' test below;
     // only the cross-rAF-frame rect re-read needs real-browser coverage.
     //
-    // TODO(ZF0-1387 follow-up): port to Playwright once the e2e harness gains
-    // a generic-UI test surface. The current tests/e2e/ harness is the IIFE
-    // route-interception closed harness for override lifecycle; it is not yet
-    // generic-UI capable. File a follow-up ticket if this becomes load-bearing.
+    // Coverage is pending (NOT yet migrated). TODO(ZF0-1387 follow-up): port
+    // this case to Playwright once the e2e harness gains a generic-UI test
+    // surface. The current tests/e2e/ harness is the IIFE route-interception
+    // closed harness for override lifecycle; it is not yet generic-UI capable.
+    // File a follow-up ticket if this becomes load-bearing.
   })
 
   it('positions lens below element when near top of viewport', async () => {
