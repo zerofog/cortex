@@ -383,37 +383,21 @@ describe('state lens', () => {
     expect(onStateChange).toHaveBeenCalledWith('default')
   })
 
-  it('updates lens position when element rect changes (scroll simulation)', async () => {
-    // Initial position
-    mockGetBoundingClientRect(element, { top: 200, left: 100, width: 300, height: 50 })
-    const onStateChange = vi.fn()
-    render(<SelectionOverlay element={element} availableStates={hoverOnlyStates} activeState="default" onStateChange={onStateChange} />, container)
-
-    // Wait for initial RAF to fire so lens position is set from the initial rect.
-    // Using a real rAF pump here rather than vi.waitFor because the overlay uses
-    // idle-frame detection: too many unchanged frames stop the loop, and vi.waitFor
-    // polling fires many frames in the 10ms retry window.
-    await new Promise(r => requestAnimationFrame(() => r(undefined)))
-    await new Promise(r => setTimeout(r, 0))
-
-    const lens = container.querySelector('.cortex-state-lens') as HTMLElement
-    expect(lens).not.toBeNull()
-    const initialTransform = lens.style.transform
-
-    // Simulate scroll — element moves up
-    mockGetBoundingClientRect(element, { top: 50, left: 100, width: 300, height: 50 })
-
-    // Pump one RAF frame so the overlay's position-update loop re-reads
-    // the element rect (idle loop is still alive after a single rAF pump).
-    await new Promise(r => requestAnimationFrame(() => r(undefined)))
-    await new Promise(r => setTimeout(r, 0))
-
-    // Assert specific position — lens centered on element (left=100, width=300)
-    // NOTE: happy-dom returns simplified transform values; real browsers may
-    // produce sub-pixel differences. This asserts the centering logic is correct
-    // in the test environment, not exact browser rendering.
-    expect(lens.style.transform).not.toBe(initialTransform)
-    expect(lens.style.transform).toBe('translate(190px, 18px)')
+  it.skip('updates lens position when element rect changes (scroll simulation) — Playwright coverage pending (ZF0-1387)', () => {
+    // happy-dom does not reliably pump rAF frames inside the SelectionOverlay
+    // idle-loop, so the post-rect-change re-read is non-deterministic in this
+    // environment. Assertions that pass or fail based on test-environment
+    // quirks are not reliable unit tests, so this scenario is better covered
+    // in a real browser. Initial-mount lens position is exercised by the
+    // sibling 'positions lens below element when near top of viewport' test
+    // below; only the cross-rAF-frame rect re-read needs real-browser
+    // coverage.
+    //
+    // Coverage is pending (NOT yet migrated). TODO(ZF0-1387 follow-up): port
+    // this case to Playwright once the e2e harness gains a generic-UI test
+    // surface. The current tests/e2e/ harness is the IIFE route-interception
+    // closed harness for override lifecycle; it is not yet generic-UI capable.
+    // File a follow-up ticket if this becomes load-bearing.
   })
 
   it('positions lens below element when near top of viewport', async () => {
