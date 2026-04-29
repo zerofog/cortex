@@ -39,6 +39,7 @@ import { Plus } from './icons.js'
 import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
 import { computePanelStyleSnapshot } from './panel-style-snapshot.js'
 import { ALL_DIMMING_PROPERTIES } from './sections/spacing-utils.js'
+import { useEditStagingBuffer } from '../hooks/useEditStagingBuffer.js'
 
 // ── Connection status footer ─────────────────────────────────────────
 
@@ -242,6 +243,9 @@ export function Panel({
   // Coalesces synchronous multi-property commits (e.g., linked padding left+right)
   // into a single atomic command via microtask.
   const commitPendingRef = useRef(false)
+
+  // Staging buffer for property edits — accumulates browser-side before Apply gesture.
+  const buffer = useEditStagingBuffer()
 
   // Pseudo-element tab state — internal to Panel
   const [activePseudo, setActivePseudo] = useState<'element' | '::before' | '::after'>('element')
@@ -512,39 +516,25 @@ export function Panel({
     setStyleVersion(v => v + 1)
     scrubPreviousRef.current.clear()
 
-    // Dispatch one server edit per distinct property (not per source — server handles scope='all').
+    // Append property edits to the staging buffer (deferred to Apply gesture).
     // Filter to the selected element's source to deduplicate scope='all' sibling entries.
-    if (channel) {
-      const editedProps = changes.filter(c => c.source === source)
-      for (const c of editedProps) {
-        const editId = crypto.randomUUID()
-        onEditDispatch?.(editId, source, c.property, c.value)
-        // Track all shared sources so HMR verification clears ALL sibling overrides
-        const pendingSources = (sharedInfo && editScope === 'all')
+    const editedProps = changes.filter(c => c.source === source)
+    for (const c of editedProps) {
+      buffer.append({
+        intentId: crypto.randomUUID(),
+        source,
+        property: c.property,
+        value: c.value,
+        previousValue: c.previousValue,
+        pseudo,
+        scope: editScope === 'all' ? 'all' : 'one',
+        instanceSources: sharedInfo && editScope === 'all'
           ? sharedInfo.elements.map(el => el.getAttribute('data-cortex-source')).filter((s): s is string => s !== null)
-          : source
-        overrideManager.trackPendingEdit(editId, pendingSources, c.property, c.value, pseudo)
-        channel.send({
-          type: 'edit',
-          editId,
-          source,
-          property: c.property,
-          value: c.value,
-          elementSelector: element.tagName.toLowerCase(),
-          cssMapping: element.getAttribute('data-cortex-css') ?? undefined,
-          currentClass: extractedUtilities.get(c.property),
-          ...(sharedInfo ? {
-            scope: editScope,
-            ...(editScope === 'all' ? {
-              instanceSources: sharedInfo.elements
-                .map(el => el.getAttribute('data-cortex-source'))
-                .filter((s): s is string => s !== null),
-            } : {}),
-          } : {}),
-        })
-      }
+          : undefined,
+        timestamp: Date.now(),
+      })
     }
-  }, [element, overrideManager, activePseudo, channel, sharedInfo, editScope, extractedUtilities, commandStack, onEditDispatch])
+  }, [element, overrideManager, activePseudo, buffer, sharedInfo, editScope, commandStack])
 
   // Expose flush for CortexApp to call before undo/redo — microtask commits
   // haven't fired yet when blur+undo runs synchronously in the same tick.

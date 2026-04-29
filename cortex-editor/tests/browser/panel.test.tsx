@@ -5,6 +5,8 @@ import { Panel } from '../../src/browser/components/Panel.js'
 import { renderInShadow, mockGetComputedStyle, createShadowHost } from './helpers.js'
 import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
 import { _resetBusForTesting } from '../../src/browser/override-bus.js'
+import { cortexStorage } from '../../src/browser/persistence.js'
+import { isPendingEditArray } from '../../src/browser/hooks/useEditStagingBuffer.js'
 
 const panelPositionProps = {
   position: { x: 1000, y: 12 },
@@ -914,5 +916,85 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
       expect(allBtnAfter.classList.contains('cortex-panel__scope-btn--active')).toBe(true)
       expect(instanceBtnAfter.classList.contains('cortex-panel__scope-btn--active')).toBe(false)
     }, { timeout: 500 })
+  })
+})
+
+describe('Panel — staging buffer wiring (ZF0-1451)', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    localStorage.clear()
+    _resetBusForTesting()
+    _resetTransformBusForTesting()
+  })
+
+  it('commitScrub appends PendingEdit to staging buffer', async () => {
+    // Use fake timers to control debounce flush.
+    vi.useFakeTimers()
+
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    document.body.appendChild(target)
+
+    // overrideManager.set is called by applyOverride to store the new value.
+    // overrideManager.get in commitScrub gets the current override value.
+    // We use a Map to simulate: after set(source, prop, val), get(source, prop) returns val.
+    // This way previousValue (from getComputedStyle = '' for default div) !== currentValue (the set value).
+    const overrideStore = new Map<string, string>()
+    const overrideManager = {
+      set: vi.fn((src: string, prop: string, val: string) => {
+        overrideStore.set(`${src}\0${prop}`, val)
+      }),
+      get: vi.fn((src: string, prop: string) => overrideStore.get(`${src}\0${prop}`)),
+      remove: vi.fn(),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+    }
+
+    const { root, cleanup } = renderInShadow(
+      <Panel
+        element={target}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />
+    )
+
+    // Click a non-active SegmentedControl option in the layout section
+    // to trigger applyOverride(property, value, true) → commitScrub().
+    const layoutSection = root.querySelector('[data-section-id="layout"]')
+    expect(layoutSection).not.toBeNull()
+    const segment = layoutSection!.querySelector(
+      '.cortex-segmented__option:not(.cortex-segmented__option--active)',
+    ) as HTMLButtonElement | null
+    expect(segment).not.toBeNull()
+
+    await act(async () => {
+      segment!.click()
+      // Allow microtask commit to fire (queueMicrotask in applyOverride)
+      await Promise.resolve()
+    })
+
+    // Buffer is debounced — not written yet
+    expect(cortexStorage.get('staging-buffer', [], isPendingEditArray)).toHaveLength(0)
+
+    // Advance past debounce threshold
+    await act(() => {
+      vi.advanceTimersByTime(150)
+    })
+
+    // Now the buffer should be persisted to localStorage
+    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    expect(stored.length).toBeGreaterThan(0)
+    const edit = stored[0]
+    expect(edit.source).toBe('src/Hero.tsx:14:5')
+    expect(edit.property).toBeDefined()
+    expect(edit.value).toBeDefined()
+    expect(edit.intentId).toBeDefined()
+    expect(edit.timestamp).toBeGreaterThan(0)
+
+    cleanup()
+    target.remove()
   })
 })

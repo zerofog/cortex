@@ -210,6 +210,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         // the surface stays minimal, dual-gated, and keeps the same type
         // contract as the internal subscriber.
         onDivergence,
+        // Expose handleEditDispatch so unit tests can seed editDispatchRef
+        // without going through the scrub UI path (ZF0-1451 decoupling).
+        handleEditDispatch,
       }
     }
     // Start with design mode disabled — don't intercept events until activated

@@ -519,49 +519,10 @@ describe('CortexApp', () => {
       return target
     }
 
-    /**
-     * Trigger a property edit through the Layout section's Display SegmentedControl.
-     * Clicks a non-active segment to trigger applyOverride(property, value, true),
-     * which calls onEditDispatch and channel.send({type:'edit', editId, ...}).
-     * Returns the editId from the sent message.
-     */
-    async function triggerEditViaUI(channel: ReturnType<typeof createMockChannel>): Promise<string> {
-      // Find the Layout section's Display SegmentedControl
-      const layoutSection = root.querySelector('[data-section-id="layout"]')
-      expect(layoutSection).not.toBeNull()
-
-      // Find a non-active segment option by data-value attribute
-      let targetSegment = layoutSection!.querySelector(
-        '.cortex-segmented__option[data-value="flex"]:not(.cortex-segmented__option--active)',
-      ) as HTMLButtonElement | null
-
-      // If flex is already active, try grid
-      if (!targetSegment) {
-        targetSegment = layoutSection!.querySelector(
-          '.cortex-segmented__option[data-value="grid"]:not(.cortex-segmented__option--active)',
-        ) as HTMLButtonElement | null
-      }
-      // Last resort: any non-active segment
-      if (!targetSegment) {
-        targetSegment = layoutSection!.querySelector(
-          '.cortex-segmented__option:not(.cortex-segmented__option--active)',
-        ) as HTMLButtonElement | null
-      }
-      expect(targetSegment).not.toBeNull()
-      targetSegment!.click()
-
-      // Wait for microtask commit + Preact re-render
-      let editId!: string
-      await vi.waitFor(() => {
-        const editMsg = channel._lastSent.find((m: any) => m.type === 'edit') as any
-        expect(editMsg).toBeDefined()
-        expect(editMsg.editId).toBeDefined()
-        editId = editMsg.editId
-      }, { timeout: 500 })
-      return editId
-    }
-
     it('edit_status:failed populates editErrors and renders error card', async () => {
+      // Decoupled from scrub UI path (ZF0-1451): scrub commits now go to staging buffer,
+      // not channel.send. Seed editDispatchRef directly via the test bridge.
+      ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
       setup()
       const channel = createMockChannel()
       render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
@@ -569,7 +530,11 @@ describe('CortexApp', () => {
       await activateEditor(channel)
 
       await setupWithSelectedElement()
-      const editId = await triggerEditViaUI(channel)
+
+      // Synthetic edit dispatch — simulates what the Apply gesture will eventually do.
+      const editId = 'test-edit-failed-1'
+      const testBridge = (window as any).__CORTEX_TEST__ as { handleEditDispatch: (id: string, src: string, prop: string, val: string) => void }
+      testBridge.handleEditDispatch(editId, 'Hero.tsx:5:3', 'padding-bottom', '16px')
 
       // Simulate server failure for this edit
       channel._simulateMessage({ type: 'edit_status', editId, status: 'failed', reason: 'CSS parse error' })
@@ -666,6 +631,9 @@ describe('CortexApp', () => {
 
   describe('I1 regression: skip-path wiring (ZF0-1363)', () => {
     it('edit_status:writing does not throw and does not consume dispatch entry', async () => {
+      // Decoupled from scrub UI path (ZF0-1451): scrub commits now go to staging buffer,
+      // not channel.send. Seed editDispatchRef directly via the test bridge.
+      ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
       setup()
       const channel = createMockChannel()
       const warnSpy = vi.spyOn(console, 'warn')
@@ -673,38 +641,24 @@ describe('CortexApp', () => {
       await new Promise(r => setTimeout(r, 10))
       await activateEditor(channel)
 
-      // Seed a dispatch entry by activating an edit
-      const { _getCallbacks } = await import('../../src/browser/selection.js') as any
-      const { selectCb } = _getCallbacks()
-      const target = document.createElement('div')
-      target.setAttribute('data-cortex-source', 'Foo.tsx:1:1')
-      document.body.appendChild(target)
-      orphans.push(target)
-      mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
-      selectCb(target)
+      // Select an element so the Panel renders and error cards are visible.
+      // Source 'Hero.tsx:5:3' must match the handleEditDispatch source below
+      // (EditErrorCard filters errors by elementSource).
+      const { _getCallbacks: _getCb1 } = await import('../../src/browser/selection.js') as any
+      const { selectCb: selectCb1 } = _getCb1()
+      const target1 = document.createElement('div')
+      target1.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+      document.body.appendChild(target1)
+      orphans.push(target1)
+      mockGetBoundingClientRect(target1, { top: 50, left: 50, width: 100, height: 40 })
+      selectCb1(target1)
       await new Promise(r => setTimeout(r, 50))
 
-      // Trigger an edit through the UI to seed a real dispatch entry in
-      // editDispatchRef, then send a `writing` status (which should be silently
-      // skipped without consuming the entry), and finally verify the eventual
-      // `failed` still produces an error card — proves the entry survived.
-      const layoutSection = root.querySelector('[data-section-id="layout"]')
-      let targetSegment: HTMLButtonElement | null = null
-      if (layoutSection) {
-        targetSegment = layoutSection.querySelector(
-          '.cortex-segmented__option:not(.cortex-segmented__option--active)',
-        ) as HTMLButtonElement | null
-      }
-      // Test infrastructure must produce a clickable segment — silent
-      // no-op early returns mask regressions (anti-pattern §3).
-      expect(targetSegment).not.toBeNull()
-      targetSegment!.click()
-      let trackedEditId!: string
-      await vi.waitFor(() => {
-        const editMsg = channel._lastSent.find((m: any) => m.type === 'edit') as any
-        expect(editMsg).toBeDefined()
-        trackedEditId = editMsg.editId
-      }, { timeout: 500 })
+      // Synthetic edit dispatch — simulates what the Apply gesture will eventually do.
+      // Source must match the selected element's data-cortex-source ('Hero.tsx:5:3').
+      const trackedEditId = 'test-edit-writing-1'
+      const testBridge = (window as any).__CORTEX_TEST__ as { handleEditDispatch: (id: string, src: string, prop: string, val: string) => void }
+      testBridge.handleEditDispatch(trackedEditId, 'Hero.tsx:5:3', 'display', 'flex')
 
       // Send writing — must be silently skipped (no dispatch entry consumed, no throw)
       channel._simulateMessage({ type: 'edit_status', editId: trackedEditId, status: 'writing' } as any)
@@ -723,6 +677,9 @@ describe('CortexApp', () => {
     })
 
     it('edit_status:cancelled does not throw and does not consume dispatch entry', async () => {
+      // Decoupled from scrub UI path (ZF0-1451): scrub commits now go to staging buffer,
+      // not channel.send. Seed editDispatchRef directly via the test bridge.
+      ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
       setup()
       const channel = createMockChannel()
       const warnSpy = vi.spyOn(console, 'warn')
@@ -730,34 +687,24 @@ describe('CortexApp', () => {
       await new Promise(r => setTimeout(r, 10))
       await activateEditor(channel)
 
-      const { _getCallbacks } = await import('../../src/browser/selection.js') as any
-      const { selectCb } = _getCallbacks()
-      const target = document.createElement('div')
-      target.setAttribute('data-cortex-source', 'Bar.tsx:2:2')
-      document.body.appendChild(target)
-      orphans.push(target)
-      mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
-      selectCb(target)
+      // Select an element so the Panel renders and error cards are visible.
+      // Source 'Hero.tsx:5:3' must match the handleEditDispatch source below
+      // (EditErrorCard filters errors by elementSource).
+      const { _getCallbacks: _getCb2 } = await import('../../src/browser/selection.js') as any
+      const { selectCb: selectCb2 } = _getCb2()
+      const target2 = document.createElement('div')
+      target2.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+      document.body.appendChild(target2)
+      orphans.push(target2)
+      mockGetBoundingClientRect(target2, { top: 50, left: 50, width: 100, height: 40 })
+      selectCb2(target2)
       await new Promise(r => setTimeout(r, 50))
 
-      const layoutSection = root.querySelector('[data-section-id="layout"]')
-      let targetSegment: HTMLButtonElement | null = null
-      if (layoutSection) {
-        targetSegment = layoutSection.querySelector(
-          '.cortex-segmented__option:not(.cortex-segmented__option--active)',
-        ) as HTMLButtonElement | null
-      }
-      // Test infrastructure must produce a clickable segment — silent
-      // no-op early returns mask regressions (anti-pattern §3).
-      expect(targetSegment).not.toBeNull()
-
-      targetSegment!.click()
-      let trackedEditId!: string
-      await vi.waitFor(() => {
-        const editMsg = channel._lastSent.find((m: any) => m.type === 'edit') as any
-        expect(editMsg).toBeDefined()
-        trackedEditId = editMsg.editId
-      }, { timeout: 500 })
+      // Synthetic edit dispatch — simulates what the Apply gesture will eventually do.
+      // Source must match the selected element's data-cortex-source ('Hero.tsx:5:3').
+      const trackedEditId = 'test-edit-cancelled-1'
+      const testBridge = (window as any).__CORTEX_TEST__ as { handleEditDispatch: (id: string, src: string, prop: string, val: string) => void }
+      testBridge.handleEditDispatch(trackedEditId, 'Hero.tsx:5:3', 'display', 'grid')
 
       // Send cancelled — must be silently skipped
       channel._simulateMessage({ type: 'edit_status', editId: trackedEditId, status: 'cancelled' } as any)
