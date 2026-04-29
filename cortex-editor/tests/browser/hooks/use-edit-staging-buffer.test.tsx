@@ -410,31 +410,39 @@ describe('useEditStagingBuffer', () => {
     unmount()
   })
 
-  it('mount drops malformed source entries (file:line:col regex)', () => {
-    // Seed localStorage with a mix of valid and malformed entries. The
-    // validator is array-level: a single bad entry forces the whole array to
-    // fall back to []. This test proves the file:line:col guard is wired in.
+  it('mount drops malformed source entries (file:line:col regex) per-entry, keeps valid ones', () => {
+    // Per-entry filtering: a bad entry (no line:col) is dropped; the good
+    // entry survives. Proves the file:line:col guard is wired in AND that
+    // one corrupted entry can't nuke the rest of the buffer.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const goodEdit = makeEdit({ intentId: 'good', source: 'src/Hero.tsx:14:5' })
     const malformed = { ...makeEdit(), source: 'no-line-no-col' }
     cortexStorage.set('staging-buffer', [goodEdit, malformed])
 
     const { result, unmount } = renderHook(() => useEditStagingBuffer())
 
-    // Validator rejected the array; buffer initialises empty.
-    expect(result.current.list()).toHaveLength(0)
+    expect(result.current.list()).toHaveLength(1)
+    expect(result.current.list()[0].intentId).toBe('good')
+    expect(warnSpy.mock.calls.some(c => String(c[0]).includes('1 dropped'))).toBe(true)
 
+    warnSpy.mockRestore()
     unmount()
   })
 
-  it('mount drops entries whose source contains a quote (selector-injection guard)', () => {
-    // Defense-in-depth alongside CSS.escape: even if escape were ever
-    // bypassed, a `"` in source would still be rejected at validator level.
+  it('mount drops entries whose source contains a quote (selector-injection guard) per-entry', () => {
+    // Defense-in-depth alongside the batch querySelectorAll lookup: a `"`
+    // in source is rejected at validator level even though current code
+    // doesn't interpolate source into a selector.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const goodEdit = makeEdit({ intentId: 'good' })
     const injected = { ...makeEdit(), source: 'src/x".tsx:1:1' }
     cortexStorage.set('staging-buffer', [goodEdit, injected])
 
     const { result, unmount } = renderHook(() => useEditStagingBuffer())
-    expect(result.current.list()).toHaveLength(0)
+    expect(result.current.list()).toHaveLength(1)
+    expect(result.current.list()[0].intentId).toBe('good')
+
+    warnSpy.mockRestore()
     unmount()
   })
 

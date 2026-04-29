@@ -100,9 +100,17 @@ function isPendingEdit(v: unknown): v is PendingEdit {
   return true
 }
 
-/** Type guard for an array of PendingEdit */
+/** Type guard for an array of PendingEdit (all-or-nothing — exported for tests
+ *  that need to round-trip a known-valid buffer). The hook itself uses
+ *  `isUnknownArray` + per-entry filtering on rehydration so one bad entry
+ *  can't drop the whole buffer. */
 export function isPendingEditArray(v: unknown): v is PendingEdit[] {
   return Array.isArray(v) && v.every(isPendingEdit)
+}
+
+/** Permissive array guard — used by hook rehydration. */
+function isUnknownArray(v: unknown): v is unknown[] {
+  return Array.isArray(v)
 }
 
 /** Composite key for last-write-wins deduplication. */
@@ -141,12 +149,23 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const initRef = useRef(false)
 
-  // Initialize from localStorage on first call (before useEffect so list() works immediately)
+  // Initialize from localStorage on first call (before useEffect so list() works immediately).
+  // Per-entry filtering: a single corrupted entry can't nuke 499 valid ones.
   if (!initRef.current) {
     initRef.current = true
-    const stored = cortexStorage.get(STORAGE_KEY, [], isPendingEditArray)
-    for (const edit of stored) {
-      bufferRef.current.set(compositeKey(edit), edit)
+    const stored = cortexStorage.get(STORAGE_KEY, [], isUnknownArray)
+    let dropped = 0
+    for (const entry of stored) {
+      if (isPendingEdit(entry)) {
+        bufferRef.current.set(compositeKey(entry), entry)
+      } else {
+        dropped++
+      }
+    }
+    if (dropped > 0) {
+      console.warn(
+        `[cortex] Staging buffer rehydrated with ${bufferRef.current.size} valid entries; ${dropped} dropped (schema mismatch)`,
+      )
     }
   }
 
@@ -193,14 +212,16 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
     // render a "buffer full — older edits dropped" notice; the warning is
     // intentionally low-key because the buffer continues to function.
     if (bufferRef.current.size > MAX_ENTRIES) {
-      const firstKey = bufferRef.current.keys().next().value!
-      const evicted = bufferRef.current.get(firstKey)!
-      bufferRef.current.delete(firstKey)
-      console.warn(
-        '[cortex] Staging buffer evicted oldest intent (max 500):',
-        evicted.source,
-        evicted.property,
-      )
+      const oldest = bufferRef.current.entries().next()
+      if (!oldest.done) {
+        const [firstKey, evicted] = oldest.value
+        bufferRef.current.delete(firstKey)
+        console.warn(
+          '[cortex] Staging buffer evicted oldest intent (max 500):',
+          evicted.source,
+          evicted.property,
+        )
+      }
     }
 
     schedulePersist()

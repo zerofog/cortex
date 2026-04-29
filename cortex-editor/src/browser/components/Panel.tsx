@@ -40,6 +40,7 @@ import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
 import { computePanelStyleSnapshot } from './panel-style-snapshot.js'
 import { ALL_DIMMING_PROPERTIES } from './sections/spacing-utils.js'
 import { useEditStagingBuffer } from '../hooks/useEditStagingBuffer.js'
+import { generateId } from '../uuid.js'
 
 // ── Connection status footer ─────────────────────────────────────────
 
@@ -526,7 +527,7 @@ export function Panel({
       : undefined
     for (const c of editedProps) {
       buffer.append({
-        intentId: crypto.randomUUID(),
+        intentId: generateId(),
         source,
         property: c.property,
         value: c.value,
@@ -703,7 +704,7 @@ export function Panel({
       flushCommitRef?.current?.()
 
       const pseudo = activePseudo !== 'element' ? activePseudo : undefined
-      const editId = crypto.randomUUID()
+      const editId = generateId()
 
       // Capture previous override values BEFORE mutating, so the
       // Single-pass iteration: snapshot previousValue, build the

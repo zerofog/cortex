@@ -1,5 +1,6 @@
 // src/browser/edit-command.ts
 import type { CSSOverrideManager } from './override.js'
+import { generateId } from './uuid.js'
 
 /** A single property change within an EditCommand. */
 export interface PropertyChange {
@@ -48,7 +49,7 @@ abstract class BaseEditCommand implements EditCommand {
   protected readonly overrideManager: CSSOverrideManager
 
   constructor(init: EditCommandInit) {
-    this.editId = init.editId ?? crypto.randomUUID()
+    this.editId = init.editId ?? generateId()
     this.changes = init.changes
     this.overrideManager = init.overrideManager
   }

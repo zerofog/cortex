@@ -221,9 +221,15 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         // Expose handleEditDispatch so unit tests can seed editDispatchRef
         // without going through the scrub UI path. Routed through
         // `editDispatchHandlerRef` so the bridge always hits the latest
-        // closure (mirrors the `handleExitRef` pattern).
-        handleEditDispatch: (editId: string, source: string, property: string, value: string) =>
-          editDispatchHandlerRef.current?.(editId, source, property, value),
+        // closure (mirrors the `handleExitRef` pattern). Throws if called
+        // before first render commits — silent no-op would mask test setup
+        // bugs where the test calls the bridge before render completes.
+        handleEditDispatch: (editId: string, source: string, property: string, value: string) => {
+          if (!editDispatchHandlerRef.current) {
+            throw new Error('[cortex test bridge] handleEditDispatch called before render committed')
+          }
+          editDispatchHandlerRef.current(editId, source, property, value)
+        },
       }
     }
     // Start with design mode disabled — don't intercept events until activated
