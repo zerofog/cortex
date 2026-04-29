@@ -260,6 +260,13 @@ export function Panel({
   // terminates at depth 1, since the second remove is a no-op on an empty set).
   // If the round-trip becomes a measurable cost, add a flag to skip emission
   // for server-originated removes. Tracked as a follow-up under ZF0-1452+.
+  //
+  // IMPORTANT: this depth-1 termination depends on `cache.remove(ids)` being
+  // idempotent (no side-effect on already-removed ids). If you ever add a
+  // non-idempotent server-side reaction to staged-edit-remove (logging,
+  // telemetry, undo-stack push), this echo loop would generate duplicates —
+  // add an "is this server-originated?" guard before propagating the remove
+  // from buffer back through the SyncEmitter.
   useEffect(() => {
     if (!channel) return
     return channel.onMessage((msg) => {

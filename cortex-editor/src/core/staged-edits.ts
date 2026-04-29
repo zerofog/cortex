@@ -111,3 +111,55 @@ export class StagedEditsCache {
     return this.store.size
   }
 }
+
+// ---------------------------------------------------------------------------
+// applyEditsCore — pure helper used by handleRPC.applyEdits in vite.ts.
+//
+// Lives here (not in vite.ts) because it's a cache-helper with zero
+// adapter-specific dependencies — it operates on a structural `cache` shape
+// and an array of intent IDs. Co-locating with StagedEditsCache keeps the
+// layering clean (tests in `tests/cli/` import from `core/`, not `adapters/`).
+// ---------------------------------------------------------------------------
+
+/** Per-id result item produced by applyEditsCore. */
+export type ApplyEditResult =
+  | { intentId: string; status: 'needs-source-edit'; intent: PendingEdit; reason: string }
+  | { intentId: string; status: 'failed'; error: string }
+
+/** Build the per-id result list for cortex_apply_edits.
+ *
+ *  ZF0-1464 deferral: production routes ALL found intents to Claude's Edit tool
+ *  via 'needs-source-edit' (no deterministic-apply path yet). Missing intents
+ *  return failed-not-found. Input order is preserved.
+ *
+ *  Why no deterministic-apply path here: EditPipeline.handleEdit() returns
+ *  void and communicates results back via channel.send({ type: 'edit_status',
+ *  ... }) asynchronously. There is no synchronous return-value API for
+ *  "applied vs needs-source-edit", so the RPC handler can't observe pipeline
+ *  outcomes within a single response. ZF0-1464 tracks a promise-based
+ *  EditPipeline API that returns { status: 'applied' | 'needs-source-edit'
+ *  | 'failed' } directly, after which deterministic intents would route
+ *  through it here.
+ *
+ *  Extracted as a pure function (cache passed in) so its contract can be
+ *  unit-tested without booting a full CortexSession — the test file imports
+ *  this directly rather than mocking the RPC handler. This avoids the
+ *  shadow-copy hazard (cortex CLAUDE.md test rule #1) for criterion 3 of
+ *  ZF0-1452. */
+export function applyEditsCore(
+  cache: { getById(id: string): PendingEdit | null },
+  intentIds: readonly string[],
+): ApplyEditResult[] {
+  return intentIds.map((intentId) => {
+    const intent = cache.getById(intentId)
+    if (!intent) {
+      return { intentId, status: 'failed', error: 'intent not found' }
+    }
+    return {
+      intentId,
+      status: 'needs-source-edit',
+      intent,
+      reason: 'Apply via source edit: use the Edit tool on the file at intent.source to set the property to intent.value',
+    }
+  })
+}

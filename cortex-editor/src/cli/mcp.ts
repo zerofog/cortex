@@ -164,6 +164,9 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
             params: {
               content: `${count} cortex edits ready for review (call cortex_get_pending_edits)`,
               meta: {
+                // request_id is advisory metadata — ZF0-1453's Apply button populates it
+                // for future correlation but no consumer uses it for Promise resolution
+                // today. Not a wire-protocol contract beyond "don't drop it".
                 request_id: String(requestId),
                 severity: 'info',
                 kind: 'staged-edits',

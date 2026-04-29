@@ -7,7 +7,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { WebSocketServer, WebSocket } from 'ws'
 import { createSourceTransform } from './source-transform.js'
-import type { ServerChannel, BrowserToServer, ServerToBrowser, PendingEdit } from './types.js'
+import type { ServerChannel, BrowserToServer, ServerToBrowser } from './types.js'
 import { TailwindResolver } from '../core/tailwind-resolver.js'
 import { TailwindRewriter } from '../core/rewriter/tailwind.js'
 import { InlineStyleRewriter } from '../core/rewriter/inline-style.js'
@@ -24,6 +24,7 @@ import { UndoStack } from '../core/session/undo-stack.js'
 import { AIWriter } from '../core/ai-writer.js'
 import { DeferredWriter } from '../core/deferred-writer.js'
 import { CortexSession } from '../core/session.js'
+import { applyEditsCore } from '../core/staged-edits.js'
 import { atomicWrite } from './atomic-write.js'
 
 export interface CortexEditorOptions {
@@ -43,6 +44,23 @@ const CORTEX_MSG_EVENT = 'cortex:msg'
 // CLI WebSocket bridge constants
 const ALLOWED_ORIGINS = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/
 const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close'])
+/** Browser-to-server message types that should be forwarded to CLI clients (MCP).
+ *  High-frequency sync messages (staged-edit-add/-remove/-clear/-sync) are
+ *  intentionally NOT forwarded — they're internal browser↔Vite-cache sync,
+ *  not Claude-relevant. Forwarding them would burn bandwidth/CPU on the MCP
+ *  process for no consumer (the MCP server's ws.on('message') handler doesn't
+ *  branch on those types).
+ *
+ *  Verified against mcp.ts ws.on('message'): MCP branches on cortex-rpc-result,
+ *  cortex-rpc-error, error, cortex, cortex-closed, cortex-status, staged-edits-ready,
+ *  annotation-created. Of those, only cortex-closed and staged-edits-ready are
+ *  browser-originated; the rest are server-originated (forwarded via the
+ *  channel.send → forwardToCLI path at the bottom of configureServer, not here).
+ *  'init' is browser-originated but MCP does not branch on it. */
+const BROWSER_TO_CLI_FORWARD_TYPES: ReadonlySet<string> = new Set([
+  'cortex-closed',
+  'staged-edits-ready',
+])
 /** Message types that require token auth — all write/mutation operations.
  *  Update this union when adding new write message types to BrowserToServer. */
 type WriteMessageType = 'edit' | 'undo' | 'redo' | 'comment' | 'comment-reply' | 'clear_server_undo' | 'staged-edit-add' | 'staged-edit-remove' | 'staged-edit-clear' | 'staged-edits-sync' | 'staged-edits-ready'
@@ -88,49 +106,6 @@ export function validateToggleShortcut(shortcut: string): string {
  *  CLAUDE.md test rule #1. */
 export function isPathInsideRoot(resolved: string, root: string): boolean {
   return resolved.startsWith(root + path.sep) || resolved === root
-}
-
-/** Per-id result item produced by applyEditsCore. */
-export type ApplyEditResult =
-  | { intentId: string; status: 'needs-source-edit'; intent: PendingEdit; reason: string }
-  | { intentId: string; status: 'failed'; error: string }
-
-/** Build the per-id result list for cortex_apply_edits.
- *
- *  ZF0-1464 deferral: production routes ALL found intents to Claude's Edit tool
- *  via 'needs-source-edit' (no deterministic-apply path yet). Missing intents
- *  return failed-not-found. Input order is preserved.
- *
- *  Why no deterministic-apply path here: EditPipeline.handleEdit() returns
- *  void and communicates results back via channel.send({ type: 'edit_status',
- *  ... }) asynchronously. There is no synchronous return-value API for
- *  "applied vs needs-source-edit", so the RPC handler can't observe pipeline
- *  outcomes within a single response. ZF0-1464 tracks a promise-based
- *  EditPipeline API that returns { status: 'applied' | 'needs-source-edit'
- *  | 'failed' } directly, after which deterministic intents would route
- *  through it here.
- *
- *  Extracted as a pure function (cache passed in) so its contract can be
- *  unit-tested without booting a full CortexSession — the test file imports
- *  this directly rather than mocking the RPC handler. This avoids the
- *  shadow-copy hazard (cortex CLAUDE.md test rule #1) for criterion 3 of
- *  ZF0-1452. */
-export function applyEditsCore(
-  cache: { getById(id: string): PendingEdit | null },
-  intentIds: readonly string[],
-): ApplyEditResult[] {
-  return intentIds.map((intentId) => {
-    const intent = cache.getById(intentId)
-    if (!intent) {
-      return { intentId, status: 'failed', error: 'intent not found' }
-    }
-    return {
-      intentId,
-      status: 'needs-source-edit',
-      intent,
-      reason: 'Apply via source edit: use the Edit tool on the file at intent.source to set the property to intent.value',
-    }
-  })
 }
 
 /** Escape JSON for safe embedding in <script> context. */
@@ -305,12 +280,28 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
       // since handleRPC is also reachable via the WebSocket directly.
       const rawIds = Array.isArray(params.intentIds) ? params.intentIds : []
       const intentIds = rawIds.filter((x): x is string => typeof x === 'string')
+
       currentSession!.stagedEdits.remove(intentIds)
+
       // Notify browser so its canonical buffer stays in sync with server cache.
+      // Best-effort: if channel.send throws (transport closed) or the Panel
+      // isn't mounted (HMR transient), the browser will reconcile on next mount
+      // via syncFullState (which replaceAlls the server cache, self-healing the
+      // divergence). The browserNotified flag surfaces this to Claude so the
+      // tool response is honest about what propagated.
+      let browserNotified = false
       if (currentSession!.channel) {
-        currentSession!.channel.send({ type: 'staged-edits-discard', intentIds })
+        try {
+          currentSession!.channel.send({ type: 'staged-edits-discard', intentIds })
+          browserNotified = true
+        } catch (err) {
+          console.warn(
+            '[cortex] Failed to send staged-edits-discard to browser:',
+            err instanceof Error ? err.message : String(err),
+          )
+        }
       }
-      return { discarded: intentIds }
+      return { discarded: intentIds, browserNotified }
     }
 
     case 'getIntentContext': {
@@ -702,9 +693,13 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         }
 
         // Forward browser messages to CLI clients — after auth so only valid messages propagate.
-        // Strip token from forwarded data to avoid leaking it to CLI clients.
+        // Strip token from forwarded data to avoid leaking it to CLI clients. Gate behind
+        // BROWSER_TO_CLI_FORWARD_TYPES allowlist so high-frequency staged-edit-* sync
+        // messages (browser↔Vite-cache only) don't burn bandwidth/CPU on the MCP process.
         const { token: _stripped, ...forwardData } = data as Record<string, unknown>
-        forwardToCLI(forwardData)
+        if (BROWSER_TO_CLI_FORWARD_TYPES.has(data.type)) {
+          forwardToCLI(forwardData)
+        }
 
         // Track state from browser messages
         if (data.type === 'cortex-closed') currentSession!.editorActive = false

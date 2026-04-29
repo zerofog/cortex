@@ -15,7 +15,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { startMCPServer, type MCPServerHandle } from '../../src/cli/mcp.js'
 import type { PendingEdit } from '../../src/adapters/types.js'
-import { applyEditsCore, isPathInsideRoot } from '../../src/adapters/vite.js'
+import { isPathInsideRoot } from '../../src/adapters/vite.js'
+import { applyEditsCore } from '../../src/core/staged-edits.js'
 import { makeEdit } from '../core/helpers.js'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -151,7 +152,8 @@ function installEditRPCHandler(mock: MockViteServer): MockStore {
         } else if (method === 'discardEdits') {
           const intentIds = params.intentIds as string[]
           store.edits = store.edits.filter(e => !intentIds.includes(e.intentId))
-          result = { discarded: intentIds }
+          // Mock simulates the happy path: channel.send succeeded.
+          result = { discarded: intentIds, browserNotified: true }
         } else if (method === 'getIntentContext') {
           const intentId = params.intentId as string
           const edit = store.edits.find(e => e.intentId === intentId)
@@ -360,8 +362,14 @@ describe('MCP edit tools (ZF0-1452 T2)', () => {
       arguments: { intentIds: ['discard-me'] },
     })
     expect(result.isError).toBeFalsy()
-    const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text) as { discarded: string[] }
+    const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text) as {
+      discarded: string[]
+      browserNotified: boolean
+    }
     expect(parsed.discarded).toEqual(['discard-me'])
+    // browserNotified flag is part of the response shape (H1): true means the
+    // server successfully propagated the discard to the browser canonical buffer.
+    expect(parsed.browserNotified).toBe(true)
 
     // Verify the other intent remains
     const pending = await client.callTool({ name: 'cortex_get_pending_edits' })
