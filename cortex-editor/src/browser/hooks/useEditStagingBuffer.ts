@@ -26,16 +26,16 @@ export interface StagingBufferHandle {
    * For each PendingEdit whose file (source before the first ':') is in
    * `changedFiles`, we query `document.querySelector('[data-cortex-source="<source>"]')`.
    *
-   * Divergence check: prefer `element.style.getPropertyValue(prop)` (inline style)
-   * before falling back to `getComputedStyle(el).getPropertyValue(prop)` (cascade).
-   * Inline style is more correct because HMR-reapplied styles show up there first,
-   * and it is more testable in happy-dom where getComputedStyle returns '' for
-   * dynamically set inline styles.
+   * Divergence check: prefer `element.style.getPropertyValue(prop)` (inline style);
+   * fall back to `getComputedStyle(el).getPropertyValue(prop)` (cascade) when the
+   * inline value is empty. Inline-first is more correct because HMR-reapplied
+   * styles show up there first, and it is more testable in happy-dom where
+   * getComputedStyle returns '' for dynamically set inline styles.
    *
    * An intent is divergent when:
    *   - The element does not exist in DOM (file deleted/refactored), OR
-   *   - element.style.getPropertyValue(property).trim() !== previousValue.trim() AND
-   *     the inline style is non-empty (meaning HMR reapplied a value that differs)
+   *   - The resolved current value (inline if non-empty, else computed)
+   *     differs from `previousValue.trim()`.
    *
    * Hook does NOT auto-subscribe to HMR. Wiring HMR → reconcile is deferred.
    */
@@ -49,14 +49,29 @@ const DEBOUNCE_MS = 150
 function isPendingEdit(v: unknown): v is PendingEdit {
   if (typeof v !== 'object' || v === null) return false
   const o = v as Record<string, unknown>
-  return (
-    typeof o.intentId === 'string' &&
-    typeof o.source === 'string' &&
-    typeof o.property === 'string' &&
-    typeof o.value === 'string' &&
-    typeof o.previousValue === 'string' &&
-    typeof o.timestamp === 'number'
-  )
+  if (
+    typeof o.intentId !== 'string' ||
+    typeof o.source !== 'string' ||
+    typeof o.property !== 'string' ||
+    typeof o.value !== 'string' ||
+    typeof o.previousValue !== 'string' ||
+    typeof o.timestamp !== 'number'
+  ) {
+    return false
+  }
+  // Optional fields: validate ONLY when present. The whole point of the
+  // validator is to short-circuit corrupted localStorage to the [] fallback
+  // before bad data flows into Apply. Accepting `pseudo: 'invalid'`,
+  // `scope: 42`, or `instanceSources: 'oops'` would defeat that.
+  if (o.pseudo !== undefined && o.pseudo !== '::before' && o.pseudo !== '::after') return false
+  if (o.scope !== undefined && o.scope !== 'one' && o.scope !== 'all') return false
+  if (
+    o.instanceSources !== undefined &&
+    (!Array.isArray(o.instanceSources) || !o.instanceSources.every(s => typeof s === 'string'))
+  ) {
+    return false
+  }
+  return true
 }
 
 /** Type guard for an array of PendingEdit */

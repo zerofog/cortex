@@ -249,12 +249,27 @@ describe('useEditStagingBuffer', () => {
     unmount()
   })
 
-  it('file-path index updates correctly on append/remove', async () => {
+  it('file-path index survives partial removal — B intents reconcile after A is cleared', async () => {
     const { result, unmount } = renderHook(() => useEditStagingBuffer())
 
-    const editA1 = makeEdit({ intentId: 'a1', source: 'src/A.tsx:1:1', property: 'color' })
-    const editA2 = makeEdit({ intentId: 'a2', source: 'src/A.tsx:2:2', property: 'fontSize' })
-    const editB1 = makeEdit({ intentId: 'b1', source: 'src/B.tsx:1:1', property: 'padding' })
+    const editA1 = makeEdit({
+      intentId: 'a1',
+      source: 'src/A.tsx:1:1',
+      property: 'color',
+      previousValue: 'red',
+    })
+    const editA2 = makeEdit({
+      intentId: 'a2',
+      source: 'src/A.tsx:2:2',
+      property: 'font-size',
+      previousValue: '12px',
+    })
+    const editB1 = makeEdit({
+      intentId: 'b1',
+      source: 'src/B.tsx:1:1',
+      property: 'color',
+      previousValue: 'green',
+    })
 
     await act(() => {
       result.current.append(editA1)
@@ -264,27 +279,36 @@ describe('useEditStagingBuffer', () => {
 
     expect(result.current.size()).toBe(3)
 
-    // Remove A file's intents
+    // Remove A file's intents only.
     await act(() => {
       result.current.remove(['a1', 'a2'])
     })
 
-    // B file's intents should still be intact
-    const list = result.current.list()
-    expect(list).toHaveLength(1)
-    expect(list[0].intentId).toBe('b1')
+    // B's intent must survive.
+    const remaining = result.current.list()
+    expect(remaining).toHaveLength(1)
+    expect(remaining[0].intentId).toBe('b1')
 
-    // Verify via reconcile: B file with no style mismatch → no divergent
-    const el = document.createElement('div')
-    el.setAttribute('data-cortex-source', 'src/B.tsx:1:1')
-    el.style.padding = 'blue' // matches previousValue in makeEdit default
-    document.body.appendChild(el)
+    // (1) Reconcile against B with a divergent inline style — must flag b1.
+    // Proves B's bookkeeping survived A's removal: if B had been incorrectly
+    // dropped along with A, reconcile would return divergent: [].
+    const elB = document.createElement('div')
+    elB.setAttribute('data-cortex-source', 'src/B.tsx:1:1')
+    elB.style.setProperty('color', 'blue') // differs from previousValue 'green'
+    document.body.appendChild(elB)
 
-    // No divergent since element doesn't exist for A, and B's previous matches
-    const { divergent } = result.current.reconcile(['src/A.tsx'])
-    expect(divergent).toHaveLength(0) // A intents were removed, none to flag
+    const { divergent: divergentB } = result.current.reconcile(['src/B.tsx'])
+    expect(divergentB).toHaveLength(1)
+    expect(divergentB[0].intentId).toBe('b1')
 
-    el.remove()
+    // (2) Reconcile against A — must return empty. Both A intents are gone,
+    // so reconcile has nothing to evaluate even though A elements aren't in DOM.
+    // (If stale IDs lingered, reconcile would still iterate them and either
+    // crash on the missing element or push them as divergent.)
+    const { divergent: divergentA } = result.current.reconcile(['src/A.tsx'])
+    expect(divergentA).toHaveLength(0)
+
+    elB.remove()
     unmount()
   })
 

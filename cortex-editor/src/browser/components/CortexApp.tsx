@@ -116,6 +116,14 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // selectedElement is null.
   const selectionMetadataRef = useRef<SelectionMetadata | null>(null)
   const handleExitRef = useRef<(() => void) | null>(null)
+  // Mirror of `handleEditDispatch` for the test bridge. The mount effect that
+  // installs `__CORTEX_TEST__` runs once with deps `[channel, shadowRoot]`, so
+  // capturing `handleEditDispatch` directly there would freeze the first-render
+  // closure. Today that closure is stable (deps are `[clearEditError]`), but a
+  // future non-stable dep would silently route the bridge through stale state.
+  // The thunk pattern (used by `handleExitRef`) keeps the bridge calling the
+  // latest closure regardless of how `handleEditDispatch`'s deps evolve.
+  const editDispatchHandlerRef = useRef<((editId: string, source: string, property: string, value: string) => void) | null>(null)
   // Exposed outside the useEffect so UI handlers (X-button, Toolbar close) can
   // route through the reducer rather than calling setActive(false) directly.
   // Populated by the mount effect — may be null during first paint when
@@ -212,7 +220,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         onDivergence,
         // Expose handleEditDispatch so unit tests can seed editDispatchRef
         // without going through the scrub UI path (ZF0-1451 decoupling).
-        handleEditDispatch,
+        // Routed through `editDispatchHandlerRef` so the bridge always hits the
+        // latest closure (mirrors the `handleExitRef` pattern).
+        handleEditDispatch: (editId: string, source: string, property: string, value: string) =>
+          editDispatchHandlerRef.current?.(editId, source, property, value),
       }
     }
     // Start with design mode disabled — don't intercept events until activated
@@ -601,6 +612,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     // the new edit's lifecycle and mislead the user.
     clearEditError(`${source}\0${property}`)
   }, [clearEditError])
+  editDispatchHandlerRef.current = handleEditDispatch
 
   const handleDismissError = clearEditError
 

@@ -519,6 +519,12 @@ export function Panel({
     // Append property edits to the staging buffer (deferred to Apply gesture).
     // Filter to the selected element's source to deduplicate scope='all' sibling entries.
     const editedProps = changes.filter(c => c.source === source)
+    // Hoisted out of the loop — `instanceSources` doesn't depend on `c`, so
+    // computing it once per commit avoids recomputing the filter+map for
+    // every edited property (CLAUDE.md "Post-Fix Discipline" #2).
+    const instanceSources = sharedInfo && editScope === 'all'
+      ? sharedInfo.elements.map(el => el.getAttribute('data-cortex-source')).filter((s): s is string => s !== null)
+      : undefined
     for (const c of editedProps) {
       buffer.append({
         intentId: crypto.randomUUID(),
@@ -526,11 +532,14 @@ export function Panel({
         property: c.property,
         value: c.value,
         previousValue: c.previousValue,
-        pseudo,
+        // Use the change's own pseudo, not the closure-scoped `activePseudo`.
+        // They're equal today via a useEffect that clears scrubPreviousRef on
+        // pseudo change, but that invariant is action-at-a-distance — local
+        // truth (`c.pseudo`) is always correct (matches `lastCommitValueRef`
+        // population two blocks above).
+        pseudo: c.pseudo,
         scope: editScope === 'all' ? 'all' : 'one',
-        instanceSources: sharedInfo && editScope === 'all'
-          ? sharedInfo.elements.map(el => el.getAttribute('data-cortex-source')).filter((s): s is string => s !== null)
-          : undefined,
+        instanceSources,
         timestamp: Date.now(),
       })
     }

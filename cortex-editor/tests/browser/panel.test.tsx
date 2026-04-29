@@ -961,14 +961,20 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
       />
     )
 
-    // Click a non-active SegmentedControl option in the layout section
-    // to trigger applyOverride(property, value, true) → commitScrub().
+    // Click a non-active SegmentedControl option in the layout section.
+    // The first SegmentedControl in the layout section is Display, so
+    // capturing the segment's `data-value` at click time lets us assert
+    // the exact property/value pair that flows to the staging buffer
+    // (CLAUDE.md "Test Anti-Patterns" #2 — assertions must be falsifiable).
     const layoutSection = root.querySelector('[data-section-id="layout"]')
     expect(layoutSection).not.toBeNull()
     const segment = layoutSection!.querySelector(
       '.cortex-segmented__option:not(.cortex-segmented__option--active)',
     ) as HTMLButtonElement | null
     expect(segment).not.toBeNull()
+    const expectedValue = segment!.getAttribute('data-value')
+    expect(expectedValue).not.toBeNull()
+    expect(expectedValue).not.toBe('')
 
     await act(async () => {
       segment!.click()
@@ -984,14 +990,16 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
       vi.advanceTimersByTime(150)
     })
 
-    // Now the buffer should be persisted to localStorage
+    // Now the buffer should be persisted to localStorage. Assert exact
+    // property/value/intentId-shape — every assertion must be capable of
+    // failing if the wiring is wrong.
     const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
     expect(stored.length).toBeGreaterThan(0)
     const edit = stored[0]
     expect(edit.source).toBe('src/Hero.tsx:14:5')
-    expect(edit.property).toBeDefined()
-    expect(edit.value).toBeDefined()
-    expect(edit.intentId).toBeDefined()
+    expect(edit.property).toBe('display')
+    expect(edit.value).toBe(expectedValue)
+    expect(edit.intentId).toMatch(/^[0-9a-f-]{36}$/)
     expect(edit.timestamp).toBeGreaterThan(0)
 
     cleanup()
