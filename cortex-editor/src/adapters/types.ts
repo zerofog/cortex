@@ -76,6 +76,19 @@ export type ClassOp =
 
 // === Message protocol ===
 
+export interface PendingEdit {
+  intentId: string
+  source: string                          // file:line:col
+  property: string
+  value: string
+  previousValue: string
+  pseudo?: '::before' | '::after'
+  /** Maps to server CortexEdit.scope. 'instance' = this element only; 'all' = all sharing this class. */
+  scope?: 'instance' | 'all'
+  instanceSources?: string[]
+  timestamp: number
+}
+
 export type BrowserToServer =
   | { type: 'init'; sessionId?: string }
   | { type: 'cortex-closed' }
@@ -126,6 +139,11 @@ export type BrowserToServer =
   | { type: 'comment'; token?: string; protocolVersion?: number; elementSource: string; text: string; elementContext?: ElementContext; currentStyles?: Record<string, string>; pinPosition?: { x: number; y: number }; kind?: AnnotationKind; fixMeta?: FixMeta }
   | { type: 'comment-reply'; token?: string; protocolVersion?: number; annotationId: string; text: string }
   | { type: 'clear_server_undo'; token?: string; protocolVersion?: number }
+  | { type: 'staged-edit-add'; edit: PendingEdit; token: string }
+  | { type: 'staged-edit-remove'; intentIds: string[]; token: string }
+  | { type: 'staged-edit-clear'; token: string }
+  | { type: 'staged-edits-sync'; edits: PendingEdit[]; token: string }
+  | { type: 'staged-edits-ready'; count: number; token: string }
 
 export type ServerToBrowser =
   | { type: 'cortex' }

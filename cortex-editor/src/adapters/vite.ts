@@ -45,8 +45,8 @@ const ALLOWED_ORIGINS = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/
 const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close'])
 /** Message types that require token auth — all write/mutation operations.
  *  Update this union when adding new write message types to BrowserToServer. */
-type WriteMessageType = 'edit' | 'undo' | 'redo' | 'comment' | 'comment-reply' | 'clear_server_undo'
-const WRITE_TYPES: Set<WriteMessageType> = new Set(['edit', 'undo', 'redo', 'comment', 'comment-reply', 'clear_server_undo'])
+type WriteMessageType = 'edit' | 'undo' | 'redo' | 'comment' | 'comment-reply' | 'clear_server_undo' | 'staged-edit-add' | 'staged-edit-remove' | 'staged-edit-clear' | 'staged-edits-sync' | 'staged-edits-ready'
+const WRITE_TYPES: Set<WriteMessageType> = new Set(['edit', 'undo', 'redo', 'comment', 'comment-reply', 'clear_server_undo', 'staged-edit-add', 'staged-edit-remove', 'staged-edit-clear', 'staged-edits-sync', 'staged-edits-ready'])
 const HEARTBEAT_INTERVAL = 30_000
 const MAX_CLI_CONNECTIONS = 5
 
@@ -616,6 +616,26 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             currentSession!.channel.send({ type: 'activity-entry', entry })
           }
         }
+
+        // Staging buffer sync messages — mirror browser-canonical state into server cache.
+        if (data.type === 'staged-edit-add') {
+          currentSession!.stagedEdits.append(data.edit)
+          return
+        }
+        if (data.type === 'staged-edit-remove') {
+          currentSession!.stagedEdits.remove(data.intentIds)
+          return
+        }
+        if (data.type === 'staged-edit-clear') {
+          currentSession!.stagedEdits.clear()
+          return
+        }
+        if (data.type === 'staged-edits-sync') {
+          currentSession!.stagedEdits.replaceAll(data.edits)
+          return
+        }
+        // 'staged-edits-ready' is forwarded to CLI clients via forwardToCLI() at the top
+        // of hotHandler — do NOT add a branch here; T2 will register the MCP-side handler.
 
         // Route edit/undo/redo to EditPipeline (or notify if still initializing)
         if (data.type === 'edit') {

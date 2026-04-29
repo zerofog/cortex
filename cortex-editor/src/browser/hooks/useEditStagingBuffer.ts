@@ -1,19 +1,10 @@
 import { useCallback, useLayoutEffect, useRef } from 'preact/hooks'
 import { cortexStorage } from '../persistence.js'
 import { stripLineCol, deepQuerySelectorAll } from '../selection-metadata.js'
+import type { PendingEdit } from '../../adapters/types.js'
 
-export interface PendingEdit {
-  intentId: string
-  source: string                          // file:line:col
-  property: string
-  value: string
-  previousValue: string                   // captured at first touch
-  pseudo?: '::before' | '::after'
-  /** Maps to server CortexEdit.scope. 'instance' = this element only; 'all' = all sharing this class. */
-  scope?: 'instance' | 'all'
-  instanceSources?: string[]
-  timestamp: number
-}
+// Re-export for backward compatibility — existing test imports rely on this.
+export type { PendingEdit }
 
 /**
  * Reads the source-of-truth value for a pending edit, bypassing any active
@@ -29,6 +20,22 @@ export type ReadSourceValue = (
   property: string,
   pseudo: '::before' | '::after' | null,
 ) => string
+
+/**
+ * Optional sync emitter passed to useEditStagingBuffer to mirror every
+ * mutation to the server-side StagedEditsCache (Process 2). When undefined,
+ * the hook operates as purely browser-canonical — backward-compat for tests
+ * and scenarios without channel access.
+ *
+ * Wire-up in Panel.tsx is out of scope for T1; T2 will pass an implementation
+ * that delegates to channel.send.
+ */
+export interface SyncEmitter {
+  syncAdd(edit: PendingEdit): void
+  syncRemove(intentIds: readonly string[]): void
+  syncClear(): void
+  syncFullState(edits: readonly PendingEdit[]): void
+}
 
 export interface StagingBufferHandle {
   append: (edit: PendingEdit) => void     // last-write-wins by (source\0property\0pseudo)
@@ -143,11 +150,16 @@ function defaultReadSourceValue(
  * - persisted to localStorage via cortexStorage, debounced ~150ms
  * - bounded at 500 entries (oldest evicted)
  * - stable handle: method identities never change across re-renders
+ * - optional SyncEmitter: when provided, every mutation emits a sync message
+ *   to the server-side StagedEditsCache (T1). Wire-up in Panel.tsx is T2.
  */
-export default function useEditStagingBuffer(): StagingBufferHandle {
+export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBufferHandle {
   const bufferRef = useRef<Map<string, PendingEdit>>(new Map())
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const initRef = useRef(false)
+  // Stable ref to the emitter — avoids stale-closure issues inside useCallback.
+  const emitterRef = useRef<SyncEmitter | undefined>(emitter)
+  emitterRef.current = emitter
 
   // Initialize from localStorage on first call (before useEffect so list() works immediately).
   // Per-entry filtering: a single corrupted entry can't nuke 499 valid ones.
@@ -166,6 +178,11 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
       console.warn(
         `[cortex] Staging buffer rehydrated with ${bufferRef.current.size} valid entries; ${dropped} dropped (schema mismatch)`,
       )
+    }
+    // Full-sync on Panel mount: if there are rehydrated entries and an emitter
+    // is provided, fire syncFullState once so the server cache catches up.
+    if (bufferRef.current.size > 0 && emitter) {
+      emitter.syncFullState(Array.from(bufferRef.current.values()))
     }
   }
 
@@ -238,6 +255,9 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
       }
     }
 
+    // Emit sync AFTER in-memory map updated, BEFORE localStorage persist.
+    emitterRef.current?.syncAdd(edit)
+
     schedulePersist()
   }, [schedulePersist])
 
@@ -252,6 +272,9 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
     for (const key of toDeleteKeys) {
       bufferRef.current.delete(key)
     }
+
+    // Emit sync AFTER in-memory map updated, BEFORE localStorage persist.
+    emitterRef.current?.syncRemove(intentIds)
 
     schedulePersist()
   }, [schedulePersist])
@@ -269,6 +292,10 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
       clearTimeout(debounceTimerRef.current)
       debounceTimerRef.current = null
     }
+
+    // Emit sync AFTER in-memory map updated (clear()), BEFORE persist.
+    emitterRef.current?.syncClear()
+
     persistNow()
   }, [persistNow])
 

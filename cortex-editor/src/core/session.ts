@@ -8,6 +8,7 @@ import type { StyleCapability } from './capabilities.js'
 import type { EditPipeline } from './edit-pipeline.js'
 import { AnnotationStore } from './annotations.js'
 import { ActivityLog } from './session/activity-log.js'
+import { StagedEditsCache } from './staged-edits.js'
 
 /** Narrow config interface — only the fields CortexSession actually needs.
  *  Adapters (Vite, Next.js) map their framework config to this at the boundary. */
@@ -40,6 +41,7 @@ export class CortexSession {
   // --- Stores ---
   readonly annotations: AnnotationStore
   readonly activityLog: ActivityLog
+  readonly stagedEdits: StagedEditsCache
 
   // --- Auth + Session ---
   /** Per-instance auth token — prevents cross-project writes on localhost. */
@@ -94,6 +96,7 @@ export class CortexSession {
     this.sessionId = randomUUID()
     this.annotations = new AnnotationStore()
     this.activityLog = new ActivityLog()
+    this.stagedEdits = new StagedEditsCache()
   }
 
   async dispose(): Promise<void> {
