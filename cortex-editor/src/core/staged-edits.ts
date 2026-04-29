@@ -1,12 +1,12 @@
 import type { PendingEdit } from '../adapters/types.js'
 
-/** Defensive cap on replaceAll input size — 2× browser MAX_ENTRIES (500).
+/** Defensive cap on mergeFullSync input size — 2× browser MAX_ENTRIES (500).
  *  Token-gated upstream, so this is defense-in-depth against a misbehaving
  *  panel-mount loop or compromised browser script that might send a 100MB
  *  sync message and block the Node event loop. Generous enough to never
  *  reject legitimate traffic, narrow enough to bound the worst case. Not a
  *  protocol contract — purely a server-side safety bound. */
-const MAX_REPLACE_ALL_SIZE = 1000
+const MAX_FULL_SYNC_SIZE = 1000
 
 /** Composite key for last-write-wins deduplication — matches browser hook semantics. */
 function compositeKey(edit: PendingEdit): string {
@@ -64,27 +64,47 @@ export class StagedEditsCache {
   }
 
   /**
-   * Replace the entire cache with a new list of edits. Used for full-sync
-   * on Panel mount so the server cache catches up with browser-canonical state.
-   * On duplicate composite keys within `edits`, the last duplicate's value
-   * wins (Map.set overwrites). The browser-side staging buffer dedupes
-   * upstream via the same composite key, so duplicates here are not expected
-   * in practice.
+   * Merge a full-state sync from a browser canonical buffer into the
+   * server-side cache. On composite-key conflict, keep whichever entry has
+   * the higher (or equal) `timestamp` field. Empty input is a no-op (does
+   * NOT wipe the cache).
    *
-   * Inputs exceeding MAX_REPLACE_ALL_SIZE are rejected with a console.warn;
+   * Multi-tab safety rationale: pre-merge semantics ("clear + set") wiped
+   * the cache on every Panel mount, which silently corrupted state when
+   * multiple tabs were open. Concrete failure: Tab A has 5 fresh staged
+   * edits in the server cache; Tab B (3 OLDER edits in localStorage) opens
+   * and mounts Panel → fires syncFullState([3-old]) → old replaceAll wiped
+   * Tab A's 5 and installed Tab B's 3. Merge with timestamp preference is
+   * the minimum viable fix: Tab B's stale localStorage cannot clobber Tab
+   * A's newer edits, and an empty rehydration is a no-op. Reviewed in
+   * ZF0-1452 Step 4 (3-of-3 reviewer convergence).
+   *
+   * Within `edits`, duplicate composite keys keep the last-seen entry
+   * (Map.set overwrites — matches the browser hook's last-write-wins).
+   * The browser staging buffer dedupes upstream, so duplicates within a
+   * single payload are not expected in practice.
+   *
+   * Inputs exceeding MAX_FULL_SYNC_SIZE are rejected with a console.warn;
    * cache state is left unchanged so a malformed message can't wipe a
    * healthy cache.
    */
-  replaceAll(edits: readonly PendingEdit[]): void {
-    if (edits.length > MAX_REPLACE_ALL_SIZE) {
+  mergeFullSync(edits: readonly PendingEdit[]): void {
+    if (edits.length > MAX_FULL_SYNC_SIZE) {
       console.warn(
-        `[cortex] StagedEditsCache.replaceAll rejected: ${edits.length} entries exceeds defensive cap ${MAX_REPLACE_ALL_SIZE}`,
+        `[cortex] StagedEditsCache.mergeFullSync rejected: ${edits.length} entries exceeds defensive cap ${MAX_FULL_SYNC_SIZE}`,
       )
       return
     }
-    this.store.clear()
     for (const edit of edits) {
-      this.store.set(compositeKey(edit), snapshot(edit))
+      const key = compositeKey(edit)
+      const existing = this.store.get(key)
+      // Keep the newer entry on conflict; ties go to the incoming entry
+      // (matches the browser hook's "re-insert at end on append" semantics
+      // for sub-millisecond edit replays).
+      if (!existing || edit.timestamp >= existing.timestamp) {
+        if (existing) this.store.delete(key)
+        this.store.set(key, snapshot(edit))
+      }
     }
   }
 

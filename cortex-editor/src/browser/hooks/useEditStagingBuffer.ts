@@ -169,8 +169,9 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
   // invocation of the function body cannot re-enter this block and double-
   // emit. Do NOT move the assignment below the emission — that would break
   // the "exactly one full-sync per mount" contract that the server-side
-  // StagedEditsCache.replaceAll relies on (a duplicate replaceAll would be
-  // idempotent, but the invariant is the contract, not the cache's tolerance).
+  // StagedEditsCache.mergeFullSync relies on (a duplicate mergeFullSync
+  // would be idempotent under newer-timestamp-wins, but the invariant is
+  // the contract, not the cache's tolerance).
   if (!initRef.current) {
     initRef.current = true
     const stored = cortexStorage.get(STORAGE_KEY, [], isUnknownArray)

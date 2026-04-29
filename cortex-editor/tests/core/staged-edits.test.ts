@@ -70,31 +70,63 @@ describe('StagedEditsCache', () => {
     expect(cache.list()).toHaveLength(1)
   })
 
-  it('replaceAll wipes prior state and installs the new entries in iteration order', () => {
+  it('mergeFullSync with empty input is a no-op when cache has entries (multi-tab safety)', () => {
+    // Critical multi-tab regression guard: an empty-localStorage tab mounting
+    // must NOT wipe the server cache populated by another tab. The previous
+    // replaceAll semantics violated this; mergeFullSync makes it explicit.
     const cache = new StagedEditsCache()
-    cache.append(makeEdit({ intentId: 'old-1' }))
-    cache.append(makeEdit({ intentId: 'old-2', property: 'fontSize' }))
-
-    const newEdits = [
-      makeEdit({ intentId: 'new-a', property: 'padding' }),
-      makeEdit({ intentId: 'new-b', property: 'margin' }),
-      makeEdit({ intentId: 'new-c', property: 'color' }),
-    ]
-    cache.replaceAll(newEdits)
-
-    const list = cache.list()
-    expect(list).toHaveLength(3)
-    expect(list[0].intentId).toBe('new-a')
-    expect(list[1].intentId).toBe('new-b')
-    expect(list[2].intentId).toBe('new-c')
+    const a = makeEdit({ intentId: 'survive-a' })
+    cache.append(a)
+    cache.mergeFullSync([])
+    expect(cache.size()).toBe(1)
+    expect(cache.list()[0].intentId).toBe('survive-a')
   })
 
-  it('replaceAll with empty array clears the cache', () => {
+  it('mergeFullSync — newer timestamp wins on composite-key conflict', () => {
+    // Tab A writes value=red at t=2000; Tab B's stale localStorage has
+    // value=blue at t=1000 for the SAME source/property/pseudo. When Tab B
+    // mounts and fires syncFullState, the merge must keep red.
     const cache = new StagedEditsCache()
-    cache.append(makeEdit({ intentId: 'gone' }))
-    cache.replaceAll([])
-    expect(cache.list()).toHaveLength(0)
-    expect(cache.size()).toBe(0)
+    const original = makeEdit({ intentId: 'a', property: 'color', value: 'red', timestamp: 2000 })
+    cache.append(original)
+    const stale = makeEdit({ intentId: 'a', property: 'color', value: 'blue', timestamp: 1000 })
+    cache.mergeFullSync([stale])
+    expect(cache.size()).toBe(1)
+    expect(cache.getById('a')?.value).toBe('red')
+  })
+
+  it('mergeFullSync — newer timestamp incoming overwrites older existing on conflict', () => {
+    // Mirror image of the test above: incoming entry is newer, must win.
+    const cache = new StagedEditsCache()
+    cache.append(makeEdit({ intentId: 'a', property: 'color', value: 'old', timestamp: 1000 }))
+    const newer = makeEdit({ intentId: 'a', property: 'color', value: 'new', timestamp: 2000 })
+    cache.mergeFullSync([newer])
+    expect(cache.size()).toBe(1)
+    expect(cache.getById('a')?.value).toBe('new')
+  })
+
+  it('mergeFullSync — distinct composite keys merge additively', () => {
+    // No conflict: incoming entries with new keys are simply added; existing
+    // entries are preserved. This is the "Tab A and Tab B have disjoint
+    // edits" case — both should survive.
+    const cache = new StagedEditsCache()
+    cache.append(makeEdit({ intentId: 'tab-a', property: 'color' }))
+    cache.mergeFullSync([makeEdit({ intentId: 'tab-b', property: 'fontSize' })])
+    expect(cache.size()).toBe(2)
+    const ids = cache.list().map(e => e.intentId).sort()
+    expect(ids).toEqual(['tab-a', 'tab-b'])
+  })
+
+  it('mergeFullSync — equal timestamps prefer the incoming entry', () => {
+    // Tie-break documented in the docstring: equal timestamps go to the
+    // incoming entry (matches the browser hook's "re-insert at end" semantic
+    // for sub-millisecond edit replays where a tie is plausible).
+    const cache = new StagedEditsCache()
+    cache.append(makeEdit({ intentId: 'a', property: 'color', value: 'first', timestamp: 1000 }))
+    cache.mergeFullSync([
+      makeEdit({ intentId: 'a', property: 'color', value: 'second', timestamp: 1000 }),
+    ])
+    expect(cache.getById('a')?.value).toBe('second')
   })
 
   it('clear empties the cache', () => {
@@ -176,14 +208,14 @@ describe('StagedEditsCache', () => {
     expect(list[1].intentId).toBe('a2')
   })
 
-  it('replaceAll rejects oversize input and leaves cache state unchanged; boundary at cap allowed', () => {
+  it('mergeFullSync rejects oversize input and leaves cache state unchanged; boundary at cap allowed', () => {
     // Defensive cap at 2× browser MAX_ENTRIES (1000): a misbehaving panel-mount
     // loop or compromised browser script can't block the Node event loop with
     // a 100MB sync message. Token-gated upstream, so this is defense-in-depth.
     const cache = new StagedEditsCache()
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-    // Seed with 3 entries via append — these must survive a rejected replaceAll.
+    // Seed with 3 entries via append — these must survive a rejected mergeFullSync.
     cache.append(makeEdit({ intentId: 'orig-1', property: 'color' }))
     cache.append(makeEdit({ intentId: 'orig-2', property: 'fontSize' }))
     cache.append(makeEdit({ intentId: 'orig-3', property: 'padding' }))
@@ -194,20 +226,25 @@ describe('StagedEditsCache', () => {
     for (let i = 0; i < 1001; i++) {
       oversize.push(makeEdit({ intentId: `over-${i}`, property: `prop-${i}` }))
     }
-    cache.replaceAll(oversize)
+    cache.mergeFullSync(oversize)
 
     expect(cache.size()).toBe(3)
     const survivors = cache.list().map(e => e.intentId)
     expect(survivors).toEqual(['orig-1', 'orig-2', 'orig-3'])
     expect(warnSpy).toHaveBeenCalledTimes(1)
-    expect(String(warnSpy.mock.calls[0][0])).toContain('replaceAll rejected')
+    expect(String(warnSpy.mock.calls[0][0])).toContain('mergeFullSync rejected')
 
-    // Boundary case: exactly at the cap (1000) IS allowed.
+    // Boundary case: exactly at the cap (1000) IS allowed. Clear first so we
+    // measure the merge against an empty cache (otherwise the 3 originals,
+    // which use distinct composite keys from the cap entries, would be
+    // additively preserved under the new merge semantics — masking the cap
+    // assertion).
+    cache.clear()
     const atCap: PendingEdit[] = []
     for (let i = 0; i < 1000; i++) {
       atCap.push(makeEdit({ intentId: `cap-${i}`, property: `cap-prop-${i}` }))
     }
-    cache.replaceAll(atCap)
+    cache.mergeFullSync(atCap)
     expect(cache.size()).toBe(1000)
 
     warnSpy.mockRestore()

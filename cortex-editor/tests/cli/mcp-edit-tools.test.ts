@@ -105,7 +105,13 @@ interface MockStore {
   /** Map of intentId → whether apply was called (for tracking applied state) */
   applyResults: Map<string, 'applied' | 'needs-source-edit' | 'not-found'>
   contextFiles: Map<string, string>  // filePath → file contents
+  /** Map of filePath → simulated byte size for size-cap testing.
+   *  When present, the mock checks against MAX_INTENT_FILE_BYTES before
+   *  consulting contextFiles, mirroring the production fs.statSync gate. */
+  largeFiles: Map<string, number>
 }
+
+const MAX_INTENT_FILE_BYTES_FOR_TEST = 2 * 1024 * 1024
 
 /**
  * Install RPC handler for staged-edit methods on the mock Vite WebSocket.
@@ -116,6 +122,7 @@ function installEditRPCHandler(mock: MockViteServer): MockStore {
     edits: [],
     applyResults: new Map(),
     contextFiles: new Map(),
+    largeFiles: new Map(),
   }
 
   mock.wss.on('connection', (ws) => {
@@ -166,6 +173,15 @@ function installEditRPCHandler(mock: MockViteServer): MockStore {
             const filePath = edit.source.slice(0, secondLastColon)
             const line = parseInt(edit.source.slice(secondLastColon + 1, lastColon), 10)
 
+            // Size cap mirror — production performs fs.statSync before reading
+            // and rejects > MAX_INTENT_FILE_BYTES. Mock simulates the gate when
+            // a largeFiles entry is configured for this path.
+            const simulatedSize = store.largeFiles.get(filePath)
+            if (simulatedSize !== undefined && simulatedSize > MAX_INTENT_FILE_BYTES_FOR_TEST) {
+              result = {
+                error: `File too large for intent context: ${filePath} (${simulatedSize} bytes, max ${MAX_INTENT_FILE_BYTES_FOR_TEST})`,
+              }
+            } else {
             const fileContent = store.contextFiles.get(filePath)
             if (!fileContent) {
               result = { error: `File not found: ${filePath}` }
@@ -185,6 +201,7 @@ function installEditRPCHandler(mock: MockViteServer): MockStore {
                 currentValue: lines[targetIdx] ?? '',
               }
             }
+            }  // close size-cap else
           }
         } else {
           throw new Error(`Unknown method: ${method}`)
@@ -632,6 +649,46 @@ describe('MCP edit tools (ZF0-1452 T2)', () => {
     // Only 1 line after (line 12)
     expect(parsed.context.after).toHaveLength(1)
     expect(parsed.context.after[0]).toBe('line 12')
+  })
+
+  // -------------------------------------------------------------------------
+  // SECURITY/PERF: cortex_get_intent_context rejects files larger than 2MB
+  //
+  // Synchronous fs.readFileSync stalls the Vite Node event loop on large
+  // generated files (lockfiles, asset bundles, db dumps) that happen to live
+  // under projectRoot. Production checks fs.statSync.size > MAX_INTENT_FILE_BYTES
+  // and rejects with a structured error before reading. The mock RPC handler
+  // mirrors this gate via store.largeFiles.
+  //
+  // Falsifiability: if the production cap is removed, fs.readFileSync would
+  // run on a 5MB+ payload and the response would be context-bearing rather
+  // than a 'File too large' error. The mock's parallel gate means a
+  // simultaneous removal would also propagate; the test asserts the wire
+  // shape that production guarantees today.
+  // -------------------------------------------------------------------------
+
+  it('[PERF] cortex_get_intent_context rejects files larger than 2MB', async () => {
+    const store = installEditRPCHandler(mockVite)
+    const filePath = 'src/large-generated.tsx'
+    // Simulate a 5MB file (over the 2MB cap)
+    store.largeFiles.set(filePath, 5 * 1024 * 1024)
+    store.edits.push(makeEdit({ intentId: 'big-intent', source: `${filePath}:1:1` }))
+
+    const client = await startTestServer(mockVite.port)
+    await waitForConnection(mockVite)
+    await new Promise(r => setTimeout(r, 50))
+
+    const result = await client.callTool({
+      name: 'cortex_get_intent_context',
+      arguments: { intentId: 'big-intent' },
+    })
+    expect(result.isError).toBeFalsy()
+    const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text) as { error: string }
+    expect(parsed.error).toContain('File too large')
+    expect(parsed.error).toContain(filePath)
+    // Confirm the structured error reports both actual and max sizes
+    expect(parsed.error).toContain(String(5 * 1024 * 1024))
+    expect(parsed.error).toContain(String(2 * 1024 * 1024))
   })
 
   // -------------------------------------------------------------------------

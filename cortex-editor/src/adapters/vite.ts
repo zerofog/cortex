@@ -66,6 +66,14 @@ const BROWSER_TO_CLI_FORWARD_TYPES: ReadonlySet<string> = new Set([
 type WriteMessageType = 'edit' | 'undo' | 'redo' | 'comment' | 'comment-reply' | 'clear_server_undo' | 'staged-edit-add' | 'staged-edit-remove' | 'staged-edit-clear' | 'staged-edits-sync' | 'staged-edits-ready'
 const WRITE_TYPES: Set<WriteMessageType> = new Set(['edit', 'undo', 'redo', 'comment', 'comment-reply', 'clear_server_undo', 'staged-edit-add', 'staged-edit-remove', 'staged-edit-clear', 'staged-edits-sync', 'staged-edits-ready'])
 const HEARTBEAT_INTERVAL = 30_000
+
+/** Max file size readable by cortex_get_intent_context (2MB). Synchronous
+ *  fs.readFileSync blocks the Vite Node event loop; capping at ~10× a
+ *  generous source-file size keeps the read non-blocking even when a project
+ *  has large generated artefacts (lockfiles, asset bundles, db dumps) that
+ *  happen to live under projectRoot. Files exceeding this are rejected with
+ *  a structured error instead of being read. */
+const MAX_INTENT_FILE_BYTES = 2 * 1024 * 1024
 const MAX_CLI_CONNECTIONS = 5
 
 // Resolve browser IIFE path relative to this file (dist/vite/vite.js → dist/browser/index.js)
@@ -286,9 +294,10 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
       // Notify browser so its canonical buffer stays in sync with server cache.
       // Best-effort: if channel.send throws (transport closed) or the Panel
       // isn't mounted (HMR transient), the browser will reconcile on next mount
-      // via syncFullState (which replaceAlls the server cache, self-healing the
-      // divergence). The browserNotified flag surfaces this to Claude so the
-      // tool response is honest about what propagated.
+      // via syncFullState (which mergeFullSyncs into the server cache, with
+      // newer-timestamp-wins resolution — see StagedEditsCache.mergeFullSync).
+      // The browserNotified flag surfaces this to Claude so the tool response
+      // is honest about what propagated.
       let browserNotified = false
       if (currentSession!.channel) {
         try {
@@ -331,6 +340,21 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
       // code path (no shadow copy in the test).
       if (!isPathInsideRoot(resolvedPath, projectRoot)) {
         return { error: 'Path outside project root' }
+      }
+
+      // Size cap — reject before reading so a 10MB+ generated file (lockfile,
+      // asset bundle, db dump) under projectRoot can't stall the Vite event
+      // loop via the synchronous read below. See MAX_INTENT_FILE_BYTES docstring.
+      let stats: fs.Stats
+      try {
+        stats = fs.statSync(resolvedPath)
+      } catch (err) {
+        return { error: `Could not stat file: ${filePath}` }
+      }
+      if (stats.size > MAX_INTENT_FILE_BYTES) {
+        return {
+          error: `File too large for intent context: ${filePath} (${stats.size} bytes, max ${MAX_INTENT_FILE_BYTES})`,
+        }
       }
 
       let fileContent: string
@@ -787,7 +811,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           return
         }
         if (data.type === 'staged-edits-sync') {
-          currentSession!.stagedEdits.replaceAll(data.edits)
+          currentSession!.stagedEdits.mergeFullSync(data.edits)
           return
         }
         // 'staged-edits-ready' is forwarded to CLI clients via forwardToCLI() at the top
