@@ -1,0 +1,26 @@
+cortex-editor/src/browser/hooks/useEditStagingBuffer.ts
+  cabf7a9785f53645 245,251,261-263,265-267
+cortex-editor/tests/browser/hooks/use-edit-staging-buffer.test.tsx
+  cabf7a9785f53645 688-730
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "a12826d8d01c9ead4e36dc93320a8c8415ae3d97",
+  "prompts": {
+    "cabf7a9785f53645": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "89ba978d-58f4-4091-9101-82fc96981c67",
+        "model": "<synthetic>"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 59,
+      "total_deletions": 1116,
+      "accepted_lines": 2646,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/90cbc84b9d7cf40fe3ee93e47dbcfa68838334b7e351264b69a64012e2ff865e"
+    }
+  }
+}
