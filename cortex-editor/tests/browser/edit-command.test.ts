@@ -1,7 +1,9 @@
 // tests/browser/edit-command.test.ts
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { PropertyEditCommand, CompoundEditCommand } from '../../src/browser/edit-command.js'
+import type { StagingBufferOps } from '../../src/browser/edit-command.js'
 import { CSSOverrideManager } from '../../src/browser/override.js'
+import type { PendingEdit } from '../../src/browser/hooks/useEditStagingBuffer.js'
 
 describe('PropertyEditCommand', () => {
   let manager: CSSOverrideManager
@@ -126,6 +128,105 @@ describe('PropertyEditCommand', () => {
     expect(cmd.editId).toBe('test-123')
     expect(cmd.changes).toHaveLength(1)
     expect(cmd.changes[0].property).toBe('color')
+  })
+
+  describe('staging-buffer sync (Copilot fix #1)', () => {
+    function makeBufferOps(): StagingBufferOps & { append: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> } {
+      return { append: vi.fn(), remove: vi.fn() }
+    }
+
+    function makePending(intentId: string, property = 'color', value = 'red'): PendingEdit {
+      return {
+        intentId,
+        source: 'Hero.tsx:5:3',
+        property,
+        value,
+        previousValue: 'blue',
+        timestamp: 1000,
+      }
+    }
+
+    it('undo removes pendingEdit intentIds from the staging buffer', () => {
+      const bufferOps = makeBufferOps()
+      const pendingEdits = [makePending('intent-1'), makePending('intent-2', 'background', 'red')]
+      const cmd = new PropertyEditCommand({
+        changes: [
+          { source: 'Hero.tsx:5:3', property: 'color', value: 'red', previousValue: 'blue' },
+          { source: 'Hero.tsx:5:3', property: 'background', value: 'red', previousValue: 'blue' },
+        ],
+        overrideManager: manager,
+        pendingEdits,
+        bufferOps,
+      })
+
+      cmd.undo()
+
+      expect(bufferOps.remove).toHaveBeenCalledTimes(1)
+      expect(bufferOps.remove).toHaveBeenCalledWith(['intent-1', 'intent-2'])
+      expect(bufferOps.append).not.toHaveBeenCalled()
+    })
+
+    it('execute (redo path) re-appends pendingEdits to the staging buffer', () => {
+      const bufferOps = makeBufferOps()
+      const pendingEdits = [makePending('intent-1'), makePending('intent-2', 'background', 'red')]
+      const cmd = new PropertyEditCommand({
+        changes: [
+          { source: 'Hero.tsx:5:3', property: 'color', value: 'red', previousValue: 'blue' },
+          { source: 'Hero.tsx:5:3', property: 'background', value: 'red', previousValue: 'blue' },
+        ],
+        overrideManager: manager,
+        pendingEdits,
+        bufferOps,
+      })
+
+      cmd.execute()
+
+      expect(bufferOps.append).toHaveBeenCalledTimes(2)
+      expect(bufferOps.append).toHaveBeenNthCalledWith(1, pendingEdits[0])
+      expect(bufferOps.append).toHaveBeenNthCalledWith(2, pendingEdits[1])
+      expect(bufferOps.remove).not.toHaveBeenCalled()
+    })
+
+    it('undo→redo cycle restores buffer state (round-trip)', () => {
+      const bufferOps = makeBufferOps()
+      const pendingEdits = [makePending('intent-1')]
+      const cmd = new PropertyEditCommand({
+        changes: [{ source: 'Hero.tsx:5:3', property: 'color', value: 'red', previousValue: 'blue' }],
+        overrideManager: manager,
+        pendingEdits,
+        bufferOps,
+      })
+
+      cmd.undo()
+      cmd.execute() // redo
+
+      expect(bufferOps.remove).toHaveBeenCalledExactlyOnceWith(['intent-1'])
+      expect(bufferOps.append).toHaveBeenCalledExactlyOnceWith(pendingEdits[0])
+    })
+
+    it('skips buffer ops when no bufferOps is supplied (back-compat)', () => {
+      const cmd = new PropertyEditCommand({
+        changes: [{ source: 'Hero.tsx:5:3', property: 'color', value: 'red', previousValue: 'blue' }],
+        overrideManager: manager,
+        // No pendingEdits / bufferOps — older test/caller shape
+      })
+      expect(() => cmd.execute()).not.toThrow()
+      expect(() => cmd.undo()).not.toThrow()
+    })
+
+    it('skips buffer ops when pendingEdits is empty (no spurious calls)', () => {
+      const bufferOps = makeBufferOps()
+      const cmd = new PropertyEditCommand({
+        changes: [{ source: 'Hero.tsx:5:3', property: 'color', value: 'red', previousValue: 'blue' }],
+        overrideManager: manager,
+        pendingEdits: [],
+        bufferOps,
+      })
+      cmd.execute()
+      cmd.undo()
+      expect(bufferOps.append).not.toHaveBeenCalled()
+      expect(bufferOps.remove).not.toHaveBeenCalled()
+    })
   })
 })
 
