@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { StagedEditsCache } from '../../src/core/staged-edits.js'
+import { StagedEditsCache, isValidPendingEdit } from '../../src/core/staged-edits.js'
 import type { PendingEdit } from '../../src/adapters/types.js'
 import { makeEdit } from './helpers.js'
 
@@ -213,7 +213,8 @@ describe('StagedEditsCache', () => {
     // loop or compromised browser script can't block the Node event loop with
     // a 100MB sync message. Token-gated upstream, so this is defense-in-depth.
     const cache = new StagedEditsCache()
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // Severity is console.error (not warn) — see mergeFullSync docstring.
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     // Seed with 3 entries via append — these must survive a rejected mergeFullSync.
     cache.append(makeEdit({ intentId: 'orig-1', property: 'color' }))
@@ -231,8 +232,12 @@ describe('StagedEditsCache', () => {
     expect(cache.size()).toBe(3)
     const survivors = cache.list().map(e => e.intentId)
     expect(survivors).toEqual(['orig-1', 'orig-2', 'orig-3'])
-    expect(warnSpy).toHaveBeenCalledTimes(1)
-    expect(String(warnSpy.mock.calls[0][0])).toContain('mergeFullSync rejected')
+    expect(errorSpy).toHaveBeenCalledTimes(1)
+    const msg = String(errorSpy.mock.calls[0][0])
+    expect(msg).toContain('mergeFullSync rejected')
+    // Severity bump: include the "client misbehavior or compromise" phrasing
+    // so a grep for the security-relevant rejection reason matches.
+    expect(msg).toContain('client misbehavior or compromise')
 
     // Boundary case: exactly at the cap (1000) IS allowed. Clear first so we
     // measure the merge against an empty cache (otherwise the 3 originals,
@@ -247,6 +252,88 @@ describe('StagedEditsCache', () => {
     cache.mergeFullSync(atCap)
     expect(cache.size()).toBe(1000)
 
-    warnSpy.mockRestore()
+    errorSpy.mockRestore()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// isValidPendingEdit — server-side WS payload validator (defense-in-depth)
+// ---------------------------------------------------------------------------
+
+describe('isValidPendingEdit', () => {
+  it('returns true for a valid PendingEdit', () => {
+    expect(isValidPendingEdit(makeEdit({ intentId: 'ok' }))).toBe(true)
+  })
+
+  it('returns true for a valid PendingEdit with optional pseudo + scope + instanceSources', () => {
+    const edit: PendingEdit = {
+      ...makeEdit({ intentId: 'with-opts' }),
+      pseudo: '::before',
+      scope: 'all',
+      instanceSources: ['src/A.tsx:1:1', 'src/B.tsx:2:2'],
+    }
+    expect(isValidPendingEdit(edit)).toBe(true)
+  })
+
+  it('returns false when intentId is missing', () => {
+    const v = makeEdit({ intentId: 'x' }) as Record<string, unknown>
+    delete v.intentId
+    expect(isValidPendingEdit(v)).toBe(false)
+  })
+
+  it('returns false when intentId is empty string', () => {
+    expect(isValidPendingEdit(makeEdit({ intentId: '' }))).toBe(false)
+  })
+
+  it('returns false when value exceeds 4096 bytes', () => {
+    const oversize = 'x'.repeat(4097)
+    expect(isValidPendingEdit(makeEdit({ intentId: 'big', value: oversize }))).toBe(false)
+  })
+
+  it('accepts value exactly at the 4096-byte cap', () => {
+    const atCap = 'x'.repeat(4096)
+    expect(isValidPendingEdit(makeEdit({ intentId: 'cap', value: atCap }))).toBe(true)
+  })
+
+  it('returns false when source exceeds 1024 bytes', () => {
+    const oversize = 'x'.repeat(1025) + ':1:1'
+    expect(isValidPendingEdit(makeEdit({ intentId: 'big-src', source: oversize }))).toBe(false)
+  })
+
+  it('returns false when pseudo is null (protocol contract is "omit if not pseudo")', () => {
+    const v: Record<string, unknown> = { ...makeEdit({ intentId: 'p-null' }), pseudo: null }
+    expect(isValidPendingEdit(v)).toBe(false)
+  })
+
+  it('returns true when pseudo is "::before" or "::after"', () => {
+    expect(isValidPendingEdit({ ...makeEdit({ intentId: 'p1' }), pseudo: '::before' })).toBe(true)
+    expect(isValidPendingEdit({ ...makeEdit({ intentId: 'p2' }), pseudo: '::after' })).toBe(true)
+  })
+
+  it('returns false when instanceSources has > 100 entries', () => {
+    const sources = Array.from({ length: 101 }, (_, i) => `src/F${i}.tsx:1:1`)
+    const v = { ...makeEdit({ intentId: 'many' }), instanceSources: sources }
+    expect(isValidPendingEdit(v)).toBe(false)
+  })
+
+  it('returns false when timestamp is NaN', () => {
+    expect(isValidPendingEdit(makeEdit({ intentId: 'nan', timestamp: NaN }))).toBe(false)
+  })
+
+  it('returns false when timestamp is Infinity', () => {
+    expect(isValidPendingEdit(makeEdit({ intentId: 'inf', timestamp: Infinity }))).toBe(false)
+  })
+
+  it('returns false when value is the wrong type (number)', () => {
+    const v: Record<string, unknown> = { ...makeEdit({ intentId: 'wrong' }) }
+    v.value = 42
+    expect(isValidPendingEdit(v)).toBe(false)
+  })
+
+  it('returns false for null/non-object inputs', () => {
+    expect(isValidPendingEdit(null)).toBe(false)
+    expect(isValidPendingEdit(undefined)).toBe(false)
+    expect(isValidPendingEdit('not-an-edit')).toBe(false)
+    expect(isValidPendingEdit(42)).toBe(false)
   })
 })

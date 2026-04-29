@@ -455,7 +455,6 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     'cortex_get_pending_edits',
     {
       description: 'List all pending staged property edits the designer has staged. Returns intents with full metadata for each.',
-      // No inputSchema — matches cortex_get_pending pattern at line 323-334
     },
     async () => {
       try {

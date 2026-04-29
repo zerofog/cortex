@@ -84,14 +84,17 @@ export class StagedEditsCache {
    * The browser staging buffer dedupes upstream, so duplicates within a
    * single payload are not expected in practice.
    *
-   * Inputs exceeding MAX_FULL_SYNC_SIZE are rejected with a console.warn;
+   * Inputs exceeding MAX_FULL_SYNC_SIZE are rejected with a console.error;
    * cache state is left unchanged so a malformed message can't wipe a
-   * healthy cache.
+   * healthy cache. Severity is `error` (not `warn`) because the browser-side
+   * cap is 2× MAX_ENTRIES — an oversize payload arriving here means client
+   * misbehavior or compromise, and the server cache is now silently divergent
+   * from browser canonical until the next legitimate sync.
    */
   mergeFullSync(edits: readonly PendingEdit[]): void {
     if (edits.length > MAX_FULL_SYNC_SIZE) {
-      console.warn(
-        `[cortex] StagedEditsCache.mergeFullSync rejected: ${edits.length} entries exceeds defensive cap ${MAX_FULL_SYNC_SIZE}`,
+      console.error(
+        `[cortex] StagedEditsCache.mergeFullSync rejected: ${edits.length} entries exceeds defensive cap ${MAX_FULL_SYNC_SIZE} — possible client misbehavior or compromise`,
       )
       return
     }
@@ -130,6 +133,48 @@ export class StagedEditsCache {
   size(): number {
     return this.store.size
   }
+}
+
+// ---------------------------------------------------------------------------
+// isValidPendingEdit — server-side WS trust-boundary validation
+//
+// Bounds caps for shape + size validation. Defense-in-depth: TypeScript
+// narrowing doesn't survive JSON-over-WS, and Zod runs only at the MCP
+// boundary (handleRPC has a parallel WS entry). A compromised browser script
+// with a valid token can otherwise OOM the dev server with a single 100MB
+// `intent.value`. Caps are generous (legitimate edits are ~100 bytes); the
+// goal is to bound worst-case allocation, not police normal traffic.
+// ---------------------------------------------------------------------------
+
+const MAX_INTENT_VALUE_BYTES = 4096
+const MAX_INTENT_SOURCE_BYTES = 1024
+const MAX_INTENT_ID_BYTES = 256
+const MAX_INTENT_PROPERTY_BYTES = 256
+const MAX_INTENT_INSTANCE_SOURCES = 100
+
+/** Validate a PendingEdit at the WebSocket trust boundary. Both shape and
+ *  per-field bounds. Returns false (does NOT throw) on any deviation; callers
+ *  drop the message and log a warning. */
+export function isValidPendingEdit(value: unknown): value is PendingEdit {
+  if (!value || typeof value !== 'object') return false
+  const v = value as Record<string, unknown>
+  if (typeof v.intentId !== 'string' || v.intentId.length === 0 || v.intentId.length > MAX_INTENT_ID_BYTES) return false
+  if (typeof v.source !== 'string' || v.source.length === 0 || v.source.length > MAX_INTENT_SOURCE_BYTES) return false
+  if (typeof v.property !== 'string' || v.property.length === 0 || v.property.length > MAX_INTENT_PROPERTY_BYTES) return false
+  if (typeof v.value !== 'string' || v.value.length > MAX_INTENT_VALUE_BYTES) return false
+  if (typeof v.previousValue !== 'string' || v.previousValue.length > MAX_INTENT_VALUE_BYTES) return false
+  // pseudo: optional, must be one of two literals if present. `null` is
+  // explicitly rejected (some browser code paths send pseudo: null instead of
+  // omitting the field — protocol contract is "omit if not pseudo").
+  if (v.pseudo !== undefined && v.pseudo !== '::before' && v.pseudo !== '::after') return false
+  if (v.scope !== undefined && v.scope !== 'instance' && v.scope !== 'all') return false
+  if (v.instanceSources !== undefined) {
+    if (!Array.isArray(v.instanceSources)) return false
+    if (v.instanceSources.length > MAX_INTENT_INSTANCE_SOURCES) return false
+    if (!v.instanceSources.every(s => typeof s === 'string' && s.length <= MAX_INTENT_SOURCE_BYTES)) return false
+  }
+  if (typeof v.timestamp !== 'number' || !Number.isFinite(v.timestamp)) return false
+  return true
 }
 
 // ---------------------------------------------------------------------------

@@ -15,7 +15,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { startMCPServer, type MCPServerHandle } from '../../src/cli/mcp.js'
 import type { PendingEdit } from '../../src/adapters/types.js'
-import { isPathInsideRoot } from '../../src/adapters/vite.js'
+import { isPathInsideRoot, requireRealpathInsideRoot } from '../../src/adapters/vite.js'
 import { applyEditsCore } from '../../src/core/staged-edits.js'
 import { makeEdit } from '../core/helpers.js'
 import fs from 'node:fs'
@@ -763,6 +763,94 @@ describe('isPathInsideRoot — path-containment predicate (ZF0-1452 security)', 
     // Removing `+ path.sep` would fail this assertion cleanly.
     const root = '/Users/test/project'
     expect(isPathInsideRoot('/Users/test/project-evil/file.ts', root)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// SECURITY: requireRealpathInsideRoot — symlink-aware path containment
+//
+// fs.readFileSync follows symlinks transparently, so a node_modules/.../leak
+// symlink to /etc/passwd planted by a malicious npm postinstall would pass
+// the syntactic isPathInsideRoot check but read outside the root. This guard
+// resolves both sides through fs.realpathSync.native and re-checks
+// containment. Tests use a real on-disk symlink in a tmpdir so the
+// production fs codepath is exercised (no shadow copy in the test).
+// ---------------------------------------------------------------------------
+
+describe('requireRealpathInsideRoot — symlink-aware path containment (ZF0-1452 security)', () => {
+  let tmpRoot: string
+  let projectRoot: string
+  let outsideRoot: string
+
+  beforeEach(() => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-symlink-test-'))
+    projectRoot = path.join(tmpRoot, 'project')
+    outsideRoot = path.join(tmpRoot, 'outside')
+    fs.mkdirSync(projectRoot, { recursive: true })
+    fs.mkdirSync(outsideRoot, { recursive: true })
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpRoot, { recursive: true, force: true })
+  })
+
+  it('rejects a symlink whose target is outside the project root', () => {
+    // Plant the leak: project/leak → outside/secret.txt
+    const secret = path.join(outsideRoot, 'secret.txt')
+    fs.writeFileSync(secret, 'sensitive contents')
+    const leak = path.join(projectRoot, 'leak.txt')
+    fs.symlinkSync(secret, leak)
+
+    const result = requireRealpathInsideRoot(leak, projectRoot)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toBe('Path outside project root (symlink-resolved)')
+    }
+  })
+
+  it('accepts a symlink whose target is inside the project root', () => {
+    // Legitimate: project/inner.ts → project/sub/real.ts
+    const subDir = path.join(projectRoot, 'sub')
+    fs.mkdirSync(subDir)
+    const realFile = path.join(subDir, 'real.ts')
+    fs.writeFileSync(realFile, 'export const x = 1')
+    const innerLink = path.join(projectRoot, 'inner.ts')
+    fs.symlinkSync(realFile, innerLink)
+
+    const result = requireRealpathInsideRoot(innerLink, projectRoot)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      // realpath canonicalizes — assert that real points at the underlying file
+      expect(result.real).toBe(fs.realpathSync.native(realFile))
+    }
+  })
+
+  it('accepts a non-symlink path inside the project root', () => {
+    const ordinary = path.join(projectRoot, 'ordinary.ts')
+    fs.writeFileSync(ordinary, 'export const y = 2')
+    const result = requireRealpathInsideRoot(ordinary, projectRoot)
+    expect(result.ok).toBe(true)
+  })
+
+  it('returns structured error when path does not exist (ENOENT)', () => {
+    const ghost = path.join(projectRoot, 'does-not-exist.ts')
+    const result = requireRealpathInsideRoot(ghost, projectRoot)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toContain('Could not resolve symlinks')
+      expect(result.error).toContain('ENOENT')
+    }
+  })
+
+  it('uses the injected realpathFn (test seam)', () => {
+    // Falsifiability anchor: removing the realpathFn parameter or hardcoding
+    // fs.realpathSync.native would fail this test cleanly.
+    const fakeRealpath = (p: string): string => p === '/fake/leak' ? '/elsewhere/secret' : p
+    const result = requireRealpathInsideRoot('/fake/leak', '/fake', fakeRealpath)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toBe('Path outside project root (symlink-resolved)')
+    }
   })
 })
 

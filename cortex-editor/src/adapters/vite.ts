@@ -24,7 +24,7 @@ import { UndoStack } from '../core/session/undo-stack.js'
 import { AIWriter } from '../core/ai-writer.js'
 import { DeferredWriter } from '../core/deferred-writer.js'
 import { CortexSession } from '../core/session.js'
-import { applyEditsCore } from '../core/staged-edits.js'
+import { applyEditsCore, isValidPendingEdit } from '../core/staged-edits.js'
 import { atomicWrite } from './atomic-write.js'
 
 export interface CortexEditorOptions {
@@ -106,7 +106,8 @@ export function validateToggleShortcut(shortcut: string): string {
  *  from being mistaken for a child of `/Users/test/project`.
  *
  *  Used by the cortex_get_intent_context RPC handler. The fix-request
- *  elementSource validator (vite.ts ~line 687-694) does NOT use this helper
+ *  elementSource validator (search "data.kind === 'fix-request'" in
+ *  hotHandler) does NOT use this helper
  *  because it operates on `realpathSync`-resolved paths (symlink-aware), which
  *  is a related-but-distinct concern; consolidating the two would conflate the
  *  syntactic check with the symlink-aware check. Centralizing this predicate
@@ -114,6 +115,48 @@ export function validateToggleShortcut(shortcut: string): string {
  *  CLAUDE.md test rule #1. */
 export function isPathInsideRoot(resolved: string, root: string): boolean {
   return resolved.startsWith(root + path.sep) || resolved === root
+}
+
+/** Result variant for requireRealpathInsideRoot. Discriminated by `ok`. */
+export type RealpathContainmentResult =
+  | { ok: true; real: string; realRoot: string }
+  | { ok: false; error: string }
+
+/** Symlink-aware containment guard. Resolves both `resolved` and `root`
+ *  through fs.realpathSync.native, then re-checks containment via
+ *  isPathInsideRoot. Returns a structured ok/error result so callers can
+ *  differentiate "stat failed" (symlink target gone) from "real path escapes
+ *  the root" (security violation).
+ *
+ *  Shape choice: returns realRoot as well as real so callers that need to
+ *  stat/read the resolved file use the same root-relative interpretation
+ *  the predicate enforced. Centralizing this here lets the security
+ *  regression test exercise the real symbol against a real on-disk symlink
+ *  (no shadow copy in the test — same convention as isPathInsideRoot).
+ *
+ *  realpathSync.native errors carry an ENOENT/EACCES/etc. code; the result's
+ *  error string includes the code so Claude can distinguish failure modes.
+ *
+ *  realpathFn is injectable for tests that don't want to touch the real fs;
+ *  default uses fs.realpathSync.native. */
+export function requireRealpathInsideRoot(
+  resolved: string,
+  root: string,
+  realpathFn: (p: string) => string = fs.realpathSync.native,
+): RealpathContainmentResult {
+  let real: string
+  let realRoot: string
+  try {
+    real = realpathFn(resolved)
+    realRoot = realpathFn(root)
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code
+    return { ok: false, error: `Could not resolve symlinks${code ? ` (${code})` : ''}` }
+  }
+  if (!isPathInsideRoot(real, realRoot)) {
+    return { ok: false, error: 'Path outside project root (symlink-resolved)' }
+  }
+  return { ok: true, real, realRoot }
 }
 
 /** Escape JSON for safe embedding in <script> context. */
@@ -219,6 +262,12 @@ const ALLOWED_RPC_METHODS = new Set([
   'getPendingEdits', 'applyEdits', 'discardEdits', 'getIntentContext',
 ])
 
+/** Defense-in-depth string-array coercion for params reachable via WebSocket
+ *  (Zod runs at the MCP boundary; handleRPC is also reachable directly). */
+function parseStringIds(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((x): x is string => typeof x === 'string') : []
+}
+
 function handleRPC(method: string, params: Record<string, unknown>): unknown {
   // --- Annotation methods ---
   const id = typeof params.annotationId === 'string' ? params.annotationId : ''
@@ -274,20 +323,14 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
     }
 
     case 'applyEdits': {
-      // Defense-in-depth: filter to strings even after Zod runs at the MCP boundary,
-      // since handleRPC is also reachable via the WebSocket directly.
-      const rawIds = Array.isArray(params.intentIds) ? params.intentIds : []
-      const intentIds = rawIds.filter((x): x is string => typeof x === 'string')
+      const intentIds = parseStringIds(params.intentIds)
       // ZF0-1464 deferral: production routes all found intents to Claude's Edit
       // tool. See applyEditsCore docstring for the full rationale.
       return { results: applyEditsCore(currentSession!.stagedEdits, intentIds) }
     }
 
     case 'discardEdits': {
-      // Defense-in-depth: filter to strings even after Zod runs at the MCP boundary,
-      // since handleRPC is also reachable via the WebSocket directly.
-      const rawIds = Array.isArray(params.intentIds) ? params.intentIds : []
-      const intentIds = rawIds.filter((x): x is string => typeof x === 'string')
+      const intentIds = parseStringIds(params.intentIds)
 
       currentSession!.stagedEdits.remove(intentIds)
 
@@ -342,14 +385,32 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
         return { error: 'Path outside project root' }
       }
 
+      // Symlink-aware containment: resolvedPath is the syntactic resolution
+      // only. fs.readFileSync follows symlinks transparently, so a
+      // node_modules/.../leak symlink to /etc/passwd planted by a malicious
+      // npm postinstall would pass the syntactic check above but read outside
+      // the root. Mirror the realpathSync.native pattern from the
+      // comment-fix-request elementSource validator (search "data.kind ===
+      // 'fix-request'" in hotHandler). The predicate is extracted to
+      // requireRealpathInsideRoot so its security regression test exercises
+      // the real code path (no shadow copy in the test).
+      const containment = requireRealpathInsideRoot(resolvedPath, projectRoot)
+      if (!containment.ok) {
+        return { error: containment.error.includes('outside') ? containment.error : `${containment.error} in: ${filePath}` }
+      }
+      const realPath = containment.real
+
       // Size cap — reject before reading so a 10MB+ generated file (lockfile,
       // asset bundle, db dump) under projectRoot can't stall the Vite event
       // loop via the synchronous read below. See MAX_INTENT_FILE_BYTES docstring.
+      // Stat + read against realPath so the size check matches what
+      // readFileSync will actually load (symlinks already resolved).
       let stats: fs.Stats
       try {
-        stats = fs.statSync(resolvedPath)
+        stats = fs.statSync(realPath)
       } catch (err) {
-        return { error: `Could not stat file: ${filePath}` }
+        const code = (err as NodeJS.ErrnoException)?.code
+        return { error: `Could not stat file: ${filePath}${code ? ` (${code})` : ''}` }
       }
       if (stats.size > MAX_INTENT_FILE_BYTES) {
         return {
@@ -359,9 +420,10 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
 
       let fileContent: string
       try {
-        fileContent = fs.readFileSync(resolvedPath, 'utf8')
+        fileContent = fs.readFileSync(realPath, 'utf8')
       } catch (err) {
-        return { error: `Could not read file: ${filePath}` }
+        const code = (err as NodeJS.ErrnoException)?.code
+        return { error: `Could not read file: ${filePath}${code ? ` (${code})` : ''}` }
       }
 
       const lines = fileContent.split('\n')
@@ -396,14 +458,28 @@ function forwardToCLI(msg: unknown): void {
   let data: string
   try {
     data = JSON.stringify(msg)
-  } catch {
+  } catch (err) {
+    // Surface the failure instead of swallowing — T2 routes Apply-prompt
+    // notifications (`staged-edits-ready`) through this path; a swallowed
+    // serialization failure means Claude never receives the prompt and the
+    // designer presses Apply with no feedback.
+    const type = (msg as Record<string, unknown> | null)?.type ?? '<unknown>'
+    console.error(
+      `[cortex] forwardToCLI: JSON.stringify failed for type=${String(type)}:`,
+      err instanceof Error ? err.message : String(err),
+    )
     return
   }
   for (const client of currentSession.cliClients) {
     if (client.readyState !== WebSocket.OPEN) continue
     try {
       client.send(data)
-    } catch {
+    } catch (err) {
+      const type = (msg as Record<string, unknown> | null)?.type ?? '<unknown>'
+      console.warn(
+        `[cortex] forwardToCLI: client.send failed for type=${String(type)}, evicting client:`,
+        err instanceof Error ? err.message : String(err),
+      )
       currentSession.cliClients.delete(client)
     }
   }
@@ -798,12 +874,27 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         }
 
         // Staging buffer sync messages — mirror browser-canonical state into server cache.
+        // Each branch validates payload shape + bounds at the WS trust boundary
+        // (defense-in-depth — ws default maxPayload is 100MB, and a compromised
+        // browser script with a valid token could otherwise OOM the dev server).
         if (data.type === 'staged-edit-add') {
+          if (!isValidPendingEdit(data.edit)) {
+            console.warn('[cortex] staged-edit-add rejected: malformed or oversized edit payload')
+            return
+          }
           currentSession!.stagedEdits.append(data.edit)
           return
         }
         if (data.type === 'staged-edit-remove') {
-          currentSession!.stagedEdits.remove(data.intentIds)
+          if (!Array.isArray(data.intentIds)) {
+            console.warn('[cortex] staged-edit-remove rejected: intentIds is not an array')
+            return
+          }
+          // Bounded string filter — same per-id length cap as isValidPendingEdit.
+          const filtered = data.intentIds.filter(
+            (x: unknown): x is string => typeof x === 'string' && x.length > 0 && x.length <= 256,
+          )
+          currentSession!.stagedEdits.remove(filtered)
           return
         }
         if (data.type === 'staged-edit-clear') {
@@ -811,11 +902,24 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           return
         }
         if (data.type === 'staged-edits-sync') {
-          currentSession!.stagedEdits.mergeFullSync(data.edits)
+          if (!Array.isArray(data.edits)) {
+            console.warn('[cortex] staged-edits-sync rejected: edits is not an array')
+            return
+          }
+          // Drop invalid entries rather than rejecting the whole batch — one
+          // malformed edit shouldn't lose 499 valid ones during multi-tab merge.
+          const validEdits = data.edits.filter(isValidPendingEdit)
+          if (validEdits.length < data.edits.length) {
+            console.warn(
+              `[cortex] staged-edits-sync filtered ${data.edits.length - validEdits.length} invalid edits`,
+            )
+          }
+          currentSession!.stagedEdits.mergeFullSync(validEdits)
           return
         }
         // 'staged-edits-ready' is forwarded to CLI clients via forwardToCLI() at the top
-        // of hotHandler — do NOT add a branch here; T2 will register the MCP-side handler.
+        // of hotHandler; the MCP-side handler in mcp.ts dispatches the channel
+        // notification. Do NOT add a server-side branch here.
 
         // Route edit/undo/redo to EditPipeline (or notify if still initializing)
         if (data.type === 'edit') {
