@@ -249,6 +249,18 @@ export function Panel({
   // Staging buffer for property edits — accumulates browser-side before Apply gesture.
   const buffer = useEditStagingBuffer()
 
+  // Handle server → browser discard message: when Claude calls cortex_discard_edits, the
+  // server sends 'staged-edits-discard' so the browser canonical buffer stays in sync.
+  useEffect(() => {
+    if (!channel) return
+    return channel.onMessage((msg) => {
+      if (msg.type === 'staged-edits-discard') {
+        const ids = (msg as { type: 'staged-edits-discard'; intentIds: string[] }).intentIds
+        buffer.remove(ids)
+      }
+    })
+  }, [channel, buffer])
+
   // Pseudo-element tab state — internal to Panel
   const [activePseudo, setActivePseudo] = useState<'element' | '::before' | '::after'>('element')
 

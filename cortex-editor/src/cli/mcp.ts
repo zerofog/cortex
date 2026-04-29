@@ -153,6 +153,30 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         browserConnected = Boolean(msg.browserConnected)
       }
 
+      // Push channel notification when the designer signals staged edits are ready for review.
+      // 'staged-edits-ready' is forwarded by Vite's forwardToCLI path (no server-side branch
+      // in vite.ts hotHandler) and arrives here for MCP-side notification dispatch.
+      if (msg.type === 'staged-edits-ready') {
+        const { count, requestId } = msg as { count: number; requestId: string }
+        void Promise.resolve().then(() =>
+          server.server.notification({
+            method: 'notifications/claude/channel',
+            params: {
+              content: `${count} cortex edits ready for review (call cortex_get_pending_edits)`,
+              meta: {
+                request_id: String(requestId),
+                severity: 'info',
+                kind: 'staged-edits',
+                // MCP notifications meta values must be strings — per convention
+                count: String(count),
+              },
+            },
+          } as never),
+        ).catch((err: unknown) => {
+          process.stderr.write(`[cortex] Failed to send staged-edits notification: ${err instanceof Error ? err.message : String(err)}\n`)
+        })
+      }
+
       // Push channel notification for fix-request annotations
       // Push all annotation-created messages to Claude Code via channel notification.
       // Comments arrive immediately so Claude can act. Fix-requests include fixMeta for structured repair.
@@ -415,6 +439,78 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     async ({ annotationId, text }) => {
       try {
         const result = await rpc('respond', { annotationId, text })
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Failed: ${err instanceof Error ? err.message : String(err)}` }], isError: true }
+      }
+    },
+  )
+
+  // --- Staged-edit tools (ZF0-1452 T2) ---
+
+  server.registerTool(
+    'cortex_get_pending_edits',
+    {
+      description: 'List all pending staged property edits the designer has staged. Returns intents with full metadata for each.',
+      // No inputSchema — matches cortex_get_pending pattern at line 323-334
+    },
+    async () => {
+      try {
+        const result = await rpc('getPendingEdits', {})
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Failed: ${err instanceof Error ? err.message : String(err)}` }], isError: true }
+      }
+    },
+  )
+
+  server.registerTool(
+    'cortex_apply_edits',
+    {
+      description: 'Apply staged edits via deterministic source rewrites where possible. Returns per-id result indicating whether the edit was applied, requires-source-edit (Claude must use Edit tool), or failed.',
+      inputSchema: {
+        intentIds: z.array(z.string()).describe('IDs of intents to apply'),
+      },
+    },
+    async ({ intentIds }) => {
+      try {
+        const result = await rpc('applyEdits', { intentIds })
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Failed: ${err instanceof Error ? err.message : String(err)}` }], isError: true }
+      }
+    },
+  )
+
+  server.registerTool(
+    'cortex_discard_edits',
+    {
+      description: 'Remove staged edits from the buffer without writing source. Returns the IDs that were discarded.',
+      inputSchema: {
+        intentIds: z.array(z.string()).describe('IDs of intents to discard'),
+      },
+    },
+    async ({ intentIds }) => {
+      try {
+        const result = await rpc('discardEdits', { intentIds })
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Failed: ${err instanceof Error ? err.message : String(err)}` }], isError: true }
+      }
+    },
+  )
+
+  server.registerTool(
+    'cortex_get_intent_context',
+    {
+      description: 'Returns ~20 lines of source context around the intent location, plus the current value at that line for divergence detection.',
+      inputSchema: {
+        intentId: z.string().describe('ID of the intent to get context for'),
+      },
+    },
+    async ({ intentId }) => {
+      try {
+        const result = await rpc('getIntentContext', { intentId })
         return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
       } catch (err) {
         return { content: [{ type: 'text' as const, text: `Failed: ${err instanceof Error ? err.message : String(err)}` }], isError: true }

@@ -165,10 +165,18 @@ let currentSession: CortexSession | null = null
 // Single shutdown handler registered on both SIGINT and SIGTERM, tracked for cleanup on re-entry
 let shutdownHandler: (() => void) | null = null
 
-// Annotation RPC dispatch
-const ALLOWED_RPC_METHODS = new Set(['getPending', 'getDetails', 'acknowledge', 'resolve', 'dismiss', 'respond'])
+// RPC dispatch — handles annotation methods (Phase 7) and staged-edit methods (ZF0-1452 T2).
+// Renamed from handleAnnotationRPC → handleRPC as staged-edit methods are now co-located here.
+// Option B chosen: single dispatcher, TypeScript compile-time safety catches stale call sites.
+const ALLOWED_RPC_METHODS = new Set([
+  // Annotation methods (Phase 7)
+  'getPending', 'getDetails', 'acknowledge', 'resolve', 'dismiss', 'respond',
+  // Staged-edit methods (ZF0-1452 T2)
+  'getPendingEdits', 'applyEdits', 'discardEdits', 'getIntentContext',
+])
 
-function handleAnnotationRPC(method: string, params: Record<string, unknown>): unknown {
+function handleRPC(method: string, params: Record<string, unknown>): unknown {
+  // --- Annotation methods ---
   const id = typeof params.annotationId === 'string' ? params.annotationId : ''
   switch (method) {
     case 'getPending': return currentSession!.annotations.getPending()
@@ -210,6 +218,104 @@ function handleAnnotationRPC(method: string, params: Record<string, unknown>): u
       }
       return result
     }
+
+    // --- Staged-edit methods (ZF0-1452 T2) ---
+
+    case 'getPendingEdits': {
+      // TODO(ZF0-1452+): drift recovery — see checkpoint arch review T2 carry-over #1.
+      // A forced resync request could be sent to the browser here so it emits
+      // syncFullState(allEntries) right before Claude reads. Deferred to keep T2 scope clean.
+      const intents = currentSession!.stagedEdits.list()
+      return { intents, count: intents.length }
+    }
+
+    case 'applyEdits': {
+      const intentIds = Array.isArray(params.intentIds) ? params.intentIds as string[] : []
+      // NOTE: EditPipeline.handleEdit() returns void and communicates results back via
+      // channel.send({ type: 'edit_status', ... }) asynchronously. There is no synchronous
+      // return-value API for "applied vs needs-source-edit". For the RPC response contract,
+      // we classify each intent as 'needs-source-edit' so Claude uses its Edit tool to write
+      // source. Deterministic apply (inline-style rewriter) is a future enhancement that
+      // would require exposing a promise-based pipeline API.
+      // TODO(ZF0-1452+): add a promise-based handleEditSync() to EditPipeline that returns
+      // an { status: 'applied' | 'needs-source-edit' | 'failed' } result directly, then
+      // route deterministic intents through it here.
+      const results = intentIds.map((intentId) => {
+        const intent = currentSession!.stagedEdits.getById(intentId)
+        if (!intent) {
+          return { intentId, status: 'failed', error: 'intent not found' }
+        }
+        // Return needs-source-edit so Claude uses its Edit tool to apply the change.
+        // Do NOT remove from cache — Claude will write source, then the next browser sync
+        // will reconcile state via staged-edits-sync.
+        return {
+          intentId,
+          status: 'needs-source-edit' as const,
+          intent,
+          reason: 'Apply via source edit: use the Edit tool on the file at intent.source to set the property to intent.value',
+        }
+      })
+      return { results }
+    }
+
+    case 'discardEdits': {
+      const intentIds = Array.isArray(params.intentIds) ? params.intentIds as string[] : []
+      currentSession!.stagedEdits.remove(intentIds)
+      // Notify browser so its canonical buffer stays in sync with server cache.
+      if (currentSession!.channel) {
+        currentSession!.channel.send({ type: 'staged-edits-discard', intentIds })
+      }
+      return { discarded: intentIds }
+    }
+
+    case 'getIntentContext': {
+      const intentId = typeof params.intentId === 'string' ? params.intentId : ''
+      const intent = currentSession!.stagedEdits.getById(intentId)
+      if (!intent) {
+        return { error: 'intent not found' }
+      }
+
+      // Parse source: "file:line:col" — split on LAST two colons to handle paths with colons
+      const lastColon = intent.source.lastIndexOf(':')
+      const secondLastColon = intent.source.lastIndexOf(':', lastColon - 1)
+      if (lastColon < 0 || secondLastColon < 0) {
+        return { error: `Malformed source: ${intent.source}` }
+      }
+      const filePath = intent.source.slice(0, secondLastColon)
+      const line = parseInt(intent.source.slice(secondLastColon + 1, lastColon), 10)
+
+      const projectRoot = currentSession!.config.root
+      const resolvedPath = path.resolve(projectRoot, filePath)
+
+      let fileContent: string
+      try {
+        fileContent = fs.readFileSync(resolvedPath, 'utf8')
+      } catch (err) {
+        return { error: `Could not read file: ${filePath}` }
+      }
+
+      const lines = fileContent.split('\n')
+      const targetIdx = line - 1  // convert 1-based to 0-based
+      const beforeStart = Math.max(0, targetIdx - 10)
+      const afterEnd = Math.min(lines.length - 1, targetIdx + 10)
+
+      // TODO(ZF0-1452+): structured currentValue extraction via AST.
+      // Currently returns the target line text as currentValue; Claude can infer
+      // the property value from context. A future enhancement would parse the AST
+      // to extract the specific CSS property value for divergence detection.
+      const targetLine = lines[targetIdx] ?? ''
+
+      return {
+        intentId,
+        context: {
+          before: lines.slice(beforeStart, targetIdx),
+          target: targetLine,
+          after: lines.slice(targetIdx + 1, afterEnd + 1),
+        },
+        currentValue: targetLine,
+      }
+    }
+
     default: throw new Error(`Unknown RPC method: ${method}`)
   }
 }
@@ -872,7 +978,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
                 return
               }
               try {
-                const result = handleAnnotationRPC(method, params)
+                const result = handleRPC(method, params)
                 try {
                   ws.send(JSON.stringify({ type: 'cortex-rpc-result', requestId, result }))
                 } catch (sendErr) {

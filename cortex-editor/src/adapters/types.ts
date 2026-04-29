@@ -184,6 +184,9 @@ export type ServerToBrowser =
   | { type: 'agent-status'; connected: boolean }
   | { type: 'activity-entry'; entry: ActivityEntry }
   | { type: 'capabilities'; systems: StyleCapability[] }
+  /** Instructs the browser to remove the specified intents from its canonical staging buffer.
+   *  Sent by the server when Claude calls cortex_discard_edits so browser + server stay in sync. */
+  | { type: 'staged-edits-discard'; intentIds: string[] }
 
 export interface ElementContext {
   tagName: string
