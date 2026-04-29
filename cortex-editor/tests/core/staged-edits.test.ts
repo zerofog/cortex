@@ -1,18 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { StagedEditsCache } from '../../src/core/staged-edits.js'
-import type { PendingEdit } from '../../src/adapters/types.js'
-
-function makeEdit(overrides: Partial<PendingEdit> = {}): PendingEdit {
-  return {
-    intentId: crypto.randomUUID(),
-    source: 'src/Hero.tsx:14:5',
-    property: 'color',
-    value: 'red',
-    previousValue: 'blue',
-    timestamp: Date.now(),
-    ...overrides,
-  }
-}
+import { makeEdit } from './helpers.js'
 
 describe('StagedEditsCache', () => {
   it('append → list returns the appended entry', () => {

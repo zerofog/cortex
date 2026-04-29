@@ -3,6 +3,7 @@ import { render } from 'preact'
 import { act } from 'preact/test-utils'
 import { useEditStagingBuffer, type PendingEdit, type SyncEmitter } from '../../../src/browser/hooks/useEditStagingBuffer.js'
 import { cortexStorage } from '../../../src/browser/persistence.js'
+import { makeEdit } from '../../core/helpers.js'
 
 function renderHook<T>(hookFn: () => T): { result: { current: T }; unmount: () => void; rerender: (newHookFn: () => T) => void } {
   const result = { current: null as T }
@@ -26,18 +27,6 @@ function renderHook<T>(hookFn: () => T): { result: { current: T }; unmount: () =
       currentFn = newHookFn
       render(<Wrapper />, container)
     },
-  }
-}
-
-function makeEdit(overrides: Partial<PendingEdit> = {}): PendingEdit {
-  return {
-    intentId: crypto.randomUUID(),
-    source: 'src/Hero.tsx:14:5',
-    property: 'color',
-    value: 'red',
-    previousValue: 'blue',
-    timestamp: Date.now(),
-    ...overrides,
   }
 }
 

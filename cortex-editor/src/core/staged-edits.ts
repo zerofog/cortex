@@ -58,15 +58,15 @@ export class StagedEditsCache {
   /**
    * Replace the entire cache with a new list of edits. Used for full-sync
    * on Panel mount so the server cache catches up with browser-canonical state.
-   * Last-write-wins semantics apply within the provided list.
+   * On duplicate composite keys within `edits`, the last duplicate's value
+   * wins (Map.set overwrites). The browser-side staging buffer dedupes
+   * upstream via the same composite key, so duplicates here are not expected
+   * in practice.
    */
   replaceAll(edits: readonly PendingEdit[]): void {
     this.store.clear()
     for (const edit of edits) {
-      const key = compositeKey(edit)
-      // Last-write-wins: if the input list has duplicates, last one wins.
-      if (this.store.has(key)) this.store.delete(key)
-      this.store.set(key, snapshot(edit))
+      this.store.set(compositeKey(edit), snapshot(edit))
     }
   }
 
