@@ -8,10 +8,26 @@ export interface PendingEdit {
   value: string
   previousValue: string                   // captured at first touch
   pseudo?: '::before' | '::after'
-  scope?: 'one' | 'all'
+  /** Maps to server CortexEdit.scope. 'instance' = this element only; 'all' = all sharing this class. */
+  scope?: 'instance' | 'all'
   instanceSources?: string[]
   timestamp: number
 }
+
+/**
+ * Reads the source-of-truth value for a pending edit, bypassing any active
+ * cortex CSS overrides. Production HMR wiring MUST pass an implementation that
+ * temporarily detaches the override stylesheet (see
+ * `CSSOverrideManager.readUnderlyingValue`) — otherwise getComputedStyle will
+ * return cortex's own `!important` override value rather than the source value
+ * that HMR re-applied, producing a 100% false-positive divergence rate during
+ * active edits.
+ */
+export type ReadSourceValue = (
+  el: Element,
+  property: string,
+  pseudo: '::before' | '::after' | null,
+) => string
 
 export interface StagingBufferHandle {
   append: (edit: PendingEdit) => void     // last-write-wins by (source\0property\0pseudo)
@@ -24,26 +40,37 @@ export interface StagingBufferHandle {
    *
    * Browser-side has no direct file-source access, so this uses the live DOM.
    * For each PendingEdit whose file (source before the first ':') is in
-   * `changedFiles`, we query `document.querySelector('[data-cortex-source="<source>"]')`.
+   * `changedFiles`, we query
+   * `document.querySelector('[data-cortex-source="<CSS.escape(source)>"]')`.
    *
-   * Divergence check: prefer `element.style.getPropertyValue(prop)` (inline style);
-   * fall back to `getComputedStyle(el).getPropertyValue(prop)` (cascade) when the
-   * inline value is empty. Inline-first is more correct because HMR-reapplied
-   * styles show up there first, and it is more testable in happy-dom where
-   * getComputedStyle returns '' for dynamically set inline styles.
+   * IMPORTANT: When the cortex CSSOverrideManager has active overrides on the
+   * page, getComputedStyle() will return the override value, not the source
+   * value. Production HMR wiring MUST pass a `readSourceValue` callback that
+   * bypasses the override layer (e.g. delegating to
+   * `CSSOverrideManager.readUnderlyingValue`). The default reader (used by
+   * unit tests where no override layer is active) prefers
+   * `element.style.getPropertyValue(prop)` (skipped for pseudo-element edits
+   * since pseudos have no inline style) and falls back to
+   * `getComputedStyle(el, pseudo)` when the inline value is empty.
    *
    * An intent is divergent when:
    *   - The element does not exist in DOM (file deleted/refactored), OR
-   *   - The resolved current value (inline if non-empty, else computed)
-   *     differs from `previousValue.trim()`.
+   *   - The resolved current value differs from `previousValue.trim()`.
    *
    * Hook does NOT auto-subscribe to HMR. Wiring HMR → reconcile is deferred.
    */
-  reconcile: (changedFiles: string[]) => { divergent: PendingEdit[] }
+  reconcile: (
+    changedFiles: string[],
+    readSourceValue?: ReadSourceValue,
+  ) => { divergent: PendingEdit[] }
 }
 
 const MAX_ENTRIES = 500
 const DEBOUNCE_MS = 150
+
+/** `path:line:col` shape — line/col must be digits, path must not contain a `"`
+ *  (defense-in-depth alongside CSS.escape at the querySelector callsite). */
+const SOURCE_SHAPE = /^[^"]+:\d+:\d+$/
 
 /** Type guard for a single PendingEdit */
 function isPendingEdit(v: unknown): v is PendingEdit {
@@ -59,12 +86,16 @@ function isPendingEdit(v: unknown): v is PendingEdit {
   ) {
     return false
   }
+  // Source format guard (file:line:col). Rejects `"` in the path so that even
+  // if CSS.escape were ever bypassed, a malformed source can't smuggle a
+  // closing quote into the attribute selector.
+  if (!SOURCE_SHAPE.test(o.source)) return false
   // Optional fields: validate ONLY when present. The whole point of the
   // validator is to short-circuit corrupted localStorage to the [] fallback
   // before bad data flows into Apply. Accepting `pseudo: 'invalid'`,
   // `scope: 42`, or `instanceSources: 'oops'` would defeat that.
   if (o.pseudo !== undefined && o.pseudo !== '::before' && o.pseudo !== '::after') return false
-  if (o.scope !== undefined && o.scope !== 'one' && o.scope !== 'all') return false
+  if (o.scope !== undefined && o.scope !== 'instance' && o.scope !== 'all') return false
   if (
     o.instanceSources !== undefined &&
     (!Array.isArray(o.instanceSources) || !o.instanceSources.every(s => typeof s === 'string'))
@@ -90,6 +121,24 @@ function filePathFromSource(source: string): string {
   return idx === -1 ? source : source.slice(0, idx)
 }
 
+/** Default reader used when no `readSourceValue` callback is provided.
+ *  Inline-style first (skipped for pseudo-elements, which have none), then
+ *  getComputedStyle with the pseudo argument so pseudo-element edits query
+ *  the pseudo's box rather than the host element. NOTE: this default does
+ *  NOT bypass the cortex override layer — production callers must pass a
+ *  reader that delegates to CSSOverrideManager.readUnderlyingValue. */
+function defaultReadSourceValue(
+  el: Element,
+  property: string,
+  pseudo: '::before' | '::after' | null,
+): string {
+  const inlineValue = pseudo
+    ? ''
+    : (el as HTMLElement).style?.getPropertyValue(property).trim() ?? ''
+  if (inlineValue !== '') return inlineValue
+  return getComputedStyle(el, pseudo ?? undefined).getPropertyValue(property).trim()
+}
+
 /**
  * useEditStagingBuffer — accumulates PendingEdit entries browser-side.
  *
@@ -101,8 +150,6 @@ function filePathFromSource(source: string): string {
 export default function useEditStagingBuffer(): StagingBufferHandle {
   // Insertion-order map: composite key → PendingEdit
   const bufferRef = useRef<Map<string, PendingEdit>>(new Map())
-  // File-path index: filePath → Set<intentId>
-  const fileIndexRef = useRef<Map<string, Set<string>>>(new Map())
   // Debounce timer
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Track whether we've mounted (read from storage)
@@ -113,12 +160,7 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
     initRef.current = true
     const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
     for (const edit of stored) {
-      const key = compositeKey(edit)
-      bufferRef.current.set(key, edit)
-      const fp = filePathFromSource(edit.source)
-      const ids = fileIndexRef.current.get(fp) ?? new Set()
-      ids.add(edit.intentId)
-      fileIndexRef.current.set(fp, ids)
+      bufferRef.current.set(compositeKey(edit), edit)
     }
   }
 
@@ -150,39 +192,28 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
 
   const append = useCallback((edit: PendingEdit) => {
     const key = compositeKey(edit)
-    const existing = bufferRef.current.get(key)
-
-    if (existing) {
-      // Update in-place (last-write-wins) — remove and re-insert to keep insertion order
+    if (bufferRef.current.has(key)) {
+      // Update in-place (last-write-wins) — remove and re-insert to keep insertion order.
       bufferRef.current.delete(key)
-      // Remove old intentId from file index
-      const fp = filePathFromSource(existing.source)
-      const ids = fileIndexRef.current.get(fp)
-      if (ids) {
-        ids.delete(existing.intentId)
-        if (ids.size === 0) fileIndexRef.current.delete(fp)
-      }
     }
 
     bufferRef.current.set(key, edit)
 
-    // Update file index
-    const fp = filePathFromSource(edit.source)
-    const ids = fileIndexRef.current.get(fp) ?? new Set()
-    ids.add(edit.intentId)
-    fileIndexRef.current.set(fp, ids)
-
-    // Evict oldest entries if over limit
+    // Evict oldest entry if over limit.
     if (bufferRef.current.size > MAX_ENTRIES) {
       const firstKey = bufferRef.current.keys().next().value!
       const evicted = bufferRef.current.get(firstKey)!
       bufferRef.current.delete(firstKey)
-      const evictedFp = filePathFromSource(evicted.source)
-      const evictedIds = fileIndexRef.current.get(evictedFp)
-      if (evictedIds) {
-        evictedIds.delete(evicted.intentId)
-        if (evictedIds.size === 0) fileIndexRef.current.delete(evictedFp)
-      }
+      // Surface the eviction so a future Apply UI (ZF0-1452) can render a
+      // "buffer full — older edits dropped" notice. console.warn is
+      // intentionally low-key — the buffer continuing to function is the
+      // primary user expectation; the warning is for designers who hit the
+      // 500-entry ceiling.
+      console.warn(
+        '[cortex] Staging buffer evicted oldest intent (max 500):',
+        evicted.source,
+        evicted.property,
+      )
     }
 
     schedulePersist()
@@ -193,16 +224,7 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
     const toDeleteKeys: string[] = []
 
     for (const [key, edit] of bufferRef.current.entries()) {
-      if (idSet.has(edit.intentId)) {
-        toDeleteKeys.push(key)
-        // Update file index
-        const fp = filePathFromSource(edit.source)
-        const ids = fileIndexRef.current.get(fp)
-        if (ids) {
-          ids.delete(edit.intentId)
-          if (ids.size === 0) fileIndexRef.current.delete(fp)
-        }
-      }
+      if (idSet.has(edit.intentId)) toDeleteKeys.push(key)
     }
 
     for (const key of toDeleteKeys) {
@@ -218,7 +240,6 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
 
   const clear = useCallback(() => {
     bufferRef.current.clear()
-    fileIndexRef.current.clear()
     schedulePersist()
   }, [schedulePersist])
 
@@ -226,7 +247,10 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
     return bufferRef.current.size
   }, [])
 
-  const reconcile = useCallback((changedFiles: string[]): { divergent: PendingEdit[] } => {
+  const reconcile = useCallback((
+    changedFiles: string[],
+    readSourceValue: ReadSourceValue = defaultReadSourceValue,
+  ): { divergent: PendingEdit[] } => {
     if (changedFiles.length === 0) return { divergent: [] }
 
     const changedSet = new Set(changedFiles)
@@ -236,18 +260,20 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
       const fp = filePathFromSource(edit.source)
       if (!changedSet.has(fp)) continue
 
-      const el = document.querySelector(`[data-cortex-source="${edit.source}"]`)
+      // CSS.escape — `data-cortex-source` may contain `[`, `]`, `:` (Next.js
+      // dynamic routes like `src/app/[id]/page.tsx:14:5`), all of which break
+      // attribute selectors when interpolated raw. Every other querySelector
+      // callsite in this codebase already escapes (override.ts:267,
+      // selection-metadata.ts:65, CommentPin.tsx:8).
+      const el = document.querySelector(`[data-cortex-source="${CSS.escape(edit.source)}"]`)
       if (!el) {
         // Element does not exist — file deleted/refactored
         divergent.push(edit)
         continue
       }
 
-      // Prefer inline style (more testable in happy-dom, reflects HMR reapplication)
-      const inlineValue = (el as HTMLElement).style?.getPropertyValue(edit.property).trim() ?? ''
-      const currentValue = inlineValue !== ''
-        ? inlineValue
-        : getComputedStyle(el).getPropertyValue(edit.property).trim()
+      const pseudo = edit.pseudo ?? null
+      const currentValue = readSourceValue(el, edit.property, pseudo).trim()
 
       if (currentValue !== edit.previousValue.trim()) {
         divergent.push(edit)

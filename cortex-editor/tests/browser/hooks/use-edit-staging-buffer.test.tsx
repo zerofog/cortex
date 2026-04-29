@@ -96,7 +96,7 @@ describe('useEditStagingBuffer', () => {
     unmount()
   })
 
-  it('remove drops intents and updates file-path index', async () => {
+  it('remove drops intents from the buffer', async () => {
     const { result, unmount } = renderHook(() => useEditStagingBuffer())
 
     const edit = makeEdit({ intentId: 'id-remove', source: 'src/Hero.tsx:14:5' })
@@ -112,16 +112,12 @@ describe('useEditStagingBuffer', () => {
     })
 
     expect(result.current.list()).toHaveLength(0)
-
-    // Add an edit from same file; if the index were corrupted this might fail
-    // The simplest verify: list is empty, which means file-path index was updated too
-    // (we cannot directly inspect the Map, but size confirms it)
     expect(result.current.size()).toBe(0)
 
     unmount()
   })
 
-  it('clear empties buffer and clears index', async () => {
+  it('clear empties the buffer', async () => {
     const { result, unmount } = renderHook(() => useEditStagingBuffer())
 
     await act(() => {
@@ -249,7 +245,7 @@ describe('useEditStagingBuffer', () => {
     unmount()
   })
 
-  it('file-path index survives partial removal — B intents reconcile after A is cleared', async () => {
+  it('cross-file isolation — B intents reconcile after A is cleared', async () => {
     const { result, unmount } = renderHook(() => useEditStagingBuffer())
 
     const editA1 = makeEdit({
@@ -309,6 +305,166 @@ describe('useEditStagingBuffer', () => {
     expect(divergentA).toHaveLength(0)
 
     elB.remove()
+    unmount()
+  })
+
+  it('reconcile uses readSourceValue callback when provided (bypasses override layer)', async () => {
+    // Production HMR wiring passes a reader that detaches the cortex override
+    // <style> tag before reading getComputedStyle, so the buffer sees the
+    // SOURCE value rather than cortex's own !important override. This test
+    // proves the callback path: a custom reader returns 'red' regardless of
+    // the actual DOM state, and reconcile must compare against THAT — not
+    // against any inline/computed value.
+    const { result, unmount } = renderHook(() => useEditStagingBuffer())
+
+    const el = document.createElement('div')
+    el.setAttribute('data-cortex-source', 'src/Hero.tsx:5:3')
+    // Inline style says 'green' — the default reader would see this. The
+    // injected reader IGNORES it and returns 'red' instead, which matches
+    // previousValue, so reconcile must NOT flag this entry as divergent.
+    el.style.color = 'green'
+    document.body.appendChild(el)
+
+    await act(() => {
+      result.current.append(makeEdit({
+        intentId: 'reader-id',
+        source: 'src/Hero.tsx:5:3',
+        property: 'color',
+        previousValue: 'red',
+      }))
+    })
+
+    const customReader = vi.fn((_el: Element, _prop: string, _pseudo: string | null) => 'red')
+    const { divergent } = result.current.reconcile(['src/Hero.tsx'], customReader)
+    expect(divergent).toHaveLength(0)
+    expect(customReader).toHaveBeenCalledTimes(1)
+    expect(customReader).toHaveBeenCalledWith(el, 'color', null)
+
+    // Sanity: with a reader that returns a divergent value, the entry IS flagged.
+    const divergingReader = vi.fn(() => 'purple')
+    const { divergent: d2 } = result.current.reconcile(['src/Hero.tsx'], divergingReader)
+    expect(d2).toHaveLength(1)
+    expect(d2[0].intentId).toBe('reader-id')
+
+    el.remove()
+    unmount()
+  })
+
+  it('reconcile passes pseudo to readSourceValue and skips inline-style for pseudo edits', async () => {
+    // Pseudo-elements have no inline style, so the default reader must skip
+    // the el.style check and go straight to getComputedStyle(el, pseudo).
+    // We assert via the readSourceValue callback signature: the pseudo arg
+    // must propagate to the reader.
+    const { result, unmount } = renderHook(() => useEditStagingBuffer())
+
+    const el = document.createElement('div')
+    el.setAttribute('data-cortex-source', 'src/Hero.tsx:9:9')
+    document.body.appendChild(el)
+
+    await act(() => {
+      result.current.append(makeEdit({
+        intentId: 'pseudo-id',
+        source: 'src/Hero.tsx:9:9',
+        property: 'content',
+        previousValue: '"x"',
+        pseudo: '::before',
+      }))
+    })
+
+    const reader = vi.fn((_el: Element, _prop: string, _pseudo: string | null) => '"x"')
+    const { divergent } = result.current.reconcile(['src/Hero.tsx'], reader)
+    expect(divergent).toHaveLength(0)
+    expect(reader).toHaveBeenCalledWith(el, 'content', '::before')
+
+    el.remove()
+    unmount()
+  })
+
+  it('reconcile escapes data-cortex-source to support Next.js dynamic routes', async () => {
+    // src/app/[id]/page.tsx is a valid Next.js path — the `[` and `]` are
+    // attribute-selector metacharacters that throw SyntaxError without
+    // CSS.escape. This test would crash without the escape.
+    const { result, unmount } = renderHook(() => useEditStagingBuffer())
+
+    const dynamicSource = 'src/app/[id]/page.tsx:14:5'
+    const el = document.createElement('div')
+    el.setAttribute('data-cortex-source', dynamicSource)
+    el.style.color = 'orange' // differs from previousValue
+    document.body.appendChild(el)
+
+    await act(() => {
+      result.current.append(makeEdit({
+        intentId: 'dynamic-route-id',
+        source: dynamicSource,
+        property: 'color',
+        previousValue: 'blue',
+      }))
+    })
+
+    // Must not throw.
+    const { divergent } = result.current.reconcile(['src/app/[id]/page.tsx'])
+    expect(divergent).toHaveLength(1)
+    expect(divergent[0].intentId).toBe('dynamic-route-id')
+
+    el.remove()
+    unmount()
+  })
+
+  it('mount drops malformed source entries (file:line:col regex)', () => {
+    // Seed localStorage with a mix of valid and malformed entries. The
+    // validator is array-level: a single bad entry forces the whole array to
+    // fall back to []. This test proves the file:line:col guard is wired in.
+    const goodEdit = makeEdit({ intentId: 'good', source: 'src/Hero.tsx:14:5' })
+    const malformed = { ...makeEdit(), source: 'no-line-no-col' }
+    cortexStorage.set('staging-buffer', [goodEdit, malformed])
+
+    const { result, unmount } = renderHook(() => useEditStagingBuffer())
+
+    // Validator rejected the array; buffer initialises empty.
+    expect(result.current.list()).toHaveLength(0)
+
+    unmount()
+  })
+
+  it('mount drops entries whose source contains a quote (selector-injection guard)', () => {
+    // Defense-in-depth alongside CSS.escape: even if escape were ever
+    // bypassed, a `"` in source would still be rejected at validator level.
+    const goodEdit = makeEdit({ intentId: 'good' })
+    const injected = { ...makeEdit(), source: 'src/x".tsx:1:1' }
+    cortexStorage.set('staging-buffer', [goodEdit, injected])
+
+    const { result, unmount } = renderHook(() => useEditStagingBuffer())
+    expect(result.current.list()).toHaveLength(0)
+    unmount()
+  })
+
+  it('eviction at 500 entries logs a console.warn', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { result, unmount } = renderHook(() => useEditStagingBuffer())
+
+    await act(() => {
+      for (let i = 0; i < 501; i++) {
+        result.current.append(makeEdit({
+          intentId: `evict-id-${i}`,
+          property: `prop-${i}`,
+          source: `src/Evict.tsx:${i}:${i}`,
+        }))
+      }
+    })
+
+    // Exactly one eviction (501st append).
+    const evictionWarns = warnSpy.mock.calls.filter(
+      args => typeof args[0] === 'string' && args[0].includes('Staging buffer evicted'),
+    )
+    expect(evictionWarns).toHaveLength(1)
+    // Evicted entry's source/property surfaced for downstream UI surfacing.
+    expect(evictionWarns[0]).toEqual([
+      expect.stringContaining('Staging buffer evicted'),
+      'src/Evict.tsx:0:0',
+      'prop-0',
+    ])
+
+    warnSpy.mockRestore()
     unmount()
   })
 

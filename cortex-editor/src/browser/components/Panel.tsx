@@ -537,7 +537,9 @@ export function Panel({
         // truth (`c.pseudo`) is always correct (matches `lastCommitValueRef`
         // population two blocks above).
         pseudo: c.pseudo,
-        scope: editScope === 'all' ? 'all' : 'one',
+        // PendingEdit.scope mirrors the server's CortexEdit.scope contract
+        // ('instance' | 'all'); editScope already uses the same shape.
+        scope: editScope,
         instanceSources,
         timestamp: Date.now(),
       })
