@@ -1,0 +1,62 @@
+cortex-editor/src/browser/components/CortexApp.tsx
+  cabf7a9785f53645 213-215
+cortex-editor/src/browser/components/Panel.tsx
+  cabf7a9785f53645 42,247-249,519,521-531,533-535,537
+cortex-editor/src/browser/hooks/useEditStagingBuffer.ts
+  cabf7a9785f53645 1-266
+cortex-editor/tests/browser/panel.test.tsx
+  cabf7a9785f53645 8-9,921-1000
+cortex-editor/tests/browser/cortex-app.test.tsx
+  cabf7a9785f53645 523-525,533-537,634-636,644-654,657-661,680-682,690-700,703-707
+cortex-editor/tests/browser/hooks/use-edit-staging-buffer.test.tsx
+  cabf7a9785f53645 1-317
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "fa8d01055ec147a68235c2002b100f75d2c1c5e6",
+  "prompts": {
+    "37d6958710509e99": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "29820910-2a72-442f-a84b-332e65544f33",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 476,
+      "total_deletions": 0,
+      "accepted_lines": 476,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/153a03a75b74f9c3eb989581dbad3eaeb1caa89c285f31c06f529b90426d0917"
+    },
+    "6e1ec7762fb19082": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4475a99e-6ede-40a8-93a8-ec469f8b56fa",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 7,
+      "total_deletions": 5,
+      "accepted_lines": 7,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/25e5609869e31669dda20dad90ff3e60e25ed7146549484a7c3e859ad0ae044e"
+    },
+    "cabf7a9785f53645": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "89ba978d-58f4-4091-9101-82fc96981c67",
+        "model": "<synthetic>"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 768,
+      "total_deletions": 163,
+      "accepted_lines": 738,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/c6f2535315f09d0cb3ecb69571ee06d918c91f12a4908dab240f9f6d761626ee"
+    }
+  }
+}
