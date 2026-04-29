@@ -242,11 +242,13 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
     // Evict oldest entry if over limit. Surface so a future Apply UI can
     // render a "buffer full — older edits dropped" notice; the warning is
     // intentionally low-key because the buffer continues to function.
+    let evictedIntentId: string | null = null
     if (bufferRef.current.size > MAX_ENTRIES) {
       const oldest = bufferRef.current.entries().next()
       if (!oldest.done) {
         const [firstKey, evicted] = oldest.value
         bufferRef.current.delete(firstKey)
+        evictedIntentId = evicted.intentId
         console.warn(
           '[cortex] Staging buffer evicted oldest intent (max 500):',
           evicted.source,
@@ -256,7 +258,13 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
     }
 
     // Emit sync AFTER in-memory map updated, BEFORE localStorage persist.
+    // Eviction IS a mutation: emit syncRemove so the server cache stays in
+    // lockstep with the bounded browser buffer. Without this, the server
+    // cache grows unbounded on long sessions while the browser caps at 500.
     emitterRef.current?.syncAdd(edit)
+    if (evictedIntentId !== null) {
+      emitterRef.current?.syncRemove([evictedIntentId])
+    }
 
     schedulePersist()
   }, [schedulePersist])

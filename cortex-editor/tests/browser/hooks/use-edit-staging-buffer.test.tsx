@@ -685,4 +685,47 @@ describe('useEditStagingBuffer — sync emitter integration', () => {
 
     unmount()
   })
+
+  it('append at the 501st entry triggers syncRemove for the evicted oldest intent', async () => {
+    // FIFO eviction is a mutation — sync invariant requires syncRemove for the
+    // dropped entry. Without it, the server cache grows unbounded on long
+    // sessions while the browser silently caps at 500.
+    const emitter = makeMockEmitter()
+    const { result, unmount } = renderHook(() => useEditStagingBuffer(emitter))
+
+    // Capture the very first intentId for the assertion below.
+    const firstIntentId = 'evict-id-0'
+
+    // Append 500 unique edits — different composite keys (unique property)
+    // so no last-write-wins collapse, ensuring true FIFO eviction.
+    await act(() => {
+      for (let i = 0; i < 500; i++) {
+        result.current.append(makeEdit({
+          intentId: i === 0 ? firstIntentId : `evict-id-${i}`,
+          property: `prop-${i}`,
+          source: `src/Evict.tsx:${i}:${i}`,
+        }))
+      }
+    })
+
+    expect(emitter.syncAdd).toHaveBeenCalledTimes(500)
+    expect(emitter.syncRemove).not.toHaveBeenCalled()
+    expect(result.current.size()).toBe(500)
+
+    // Append the 501st — must evict the first AND emit syncRemove for it.
+    await act(() => {
+      result.current.append(makeEdit({
+        intentId: 'evict-id-500',
+        property: 'prop-500',
+        source: 'src/Evict.tsx:500:500',
+      }))
+    })
+
+    expect(emitter.syncAdd).toHaveBeenCalledTimes(501)
+    expect(emitter.syncRemove).toHaveBeenCalledTimes(1)
+    expect(emitter.syncRemove).toHaveBeenCalledWith([firstIntentId])
+    expect(result.current.size()).toBe(500)
+
+    unmount()
+  })
 })
