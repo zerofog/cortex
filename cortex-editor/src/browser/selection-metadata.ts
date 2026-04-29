@@ -163,6 +163,14 @@ export function shouldRefreshOnHMR(
   return hmrFilesAffectElement(files, element)
 }
 
+/** Source format is `relativePath:line:col` (per source-transform.ts:252).
+ *  Strip only the trailing `:line:col` so file paths containing colons (rare
+ *  but possible on Unix; ubiquitous on Windows drive letters) don't get
+ *  truncated. */
+export function stripLineCol(src: string): string {
+  return src.replace(/:\d+:\d+$/, '')
+}
+
 /** File extensions treated as CSS for HMR-filter purposes. Any file in the
  *  HMR change list matching this regex triggers a full Panel refresh because
  *  cascade changes can affect any element. */
@@ -220,11 +228,6 @@ export function hmrFilesAffectElement(
   if (normalized.some(f => CSS_EXT.test(f) || VIRTUAL_MODULE.test(f))) return true
 
   const normalizedFiles = new Set(normalized)
-
-  // Source format is `relativePath:line:col` (per source-transform.ts:252);
-  // strip only the trailing `:line:col` so file paths containing colons (rare
-  // but possible on Unix) don't get truncated.
-  const stripLineCol = (src: string): string => src.replace(/:\d+:\d+$/, '')
 
   // Ancestor walk with shadow-boundary crossing. When `parentElement` is null
   // and the current node is inside a ShadowRoot, continue from the host so

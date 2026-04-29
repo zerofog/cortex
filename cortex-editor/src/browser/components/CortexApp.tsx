@@ -219,9 +219,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         // contract as the internal subscriber.
         onDivergence,
         // Expose handleEditDispatch so unit tests can seed editDispatchRef
-        // without going through the scrub UI path (ZF0-1451 decoupling).
-        // Routed through `editDispatchHandlerRef` so the bridge always hits the
-        // latest closure (mirrors the `handleExitRef` pattern).
+        // without going through the scrub UI path. Routed through
+        // `editDispatchHandlerRef` so the bridge always hits the latest
+        // closure (mirrors the `handleExitRef` pattern).
         handleEditDispatch: (editId: string, source: string, property: string, value: string) =>
           editDispatchHandlerRef.current?.(editId, source, property, value),
       }

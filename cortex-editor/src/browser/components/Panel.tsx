@@ -520,7 +520,7 @@ export function Panel({
     const editedProps = changes.filter(c => c.source === source)
     // Hoisted out of the loop — `instanceSources` doesn't depend on `c`, so
     // computing it once per commit avoids recomputing the filter+map for
-    // every edited property (CLAUDE.md "Post-Fix Discipline" #2).
+    // every edited property.
     const instanceSources = sharedInfo && editScope === 'all'
       ? sharedInfo.elements.map(el => el.getAttribute('data-cortex-source')).filter((s): s is string => s !== null)
       : undefined
@@ -534,8 +534,7 @@ export function Panel({
         // Use the change's own pseudo, not the closure-scoped `activePseudo`.
         // They're equal today via a useEffect that clears scrubPreviousRef on
         // pseudo change, but that invariant is action-at-a-distance — local
-        // truth (`c.pseudo`) is always correct (matches `lastCommitValueRef`
-        // population two blocks above).
+        // truth (`c.pseudo`) is always correct.
         pseudo: c.pseudo,
         // PendingEdit.scope mirrors the server's CortexEdit.scope contract
         // ('instance' | 'all'); editScope already uses the same shape.

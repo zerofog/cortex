@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useRef } from 'preact/hooks'
 import { cortexStorage } from '../persistence.js'
+import { stripLineCol } from '../selection-metadata.js'
 
 export interface PendingEdit {
   intentId: string
@@ -36,26 +37,19 @@ export interface StagingBufferHandle {
   clear: () => void
   size: () => number
   /**
-   * Re-evaluate previousValue against current source for affected files.
-   *
-   * Browser-side has no direct file-source access, so this uses the live DOM.
-   * For each PendingEdit whose file (source before the first ':') is in
-   * `changedFiles`, we query
-   * `document.querySelector('[data-cortex-source="<CSS.escape(source)>"]')`.
+   * Re-evaluate previousValue against the live DOM for intents whose file is
+   * in `changedFiles`. Returns intents whose resolved current value no longer
+   * matches `previousValue.trim()`, plus intents whose element no longer
+   * exists in DOM (file deleted/refactored).
    *
    * IMPORTANT: When the cortex CSSOverrideManager has active overrides on the
-   * page, getComputedStyle() will return the override value, not the source
+   * page, getComputedStyle() returns the override value, not the source
    * value. Production HMR wiring MUST pass a `readSourceValue` callback that
    * bypasses the override layer (e.g. delegating to
    * `CSSOverrideManager.readUnderlyingValue`). The default reader (used by
    * unit tests where no override layer is active) prefers
-   * `element.style.getPropertyValue(prop)` (skipped for pseudo-element edits
-   * since pseudos have no inline style) and falls back to
-   * `getComputedStyle(el, pseudo)` when the inline value is empty.
-   *
-   * An intent is divergent when:
-   *   - The element does not exist in DOM (file deleted/refactored), OR
-   *   - The resolved current value differs from `previousValue.trim()`.
+   * `element.style.getPropertyValue(prop)` (skipped for pseudo-element edits)
+   * and falls back to `getComputedStyle(el, pseudo)`.
    *
    * Hook does NOT auto-subscribe to HMR. Wiring HMR → reconcile is deferred.
    */
@@ -67,6 +61,7 @@ export interface StagingBufferHandle {
 
 const MAX_ENTRIES = 500
 const DEBOUNCE_MS = 150
+const STORAGE_KEY = 'staging-buffer'
 
 /** `path:line:col` shape — line/col must be digits, path must not contain a `"`
  *  (defense-in-depth alongside CSS.escape at the querySelector callsite). */
@@ -115,12 +110,6 @@ function compositeKey(edit: PendingEdit): string {
   return `${edit.source}\0${edit.property}\0${edit.pseudo ?? ''}`
 }
 
-/** Extract file path from source (everything before the first ':'). */
-function filePathFromSource(source: string): string {
-  const idx = source.indexOf(':')
-  return idx === -1 ? source : source.slice(0, idx)
-}
-
 /** Default reader used when no `readSourceValue` callback is provided.
  *  Inline-style first (skipped for pseudo-elements, which have none), then
  *  getComputedStyle with the pseudo argument so pseudo-element edits query
@@ -148,37 +137,38 @@ function defaultReadSourceValue(
  * - stable handle: method identities never change across re-renders
  */
 export default function useEditStagingBuffer(): StagingBufferHandle {
-  // Insertion-order map: composite key → PendingEdit
   const bufferRef = useRef<Map<string, PendingEdit>>(new Map())
-  // Debounce timer
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Track whether we've mounted (read from storage)
   const initRef = useRef(false)
 
   // Initialize from localStorage on first call (before useEffect so list() works immediately)
   if (!initRef.current) {
     initRef.current = true
-    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    const stored = cortexStorage.get(STORAGE_KEY, [], isPendingEditArray)
     for (const edit of stored) {
       bufferRef.current.set(compositeKey(edit), edit)
     }
   }
 
+  const persistNow = useCallback(() => {
+    cortexStorage.set(STORAGE_KEY, Array.from(bufferRef.current.values()))
+  }, [])
+
   const schedulePersist = useCallback(() => {
     if (debounceTimerRef.current !== null) clearTimeout(debounceTimerRef.current)
     debounceTimerRef.current = setTimeout(() => {
       debounceTimerRef.current = null
-      cortexStorage.set('staging-buffer', Array.from(bufferRef.current.values()))
+      persistNow()
     }, DEBOUNCE_MS)
-  }, [])
+  }, [persistNow])
 
   const flush = useCallback(() => {
     if (debounceTimerRef.current !== null) {
       clearTimeout(debounceTimerRef.current)
       debounceTimerRef.current = null
-      cortexStorage.set('staging-buffer', Array.from(bufferRef.current.values()))
+      persistNow()
     }
-  }, [])
+  }, [persistNow])
 
   // Cleanup on unmount: flush pending write + clear timer.
   // useLayoutEffect runs synchronously during unmount (before useEffect cleanups),
@@ -199,16 +189,13 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
 
     bufferRef.current.set(key, edit)
 
-    // Evict oldest entry if over limit.
+    // Evict oldest entry if over limit. Surface so a future Apply UI can
+    // render a "buffer full — older edits dropped" notice; the warning is
+    // intentionally low-key because the buffer continues to function.
     if (bufferRef.current.size > MAX_ENTRIES) {
       const firstKey = bufferRef.current.keys().next().value!
       const evicted = bufferRef.current.get(firstKey)!
       bufferRef.current.delete(firstKey)
-      // Surface the eviction so a future Apply UI (ZF0-1452) can render a
-      // "buffer full — older edits dropped" notice. console.warn is
-      // intentionally low-key — the buffer continuing to function is the
-      // primary user expectation; the warning is for designers who hit the
-      // 500-entry ceiling.
       console.warn(
         '[cortex] Staging buffer evicted oldest intent (max 500):',
         evicted.source,
@@ -256,16 +243,23 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
     const changedSet = new Set(changedFiles)
     const divergent: PendingEdit[] = []
 
-    for (const edit of bufferRef.current.values()) {
-      const fp = filePathFromSource(edit.source)
-      if (!changedSet.has(fp)) continue
+    // Single tree-walk to build a source→element index, then O(1) lookup per
+    // intent. Avoids O(intents × DOM) querySelector fan-out when an HMR event
+    // touches a hot file referenced by hundreds of intents.
+    let elBySource: Map<string, Element> | null = null
 
-      // CSS.escape — `data-cortex-source` may contain `[`, `]`, `:` (Next.js
-      // dynamic routes like `src/app/[id]/page.tsx:14:5`), all of which break
-      // attribute selectors when interpolated raw. Every other querySelector
-      // callsite in this codebase already escapes (override.ts:267,
-      // selection-metadata.ts:65, CommentPin.tsx:8).
-      const el = document.querySelector(`[data-cortex-source="${CSS.escape(edit.source)}"]`)
+    for (const edit of bufferRef.current.values()) {
+      if (!changedSet.has(stripLineCol(edit.source))) continue
+
+      if (elBySource === null) {
+        elBySource = new Map()
+        for (const el of document.querySelectorAll('[data-cortex-source]')) {
+          const s = el.getAttribute('data-cortex-source')
+          if (s !== null) elBySource.set(s, el)
+        }
+      }
+
+      const el = elBySource.get(edit.source)
       if (!el) {
         // Element does not exist — file deleted/refactored
         divergent.push(edit)
@@ -283,7 +277,9 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
     return { divergent }
   }, [])
 
-  // useMemo([]) alternative: return a stable object via ref
+  // Stable handle — every method is `useCallback([...])` over stable refs, so
+  // their identities never change after first render. The ref initializer fires
+  // once; no per-render reassignment needed.
   const handleRef = useRef<StagingBufferHandle>({
     append,
     remove,
@@ -292,14 +288,6 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
     size,
     reconcile,
   })
-
-  // Keep the handle's methods current (they're already stable from useCallback([]))
-  handleRef.current.append = append
-  handleRef.current.remove = remove
-  handleRef.current.list = list
-  handleRef.current.clear = clear
-  handleRef.current.size = size
-  handleRef.current.reconcile = reconcile
 
   return handleRef.current
 }
