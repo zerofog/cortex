@@ -478,7 +478,6 @@ export function Panel({
       scrubPreviousRef.current.clear()
       return
     }
-    const pseudo = activePseudo !== 'element' ? activePseudo : undefined
 
     // Build PropertyChange[] from accumulated scrub previous values.
     // Filter out no-op changes where value didn't change.
@@ -543,7 +542,7 @@ export function Panel({
         timestamp: Date.now(),
       })
     }
-  }, [element, overrideManager, activePseudo, buffer, sharedInfo, editScope, commandStack])
+  }, [element, overrideManager, buffer, sharedInfo, editScope, commandStack])
 
   // Expose flush for CortexApp to call before undo/redo — microtask commits
   // haven't fired yet when blur+undo runs synchronously in the same tick.
