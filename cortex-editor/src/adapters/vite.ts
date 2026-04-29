@@ -237,7 +237,7 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
       // we classify each intent as 'needs-source-edit' so Claude uses its Edit tool to write
       // source. Deterministic apply (inline-style rewriter) is a future enhancement that
       // would require exposing a promise-based pipeline API.
-      // TODO(ZF0-1452+): add a promise-based handleEditSync() to EditPipeline that returns
+      // TODO(ZF0-1464): add a promise-based EditPipeline API per ZF0-1464 that returns
       // an { status: 'applied' | 'needs-source-edit' | 'failed' } result directly, then
       // route deterministic intents through it here.
       const results = intentIds.map((intentId) => {
@@ -286,6 +286,15 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
 
       const projectRoot = currentSession!.config.root
       const resolvedPath = path.resolve(projectRoot, filePath)
+
+      // Path containment — defense-in-depth against path-traversal injection in
+      // intent.source. Mirrors the existing pattern at vite.ts:687-694 used by
+      // the fix-request elementSource validator. Without this, a
+      // `../../../etc/passwd:1:1` intent source would escape the project root.
+      // Check BEFORE fs.readFileSync so an out-of-bounds path is never read.
+      if (!resolvedPath.startsWith(projectRoot + path.sep) && resolvedPath !== projectRoot) {
+        return { error: 'Path outside project root' }
+      }
 
       let fileContent: string
       try {

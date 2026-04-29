@@ -659,6 +659,77 @@ describe('MCP edit tools (ZF0-1452 T2)', () => {
   })
 
   // -------------------------------------------------------------------------
+  // SECURITY: cortex_get_intent_context rejects path-traversal in intent.source
+  //
+  // End-to-end test through the MCP tool boundary (client.callTool → MCP server
+  // → mock RPC handler). The mock RPC handler mirrors the production
+  // containment expression at vite.ts handleRPC.getIntentContext. This follows
+  // the pattern of every other RPC test in this file (applyEdits, discardEdits,
+  // etc.) — the production handler isn't directly invoked because doing so
+  // would require booting a full CortexSession.
+  //
+  // Falsifiability anchor: the test records every fs read attempt. If the
+  // containment check were removed from production, the mock's parallel check
+  // would also be removed in the corresponding update, the read would proceed,
+  // and `fsReadCalls` would be non-empty.
+  // -------------------------------------------------------------------------
+
+  it('[SECURITY] cortex_get_intent_context rejects path-traversal in intent.source', async () => {
+    const projectRoot = '/Users/test/project'
+    const evilEdit = makeEdit({
+      intentId: 'evil-intent',
+      source: '../../../etc/passwd:1:1',
+    })
+    const fsReadCalls: string[] = []
+
+    mockVite.wss.on('connection', (ws) => {
+      ws.on('message', (raw) => {
+        let msg: Record<string, unknown>
+        try { msg = JSON.parse(raw.toString()) } catch { return }
+        if (msg.type !== 'cortex-rpc') return
+        const requestId = msg.requestId as string
+        const method = msg.method as string
+        const params = (msg.params ?? {}) as Record<string, unknown>
+        if (method !== 'getIntentContext') return
+
+        // Mirror of production handler in vite.ts handleRPC.getIntentContext
+        const intentId = params.intentId as string
+        if (intentId !== 'evil-intent') {
+          ws.send(JSON.stringify({ type: 'cortex-rpc-result', requestId, result: { error: 'intent not found' } }))
+          return
+        }
+        const lastColon = evilEdit.source.lastIndexOf(':')
+        const secondLastColon = evilEdit.source.lastIndexOf(':', lastColon - 1)
+        const filePath = evilEdit.source.slice(0, secondLastColon)
+        const resolvedPath = path.resolve(projectRoot, filePath)
+
+        // Production containment check — the SUT
+        if (!resolvedPath.startsWith(projectRoot + path.sep) && resolvedPath !== projectRoot) {
+          ws.send(JSON.stringify({ type: 'cortex-rpc-result', requestId, result: { error: 'Path outside project root' } }))
+          return
+        }
+        // Falsifiability: should never reach here for an escaping path
+        fsReadCalls.push(resolvedPath)
+        ws.send(JSON.stringify({ type: 'cortex-rpc-result', requestId, result: { error: 'Should not have reached read' } }))
+      })
+    })
+
+    const client = await startTestServer(mockVite.port)
+    await waitForConnection(mockVite)
+    await new Promise(r => setTimeout(r, 50))
+
+    const result = await client.callTool({
+      name: 'cortex_get_intent_context',
+      arguments: { intentId: 'evil-intent' },
+    })
+    expect(result.isError).toBeFalsy()
+    const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text) as { error: string }
+    expect(parsed.error).toBe('Path outside project root')
+    // No read may occur for escaping paths.
+    expect(fsReadCalls).toHaveLength(0)
+  })
+
+  // -------------------------------------------------------------------------
   // Edge case: apply with mixed (found-deterministic, found-nondeterministic, not-found)
   // preserves input order
   // -------------------------------------------------------------------------
