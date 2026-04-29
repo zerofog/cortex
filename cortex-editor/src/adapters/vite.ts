@@ -7,7 +7,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { WebSocketServer, WebSocket } from 'ws'
 import { createSourceTransform } from './source-transform.js'
-import type { ServerChannel, BrowserToServer, ServerToBrowser } from './types.js'
+import type { ServerChannel, BrowserToServer, ServerToBrowser, PendingEdit } from './types.js'
 import { TailwindResolver } from '../core/tailwind-resolver.js'
 import { TailwindRewriter } from '../core/rewriter/tailwind.js'
 import { InlineStyleRewriter } from '../core/rewriter/inline-style.js'
@@ -88,6 +88,40 @@ export function validateToggleShortcut(shortcut: string): string {
  *  CLAUDE.md test rule #1. */
 export function isPathInsideRoot(resolved: string, root: string): boolean {
   return resolved.startsWith(root + path.sep) || resolved === root
+}
+
+/** Per-id result item produced by applyEditsCore. */
+export type ApplyEditResult =
+  | { intentId: string; status: 'needs-source-edit'; intent: PendingEdit; reason: string }
+  | { intentId: string; status: 'failed'; error: string }
+
+/** Build the per-id result list for cortex_apply_edits.
+ *
+ *  ZF0-1464 deferral: production routes ALL found intents to Claude's Edit tool
+ *  via 'needs-source-edit' (no deterministic-apply path yet). Missing intents
+ *  return failed-not-found. Input order is preserved.
+ *
+ *  Extracted as a pure function (cache passed in) so its contract can be
+ *  unit-tested without booting a full CortexSession — the test file imports
+ *  this directly rather than mocking the RPC handler. This avoids the
+ *  shadow-copy hazard (cortex CLAUDE.md test rule #1) for criterion 3 of
+ *  ZF0-1452. */
+export function applyEditsCore(
+  cache: { getById(id: string): PendingEdit | null },
+  intentIds: readonly string[],
+): ApplyEditResult[] {
+  return intentIds.map((intentId) => {
+    const intent = cache.getById(intentId)
+    if (!intent) {
+      return { intentId, status: 'failed', error: 'intent not found' }
+    }
+    return {
+      intentId,
+      status: 'needs-source-edit',
+      intent,
+      reason: 'Apply via source edit: use the Edit tool on the file at intent.source to set the property to intent.value',
+    }
+  })
 }
 
 /** Escape JSON for safe embedding in <script> context. */
@@ -258,22 +292,9 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
       // TODO(ZF0-1464): add a promise-based EditPipeline API per ZF0-1464 that returns
       // an { status: 'applied' | 'needs-source-edit' | 'failed' } result directly, then
       // route deterministic intents through it here.
-      const results = intentIds.map((intentId) => {
-        const intent = currentSession!.stagedEdits.getById(intentId)
-        if (!intent) {
-          return { intentId, status: 'failed', error: 'intent not found' }
-        }
-        // Return needs-source-edit so Claude uses its Edit tool to apply the change.
-        // Do NOT remove from cache — Claude will write source, then the next browser sync
-        // will reconcile state via staged-edits-sync.
-        return {
-          intentId,
-          status: 'needs-source-edit' as const,
-          intent,
-          reason: 'Apply via source edit: use the Edit tool on the file at intent.source to set the property to intent.value',
-        }
-      })
-      return { results }
+      // Logic extracted to applyEditsCore so the production contract is directly
+      // unit-testable without booting a full CortexSession (no shadow copy in tests).
+      return { results: applyEditsCore(currentSession!.stagedEdits, intentIds) }
     }
 
     case 'discardEdits': {

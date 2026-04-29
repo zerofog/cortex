@@ -15,7 +15,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { startMCPServer, type MCPServerHandle } from '../../src/cli/mcp.js'
 import type { PendingEdit } from '../../src/adapters/types.js'
-import { isPathInsideRoot } from '../../src/adapters/vite.js'
+import { applyEditsCore, isPathInsideRoot } from '../../src/adapters/vite.js'
 import { makeEdit } from '../core/helpers.js'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -731,5 +731,59 @@ describe('isPathInsideRoot — path-containment predicate (ZF0-1452 security)', 
     // Removing `+ path.sep` would fail this assertion cleanly.
     const root = '/Users/test/project'
     expect(isPathInsideRoot('/Users/test/project-evil/file.ts', root)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// applyEditsCore — production contract per ZF0-1464
+//
+// The earlier integration test for criterion 3 ('cortex_apply_edits returns
+// applied + removes from buffer') uses a mock RPC handler that fabricates the
+// 'applied' status — but production never returns 'applied' until ZF0-1464
+// lands. These unit tests pin the REAL production contract by exercising the
+// extracted helper directly. If production ever starts returning 'applied'
+// without ZF0-1464 also landing, that's a behavioral change requiring updates
+// here. The integration test stays as-is (it documents the future contract
+// once the deterministic-apply path lands).
+// ---------------------------------------------------------------------------
+
+describe('applyEditsCore — production contract per ZF0-1464', () => {
+  it('returns needs-source-edit for all found intents (production contract)', () => {
+    // ZF0-1464 deferral: production routes ALL found intents to Claude's Edit
+    // tool via 'needs-source-edit' (no deterministic-apply path yet).
+    const intentA = makeEdit({ intentId: 'a', property: 'color', value: 'red' })
+    const intentB = makeEdit({ intentId: 'b', property: 'background', value: 'blue' })
+    const lookup: Record<string, PendingEdit | null> = { a: intentA, b: intentB }
+    const cache = { getById: (id: string) => lookup[id] ?? null }
+
+    const results = applyEditsCore(cache, ['a', 'b'])
+
+    expect(results).toHaveLength(2)
+    expect(results[0]).toMatchObject({ intentId: 'a', status: 'needs-source-edit', intent: intentA })
+    expect(results[1]).toMatchObject({ intentId: 'b', status: 'needs-source-edit', intent: intentB })
+    // Reason field present and non-empty (Claude reads this to know what to do)
+    if (results[0].status === 'needs-source-edit') {
+      expect(typeof results[0].reason).toBe('string')
+      expect(results[0].reason.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('returns failed for unknown intentIds', () => {
+    const cache = { getById: () => null }
+    const results = applyEditsCore(cache, ['missing-1', 'missing-2'])
+    expect(results).toEqual([
+      { intentId: 'missing-1', status: 'failed', error: 'intent not found' },
+      { intentId: 'missing-2', status: 'failed', error: 'intent not found' },
+    ])
+  })
+
+  it('preserves input order across mixed found/not-found', () => {
+    const intent = makeEdit({ intentId: 'b' })
+    const cache = { getById: (id: string) => id === 'b' ? intent : null }
+    const results = applyEditsCore(cache, ['c', 'b', 'a'])
+    expect(results.map(r => r.intentId)).toEqual(['c', 'b', 'a'])
+    expect(results[0].status).toBe('failed')
+    expect(results[1].status).toBe('needs-source-edit')
+    expect(results[2].status).toBe('failed')
   })
 })

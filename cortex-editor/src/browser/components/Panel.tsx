@@ -251,6 +251,15 @@ export function Panel({
 
   // Handle server → browser discard message: when Claude calls cortex_discard_edits, the
   // server sends 'staged-edits-discard' so the browser canonical buffer stays in sync.
+  //
+  // Echo-loop note: staged-edits-discard is server-originated (the MCP server's
+  // cortex_discard_edits tool emitted it after mutating its cache). Calling
+  // buffer.remove(ids) here keeps the browser-canonical buffer in lockstep.
+  // When SyncEmitter wiring lands (deferred), buffer.remove will fire
+  // syncRemove → server staged-edit-remove → server cache.remove (idempotent —
+  // terminates at depth 1, since the second remove is a no-op on an empty set).
+  // If the round-trip becomes a measurable cost, add a flag to skip emission
+  // for server-originated removes. Tracked as a follow-up under ZF0-1452+.
   useEffect(() => {
     if (!channel) return
     return channel.onMessage((msg) => {
