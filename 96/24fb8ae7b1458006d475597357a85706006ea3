@@ -1,0 +1,34 @@
+cortex-editor/src/adapters/types.ts
+  cabf7a9785f53645 187-189
+cortex-editor/src/adapters/vite.ts
+  cabf7a9785f53645 168-179,221-318,981
+cortex-editor/src/cli/mcp.ts
+  cabf7a9785f53645 156-179,449-520
+cortex-editor/src/browser/components/Panel.tsx
+  cabf7a9785f53645 252-263
+cortex-editor/tests/cli/mcp-edit-tools.test.ts
+  cabf7a9785f53645 1-697
+cortex-editor/tests/cli/mcp.test.ts
+  cabf7a9785f53645 128,131,134,136
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "9624fb8ae7b1458006d475597357a85706006ea3",
+  "prompts": {
+    "cabf7a9785f53645": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "89ba978d-58f4-4091-9101-82fc96981c67",
+        "model": "<synthetic>"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 925,
+      "total_deletions": 7,
+      "accepted_lines": 3517,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/4be351035b000d2fc631031a94e8c2d57869f8b39992384f0bcde7f22ef8b7f4"
+    }
+  }
+}
