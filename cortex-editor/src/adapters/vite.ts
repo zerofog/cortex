@@ -72,6 +72,24 @@ export function validateToggleShortcut(shortcut: string): string {
   return shortcut
 }
 
+/** Path-containment predicate — defense-in-depth for any code path that
+ *  resolves a user-provided path against a project root. Returns true if
+ *  `resolved` is `root` itself or a descendant of `root`, false otherwise.
+ *
+ *  The `+ path.sep` is load-bearing: it prevents `/Users/test/project-evil`
+ *  from being mistaken for a child of `/Users/test/project`.
+ *
+ *  Used by the cortex_get_intent_context RPC handler. The fix-request
+ *  elementSource validator (vite.ts ~line 687-694) does NOT use this helper
+ *  because it operates on `realpathSync`-resolved paths (symlink-aware), which
+ *  is a related-but-distinct concern; consolidating the two would conflate the
+ *  syntactic check with the symlink-aware check. Centralizing this predicate
+ *  prevents shadow-copy drift between production code and tests per cortex's
+ *  CLAUDE.md test rule #1. */
+export function isPathInsideRoot(resolved: string, root: string): boolean {
+  return resolved.startsWith(root + path.sep) || resolved === root
+}
+
 /** Escape JSON for safe embedding in <script> context. */
 function safeJSONForScript(value: unknown): string {
   return JSON.stringify(value).replace(/</g, '\\u003c')
@@ -288,11 +306,12 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
       const resolvedPath = path.resolve(projectRoot, filePath)
 
       // Path containment — defense-in-depth against path-traversal injection in
-      // intent.source. Mirrors the existing pattern at vite.ts:687-694 used by
-      // the fix-request elementSource validator. Without this, a
-      // `../../../etc/passwd:1:1` intent source would escape the project root.
-      // Check BEFORE fs.readFileSync so an out-of-bounds path is never read.
-      if (!resolvedPath.startsWith(projectRoot + path.sep) && resolvedPath !== projectRoot) {
+      // intent.source. Without this, a `../../../etc/passwd:1:1` intent source
+      // would escape the project root. Check BEFORE fs.readFileSync so an
+      // out-of-bounds path is never read. The predicate is extracted to
+      // isPathInsideRoot so its security regression test exercises the real
+      // code path (no shadow copy in the test).
+      if (!isPathInsideRoot(resolvedPath, projectRoot)) {
         return { error: 'Path outside project root' }
       }
 
