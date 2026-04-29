@@ -4,22 +4,35 @@ const PREFIX = typeof location !== 'undefined'
   : 'cortex:0:'
 
 function get<T>(key: string, fallback: T, validate: (v: unknown) => v is T): T {
+  const fullKey = PREFIX + key
+  const raw = (() => {
+    try { return localStorage.getItem(fullKey) } catch { return null }
+  })()
+  if (raw === null) return fallback
   try {
-    const raw = localStorage.getItem(PREFIX + key)
-    if (raw === null) return fallback
     const parsed: unknown = JSON.parse(raw)
-    if (!validate(parsed)) return fallback
+    if (!validate(parsed)) {
+      console.warn(`[cortex] localStorage entry ${key} failed schema validation — discarding`)
+      try { localStorage.removeItem(fullKey) } catch { /* private mode */ }
+      return fallback
+    }
     return parsed
-  } catch {
+  } catch (err) {
+    console.warn(`[cortex] localStorage entry ${key} could not be parsed — discarding`, err)
+    try { localStorage.removeItem(fullKey) } catch { /* private mode */ }
     return fallback
   }
 }
 
-function set(key: string, value: unknown): void {
+/** Returns true on success, false on quota / private-mode failure (logged). Callers
+ *  may use the return to surface a "buffer not persisted" warning to the user. */
+function set(key: string, value: unknown): boolean {
   try {
     localStorage.setItem(PREFIX + key, JSON.stringify(value))
-  } catch {
-    // Quota exceeded or private browsing — silently degrade
+    return true
+  } catch (err) {
+    console.warn(`[cortex] localStorage set failed for ${key}`, err instanceof Error ? err.message : err)
+    return false
   }
 }
 

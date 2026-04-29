@@ -289,7 +289,7 @@ describe('tinykeys shortcut integration', () => {
     setup()
     const channel = createMockChannel()
     // Mock undo to return a command (non-null = stack had an entry)
-    _commandStackMock.undo.mockReturnValueOnce({ editId: 'test', changes: [], execute: vi.fn(), undo: vi.fn() })
+    _commandStackMock.undo.mockReturnValueOnce({ editId: 'test', changes: [], execute: vi.fn(), undo: vi.fn(), hasServerEntry: true })
     render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
     await new Promise(r => setTimeout(r, SETTLE))
 
@@ -327,7 +327,7 @@ describe('tinykeys shortcut integration', () => {
     setup()
     const channel = createMockChannel()
     // Mock redo to return a command
-    _commandStackMock.redo.mockReturnValueOnce({ editId: 'test', changes: [], execute: vi.fn(), undo: vi.fn() })
+    _commandStackMock.redo.mockReturnValueOnce({ editId: 'test', changes: [], execute: vi.fn(), undo: vi.fn(), hasServerEntry: true })
     render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
     await new Promise(r => setTimeout(r, SETTLE))
 
@@ -429,7 +429,7 @@ describe('tinykeys shortcut integration', () => {
     setup()
     const channel = createMockChannel()
     // Mock undo to return a command so the message gets sent
-    _commandStackMock.undo.mockReturnValueOnce({ editId: 'test', changes: [], execute: vi.fn(), undo: vi.fn() })
+    _commandStackMock.undo.mockReturnValueOnce({ editId: 'test', changes: [], execute: vi.fn(), undo: vi.fn(), hasServerEntry: true })
     render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
     await new Promise(r => setTimeout(r, SETTLE))
 

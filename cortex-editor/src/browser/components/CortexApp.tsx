@@ -116,6 +116,14 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // selectedElement is null.
   const selectionMetadataRef = useRef<SelectionMetadata | null>(null)
   const handleExitRef = useRef<(() => void) | null>(null)
+  // Mirror of `handleEditDispatch` for the test bridge. The mount effect that
+  // installs `__CORTEX_TEST__` runs once with deps `[channel, shadowRoot]`, so
+  // capturing `handleEditDispatch` directly there would freeze the first-render
+  // closure. Today that closure is stable (deps are `[clearEditError]`), but a
+  // future non-stable dep would silently route the bridge through stale state.
+  // The thunk pattern (used by `handleExitRef`) keeps the bridge calling the
+  // latest closure regardless of how `handleEditDispatch`'s deps evolve.
+  const editDispatchHandlerRef = useRef<((editId: string, source: string, property: string, value: string) => void) | null>(null)
   // Exposed outside the useEffect so UI handlers (X-button, Toolbar close) can
   // route through the reducer rather than calling setActive(false) directly.
   // Populated by the mount effect — may be null during first paint when
@@ -210,6 +218,18 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         // the surface stays minimal, dual-gated, and keeps the same type
         // contract as the internal subscriber.
         onDivergence,
+        // Expose handleEditDispatch so unit tests can seed editDispatchRef
+        // without going through the scrub UI path. Routed through
+        // `editDispatchHandlerRef` so the bridge always hits the latest
+        // closure (mirrors the `handleExitRef` pattern). Throws if called
+        // before first render commits — silent no-op would mask test setup
+        // bugs where the test calls the bridge before render completes.
+        handleEditDispatch: (editId: string, source: string, property: string, value: string) => {
+          if (!editDispatchHandlerRef.current) {
+            throw new Error('[cortex test bridge] handleEditDispatch called before render committed')
+          }
+          editDispatchHandlerRef.current(editId, source, property, value)
+        },
       }
     }
     // Start with design mode disabled — don't intercept events until activated
@@ -598,6 +618,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     // the new edit's lifecycle and mislead the user.
     clearEditError(`${source}\0${property}`)
   }, [clearEditError])
+  editDispatchHandlerRef.current = handleEditDispatch
 
   const handleDismissError = clearEditError
 
@@ -743,7 +764,13 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           const cmd = commandStackRef.current?.undo()
           if (cmd) {
             overrideRef.current?.flush()
-            channel.send({ type: 'undo' })
+            // Only send to server if the popped command had a server-side
+            // counterpart. Buffer-only PropertyEditCommands (post-pivot)
+            // would silently pop an unrelated classOp/comment entry on the
+            // server stack, corrupting server-side undo history.
+            if (cmd.hasServerEntry) {
+              channel.send({ type: 'undo' })
+            }
           }
         } catch (err) {
           console.error('[cortex] Undo failed:', err)
@@ -764,7 +791,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           const cmd = commandStackRef.current?.redo()
           if (cmd) {
             overrideRef.current?.flush()
-            channel.send({ type: 'redo' })
+            if (cmd.hasServerEntry) {
+              channel.send({ type: 'redo' })
+            }
           }
         } catch (err) {
           console.error('[cortex] Redo failed:', err)
