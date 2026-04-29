@@ -999,7 +999,9 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     expect(edit.source).toBe('src/Hero.tsx:14:5')
     expect(edit.property).toBe('display')
     expect(edit.value).toBe(expectedValue)
-    expect(edit.intentId).toMatch(/^[0-9a-f-]{36}$/)
+    // Accepts both crypto.randomUUID() output and generateId()'s non-secure-context
+    // fallback (cortex-<base36>-<base36>) — see uuid.ts.
+    expect(edit.intentId).toMatch(/^[0-9a-f-]{36}$|^cortex-[0-9a-z]+-[0-9a-z]+$/)
     expect(edit.timestamp).toBeGreaterThan(0)
 
     cleanup()
