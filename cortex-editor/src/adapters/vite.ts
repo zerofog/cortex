@@ -101,6 +101,15 @@ export type ApplyEditResult =
  *  via 'needs-source-edit' (no deterministic-apply path yet). Missing intents
  *  return failed-not-found. Input order is preserved.
  *
+ *  Why no deterministic-apply path here: EditPipeline.handleEdit() returns
+ *  void and communicates results back via channel.send({ type: 'edit_status',
+ *  ... }) asynchronously. There is no synchronous return-value API for
+ *  "applied vs needs-source-edit", so the RPC handler can't observe pipeline
+ *  outcomes within a single response. ZF0-1464 tracks a promise-based
+ *  EditPipeline API that returns { status: 'applied' | 'needs-source-edit'
+ *  | 'failed' } directly, after which deterministic intents would route
+ *  through it here.
+ *
  *  Extracted as a pure function (cache passed in) so its contract can be
  *  unit-tested without booting a full CortexSession — the test file imports
  *  this directly rather than mocking the RPC handler. This avoids the
@@ -282,23 +291,20 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
     }
 
     case 'applyEdits': {
-      const intentIds = Array.isArray(params.intentIds) ? params.intentIds as string[] : []
-      // NOTE: EditPipeline.handleEdit() returns void and communicates results back via
-      // channel.send({ type: 'edit_status', ... }) asynchronously. There is no synchronous
-      // return-value API for "applied vs needs-source-edit". For the RPC response contract,
-      // we classify each intent as 'needs-source-edit' so Claude uses its Edit tool to write
-      // source. Deterministic apply (inline-style rewriter) is a future enhancement that
-      // would require exposing a promise-based pipeline API.
-      // TODO(ZF0-1464): add a promise-based EditPipeline API per ZF0-1464 that returns
-      // an { status: 'applied' | 'needs-source-edit' | 'failed' } result directly, then
-      // route deterministic intents through it here.
-      // Logic extracted to applyEditsCore so the production contract is directly
-      // unit-testable without booting a full CortexSession (no shadow copy in tests).
+      // Defense-in-depth: filter to strings even after Zod runs at the MCP boundary,
+      // since handleRPC is also reachable via the WebSocket directly.
+      const rawIds = Array.isArray(params.intentIds) ? params.intentIds : []
+      const intentIds = rawIds.filter((x): x is string => typeof x === 'string')
+      // ZF0-1464 deferral: production routes all found intents to Claude's Edit
+      // tool. See applyEditsCore docstring for the full rationale.
       return { results: applyEditsCore(currentSession!.stagedEdits, intentIds) }
     }
 
     case 'discardEdits': {
-      const intentIds = Array.isArray(params.intentIds) ? params.intentIds as string[] : []
+      // Defense-in-depth: filter to strings even after Zod runs at the MCP boundary,
+      // since handleRPC is also reachable via the WebSocket directly.
+      const rawIds = Array.isArray(params.intentIds) ? params.intentIds : []
+      const intentIds = rawIds.filter((x): x is string => typeof x === 'string')
       currentSession!.stagedEdits.remove(intentIds)
       // Notify browser so its canonical buffer stays in sync with server cache.
       if (currentSession!.channel) {

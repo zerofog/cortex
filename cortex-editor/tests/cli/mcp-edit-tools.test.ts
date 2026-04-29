@@ -335,44 +335,11 @@ describe('MCP edit tools (ZF0-1452 T2)', () => {
   })
 
   // -------------------------------------------------------------------------
-  // Spec criterion 5: Mixed batch — results in INPUT ORDER (not buffer order)
-  // -------------------------------------------------------------------------
-
-  it('[C5] cortex_apply_edits — mixed batch returns results in input order', async () => {
-    const store = installEditRPCHandler(mockVite)
-    // Buffer order: A, B, C
-    store.edits.push(
-      makeEdit({ intentId: 'intent-A', property: 'color' }),
-      makeEdit({ intentId: 'intent-B', property: 'font-size' }),
-      makeEdit({ intentId: 'intent-C', property: 'margin' }),
-    )
-    store.applyResults.set('intent-A', 'applied')
-    // B and C → needs-source-edit (default)
-
-    const client = await startTestServer(mockVite.port)
-    await waitForConnection(mockVite)
-    await new Promise(r => setTimeout(r, 50))
-
-    // Input order: B, A, C  (different from buffer order A, B, C)
-    const result = await client.callTool({
-      name: 'cortex_apply_edits',
-      arguments: { intentIds: ['intent-B', 'intent-A', 'intent-C'] },
-    })
-    expect(result.isError).toBeFalsy()
-    const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text) as {
-      results: Array<{ intentId: string; status: string }>
-    }
-    expect(parsed.results).toHaveLength(3)
-    // Must match INPUT order: B, A, C
-    expect(parsed.results[0].intentId).toBe('intent-B')
-    expect(parsed.results[1].intentId).toBe('intent-A')
-    expect(parsed.results[2].intentId).toBe('intent-C')
-    // Status per intent
-    expect(parsed.results[0].status).toBe('needs-source-edit')
-    expect(parsed.results[1].status).toBe('applied')
-    expect(parsed.results[2].status).toBe('needs-source-edit')
-  })
-
+  // Spec criterion 5 (input-order preservation across mixed statuses) is
+  // covered by the [EDGE] mixed-found/not-found test below, which is strictly
+  // richer (includes the not-found case). Removed here per cortex CLAUDE.md
+  // test rule #5 (no subsumption). The 'applied' removal-from-buffer behavior
+  // remains pinned by the [C3] test.
   // -------------------------------------------------------------------------
   // Spec criterion 6: cortex_discard_edits removes specified intents
   // -------------------------------------------------------------------------
