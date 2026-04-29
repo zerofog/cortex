@@ -24,7 +24,7 @@ import { UndoStack } from '../core/session/undo-stack.js'
 import { AIWriter } from '../core/ai-writer.js'
 import { DeferredWriter } from '../core/deferred-writer.js'
 import { CortexSession } from '../core/session.js'
-import { applyEditsCore, isValidPendingEdit } from '../core/staged-edits.js'
+import { applyEditsCore, isValidPendingEdit, sliceIntentContext, checkIntentFileSize } from '../core/staged-edits.js'
 import { atomicWrite } from './atomic-write.js'
 
 export interface CortexEditorOptions {
@@ -66,14 +66,6 @@ const BROWSER_TO_CLI_FORWARD_TYPES: ReadonlySet<string> = new Set([
 type WriteMessageType = 'edit' | 'undo' | 'redo' | 'comment' | 'comment-reply' | 'clear_server_undo' | 'staged-edit-add' | 'staged-edit-remove' | 'staged-edit-clear' | 'staged-edits-sync' | 'staged-edits-ready'
 const WRITE_TYPES: Set<WriteMessageType> = new Set(['edit', 'undo', 'redo', 'comment', 'comment-reply', 'clear_server_undo', 'staged-edit-add', 'staged-edit-remove', 'staged-edit-clear', 'staged-edits-sync', 'staged-edits-ready'])
 const HEARTBEAT_INTERVAL = 30_000
-
-/** Max file size readable by cortex_get_intent_context (2MB). Synchronous
- *  fs.readFileSync blocks the Vite Node event loop; capping at ~10× a
- *  generous source-file size keeps the read non-blocking even when a project
- *  has large generated artefacts (lockfiles, asset bundles, db dumps) that
- *  happen to live under projectRoot. Files exceeding this are rejected with
- *  a structured error instead of being read. */
-const MAX_INTENT_FILE_BYTES = 2 * 1024 * 1024
 const MAX_CLI_CONNECTIONS = 5
 
 // Resolve browser IIFE path relative to this file (dist/vite/vite.js → dist/browser/index.js)
@@ -412,11 +404,10 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
         const code = (err as NodeJS.ErrnoException)?.code
         return { error: `Could not stat file: ${filePath}${code ? ` (${code})` : ''}` }
       }
-      if (stats.size > MAX_INTENT_FILE_BYTES) {
-        return {
-          error: `File too large for intent context: ${filePath} (${stats.size} bytes, max ${MAX_INTENT_FILE_BYTES})`,
-        }
-      }
+      // Size cap and slicing extracted to core/staged-edits.ts so contract is
+      // unit-testable in isolation (no shadow copy in tests).
+      const sizeCheck = checkIntentFileSize(filePath, stats.size)
+      if (sizeCheck) return sizeCheck
 
       let fileContent: string
       try {
@@ -426,25 +417,11 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
         return { error: `Could not read file: ${filePath}${code ? ` (${code})` : ''}` }
       }
 
-      const lines = fileContent.split('\n')
-      const targetIdx = line - 1  // convert 1-based to 0-based
-      const beforeStart = Math.max(0, targetIdx - 10)
-      const afterEnd = Math.min(lines.length - 1, targetIdx + 10)
-
-      // TODO(ZF0-1452+): structured currentValue extraction via AST.
-      // Currently returns the target line text as currentValue; Claude can infer
-      // the property value from context. A future enhancement would parse the AST
-      // to extract the specific CSS property value for divergence detection.
-      const targetLine = lines[targetIdx] ?? ''
-
+      const slice = sliceIntentContext(fileContent, line)
       return {
         intentId,
-        context: {
-          before: lines.slice(beforeStart, targetIdx),
-          target: targetLine,
-          after: lines.slice(targetIdx + 1, afterEnd + 1),
-        },
-        currentValue: targetLine,
+        context: { before: slice.before, target: slice.target, after: slice.after },
+        currentValue: slice.currentValue,
       }
     }
 

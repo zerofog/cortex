@@ -294,7 +294,15 @@ describe('MCP edit tools (ZF0-1452 T2)', () => {
   // Spec criterion 3: cortex_apply_edits — deterministic intents return 'applied'
   // -------------------------------------------------------------------------
 
-  it('[C3] cortex_apply_edits — deterministic intent returns applied + removes from buffer', async () => {
+  // Skip: this test asserts the deterministic-apply 'applied' status, which
+  // production never returns today (per ZF0-1464 deferral — EditPipeline
+  // doesn't expose a synchronous applied/needs-source-edit boundary). The
+  // mock RPC handler fabricates the applied branch but the production code
+  // path always returns 'needs-source-edit' for found intents. Re-enable
+  // when ZF0-1464 lands the Promise-based EditPipeline integration. The
+  // applyEditsCore unit tests at the bottom of this file pin the current
+  // production contract; [C4] pins the needs-source-edit path end-to-end.
+  it.skip('[C3] cortex_apply_edits — deterministic intent returns applied + removes from buffer', async () => {
     const store = installEditRPCHandler(mockVite)
     store.edits.push(makeEdit({ intentId: 'intent-det', property: 'color', value: 'blue' }))
     store.applyResults.set('intent-det', 'applied')
@@ -397,21 +405,21 @@ describe('MCP edit tools (ZF0-1452 T2)', () => {
 
   // -------------------------------------------------------------------------
   // Spec criterion 7: cortex_get_intent_context returns ~20 lines around intent
+  //
+  // Envelope-only: this asserts the MCP wire shape (intentId echo,
+  // before/target/after fields present and string-shaped). The exact line
+  // ranges and clamp behavior are pinned by sliceIntentContext unit tests
+  // in tests/core/staged-edits.test.ts — those exercise the production
+  // helper directly without a mock-RPC shadow copy.
   // -------------------------------------------------------------------------
 
-  it('[C7] cortex_get_intent_context returns ~20 lines of context around intent location', async () => {
+  it('[C7] cortex_get_intent_context returns context envelope with before/target/after fields', async () => {
     const store = installEditRPCHandler(mockVite)
-    // Create a file with 30+ lines
     const lines = Array.from({ length: 30 }, (_, i) => `line ${i + 1}: const x = ${i + 1};`)
     const fileContent = lines.join('\n')
     const filePath = 'src/Hero.tsx'
     store.contextFiles.set(filePath, fileContent)
-
-    const edit = makeEdit({
-      intentId: 'ctx-intent',
-      source: `${filePath}:15:3`,  // line 15 (1-based)
-    })
-    store.edits.push(edit)
+    store.edits.push(makeEdit({ intentId: 'ctx-intent', source: `${filePath}:15:3` }))
 
     const client = await startTestServer(mockVite.port)
     await waitForConnection(mockVite)
@@ -428,19 +436,18 @@ describe('MCP edit tools (ZF0-1452 T2)', () => {
       currentValue: string
     }
     expect(parsed.intentId).toBe('ctx-intent')
-    expect(parsed.context.target).toBe('line 15: const x = 15;')
-    // before: lines 5-14 (10 lines)
-    expect(parsed.context.before).toHaveLength(10)
-    expect(parsed.context.before[0]).toBe('line 5: const x = 5;')
-    expect(parsed.context.before[9]).toBe('line 14: const x = 14;')
-    // after: lines 16-25 (10 lines)
-    expect(parsed.context.after).toHaveLength(10)
-    expect(parsed.context.after[0]).toBe('line 16: const x = 16;')
-    expect(parsed.context.after[9]).toBe('line 25: const x = 25;')
+    expect(Array.isArray(parsed.context.before)).toBe(true)
+    expect(typeof parsed.context.target).toBe('string')
+    expect(parsed.context.target.length).toBeGreaterThan(0)
+    expect(Array.isArray(parsed.context.after)).toBe(true)
   })
 
   // -------------------------------------------------------------------------
   // Spec criterion 8: cortex_get_intent_context includes currentValue
+  //
+  // Envelope-only: asserts currentValue is a string field on the response.
+  // Its content semantics (line-text fallback today, AST extraction in
+  // ZF0-1452+) are pinned by sliceIntentContext unit tests.
   // -------------------------------------------------------------------------
 
   it('[C8] cortex_get_intent_context includes currentValue for divergence detection', async () => {
@@ -461,9 +468,7 @@ describe('MCP edit tools (ZF0-1452 T2)', () => {
     const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text) as {
       currentValue: string
     }
-    // currentValue is the target line text (line-text fallback)
     expect(typeof parsed.currentValue).toBe('string')
-    expect(parsed.currentValue).toBe('style={{ color: "red" }}')
   })
 
   // -------------------------------------------------------------------------
@@ -592,82 +597,23 @@ describe('MCP edit tools (ZF0-1452 T2)', () => {
     expect(parsed.error).toBe('intent not found')
   })
 
-  // -------------------------------------------------------------------------
-  // Edge case: getIntentContext near top of file — before array is shorter (clamped)
-  // -------------------------------------------------------------------------
-
-  it('[EDGE] cortex_get_intent_context near top of file — before array is clamped', async () => {
-    const store = installEditRPCHandler(mockVite)
-    const filePath = 'src/Top.tsx'
-    const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`)
-    store.contextFiles.set(filePath, lines.join('\n'))
-    store.edits.push(makeEdit({ intentId: 'top-intent', source: `${filePath}:2:1` }))
-
-    const client = await startTestServer(mockVite.port)
-    await waitForConnection(mockVite)
-    await new Promise(r => setTimeout(r, 50))
-
-    const result = await client.callTool({
-      name: 'cortex_get_intent_context',
-      arguments: { intentId: 'top-intent' },
-    })
-    expect(result.isError).toBeFalsy()
-    const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text) as {
-      context: { before: string[]; target: string; after: string[] }
-    }
-    // Line 2 → only 1 line before (line 1), not 10
-    expect(parsed.context.before.length).toBeLessThan(10)
-    expect(parsed.context.before).not.toContain(undefined)
-    expect(parsed.context.target).toBe('line 2')
-  })
+  // Note: clamp behavior at file top/bottom (the previous EDGE tests for
+  // before-array-clamped and after-array-clamped) is now pinned by the
+  // sliceIntentContext unit tests in tests/core/staged-edits.test.ts. Those
+  // exercise the production helper directly without a mock-RPC shadow copy.
+  // The integration test above ([C7]) covers the envelope wiring.
 
   // -------------------------------------------------------------------------
-  // Edge case: getIntentContext near end of file — after array is shorter (clamped)
-  // -------------------------------------------------------------------------
-
-  it('[EDGE] cortex_get_intent_context near end of file — after array is clamped', async () => {
-    const store = installEditRPCHandler(mockVite)
-    const filePath = 'src/Bottom.tsx'
-    const lines = Array.from({ length: 12 }, (_, i) => `line ${i + 1}`)
-    store.contextFiles.set(filePath, lines.join('\n'))
-    // Line 11 of 12 — only 1 line after
-    store.edits.push(makeEdit({ intentId: 'bot-intent', source: `${filePath}:11:1` }))
-
-    const client = await startTestServer(mockVite.port)
-    await waitForConnection(mockVite)
-    await new Promise(r => setTimeout(r, 50))
-
-    const result = await client.callTool({
-      name: 'cortex_get_intent_context',
-      arguments: { intentId: 'bot-intent' },
-    })
-    expect(result.isError).toBeFalsy()
-    const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text) as {
-      context: { before: string[]; target: string; after: string[] }
-    }
-    expect(parsed.context.target).toBe('line 11')
-    // Only 1 line after (line 12)
-    expect(parsed.context.after).toHaveLength(1)
-    expect(parsed.context.after[0]).toBe('line 12')
-  })
-
-  // -------------------------------------------------------------------------
-  // SECURITY/PERF: cortex_get_intent_context rejects files larger than 2MB
+  // SECURITY/PERF: cortex_get_intent_context envelope when file exceeds cap
   //
-  // Synchronous fs.readFileSync stalls the Vite Node event loop on large
-  // generated files (lockfiles, asset bundles, db dumps) that happen to live
-  // under projectRoot. Production checks fs.statSync.size > MAX_INTENT_FILE_BYTES
-  // and rejects with a structured error before reading. The mock RPC handler
-  // mirrors this gate via store.largeFiles.
-  //
-  // Falsifiability: if the production cap is removed, fs.readFileSync would
-  // run on a 5MB+ payload and the response would be context-bearing rather
-  // than a 'File too large' error. The mock's parallel gate means a
-  // simultaneous removal would also propagate; the test asserts the wire
-  // shape that production guarantees today.
+  // Envelope-only: asserts the MCP wire returns an error field for oversized
+  // files. The exact error format (filename, actual bytes, max bytes) is
+  // pinned by checkIntentFileSize unit tests in
+  // tests/core/staged-edits.test.ts — that's the helper the production
+  // handler delegates to. No mock-RPC shadow copy of the format string here.
   // -------------------------------------------------------------------------
 
-  it('[PERF] cortex_get_intent_context rejects files larger than 2MB', async () => {
+  it('[PERF] cortex_get_intent_context returns error envelope for oversized files', async () => {
     const store = installEditRPCHandler(mockVite)
     const filePath = 'src/large-generated.tsx'
     // Simulate a 5MB file (over the 2MB cap)
@@ -683,12 +629,9 @@ describe('MCP edit tools (ZF0-1452 T2)', () => {
       arguments: { intentId: 'big-intent' },
     })
     expect(result.isError).toBeFalsy()
-    const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text) as { error: string }
-    expect(parsed.error).toContain('File too large')
-    expect(parsed.error).toContain(filePath)
-    // Confirm the structured error reports both actual and max sizes
-    expect(parsed.error).toContain(String(5 * 1024 * 1024))
-    expect(parsed.error).toContain(String(2 * 1024 * 1024))
+    const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text) as { error?: string }
+    expect(typeof parsed.error).toBe('string')
+    expect(parsed.error!.length).toBeGreaterThan(0)
   })
 
   // -------------------------------------------------------------------------

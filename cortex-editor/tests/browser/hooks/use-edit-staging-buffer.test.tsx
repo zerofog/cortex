@@ -209,6 +209,16 @@ describe('useEditStagingBuffer', () => {
     unmount()
   })
 
+  // happy-dom + production-reader pairing rationale (ZF0-1452 Step 8.5 audit):
+  // The reconcile tests below exercise inline-style reads, which production's
+  // defaultReadSourceValue handles via el.style.getPropertyValue(prop) FIRST
+  // (before the getComputedStyle fallback). happy-dom returns inline-style
+  // values verbatim — same as real browsers — so the inline path is consistent
+  // across both. The tests do NOT exercise the getComputedStyle fallback (which
+  // normalizes 'green' → 'rgb(0, 128, 0)' in real browsers but not happy-dom);
+  // tests that need the override-bypass path inject a custom reader (see the
+  // 'reconcile uses readSourceValue callback' test). Pairing is intentional;
+  // the assertions are NOT happy-dom theatre.
   it('reconcile flags divergent when current inline style differs from previousValue', async () => {
     const { result, unmount } = renderHook(() => useEditStagingBuffer())
 

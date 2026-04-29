@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest'
-import { StagedEditsCache, isValidPendingEdit } from '../../src/core/staged-edits.js'
+import {
+  StagedEditsCache,
+  isValidPendingEdit,
+  sliceIntentContext,
+  checkIntentFileSize,
+  MAX_INTENT_FILE_BYTES,
+} from '../../src/core/staged-edits.js'
 import type { PendingEdit } from '../../src/adapters/types.js'
 import { makeEdit } from './helpers.js'
 
@@ -167,30 +173,19 @@ describe('StagedEditsCache', () => {
     expect(cache.size()).toBe(0)
   })
 
-  it('snapshot semantics — mutating a returned PendingEdit does not affect cache state', () => {
+  // Snapshot semantics: list() and getById() must each return a defensive
+  // copy so caller mutations cannot corrupt cache state. Same predicate
+  // tested across both read paths via it.each (cortex CLAUDE.md test rule
+  // #5: parameterize parallel inputs rather than copy-paste tests).
+  it.each([
+    ['list()', (c: StagedEditsCache) => c.list()[0]!],
+    ['getById()', (c: StagedEditsCache) => c.getById('snapshot-test')!],
+  ])('snapshot semantics: mutating %s result does not affect cache', (_name, read) => {
     const cache = new StagedEditsCache()
-    const edit = makeEdit({ intentId: 'snapshot-test', value: 'original' })
-    cache.append(edit)
-
-    const list = cache.list()
-    // Mutate the returned object
-    list[0].value = 'mutated'
-
-    // Cache must be unaffected
-    const listAgain = cache.list()
-    expect(listAgain[0].value).toBe('original')
-  })
-
-  it('snapshot semantics for getById — mutating returned object does not affect cache', () => {
-    const cache = new StagedEditsCache()
-    const edit = makeEdit({ intentId: 'snap-get', value: 'orig' })
-    cache.append(edit)
-
-    const found = cache.getById('snap-get')!
-    found.value = 'clobbered'
-
-    const again = cache.getById('snap-get')!
-    expect(again.value).toBe('orig')
+    cache.append(makeEdit({ intentId: 'snapshot-test', value: 'original' }))
+    const snapshot = read(cache)
+    snapshot.value = 'mutated'
+    expect(read(cache).value).toBe('original')
   })
 
   it('last-write-wins preserves insertion order (new key appended, existing key updated in-place)', () => {
@@ -335,5 +330,104 @@ describe('isValidPendingEdit', () => {
     expect(isValidPendingEdit(undefined)).toBe(false)
     expect(isValidPendingEdit('not-an-edit')).toBe(false)
     expect(isValidPendingEdit(42)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// sliceIntentContext — pure file-context slicer (ZF0-1452 Step 8.5)
+//
+// Pins the line-range contract directly. Pre-extraction, the integration
+// tests in mcp-edit-tools.test.ts asserted slice contents against a mock
+// RPC handler that re-implemented the same slice logic — an off-by-one in
+// production wouldn't fail those tests because the mock had the same bug.
+// These unit tests exercise the real production helper (no shadow copy).
+// ---------------------------------------------------------------------------
+
+describe('sliceIntentContext — pure file-context slicer', () => {
+  const FILE_15_LINES = Array.from({ length: 15 }, (_, i) => `line ${i + 1}`).join('\n')
+
+  it('returns 7 before + target + 7 after for line 8 (clamped by start of file)', () => {
+    // Line 8: targetIdx=7. beforeStart=max(0, 7-10)=0; before=lines.slice(0, 7).
+    // afterEnd=min(14, 7+10)=14; after=lines.slice(8, 15) = 7 lines.
+    const result = sliceIntentContext(FILE_15_LINES, 8)
+    expect(result.before).toEqual([
+      'line 1', 'line 2', 'line 3', 'line 4', 'line 5', 'line 6', 'line 7',
+    ])
+    expect(result.target).toBe('line 8')
+    expect(result.after).toEqual([
+      'line 9', 'line 10', 'line 11', 'line 12', 'line 13', 'line 14', 'line 15',
+    ])
+  })
+
+  it('returns full 10 before for a target deep enough in the file', () => {
+    // 25-line file, target=line 15 → 10 before, 10 after.
+    const fileBig = Array.from({ length: 25 }, (_, i) => `L${i + 1}`).join('\n')
+    const result = sliceIntentContext(fileBig, 15)
+    expect(result.before).toHaveLength(10)
+    expect(result.before[0]).toBe('L5')
+    expect(result.before[9]).toBe('L14')
+    expect(result.target).toBe('L15')
+    expect(result.after).toHaveLength(10)
+    expect(result.after[0]).toBe('L16')
+    expect(result.after[9]).toBe('L25')
+  })
+
+  it('clamps before-array to empty when target is line 1', () => {
+    const result = sliceIntentContext(FILE_15_LINES, 1)
+    expect(result.before).toEqual([])
+    expect(result.target).toBe('line 1')
+    // after still capped at 10 (lines 2..11)
+    expect(result.after).toHaveLength(10)
+  })
+
+  it('clamps after-array when target is the last line', () => {
+    const result = sliceIntentContext(FILE_15_LINES, 15)
+    expect(result.target).toBe('line 15')
+    expect(result.after).toEqual([])
+  })
+
+  it('returns empty target when line exceeds file length', () => {
+    const result = sliceIntentContext(FILE_15_LINES, 100)
+    expect(result.target).toBe('')
+    expect(result.currentValue).toBe('')
+  })
+
+  it('currentValue equals target line text (TODO ZF0-1452+: structured extraction)', () => {
+    const result = sliceIntentContext(FILE_15_LINES, 8)
+    expect(result.currentValue).toBe('line 8')
+    expect(result.currentValue).toBe(result.target)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// checkIntentFileSize — getIntentContext size guard (ZF0-1452 Step 8.5)
+// ---------------------------------------------------------------------------
+
+describe('checkIntentFileSize — getIntentContext size guard', () => {
+  it('returns null for files at or below the cap', () => {
+    expect(checkIntentFileSize('foo.ts', 0)).toBeNull()
+    expect(checkIntentFileSize('foo.ts', MAX_INTENT_FILE_BYTES)).toBeNull()
+    expect(checkIntentFileSize('foo.ts', MAX_INTENT_FILE_BYTES - 1)).toBeNull()
+  })
+
+  it('returns structured error for oversized files', () => {
+    const oversize = MAX_INTENT_FILE_BYTES + 1
+    const result = checkIntentFileSize('big.ts', oversize)
+    expect(result).not.toBeNull()
+    expect(result!.error).toContain('File too large for intent context: big.ts')
+    expect(result!.error).toContain(`${oversize} bytes`)
+    expect(result!.error).toContain(`max ${MAX_INTENT_FILE_BYTES}`)
+  })
+
+  it('preserves the exact filename in the error message', () => {
+    const result = checkIntentFileSize('a/b/c.tsx', 5_000_000)
+    expect(result).not.toBeNull()
+    expect(result!.error).toContain('a/b/c.tsx')
+  })
+
+  it('reports actual byte count in the error message', () => {
+    const result = checkIntentFileSize('big.ts', 12_345_678)
+    expect(result).not.toBeNull()
+    expect(result!.error).toContain('12345678 bytes')
   })
 })

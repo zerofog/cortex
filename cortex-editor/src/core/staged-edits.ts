@@ -228,3 +228,60 @@ export function applyEditsCore(
     }
   })
 }
+
+// ---------------------------------------------------------------------------
+// getIntentContext helpers — pure slicer + size guard, used by vite.ts
+// handleRPC.getIntentContext.
+//
+// Extracted so the production contract (line ranges, clamp boundaries,
+// size-cap error format) is unit-testable in isolation without mounting an
+// MCP test rig. The vite.ts integration test that exercises these helpers
+// makes envelope-only assertions (intentId echo, target line non-empty)
+// because the slice contents and error format are pinned here.
+// ---------------------------------------------------------------------------
+
+/** Max file size readable by cortex_get_intent_context (2MB). Synchronous
+ *  fs.readFileSync blocks the Vite Node event loop; capping at ~10× a
+ *  generous source-file size keeps the read non-blocking even when a
+ *  project has large generated artefacts (lockfiles, asset bundles, db
+ *  dumps) under projectRoot. Files exceeding this are rejected before the
+ *  read. Exported so the size-cap test can pin the exact threshold. */
+export const MAX_INTENT_FILE_BYTES = 2 * 1024 * 1024
+
+/** Pure slicer for getIntentContext: given file content and a 1-based line
+ *  number, return ~10 lines before + target + ~10 lines after. Clamps to
+ *  file boundaries so neither index can underflow or overflow. The returned
+ *  `currentValue` is the target line text (TODO ZF0-1452+: AST-based
+ *  property-value extraction for divergence detection). */
+export function sliceIntentContext(
+  fileContent: string,
+  line: number,
+): { before: string[]; target: string; after: string[]; currentValue: string } {
+  const lines = fileContent.split('\n')
+  const targetIdx = line - 1
+  const beforeStart = Math.max(0, targetIdx - 10)
+  const afterEnd = Math.min(lines.length - 1, targetIdx + 10)
+  const targetLine = lines[targetIdx] ?? ''
+  return {
+    before: lines.slice(beforeStart, targetIdx),
+    target: targetLine,
+    after: lines.slice(targetIdx + 1, afterEnd + 1),
+    currentValue: targetLine,
+  }
+}
+
+/** Defensive size guard for getIntentContext file reads. Returns the
+ *  structured rejection envelope when the file exceeds the cap; returns
+ *  null when the read should proceed. Centralizes the error format so
+ *  tests pin it without shadow-copying the message string. */
+export function checkIntentFileSize(
+  filePath: string,
+  sizeBytes: number,
+): { error: string } | null {
+  if (sizeBytes > MAX_INTENT_FILE_BYTES) {
+    return {
+      error: `File too large for intent context: ${filePath} (${sizeBytes} bytes, max ${MAX_INTENT_FILE_BYTES})`,
+    }
+  }
+  return null
+}
