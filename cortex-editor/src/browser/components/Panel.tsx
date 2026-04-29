@@ -40,6 +40,7 @@ import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
 import { computePanelStyleSnapshot } from './panel-style-snapshot.js'
 import { ALL_DIMMING_PROPERTIES } from './sections/spacing-utils.js'
 import { useEditStagingBuffer } from '../hooks/useEditStagingBuffer.js'
+import type { PendingEdit } from '../hooks/useEditStagingBuffer.js'
 import { generateId } from '../uuid.js'
 
 // ── Connection status footer ─────────────────────────────────────────
@@ -497,11 +498,46 @@ export function Panel({
       })
     }
 
+    // Build PendingEdits up front. They are the single source of truth for both
+    // (a) the initial buffer.append loop below, and (b) the PropertyEditCommand's
+    // undo/redo bookkeeping — undo removes these intentIds; redo re-appends these
+    // exact shapes. Sharing one array avoids the desync where the buffer entry
+    // and the command's view of "what was appended" could drift apart.
+    //
+    // Filter to the selected element's source to deduplicate scope='all' sibling entries.
+    const editedProps = changes.filter(c => c.source === source)
+    const instanceSources = sharedInfo && editScope === 'all'
+      ? sharedInfo.elements.map(el => el.getAttribute('data-cortex-source')).filter((s): s is string => s !== null)
+      : undefined
+    const pendingEdits: PendingEdit[] = editedProps.map(c => ({
+      intentId: generateId(),
+      source,
+      property: c.property,
+      value: c.value,
+      previousValue: c.previousValue,
+      // Use the change's own pseudo, not the closure-scoped `activePseudo`.
+      // They're equal today via a useEffect that clears scrubPreviousRef on
+      // pseudo change, but that invariant is action-at-a-distance — local
+      // truth (`c.pseudo`) is always correct.
+      pseudo: c.pseudo,
+      // PendingEdit.scope mirrors the server's CortexEdit.scope contract
+      // ('instance' | 'all'); editScope already uses the same shape.
+      scope: editScope,
+      instanceSources,
+      timestamp: Date.now(),
+    }))
+
     // Record command on stack. Overrides are already applied during scrub phase,
-    // so record() stores without re-executing (avoids double-apply).
+    // so record() stores without re-executing (avoids double-apply). The command
+    // owns the staging-buffer side of undo/redo via pendingEdits + bufferOps.
     if (changes.length > 0) {
       if (commandStack) {
-        const cmd = new PropertyEditCommand({ changes, overrideManager })
+        const cmd = new PropertyEditCommand({
+          changes,
+          overrideManager,
+          pendingEdits,
+          bufferOps: buffer,
+        })
         commandStack.record(cmd)
       } else {
         console.warn('[cortex] Edit committed without undo stack — this edit cannot be undone')
@@ -516,35 +552,18 @@ export function Panel({
     setStyleVersion(v => v + 1)
     scrubPreviousRef.current.clear()
 
-    // Append property edits to the staging buffer (deferred to Apply gesture).
-    // Filter to the selected element's source to deduplicate scope='all' sibling entries.
-    const editedProps = changes.filter(c => c.source === source)
-    // Hoisted out of the loop — `instanceSources` doesn't depend on `c`, so
-    // computing it once per commit avoids recomputing the filter+map for
-    // every edited property.
-    const instanceSources = sharedInfo && editScope === 'all'
-      ? sharedInfo.elements.map(el => el.getAttribute('data-cortex-source')).filter((s): s is string => s !== null)
-      : undefined
-    for (const c of editedProps) {
-      buffer.append({
-        intentId: generateId(),
-        source,
-        property: c.property,
-        value: c.value,
-        previousValue: c.previousValue,
-        // Use the change's own pseudo, not the closure-scoped `activePseudo`.
-        // They're equal today via a useEffect that clears scrubPreviousRef on
-        // pseudo change, but that invariant is action-at-a-distance — local
-        // truth (`c.pseudo`) is always correct.
-        pseudo: c.pseudo,
-        // PendingEdit.scope mirrors the server's CortexEdit.scope contract
-        // ('instance' | 'all'); editScope already uses the same shape.
-        scope: editScope,
-        instanceSources,
-        timestamp: Date.now(),
-      })
+    // Initial append to the staging buffer (deferred to Apply gesture).
+    // Subsequent redo() of the recorded command re-appends these same shapes
+    // via PropertyEditCommand.execute → bufferOps.append.
+    for (const edit of pendingEdits) {
+      buffer.append(edit)
+      // A new edit supersedes any prior divergence card for the same source+property.
+      // Pre-pivot, this clear happened in CortexApp.handleEditDispatch when the edit
+      // went out via channel.send. Now that the edit is buffer-appended, dispatch
+      // doesn't fire — so we re-establish the contract here.
+      onDismissError?.(`${edit.source}${SEP}${edit.property}`)
     }
-  }, [element, overrideManager, buffer, sharedInfo, editScope, commandStack])
+  }, [element, overrideManager, buffer, sharedInfo, editScope, commandStack, onDismissError])
 
   // Expose flush for CortexApp to call before undo/redo — microtask commits
   // haven't fired yet when blur+undo runs synchronously in the same tick.

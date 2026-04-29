@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
+import { act } from 'preact/test-utils'
 import { CortexApp } from '../../src/browser/components/CortexApp.js'
 import { createShadowHost, createMockChannel, mockGetBoundingClientRect, dispatchKeyboardEvent, cleanDocumentHead } from './helpers.js'
 import * as focusUtils from '../../src/browser/focus-utils.js'
@@ -779,28 +780,38 @@ describe('CortexApp', () => {
       // 'connected', which hides the footer. The sibling 'clears reconnected
       // timer...' test covers the CANCEL branch; this one covers the fire path.
       //
-      // Uses real timers during setup (waits for useEffect to subscribe
-      // onConnectionChange and for Preact to commit the reconnecting render),
-      // then switches to fake timers to drive the 2s auto-dismiss deterministically.
-      setup()
-      const channel = createMockChannel()
-      render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
-      await new Promise(r => setTimeout(r, 10))
-
-      // Reconnecting → marks wasDisconnected=true internally. Wait for
-      // Preact commit so Panel is mounted before we trigger the flash.
-      channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 1, maxRetries: 5 })
-      await vi.waitFor(() => {
-        const el = root.querySelector('.cortex-connection-status')
-        expect(el).not.toBeNull()
-        expect(el!.textContent).toContain('Reconnecting')
-      }, { timeout: 500 })
-
+      // Uses fake timers throughout to drive Preact's macrotask-based render
+      // batching deterministically. The earlier real-timers + waitFor variant
+      // produced an intermittent CI flake where the reconnecting render hadn't
+      // committed by the time waitFor first polled (line 795 null assertion);
+      // act() + vi.advanceTimersByTimeAsync replaces the polling race per the
+      // ZF0-1387 lineage of flake fixes.
       vi.useFakeTimers()
       try {
+        setup()
+        const channel = createMockChannel()
+        await act(() => {
+          render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
+        })
+        await vi.advanceTimersByTimeAsync(10)
+
+        // Reconnecting → marks wasDisconnected=true internally. act() flushes
+        // the Preact render synchronously so the footer is visible before
+        // we proceed.
+        await act(() => {
+          channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 1, maxRetries: 5 })
+        })
+        await vi.advanceTimersByTimeAsync(10)
+
+        const reconnecting = root.querySelector('.cortex-connection-status')
+        expect(reconnecting).not.toBeNull()
+        expect(reconnecting!.textContent).toContain('Reconnecting')
+
         // Connected + wasDisconnected → CortexApp flips status to 'reconnected'
         // and starts the 2s auto-dismiss timer.
-        channel._simulateConnectionChange({ status: 'connected' })
+        await act(() => {
+          channel._simulateConnectionChange({ status: 'connected' })
+        })
         await vi.advanceTimersByTimeAsync(50)
 
         const reconnectedFooter = root.querySelector('.cortex-connection-status')

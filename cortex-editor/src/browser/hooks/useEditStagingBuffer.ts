@@ -301,9 +301,16 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
         // Bare flat queries miss them and falsely flag them as "element
         // deleted" (file deleted/refactored), producing user-hostile divergence
         // cards. Mirrors the existing selection-resolution shadow-pierce path.
+        // First-seen wins on duplicate sources. With `set` semantics, two
+        // mounted instances sharing a `data-cortex-source` (legitimate when
+        // scope='all' targets sibling instances; or accidental during HMR
+        // re-render where old + new trees coexist for a tick) would have
+        // the LAST element clobber the first, and `last` is non-deterministic
+        // in document/insertion order across browsers and shadow trees.
+        // First-seen + traversal order produces stable behavior.
         for (const el of deepQuerySelectorAll('[data-cortex-source]')) {
           const s = el.getAttribute('data-cortex-source')
-          if (s !== null) elBySource.set(s, el)
+          if (s !== null && !elBySource.has(s)) elBySource.set(s, el)
         }
       }
 
