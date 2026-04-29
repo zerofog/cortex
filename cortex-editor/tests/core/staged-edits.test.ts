@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { StagedEditsCache } from '../../src/core/staged-edits.js'
+import type { PendingEdit } from '../../src/adapters/types.js'
 import { makeEdit } from './helpers.js'
 
 describe('StagedEditsCache', () => {
@@ -173,5 +174,42 @@ describe('StagedEditsCache', () => {
     expect(list).toHaveLength(2)
     expect(list[0].intentId).toBe('b')
     expect(list[1].intentId).toBe('a2')
+  })
+
+  it('replaceAll rejects oversize input and leaves cache state unchanged; boundary at cap allowed', () => {
+    // Defensive cap at 2× browser MAX_ENTRIES (1000): a misbehaving panel-mount
+    // loop or compromised browser script can't block the Node event loop with
+    // a 100MB sync message. Token-gated upstream, so this is defense-in-depth.
+    const cache = new StagedEditsCache()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    // Seed with 3 entries via append — these must survive a rejected replaceAll.
+    cache.append(makeEdit({ intentId: 'orig-1', property: 'color' }))
+    cache.append(makeEdit({ intentId: 'orig-2', property: 'fontSize' }))
+    cache.append(makeEdit({ intentId: 'orig-3', property: 'padding' }))
+    expect(cache.size()).toBe(3)
+
+    // 1001 entries (just over the cap) — must be rejected.
+    const oversize: PendingEdit[] = []
+    for (let i = 0; i < 1001; i++) {
+      oversize.push(makeEdit({ intentId: `over-${i}`, property: `prop-${i}` }))
+    }
+    cache.replaceAll(oversize)
+
+    expect(cache.size()).toBe(3)
+    const survivors = cache.list().map(e => e.intentId)
+    expect(survivors).toEqual(['orig-1', 'orig-2', 'orig-3'])
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(String(warnSpy.mock.calls[0][0])).toContain('replaceAll rejected')
+
+    // Boundary case: exactly at the cap (1000) IS allowed.
+    const atCap: PendingEdit[] = []
+    for (let i = 0; i < 1000; i++) {
+      atCap.push(makeEdit({ intentId: `cap-${i}`, property: `cap-prop-${i}` }))
+    }
+    cache.replaceAll(atCap)
+    expect(cache.size()).toBe(1000)
+
+    warnSpy.mockRestore()
   })
 })

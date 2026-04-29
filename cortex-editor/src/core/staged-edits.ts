@@ -1,5 +1,13 @@
 import type { PendingEdit } from '../adapters/types.js'
 
+/** Defensive cap on replaceAll input size — 2× browser MAX_ENTRIES (500).
+ *  Token-gated upstream, so this is defense-in-depth against a misbehaving
+ *  panel-mount loop or compromised browser script that might send a 100MB
+ *  sync message and block the Node event loop. Generous enough to never
+ *  reject legitimate traffic, narrow enough to bound the worst case. Not a
+ *  protocol contract — purely a server-side safety bound. */
+const MAX_REPLACE_ALL_SIZE = 1000
+
 /** Composite key for last-write-wins deduplication — matches browser hook semantics. */
 function compositeKey(edit: PendingEdit): string {
   return `${edit.source}\0${edit.property}\0${edit.pseudo ?? ''}`
@@ -62,8 +70,18 @@ export class StagedEditsCache {
    * wins (Map.set overwrites). The browser-side staging buffer dedupes
    * upstream via the same composite key, so duplicates here are not expected
    * in practice.
+   *
+   * Inputs exceeding MAX_REPLACE_ALL_SIZE are rejected with a console.warn;
+   * cache state is left unchanged so a malformed message can't wipe a
+   * healthy cache.
    */
   replaceAll(edits: readonly PendingEdit[]): void {
+    if (edits.length > MAX_REPLACE_ALL_SIZE) {
+      console.warn(
+        `[cortex] StagedEditsCache.replaceAll rejected: ${edits.length} entries exceeds defensive cap ${MAX_REPLACE_ALL_SIZE}`,
+      )
+      return
+    }
     this.store.clear()
     for (const edit of edits) {
       this.store.set(compositeKey(edit), snapshot(edit))

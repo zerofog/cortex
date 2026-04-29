@@ -143,7 +143,7 @@ export type BrowserToServer =
   | { type: 'staged-edit-remove'; intentIds: string[]; token: string }
   | { type: 'staged-edit-clear'; token: string }
   | { type: 'staged-edits-sync'; edits: PendingEdit[]; token: string }
-  | { type: 'staged-edits-ready'; count: number; token: string }
+  | { type: 'staged-edits-ready'; count: number; requestId: string; token: string }
 
 export type ServerToBrowser =
   | { type: 'cortex' }
