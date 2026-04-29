@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
-import { useEditStagingBuffer, type PendingEdit, type SyncEmitter } from '../../../src/browser/hooks/useEditStagingBuffer.js'
+import { useEditStagingBuffer, createPanelSyncEmitter, type PendingEdit, type SyncEmitter } from '../../../src/browser/hooks/useEditStagingBuffer.js'
+import type { CortexChannel } from '../../../src/adapters/types.js'
 import { cortexStorage } from '../../../src/browser/persistence.js'
 import { makeEdit } from '../../core/helpers.js'
 
@@ -716,5 +717,85 @@ describe('useEditStagingBuffer — sync emitter integration', () => {
     expect(result.current.size()).toBe(500)
 
     unmount()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// createPanelSyncEmitter — Panel.tsx wiring (ZF0-1452 critical fix)
+//
+// The factory delegates each SyncEmitter method to channel.send with the
+// matching BrowserToServer message shape. Without this wiring (or with a
+// shape regression), the server-side StagedEditsCache stays empty and
+// Claude's MCP tools see nothing of what the designer staged. These tests
+// pin every send shape so a refactor can't silently break the integration.
+// ---------------------------------------------------------------------------
+
+describe('createPanelSyncEmitter — channel.send wiring', () => {
+  function makeMockChannel(): CortexChannel & { send: ReturnType<typeof vi.fn> } {
+    return {
+      send: vi.fn(),
+      onMessage: vi.fn(() => () => {}),
+      onConnectionChange: vi.fn(() => () => {}),
+      connected: true,
+      dispose: vi.fn(),
+    } as CortexChannel & { send: ReturnType<typeof vi.fn> }
+  }
+
+  it('syncAdd → channel.send({ type: "staged-edit-add", edit, token: "" })', () => {
+    const channel = makeMockChannel()
+    const emitter = createPanelSyncEmitter(channel)
+    const edit = makeEdit({ intentId: 'wire-add' })
+
+    emitter.syncAdd(edit)
+
+    expect(channel.send).toHaveBeenCalledTimes(1)
+    expect(channel.send).toHaveBeenCalledWith({ type: 'staged-edit-add', edit, token: '' })
+  })
+
+  it('syncRemove → channel.send({ type: "staged-edit-remove", intentIds, token: "" }) with mutable array copy', () => {
+    const channel = makeMockChannel()
+    const emitter = createPanelSyncEmitter(channel)
+    const ids: readonly string[] = ['a', 'b', 'c']
+
+    emitter.syncRemove(ids)
+
+    expect(channel.send).toHaveBeenCalledTimes(1)
+    const call = channel.send.mock.calls[0][0] as { type: string; intentIds: string[]; token: string }
+    expect(call.type).toBe('staged-edit-remove')
+    expect(call.intentIds).toEqual(['a', 'b', 'c'])
+    expect(call.token).toBe('')
+    // Boundary copy: the readonly input must not be passed by reference
+    expect(call.intentIds).not.toBe(ids)
+  })
+
+  it('syncClear → channel.send({ type: "staged-edit-clear", token: "" })', () => {
+    const channel = makeMockChannel()
+    const emitter = createPanelSyncEmitter(channel)
+
+    emitter.syncClear()
+
+    expect(channel.send).toHaveBeenCalledTimes(1)
+    expect(channel.send).toHaveBeenCalledWith({ type: 'staged-edit-clear', token: '' })
+  })
+
+  it('syncFullState → channel.send({ type: "staged-edits-sync", edits, token: "" }) with mutable array copy', () => {
+    const channel = makeMockChannel()
+    const emitter = createPanelSyncEmitter(channel)
+    const edits: readonly PendingEdit[] = [
+      makeEdit({ intentId: 'full-1' }),
+      makeEdit({ intentId: 'full-2' }),
+    ]
+
+    emitter.syncFullState(edits)
+
+    expect(channel.send).toHaveBeenCalledTimes(1)
+    const call = channel.send.mock.calls[0][0] as { type: string; edits: PendingEdit[]; token: string }
+    expect(call.type).toBe('staged-edits-sync')
+    expect(call.edits).toHaveLength(2)
+    expect(call.edits[0].intentId).toBe('full-1')
+    expect(call.edits[1].intentId).toBe('full-2')
+    expect(call.token).toBe('')
+    // Boundary copy: the readonly input must not be passed by reference
+    expect(call.edits).not.toBe(edits)
   })
 })

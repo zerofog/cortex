@@ -50,6 +50,13 @@ function createChannelMock(): CortexChannel & { sent: unknown[] } {
   const sent: unknown[] = []
   return {
     send: vi.fn((msg: unknown) => { sent.push(msg) }),
+    // Panel.tsx subscribes to onMessage for staged-edits-discard handling
+    // (T2). Return a no-op unsubscribe — these tests don't exercise that
+    // path, but the mock must satisfy the CortexChannel contract.
+    onMessage: vi.fn(() => () => {}),
+    onConnectionChange: vi.fn(() => () => {}),
+    connected: true,
+    dispose: vi.fn(),
     sent,
   } as unknown as CortexChannel & { sent: unknown[] }
 }

@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useRef } from 'preact/hooks'
 import { cortexStorage } from '../persistence.js'
 import { stripLineCol, deepQuerySelectorAll } from '../selection-metadata.js'
-import type { PendingEdit } from '../../adapters/types.js'
+import type { CortexChannel, PendingEdit } from '../../adapters/types.js'
 
 // Re-export for backward compatibility — existing test imports rely on this.
 export type { PendingEdit }
@@ -391,3 +391,29 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
 }
 
 export { useEditStagingBuffer }
+
+/**
+ * createPanelSyncEmitter — wires a SyncEmitter to a CortexChannel by
+ * delegating each method to channel.send with the corresponding
+ * BrowserToServer message shape.
+ *
+ * Token stamping: channel.send (both Vite and WebSocket variants) auto-stamps
+ * the captured token via `{ ...msg, token: capturedToken }` (see
+ * src/browser/channel.ts). The empty string passed here is overwritten — it
+ * exists only to satisfy the BrowserToServer type union which marks `token`
+ * as required on the staged-edit-* variants.
+ *
+ * Array conversion: BrowserToServer variants spec mutable arrays
+ * (`string[]`, `PendingEdit[]`); the SyncEmitter interface uses `readonly`.
+ * Spread the readonly inputs into fresh mutable arrays at the boundary.
+ *
+ * Extracted as a named export so its wiring shape is unit-testable without
+ * mounting Panel.tsx — the test file imports this directly. */
+export function createPanelSyncEmitter(channel: CortexChannel): SyncEmitter {
+  return {
+    syncAdd: (edit) => channel.send({ type: 'staged-edit-add', edit, token: '' }),
+    syncRemove: (intentIds) => channel.send({ type: 'staged-edit-remove', intentIds: [...intentIds], token: '' }),
+    syncClear: () => channel.send({ type: 'staged-edit-clear', token: '' }),
+    syncFullState: (edits) => channel.send({ type: 'staged-edits-sync', edits: [...edits], token: '' }),
+  }
+}

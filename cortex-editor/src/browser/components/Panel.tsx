@@ -39,8 +39,8 @@ import { Plus } from './icons.js'
 import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
 import { computePanelStyleSnapshot } from './panel-style-snapshot.js'
 import { ALL_DIMMING_PROPERTIES } from './sections/spacing-utils.js'
-import { useEditStagingBuffer } from '../hooks/useEditStagingBuffer.js'
-import type { PendingEdit } from '../hooks/useEditStagingBuffer.js'
+import { useEditStagingBuffer, createPanelSyncEmitter } from '../hooks/useEditStagingBuffer.js'
+import type { PendingEdit, SyncEmitter } from '../hooks/useEditStagingBuffer.js'
 import { generateId } from '../uuid.js'
 
 // ── Connection status footer ─────────────────────────────────────────
@@ -246,8 +246,29 @@ export function Panel({
   // into a single atomic command via microtask.
   const commitPendingRef = useRef(false)
 
+  // SyncEmitter wires the browser-canonical buffer to the server-side
+  // StagedEditsCache mirror. Each mutation method sends a corresponding
+  // BrowserToServer message; channel.send auto-stamps the token. Without
+  // this, the server cache stays empty and Claude's MCP tools see nothing
+  // of what the designer staged.
+  //
+  // useRef (not useMemo) for stable identity across renders — the hook's
+  // emitterRef.current = emitter reassignment must always see the same
+  // object, otherwise the rehydrate-on-mount syncFullState path could be
+  // bypassed. The factory delegates to channel.send, which is stable for
+  // the channel's lifetime, so a one-time construction is correct.
+  //
+  // When channel is absent (e.g., test mounts without one), the buffer
+  // operates browser-canonical only — no emitter is wired and the server
+  // cache stays out of sync. This is the same backward-compat behavior as
+  // before T2.
+  const syncEmitterRef = useRef<SyncEmitter | null>(null)
+  if (syncEmitterRef.current === null && channel) {
+    syncEmitterRef.current = createPanelSyncEmitter(channel)
+  }
+
   // Staging buffer for property edits — accumulates browser-side before Apply gesture.
-  const buffer = useEditStagingBuffer()
+  const buffer = useEditStagingBuffer(syncEmitterRef.current ?? undefined)
 
   // Handle server → browser discard message: when Claude calls cortex_discard_edits, the
   // server sends 'staged-edits-discard' so the browser canonical buffer stays in sync.
