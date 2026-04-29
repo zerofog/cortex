@@ -1,0 +1,30 @@
+cortex-editor/src/browser/selection-metadata.ts
+  cabf7a9785f53645 166-173
+cortex-editor/src/browser/hooks/useEditStagingBuffer.ts
+  cabf7a9785f53645 3,40-43,46,51-52,64,147,153-156,161,163,169,171,192-194,246-250,252-262,280-282
+cortex-editor/src/browser/components/Panel.tsx
+  cabf7a9785f53645 523,537
+cortex-editor/src/browser/components/CortexApp.tsx
+  cabf7a9785f53645 222-224
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "6521ef5521bda4e9c11a21a1d1e03e328925c436",
+  "prompts": {
+    "cabf7a9785f53645": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "89ba978d-58f4-4091-9101-82fc96981c67",
+        "model": "<synthetic>"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 2779,
+      "total_deletions": 63,
+      "accepted_lines": 3372,
+      "overriden_lines": 2,
+      "messages_url": "https://usegitai.com/cas/f7b861a42b920dbc8aa02c749b75cdd6ae888d25b23690201cb040dccd261582"
+    }
+  }
+}
