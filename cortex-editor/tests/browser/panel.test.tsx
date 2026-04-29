@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
 import { Panel } from '../../src/browser/components/Panel.js'
@@ -920,6 +920,12 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
 })
 
 describe('Panel — staging buffer wiring (ZF0-1451)', () => {
+  beforeEach(() => {
+    // Clear before each test so leftover state from a sibling test or other
+    // suite can't satisfy assertions accidentally (CLAUDE.md anti-pattern #2).
+    localStorage.clear()
+  })
+
   afterEach(() => {
     vi.useRealTimers()
     localStorage.clear()

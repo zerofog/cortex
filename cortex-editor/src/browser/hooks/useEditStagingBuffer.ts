@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef } from 'preact/hooks'
 import { cortexStorage } from '../persistence.js'
-import { stripLineCol } from '../selection-metadata.js'
+import { stripLineCol, deepQuerySelectorAll } from '../selection-metadata.js'
 
 export interface PendingEdit {
   intentId: string
@@ -169,8 +169,22 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
     }
   }
 
+  // Tracks whether we've already warned about a persistence failure this session.
+  // cortexStorage.set returns false on quota / private-mode failure; we surface
+  // the first failure but suppress repeats to avoid log spam on every debounce.
+  const persistFailedRef = useRef(false)
+
   const persistNow = useCallback(() => {
-    cortexStorage.set(STORAGE_KEY, Array.from(bufferRef.current.values()))
+    const ok = cortexStorage.set(STORAGE_KEY, Array.from(bufferRef.current.values()))
+    if (!ok && !persistFailedRef.current) {
+      persistFailedRef.current = true
+      console.warn(
+        '[cortex] Staging buffer persistence failed (localStorage quota or private mode); pending edits live only in memory and will be lost on reload.',
+      )
+    } else if (ok && persistFailedRef.current) {
+      // Recovered — clear the flag so a future failure surfaces again.
+      persistFailedRef.current = false
+    }
   }, [])
 
   const schedulePersist = useCallback(() => {
@@ -248,8 +262,15 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
 
   const clear = useCallback(() => {
     bufferRef.current.clear()
-    schedulePersist()
-  }, [schedulePersist])
+    // Synchronous persist — Apply (ZF0-1452) calls clear() after a successful
+    // flush; a 150ms debounce window means a reload-within-window resurrects
+    // the cleared entries. Cancel any pending debounced write first.
+    if (debounceTimerRef.current !== null) {
+      clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = null
+    }
+    persistNow()
+  }, [persistNow])
 
   const size = useCallback((): number => {
     return bufferRef.current.size
@@ -274,7 +295,13 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
 
       if (elBySource === null) {
         elBySource = new Map()
-        for (const el of document.querySelectorAll('[data-cortex-source]')) {
+        // Use deepQuerySelectorAll (not document.querySelectorAll) so reconcile
+        // sees elements inside open shadow roots — web-component apps (Lit,
+        // Stencil, Shoelace) place data-cortex-source inside shadow trees.
+        // Bare flat queries miss them and falsely flag them as "element
+        // deleted" (file deleted/refactored), producing user-hostile divergence
+        // cards. Mirrors the existing selection-resolution shadow-pierce path.
+        for (const el of deepQuerySelectorAll('[data-cortex-source]')) {
           const s = el.getAttribute('data-cortex-source')
           if (s !== null) elBySource.set(s, el)
         }

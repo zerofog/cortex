@@ -15,6 +15,11 @@ export interface PropertyChange {
 export interface EditCommand {
   readonly editId: string
   readonly changes: readonly PropertyChange[]
+  /** Whether undoing/redoing this command should also send {type:'undo'/'redo'}
+   *  to the server. False for buffer-only commands (PropertyEditCommand after
+   *  the ZF0-1210 pivot — staged edits have no server-side counterpart until
+   *  Apply). True for compound edits that still channel.send (classOp). */
+  readonly hasServerEntry: boolean
   execute(): void
   undo(): void
 }
@@ -46,6 +51,7 @@ export type CompoundEditCommandInit = EditCommandInit
 abstract class BaseEditCommand implements EditCommand {
   readonly editId: string
   readonly changes: readonly PropertyChange[]
+  abstract readonly hasServerEntry: boolean
   protected readonly overrideManager: CSSOverrideManager
 
   constructor(init: EditCommandInit) {
@@ -76,6 +82,10 @@ abstract class BaseEditCommand implements EditCommand {
  * Multi-property changes (e.g., fill type switch) are atomic — one command, one undo.
  */
 export class PropertyEditCommand extends BaseEditCommand {
+  // Staged in the browser-side buffer post-pivot; no server-side undo entry
+  // exists until Apply (ZF0-1452) flushes the buffer to Claude Code.
+  readonly hasServerEntry = false
+
   execute(): void {
     for (const c of this.changes) {
       this.overrideManager.set(c.source, c.property, c.value, c.pseudo)
@@ -99,6 +109,10 @@ export class PropertyEditCommand extends BaseEditCommand {
  * purely via the server's compound UndoFileChange + HMR re-render.
  */
 export class CompoundEditCommand extends BaseEditCommand {
+  // classOp dispatches at Panel.tsx still channel.send to the server, so the
+  // server has a corresponding UndoFileChange entry that {type:'undo'} can pop.
+  readonly hasServerEntry = true
+
   execute(): void {
     for (const c of this.changes) {
       if (c.value === '') {

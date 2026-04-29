@@ -764,7 +764,13 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           const cmd = commandStackRef.current?.undo()
           if (cmd) {
             overrideRef.current?.flush()
-            channel.send({ type: 'undo' })
+            // Only send to server if the popped command had a server-side
+            // counterpart. Buffer-only PropertyEditCommands (post-pivot)
+            // would silently pop an unrelated classOp/comment entry on the
+            // server stack, corrupting server-side undo history.
+            if (cmd.hasServerEntry) {
+              channel.send({ type: 'undo' })
+            }
           }
         } catch (err) {
           console.error('[cortex] Undo failed:', err)
@@ -785,7 +791,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           const cmd = commandStackRef.current?.redo()
           if (cmd) {
             overrideRef.current?.flush()
-            channel.send({ type: 'redo' })
+            if (cmd.hasServerEntry) {
+              channel.send({ type: 'redo' })
+            }
           }
         } catch (err) {
           console.error('[cortex] Redo failed:', err)
