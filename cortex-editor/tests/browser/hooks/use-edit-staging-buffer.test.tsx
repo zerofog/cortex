@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
-import { useEditStagingBuffer, type PendingEdit, type StagingBufferHandle } from '../../../src/browser/hooks/useEditStagingBuffer.js'
+import { useEditStagingBuffer, type PendingEdit } from '../../../src/browser/hooks/useEditStagingBuffer.js'
 import { cortexStorage } from '../../../src/browser/persistence.js'
 
 function renderHook<T>(hookFn: () => T): { result: { current: T }; unmount: () => void; rerender: (newHookFn: () => T) => void } {
