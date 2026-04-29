@@ -1,0 +1,24 @@
+cortex-editor/tests/browser/panel.test.tsx
+  cabf7a9785f53645 1002-1004
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "ccec92bc65856cffb552a17bceda74af1f436d60",
+  "prompts": {
+    "cabf7a9785f53645": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "89ba978d-58f4-4091-9101-82fc96981c67",
+        "model": "<synthetic>"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 2502,
+      "total_deletions": 1011,
+      "accepted_lines": 4522,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/8a956f4bb1cc5e30e748c32b68cc53f51ce28021e3cde1c7341f4025ec58cf13"
+    }
+  }
+}
