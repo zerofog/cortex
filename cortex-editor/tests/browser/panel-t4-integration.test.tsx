@@ -238,17 +238,20 @@ describe('Panel T4 — StagingDriftBanner wiring', () => {
       />,
     )
 
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 10))
-    })
+    // vi.waitFor handles slow renders under Istanbul coverage instrumentation.
+    // Without it, a fixed 10ms setTimeout was insufficient in CI (passed locally
+    // without coverage). Two-layer timeout pattern banked from ZF0-1452 retro.
+    await vi.waitFor(() => {
+      const banner = root.querySelector('.cortex-drift-banner')
+      expect(banner).not.toBeNull()
+      expect(banner!.textContent).toContain('staged edit(s) may be affected by external changes')
+      expect(banner!.textContent).toContain("edit(s) saved but HMR didn't apply")
+    }, { timeout: 2000 })
 
     const banner = root.querySelector('.cortex-drift-banner')
-    expect(banner).not.toBeNull()
-    // Exactly one banner element
+    // Exactly one banner element (verified after waitFor confirms both rows present)
     expect(root.querySelectorAll('.cortex-drift-banner').length).toBe(1)
-    // Both rows present
-    expect(banner!.textContent).toContain('staged edit(s) may be affected by external changes')
-    expect(banner!.textContent).toContain("edit(s) saved but HMR didn't apply")
+    expect(banner).not.toBeNull()
 
     cleanup()
     target.remove()
@@ -419,14 +422,12 @@ describe('Panel T4 fix-up — IMPORTANT 1: hmrEventVersion triggers reconcile fo
       />,
     )
 
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 10))
-    })
-
-    // Banner should appear: intent for nonSelectedSource is divergent
-    const banner = root.querySelector('.cortex-drift-banner')
-    expect(banner).not.toBeNull()
-    expect(banner!.textContent).toContain('staged edit(s) may be affected by external changes')
+    // vi.waitFor for Istanbul-instrumentation tolerance (banked from ZF0-1452 retro)
+    await vi.waitFor(() => {
+      const banner = root.querySelector('.cortex-drift-banner')
+      expect(banner).not.toBeNull()
+      expect(banner!.textContent).toContain('staged edit(s) may be affected by external changes')
+    }, { timeout: 2000 })
 
     cleanup()
     target.remove()
