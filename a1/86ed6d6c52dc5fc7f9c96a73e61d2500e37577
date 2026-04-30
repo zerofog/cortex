@@ -1,0 +1,28 @@
+cortex-editor/src/browser/styles.css
+  ecfec458bba35a7a 644-731
+cortex-editor/src/browser/components/StagingDriftBanner.tsx
+  ecfec458bba35a7a 1-102
+cortex-editor/tests/browser/components/staging-drift-banner.test.tsx
+  ecfec458bba35a7a 1-287
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "a186ed6d6c52dc5fc7f9c96a73e61d2500e37577",
+  "prompts": {
+    "ecfec458bba35a7a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "56dc029d-2ab0-41c4-bf31-653c3019aa8a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 546,
+      "total_deletions": 4498,
+      "accepted_lines": 477,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/42210aa43a4be9c7fa2382d152384cb20faeadaa8da681fc3c1c2c8cf9beea82"
+    }
+  }
+}
