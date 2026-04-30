@@ -56,6 +56,18 @@ function seedEdit(edit: PendingEdit): void {
   cortexStorage.set('staging-buffer', [edit])
 }
 
+// Clean state at BOTH bookends so prior test files (especially
+// cortex-app.test.tsx whose afterEach resets buses + restores all mocks)
+// can't leak through. Without the beforeEach, the first 3 tests in this
+// file pass but the 4th (merged banner) fails because some pre-test
+// module state persists across files.
+beforeEach(() => {
+  vi.useRealTimers()
+  localStorage.clear()
+  _resetBusForTesting()
+  _resetTransformBusForTesting()
+})
+
 afterEach(() => {
   vi.useRealTimers()
   localStorage.clear()
