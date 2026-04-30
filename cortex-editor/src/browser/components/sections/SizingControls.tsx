@@ -45,6 +45,11 @@ export interface SizingControlsProps {
   /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
   dimmedProperties?: Set<string>
   mixedProperties?: Set<string>
+  /**
+   * When true, the element's source override has exceeded the TTL without hmr_verified.
+   * Forwarded to NumericInput controls as the stale indicator.
+   */
+  stale?: boolean
 }
 
 /** Derive the SizingDropdown mode from the raw CSS value — pure, no state. */
@@ -71,6 +76,7 @@ export function SizingControls({
   onScrubEnd,
   dimmedProperties,
   mixedProperties,
+  stale,
 }: SizingControlsProps): JSX.Element {
   const [aspectLocked, setAspectLocked] = useState(false)
 
@@ -233,6 +239,7 @@ export function SizingControls({
             tooltip="Width"
             min={0}
             mixed={mixedProperties?.has('width')}
+            stale={stale}
             onChange={handleWidthChange}
             onScrub={handleWidthScrub}
             onScrubEnd={handleWidthScrubEnd}
@@ -254,6 +261,7 @@ export function SizingControls({
             tooltip="Height"
             min={0}
             mixed={mixedProperties?.has('height')}
+            stale={stale}
             onChange={handleHeightChange}
             onScrub={handleHeightScrub}
             onScrubEnd={handleHeightScrubEnd}

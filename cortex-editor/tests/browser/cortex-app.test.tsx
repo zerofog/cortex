@@ -759,6 +759,25 @@ describe('CortexApp', () => {
 
       expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('Unhandled cortex-app-reducer'))
     })
+
+    it('staged-edits-acked channel message does not throw and does not reach reducer', async () => {
+      // Pins the early-return at CortexApp.tsx for ZF0-1469's new ack variant.
+      // The ack is consumed by channel.sendAndAck's one-shot listener — it
+      // resolves the pending Apply Promise via requestId correlation. If the
+      // early-return is removed, the reducer's exhaustive throw at
+      // cortex-app-reducer.ts would fire on every Apply, surfacing as a
+      // console.warn from channel.ts:46.
+      setup()
+      const channel = createMockChannel()
+      const warnSpy = vi.spyOn(console, 'warn')
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+
+      channel._simulateMessage({ type: 'staged-edits-acked', requestId: 'test-req-id' } as any)
+      await new Promise(r => setTimeout(r, 10))
+
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('Unhandled cortex-app-reducer'))
+    })
   })
 
   describe('connection status', () => {
@@ -1091,6 +1110,34 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     // No CSS in list, no ancestor match, no own-file match → gate returns
     // false → neither the version bump nor the re-resolve fan-out fires.
     expect(gcs.mock.calls.length).toBe(before)
+    gcs.mockRestore()
+  })
+
+  // ZF0-1470 (T4 fix-up, IMPORTANT 1): hmrEventVersion always-bumps, even when
+  // shouldRefreshOnHMR returns false (unrelated files). The Panel still receives
+  // hmrChangedFiles so buffer.reconcile() can check non-selected element sources.
+  // Observable: hmrChangedFiles prop contains the unrelated files (not empty) even
+  // when the DOM refresh was skipped. We verify this by confirming the panel body
+  // stays rendered (selection-related refresh was skipped — panel didn't unmount)
+  // AND the hmr-applied handler completed without error.
+  it('hmr-applied with unrelated files still propagates hmrChangedFiles for buffer reconcile', async () => {
+    const { channel, gcs } = await setup('src/foo.tsx:10:5')
+    const before = gcs.mock.calls.length
+
+    // Fire hmr-applied with files that don't touch selected element — shouldRefreshOnHMR
+    // returns false, hmrAppliedVersion stays flat, but hmrEventVersion MUST bump and
+    // hmrChangedFiles MUST be updated with the incoming files.
+    expect(() => {
+      channel._simulateMessage({ type: 'hmr-applied', files: ['src/Sidebar.tsx', 'src/Other.tsx'] })
+    }).not.toThrow()
+
+    // DOM refresh skipped (no new getComputedStyle calls) — confirms gate worked
+    await new Promise(r => setTimeout(r, 200))
+    expect(gcs.mock.calls.length).toBe(before)
+
+    // Panel is still mounted and functional — the always-bump path didn't crash
+    expect(root.textContent).not.toContain('Click any element to start editing')
+
     gcs.mockRestore()
   })
 

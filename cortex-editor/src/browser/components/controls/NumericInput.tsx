@@ -26,6 +26,13 @@ export interface NumericInputProps {
   onScrub?: (value: number) => void
   onScrubEnd?: (value: number) => void
   overridden?: boolean
+  /**
+   * When true, the override was applied but HMR didn't verify it within the TTL.
+   * Renders an orange/yellow tint variant of the overridden indicator with a tooltip
+   * "Edit saved but HMR didn't apply — refresh to verify".
+   * Uses the same --cx-warning token as the StagingDriftBanner accent.
+   */
+  stale?: boolean
   /** When true, shows '--' placeholder indicating shared elements have different values. */
   mixed?: boolean
 }
@@ -52,6 +59,7 @@ export function NumericInput({
   onScrub,
   onScrubEnd,
   overridden,
+  stale,
   mixed,
 }: NumericInputProps): JSX.Element {
   const [localValue, setLocalValue] = useState(String(value))
@@ -217,16 +225,22 @@ export function NumericInput({
     scrubCleanupRef.current = cleanup
   }, [isEditing, value, onChange, onScrub, onScrubEnd, clampValue])
 
+  // Stale tooltip takes priority over the regular tooltip — it carries the recovery hint.
+  const effectiveTooltip = stale
+    ? 'Edit saved but HMR didn\'t apply — refresh to verify'
+    : tooltip
+
   return (
     <div
       class={[
         'cortex-numeric-input',
         isScrubbing && 'cortex-numeric-input--scrubbing',
-        overridden && 'cortex-numeric-input--overridden',
+        stale && 'cortex-numeric-input--stale',
+        overridden && !stale && 'cortex-numeric-input--overridden',
         mixed && 'cortex-numeric-input--mixed',
       ].filter(Boolean).join(' ')}
       onPointerDown={disabled ? undefined : handleScrubDown}
-      data-tooltip={tooltip}
+      data-tooltip={effectiveTooltip}
       aria-disabled={disabled ? 'true' : undefined}
     >
       {prefix !== undefined
@@ -246,7 +260,7 @@ export function NumericInput({
         // to fill allocated space, so other consumers (spacing, position,
         // grid/flex gap, etc.) are unaffected.
         size={4}
-        aria-label={tooltip ?? label ?? (typeof prefix === 'string' ? prefix : undefined)}
+        aria-label={effectiveTooltip ?? label ?? (typeof prefix === 'string' ? prefix : undefined)}
         value={mixed && !isEditing ? '' : localValue}
         placeholder={mixed ? '--' : undefined}
         disabled={disabled}

@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useState } from 'preact/hooks'
+import { useState, useRef, useLayoutEffect, useEffect } from 'preact/hooks'
 import { SegmentedControl } from './controls/SegmentedControl.js'
 import { getThemePreference, setThemePreference, type ThemePreference } from '../theme.js'
 import { encodeFilePath } from '../label.js'
@@ -60,6 +60,24 @@ export interface PanelHeaderProps {
   ancestorLine?: string | null
   hoverEnabled?: boolean
   onToggleHover?: () => void
+  /** Number of edits in the staging buffer. Apply button is hidden when 0. */
+  bufferSize: number
+  /** Called when the designer clicks Apply. Returns a Promise that resolves on
+   *  successful delivery to the server, rejects on timeout or disconnect.
+   *  PanelHeader manages its own "Delivering..." disabled state during the
+   *  in-flight period; the parent is responsible for clearing bufferSize to 0
+   *  after the server applies the edits (T4 wiring).
+   *
+   *  The ID for each request is generated via uuid.generateId() (preserves
+   *  the polyfill for HTTP LAN dev, file://, and sandboxed iframes where
+   *  crypto.randomUUID may be unavailable). */
+  onApply: () => Promise<void>
+  /** Optional error callback. Called with the rejection reason when sendAndAck
+   *  rejects (timeout or disconnect). T4 wires this to ErrorToast for UI
+   *  feedback. When omitted, the error is silently swallowed after setting the
+   *  button back to idle — acceptable for T3 where ErrorToast wiring is
+   *  out-of-scope. */
+  onApplyError?: (err: unknown) => void
 }
 
 export function PanelHeader({
@@ -86,7 +104,64 @@ export function PanelHeader({
   ancestorLine,
   hoverEnabled = true,
   onToggleHover,
+  bufferSize,
+  onApply,
+  onApplyError,
 }: PanelHeaderProps): JSX.Element {
+  const [delivering, setDelivering] = useState(false)
+  // ZF0-1453 (post-Step-9.5): "Hidden after success" state per parent ticket.
+  // After sendAndAck resolves, the button must stay HIDDEN until Claude drains
+  // the buffer (bufferSize → 0). Otherwise the button reappears as Apply (N)
+  // because bufferSize > 0, inviting double-clicks that re-send the same intents.
+  // Reject path leaves pendingClaude false so the button reappears for retry.
+  const [pendingClaude, setPendingClaude] = useState(false)
+
+  // Mounted flag guards setDelivering(false) against unmount-during-onApply race.
+  // useLayoutEffect cleanup runs synchronously on unmount, before any async
+  // continuations that may still hold a reference to setDelivering.
+  const mountedRef = useRef(true)
+  useLayoutEffect(() => () => { mountedRef.current = false }, [])
+
+  // Clear pendingClaude when the buffer drains. Claude's cortex_discard_edits
+  // ultimately fires staged-edits-discard which Panel.tsx forwards to
+  // buffer.remove(); when the last intent goes, bufferSize → 0 and the next
+  // user-staged edit will correctly resurface the Apply button.
+  useEffect(() => {
+    if (bufferSize === 0 && pendingClaude) setPendingClaude(false)
+  }, [bufferSize, pendingClaude])
+
+  const handleApply = (): void => {
+    if (delivering) return
+    setDelivering(true)
+    // Catch synchronous throws from onApply (rare but possible — e.g., an
+    // unexpected runtime error before the async body returns a Promise) so
+    // delivering state still clears and onApplyError still fires. Without
+    // this guard, a sync throw would propagate up and leave delivering=true
+    // stuck. Copilot caught this on PR #91 review. We use try/catch (not
+    // Promise.resolve().then(onApply)) so the synchronous spy-call assertion
+    // pattern continues to work — the microtask deferral broke 3 tests.
+    let promise: Promise<void>
+    try {
+      promise = onApply()
+    } catch (err: unknown) {
+      if (mountedRef.current) setDelivering(false)
+      onApplyError?.(err)
+      return
+    }
+    promise.then(
+      () => {
+        if (mountedRef.current) {
+          setDelivering(false)
+          setPendingClaude(true)
+        }
+      },
+      (err: unknown) => {
+        if (mountedRef.current) setDelivering(false)
+        // pendingClaude stays false — button reappears as Apply (N) for retry.
+        onApplyError?.(err)
+      },
+    )
+  }
   // When library with ancestor source, show ancestor source instead of element source
   const displaySource = isLibrary && ancestorSource ? ancestorSource : sourceFile
   const displayLine = isLibrary && ancestorSource ? (ancestorLine ?? null) : sourceLine
@@ -185,6 +260,19 @@ export function PanelHeader({
             </svg>
           )}
         </button>
+        {bufferSize > 0 && !pendingClaude && (
+          <button
+            class="cortex-panel-header__btn cortex-panel-header__btn--apply"
+            data-action="apply"
+            data-tooltip={delivering ? 'Sending staged edits to Claude…' : `Apply ${bufferSize} staged edit${bufferSize === 1 ? '' : 's'}`}
+            aria-label={delivering ? 'Delivering staged edits' : `Apply ${bufferSize} staged edit${bufferSize === 1 ? '' : 's'}`}
+            aria-busy={delivering ? 'true' : undefined}
+            disabled={delivering}
+            onClick={handleApply}
+          >
+            {delivering ? 'Delivering…' : `Apply (${bufferSize})`}
+          </button>
+        )}
         <button
           class="cortex-panel-header__btn cortex-panel-header__btn--close"
           data-action="close"
