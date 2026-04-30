@@ -4,8 +4,9 @@ import fs from 'fs'
 import os from 'os'
 import pathMod from 'path'
 import WebSocket from 'ws'
-import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting, _getSessionTokenForTesting, shouldSuppressHmr, performEditWrite } from '../../src/adapters/vite.js'
+import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting, _getSessionTokenForTesting, _getStagedEditsForTesting, _addCLIClientForTesting, shouldSuppressHmr, performEditWrite } from '../../src/adapters/vite.js'
 import { AnnotationStore } from '../../src/core/annotations.js'
+import { makeEdit } from '../core/helpers.js'
 import type { Plugin } from 'vite'
 
 // Mock loadEnv from vite so tests can control CORTEX_API_KEY availability
@@ -333,6 +334,149 @@ describe('cortexEditor Vite plugin', () => {
       server.hot._trigger('cortex:msg', testMsg)
       expect(received).toHaveLength(1)
       expect(received[0]).toEqual(testMsg)
+    })
+  })
+
+  describe('staged-edit hot-handler branches (ZF0-1452 wiring)', () => {
+    // Pins the production wiring: the 4 staged-edit-* WS branches in
+    // hotHandler must mutate currentSession.stagedEdits, and the
+    // BROWSER_TO_CLI_FORWARD_TYPES allowlist must let staged-edits-ready
+    // through to CLI clients. Without these tests, a typo like
+    // `staged-edit-add` → `staged_edit_add` would type-check and ship —
+    // unit tests on isValidPendingEdit and mergeFullSync don't pin the
+    // wire-up itself.
+
+    it('staged-edit-add appends valid PendingEdit to currentSession.stagedEdits', () => {
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+      const token = _getSessionTokenForTesting()!
+      const validEdit = makeEdit({ intentId: 'wire-add', property: 'color' })
+      server.hot._trigger('cortex:msg', { type: 'staged-edit-add', edit: validEdit, token })
+
+      const cache = _getStagedEditsForTesting()
+      expect(cache).not.toBeNull()
+      expect(cache!.list()).toContainEqual(expect.objectContaining({ intentId: 'wire-add', property: 'color' }))
+    })
+
+    it('staged-edit-add rejects malformed edit and leaves cache unchanged', () => {
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+      const token = _getSessionTokenForTesting()!
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      // Missing required fields (intentId, source, etc.) — fails isValidPendingEdit.
+      server.hot._trigger('cortex:msg', { type: 'staged-edit-add', edit: { property: 'color' }, token })
+
+      const cache = _getStagedEditsForTesting()
+      expect(cache!.list()).toEqual([])
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('staged-edit-add rejected'))
+      warnSpy.mockRestore()
+    })
+
+    it('staged-edit-remove drops specified intentIds from cache', () => {
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+      const token = _getSessionTokenForTesting()!
+      const cache = _getStagedEditsForTesting()!
+      cache.append(makeEdit({ intentId: 'keep', property: 'color' }))
+      cache.append(makeEdit({ intentId: 'drop', property: 'fontSize' }))
+
+      server.hot._trigger('cortex:msg', { type: 'staged-edit-remove', intentIds: ['drop'], token })
+
+      const remaining = cache.list().map(e => e.intentId)
+      expect(remaining).toEqual(['keep'])
+    })
+
+    it('staged-edit-clear empties the cache', () => {
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+      const token = _getSessionTokenForTesting()!
+      const cache = _getStagedEditsForTesting()!
+      cache.append(makeEdit({ intentId: 'a', property: 'color' }))
+      cache.append(makeEdit({ intentId: 'b', property: 'fontSize' }))
+      expect(cache.size()).toBe(2)
+
+      server.hot._trigger('cortex:msg', { type: 'staged-edit-clear', token })
+
+      expect(cache.size()).toBe(0)
+    })
+
+    it('staged-edits-sync merges via mergeFullSync (newer-wins semantics)', () => {
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+      const token = _getSessionTokenForTesting()!
+      const cache = _getStagedEditsForTesting()!
+      // Seed the cache with a NEWER entry — the sync's older entry must lose.
+      cache.append(makeEdit({ intentId: 'a', property: 'color', value: 'newer-win', timestamp: 2000 }))
+
+      server.hot._trigger('cortex:msg', {
+        type: 'staged-edits-sync',
+        edits: [makeEdit({ intentId: 'a', property: 'color', value: 'older-lose', timestamp: 1000 })],
+        token,
+      })
+
+      // mergeFullSync semantics — older incoming loses to newer existing.
+      expect(cache.getById('a')?.value).toBe('newer-win')
+    })
+
+    it('staged-edits-ready forwards to CLI clients via BROWSER_TO_CLI_FORWARD_TYPES allowlist', () => {
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+      const token = _getSessionTokenForTesting()!
+
+      const received: string[] = []
+      const fakeClient = {
+        readyState: 1, // WebSocket.OPEN
+        send: (data: string) => { received.push(data) },
+      }
+      _addCLIClientForTesting(fakeClient)
+
+      server.hot._trigger('cortex:msg', {
+        type: 'staged-edits-ready',
+        count: 3,
+        requestId: 'req-allowlist-test',
+        token,
+      })
+
+      expect(received).toHaveLength(1)
+      const forwarded = JSON.parse(received[0]) as Record<string, unknown>
+      expect(forwarded.type).toBe('staged-edits-ready')
+      expect(forwarded.count).toBe(3)
+      expect(forwarded.requestId).toBe('req-allowlist-test')
+      // Token is stripped before forwarding (defense — see hotHandler comment).
+      expect(forwarded.token).toBeUndefined()
+    })
+
+    it('staged-edit-add (high-frequency sync) is NOT forwarded to CLI clients', () => {
+      // Falsifiability anchor for the BROWSER_TO_CLI_FORWARD_TYPES allowlist:
+      // adding 'staged-edit-add' to the set would let high-frequency sync
+      // messages flood the MCP process. This test fails cleanly if that
+      // happens.
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+      const token = _getSessionTokenForTesting()!
+
+      const received: string[] = []
+      const fakeClient = {
+        readyState: 1,
+        send: (data: string) => { received.push(data) },
+      }
+      _addCLIClientForTesting(fakeClient)
+
+      server.hot._trigger('cortex:msg', {
+        type: 'staged-edit-add',
+        edit: makeEdit({ intentId: 'no-forward', property: 'color' }),
+        token,
+      })
+
+      expect(received).toHaveLength(0)
     })
   })
 

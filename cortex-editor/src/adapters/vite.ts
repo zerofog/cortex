@@ -24,6 +24,8 @@ import { UndoStack } from '../core/session/undo-stack.js'
 import { AIWriter } from '../core/ai-writer.js'
 import { DeferredWriter } from '../core/deferred-writer.js'
 import { CortexSession } from '../core/session.js'
+import { applyEditsCore, isValidPendingEdit, sliceIntentContext, checkIntentFileSize, parseIntentSource } from '../core/staged-edits.js'
+import type { StagedEditsCache } from '../core/staged-edits.js'
 import { atomicWrite } from './atomic-write.js'
 
 export interface CortexEditorOptions {
@@ -43,10 +45,27 @@ const CORTEX_MSG_EVENT = 'cortex:msg'
 // CLI WebSocket bridge constants
 const ALLOWED_ORIGINS = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/
 const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close'])
+/** Browser-to-server message types that should be forwarded to CLI clients (MCP).
+ *  High-frequency sync messages (staged-edit-add/-remove/-clear/-sync) are
+ *  intentionally NOT forwarded — they're internal browser↔Vite-cache sync,
+ *  not Claude-relevant. Forwarding them would burn bandwidth/CPU on the MCP
+ *  process for no consumer (the MCP server's ws.on('message') handler doesn't
+ *  branch on those types).
+ *
+ *  Verified against mcp.ts ws.on('message'): MCP branches on cortex-rpc-result,
+ *  cortex-rpc-error, error, cortex, cortex-closed, cortex-status, staged-edits-ready,
+ *  annotation-created. Of those, only cortex-closed and staged-edits-ready are
+ *  browser-originated; the rest are server-originated (forwarded via the
+ *  channel.send → forwardToCLI path at the bottom of configureServer, not here).
+ *  'init' is browser-originated but MCP does not branch on it. */
+const BROWSER_TO_CLI_FORWARD_TYPES: ReadonlySet<string> = new Set([
+  'cortex-closed',
+  'staged-edits-ready',
+])
 /** Message types that require token auth — all write/mutation operations.
  *  Update this union when adding new write message types to BrowserToServer. */
-type WriteMessageType = 'edit' | 'undo' | 'redo' | 'comment' | 'comment-reply' | 'clear_server_undo'
-const WRITE_TYPES: Set<WriteMessageType> = new Set(['edit', 'undo', 'redo', 'comment', 'comment-reply', 'clear_server_undo'])
+type WriteMessageType = 'edit' | 'undo' | 'redo' | 'comment' | 'comment-reply' | 'clear_server_undo' | 'staged-edit-add' | 'staged-edit-remove' | 'staged-edit-clear' | 'staged-edits-sync' | 'staged-edits-ready'
+const WRITE_TYPES: Set<WriteMessageType> = new Set(['edit', 'undo', 'redo', 'comment', 'comment-reply', 'clear_server_undo', 'staged-edit-add', 'staged-edit-remove', 'staged-edit-clear', 'staged-edits-sync', 'staged-edits-ready'])
 const HEARTBEAT_INTERVAL = 30_000
 const MAX_CLI_CONNECTIONS = 5
 
@@ -70,6 +89,73 @@ export function validateToggleShortcut(shortcut: string): string {
     )
   }
   return shortcut
+}
+
+/** Path-containment predicate — defense-in-depth for any code path that
+ *  resolves a user-provided path against a project root. Returns true if
+ *  `resolved` is `root` itself or a descendant of `root`, false otherwise.
+ *
+ *  The `+ path.sep` is load-bearing: it prevents `/Users/test/project-evil`
+ *  from being mistaken for a child of `/Users/test/project`.
+ *
+ *  Used by the cortex_get_intent_context RPC handler. The fix-request
+ *  elementSource validator (search "data.kind === 'fix-request'" in
+ *  hotHandler) does NOT use this helper
+ *  because it operates on `realpathSync`-resolved paths (symlink-aware), which
+ *  is a related-but-distinct concern; consolidating the two would conflate the
+ *  syntactic check with the symlink-aware check. Centralizing this predicate
+ *  prevents shadow-copy drift between production code and tests per cortex's
+ *  CLAUDE.md test rule #1. */
+export function isPathInsideRoot(resolved: string, root: string): boolean {
+  // Normalize root via path.resolve — idempotent, strips any trailing
+  // separator, collapses `..` segments. Without this, a caller-supplied
+  // root that ends with path.sep (e.g. `/project/`) would build the
+  // comparison string `/project//` and return false for legitimate paths
+  // like `/project/foo`. (Copilot review on PR #90.)
+  const normalizedRoot = path.resolve(root)
+  return resolved === normalizedRoot || resolved.startsWith(normalizedRoot + path.sep)
+}
+
+/** Result variant for requireRealpathInsideRoot. Discriminated by `ok`. */
+export type RealpathContainmentResult =
+  | { ok: true; real: string; realRoot: string }
+  | { ok: false; error: string }
+
+/** Symlink-aware containment guard. Resolves both `resolved` and `root`
+ *  through fs.realpathSync.native, then re-checks containment via
+ *  isPathInsideRoot. Returns a structured ok/error result so callers can
+ *  differentiate "stat failed" (symlink target gone) from "real path escapes
+ *  the root" (security violation).
+ *
+ *  Shape choice: returns realRoot as well as real so callers that need to
+ *  stat/read the resolved file use the same root-relative interpretation
+ *  the predicate enforced. Centralizing this here lets the security
+ *  regression test exercise the real symbol against a real on-disk symlink
+ *  (no shadow copy in the test — same convention as isPathInsideRoot).
+ *
+ *  realpathSync.native errors carry an ENOENT/EACCES/etc. code; the result's
+ *  error string includes the code so Claude can distinguish failure modes.
+ *
+ *  realpathFn is injectable for tests that don't want to touch the real fs;
+ *  default uses fs.realpathSync.native. */
+export function requireRealpathInsideRoot(
+  resolved: string,
+  root: string,
+  realpathFn: (p: string) => string = fs.realpathSync.native,
+): RealpathContainmentResult {
+  let real: string
+  let realRoot: string
+  try {
+    real = realpathFn(resolved)
+    realRoot = realpathFn(root)
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code
+    return { ok: false, error: `Could not resolve symlinks${code ? ` (${code})` : ''}` }
+  }
+  if (!isPathInsideRoot(real, realRoot)) {
+    return { ok: false, error: 'Path outside project root (symlink-resolved)' }
+  }
+  return { ok: true, real, realRoot }
 }
 
 /** Escape JSON for safe embedding in <script> context. */
@@ -165,10 +251,24 @@ let currentSession: CortexSession | null = null
 // Single shutdown handler registered on both SIGINT and SIGTERM, tracked for cleanup on re-entry
 let shutdownHandler: (() => void) | null = null
 
-// Annotation RPC dispatch
-const ALLOWED_RPC_METHODS = new Set(['getPending', 'getDetails', 'acknowledge', 'resolve', 'dismiss', 'respond'])
+// RPC dispatch — handles annotation methods (Phase 7) and staged-edit methods (ZF0-1452 T2).
+// Renamed from handleAnnotationRPC → handleRPC as staged-edit methods are now co-located here.
+// Option B chosen: single dispatcher, TypeScript compile-time safety catches stale call sites.
+const ALLOWED_RPC_METHODS = new Set([
+  // Annotation methods (Phase 7)
+  'getPending', 'getDetails', 'acknowledge', 'resolve', 'dismiss', 'respond',
+  // Staged-edit methods (ZF0-1452 T2)
+  'getPendingEdits', 'applyEdits', 'discardEdits', 'getIntentContext',
+])
 
-function handleAnnotationRPC(method: string, params: Record<string, unknown>): unknown {
+/** Defense-in-depth string-array coercion for params reachable via WebSocket
+ *  (Zod runs at the MCP boundary; handleRPC is also reachable directly). */
+function parseStringIds(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((x): x is string => typeof x === 'string') : []
+}
+
+function handleRPC(method: string, params: Record<string, unknown>): unknown {
+  // --- Annotation methods ---
   const id = typeof params.annotationId === 'string' ? params.annotationId : ''
   switch (method) {
     case 'getPending': return currentSession!.annotations.getPending()
@@ -210,6 +310,132 @@ function handleAnnotationRPC(method: string, params: Record<string, unknown>): u
       }
       return result
     }
+
+    // --- Staged-edit methods (ZF0-1452 T2) ---
+
+    case 'getPendingEdits': {
+      // FUTURE: drift-recovery — could send a forced-resync request to the
+      // browser here so it emits syncFullState(allEntries) right before
+      // Claude reads, closing the silent-drift window between browser and
+      // server cache. Deferred today because the merge-with-timestamp
+      // semantics in StagedEditsCache.mergeFullSync make incidental drift
+      // self-healing on the next legitimate Panel mount.
+      const intents = currentSession!.stagedEdits.list()
+      return { intents, count: intents.length }
+    }
+
+    case 'applyEdits': {
+      const intentIds = parseStringIds(params.intentIds)
+      // ZF0-1464 deferral: production routes all found intents to Claude's Edit
+      // tool. See applyEditsCore docstring for the full rationale.
+      return { results: applyEditsCore(currentSession!.stagedEdits, intentIds) }
+    }
+
+    case 'discardEdits': {
+      const intentIds = parseStringIds(params.intentIds)
+
+      currentSession!.stagedEdits.remove(intentIds)
+
+      // Notify browser so its canonical buffer stays in sync with server cache.
+      // Best-effort: if channel.send throws (transport closed) or the Panel
+      // isn't mounted (HMR transient), the browser will reconcile on next mount
+      // via syncFullState (which mergeFullSyncs into the server cache, with
+      // newer-timestamp-wins resolution — see StagedEditsCache.mergeFullSync).
+      // The browserNotified flag surfaces this to Claude so the tool response
+      // is honest about what propagated.
+      let browserNotified = false
+      if (currentSession!.channel) {
+        try {
+          currentSession!.channel.send({ type: 'staged-edits-discard', intentIds })
+          browserNotified = true
+        } catch (err) {
+          console.warn(
+            '[cortex] Failed to send staged-edits-discard to browser:',
+            err instanceof Error ? err.message : String(err),
+          )
+        }
+      }
+      return { discarded: intentIds, browserNotified }
+    }
+
+    case 'getIntentContext': {
+      const intentId = typeof params.intentId === 'string' ? params.intentId : ''
+      const intent = currentSession!.stagedEdits.getById(intentId)
+      if (!intent) {
+        return { error: 'intent not found' }
+      }
+
+      // Parse + validate source format. parseIntentSource handles the colon-
+      // split and rejects malformed line components (NaN/0/negative/decimal)
+      // BEFORE any path resolution or fs access — extracted to core/staged-edits
+      // so the regression test exercises the real symbol (Copilot review on PR #90).
+      const parsed = parseIntentSource(intent.source)
+      if (!parsed.ok) {
+        return { error: parsed.error }
+      }
+      const { filePath, line } = parsed
+
+      const projectRoot = currentSession!.config.root
+      const resolvedPath = path.resolve(projectRoot, filePath)
+
+      // Path containment — defense-in-depth against path-traversal injection in
+      // intent.source. Without this, a `../../../etc/passwd:1:1` intent source
+      // would escape the project root. Check BEFORE fs.readFileSync so an
+      // out-of-bounds path is never read. The predicate is extracted to
+      // isPathInsideRoot so its security regression test exercises the real
+      // code path (no shadow copy in the test).
+      if (!isPathInsideRoot(resolvedPath, projectRoot)) {
+        return { error: 'Path outside project root' }
+      }
+
+      // Symlink-aware containment: resolvedPath is the syntactic resolution
+      // only. fs.readFileSync follows symlinks transparently, so a
+      // node_modules/.../leak symlink to /etc/passwd planted by a malicious
+      // npm postinstall would pass the syntactic check above but read outside
+      // the root. Mirror the realpathSync.native pattern from the
+      // comment-fix-request elementSource validator (search "data.kind ===
+      // 'fix-request'" in hotHandler). The predicate is extracted to
+      // requireRealpathInsideRoot so its security regression test exercises
+      // the real code path (no shadow copy in the test).
+      const containment = requireRealpathInsideRoot(resolvedPath, projectRoot)
+      if (!containment.ok) {
+        return { error: containment.error.includes('outside') ? containment.error : `${containment.error} in: ${filePath}` }
+      }
+      const realPath = containment.real
+
+      // Size cap — reject before reading so a 10MB+ generated file (lockfile,
+      // asset bundle, db dump) under projectRoot can't stall the Vite event
+      // loop via the synchronous read below. See MAX_INTENT_FILE_BYTES docstring.
+      // Stat + read against realPath so the size check matches what
+      // readFileSync will actually load (symlinks already resolved).
+      let stats: fs.Stats
+      try {
+        stats = fs.statSync(realPath)
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException)?.code
+        return { error: `Could not stat file: ${filePath}${code ? ` (${code})` : ''}` }
+      }
+      // Size cap and slicing extracted to core/staged-edits.ts so contract is
+      // unit-testable in isolation (no shadow copy in tests).
+      const sizeCheck = checkIntentFileSize(filePath, stats.size)
+      if (sizeCheck) return sizeCheck
+
+      let fileContent: string
+      try {
+        fileContent = fs.readFileSync(realPath, 'utf8')
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException)?.code
+        return { error: `Could not read file: ${filePath}${code ? ` (${code})` : ''}` }
+      }
+
+      const slice = sliceIntentContext(fileContent, line)
+      return {
+        intentId,
+        context: { before: slice.before, target: slice.target, after: slice.after },
+        currentValue: slice.currentValue,
+      }
+    }
+
     default: throw new Error(`Unknown RPC method: ${method}`)
   }
 }
@@ -220,14 +446,28 @@ function forwardToCLI(msg: unknown): void {
   let data: string
   try {
     data = JSON.stringify(msg)
-  } catch {
+  } catch (err) {
+    // Surface the failure instead of swallowing — T2 routes Apply-prompt
+    // notifications (`staged-edits-ready`) through this path; a swallowed
+    // serialization failure means Claude never receives the prompt and the
+    // designer presses Apply with no feedback.
+    const type = (msg as Record<string, unknown> | null)?.type ?? '<unknown>'
+    console.error(
+      `[cortex] forwardToCLI: JSON.stringify failed for type=${String(type)}:`,
+      err instanceof Error ? err.message : String(err),
+    )
     return
   }
   for (const client of currentSession.cliClients) {
     if (client.readyState !== WebSocket.OPEN) continue
     try {
       client.send(data)
-    } catch {
+    } catch (err) {
+      const type = (msg as Record<string, unknown> | null)?.type ?? '<unknown>'
+      console.warn(
+        `[cortex] forwardToCLI: client.send failed for type=${String(type)}, evicting client:`,
+        err instanceof Error ? err.message : String(err),
+      )
       currentSession.cliClients.delete(client)
     }
   }
@@ -259,6 +499,30 @@ export function onHMRUpdate(cb: (files: string[]) => void): () => void {
  */
 export function _getSessionTokenForTesting(): string | null {
   return currentSession?.token ?? null
+}
+
+/**
+ * Get the current session's StagedEditsCache. Exposed for testing only —
+ * lets the hotHandler integration tests in vite.test.ts assert that
+ * staged-edit-* WS branches actually mutate the session cache.
+ * @internal
+ */
+export function _getStagedEditsForTesting(): StagedEditsCache | null {
+  return currentSession?.stagedEdits ?? null
+}
+
+/**
+ * Add a fake CLI client to the current session. Exposed for testing only —
+ * lets vite.test.ts verify forwardToCLI dispatch (e.g., for the
+ * staged-edits-ready BROWSER_TO_CLI_FORWARD_TYPES allowlist test) without
+ * setting up a real WebSocket server.
+ * @internal
+ */
+export function _addCLIClientForTesting(client: { readyState: number; send: (data: string) => void }): void {
+  if (!currentSession) return
+  // Cast: real cliClients is Set<WebSocket>; the test fake satisfies the
+  // structural shape used inside forwardToCLI (readyState + send).
+  currentSession.cliClients.add(client as never)
 }
 
 /**
@@ -541,9 +805,13 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         }
 
         // Forward browser messages to CLI clients — after auth so only valid messages propagate.
-        // Strip token from forwarded data to avoid leaking it to CLI clients.
+        // Strip token from forwarded data to avoid leaking it to CLI clients. Gate behind
+        // BROWSER_TO_CLI_FORWARD_TYPES allowlist so high-frequency staged-edit-* sync
+        // messages (browser↔Vite-cache only) don't burn bandwidth/CPU on the MCP process.
         const { token: _stripped, ...forwardData } = data as Record<string, unknown>
-        forwardToCLI(forwardData)
+        if (BROWSER_TO_CLI_FORWARD_TYPES.has(data.type)) {
+          forwardToCLI(forwardData)
+        }
 
         // Track state from browser messages
         if (data.type === 'cortex-closed') currentSession!.editorActive = false
@@ -616,6 +884,54 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             currentSession!.channel.send({ type: 'activity-entry', entry })
           }
         }
+
+        // Staging buffer sync messages — mirror browser-canonical state into server cache.
+        // Each branch validates payload shape + bounds at the WS trust boundary
+        // (defense-in-depth — ws default maxPayload is 100MB, and a compromised
+        // browser script with a valid token could otherwise OOM the dev server).
+        if (data.type === 'staged-edit-add') {
+          if (!isValidPendingEdit(data.edit)) {
+            console.warn('[cortex] staged-edit-add rejected: malformed or oversized edit payload')
+            return
+          }
+          currentSession!.stagedEdits.append(data.edit)
+          return
+        }
+        if (data.type === 'staged-edit-remove') {
+          if (!Array.isArray(data.intentIds)) {
+            console.warn('[cortex] staged-edit-remove rejected: intentIds is not an array')
+            return
+          }
+          // Bounded string filter — same per-id length cap as isValidPendingEdit.
+          const filtered = data.intentIds.filter(
+            (x: unknown): x is string => typeof x === 'string' && x.length > 0 && x.length <= 256,
+          )
+          currentSession!.stagedEdits.remove(filtered)
+          return
+        }
+        if (data.type === 'staged-edit-clear') {
+          currentSession!.stagedEdits.clear()
+          return
+        }
+        if (data.type === 'staged-edits-sync') {
+          if (!Array.isArray(data.edits)) {
+            console.warn('[cortex] staged-edits-sync rejected: edits is not an array')
+            return
+          }
+          // Drop invalid entries rather than rejecting the whole batch — one
+          // malformed edit shouldn't lose 499 valid ones during multi-tab merge.
+          const validEdits = data.edits.filter(isValidPendingEdit)
+          if (validEdits.length < data.edits.length) {
+            console.warn(
+              `[cortex] staged-edits-sync filtered ${data.edits.length - validEdits.length} invalid edits`,
+            )
+          }
+          currentSession!.stagedEdits.mergeFullSync(validEdits)
+          return
+        }
+        // 'staged-edits-ready' is forwarded to CLI clients via forwardToCLI() at the top
+        // of hotHandler; the MCP-side handler in mcp.ts dispatches the channel
+        // notification. Do NOT add a server-side branch here.
 
         // Route edit/undo/redo to EditPipeline (or notify if still initializing)
         if (data.type === 'edit') {
@@ -852,7 +1168,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
                 return
               }
               try {
-                const result = handleAnnotationRPC(method, params)
+                const result = handleRPC(method, params)
                 try {
                   ws.send(JSON.stringify({ type: 'cortex-rpc-result', requestId, result }))
                 } catch (sendErr) {
