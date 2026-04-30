@@ -1,0 +1,40 @@
+cortex-editor/src/browser/components/Panel.tsx
+  ecfec458bba35a7a 1104-1105,1167-1168
+cortex-editor/src/adapters/vite.ts
+  ecfec458bba35a7a 443-455,469,471,476,486,826-836
+cortex-editor/src/browser/styles.css
+  ecfec458bba35a7a 845-856
+cortex-editor/src/browser/channel.ts
+  ecfec458bba35a7a 7-102,151,166-179,188,322,351-363,384
+cortex-editor/tests/browser/channel.test.ts
+  ecfec458bba35a7a 2,748-1098
+cortex-editor/tests/browser/components/panel-header-apply.test.tsx
+  ecfec458bba35a7a 1-187
+cortex-editor/src/adapters/types.ts
+  ecfec458bba35a7a 190-197,277-290
+cortex-editor/tests/adapters/vite.test.ts
+  ecfec458bba35a7a 2307-2366
+cortex-editor/src/browser/components/PanelHeader.tsx
+  ecfec458bba35a7a 63-70,97-98,100-109,208-219
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "9c9fa76c223161846089358e16914f865cbf9a9e",
+  "prompts": {
+    "ecfec458bba35a7a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "56dc029d-2ab0-41c4-bf31-653c3019aa8a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 856,
+      "total_deletions": 11424,
+      "accepted_lines": 828,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/b18fe42a78a70a188dfca23c9d72433d9d717d28d5843cafedc4e157932c42eb"
+    }
+  }
+}
