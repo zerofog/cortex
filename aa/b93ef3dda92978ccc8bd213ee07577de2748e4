@@ -1,0 +1,32 @@
+cortex-editor/tests/browser/panel-t4-integration.test.tsx
+  ecfec458bba35a7a 733-735,774-787,789-791,793-795,797-800,849-862,864-866,868-870,872-875,924-936,938-940,942-947,949-952
+cortex-editor/tests/browser/components/panel-header-apply.test.tsx
+  ecfec458bba35a7a 297-335
+cortex-editor/src/browser/components/PanelHeader.tsx
+  ecfec458bba35a7a 136-151
+cortex-editor/src/browser/override.ts
+  ecfec458bba35a7a 213-225
+cortex-editor/src/browser/components/Panel.tsx
+  ecfec458bba35a7a 1307
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "aab93ef3dda92978ccc8bd213ee07577de2748e4",
+  "prompts": {
+    "ecfec458bba35a7a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "56dc029d-2ab0-41c4-bf31-653c3019aa8a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 159,
+      "total_deletions": 4237,
+      "accepted_lines": 1630,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/448a909fc1e147281fe21c35c6038be72ce8ba9a9d244cac1fe22a088ea4b10f"
+    }
+  }
+}
