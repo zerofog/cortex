@@ -284,8 +284,8 @@ export interface CortexChannel {
    *  - disconnect while waiting: `'sendAndAck failed: channel disconnected'`
    *
    *  NEVER hangs silently — one of the two rejection paths always fires. */
-  sendAndAck<T extends BrowserToServer & { requestId: string }>(
-    msg: Omit<T, 'requestId' | 'token'>,
+  sendAndAck<TType extends Extract<BrowserToServer, { requestId: string }>['type']>(
+    msg: Omit<Extract<BrowserToServer, { type: TType; requestId: string }>, 'requestId' | 'token'>,
     options?: { timeoutMs?: number },
   ): Promise<ServerToBrowser>
   /** Clean up resources (WebSocket, timers). Optional — Vite channel has nothing to dispose. */

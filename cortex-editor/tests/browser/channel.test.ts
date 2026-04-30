@@ -575,7 +575,7 @@ describe('createWebSocketChannel', () => {
     // but since retries are exhausted, the channel is effectively dead.
     // The key assertion: messages '1', '2', '3' should NOT flush (they were stale)
     const flushedIds = mockInstances[1]!.send.mock.calls.map(
-      (c: [string]) => JSON.parse(c[0]).editId,
+      (c: any[]) => JSON.parse(c[0]).editId,
     )
     expect(flushedIds).not.toContain('1')
     expect(flushedIds).not.toContain('2')

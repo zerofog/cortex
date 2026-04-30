@@ -15,8 +15,8 @@ const MAX_QUEUE_SIZE = 100
  *
  * Pure helper — no side effects, directly testable.
  */
-export function composeRequestWithId<T extends BrowserToServer & { requestId: string }>(
-  msg: Omit<T, 'requestId' | 'token'>,
+export function composeRequestWithId<TType extends Extract<BrowserToServer, { requestId: string }>['type']>(
+  msg: Omit<Extract<BrowserToServer, { type: TType; requestId: string }>, 'requestId' | 'token'>,
   requestId: string,
 ): BrowserToServer {
   // Cast required: TypeScript cannot narrow the spread back to BrowserToServer
@@ -48,8 +48,8 @@ const SEND_AND_ACK_DEFAULT_TIMEOUT_MS = 10_000
  *                              Pass a no-op factory `() => () => {}` for variants that
  *                              don't have connection lifecycle events (Vite channel).
  */
-function sendAndAckImpl<T extends BrowserToServer & { requestId: string }>(
-  msg: Omit<T, 'requestId' | 'token'>,
+function sendAndAckImpl<TType extends Extract<BrowserToServer, { requestId: string }>['type']>(
+  msg: Omit<Extract<BrowserToServer, { type: TType; requestId: string }>, 'requestId' | 'token'>,
   options: { timeoutMs?: number } | undefined,
   sendFn: (m: BrowserToServer) => void,
   onMessageFn: (handler: (m: ServerToBrowser) => void) => () => void,
@@ -57,7 +57,7 @@ function sendAndAckImpl<T extends BrowserToServer & { requestId: string }>(
 ): Promise<ServerToBrowser> {
   const timeoutMs = options?.timeoutMs ?? SEND_AND_ACK_DEFAULT_TIMEOUT_MS
   const requestId = crypto.randomUUID()
-  const composed = composeRequestWithId<T>(msg, requestId)
+  const composed = composeRequestWithId<TType>(msg, requestId)
 
   return new Promise<ServerToBrowser>((resolve, reject) => {
     let settled = false
@@ -163,11 +163,11 @@ export function createViteChannel(): CortexChannel {
       // Vite HMR manages its own reconnection and overlay — no lifecycle events to emit.
       return () => {}
     },
-    sendAndAck<T extends BrowserToServer & { requestId: string }>(
-      msg: Omit<T, 'requestId' | 'token'>,
+    sendAndAck<TType extends Extract<BrowserToServer, { requestId: string }>['type']>(
+      msg: Omit<Extract<BrowserToServer, { type: TType; requestId: string }>, 'requestId' | 'token'>,
       options?: { timeoutMs?: number },
     ): Promise<ServerToBrowser> {
-      return sendAndAckImpl<T>(
+      return sendAndAckImpl<TType>(
         msg,
         options,
         (m) => channel.send(m),
@@ -348,11 +348,11 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
         if (idx >= 0) statusHandlers.splice(idx, 1)
       }
     },
-    sendAndAck<T extends BrowserToServer & { requestId: string }>(
-      msg: Omit<T, 'requestId' | 'token'>,
+    sendAndAck<TType extends Extract<BrowserToServer, { requestId: string }>['type']>(
+      msg: Omit<Extract<BrowserToServer, { type: TType; requestId: string }>, 'requestId' | 'token'>,
       options?: { timeoutMs?: number },
     ): Promise<ServerToBrowser> {
-      return sendAndAckImpl<T>(
+      return sendAndAckImpl<TType>(
         msg,
         options,
         (m) => wsChannel.send(m),
