@@ -288,3 +288,39 @@ export function checkIntentFileSize(
   }
   return null
 }
+
+// ---------------------------------------------------------------------------
+// parseIntentSource — `file:line:col` parser for PendingEdit.source
+//
+// Extracted from handleRPC.getIntentContext to make line-component validation
+// directly unit-testable. isValidPendingEdit caps source length but does not
+// parse format, so a value like `bogus:abc:1` can pass the WS gate and be
+// cached. Callers must reject malformed sources before path resolution or
+// fs access — `parseInt('abc', 10) → NaN`, and a NaN line index produces
+// garbage slices in sliceIntentContext (Copilot review on PR #90).
+// ---------------------------------------------------------------------------
+
+export type ParseIntentSourceResult =
+  | { ok: true; filePath: string; line: number }
+  | { ok: false; error: string }
+
+/** Parse `PendingEdit.source` (format `file:line:col`).
+ *
+ *  Splits on the LAST two colons so file paths with embedded colons (Windows
+ *  drive letters, URL schemes) parse correctly. Validates that line is a
+ *  positive integer; rejects NaN, 0, negative, and decimal values. column is
+ *  not parsed because no current consumer reads it — adding it would be
+ *  speculative scope. */
+export function parseIntentSource(source: string): ParseIntentSourceResult {
+  const lastColon = source.lastIndexOf(':')
+  const secondLastColon = source.lastIndexOf(':', lastColon - 1)
+  if (lastColon < 0 || secondLastColon < 0) {
+    return { ok: false, error: `Malformed source: ${source}` }
+  }
+  const filePath = source.slice(0, secondLastColon)
+  const line = parseInt(source.slice(secondLastColon + 1, lastColon), 10)
+  if (!Number.isInteger(line) || line < 1) {
+    return { ok: false, error: `Invalid line in source: ${source}` }
+  }
+  return { ok: true, filePath, line }
+}

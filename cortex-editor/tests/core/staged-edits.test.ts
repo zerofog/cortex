@@ -5,6 +5,7 @@ import {
   sliceIntentContext,
   checkIntentFileSize,
   MAX_INTENT_FILE_BYTES,
+  parseIntentSource,
 } from '../../src/core/staged-edits.js'
 import type { PendingEdit } from '../../src/adapters/types.js'
 import { makeEdit } from './helpers.js'
@@ -429,5 +430,63 @@ describe('checkIntentFileSize — getIntentContext size guard', () => {
     const result = checkIntentFileSize('big.ts', 12_345_678)
     expect(result).not.toBeNull()
     expect(result!.error).toContain('12345678 bytes')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// parseIntentSource — `file:line:col` parser (Copilot review on PR #90)
+// ---------------------------------------------------------------------------
+
+describe('parseIntentSource — `file:line:col` validator', () => {
+  it('parses well-formed sources', () => {
+    const result = parseIntentSource('src/Hero.tsx:14:5')
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.filePath).toBe('src/Hero.tsx')
+      expect(result.line).toBe(14)
+    }
+  })
+
+  it('handles file paths with embedded colons (Windows drive, URL scheme)', () => {
+    const result = parseIntentSource('C:/users/me/Hero.tsx:14:5')
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.filePath).toBe('C:/users/me/Hero.tsx')
+      expect(result.line).toBe(14)
+    }
+  })
+
+  it('rejects malformed source missing colons', () => {
+    expect(parseIntentSource('justafilename').ok).toBe(false)
+    expect(parseIntentSource('file:withonecolon').ok).toBe(false)
+  })
+
+  it('rejects NaN line component (alpha string)', () => {
+    // The Copilot finding: parseInt('abc', 10) → NaN; without validation,
+    // sliceIntentContext(content, NaN) yields garbage. Falsifiability:
+    // removing the Number.isInteger check fails this test.
+    const result = parseIntentSource('src/A.tsx:abc:1')
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toContain('Invalid line')
+    }
+  })
+
+  it('rejects line=0 (lines are 1-indexed in the source format)', () => {
+    const result = parseIntentSource('src/A.tsx:0:1')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toContain('Invalid line')
+  })
+
+  it('rejects negative line', () => {
+    const result = parseIntentSource('src/A.tsx:-3:1')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toContain('Invalid line')
+  })
+
+  it('accepts large line numbers (validation is lower-bound, not arbitrary cap)', () => {
+    const result = parseIntentSource('src/big.ts:999999:1')
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.line).toBe(999999)
   })
 })

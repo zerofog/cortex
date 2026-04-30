@@ -707,6 +707,17 @@ describe('isPathInsideRoot — path-containment predicate (ZF0-1452 security)', 
     const root = '/Users/test/project'
     expect(isPathInsideRoot('/Users/test/project-evil/file.ts', root)).toBe(false)
   })
+
+  it('handles root with trailing path separator (Copilot review on PR #90)', () => {
+    // Without normalization, `root + path.sep` becomes `/Users/test/project//`
+    // which fails to match the legitimate child `/Users/test/project/file.ts`.
+    // The path.resolve normalization is what makes this pass.
+    // Falsifiability: removing the path.resolve normalization fails this test.
+    const rootWithTrailingSep = '/Users/test/project/'
+    expect(isPathInsideRoot('/Users/test/project/file.ts', rootWithTrailingSep)).toBe(true)
+    expect(isPathInsideRoot('/Users/test/project', rootWithTrailingSep)).toBe(true)
+    expect(isPathInsideRoot('/Users/test/project-evil/file.ts', rootWithTrailingSep)).toBe(false)
+  })
 })
 
 // ---------------------------------------------------------------------------

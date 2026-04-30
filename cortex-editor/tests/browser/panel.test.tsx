@@ -1014,6 +1014,10 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     target.remove()
   })
 
+  // Test-level timeout 15000ms: the inner vi.waitFor uses 10000ms, but
+  // vitest's default per-test timeout is 5000ms — the inner wait is bounded
+  // by the outer one. CI under coverage instrumentation has been observed
+  // to need >5s to flush the 150ms persist debounce. (Copilot review on PR #90.)
   it('staged-edits-discard server message removes intents from canonical buffer', async () => {
     // ZF0-1452 regression: Panel.tsx's channel.onMessage handler wires
     // 'staged-edits-discard' (server-originated, emitted by the MCP server's
@@ -1090,12 +1094,19 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     // remove() schedules a debounced persist (150ms). Use vi.waitFor to
     // poll for the persist landing — robust against concurrent-load timing
     // pressure where a flat setTimeout(200) can be too short.
+    //
+    // Timeout 10000ms (not the smaller default): CI runs npm run test:coverage,
+    // which Istanbul-instruments every function call. Combined with vitest's
+    // 4-way pool concurrency, the 150ms persist timer has been observed to
+    // stretch past 2000ms on PR #90's first CI run (Node 22 matrix). 10s is
+    // a defensive ceiling — vi.waitFor returns as soon as the assert passes,
+    // so the happy-path cost is unchanged; only failures take the full timeout.
     await vi.waitFor(
       () => {
         const remaining = cortexStorage.get('staging-buffer', [], isPendingEditArray)
         expect(remaining).toHaveLength(1)
       },
-      { timeout: 2000, interval: 50 },
+      { timeout: 10000, interval: 50 },
     )
 
     const remaining = cortexStorage.get('staging-buffer', [], isPendingEditArray)
@@ -1103,5 +1114,5 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
 
     cleanup()
     target.remove()
-  })
+  }, 15000)
 })

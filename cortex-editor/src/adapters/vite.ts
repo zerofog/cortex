@@ -24,7 +24,7 @@ import { UndoStack } from '../core/session/undo-stack.js'
 import { AIWriter } from '../core/ai-writer.js'
 import { DeferredWriter } from '../core/deferred-writer.js'
 import { CortexSession } from '../core/session.js'
-import { applyEditsCore, isValidPendingEdit, sliceIntentContext, checkIntentFileSize } from '../core/staged-edits.js'
+import { applyEditsCore, isValidPendingEdit, sliceIntentContext, checkIntentFileSize, parseIntentSource } from '../core/staged-edits.js'
 import type { StagedEditsCache } from '../core/staged-edits.js'
 import { atomicWrite } from './atomic-write.js'
 
@@ -107,7 +107,13 @@ export function validateToggleShortcut(shortcut: string): string {
  *  prevents shadow-copy drift between production code and tests per cortex's
  *  CLAUDE.md test rule #1. */
 export function isPathInsideRoot(resolved: string, root: string): boolean {
-  return resolved.startsWith(root + path.sep) || resolved === root
+  // Normalize root via path.resolve — idempotent, strips any trailing
+  // separator, collapses `..` segments. Without this, a caller-supplied
+  // root that ends with path.sep (e.g. `/project/`) would build the
+  // comparison string `/project//` and return false for legitimate paths
+  // like `/project/foo`. (Copilot review on PR #90.)
+  const normalizedRoot = path.resolve(root)
+  return resolved === normalizedRoot || resolved.startsWith(normalizedRoot + path.sep)
 }
 
 /** Result variant for requireRealpathInsideRoot. Discriminated by `ok`. */
@@ -359,14 +365,15 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
         return { error: 'intent not found' }
       }
 
-      // Parse source: "file:line:col" — split on LAST two colons to handle paths with colons
-      const lastColon = intent.source.lastIndexOf(':')
-      const secondLastColon = intent.source.lastIndexOf(':', lastColon - 1)
-      if (lastColon < 0 || secondLastColon < 0) {
-        return { error: `Malformed source: ${intent.source}` }
+      // Parse + validate source format. parseIntentSource handles the colon-
+      // split and rejects malformed line components (NaN/0/negative/decimal)
+      // BEFORE any path resolution or fs access — extracted to core/staged-edits
+      // so the regression test exercises the real symbol (Copilot review on PR #90).
+      const parsed = parseIntentSource(intent.source)
+      if (!parsed.ok) {
+        return { error: parsed.error }
       }
-      const filePath = intent.source.slice(0, secondLastColon)
-      const line = parseInt(intent.source.slice(secondLastColon + 1, lastColon), 10)
+      const { filePath, line } = parsed
 
       const projectRoot = currentSession!.config.root
       const resolvedPath = path.resolve(projectRoot, filePath)
