@@ -461,6 +461,12 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       // cortex_discard_edits call.
       if (msg.type === 'staged-edits-discard') return
 
+      // staged-edits-acked (ZF0-1469) is consumed by channel.sendAndAck's
+      // one-shot listener — it correlates the requestId and resolves the Apply
+      // button's pending Promise. Not a CortexAppAction; early-return so the
+      // reducer's exhaustive default doesn't fire and log on every Apply.
+      if (msg.type === 'staged-edits-acked') return
+
       // After the early returns above (edit_status, hmr-applied, error), `msg.type`
       // matches a CortexAppAction discriminant. The cast is a forcing cast — TS
       // does not narrow ServerToBrowser to CortexAppAction across the assignment.

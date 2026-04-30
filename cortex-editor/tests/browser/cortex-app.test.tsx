@@ -759,6 +759,25 @@ describe('CortexApp', () => {
 
       expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('Unhandled cortex-app-reducer'))
     })
+
+    it('staged-edits-acked channel message does not throw and does not reach reducer', async () => {
+      // Pins the early-return at CortexApp.tsx for ZF0-1469's new ack variant.
+      // The ack is consumed by channel.sendAndAck's one-shot listener — it
+      // resolves the pending Apply Promise via requestId correlation. If the
+      // early-return is removed, the reducer's exhaustive throw at
+      // cortex-app-reducer.ts would fire on every Apply, surfacing as a
+      // console.warn from channel.ts:46.
+      setup()
+      const channel = createMockChannel()
+      const warnSpy = vi.spyOn(console, 'warn')
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+
+      channel._simulateMessage({ type: 'staged-edits-acked', requestId: 'test-req-id' } as any)
+      await new Promise(r => setTimeout(r, 10))
+
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('Unhandled cortex-app-reducer'))
+    })
   })
 
   describe('connection status', () => {
