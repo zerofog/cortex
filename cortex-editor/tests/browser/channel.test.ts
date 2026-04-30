@@ -791,7 +791,6 @@ describe('sendAndAckImpl uuid polyfill', () => {
   // polyfill is in use rather than the bare crypto.randomUUID call.
   it('sendAndAck works when crypto.randomUUID throws (uses generateId polyfill)', async () => {
     const originalRandomUUID = crypto.randomUUID.bind(crypto)
-    // @ts-expect-error — intentionally breaking crypto.randomUUID for the test
     crypto.randomUUID = () => { throw new Error('randomUUID unavailable in this context') }
 
     try {
