@@ -1,0 +1,24 @@
+cortex-editor/src/adapters/types.ts
+  ecfec458bba35a7a 284-287
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "f6971d6f2fded34d30317c4d2c62a7179d96a22c",
+  "prompts": {
+    "ecfec458bba35a7a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "56dc029d-2ab0-41c4-bf31-653c3019aa8a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 3,
+      "accepted_lines": 555,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/f4959eb764d05bc83933c094cda5d23955d439c3f82a7c85f6fa6103d46c21e8"
+    }
+  }
+}
