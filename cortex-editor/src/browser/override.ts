@@ -43,7 +43,7 @@ export class CSSOverrideManager {
   private pendingEdits = new Map<string, { sources: string[]; property: string; value: string; pseudo?: '::before' | '::after'; timestamp: number }>()
 
   /** Sources whose pending edits TTL-expired without `hmr_verified` arriving.
-   *  Populated in `evictStalePendingEdits`. Decremented in `remove()`,
+   *  Populated in `evictStalePendingEdits`. Entries removed in `remove()`,
    *  `clearAll()`, `dispose()`, and `handleHMRVerified(match=true)` for
    *  sources that were previously stale. Listeners (T2/T4) subscribe via
    *  `onStale` to surface StagingDriftBanner UI. */
@@ -698,6 +698,10 @@ export class CSSOverrideManager {
     }
   }
 
+  /** Drops pending edits whose timestamp is older than `PENDING_EDIT_TTL_MS`.
+   *  Evicted sources are recorded in `staleSources` and emitted via `emitStale`.
+   *  Callers (`trackPendingEdit`, `handleHMRVerified`) trigger this incidentally;
+   *  the emit is intentional and observable to `onStale` subscribers. */
   private evictStalePendingEdits(): void {
     const now = Date.now()
     let anyEvicted = false
@@ -761,13 +765,19 @@ export class CSSOverrideManager {
 
   /** Emit the current stale-source set to all registered listeners.
    *  Iterates a snapshot so a listener that calls dispose() mid-emission
-   *  does not cause ConcurrentModification-style bugs. */
+   *  does not cause ConcurrentModification-style bugs. Each listener
+   *  receives its own defensive copy so mutations by one listener are
+   *  invisible to subsequent listeners. Errors from individual listeners
+   *  are isolated — remaining listeners still fire. */
   private emitStale(): void {
-    const snapshot = new Set(this.staleSources)
     for (const cb of [...this.staleListeners]) {
-      cb(snapshot)
+      try {
+        cb(new Set(this.staleSources))
+      } catch (err) {
+        console.warn('[cortex] Stale listener error:', err instanceof Error ? err.message : err)
+      }
     }
-    trace('stale:emit', { count: this.staleSources.size })
+    trace('emitStale:fired', { count: this.staleSources.size })
   }
 
   /** Remove the <style> element from the DOM */

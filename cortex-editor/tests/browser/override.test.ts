@@ -1400,7 +1400,6 @@ describe('CSSOverrideManager', () => {
 
       // Both sources should be stale
       const lastSet = staleSets[staleSets.length - 1]
-      expect(lastSet!.size).toBeGreaterThanOrEqual(2)
       expect(lastSet).toEqual(new Set(['a:1:1', 'b:2:2']))
 
       unsub()
@@ -1438,6 +1437,65 @@ describe('CSSOverrideManager', () => {
 
       expect(calls1).toHaveLength(1)
       expect(calls2).toHaveLength(1)
+
+      unsub1()
+      unsub2()
+    })
+
+    // Listener error isolation: a throwing listener must not block subsequent listeners
+    // or corrupt the call path (e.g. rebuild still happens after remove())
+    it('throwing listener does not block subsequent listeners or corrupt remove() path', () => {
+      const secondListenerSets: Array<Set<string>> = []
+
+      // First listener always throws
+      const unsub1 = manager.onStale(() => { throw new Error('boom') })
+      // Second listener captures the set — must still receive the call
+      const unsub2 = manager.onStale(s => secondListenerSets.push(new Set(s)))
+
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+      vi.advanceTimersByTime(36_000)
+      // Trigger eviction — emitStale fires inside evictStalePendingEdits → trackPendingEdit
+      manager.trackPendingEdit('edit-2', 'b:1:1', 'margin', '0')
+
+      // Second listener must have received the stale event despite first throwing
+      expect(secondListenerSets).toHaveLength(1)
+      expect(secondListenerSets[0]).toEqual(new Set(['a:1:1']))
+
+      // Call path must be uncorrupted: remove() should still rebuild the style sheet
+      manager.remove('a:1:1', 'color')
+      flushRAF()
+      // If emitStale threw through remove(), the rebuild would not run — textContent would be stale.
+      // After removing 'a:1:1' color override, the sheet must not contain that rule.
+      const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
+      expect(styleEl.textContent).not.toContain('a:1:1')
+
+      unsub1()
+      unsub2()
+    })
+
+    // Per-listener defensive copy: mutation by listener A must not affect listener B's set
+    it('per-listener defensive copy — mutation by first listener does not affect second', () => {
+      const secondListenerSets: Array<Set<string>> = []
+
+      // First listener mutates its received set aggressively
+      const unsub1 = manager.onStale(s => { s.add('hostile'); s.clear() })
+      // Second listener captures its set
+      const unsub2 = manager.onStale(s => secondListenerSets.push(new Set(s)))
+
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+      vi.advanceTimersByTime(36_000)
+      manager.trackPendingEdit('edit-2', 'b:1:1', 'margin', '0')
+
+      // Second listener must see the unmutated snapshot
+      expect(secondListenerSets).toHaveLength(1)
+      expect(secondListenerSets[0]).toEqual(new Set(['a:1:1']))
+
+      // Internal state must also be unmutated
+      expect(manager.getStaleSources()).toEqual(new Set(['a:1:1']))
 
       unsub1()
       unsub2()
@@ -1543,10 +1601,10 @@ describe('CSSOverrideManager', () => {
       unsub()
     })
 
-    // Stale set fully clears on dispose()
+    // Stale set fully clears on dispose() and listeners are actually removed
     it('stale set fully clears on dispose() and listeners are removed', () => {
-      const calls: number[] = []
-      const unsub = manager.onStale(() => calls.push(1))
+      const receivedSets: Array<Set<string>> = []
+      const unsub = manager.onStale(s => receivedSets.push(new Set(s)))
 
       manager.set('a:1:1', 'color', 'red')
       flushRAF()
@@ -1554,17 +1612,23 @@ describe('CSSOverrideManager', () => {
       vi.advanceTimersByTime(36_000)
       manager.trackPendingEdit('edit-2', 'b:1:1', 'margin', '0')
 
-      const staleCountBeforeDispose = calls.length
-      expect(staleCountBeforeDispose).toBe(1)
+      // First emission: stale eviction fired
+      expect(receivedSets).toHaveLength(1)
+      expect(receivedSets[0]).toEqual(new Set(['a:1:1']))
 
       manager.dispose()
 
-      // dispose() itself fires one final stale emission (the clear), then removes all listeners
-      // So total calls should be 2 (1 for stale, 1 for clear on dispose)
-      // After dispose, no further calls possible
+      // dispose() fires a final clear emission, then removes all listeners
+      expect(receivedSets).toHaveLength(2)
+      expect(receivedSets[1]).toEqual(new Set())
       expect(manager.getStaleSources()).toEqual(new Set())
 
-      unsub() // no-op after dispose, but should not throw
+      // Falsifiable: assert the internal staleListeners Set was actually cleared.
+      // A regression that forgot `this.staleListeners.clear()` would leave size > 0.
+      const internalListeners = (manager as unknown as { staleListeners: Set<unknown> }).staleListeners
+      expect(internalListeners.size).toBe(0)
+
+      unsub() // no-op after dispose, but must not throw
     })
   })
 
