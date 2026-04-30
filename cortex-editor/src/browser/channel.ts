@@ -4,6 +4,102 @@ import './types.js' // Window augmentation (__cortex_send__, __cortex_channel__,
 /** Max queued messages during WebSocket disconnection (Fix 5) */
 const MAX_QUEUE_SIZE = 100
 
+// ── Pure sendAndAck helpers ────────────────────────────────────────────────
+
+/**
+ * Compose a full BrowserToServer message from a partial (no requestId/token)
+ * by stamping the given requestId. Token is intentionally left as an empty
+ * string here — it will be overwritten by the channel.send() closure-captured
+ * token (ZF0-1326 Task 1). The composed object is passed directly to
+ * channel.send() which applies the closure token before transmitting.
+ *
+ * Pure helper — no side effects, directly testable.
+ */
+export function composeRequestWithId<T extends BrowserToServer & { requestId: string }>(
+  msg: Omit<T, 'requestId' | 'token'>,
+  requestId: string,
+): BrowserToServer {
+  // Cast required: TypeScript cannot narrow the spread back to BrowserToServer
+  // without a concrete T — the discriminated union is complete at runtime.
+  return { ...msg, requestId, token: '' } as unknown as BrowserToServer
+}
+
+/**
+ * Returns true if a ServerToBrowser message contains a requestId field that
+ * matches the expected value. Used by sendAndAck() to filter incoming messages.
+ *
+ * Pure helper — no side effects, directly testable.
+ */
+export function matchesRequestId(serverMsg: ServerToBrowser, requestId: string): boolean {
+  return 'requestId' in serverMsg && (serverMsg as Record<string, unknown>).requestId === requestId
+}
+
+/** Default sendAndAck timeout in milliseconds. */
+const SEND_AND_ACK_DEFAULT_TIMEOUT_MS = 10_000
+
+/**
+ * Shared sendAndAck implementation.
+ *
+ * @param msg   Partial message (no requestId / token — both stamped at send time).
+ * @param options.timeoutMs  Reject after this many ms. Default: 10 000.
+ * @param sendFn  The channel's own send() — preserves ZF0-1326 token-capture closure.
+ * @param onMessageFn  The channel's own onMessage() — registers one-shot listener.
+ * @param onConnectionChangeFn  The channel's onConnectionChange() — reject on disconnect.
+ *                              Pass a no-op factory `() => () => {}` for variants that
+ *                              don't have connection lifecycle events (Vite channel).
+ */
+function sendAndAckImpl<T extends BrowserToServer & { requestId: string }>(
+  msg: Omit<T, 'requestId' | 'token'>,
+  options: { timeoutMs?: number } | undefined,
+  sendFn: (m: BrowserToServer) => void,
+  onMessageFn: (handler: (m: ServerToBrowser) => void) => () => void,
+  onConnectionChangeFn: (handler: (state: ConnectionState) => void) => () => void,
+): Promise<ServerToBrowser> {
+  const timeoutMs = options?.timeoutMs ?? SEND_AND_ACK_DEFAULT_TIMEOUT_MS
+  const requestId = crypto.randomUUID()
+  const composed = composeRequestWithId<T>(msg, requestId)
+
+  return new Promise<ServerToBrowser>((resolve, reject) => {
+    let settled = false
+
+    // One-shot message listener — deregisters on first match.
+    const unsubMessage = onMessageFn((serverMsg) => {
+      if (!matchesRequestId(serverMsg, requestId)) return
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(serverMsg)
+    })
+
+    // Reject on timeout — ensures NEVER hangs silently.
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      cleanup()
+      reject(new Error(`sendAndAck timeout after ${timeoutMs}ms`))
+    }, timeoutMs)
+
+    // Reject on disconnect — only meaningful for channels with connection lifecycle.
+    const unsubConnection = onConnectionChangeFn((state) => {
+      if (state.status !== 'disconnected') return
+      if (settled) return
+      settled = true
+      cleanup()
+      reject(new Error('sendAndAck failed: channel disconnected'))
+    })
+
+    function cleanup(): void {
+      clearTimeout(timer)
+      unsubMessage()
+      unsubConnection()
+    }
+
+    // Send AFTER registering listeners to avoid a race where the ack arrives
+    // before the listener is in place (synchronous mock environments).
+    sendFn(composed)
+  })
+}
+
 /**
  * Create a channel using Vite HMR custom events.
  * Requires window.__cortex_send__ (injected by the Vite adapter CLIENT_SCRIPT).
@@ -52,7 +148,7 @@ export function createViteChannel(): CortexChannel {
     configurable: true, // configurable so dispose() can clean up
   })
 
-  return {
+  const channel: CortexChannel = {
     send(msg: BrowserToServer): void {
       capturedSend?.({ ...msg, token: capturedToken })
     },
@@ -67,6 +163,20 @@ export function createViteChannel(): CortexChannel {
       // Vite HMR manages its own reconnection and overlay — no lifecycle events to emit.
       return () => {}
     },
+    sendAndAck<T extends BrowserToServer & { requestId: string }>(
+      msg: Omit<T, 'requestId' | 'token'>,
+      options?: { timeoutMs?: number },
+    ): Promise<ServerToBrowser> {
+      return sendAndAckImpl<T>(
+        msg,
+        options,
+        (m) => channel.send(m),
+        (h) => channel.onMessage(h),
+        // Vite channel has no connection lifecycle — pass no-op so disconnect
+        // rejection path is a dead branch. Timeout is the only rejection path.
+        () => () => {},
+      )
+    },
     get connected(): boolean {
       return typeof capturedSend === 'function'
     },
@@ -75,6 +185,7 @@ export function createViteChannel(): CortexChannel {
       delete window.__cortex_channel__
     },
   }
+  return channel
 }
 
 /** Options for WebSocket channel creation */
@@ -208,7 +319,7 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
 
   connect()
 
-  return {
+  const wsChannel: CortexChannel = {
     send(msg: BrowserToServer): void {
       if (disposed) return
       if (connected && ws?.readyState === WebSocket.OPEN) {
@@ -237,6 +348,19 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
         if (idx >= 0) statusHandlers.splice(idx, 1)
       }
     },
+    sendAndAck<T extends BrowserToServer & { requestId: string }>(
+      msg: Omit<T, 'requestId' | 'token'>,
+      options?: { timeoutMs?: number },
+    ): Promise<ServerToBrowser> {
+      return sendAndAckImpl<T>(
+        msg,
+        options,
+        (m) => wsChannel.send(m),
+        (h) => wsChannel.onMessage(h),
+        // WebSocket channel exposes full connection lifecycle — reject on disconnect.
+        (h) => wsChannel.onConnectionChange(h),
+      )
+    },
     get connected(): boolean {
       return connected
     },
@@ -257,4 +381,5 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
       queue.length = 0
     },
   }
+  return wsChannel
 }

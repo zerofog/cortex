@@ -2304,3 +2304,63 @@ describe('performEditWrite', () => {
     ).resolves.toBeUndefined()
   })
 })
+
+// ── staged-edits-acked protocol tests (ZF0-1469 T3) ────────────────────
+
+describe('staged-edits-ready ack protocol', () => {
+  it('vite emits staged-edits-acked to browser after successful CLI forward', () => {
+    const plugin = initPlugin()
+    const server = mockServer()
+    ;(plugin.configureServer as Function)(server)
+    const token = _getSessionTokenForTesting()!
+
+    // Register a CLI client that successfully receives.
+    const cliReceived: string[] = []
+    const fakeClient = {
+      readyState: 1, // WebSocket.OPEN
+      send: (data: string) => { cliReceived.push(data) },
+    }
+    _addCLIClientForTesting(fakeClient)
+
+    server.hot._trigger('cortex:msg', {
+      type: 'staged-edits-ready',
+      count: 3,
+      requestId: 'req-ack-test-001',
+      token,
+    })
+
+    // CLI client must have received the forwarded message.
+    expect(cliReceived).toHaveLength(1)
+    const forwarded = JSON.parse(cliReceived[0]!) as Record<string, unknown>
+    expect(forwarded.type).toBe('staged-edits-ready')
+
+    // Browser must have received the ack.
+    const ackMsg = server._sent.find(
+      (e) => e.event === 'cortex:msg' && (e.data as Record<string, unknown>).type === 'staged-edits-acked',
+    )
+    expect(ackMsg).toBeDefined()
+    expect((ackMsg!.data as Record<string, unknown>).requestId).toBe('req-ack-test-001')
+  })
+
+  it('vite does NOT ack browser when CLI forward fails (no CLI clients)', () => {
+    const plugin = initPlugin()
+    const server = mockServer()
+    ;(plugin.configureServer as Function)(server)
+    const token = _getSessionTokenForTesting()!
+
+    // No CLI client added — forwardToCLI returns false.
+
+    server.hot._trigger('cortex:msg', {
+      type: 'staged-edits-ready',
+      count: 2,
+      requestId: 'req-no-ack-test-002',
+      token,
+    })
+
+    // Assert ZERO ack messages sent to browser — specific check, not just "no error".
+    const ackMessages = server._sent.filter(
+      (e) => e.event === 'cortex:msg' && (e.data as Record<string, unknown>).type === 'staged-edits-acked',
+    )
+    expect(ackMessages).toHaveLength(0)
+  })
+})

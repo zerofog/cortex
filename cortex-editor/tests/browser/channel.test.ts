@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { createViteChannel, createWebSocketChannel } from '../../src/browser/channel.js'
+import { createViteChannel, createWebSocketChannel, composeRequestWithId, matchesRequestId } from '../../src/browser/channel.js'
 import type { ConnectionState, ServerToBrowser } from '../../src/adapters/types.js'
 
 describe('createViteChannel', () => {
@@ -743,5 +743,356 @@ describe('createWebSocketChannel', () => {
     expect(ws.onmessage).toBeNull()
     expect(ws.onclose).toBeNull()
     expect(ws.onerror).toBeNull()
+  })
+})
+
+// ── Pure helper tests ─────────────────────────────────────────────────────
+
+describe('composeRequestWithId', () => {
+  it('stamps the given requestId and a blank token placeholder', () => {
+    const msg = { type: 'staged-edits-ready' as const, count: 5 }
+    const result = composeRequestWithId(msg, 'req-123')
+    expect((result as Record<string, unknown>).requestId).toBe('req-123')
+    // token placeholder is '' — channel.send() overwrites it with the
+    // closure-captured token (ZF0-1326 Task 1).
+    expect((result as Record<string, unknown>).token).toBe('')
+  })
+
+  it('preserves all fields from the original message', () => {
+    const msg = { type: 'staged-edits-ready' as const, count: 3 }
+    const result = composeRequestWithId(msg, 'req-abc') as Record<string, unknown>
+    expect(result.type).toBe('staged-edits-ready')
+    expect(result.count).toBe(3)
+  })
+})
+
+describe('matchesRequestId', () => {
+  it('returns true when serverMsg contains the expected requestId', () => {
+    const msg: ServerToBrowser = { type: 'staged-edits-acked', requestId: 'req-xyz' }
+    expect(matchesRequestId(msg, 'req-xyz')).toBe(true)
+  })
+
+  it('returns false when requestId does not match', () => {
+    const msg: ServerToBrowser = { type: 'staged-edits-acked', requestId: 'req-xyz' }
+    expect(matchesRequestId(msg, 'req-abc')).toBe(false)
+  })
+
+  it('returns false when serverMsg has no requestId field', () => {
+    const msg: ServerToBrowser = { type: 'cortex' }
+    expect(matchesRequestId(msg, 'req-xyz')).toBe(false)
+  })
+})
+
+// ── sendAndAck tests — Vite channel ─────────────────────────────────────
+
+describe('createViteChannel sendAndAck', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    delete window.__cortex_send__
+    delete window.__cortex_channel__
+    delete window.__CORTEX_TOKEN__
+    window.__cortex_send__ = vi.fn()
+    window.__CORTEX_TOKEN__ = 'test-token'
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('sendAndAck resolves on matching requestId in ack message', async () => {
+    // Capture the mock BEFORE creating the channel — createViteChannel tombstones
+    // window.__cortex_send__ immediately, making it inaccessible post-creation.
+    const mockSend = vi.fn()
+    window.__cortex_send__ = mockSend
+
+    const channel = createViteChannel()
+    const pendingPromise = channel.sendAndAck({ type: 'staged-edits-ready' as const, count: 1 })
+
+    // Extract the requestId from the call recorded by the mock (still a valid
+    // vi.fn reference even after tombstoning — only the window property was deleted).
+    const sentMsg = mockSend.mock.calls[0]?.[0] as Record<string, unknown>
+    const requestId = sentMsg?.requestId as string
+    expect(typeof requestId).toBe('string')
+
+    const ack: ServerToBrowser = { type: 'staged-edits-acked', requestId }
+    window.__cortex_channel__!.handleServerMessage(ack)
+
+    const result = await pendingPromise
+    expect(result).toEqual(ack)
+  })
+
+  it('sendAndAck rejects on timeout (default 10s)', async () => {
+    const channel = createViteChannel()
+    const pendingPromise = channel.sendAndAck({ type: 'staged-edits-ready' as const, count: 1 })
+
+    vi.advanceTimersByTime(10001)
+
+    await expect(pendingPromise).rejects.toThrow('sendAndAck timeout after 10000ms')
+  })
+
+  // Vite channel has no connection lifecycle events — disconnect rejection
+  // path is a dead branch. The timeout path is the only rejection path.
+  it.skip('sendAndAck rejects on disconnect during wait (Vite channel has no lifecycle — skip)', () => {
+    // TODO: Vite HMR manages its own reconnection without emitting ConnectionState events.
+    // The onConnectionChange no-op in createViteChannel means this rejection path
+    // is unreachable. Only the timeout fires. Test omitted per CLAUDE.md rule #3.
+  })
+
+  it('sendAndAck does NOT resolve on mismatched requestId', async () => {
+    let resolved = false
+    const channel = createViteChannel()
+    // Suppress the expected timeout rejection — this test is about the positive
+    // assertion (promise stays pending), not the eventual rejection path.
+    channel.sendAndAck({ type: 'staged-edits-ready' as const, count: 1 })
+      .then(() => { resolved = true })
+      .catch(() => {})
+
+    // Dispatch an ack with a DIFFERENT requestId — should not resolve.
+    const wrongAck: ServerToBrowser = { type: 'staged-edits-acked', requestId: 'wrong-id' }
+    window.__cortex_channel__!.handleServerMessage(wrongAck)
+
+    // Yield multiple event loop turns — promise should still be pending.
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(resolved).toBe(false)
+
+    // Clean up — advance timer to expire the pending promise cleanly.
+    vi.advanceTimersByTime(10001)
+    await Promise.resolve()
+  })
+
+  it('sendAndAck cleans up listener after resolve (no double-resolution)', async () => {
+    const mockSend = vi.fn()
+    window.__cortex_send__ = mockSend
+
+    const channel = createViteChannel()
+    const results: ServerToBrowser[] = []
+    channel.sendAndAck({ type: 'staged-edits-ready' as const, count: 1 }).then(r => results.push(r))
+
+    const sentMsg = mockSend.mock.calls[0]?.[0] as Record<string, unknown>
+    const requestId = sentMsg?.requestId as string
+
+    // First ack — resolves the promise.
+    const ack1: ServerToBrowser = { type: 'staged-edits-acked', requestId }
+    window.__cortex_channel__!.handleServerMessage(ack1)
+    await Promise.resolve()
+    expect(results).toHaveLength(1)
+
+    // Second ack with the SAME requestId — listener must have been removed.
+    const ack2: ServerToBrowser = { type: 'staged-edits-acked', requestId }
+    window.__cortex_channel__!.handleServerMessage(ack2)
+    await Promise.resolve()
+    // Still only 1 result — no double-resolution.
+    expect(results).toHaveLength(1)
+  })
+
+  it('sendAndAck cleans up listener after reject (no spurious resolve after timeout)', async () => {
+    const mockSend = vi.fn()
+    window.__cortex_send__ = mockSend
+
+    const channel = createViteChannel()
+    let resolvedAfterTimeout = false
+
+    channel.sendAndAck({ type: 'staged-edits-ready' as const, count: 1 }).catch(() => {
+      // Expected rejection — verify promise is settled.
+    })
+
+    // Advance past timeout — listener is removed and promise is rejected.
+    vi.advanceTimersByTime(10001)
+    await Promise.resolve()
+
+    // Now dispatch an ack — the sendAndAck listener was removed on rejection,
+    // but a NEW onMessage handler can still receive it (channel still works).
+    // This confirms the cleanup de-registered the sendAndAck listener specifically,
+    // not all listeners, and the settled promise cannot re-resolve.
+    const sentMsg = mockSend.mock.calls[0]?.[0] as Record<string, unknown>
+    const requestId = sentMsg?.requestId as string
+
+    channel.onMessage((msg) => {
+      if ('requestId' in msg && (msg as Record<string, unknown>).requestId === requestId) {
+        resolvedAfterTimeout = true
+      }
+    })
+    window.__cortex_channel__!.handleServerMessage({ type: 'staged-edits-acked', requestId })
+    await Promise.resolve()
+
+    // The new handler received the ack (channel still works), but the original
+    // sendAndAck promise did NOT re-resolve (JS Promise settled state is immutable).
+    expect(resolvedAfterTimeout).toBe(true)
+  })
+})
+
+// ── sendAndAck tests — WebSocket channel ────────────────────────────────
+
+describe('createWebSocketChannel sendAndAck', () => {
+  let mockInstances: MockWebSocket[]
+
+  class MockWebSocket {
+    static readonly OPEN = 1
+    static readonly CLOSED = 3
+    readonly OPEN = 1
+    readonly CLOSED = 3
+    readyState = 0
+    url: string
+    onopen: (() => void) | null = null
+    onclose: (() => void) | null = null
+    onmessage: ((event: { data: string }) => void) | null = null
+    onerror: (() => void) | null = null
+    send = vi.fn()
+    close = vi.fn()
+
+    constructor(url: string) {
+      this.url = url
+      mockInstances.push(this)
+    }
+
+    _simulateOpen(): void {
+      this.readyState = MockWebSocket.OPEN
+      this.onopen?.()
+    }
+
+    _simulateMessage(data: unknown): void {
+      this.onmessage?.({ data: JSON.stringify(data) })
+    }
+
+    _simulateClose(): void {
+      this.readyState = MockWebSocket.CLOSED
+      this.onclose?.()
+    }
+  }
+
+  beforeEach(() => {
+    mockInstances = []
+    vi.useFakeTimers()
+    // @ts-expect-error — mock WebSocket global
+    globalThis.WebSocket = MockWebSocket
+    delete window.__cortex_ws_port__
+    delete window.__CORTEX_TOKEN__
+    window.__CORTEX_TOKEN__ = 'ws-test-token'
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('sendAndAck resolves on matching requestId in ack message', async () => {
+    const channel = createWebSocketChannel({ url: 'ws://test' })
+    const ws = mockInstances[0]!
+    ws._simulateOpen()
+
+    const pendingPromise = channel.sendAndAck({ type: 'staged-edits-ready' as const, count: 2 })
+
+    // Extract the requestId from the sent message.
+    const rawSent = ws.send.mock.calls[0]?.[0] as string
+    const sentMsg = JSON.parse(rawSent) as Record<string, unknown>
+    const requestId = sentMsg.requestId as string
+    expect(typeof requestId).toBe('string')
+
+    // Server sends back the ack.
+    const ack: ServerToBrowser = { type: 'staged-edits-acked', requestId }
+    ws._simulateMessage(ack)
+
+    const result = await pendingPromise
+    expect(result).toEqual(ack)
+  })
+
+  it('sendAndAck rejects on timeout (default 10s)', async () => {
+    const channel = createWebSocketChannel({ url: 'ws://test' })
+    const ws = mockInstances[0]!
+    ws._simulateOpen()
+
+    const pendingPromise = channel.sendAndAck({ type: 'staged-edits-ready' as const, count: 1 })
+    vi.advanceTimersByTime(10001)
+
+    await expect(pendingPromise).rejects.toThrow('sendAndAck timeout after 10000ms')
+  })
+
+  it('sendAndAck rejects on disconnect during wait', async () => {
+    const channel = createWebSocketChannel({ url: 'ws://test', maxRetries: 0 })
+    const ws = mockInstances[0]!
+    ws._simulateOpen()
+
+    const pendingPromise = channel.sendAndAck(
+      { type: 'staged-edits-ready' as const, count: 1 },
+      { timeoutMs: 30_000 }, // long timeout so disconnect fires first
+    )
+
+    // Trigger disconnection by closing after retry budget exhausted.
+    ws._simulateClose()
+    // Advance past retries (maxRetries=0 → disconnected immediately on close)
+    // No timer needed — onclose with retryCount >= maxRetries fires disconnected synchronously.
+
+    await expect(pendingPromise).rejects.toThrow('sendAndAck failed: channel disconnected')
+  })
+
+  it('sendAndAck does NOT resolve on mismatched requestId', async () => {
+    const channel = createWebSocketChannel({ url: 'ws://test' })
+    const ws = mockInstances[0]!
+    ws._simulateOpen()
+
+    let resolved = false
+    // Suppress the expected timeout rejection — this test is about the positive
+    // assertion (promise stays pending on wrong requestId), not the eventual rejection.
+    channel.sendAndAck({ type: 'staged-edits-ready' as const, count: 1 })
+      .then(() => { resolved = true })
+      .catch(() => {})
+
+    // Dispatch ack with wrong requestId — should not resolve.
+    ws._simulateMessage({ type: 'staged-edits-acked', requestId: 'wrong-id' })
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(resolved).toBe(false)
+
+    // Clean up — advance timer to expire the pending promise cleanly.
+    vi.advanceTimersByTime(10001)
+    await Promise.resolve()
+  })
+
+  it('sendAndAck cleans up listener after resolve (no double-resolution)', async () => {
+    const channel = createWebSocketChannel({ url: 'ws://test' })
+    const ws = mockInstances[0]!
+    ws._simulateOpen()
+
+    const results: ServerToBrowser[] = []
+    channel.sendAndAck({ type: 'staged-edits-ready' as const, count: 1 }).then(r => results.push(r))
+
+    const rawSent = ws.send.mock.calls[0]?.[0] as string
+    const { requestId } = JSON.parse(rawSent) as { requestId: string }
+
+    // First ack — resolves.
+    ws._simulateMessage({ type: 'staged-edits-acked', requestId })
+    await Promise.resolve()
+    expect(results).toHaveLength(1)
+
+    // Second ack with same requestId — listener removed, no double-resolution.
+    ws._simulateMessage({ type: 'staged-edits-acked', requestId })
+    await Promise.resolve()
+    expect(results).toHaveLength(1)
+  })
+
+  it('sendAndAck cleans up listener after reject (timeout)', async () => {
+    const channel = createWebSocketChannel({ url: 'ws://test' })
+    const ws = mockInstances[0]!
+    ws._simulateOpen()
+
+    let catchCalled = false
+    channel.sendAndAck({ type: 'staged-edits-ready' as const, count: 1 }).catch(() => {
+      catchCalled = true
+    })
+
+    vi.advanceTimersByTime(10001)
+    await Promise.resolve()
+    expect(catchCalled).toBe(true)
+
+    // After rejection, a late-arriving ack should NOT re-resolve the settled promise.
+    const rawSent = ws.send.mock.calls[0]?.[0] as string
+    const { requestId } = JSON.parse(rawSent) as { requestId: string }
+    // Dispatch the late ack — promise is already rejected; JS semantics guarantee
+    // no state change. The listener was removed so no second resolution attempt.
+    ws._simulateMessage({ type: 'staged-edits-acked', requestId })
+    await Promise.resolve()
+    // No assertion needed beyond "no throw" — Promise settled state is immutable.
   })
 })

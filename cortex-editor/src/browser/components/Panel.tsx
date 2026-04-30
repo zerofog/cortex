@@ -1101,6 +1101,8 @@ export function Panel({
           onPointerCancel={panelPointerCancel}
           hoverEnabled={hoverEnabled}
           onToggleHover={onToggleHover}
+          bufferSize={0}
+          onApply={() => Promise.resolve()}
         />
         <div class="cortex-panel__body">
           <div class="cortex-panel__empty">
@@ -1162,6 +1164,8 @@ export function Panel({
         ancestorLine={ancestor?.source.line ?? null}
         hoverEnabled={hoverEnabled}
         onToggleHover={onToggleHover}
+        bufferSize={0}
+        onApply={() => Promise.resolve()}
       />
       {editErrors && element?.getAttribute('data-cortex-source') && (
         <EditErrorCard

@@ -60,6 +60,14 @@ export interface PanelHeaderProps {
   ancestorLine?: string | null
   hoverEnabled?: boolean
   onToggleHover?: () => void
+  /** Number of edits in the staging buffer. Apply button is hidden when 0. */
+  bufferSize: number
+  /** Called when the designer clicks Apply. Returns a Promise that resolves on
+   *  successful delivery to the server, rejects on timeout or disconnect.
+   *  PanelHeader manages its own "Delivering..." disabled state during the
+   *  in-flight period; the parent is responsible for clearing bufferSize to 0
+   *  after the server applies the edits (T4 wiring). */
+  onApply: () => Promise<void>
 }
 
 export function PanelHeader({
@@ -86,7 +94,19 @@ export function PanelHeader({
   ancestorLine,
   hoverEnabled = true,
   onToggleHover,
+  bufferSize,
+  onApply,
 }: PanelHeaderProps): JSX.Element {
+  const [delivering, setDelivering] = useState(false)
+
+  const handleApply = (): void => {
+    if (delivering) return
+    setDelivering(true)
+    onApply().then(
+      () => { setDelivering(false) },
+      () => { setDelivering(false) },
+    )
+  }
   // When library with ancestor source, show ancestor source instead of element source
   const displaySource = isLibrary && ancestorSource ? ancestorSource : sourceFile
   const displayLine = isLibrary && ancestorSource ? (ancestorLine ?? null) : sourceLine
@@ -185,6 +205,18 @@ export function PanelHeader({
             </svg>
           )}
         </button>
+        {bufferSize > 0 && (
+          <button
+            class="cortex-panel-header__btn cortex-panel-header__btn--apply"
+            data-action="apply"
+            data-tooltip={delivering ? 'Sending staged edits to Claude…' : `Apply ${bufferSize} staged edit${bufferSize === 1 ? '' : 's'}`}
+            aria-label={delivering ? 'Delivering staged edits' : `Apply ${bufferSize} staged edit${bufferSize === 1 ? '' : 's'}`}
+            disabled={delivering}
+            onClick={handleApply}
+          >
+            {delivering ? 'Delivering…' : `Apply (${bufferSize})`}
+          </button>
+        )}
         <button
           class="cortex-panel-header__btn cortex-panel-header__btn--close"
           data-action="close"

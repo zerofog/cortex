@@ -187,6 +187,14 @@ export type ServerToBrowser =
   /** Instructs the browser to remove the specified intents from its canonical staging buffer.
    *  Sent by the server when Claude calls cortex_discard_edits so browser + server stay in sync. */
   | { type: 'staged-edits-discard'; intentIds: string[] }
+  /** Acknowledgement sent to the browser after the server successfully forwarded
+   *  a 'staged-edits-ready' notification to at least one CLI client.
+   *  The requestId echoes the value from the originating browser message so the
+   *  browser can correlate the ack with its pending sendAndAck() call.
+   *  CRITICAL: this ack is NOT emitted when the forward fails (no CLI clients,
+   *  serialization error, or all client.send() calls threw). Silence lets the
+   *  browser's sendAndAck timeout trip and surface retry UI. */
+  | { type: 'staged-edits-acked'; requestId: string }
 
 export interface ElementContext {
   tagName: string
@@ -266,6 +274,20 @@ export interface CortexChannel {
   onMessage(handler: (msg: ServerToBrowser) => void): () => void
   onConnectionChange(handler: (state: ConnectionState) => void): () => void
   readonly connected: boolean
+  /** Send a message and wait for a matching ack from the server.
+   *  Stamps a fresh requestId (via crypto.randomUUID) and routes through
+   *  the existing channel.send() so the ZF0-1326 token-capture closure is
+   *  preserved — the token is never re-read from window.
+   *
+   *  Rejects with a descriptive Error on:
+   *  - timeout (default 10 000 ms): `'sendAndAck timeout after Nms'`
+   *  - disconnect while waiting: `'sendAndAck failed: channel disconnected'`
+   *
+   *  NEVER hangs silently — one of the two rejection paths always fires. */
+  sendAndAck<T extends BrowserToServer & { requestId: string }>(
+    msg: Omit<T, 'requestId' | 'token'>,
+    options?: { timeoutMs?: number },
+  ): Promise<ServerToBrowser>
   /** Clean up resources (WebSocket, timers). Optional — Vite channel has nothing to dispose. */
   dispose?: () => void
 }

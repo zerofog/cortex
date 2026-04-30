@@ -842,6 +842,18 @@
   opacity: 0.4;
 }
 
+/* Apply button — wider than icon-only buttons to show "Apply (N)" text */
+.cortex-panel-header__btn--apply {
+  width: auto;
+  min-width: 72px;
+  padding: 0 var(--cx-sp-3);
+  font-size: var(--cx-text-sm);
+  font-weight: var(--cx-weight-label);
+  font-family: var(--cx-sans);
+  color: var(--cx-ink-secondary);
+  letter-spacing: 0;
+}
+
 /* ── Numeric input ───────────────────────────── */
 
 .cortex-numeric-input {
