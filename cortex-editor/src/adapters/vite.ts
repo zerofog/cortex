@@ -440,9 +440,19 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
   }
 }
 
-/** Forward a message to all connected CLI WebSocket clients. */
-function forwardToCLI(msg: unknown): void {
-  if (!currentSession || currentSession.cliClients.size === 0) return
+/** Forward a message to all connected CLI WebSocket clients.
+ *
+ *  Returns true when at least one client successfully received the data,
+ *  false in every failure case (no session, no clients, serialization error,
+ *  or all client.send() calls threw / had non-OPEN readyState).
+ *
+ *  The boolean is used by the staged-edits-ready ack gate: the server
+ *  emits 'staged-edits-acked' to the browser ONLY when this returns true.
+ *  Returning false means the browser's sendAndAck() timeout will trip and
+ *  surface retry UI — silent ack on failed forward is the failure mode this
+ *  design prevents. */
+function forwardToCLI(msg: unknown): boolean {
+  if (!currentSession || currentSession.cliClients.size === 0) return false
   let data: string
   try {
     data = JSON.stringify(msg)
@@ -456,12 +466,14 @@ function forwardToCLI(msg: unknown): void {
       `[cortex] forwardToCLI: JSON.stringify failed for type=${String(type)}:`,
       err instanceof Error ? err.message : String(err),
     )
-    return
+    return false
   }
+  let delivered = false
   for (const client of currentSession.cliClients) {
     if (client.readyState !== WebSocket.OPEN) continue
     try {
       client.send(data)
+      delivered = true
     } catch (err) {
       const type = (msg as Record<string, unknown> | null)?.type ?? '<unknown>'
       console.warn(
@@ -471,6 +483,7 @@ function forwardToCLI(msg: unknown): void {
       currentSession.cliClients.delete(client)
     }
   }
+  return delivered
 }
 
 export function getChannel(): ServerChannel {
@@ -518,7 +531,7 @@ export function _getStagedEditsForTesting(): StagedEditsCache | null {
  * setting up a real WebSocket server.
  * @internal
  */
-export function _addCLIClientForTesting(client: { readyState: number; send: (data: string) => void }): void {
+export function _addCLIClientForTesting(client: { readyState: number; send: (data: string) => void; terminate: () => void }): void {
   if (!currentSession) return
   // Cast: real cliClients is Set<WebSocket>; the test fake satisfies the
   // structural shape used inside forwardToCLI (readyState + send).
@@ -810,7 +823,17 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         // messages (browser↔Vite-cache only) don't burn bandwidth/CPU on the MCP process.
         const { token: _stripped, ...forwardData } = data as Record<string, unknown>
         if (BROWSER_TO_CLI_FORWARD_TYPES.has(data.type)) {
-          forwardToCLI(forwardData)
+          const forwarded = forwardToCLI(forwardData)
+          // Protocol ack: for 'staged-edits-ready', emit 'staged-edits-acked' back to the
+          // originating browser ONLY when at least one CLI client actually received the
+          // message. If forwarding failed (no CLI clients, serialization error, or all
+          // client.send() calls threw), we deliberately stay silent — the browser's
+          // sendAndAck() timeout trips and surfaces retry UI. A silent ack on failed
+          // forward would hide the delivery failure and leave Claude unnotified.
+          if (data.type === 'staged-edits-ready' && forwarded) {
+            const requestId = (data as { requestId: string }).requestId
+            server.hot.send(CORTEX_MSG_EVENT, { type: 'staged-edits-acked', requestId })
+          }
         }
 
         // Track state from browser messages

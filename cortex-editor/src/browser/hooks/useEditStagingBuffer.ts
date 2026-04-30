@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef } from 'preact/hooks'
+import { useCallback, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { cortexStorage } from '../persistence.js'
 import { stripLineCol, deepQuerySelectorAll } from '../selection-metadata.js'
 import type { CortexChannel, PendingEdit } from '../../adapters/types.js'
@@ -160,6 +160,15 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
   // Stable ref to the emitter — avoids stale-closure issues inside useCallback.
   const emitterRef = useRef<SyncEmitter | undefined>(emitter)
   emitterRef.current = emitter
+  // ZF0-1453 (post-Step-9.5): bump on every mutation so consumers reading
+  // size()/list() in render re-evaluate after staged-edits-discard arrives.
+  // Without this, bufferRef mutations (server-driven discards) don't cause
+  // Panel to re-render and the Apply button stays at "Apply (N)" after the
+  // buffer is server-side empty. We don't read the value — only setState
+  // triggers re-render, and JSX call sites re-read buffer.size() during
+  // that re-render with the correct fresh count.
+  const [, bumpVersion] = useState(0)
+  const bumpRef = useRef(() => bumpVersion(v => v + 1))
 
   // Initialize from localStorage on first call (before useEffect so list() works immediately).
   // Per-entry filtering: a single corrupted entry can't nuke 499 valid ones.
@@ -275,6 +284,7 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
       emitterRef.current?.syncRemove([evictedIntentId])
     }
 
+    bumpRef.current()
     schedulePersist()
   }, [schedulePersist])
 
@@ -293,6 +303,7 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
     // Emit sync AFTER in-memory map updated, BEFORE localStorage persist.
     emitterRef.current?.syncRemove(intentIds)
 
+    if (toDeleteKeys.length > 0) bumpRef.current()
     schedulePersist()
   }, [schedulePersist])
 
@@ -313,6 +324,7 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
     // Emit sync AFTER in-memory map updated (clear()), BEFORE persist.
     emitterRef.current?.syncClear()
 
+    bumpRef.current()
     persistNow()
   }, [persistNow])
 

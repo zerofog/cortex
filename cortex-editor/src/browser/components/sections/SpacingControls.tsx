@@ -27,6 +27,13 @@ export interface SpacingControlsProps {
   /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
   dimmedProperties?: Set<string>
   mixedProperties?: Set<string>
+  /**
+   * When true, the element's source override has exceeded the TTL without hmr_verified
+   * arriving. Forwarded to NumericInput controls as the stale indicator (orange/yellow
+   * tint + recovery tooltip). Mirrors the pattern used by SizingControls.
+   * (ZF0-1470 T4 fix-up, IMPORTANT 3)
+   */
+  stale?: boolean
 }
 
 /**
@@ -45,6 +52,7 @@ function SpacingRow({
   onScrubEnd,
   dimmed,
   mixedProperties,
+  stale,
 }: {
   /** Short prefix shown in the input (e.g. "P" for padding, "M" for margin) */
   short: string
@@ -58,6 +66,8 @@ function SpacingRow({
   onScrubEnd?: (change: SpacingChange) => void
   dimmed?: boolean
   mixedProperties?: Set<string>
+  /** Forward the element-level stale indicator to NumericInput controls. */
+  stale?: boolean
 }): JSX.Element {
   const fireChange = useCallback(
     (cb: ((c: SpacingChange) => void) | undefined, sides: string[], value: number) => {
@@ -130,6 +140,7 @@ function SpacingRow({
           tooltip={`Horizontal ${prefix}`}
           min={allowNegative ? undefined : 0}
           mixed={horizontalDiverges || mixedProperties?.has(`${prefix}-left`) || mixedProperties?.has(`${prefix}-right`)}
+          stale={stale}
           onChange={handleHorizontalChange}
           onScrub={handleHorizontalScrub}
           onScrubEnd={handleHorizontalScrubEnd}
@@ -157,6 +168,7 @@ function SpacingRow({
           tooltip={`Vertical ${prefix}`}
           min={allowNegative ? undefined : 0}
           mixed={verticalDiverges || mixedProperties?.has(`${prefix}-top`) || mixedProperties?.has(`${prefix}-bottom`)}
+          stale={stale}
           onChange={handleVerticalChange}
           onScrub={handleVerticalScrub}
           onScrubEnd={handleVerticalScrubEnd}
@@ -174,6 +186,7 @@ export function SpacingControls({
   onScrubEnd,
   dimmedProperties,
   mixedProperties,
+  stale,
 }: SpacingControlsProps): JSX.Element {
   const [paddingLocked, setPaddingLocked] = useState(false)
   const [marginLocked, setMarginLocked] = useState(false)
@@ -195,6 +208,7 @@ export function SpacingControls({
         onScrubEnd={onScrubEnd}
         dimmed={isDimmed(dimmedProperties, 'padding-top', 'padding-right', 'padding-bottom', 'padding-left')}
         mixedProperties={mixedProperties}
+        stale={stale}
       />
       <SpacingRow
         short="M"
@@ -208,6 +222,7 @@ export function SpacingControls({
         onScrubEnd={onScrubEnd}
         dimmed={isDimmed(dimmedProperties, 'margin-top', 'margin-right', 'margin-bottom', 'margin-left')}
         mixedProperties={mixedProperties}
+        stale={stale}
       />
     </div>
   )

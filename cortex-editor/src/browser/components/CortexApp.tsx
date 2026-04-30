@@ -50,6 +50,14 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // re-read and shared-class re-detect. The MutationObserver in Panel only
   // sees the selected element's own attributes — it cannot catch these.
   const [hmrAppliedVersion, setHmrAppliedVersion] = useState(0)
+  // ZF0-1470 (T4 fix-up, IMPORTANT 1): monotonic counter that bumps on EVERY
+  // hmr-applied event, regardless of shouldRefreshOnHMR(). Used by Panel's
+  // buffer-reconcile effect so buffered intents on non-selected elements are
+  // re-evaluated when their source files change. hmrAppliedVersion is gated on
+  // shouldRefresh (selection-awareness); hmrEventVersion is always-bump —
+  // reconcile must run for ALL buffered intents, not just those affecting the
+  // selected element.
+  const [hmrEventVersion, setHmrEventVersion] = useState(0)
   const [swatches, setSwatches] = useState<string[] | undefined>(undefined)
   const [textComponents, setTextComponents] = useState<
     import('../../core/text-components.js').TextComponent[] | undefined
@@ -75,6 +83,14 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const [agentConnected, setAgentConnected] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionDisplay>({ status: 'connected' })
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
+  // ZF0-1470 (T4): stale override signals from CSSOverrideManager.onStale (T1 API).
+  // staleOverrideCount drives the StagingDriftBanner; staleSources drives per-control
+  // stale indicator in sections. Both flow down to Panel.
+  const [staleOverrideCount, setStaleOverrideCount] = useState(0)
+  const [staleSources, setStaleSources] = useState<Set<string>>(new Set())
+  // ZF0-1470 (T4): changedFiles from hmr-applied message — passed to Panel so it can
+  // call buffer.reconcile() with the bypass readSourceValue callback.
+  const [hmrChangedFiles, setHmrChangedFiles] = useState<string[]>([])
   const [commentMode, setCommentMode] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
   const [capabilitySystems, setCapabilitySystems] = useState<StyleCapability[]>([])
@@ -174,6 +190,15 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     overrideRef.current = overrideManager
     const commandStack = new CommandStack()
     commandStackRef.current = commandStack
+
+    // ZF0-1470 (T4 A1): subscribe to override TTL eviction events. Fires when an
+    // applied override passes its 30s TTL without hmr_verified arriving — signals
+    // the edit may not have landed on disk. Component-scope setters flow state to
+    // Panel's StagingDriftBanner and per-control stale indicators.
+    const disposeStale = overrideManager.onStale((staleSet) => {
+      setStaleOverrideCount(staleSet.size)
+      setStaleSources(new Set(staleSet)) // defensive copy already made by emitStale
+    })
 
     // Initialize selection system. The `setSelectionWithMetadata` wrapper
     // (defined in a useCallback below) is the ONE point of entry for
@@ -355,6 +380,13 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           ? rawFiles
           : undefined
 
+        // ZF0-1470 (T4 fix-up, IMPORTANT 1): always-bump counter for buffer reconcile.
+        // Panel's reconcile effect uses hmrEventVersion (not hmrAppliedVersion) so it
+        // fires on every HMR event regardless of selection-awareness. Buffered intents
+        // for non-selected elements must be reconciled when their source files change —
+        // even when shouldRefreshOnHMR returns false for the selected element.
+        setHmrEventVersion(v => v + 1)
+
         // Gate the Panel refresh (getComputedStyle cascade + detectSharedClasses
         // over full DOM) on whether the changed files can possibly affect the
         // selected element. Skip only when we're confident: server provided a
@@ -367,6 +399,13 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         if (shouldRefresh) {
           setHmrAppliedVersion(v => v + 1)
         }
+
+        // ZF0-1470 (T4 A2): capture changedFiles for Panel's buffer.reconcile() call.
+        // Always update — even when shouldRefresh is false — because reconcile uses its
+        // own file-intersection logic (stripLineCol on source paths) independently of
+        // the DOM-refresh heuristic above. An empty/absent files list is represented
+        // as [] so Panel's reconcile early-returns cleanly (changedFiles.length === 0).
+        setHmrChangedFiles(files ?? [])
 
         // Re-resolve the selection after HMR node replacement. Runs
         // synchronously (catches CSS-only / classname-flip cases where the
@@ -461,6 +500,12 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       // cortex_discard_edits call.
       if (msg.type === 'staged-edits-discard') return
 
+      // staged-edits-acked (ZF0-1469) is consumed by channel.sendAndAck's
+      // one-shot listener — it correlates the requestId and resolves the Apply
+      // button's pending Promise. Not a CortexAppAction; early-return so the
+      // reducer's exhaustive default doesn't fire and log on every Apply.
+      if (msg.type === 'staged-edits-acked') return
+
       // After the early returns above (edit_status, hmr-applied, error), `msg.type`
       // matches a CortexAppAction discriminant. The cast is a forcing cast — TS
       // does not narrow ServerToBrowser to CortexAppAction across the assignment.
@@ -514,6 +559,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       unsubscribe()
       unsubStatus()
       unsubDivergence()
+      disposeStale()
       if (reconnectedTimer !== undefined) clearTimeout(reconnectedTimer)
       selectionHandle.cleanup()
       selectionRef.current = null
@@ -868,6 +914,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           onEditDispatch={handleEditDispatch}
           onDismissError={handleDismissError}
           hmrAppliedVersion={hmrAppliedVersion}
+          hmrEventVersion={hmrEventVersion}
+          hmrChangedFiles={hmrChangedFiles}
+          staleOverrideCount={staleOverrideCount}
+          staleSources={staleSources}
         />
       )}
       <Toolbar
