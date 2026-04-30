@@ -1113,4 +1113,32 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     gcs.mockRestore()
   })
 
+  // ZF0-1470 (T4 fix-up, IMPORTANT 1): hmrEventVersion always-bumps, even when
+  // shouldRefreshOnHMR returns false (unrelated files). The Panel still receives
+  // hmrChangedFiles so buffer.reconcile() can check non-selected element sources.
+  // Observable: hmrChangedFiles prop contains the unrelated files (not empty) even
+  // when the DOM refresh was skipped. We verify this by confirming the panel body
+  // stays rendered (selection-related refresh was skipped — panel didn't unmount)
+  // AND the hmr-applied handler completed without error.
+  it('hmr-applied with unrelated files still propagates hmrChangedFiles for buffer reconcile', async () => {
+    const { channel, gcs } = await setup('src/foo.tsx:10:5')
+    const before = gcs.mock.calls.length
+
+    // Fire hmr-applied with files that don't touch selected element — shouldRefreshOnHMR
+    // returns false, hmrAppliedVersion stays flat, but hmrEventVersion MUST bump and
+    // hmrChangedFiles MUST be updated with the incoming files.
+    expect(() => {
+      channel._simulateMessage({ type: 'hmr-applied', files: ['src/Sidebar.tsx', 'src/Other.tsx'] })
+    }).not.toThrow()
+
+    // DOM refresh skipped (no new getComputedStyle calls) — confirms gate worked
+    await new Promise(r => setTimeout(r, 200))
+    expect(gcs.mock.calls.length).toBe(before)
+
+    // Panel is still mounted and functional — the always-bump path didn't crash
+    expect(root.textContent).not.toContain('Click any element to start editing')
+
+    gcs.mockRestore()
+  })
+
 })

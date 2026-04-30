@@ -234,6 +234,7 @@ export function LayoutSection({
             onScrubEnd={onSpacingScrubEnd}
             dimmedProperties={dimmedProperties}
             mixedProperties={mixedProperties}
+            stale={stale}
           />
         </div>
       )}

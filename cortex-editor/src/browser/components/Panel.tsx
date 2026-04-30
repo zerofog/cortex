@@ -200,6 +200,13 @@ export interface PanelProps {
    *  optional signature as a silent-failure hazard for future integration
    *  sites. Tests must pass `hmrAppliedVersion={0}` explicitly. */
   hmrAppliedVersion: number
+  /** Monotonic counter bumped on EVERY `hmr-applied` event, regardless of
+   *  shouldRefreshOnHMR() (ZF0-1470 T4 fix-up, IMPORTANT 1). Panel's buffer
+   *  reconcile effect uses this dep — not hmrAppliedVersion — so buffered
+   *  intents for non-selected elements are re-evaluated when their source
+   *  files change. hmrAppliedVersion is selection-aware; hmrEventVersion is
+   *  always-bump so reconcile fires for ALL buffered intents. */
+  hmrEventVersion?: number
   /** Files reported by the latest `hmr-applied` message (ZF0-1470).
    *  Empty array when the message carried no files or files was absent.
    *  Panel uses this to call buffer.reconcile() with the override-bypass
@@ -243,6 +250,7 @@ export function Panel({
   onEditDispatch,
   onDismissError,
   hmrAppliedVersion,
+  hmrEventVersion = 0,
   hmrChangedFiles = [],
   staleOverrideCount = 0,
   staleSources,
@@ -315,12 +323,20 @@ export function Panel({
   // Updated by buffer.reconcile() whenever hmrChangedFiles changes (see effect below).
   const [intentDriftCount, setIntentDriftCount] = useState(0)
 
+  // ZF0-1470 (T4 fix-up, IMPORTANT 4): Apply error state. Surfaced inline above
+  // StagingDriftBanner when sendAndAck rejects (timeout/disconnect/server error).
+  // Cleared when a new Apply attempt starts (before sendAndAck) or dismissed by user.
+  const [applyError, setApplyError] = useState<string | null>(null)
+
   // ZF0-1470 (T4 B1): Apply handler — sends staged-edits-ready via sendAndAck so
   // Claude's MCP tools can read the buffer. Does NOT call buffer.clear() — per
   // parent ticket contract, Claude owns the buffer after Apply; it calls
   // cortex_discard_edits to remove specific intents via the MCP channel.
   const onApply = useCallback(async () => {
     if (!channel) return
+    // Clear any prior apply error before the new attempt so the UI doesn't
+    // show a stale error while the new request is in-flight.
+    setApplyError(null)
     await channel.sendAndAck({ type: 'staged-edits-ready', count: buffer.size() })
   }, [channel, buffer])
 
@@ -328,6 +344,14 @@ export function Panel({
   // CRITICAL: overrideManager.readSourceValue.bind bypasses the override !important
   // layer so getComputedStyle returns the source value, not cortex's own override
   // value. Without this, every active edit produces a false-positive divergence.
+  //
+  // ZF0-1470 (T4 fix-up, IMPORTANT 1): hmrEventVersion bumps on every HMR event
+  // regardless of selection — reconcile must run for ALL buffered intents, not
+  // just those affecting the selected element. hmrAppliedVersion is selection-aware
+  // (drives DOM refresh); hmrEventVersion is always-bump (drives buffer reconcile).
+  // Using hmrAppliedVersion here was the bug: if the HMR files didn't affect the
+  // selected element, shouldRefreshOnHMR returned false, hmrAppliedVersion didn't
+  // bump, and intents on non-selected elements were never reconciled.
   useEffect(() => {
     if (hmrChangedFiles.length === 0) return
     const result = buffer.reconcile(
@@ -335,12 +359,13 @@ export function Panel({
       overrideManager.readSourceValue.bind(overrideManager),
     )
     setIntentDriftCount(result.divergent.length)
-  // hmrAppliedVersion is the stable trigger (monotonic counter). hmrChangedFiles
-  // is the payload — both are captured via closure. The effect intentionally
-  // re-runs only when hmrAppliedVersion changes (each hmr-applied event), not on
-  // every hmrChangedFiles array allocation (which changes reference every render).
+  // hmrEventVersion is the stable trigger (monotonic counter that bumps on every
+  // hmr-applied event regardless of selection). hmrChangedFiles is the payload —
+  // both captured via closure. Re-runs only when hmrEventVersion changes (each
+  // hmr-applied event), not on every hmrChangedFiles array allocation (which
+  // changes reference every render).
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hmrAppliedVersion])
+  }, [hmrEventVersion])
 
   // Pseudo-element tab state — internal to Panel
   const [activePseudo, setActivePseudo] = useState<'element' | '::before' | '::after'>('element')
@@ -1150,6 +1175,7 @@ export function Panel({
           onToggleHover={onToggleHover}
           bufferSize={buffer.size()}
           onApply={onApply}
+          onApplyError={(err) => setApplyError(err instanceof Error ? err.message : 'Apply failed')}
         />
         <div class="cortex-panel__body">
           <div class="cortex-panel__empty">
@@ -1183,6 +1209,13 @@ export function Panel({
   // share one source path (data-cortex-source), so stale is binary at element level.
   // True when the element's source appears in the staleSources set emitted by
   // CSSOverrideManager.onStale after TTL eviction.
+  //
+  // Stale prop threading coverage (ZF0-1470 T4):
+  //   - PositionSection: covered (receives `stale` directly).
+  //   - LayoutSection → SizingControls: covered (stale forwarded through LayoutSection).
+  //   - LayoutSection → SpacingControls: covered by this commit (T4 fix-up, IMPORTANT 3).
+  //   - Appearance/Border/Effects/Typography/Flex/Grid sections: deferred to follow-up
+  //     (ZF0-TBD). Those sections have no NumericInput-level stale indicator yet.
   const elementSource = element.getAttribute('data-cortex-source') ?? ''
   const elementSourceIsStale = elementSource !== '' && (staleSources?.has(elementSource) ?? false)
 
@@ -1220,6 +1253,7 @@ export function Panel({
         onToggleHover={onToggleHover}
         bufferSize={buffer.size()}
         onApply={onApply}
+        onApplyError={(err) => setApplyError(err instanceof Error ? err.message : 'Apply failed')}
       />
       {editErrors && element?.getAttribute('data-cortex-source') && (
         <EditErrorCard
@@ -1287,6 +1321,39 @@ export function Panel({
         </div>
       )}
       <div class="cortex-panel__body" ref={bodyRef}>
+        {/* ZF0-1470 (T4 fix-up, IMPORTANT 4): Apply error inline banner. Surfaces
+            sendAndAck rejections (timeout/disconnect/server error) that PanelHeader
+            captures via onApplyError. Placed above StagingDriftBanner so the user
+            sees it immediately after an Apply failure, regardless of scroll position.
+            Clears on next Apply attempt (in onApply, before sendAndAck) or on dismiss. */}
+        {applyError && (
+          <div
+            class="cortex-apply-error"
+            role="alert"
+            style={{
+              padding: '6px 10px',
+              margin: '6px 8px',
+              borderRadius: '4px',
+              fontSize: '11px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: '#fee2e2',
+              color: '#991b1b',
+              border: '1px solid #fca5a5',
+            }}
+          >
+            <span>{applyError}</span>
+            <button
+              type="button"
+              onClick={() => setApplyError(null)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: '13px', padding: '0 0 0 8px', lineHeight: 1 }}
+              aria-label="Dismiss apply error"
+            >
+              ×
+            </button>
+          </div>
+        )}
         {/* ZF0-1470 (T4): StagingDriftBanner signals drift between staged edits
             and live source. Placed above sections so it's always visible regardless
             of scroll position. Two independent signals: intent drift (HMR reconcile)

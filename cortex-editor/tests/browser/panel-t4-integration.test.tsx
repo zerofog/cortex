@@ -358,6 +358,191 @@ describe('Panel T4 — Apply button wiring', () => {
   })
 })
 
+describe('Panel T4 fix-up — IMPORTANT 1: hmrEventVersion triggers reconcile for non-selected elements', () => {
+  // IMPORTANT 1: When HMR fires for a file that does NOT affect the selected element
+  // (shouldRefreshOnHMR returns false → hmrAppliedVersion stays flat), Panel's
+  // reconcile effect must still fire for buffered intents whose source IS in the
+  // changed files. This is driven by hmrEventVersion (always-bump), not
+  // hmrAppliedVersion (selection-aware). The test verifies that a staged intent
+  // for a NON-selected element's source produces intentDriftCount > 0 after HMR
+  // for that source file, even when hmrAppliedVersion does NOT bump.
+  it('banner shows intentDrift when hmrEventVersion bumps but hmrAppliedVersion stays flat', async () => {
+    // Staged intent for a DIFFERENT source than the selected element
+    const nonSelectedSource = 'src/Sidebar.tsx:22:3'
+    const edit: PendingEdit = {
+      intentId: 'id-non-selected-1',
+      source: nonSelectedSource,
+      property: 'color',
+      value: 'red',
+      previousValue: 'blue',  // readSourceValue returns '' → divergent
+      timestamp: Date.now(),
+    }
+    seedEdit(edit)
+
+    // Selected element uses a DIFFERENT source — simulates the case where
+    // shouldRefreshOnHMR returned false (files don't touch selected element).
+    const selectedSource = 'src/Hero.tsx:14:5'
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', selectedSource)
+    document.body.appendChild(target)
+
+    // readSourceValue returns '' (different from previousValue 'blue') → divergent
+    const overrideManager = makeOverrideManager(new Map(), {
+      readSourceValue: () => '',
+    })
+
+    // hmrAppliedVersion stays at 0 (as if shouldRefreshOnHMR returned false for
+    // the selected element). hmrEventVersion=1 simulates the always-bump counter.
+    const { root, cleanup } = renderInShadow(
+      <Panel
+        element={target}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+        hmrAppliedVersion={0}       // NOT bumped — selected element unaffected
+        hmrEventVersion={1}          // always bumps on every hmr-applied event
+        hmrChangedFiles={['src/Sidebar.tsx']}  // intersects nonSelectedSource
+        staleOverrideCount={0}
+      />,
+    )
+
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 10))
+    })
+
+    // Banner should appear: intent for nonSelectedSource is divergent
+    const banner = root.querySelector('.cortex-drift-banner')
+    expect(banner).not.toBeNull()
+    expect(banner!.textContent).toContain('staged edit(s) may be affected by external changes')
+
+    cleanup()
+    target.remove()
+  })
+})
+
+describe('Panel T4 fix-up — IMPORTANT 4: onApplyError surfaces failures to user', () => {
+  // IMPORTANT 4: When sendAndAck rejects, the error message must appear in DOM.
+  it('shows apply error message in DOM when sendAndAck rejects with a specific Error', async () => {
+    const edit: PendingEdit = {
+      intentId: 'id-apply-err-1',
+      source: 'src/Hero.tsx:14:5',
+      property: 'color',
+      value: 'red',
+      previousValue: 'blue',
+      timestamp: Date.now(),
+    }
+    seedEdit(edit)
+
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    document.body.appendChild(target)
+
+    const channel = createMockChannel()
+    const errorMsg = 'sendAndAck timeout after 10000ms'
+    const sendAndAck = vi.fn(() => Promise.reject(new Error(errorMsg)))
+    ;(channel as any).sendAndAck = sendAndAck
+
+    const overrideManager = makeOverrideManager()
+
+    const { root, cleanup } = renderInShadow(
+      <Panel
+        element={target}
+        channel={channel as any}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+        staleOverrideCount={0}
+      />,
+    )
+
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 10))
+    })
+
+    const applyBtn = root.querySelector('[data-action="apply"]') as HTMLButtonElement | null
+    expect(applyBtn).not.toBeNull()
+
+    await act(async () => {
+      applyBtn!.click()
+      await new Promise(r => setTimeout(r, 20))
+    })
+
+    // The specific error message must appear in the DOM
+    const errorEl = root.querySelector('.cortex-apply-error')
+    expect(errorEl).not.toBeNull()
+    expect(errorEl!.textContent).toContain(errorMsg)
+
+    cleanup()
+    target.remove()
+  })
+
+  // Dismissing the error clears it from DOM.
+  it('dismisses apply error when X button is clicked', async () => {
+    const edit: PendingEdit = {
+      intentId: 'id-apply-err-2',
+      source: 'src/Hero.tsx:14:5',
+      property: 'color',
+      value: 'red',
+      previousValue: 'blue',
+      timestamp: Date.now(),
+    }
+    seedEdit(edit)
+
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    document.body.appendChild(target)
+
+    const channel = createMockChannel()
+    const sendAndAck = vi.fn(() => Promise.reject(new Error('Apply failed')))
+    ;(channel as any).sendAndAck = sendAndAck
+
+    const overrideManager = makeOverrideManager()
+
+    const { root, cleanup } = renderInShadow(
+      <Panel
+        element={target}
+        channel={channel as any}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+        staleOverrideCount={0}
+      />,
+    )
+
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 10))
+    })
+
+    const applyBtn = root.querySelector('[data-action="apply"]') as HTMLButtonElement | null
+    expect(applyBtn).not.toBeNull()
+
+    await act(async () => {
+      applyBtn!.click()
+      await new Promise(r => setTimeout(r, 20))
+    })
+
+    // Error should be visible
+    expect(root.querySelector('.cortex-apply-error')).not.toBeNull()
+
+    // Dismiss it
+    await act(async () => {
+      const dismissBtn = root.querySelector('.cortex-apply-error button') as HTMLButtonElement | null
+      expect(dismissBtn).not.toBeNull()
+      dismissBtn!.click()
+      await new Promise(r => setTimeout(r, 10))
+    })
+
+    // Error should be gone
+    expect(root.querySelector('.cortex-apply-error')).toBeNull()
+
+    cleanup()
+    target.remove()
+  })
+})
+
 describe('Panel T4 — per-control stale indicator', () => {
   // #16: staleSources contains the element's source → Position section NumericInput shows stale class.
   it('#16: NumericInput in PositionSection shows stale CSS class when element source is in staleSources', async () => {

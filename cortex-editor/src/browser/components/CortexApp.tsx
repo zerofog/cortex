@@ -50,6 +50,14 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // re-read and shared-class re-detect. The MutationObserver in Panel only
   // sees the selected element's own attributes — it cannot catch these.
   const [hmrAppliedVersion, setHmrAppliedVersion] = useState(0)
+  // ZF0-1470 (T4 fix-up, IMPORTANT 1): monotonic counter that bumps on EVERY
+  // hmr-applied event, regardless of shouldRefreshOnHMR(). Used by Panel's
+  // buffer-reconcile effect so buffered intents on non-selected elements are
+  // re-evaluated when their source files change. hmrAppliedVersion is gated on
+  // shouldRefresh (selection-awareness); hmrEventVersion is always-bump —
+  // reconcile must run for ALL buffered intents, not just those affecting the
+  // selected element.
+  const [hmrEventVersion, setHmrEventVersion] = useState(0)
   const [swatches, setSwatches] = useState<string[] | undefined>(undefined)
   const [textComponents, setTextComponents] = useState<
     import('../../core/text-components.js').TextComponent[] | undefined
@@ -371,6 +379,13 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         const files: string[] | undefined = Array.isArray(rawFiles) && rawFiles.every(f => typeof f === 'string')
           ? rawFiles
           : undefined
+
+        // ZF0-1470 (T4 fix-up, IMPORTANT 1): always-bump counter for buffer reconcile.
+        // Panel's reconcile effect uses hmrEventVersion (not hmrAppliedVersion) so it
+        // fires on every HMR event regardless of selection-awareness. Buffered intents
+        // for non-selected elements must be reconciled when their source files change —
+        // even when shouldRefreshOnHMR returns false for the selected element.
+        setHmrEventVersion(v => v + 1)
 
         // Gate the Panel refresh (getComputedStyle cascade + detectSharedClasses
         // over full DOM) on whether the changed files can possibly affect the
@@ -899,6 +914,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           onEditDispatch={handleEditDispatch}
           onDismissError={handleDismissError}
           hmrAppliedVersion={hmrAppliedVersion}
+          hmrEventVersion={hmrEventVersion}
           hmrChangedFiles={hmrChangedFiles}
           staleOverrideCount={staleOverrideCount}
           staleSources={staleSources}
