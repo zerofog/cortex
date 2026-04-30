@@ -251,8 +251,11 @@ export const MAX_INTENT_FILE_BYTES = 2 * 1024 * 1024
 /** Pure slicer for getIntentContext: given file content and a 1-based line
  *  number, return ~10 lines before + target + ~10 lines after. Clamps to
  *  file boundaries so neither index can underflow or overflow. The returned
- *  `currentValue` is the target line text (TODO ZF0-1452+: AST-based
- *  property-value extraction for divergence detection). */
+ *  `currentValue` is the target line text — AST-based property-value
+ *  extraction would let currentValue distinguish the actual property value
+ *  from surrounding JSX, but the line-text fallback is sufficient for the
+ *  divergence-detection use case (criterion 8) and avoids pulling in a
+ *  parser dependency. */
 export function sliceIntentContext(
   fileContent: string,
   line: number,

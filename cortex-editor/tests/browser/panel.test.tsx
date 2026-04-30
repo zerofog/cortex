@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
 import { Panel } from '../../src/browser/components/Panel.js'
-import { renderInShadow, mockGetComputedStyle, createShadowHost } from './helpers.js'
+import { renderInShadow, mockGetComputedStyle, createShadowHost, createMockChannel } from './helpers.js'
 import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
 import { _resetBusForTesting } from '../../src/browser/override-bus.js'
 import { cortexStorage } from '../../src/browser/persistence.js'
-import { isPendingEditArray } from '../../src/browser/hooks/useEditStagingBuffer.js'
+import { isPendingEditArray, type PendingEdit } from '../../src/browser/hooks/useEditStagingBuffer.js'
 
 const panelPositionProps = {
   position: { x: 1000, y: 12 },
@@ -1009,6 +1009,97 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     // fallback (cortex-<base36>-<base36>) — see uuid.ts.
     expect(edit.intentId).toMatch(/^[0-9a-f-]{36}$|^cortex-[0-9a-z]+-[0-9a-z]+$/)
     expect(edit.timestamp).toBeGreaterThan(0)
+
+    cleanup()
+    target.remove()
+  })
+
+  it('staged-edits-discard server message removes intents from canonical buffer', async () => {
+    // ZF0-1452 regression: Panel.tsx's channel.onMessage handler wires
+    // 'staged-edits-discard' (server-originated, emitted by the MCP server's
+    // cortex_discard_edits tool) to buffer.remove(intentIds). Without this
+    // wiring, Claude calls discard, server cache mutates, but the browser
+    // canonical buffer keeps the intent and the Apply panel keeps showing
+    // it. The test pre-populates localStorage so the buffer rehydrates on
+    // mount, simulates the server message via channel._simulateMessage,
+    // and verifies the discarded intent is gone while the keeper survives.
+    //
+    // Real timers (not fake): the useEffect that subscribes to
+    // channel.onMessage runs through Preact's scheduler, which is awkward
+    // to flush under fake timers; the buffer's 150ms persist debounce is
+    // short enough to wait through directly.
+
+    // Seed localStorage so useEditStagingBuffer rehydrates on mount.
+    const seeded: PendingEdit[] = [
+      {
+        intentId: 'keep-me',
+        source: 'src/A.tsx:1:1',
+        property: 'color',
+        value: 'red',
+        previousValue: 'blue',
+        timestamp: 1000,
+      },
+      {
+        intentId: 'discard-me',
+        source: 'src/B.tsx:2:2',
+        property: 'font-size',
+        value: '16px',
+        previousValue: '14px',
+        timestamp: 2000,
+      },
+    ]
+    cortexStorage.set('staging-buffer', seeded)
+
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/A.tsx:1:1')
+    document.body.appendChild(target)
+
+    const channel = createMockChannel()
+    const overrideManager = {
+      set: vi.fn(),
+      get: vi.fn(),
+      remove: vi.fn(),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+    }
+
+    const { cleanup } = renderInShadow(
+      <Panel
+        element={target}
+        channel={channel}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+    )
+
+    // Flush effects so the useEffect that subscribes to channel.onMessage
+    // has registered the handler before we send the discard message.
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 10))
+    })
+
+    // Server tells browser to discard 'discard-me'.
+    await act(async () => {
+      channel._simulateMessage({ type: 'staged-edits-discard', intentIds: ['discard-me'] } as any)
+      await new Promise(r => setTimeout(r, 0))
+    })
+
+    // remove() schedules a debounced persist (150ms). Use vi.waitFor to
+    // poll for the persist landing — robust against concurrent-load timing
+    // pressure where a flat setTimeout(200) can be too short.
+    await vi.waitFor(
+      () => {
+        const remaining = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+        expect(remaining).toHaveLength(1)
+      },
+      { timeout: 2000, interval: 50 },
+    )
+
+    const remaining = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    expect(remaining[0].intentId).toBe('keep-me')
 
     cleanup()
     target.remove()

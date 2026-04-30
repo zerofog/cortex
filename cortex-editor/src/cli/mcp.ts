@@ -469,7 +469,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
   server.registerTool(
     'cortex_apply_edits',
     {
-      description: 'Apply staged edits via deterministic source rewrites where possible. Returns per-id result indicating whether the edit was applied, needs-source-edit (Claude must use Edit tool), or failed.',
+      description: 'Route staged edits to Claude for source application. Returns per-id result indicating needs-source-edit (Claude uses the Edit tool to write source) or failed (intent not found). Future (ZF0-1464): direct deterministic apply for inline-style/Tailwind/CSS-Modules cases will return an additional applied status.',
       inputSchema: {
         intentIds: z.array(z.string()).describe('IDs of intents to apply'),
       },

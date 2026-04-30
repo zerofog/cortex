@@ -25,6 +25,7 @@ import { AIWriter } from '../core/ai-writer.js'
 import { DeferredWriter } from '../core/deferred-writer.js'
 import { CortexSession } from '../core/session.js'
 import { applyEditsCore, isValidPendingEdit, sliceIntentContext, checkIntentFileSize } from '../core/staged-edits.js'
+import type { StagedEditsCache } from '../core/staged-edits.js'
 import { atomicWrite } from './atomic-write.js'
 
 export interface CortexEditorOptions {
@@ -307,9 +308,12 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
     // --- Staged-edit methods (ZF0-1452 T2) ---
 
     case 'getPendingEdits': {
-      // TODO(ZF0-1452+): drift recovery — see checkpoint arch review T2 carry-over #1.
-      // A forced resync request could be sent to the browser here so it emits
-      // syncFullState(allEntries) right before Claude reads. Deferred to keep T2 scope clean.
+      // FUTURE: drift-recovery — could send a forced-resync request to the
+      // browser here so it emits syncFullState(allEntries) right before
+      // Claude reads, closing the silent-drift window between browser and
+      // server cache. Deferred today because the merge-with-timestamp
+      // semantics in StagedEditsCache.mergeFullSync make incidental drift
+      // self-healing on the next legitimate Panel mount.
       const intents = currentSession!.stagedEdits.list()
       return { intents, count: intents.length }
     }
@@ -488,6 +492,30 @@ export function onHMRUpdate(cb: (files: string[]) => void): () => void {
  */
 export function _getSessionTokenForTesting(): string | null {
   return currentSession?.token ?? null
+}
+
+/**
+ * Get the current session's StagedEditsCache. Exposed for testing only —
+ * lets the hotHandler integration tests in vite.test.ts assert that
+ * staged-edit-* WS branches actually mutate the session cache.
+ * @internal
+ */
+export function _getStagedEditsForTesting(): StagedEditsCache | null {
+  return currentSession?.stagedEdits ?? null
+}
+
+/**
+ * Add a fake CLI client to the current session. Exposed for testing only —
+ * lets vite.test.ts verify forwardToCLI dispatch (e.g., for the
+ * staged-edits-ready BROWSER_TO_CLI_FORWARD_TYPES allowlist test) without
+ * setting up a real WebSocket server.
+ * @internal
+ */
+export function _addCLIClientForTesting(client: { readyState: number; send: (data: string) => void }): void {
+  if (!currentSession) return
+  // Cast: real cliClients is Set<WebSocket>; the test fake satisfies the
+  // structural shape used inside forwardToCLI (readyState + send).
+  currentSession.cliClients.add(client as never)
 }
 
 /**
