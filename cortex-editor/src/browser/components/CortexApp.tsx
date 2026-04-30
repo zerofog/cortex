@@ -454,6 +454,13 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       // exhaustive throw doesn't fire on every error message.
       if (msg.type === 'error') return
 
+      // staged-edits-discard is owned by Panel.tsx's onMessage subscriber
+      // (which removes the discarded intents from the canonical buffer). It's
+      // a browser-side mirror update, not a CortexAppAction — early-return so
+      // the reducer's exhaustive default doesn't fire and log on every
+      // cortex_discard_edits call.
+      if (msg.type === 'staged-edits-discard') return
+
       // After the early returns above (edit_status, hmr-applied, error), `msg.type`
       // matches a CortexAppAction discriminant. The cast is a forcing cast — TS
       // does not narrow ServerToBrowser to CortexAppAction across the assignment.

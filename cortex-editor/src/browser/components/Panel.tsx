@@ -39,8 +39,8 @@ import { Plus } from './icons.js'
 import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
 import { computePanelStyleSnapshot } from './panel-style-snapshot.js'
 import { ALL_DIMMING_PROPERTIES } from './sections/spacing-utils.js'
-import { useEditStagingBuffer } from '../hooks/useEditStagingBuffer.js'
-import type { PendingEdit } from '../hooks/useEditStagingBuffer.js'
+import { useEditStagingBuffer, createPanelSyncEmitter } from '../hooks/useEditStagingBuffer.js'
+import type { PendingEdit, SyncEmitter } from '../hooks/useEditStagingBuffer.js'
 import { generateId } from '../uuid.js'
 
 // ── Connection status footer ─────────────────────────────────────────
@@ -246,8 +246,54 @@ export function Panel({
   // into a single atomic command via microtask.
   const commitPendingRef = useRef(false)
 
+  // SyncEmitter wires the browser-canonical buffer to the server-side
+  // StagedEditsCache mirror. Each mutation method sends a corresponding
+  // BrowserToServer message; channel.send auto-stamps the token. Without
+  // this, the server cache stays empty and Claude's MCP tools see nothing
+  // of what the designer staged.
+  //
+  // useRef (not useMemo) for stable identity across renders — the hook's
+  // emitterRef.current = emitter reassignment must always see the same
+  // object, otherwise the rehydrate-on-mount syncFullState path could be
+  // bypassed. The factory delegates to channel.send, which is stable for
+  // the channel's lifetime, so a one-time construction is correct.
+  //
+  // When channel is absent (e.g., test mounts without one), the buffer
+  // operates browser-canonical only — no emitter is wired and the server
+  // cache stays out of sync. This is the same backward-compat behavior as
+  // before T2.
+  const syncEmitterRef = useRef<SyncEmitter | null>(null)
+  if (syncEmitterRef.current === null && channel) {
+    syncEmitterRef.current = createPanelSyncEmitter(channel)
+  }
+
   // Staging buffer for property edits — accumulates browser-side before Apply gesture.
-  const buffer = useEditStagingBuffer()
+  const buffer = useEditStagingBuffer(syncEmitterRef.current ?? undefined)
+
+  // staged-edits-discard is server-originated (the MCP server's
+  // cortex_discard_edits tool emitted it after mutating its cache). Calling
+  // buffer.remove(ids) here keeps the browser-canonical buffer in lockstep.
+  // Echo-loop trace: buffer.remove → emitterRef.syncRemove → channel.send
+  // 'staged-edit-remove' → server cache.remove. Terminates at depth 1
+  // because cache.remove is idempotent on already-removed ids (the second
+  // remove is a no-op on an empty set). If the round-trip becomes a
+  // measurable cost, add an "is this server-originated?" guard before
+  // propagating the remove through the SyncEmitter.
+  //
+  // IMPORTANT: this depth-1 termination depends on cache.remove(ids) being
+  // idempotent (no side-effect on already-removed ids). If you ever add a
+  // non-idempotent server-side reaction to staged-edit-remove (logging,
+  // telemetry, undo-stack push), this echo loop would generate duplicates —
+  // add the server-originated guard at that point.
+  useEffect(() => {
+    if (!channel) return
+    return channel.onMessage((msg) => {
+      if (msg.type === 'staged-edits-discard') {
+        const ids = (msg as { type: 'staged-edits-discard'; intentIds: string[] }).intentIds
+        buffer.remove(ids)
+      }
+    })
+  }, [channel, buffer])
 
   // Pseudo-element tab state — internal to Panel
   const [activePseudo, setActivePseudo] = useState<'element' | '::before' | '::after'>('element')

@@ -1,19 +1,10 @@
 import { useCallback, useLayoutEffect, useRef } from 'preact/hooks'
 import { cortexStorage } from '../persistence.js'
 import { stripLineCol, deepQuerySelectorAll } from '../selection-metadata.js'
+import type { CortexChannel, PendingEdit } from '../../adapters/types.js'
 
-export interface PendingEdit {
-  intentId: string
-  source: string                          // file:line:col
-  property: string
-  value: string
-  previousValue: string                   // captured at first touch
-  pseudo?: '::before' | '::after'
-  /** Maps to server CortexEdit.scope. 'instance' = this element only; 'all' = all sharing this class. */
-  scope?: 'instance' | 'all'
-  instanceSources?: string[]
-  timestamp: number
-}
+// Re-export for backward compatibility — existing test imports rely on this.
+export type { PendingEdit }
 
 /**
  * Reads the source-of-truth value for a pending edit, bypassing any active
@@ -29,6 +20,22 @@ export type ReadSourceValue = (
   property: string,
   pseudo: '::before' | '::after' | null,
 ) => string
+
+/**
+ * Optional sync emitter passed to useEditStagingBuffer to mirror every
+ * mutation to the server-side StagedEditsCache (Process 2). When undefined,
+ * the hook operates as purely browser-canonical — backward-compat for tests
+ * and scenarios without channel access.
+ *
+ * Wire-up in Panel.tsx is out of scope for T1; T2 will pass an implementation
+ * that delegates to channel.send.
+ */
+export interface SyncEmitter {
+  syncAdd(edit: PendingEdit): void
+  syncRemove(intentIds: readonly string[]): void
+  syncClear(): void
+  syncFullState(edits: readonly PendingEdit[]): void
+}
 
 export interface StagingBufferHandle {
   append: (edit: PendingEdit) => void     // last-write-wins by (source\0property\0pseudo)
@@ -143,14 +150,28 @@ function defaultReadSourceValue(
  * - persisted to localStorage via cortexStorage, debounced ~150ms
  * - bounded at 500 entries (oldest evicted)
  * - stable handle: method identities never change across re-renders
+ * - optional SyncEmitter: when provided, every mutation emits a sync message
+ *   to the server-side StagedEditsCache (T1). Wire-up in Panel.tsx is T2.
  */
-export default function useEditStagingBuffer(): StagingBufferHandle {
+export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBufferHandle {
   const bufferRef = useRef<Map<string, PendingEdit>>(new Map())
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const initRef = useRef(false)
+  // Stable ref to the emitter — avoids stale-closure issues inside useCallback.
+  const emitterRef = useRef<SyncEmitter | undefined>(emitter)
+  emitterRef.current = emitter
 
   // Initialize from localStorage on first call (before useEffect so list() works immediately).
   // Per-entry filtering: a single corrupted entry can't nuke 499 valid ones.
+  //
+  // STRICT-MODE INVARIANT: `initRef.current = true` must be set BEFORE the
+  // syncFullState emission below so React/Preact strict-mode's double-
+  // invocation of the function body cannot re-enter this block and double-
+  // emit. Do NOT move the assignment below the emission — that would break
+  // the "exactly one full-sync per mount" contract that the server-side
+  // StagedEditsCache.mergeFullSync relies on (a duplicate mergeFullSync
+  // would be idempotent under newer-timestamp-wins, but the invariant is
+  // the contract, not the cache's tolerance).
   if (!initRef.current) {
     initRef.current = true
     const stored = cortexStorage.get(STORAGE_KEY, [], isUnknownArray)
@@ -166,6 +187,11 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
       console.warn(
         `[cortex] Staging buffer rehydrated with ${bufferRef.current.size} valid entries; ${dropped} dropped (schema mismatch)`,
       )
+    }
+    // Full-sync on Panel mount: if there are rehydrated entries and an emitter
+    // is provided, fire syncFullState once so the server cache catches up.
+    if (bufferRef.current.size > 0 && emitter) {
+      emitter.syncFullState(Array.from(bufferRef.current.values()))
     }
   }
 
@@ -225,17 +251,28 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
     // Evict oldest entry if over limit. Surface so a future Apply UI can
     // render a "buffer full — older edits dropped" notice; the warning is
     // intentionally low-key because the buffer continues to function.
+    let evictedIntentId: string | null = null
     if (bufferRef.current.size > MAX_ENTRIES) {
       const oldest = bufferRef.current.entries().next()
       if (!oldest.done) {
         const [firstKey, evicted] = oldest.value
         bufferRef.current.delete(firstKey)
+        evictedIntentId = evicted.intentId
         console.warn(
           '[cortex] Staging buffer evicted oldest intent (max 500):',
           evicted.source,
           evicted.property,
         )
       }
+    }
+
+    // Emit sync AFTER in-memory map updated, BEFORE localStorage persist.
+    // Eviction IS a mutation: emit syncRemove so the server cache stays in
+    // lockstep with the bounded browser buffer. Without this, the server
+    // cache grows unbounded on long sessions while the browser caps at 500.
+    emitterRef.current?.syncAdd(edit)
+    if (evictedIntentId !== null) {
+      emitterRef.current?.syncRemove([evictedIntentId])
     }
 
     schedulePersist()
@@ -253,6 +290,9 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
       bufferRef.current.delete(key)
     }
 
+    // Emit sync AFTER in-memory map updated, BEFORE localStorage persist.
+    emitterRef.current?.syncRemove(intentIds)
+
     schedulePersist()
   }, [schedulePersist])
 
@@ -269,6 +309,10 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
       clearTimeout(debounceTimerRef.current)
       debounceTimerRef.current = null
     }
+
+    // Emit sync AFTER in-memory map updated (clear()), BEFORE persist.
+    emitterRef.current?.syncClear()
+
     persistNow()
   }, [persistNow])
 
@@ -348,3 +392,29 @@ export default function useEditStagingBuffer(): StagingBufferHandle {
 }
 
 export { useEditStagingBuffer }
+
+/**
+ * createPanelSyncEmitter — wires a SyncEmitter to a CortexChannel by
+ * delegating each method to channel.send with the corresponding
+ * BrowserToServer message shape.
+ *
+ * Token stamping: channel.send (both Vite and WebSocket variants) auto-stamps
+ * the captured token via `{ ...msg, token: capturedToken }` (see
+ * src/browser/channel.ts). The empty string passed here is overwritten — it
+ * exists only to satisfy the BrowserToServer type union which marks `token`
+ * as required on the staged-edit-* variants.
+ *
+ * Array conversion: BrowserToServer variants spec mutable arrays
+ * (`string[]`, `PendingEdit[]`); the SyncEmitter interface uses `readonly`.
+ * Spread the readonly inputs into fresh mutable arrays at the boundary.
+ *
+ * Extracted as a named export so its wiring shape is unit-testable without
+ * mounting Panel.tsx — the test file imports this directly. */
+export function createPanelSyncEmitter(channel: CortexChannel): SyncEmitter {
+  return {
+    syncAdd: (edit) => channel.send({ type: 'staged-edit-add', edit, token: '' }),
+    syncRemove: (intentIds) => channel.send({ type: 'staged-edit-remove', intentIds: [...intentIds], token: '' }),
+    syncClear: () => channel.send({ type: 'staged-edit-clear', token: '' }),
+    syncFullState: (edits) => channel.send({ type: 'staged-edits-sync', edits: [...edits], token: '' }),
+  }
+}

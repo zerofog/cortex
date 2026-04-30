@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
-import { useEditStagingBuffer, type PendingEdit } from '../../../src/browser/hooks/useEditStagingBuffer.js'
+import { useEditStagingBuffer, createPanelSyncEmitter, type PendingEdit, type SyncEmitter } from '../../../src/browser/hooks/useEditStagingBuffer.js'
+import type { CortexChannel } from '../../../src/adapters/types.js'
 import { cortexStorage } from '../../../src/browser/persistence.js'
+import { makeEdit } from '../../core/helpers.js'
 
 function renderHook<T>(hookFn: () => T): { result: { current: T }; unmount: () => void; rerender: (newHookFn: () => T) => void } {
   const result = { current: null as T }
@@ -26,18 +28,6 @@ function renderHook<T>(hookFn: () => T): { result: { current: T }; unmount: () =
       currentFn = newHookFn
       render(<Wrapper />, container)
     },
-  }
-}
-
-function makeEdit(overrides: Partial<PendingEdit> = {}): PendingEdit {
-  return {
-    intentId: crypto.randomUUID(),
-    source: 'src/Hero.tsx:14:5',
-    property: 'color',
-    value: 'red',
-    previousValue: 'blue',
-    timestamp: Date.now(),
-    ...overrides,
   }
 }
 
@@ -219,6 +209,16 @@ describe('useEditStagingBuffer', () => {
     unmount()
   })
 
+  // happy-dom + production-reader pairing rationale (ZF0-1452 Step 8.5 audit):
+  // The reconcile tests below exercise inline-style reads, which production's
+  // defaultReadSourceValue handles via el.style.getPropertyValue(prop) FIRST
+  // (before the getComputedStyle fallback). happy-dom returns inline-style
+  // values verbatim — same as real browsers — so the inline path is consistent
+  // across both. The tests do NOT exercise the getComputedStyle fallback (which
+  // normalizes 'green' → 'rgb(0, 128, 0)' in real browsers but not happy-dom);
+  // tests that need the override-bypass path inject a custom reader (see the
+  // 'reconcile uses readSourceValue callback' test). Pairing is intentional;
+  // the assertions are NOT happy-dom theatre.
   it('reconcile flags divergent when current inline style differs from previousValue', async () => {
     const { result, unmount } = renderHook(() => useEditStagingBuffer())
 
@@ -501,5 +501,311 @@ describe('useEditStagingBuffer', () => {
     expect(stored).toEqual(expect.arrayContaining([
       expect.objectContaining({ intentId: 'flush-on-unmount' }),
     ]))
+  })
+})
+
+describe('useEditStagingBuffer — sync emitter integration', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    localStorage.clear()
+  })
+
+  function makeMockEmitter(): SyncEmitter & {
+    syncAdd: ReturnType<typeof vi.fn>
+    syncRemove: ReturnType<typeof vi.fn>
+    syncClear: ReturnType<typeof vi.fn>
+    syncFullState: ReturnType<typeof vi.fn>
+  } {
+    return {
+      syncAdd: vi.fn(),
+      syncRemove: vi.fn(),
+      syncClear: vi.fn(),
+      syncFullState: vi.fn(),
+    }
+  }
+
+  it('append → calls emitter.syncAdd(edit) exactly once with the appended PendingEdit', async () => {
+    const emitter = makeMockEmitter()
+    const { result, unmount } = renderHook(() => useEditStagingBuffer(emitter))
+
+    const edit = makeEdit({ intentId: 'sync-add' })
+    await act(() => {
+      result.current.append(edit)
+    })
+
+    expect(emitter.syncAdd).toHaveBeenCalledTimes(1)
+    expect(emitter.syncAdd).toHaveBeenCalledWith(expect.objectContaining({ intentId: 'sync-add' }))
+    expect(emitter.syncRemove).not.toHaveBeenCalled()
+    expect(emitter.syncClear).not.toHaveBeenCalled()
+
+    unmount()
+  })
+
+  it('remove → calls emitter.syncRemove(intentIds) exactly once', async () => {
+    const emitter = makeMockEmitter()
+    const { result, unmount } = renderHook(() => useEditStagingBuffer(emitter))
+
+    await act(() => {
+      result.current.append(makeEdit({ intentId: 'r-id' }))
+    })
+
+    emitter.syncAdd.mockClear()
+    await act(() => {
+      result.current.remove(['r-id'])
+    })
+
+    expect(emitter.syncRemove).toHaveBeenCalledTimes(1)
+    expect(emitter.syncRemove).toHaveBeenCalledWith(['r-id'])
+    expect(emitter.syncAdd).not.toHaveBeenCalled()
+    expect(emitter.syncClear).not.toHaveBeenCalled()
+
+    unmount()
+  })
+
+  it('clear → calls emitter.syncClear() exactly once', async () => {
+    const emitter = makeMockEmitter()
+    const { result, unmount } = renderHook(() => useEditStagingBuffer(emitter))
+
+    await act(() => {
+      result.current.append(makeEdit({ intentId: 'c-id' }))
+    })
+
+    emitter.syncAdd.mockClear()
+    await act(() => {
+      result.current.clear()
+    })
+
+    expect(emitter.syncClear).toHaveBeenCalledTimes(1)
+    expect(emitter.syncAdd).not.toHaveBeenCalled()
+    expect(emitter.syncRemove).not.toHaveBeenCalled()
+
+    unmount()
+  })
+
+  it('reconcile does NOT emit sync (reconcile is a read, not a mutation)', async () => {
+    const emitter = makeMockEmitter()
+    const { result, unmount } = renderHook(() => useEditStagingBuffer(emitter))
+
+    await act(() => {
+      result.current.append(makeEdit({ intentId: 'rec-id', source: 'src/A.tsx:1:1' }))
+    })
+
+    // Clear all emitter calls from the append
+    emitter.syncAdd.mockClear()
+
+    // reconcile is a pure read operation — must not emit
+    result.current.reconcile(['src/A.tsx'])
+
+    expect(emitter.syncAdd).not.toHaveBeenCalled()
+    expect(emitter.syncRemove).not.toHaveBeenCalled()
+    expect(emitter.syncClear).not.toHaveBeenCalled()
+    expect(emitter.syncFullState).not.toHaveBeenCalled()
+
+    unmount()
+  })
+
+  it('Panel mount with localStorage entries → calls emitter.syncFullState(allEntries) exactly once', async () => {
+    const existing: PendingEdit[] = [
+      makeEdit({ intentId: 'ls-1', property: 'color', value: 'purple' }),
+      makeEdit({ intentId: 'ls-2', property: 'fontSize', value: '16px' }),
+    ]
+    cortexStorage.set('staging-buffer', existing)
+
+    const emitter = makeMockEmitter()
+    const { unmount } = renderHook(() => useEditStagingBuffer(emitter))
+
+    // syncFullState must fire exactly once (on mount with rehydrated entries)
+    expect(emitter.syncFullState).toHaveBeenCalledTimes(1)
+    const [calledWith] = emitter.syncFullState.mock.calls[0] as [PendingEdit[]]
+    expect(calledWith).toHaveLength(2)
+    expect(calledWith[0].intentId).toBe('ls-1')
+    expect(calledWith[1].intentId).toBe('ls-2')
+
+    unmount()
+  })
+
+  it('Panel mount with empty localStorage → does NOT call emitter.syncFullState', () => {
+    // No pre-seeded entries
+    const emitter = makeMockEmitter()
+    const { unmount } = renderHook(() => useEditStagingBuffer(emitter))
+
+    expect(emitter.syncFullState).not.toHaveBeenCalled()
+
+    unmount()
+  })
+
+  it('back-compat: hook called with no emitter — all mutations work, no errors', async () => {
+    // This test verifies that calling useEditStagingBuffer() with no emitter
+    // preserves backward-compat behavior exactly.
+    const { result, unmount } = renderHook(() => useEditStagingBuffer())
+
+    const edit = makeEdit({ intentId: 'compat' })
+    await act(() => {
+      result.current.append(edit)
+    })
+    expect(result.current.list()).toHaveLength(1)
+
+    await act(() => {
+      result.current.remove(['compat'])
+    })
+    expect(result.current.list()).toHaveLength(0)
+
+    await act(() => {
+      result.current.append(makeEdit({ intentId: 'compat2' }))
+      result.current.clear()
+    })
+    expect(result.current.size()).toBe(0)
+
+    unmount()
+  })
+
+  it('emitter.syncAdd receives the exact same shape as list() returns (after append)', async () => {
+    const emitter = makeMockEmitter()
+    const { result, unmount } = renderHook(() => useEditStagingBuffer(emitter))
+
+    const edit = makeEdit({ intentId: 'shape-check', pseudo: '::before', scope: 'all' })
+    await act(() => {
+      result.current.append(edit)
+    })
+
+    const emittedEdit = emitter.syncAdd.mock.calls[0][0] as PendingEdit
+    expect(emittedEdit.intentId).toBe('shape-check')
+    expect(emittedEdit.pseudo).toBe('::before')
+    expect(emittedEdit.scope).toBe('all')
+
+    // Must match what list() returns
+    const listEdit = result.current.list()[0]
+    expect(emittedEdit.intentId).toBe(listEdit.intentId)
+    expect(emittedEdit.value).toBe(listEdit.value)
+
+    unmount()
+  })
+
+  it('append at the 501st entry triggers syncRemove for the evicted oldest intent', async () => {
+    // FIFO eviction is a mutation — sync invariant requires syncRemove for the
+    // dropped entry. Without it, the server cache grows unbounded on long
+    // sessions while the browser silently caps at 500.
+    const emitter = makeMockEmitter()
+    const { result, unmount } = renderHook(() => useEditStagingBuffer(emitter))
+
+    // Capture the very first intentId for the assertion below.
+    const firstIntentId = 'evict-id-0'
+
+    // Append 500 unique edits — different composite keys (unique property)
+    // so no last-write-wins collapse, ensuring true FIFO eviction.
+    await act(() => {
+      for (let i = 0; i < 500; i++) {
+        result.current.append(makeEdit({
+          intentId: i === 0 ? firstIntentId : `evict-id-${i}`,
+          property: `prop-${i}`,
+          source: `src/Evict.tsx:${i}:${i}`,
+        }))
+      }
+    })
+
+    expect(emitter.syncAdd).toHaveBeenCalledTimes(500)
+    expect(emitter.syncRemove).not.toHaveBeenCalled()
+    expect(result.current.size()).toBe(500)
+
+    // Append the 501st — must evict the first AND emit syncRemove for it.
+    await act(() => {
+      result.current.append(makeEdit({
+        intentId: 'evict-id-500',
+        property: 'prop-500',
+        source: 'src/Evict.tsx:500:500',
+      }))
+    })
+
+    expect(emitter.syncAdd).toHaveBeenCalledTimes(501)
+    expect(emitter.syncRemove).toHaveBeenCalledTimes(1)
+    expect(emitter.syncRemove).toHaveBeenCalledWith([firstIntentId])
+    expect(result.current.size()).toBe(500)
+
+    unmount()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// createPanelSyncEmitter — Panel.tsx wiring (ZF0-1452 critical fix)
+//
+// The factory delegates each SyncEmitter method to channel.send with the
+// matching BrowserToServer message shape. Without this wiring (or with a
+// shape regression), the server-side StagedEditsCache stays empty and
+// Claude's MCP tools see nothing of what the designer staged. These tests
+// pin every send shape so a refactor can't silently break the integration.
+// ---------------------------------------------------------------------------
+
+describe('createPanelSyncEmitter — channel.send wiring', () => {
+  function makeMockChannel(): CortexChannel & { send: ReturnType<typeof vi.fn> } {
+    return {
+      send: vi.fn(),
+      onMessage: vi.fn(() => () => {}),
+      onConnectionChange: vi.fn(() => () => {}),
+      connected: true,
+      dispose: vi.fn(),
+    } as CortexChannel & { send: ReturnType<typeof vi.fn> }
+  }
+
+  it('syncAdd → channel.send({ type: "staged-edit-add", edit, token: "" })', () => {
+    const channel = makeMockChannel()
+    const emitter = createPanelSyncEmitter(channel)
+    const edit = makeEdit({ intentId: 'wire-add' })
+
+    emitter.syncAdd(edit)
+
+    expect(channel.send).toHaveBeenCalledTimes(1)
+    expect(channel.send).toHaveBeenCalledWith({ type: 'staged-edit-add', edit, token: '' })
+  })
+
+  it('syncRemove → channel.send({ type: "staged-edit-remove", intentIds, token: "" }) with mutable array copy', () => {
+    const channel = makeMockChannel()
+    const emitter = createPanelSyncEmitter(channel)
+    const ids: readonly string[] = ['a', 'b', 'c']
+
+    emitter.syncRemove(ids)
+
+    expect(channel.send).toHaveBeenCalledTimes(1)
+    const call = channel.send.mock.calls[0][0] as { type: string; intentIds: string[]; token: string }
+    expect(call.type).toBe('staged-edit-remove')
+    expect(call.intentIds).toEqual(['a', 'b', 'c'])
+    expect(call.token).toBe('')
+    // Boundary copy: the readonly input must not be passed by reference
+    expect(call.intentIds).not.toBe(ids)
+  })
+
+  it('syncClear → channel.send({ type: "staged-edit-clear", token: "" })', () => {
+    const channel = makeMockChannel()
+    const emitter = createPanelSyncEmitter(channel)
+
+    emitter.syncClear()
+
+    expect(channel.send).toHaveBeenCalledTimes(1)
+    expect(channel.send).toHaveBeenCalledWith({ type: 'staged-edit-clear', token: '' })
+  })
+
+  it('syncFullState → channel.send({ type: "staged-edits-sync", edits, token: "" }) with mutable array copy', () => {
+    const channel = makeMockChannel()
+    const emitter = createPanelSyncEmitter(channel)
+    const edits: readonly PendingEdit[] = [
+      makeEdit({ intentId: 'full-1' }),
+      makeEdit({ intentId: 'full-2' }),
+    ]
+
+    emitter.syncFullState(edits)
+
+    expect(channel.send).toHaveBeenCalledTimes(1)
+    const call = channel.send.mock.calls[0][0] as { type: string; edits: PendingEdit[]; token: string }
+    expect(call.type).toBe('staged-edits-sync')
+    expect(call.edits).toHaveLength(2)
+    expect(call.edits[0].intentId).toBe('full-1')
+    expect(call.edits[1].intentId).toBe('full-2')
+    expect(call.token).toBe('')
+    // Boundary copy: the readonly input must not be passed by reference
+    expect(call.edits).not.toBe(edits)
   })
 })

@@ -739,6 +739,26 @@ describe('CortexApp', () => {
       // console.warn. We verify nothing unexpected was warned either way.
       expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('Unhandled cortex-app-reducer'))
     })
+
+    it('staged-edits-discard channel message does not throw and does not reach reducer', async () => {
+      // Pins the early-return at CortexApp.tsx — Panel.tsx owns this message
+      // (mirrors the discard into the canonical buffer). If the early-return
+      // is removed, the reducer's exhaustive throw at cortex-app-reducer.ts
+      // would fire on every cortex_discard_edits call, surfacing as a
+      // console.warn from channel.ts:46. The error pattern guard is a
+      // load-bearing assertion: a regression that drops the guard would
+      // emit "Unhandled cortex-app-reducer action: staged-edits-discard".
+      setup()
+      const channel = createMockChannel()
+      const warnSpy = vi.spyOn(console, 'warn')
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+
+      channel._simulateMessage({ type: 'staged-edits-discard', intentIds: ['some-id'] } as any)
+      await new Promise(r => setTimeout(r, 10))
+
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('Unhandled cortex-app-reducer'))
+    })
   })
 
   describe('connection status', () => {
