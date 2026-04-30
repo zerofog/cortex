@@ -1,0 +1,34 @@
+cortex-editor/src/browser/components/CortexApp.tsx
+  ecfec458bba35a7a 53-60,383-389,917
+cortex-editor/tests/browser/cortex-app.test.tsx
+  ecfec458bba35a7a 1116-1143
+cortex-editor/src/browser/components/Panel.tsx
+  ecfec458bba35a7a 203-209,253,326-330,337-339,347-354,362-366,368,1178,1212-1218,1256,1324-1356
+cortex-editor/src/browser/components/sections/SpacingControls.tsx
+  ecfec458bba35a7a 30-36,55,69-70,143,171,189,211,225
+cortex-editor/src/browser/components/sections/LayoutSection.tsx
+  ecfec458bba35a7a 237
+cortex-editor/tests/browser/panel-t4-integration.test.tsx
+  ecfec458bba35a7a 361-545
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "e58535e2e1af1474794332547a7d38248b19a86d",
+  "prompts": {
+    "ecfec458bba35a7a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "56dc029d-2ab0-41c4-bf31-653c3019aa8a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 317,
+      "total_deletions": 5,
+      "accepted_lines": 1795,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/0b79b03707e4d3c3d632008878724ff1bdf98046291706979df97521fab59107"
+    }
+  }
+}
