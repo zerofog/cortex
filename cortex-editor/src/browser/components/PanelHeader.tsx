@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useState, useRef, useLayoutEffect } from 'preact/hooks'
+import { useState, useRef, useLayoutEffect, useEffect } from 'preact/hooks'
 import { SegmentedControl } from './controls/SegmentedControl.js'
 import { getThemePreference, setThemePreference, type ThemePreference } from '../theme.js'
 import { encodeFilePath } from '../label.js'
@@ -109,6 +109,12 @@ export function PanelHeader({
   onApplyError,
 }: PanelHeaderProps): JSX.Element {
   const [delivering, setDelivering] = useState(false)
+  // ZF0-1453 (post-Step-9.5): "Hidden after success" state per parent ticket.
+  // After sendAndAck resolves, the button must stay HIDDEN until Claude drains
+  // the buffer (bufferSize → 0). Otherwise the button reappears as Apply (N)
+  // because bufferSize > 0, inviting double-clicks that re-send the same intents.
+  // Reject path leaves pendingClaude false so the button reappears for retry.
+  const [pendingClaude, setPendingClaude] = useState(false)
 
   // Mounted flag guards setDelivering(false) against unmount-during-onApply race.
   // useLayoutEffect cleanup runs synchronously on unmount, before any async
@@ -116,13 +122,27 @@ export function PanelHeader({
   const mountedRef = useRef(true)
   useLayoutEffect(() => () => { mountedRef.current = false }, [])
 
+  // Clear pendingClaude when the buffer drains. Claude's cortex_discard_edits
+  // ultimately fires staged-edits-discard which Panel.tsx forwards to
+  // buffer.remove(); when the last intent goes, bufferSize → 0 and the next
+  // user-staged edit will correctly resurface the Apply button.
+  useEffect(() => {
+    if (bufferSize === 0 && pendingClaude) setPendingClaude(false)
+  }, [bufferSize, pendingClaude])
+
   const handleApply = (): void => {
     if (delivering) return
     setDelivering(true)
     onApply().then(
-      () => { if (mountedRef.current) setDelivering(false) },
+      () => {
+        if (mountedRef.current) {
+          setDelivering(false)
+          setPendingClaude(true)
+        }
+      },
       (err: unknown) => {
         if (mountedRef.current) setDelivering(false)
+        // pendingClaude stays false — button reappears as Apply (N) for retry.
         onApplyError?.(err)
       },
     )
@@ -225,7 +245,7 @@ export function PanelHeader({
             </svg>
           )}
         </button>
-        {bufferSize > 0 && (
+        {bufferSize > 0 && !pendingClaude && (
           <button
             class="cortex-panel-header__btn cortex-panel-header__btn--apply"
             data-action="apply"

@@ -150,6 +150,83 @@ describe('PanelHeader Apply button', () => {
     expect(container.querySelector('[data-action="apply"]')).toBeNull()
   })
 
+  // ZF0-1453 (post-Step-9.5): "Hidden after success" — button must stay hidden
+  // after sendAndAck resolves even if bufferSize > 0 (Claude hasn't drained the
+  // buffer yet). Without this gate, the button reappears as Apply (N) inviting
+  // double-clicks that re-send the same intents to Claude.
+  it('stays hidden after onApply resolves even when bufferSize > 0 (Claude not yet drained)', async () => {
+    let resolveApply!: () => void
+    const applyPromise = new Promise<void>(res => { resolveApply = res })
+    const onApply = vi.fn(() => applyPromise)
+
+    act(() => {
+      render(
+        <PanelHeader
+          {...BASE_PROPS}
+          bufferSize={4}
+          onApply={onApply}
+        />,
+        container,
+      )
+    })
+
+    // Click Apply
+    act(() => {
+      const btn = container.querySelector('[data-action="apply"]') as HTMLButtonElement
+      btn.click()
+    })
+
+    // Resolve sendAndAck — but bufferSize STAYS at 4 (Claude is still processing,
+    // hasn't called cortex_discard_edits yet).
+    act(() => { resolveApply() })
+    await applyPromise
+    await act(async () => { await new Promise(r => setTimeout(r, 10)) })
+
+    // Re-render with bufferSize STILL 4 (Claude in flight). Button must stay hidden.
+    act(() => {
+      render(
+        <PanelHeader
+          {...BASE_PROPS}
+          bufferSize={4}
+          onApply={onApply}
+        />,
+        container,
+      )
+    })
+
+    // Falsifiable: a regression that drops the pendingClaude gate would render
+    // the idle Apply button here because bufferSize > 0.
+    expect(container.querySelector('[data-action="apply"]')).toBeNull()
+
+    // Now Claude drains: bufferSize → 0
+    act(() => {
+      render(
+        <PanelHeader
+          {...BASE_PROPS}
+          bufferSize={0}
+          onApply={onApply}
+        />,
+        container,
+      )
+    })
+
+    // After buffer drains, pendingClaude resets via useEffect; subsequent edits would
+    // resurface the button. Render with bufferSize=2 to simulate new edits.
+    act(() => {
+      render(
+        <PanelHeader
+          {...BASE_PROPS}
+          bufferSize={2}
+          onApply={onApply}
+        />,
+        container,
+      )
+    })
+
+    expect(container.querySelector('[data-action="apply"]')).not.toBeNull()
+    expect(container.querySelector('[data-action="apply"]')!.textContent).toContain('2')
+  })
+
   // #5: onApply rejects → delivering clears; button returns to idle "Apply (N)"
   it('clears delivering state and shows idle Apply button after onApply rejects', async () => {
     let rejectApply!: (err: Error) => void
