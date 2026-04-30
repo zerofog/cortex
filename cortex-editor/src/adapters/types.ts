@@ -281,9 +281,10 @@ export interface CortexChannel {
   onConnectionChange(handler: (state: ConnectionState) => void): () => void
   readonly connected: boolean
   /** Send a message and wait for a matching ack from the server.
-   *  Stamps a fresh requestId (via crypto.randomUUID) and routes through
-   *  the existing channel.send() so the ZF0-1326 token-capture closure is
-   *  preserved — the token is never re-read from window.
+   *  Stamps a fresh requestId (via `uuid.generateId` — polyfill that handles
+   *  non-secure contexts where `crypto.randomUUID` is unavailable) and routes
+   *  through the existing channel.send() so the ZF0-1326 token-capture closure
+   *  is preserved — the token is never re-read from window.
    *
    *  Rejects with a descriptive Error on:
    *  - timeout (default 10 000 ms): `'sendAndAck timeout after Nms'`
