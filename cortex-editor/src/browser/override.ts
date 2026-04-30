@@ -210,6 +210,19 @@ export class CSSOverrideManager {
     if (this.staleSources.delete(source)) {
       this.emitStale()
     }
+    // Also drop any matching pendingEdits for this source/property/pseudo. Without
+    // this, a user clearing/undoing an override before hmr_verified arrives leaves
+    // a lingering pendingEdit that can later TTL-evict and re-add the source to
+    // staleSources — surfacing a stale warning for an override that no longer
+    // exists. Copilot caught this on PR #91 review.
+    for (const [editId, entry] of this.pendingEdits) {
+      const sourceMatches = entry.sources.includes(source)
+      const propertyMatches = property === undefined || entry.property === property
+      const pseudoMatches = entry.pseudo === pseudo
+      if (sourceMatches && propertyMatches && pseudoMatches) {
+        this.pendingEdits.delete(editId)
+      }
+    }
     // Synchronous rebuild — prevents one-frame flicker when HMR clears overrides.
     // RAF batching would show the old override for one extra frame before removal.
     this.cancelPendingRebuild()

@@ -133,7 +133,22 @@ export function PanelHeader({
   const handleApply = (): void => {
     if (delivering) return
     setDelivering(true)
-    onApply().then(
+    // Catch synchronous throws from onApply (rare but possible — e.g., an
+    // unexpected runtime error before the async body returns a Promise) so
+    // delivering state still clears and onApplyError still fires. Without
+    // this guard, a sync throw would propagate up and leave delivering=true
+    // stuck. Copilot caught this on PR #91 review. We use try/catch (not
+    // Promise.resolve().then(onApply)) so the synchronous spy-call assertion
+    // pattern continues to work — the microtask deferral broke 3 tests.
+    let promise: Promise<void>
+    try {
+      promise = onApply()
+    } catch (err: unknown) {
+      if (mountedRef.current) setDelivering(false)
+      onApplyError?.(err)
+      return
+    }
+    promise.then(
       () => {
         if (mountedRef.current) {
           setDelivering(false)

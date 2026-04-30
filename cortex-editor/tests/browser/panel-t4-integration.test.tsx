@@ -730,7 +730,9 @@ describe('Panel T4 — per-control stale indicator', () => {
     target.style.position = 'relative'
     document.body.appendChild(target)
 
-    // Mock getComputedStyle to return relative positioning so X/Y inputs render
+    // Mock getComputedStyle to return relative positioning so X/Y inputs render.
+    // try/finally guards restoration — without it, an assertion or render throw
+    // would leak the mock into subsequent tests (Copilot caught on PR #91 review).
     const originalGCS = window.getComputedStyle
     window.getComputedStyle = ((el: Element, pseudo?: string | null) => {
       if (el === target && !pseudo) {
@@ -769,31 +771,33 @@ describe('Panel T4 — per-control stale indicator', () => {
       return originalGCS.call(window, el, pseudo)
     }) as typeof window.getComputedStyle
 
-    const overrideManager = makeOverrideManager()
-    const { root, cleanup } = renderInShadow(
-      <Panel
-        element={target}
-        overrideManager={overrideManager as any}
-        onClose={() => {}}
-        onSelectElement={() => {}}
-        {...panelPositionProps}
-        // Source is stale
-        staleSources={new Set(['src/Hero.tsx:14:5'])}
-        staleOverrideCount={1}
-      />,
-    )
+    try {
+      const overrideManager = makeOverrideManager()
+      const { root, cleanup } = renderInShadow(
+        <Panel
+          element={target}
+          overrideManager={overrideManager as any}
+          onClose={() => {}}
+          onSelectElement={() => {}}
+          {...panelPositionProps}
+          // Source is stale
+          staleSources={new Set(['src/Hero.tsx:14:5'])}
+          staleOverrideCount={1}
+        />,
+      )
 
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 10))
-    })
+      await act(async () => {
+        await new Promise(r => setTimeout(r, 10))
+      })
 
-    window.getComputedStyle = originalGCS
+      // At least one NumericInput should have the stale CSS class
+      const staleInputs = root.querySelectorAll('.cortex-numeric-input--stale')
+      expect(staleInputs.length).toBeGreaterThan(0)
 
-    // At least one NumericInput should have the stale CSS class
-    const staleInputs = root.querySelectorAll('.cortex-numeric-input--stale')
-    expect(staleInputs.length).toBeGreaterThan(0)
-
-    cleanup()
+      cleanup()
+    } finally {
+      window.getComputedStyle = originalGCS
+    }
     target.remove()
   })
 
@@ -842,31 +846,33 @@ describe('Panel T4 — per-control stale indicator', () => {
       return originalGCS.call(window, el, pseudo)
     }) as typeof window.getComputedStyle
 
-    const overrideManager = makeOverrideManager()
-    const { root, cleanup } = renderInShadow(
-      <Panel
-        element={target}
-        overrideManager={overrideManager as any}
-        onClose={() => {}}
-        onSelectElement={() => {}}
-        {...panelPositionProps}
-        // staleSources is empty — override cleared
-        staleSources={new Set()}
-        staleOverrideCount={0}
-      />,
-    )
+    try {
+      const overrideManager = makeOverrideManager()
+      const { root, cleanup } = renderInShadow(
+        <Panel
+          element={target}
+          overrideManager={overrideManager as any}
+          onClose={() => {}}
+          onSelectElement={() => {}}
+          {...panelPositionProps}
+          // staleSources is empty — override cleared
+          staleSources={new Set()}
+          staleOverrideCount={0}
+        />,
+      )
 
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 10))
-    })
+      await act(async () => {
+        await new Promise(r => setTimeout(r, 10))
+      })
 
-    window.getComputedStyle = originalGCS
+      // No stale indicators
+      const staleInputs = root.querySelectorAll('.cortex-numeric-input--stale')
+      expect(staleInputs.length).toBe(0)
 
-    // No stale indicators
-    const staleInputs = root.querySelectorAll('.cortex-numeric-input--stale')
-    expect(staleInputs.length).toBe(0)
-
-    cleanup()
+      cleanup()
+    } finally {
+      window.getComputedStyle = originalGCS
+    }
     target.remove()
   })
 
@@ -915,33 +921,35 @@ describe('Panel T4 — per-control stale indicator', () => {
       return originalGCS.call(window, el, pseudo)
     }) as typeof window.getComputedStyle
 
-    const overrideManager = makeOverrideManager()
-    const { root, cleanup } = renderInShadow(
-      <Panel
-        element={target}
-        overrideManager={overrideManager as any}
-        onClose={() => {}}
-        onSelectElement={() => {}}
-        {...panelPositionProps}
-        staleSources={new Set(['src/Hero.tsx:14:5'])}
-        staleOverrideCount={1}
-      />,
-    )
+    try {
+      const overrideManager = makeOverrideManager()
+      const { root, cleanup } = renderInShadow(
+        <Panel
+          element={target}
+          overrideManager={overrideManager as any}
+          onClose={() => {}}
+          onSelectElement={() => {}}
+          {...panelPositionProps}
+          staleSources={new Set(['src/Hero.tsx:14:5'])}
+          staleOverrideCount={1}
+        />,
+      )
 
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 10))
-    })
+      await act(async () => {
+        await new Promise(r => setTimeout(r, 10))
+      })
 
-    window.getComputedStyle = originalGCS
+      // A stale NumericInput must carry the recovery tooltip
+      const staleInput = root.querySelector('.cortex-numeric-input--stale')
+      expect(staleInput).not.toBeNull()
+      expect(staleInput!.getAttribute('data-tooltip')).toBe(
+        "Edit saved but HMR didn't apply — refresh to verify",
+      )
 
-    // A stale NumericInput must carry the recovery tooltip
-    const staleInput = root.querySelector('.cortex-numeric-input--stale')
-    expect(staleInput).not.toBeNull()
-    expect(staleInput!.getAttribute('data-tooltip')).toBe(
-      "Edit saved but HMR didn't apply — refresh to verify",
-    )
-
-    cleanup()
+      cleanup()
+    } finally {
+      window.getComputedStyle = originalGCS
+    }
     target.remove()
   })
 })

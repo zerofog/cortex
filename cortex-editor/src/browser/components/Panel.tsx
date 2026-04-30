@@ -1304,7 +1304,7 @@ export function Panel({
         onToggleHover={onToggleHover}
         bufferSize={buffer.size()}
         onApply={onApply}
-        onApplyError={(err) => setApplyError(err instanceof Error ? err.message : 'Apply failed')}
+        onApplyError={handleApplyError}
       />
       {editErrors && element?.getAttribute('data-cortex-source') && (
         <EditErrorCard

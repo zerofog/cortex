@@ -294,6 +294,45 @@ describe('PanelHeader Apply button', () => {
     await applyPromise
   })
 
+  // PR #91 review fix: synchronous throw from onApply must clear delivering and
+  // call onApplyError. Without the try/catch in handleApply, a sync throw would
+  // leave delivering=true stuck and never invoke onApplyError. Falsifiable: the
+  // test would fail (button remains in Delivering state, onApplyError never
+  // invoked) without the try/catch guard in PanelHeader.handleApply.
+  it('handles synchronous throw from onApply: clears delivering + calls onApplyError', async () => {
+    const syncErr = new Error('sync throw before promise')
+    const onApply = vi.fn(() => { throw syncErr })
+    const onApplyError = vi.fn()
+
+    act(() => {
+      render(
+        <PanelHeader
+          {...BASE_PROPS}
+          bufferSize={3}
+          onApply={onApply as unknown as () => Promise<void>}
+          onApplyError={onApplyError}
+        />,
+        container,
+      )
+    })
+
+    act(() => {
+      const btn = container.querySelector('[data-action="apply"]') as HTMLButtonElement
+      btn.click()
+    })
+
+    // delivering must have cleared synchronously — button shows idle "Apply (3)"
+    const idleBtn = container.querySelector('[data-action="apply"]') as HTMLButtonElement
+    expect(idleBtn).not.toBeNull()
+    expect(idleBtn.textContent).toContain('Apply')
+    expect(idleBtn.textContent).toContain('3')
+    expect(idleBtn.disabled).toBe(false)
+
+    // onApplyError received the same error instance
+    expect(onApplyError).toHaveBeenCalledTimes(1)
+    expect(onApplyError).toHaveBeenCalledWith(syncErr)
+  })
+
   // #7: onApplyError is called with the rejection error when onApply rejects
   it('calls onApplyError with the rejection error when onApply rejects', async () => {
     const applyError = new Error('sendAndAck timeout after 10000ms')
