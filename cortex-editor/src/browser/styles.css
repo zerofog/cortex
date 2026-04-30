@@ -956,6 +956,14 @@
   transition: color 150ms ease-out;
 }
 
+/* Stale indicator — value turns warning-orange when override TTL elapsed without HMR verify.
+   Shares --cx-warning with StagingDriftBanner (one accent per view rule: both are the same
+   signal — "something needs your attention"). Compositor-only: color transition only. */
+.cortex-numeric-input--stale .cortex-numeric-input__value {
+  color: var(--cx-warning);
+  transition: color 150ms ease-out;
+}
+
 /* Mixed indicator — shows '--' placeholder when shared elements have different values */
 .cortex-numeric-input--mixed .cortex-numeric-input__value::placeholder {
   color: var(--cx-ink-tertiary);

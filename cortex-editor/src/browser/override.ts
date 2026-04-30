@@ -763,6 +763,24 @@ export class CSSOverrideManager {
     return new Set(this.staleSources)
   }
 
+  /**
+   * Public ReadSourceValue-compatible reader that bypasses the cortex override
+   * stylesheet. Used by Panel's buffer.reconcile() call (ZF0-1470 T4) so that
+   * getComputedStyle returns the SOURCE value rather than cortex's !important
+   * override, preventing 100% false-positive divergence during active edits.
+   *
+   * Delegates to the private `readUnderlyingValue` with `kind=undefined`
+   * (computed-style path — correct for HMR reconcile which compares CSS
+   * property values regardless of how they were originally set).
+   */
+  readSourceValue(
+    el: Element,
+    property: string,
+    pseudo: '::before' | '::after' | null,
+  ): string {
+    return this.readUnderlyingValue(el, property, pseudo ?? undefined, undefined).value
+  }
+
   /** Emit the current stale-source set to all registered listeners.
    *  Iterates a snapshot so a listener that calls dispose() mid-emission
    *  does not cause ConcurrentModification-style bugs. Each listener

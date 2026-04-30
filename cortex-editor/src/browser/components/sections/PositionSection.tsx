@@ -38,6 +38,12 @@ export interface PositionSectionProps {
   onScrubEnd?: (change: PositionChange) => void
   /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
   dimmedProperties?: Set<string>
+  /**
+   * When true, the element's source override has exceeded the TTL without hmr_verified
+   * arriving. Flows to NumericInput controls as the stale indicator (orange/yellow tint
+   * with recovery tooltip). Sourced from Panel's elementSourceIsStale computation.
+   */
+  stale?: boolean
 }
 
 /** Extract position-related values from a CSSStyleDeclaration. */
@@ -101,6 +107,7 @@ export function PositionSection({
   onScrub,
   onScrubEnd,
   dimmedProperties,
+  stale,
 }: PositionSectionProps): JSX.Element {
   const isStatic = values.position === 'static'
 
@@ -201,9 +208,9 @@ export function PositionSection({
         class={`cortex-position-section__xy-row${isStatic ? ' cortex-position-section__xy-row--disabled' : ''}${isDimmed(dimmedProperties, 'left', 'top') ? ' cortex-control--dimmed' : ''}`}
         data-tooltip={isStatic ? 'Set position mode to enable' : undefined}
       >
-        <NumericInput value={xValue} unit={isStatic ? 'auto' : 'px'} prefix="X" tooltip={xTooltip} disabled={isStatic} onChange={handleXChange} onScrub={handleXScrub} onScrubEnd={handleXScrubEnd} />
-        <NumericInput value={yValue} unit={isStatic ? 'auto' : 'px'} prefix="Y" tooltip={yTooltip} disabled={isStatic} onChange={handleYChange} onScrub={handleYScrub} onScrubEnd={handleYScrubEnd} />
-        <NumericInput value={zValue} prefix="Z" tooltip="Z-index" onChange={handleZChange} />
+        <NumericInput value={xValue} unit={isStatic ? 'auto' : 'px'} prefix="X" tooltip={xTooltip} disabled={isStatic} onChange={handleXChange} onScrub={handleXScrub} onScrubEnd={handleXScrubEnd} stale={stale} />
+        <NumericInput value={yValue} unit={isStatic ? 'auto' : 'px'} prefix="Y" tooltip={yTooltip} disabled={isStatic} onChange={handleYChange} onScrub={handleYScrub} onScrubEnd={handleYScrubEnd} stale={stale} />
+        <NumericInput value={zValue} prefix="Z" tooltip="Z-index" onChange={handleZChange} stale={stale} />
       </div>
       <div class={`cortex-position-section__rotate-row${isDimmed(dimmedProperties, 'rotate', 'scale') ? ' cortex-control--dimmed' : ''}`}>
         <NumericInput
@@ -214,6 +221,7 @@ export function PositionSection({
           onChange={handleRotateChange}
           onScrub={handleRotateScrub}
           onScrubEnd={handleRotateScrubEnd}
+          stale={stale}
         />
         <IconButton
           icon={<FlipHorizontal size={14} />}

@@ -75,6 +75,14 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const [agentConnected, setAgentConnected] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionDisplay>({ status: 'connected' })
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
+  // ZF0-1470 (T4): stale override signals from CSSOverrideManager.onStale (T1 API).
+  // staleOverrideCount drives the StagingDriftBanner; staleSources drives per-control
+  // stale indicator in sections. Both flow down to Panel.
+  const [staleOverrideCount, setStaleOverrideCount] = useState(0)
+  const [staleSources, setStaleSources] = useState<Set<string>>(new Set())
+  // ZF0-1470 (T4): changedFiles from hmr-applied message — passed to Panel so it can
+  // call buffer.reconcile() with the bypass readSourceValue callback.
+  const [hmrChangedFiles, setHmrChangedFiles] = useState<string[]>([])
   const [commentMode, setCommentMode] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
   const [capabilitySystems, setCapabilitySystems] = useState<StyleCapability[]>([])
@@ -174,6 +182,15 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     overrideRef.current = overrideManager
     const commandStack = new CommandStack()
     commandStackRef.current = commandStack
+
+    // ZF0-1470 (T4 A1): subscribe to override TTL eviction events. Fires when an
+    // applied override passes its 30s TTL without hmr_verified arriving — signals
+    // the edit may not have landed on disk. Component-scope setters flow state to
+    // Panel's StagingDriftBanner and per-control stale indicators.
+    const disposeStale = overrideManager.onStale((staleSet) => {
+      setStaleOverrideCount(staleSet.size)
+      setStaleSources(new Set(staleSet)) // defensive copy already made by emitStale
+    })
 
     // Initialize selection system. The `setSelectionWithMetadata` wrapper
     // (defined in a useCallback below) is the ONE point of entry for
@@ -368,6 +385,13 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           setHmrAppliedVersion(v => v + 1)
         }
 
+        // ZF0-1470 (T4 A2): capture changedFiles for Panel's buffer.reconcile() call.
+        // Always update — even when shouldRefresh is false — because reconcile uses its
+        // own file-intersection logic (stripLineCol on source paths) independently of
+        // the DOM-refresh heuristic above. An empty/absent files list is represented
+        // as [] so Panel's reconcile early-returns cleanly (changedFiles.length === 0).
+        setHmrChangedFiles(files ?? [])
+
         // Re-resolve the selection after HMR node replacement. Runs
         // synchronously (catches CSS-only / classname-flip cases where the
         // DOM is already committed) AND after double-rAF (catches React
@@ -520,6 +544,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       unsubscribe()
       unsubStatus()
       unsubDivergence()
+      disposeStale()
       if (reconnectedTimer !== undefined) clearTimeout(reconnectedTimer)
       selectionHandle.cleanup()
       selectionRef.current = null
@@ -874,6 +899,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           onEditDispatch={handleEditDispatch}
           onDismissError={handleDismissError}
           hmrAppliedVersion={hmrAppliedVersion}
+          hmrChangedFiles={hmrChangedFiles}
+          staleOverrideCount={staleOverrideCount}
+          staleSources={staleSources}
         />
       )}
       <Toolbar

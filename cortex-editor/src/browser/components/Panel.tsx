@@ -42,6 +42,7 @@ import { ALL_DIMMING_PROPERTIES } from './sections/spacing-utils.js'
 import { useEditStagingBuffer, createPanelSyncEmitter } from '../hooks/useEditStagingBuffer.js'
 import type { PendingEdit, SyncEmitter } from '../hooks/useEditStagingBuffer.js'
 import { generateId } from '../uuid.js'
+import { StagingDriftBanner } from './StagingDriftBanner.js'
 
 // ── Connection status footer ─────────────────────────────────────────
 
@@ -199,6 +200,18 @@ export interface PanelProps {
    *  optional signature as a silent-failure hazard for future integration
    *  sites. Tests must pass `hmrAppliedVersion={0}` explicitly. */
   hmrAppliedVersion: number
+  /** Files reported by the latest `hmr-applied` message (ZF0-1470).
+   *  Empty array when the message carried no files or files was absent.
+   *  Panel uses this to call buffer.reconcile() with the override-bypass
+   *  readSourceValue callback — producing intentDriftCount for the banner. */
+  hmrChangedFiles?: string[]
+  /** Count of CSS override entries that have exceeded the TTL without
+   *  hmr_verified arriving. Drives the stale-overrides row in StagingDriftBanner.
+   *  Sourced from CSSOverrideManager.onStale (ZF0-1470 T1 API). */
+  staleOverrideCount?: number
+  /** Source strings (path:line:col) whose overrides have gone stale.
+   *  Used to compute per-element stale indicators on section controls. */
+  staleSources?: Set<string>
 }
 
 export function Panel({
@@ -230,6 +243,9 @@ export function Panel({
   onEditDispatch,
   onDismissError,
   hmrAppliedVersion,
+  hmrChangedFiles = [],
+  staleOverrideCount = 0,
+  staleSources,
 }: PanelProps): JSX.Element | null {
   // ALL hooks first — no conditional returns before hooks
   const [isEntering, setIsEntering] = useState(true)
@@ -294,6 +310,37 @@ export function Panel({
       }
     })
   }, [channel, buffer])
+
+  // ZF0-1470 (T4 B1): drift count drives StagingDriftBanner's intent-drift row.
+  // Updated by buffer.reconcile() whenever hmrChangedFiles changes (see effect below).
+  const [intentDriftCount, setIntentDriftCount] = useState(0)
+
+  // ZF0-1470 (T4 B1): Apply handler — sends staged-edits-ready via sendAndAck so
+  // Claude's MCP tools can read the buffer. Does NOT call buffer.clear() — per
+  // parent ticket contract, Claude owns the buffer after Apply; it calls
+  // cortex_discard_edits to remove specific intents via the MCP channel.
+  const onApply = useCallback(async () => {
+    if (!channel) return
+    await channel.sendAndAck({ type: 'staged-edits-ready', count: buffer.size() })
+  }, [channel, buffer])
+
+  // ZF0-1470 (T4 B2): reconcile on HMR — re-evaluate staged intents against live DOM.
+  // CRITICAL: overrideManager.readSourceValue.bind bypasses the override !important
+  // layer so getComputedStyle returns the source value, not cortex's own override
+  // value. Without this, every active edit produces a false-positive divergence.
+  useEffect(() => {
+    if (hmrChangedFiles.length === 0) return
+    const result = buffer.reconcile(
+      hmrChangedFiles,
+      overrideManager.readSourceValue.bind(overrideManager),
+    )
+    setIntentDriftCount(result.divergent.length)
+  // hmrAppliedVersion is the stable trigger (monotonic counter). hmrChangedFiles
+  // is the payload — both are captured via closure. The effect intentionally
+  // re-runs only when hmrAppliedVersion changes (each hmr-applied event), not on
+  // every hmrChangedFiles array allocation (which changes reference every render).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hmrAppliedVersion])
 
   // Pseudo-element tab state — internal to Panel
   const [activePseudo, setActivePseudo] = useState<'element' | '::before' | '::after'>('element')
@@ -1101,8 +1148,8 @@ export function Panel({
           onPointerCancel={panelPointerCancel}
           hoverEnabled={hoverEnabled}
           onToggleHover={onToggleHover}
-          bufferSize={0}
-          onApply={() => Promise.resolve()}
+          bufferSize={buffer.size()}
+          onApply={onApply}
         />
         <div class="cortex-panel__body">
           <div class="cortex-panel__empty">
@@ -1131,6 +1178,13 @@ export function Panel({
   const showTypography = hasTypographyContent(element)
   // Position section is instance-specific — hide when editing a shared class.
   const showPosition = !(sharedInfo && editScope === 'all')
+
+  // ZF0-1470 (T4 C): per-element stale indicator. All controls for the same element
+  // share one source path (data-cortex-source), so stale is binary at element level.
+  // True when the element's source appears in the staleSources set emitted by
+  // CSSOverrideManager.onStale after TTL eviction.
+  const elementSource = element.getAttribute('data-cortex-source') ?? ''
+  const elementSourceIsStale = elementSource !== '' && (staleSources?.has(elementSource) ?? false)
 
   return (
     <div
@@ -1164,8 +1218,8 @@ export function Panel({
         ancestorLine={ancestor?.source.line ?? null}
         hoverEnabled={hoverEnabled}
         onToggleHover={onToggleHover}
-        bufferSize={0}
-        onApply={() => Promise.resolve()}
+        bufferSize={buffer.size()}
+        onApply={onApply}
       />
       {editErrors && element?.getAttribute('data-cortex-source') && (
         <EditErrorCard
@@ -1233,6 +1287,30 @@ export function Panel({
         </div>
       )}
       <div class="cortex-panel__body" ref={bodyRef}>
+        {/* ZF0-1470 (T4): StagingDriftBanner signals drift between staged edits
+            and live source. Placed above sections so it's always visible regardless
+            of scroll position. Two independent signals: intent drift (HMR reconcile)
+            and stale overrides (TTL eviction from CSSOverrideManager). */}
+        <StagingDriftBanner
+          intentDriftCount={intentDriftCount}
+          staleOverrideCount={staleOverrideCount}
+          onIntentRefresh={() => {
+            // Re-run reconcile with the current changedFiles to refresh divergent flags
+            // for intents that may have been resolved by a subsequent HMR cycle.
+            if (hmrChangedFiles.length > 0) {
+              const result = buffer.reconcile(
+                hmrChangedFiles,
+                overrideManager.readSourceValue.bind(overrideManager),
+              )
+              setIntentDriftCount(result.divergent.length)
+            }
+          }}
+          onStaleRefresh={() => window.location.reload()}
+          onDismiss={() => {
+            // Banner's internal dismissed state handles visibility.
+            // No external state tracking needed per spec.
+          }}
+        />
         {/* Section ordering per DESIGN.md: Elements → Position → Layout →
             Typography → Appearance → Background → Border → Effects.
             Typography conditional on hasTypographyContent; Position hidden
@@ -1255,6 +1333,7 @@ export function Panel({
               onScrub={handleScrub}
               onScrubEnd={handleCommit}
               dimmedProperties={dimmedProperties}
+              stale={elementSourceIsStale}
             />
           </SectionGroup>
         )}
@@ -1270,6 +1349,7 @@ export function Panel({
             onSpacingChange={handleCommit}
             onSpacingScrub={handleScrub}
             onSpacingScrubEnd={handleCommit}
+            stale={elementSourceIsStale}
           />
         </SectionGroup>
         {showTypography && (

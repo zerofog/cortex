@@ -65,6 +65,12 @@ export interface LayoutSectionProps {
   onSpacingChange?: (change: LayoutChange) => void
   onSpacingScrub?: (change: LayoutChange) => void
   onSpacingScrubEnd?: (change: LayoutChange) => void
+  /**
+   * When true, the element's source override has exceeded the TTL without hmr_verified
+   * arriving. Forwarded to SizingControls and SpacingControls which thread it to their
+   * NumericInput controls as the stale indicator (orange/yellow tint + recovery tooltip).
+   */
+  stale?: boolean
 }
 
 /** Normalize computed display values to SegmentedControl options. */
@@ -120,6 +126,7 @@ export function LayoutSection({
   onSpacingChange,
   onSpacingScrub,
   onSpacingScrubEnd,
+  stale,
 }: LayoutSectionProps): JSX.Element {
   const isFlex = values.display === 'flex'
   const isGrid = values.display === 'grid'
@@ -212,6 +219,7 @@ export function LayoutSection({
             onScrubEnd={onScrubEnd}
             dimmedProperties={dimmedProperties}
             mixedProperties={mixedProperties}
+            stale={stale}
           />
         </div>
       )}
