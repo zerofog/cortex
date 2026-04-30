@@ -333,7 +333,13 @@ export function Panel({
   // parent ticket contract, Claude owns the buffer after Apply; it calls
   // cortex_discard_edits to remove specific intents via the MCP channel.
   const onApply = useCallback(async () => {
-    if (!channel) return
+    // Reject (don't silently fulfill) when no channel — otherwise PanelHeader
+    // sees a fulfilled promise and transitions into "Hidden after success"
+    // state even though nothing was delivered to Claude. CodeRabbit caught
+    // this on PR #91 review.
+    if (!channel) {
+      throw new Error('No cortex channel available — Apply not delivered. Reload the page or check that the cortex MCP is connected.')
+    }
     // Clear any prior apply error before the new attempt so the UI doesn't
     // show a stale error while the new request is in-flight.
     setApplyError(null)
