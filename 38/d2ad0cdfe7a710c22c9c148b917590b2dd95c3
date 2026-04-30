@@ -1,0 +1,26 @@
+cortex-editor/tests/browser/components/staging-drift-banner.test.tsx
+  fd13519530dc5793 221-302,306-358,370,374-375,383,385-398
+cortex-editor/src/browser/hooks/useEditStagingBuffer.ts
+  fd13519530dc5793 159-164
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "38d2ad0cdfe7a710c22c9c148b917590b2dd95c3",
+  "prompts": {
+    "fd13519530dc5793": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ed85be58-9abc-477d-acb6-bdac551aeb30",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 5842,
+      "total_deletions": 1341,
+      "accepted_lines": 5002,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/d431fc332d3a3106480da68b3040872606fccdd5a4ba8cbac188967ddde4de8c"
+    }
+  }
+}
