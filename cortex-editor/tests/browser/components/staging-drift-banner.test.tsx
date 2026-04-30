@@ -217,6 +217,61 @@ describe('StagingDriftBanner', () => {
     expect(onIntentRefresh).toHaveBeenCalledTimes(1) // still 1, not 2
   })
 
+  // ZF0-1477 Item #5: dismissed reset only fires on strict increase (edge-trigger, not level-trigger)
+  // The 4 sub-cases below verify the magnitude-comparison logic.
+  // Setup: mount at `mountCount`, dismiss, then re-render at `nextCount`.
+  //   decrease (mountCount→nextCount < mountCount) → banner must stay dismissed
+  //   increase (mountCount→nextCount > mountCount) → banner must reopen
+  it.each([
+    // Decrease: dismissed at 2, count drops to 1 → stays dismissed
+    { mountCount: 2, nextCount: 1, label: '2→1 (decrease)', expectVisible: false },
+    // Decrease: dismissed at 2, count drops to 0 → stays dismissed (also hidden by !hasIntent)
+    { mountCount: 2, nextCount: 0, label: '2→0 (decrease to zero)', expectVisible: false },
+    // Increase: dismissed at 1, count rises to 2 → reopen
+    { mountCount: 1, nextCount: 2, label: '1→2 (increase)', expectVisible: true },
+    // Increase: dismissed at 2, staleOverrideCount rises from 0→1 while intentCount stays same
+    // (uses intentDriftCount=2 throughout; only staleOverrideCount changes 0→1)
+    { mountCount: 2, nextCount: 2, staleMount: 0, staleNext: 1, label: 'stale 0→1 (increase)', expectVisible: true },
+  ])('dismissed state: intentDriftCount $label — banner visible=$expectVisible', async ({ mountCount, nextCount, staleMount = 0, staleNext = 0, expectVisible }) => {
+    // Mount at initial count — banner must be visible to dismiss
+    await act(() => {
+      render(
+        <StagingDriftBanner
+          intentDriftCount={mountCount}
+          staleOverrideCount={staleMount}
+          onIntentRefresh={() => {}}
+          onStaleRefresh={() => {}}
+          onDismiss={() => {}}
+        />,
+        container,
+      )
+    })
+    // Dismiss the banner
+    const dismissBtn = container.querySelector('[data-action="dismiss"]') as HTMLButtonElement
+    await act(() => { dismissBtn.click() })
+    expect(container.querySelector('[role="status"]')).toBeNull()
+
+    // Re-render with the new count
+    await act(() => {
+      render(
+        <StagingDriftBanner
+          intentDriftCount={nextCount}
+          staleOverrideCount={staleNext}
+          onIntentRefresh={() => {}}
+          onStaleRefresh={() => {}}
+          onDismiss={() => {}}
+        />,
+        container,
+      )
+    })
+
+    if (expectVisible) {
+      expect(container.querySelector('[role="status"]')).not.toBeNull()
+    } else {
+      expect(container.querySelector('[role="status"]')).toBeNull()
+    }
+  })
+
   // Optional: dismissed state persists while count unchanged
   it('keeps banner hidden when count is unchanged after dismiss', async () => {
     await act(() => {

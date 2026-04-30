@@ -44,6 +44,13 @@ export interface StagingBufferHandle {
   clear: () => void
   size: () => number
   /**
+   * Monotonic mutation counter. Increments on every append/remove/clear.
+   * Consumers (e.g. Panel.tsx drift reconcile useEffect) can add this to
+   * their dep array to re-run when the buffer mutates — without subscribing
+   * to unstable method references that change every render.
+   */
+  version: number
+  /**
    * Re-evaluate previousValue against the live DOM for intents whose file is
    * in `changedFiles`. Returns intents whose resolved current value no longer
    * matches `previousValue.trim()`, plus intents whose element no longer
@@ -164,10 +171,11 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
   // size()/list() in render re-evaluate after staged-edits-discard arrives.
   // Without this, bufferRef mutations (server-driven discards) don't cause
   // Panel to re-render and the Apply button stays at "Apply (N)" after the
-  // buffer is server-side empty. We don't read the value — only setState
-  // triggers re-render, and JSX call sites re-read buffer.size() during
-  // that re-render with the correct fresh count.
-  const [, bumpVersion] = useState(0)
+  // buffer is server-side empty.
+  // ZF0-1477: version is now exposed on StagingBufferHandle so Panel.tsx's
+  // drift-reconcile useEffect can add it to the dep array and re-run when
+  // the buffer mutates (not just when an HMR event fires).
+  const [version, bumpVersion] = useState(0)
   const bumpRef = useRef(() => bumpVersion(v => v + 1))
 
   // Initialize from localStorage on first call (before useEffect so list() works immediately).
@@ -391,7 +399,12 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
   // Stable handle — every method is `useCallback([...])` over stable refs, so
   // their identities never change after first render. The ref initializer fires
   // once; no per-render reassignment needed.
-  const handleRef = useRef<StagingBufferHandle>({
+  // NOTE: `version` is NOT stored in handleRef because it is a reactive value
+  // from useState — it must come from the current render's closure so that dep
+  // arrays in consumers (e.g. Panel.tsx drift reconcile useEffect) see the
+  // latest value. Spreading at return-time costs one object per render, which
+  // matches Panel.tsx's existing render patterns and is acceptable.
+  const handleRef = useRef<Omit<StagingBufferHandle, 'version'>>({
     append,
     remove,
     list,
@@ -400,7 +413,7 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
     reconcile,
   })
 
-  return handleRef.current
+  return { ...handleRef.current, version }
 }
 
 export { useEditStagingBuffer }
