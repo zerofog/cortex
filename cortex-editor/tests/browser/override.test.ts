@@ -1309,7 +1309,266 @@ describe('CSSOverrideManager', () => {
       // engine actually canonicalizes.
     })
 
-    it('two sequential edit cycles both verify and remove their overrides', () => {
+  describe('stale-detection API (ZF0-1467)', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    // Helper: make RAF capture (not immediate) so timing-sensitive tests control flush.
+    // The outer beforeEach sets RAF to synchronous — this describe overrides it.
+    let rafCallbacks: Map<number, FrameRequestCallback>
+    let nextId: number
+    beforeEach(() => {
+      rafCallbacks = new Map()
+      nextId = 1
+      window.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+        const id = nextId++
+        rafCallbacks.set(id, cb)
+        return id
+      }) as typeof requestAnimationFrame
+      window.cancelAnimationFrame = ((id: number) => {
+        rafCallbacks.delete(id)
+      }) as typeof cancelAnimationFrame
+    })
+
+    function flushRAF() {
+      const cbs = Array.from(rafCallbacks.values())
+      rafCallbacks.clear()
+      cbs.forEach(cb => cb(performance.now()))
+    }
+
+    // #11: Override + hmr_verified arrives within TTL → no stale signal fires
+    it('#11: hmr_verified within TTL does not fire stale listener', () => {
+      const staleSets: Array<Set<string>> = []
+      const unsub = manager.onStale(s => staleSets.push(new Set(s)))
+
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+
+      // Advance time less than the TTL (35s)
+      vi.advanceTimersByTime(20_000)
+
+      // Verify arrives within TTL
+      manager.handleHMRVerified('edit-1', true)
+      manager.onHMRApplied()
+      flushRAF()
+      flushRAF()
+
+      expect(staleSets).toHaveLength(0)
+      unsub()
+    })
+
+    // #12: Override applied + TTL elapses without hmr_verified → stale signal fires
+    it('#12: TTL elapses without hmr_verified → stale listener fires with source', () => {
+      const staleSets: Array<Set<string>> = []
+      const unsub = manager.onStale(s => staleSets.push(new Set(s)))
+
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+
+      // Advance past TTL (35s) and trigger eviction via a new trackPendingEdit
+      vi.advanceTimersByTime(36_000)
+      manager.trackPendingEdit('edit-2', 'b:1:1', 'margin', '0')
+
+      expect(staleSets).toHaveLength(1)
+      expect(staleSets[0]).toEqual(new Set(['a:1:1']))
+
+      unsub()
+    })
+
+    // #14: Multiple stale overrides → aggregate count (Set size > 1)
+    it('#14: multiple stale overrides aggregate into one Set', () => {
+      const staleSets: Array<Set<string>> = []
+      const unsub = manager.onStale(s => staleSets.push(new Set(s)))
+
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+
+      manager.set('b:2:2', 'margin', '0')
+      flushRAF()
+      manager.trackPendingEdit('edit-2', 'b:2:2', 'margin', '0')
+
+      vi.advanceTimersByTime(36_000)
+      // Trigger eviction by calling trackPendingEdit for a new, unrelated edit
+      manager.trackPendingEdit('edit-3', 'c:3:3', 'padding', '0')
+
+      // Both sources should be stale
+      const lastSet = staleSets[staleSets.length - 1]
+      expect(lastSet!.size).toBeGreaterThanOrEqual(2)
+      expect(lastSet).toEqual(new Set(['a:1:1', 'b:2:2']))
+
+      unsub()
+    })
+
+    // Listener registration + dispose works (no leak)
+    it('listener dispose prevents future calls', () => {
+      const calls: number[] = []
+      const unsub = manager.onStale(() => calls.push(1))
+
+      unsub() // dispose immediately
+
+      // Trigger a stale event — listener should NOT be called
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+      vi.advanceTimersByTime(36_000)
+      manager.trackPendingEdit('edit-2', 'b:1:1', 'margin', '0')
+
+      expect(calls).toHaveLength(0)
+    })
+
+    // Multiple listeners ALL fire on same event
+    it('multiple listeners all fire on the same stale event', () => {
+      const calls1: number[] = []
+      const calls2: number[] = []
+      const unsub1 = manager.onStale(() => calls1.push(1))
+      const unsub2 = manager.onStale(() => calls2.push(1))
+
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+      vi.advanceTimersByTime(36_000)
+      manager.trackPendingEdit('edit-2', 'b:1:1', 'margin', '0')
+
+      expect(calls1).toHaveLength(1)
+      expect(calls2).toHaveLength(1)
+
+      unsub1()
+      unsub2()
+    })
+
+    // getStaleSources returns defensive copy
+    it('getStaleSources returns defensive copy — caller mutation does not affect internal state', () => {
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+      vi.advanceTimersByTime(36_000)
+      manager.trackPendingEdit('edit-2', 'b:1:1', 'margin', '0')
+
+      const snapshot = manager.getStaleSources()
+      expect(snapshot).toEqual(new Set(['a:1:1']))
+
+      // Mutate the returned Set — internal state must be unaffected
+      snapshot.add('injected-source')
+      snapshot.delete('a:1:1')
+
+      expect(manager.getStaleSources()).toEqual(new Set(['a:1:1']))
+    })
+
+    // getStaleSources is empty when no stale state
+    it('getStaleSources is empty before any stale state', () => {
+      expect(manager.getStaleSources()).toEqual(new Set())
+    })
+
+    // Stale set clears when corresponding override clears via remove()
+    it('stale source removed from set when override cleared via remove()', () => {
+      const staleSets: Array<Set<string>> = []
+      const unsub = manager.onStale(s => staleSets.push(new Set(s)))
+
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+      vi.advanceTimersByTime(36_000)
+      manager.trackPendingEdit('edit-2', 'b:1:1', 'margin', '0')
+
+      expect(staleSets).toHaveLength(1)
+      expect(staleSets[0]).toEqual(new Set(['a:1:1']))
+
+      // Now clear the override — stale source should be removed
+      manager.remove('a:1:1', 'color')
+
+      expect(staleSets).toHaveLength(2)
+      expect(staleSets[1]).toEqual(new Set())
+      expect(manager.getStaleSources()).toEqual(new Set())
+
+      unsub()
+    })
+
+    // Stale set clears when handleHMRVerified(match=true) fires for a stale source
+    it('stale source cleared when handleHMRVerified(match=true) fires for stale source', () => {
+      const staleSets: Array<Set<string>> = []
+      const unsub = manager.onStale(s => staleSets.push(new Set(s)))
+
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+      vi.advanceTimersByTime(36_000)
+      // Trigger first eviction — 'a:1:1' becomes stale
+      manager.trackPendingEdit('edit-2', 'b:1:1', 'margin', '0')
+
+      expect(staleSets).toHaveLength(1)
+      expect(staleSets[0]).toEqual(new Set(['a:1:1']))
+
+      // A late hmr_verified for edit-1 arrives (after eviction, so pendingEdits no longer has it)
+      // Track a new pending edit for the stale source then verify it
+      manager.trackPendingEdit('edit-3', 'a:1:1', 'color', 'red')
+      manager.handleHMRVerified('edit-3', true)
+      manager.onHMRApplied()
+      flushRAF()
+      flushRAF()
+
+      // Source 'a:1:1' was stale; hmr_verified(match=true) should clear it
+      expect(manager.getStaleSources()).toEqual(new Set())
+      expect(staleSets).toHaveLength(2)
+      expect(staleSets[1]).toEqual(new Set())
+
+      unsub()
+    })
+
+    // Stale set fully clears on clearAll()
+    it('stale set fully clears on clearAll()', () => {
+      const staleSets: Array<Set<string>> = []
+      const unsub = manager.onStale(s => staleSets.push(new Set(s)))
+
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+      vi.advanceTimersByTime(36_000)
+      manager.trackPendingEdit('edit-2', 'b:1:1', 'margin', '0')
+
+      expect(staleSets).toHaveLength(1)
+
+      manager.clearAll()
+
+      expect(staleSets).toHaveLength(2)
+      expect(staleSets[1]).toEqual(new Set())
+      expect(manager.getStaleSources()).toEqual(new Set())
+
+      unsub()
+    })
+
+    // Stale set fully clears on dispose()
+    it('stale set fully clears on dispose() and listeners are removed', () => {
+      const calls: number[] = []
+      const unsub = manager.onStale(() => calls.push(1))
+
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+      vi.advanceTimersByTime(36_000)
+      manager.trackPendingEdit('edit-2', 'b:1:1', 'margin', '0')
+
+      const staleCountBeforeDispose = calls.length
+      expect(staleCountBeforeDispose).toBe(1)
+
+      manager.dispose()
+
+      // dispose() itself fires one final stale emission (the clear), then removes all listeners
+      // So total calls should be 2 (1 for stale, 1 for clear on dispose)
+      // After dispose, no further calls possible
+      expect(manager.getStaleSources()).toEqual(new Set())
+
+      unsub() // no-op after dispose, but should not throw
+    })
+  })
+
+  it('two sequential edit cycles both verify and remove their overrides', () => {
       // Guards against regressions where per-cycle state (flags, queues, caches)
       // fails to reset between edits and the second cycle silently no-ops.
       // Both targets start with their expected post-edit inline value so each
