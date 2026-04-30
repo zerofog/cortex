@@ -156,7 +156,12 @@ function defaultReadSourceValue(
  * - last-write-wins by (source\0property\0pseudo) composite key
  * - persisted to localStorage via cortexStorage, debounced ~150ms
  * - bounded at 500 entries (oldest evicted)
- * - stable handle: method identities never change across re-renders
+ * - stable method identities: append/remove/list/clear/size/reconcile are
+ *   held in a useRef and never change across re-renders. NOTE: the returned
+ *   wrapper object itself is freshly allocated each render because `version`
+ *   (a reactive useState value) is spread in at return-time — this is
+ *   intentional so consumer dep arrays observe version changes. Methods
+ *   destructured from the handle remain reference-stable.
  * - optional SyncEmitter: when provided, every mutation emits a sync message
  *   to the server-side StagedEditsCache (T1). Wire-up in Panel.tsx is T2.
  */
