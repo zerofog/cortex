@@ -187,10 +187,16 @@ export type ServerToBrowser =
   /** Instructs the browser to remove the specified intents from its canonical staging buffer.
    *  Sent by the server when Claude calls cortex_discard_edits so browser + server stay in sync. */
   | { type: 'staged-edits-discard'; intentIds: string[] }
-  /** Acknowledgement sent to the browser after the server successfully forwarded
-   *  a 'staged-edits-ready' notification to at least one CLI client.
-   *  The requestId echoes the value from the originating browser message so the
-   *  browser can correlate the ack with its pending sendAndAck() call.
+  /** Acknowledgement broadcast to ALL connected browser tabs via `server.hot.send`
+   *  after the server successfully forwarded a 'staged-edits-ready' notification
+   *  to at least one CLI client.
+   *  The requestId echoes the value from the originating browser message. Non-originating
+   *  tabs ignore the message because no pending sendAndAck listener has the matching
+   *  requestId. The originating tab's listener resolves on the requestId match.
+   *
+   *  Note: true per-client targeting would require moving off `server.hot` to the existing
+   *  CLI WebSocket server pattern; not blocking for current scope.
+   *
    *  CRITICAL: this ack is NOT emitted when the forward fails (no CLI clients,
    *  serialization error, or all client.send() calls threw). Silence lets the
    *  browser's sendAndAck timeout trip and surface retry UI. */

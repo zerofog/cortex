@@ -531,7 +531,7 @@ export function _getStagedEditsForTesting(): StagedEditsCache | null {
  * setting up a real WebSocket server.
  * @internal
  */
-export function _addCLIClientForTesting(client: { readyState: number; send: (data: string) => void }): void {
+export function _addCLIClientForTesting(client: { readyState: number; send: (data: string) => void; terminate: () => void }): void {
   if (!currentSession) return
   // Cast: real cliClients is Set<WebSocket>; the test fake satisfies the
   // structural shape used inside forwardToCLI (readyState + send).

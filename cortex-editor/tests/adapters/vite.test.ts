@@ -434,6 +434,7 @@ describe('cortexEditor Vite plugin', () => {
       const fakeClient = {
         readyState: 1, // WebSocket.OPEN
         send: (data: string) => { received.push(data) },
+        terminate: () => {},
       }
       _addCLIClientForTesting(fakeClient)
 
@@ -467,6 +468,7 @@ describe('cortexEditor Vite plugin', () => {
       const fakeClient = {
         readyState: 1,
         send: (data: string) => { received.push(data) },
+        terminate: () => {},
       }
       _addCLIClientForTesting(fakeClient)
 
@@ -2319,6 +2321,7 @@ describe('staged-edits-ready ack protocol', () => {
     const fakeClient = {
       readyState: 1, // WebSocket.OPEN
       send: (data: string) => { cliReceived.push(data) },
+      terminate: () => {},
     }
     _addCLIClientForTesting(fakeClient)
 

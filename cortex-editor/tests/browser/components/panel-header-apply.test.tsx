@@ -184,4 +184,111 @@ describe('PanelHeader Apply button', () => {
     expect(idleBtn.textContent).toContain('4')
     expect(idleBtn.disabled).toBe(false)
   })
+
+  // #6: aria-busy is 'true' during delivering, absent when idle
+  it('aria-busy is "true" on Apply button while delivering and absent when idle', async () => {
+    let resolveApply!: () => void
+    const applyPromise = new Promise<void>(res => { resolveApply = res })
+    const onApply = vi.fn(() => applyPromise)
+
+    act(() => {
+      render(
+        <PanelHeader
+          {...BASE_PROPS}
+          bufferSize={2}
+          onApply={onApply}
+        />,
+        container,
+      )
+    })
+
+    // Idle: aria-busy should be absent (not set).
+    const idleBtn = container.querySelector('[data-action="apply"]') as HTMLButtonElement
+    expect(idleBtn.getAttribute('aria-busy')).toBeNull()
+
+    act(() => { idleBtn.click() })
+
+    // During delivery: aria-busy must be 'true'.
+    const deliveringBtn = container.querySelector('[data-action="apply"]') as HTMLButtonElement
+    expect(deliveringBtn.getAttribute('aria-busy')).toBe('true')
+
+    // Clean up.
+    act(() => { resolveApply() })
+    await applyPromise
+  })
+
+  // #7: onApplyError is called with the rejection error when onApply rejects
+  it('calls onApplyError with the rejection error when onApply rejects', async () => {
+    const applyError = new Error('sendAndAck timeout after 10000ms')
+    let rejectApply!: (err: Error) => void
+    const applyPromise = new Promise<void>((_, rej) => { rejectApply = rej })
+    const onApply = vi.fn(() => applyPromise)
+    const onApplyError = vi.fn()
+
+    act(() => {
+      render(
+        <PanelHeader
+          {...BASE_PROPS}
+          bufferSize={1}
+          onApply={onApply}
+          onApplyError={onApplyError}
+        />,
+        container,
+      )
+    })
+
+    act(() => {
+      const btn = container.querySelector('[data-action="apply"]') as HTMLButtonElement
+      btn.click()
+    })
+
+    act(() => { rejectApply(applyError) })
+    await applyPromise.catch(() => {})
+
+    // onApplyError must have been called with the exact error.
+    expect(onApplyError).toHaveBeenCalledTimes(1)
+    expect(onApplyError).toHaveBeenCalledWith(applyError)
+
+    // Delivering state must also have cleared (button is back to idle).
+    const idleBtn = container.querySelector('[data-action="apply"]') as HTMLButtonElement
+    expect(idleBtn.disabled).toBe(false)
+  })
+
+  // #8: unmount during in-flight onApply — no state update on unmounted component
+  it('does not call setDelivering after unmount (mounted-flag guard)', async () => {
+    let resolveApply!: () => void
+    const applyPromise = new Promise<void>(res => { resolveApply = res })
+    const onApply = vi.fn(() => applyPromise)
+
+    act(() => {
+      render(
+        <PanelHeader
+          {...BASE_PROPS}
+          bufferSize={1}
+          onApply={onApply}
+        />,
+        container,
+      )
+    })
+
+    act(() => {
+      const btn = container.querySelector('[data-action="apply"]') as HTMLButtonElement
+      btn.click()
+    })
+
+    // Unmount BEFORE the promise resolves — simulates Panel re-mount during wait.
+    const warnSpy = vi.spyOn(console, 'warn')
+    act(() => { render(null, container) })
+
+    // Now resolve the promise — the mountedRef guard should block setDelivering.
+    act(() => { resolveApply() })
+    await applyPromise
+
+    // Preact should NOT have logged a state-update-on-unmounted-component warning.
+    const cortexWarns = warnSpy.mock.calls.filter(args =>
+      args.some(a => typeof a === 'string' && a.includes('unmounted')),
+    )
+    expect(cortexWarns).toHaveLength(0)
+    warnSpy.mockRestore()
+  })
 })

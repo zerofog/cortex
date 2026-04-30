@@ -783,6 +783,47 @@ describe('matchesRequestId', () => {
   })
 })
 
+// ── sendAndAck — uuid polyfill guard ────────────────────────────────────
+
+describe('sendAndAckImpl uuid polyfill', () => {
+  // Falsifiable: monkey-patches crypto.randomUUID to throw, then verifies that
+  // sendAndAck still generates a requestId and resolves. Proves generateId()
+  // polyfill is in use rather than the bare crypto.randomUUID call.
+  it('sendAndAck works when crypto.randomUUID throws (uses generateId polyfill)', async () => {
+    const originalRandomUUID = crypto.randomUUID.bind(crypto)
+    // @ts-expect-error — intentionally breaking crypto.randomUUID for the test
+    crypto.randomUUID = () => { throw new Error('randomUUID unavailable in this context') }
+
+    try {
+      delete window.__cortex_send__
+      delete window.__cortex_channel__
+      delete window.__CORTEX_TOKEN__
+      const mockSend = vi.fn()
+      window.__cortex_send__ = mockSend
+      window.__CORTEX_TOKEN__ = 'test-token'
+
+      const channel = createViteChannel()
+      const pendingPromise = channel.sendAndAck({ type: 'staged-edits-ready' as const, count: 1 })
+
+      // Verify a requestId was generated despite crypto.randomUUID throwing.
+      const sentMsg = mockSend.mock.calls[0]?.[0] as Record<string, unknown>
+      const requestId = sentMsg?.requestId as string
+      expect(typeof requestId).toBe('string')
+      expect(requestId.length).toBeGreaterThan(0)
+
+      // Resolve the promise so it doesn't hang as an unhandled rejection.
+      const ack = { type: 'staged-edits-acked' as const, requestId }
+      window.__cortex_channel__!.handleServerMessage(ack)
+      await pendingPromise
+    } finally {
+      crypto.randomUUID = originalRandomUUID
+      delete window.__cortex_send__
+      delete window.__cortex_channel__
+      delete window.__CORTEX_TOKEN__
+    }
+  })
+})
+
 // ── sendAndAck tests — Vite channel ─────────────────────────────────────
 
 describe('createViteChannel sendAndAck', () => {

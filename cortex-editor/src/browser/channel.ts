@@ -1,4 +1,5 @@
 import type { BrowserToServer, ConnectionState, CortexChannel, ServerToBrowser } from '../adapters/types.js'
+import { generateId } from './uuid.js'
 import './types.js' // Window augmentation (__cortex_send__, __cortex_channel__, __cortex_ws_port__)
 
 /** Max queued messages during WebSocket disconnection (Fix 5) */
@@ -56,7 +57,7 @@ function sendAndAckImpl<TType extends Extract<BrowserToServer, { requestId: stri
   onConnectionChangeFn: (handler: (state: ConnectionState) => void) => () => void,
 ): Promise<ServerToBrowser> {
   const timeoutMs = options?.timeoutMs ?? SEND_AND_ACK_DEFAULT_TIMEOUT_MS
-  const requestId = crypto.randomUUID()
+  const requestId = generateId()
   const composed = composeRequestWithId<TType>(msg, requestId)
 
   return new Promise<ServerToBrowser>((resolve, reject) => {

@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useState } from 'preact/hooks'
+import { useState, useRef, useLayoutEffect } from 'preact/hooks'
 import { SegmentedControl } from './controls/SegmentedControl.js'
 import { getThemePreference, setThemePreference, type ThemePreference } from '../theme.js'
 import { encodeFilePath } from '../label.js'
@@ -66,8 +66,18 @@ export interface PanelHeaderProps {
    *  successful delivery to the server, rejects on timeout or disconnect.
    *  PanelHeader manages its own "Delivering..." disabled state during the
    *  in-flight period; the parent is responsible for clearing bufferSize to 0
-   *  after the server applies the edits (T4 wiring). */
+   *  after the server applies the edits (T4 wiring).
+   *
+   *  The ID for each request is generated via uuid.generateId() (preserves
+   *  the polyfill for HTTP LAN dev, file://, and sandboxed iframes where
+   *  crypto.randomUUID may be unavailable). */
   onApply: () => Promise<void>
+  /** Optional error callback. Called with the rejection reason when sendAndAck
+   *  rejects (timeout or disconnect). T4 wires this to ErrorToast for UI
+   *  feedback. When omitted, the error is silently swallowed after setting the
+   *  button back to idle — acceptable for T3 where ErrorToast wiring is
+   *  out-of-scope. */
+  onApplyError?: (err: unknown) => void
 }
 
 export function PanelHeader({
@@ -96,15 +106,25 @@ export function PanelHeader({
   onToggleHover,
   bufferSize,
   onApply,
+  onApplyError,
 }: PanelHeaderProps): JSX.Element {
   const [delivering, setDelivering] = useState(false)
+
+  // Mounted flag guards setDelivering(false) against unmount-during-onApply race.
+  // useLayoutEffect cleanup runs synchronously on unmount, before any async
+  // continuations that may still hold a reference to setDelivering.
+  const mountedRef = useRef(true)
+  useLayoutEffect(() => () => { mountedRef.current = false }, [])
 
   const handleApply = (): void => {
     if (delivering) return
     setDelivering(true)
     onApply().then(
-      () => { setDelivering(false) },
-      () => { setDelivering(false) },
+      () => { if (mountedRef.current) setDelivering(false) },
+      (err: unknown) => {
+        if (mountedRef.current) setDelivering(false)
+        onApplyError?.(err)
+      },
     )
   }
   // When library with ancestor source, show ancestor source instead of element source
@@ -211,6 +231,7 @@ export function PanelHeader({
             data-action="apply"
             data-tooltip={delivering ? 'Sending staged edits to Claude…' : `Apply ${bufferSize} staged edit${bufferSize === 1 ? '' : 's'}`}
             aria-label={delivering ? 'Delivering staged edits' : `Apply ${bufferSize} staged edit${bufferSize === 1 ? '' : 's'}`}
+            aria-busy={delivering ? 'true' : undefined}
             disabled={delivering}
             onClick={handleApply}
           >
