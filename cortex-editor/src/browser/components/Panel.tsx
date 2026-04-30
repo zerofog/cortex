@@ -340,6 +340,14 @@ export function Panel({
     await channel.sendAndAck({ type: 'staged-edits-ready', count: buffer.size() })
   }, [channel, buffer])
 
+  // ZF0-1453 cross-task fix-up (IMPORTANT 3): Stable identity via useCallback so
+  // PanelHeader does not receive a new function reference on every render. Without
+  // this, memo on PanelHeader would be defeated and child subtree re-renders on
+  // every Panel render cycle.
+  const handleApplyError = useCallback((err: unknown) => {
+    setApplyError(err instanceof Error ? err.message : 'Apply failed')
+  }, [])
+
   // ZF0-1470 (T4 B2): reconcile on HMR — re-evaluate staged intents against live DOM.
   // CRITICAL: overrideManager.readSourceValue.bind bypasses the override !important
   // layer so getComputedStyle returns the source value, not cortex's own override
@@ -352,8 +360,14 @@ export function Panel({
   // Using hmrAppliedVersion here was the bug: if the HMR files didn't affect the
   // selected element, shouldRefreshOnHMR returned false, hmrAppliedVersion didn't
   // bump, and intents on non-selected elements were never reconciled.
+  //
+  // ZF0-1453 cross-task fix-up (IMPORTANT 1): When hmrChangedFiles is empty, no
+  // reconcile is needed but the prior intentDriftCount must be cleared. Without
+  // this reset, a nonzero count persists across unrelated HMR cycles (e.g. a CSS
+  // hot update fires with empty changedFiles) and the drift banner shows a stale
+  // "N edits affected" warning that no longer reflects reality.
   useEffect(() => {
-    if (hmrChangedFiles.length === 0) return
+    if (hmrChangedFiles.length === 0) { setIntentDriftCount(0); return }
     const result = buffer.reconcile(
       hmrChangedFiles,
       overrideManager.readSourceValue.bind(overrideManager),
@@ -1175,9 +1189,46 @@ export function Panel({
           onToggleHover={onToggleHover}
           bufferSize={buffer.size()}
           onApply={onApply}
-          onApplyError={(err) => setApplyError(err instanceof Error ? err.message : 'Apply failed')}
+          onApplyError={handleApplyError}
         />
         <div class="cortex-panel__body">
+          {/* ZF0-1453 cross-task fix-up (HIGH 1): applyError banner and StagingDriftBanner
+              must render in the empty state too. A designer can stage edits, deselect
+              (clearing `element`), then click Apply on the still-visible header button.
+              Without these banners here, any sendAndAck rejection or stale-override
+              signal produces zero user feedback while in the empty state. */}
+          {applyError && (
+            <div class="cortex-apply-error" role="alert">
+              <span>{applyError}</span>
+              <button
+                type="button"
+                onClick={() => setApplyError(null)}
+                class="cortex-apply-error__dismiss"
+                aria-label="Dismiss apply error"
+              >
+                {/* Lucide X icon — 14×14, matches StagingDriftBanner dismiss */}
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="3.5" y1="3.5" x2="10.5" y2="10.5" />
+                  <line x1="10.5" y1="3.5" x2="3.5" y2="10.5" />
+                </svg>
+              </button>
+            </div>
+          )}
+          <StagingDriftBanner
+            intentDriftCount={intentDriftCount}
+            staleOverrideCount={staleOverrideCount}
+            onIntentRefresh={() => {
+              if (hmrChangedFiles.length > 0) {
+                const result = buffer.reconcile(
+                  hmrChangedFiles,
+                  overrideManager.readSourceValue.bind(overrideManager),
+                )
+                setIntentDriftCount(result.divergent.length)
+              }
+            }}
+            onStaleRefresh={() => window.location.reload()}
+            onDismiss={() => {}}
+          />
           <div class="cortex-panel__empty">
             <p class="cortex-panel__empty-action">Click any element to start editing</p>
             <p class="cortex-panel__empty-hint">Changes write to your source files</p>
@@ -1327,30 +1378,19 @@ export function Panel({
             sees it immediately after an Apply failure, regardless of scroll position.
             Clears on next Apply attempt (in onApply, before sendAndAck) or on dismiss. */}
         {applyError && (
-          <div
-            class="cortex-apply-error"
-            role="alert"
-            style={{
-              padding: '6px 10px',
-              margin: '6px 8px',
-              borderRadius: '4px',
-              fontSize: '11px',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              background: '#fee2e2',
-              color: '#991b1b',
-              border: '1px solid #fca5a5',
-            }}
-          >
+          <div class="cortex-apply-error" role="alert">
             <span>{applyError}</span>
             <button
               type="button"
               onClick={() => setApplyError(null)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: '13px', padding: '0 0 0 8px', lineHeight: 1 }}
+              class="cortex-apply-error__dismiss"
               aria-label="Dismiss apply error"
             >
-              ×
+              {/* Lucide X icon — 14×14, matches StagingDriftBanner dismiss */}
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="3.5" y1="3.5" x2="10.5" y2="10.5" />
+                <line x1="10.5" y1="3.5" x2="3.5" y2="10.5" />
+              </svg>
             </button>
           </div>
         )}

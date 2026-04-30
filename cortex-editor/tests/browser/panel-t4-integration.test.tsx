@@ -555,6 +555,172 @@ describe('Panel T4 fix-up — IMPORTANT 4: onApplyError surfaces failures to use
   })
 })
 
+describe('Panel T4 fix-up — HIGH 1: empty-state Apply feedback', () => {
+  // HIGH 1: When Panel is in empty state (element=null), Apply rejection must still
+  // surface the error banner. Designer can stage edits, deselect, click Apply on
+  // the still-visible header button, and get zero feedback without this fix.
+  it('shows apply error banner in empty state when sendAndAck rejects', async () => {
+    const edit: PendingEdit = {
+      intentId: 'id-empty-err-1',
+      source: 'src/Hero.tsx:14:5',
+      property: 'color',
+      value: 'red',
+      previousValue: 'blue',
+      timestamp: Date.now(),
+    }
+    seedEdit(edit)
+
+    const channel = createMockChannel()
+    const errorMsg = 'sendAndAck timeout after 10000ms'
+    const sendAndAck = vi.fn(() => Promise.reject(new Error(errorMsg)))
+    ;(channel as any).sendAndAck = sendAndAck
+
+    const overrideManager = makeOverrideManager()
+
+    const { root, cleanup } = renderInShadow(
+      <Panel
+        element={null}
+        channel={channel as any}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+        staleOverrideCount={0}
+      />,
+    )
+
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 10))
+    })
+
+    // Apply button is still visible in empty state (bufferSize > 0 from seeded edit)
+    const applyBtn = root.querySelector('[data-action="apply"]') as HTMLButtonElement | null
+    expect(applyBtn).not.toBeNull()
+
+    await act(async () => {
+      applyBtn!.click()
+      await new Promise(r => setTimeout(r, 20))
+    })
+
+    // Error banner must appear in the empty-state DOM
+    const errorEl = root.querySelector('.cortex-apply-error')
+    expect(errorEl).not.toBeNull()
+    expect(errorEl!.textContent).toContain(errorMsg)
+
+    cleanup()
+  })
+
+  // HIGH 1 (stale): StagingDriftBanner renders in empty state when staleOverrideCount > 0
+  it('shows StagingDriftBanner in empty state when staleOverrideCount > 0', async () => {
+    const overrideManager = makeOverrideManager()
+
+    const { root, cleanup } = renderInShadow(
+      <Panel
+        element={null}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+        hmrChangedFiles={[]}
+        staleOverrideCount={2}
+        staleSources={new Set(['src/Hero.tsx:14:5'])}
+      />,
+    )
+
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 10))
+    })
+
+    const banner = root.querySelector('.cortex-drift-banner')
+    expect(banner).not.toBeNull()
+    expect(banner!.textContent).toContain("edit(s) saved but HMR didn't apply")
+
+    cleanup()
+  })
+})
+
+describe('Panel T4 fix-up — IMPORTANT 1: intentDriftCount resets on empty changedFiles', () => {
+  // IMPORTANT 1: After intentDriftCount goes nonzero, an unrelated HMR cycle
+  // with empty changedFiles must reset it to 0. Without the fix, a nonzero count
+  // from a prior cycle persists and the banner shows a stale warning.
+  it('intentDriftCount resets to 0 when hmrEventVersion bumps with empty changedFiles', async () => {
+    const edit: PendingEdit = {
+      intentId: 'id-drift-reset-1',
+      source: 'src/Hero.tsx:14:5',
+      property: 'color',
+      value: 'red',
+      previousValue: 'blue',
+      timestamp: Date.now(),
+    }
+    seedEdit(edit)
+
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    document.body.appendChild(target)
+
+    // readSourceValue returns '' ('' ≠ 'blue') → divergent
+    const overrideManager = makeOverrideManager(new Map(), {
+      readSourceValue: () => '',
+    })
+
+    // Use createShadowHost + render directly so we can re-render with new props
+    const { render } = await import('preact')
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const shadow = host.attachShadow({ mode: 'open' })
+    const root = document.createElement('div')
+    shadow.appendChild(root)
+
+    // First render: hmrChangedFiles intersects → intentDriftCount should go > 0
+    await act(async () => {
+      render(
+        <Panel
+          element={target}
+          overrideManager={overrideManager as any}
+          onClose={() => {}}
+          onSelectElement={() => {}}
+          {...panelPositionProps}
+          hmrEventVersion={1}
+          hmrChangedFiles={['src/Hero.tsx']}
+          staleOverrideCount={0}
+        />,
+        root,
+      )
+      await new Promise(r => setTimeout(r, 10))
+    })
+
+    // Banner should be present after first HMR cycle (intentDriftCount > 0)
+    expect(root.querySelector('.cortex-drift-banner')).not.toBeNull()
+
+    // Second render: hmrEventVersion bumps but changedFiles is empty
+    await act(async () => {
+      render(
+        <Panel
+          element={target}
+          overrideManager={overrideManager as any}
+          onClose={() => {}}
+          onSelectElement={() => {}}
+          {...panelPositionProps}
+          hmrEventVersion={2}
+          hmrChangedFiles={[]}
+          staleOverrideCount={0}
+        />,
+        root,
+      )
+      await new Promise(r => setTimeout(r, 10))
+    })
+
+    // intentDriftCount must reset to 0 → banner hidden
+    const banner = root.querySelector('.cortex-drift-banner')
+    expect(banner).toBeNull()
+
+    // Cleanup
+    render(null, root)
+    host.remove()
+    target.remove()
+  })
+})
+
 describe('Panel T4 — per-control stale indicator', () => {
   // #16: staleSources contains the element's source → Position section NumericInput shows stale class.
   it('#16: NumericInput in PositionSection shows stale CSS class when element source is in staleSources', async () => {

@@ -729,6 +729,45 @@
   background: var(--cx-btn-hover);
 }
 
+/* ── Apply error banner (ZF0-1453) ───────────── */
+/* Surfaces sendAndAck rejections above StagingDriftBanner so the designer
+   always gets feedback on Apply failure, even in the empty-selection state.
+   Uses --cx-warning-* tokens (no hardcoded hex) for light/dark theming. */
+
+.cortex-apply-error {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--cx-sp-3) var(--cx-sp-4);
+  margin: var(--cx-sp-3) var(--cx-sp-4);
+  border-radius: var(--cx-radius-sm);
+  border: 1px solid var(--cx-warning);
+  background: var(--cx-warning-surface);
+  color: var(--cx-ink);
+  font-size: var(--cx-text-sm);
+}
+
+.cortex-apply-error__dismiss {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  margin-left: var(--cx-sp-3);
+  background: none;
+  border: none;
+  color: var(--cx-ink-secondary);
+  cursor: pointer;
+  border-radius: var(--cx-radius-sm);
+}
+
+.cortex-apply-error__dismiss:hover {
+  color: var(--cx-ink);
+  background: var(--cx-btn-hover);
+}
+
 /* ── Panel header ────────────────────────────── */
 
 .cortex-panel-header {
