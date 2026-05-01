@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'preact/hooks'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { cortexStorage } from '../persistence.js'
 import { stripLineCol, deepQuerySelectorAll } from '../selection-metadata.js'
 import type { CortexChannel, PendingEdit } from '../../adapters/types.js'
@@ -407,8 +407,7 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
   // NOTE: `version` is NOT stored in handleRef because it is a reactive value
   // from useState — it must come from the current render's closure so that dep
   // arrays in consumers (e.g. Panel.tsx drift reconcile useEffect) see the
-  // latest value. Spreading at return-time costs one object per render, which
-  // matches Panel.tsx's existing render patterns and is acceptable.
+  // latest value.
   const handleRef = useRef<Omit<StagingBufferHandle, 'version'>>({
     append,
     remove,
@@ -418,7 +417,12 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
     reconcile,
   })
 
-  return { ...handleRef.current, version }
+  // Memoize the return wrapper on `version` so consumers using the FULL handle
+  // in dep arrays (e.g. `useEffect(..., [channel, buffer])` in Panel.tsx:320,
+  // 347, 708) only re-run when the buffer actually mutates — not on every
+  // render. Without this useMemo, the spread allocates a new object every
+  // render, breaking memoization on every consumer of the handle.
+  return useMemo(() => ({ ...handleRef.current, version }), [version])
 }
 
 export { useEditStagingBuffer }
