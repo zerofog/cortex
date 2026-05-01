@@ -1,0 +1,132 @@
+cortex-editor/tests/schemas/pending-edit.test.ts
+  f51aab7bd931df2c 1-193
+cortex-editor/tests/fixtures/wire-format/invalid/edit-value-too-long.json
+  f51aab7bd931df2c 1-12
+cortex-editor/tests/fixtures/wire-format/browser-to-server/undo.json
+  f51aab7bd931df2c 1-6
+cortex-editor/tests/fixtures/wire-format/invalid/annotation-bad-status.json
+  f51aab7bd931df2c 1-12
+cortex-editor/tests/fixtures/wire-format/server-to-browser/agent-status.json
+  f51aab7bd931df2c 1-4
+cortex-editor/tests/fixtures/wire-format/server-to-browser/cortex-close.json
+  f51aab7bd931df2c 1-3
+cortex-editor/tests/fixtures/wire-format/browser-to-server/comment-fix-request.json
+  f51aab7bd931df2c 1-12
+cortex-editor/src/schemas/load-fixture.ts
+  f51aab7bd931df2c 1-31
+cortex-editor/tests/fixtures/wire-format/server-to-browser/undo-sync-status.json
+  f51aab7bd931df2c 1-4
+cortex-editor/tests/fixtures/wire-format/browser-to-server/staged-edits-sync.json
+  f51aab7bd931df2c 1-22
+cortex-editor/tests/fixtures/wire-format/invalid/staged-edit-add-missing-token.json
+  f51aab7bd931df2c 1-11
+cortex-editor/tests/fixtures/wire-format/server-to-browser/cortex-toggle.json
+  f51aab7bd931df2c 1-4
+cortex-editor/tests/fixtures/wire-format/invalid/edit-status-bad-status.json
+  f51aab7bd931df2c 1-5
+cortex-editor/vitest.config.ts
+  f51aab7bd931df2c 21
+cortex-editor/tests/fixtures/wire-format/browser-to-server/staged-edit-add.json
+  f51aab7bd931df2c 1-12
+cortex-editor/tests/fixtures/wire-format/browser-to-server/edit-inline-style.json
+  f51aab7bd931df2c 1-11
+cortex-editor/tests/schemas/wire-format.test.ts
+  f51aab7bd931df2c 1-489
+cortex-editor/tests/fixtures/wire-format/browser-to-server/staged-edit-clear.json
+  f51aab7bd931df2c 1-4
+cortex-editor/tests/fixtures/wire-format/server-to-browser/capabilities.json
+  f51aab7bd931df2c 1-8
+cortex-editor/tests/fixtures/wire-format/server-to-browser/staged-edits-discard.json
+  f51aab7bd931df2c 1-4
+cortex-editor/tests/fixtures/wire-format/invalid/edit-bad-classop-kind.json
+  f51aab7bd931df2c 1-13
+cortex-editor/tests/fixtures/wire-format/server-to-browser/hmr-applied.json
+  f51aab7bd931df2c 1-4
+cortex-editor/src/schemas/mcp-tool-inputs.ts
+  f51aab7bd931df2c 1-69
+cortex-editor/tests/fixtures/wire-format/server-to-browser/error-auth-failed.json
+  f51aab7bd931df2c 1-5
+cortex-editor/tests/fixtures/wire-format/server-to-browser/edit-status-failed.json
+  f51aab7bd931df2c 1-7
+cortex-editor/tests/fixtures/wire-format/server-to-browser/hmr-verified.json
+  f51aab7bd931df2c 1-6
+cortex-editor/src/schemas/pending-edit.ts
+  f51aab7bd931df2c 1-36
+cortex-editor/tests/fixtures/wire-format/invalid/edit-missing-property.json
+  f51aab7bd931df2c 1-8
+cortex-editor/tests/schemas/type-compat.test-d.ts
+  f51aab7bd931df2c 1-37
+cortex-editor/tests/fixtures/wire-format/server-to-browser/annotation-created.json
+  f51aab7bd931df2c 1-25
+cortex-editor/tests/fixtures/wire-format/browser-to-server/redo.json
+  f51aab7bd931df2c 1-5
+cortex-editor/tests/fixtures/wire-format/browser-to-server/cortex-closed.json
+  f51aab7bd931df2c 1-3
+cortex-editor/src/schemas/index.ts
+  f51aab7bd931df2c 1-73
+cortex-editor/tests/fixtures/wire-format/server-to-browser/edit-status-done.json
+  f51aab7bd931df2c 1-7
+cortex-editor/tests/schemas/mcp-tool-inputs.test.ts
+  f51aab7bd931df2c 1-180
+cortex-editor/tests/fixtures/wire-format/server-to-browser/redo-sync-status.json
+  f51aab7bd931df2c 1-6
+cortex-editor/tests/schemas/errors.test.ts
+  f51aab7bd931df2c 1-73
+cortex-editor/tests/fixtures/wire-format/browser-to-server/staged-edit-remove.json
+  f51aab7bd931df2c 1-5
+cortex-editor/tests/fixtures/wire-format/server-to-browser/cortex.json
+  f51aab7bd931df2c 1-3
+cortex-editor/tests/fixtures/wire-format/server-to-browser/activity-entry.json
+  f51aab7bd931df2c 1-10
+cortex-editor/tests/fixtures/wire-format/invalid/hello-missing-session-id.json
+  f51aab7bd931df2c 1-4
+cortex-editor/tests/fixtures/wire-format/server-to-browser/hello.json
+  f51aab7bd931df2c 1-27
+cortex-editor/tests/schemas/gating.test.ts
+  f51aab7bd931df2c 1-83
+cortex-editor/tests/fixtures/wire-format/browser-to-server/init.json
+  f51aab7bd931df2c 1-4
+cortex-editor/src/schemas/errors.ts
+  f51aab7bd931df2c 1-40
+cortex-editor/tests/fixtures/wire-format/browser-to-server/comment-reply.json
+  f51aab7bd931df2c 1-6
+cortex-editor/tests/fixtures/wire-format/server-to-browser/annotation-updated.json
+  f51aab7bd931df2c 1-26
+cortex-editor/tests/fixtures/wire-format/browser-to-server/edit-class-op.json
+  f51aab7bd931df2c 1-21
+cortex-editor/src/schemas/wire-format.ts
+  f51aab7bd931df2c 1-365
+cortex-editor/tests/fixtures/wire-format/server-to-browser/staged-edits-acked.json
+  f51aab7bd931df2c 1-4
+cortex-editor/tests/fixtures/wire-format/browser-to-server/clear-server-undo.json
+  f51aab7bd931df2c 1-4
+cortex-editor/src/schemas/gating.ts
+  f51aab7bd931df2c 1-49
+cortex-editor/tests/schemas/contract.test.ts
+  f51aab7bd931df2c 1-184
+cortex-editor/tests/fixtures/wire-format/browser-to-server/comment-plain.json
+  f51aab7bd931df2c 1-14
+cortex-editor/tests/fixtures/wire-format/browser-to-server/staged-edits-ready.json
+  f51aab7bd931df2c 1-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "9b9b8bd33bd570e870b33734bdf6fdcedc88abfb",
+  "prompts": {
+    "f51aab7bd931df2c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "87d6cf09-3cd1-4691-bcd3-239b6a236fb7",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 5235,
+      "total_deletions": 6,
+      "accepted_lines": 5230,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/0d0aa6de5fb66af21502b421d70c430ee78c1ca2d0cd61d7fd743035f3bb17a3"
+    }
+  }
+}
