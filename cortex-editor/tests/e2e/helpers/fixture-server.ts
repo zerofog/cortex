@@ -34,6 +34,12 @@ export const FIXTURE_URL = `${FIXTURE_ORIGIN}/`
 export const FIXTURE_SEED_SELECTOR = '#center'
 export const FIXTURE_SEED_SOURCE = 'fixture:1:1'
 
+/** Secondary seed element added in ZF0-1473 sub-A for multi-source panel specs.
+ *  Shares file path `'fixture'` with FIXTURE_SEED after `stripLineCol` —
+ *  a single `hmr-applied` message with `files: ['fixture']` reconciles both. */
+export const FIXTURE_SECONDARY_SELECTOR = '#left'
+export const FIXTURE_SECONDARY_SOURCE = 'fixture:2:1'
+
 /** Module-scoped file cache. The IIFE bundle is built once via
  *  `npm run build` before `npm run test:e2e` and doesn't change mid-run,
  *  so reading 22 times across specs+workers just wastes syscalls. A

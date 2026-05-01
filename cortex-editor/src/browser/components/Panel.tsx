@@ -180,6 +180,12 @@ export interface PanelProps {
   /** Ref written by Panel — CortexApp calls it to flush pending coalesced commits
    *  before undo (microtask commits haven't fired yet when blur+undo runs synchronously). */
   flushCommitRef?: { current: (() => void) | null }
+  /** TEST-ONLY ref written by Panel — allows the e2e test bridge to directly
+   *  append a PendingEdit to the staging buffer without going through the scrub UI.
+   *  Only populated when __CORTEX_TEST_BUILD__ is true (DCE'd from prod bundles).
+   *  Follows the same thunk pattern as flushCommitRef. Returns the intentId so
+   *  specs can pass it to staged-edits-discard messages. */
+  stageEditRef?: { current: ((source: string, property: string, value: string) => string) | null }
   /** Set by CortexApp during undo/redo — suppresses phantom re-edits from Panel re-renders. */
   undoInProgressRef?: { current: boolean }
   channel?: CortexChannel
@@ -254,6 +260,7 @@ export function Panel({
   hmrChangedFiles = [],
   staleOverrideCount = 0,
   staleSources,
+  stageEditRef,
 }: PanelProps): JSX.Element | null {
   // ALL hooks first — no conditional returns before hooks
   const [isEntering, setIsEntering] = useState(true)
@@ -720,6 +727,35 @@ export function Panel({
       return () => { flushCommitRef.current = null }
     }
   }, [flushCommitRef, commitScrub])
+
+  // TEST-ONLY: expose buffer.append via stageEditRef so e2e specs can seed
+  // the staging buffer directly (Apply button lifecycle tests). Follows the
+  // same pattern as flushCommitRef — Panel owns the assignment, CortexApp
+  // passes the ref. Only active when __CORTEX_TEST_BUILD__ is true (the ref
+  // is undefined in prod bundles because CortexApp gates the prop assignment
+  // behind __CORTEX_TEST_BUILD__).
+  useEffect(() => {
+    if (stageEditRef) {
+      stageEditRef.current = (source: string, property: string, value: string): string => {
+        // ZF0-1473 PR #93 Copilot+CodeRabbit feedback: use generateId() to
+        // avoid same-millisecond intentId collisions on rapid stage calls
+        // and to mirror the production `commitScrub` path (Panel.tsx:662)
+        // which uses generateId() too. The `test-` prefix makes test-staged
+        // intents identifiable in debug output.
+        const intentId = `test-${generateId()}`
+        buffer.append({
+          intentId,
+          source,
+          property,
+          value,
+          previousValue: '',
+          timestamp: Date.now(),
+        })
+        return intentId
+      }
+      return () => { stageEditRef.current = null }
+    }
+  }, [stageEditRef, buffer])
 
   // Scrub phase: captures previousValue on first touch per property, applies override.
   // On commit (commitRender=true): delegates to commitScrub() for atomic command creation.

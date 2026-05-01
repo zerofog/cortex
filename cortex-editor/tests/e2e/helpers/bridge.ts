@@ -61,18 +61,35 @@ export interface CortexTestBridge {
     flush: () => void
     trackPendingEdit: (editId: string, source: string, property: string, value: string) => void
     handleHMRVerified: (editId: string, match: boolean, kind: string) => void
+    _testOnly_evictStale: (source: string, property: string, pseudo?: '::before' | '::after') => void
   }
   channel?: unknown
   selectElement?: (el: HTMLElement | null) => void
   onDivergence?: (cb: (d: OverrideDivergence) => void) => () => void
+  /** TEST-ONLY: directly append an edit to Panel's staging buffer.
+   *  Allows Apply-button lifecycle specs to seed the buffer without going
+   *  through the scrub UI path. Only present in test builds
+   *  (__CORTEX_TEST_BUILD__=true); undefined in prod bundles.
+   *  Returns the intentId so callers can pass it to staged-edits-discard.
+   *  Async because Panel's useEffect populates the underlying ref AFTER
+   *  first paint — the bridge polls the ref internally with a 2s ceiling
+   *  so callers don't need their own settling logic. */
+  stageEdit?: (source: string, property: string, value: string) => Promise<string>
+  /** TEST-ONLY: invoke Panel's onEditDispatch handler directly. Allows unit
+   *  tests to seed editDispatchRef without going through the scrub commit
+   *  path. Only present in test builds; undefined in prod bundles. */
+  handleEditDispatch?: (editId: string, source: string, property: string, value: string) => void
 }
 
 /** Guard for helpers that MUST run before `page.goto`. Playwright's
  *  `addInitScript` only applies to subsequent navigations — calling a
  *  setup helper after the first goto silently no-ops, leading to a
  *  downstream "visible: false" failure that reads like a product bug.
- *  Throw at the source instead. */
-function assertPreNavigation(page: Page, helperName: string): void {
+ *  Throw at the source instead.
+ *
+ *  Exported so panel.ts and other helper modules can reuse the same guard
+ *  without duplicating the logic. */
+export function assertPreNavigation(page: Page, helperName: string): void {
   const url = page.url()
   if (url && url !== 'about:blank') {
     throw new Error(

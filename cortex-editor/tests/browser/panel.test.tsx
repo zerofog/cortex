@@ -1014,10 +1014,6 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     target.remove()
   })
 
-  // Test-level timeout 15000ms: the inner vi.waitFor uses 10000ms, but
-  // vitest's default per-test timeout is 5000ms — the inner wait is bounded
-  // by the outer one. CI under coverage instrumentation has been observed
-  // to need >5s to flush the 150ms persist debounce. (Copilot review on PR #90.)
   it('staged-edits-discard server message removes intents from canonical buffer', async () => {
     // ZF0-1452 regression: Panel.tsx's channel.onMessage handler wires
     // 'staged-edits-discard' (server-originated, emitted by the MCP server's
@@ -1028,10 +1024,13 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     // mount, simulates the server message via channel._simulateMessage,
     // and verifies the discarded intent is gone while the keeper survives.
     //
-    // Real timers (not fake): the useEffect that subscribes to
-    // channel.onMessage runs through Preact's scheduler, which is awkward
-    // to flush under fake timers; the buffer's 150ms persist debounce is
-    // short enough to wait through directly.
+    // Fake timers (for the debounce only): the 150ms persist debounce caused
+    // intermittent CI failures when Istanbul instrumentation + 4-way pool
+    // concurrency stretched the timer past 15s (ZF0-1474 retro, ZF0-1473 PR #93).
+    // Strategy: flush the useEffect handler-registration with real timers (50ms
+    // covers Preact's 35ms afterNextFrame fallback), then switch to fake timers
+    // to advance the debounce deterministically. This eliminates the flake while
+    // keeping the onMessage subscription flush correct.
 
     // Seed localStorage so useEditStagingBuffer rehydrates on mount.
     const seeded: PendingEdit[] = [
@@ -1081,38 +1080,32 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
 
     // Flush effects so the useEffect that subscribes to channel.onMessage
     // has registered the handler before we send the discard message.
+    // Real timers here: Preact's afterNextFrame() uses a 35ms rAF-fallback
+    // setTimeout — fake timers would prevent it from firing.
     await act(async () => {
-      await new Promise(r => setTimeout(r, 10))
+      await new Promise(r => setTimeout(r, 50))
     })
+
+    // Switch to fake timers now that the handler is registered, so the
+    // 150ms persist debounce can be advanced deterministically.
+    vi.useFakeTimers()
 
     // Server tells browser to discard 'discard-me'.
     await act(async () => {
       channel._simulateMessage({ type: 'staged-edits-discard', intentIds: ['discard-me'] } as any)
-      await new Promise(r => setTimeout(r, 0))
+      await Promise.resolve()
     })
 
-    // remove() schedules a debounced persist (150ms). Use vi.waitFor to
-    // poll for the persist landing — robust against concurrent-load timing
-    // pressure where a flat setTimeout(200) can be too short.
-    //
-    // Timeout 10000ms (not the smaller default): CI runs npm run test:coverage,
-    // which Istanbul-instruments every function call. Combined with vitest's
-    // 4-way pool concurrency, the 150ms persist timer has been observed to
-    // stretch past 2000ms on PR #90's first CI run (Node 22 matrix). 10s is
-    // a defensive ceiling — vi.waitFor returns as soon as the assert passes,
-    // so the happy-path cost is unchanged; only failures take the full timeout.
-    await vi.waitFor(
-      () => {
-        const remaining = cortexStorage.get('staging-buffer', [], isPendingEditArray)
-        expect(remaining).toHaveLength(1)
-      },
-      { timeout: 10000, interval: 50 },
-    )
+    // Advance past the 150ms persist debounce to trigger persistNow().
+    await act(() => {
+      vi.advanceTimersByTime(200)
+    })
 
     const remaining = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    expect(remaining).toHaveLength(1)
     expect(remaining[0].intentId).toBe('keep-me')
 
     cleanup()
     target.remove()
-  }, 15000)
+  })
 })
