@@ -1,0 +1,30 @@
+cortex-editor/src/browser/components/CortexApp.tsx
+  e5f6a3f0d5387961 143-152,297-319,955
+cortex-editor/src/browser/components/Panel.tsx
+  e5f6a3f0d5387961 183-188,263,731-754
+cortex-editor/tests/e2e/panel-apply-lifecycle.spec.ts
+  e5f6a3f0d5387961 1-312
+cortex-editor/tests/e2e/helpers/bridge.ts
+  e5f6a3f0d5387961 69-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "9ab7617b508506e7595bd2d1dd6ea6b9a9899d40",
+  "prompts": {
+    "e5f6a3f0d5387961": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e2db0a21-6c06-48fd-b378-c39d18c0bf73",
+        "model": "<synthetic>"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 471,
+      "total_deletions": 85,
+      "accepted_lines": 388,
+      "overriden_lines": 1,
+      "messages_url": "https://usegitai.com/cas/395884bfece045633e2cc41fc2116ab8add1c286e09ccaf435abf45aadca1bfb"
+    }
+  }
+}
