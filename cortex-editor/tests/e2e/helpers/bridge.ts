@@ -61,6 +61,7 @@ export interface CortexTestBridge {
     flush: () => void
     trackPendingEdit: (editId: string, source: string, property: string, value: string) => void
     handleHMRVerified: (editId: string, match: boolean, kind: string) => void
+    _testOnly_evictStale: (source: string, property: string, pseudo?: '::before' | '::after') => void
   }
   channel?: unknown
   selectElement?: (el: HTMLElement | null) => void
@@ -71,8 +72,11 @@ export interface CortexTestBridge {
  *  `addInitScript` only applies to subsequent navigations — calling a
  *  setup helper after the first goto silently no-ops, leading to a
  *  downstream "visible: false" failure that reads like a product bug.
- *  Throw at the source instead. */
-function assertPreNavigation(page: Page, helperName: string): void {
+ *  Throw at the source instead.
+ *
+ *  Exported so panel.ts and other helper modules can reuse the same guard
+ *  without duplicating the logic. */
+export function assertPreNavigation(page: Page, helperName: string): void {
   const url = page.url()
   if (url && url !== 'about:blank') {
     throw new Error(

@@ -233,7 +233,36 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     const debugFlag = !!(window as unknown as { __CORTEX_DEBUG_OVERRIDES__?: boolean }).__CORTEX_DEBUG_OVERRIDES__
     if (__CORTEX_TEST_BUILD__ && debugFlag) {
       ;(window as unknown as { __CORTEX_TEST__?: unknown }).__CORTEX_TEST__ = {
-        overrideManager,
+        overrideManager: {
+          set: overrideManager.set.bind(overrideManager),
+          flush: overrideManager.flush.bind(overrideManager),
+          trackPendingEdit: overrideManager.trackPendingEdit.bind(overrideManager),
+          handleHMRVerified: overrideManager.handleHMRVerified.bind(overrideManager),
+          // TEST-ONLY: synchronously insert a stale tuple key (same format as
+          // evictStalePendingEdits) and fire emitStale(). Bypasses the 30s TTL
+          // + 5s sweep for deterministic Playwright specs. Accesses private
+          // fields via cast — acceptable here since this entire block is DCE'd
+          // from prod bundles by the `__CORTEX_TEST_BUILD__` constant fold.
+          //
+          // Idempotency: only fires `emitStale()` when a NEW entry was added,
+          // matching production at override.ts (evictStalePendingEdits only
+          // emits when at least one entry was newly added). Calling twice with
+          // identical args is a single logical state change → single listener
+          // notification — required for tests asserting listener-call count.
+          _testOnly_evictStale: (source: string, property: string, pseudo?: '::before' | '::after'): void => {
+            // priorValuesKey format: `${source}\0${property}\0${pseudo ?? ''}`
+            const mgr = overrideManager as unknown as {
+              staleEntries: Set<string>
+              emitStale(): void
+            }
+            const key = `${source}\0${property}\0${pseudo ?? ''}`
+            const sizeBefore = mgr.staleEntries.size
+            mgr.staleEntries.add(key)
+            if (mgr.staleEntries.size !== sizeBefore) {
+              mgr.emitStale()
+            }
+          },
+        },
         channel,
         selectElement: setSelectionWithMetadata,
         // Expose the page-side `onDivergence` subscription so Playwright

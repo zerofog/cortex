@@ -52,7 +52,7 @@ export function StagingDriftBanner({
     >
       <div class="cortex-drift-banner__body">
         {hasIntent && (
-          <div class="cortex-drift-banner__row">
+          <div class="cortex-drift-banner__row" data-row="intent" data-count={intentDriftCount}>
             <div class="cortex-drift-banner__copy">
               <span class="cortex-drift-banner__title">
                 {intentDriftCount} staged edit(s) may be affected by external changes
@@ -73,7 +73,11 @@ export function StagingDriftBanner({
           </div>
         )}
         {hasStale && (
-          <div class={`cortex-drift-banner__row${hasIntent ? ' cortex-drift-banner__row--bordered' : ''}`}>
+          <div
+            class={`cortex-drift-banner__row${hasIntent ? ' cortex-drift-banner__row--bordered' : ''}`}
+            data-row="stale"
+            data-count={staleOverrideCount}
+          >
             <div class="cortex-drift-banner__copy">
               <span class="cortex-drift-banner__title">
                 {staleOverrideCount} edit(s) saved but HMR didn't apply

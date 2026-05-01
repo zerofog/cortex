@@ -19,6 +19,19 @@
     >
       Fixture content
     </section>
+    <!--
+      Secondary seed element for multi-source panel specs (ZF0-1473 sub-A).
+      Shares file path 'fixture' with #center after stripLineCol — a single
+      hmr-applied message with files: ['fixture'] reconciles both elements.
+      Inline styles match #center's pattern so reconcile has a baseline value.
+    -->
+    <div
+      id="left"
+      data-cortex-source="fixture:2:1"
+      style="padding-top: 10px; color: rgb(107, 99, 117);"
+    >
+      Fixture secondary
+    </div>
     <script src="./cortex-bundle.js"></script>
   </body>
 </html>

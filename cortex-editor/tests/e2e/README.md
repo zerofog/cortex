@@ -145,17 +145,70 @@ When a spec fails in GitHub Actions:
 - `FIXTURE_URL` — `https://cortex-fixture.test/` (synthetic, no DNS)
 - `FIXTURE_SEED_SELECTOR` — `#center`
 - `FIXTURE_SEED_SOURCE` — `fixture:1:1`
+- `FIXTURE_SECONDARY_SELECTOR` — `#left` (added ZF0-1473 sub-A; shares `'fixture'` file path with seed after `stripLineCol`)
+- `FIXTURE_SECONDARY_SOURCE` — `fixture:2:1`
 - `installFixtureServer(page)` — route-intercepts fixture HTML + bundle
 
 ### `helpers/bridge.ts`
 - `setupDebugBridge(page)` — pre-goto; sets debug flag + scoped attachShadow patch + WS stub
 - `activateDesignMode(page)` — pre-goto; sets `data-cortex-active` so Panel renders
+- `assertPreNavigation(page, helperName)` — exported guard; throws if called after `page.goto`; used by pre-goto helpers in `panel.ts`
 - `waitForBridge(page, timeout=5000)` — waits for `__CORTEX_TEST__.{overrideManager, channel}`; throws with actionable hints on timeout
 - `collectDivergences(page)` — returns `{ events, unsubscribe }`; ONE collector per Page
 - `getEditErrorCardState(page)` — shadow-DOM query for Panel's EditErrorCard
 - `clickEditErrorCardDismiss(page)` — clicks the Dismiss button; returns `boolean`
 
 Types exported: `CortexTestBridge`, `DivergenceCollector`, `EditErrorCardState`. The `OverrideDivergence` event shape is hand-copied in `bridge.ts` with a cross-ref comment pointing to `src/browser/override-bus.ts` as the source of truth — the e2e tsconfig (`rootDir: "."`) cannot reach `../../src/` and self-importing through `'cortex-editor'` resolves to gitignored `dist/`, which breaks clean-clone CI.
+
+`CortexTestBridge.overrideManager` now includes `_testOnly_evictStale(source, property, pseudo?)` — backed by `CSSOverrideManager._testOnly_evictStale`, gated by `__CORTEX_TEST_BUILD__` so prod bundles DCE the method.
+
+### Panel staging-buffer helpers (`helpers/panel.ts`)
+
+Helpers for asserting Panel header chrome and per-control stale indicators. All getters follow the 3-line shadow-root dance from `bridge.ts` and return empty-state defaults when the shadow root is not reachable.
+
+#### Send spy (pre-goto)
+
+- `installSendSpy(page)` — **pre-goto**; installs an `addInitScript` that replaces `window.__cortex_send__` with a spy pushing outbound messages to `window.__cortexSentMessages__`. MUST be called AFTER `setupDebugBridge(page)` (init scripts run in registration order — the spy must fire last to overwrite the no-op stub). The Vite channel closure-captures `__cortex_send__` at bootstrap, so the spy persists post-tombstone.
+- `getSentMessages(page)` — returns a snapshot of `window.__cortexSentMessages__` (the BrowserToServer messages captured by the spy).
+- `simulateServerMessage(page, msg)` — injects a ServerToBrowser message via `window.__cortex_channel__.handleServerMessage(msg)`.
+
+#### Apply button
+
+- `getApplyButtonState(page)` — returns `ApplyButtonState { visible, label, disabled, ariaBusy }`. Queries `[data-action="apply"]` inside the shadow root.
+- `clickApplyButton(page)` — clicks `[data-action="apply"]`; returns `true` if found.
+
+#### Drift banner
+
+- `getDriftBannerState(page)` — returns `DriftBannerState { visible, intentCount, staleCount, dismissAvailable }`. Queries `.cortex-drift-banner`; counts read from `[data-row="intent" | "stale"]`'s `data-count` attribute (set by `StagingDriftBanner.tsx`) — structurally stable against title-text edits and localization.
+- `dismissDriftBanner(page)` — clicks `.cortex-drift-banner__dismiss`; returns `true` if found.
+
+#### Apply error banner
+
+- `getApplyErrorBannerState(page)` — returns `ApplyErrorBannerState { visible, message }`. Queries `.cortex-apply-error[role="alert"]`.
+- `dismissApplyErrorBanner(page)` — clicks `.cortex-apply-error__dismiss`; returns `true` if found.
+
+#### Per-control stale indicator
+
+- `getNumericInputStaleState(page, property?)` — returns `NumericInputStaleState { stale, tooltipText, hasOverriddenClass }`. Queries `.cortex-numeric-input` in the shadow root. `stale` is true when `cortex-numeric-input--stale` class is applied; `hasOverriddenClass` is true when `cortex-numeric-input--overridden` is present (the two are mutually exclusive per NumericInput.tsx:238-239). When `property` is provided, matches the control's `__label` text exactly (case-insensitive after trim) — empty/missing labels never match, so wrong-call sites fail loudly.
+
+Types exported: `ApplyButtonState`, `DriftBannerState`, `ApplyErrorBannerState`, `NumericInputStaleState`.
+
+#### `_testOnly_evictStale` — production-code test surface
+
+`bridge.overrideManager._testOnly_evictStale(source, property, pseudo?)` synchronously inserts a stale tuple key (same format as `evictStalePendingEdits`) and fires `emitStale()`. This drives the per-control stale indicator deterministically in e2e tests without waiting for the 30s TTL + 5s sweep.
+
+Gate: the method is implemented as an inline closure inside `CortexApp.tsx`'s bridge-install block, which is itself gated on `if (__CORTEX_TEST_BUILD__ && debugFlag)`. In production bundles (built without `CORTEX_TEST_BUILD=true`), esbuild constant-folds the gate to `false` and DCEs the entire block — including the closure. The class `CSSOverrideManager` itself is unchanged; the test-only behavior lives entirely in the bridge layer. Verify after `npm run build`:
+```sh
+grep -c "_testOnly_evictStale" dist/browser/index.js  # expect 0
+```
+
+Access in specs:
+```ts
+await page.evaluate(([source, property]) => {
+  const bridge = (globalThis as unknown as { __CORTEX_TEST__: CortexTestBridge }).__CORTEX_TEST__
+  bridge.overrideManager._testOnly_evictStale(source, property)
+}, [FIXTURE_SEED_SOURCE, 'padding-top'])
+```
 
 ## Why route interception, not `cortex-demo`?
 
