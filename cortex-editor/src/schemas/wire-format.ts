@@ -210,7 +210,7 @@ export const browserToServerSchema = z.discriminatedUnion('type', [
 export type BrowserToServerSchema = z.infer<typeof browserToServerSchema>
 
 // ---------------------------------------------------------------------------
-// ServerToBrowser — all 16 variants from types.ts:148-203
+// ServerToBrowser — all 17 variants from types.ts:148-203
 // ---------------------------------------------------------------------------
 
 export const serverToBrowserSchema = z.discriminatedUnion('type', [
