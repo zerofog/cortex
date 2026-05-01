@@ -1,0 +1,24 @@
+cortex-editor/src/browser/override.ts
+  fd13519530dc5793 255-256
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "840e41e334fd5a0f9460e61d7307cd127bd44a60",
+  "prompts": {
+    "fd13519530dc5793": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ed85be58-9abc-477d-acb6-bdac551aeb30",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 7,
+      "total_deletions": 7,
+      "accepted_lines": 554,
+      "overriden_lines": 1,
+      "messages_url": "https://usegitai.com/cas/53bff62b34810a6a3e73e53ce52a07ba223ae76187a9c536439d47f1e542e360"
+    }
+  }
+}
