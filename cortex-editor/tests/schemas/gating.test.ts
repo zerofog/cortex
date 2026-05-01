@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { z } from 'zod'
+import type { SchemaViolationError as SchemaViolationErrorType } from '../../src/schemas/errors.js'
 
 // We test gating behavior by controlling VITEST env var.
 // The module caches nothing per-call, so env changes between tests work.
@@ -26,7 +27,7 @@ describe('parseOrFail (server/test mode via NODE_ENV=test)', () => {
     const { parseOrFail } = await import('../../src/schemas/gating.js')
     const { SchemaViolationError } = await import('../../src/schemas/errors.js')
     const schema = z.object({ name: z.string() })
-    let caught: SchemaViolationError | null = null
+    let caught: SchemaViolationErrorType | null = null
     try {
       parseOrFail(schema, { name: 99 }, 'my.context')
     } catch (e) {

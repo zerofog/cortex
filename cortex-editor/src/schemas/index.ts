@@ -29,7 +29,7 @@ export {
 } from './pending-edit.js'
 export type { PendingEditSchema } from './pending-edit.js'
 
-// Wire-format schemas (browser↔server)
+// Wire-format schemas (browser↔server + CLI envelopes)
 export {
   browserToServerSchema,
   serverToBrowserSchema,
