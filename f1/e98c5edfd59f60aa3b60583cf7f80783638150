@@ -1,0 +1,28 @@
+cortex-editor/src/browser/hooks/useEditStagingBuffer.ts
+  fd13519530dc5793 160-165
+cortex-editor/src/browser/override.ts
+  fd13519530dc5793 240-244,246,249
+cortex-editor/tests/browser/override.test.ts
+  fd13519530dc5793 1700-1706,1708
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "f1e98c5edfd59f60aa3b60583cf7f80783638150",
+  "prompts": {
+    "fd13519530dc5793": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ed85be58-9abc-477d-acb6-bdac551aeb30",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 2873,
+      "total_deletions": 4368,
+      "accepted_lines": 3844,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/1eec252fcc9bb019206f7e36fca638b1ae81165f1c8e42996c9cf8b003df86de"
+    }
+  }
+}
