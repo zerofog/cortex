@@ -252,8 +252,8 @@ export class CSSOverrideManager {
     }
     // Also drop any matching pendingEdits for this source/property/pseudo. Without
     // this, a user clearing/undoing an override before hmr_verified arrives leaves
-    // a lingering pendingEdit that can later TTL-evict and re-add the source to
-    // staleSources — surfacing a stale warning for an override that no longer
+    // a lingering pendingEdit that can later TTL-evict and re-add the tuple to
+    // staleEntries — surfacing a stale warning for an override that no longer
     // exists. Copilot caught this on PR #91 review.
     for (const [editId, entry] of this.pendingEdits) {
       const sourceMatches = entry.sources.includes(source)
