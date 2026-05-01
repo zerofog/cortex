@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'preact/hooks'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { cortexStorage } from '../persistence.js'
 import { stripLineCol, deepQuerySelectorAll } from '../selection-metadata.js'
 import type { CortexChannel, PendingEdit } from '../../adapters/types.js'
@@ -43,6 +43,13 @@ export interface StagingBufferHandle {
   list: () => PendingEdit[]
   clear: () => void
   size: () => number
+  /**
+   * Monotonic mutation counter. Increments on every append/remove/clear.
+   * Consumers (e.g. Panel.tsx drift reconcile useEffect) can add this to
+   * their dep array to re-run when the buffer mutates — without subscribing
+   * to unstable method references that change every render.
+   */
+  version: number
   /**
    * Re-evaluate previousValue against the live DOM for intents whose file is
    * in `changedFiles`. Returns intents whose resolved current value no longer
@@ -149,7 +156,13 @@ function defaultReadSourceValue(
  * - last-write-wins by (source\0property\0pseudo) composite key
  * - persisted to localStorage via cortexStorage, debounced ~150ms
  * - bounded at 500 entries (oldest evicted)
- * - stable handle: method identities never change across re-renders
+ * - stable method identities: append/remove/list/clear/size/reconcile are
+ *   held in a useRef and never change across re-renders. The returned wrapper
+ *   object itself is memoized via `useMemo([version])`, so its identity changes
+ *   ONLY when the buffer mutates (version bumps) — not on every render. This
+ *   lets consumer dep arrays like `useEffect(..., [buffer])` re-run only on
+ *   real buffer changes. Methods destructured from the handle remain
+ *   reference-stable across all renders.
  * - optional SyncEmitter: when provided, every mutation emits a sync message
  *   to the server-side StagedEditsCache (T1). Wire-up in Panel.tsx is T2.
  */
@@ -164,10 +177,11 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
   // size()/list() in render re-evaluate after staged-edits-discard arrives.
   // Without this, bufferRef mutations (server-driven discards) don't cause
   // Panel to re-render and the Apply button stays at "Apply (N)" after the
-  // buffer is server-side empty. We don't read the value — only setState
-  // triggers re-render, and JSX call sites re-read buffer.size() during
-  // that re-render with the correct fresh count.
-  const [, bumpVersion] = useState(0)
+  // buffer is server-side empty.
+  // ZF0-1477: version is now exposed on StagingBufferHandle so Panel.tsx's
+  // drift-reconcile useEffect can add it to the dep array and re-run when
+  // the buffer mutates (not just when an HMR event fires).
+  const [version, bumpVersion] = useState(0)
   const bumpRef = useRef(() => bumpVersion(v => v + 1))
 
   // Initialize from localStorage on first call (before useEffect so list() works immediately).
@@ -391,7 +405,11 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
   // Stable handle — every method is `useCallback([...])` over stable refs, so
   // their identities never change after first render. The ref initializer fires
   // once; no per-render reassignment needed.
-  const handleRef = useRef<StagingBufferHandle>({
+  // NOTE: `version` is NOT stored in handleRef because it is a reactive value
+  // from useState — it must come from the current render's closure so that dep
+  // arrays in consumers (e.g. Panel.tsx drift reconcile useEffect) see the
+  // latest value.
+  const handleRef = useRef<Omit<StagingBufferHandle, 'version'>>({
     append,
     remove,
     list,
@@ -400,7 +418,12 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
     reconcile,
   })
 
-  return handleRef.current
+  // Memoize the return wrapper on `version` so consumers using the FULL handle
+  // in dep arrays (e.g. `useEffect(..., [channel, buffer])` in Panel.tsx:320,
+  // 347, 708) only re-run when the buffer actually mutates — not on every
+  // render. Without this useMemo, the spread allocates a new object every
+  // render, breaking memoization on every consumer of the handle.
+  return useMemo(() => ({ ...handleRef.current, version }), [version])
 }
 
 export { useEditStagingBuffer }

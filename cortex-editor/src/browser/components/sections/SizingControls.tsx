@@ -310,6 +310,7 @@ export function SizingControls({
                 tooltip="Min Width"
                 min={0}
                 mixed={mixedProperties?.has('min-width')}
+                stale={stale}
                 onChange={handleMinWidthChange}
               />
               <button
@@ -332,6 +333,7 @@ export function SizingControls({
                 tooltip="Max Width"
                 min={0}
                 mixed={mixedProperties?.has('max-width')}
+                stale={stale}
                 onChange={handleMaxWidthChange}
               />
               <button
@@ -354,6 +356,7 @@ export function SizingControls({
                 tooltip="Min Height"
                 min={0}
                 mixed={mixedProperties?.has('min-height')}
+                stale={stale}
                 onChange={handleMinHeightChange}
               />
               <button
@@ -376,6 +379,7 @@ export function SizingControls({
                 tooltip="Max Height"
                 min={0}
                 mixed={mixedProperties?.has('max-height')}
+                stale={stale}
                 onChange={handleMaxHeightChange}
               />
               <button

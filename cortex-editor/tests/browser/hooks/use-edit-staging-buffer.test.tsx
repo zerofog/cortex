@@ -476,6 +476,49 @@ describe('useEditStagingBuffer', () => {
     unmount()
   })
 
+  // ZF0-1477 Item #1: version is exposed on StagingBufferHandle and increments on mutations
+  it('exposes a version number that starts at 0', () => {
+    const { result, unmount } = renderHook(() => useEditStagingBuffer())
+    expect(result.current.version).toBe(0)
+    unmount()
+  })
+
+  it('version increments after append', async () => {
+    const { result, unmount } = renderHook(() => useEditStagingBuffer())
+    const before = result.current.version
+    await act(() => {
+      result.current.append(makeEdit({ intentId: 'v-append' }))
+    })
+    expect(result.current.version).toBeGreaterThan(before)
+    unmount()
+  })
+
+  it('version increments after remove', async () => {
+    const { result, unmount } = renderHook(() => useEditStagingBuffer())
+    await act(() => {
+      result.current.append(makeEdit({ intentId: 'v-remove' }))
+    })
+    const before = result.current.version
+    await act(() => {
+      result.current.remove(['v-remove'])
+    })
+    expect(result.current.version).toBeGreaterThan(before)
+    unmount()
+  })
+
+  it('version increments after clear', async () => {
+    const { result, unmount } = renderHook(() => useEditStagingBuffer())
+    await act(() => {
+      result.current.append(makeEdit({ intentId: 'v-clear' }))
+    })
+    const before = result.current.version
+    await act(() => {
+      result.current.clear()
+    })
+    expect(result.current.version).toBeGreaterThan(before)
+    unmount()
+  })
+
   it('unmount flushes pending debounced write', async () => {
     const { result, unmount } = renderHook(() => useEditStagingBuffer())
 
