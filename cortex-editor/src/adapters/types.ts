@@ -1,5 +1,6 @@
 import type { Server as HttpServer } from 'http'
 import type { StyleCapability } from '../core/capabilities.js'
+import type { BrowserToServerSchema, ServerToBrowserSchema, PendingEditSchema } from '../schemas/index.js'
 
 // === Server-side adapter interface ===
 // Each framework adapter (Vite, Next.js) implements this.
@@ -76,131 +77,14 @@ export type ClassOp =
 
 // === Message protocol ===
 
-export interface PendingEdit {
-  intentId: string
-  source: string                          // file:line:col
-  property: string
-  value: string
-  previousValue: string
-  pseudo?: '::before' | '::after'
-  /** Maps to server CortexEdit.scope. 'instance' = this element only; 'all' = all sharing this class. */
-  scope?: 'instance' | 'all'
-  instanceSources?: string[]
-  timestamp: number
-}
+/** Single source of truth: inferred from pendingEditSchema in src/schemas/pending-edit.ts. */
+export type PendingEdit = PendingEditSchema
 
-export type BrowserToServer =
-  | { type: 'init'; sessionId?: string }
-  | { type: 'cortex-closed' }
-  | {
-      type: 'edit'
-      token?: string
-      protocolVersion?: number
-      editId: string
-      property: string
-      value: string
-      source: string
-      elementSelector: string
-      cssMapping?: string
-      scope?: 'instance' | 'all'
-      instanceSources?: string[]
-      currentClass?: string
-      /** When present, the pipeline treats this as a className mutation.
-       *  `property` and `value` are ignored on the classOp branch.
-       *
-       *  Discriminated by `kind`:
-       *    - 'add': pure class addition (e.g., linking a new text-component
-       *      with no prior class on the element)
-       *    - 'remove': pure class removal (e.g., unlinking to clear styles)
-       *    - 'swap': atomic remove-then-add (e.g., swapping text-body-md
-       *      for text-heading-1 in one gesture)
-       *
-       *  The kind makes caller intent explicit at the type level. Pipeline
-       *  routing and downstream rewriter calls unambiguously read the
-       *  required fields — no more optional-both-optional-neither ambiguity. */
-      classOp?: ClassOp
-      /** Compound-edit extension. When `classOp` AND at
-       *  least one of `inlineSets` / `inlineRemoves` is populated, the
-       *  pipeline routes to `handleCompoundEdit` which applies the
-       *  className mutation + the inline-style mutations to the same
-       *  JSX element in ONE read-mutate-write cycle, producing ONE
-       *  UndoFileChange entry. This makes a full user gesture (e.g.,
-       *  "unlink a text bundle" = remove class + write preserving
-       *  inline styles) atomic for undo purposes. */
-      inlineSets?: ReadonlyArray<{ property: string; value: string }>
-      /** Companion to inlineSets: properties to REMOVE from the JSX
-       *  element's inline style object (if present). Lands in the
-       *  same compound edit so "link a bundle while clearing stale
-       *  inline styles" is also atomic. */
-      inlineRemoves?: ReadonlyArray<{ property: string }>
-    }
-  | { type: 'undo'; token?: string; protocolVersion?: number; editId?: string }
-  | { type: 'redo'; token?: string; protocolVersion?: number; editId?: string }
-  | { type: 'comment'; token?: string; protocolVersion?: number; elementSource: string; text: string; elementContext?: ElementContext; currentStyles?: Record<string, string>; pinPosition?: { x: number; y: number }; kind?: AnnotationKind; fixMeta?: FixMeta }
-  | { type: 'comment-reply'; token?: string; protocolVersion?: number; annotationId: string; text: string }
-  | { type: 'clear_server_undo'; token?: string; protocolVersion?: number }
-  | { type: 'staged-edit-add'; edit: PendingEdit; token: string }
-  | { type: 'staged-edit-remove'; intentIds: string[]; token: string }
-  | { type: 'staged-edit-clear'; token: string }
-  | { type: 'staged-edits-sync'; edits: PendingEdit[]; token: string }
-  | { type: 'staged-edits-ready'; count: number; requestId: string; token: string }
+/** Single source of truth: inferred from browserToServerSchema in src/schemas/wire-format.ts. */
+export type BrowserToServer = BrowserToServerSchema
 
-export type ServerToBrowser =
-  | { type: 'cortex' }
-  | { type: 'cortex-close' }
-  | { type: 'cortex-toggle'; active: boolean }
-  | {
-      type: 'hello'
-      protocolVersion: number
-      sessionId: string
-      /** Back-compat: flat hex list used by the v1 color swatch row. */
-      swatches?: string[]
-      /** Named design-system chips (token name + browser-ready hex). */
-      colorChips?: Array<{ name: string; hex: string }>
-      /** Typography bundles — all four sub-properties present per entry. */
-      textComponents?: Array<{
-        name: string
-        fontSize: string
-        lineHeight: string
-        letterSpacing: string
-        fontWeight: string
-        fontFamily?: string
-      }>
-    }
-  | { type: 'error'; code: string; message: string; editId?: string }
-  | { type: 'edit_status'; editId: string; status: 'writing' | 'done' | 'failed' | 'cancelled'; newToken?: string; reason?: string; reason_code?: 'external_revert' | 'invalid_class_token' | 'write_failed' | 'rewriter_failed' | 'parse_failed' | 'read_failed'; strategy?: 'immediate' | 'deferred' }
-  | { type: 'undo_sync_status'; status: 'done' | 'failed'; reason?: string; reason_code?: 'empty_stack' | 'stale' | 'write_failed' }
-  | { type: 'redo_sync_status'; status: 'done' | 'failed'; reason?: string; reason_code?: 'empty_stack' | 'stale' | 'write_failed' }
-  | { type: 'hmr_verified'; editId: string; match: boolean; expected?: string; actual?: string; kind?: EditKind }
-  /** HMR cycle applied. Optional `files` carries the paths of modules
-   *  changed in this cycle (from Vite's `vite:afterUpdate` update array).
-   *  Browser uses the list to skip Panel refresh when the change is
-   *  unrelated to the currently selected element's ancestry. Older server
-   *  versions omit the field — treat absence as "all files may be
-   *  affected" (backward-compat full refresh). ZF0-1292 follow-up. */
-  | { type: 'hmr-applied'; files?: string[] }
-  | { type: 'annotation-created'; annotation: Annotation }
-  | { type: 'annotation-updated'; annotation: Annotation }
-  | { type: 'agent-status'; connected: boolean }
-  | { type: 'activity-entry'; entry: ActivityEntry }
-  | { type: 'capabilities'; systems: StyleCapability[] }
-  /** Instructs the browser to remove the specified intents from its canonical staging buffer.
-   *  Sent by the server when Claude calls cortex_discard_edits so browser + server stay in sync. */
-  | { type: 'staged-edits-discard'; intentIds: string[] }
-  /** Acknowledgement broadcast to ALL connected browser tabs via `server.hot.send`
-   *  after the server successfully forwarded a 'staged-edits-ready' notification
-   *  to at least one CLI client.
-   *  The requestId echoes the value from the originating browser message. Non-originating
-   *  tabs ignore the message because no pending sendAndAck listener has the matching
-   *  requestId. The originating tab's listener resolves on the requestId match.
-   *
-   *  Note: true per-client targeting would require moving off `server.hot` to the existing
-   *  CLI WebSocket server pattern; not blocking for current scope.
-   *
-   *  CRITICAL: this ack is NOT emitted when the forward fails (no CLI clients,
-   *  serialization error, or all client.send() calls threw). Silence lets the
-   *  browser's sendAndAck timeout trip and surface retry UI. */
-  | { type: 'staged-edits-acked'; requestId: string }
+/** Single source of truth: inferred from serverToBrowserSchema in src/schemas/wire-format.ts. */
+export type ServerToBrowser = ServerToBrowserSchema
 
 export interface ElementContext {
   tagName: string

@@ -24,9 +24,16 @@ import { UndoStack } from '../core/session/undo-stack.js'
 import { AIWriter } from '../core/ai-writer.js'
 import { DeferredWriter } from '../core/deferred-writer.js'
 import { CortexSession } from '../core/session.js'
-import { applyEditsCore, isValidPendingEdit, sliceIntentContext, checkIntentFileSize, parseIntentSource } from '../core/staged-edits.js'
+import { applyEditsCore, sliceIntentContext, checkIntentFileSize, parseIntentSource } from '../core/staged-edits.js'
 import type { StagedEditsCache } from '../core/staged-edits.js'
 import { atomicWrite } from './atomic-write.js'
+import {
+  browserToServerSchema,
+  serverToBrowserSchema,
+  cliRpcRequestSchema,
+  parseOrFail,
+  formatIssues,
+} from '../schemas/index.js'
 
 export interface CortexEditorOptions {
   /** Package names in node_modules to instrument (for library component detection). */
@@ -261,12 +268,6 @@ const ALLOWED_RPC_METHODS = new Set([
   'getPendingEdits', 'applyEdits', 'discardEdits', 'getIntentContext',
 ])
 
-/** Defense-in-depth string-array coercion for params reachable via WebSocket
- *  (Zod runs at the MCP boundary; handleRPC is also reachable directly). */
-function parseStringIds(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((x): x is string => typeof x === 'string') : []
-}
-
 function handleRPC(method: string, params: Record<string, unknown>): unknown {
   // --- Annotation methods ---
   const id = typeof params.annotationId === 'string' ? params.annotationId : ''
@@ -325,14 +326,14 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
     }
 
     case 'applyEdits': {
-      const intentIds = parseStringIds(params.intentIds)
+      const intentIds = Array.isArray(params.intentIds) ? params.intentIds.filter((x): x is string => typeof x === 'string') : []
       // ZF0-1464 deferral: production routes all found intents to Claude's Edit
       // tool. See applyEditsCore docstring for the full rationale.
       return { results: applyEditsCore(currentSession!.stagedEdits, intentIds) }
     }
 
     case 'discardEdits': {
-      const intentIds = parseStringIds(params.intentIds)
+      const intentIds = Array.isArray(params.intentIds) ? params.intentIds.filter((x): x is string => typeof x === 'string') : []
 
       currentSession!.stagedEdits.remove(intentIds)
 
@@ -802,9 +803,23 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       })
 
       // Vite 5.1+ API: server.hot replaces deprecated server.ws
-      const hotHandler = (data: BrowserToServer) => {
+      const hotHandler = (rawData: unknown) => {
         // Guard against race during session disposal or configureServer re-entry
         if (!currentSession || currentSession.isDisposed) return
+
+        // Schema validation — reject any message that doesn't match the protocol.
+        // In test mode: throws SchemaViolationError for immediate test failure.
+        // In prod: logs a warning and returns null so user sessions are not disrupted.
+        const data = parseOrFail(browserToServerSchema, rawData, 'vite.hotHandler')
+        if (data === null) {
+          // parseOrFail already warned; send a structured rejection back to the browser.
+          if (currentSession.channel) {
+            const issues = browserToServerSchema.safeParse(rawData)
+            const message = issues.success ? 'Schema validation failed' : formatIssues(issues.error.issues)
+            currentSession.channel.send({ type: 'error', code: 'SCHEMA_VIOLATION', message })
+          }
+          return
+        }
 
         // Token validation for write operations — must precede forwardToCLI to prevent
         // unauthenticated messages from being fanned out to CLI clients.
@@ -909,27 +924,14 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         }
 
         // Staging buffer sync messages — mirror browser-canonical state into server cache.
-        // Each branch validates payload shape + bounds at the WS trust boundary
-        // (defense-in-depth — ws default maxPayload is 100MB, and a compromised
-        // browser script with a valid token could otherwise OOM the dev server).
+        // Shape and bounds were already validated by browserToServerSchema at the top of
+        // hotHandler (pendingEditSchema enforces all size caps). No secondary checks needed.
         if (data.type === 'staged-edit-add') {
-          if (!isValidPendingEdit(data.edit)) {
-            console.warn('[cortex] staged-edit-add rejected: malformed or oversized edit payload')
-            return
-          }
           currentSession!.stagedEdits.append(data.edit)
           return
         }
         if (data.type === 'staged-edit-remove') {
-          if (!Array.isArray(data.intentIds)) {
-            console.warn('[cortex] staged-edit-remove rejected: intentIds is not an array')
-            return
-          }
-          // Bounded string filter — same per-id length cap as isValidPendingEdit.
-          const filtered = data.intentIds.filter(
-            (x: unknown): x is string => typeof x === 'string' && x.length > 0 && x.length <= 256,
-          )
-          currentSession!.stagedEdits.remove(filtered)
+          currentSession!.stagedEdits.remove(data.intentIds)
           return
         }
         if (data.type === 'staged-edit-clear') {
@@ -937,19 +939,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           return
         }
         if (data.type === 'staged-edits-sync') {
-          if (!Array.isArray(data.edits)) {
-            console.warn('[cortex] staged-edits-sync rejected: edits is not an array')
-            return
-          }
-          // Drop invalid entries rather than rejecting the whole batch — one
-          // malformed edit shouldn't lose 499 valid ones during multi-tab merge.
-          const validEdits = data.edits.filter(isValidPendingEdit)
-          if (validEdits.length < data.edits.length) {
-            console.warn(
-              `[cortex] staged-edits-sync filtered ${data.edits.length - validEdits.length} invalid edits`,
-            )
-          }
-          currentSession!.stagedEdits.mergeFullSync(validEdits)
+          currentSession!.stagedEdits.mergeFullSync(data.edits)
           return
         }
         // 'staged-edits-ready' is forwarded to CLI clients via forwardToCLI() at the top
@@ -1000,14 +990,21 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       // has no per-client targeting — all messages go to all connected tabs.
       // Both retained for intent clarity in calling code.
       // forwardToCLI echoes server→browser messages to connected CLI clients.
+      //
+      // Outbound validation via serverToBrowserSchema (Boundary 3):
+      // In test mode: throws SchemaViolationError on drift (catches our own bugs early).
+      // In prod: warns and STILL sends — never silently drop a message to the user session.
+      function validateAndSend(msg: ServerToBrowser): void {
+        parseOrFail(serverToBrowserSchema, msg, 'vite.channel.send')
+        server.hot.send(CORTEX_MSG_EVENT, msg)
+        forwardToCLI(msg)
+      }
       currentSession.channel = {
         send(msg: ServerToBrowser) {
-          server.hot.send(CORTEX_MSG_EVENT, msg)
-          forwardToCLI(msg)
+          validateAndSend(msg)
         },
         broadcast(msg: ServerToBrowser) {
-          server.hot.send(CORTEX_MSG_EVENT, msg)
-          forwardToCLI(msg)
+          validateAndSend(msg)
         },
         onMessage(handler: (msg: BrowserToServer) => void): () => void {
           messageHandlers.push(handler)
@@ -1183,9 +1180,16 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
 
             // Handle RPC requests from CLI (annotation queries)
             if (type === 'cortex-rpc') {
-              const requestId = (parsed as Record<string, unknown>).requestId as string
-              const method = (parsed as Record<string, unknown>).method as string
-              const params = ((parsed as Record<string, unknown>).params || {}) as Record<string, unknown>
+              // Schema validation — rejects malformed envelopes before dispatching.
+              const rpcMsg = parseOrFail(cliRpcRequestSchema, parsed, 'vite.cliDispatcher.cortex-rpc')
+              if (rpcMsg === null) {
+                // parseOrFail already warned; send a generic error (no requestId available to echo)
+                try { ws.send(JSON.stringify({ type: 'error', code: 'SCHEMA_VIOLATION', message: 'Invalid cortex-rpc envelope' })) } catch {}
+                return
+              }
+              const requestId = rpcMsg.requestId
+              const method = rpcMsg.method
+              const params = rpcMsg.params
               if (!ALLOWED_RPC_METHODS.has(method)) {
                 try { ws.send(JSON.stringify({ type: 'cortex-rpc-error', requestId, error: `Unknown RPC method: ${method}` })) } catch {}
                 return

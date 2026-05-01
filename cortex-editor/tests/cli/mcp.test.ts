@@ -693,4 +693,52 @@ describe('cortex mcp', () => {
       expect(params.content).toContain('\\n')
     })
   })
+
+  // ── ZF0-1500: MCP tool input schema validation (Boundary 2) ──────────────
+  // The MCP SDK validates the inputSchema before invoking the tool handler.
+  // When validation fails, it returns a result with isError: true containing
+  // the Zod validation error details. It does NOT throw.
+  describe('ZF0-1500: MCP tool inputs use centralized schemas', () => {
+    it('cortex_get_details rejects missing annotationId with MCP validation error', async () => {
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      const result = await client.callTool({ name: 'cortex_get_details', arguments: {} })
+      expect(result.isError).toBe(true)
+      const text = (result.content as Array<{ text: string }>)[0].text
+      expect(text).toContain('annotationId')
+    })
+
+    it('cortex_resolve rejects missing summary field with MCP validation error', async () => {
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      const result = await client.callTool({
+        name: 'cortex_resolve',
+        arguments: { annotationId: 'ann-1' }, // missing summary
+      })
+      expect(result.isError).toBe(true)
+      const text = (result.content as Array<{ text: string }>)[0].text
+      expect(text).toContain('summary')
+    })
+
+    it('cortex_apply_edits rejects non-array intentIds with MCP validation error', async () => {
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      const result = await client.callTool({
+        name: 'cortex_apply_edits',
+        arguments: { intentIds: 'not-an-array' },
+      })
+      expect(result.isError).toBe(true)
+      const text = (result.content as Array<{ text: string }>)[0].text
+      expect(text).toContain('intentIds')
+    })
+
+    it('cortex_get_intent_context rejects missing intentId with MCP validation error', async () => {
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      const result = await client.callTool({ name: 'cortex_get_intent_context', arguments: {} })
+      expect(result.isError).toBe(true)
+      const text = (result.content as Array<{ text: string }>)[0].text
+      expect(text).toContain('intentId')
+    })
+  })
 })

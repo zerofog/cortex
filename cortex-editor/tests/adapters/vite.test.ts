@@ -8,6 +8,7 @@ import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting, _getSessionTok
 import { AnnotationStore } from '../../src/core/annotations.js'
 import { makeEdit } from '../core/helpers.js'
 import type { Plugin } from 'vite'
+import { SchemaViolationError, browserToServerSchema } from '../../src/schemas/index.js'
 
 // Mock loadEnv from vite so tests can control CORTEX_API_KEY availability
 const { mockLoadEnv } = vi.hoisted(() => ({
@@ -364,15 +365,15 @@ describe('cortexEditor Vite plugin', () => {
       const server = mockServer()
       ;(plugin.configureServer as Function)(server)
       const token = _getSessionTokenForTesting()!
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-      // Missing required fields (intentId, source, etc.) — fails isValidPendingEdit.
-      server.hot._trigger('cortex:msg', { type: 'staged-edit-add', edit: { property: 'color' }, token })
+      // Missing required fields (intentId, source, etc.) — fails browserToServerSchema in test mode.
+      // parseOrFail throws SchemaViolationError (test mode); the message is no longer console.warn'd.
+      expect(() => {
+        server.hot._trigger('cortex:msg', { type: 'staged-edit-add', edit: { property: 'color' }, token })
+      }).toThrow(/vite\.hotHandler/)
 
       const cache = _getStagedEditsForTesting()
       expect(cache!.list()).toEqual([])
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('staged-edit-add rejected'))
-      warnSpy.mockRestore()
     })
 
     it('staged-edit-remove drops specified intentIds from cache', () => {
@@ -2365,5 +2366,89 @@ describe('staged-edits-ready ack protocol', () => {
       (e) => e.event === 'cortex:msg' && (e.data as Record<string, unknown>).type === 'staged-edits-acked',
     )
     expect(ackMessages).toHaveLength(0)
+  })
+})
+
+// ── ZF0-1500: schema validation at vite.ts trust boundaries ─────────────────
+
+describe('ZF0-1500: hotHandler schema validation (Boundary 1)', () => {
+  function setupServer() {
+    const plugin = initPlugin({ root: '/project' })
+    const server = mockServer()
+    ;(plugin.configureServer as Function)(server)
+    const token = _getSessionTokenForTesting()!
+    return { server, token }
+  }
+
+  it('rejects a malformed staged-edit-add (missing intentId) with SchemaViolationError in test mode', () => {
+    const { server, token } = setupServer()
+    expect(() => {
+      server.hot._trigger('cortex:msg', { type: 'staged-edit-add', edit: { property: 'color' }, token })
+    }).toThrow(SchemaViolationError)
+    expect(_getStagedEditsForTesting()!.list()).toEqual([])
+  })
+
+  it('rejects a malformed comment message (missing elementSource) with SchemaViolationError in test mode', () => {
+    const { server, token } = setupServer()
+    expect(() => {
+      server.hot._trigger('cortex:msg', { type: 'comment', text: 'hello', token })
+    }).toThrow(SchemaViolationError)
+  })
+
+  it('rejects a completely unknown message type with SchemaViolationError in test mode', () => {
+    const { server } = setupServer()
+    expect(() => {
+      server.hot._trigger('cortex:msg', { type: 'not-a-real-type', foo: 'bar' })
+    }).toThrow(SchemaViolationError)
+  })
+
+  it('passes valid staged-edit-add without throwing', () => {
+    const { server, token } = setupServer()
+    const validEdit = makeEdit({ intentId: 'schema-test', property: 'color', value: 'red' })
+    expect(() => {
+      server.hot._trigger('cortex:msg', { type: 'staged-edit-add', edit: validEdit, token })
+    }).not.toThrow()
+    expect(_getStagedEditsForTesting()!.list()).toHaveLength(1)
+  })
+})
+
+describe('ZF0-1500: channel.send outbound validation (Boundary 3)', () => {
+  it('throws SchemaViolationError in test mode when channel.send receives a drift message', () => {
+    const plugin = initPlugin({ root: '/project' })
+    const server = mockServer()
+    ;(plugin.configureServer as Function)(server)
+    const channel = getChannel()!
+    // Send a structurally invalid outbound message (unknown type)
+    expect(() => {
+      channel.send({ type: 'not-a-server-type' } as never)
+    }).toThrow(SchemaViolationError)
+  })
+
+  it('sends valid messages without throwing', () => {
+    const plugin = initPlugin({ root: '/project' })
+    const server = mockServer()
+    ;(plugin.configureServer as Function)(server)
+    const channel = getChannel()!
+    expect(() => {
+      channel.send({ type: 'agent-status', connected: false })
+    }).not.toThrow()
+    const sent = server._sent.find((e) => e.event === 'cortex:msg' && (e.data as Record<string, unknown>).type === 'agent-status')
+    expect(sent).toBeDefined()
+  })
+})
+
+describe('ZF0-1500: hot-path performance — browserToServerSchema', () => {
+  it('schema parse on hot path is fast (≤200ms for 10k iterations)', () => {
+    const payload = {
+      type: 'staged-edit-add' as const,
+      edit: makeEdit({ intentId: 'perf-test', property: 'color', value: 'red' }),
+      token: 'test-token',
+    }
+    const start = performance.now()
+    for (let i = 0; i < 10000; i++) {
+      browserToServerSchema.safeParse(payload)
+    }
+    const elapsed = performance.now() - start
+    expect(elapsed).toBeLessThan(200)
   })
 })
