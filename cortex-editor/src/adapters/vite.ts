@@ -31,6 +31,7 @@ import {
   browserToServerSchema,
   serverToBrowserSchema,
   cliRpcRequestSchema,
+  pendingEditSchema,
   parseOrFail,
   formatIssues,
 } from '../schemas/index.js'
@@ -52,6 +53,16 @@ const CORTEX_MSG_EVENT = 'cortex:msg'
 // CLI WebSocket bridge constants
 const ALLOWED_ORIGINS = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/
 const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close'])
+
+/** All BrowserToServer type literals — derived from the schema's discriminated
+ *  union options. Single source of truth: if a new variant lands in the schema,
+ *  it appears here automatically. The type-level assertions below force tsc to
+ *  fail if the explicit allowlists below ever drift from the schema. */
+const ALL_BROWSER_TO_SERVER_TYPES = browserToServerSchema.options.map(
+  (opt) => opt.shape.type.value,
+) as readonly BrowserToServer['type'][]
+type BrowserToServerType = BrowserToServer['type']
+
 /** Browser-to-server message types that should be forwarded to CLI clients (MCP).
  *  High-frequency sync messages (staged-edit-add/-remove/-clear/-sync) are
  *  intentionally NOT forwarded — they're internal browser↔Vite-cache sync,
@@ -65,14 +76,31 @@ const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close'])
  *  browser-originated; the rest are server-originated (forwarded via the
  *  channel.send → forwardToCLI path at the bottom of configureServer, not here).
  *  'init' is browser-originated but MCP does not branch on it. */
-const BROWSER_TO_CLI_FORWARD_TYPES: ReadonlySet<string> = new Set([
+const BROWSER_TO_CLI_FORWARD_TYPES_ARRAY = [
   'cortex-closed',
   'staged-edits-ready',
-])
+] as const satisfies readonly BrowserToServerType[]
+const BROWSER_TO_CLI_FORWARD_TYPES: ReadonlySet<string> = new Set(BROWSER_TO_CLI_FORWARD_TYPES_ARRAY)
+
 /** Message types that require token auth — all write/mutation operations.
- *  Update this union when adding new write message types to BrowserToServer. */
-type WriteMessageType = 'edit' | 'undo' | 'redo' | 'comment' | 'comment-reply' | 'clear_server_undo' | 'staged-edit-add' | 'staged-edit-remove' | 'staged-edit-clear' | 'staged-edits-sync' | 'staged-edits-ready'
-const WRITE_TYPES: Set<WriteMessageType> = new Set(['edit', 'undo', 'redo', 'comment', 'comment-reply', 'clear_server_undo', 'staged-edit-add', 'staged-edit-remove', 'staged-edit-clear', 'staged-edits-sync', 'staged-edits-ready'])
+ *  The `satisfies readonly BrowserToServerType[]` clause forces tsc to reject
+ *  any entry that isn't a real BrowserToServer variant — preventing silent
+ *  drift from the schema. */
+const WRITE_TYPES_ARRAY = [
+  'edit',
+  'undo',
+  'redo',
+  'comment',
+  'comment-reply',
+  'clear_server_undo',
+  'staged-edit-add',
+  'staged-edit-remove',
+  'staged-edit-clear',
+  'staged-edits-sync',
+  'staged-edits-ready',
+] as const satisfies readonly BrowserToServerType[]
+type WriteMessageType = typeof WRITE_TYPES_ARRAY[number]
+const WRITE_TYPES: ReadonlySet<WriteMessageType> = new Set(WRITE_TYPES_ARRAY)
 const HEARTBEAT_INTERVAL = 30_000
 const MAX_CLI_CONNECTIONS = 5
 
@@ -939,7 +967,18 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           return
         }
         if (data.type === 'staged-edits-sync') {
-          currentSession!.stagedEdits.mergeFullSync(data.edits)
+          // Graceful per-element filtering — drop invalid entries rather than rejecting
+          // the whole batch. One malformed edit shouldn't lose 499 valid ones during
+          // multi-tab merge. The envelope schema accepts z.array(z.unknown()) so we
+          // can validate each entry here and warn on drops.
+          const results = data.edits.map((e) => pendingEditSchema.safeParse(e))
+          const validEdits = results.flatMap((r) => (r.success ? [r.data] : []))
+          if (validEdits.length < data.edits.length) {
+            console.warn(
+              `[cortex] staged-edits-sync filtered ${data.edits.length - validEdits.length} invalid edits`,
+            )
+          }
+          currentSession!.stagedEdits.mergeFullSync(validEdits)
           return
         }
         // 'staged-edits-ready' is forwarded to CLI clients via forwardToCLI() at the top

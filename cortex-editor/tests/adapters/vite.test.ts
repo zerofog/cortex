@@ -8,7 +8,7 @@ import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting, _getSessionTok
 import { AnnotationStore } from '../../src/core/annotations.js'
 import { makeEdit } from '../core/helpers.js'
 import type { Plugin } from 'vite'
-import { SchemaViolationError, browserToServerSchema } from '../../src/schemas/index.js'
+import { SchemaViolationError, browserToServerSchema, serverToBrowserSchema } from '../../src/schemas/index.js'
 
 // Mock loadEnv from vite so tests can control CORTEX_API_KEY availability
 const { mockLoadEnv } = vi.hoisted(() => ({
@@ -370,7 +370,7 @@ describe('cortexEditor Vite plugin', () => {
       // parseOrFail throws SchemaViolationError (test mode); the message is no longer console.warn'd.
       expect(() => {
         server.hot._trigger('cortex:msg', { type: 'staged-edit-add', edit: { property: 'color' }, token })
-      }).toThrow(/vite\.hotHandler/)
+      }).toThrow(SchemaViolationError)
 
       const cache = _getStagedEditsForTesting()
       expect(cache!.list()).toEqual([])
@@ -2450,5 +2450,96 @@ describe('ZF0-1500: hot-path performance — browserToServerSchema', () => {
     }
     const elapsed = performance.now() - start
     expect(elapsed).toBeLessThan(200)
+  })
+})
+
+// ── ZF0-1500 review: graceful staged-edits-sync (IMPORTANT 1) ──────────────
+
+describe('ZF0-1500 review: staged-edits-sync graceful per-element filtering', () => {
+  it('drops only invalid entries from a mixed batch, keeps valid ones, warns on drops', () => {
+    const plugin = initPlugin()
+    const server = mockServer()
+    ;(plugin.configureServer as Function)(server)
+    const token = _getSessionTokenForTesting()!
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const validA = makeEdit({ intentId: 'valid-a', property: 'color', value: 'red' })
+    const validB = makeEdit({ intentId: 'valid-b', property: 'fontSize', value: '14px' })
+    const malformed = { property: 'broken' } // missing intentId, source, value, etc.
+
+    expect(() => {
+      server.hot._trigger('cortex:msg', {
+        type: 'staged-edits-sync',
+        edits: [validA, malformed, validB],
+        token,
+      })
+    }).not.toThrow()
+
+    const cache = _getStagedEditsForTesting()!
+    const ids = cache.list().map((e) => e.intentId).sort()
+    expect(ids).toEqual(['valid-a', 'valid-b'])
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('staged-edits-sync filtered 1 invalid edits'),
+    )
+    warnSpy.mockRestore()
+  })
+})
+
+// ── ZF0-1500 review: derived WRITE_TYPES (IMPORTANT 2) ─────────────────────
+
+describe('ZF0-1500 review: WRITE_TYPES is a subset of schema-derived BrowserToServer types', () => {
+  it('every WRITE_TYPES entry is a real BrowserToServer variant from the schema', () => {
+    // Pin the runtime invariant matching the satisfies-clause at module-load.
+    // If a future ticket renames a type literal in the schema but forgets to
+    // update WRITE_TYPES_ARRAY, this test fails before the auth gate can be
+    // silently bypassed.
+    const allTypes = browserToServerSchema.options.map((opt) => opt.shape.type.value)
+    // WRITE_TYPES is exported indirectly — re-derive the array shape to assert.
+    const writeTypes = [
+      'edit', 'undo', 'redo', 'comment', 'comment-reply', 'clear_server_undo',
+      'staged-edit-add', 'staged-edit-remove', 'staged-edit-clear',
+      'staged-edits-sync', 'staged-edits-ready',
+    ]
+    for (const t of writeTypes) {
+      expect(allTypes).toContain(t)
+    }
+  })
+})
+
+// ── ZF0-1500 review: intentId element bounds (MINOR 3) ─────────────────────
+
+describe('ZF0-1500 review: intentIds elements are bounded by MAX_INTENT_ID_BYTES', () => {
+  it('rejects a staged-edit-remove with a 257-char intentId (path points to array index)', () => {
+    const oversize = 'x'.repeat(257)
+    const result = browserToServerSchema.safeParse({
+      type: 'staged-edit-remove',
+      intentIds: ['ok', oversize],
+      token: 't',
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      // Path should include the array index for the offending entry.
+      const issuePaths = result.error.issues.map((iss) => iss.path.join('.'))
+      expect(issuePaths.some((p) => p.includes('intentIds.1'))).toBe(true)
+    }
+  })
+
+  it('rejects a staged-edits-discard with a 257-char intentId', () => {
+    const oversize = 'x'.repeat(257)
+    const result = serverToBrowserSchema.safeParse({
+      type: 'staged-edits-discard',
+      intentIds: [oversize],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts a staged-edit-remove with an at-cap (256-char) intentId', () => {
+    const atCap = 'x'.repeat(256)
+    const result = browserToServerSchema.safeParse({
+      type: 'staged-edit-remove',
+      intentIds: [atCap],
+      token: 't',
+    })
+    expect(result.success).toBe(true)
   })
 })

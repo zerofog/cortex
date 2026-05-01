@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { pendingEditSchema } from './pending-edit.js'
+import { pendingEditSchema, MAX_INTENT_ID_BYTES } from './pending-edit.js'
 
 // ---------------------------------------------------------------------------
 // Shared sub-schemas
@@ -160,7 +160,7 @@ export const browserToServerSchema = z.discriminatedUnion('type', [
   // 10. staged-edit-remove
   z.object({
     type: z.literal('staged-edit-remove'),
-    intentIds: z.array(z.string()),
+    intentIds: z.array(z.string().min(1).max(MAX_INTENT_ID_BYTES)),
     token: z.string(),
   }),
 
@@ -170,10 +170,14 @@ export const browserToServerSchema = z.discriminatedUnion('type', [
     token: z.string(),
   }),
 
-  // 12. staged-edits-sync
+  // 12. staged-edits-sync — envelope-only validation (graceful degradation).
+  // Per-element validation is intentionally deferred to the consumer (vite.ts):
+  // a single malformed entry in a 500-edit multi-tab merge sync should NOT
+  // reject the entire batch and lose 499 valid edits. Consumer filters
+  // per-element via pendingEditSchema.safeParse and warns on drops.
   z.object({
     type: z.literal('staged-edits-sync'),
-    edits: z.array(pendingEditSchema),
+    edits: z.array(z.unknown()),
     token: z.string(),
   }),
 
@@ -312,7 +316,7 @@ export const serverToBrowserSchema = z.discriminatedUnion('type', [
   // 16. staged-edits-discard
   z.object({
     type: z.literal('staged-edits-discard'),
-    intentIds: z.array(z.string()),
+    intentIds: z.array(z.string().min(1).max(MAX_INTENT_ID_BYTES)),
   }),
 
   // 17. staged-edits-acked
