@@ -1630,6 +1630,37 @@ describe('CSSOverrideManager', () => {
 
       unsub() // no-op after dispose, but must not throw
     })
+
+    // ZF0-1478 #2: Two stale properties on the same source — verifying one must NOT clear the other
+    it('#ZF0-1478: verifying one stale property on a source does not clear the other stale property', () => {
+      // Two pending edits on the same source but different properties
+      manager.set('src/Hero.tsx:5:3', 'color', 'red')
+      manager.set('src/Hero.tsx:5:3', 'font-size', '16px')
+      flushRAF()
+      manager.trackPendingEdit('edit-color', 'src/Hero.tsx:5:3', 'color', 'red')
+      manager.trackPendingEdit('edit-fontsize', 'src/Hero.tsx:5:3', 'font-size', '16px')
+
+      // Advance past TTL — both edits evict and both stale tuples are recorded
+      vi.advanceTimersByTime(36_000)
+      manager.trackPendingEdit('edit-trigger', 'unrelated:1:1', 'margin', '0')
+
+      // Both stale properties should be reflected under the same source
+      const afterEviction = manager.getStaleSources()
+      expect(afterEviction).toEqual(new Set(['src/Hero.tsx:5:3']))
+
+      // Re-register a new pending edit for color so handleHMRVerified can find it
+      manager.trackPendingEdit('edit-color-2', 'src/Hero.tsx:5:3', 'color', 'red')
+      manager.handleHMRVerified('edit-color-2', true)
+      manager.onHMRApplied()
+      flushRAF()
+      flushRAF()
+
+      // After verifying 'color', the font-size stale tuple must still exist →
+      // the source should STILL appear in getStaleSources().
+      // Under the pre-fix Set<string> keyed by source, staleSources.delete(source)
+      // removes the source entirely even though font-size is still stale.
+      expect(manager.getStaleSources()).toEqual(new Set(['src/Hero.tsx:5:3']))
+    })
   })
 
   it('two sequential edit cycles both verify and remove their overrides', () => {
