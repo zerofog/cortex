@@ -379,13 +379,17 @@ export function Panel({
       overrideManager.readSourceValue.bind(overrideManager),
     )
     setIntentDriftCount(result.divergent.length)
-  // hmrEventVersion is the stable trigger (monotonic counter that bumps on every
-  // hmr-applied event regardless of selection). hmrChangedFiles is the payload —
-  // both captured via closure. Re-runs only when hmrEventVersion changes (each
-  // hmr-applied event), not on every hmrChangedFiles array allocation (which
-  // changes reference every render).
+  // Dual-trigger design (ZF0-1477): re-run when HMR fires (hmrEventVersion) OR
+  // when the buffer mutates (buffer.version). hmrEventVersion is a stable
+  // monotonic counter that bumps on every hmr-applied event regardless of
+  // selection. buffer.version is the monotonic mutation counter from
+  // useEditStagingBuffer — increments on every append/remove/clear so that
+  // removing a previously divergent intent without a new HMR event correctly
+  // re-evaluates and clears the drift count. hmrChangedFiles is captured via
+  // closure (both triggers) — omitted from deps because it changes reference
+  // every render (array allocation) which would defeat the stable-trigger design.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hmrEventVersion])
+  }, [hmrEventVersion, buffer.version])
 
   // Pseudo-element tab state — internal to Panel
   const [activePseudo, setActivePseudo] = useState<'element' | '::before' | '::after'>('element')

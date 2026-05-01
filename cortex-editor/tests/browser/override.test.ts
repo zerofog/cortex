@@ -1468,8 +1468,11 @@ describe('CSSOverrideManager', () => {
       flushRAF()
       // If emitStale threw through remove(), the rebuild would not run — textContent would be stale.
       // After removing 'a:1:1' color override, the sheet must not contain that rule.
+      // The selector is serialized with CSS.escape, so the escaped form is 'a\:1\:1' (one backslash
+      // before each colon). Asserting the unescaped literal 'a:1:1' is unfalsifiable because the
+      // stylesheet text never contains the bare colon form — even when the rule is still present.
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).not.toContain('a:1:1')
+      expect(styleEl.textContent).not.toContain('a\\:1\\:1')
 
       unsub1()
       unsub2()
@@ -1629,6 +1632,87 @@ describe('CSSOverrideManager', () => {
       expect(internalListeners.size).toBe(0)
 
       unsub() // no-op after dispose, but must not throw
+    })
+
+    // ZF0-1478 #2: Two stale properties on the same source — verifying one must NOT clear the other
+    it('#ZF0-1478: verifying one stale property on a source does not clear the other stale property', () => {
+      // Two pending edits on the same source but different properties
+      manager.set('src/Hero.tsx:5:3', 'color', 'red')
+      manager.set('src/Hero.tsx:5:3', 'font-size', '16px')
+      flushRAF()
+      manager.trackPendingEdit('edit-color', 'src/Hero.tsx:5:3', 'color', 'red')
+      manager.trackPendingEdit('edit-fontsize', 'src/Hero.tsx:5:3', 'font-size', '16px')
+
+      // Advance past TTL — both edits evict and both stale tuples are recorded
+      vi.advanceTimersByTime(36_000)
+      manager.trackPendingEdit('edit-trigger', 'unrelated:1:1', 'margin', '0')
+
+      // Both stale properties should be reflected under the same source
+      const afterEviction = manager.getStaleSources()
+      expect(afterEviction).toEqual(new Set(['src/Hero.tsx:5:3']))
+
+      // Re-register a new pending edit for color so handleHMRVerified can find it
+      manager.trackPendingEdit('edit-color-2', 'src/Hero.tsx:5:3', 'color', 'red')
+      manager.handleHMRVerified('edit-color-2', true)
+      manager.onHMRApplied()
+      flushRAF()
+      flushRAF()
+
+      // After verifying 'color', the font-size stale tuple must still exist →
+      // the source should STILL appear in getStaleSources().
+      // Under the pre-fix Set<string> keyed by source, staleSources.delete(source)
+      // removes the source entirely even though font-size is still stale.
+      expect(manager.getStaleSources()).toEqual(new Set(['src/Hero.tsx:5:3']))
+    })
+
+    // ZF0-1479 #1: Timer-driven sweep fires stale signal during idle session
+    // Verifies that evictStalePendingEdits() runs autonomously via setInterval
+    // even when the user makes no further edits and no hmr_verified arrives.
+    it('#ZF0-1479: timer-driven sweep fires stale signal without new trackPendingEdit or hmr_verified', () => {
+      const staleSets: Array<Set<string>> = []
+      const unsub = manager.onStale(s => staleSets.push(new Set(s)))
+
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+
+      // Advance past TTL (35s) + one sweep period (5s) without any user action.
+      // DO NOT call trackPendingEdit again. DO NOT call handleHMRVerified.
+      // The timer-driven sweep must fire evictStalePendingEdits autonomously.
+      vi.advanceTimersByTime(40_000)
+
+      expect(staleSets).toHaveLength(1)
+      expect(staleSets[0]).toEqual(new Set(['a:1:1']))
+
+      unsub()
+    })
+
+    // ZF0-1479 #2: Timer disarmed on dispose — sweepTimerId is null after dispose
+    // Verifies that the setInterval handle is cleared when dispose() is called.
+    // Uses internal field inspection (same pattern as the staleListeners.size check
+    // in the existing dispose test) because staleListeners.clear() runs during dispose,
+    // which prevents a listener from observing post-dispose interval firings directly.
+    it('#ZF0-1479: sweep timer is disarmed on dispose, sweepTimerId is null after dispose', () => {
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+
+      // Confirm the timer was armed by trackPendingEdit. Pair `toBeDefined`
+      // (catches rename: cast → undefined) with `not.toBeNull` (catches arm
+      // failure: field stays at initial null). Vitest's fake `setInterval` may
+      // return either a number (browser-like) or a Sinon timer object — both
+      // satisfy these two checks, so the assertion is implementation-agnostic.
+      // A bare `not.toBeNull()` would silently pass against `undefined`
+      // (Copilot caught this on PR #92).
+      const internalBefore = (manager as unknown as { sweepTimerId: number | null }).sweepTimerId
+      expect(internalBefore).toBeDefined()
+      expect(internalBefore).not.toBeNull()
+
+      // dispose() must disarm the timer.
+      manager.dispose()
+
+      const internalAfter = (manager as unknown as { sweepTimerId: number | null }).sweepTimerId
+      expect(internalAfter).toBeNull()
     })
   })
 

@@ -217,6 +217,187 @@ describe('StagingDriftBanner', () => {
     expect(onIntentRefresh).toHaveBeenCalledTimes(1) // still 1, not 2
   })
 
+  // ZF0-1477 Item #5: dismissed reset only fires on strict increase (edge-trigger, not level-trigger)
+  //
+  // Falsifiability discipline (per review): each test below is a multi-step
+  // sequence where the BUGGY level-trigger code (`setDismissed(false)` on any
+  // count change) produces a different visible state than the FIXED edge-
+  // trigger code (`>` strict-increase guard) at an intermediate step. The
+  // intermediate-step assertion is the discriminator. Single-step transitions
+  // like `1→2` (increase) are tautological — both old and new code reopen on
+  // increase, so they cannot distinguish the two implementations.
+
+  // intent-axis decrease — buggy code reopens at the 2→1 step; fixed code stays dismissed.
+  it('intent-axis: stays dismissed across 2→1, reopens on 1→2', async () => {
+    await act(() => {
+      render(
+        <StagingDriftBanner
+          intentDriftCount={2}
+          staleOverrideCount={0}
+          onIntentRefresh={() => {}}
+          onStaleRefresh={() => {}}
+          onDismiss={() => {}}
+        />,
+        container,
+      )
+    })
+    const dismissBtn = container.querySelector('[data-action="dismiss"]') as HTMLButtonElement
+    await act(() => { dismissBtn.click() })
+    expect(container.querySelector('[role="status"]')).toBeNull()
+
+    // 2 → 1 (decrease). Buggy code reopens here; fixed code keeps it hidden.
+    await act(() => {
+      render(
+        <StagingDriftBanner
+          intentDriftCount={1}
+          staleOverrideCount={0}
+          onIntentRefresh={() => {}}
+          onStaleRefresh={() => {}}
+          onDismiss={() => {}}
+        />,
+        container,
+      )
+    })
+    // KEY ASSERTION: discriminates buggy vs fixed. Banner must remain hidden.
+    expect(container.querySelector('[role="status"]')).toBeNull()
+
+    // 1 → 2 (strict increase). Both old and new code reopen here, but the
+    // assertion above already proved the dismissed state survived the decrease.
+    // This step also confirms the fixed code does the right thing on increase.
+    await act(() => {
+      render(
+        <StagingDriftBanner
+          intentDriftCount={2}
+          staleOverrideCount={0}
+          onIntentRefresh={() => {}}
+          onStaleRefresh={() => {}}
+          onDismiss={() => {}}
+        />,
+        container,
+      )
+    })
+    expect(container.querySelector('[role="status"]')).not.toBeNull()
+  })
+
+  // intent-axis decrease to zero — buggy code reopens at the 2→1 step. The
+  // 2→0 transition alone cannot discriminate (hasIntent=false hides regardless),
+  // so this test goes 2 → 1 (where the discriminating assertion fires) → 0 → 2.
+  it('intent-axis: stays dismissed across 2→1→0, reopens only on 0→2 strict increase', async () => {
+    await act(() => {
+      render(
+        <StagingDriftBanner
+          intentDriftCount={2}
+          staleOverrideCount={0}
+          onIntentRefresh={() => {}}
+          onStaleRefresh={() => {}}
+          onDismiss={() => {}}
+        />,
+        container,
+      )
+    })
+    const dismissBtn = container.querySelector('[data-action="dismiss"]') as HTMLButtonElement
+    await act(() => { dismissBtn.click() })
+    expect(container.querySelector('[role="status"]')).toBeNull()
+
+    // 2 → 1 (decrease). KEY DISCRIMINATING ASSERTION: buggy code reopens here.
+    await act(() => {
+      render(
+        <StagingDriftBanner
+          intentDriftCount={1}
+          staleOverrideCount={0}
+          onIntentRefresh={() => {}}
+          onStaleRefresh={() => {}}
+          onDismiss={() => {}}
+        />,
+        container,
+      )
+    })
+    expect(container.querySelector('[role="status"]')).toBeNull()
+
+    // 1 → 0 (decrease to zero). hasIntent=false also hides; not the discriminator.
+    await act(() => {
+      render(
+        <StagingDriftBanner
+          intentDriftCount={0}
+          staleOverrideCount={0}
+          onIntentRefresh={() => {}}
+          onStaleRefresh={() => {}}
+          onDismiss={() => {}}
+        />,
+        container,
+      )
+    })
+    expect(container.querySelector('[role="status"]')).toBeNull()
+
+    // 0 → 2 (strict increase). Banner reopens — fixed code resets dismissed
+    // because prevIntentRef is now 0 and 2 > 0. (Under buggy code this also
+    // reopens, but the discriminating assertion was the 2→1 step above.)
+    await act(() => {
+      render(
+        <StagingDriftBanner
+          intentDriftCount={2}
+          staleOverrideCount={0}
+          onIntentRefresh={() => {}}
+          onStaleRefresh={() => {}}
+          onDismiss={() => {}}
+        />,
+        container,
+      )
+    })
+    expect(container.querySelector('[role="status"]')).not.toBeNull()
+  })
+
+  // stale-axis decrease — symmetric falsifiability test for the stale axis.
+  // (No subsumption with the existing line-310 stale-increase test; this one
+  // exclusively exercises stale-decrease, which line-310 does not cover.)
+  it('stale-axis: stays dismissed across 2→1, reopens on 1→2', async () => {
+    await act(() => {
+      render(
+        <StagingDriftBanner
+          intentDriftCount={0}
+          staleOverrideCount={2}
+          onIntentRefresh={() => {}}
+          onStaleRefresh={() => {}}
+          onDismiss={() => {}}
+        />,
+        container,
+      )
+    })
+    const dismissBtn = container.querySelector('[data-action="dismiss"]') as HTMLButtonElement
+    await act(() => { dismissBtn.click() })
+    expect(container.querySelector('[role="status"]')).toBeNull()
+
+    // 2 → 1 (decrease). KEY DISCRIMINATING ASSERTION: buggy code reopens here.
+    await act(() => {
+      render(
+        <StagingDriftBanner
+          intentDriftCount={0}
+          staleOverrideCount={1}
+          onIntentRefresh={() => {}}
+          onStaleRefresh={() => {}}
+          onDismiss={() => {}}
+        />,
+        container,
+      )
+    })
+    expect(container.querySelector('[role="status"]')).toBeNull()
+
+    // 1 → 2 (strict increase) — banner reopens.
+    await act(() => {
+      render(
+        <StagingDriftBanner
+          intentDriftCount={0}
+          staleOverrideCount={2}
+          onIntentRefresh={() => {}}
+          onStaleRefresh={() => {}}
+          onDismiss={() => {}}
+        />,
+        container,
+      )
+    })
+    expect(container.querySelector('[role="status"]')).not.toBeNull()
+  })
+
   // Optional: dismissed state persists while count unchanged
   it('keeps banner hidden when count is unchanged after dismiss', async () => {
     await act(() => {

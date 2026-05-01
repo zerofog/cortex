@@ -42,12 +42,15 @@ export class CSSOverrideManager {
   private stateOverrides = new Map<string, Map<string, string>>()
   private pendingEdits = new Map<string, { sources: string[]; property: string; value: string; pseudo?: '::before' | '::after'; timestamp: number }>()
 
-  /** Sources whose pending edits TTL-expired without `hmr_verified` arriving.
+  /** Per-(source, property, pseudo) tuples whose pending edits TTL-expired without
+   *  `hmr_verified` arriving. Keyed by `priorValuesKey(source, property, pseudo)` so
+   *  that two stale properties on the same source each have their own entry — resolving
+   *  one (via hmr_verified or remove()) does NOT clear the other.
    *  Populated in `evictStalePendingEdits`. Entries removed in `remove()`,
-   *  `clearAll()`, `dispose()`, and `handleHMRVerified(match=true)` for
-   *  sources that were previously stale. Listeners (T2/T4) subscribe via
-   *  `onStale` to surface StagingDriftBanner UI. */
-  private staleSources = new Set<string>()
+   *  `clearAll()`, `dispose()`, and `handleHMRVerified(match=true)`.
+   *  Listeners (T2/T4) subscribe via `onStale` to surface StagingDriftBanner UI.
+   *  Public boundary remains `Set<string>` (source strings) — use `staleSourcesFromEntries()`. */
+  private staleEntries = new Set<string>()
   private staleListeners = new Set<(s: Set<string>) => void>()
 
   /** ZF0-1293: per-key ring buffer of recent `set()` values. When a divergence
@@ -57,6 +60,11 @@ export class CSSOverrideManager {
    *  Bounded at 5 most-recent per key; no growth risk (key-level cap, not global). */
   private static readonly PRIOR_VALUES_MAX = 5
   private priorValues = new Map<string, string[]>()
+
+  /** How often the background sweep calls `evictStalePendingEdits` — 1/7 of `PENDING_EDIT_TTL_MS`. */
+  private static readonly STALE_SWEEP_PERIOD_MS = 5_000
+  /** setInterval handle for the background stale-eviction sweep. null when no pending edits exist. */
+  private sweepTimerId: number | null = null
 
   constructor() {
     this.styleEl = document.createElement('style')
@@ -135,6 +143,20 @@ export class CSSOverrideManager {
     return `${source}\0${property}\0${pseudo ?? ''}`
   }
 
+  /** Project `staleEntries` (tuple keys) to a `Set<string>` of source strings.
+   *  Multiple stale properties on the same source collapse to one source entry —
+   *  this matches the public listener contract (`onStale` delivers `Set<string>`).
+   *  Used by `emitStale`, `getStaleSources`, and the `onStale` delivery. */
+  private staleSourcesFromEntries(): Set<string> {
+    const result = new Set<string>()
+    for (const key of this.staleEntries) {
+      const sep = key.indexOf('\0')
+      if (sep > 0) result.add(key.slice(0, sep))
+      else result.add(key) // backward-defensive — shouldn't happen with well-formed keys
+    }
+    return result
+  }
+
   /** Snapshot — returns a COPY of the buffer, not the live reference.
    *  Critical for diagnostic-payload immutability: `recordPriorValue` mutates
    *  the underlying array in place via push/shift, so handing out the live
@@ -205,15 +227,37 @@ export class CSSOverrideManager {
       for (const pvKey of toDelete) this.priorValues.delete(pvKey)
     }
     // ZF0-1467: if this source was stale (TTL-evicted pending edit), removing
-    // the override closes the stale episode. Decrement and emit so listeners
-    // (StagingDriftBanner) can dismiss the drift indicator for this source.
-    if (this.staleSources.delete(source)) {
+    // the override closes the stale episode for the exact (source, property, pseudo)
+    // tuple (or all tuples for this source when property is undefined).
+    // Emit so listeners (StagingDriftBanner) can dismiss the drift indicator.
+    let anyStaleCleared = false
+    if (property !== undefined) {
+      // Clear only the exact stale tuple for this (source, property, pseudo).
+      if (this.staleEntries.delete(this.priorValuesKey(source, property, pseudo))) {
+        anyStaleCleared = true
+      }
+    } else {
+      // clear-all-for-source: iterate and delete entries matching source AND pseudo.
+      // Pseudo-aware suffix matching mirrors the priorValues cleanup pattern at
+      // lines 197-205 — `remove(source, undefined, '::before')` must NOT clear
+      // `::after` stale entries on the same source (preserves Sub-issue B's
+      // tuple-isolation invariant). Caught by Copilot+CodeRabbit+cubic on PR #92.
+      const prefix = `${source}\0`
+      const suffix = `\0${pseudo ?? ''}`
+      const toDelete: string[] = []
+      for (const key of this.staleEntries) {
+        if (key.startsWith(prefix) && key.endsWith(suffix)) toDelete.push(key)
+      }
+      for (const key of toDelete) this.staleEntries.delete(key)
+      if (toDelete.length > 0) anyStaleCleared = true
+    }
+    if (anyStaleCleared) {
       this.emitStale()
     }
     // Also drop any matching pendingEdits for this source/property/pseudo. Without
     // this, a user clearing/undoing an override before hmr_verified arrives leaves
-    // a lingering pendingEdit that can later TTL-evict and re-add the source to
-    // staleSources — surfacing a stale warning for an override that no longer
+    // a lingering pendingEdit that can later TTL-evict and re-add the tuple to
+    // staleEntries — surfacing a stale warning for an override that no longer
     // exists. Copilot caught this on PR #91 review.
     for (const [editId, entry] of this.pendingEdits) {
       const sourceMatches = entry.sources.includes(source)
@@ -612,6 +656,9 @@ export class CSSOverrideManager {
       this.verifyRetryObservers.get(retryKey)?.dispose()
     }
     this.pendingEdits.set(editId, { sources: sourceArray, property, value, pseudo, timestamp: Date.now() })
+    // Arm the background sweep so stale detection fires even if the user makes
+    // no further edits and no hmr_verified arrives (ZF0-1479).
+    this.armStaleSweep()
   }
 
   private pendingClearAll = false
@@ -669,9 +716,11 @@ export class CSSOverrideManager {
         trace('handleHMRVerified:skip-stale', { source, property: pending.property, currentValue, expected: pending.value })
         continue
       }
-      // ZF0-1467: if this source was stale (TTL-evicted pending edit), a successful
-      // hmr_verified closes the stale episode — the value did eventually land.
-      if (this.staleSources.delete(source)) {
+      // ZF0-1467: if this (source, property, pseudo) tuple was stale (TTL-evicted
+      // pending edit), a successful hmr_verified closes exactly that stale tuple —
+      // the value did eventually land. Other stale properties on the same source
+      // must NOT be cleared (ZF0-1478 fix).
+      if (this.staleEntries.delete(this.priorValuesKey(source, pending.property, pending.pseudo))) {
         anyStaleCleared = true
       }
       this.scheduleVerifyAndRemove(source, pending.property, pending.value, pending.pseudo, kind)
@@ -711,26 +760,53 @@ export class CSSOverrideManager {
     }
   }
 
+  /** Start the background sweep interval if there are pending edits and it isn't running.
+   *  Idempotent: safe to call after every `trackPendingEdit`. Uses `window.setInterval`
+   *  so the return type narrows to `number` in browser context (matches `armVerifyRetry`). */
+  private armStaleSweep(): void {
+    if (this.pendingEdits.size > 0 && this.sweepTimerId === null) {
+      this.sweepTimerId = window.setInterval(
+        () => this.evictStalePendingEdits(),
+        CSSOverrideManager.STALE_SWEEP_PERIOD_MS,
+      )
+    }
+  }
+
+  /** Stop the background sweep interval and reset the handle to null. */
+  private disarmStaleSweep(): void {
+    if (this.sweepTimerId !== null) {
+      clearInterval(this.sweepTimerId)
+      this.sweepTimerId = null
+    }
+  }
+
   /** Drops pending edits whose timestamp is older than `PENDING_EDIT_TTL_MS`.
-   *  Evicted sources are recorded in `staleSources` and emitted via `emitStale`.
-   *  Callers (`trackPendingEdit`, `handleHMRVerified`) trigger this incidentally;
-   *  the emit is intentional and observable to `onStale` subscribers. */
+   *  Evicted sources are recorded in `staleEntries` and emitted via `emitStale`.
+   *  Called incidentally from `trackPendingEdit` / `handleHMRVerified`, and
+   *  autonomously on the `STALE_SWEEP_PERIOD_MS` timer armed by `armStaleSweep`. */
   private evictStalePendingEdits(): void {
     const now = Date.now()
     let anyEvicted = false
     for (const [id, entry] of this.pendingEdits) {
       if (now - entry.timestamp > PENDING_EDIT_TTL_MS) {
         // Capture the entry's sources BEFORE the delete so we can mark them stale.
+        // Keyed by (source, property, pseudo) tuple so two stale properties on
+        // the same source each have their own independent stale entry (ZF0-1478).
         for (const source of entry.sources) {
-          this.staleSources.add(source)
+          this.staleEntries.add(this.priorValuesKey(source, entry.property, entry.pseudo))
         }
         this.pendingEdits.delete(id)
         anyEvicted = true
       }
     }
     if (anyEvicted) {
-      trace('evictStalePendingEdits:stale', { staleSources: [...this.staleSources] })
+      trace('evictStalePendingEdits:stale', { staleEntries: [...this.staleEntries] })
       this.emitStale()
+    }
+    // When the sweep has drained all pending edits, it has nothing left to do —
+    // disarm to avoid the interval firing empty loops indefinitely.
+    if (this.pendingEdits.size === 0) {
+      this.disarmStaleSweep()
     }
   }
 
@@ -744,6 +820,7 @@ export class CSSOverrideManager {
   /** Clear all overrides (e.g. on SPA navigation) */
   clearAll(): void {
     this.disposeVerifyRetryObservers()
+    this.disarmStaleSweep()
     this.recentlyVerified.clear()
     this.overrides.clear()
     this.stateOverrides.clear()
@@ -751,8 +828,8 @@ export class CSSOverrideManager {
     this.priorValues.clear()
     // ZF0-1467: clear stale state and notify listeners. Emit BEFORE rebuild so
     // listeners that read the DOM see the cleared override state.
-    if (this.staleSources.size > 0) {
-      this.staleSources.clear()
+    if (this.staleEntries.size > 0) {
+      this.staleEntries.clear()
       this.emitStale()
     }
     this.cancelPendingRebuild()
@@ -773,7 +850,7 @@ export class CSSOverrideManager {
   /** Return a defensive-copy Set of currently-stale sources. Empty when no stale state.
    *  Caller mutation does NOT affect internal state. */
   getStaleSources(): Set<string> {
-    return new Set(this.staleSources)
+    return this.staleSourcesFromEntries()
   }
 
   /**
@@ -801,19 +878,21 @@ export class CSSOverrideManager {
    *  invisible to subsequent listeners. Errors from individual listeners
    *  are isolated — remaining listeners still fire. */
   private emitStale(): void {
+    const staleSources = this.staleSourcesFromEntries()
     for (const cb of [...this.staleListeners]) {
       try {
-        cb(new Set(this.staleSources))
+        cb(new Set(staleSources))
       } catch (err) {
         console.warn('[cortex] Stale listener error:', err instanceof Error ? err.message : err)
       }
     }
-    trace('emitStale:fired', { count: this.staleSources.size })
+    trace('emitStale:fired', { count: this.staleEntries.size })
   }
 
   /** Remove the <style> element from the DOM */
   dispose(): void {
     this.disposeVerifyRetryObservers()
+    this.disarmStaleSweep()
     this.recentlyVerified.clear()
     this.cancelPendingRebuild()
     this.overrides.clear()
@@ -822,8 +901,8 @@ export class CSSOverrideManager {
     this.priorValues.clear()
     // ZF0-1467: emit final stale clear before removing listeners so any
     // in-flight subscribers see the cleared state before teardown.
-    if (this.staleSources.size > 0) {
-      this.staleSources.clear()
+    if (this.staleEntries.size > 0) {
+      this.staleEntries.clear()
       this.emitStale()
     }
     this.staleListeners.clear()

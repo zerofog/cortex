@@ -7,6 +7,7 @@ import * as focusUtils from '../../src/browser/focus-utils.js'
 import { _resetBusForTesting } from '../../src/browser/override-bus.js'
 import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
 import { _resetPopoverStackForTesting } from '../../src/browser/popover-stack.js'
+import { cortexStorage } from '../../src/browser/persistence.js'
 
 // Mock the selection module to verify it's called correctly.
 // _resetCallbacks nulls the module-scope hoverCb/selectCb closure so a prior
@@ -1117,16 +1118,40 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
   // shouldRefreshOnHMR returns false (unrelated files). The Panel still receives
   // hmrChangedFiles so buffer.reconcile() can check non-selected element sources.
   // Observable: hmrChangedFiles prop contains the unrelated files (not empty) even
-  // when the DOM refresh was skipped. We verify this by confirming the panel body
-  // stays rendered (selection-related refresh was skipped — panel didn't unmount)
-  // AND the hmr-applied handler completed without error.
+  // when the DOM refresh was skipped.
+  //
+  // Falsifiability fix (ZF0-1480 #6): the previous test only checked absence of
+  // side-effects (no crash, no extra gcs call). That assertion passes even if
+  // setHmrChangedFiles regressed to setHmrChangedFiles([]) — because with an empty
+  // buffer there is nothing to reconcile either way. We now pre-seed a staged intent
+  // for a file that IS in the incoming changedFiles list, but whose DOM element does
+  // NOT exist → reconcile marks it divergent → intentDriftCount rises to 1 →
+  // StagingDriftBanner renders. The banner ONLY renders when hmrChangedFiles is
+  // propagated non-empty; if the regression collapses it to [], the early-return
+  // branch fires (setIntentDriftCount(0)) and the banner stays hidden.
   it('hmr-applied with unrelated files still propagates hmrChangedFiles for buffer reconcile', async () => {
+    // Seed the staging buffer before mount so it is loaded by useEditStagingBuffer on
+    // Panel mount. The intent targets src/Sidebar.tsx — one of the files that the
+    // hmr-applied message will carry — but no DOM element with that data-cortex-source
+    // is present, so reconcile treats it as divergent (element deleted/refactored).
+    localStorage.clear()
+    cortexStorage.set('staging-buffer', [{
+      intentId: 'test-sidebar-intent',
+      source: 'src/Sidebar.tsx:1:1',
+      property: 'color',
+      value: 'red',
+      previousValue: 'blue',
+      timestamp: Date.now(),
+    }])
+
     const { channel, gcs } = await setup('src/foo.tsx:10:5')
     const before = gcs.mock.calls.length
 
-    // Fire hmr-applied with files that don't touch selected element — shouldRefreshOnHMR
-    // returns false, hmrAppliedVersion stays flat, but hmrEventVersion MUST bump and
-    // hmrChangedFiles MUST be updated with the incoming files.
+    // Fire hmr-applied with files that include src/Sidebar.tsx — shouldRefreshOnHMR
+    // returns false (src/foo.tsx:10:5 is selected, Sidebar.tsx is unrelated),
+    // hmrAppliedVersion stays flat, but hmrEventVersion MUST bump and
+    // hmrChangedFiles MUST be updated with the incoming files so buffer.reconcile()
+    // can find the staged intent and report intentDriftCount = 1.
     expect(() => {
       channel._simulateMessage({ type: 'hmr-applied', files: ['src/Sidebar.tsx', 'src/Other.tsx'] })
     }).not.toThrow()
@@ -1135,10 +1160,16 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     await new Promise(r => setTimeout(r, 200))
     expect(gcs.mock.calls.length).toBe(before)
 
-    // Panel is still mounted and functional — the always-bump path didn't crash
-    expect(root.textContent).not.toContain('Click any element to start editing')
+    // Falsifiable: the drift banner must appear, proving hmrChangedFiles was propagated
+    // non-empty. If setHmrChangedFiles regressed to setHmrChangedFiles([]), the Panel
+    // reconcile effect takes the early-return path (intentDriftCount stays 0) and the
+    // banner does not render.
+    await vi.waitFor(() => {
+      expect(root.textContent).toContain('staged edit(s) may be affected')
+    }, { timeout: 500 })
 
     gcs.mockRestore()
+    localStorage.clear()
   })
 
 })

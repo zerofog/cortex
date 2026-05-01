@@ -249,4 +249,24 @@ describe('SizingControls', () => {
     const modeLabels = container.querySelectorAll('.cortex-sizing-trigger__label')
     expect(modeLabels[0].textContent).toBe('px')
   })
+
+  // ZF0-1478 #4: stale prop must reach ALL 6 NumericInputs (width, height, min-w, max-w, min-h, max-h)
+  it('stale=true propagates to all 6 NumericInputs (width, height, min-width, max-width, min-height, max-height)', () => {
+    // Render with all min/max constraints active so all 6 inputs are present
+    setup({
+      stale: true,
+      values: {
+        ...DEFAULT_VALUES,
+        minWidth: '10px',
+        maxWidth: '500px',
+        minHeight: '10px',
+        maxHeight: '500px',
+      },
+    })
+    // All NumericInputs that receive stale=true render the class 'cortex-numeric-input--stale'
+    const staleInputs = container.querySelectorAll('.cortex-numeric-input--stale')
+    // Expect all 6 (width, height, min-width, max-width, min-height, max-height)
+    // Under pre-fix code only 2 (width + height) receive stale, so this must fail.
+    expect(staleInputs.length).toBe(6)
+  })
 })
