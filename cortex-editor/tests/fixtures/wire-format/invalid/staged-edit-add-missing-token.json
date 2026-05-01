@@ -1,0 +1,11 @@
+{
+  "type": "staged-edit-add",
+  "edit": {
+    "intentId": "intent-001",
+    "source": "src/Hero.tsx:14:5",
+    "property": "color",
+    "value": "red",
+    "previousValue": "",
+    "timestamp": 1714500000000
+  }
+}

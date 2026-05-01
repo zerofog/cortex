@@ -1,0 +1,27 @@
+{
+  "type": "hello",
+  "protocolVersion": 1,
+  "sessionId": "sess-abc123",
+  "swatches": ["#ff0000", "#00ff00", "#0000ff"],
+  "colorChips": [
+    { "name": "color-primary", "hex": "#ff0000" },
+    { "name": "color-secondary", "hex": "#0000ff" }
+  ],
+  "textComponents": [
+    {
+      "name": "text-body-md",
+      "fontSize": "16px",
+      "lineHeight": "1.5",
+      "letterSpacing": "0",
+      "fontWeight": "400"
+    },
+    {
+      "name": "text-heading-1",
+      "fontSize": "32px",
+      "lineHeight": "1.2",
+      "letterSpacing": "-0.02em",
+      "fontWeight": "700",
+      "fontFamily": "Inter"
+    }
+  ]
+}

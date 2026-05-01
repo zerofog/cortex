@@ -1,0 +1,8 @@
+{
+  "type": "edit",
+  "token": "tok-abc",
+  "editId": "edit-001",
+  "value": "red",
+  "source": "src/Hero.tsx:14:5",
+  "elementSelector": ".hero"
+}

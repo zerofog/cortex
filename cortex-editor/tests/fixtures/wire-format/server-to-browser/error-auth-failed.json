@@ -1,0 +1,5 @@
+{
+  "type": "error",
+  "code": "AUTH_FAILED",
+  "message": "Invalid or missing auth token"
+}

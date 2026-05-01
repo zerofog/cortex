@@ -1,0 +1,14 @@
+{
+  "type": "comment",
+  "token": "tok-abc",
+  "elementSource": "src/components/Hero.tsx:42:7",
+  "text": "This heading color doesn't match brand guidelines.",
+  "elementContext": {
+    "tagName": "h1",
+    "componentName": "Hero",
+    "domSelector": ".hero-title",
+    "textPreview": "Welcome to Cortex"
+  },
+  "pinPosition": { "x": 120, "y": 340 },
+  "kind": "comment"
+}

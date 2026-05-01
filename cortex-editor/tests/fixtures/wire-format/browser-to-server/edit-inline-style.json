@@ -1,0 +1,11 @@
+{
+  "type": "edit",
+  "token": "tok-abc",
+  "protocolVersion": 1,
+  "editId": "edit-001",
+  "property": "color",
+  "value": "var(--color-primary)",
+  "source": "src/components/Hero.tsx:42:7",
+  "elementSelector": ".hero-title",
+  "scope": "instance"
+}

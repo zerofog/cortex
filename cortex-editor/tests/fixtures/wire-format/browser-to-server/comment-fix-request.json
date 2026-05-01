@@ -1,0 +1,12 @@
+{
+  "type": "comment",
+  "token": "tok-abc",
+  "elementSource": "src/components/Hero.tsx:42:7",
+  "text": "Change heading color to brand primary.",
+  "kind": "fix-request",
+  "fixMeta": {
+    "property": "color",
+    "value": "var(--color-primary)",
+    "reason": "Must use design system color token"
+  }
+}

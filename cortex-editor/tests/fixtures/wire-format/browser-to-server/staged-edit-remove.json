@@ -1,0 +1,5 @@
+{
+  "type": "staged-edit-remove",
+  "token": "tok-abc",
+  "intentIds": ["intent-001", "intent-002"]
+}

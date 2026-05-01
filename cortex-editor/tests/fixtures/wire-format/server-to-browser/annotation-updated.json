@@ -1,0 +1,26 @@
+{
+  "type": "annotation-updated",
+  "annotation": {
+    "id": "ann-001",
+    "status": "resolved",
+    "elementSource": "src/components/Hero.tsx:42:7",
+    "text": "Change heading color to brand primary.",
+    "createdAt": 1714500000000,
+    "updatedAt": 1714500010000,
+    "resolution": { "summary": "Updated to var(--color-primary) in Hero.tsx:42" },
+    "thread": [
+      {
+        "id": "tm-001",
+        "from": "user",
+        "text": "Change heading color to brand primary.",
+        "timestamp": 1714500000000
+      },
+      {
+        "id": "tm-002",
+        "from": "agent",
+        "text": "Done! Updated color to var(--color-primary).",
+        "timestamp": 1714500010000
+      }
+    ]
+  }
+}
