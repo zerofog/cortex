@@ -76,7 +76,6 @@
  * ─────────────────────────────────────────────────────────────────────────
  */
 import { test, expect } from '@playwright/test'
-import { type CortexTestBridge } from './helpers/bridge.js'
 import {
   FIXTURE_SEED_SELECTOR,
   FIXTURE_SEED_SOURCE,
@@ -90,43 +89,9 @@ import {
   clickApplyButton,
   getApplyErrorBannerState,
   dismissApplyErrorBanner,
+  selectElement,
+  stageEdit,
 } from './helpers/panel.js'
-
-/**
- * Select the given element via the bridge's selectElement callback.
- * Panel renders controls for the selected element — must be called after
- * waitForBridge resolves.
- */
-async function selectElement(page: import('@playwright/test').Page, selector: string): Promise<void> {
-  await page.evaluate((sel) => {
-    const el = document.querySelector<HTMLElement>(sel)
-    if (!el) throw new Error(`[selectElement] ${sel} not found`)
-    const bridge = (globalThis as unknown as { __CORTEX_TEST__?: CortexTestBridge }).__CORTEX_TEST__
-    if (!bridge?.selectElement) throw new Error('[selectElement] bridge.selectElement not present')
-    bridge.selectElement(el)
-  }, selector)
-}
-
-/**
- * Stage an edit directly into Panel's staging buffer via the TEST-ONLY
- * bridge.stageEdit() method. Returns the intentId that was appended — callers
- * can pass it to staged-edits-discard to drain the buffer.
- */
-async function stageEdit(
-  page: import('@playwright/test').Page,
-  source: string,
-  property: string,
-  value: string,
-): Promise<string> {
-  return await page.evaluate(
-    ({ src, prop, val }) => {
-      const bridge = (globalThis as unknown as { __CORTEX_TEST__: CortexTestBridge }).__CORTEX_TEST__
-      if (!bridge.stageEdit) throw new Error('[test] bridge.stageEdit not present — is this a test build?')
-      return bridge.stageEdit(src, prop, val)
-    },
-    { src: source, prop: property, val: value },
-  )
-}
 
 test.describe('Apply button 5-state machine (ZF0-1453 regression cover)', () => {
   test('happy-path lifecycle: hidden → Apply(1) → Delivering… → hidden[ack] → hidden[discard] → Apply(1)[new edit]', async ({ page }) => {

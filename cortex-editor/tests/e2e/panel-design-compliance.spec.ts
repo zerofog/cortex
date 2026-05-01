@@ -123,48 +123,10 @@ import {
 import {
   bootWithSendSpy,
   getNumericInputStaleState,
+  selectElement,
+  waitForElementStatePanel,
+  stageEdit,
 } from './helpers/panel.js'
-
-// ─── Shared helpers ────────────────────────────────────────────────────────
-
-/**
- * Select the given element via the bridge's selectElement callback.
- * Panel renders controls for the selected element — must be called after
- * waitForBridge resolves.
- */
-async function selectElement(page: import('@playwright/test').Page, selector: string): Promise<void> {
-  await page.evaluate((sel) => {
-    const el = document.querySelector<HTMLElement>(sel)
-    if (!el) throw new Error(`[selectElement] ${sel} not found`)
-    const bridge = (globalThis as unknown as { __CORTEX_TEST__?: CortexTestBridge }).__CORTEX_TEST__
-    if (!bridge?.selectElement) throw new Error('[selectElement] bridge.selectElement not present')
-    bridge.selectElement(el)
-  }, selector)
-}
-
-/**
- * Wait until Panel has committed the element-state branch (the branch that
- * renders CSS sections). Presence of `.cortex-section-group` in the shadow
- * root is the stable marker — it only appears when `element !== null` in Panel.tsx.
- *
- * Polling `{ timeout: 2000 }` is safe: `waitForBridge` already guarantees
- * the bundle is booted and bridge is ready; `selectElement` is a synchronous
- * call to Preact's setState; and Preact commits on the next microtask.
- */
-async function waitForElementStatePanel(page: import('@playwright/test').Page): Promise<void> {
-  await expect
-    .poll(
-      () =>
-        page.evaluate(() => {
-          const host = document.querySelector('[data-cortex-host]')
-          const root = host && (host as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot
-          if (!root) return false
-          return !!root.querySelector('.cortex-section-group')
-        }),
-      { timeout: 2000 },
-    )
-    .toBe(true)
-}
 
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
@@ -379,14 +341,7 @@ test.describe('Panel DESIGN.md compliance + per-control stale indicator (ZF0-149
     // Staging documents the production scenario: the user staged an edit,
     // applied it, and HMR didn't confirm within the TTL. The staging step
     // itself does not affect the stale indicator — only the TTL eviction does.
-    await page.evaluate(
-      ({ src, prop, val }) => {
-        const bridge = (globalThis as unknown as { __CORTEX_TEST__: CortexTestBridge }).__CORTEX_TEST__
-        if (!bridge.stageEdit) throw new Error('[test] bridge.stageEdit not present — is this a test build?')
-        return bridge.stageEdit(src, prop, val)
-      },
-      { src: FIXTURE_SEED_SOURCE, prop: 'padding-top', val: '32px' },
-    )
+    await stageEdit(page, FIXTURE_SEED_SOURCE, 'padding-top', '32px')
 
     // ── Step 3: drive synthetic stale via bridge ──────────────────────────────
     // _testOnly_evictStale(source, property) synchronously:

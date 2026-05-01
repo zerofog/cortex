@@ -28,8 +28,8 @@
  *   `__cortex_send__` at bootstrap (channel.ts:132), so the spy persists for
  *   the lifetime of the page — including after any tombstone or reconnect.
  */
-import type { Page } from '@playwright/test'
-import { assertPreNavigation, setupDebugBridge, activateDesignMode, waitForBridge } from './bridge.js'
+import { expect, type Page } from '@playwright/test'
+import { assertPreNavigation, setupDebugBridge, activateDesignMode, waitForBridge, type CortexTestBridge } from './bridge.js'
 import { installFixtureServer, FIXTURE_URL } from './fixture-server.js'
 
 // ─── Send spy ────────────────────────────────────────────────────────────────
@@ -346,6 +346,112 @@ export async function dismissApplyErrorBanner(page: Page): Promise<boolean> {
     btn.click()
     return true
   })
+}
+
+// ─── Element selection ────────────────────────────────────────────────────────
+
+/**
+ * Select the given element via the bridge's `selectElement` callback.
+ * Panel renders controls for the selected element — must be called after
+ * `waitForBridge` resolves.
+ *
+ * This standalone helper exists for specs that need to select an element AFTER
+ * the initial boot (e.g. to switch selection mid-test or to select AFTER
+ * asserting the initial null-state Panel). Specs that need element selection
+ * during boot should use `bootFixture({ selectElement: selector })` from
+ * `boot.ts` instead — `bootFixture` accepts `selectElement` as an option so
+ * the selection is wired into the canonical boot sequence.
+ *
+ * @param page - Playwright `Page` instance.
+ * @param selector - CSS selector for the element to select. Throws if the
+ *   element is not found or if `bridge.selectElement` is not present.
+ */
+export async function selectElement(page: Page, selector: string): Promise<void> {
+  await page.evaluate((sel) => {
+    const el = document.querySelector<HTMLElement>(sel)
+    if (!el) throw new Error(`[selectElement] ${sel} not found`)
+    const bridge = (globalThis as unknown as { __CORTEX_TEST__?: CortexTestBridge }).__CORTEX_TEST__
+    if (!bridge?.selectElement) throw new Error('[selectElement] bridge.selectElement not present')
+    bridge.selectElement(el)
+  }, selector)
+}
+
+/**
+ * Wait until Panel has committed the element-state branch — the branch that
+ * renders CSS section controls alongside the StagingDriftBanner (Panel.tsx line
+ * 1442). Presence of `.cortex-section-group` in the shadow root is the stable
+ * marker: it only appears when `element !== null` inside Panel.tsx.
+ *
+ * Why this guard is necessary: Panel renders TWO independent
+ * `StagingDriftBanner` instances — one in the null-state branch (Panel.tsx:1258)
+ * and one in the element-state branch (Panel.tsx:1442). They have SEPARATE
+ * `dismissed` React state. If a spec dismisses the null-state banner and then
+ * the element-state Panel commits, a fresh element-state banner mounts with
+ * `dismissed=false` and immediately shows again — producing a false
+ * "visible after dismiss" failure.
+ *
+ * Calling this helper after `selectElement` ensures all subsequent banner
+ * assertions target the element-state banner's committed state.
+ *
+ * Polling `{ timeout: 2000 }` is safe: `waitForBridge` already guarantees the
+ * bundle is booted and bridge is ready; `selectElement` is a synchronous call
+ * to Preact's `setState`; and Preact commits on the next microtask. The 2000ms
+ * ceiling is far beyond any realistic Preact commit latency.
+ */
+export async function waitForElementStatePanel(page: Page): Promise<void> {
+  try {
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const host = document.querySelector('[data-cortex-host]')
+            const root = host && (host as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot
+            if (!root) return false
+            return !!root.querySelector('.cortex-section-group')
+          }),
+        { timeout: 2000 },
+      )
+      .toBe(true)
+  } catch (err) {
+    throw new Error(
+      `[waitForElementStatePanel] .cortex-section-group not found within 2000ms — ` +
+        `did selectElement run before this call? Or is the panel showing the ` +
+        `null-state branch (no element selected)?\n` +
+        `Page URL: ${page.url()}\n` +
+        `Original error: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+}
+
+/**
+ * Stage an edit directly into Panel's staging buffer via the TEST-ONLY
+ * `bridge.stageEdit()` method (gated by `__CORTEX_TEST_BUILD__`). Calls
+ * `buffer.append()` directly inside Panel.tsx without going through the scrub
+ * UI. Returns the `intentId` that was appended — callers can pass it to a
+ * `staged-edits-discard` server message to drain the buffer.
+ *
+ * Throws if `bridge.stageEdit` is not present (not a test build).
+ *
+ * @param page - Playwright `Page` instance.
+ * @param source - Source file identifier (e.g. `FIXTURE_SEED_SOURCE`).
+ * @param property - CSS property name (e.g. `'padding-top'`).
+ * @param value - CSS value string (e.g. `'32px'`).
+ * @returns The `intentId` string appended to the buffer.
+ */
+export async function stageEdit(
+  page: Page,
+  source: string,
+  property: string,
+  value: string,
+): Promise<string> {
+  return await page.evaluate(
+    ({ src, prop, val }) => {
+      const bridge = (globalThis as unknown as { __CORTEX_TEST__: CortexTestBridge }).__CORTEX_TEST__
+      if (!bridge.stageEdit) throw new Error('[test] bridge.stageEdit not present — is this a test build?')
+      return bridge.stageEdit(src, prop, val)
+    },
+    { src: source, prop: property, val: value },
+  )
 }
 
 // ─── NumericInput stale state ─────────────────────────────────────────────────

@@ -252,7 +252,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           // evictStalePendingEdits) and fire emitStale(). Bypasses the 30s TTL
           // + 5s sweep for deterministic Playwright specs. Accesses private
           // fields via cast — acceptable here since this entire block is DCE'd
-          // from prod bundles by the `__CORTEX_TEST_BUILD__` constant fold.
+          // from prod bundles by the build-gate constant fold (see line 244).
           //
           // Idempotency: only fires `emitStale()` when a NEW entry was added,
           // matching production at override.ts (evictStalePendingEdits only

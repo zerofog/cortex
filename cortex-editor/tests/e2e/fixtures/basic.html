@@ -24,6 +24,15 @@
       Shares file path 'fixture' with #center after stripLineCol — a single
       hmr-applied message with files: ['fixture'] reconciles both elements.
       Inline styles match #center's pattern so reconcile has a baseline value.
+
+      INVARIANT NOTE for spec authors: the fixture now contains TWO elements
+      with [data-cortex-source]. Older specs (override-canonicalization,
+      override-divergence-card, override-retry-window, smoke) all key off
+      FIXTURE_SEED_SELECTOR (#center) and FIXTURE_SEED_SOURCE (fixture:1:1)
+      explicitly — DO NOT use ambient selectors like
+      `[data-cortex-source]` or `body > [data-cortex-source]` and expect
+      a single match. Always use #center / #left explicitly via
+      FIXTURE_SEED_* / FIXTURE_SECONDARY_* constants from fixture-server.ts.
     -->
     <div
       id="left"

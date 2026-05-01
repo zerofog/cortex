@@ -75,6 +75,10 @@ export interface CortexTestBridge {
    *  first paint — the bridge polls the ref internally with a 2s ceiling
    *  so callers don't need their own settling logic. */
   stageEdit?: (source: string, property: string, value: string) => Promise<string>
+  /** TEST-ONLY: invoke Panel's onEditDispatch handler directly. Allows unit
+   *  tests to seed editDispatchRef without going through the scrub commit
+   *  path. Only present in test builds; undefined in prod bundles. */
+  handleEditDispatch?: (editId: string, source: string, property: string, value: string) => void
 }
 
 /** Guard for helpers that MUST run before `page.goto`. Playwright's

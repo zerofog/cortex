@@ -88,76 +88,10 @@ import {
   simulateServerMessage,
   getDriftBannerState,
   dismissDriftBanner,
+  selectElement,
+  waitForElementStatePanel,
+  stageEdit,
 } from './helpers/panel.js'
-
-/**
- * Select the given element via the bridge's selectElement callback.
- * Panel renders controls for the selected element — must be called after
- * waitForBridge resolves.
- */
-async function selectElement(page: import('@playwright/test').Page, selector: string): Promise<void> {
-  await page.evaluate((sel) => {
-    const el = document.querySelector<HTMLElement>(sel)
-    if (!el) throw new Error(`[selectElement] ${sel} not found`)
-    const bridge = (globalThis as unknown as { __CORTEX_TEST__?: CortexTestBridge }).__CORTEX_TEST__
-    if (!bridge?.selectElement) throw new Error('[selectElement] bridge.selectElement not present')
-    bridge.selectElement(el)
-  }, selector)
-}
-
-/**
- * Wait until Panel has committed the element-state branch (the branch that
- * renders CSS sections alongside the StagingDriftBanner at line 1442 of
- * Panel.tsx). Presence of `.cortex-section-group` in the shadow root is the
- * stable marker — it only appears when `element !== null` in Panel.tsx.
- *
- * This is required before injecting HMR signals that trigger banner-visible
- * assertions: Panel renders TWO independent StagingDriftBanner instances —
- * one in the null-state branch (line 1258) and one in the element-state
- * branch (line 1442). They have separate `dismissed` React state. If we
- * dismiss the null-state banner and then the element-state Panel commits,
- * a fresh element-state banner mounts with dismissed=false and immediately
- * shows the banner again, producing a false "visible after dismiss" failure.
- *
- * Polling `{ timeout: 2000 }` is safe: `waitForBridge` already guarantees
- * the bundle is booted and bridge is ready; `selectElement` is a synchronous
- * call to Preact's setState; and Preact commits on the next microtask. The
- * 2000ms ceiling is far beyond any realistic Preact commit latency.
- */
-async function waitForElementStatePanel(page: import('@playwright/test').Page): Promise<void> {
-  await expect
-    .poll(
-      () =>
-        page.evaluate(() => {
-          const host = document.querySelector('[data-cortex-host]')
-          const root = host && (host as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot
-          if (!root) return false
-          return !!root.querySelector('.cortex-section-group')
-        }),
-      { timeout: 2000 },
-    )
-    .toBe(true)
-}
-
-/**
- * Stage an edit directly into Panel's staging buffer via the TEST-ONLY
- * bridge.stageEdit() method. Returns the intentId that was appended.
- */
-async function stageEdit(
-  page: import('@playwright/test').Page,
-  source: string,
-  property: string,
-  value: string,
-): Promise<string> {
-  return await page.evaluate(
-    ({ src, prop, val }) => {
-      const bridge = (globalThis as unknown as { __CORTEX_TEST__: CortexTestBridge }).__CORTEX_TEST__
-      if (!bridge.stageEdit) throw new Error('[test] bridge.stageEdit not present — is this a test build?')
-      return bridge.stageEdit(src, prop, val)
-    },
-    { src: source, prop: property, val: value },
-  )
-}
 
 test.describe('StagingDriftBanner (ZF0-1453 / ZF0-1474 regression cover)', () => {
   test('intent drift detected, dismiss, strict-increase re-shows banner', async ({ page }) => {

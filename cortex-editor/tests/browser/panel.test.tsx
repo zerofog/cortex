@@ -1014,10 +1014,17 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     target.remove()
   })
 
-  // Test-level timeout 15000ms: the inner vi.waitFor uses 10000ms, but
+  // Test-level timeout 20000ms: the inner vi.waitFor uses 15000ms, but
   // vitest's default per-test timeout is 5000ms — the inner wait is bounded
   // by the outer one. CI under coverage instrumentation has been observed
   // to need >5s to flush the 150ms persist debounce. (Copilot review on PR #90.)
+  //
+  // ZF0-1473 follow-up: ZF0-1474 retro flagged this test as flaking ~1/N runs
+  // under full-suite coverage instrumentation at the prior 10s/15s ceiling
+  // (panel.test.tsx alone passes 22/22 in 1.35s; failure mode is the persist
+  // debounce timer stretching past 10s under Istanbul instrumentation +
+  // 4-way pool concurrency). Bumped to 15s/20s with a 50% safety margin —
+  // happy-path cost is unchanged (vi.waitFor returns on first poll-pass).
   it('staged-edits-discard server message removes intents from canonical buffer', async () => {
     // ZF0-1452 regression: Panel.tsx's channel.onMessage handler wires
     // 'staged-edits-discard' (server-originated, emitted by the MCP server's
@@ -1095,18 +1102,20 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     // poll for the persist landing — robust against concurrent-load timing
     // pressure where a flat setTimeout(200) can be too short.
     //
-    // Timeout 10000ms (not the smaller default): CI runs npm run test:coverage,
+    // Timeout 15000ms (not the smaller default): CI runs npm run test:coverage,
     // which Istanbul-instruments every function call. Combined with vitest's
     // 4-way pool concurrency, the 150ms persist timer has been observed to
-    // stretch past 2000ms on PR #90's first CI run (Node 22 matrix). 10s is
-    // a defensive ceiling — vi.waitFor returns as soon as the assert passes,
-    // so the happy-path cost is unchanged; only failures take the full timeout.
+    // stretch past 2000ms on PR #90's first CI run (Node 22 matrix), and past
+    // 10000ms on local full-suite + e2e build:test runs (ZF0-1474 retro flagged
+    // this). 15s is a defensive ceiling with 50% safety margin — vi.waitFor
+    // returns as soon as the assert passes, so the happy-path cost is
+    // unchanged; only failures take the full timeout.
     await vi.waitFor(
       () => {
         const remaining = cortexStorage.get('staging-buffer', [], isPendingEditArray)
         expect(remaining).toHaveLength(1)
       },
-      { timeout: 10000, interval: 50 },
+      { timeout: 15000, interval: 50 },
     )
 
     const remaining = cortexStorage.get('staging-buffer', [], isPendingEditArray)
@@ -1114,5 +1123,5 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
 
     cleanup()
     target.remove()
-  }, 15000)
+  }, 20000)
 })
