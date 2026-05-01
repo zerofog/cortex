@@ -1,0 +1,24 @@
+cortex-editor/src/browser/hooks/useEditStagingBuffer.ts
+  fd13519530dc5793 1,410,420-425
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "135c2a4b47e2a0e143d0b30b91f937bad9ba4327",
+  "prompts": {
+    "fd13519530dc5793": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ed85be58-9abc-477d-acb6-bdac551aeb30",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 3354,
+      "total_deletions": 503,
+      "accepted_lines": 3848,
+      "overriden_lines": 4,
+      "messages_url": "https://usegitai.com/cas/12ba5fc32ee2b49fcc6761be0ece6654972fd09aac54561d32cac4ff777b2915"
+    }
+  }
+}
