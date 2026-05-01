@@ -167,29 +167,40 @@ test.describe('Panel DESIGN.md compliance + per-control stale indicator (ZF0-149
         for (const line of lines) {
           // Multi-line comment tracking — must run before any other checks.
           // A line can both open and close a comment (/* ... */ on one line).
+          // ZF0-1473 PR #93 Copilot+CodeRabbit feedback: strip block comments
+          // from the scanned line rather than skipping the entire line. A
+          // declaration like `color: #fff; /* note */ background: red` would
+          // be silently ignored under the prior "any /* on line → continue"
+          // logic, hiding hex violations behind inline comments.
+          let scanLine = line
           if (inBlockComment) {
-            if (line.includes('*/')) inBlockComment = false
-            // The rest of this line is inside a comment — skip it entirely,
-            // even if '*/' appears mid-line (anything after is a new context).
-            continue
+            const closeIdx = scanLine.indexOf('*/')
+            if (closeIdx === -1) continue  // entire line is inside a multi-line comment
+            inBlockComment = false
+            scanLine = scanLine.slice(closeIdx + 2)  // scan only content after */
           }
-          if (line.includes('/*')) {
-            // Block comment starts on this line. If it doesn't close on the
-            // same line, enter block-comment mode for subsequent lines.
-            if (!line.includes('*/')) inBlockComment = true
-            // Skip the line (comment text, even with closing */ on same line).
-            continue
+          let openIdx = scanLine.indexOf('/*')
+          while (openIdx !== -1) {
+            const closeIdx = scanLine.indexOf('*/', openIdx + 2)
+            if (closeIdx === -1) {
+              inBlockComment = true  // unterminated → block-comment mode for next line
+              scanLine = scanLine.slice(0, openIdx)
+              break
+            }
+            // Strip inline block comment, keep the prefix + suffix.
+            scanLine = scanLine.slice(0, openIdx) + scanLine.slice(closeIdx + 2)
+            openIdx = scanLine.indexOf('/*')
           }
 
           // Single-line comment.
-          const trimmed = line.trim()
+          const trimmed = scanLine.trim()
           if (trimmed.startsWith('//')) continue
 
           // Track entry/exit of :host {} block (the token definition section).
-          if (line.includes(':host')) inHostBlock = true
+          if (scanLine.includes(':host')) inHostBlock = true
           if (inHostBlock) {
-            depth += (line.match(/\{/g) ?? []).length
-            depth -= (line.match(/\}/g) ?? []).length
+            depth += (scanLine.match(/\{/g) ?? []).length
+            depth -= (scanLine.match(/\}/g) ?? []).length
             if (depth <= 0) { inHostBlock = false; depth = 0 }
             // Inside :host block — skip. Token definitions legitimately use hex.
             continue
@@ -200,7 +211,7 @@ test.describe('Panel DESIGN.md compliance + per-control stale indicator (ZF0-149
           if (trimmed.startsWith('--')) continue
 
           // Any remaining line containing a hex pattern is a violation.
-          if (hexPattern.test(line)) {
+          if (hexPattern.test(scanLine)) {
             found.push(trimmed.slice(0, 120))
           }
         }
@@ -254,10 +265,29 @@ test.describe('Panel DESIGN.md compliance + per-control stale indicator (ZF0-149
         }
 
         if (hasCortexClass) {
-          // Check each character. Emoji starts at U+1F300 (Misc Symbols and
-          // Pictographs). This threshold catches all emoji blocks (1F300-1FFFF)
-          // while ignoring Latin/Greek/Cyrillic and common symbols.
-          const emojiChars = [...content].filter((ch) => (ch.codePointAt(0) ?? 0) >= 0x1f300)
+          // ZF0-1473 PR #93 Copilot feedback: use Unicode property escape
+          // \p{Extended_Pictographic} per UTS #51. Catches the full emoji
+          // surface including dingbats (U+2700-U+27BF, e.g. ✓ ☑) and misc
+          // symbols (U+2600-U+26FF, e.g. ★ ☀) — these are below the prior
+          // 0x1F300 threshold and would have slipped through. DESIGN.md's
+          // "lucide-icons-only, no emoji" rule covers all pictographic glyphs,
+          // not just the supplementary-plane emoji blocks.
+          //
+          // ALLOWLIST: SpacingControls.tsx:6 documents an intentional choice
+          // to use ↔ (U+2194) and ↕ (U+2195) as compact axis indicators in
+          // NumericInput prefix labels rather than icon prefixes. These two
+          // codepoints have default emoji presentation per UTS #51 (so they
+          // match Extended_Pictographic), but they're text-style math/arrow
+          // symbols functioning as UI labels — same DESIGN.md role as the
+          // string "P" in "P ↔". A future refactor could swap them for
+          // Lucide ArrowLeftRight/ArrowUpDown icons; until then, the
+          // allowlist documents the deliberate exception so the scanner
+          // doesn't whack-a-mole on legitimate UI semantics.
+          const ALLOWED_PICTOGRAPHIC = new Set(['↔', '↕'])
+          const emojiPattern = /\p{Extended_Pictographic}/u
+          const emojiChars = [...content].filter(
+            (ch) => emojiPattern.test(ch) && !ALLOWED_PICTOGRAPHIC.has(ch),
+          )
           for (const ch of emojiChars) {
             found.push(`${cortexClassName}: U+${(ch.codePointAt(0) ?? 0).toString(16).toUpperCase()} "${ch}"`)
           }

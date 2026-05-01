@@ -153,9 +153,17 @@ test.describe('StagingDriftBanner (ZF0-1453 / ZF0-1474 regression cover)', () =>
     const dismissed = await dismissDriftBanner(page)
     expect(dismissed).toBe(true)
 
-    await expect
-      .poll(() => getDriftBannerState(page), { timeout: 2000 })
-      .toMatchObject({ visible: false })
+    // ZF0-1473 PR #93 Cubic feedback: absence assertions use `toPass`, NOT
+    // `expect.poll(...).toMatchObject({ visible: false })`. The poll variant
+    // returns on the first frame where visible=false (which is immediate
+    // after dismiss), then proceeds — but a re-show racing in afterward would
+    // be silently missed. `toPass` re-asserts for the full timeout budget,
+    // failing immediately if `visible` flips back to true. See
+    // tests/e2e/README.md "Four tripwires" §3.
+    await expect(async () => {
+      const state = await getDriftBannerState(page)
+      expect(state).toMatchObject({ visible: false })
+    }).toPass({ timeout: 2000 })
 
     // ── Step 7: stage a second edit on #left ─────────────────────────────────
     // FIXTURE_SECONDARY_SOURCE ('fixture:2:1') shares file path 'fixture' with
@@ -172,7 +180,7 @@ test.describe('StagingDriftBanner (ZF0-1453 / ZF0-1474 regression cover)', () =>
     // ── Step 9: re-inject hmr-applied with same files ─────────────────────────
     // reconcile now finds 2 divergent edits (fixture:1:1 + fixture:2:1).
     // intentDriftCount goes from 1 → 2 — a STRICT increase.
-    // StagingDriftBanner.tsx:29-35 useEffect: intentDriftCount (2) >
+    // StagingDriftBanner.tsx:29-35 useLayoutEffect: intentDriftCount (2) >
     // prevIntentRef.current (1) → setDismissed(false) → banner re-shows.
     await simulateServerMessage(page, { type: 'hmr-applied', files: ['fixture'] })
 
@@ -217,12 +225,11 @@ test.describe('StagingDriftBanner (ZF0-1453 / ZF0-1474 regression cover)', () =>
     // overrideManager.staleEntries (1 in this test). The banner must be visible
     // regardless of whether intentDriftCount is also non-zero (both signals
     // independently contribute to the banner when non-zero).
+    // ZF0-1473 PR #93 Copilot feedback: the `staleCount >= 1` defensive
+    // re-read was subsumed by the poll's `staleCount: 1` matcher (CLAUDE.md
+    // Test Anti-Patterns §5 — no subsumption). Removed.
     await expect
       .poll(() => getDriftBannerState(page), { timeout: 2000 })
       .toMatchObject({ visible: true, staleCount: 1 })
-
-    // Defensively check the raw count matches our expectation of exactly 1 stale entry.
-    const state = await getDriftBannerState(page)
-    expect(state.staleCount).toBeGreaterThanOrEqual(1)
   })
 })

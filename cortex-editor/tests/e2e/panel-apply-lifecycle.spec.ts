@@ -208,14 +208,15 @@ test.describe('Apply button 5-state machine (ZF0-1453 regression cover)', () => 
     expect(clicked).toBe(true)
 
     // ── Assert error banner visible with rejection message ────────────────
+    // ZF0-1473 PR #93 Copilot feedback: collapse the redundant re-read into
+    // the poll matcher. Single assertion site, less cross-process page
+    // evaluation, cleaner intent.
     await expect
       .poll(() => getApplyErrorBannerState(page), { timeout: 3000 })
-      .toMatchObject({ visible: true })
-
-    const bannerState = await getApplyErrorBannerState(page)
-    expect(bannerState.visible).toBe(true)
-    expect(bannerState.message).toBeTruthy()
-    expect(bannerState.message).toContain('test-rejection')
+      .toMatchObject({
+        visible: true,
+        message: expect.stringContaining('test-rejection'),
+      })
 
     // ── Assert button returned to Apply (1) ───────────────────────────────
     // On the reject path: setDelivering(false) runs, pendingClaude stays false

@@ -737,7 +737,12 @@ export function Panel({
   useEffect(() => {
     if (stageEditRef) {
       stageEditRef.current = (source: string, property: string, value: string): string => {
-        const intentId = `test-${source}-${property}-${Date.now()}`
+        // ZF0-1473 PR #93 Copilot+CodeRabbit feedback: use generateId() to
+        // avoid same-millisecond intentId collisions on rapid stage calls
+        // and to mirror the production `commitScrub` path (Panel.tsx:662)
+        // which uses generateId() too. The `test-` prefix makes test-staged
+        // intents identifiable in debug output.
+        const intentId = `test-${generateId()}`
         buffer.append({
           intentId,
           source,
