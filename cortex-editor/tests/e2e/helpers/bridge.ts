@@ -66,6 +66,15 @@ export interface CortexTestBridge {
   channel?: unknown
   selectElement?: (el: HTMLElement | null) => void
   onDivergence?: (cb: (d: OverrideDivergence) => void) => () => void
+  /** TEST-ONLY: directly append an edit to Panel's staging buffer.
+   *  Allows Apply-button lifecycle specs to seed the buffer without going
+   *  through the scrub UI path. Only present in test builds
+   *  (__CORTEX_TEST_BUILD__=true); undefined in prod bundles.
+   *  Returns the intentId so callers can pass it to staged-edits-discard.
+   *  Async because Panel's useEffect populates the underlying ref AFTER
+   *  first paint — the bridge polls the ref internally with a 2s ceiling
+   *  so callers don't need their own settling logic. */
+  stageEdit?: (source: string, property: string, value: string) => Promise<string>
 }
 
 /** Guard for helpers that MUST run before `page.goto`. Playwright's

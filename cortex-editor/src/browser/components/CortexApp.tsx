@@ -140,6 +140,16 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // The thunk pattern (used by `handleExitRef`) keeps the bridge calling the
   // latest closure regardless of how `handleEditDispatch`'s deps evolve.
   const editDispatchHandlerRef = useRef<((editId: string, source: string, property: string, value: string) => void) | null>(null)
+  // Test-only: bridge.stageEdit lets e2e specs seed the staging buffer
+  // directly (the prod path is buffer.append() inside Panel.commitScrub —
+  // only triggered by user slider release). The bridge surface is gated
+  // by __CORTEX_TEST_BUILD__ && debugFlag and DCEs cleanly. The
+  // stageEditRef + Panel's useEffect cannot be gated (React Rules of
+  // Hooks), so they ship as runtime-inert plumbing — the ref defaults to
+  // undefined in prod (CortexApp passes `__CORTEX_TEST_BUILD__ ? ref : undefined`
+  // as the prop), the useEffect's `if (stageEditRef)` guard short-circuits,
+  // ~150 bytes of dead branch. Returns the intentId so specs can inject discard.
+  const stageEditRef = useRef<((source: string, property: string, value: string) => string) | null>(null)
   // Exposed outside the useEffect so UI handlers (X-button, Toolbar close) can
   // route through the reducer rather than calling setActive(false) directly.
   // Populated by the mount effect — may be null during first paint when
@@ -283,6 +293,29 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
             throw new Error('[cortex test bridge] handleEditDispatch called before render committed')
           }
           editDispatchHandlerRef.current(editId, source, property, value)
+        },
+        // TEST-ONLY: directly append a PendingEdit to Panel's staging buffer.
+        // Allows e2e specs to drive the Apply button lifecycle without going through
+        // the full scrub UI path. Routed through stageEditRef so Panel always exposes
+        // the latest buffer.append instance (same pattern as flushCommitRef).
+        //
+        // Async because Panel's useEffect populates the ref AFTER first paint —
+        // calling stageEdit immediately after waitForBridge resolves can race the
+        // useEffect commit. Polls the ref at ~one-rAF cadence with a 2s ceiling
+        // (well under Playwright's 10s default test timeout). The previous
+        // synchronous version flaked ~1/6 times in suite-level runs because the
+        // race depended on natural settling delays in caller code.
+        //
+        // Returns the intentId so callers can pass it to staged-edits-discard.
+        stageEdit: async (source: string, property: string, value: string): Promise<string> => {
+          const start = performance.now()
+          while (!stageEditRef.current) {
+            if (performance.now() - start > 2000) {
+              throw new Error('[cortex test bridge] stageEdit timeout — Panel did not mount in 2000ms (was activateDesignMode called?)')
+            }
+            await new Promise<void>((resolve) => setTimeout(resolve, 16))
+          }
+          return stageEditRef.current(source, property, value)
         },
       }
     }
@@ -919,6 +952,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           overrideManager={overrideRef.current}
           commandStack={commandStackRef.current}
           flushCommitRef={flushCommitRef}
+          stageEditRef={__CORTEX_TEST_BUILD__ ? stageEditRef : undefined}
           undoInProgressRef={undoInProgressRef}
           onClose={handleClose}
           onSelectElement={handleSelectElement}
