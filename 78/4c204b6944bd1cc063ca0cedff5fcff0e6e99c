@@ -1,0 +1,26 @@
+cortex-editor/src/browser/styles.css
+  e5f6a3f0d5387961 256
+cortex-editor/tests/e2e/panel-design-compliance.spec.ts
+  e5f6a3f0d5387961 1-429
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "784c204b6944bd1cc063ca0cedff5fcff0e6e99c",
+  "prompts": {
+    "e5f6a3f0d5387961": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e2db0a21-6c06-48fd-b378-c39d18c0bf73",
+        "model": "<synthetic>"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 655,
+      "total_deletions": 294,
+      "accepted_lines": 552,
+      "overriden_lines": 3,
+      "messages_url": "https://usegitai.com/cas/acce225442b386753d81361c522f24cb03b72e301a60b04aee55194d61cc0716"
+    }
+  }
+}
