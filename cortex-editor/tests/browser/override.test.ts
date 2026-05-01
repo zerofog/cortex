@@ -1661,6 +1661,49 @@ describe('CSSOverrideManager', () => {
       // removes the source entirely even though font-size is still stale.
       expect(manager.getStaleSources()).toEqual(new Set(['src/Hero.tsx:5:3']))
     })
+
+    // ZF0-1479 #1: Timer-driven sweep fires stale signal during idle session
+    // Verifies that evictStalePendingEdits() runs autonomously via setInterval
+    // even when the user makes no further edits and no hmr_verified arrives.
+    it('#ZF0-1479: timer-driven sweep fires stale signal without new trackPendingEdit or hmr_verified', () => {
+      const staleSets: Array<Set<string>> = []
+      const unsub = manager.onStale(s => staleSets.push(new Set(s)))
+
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+
+      // Advance past TTL (35s) + one sweep period (5s) without any user action.
+      // DO NOT call trackPendingEdit again. DO NOT call handleHMRVerified.
+      // The timer-driven sweep must fire evictStalePendingEdits autonomously.
+      vi.advanceTimersByTime(40_000)
+
+      expect(staleSets).toHaveLength(1)
+      expect(staleSets[0]).toEqual(new Set(['a:1:1']))
+
+      unsub()
+    })
+
+    // ZF0-1479 #2: Timer disarmed on dispose — sweepTimerId is null after dispose
+    // Verifies that the setInterval handle is cleared when dispose() is called.
+    // Uses internal field inspection (same pattern as the staleListeners.size check
+    // in the existing dispose test) because staleListeners.clear() runs during dispose,
+    // which prevents a listener from observing post-dispose interval firings directly.
+    it('#ZF0-1479: sweep timer is disarmed on dispose, sweepTimerId is null after dispose', () => {
+      manager.set('a:1:1', 'color', 'red')
+      flushRAF()
+      manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
+
+      // Confirm the timer was armed by trackPendingEdit.
+      const internalBefore = (manager as unknown as { sweepTimerId: number | null }).sweepTimerId
+      expect(internalBefore).not.toBeNull()
+
+      // dispose() must disarm the timer.
+      manager.dispose()
+
+      const internalAfter = (manager as unknown as { sweepTimerId: number | null }).sweepTimerId
+      expect(internalAfter).toBeNull()
+    })
   })
 
   it('two sequential edit cycles both verify and remove their overrides', () => {

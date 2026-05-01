@@ -61,6 +61,11 @@ export class CSSOverrideManager {
   private static readonly PRIOR_VALUES_MAX = 5
   private priorValues = new Map<string, string[]>()
 
+  /** How often the background sweep calls `evictStalePendingEdits` — 1/7 of `PENDING_EDIT_TTL_MS`. */
+  private static readonly STALE_SWEEP_PERIOD_MS = 5_000
+  /** setInterval handle for the background stale-eviction sweep. null when no pending edits exist. */
+  private sweepTimerId: number | null = null
+
   constructor() {
     this.styleEl = document.createElement('style')
     this.styleEl.setAttribute('data-cortex-override', '')
@@ -647,6 +652,9 @@ export class CSSOverrideManager {
       this.verifyRetryObservers.get(retryKey)?.dispose()
     }
     this.pendingEdits.set(editId, { sources: sourceArray, property, value, pseudo, timestamp: Date.now() })
+    // Arm the background sweep so stale detection fires even if the user makes
+    // no further edits and no hmr_verified arrives (ZF0-1479).
+    this.armStaleSweep()
   }
 
   private pendingClearAll = false
@@ -748,10 +756,30 @@ export class CSSOverrideManager {
     }
   }
 
+  /** Start the background sweep interval if there are pending edits and it isn't running.
+   *  Idempotent: safe to call after every `trackPendingEdit`. Uses `window.setInterval`
+   *  so the return type narrows to `number` in browser context (matches `armVerifyRetry`). */
+  private armStaleSweep(): void {
+    if (this.pendingEdits.size > 0 && this.sweepTimerId === null) {
+      this.sweepTimerId = window.setInterval(
+        () => this.evictStalePendingEdits(),
+        CSSOverrideManager.STALE_SWEEP_PERIOD_MS,
+      )
+    }
+  }
+
+  /** Stop the background sweep interval and reset the handle to null. */
+  private disarmStaleSweep(): void {
+    if (this.sweepTimerId !== null) {
+      clearInterval(this.sweepTimerId)
+      this.sweepTimerId = null
+    }
+  }
+
   /** Drops pending edits whose timestamp is older than `PENDING_EDIT_TTL_MS`.
-   *  Evicted sources are recorded in `staleSources` and emitted via `emitStale`.
-   *  Callers (`trackPendingEdit`, `handleHMRVerified`) trigger this incidentally;
-   *  the emit is intentional and observable to `onStale` subscribers. */
+   *  Evicted sources are recorded in `staleEntries` and emitted via `emitStale`.
+   *  Called incidentally from `trackPendingEdit` / `handleHMRVerified`, and
+   *  autonomously on the `STALE_SWEEP_PERIOD_MS` timer armed by `armStaleSweep`. */
   private evictStalePendingEdits(): void {
     const now = Date.now()
     let anyEvicted = false
@@ -771,6 +799,11 @@ export class CSSOverrideManager {
       trace('evictStalePendingEdits:stale', { staleEntries: [...this.staleEntries] })
       this.emitStale()
     }
+    // When the sweep has drained all pending edits, it has nothing left to do —
+    // disarm to avoid the interval firing empty loops indefinitely.
+    if (this.pendingEdits.size === 0) {
+      this.disarmStaleSweep()
+    }
   }
 
   /** Read the current override value for a source+property. Returns undefined if no override exists.
@@ -783,6 +816,7 @@ export class CSSOverrideManager {
   /** Clear all overrides (e.g. on SPA navigation) */
   clearAll(): void {
     this.disposeVerifyRetryObservers()
+    this.disarmStaleSweep()
     this.recentlyVerified.clear()
     this.overrides.clear()
     this.stateOverrides.clear()
@@ -854,6 +888,7 @@ export class CSSOverrideManager {
   /** Remove the <style> element from the DOM */
   dispose(): void {
     this.disposeVerifyRetryObservers()
+    this.disarmStaleSweep()
     this.recentlyVerified.clear()
     this.cancelPendingRebuild()
     this.overrides.clear()
