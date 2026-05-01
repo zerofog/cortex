@@ -54,13 +54,9 @@ const CORTEX_MSG_EVENT = 'cortex:msg'
 const ALLOWED_ORIGINS = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/
 const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close'])
 
-/** All BrowserToServer type literals — derived from the schema's discriminated
- *  union options. Single source of truth: if a new variant lands in the schema,
- *  it appears here automatically. The type-level assertions below force tsc to
- *  fail if the explicit allowlists below ever drift from the schema. */
-const ALL_BROWSER_TO_SERVER_TYPES = browserToServerSchema.options.map(
-  (opt) => opt.shape.type.value,
-) as readonly BrowserToServer['type'][]
+/** Type literal of all BrowserToServer variants — used by the `satisfies`
+ *  clauses below to force tsc to reject any allowlist entry that isn't a real
+ *  schema variant, preventing silent drift. */
 type BrowserToServerType = BrowserToServer['type']
 
 /** Browser-to-server message types that should be forwarded to CLI clients (MCP).

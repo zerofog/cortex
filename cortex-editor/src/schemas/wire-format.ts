@@ -1,3 +1,15 @@
+/**
+ * Wire-format schemas — canonical source of truth for browser↔server messages.
+ *
+ * The TS types in `src/adapters/types.ts` (`BrowserToServer`, `ServerToBrowser`,
+ * `PendingEdit`) re-export `z.infer<>` from these schemas via aliases like
+ * `export type BrowserToServer = BrowserToServerSchema`. Drift is impossible
+ * by construction — the alias makes them literally identical.
+ *
+ * Root `tsc --noEmit` catches any inconsistency through the transitive consumers
+ * that import both the schema (for runtime validation) and the type (for typed
+ * function signatures).
+ */
 import { z } from 'zod'
 import { pendingEditSchema, MAX_INTENT_ID_BYTES } from './pending-edit.js'
 
