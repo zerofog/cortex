@@ -100,17 +100,24 @@ describe('debug bridge build-time gate', () => {
       // string-literal check would silent-pass. The bridge's object-literal
       // shape (`overrideManager`, `channel`, `selectElement` in sequence) is
       // the load-bearing signature — those 3 keys appear together ONLY at the
-      // bridge install site (CortexApp.tsx ~line 178). Any rename to a
-      // differently-named global would still produce the same object shape in
-      // the emitted code, caught by this regex regardless of the property name.
-      expect(prodBundle).not.toMatch(/overrideManager[,\s]+channel[,\s]+selectElement/)
+      // bridge install site (CortexApp.tsx). Any rename to a differently-named
+      // global would still produce the same object shape in the emitted code,
+      // caught by this regex regardless of the property name.
+      //
+      // ZF0-1473 (sub-A): the `overrideManager` slot was widened from a bare
+      // identifier reference (`overrideManager,`) to an explicit object
+      // literal exposing 5 methods (`overrideManager: { set, flush, ... }`).
+      // The regex now allows the inner object body between `overrideManager`
+      // and `channel`, while still requiring all 3 keys to appear at the
+      // bridge install site (post-minification).
+      expect(prodBundle).not.toMatch(/overrideManager:\s*\{[\s\S]*?\},\s*channel,\s*selectElement/)
     })
 
     it('test bundle DOES contain the bridge object shape', () => {
       // Positive side of the rename-resistance check: proves the shape-regex
       // is correctly calibrated (if it never matched anything, the prod check
       // above would be vacuous).
-      expect(testBundle).toMatch(/overrideManager[,\s]+channel[,\s]+selectElement/)
+      expect(testBundle).toMatch(/overrideManager:\s*\{[\s\S]*?\},\s*channel,\s*selectElement/)
     })
 
     it('production bundle is smaller than test bundle (DCE actually stripped bytes)', () => {

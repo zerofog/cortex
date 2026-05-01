@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useState, useEffect, useRef } from 'preact/hooks'
+import { useState, useLayoutEffect, useRef } from 'preact/hooks'
 
 export interface StagingDriftBannerProps {
   intentDriftCount: number    // 0 = trigger 1 hidden
@@ -22,11 +22,19 @@ export function StagingDriftBanner({
   // Reset dismissal ONLY when a count strictly increases — this reopens the
   // banner so the user sees a new divergence event. Decreases (e.g. 2→1 when
   // a staged intent is removed) must NOT reset dismissed state, otherwise a
-  // dismissed banner reappears during recovery. (ZF0-1477 Item #5)
+  // dismissed banner reappears during recovery. (ZF0-1474 Item #5)
   const prevIntentRef = useRef(intentDriftCount)
   const prevStaleRef = useRef(staleOverrideCount)
 
-  useEffect(() => {
+  // useLayoutEffect fires synchronously after DOM mutations, before the browser
+  // paints. This guarantees that prevIntentRef/prevStaleRef are updated before
+  // any external observer (e.g. Playwright) can read `visible: true` from the
+  // painted DOM. If useEffect were used instead, there is a window between
+  // "banner renders visible" (paint) and "effect runs" (next microtask) where
+  // a test could dismiss the banner before prevIntentRef is updated — causing
+  // the effect to fire later with stale prevIntentRef.current and incorrectly
+  // call setDismissed(false), re-showing a banner the user just dismissed.
+  useLayoutEffect(() => {
     if (intentDriftCount > prevIntentRef.current || staleOverrideCount > prevStaleRef.current) {
       setDismissed(false)
     }
@@ -52,7 +60,7 @@ export function StagingDriftBanner({
     >
       <div class="cortex-drift-banner__body">
         {hasIntent && (
-          <div class="cortex-drift-banner__row">
+          <div class="cortex-drift-banner__row" data-row="intent" data-count={intentDriftCount}>
             <div class="cortex-drift-banner__copy">
               <span class="cortex-drift-banner__title">
                 {intentDriftCount} staged edit(s) may be affected by external changes
@@ -73,7 +81,11 @@ export function StagingDriftBanner({
           </div>
         )}
         {hasStale && (
-          <div class={`cortex-drift-banner__row${hasIntent ? ' cortex-drift-banner__row--bordered' : ''}`}>
+          <div
+            class={`cortex-drift-banner__row${hasIntent ? ' cortex-drift-banner__row--bordered' : ''}`}
+            data-row="stale"
+            data-count={staleOverrideCount}
+          >
             <div class="cortex-drift-banner__copy">
               <span class="cortex-drift-banner__title">
                 {staleOverrideCount} edit(s) saved but HMR didn't apply
