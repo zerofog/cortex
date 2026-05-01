@@ -96,8 +96,8 @@ describe('contract: invalid fixtures reject with specific path', () => {
     }
   })
 
-  it('edit-value-too-long: rejects at path "edit.value"', () => {
-    const fixture = loadWireFormatFixture('invalid/edit-value-too-long.json')
+  it('staged-edit-add-value-too-long: rejects at path "edit.value"', () => {
+    const fixture = loadWireFormatFixture('invalid/staged-edit-add-value-too-long.json')
     const result = browserToServerSchema.safeParse(fixture)
     expect(result.success).toBe(false)
     if (!result.success) {
@@ -143,6 +143,126 @@ describe('contract: invalid fixtures reject with specific path', () => {
     if (!result.success) {
       const paths = result.error.issues.map((i) => i.path.join('.'))
       expect(paths).toContain('status')
+    }
+  })
+
+  // ---- staged-edit-add additional negative cases ----
+
+  it('staged-edit-add-bad-timestamp: rejects at path "edit.timestamp"', () => {
+    const fixture = loadWireFormatFixture('invalid/staged-edit-add-bad-timestamp.json')
+    const result = browserToServerSchema.safeParse(fixture)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('edit.timestamp')
+    }
+  })
+
+  // ---- hello additional negative cases ----
+
+  it('hello-missing-protocol-version: rejects at path "protocolVersion"', () => {
+    const fixture = loadWireFormatFixture('invalid/hello-missing-protocol-version.json')
+    const result = serverToBrowserSchema.safeParse(fixture)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('protocolVersion')
+    }
+  })
+
+  it('hello-bad-swatches-type: rejects at path "swatches"', () => {
+    const fixture = loadWireFormatFixture('invalid/hello-bad-swatches-type.json')
+    const result = serverToBrowserSchema.safeParse(fixture)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('swatches')
+    }
+  })
+
+  it('hello-bad-color-chip-shape: rejects at path "colorChips.0.hex"', () => {
+    const fixture = loadWireFormatFixture('invalid/hello-bad-color-chip-shape.json')
+    const result = serverToBrowserSchema.safeParse(fixture)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('colorChips.0.hex')
+    }
+  })
+
+  // ---- edit_status additional negative cases ----
+
+  it('edit-status-missing-edit-id: rejects at path "editId"', () => {
+    const fixture = loadWireFormatFixture('invalid/edit-status-missing-edit-id.json')
+    const result = serverToBrowserSchema.safeParse(fixture)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('editId')
+    }
+  })
+
+  it('edit-status-bad-reason-code: rejects at path "reason_code"', () => {
+    const fixture = loadWireFormatFixture('invalid/edit-status-bad-reason-code.json')
+    const result = serverToBrowserSchema.safeParse(fixture)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('reason_code')
+    }
+  })
+
+  // ---- annotation-created additional negative cases ----
+
+  it('annotation-missing-annotation: rejects at path "annotation"', () => {
+    const fixture = loadWireFormatFixture('invalid/annotation-missing-annotation.json')
+    const result = serverToBrowserSchema.safeParse(fixture)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('annotation')
+    }
+  })
+
+  it('annotation-bad-thread-type: rejects at path "annotation.thread"', () => {
+    const fixture = loadWireFormatFixture('invalid/annotation-bad-thread-type.json')
+    const result = serverToBrowserSchema.safeParse(fixture)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('annotation.thread')
+    }
+  })
+
+  // ---- comment negative cases ----
+
+  it('comment-missing-element-source: rejects at path "elementSource"', () => {
+    const fixture = loadWireFormatFixture('invalid/comment-missing-element-source.json')
+    const result = browserToServerSchema.safeParse(fixture)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('elementSource')
+    }
+  })
+
+  it('comment-missing-text: rejects at path "text"', () => {
+    const fixture = loadWireFormatFixture('invalid/comment-missing-text.json')
+    const result = browserToServerSchema.safeParse(fixture)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('text')
+    }
+  })
+
+  it('comment-bad-pin-position: rejects at path "pinPosition.x"', () => {
+    const fixture = loadWireFormatFixture('invalid/comment-bad-pin-position.json')
+    const result = browserToServerSchema.safeParse(fixture)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('pinPosition.x')
     }
   })
 })

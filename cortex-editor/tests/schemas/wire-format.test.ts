@@ -15,6 +15,9 @@ describe('browserToServerSchema — init', () => {
   it('rejects init with wrong type value', () => {
     const r = browserToServerSchema.safeParse({ type: 'Init' })
     expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join('.'))).toContain('type')
+    }
   })
 })
 
@@ -73,6 +76,11 @@ describe('browserToServerSchema — edit', () => {
   it('rejects classOp with unknown kind', () => {
     const r = browserToServerSchema.safeParse({ ...baseEdit, classOp: { kind: 'toggle', className: 'foo' } })
     expect(r.success).toBe(false)
+    if (!r.success) {
+      // The classOp is a discriminated union; failure path includes 'classOp' or 'classOp.kind'
+      const paths = r.error.issues.map((i) => i.path.join('.'))
+      expect(paths.some((p) => p.startsWith('classOp'))).toBe(true)
+    }
   })
 })
 
@@ -196,6 +204,9 @@ describe('browserToServerSchema — staged-edit-remove', () => {
   it('rejects without intentIds', () => {
     const r = browserToServerSchema.safeParse({ type: 'staged-edit-remove', token: validToken })
     expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join('.'))).toContain('intentIds')
+    }
   })
 })
 
@@ -239,10 +250,17 @@ describe('browserToServerSchema — unknown type', () => {
   it('rejects unknown message type', () => {
     const r = browserToServerSchema.safeParse({ type: 'unknown-type' })
     expect(r.success).toBe(false)
+    if (!r.success) {
+      // Discriminator failure: zod reports the issue at the discriminator path
+      expect(r.error.issues.map((i) => i.path.join('.'))).toContain('type')
+    }
   })
   it('rejects missing type', () => {
     const r = browserToServerSchema.safeParse({ something: 'else' })
     expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join('.'))).toContain('type')
+    }
   })
 })
 
@@ -349,6 +367,9 @@ describe('serverToBrowserSchema — undo_sync_status', () => {
   it('rejects undo_sync_status with invalid status', () => {
     const r = serverToBrowserSchema.safeParse({ type: 'undo_sync_status', status: 'waiting' })
     expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join('.'))).toContain('status')
+    }
   })
 })
 
@@ -396,6 +417,9 @@ describe('serverToBrowserSchema — annotation-created', () => {
   it('rejects annotation-created missing annotation', () => {
     const r = serverToBrowserSchema.safeParse({ type: 'annotation-created' })
     expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join('.'))).toContain('annotation')
+    }
   })
 })
 
@@ -446,6 +470,9 @@ describe('serverToBrowserSchema — activity-entry', () => {
       entry: { id: 'a', type: 'unknown', timestamp: 1, description: 'x' },
     })
     expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join('.'))).toContain('entry.type')
+    }
   })
 })
 
@@ -485,5 +512,8 @@ describe('serverToBrowserSchema — unknown type', () => {
   it('rejects unknown type', () => {
     const r = serverToBrowserSchema.safeParse({ type: 'bogus' })
     expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join('.'))).toContain('type')
+    }
   })
 })

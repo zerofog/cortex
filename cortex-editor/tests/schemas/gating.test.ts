@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { z } from 'zod'
 
 // We test gating behavior by controlling VITEST env var.
@@ -79,5 +79,91 @@ describe('parseOrFail (server/test mode via NODE_ENV=test)', () => {
       warnSpy.mockRestore()
       vi.resetModules()
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Browser-mode test-build branch — exercises the
+// `typeof __CORTEX_TEST_BUILD__ !== 'undefined'` short-circuit that fires
+// inside browser bundles (esbuild defines the identifier as a literal).
+//
+// We simulate the browser bundle by stubbing the global identifier via
+// vi.stubGlobal — `typeof` consults the global namespace, so the check
+// returns `'boolean'` instead of `'undefined'` and short-circuits before
+// the env-var fallback. We also wipe the env vars so that if the
+// short-circuit DIDN'T fire, the fallback would clearly disagree (test
+// mode → throw vs. warn) and the test would fail noisily.
+// ---------------------------------------------------------------------------
+
+describe('parseOrFail (browser test-build mode via __CORTEX_TEST_BUILD__)', () => {
+  let originalVitest: string | undefined
+  let originalNodeEnv: string | undefined
+  let originalCortexTest: string | undefined
+
+  function clearEnvFlags(): void {
+    originalVitest = process.env['VITEST']
+    originalNodeEnv = process.env['NODE_ENV']
+    originalCortexTest = process.env['CORTEX_TEST_BUILD']
+    delete process.env['VITEST']
+    delete process.env['CORTEX_TEST_BUILD']
+    process.env['NODE_ENV'] = 'production'
+  }
+
+  function restoreEnvFlags(): void {
+    if (originalVitest !== undefined) process.env['VITEST'] = originalVitest
+    if (originalCortexTest !== undefined) process.env['CORTEX_TEST_BUILD'] = originalCortexTest
+    else delete process.env['CORTEX_TEST_BUILD']
+    if (originalNodeEnv !== undefined) process.env['NODE_ENV'] = originalNodeEnv
+    else delete process.env['NODE_ENV']
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.resetModules()
+    restoreEnvFlags()
+  })
+
+  it('with __CORTEX_TEST_BUILD__=true: throws on invalid input (env vars cleared so fallback would warn)', async () => {
+    clearEnvFlags()
+    vi.stubGlobal('__CORTEX_TEST_BUILD__', true)
+    vi.resetModules()
+
+    const { parseOrFail } = await import('../../src/schemas/gating.js')
+    const { SchemaViolationError } = await import('../../src/schemas/errors.js')
+    const schema = z.object({ x: z.number() })
+
+    expect(() => parseOrFail(schema, { x: 'bad' }, 'browser.ctx')).toThrow(SchemaViolationError)
+  })
+
+  it('with __CORTEX_TEST_BUILD__=false: returns null and warns (browser-prod bundle)', async () => {
+    clearEnvFlags()
+    vi.stubGlobal('__CORTEX_TEST_BUILD__', false)
+    vi.resetModules()
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    try {
+      const { parseOrFail } = await import('../../src/schemas/gating.js')
+      const schema = z.object({ x: z.number() })
+      const result = parseOrFail(schema, { x: 'bad' }, 'browser.prod')
+      expect(result).toBeNull()
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[cortex] schema violation at browser.prod:'),
+        expect.any(String),
+      )
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('with __CORTEX_TEST_BUILD__=true: still parses valid input cleanly', async () => {
+    clearEnvFlags()
+    vi.stubGlobal('__CORTEX_TEST_BUILD__', true)
+    vi.resetModules()
+
+    const { parseOrFail } = await import('../../src/schemas/gating.js')
+    const schema = z.object({ x: z.number() })
+    const result = parseOrFail(schema, { x: 7 }, 'browser.ctx')
+    expect(result).toEqual({ x: 7 })
   })
 })
