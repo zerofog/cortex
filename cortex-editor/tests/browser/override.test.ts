@@ -1468,8 +1468,11 @@ describe('CSSOverrideManager', () => {
       flushRAF()
       // If emitStale threw through remove(), the rebuild would not run — textContent would be stale.
       // After removing 'a:1:1' color override, the sheet must not contain that rule.
+      // The selector is serialized with CSS.escape, so the escaped form is 'a\:1\:1' (one backslash
+      // before each colon). Asserting the unescaped literal 'a:1:1' is unfalsifiable because the
+      // stylesheet text never contains the bare colon form — even when the rule is still present.
       const styleEl = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
-      expect(styleEl.textContent).not.toContain('a:1:1')
+      expect(styleEl.textContent).not.toContain('a\\:1\\:1')
 
       unsub1()
       unsub2()
