@@ -237,12 +237,16 @@ export class CSSOverrideManager {
         anyStaleCleared = true
       }
     } else {
-      // clear-all-for-source: iterate and delete every entry starting with source\0
-      // Collect-then-delete — avoid mutating a Set we're iterating.
+      // clear-all-for-source: iterate and delete entries matching source AND pseudo.
+      // Pseudo-aware suffix matching mirrors the priorValues cleanup pattern at
+      // lines 197-205 — `remove(source, undefined, '::before')` must NOT clear
+      // `::after` stale entries on the same source (preserves Sub-issue B's
+      // tuple-isolation invariant). Caught by Copilot+CodeRabbit+cubic on PR #92.
       const prefix = `${source}\0`
+      const suffix = `\0${pseudo ?? ''}`
       const toDelete: string[] = []
       for (const key of this.staleEntries) {
-        if (key.startsWith(prefix)) toDelete.push(key)
+        if (key.startsWith(prefix) && key.endsWith(suffix)) toDelete.push(key)
       }
       for (const key of toDelete) this.staleEntries.delete(key)
       if (toDelete.length > 0) anyStaleCleared = true

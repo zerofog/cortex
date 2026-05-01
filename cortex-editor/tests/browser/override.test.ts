@@ -1697,8 +1697,15 @@ describe('CSSOverrideManager', () => {
       flushRAF()
       manager.trackPendingEdit('edit-1', 'a:1:1', 'color', 'red')
 
-      // Confirm the timer was armed by trackPendingEdit.
+      // Confirm the timer was armed by trackPendingEdit. Pair `toBeDefined`
+      // (catches rename: cast → undefined) with `not.toBeNull` (catches arm
+      // failure: field stays at initial null). Vitest's fake `setInterval` may
+      // return either a number (browser-like) or a Sinon timer object — both
+      // satisfy these two checks, so the assertion is implementation-agnostic.
+      // A bare `not.toBeNull()` would silently pass against `undefined`
+      // (Copilot caught this on PR #92).
       const internalBefore = (manager as unknown as { sweepTimerId: number | null }).sweepTimerId
+      expect(internalBefore).toBeDefined()
       expect(internalBefore).not.toBeNull()
 
       // dispose() must disarm the timer.
