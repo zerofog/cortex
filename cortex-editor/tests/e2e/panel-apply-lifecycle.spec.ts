@@ -26,8 +26,9 @@
  * Why not `bootFixture`: `installSendSpy` MUST be called AFTER
  * `setupDebugBridge` and BEFORE `page.goto`. The `bootFixture` orchestrator
  * calls `page.goto` internally, which makes the spy-before-goto ordering
- * impossible when using the convenience helper. These specs therefore wire
- * the boot sequence manually to preserve the ordering constraint.
+ * impossible when using the convenience helper. These specs therefore use the
+ * shared `bootWithSendSpy` helper from `helpers/panel.ts`, which composes the
+ * canonical boot order with the spy registered before navigation.
  *
  * ─────────────────────────────────────────────────────────────────────────
  * FALSIFIABILITY PROOF — Test 1 (happy-path lifecycle)
@@ -75,21 +76,14 @@
  * ─────────────────────────────────────────────────────────────────────────
  */
 import { test, expect } from '@playwright/test'
+import { type CortexTestBridge } from './helpers/bridge.js'
 import {
-  setupDebugBridge,
-  activateDesignMode,
-  waitForBridge,
-  type CortexTestBridge,
-} from './helpers/bridge.js'
-import {
-  installFixtureServer,
-  FIXTURE_URL,
   FIXTURE_SEED_SELECTOR,
   FIXTURE_SEED_SOURCE,
   FIXTURE_SECONDARY_SOURCE,
 } from './helpers/fixture-server.js'
 import {
-  installSendSpy,
+  bootWithSendSpy,
   getSentMessages,
   simulateServerMessage,
   getApplyButtonState,
@@ -97,37 +91,6 @@ import {
   getApplyErrorBannerState,
   dismissApplyErrorBanner,
 } from './helpers/panel.js'
-
-/**
- * Boot the page with send-spy installed BEFORE page.goto.
- *
- * Ordering constraint (from panel.ts JSDoc):
- *   setupDebugBridge → activateDesignMode → installSendSpy → installFixtureServer → page.goto
- * `bootFixture` calls `page.goto` internally, so we cannot use it here —
- * the spy must be registered before navigation.
- */
-async function bootWithSendSpy(page: import('@playwright/test').Page): Promise<void> {
-  await setupDebugBridge(page)
-  await activateDesignMode(page)
-  await installSendSpy(page)
-  await installFixtureServer(page)
-  await page.goto(FIXTURE_URL)
-  // Wait for bundle boot then bridge
-  try {
-    await page.waitForFunction(
-      () => typeof (globalThis as unknown as { CortexEditor?: unknown }).CortexEditor !== 'undefined',
-      null,
-      { timeout: 5000 },
-    )
-  } catch (err) {
-    throw new Error(
-      `[bootWithSendSpy] CortexEditor bundle did not boot within 5000ms.\n` +
-        `Page URL: ${page.url()}\n` +
-        `Original error: ${err instanceof Error ? err.message : String(err)}`,
-    )
-  }
-  await waitForBridge(page)
-}
 
 /**
  * Select the given element via the bridge's selectElement callback.

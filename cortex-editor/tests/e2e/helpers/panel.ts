@@ -29,7 +29,8 @@
  *   the lifetime of the page — including after any tombstone or reconnect.
  */
 import type { Page } from '@playwright/test'
-import { assertPreNavigation } from './bridge.js'
+import { assertPreNavigation, setupDebugBridge, activateDesignMode, waitForBridge } from './bridge.js'
+import { installFixtureServer, FIXTURE_URL } from './fixture-server.js'
 
 // ─── Send spy ────────────────────────────────────────────────────────────────
 
@@ -99,6 +100,51 @@ export async function simulateServerMessage(page: Page, msg: unknown): Promise<v
     if (!ch) throw new Error('[panel] __cortex_channel__ not present — is the bundle booted?')
     ch.handleServerMessage(message)
   }, msg)
+}
+
+// ─── Boot composition ────────────────────────────────────────────────────────
+
+/**
+ * Standard boot sequence for Panel-UI specs that need outbound message
+ * capture. Composes setupDebugBridge → activateDesignMode → installSendSpy →
+ * installFixtureServer → page.goto → waitForBridge in the canonical order.
+ *
+ * Use this for any spec that calls getSentMessages or simulateServerMessage.
+ * Specs that only assert on bus events (no message-capture needs) should use
+ * bootFixture from boot.ts instead.
+ *
+ * Ordering rationale (from `installSendSpy` JSDoc):
+ *   1. setupDebugBridge installs a no-op stub on `__cortex_send__` (init script).
+ *   2. installSendSpy overwrites that stub with a collecting spy (init script).
+ *   3. installFixtureServer routes fixture HTML/JS via page.route.
+ *   4. page.goto navigates; init scripts fire in registration order, so
+ *      the spy persists post-nav (channel.ts:132 closure-captures it).
+ *   5. waitForBridge confirms `__CORTEX_TEST__` is exposed.
+ *
+ * The bundle-boot sentinel (`globalThis.CortexEditor`) is checked with a 5000ms
+ * ceiling so a missing/broken bundle fails loudly with a diagnostic instead of
+ * silently timing out inside `waitForBridge`.
+ */
+export async function bootWithSendSpy(page: Page): Promise<void> {
+  await setupDebugBridge(page)
+  await activateDesignMode(page)
+  await installSendSpy(page)
+  await installFixtureServer(page)
+  await page.goto(FIXTURE_URL)
+  try {
+    await page.waitForFunction(
+      () => typeof (globalThis as unknown as { CortexEditor?: unknown }).CortexEditor !== 'undefined',
+      null,
+      { timeout: 5000 },
+    )
+  } catch (err) {
+    throw new Error(
+      `[bootWithSendSpy] CortexEditor bundle did not boot within 5000ms.\n` +
+        `Page URL: ${page.url()}\n` +
+        `Original error: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+  await waitForBridge(page)
 }
 
 // ─── Apply button ─────────────────────────────────────────────────────────────
