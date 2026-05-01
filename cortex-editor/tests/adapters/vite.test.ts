@@ -4,7 +4,7 @@ import fs from 'fs'
 import os from 'os'
 import pathMod from 'path'
 import WebSocket from 'ws'
-import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting, _getSessionTokenForTesting, _getStagedEditsForTesting, _addCLIClientForTesting, shouldSuppressHmr, performEditWrite } from '../../src/adapters/vite.js'
+import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting, _getSessionTokenForTesting, _getStagedEditsForTesting, _addCLIClientForTesting, shouldSuppressHmr, performEditWrite, WRITE_TYPES_ARRAY, BROWSER_TO_CLI_FORWARD_TYPES_ARRAY } from '../../src/adapters/vite.js'
 import { AnnotationStore } from '../../src/core/annotations.js'
 import { makeEdit } from '../core/helpers.js'
 import type { Plugin } from 'vite'
@@ -2435,6 +2435,44 @@ describe('ZF0-1500: channel.send outbound validation (Boundary 3)', () => {
     const sent = server._sent.find((e) => e.event === 'cortex:msg' && (e.data as Record<string, unknown>).type === 'agent-status')
     expect(sent).toBeDefined()
   })
+
+  it('PROD MODE: warns AND still emits the message when channel.send sees a drift message', () => {
+    // Pin the documented prod-mode contract from validateAndSend in vite.ts:
+    // "in prod: warns and STILL sends — never silently drop a message to the user session."
+    // Without this test, a regression that silently swallows drift messages in prod would
+    // ship undetected (test mode throws, hiding the failure mode).
+    vi.stubEnv('CORTEX_TEST_BUILD', 'false')
+    vi.stubEnv('VITEST', '')
+    vi.stubEnv('NODE_ENV', 'production')
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const plugin = initPlugin({ root: '/project' })
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+      const channel = getChannel()!
+
+      // Drift message: invalid outbound type. In prod mode parseOrFail returns null
+      // (no throw), and validateAndSend then proceeds to server.hot.send anyway.
+      expect(() => {
+        channel.send({ type: 'not-a-server-type' } as never)
+      }).not.toThrow()
+
+      // Assert console.warn was called with the schema-violation context.
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('schema violation at vite.channel.send'),
+        expect.anything(),
+      )
+
+      // Assert the message was STILL emitted to server.hot despite the violation.
+      const sent = server._sent.find(
+        (e) => e.event === 'cortex:msg' && (e.data as Record<string, unknown>).type === 'not-a-server-type',
+      )
+      expect(sent).toBeDefined()
+    } finally {
+      warnSpy.mockRestore()
+      vi.unstubAllEnvs()
+    }
+  })
 })
 
 describe('ZF0-1500: hot-path performance — browserToServerSchema', () => {
@@ -2487,20 +2525,22 @@ describe('ZF0-1500 review: staged-edits-sync graceful per-element filtering', ()
 
 // ── ZF0-1500 review: derived WRITE_TYPES (IMPORTANT 2) ─────────────────────
 
-describe('ZF0-1500 review: WRITE_TYPES is a subset of schema-derived BrowserToServer types', () => {
-  it('every WRITE_TYPES entry is a real BrowserToServer variant from the schema', () => {
-    // Pin the runtime invariant matching the satisfies-clause at module-load.
-    // If a future ticket renames a type literal in the schema but forgets to
-    // update WRITE_TYPES_ARRAY, this test fails before the auth gate can be
-    // silently bypassed.
+describe('ZF0-1500 review: WRITE_TYPES + BROWSER_TO_CLI_FORWARD_TYPES are subsets of schema-derived BrowserToServer types', () => {
+  it('every WRITE_TYPES_ARRAY entry is a real BrowserToServer variant from the schema', () => {
+    // Pins the runtime invariant matching the satisfies-clause at module-load.
+    // Imports the ACTUAL exported array from vite.ts (no shadow copy) — if a
+    // future ticket adds a new write-type to vite.ts but forgets to add the
+    // schema variant, this fails. Symmetric: if the schema variant is renamed
+    // but vite.ts isn't updated, the satisfies-clause already breaks tsc.
     const allTypes = browserToServerSchema.options.map((opt) => opt.shape.type.value)
-    // WRITE_TYPES is exported indirectly — re-derive the array shape to assert.
-    const writeTypes = [
-      'edit', 'undo', 'redo', 'comment', 'comment-reply', 'clear_server_undo',
-      'staged-edit-add', 'staged-edit-remove', 'staged-edit-clear',
-      'staged-edits-sync', 'staged-edits-ready',
-    ]
-    for (const t of writeTypes) {
+    for (const t of WRITE_TYPES_ARRAY) {
+      expect(allTypes).toContain(t)
+    }
+  })
+
+  it('every BROWSER_TO_CLI_FORWARD_TYPES_ARRAY entry is a real BrowserToServer variant from the schema', () => {
+    const allTypes = browserToServerSchema.options.map((opt) => opt.shape.type.value)
+    for (const t of BROWSER_TO_CLI_FORWARD_TYPES_ARRAY) {
       expect(allTypes).toContain(t)
     }
   })

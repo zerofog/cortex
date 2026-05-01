@@ -11,7 +11,7 @@
  * function signatures).
  */
 import { z } from 'zod'
-import { pendingEditSchema, MAX_INTENT_ID_BYTES } from './pending-edit.js'
+import { pendingEditSchema, MAX_INTENT_ID_BYTES, MAX_FULL_SYNC_SIZE } from './pending-edit.js'
 
 // ---------------------------------------------------------------------------
 // Shared sub-schemas
@@ -187,9 +187,14 @@ export const browserToServerSchema = z.discriminatedUnion('type', [
   // a single malformed entry in a 500-edit multi-tab merge sync should NOT
   // reject the entire batch and lose 499 valid edits. Consumer filters
   // per-element via pendingEditSchema.safeParse and warns on drops.
+  //
+  // .max(MAX_FULL_SYNC_SIZE) caps batch size at the envelope boundary —
+  // defense-in-depth against an authenticated tab sending ~1M tiny entries
+  // (ws default maxPayload is 100MB). Mirrors StagedEditsCache.mergeFullSync's
+  // runtime cap; both must stay in sync.
   z.object({
     type: z.literal('staged-edits-sync'),
-    edits: z.array(z.unknown()),
+    edits: z.array(z.unknown()).max(MAX_FULL_SYNC_SIZE),
     token: z.string(),
   }),
 

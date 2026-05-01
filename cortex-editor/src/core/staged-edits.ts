@@ -1,13 +1,9 @@
 import type { PendingEdit } from '../adapters/types.js'
-import { pendingEditSchema } from '../schemas/pending-edit.js'
+import { pendingEditSchema, MAX_FULL_SYNC_SIZE } from '../schemas/pending-edit.js'
 
-/** Defensive cap on mergeFullSync input size — 2× browser MAX_ENTRIES (500).
- *  Token-gated upstream, so this is defense-in-depth against a misbehaving
- *  panel-mount loop or compromised browser script that might send a 100MB
- *  sync message and block the Node event loop. Generous enough to never
- *  reject legitimate traffic, narrow enough to bound the worst case. Not a
- *  protocol contract — purely a server-side safety bound. */
-const MAX_FULL_SYNC_SIZE = 1000
+// MAX_FULL_SYNC_SIZE — single source of truth lives in schemas/pending-edit.ts
+// (kept there so the schema can enforce the cap at the envelope boundary
+// without an upward import from schemas/ to core/). Re-imported above.
 
 /** Composite key for last-write-wins deduplication — matches browser hook semantics. */
 function compositeKey(edit: PendingEdit): string {

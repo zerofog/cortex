@@ -26,6 +26,7 @@ export {
   MAX_INTENT_ID_BYTES,
   MAX_INTENT_PROPERTY_BYTES,
   MAX_INTENT_INSTANCE_SOURCES,
+  MAX_FULL_SYNC_SIZE,
 } from './pending-edit.js'
 export type { PendingEditSchema } from './pending-edit.js'
 

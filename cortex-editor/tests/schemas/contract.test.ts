@@ -265,6 +265,22 @@ describe('contract: invalid fixtures reject with specific path', () => {
       expect(paths).toContain('pinPosition.x')
     }
   })
+
+  it('staged-edits-sync-too-many-edits: rejects at path "edits" with size message (envelope cap)', () => {
+    // SECURITY L2: schema enforces MAX_FULL_SYNC_SIZE (1000) at the envelope
+    // boundary so an authenticated tab can't burn CPU on per-element validation
+    // for ~1M tiny entries before mergeFullSync's runtime cap rejects them.
+    const fixture = loadWireFormatFixture('invalid/staged-edits-sync-too-many-edits.json')
+    const result = browserToServerSchema.safeParse(fixture)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('edits')
+      // The size-cap message mentions the array bound
+      const messages = result.error.issues.map((i) => i.message).join(' ')
+      expect(messages.toLowerCase()).toMatch(/(too big|too large|max|1000)/)
+    }
+  })
 })
 
 // ---------------------------------------------------------------------------

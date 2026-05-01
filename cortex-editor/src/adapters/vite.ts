@@ -72,7 +72,7 @@ type BrowserToServerType = BrowserToServer['type']
  *  browser-originated; the rest are server-originated (forwarded via the
  *  channel.send → forwardToCLI path at the bottom of configureServer, not here).
  *  'init' is browser-originated but MCP does not branch on it. */
-const BROWSER_TO_CLI_FORWARD_TYPES_ARRAY = [
+export const BROWSER_TO_CLI_FORWARD_TYPES_ARRAY = [
   'cortex-closed',
   'staged-edits-ready',
 ] as const satisfies readonly BrowserToServerType[]
@@ -81,8 +81,8 @@ const BROWSER_TO_CLI_FORWARD_TYPES: ReadonlySet<string> = new Set(BROWSER_TO_CLI
 /** Message types that require token auth — all write/mutation operations.
  *  The `satisfies readonly BrowserToServerType[]` clause forces tsc to reject
  *  any entry that isn't a real BrowserToServer variant — preventing silent
- *  drift from the schema. */
-const WRITE_TYPES_ARRAY = [
+ *  drift from the schema. Exported so tests can pin the runtime invariant. */
+export const WRITE_TYPES_ARRAY = [
   'edit',
   'undo',
   'redo',
@@ -970,8 +970,14 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           const results = data.edits.map((e) => pendingEditSchema.safeParse(e))
           const validEdits = results.flatMap((r) => (r.success ? [r.data] : []))
           if (validEdits.length < data.edits.length) {
+            // Surface the FIRST failed issue's path/message so operators debugging
+            // client-server schema drift have a concrete signal — not just a count.
+            const firstFailure = results.find((r) => !r.success)
+            const firstIssueDesc = firstFailure && !firstFailure.success
+              ? `${firstFailure.error.issues[0]?.path.join('.') ?? '<root>'}: ${firstFailure.error.issues[0]?.message ?? '<no message>'}`
+              : 'unknown'
             console.warn(
-              `[cortex] staged-edits-sync filtered ${data.edits.length - validEdits.length} invalid edits`,
+              `[cortex] staged-edits-sync filtered ${data.edits.length - validEdits.length} invalid edits (first issue: ${firstIssueDesc})`,
             )
           }
           currentSession!.stagedEdits.mergeFullSync(validEdits)

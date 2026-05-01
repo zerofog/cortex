@@ -154,6 +154,27 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         return
       }
 
+      // Catch-all for other server-originated error codes (SCHEMA_VIOLATION, etc.).
+      // The Vite server sends these without a requestId (the request was rejected
+      // before it could be parsed), so we can't pair them to a specific pending RPC.
+      // Reject ALL pending RPCs with the actual error message — without this branch,
+      // Claude would see a generic "RPC timeout" 10s later instead of the real reason.
+      if (msg.type === 'error') {
+        const code = typeof msg.code === 'string' ? msg.code : 'UNKNOWN'
+        const errorMessage = typeof msg.message === 'string' && msg.message.length > 0
+          ? `${code}: ${msg.message}`
+          : `Server error: ${code}`
+        const rejectedCount = pendingRequests.size
+        for (const [id, pending] of pendingRequests) {
+          pending.reject(new Error(errorMessage))
+          pendingRequests.delete(id)
+        }
+        if (rejectedCount > 0) {
+          process.stderr.write(`[cortex] Server error rejected ${rejectedCount} pending RPC(s): ${errorMessage}\n`)
+        }
+        return
+      }
+
       // Vite server is single source of truth for state
       if (msg.type === 'cortex') editorActive = true
       if (msg.type === 'cortex-closed') editorActive = false

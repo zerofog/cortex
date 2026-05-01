@@ -741,4 +741,42 @@ describe('cortex mcp', () => {
       expect(text).toContain('intentId')
     })
   })
+
+  // ── ZF0-1500 review (Step 6): CLI SCHEMA_VIOLATION rejection handling ────
+  describe('ZF0-1500 review: CLI handles server-originated SCHEMA_VIOLATION errors', () => {
+    it('rejects pending RPC with the actual SCHEMA_VIOLATION message (not "RPC timeout")', async () => {
+      // When the Vite server rejects a malformed cortex-rpc envelope, it sends
+      // { type: 'error', code: 'SCHEMA_VIOLATION', message: '...' } with NO requestId.
+      // Without the catch-all error branch in mcp.ts, the pending RPC would sit until
+      // the 10s timeout, and Claude would see "RPC timeout" instead of the real reason.
+      //
+      // This test installs a handler that responds to any cortex-rpc with a
+      // SCHEMA_VIOLATION error, then asserts the tool result surfaces the actual code/message.
+      mockVite.wss.on('connection', (ws) => {
+        ws.on('message', (raw) => {
+          let msg: Record<string, unknown>
+          try { msg = JSON.parse(raw.toString()) } catch { return }
+          if (msg.type !== 'cortex-rpc') return
+          // Respond with an error envelope (no requestId — mirrors vite.ts behavior).
+          ws.send(JSON.stringify({
+            type: 'error',
+            code: 'SCHEMA_VIOLATION',
+            message: 'Invalid cortex-rpc envelope',
+          }))
+        })
+      })
+
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      // Allow client's open + initial message handlers to fire (matches other RPC tests)
+      await new Promise((r) => setTimeout(r, 50))
+
+      const result = await client.callTool({ name: 'cortex_get_pending' })
+      expect(result.isError).toBe(true)
+      const text = (result.content as Array<{ text: string }>)[0].text
+      expect(text).toContain('SCHEMA_VIOLATION')
+      expect(text).toContain('Invalid cortex-rpc envelope')
+      expect(text).not.toContain('RPC timeout')
+    })
+  })
 })
