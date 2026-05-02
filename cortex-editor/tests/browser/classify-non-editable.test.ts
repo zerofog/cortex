@@ -1,7 +1,15 @@
-import { describe, it, expect } from 'vitest'
-import { isNonEditable } from '../../src/browser/classifyNonEditable.js'
+import { describe, it, expect, afterEach } from 'vitest'
+import { isNonEditable } from '../../src/browser/classify-non-editable.js'
+import { createEditableDiv } from './helpers.js'
 
 describe('isNonEditable', () => {
+  afterEach(() => {
+    // Remove all body children appended during tests to avoid DOM pollution
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild)
+    }
+  })
+
   it.each([
     ['script'],
     ['style'],
@@ -11,7 +19,7 @@ describe('isNonEditable', () => {
     ['link'],
     ['noscript'],
   ])('returns true for non-visual tag: %s', (tag) => {
-    const el = document.createElement(tag) as HTMLElement
+    const el = document.createElement(tag)
     expect(isNonEditable(el)).toBe(true)
   })
 
@@ -19,26 +27,30 @@ describe('isNonEditable', () => {
     const parent = document.createElement('div')
     const child = document.createElement('div')
     parent.appendChild(child)
+    document.body.appendChild(parent)
     expect(isNonEditable(child)).toBe(true)
   })
 
-  it('returns false when element itself has data-cortex-source', () => {
+  it('returns true for lone unannotated div appended directly to body', () => {
     const el = document.createElement('div')
-    el.setAttribute('data-cortex-source', '/src/App.tsx:10:5')
+    document.body.appendChild(el)
+    expect(isNonEditable(el)).toBe(true)
+  })
+
+  it('returns false when element itself has data-cortex-source', () => {
+    const el = createEditableDiv('/src/App.tsx:10:5')
     expect(isNonEditable(el)).toBe(false)
   })
 
   it('returns false when an ancestor has data-cortex-source', () => {
-    const parent = document.createElement('div')
-    parent.setAttribute('data-cortex-source', '/src/App.tsx:5:1')
+    const parent = createEditableDiv('/src/App.tsx:5:1')
     const child = document.createElement('span')
     parent.appendChild(child)
     expect(isNonEditable(child)).toBe(false)
   })
 
   it('returns false for an editable div with annotation', () => {
-    const el = document.createElement('div')
-    el.setAttribute('data-cortex-source', '/src/components/Hero.tsx:20:3')
+    const el = createEditableDiv('/src/components/Hero.tsx:20:3')
     expect(isNonEditable(el)).toBe(false)
   })
 })

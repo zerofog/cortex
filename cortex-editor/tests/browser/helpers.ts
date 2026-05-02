@@ -2,6 +2,18 @@ import { render, type ComponentChild } from 'preact'
 import { vi } from 'vitest'
 import type { CortexChannel, ConnectionState, ServerToBrowser } from '../../src/adapters/types.js'
 
+export const EDITABLE_SOURCE = '/src/App.tsx:1:1'
+
+/**
+ * Create a div with `data-cortex-source` set, simulating an annotated editable element.
+ * @param source — defaults to EDITABLE_SOURCE
+ */
+export function createEditableDiv(source: string = EDITABLE_SOURCE): HTMLDivElement {
+  const el = document.createElement('div')
+  el.setAttribute('data-cortex-source', source)
+  return el
+}
+
 /**
  * Remove all Cortex-owned `<style>` tags from `document.head` and the
  * CSSOverrideManager canary div from `document.body`. Call in `afterEach`

@@ -1,4 +1,4 @@
-import { isNonEditable } from './classifyNonEditable.js'
+import { isNonEditable } from './classify-non-editable.js'
 
 export interface SelectionHandle {
   /** Remove all event listeners */
