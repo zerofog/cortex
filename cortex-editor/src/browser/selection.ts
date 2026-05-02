@@ -1,3 +1,5 @@
+import { isNonEditable } from './classifyNonEditable.js'
+
 export interface SelectionHandle {
   /** Remove all event listeners */
   cleanup: () => void
@@ -34,6 +36,7 @@ export function initSelection(
     if (!el || !(el instanceof HTMLElement)) return null
     if (el.hasAttribute('data-cortex-host') || el.hasAttribute('data-cortex-root')) return null
     if (el === document.documentElement || el === document.body) return null
+    if (isNonEditable(el)) return null
     return el
   }
 
