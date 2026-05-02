@@ -1,0 +1,26 @@
+cortex-editor/src/browser/components/NoAnnotationsBanner.tsx
+  703095f0e94ade07 9
+cortex-editor/tests/browser/components/NoAnnotationsBanner.test.tsx
+  703095f0e94ade07 1,79-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "54075a45d840d86f615b4ba5c6e10ca1168f022e",
+  "prompts": {
+    "703095f0e94ade07": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8263f418-0337-46fb-b804-e06a6897a717",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 27,
+      "total_deletions": 156,
+      "accepted_lines": 571,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/89447e5d54e0e0ec98cf2d654f1c4fd60637e383743c54805c7ad6a026997205"
+    }
+  }
+}
