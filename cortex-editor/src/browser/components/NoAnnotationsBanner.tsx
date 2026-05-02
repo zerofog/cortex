@@ -6,7 +6,7 @@ const SETUP_DOCS_URL = 'https://github.com/zerofog/cortex#setup'
 export function NoAnnotationsBanner(): JSX.Element | null {
   const [dismissed, setDismissed] = useState(false)
 
-  const annotationCount = document.querySelectorAll('[data-cortex-source]').length
+  const [annotationCount] = useState(() => document.querySelectorAll('[data-cortex-source]').length)
 
   if (annotationCount > 0 || dismissed) return null
 

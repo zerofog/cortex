@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render } from 'preact'
 import { NoAnnotationsBanner } from '../../../src/browser/components/NoAnnotationsBanner.js'
 import { createEditableDiv } from '../helpers.js'
@@ -75,5 +75,28 @@ describe('NoAnnotationsBanner', () => {
 
     const banner = container.querySelector('[data-banner-id="no-annotations"]')
     expect(banner!.textContent).toContain('Vite plugin')
+  })
+
+  it('queries data-cortex-source once at mount, not on every render', () => {
+    // Clear any leftover annotated elements so spy call count is predictable
+    for (const el of document.body.querySelectorAll('[data-cortex-source]')) {
+      el.remove()
+    }
+
+    const spy = vi.spyOn(document, 'querySelectorAll')
+
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    render(<NoAnnotationsBanner />, container)
+
+    // Force re-renders by rendering the same vnode against the same container multiple times
+    render(<NoAnnotationsBanner />, container)
+    render(<NoAnnotationsBanner />, container)
+
+    // Filter to only our selector in case Preact internals call querySelectorAll with other selectors
+    const ourCalls = spy.mock.calls.filter(([sel]) => sel === '[data-cortex-source]')
+    expect(ourCalls.length).toBe(1)
+
+    spy.mockRestore()
   })
 })
