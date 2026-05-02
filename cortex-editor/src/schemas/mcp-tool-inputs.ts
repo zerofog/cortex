@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { MAX_INTENT_ID_BYTES, utf8Bytes } from './pending-edit.js'
+import { intentIdSchema } from './pending-edit.js'
 
 // ---------------------------------------------------------------------------
 // MCP tool input schemas — canonical source consumed by the registerTool calls
@@ -9,12 +9,9 @@ import { MAX_INTENT_ID_BYTES, utf8Bytes } from './pending-edit.js'
 // use empty z.object({}) as required by the MCP SDK.
 // ---------------------------------------------------------------------------
 
-// Per-string bound matching the wire-format intentId constraint.
-// Uses UTF-8 byte counting for consistency with pendingEditSchema.
-const intentIdField = z.string().min(1).refine(
-  (v) => utf8Bytes(v) <= MAX_INTENT_ID_BYTES,
-  { message: `intentId exceeds ${MAX_INTENT_ID_BYTES} UTF-8 bytes` },
-)
+// intentIdField is the shared intentIdSchema — centralised in pending-edit.ts to
+// prevent the F2/F14 class of UTF-16-vs-byte drift across trust boundaries.
+const intentIdField = intentIdSchema
 
 // --- Annotation tools ---
 

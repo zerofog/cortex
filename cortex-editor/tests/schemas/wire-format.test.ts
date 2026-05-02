@@ -208,6 +208,20 @@ describe('browserToServerSchema — staged-edit-remove', () => {
       expect(r.error.issues.map((i) => i.path.join('.'))).toContain('intentIds')
     }
   })
+  it('staged-edit-remove rejects intentIds with multi-byte string exceeding MAX_INTENT_ID_BYTES (F14)', () => {
+    const emoji100 = '🎉'.repeat(100) // 400 UTF-8 bytes > 256 cap
+    const result = browserToServerSchema.safeParse({
+      type: 'staged-edit-remove',
+      intentIds: ['valid-id', emoji100, 'another-valid'],
+      token: validToken,
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      // Path should point at the array element that violated (index 1)
+      expect(paths.some((p) => p.includes('intentIds.1'))).toBe(true)
+    }
+  })
 })
 
 describe('browserToServerSchema — staged-edit-clear', () => {
@@ -491,6 +505,19 @@ describe('serverToBrowserSchema — staged-edits-discard', () => {
     expect(r.success).toBe(false)
     if (!r.success) {
       expect(r.error.issues.map((i) => i.path.join('.'))).toContain('intentIds')
+    }
+  })
+  it('staged-edits-discard rejects intentIds with multi-byte string exceeding MAX_INTENT_ID_BYTES (F14)', () => {
+    const emoji100 = '🎉'.repeat(100) // 400 UTF-8 bytes > 256 cap
+    const result = serverToBrowserSchema.safeParse({
+      type: 'staged-edits-discard',
+      intentIds: ['valid-id', emoji100, 'another-valid'],
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      // Path should point at the array element that violated (index 1)
+      expect(paths.some((p) => p.includes('intentIds.1'))).toBe(true)
     }
   })
 })

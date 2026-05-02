@@ -21,6 +21,7 @@ export { parseOrFail } from './gating.js'
 // PendingEdit schema
 export {
   pendingEditSchema,
+  intentIdSchema,
   MAX_INTENT_VALUE_BYTES,
   MAX_INTENT_SOURCE_BYTES,
   MAX_INTENT_ID_BYTES,

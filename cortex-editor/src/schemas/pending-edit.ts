@@ -37,6 +37,28 @@ export const MAX_FULL_SYNC_SIZE = 1000
 export const utf8Bytes = (s: string): number => new TextEncoder().encode(s).length
 
 /**
+ * Shared schema for intent IDs (256-byte UTF-8 cap, non-empty).
+ *
+ * Used by:
+ * - pendingEditSchema.intentId (this file)
+ * - browserToServerSchema staged-edit-remove arm (wire-format.ts)
+ * - serverToBrowserSchema staged-edits-discard arm (wire-format.ts)
+ * - cortexApplyEditsInputSchema/cortexDiscardEditsInputSchema array elements (mcp-tool-inputs.ts)
+ * - cortexGetIntentContextInputSchema.intentId (mcp-tool-inputs.ts)
+ *
+ * Centralizing prevents the F2/F14 class of bug where one site uses raw
+ * z.string().max() (UTF-16 code units) and another uses the byte-bounded
+ * version — drift between trust boundaries.
+ */
+export const intentIdSchema = z
+  .string()
+  .min(1, 'intentId must not be empty')
+  .refine(
+    (v) => utf8Bytes(v) <= MAX_INTENT_ID_BYTES,
+    { message: `intentId exceeds ${MAX_INTENT_ID_BYTES} UTF-8 bytes` },
+  )
+
+/**
  * Zod schema for PendingEdit.
  *
  * Enforces both shape and UTF-8 byte size bounds.
@@ -48,7 +70,7 @@ export const utf8Bytes = (s: string): number => new TextEncoder().encode(s).leng
  * correctly — JS `.max(N)` measures UTF-16 code units, not bytes.
  */
 export const pendingEditSchema = z.object({
-  intentId: z.string().min(1).refine((v) => utf8Bytes(v) <= MAX_INTENT_ID_BYTES, { message: `intentId exceeds ${MAX_INTENT_ID_BYTES} UTF-8 bytes` }),
+  intentId: intentIdSchema,
   source: z.string().min(1).refine((v) => utf8Bytes(v) <= MAX_INTENT_SOURCE_BYTES, { message: `source exceeds ${MAX_INTENT_SOURCE_BYTES} UTF-8 bytes` }),
   property: z.string().min(1).refine((v) => utf8Bytes(v) <= MAX_INTENT_PROPERTY_BYTES, { message: `property exceeds ${MAX_INTENT_PROPERTY_BYTES} UTF-8 bytes` }),
   value: z.string().refine((v) => utf8Bytes(v) <= MAX_INTENT_VALUE_BYTES, { message: `value exceeds ${MAX_INTENT_VALUE_BYTES} UTF-8 bytes` }),

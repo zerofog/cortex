@@ -11,7 +11,7 @@
  * function signatures).
  */
 import { z } from 'zod'
-import { pendingEditSchema, MAX_INTENT_ID_BYTES, MAX_FULL_SYNC_SIZE } from './pending-edit.js'
+import { pendingEditSchema, intentIdSchema, MAX_FULL_SYNC_SIZE } from './pending-edit.js'
 
 // ---------------------------------------------------------------------------
 // Shared sub-schemas
@@ -172,7 +172,7 @@ export const browserToServerSchema = z.discriminatedUnion('type', [
   // 10. staged-edit-remove
   z.object({
     type: z.literal('staged-edit-remove'),
-    intentIds: z.array(z.string().min(1).max(MAX_INTENT_ID_BYTES)),
+    intentIds: z.array(intentIdSchema),
     token: z.string(),
   }),
 
@@ -333,7 +333,7 @@ export const serverToBrowserSchema = z.discriminatedUnion('type', [
   // 16. staged-edits-discard
   z.object({
     type: z.literal('staged-edits-discard'),
-    intentIds: z.array(z.string().min(1).max(MAX_INTENT_ID_BYTES)),
+    intentIds: z.array(intentIdSchema),
   }),
 
   // 17. staged-edits-acked
