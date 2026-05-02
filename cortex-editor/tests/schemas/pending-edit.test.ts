@@ -191,3 +191,74 @@ describe('pendingEditSchema — invalid inputs', () => {
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// PR #94 F2: UTF-8 byte length enforcement
+//
+// z.string().max(N) counts UTF-16 code units (JS string.length), not UTF-8 bytes.
+// These tests verify the schema enforces UTF-8 byte limits as the constants imply.
+// ---------------------------------------------------------------------------
+
+describe('pendingEditSchema — UTF-8 byte limits (F2)', () => {
+  it('accepts a 200-char ASCII intentId (200 bytes < 256-byte cap)', () => {
+    // ASCII chars are 1 byte each — byte count equals char count.
+    const result = pendingEditSchema.safeParse({ ...validEdit, intentId: 'x'.repeat(200) })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a 100-char emoji intentId (400 UTF-8 bytes > 256-byte cap)', () => {
+    // 🎉 is U+1F389, which encodes as 4 UTF-8 bytes. 100 × 4 = 400 bytes > 256.
+    // JS string.length would count this as 200 (2 UTF-16 code units per emoji),
+    // which would pass a naive .max(256) check — proving we need TextEncoder.
+    const emoji100 = '🎉'.repeat(100)
+    const result = pendingEditSchema.safeParse({ ...validEdit, intentId: emoji100 })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('intentId')
+    }
+  })
+
+  it('accepts a 100-char emoji value (400 bytes < 4096-byte cap)', () => {
+    // 100 × 4 = 400 bytes; well within the 4096-byte value cap.
+    const emoji100 = '🎉'.repeat(100)
+    const result = pendingEditSchema.safeParse({ ...validEdit, value: emoji100 })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a 100-char emoji property (400 bytes > 256-byte cap)', () => {
+    const emoji100 = '🎉'.repeat(100)
+    const result = pendingEditSchema.safeParse({ ...validEdit, property: emoji100 })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('property')
+    }
+  })
+
+  it('rejects a 100-char emoji source (400 bytes > the default 256; well within source 1024-byte cap, but tests byte counting)', () => {
+    // source cap is 1024 bytes; 100 × 4 = 400 bytes passes.
+    const emojiSource = '🎉'.repeat(100) + ':1:1'  // still a "source" string
+    const result = pendingEditSchema.safeParse({ ...validEdit, source: emojiSource })
+    // 100 × 4 = 400 bytes < 1024 → should pass
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a 256-char emoji source (1024 UTF-8 bytes = source cap — boundary)', () => {
+    // 256 × 4 = 1024 bytes = MAX_INTENT_SOURCE_BYTES → should pass (equal = within limit).
+    const emojiSource = '🎉'.repeat(256)
+    const result = pendingEditSchema.safeParse({ ...validEdit, source: emojiSource })
+    // Exactly at the limit — valid
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a 257-char emoji source (1028 UTF-8 bytes > 1024-byte cap)', () => {
+    const emojiSource = '🎉'.repeat(257)
+    const result = pendingEditSchema.safeParse({ ...validEdit, source: emojiSource })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('source')
+    }
+  })
+})

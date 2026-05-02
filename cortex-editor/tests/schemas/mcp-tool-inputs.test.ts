@@ -178,3 +178,55 @@ describe('cortexGetIntentContextInputSchema', () => {
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// PR #94 F5: per-string intentId bounds in MCP tool input schemas
+// ---------------------------------------------------------------------------
+
+describe('PR #94 F5: intentId per-string bounds in MCP tool input schemas', () => {
+  it('cortexApplyEditsInputSchema rejects a 257-char intentId element', () => {
+    const oversized = 'x'.repeat(257)
+    const r = cortexApplyEditsInputSchema.safeParse({ intentIds: ['valid', oversized] })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      const paths = r.error.issues.map((i) => i.path.join('.'))
+      // Path should point to the array element (intentIds.1)
+      expect(paths.some((p) => p.startsWith('intentIds'))).toBe(true)
+    }
+  })
+
+  it('cortexApplyEditsInputSchema rejects empty-string intentId element', () => {
+    const r = cortexApplyEditsInputSchema.safeParse({ intentIds: ['valid', ''] })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      const paths = r.error.issues.map((i) => i.path.join('.'))
+      expect(paths.some((p) => p.startsWith('intentIds'))).toBe(true)
+    }
+  })
+
+  it('cortexDiscardEditsInputSchema rejects a 257-char intentId element', () => {
+    const oversized = 'x'.repeat(257)
+    const r = cortexDiscardEditsInputSchema.safeParse({ intentIds: [oversized] })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      const paths = r.error.issues.map((i) => i.path.join('.'))
+      expect(paths.some((p) => p.startsWith('intentIds'))).toBe(true)
+    }
+  })
+
+  it('cortexGetIntentContextInputSchema rejects a 257-char intentId', () => {
+    const oversized = 'x'.repeat(257)
+    const r = cortexGetIntentContextInputSchema.safeParse({ intentId: oversized })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      const paths = r.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('intentId')
+    }
+  })
+
+  it('cortexApplyEditsInputSchema accepts intentIds at exactly the 256-byte cap', () => {
+    const atLimit = 'x'.repeat(256)
+    const r = cortexApplyEditsInputSchema.safeParse({ intentIds: [atLimit] })
+    expect(r.success).toBe(true)
+  })
+})

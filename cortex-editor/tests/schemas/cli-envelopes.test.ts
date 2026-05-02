@@ -10,8 +10,10 @@ import {
 // CLI WebSocket envelope schemas
 //
 // These wire shapes flow between the Vite dev server and the cortex MCP CLI
-// (NOT browser↔server). They are inline JSON today; T2 will replace inline
-// validation with these schemas.
+// (NOT browser↔server). cliRpcRequestSchema is wired at vite.ts:1219 in the
+// CLI dispatcher. cliRpcResultSchema, cliRpcErrorSchema, cliStatusSchema are
+// exported but not yet wired at outbound JSON.stringify call sites — that's
+// the deferred follow-up tracked in the parent ticket's UX narrative.
 // ---------------------------------------------------------------------------
 
 const validToken = 'tok-cli-abc'

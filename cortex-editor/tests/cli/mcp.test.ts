@@ -742,6 +742,40 @@ describe('cortex mcp', () => {
     })
   })
 
+  // ── PR #94 F3: CLI error handler spurious-rejection guard ─────────────────
+  describe('PR #94 F3: CLI does NOT reject pending RPCs on non-fatal server errors', () => {
+    it('pending RPC is NOT rejected when server sends non-fatal error code', async () => {
+      // Before F3 fix: ANY type:'error' frame would reject all pending RPCs.
+      // After F3 fix: only SCHEMA_VIOLATION and AUTH_FAILED (unrecoverable) do so.
+      // This test sends SOME_OTHER_CODE and verifies the pending RPC can still resolve.
+      let resolveWs: ((ws: WebSocket) => void) | null = null
+      const wsConnected = new Promise<WebSocket>((resolve) => { resolveWs = resolve })
+
+      mockVite.wss.on('connection', (ws) => {
+        resolveWs!(ws)
+        ws.on('message', (raw) => {
+          let msg: Record<string, unknown>
+          try { msg = JSON.parse(raw.toString()) } catch { return }
+          if (msg.type === 'cortex-rpc') {
+            // First respond with a non-fatal error, then respond with the actual result.
+            ws.send(JSON.stringify({ type: 'error', code: 'SOME_OTHER_CODE', message: 'non-fatal info' }))
+            // Still resolve the RPC normally after the non-fatal error.
+            ws.send(JSON.stringify({ type: 'cortex-rpc-result', requestId: msg.requestId, result: [] }))
+          }
+        })
+      })
+
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      await new Promise((r) => setTimeout(r, 50))
+
+      // The tool call should succeed (RPC resolves normally despite non-fatal error).
+      const result = await client.callTool({ name: 'cortex_get_pending' })
+      // The RPC resolved — not rejected — so isError should be falsy.
+      expect(result.isError).toBeFalsy()
+    })
+  })
+
   // ── ZF0-1500 review (Step 6): CLI SCHEMA_VIOLATION rejection handling ────
   describe('ZF0-1500 review: CLI handles server-originated SCHEMA_VIOLATION errors', () => {
     it('rejects pending RPC with the actual SCHEMA_VIOLATION message (not "RPC timeout")', async () => {

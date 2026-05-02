@@ -1,14 +1,20 @@
 import { z } from 'zod'
+import { MAX_INTENT_ID_BYTES, utf8Bytes } from './pending-edit.js'
 
 // ---------------------------------------------------------------------------
-// MCP tool input schemas — mirrors the inline `inputSchema` blocks in
-// cortex-editor/src/cli/mcp.ts. These are the canonical schemas; T2 will
-// replace the inline blocks with imports from here.
-//
-// Tools with NO user inputs (cortex_activate, cortex_deactivate,
-// cortex_status, cortex_get_pending, cortex_get_pending_edits,
-// cortex_channel_test) use z.object({}) — no export needed as they're empty.
+// MCP tool input schemas — canonical source consumed by the registerTool calls
+// in src/cli/mcp.ts via .shape. The 6 tools without inputs (cortex_activate,
+// cortex_deactivate, cortex_status, cortex_get_pending, cortex_get_pending_edits,
+// cortex_channel_test) have no schemas here; their registerTool calls in mcp.ts
+// use empty z.object({}) as required by the MCP SDK.
 // ---------------------------------------------------------------------------
+
+// Per-string bound matching the wire-format intentId constraint.
+// Uses UTF-8 byte counting for consistency with pendingEditSchema.
+const intentIdField = z.string().min(1).refine(
+  (v) => utf8Bytes(v) <= MAX_INTENT_ID_BYTES,
+  { message: `intentId exceeds ${MAX_INTENT_ID_BYTES} UTF-8 bytes` },
+)
 
 // --- Annotation tools ---
 
@@ -44,17 +50,17 @@ export const cortexRespondInputSchema = z.object({
 
 /** cortex_apply_edits input */
 export const cortexApplyEditsInputSchema = z.object({
-  intentIds: z.array(z.string()).describe('IDs of intents to apply'),
+  intentIds: z.array(intentIdField).describe('IDs of intents to apply'),
 })
 
 /** cortex_discard_edits input */
 export const cortexDiscardEditsInputSchema = z.object({
-  intentIds: z.array(z.string()).describe('IDs of intents to discard'),
+  intentIds: z.array(intentIdField).describe('IDs of intents to discard'),
 })
 
 /** cortex_get_intent_context input */
 export const cortexGetIntentContextInputSchema = z.object({
-  intentId: z.string().describe('ID of the intent to get context for'),
+  intentId: intentIdField.describe('ID of the intent to get context for'),
 })
 
 // --- Inferred types ---

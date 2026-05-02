@@ -34,6 +34,14 @@ import {
   pendingEditSchema,
   parseOrFail,
   formatIssues,
+  cortexApplyEditsInputSchema,
+  cortexDiscardEditsInputSchema,
+  cortexGetIntentContextInputSchema,
+  cortexGetDetailsInputSchema,
+  cortexAcknowledgeInputSchema,
+  cortexResolveInputSchema,
+  cortexDismissInputSchema,
+  cortexRespondInputSchema,
 } from '../schemas/index.js'
 
 export interface CortexEditorOptions {
@@ -292,9 +300,29 @@ const ALLOWED_RPC_METHODS = new Set([
   'getPendingEdits', 'applyEdits', 'discardEdits', 'getIntentContext',
 ])
 
+// Method-specific param schemas. `null` means "method takes no params — skip validation".
+// The outer envelope's `params: z.record(z.string(), z.unknown())` allows anything;
+// these schemas enforce the actual per-method contract (F1 fix).
+const RPC_METHOD_SCHEMAS = {
+  applyEdits: cortexApplyEditsInputSchema,
+  discardEdits: cortexDiscardEditsInputSchema,
+  getIntentContext: cortexGetIntentContextInputSchema,
+  getDetails: cortexGetDetailsInputSchema,
+  acknowledge: cortexAcknowledgeInputSchema,
+  resolve: cortexResolveInputSchema,
+  dismiss: cortexDismissInputSchema,
+  respond: cortexRespondInputSchema,
+  // No-param methods — null means skip params validation
+  getPending: null,
+  getPendingEdits: null,
+} as const
+
 function handleRPC(method: string, params: Record<string, unknown>): unknown {
   // --- Annotation methods ---
-  const id = typeof params.annotationId === 'string' ? params.annotationId : ''
+  // params.annotationId is schema-validated as string for all annotation methods
+  // before handleRPC is called. Cast is safe — getPending and staged-edit methods
+  // don't use this variable.
+  const id = params.annotationId as string | undefined ?? ''
   switch (method) {
     case 'getPending': return currentSession!.annotations.getPending()
     case 'getDetails': return currentSession!.annotations.getById(id)
@@ -308,7 +336,8 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
       return result
     }
     case 'resolve': {
-      const summary = typeof params.summary === 'string' ? params.summary : ''
+      // params.summary is schema-validated as string before handleRPC is called.
+      const summary = params.summary as string
       const result = currentSession!.annotations.resolve(id, summary)
       if (result && currentSession!.channel) {
         currentSession!.channel.send({ type: 'annotation-updated', annotation: result })
@@ -318,7 +347,8 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
       return result
     }
     case 'dismiss': {
-      const reason = typeof params.reason === 'string' ? params.reason : undefined
+      // params.reason is schema-validated as string | undefined before handleRPC is called.
+      const reason = params.reason as string | undefined
       const result = currentSession!.annotations.dismiss(id, reason)
       if (result && currentSession!.channel) {
         currentSession!.channel.send({ type: 'annotation-updated', annotation: result })
@@ -328,7 +358,8 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
       return result
     }
     case 'respond': {
-      const text = typeof params.text === 'string' ? params.text : ''
+      // params.text is schema-validated as string before handleRPC is called.
+      const text = params.text as string
       const result = currentSession!.annotations.addMessage(id, { from: 'agent', text })
       if (result && currentSession!.channel) {
         currentSession!.channel.send({ type: 'annotation-updated', annotation: result })
@@ -350,14 +381,16 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
     }
 
     case 'applyEdits': {
-      const intentIds = Array.isArray(params.intentIds) ? params.intentIds.filter((x): x is string => typeof x === 'string') : []
+      // params.intentIds is schema-validated as string[] before handleRPC is called.
+      const intentIds = params.intentIds as string[]
       // ZF0-1464 deferral: production routes all found intents to Claude's Edit
       // tool. See applyEditsCore docstring for the full rationale.
       return { results: applyEditsCore(currentSession!.stagedEdits, intentIds) }
     }
 
     case 'discardEdits': {
-      const intentIds = Array.isArray(params.intentIds) ? params.intentIds.filter((x): x is string => typeof x === 'string') : []
+      // params.intentIds is schema-validated as string[] before handleRPC is called.
+      const intentIds = params.intentIds as string[]
 
       currentSession!.stagedEdits.remove(intentIds)
 
@@ -384,7 +417,8 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
     }
 
     case 'getIntentContext': {
-      const intentId = typeof params.intentId === 'string' ? params.intentId : ''
+      // params.intentId is schema-validated as non-empty string before handleRPC is called.
+      const intentId = params.intentId as string
       const intent = currentSession!.stagedEdits.getById(intentId)
       if (!intent) {
         return { error: 'intent not found' }
@@ -871,7 +905,13 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           // forward would hide the delivery failure and leave Claude unnotified.
           if (data.type === 'staged-edits-ready' && forwarded) {
             const requestId = (data as { requestId: string }).requestId
-            server.hot.send(CORTEX_MSG_EVENT, { type: 'staged-edits-acked', requestId })
+            // Validate the outbound message (Boundary 3 coverage — was previously
+            // bypassing the schema validator). Not routed through validateAndSend because
+            // staged-edits-acked is a pure browser ack; forwardToCLI would noise-flood
+            // CLI clients with a server→browser protocol message they don't consume.
+            const ackMsg: ServerToBrowser = { type: 'staged-edits-acked', requestId }
+            parseOrFail(serverToBrowserSchema, ackMsg, 'vite.stagedEditsAck')
+            server.hot.send(CORTEX_MSG_EVENT, ackMsg)
           }
         }
 
@@ -1230,12 +1270,30 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
               }
               const requestId = rpcMsg.requestId
               const method = rpcMsg.method
-              const params = rpcMsg.params
+              let params = rpcMsg.params
               if (!ALLOWED_RPC_METHODS.has(method)) {
                 try { ws.send(JSON.stringify({ type: 'cortex-rpc-error', requestId, error: `Unknown RPC method: ${method}` })) } catch {}
                 return
               }
+              // Method-specific param validation (F1): the envelope schema only checks the
+              // outer shape; here we enforce the per-method contract so invalid params are
+              // rejected with SCHEMA_VIOLATION instead of being silently coerced or ignored.
+              // In test mode parseOrFail throws — that throw is caught below and forwarded
+              // as cortex-rpc-error so the test can assert on it.
               try {
+                const methodSchema = RPC_METHOD_SCHEMAS[method as keyof typeof RPC_METHOD_SCHEMAS]
+                if (methodSchema !== null && methodSchema !== undefined) {
+                  // Cast to z.ZodType<unknown> to allow parseOrFail to accept the union
+                  // of method schemas (each has a distinct output type; the generic T
+                  // can't be inferred from the union — we only need the validation side-effect).
+                  const validatedParams = parseOrFail(methodSchema as import('zod').ZodType<unknown>, params, `vite.handleRPC.${method}`)
+                  if (validatedParams === null) {
+                    // prod mode — parseOrFail already warned; surface SCHEMA_VIOLATION to CLI
+                    try { ws.send(JSON.stringify({ type: 'error', code: 'SCHEMA_VIOLATION', message: `Invalid params for RPC method: ${method}` })) } catch {}
+                    return
+                  }
+                  params = validatedParams as Record<string, unknown>
+                }
                 const result = handleRPC(method, params)
                 try {
                   ws.send(JSON.stringify({ type: 'cortex-rpc-result', requestId, result }))

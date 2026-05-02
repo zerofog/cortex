@@ -1,5 +1,5 @@
 import { readFileSync } from 'fs'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 
 // ---------------------------------------------------------------------------
@@ -12,10 +12,8 @@ import { fileURLToPath } from 'url'
 // Runs only in Node (tests + CLI). Not imported by the browser bundle.
 // ---------------------------------------------------------------------------
 
-const FIXTURES_ROOT = join(
-  fileURLToPath(import.meta.url),
-  '../../../tests/fixtures/wire-format',
-)
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const FIXTURES_ROOT = join(__dirname, '../../tests/fixtures/wire-format')
 
 /**
  * Load a golden wire-format fixture by relative path.
