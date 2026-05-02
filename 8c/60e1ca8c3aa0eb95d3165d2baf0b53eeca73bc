@@ -1,0 +1,32 @@
+cortex-editor/src/browser/selection.ts
+  703095f0e94ade07 1
+cortex-editor/src/browser/classify-non-editable.ts
+  703095f0e94ade07 1-5
+cortex-editor/tests/browser/helpers.ts
+  703095f0e94ade07 5-16
+cortex-editor/tests/browser/selection.test.ts
+  703095f0e94ade07 3,48,62,97,114,130,173,189,204
+cortex-editor/tests/browser/classify-non-editable.test.ts
+  703095f0e94ade07 1-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "8c60e1ca8c3aa0eb95d3165d2baf0b53eeca73bc",
+  "prompts": {
+    "703095f0e94ade07": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8263f418-0337-46fb-b804-e06a6897a717",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 645,
+      "total_deletions": 43,
+      "accepted_lines": 629,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/41a36a82aa3380cece2f937c75374dedaa8c8b7a9abf29fa560c90b5df00901e"
+    }
+  }
+}
