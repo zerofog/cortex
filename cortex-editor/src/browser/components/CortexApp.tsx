@@ -22,6 +22,7 @@ import { CommentPin } from './CommentPin.js'
 import { ActivityLog } from './ActivityLog.js'
 import { ErrorToast } from './ErrorToast.js'
 import { CapabilityBanner } from './CapabilityBanner.js'
+import { NoAnnotationsBanner } from './NoAnnotationsBanner.js'
 import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
 import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
@@ -934,6 +935,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   return (
     <>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 9998, pointerEvents: 'none', display: 'flex', flexDirection: 'column' }}>
+        <NoAnnotationsBanner />
         <CapabilityBanner systems={capabilitySystems} />
         <ErrorToast channel={channel} />
       </div>
