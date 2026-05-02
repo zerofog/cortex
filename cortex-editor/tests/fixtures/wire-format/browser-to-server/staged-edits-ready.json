@@ -1,0 +1,6 @@
+{
+  "type": "staged-edits-ready",
+  "token": "tok-abc",
+  "count": 2,
+  "requestId": "req-uuid-001"
+}

@@ -1,0 +1,6 @@
+{
+  "type": "comment",
+  "elementSource": "src/Hero.tsx:14:5",
+  "text": "Fix this",
+  "pinPosition": { "x": "left", "y": 200 }
+}

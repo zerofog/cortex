@@ -5,8 +5,17 @@ import WebSocket from 'ws'
 import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { z } from 'zod'
 import { version } from '../version.js'
+import {
+  cortexGetDetailsInputSchema,
+  cortexAcknowledgeInputSchema,
+  cortexResolveInputSchema,
+  cortexDismissInputSchema,
+  cortexRespondInputSchema,
+  cortexApplyEditsInputSchema,
+  cortexDiscardEditsInputSchema,
+  cortexGetIntentContextInputSchema,
+} from '../schemas/index.js'
 
 /** Exponential backoff with cap for WebSocket reconnection. Exported for testing. */
 export function calculateReconnectDelay(retryCount: number): number {
@@ -142,6 +151,40 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
           pending.reject(new Error('AUTH_FAILED: invalid or missing auth token'))
           pendingRequests.delete(id)
         }
+        return
+      }
+
+      // Server-originated error codes without a requestId.
+      //
+      // SCHEMA_VIOLATION: the Vite server rejected a malformed cortex-rpc envelope
+      // before it could extract requestId. Reject ALL pending RPCs immediately —
+      // without this, Claude sees "RPC timeout" 10s later instead of the real reason.
+      //
+      // Other codes: informational or recoverable — log and continue. The pending RPC
+      // may still resolve normally via a subsequent cortex-rpc-result frame.
+      // Fan-out rejection on every unrecognized error code would cause spurious
+      // failures for in-flight RPCs that are unrelated to the error.
+      if (msg.type === 'error') {
+        const code = typeof msg.code === 'string' ? msg.code : 'UNKNOWN'
+
+        if (code === 'SCHEMA_VIOLATION') {
+          const errorMessage = typeof msg.message === 'string' && msg.message.length > 0
+            ? `SCHEMA_VIOLATION: ${msg.message}`
+            : 'Server error: SCHEMA_VIOLATION'
+          const rejectedCount = pendingRequests.size
+          for (const [id, pending] of pendingRequests) {
+            pending.reject(new Error(errorMessage))
+            pendingRequests.delete(id)
+          }
+          if (rejectedCount > 0) {
+            process.stderr.write(`[cortex] SCHEMA_VIOLATION rejected ${rejectedCount} pending RPC(s): ${errorMessage}\n`)
+          }
+          return
+        }
+
+        // Other error codes: non-fatal; log and continue.
+        const message = typeof msg.message === 'string' ? msg.message : ''
+        process.stderr.write(`[cortex] Server error (non-fatal): ${code}${message ? ` — ${message}` : ''}\n`)
         return
       }
 
@@ -364,7 +407,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     'cortex_get_details',
     {
       description: 'Get full details of an annotation including thread history.',
-      inputSchema: { annotationId: z.string().describe('Annotation ID') },
+      inputSchema: cortexGetDetailsInputSchema.shape,
     },
     async ({ annotationId }) => {
       try {
@@ -380,7 +423,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     'cortex_acknowledge',
     {
       description: 'Mark an annotation as "working on it" (pending → acknowledged). Must be called before cortex_resolve. Returns null if annotation is not in pending state.',
-      inputSchema: { annotationId: z.string().describe('Annotation ID') },
+      inputSchema: cortexAcknowledgeInputSchema.shape,
     },
     async ({ annotationId }) => {
       try {
@@ -396,10 +439,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     'cortex_resolve',
     {
       description: 'Mark an annotation as resolved/applied (acknowledged → resolved). Requires cortex_acknowledge first. Returns null if not in acknowledged state. Terminal — no further updates possible.',
-      inputSchema: {
-        annotationId: z.string().describe('Annotation ID'),
-        summary: z.string().describe('Summary of the change that was applied'),
-      },
+      inputSchema: cortexResolveInputSchema.shape,
     },
     async ({ annotationId, summary }) => {
       try {
@@ -415,10 +455,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     'cortex_dismiss',
     {
       description: 'Skip an annotation without implementing it (pending/acknowledged → dismissed). Can be called before or after acknowledge. Returns null if already resolved/dismissed. Terminal state.',
-      inputSchema: {
-        annotationId: z.string().describe('Annotation ID'),
-        reason: z.string().optional().describe('Reason for dismissing'),
-      },
+      inputSchema: cortexDismissInputSchema.shape,
     },
     async ({ annotationId, reason }) => {
       try {
@@ -434,10 +471,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     'cortex_respond',
     {
       description: 'Send a clarification or reply to an annotation thread. Only works for pending/acknowledged annotations. Returns null if annotation is resolved/dismissed or thread is full (100 messages max).',
-      inputSchema: {
-        annotationId: z.string().describe('Annotation ID'),
-        text: z.string().describe('Message text'),
-      },
+      inputSchema: cortexRespondInputSchema.shape,
     },
     async ({ annotationId, text }) => {
       try {
@@ -470,9 +504,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     'cortex_apply_edits',
     {
       description: 'Route staged edits to Claude for source application. Returns per-id result indicating needs-source-edit (Claude uses the Edit tool to write source) or failed (intent not found). Future (ZF0-1464): direct deterministic apply for inline-style/Tailwind/CSS-Modules cases will return an additional applied status.',
-      inputSchema: {
-        intentIds: z.array(z.string()).describe('IDs of intents to apply'),
-      },
+      inputSchema: cortexApplyEditsInputSchema.shape,
     },
     async ({ intentIds }) => {
       try {
@@ -488,9 +520,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     'cortex_discard_edits',
     {
       description: 'Remove staged edits from the buffer without writing source. Returns the IDs that were discarded.',
-      inputSchema: {
-        intentIds: z.array(z.string()).describe('IDs of intents to discard'),
-      },
+      inputSchema: cortexDiscardEditsInputSchema.shape,
     },
     async ({ intentIds }) => {
       try {
@@ -506,9 +536,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     'cortex_get_intent_context',
     {
       description: 'Returns ~20 lines of source context around the intent location, plus the current value at that line for divergence detection.',
-      inputSchema: {
-        intentId: z.string().describe('ID of the intent to get context for'),
-      },
+      inputSchema: cortexGetIntentContextInputSchema.shape,
     },
     async ({ intentId }) => {
       try {

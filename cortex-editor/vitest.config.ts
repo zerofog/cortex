@@ -18,7 +18,7 @@ export default defineConfig({
       },
     },
     projects: [
-      { test: { name: 'server', environment: 'node', include: ['tests/adapters/**/*.test.ts', 'tests/core/**/*.test.ts', 'tests/cli/**/*.test.ts'] } },
+      { test: { name: 'server', environment: 'node', include: ['tests/adapters/**/*.test.ts', 'tests/core/**/*.test.ts', 'tests/cli/**/*.test.ts', 'tests/schemas/**/*.test.ts'] } },
       {
         // Mirror the tsup browser bundle's __CORTEX_TEST_BUILD__ define so
         // source-compiled imports see the bridge path as live (ZF0-1298).

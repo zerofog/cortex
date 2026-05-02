@@ -1,0 +1,22 @@
+{
+  "type": "staged-edits-sync",
+  "token": "tok-abc",
+  "edits": [
+    {
+      "intentId": "intent-001",
+      "source": "src/components/Hero.tsx:42:7",
+      "property": "color",
+      "value": "var(--color-primary)",
+      "previousValue": "#333333",
+      "timestamp": 1714500000000
+    },
+    {
+      "intentId": "intent-002",
+      "source": "src/components/Hero.tsx:50:3",
+      "property": "font-size",
+      "value": "var(--font-size-lg)",
+      "previousValue": "18px",
+      "timestamp": 1714500001000
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "type": "annotation-created",
+  "annotation": {
+    "id": "ann-001",
+    "status": "pending",
+    "elementSource": "src/components/Hero.tsx:42:7",
+    "text": "Change heading color to brand primary.",
+    "kind": "fix-request",
+    "fixMeta": {
+      "property": "color",
+      "value": "var(--color-primary)",
+      "reason": "Must use design system color token"
+    },
+    "elementContext": {
+      "tagName": "h1",
+      "componentName": "Hero",
+      "domSelector": ".hero-title",
+      "textPreview": "Welcome to Cortex"
+    },
+    "pinPosition": { "x": 120, "y": 340 },
+    "createdAt": 1714500000000,
+    "updatedAt": 1714500000000,
+    "thread": []
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "type": "annotation-created",
+  "annotation": {
+    "id": "ann-001",
+    "status": "in-progress",
+    "elementSource": "src/Hero.tsx:14:5",
+    "text": "Fix color",
+    "createdAt": 1714500000000,
+    "updatedAt": 1714500000000,
+    "thread": []
+  }
+}

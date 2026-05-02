@@ -1,0 +1,8 @@
+{
+  "type": "capabilities",
+  "systems": [
+    { "name": "tailwind", "status": "supported" },
+    { "name": "css-modules", "status": "preview-only", "reason": "Requires class name inference" },
+    { "name": "inline-style", "status": "ai-required" }
+  ]
+}

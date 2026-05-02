@@ -31,6 +31,10 @@
 import { expect, type Page } from '@playwright/test'
 import { assertPreNavigation, setupDebugBridge, activateDesignMode, waitForBridge, type CortexTestBridge } from './bridge.js'
 import { installFixtureServer, FIXTURE_URL } from './fixture-server.js'
+import { SchemaViolationError, formatIssues, serverToBrowserSchema, browserToServerSchema } from '../../../src/schemas/index.js'
+
+// Re-export for spec author convenience — load fixtures alongside simulateServerMessage.
+export { loadWireFormatFixture } from '../../../src/schemas/index.js'
 
 // ─── Send spy ────────────────────────────────────────────────────────────────
 
@@ -81,6 +85,39 @@ export async function getSentMessages(page: Page): Promise<unknown[]> {
 }
 
 /**
+ * Assert that every message captured by the send spy conforms to
+ * `browserToServerSchema`. Throws `SchemaViolationError` on the first
+ * violation so drift is surfaced loudly rather than silently ignored.
+ *
+ * This is the Node-side complement to `installSendSpy` — validation runs
+ * in the test process (where the Zod schema is available) rather than inside
+ * the page (where it is not). Call after any action you want to validate:
+ *
+ * ```ts
+ * await installSendSpy(page)
+ * // ... perform action ...
+ * await assertSentMessagesValid(page)
+ * ```
+ *
+ * @param page - Playwright `Page` instance. The spy must have been installed
+ *   via `installSendSpy` before navigation.
+ */
+export async function assertSentMessagesValid(page: Page): Promise<void> {
+  const messages = await getSentMessages(page)
+  for (const msg of messages) {
+    // Always throw on schema violations — this is test-only infrastructure.
+    const result = browserToServerSchema.safeParse(msg)
+    if (!result.success) {
+      throw new SchemaViolationError(
+        `panel.assertSentMessagesValid: ${formatIssues(result.error.issues)}`,
+        result.error.issues,
+        'panel.assertSentMessagesValid',
+      )
+    }
+  }
+}
+
+/**
  * Inject a ServerToBrowser message into the page by calling
  * `window.__cortex_channel__.handleServerMessage(msg)`.
  *
@@ -93,6 +130,17 @@ export async function getSentMessages(page: Page): Promise<unknown[]> {
  * test build).
  */
 export async function simulateServerMessage(page: Page, msg: unknown): Promise<void> {
+  // Validate against the canonical schema before dispatching. This is test-only
+  // infrastructure, so we ALWAYS throw on schema violations (never just warn).
+  // parseOrFail's test-mode detection is irrelevant here — e2e code must fail fast.
+  const result = serverToBrowserSchema.safeParse(msg)
+  if (!result.success) {
+    throw new SchemaViolationError(
+      `panel.simulateServerMessage: ${formatIssues(result.error.issues)}`,
+      result.error.issues,
+      'panel.simulateServerMessage',
+    )
+  }
   await page.evaluate((message) => {
     const ch = (globalThis as unknown as {
       __cortex_channel__?: { handleServerMessage: (m: unknown) => void }

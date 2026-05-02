@@ -693,4 +693,173 @@ describe('cortex mcp', () => {
       expect(params.content).toContain('\\n')
     })
   })
+
+  // ── ZF0-1500: MCP tool input schema validation (Boundary 2) ──────────────
+  // The MCP SDK validates the inputSchema before invoking the tool handler.
+  // When validation fails, it returns a result with isError: true containing
+  // the Zod validation error details. It does NOT throw.
+  describe('ZF0-1500: MCP tool inputs use centralized schemas', () => {
+    it('cortex_get_details rejects missing annotationId with MCP validation error', async () => {
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      const result = await client.callTool({ name: 'cortex_get_details', arguments: {} })
+      expect(result.isError).toBe(true)
+      const text = (result.content as Array<{ text: string }>)[0].text
+      expect(text).toContain('annotationId')
+    })
+
+    it('cortex_resolve rejects missing summary field with MCP validation error', async () => {
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      const result = await client.callTool({
+        name: 'cortex_resolve',
+        arguments: { annotationId: 'ann-1' }, // missing summary
+      })
+      expect(result.isError).toBe(true)
+      const text = (result.content as Array<{ text: string }>)[0].text
+      expect(text).toContain('summary')
+    })
+
+    it('cortex_apply_edits rejects non-array intentIds with MCP validation error', async () => {
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      const result = await client.callTool({
+        name: 'cortex_apply_edits',
+        arguments: { intentIds: 'not-an-array' },
+      })
+      expect(result.isError).toBe(true)
+      const text = (result.content as Array<{ text: string }>)[0].text
+      expect(text).toContain('intentIds')
+    })
+
+    it('cortex_get_intent_context rejects missing intentId with MCP validation error', async () => {
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      const result = await client.callTool({ name: 'cortex_get_intent_context', arguments: {} })
+      expect(result.isError).toBe(true)
+      const text = (result.content as Array<{ text: string }>)[0].text
+      expect(text).toContain('intentId')
+    })
+  })
+
+  // ── PR #94 F3: CLI error handler spurious-rejection guard ─────────────────
+  describe('PR #94 F3: CLI does NOT reject pending RPCs on non-fatal server errors', () => {
+    it('pending RPC is NOT rejected when server sends non-fatal error code', async () => {
+      // Before F3 fix: ANY type:'error' frame would reject all pending RPCs.
+      // After F3 fix: only SCHEMA_VIOLATION and AUTH_FAILED (unrecoverable) do so.
+      // This test sends SOME_OTHER_CODE and verifies the pending RPC can still resolve.
+      mockVite.wss.on('connection', (ws) => {
+        ws.on('message', (raw) => {
+          let msg: Record<string, unknown>
+          try { msg = JSON.parse(raw.toString()) } catch { return }
+          if (msg.type === 'cortex-rpc') {
+            // First respond with a non-fatal error, then respond with the actual result.
+            ws.send(JSON.stringify({ type: 'error', code: 'SOME_OTHER_CODE', message: 'non-fatal info' }))
+            // Still resolve the RPC normally after the non-fatal error.
+            ws.send(JSON.stringify({ type: 'cortex-rpc-result', requestId: msg.requestId, result: [] }))
+          }
+        })
+      })
+
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      await new Promise((r) => setTimeout(r, 50))
+
+      // The tool call should succeed (RPC resolves normally despite non-fatal error).
+      const result = await client.callTool({ name: 'cortex_get_pending' })
+      // The RPC resolved — not rejected — so isError should be falsy.
+      expect(result.isError).toBeFalsy()
+    })
+  })
+
+  // ── PR #94 F11: prod-mode cortex-rpc-error is paired by requestId (no fan-out) ────
+  describe('PR #94 F11: prod-mode SCHEMA_VIOLATION sends cortex-rpc-error (no fan-out)', () => {
+    it('only rejects the violating RPC — concurrent in-flight RPC resolves normally', async () => {
+      // Regression test for F1+F3 interaction:
+      // Before F11 fix: prod-mode param validation sent { type:'error', code:'SCHEMA_VIOLATION' }
+      // with NO requestId, which caused the F3 handler in mcp.ts to fan-out reject ALL
+      // pending requests. After F11 fix: it sends { type:'cortex-rpc-error', requestId }
+      // which is handled by the per-request branch (mcp.ts:130-136) and affects only
+      // the failing RPC.
+      //
+      // We simulate this from the mock-Vite side: for the first cortex-rpc, send a
+      // cortex-rpc-error (paired by requestId); for the second, send cortex-rpc-result.
+      // We drive two concurrent tool calls and verify only the first rejects.
+      let callCount = 0
+      mockVite.wss.on('connection', (ws) => {
+        ws.on('message', (raw) => {
+          let msg: Record<string, unknown>
+          try { msg = JSON.parse(raw.toString()) } catch { return }
+          if (msg.type !== 'cortex-rpc') return
+          callCount++
+          if (callCount === 1) {
+            // First RPC: reply with paired cortex-rpc-error (simulating F11 prod-mode rejection)
+            ws.send(JSON.stringify({
+              type: 'cortex-rpc-error',
+              requestId: msg.requestId,
+              error: 'SCHEMA_VIOLATION: params.annotationId: Required',
+            }))
+          } else {
+            // Second RPC: resolve normally
+            ws.send(JSON.stringify({ type: 'cortex-rpc-result', requestId: msg.requestId, result: [] }))
+          }
+        })
+      })
+
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      await new Promise((r) => setTimeout(r, 50))
+
+      // Fire two concurrent tool calls
+      const [first, second] = await Promise.all([
+        client.callTool({ name: 'cortex_get_pending' }),
+        client.callTool({ name: 'cortex_get_pending' }),
+      ])
+
+      // First RPC should fail with the schema violation message
+      expect(first.isError).toBe(true)
+      expect((first.content as Array<{ text: string }>)[0].text).toContain('SCHEMA_VIOLATION')
+
+      // Second RPC should resolve normally — fan-out did NOT occur
+      expect(second.isError).toBeFalsy()
+    })
+  })
+
+  // ── ZF0-1500 review (Step 6): CLI SCHEMA_VIOLATION rejection handling ────
+  describe('ZF0-1500 review: CLI handles server-originated SCHEMA_VIOLATION errors', () => {
+    it('rejects pending RPC with the actual SCHEMA_VIOLATION message (not "RPC timeout")', async () => {
+      // When the Vite server rejects a malformed cortex-rpc envelope, it sends
+      // { type: 'error', code: 'SCHEMA_VIOLATION', message: '...' } with NO requestId.
+      // Without the catch-all error branch in mcp.ts, the pending RPC would sit until
+      // the 10s timeout, and Claude would see "RPC timeout" instead of the real reason.
+      //
+      // This test installs a handler that responds to any cortex-rpc with a
+      // SCHEMA_VIOLATION error, then asserts the tool result surfaces the actual code/message.
+      mockVite.wss.on('connection', (ws) => {
+        ws.on('message', (raw) => {
+          let msg: Record<string, unknown>
+          try { msg = JSON.parse(raw.toString()) } catch { return }
+          if (msg.type !== 'cortex-rpc') return
+          // Respond with an error envelope (no requestId — mirrors vite.ts behavior).
+          ws.send(JSON.stringify({
+            type: 'error',
+            code: 'SCHEMA_VIOLATION',
+            message: 'Invalid cortex-rpc envelope',
+          }))
+        })
+      })
+
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      // Allow client's open + initial message handlers to fire (matches other RPC tests)
+      await new Promise((r) => setTimeout(r, 50))
+
+      const result = await client.callTool({ name: 'cortex_get_pending' })
+      expect(result.isError).toBe(true)
+      const text = (result.content as Array<{ text: string }>)[0].text
+      expect(text).toContain('SCHEMA_VIOLATION')
+      expect(text).toContain('Invalid cortex-rpc envelope')
+      expect(text).not.toContain('RPC timeout')
+    })
+  })
 })

@@ -1,0 +1,21 @@
+{
+  "type": "edit",
+  "token": "tok-abc",
+  "protocolVersion": 1,
+  "editId": "edit-002",
+  "property": "fontSize",
+  "value": "",
+  "source": "src/components/Hero.tsx:42:7",
+  "elementSelector": ".hero-title",
+  "classOp": {
+    "kind": "swap",
+    "remove": "text-body-md",
+    "add": "text-heading-1"
+  },
+  "inlineSets": [
+    { "property": "line-height", "value": "1.2" }
+  ],
+  "inlineRemoves": [
+    { "property": "font-size" }
+  ]
+}
