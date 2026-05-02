@@ -748,11 +748,7 @@ describe('cortex mcp', () => {
       // Before F3 fix: ANY type:'error' frame would reject all pending RPCs.
       // After F3 fix: only SCHEMA_VIOLATION and AUTH_FAILED (unrecoverable) do so.
       // This test sends SOME_OTHER_CODE and verifies the pending RPC can still resolve.
-      let resolveWs: ((ws: WebSocket) => void) | null = null
-      const wsConnected = new Promise<WebSocket>((resolve) => { resolveWs = resolve })
-
       mockVite.wss.on('connection', (ws) => {
-        resolveWs!(ws)
         ws.on('message', (raw) => {
           let msg: Record<string, unknown>
           try { msg = JSON.parse(raw.toString()) } catch { return }
