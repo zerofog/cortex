@@ -1,0 +1,42 @@
+cortex-editor/tests/schemas/mcp-tool-inputs.test.ts
+  f51aab7bd931df2c 181-232
+cortex-editor/src/cli/mcp.ts
+  f51aab7bd931df2c 157-166,169-182,184-187
+cortex-editor/src/schemas/pending-edit.ts
+  f51aab7bd931df2c 4-10,27-46,50,53-56,59-63,67
+cortex-editor/src/adapters/vite.ts
+  f51aab7bd931df2c 37-44,303-319,322-325,339-340,350-351,361-362,384-385,392-393,420-421,908-914,1273,1278-1282,1284-1296
+cortex-editor/tests/adapters/vite.test.ts
+  f51aab7bd931df2c 1304-1333,2509,2515,2518-2519,2522-2526
+cortex-editor/src/schemas/mcp-tool-inputs.ts
+  f51aab7bd931df2c 2,5-9,12-18,53,58,63
+cortex-editor/tests/schemas/cli-envelopes.test.ts
+  f51aab7bd931df2c 13-16
+cortex-editor/tests/cli/mcp.test.ts
+  f51aab7bd931df2c 745-778
+cortex-editor/tests/schemas/pending-edit.test.ts
+  f51aab7bd931df2c 194-264
+cortex-editor/src/schemas/load-fixture.ts
+  f51aab7bd931df2c 2,15-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "00846a63c93dc70df6ff0826c856b6b342a05b7c",
+  "prompts": {
+    "f51aab7bd931df2c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "87d6cf09-3cd1-4691-bcd3-239b6a236fb7",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 760,
+      "total_deletions": 461,
+      "accepted_lines": 367,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/f253861773a9c5fe0b7688dede938f7c73feff7760e5bf138a117aed767eff87"
+    }
+  }
+}
