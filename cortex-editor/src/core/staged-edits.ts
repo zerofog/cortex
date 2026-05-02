@@ -1,12 +1,9 @@
 import type { PendingEdit } from '../adapters/types.js'
+import { pendingEditSchema, MAX_FULL_SYNC_SIZE } from '../schemas/pending-edit.js'
 
-/** Defensive cap on mergeFullSync input size — 2× browser MAX_ENTRIES (500).
- *  Token-gated upstream, so this is defense-in-depth against a misbehaving
- *  panel-mount loop or compromised browser script that might send a 100MB
- *  sync message and block the Node event loop. Generous enough to never
- *  reject legitimate traffic, narrow enough to bound the worst case. Not a
- *  protocol contract — purely a server-side safety bound. */
-const MAX_FULL_SYNC_SIZE = 1000
+// MAX_FULL_SYNC_SIZE — single source of truth lives in schemas/pending-edit.ts
+// (kept there so the schema can enforce the cap at the envelope boundary
+// without an upward import from schemas/ to core/). Re-imported above.
 
 /** Composite key for last-write-wins deduplication — matches browser hook semantics. */
 function compositeKey(edit: PendingEdit): string {
@@ -136,45 +133,21 @@ export class StagedEditsCache {
 }
 
 // ---------------------------------------------------------------------------
-// isValidPendingEdit — server-side WS trust-boundary validation
+// isValidPendingEdit — server-side WS trust-boundary validation.
 //
-// Bounds caps for shape + size validation. Defense-in-depth: TypeScript
-// narrowing doesn't survive JSON-over-WS, and Zod runs only at the MCP
-// boundary (handleRPC has a parallel WS entry). A compromised browser script
-// with a valid token can otherwise OOM the dev server with a single 100MB
-// `intent.value`. Caps are generous (legitimate edits are ~100 bytes); the
-// goal is to bound worst-case allocation, not police normal traffic.
+// Now backed by pendingEditSchema (src/schemas/pending-edit.ts), which is the
+// single source of truth for shape + size bounds. This thin wrapper is kept
+// for backwards compatibility with existing unit tests; new call sites should
+// use pendingEditSchema.safeParse() or parseOrFail(pendingEditSchema, ...) directly.
 // ---------------------------------------------------------------------------
 
-const MAX_INTENT_VALUE_BYTES = 4096
-const MAX_INTENT_SOURCE_BYTES = 1024
-const MAX_INTENT_ID_BYTES = 256
-const MAX_INTENT_PROPERTY_BYTES = 256
-const MAX_INTENT_INSTANCE_SOURCES = 100
-
-/** Validate a PendingEdit at the WebSocket trust boundary. Both shape and
- *  per-field bounds. Returns false (does NOT throw) on any deviation; callers
- *  drop the message and log a warning. */
+/** Validate a PendingEdit at the WebSocket trust boundary.
+ *  Returns false (does NOT throw) on any deviation; callers drop the message.
+ *
+ *  @deprecated Use `pendingEditSchema.safeParse(value).success` directly.
+ *  Kept for backward compatibility — existing unit tests import this symbol. */
 export function isValidPendingEdit(value: unknown): value is PendingEdit {
-  if (!value || typeof value !== 'object') return false
-  const v = value as Record<string, unknown>
-  if (typeof v.intentId !== 'string' || v.intentId.length === 0 || v.intentId.length > MAX_INTENT_ID_BYTES) return false
-  if (typeof v.source !== 'string' || v.source.length === 0 || v.source.length > MAX_INTENT_SOURCE_BYTES) return false
-  if (typeof v.property !== 'string' || v.property.length === 0 || v.property.length > MAX_INTENT_PROPERTY_BYTES) return false
-  if (typeof v.value !== 'string' || v.value.length > MAX_INTENT_VALUE_BYTES) return false
-  if (typeof v.previousValue !== 'string' || v.previousValue.length > MAX_INTENT_VALUE_BYTES) return false
-  // pseudo: optional, must be one of two literals if present. `null` is
-  // explicitly rejected (some browser code paths send pseudo: null instead of
-  // omitting the field — protocol contract is "omit if not pseudo").
-  if (v.pseudo !== undefined && v.pseudo !== '::before' && v.pseudo !== '::after') return false
-  if (v.scope !== undefined && v.scope !== 'instance' && v.scope !== 'all') return false
-  if (v.instanceSources !== undefined) {
-    if (!Array.isArray(v.instanceSources)) return false
-    if (v.instanceSources.length > MAX_INTENT_INSTANCE_SOURCES) return false
-    if (!v.instanceSources.every(s => typeof s === 'string' && s.length <= MAX_INTENT_SOURCE_BYTES)) return false
-  }
-  if (typeof v.timestamp !== 'number' || !Number.isFinite(v.timestamp)) return false
-  return true
+  return pendingEditSchema.safeParse(value).success
 }
 
 // ---------------------------------------------------------------------------

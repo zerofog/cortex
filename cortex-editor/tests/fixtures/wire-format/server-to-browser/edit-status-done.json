@@ -1,0 +1,7 @@
+{
+  "type": "edit_status",
+  "editId": "edit-001",
+  "status": "done",
+  "newToken": "tok-new",
+  "strategy": "immediate"
+}

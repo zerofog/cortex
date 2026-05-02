@@ -1,0 +1,7 @@
+{
+  "type": "edit_status",
+  "editId": "edit-001",
+  "status": "failed",
+  "reason": "Could not locate JSX element at source location",
+  "reason_code": "parse_failed"
+}

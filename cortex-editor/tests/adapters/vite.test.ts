@@ -4,10 +4,11 @@ import fs from 'fs'
 import os from 'os'
 import pathMod from 'path'
 import WebSocket from 'ws'
-import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting, _getSessionTokenForTesting, _getStagedEditsForTesting, _addCLIClientForTesting, shouldSuppressHmr, performEditWrite } from '../../src/adapters/vite.js'
+import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting, _getSessionTokenForTesting, _getStagedEditsForTesting, _addCLIClientForTesting, shouldSuppressHmr, performEditWrite, WRITE_TYPES_ARRAY, BROWSER_TO_CLI_FORWARD_TYPES_ARRAY } from '../../src/adapters/vite.js'
 import { AnnotationStore } from '../../src/core/annotations.js'
 import { makeEdit } from '../core/helpers.js'
 import type { Plugin } from 'vite'
+import { SchemaViolationError, browserToServerSchema, serverToBrowserSchema } from '../../src/schemas/index.js'
 
 // Mock loadEnv from vite so tests can control CORTEX_API_KEY availability
 const { mockLoadEnv } = vi.hoisted(() => ({
@@ -364,15 +365,15 @@ describe('cortexEditor Vite plugin', () => {
       const server = mockServer()
       ;(plugin.configureServer as Function)(server)
       const token = _getSessionTokenForTesting()!
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-      // Missing required fields (intentId, source, etc.) — fails isValidPendingEdit.
-      server.hot._trigger('cortex:msg', { type: 'staged-edit-add', edit: { property: 'color' }, token })
+      // Missing required fields (intentId, source, etc.) — fails browserToServerSchema in test mode.
+      // parseOrFail throws SchemaViolationError (test mode); the message is no longer console.warn'd.
+      expect(() => {
+        server.hot._trigger('cortex:msg', { type: 'staged-edit-add', edit: { property: 'color' }, token })
+      }).toThrow(SchemaViolationError)
 
       const cache = _getStagedEditsForTesting()
       expect(cache!.list()).toEqual([])
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('staged-edit-add rejected'))
-      warnSpy.mockRestore()
     })
 
     it('staged-edit-remove drops specified intentIds from cache', () => {
@@ -1298,6 +1299,36 @@ describe('annotation RPC', () => {
     expect(reply.type).toBe('cortex-rpc-error')
     expect(reply.requestId).toBe('bad1')
     expect(reply.error).toContain('Unknown RPC method')
+  })
+
+  // ── PR #94 F1: method-specific param validation ──────────────────────────
+  it('applyEdits with malformed intentIds (mixed types) returns SCHEMA_VIOLATION, not silent coercion', async () => {
+    // Before F1 fix: params.intentIds=[123, null, 'foo'] would silently filter to ['foo']
+    // and proceed. After F1 fix: method-specific schema rejects the array element
+    // types and returns a SCHEMA_VIOLATION error envelope (no requestId) in prod mode.
+    // In test mode (VITEST=true) parseOrFail throws, which vite.ts catches and
+    // re-sends as cortex-rpc-error to the CLI.
+    await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status (connected: true)
+
+    ws.send(JSON.stringify({
+      type: 'cortex-rpc',
+      requestId: 'f1-test',
+      method: 'applyEdits',
+      params: { intentIds: [123, null, 'foo'] }, // mixed types — should be rejected
+      token: sessionToken,
+    }))
+
+    // Collect next message — in test mode parseOrFail throws and vite.ts surfaces
+    // cortex-rpc-error; in prod parseOrFail returns null and vite.ts sends
+    // { type: 'error', code: 'SCHEMA_VIOLATION' }.
+    const reply = await nextMessage()
+    const isSchemaViolation =
+      (reply.type === 'error' && reply.code === 'SCHEMA_VIOLATION') ||
+      reply.type === 'cortex-rpc-error'
+    expect(isSchemaViolation).toBe(true)
   })
 
   it('comment-reply appends to existing annotation thread', async () => {
@@ -2365,5 +2396,226 @@ describe('staged-edits-ready ack protocol', () => {
       (e) => e.event === 'cortex:msg' && (e.data as Record<string, unknown>).type === 'staged-edits-acked',
     )
     expect(ackMessages).toHaveLength(0)
+  })
+})
+
+// ── ZF0-1500: schema validation at vite.ts trust boundaries ─────────────────
+
+describe('ZF0-1500: hotHandler schema validation (Boundary 1)', () => {
+  function setupServer() {
+    const plugin = initPlugin({ root: '/project' })
+    const server = mockServer()
+    ;(plugin.configureServer as Function)(server)
+    const token = _getSessionTokenForTesting()!
+    return { server, token }
+  }
+
+  it('rejects a malformed staged-edit-add (missing intentId) with SchemaViolationError in test mode', () => {
+    const { server, token } = setupServer()
+    expect(() => {
+      server.hot._trigger('cortex:msg', { type: 'staged-edit-add', edit: { property: 'color' }, token })
+    }).toThrow(SchemaViolationError)
+    expect(_getStagedEditsForTesting()!.list()).toEqual([])
+  })
+
+  it('rejects a malformed comment message (missing elementSource) with SchemaViolationError in test mode', () => {
+    const { server, token } = setupServer()
+    expect(() => {
+      server.hot._trigger('cortex:msg', { type: 'comment', text: 'hello', token })
+    }).toThrow(SchemaViolationError)
+  })
+
+  it('rejects a completely unknown message type with SchemaViolationError in test mode', () => {
+    const { server } = setupServer()
+    expect(() => {
+      server.hot._trigger('cortex:msg', { type: 'not-a-real-type', foo: 'bar' })
+    }).toThrow(SchemaViolationError)
+  })
+
+  it('passes valid staged-edit-add without throwing', () => {
+    const { server, token } = setupServer()
+    const validEdit = makeEdit({ intentId: 'schema-test', property: 'color', value: 'red' })
+    expect(() => {
+      server.hot._trigger('cortex:msg', { type: 'staged-edit-add', edit: validEdit, token })
+    }).not.toThrow()
+    expect(_getStagedEditsForTesting()!.list()).toHaveLength(1)
+  })
+})
+
+describe('ZF0-1500: channel.send outbound validation (Boundary 3)', () => {
+  it('throws SchemaViolationError in test mode when channel.send receives a drift message', () => {
+    const plugin = initPlugin({ root: '/project' })
+    const server = mockServer()
+    ;(plugin.configureServer as Function)(server)
+    const channel = getChannel()!
+    // Send a structurally invalid outbound message (unknown type)
+    expect(() => {
+      channel.send({ type: 'not-a-server-type' } as never)
+    }).toThrow(SchemaViolationError)
+  })
+
+  it('sends valid messages without throwing', () => {
+    const plugin = initPlugin({ root: '/project' })
+    const server = mockServer()
+    ;(plugin.configureServer as Function)(server)
+    const channel = getChannel()!
+    expect(() => {
+      channel.send({ type: 'agent-status', connected: false })
+    }).not.toThrow()
+    const sent = server._sent.find((e) => e.event === 'cortex:msg' && (e.data as Record<string, unknown>).type === 'agent-status')
+    expect(sent).toBeDefined()
+  })
+
+  it('PROD MODE: warns AND still emits the message when channel.send sees a drift message', () => {
+    // Pin the documented prod-mode contract from validateAndSend in vite.ts:
+    // "in prod: warns and STILL sends — never silently drop a message to the user session."
+    // Without this test, a regression that silently swallows drift messages in prod would
+    // ship undetected (test mode throws, hiding the failure mode).
+    vi.stubEnv('CORTEX_TEST_BUILD', 'false')
+    vi.stubEnv('VITEST', '')
+    vi.stubEnv('NODE_ENV', 'production')
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const plugin = initPlugin({ root: '/project' })
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+      const channel = getChannel()!
+
+      // Drift message: invalid outbound type. In prod mode parseOrFail returns null
+      // (no throw), and validateAndSend then proceeds to server.hot.send anyway.
+      expect(() => {
+        channel.send({ type: 'not-a-server-type' } as never)
+      }).not.toThrow()
+
+      // Assert console.warn was called with the schema-violation context.
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('schema violation at vite.channel.send'),
+        expect.anything(),
+      )
+
+      // Assert the message was STILL emitted to server.hot despite the violation.
+      const sent = server._sent.find(
+        (e) => e.event === 'cortex:msg' && (e.data as Record<string, unknown>).type === 'not-a-server-type',
+      )
+      expect(sent).toBeDefined()
+    } finally {
+      warnSpy.mockRestore()
+      vi.unstubAllEnvs()
+    }
+  })
+})
+
+describe('ZF0-1500: hot-path performance — browserToServerSchema', () => {
+  it('schema parse on hot path is fast (≤500ms local / ≤2000ms CI for 10k iterations)', () => {
+    const payload = {
+      type: 'staged-edit-add' as const,
+      edit: makeEdit({ intentId: 'perf-test', property: 'color', value: 'red' }),
+      token: 'test-token',
+    }
+    let successCount = 0
+    const start = performance.now()
+    for (let i = 0; i < 10000; i++) {
+      const r = browserToServerSchema.safeParse(payload)
+      if (r.success) successCount++
+    }
+    const elapsed = performance.now() - start
+    // CI runners are slower; use a relaxed bound to avoid flakes.
+    const maxMs = process.env['CI'] ? 2000 : 500
+    expect(elapsed).toBeLessThan(maxMs)
+    // Functional assertion: all 10k iterations must parse successfully.
+    expect(successCount).toBe(10000)
+  })
+})
+
+// ── ZF0-1500 review: graceful staged-edits-sync (IMPORTANT 1) ──────────────
+
+describe('ZF0-1500 review: staged-edits-sync graceful per-element filtering', () => {
+  it('drops only invalid entries from a mixed batch, keeps valid ones, warns on drops', () => {
+    const plugin = initPlugin()
+    const server = mockServer()
+    ;(plugin.configureServer as Function)(server)
+    const token = _getSessionTokenForTesting()!
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const validA = makeEdit({ intentId: 'valid-a', property: 'color', value: 'red' })
+    const validB = makeEdit({ intentId: 'valid-b', property: 'fontSize', value: '14px' })
+    const malformed = { property: 'broken' } // missing intentId, source, value, etc.
+
+    expect(() => {
+      server.hot._trigger('cortex:msg', {
+        type: 'staged-edits-sync',
+        edits: [validA, malformed, validB],
+        token,
+      })
+    }).not.toThrow()
+
+    const cache = _getStagedEditsForTesting()!
+    const ids = cache.list().map((e) => e.intentId).sort()
+    expect(ids).toEqual(['valid-a', 'valid-b'])
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('staged-edits-sync filtered 1 invalid edits'),
+    )
+    warnSpy.mockRestore()
+  })
+})
+
+// ── ZF0-1500 review: derived WRITE_TYPES (IMPORTANT 2) ─────────────────────
+
+describe('ZF0-1500 review: WRITE_TYPES + BROWSER_TO_CLI_FORWARD_TYPES are subsets of schema-derived BrowserToServer types', () => {
+  it('every WRITE_TYPES_ARRAY entry is a real BrowserToServer variant from the schema', () => {
+    // Pins the runtime invariant matching the satisfies-clause at module-load.
+    // Imports the ACTUAL exported array from vite.ts (no shadow copy) — if a
+    // future ticket adds a new write-type to vite.ts but forgets to add the
+    // schema variant, this fails. Symmetric: if the schema variant is renamed
+    // but vite.ts isn't updated, the satisfies-clause already breaks tsc.
+    const allTypes = browserToServerSchema.options.map((opt) => opt.shape.type.value)
+    for (const t of WRITE_TYPES_ARRAY) {
+      expect(allTypes).toContain(t)
+    }
+  })
+
+  it('every BROWSER_TO_CLI_FORWARD_TYPES_ARRAY entry is a real BrowserToServer variant from the schema', () => {
+    const allTypes = browserToServerSchema.options.map((opt) => opt.shape.type.value)
+    for (const t of BROWSER_TO_CLI_FORWARD_TYPES_ARRAY) {
+      expect(allTypes).toContain(t)
+    }
+  })
+})
+
+// ── ZF0-1500 review: intentId element bounds (MINOR 3) ─────────────────────
+
+describe('ZF0-1500 review: intentIds elements are bounded by MAX_INTENT_ID_BYTES', () => {
+  it('rejects a staged-edit-remove with a 257-char intentId (path points to array index)', () => {
+    const oversize = 'x'.repeat(257)
+    const result = browserToServerSchema.safeParse({
+      type: 'staged-edit-remove',
+      intentIds: ['ok', oversize],
+      token: 't',
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      // Path should include the array index for the offending entry.
+      const issuePaths = result.error.issues.map((iss) => iss.path.join('.'))
+      expect(issuePaths.some((p) => p.includes('intentIds.1'))).toBe(true)
+    }
+  })
+
+  it('rejects a staged-edits-discard with a 257-char intentId', () => {
+    const oversize = 'x'.repeat(257)
+    const result = serverToBrowserSchema.safeParse({
+      type: 'staged-edits-discard',
+      intentIds: [oversize],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts a staged-edit-remove with an at-cap (256-char) intentId', () => {
+    const atCap = 'x'.repeat(256)
+    const result = browserToServerSchema.safeParse({
+      type: 'staged-edit-remove',
+      intentIds: [atCap],
+      token: 't',
+    })
+    expect(result.success).toBe(true)
   })
 })

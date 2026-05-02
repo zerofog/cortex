@@ -1,0 +1,10 @@
+{
+  "type": "activity-entry",
+  "entry": {
+    "id": "act-001",
+    "type": "edit",
+    "timestamp": 1714500000000,
+    "elementSource": "src/components/Hero.tsx:42:7",
+    "description": "Changed color from #333333 to var(--color-primary)"
+  }
+}

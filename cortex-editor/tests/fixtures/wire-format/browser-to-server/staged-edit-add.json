@@ -1,0 +1,12 @@
+{
+  "type": "staged-edit-add",
+  "token": "tok-abc",
+  "edit": {
+    "intentId": "intent-001",
+    "source": "src/components/Hero.tsx:42:7",
+    "property": "color",
+    "value": "var(--color-primary)",
+    "previousValue": "#333333",
+    "timestamp": 1714500000000
+  }
+}

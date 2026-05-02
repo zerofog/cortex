@@ -1,0 +1,6 @@
+{
+  "type": "hello",
+  "protocolVersion": 1,
+  "sessionId": "sess-abc",
+  "swatches": "not-an-array"
+}

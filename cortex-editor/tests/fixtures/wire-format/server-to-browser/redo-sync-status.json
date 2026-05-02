@@ -1,0 +1,6 @@
+{
+  "type": "redo_sync_status",
+  "status": "failed",
+  "reason": "Nothing to redo",
+  "reason_code": "empty_stack"
+}

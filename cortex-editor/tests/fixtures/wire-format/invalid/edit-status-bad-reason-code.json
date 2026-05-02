@@ -1,0 +1,6 @@
+{
+  "type": "edit_status",
+  "editId": "edit-001",
+  "status": "failed",
+  "reason_code": "totally_unknown"
+}
