@@ -772,6 +772,59 @@ describe('cortex mcp', () => {
     })
   })
 
+  // ── PR #94 F11: prod-mode cortex-rpc-error is paired by requestId (no fan-out) ────
+  describe('PR #94 F11: prod-mode SCHEMA_VIOLATION sends cortex-rpc-error (no fan-out)', () => {
+    it('only rejects the violating RPC — concurrent in-flight RPC resolves normally', async () => {
+      // Regression test for F1+F3 interaction:
+      // Before F11 fix: prod-mode param validation sent { type:'error', code:'SCHEMA_VIOLATION' }
+      // with NO requestId, which caused the F3 handler in mcp.ts to fan-out reject ALL
+      // pending requests. After F11 fix: it sends { type:'cortex-rpc-error', requestId }
+      // which is handled by the per-request branch (mcp.ts:130-136) and affects only
+      // the failing RPC.
+      //
+      // We simulate this from the mock-Vite side: for the first cortex-rpc, send a
+      // cortex-rpc-error (paired by requestId); for the second, send cortex-rpc-result.
+      // We drive two concurrent tool calls and verify only the first rejects.
+      let callCount = 0
+      mockVite.wss.on('connection', (ws) => {
+        ws.on('message', (raw) => {
+          let msg: Record<string, unknown>
+          try { msg = JSON.parse(raw.toString()) } catch { return }
+          if (msg.type !== 'cortex-rpc') return
+          callCount++
+          if (callCount === 1) {
+            // First RPC: reply with paired cortex-rpc-error (simulating F11 prod-mode rejection)
+            ws.send(JSON.stringify({
+              type: 'cortex-rpc-error',
+              requestId: msg.requestId,
+              error: 'SCHEMA_VIOLATION: params.annotationId: Required',
+            }))
+          } else {
+            // Second RPC: resolve normally
+            ws.send(JSON.stringify({ type: 'cortex-rpc-result', requestId: msg.requestId, result: [] }))
+          }
+        })
+      })
+
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      await new Promise((r) => setTimeout(r, 50))
+
+      // Fire two concurrent tool calls
+      const [first, second] = await Promise.all([
+        client.callTool({ name: 'cortex_get_pending' }),
+        client.callTool({ name: 'cortex_get_pending' }),
+      ])
+
+      // First RPC should fail with the schema violation message
+      expect(first.isError).toBe(true)
+      expect((first.content as Array<{ text: string }>)[0].text).toContain('SCHEMA_VIOLATION')
+
+      // Second RPC should resolve normally — fan-out did NOT occur
+      expect(second.isError).toBeFalsy()
+    })
+  })
+
   // ── ZF0-1500 review (Step 6): CLI SCHEMA_VIOLATION rejection handling ────
   describe('ZF0-1500 review: CLI handles server-originated SCHEMA_VIOLATION errors', () => {
     it('rejects pending RPC with the actual SCHEMA_VIOLATION message (not "RPC timeout")', async () => {

@@ -36,14 +36,6 @@ export const MAX_FULL_SYNC_SIZE = 1000
  *  modern JS environments (Node 16+, browsers, Deno). */
 export const utf8Bytes = (s: string): number => new TextEncoder().encode(s).length
 
-/** Zod refinement that enforces a UTF-8 byte upper bound on a string field.
- *  Exported so mcp-tool-inputs.ts can apply the same limit consistently. */
-export const utf8Bounded = (maxBytes: number, fieldName: string) =>
-  z.string().refine(
-    (v) => utf8Bytes(v) <= maxBytes,
-    { message: `${fieldName} exceeds ${maxBytes} UTF-8 bytes` },
-  )
-
 /**
  * Zod schema for PendingEdit.
  *

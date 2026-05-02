@@ -236,7 +236,7 @@ describe('pendingEditSchema — UTF-8 byte limits (F2)', () => {
     }
   })
 
-  it('rejects a 100-char emoji source (400 bytes > the default 256; well within source 1024-byte cap, but tests byte counting)', () => {
+  it('accepts a 100-char emoji source (400 bytes > the default 256; well within source 1024-byte cap, but tests byte counting)', () => {
     // source cap is 1024 bytes; 100 × 4 = 400 bytes passes.
     const emojiSource = '🎉'.repeat(100) + ':1:1'  // still a "source" string
     const result = pendingEditSchema.safeParse({ ...validEdit, source: emojiSource })
@@ -244,7 +244,7 @@ describe('pendingEditSchema — UTF-8 byte limits (F2)', () => {
     expect(result.success).toBe(true)
   })
 
-  it('rejects a 256-char emoji source (1024 UTF-8 bytes = source cap — boundary)', () => {
+  it('accepts a 256-char emoji source (1024 UTF-8 bytes = source cap — boundary)', () => {
     // 256 × 4 = 1024 bytes = MAX_INTENT_SOURCE_BYTES → should pass (equal = within limit).
     const emojiSource = '🎉'.repeat(256)
     const result = pendingEditSchema.safeParse({ ...validEdit, source: emojiSource })

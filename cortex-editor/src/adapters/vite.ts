@@ -1286,13 +1286,18 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
                   // Cast to z.ZodType<unknown> to allow parseOrFail to accept the union
                   // of method schemas (each has a distinct output type; the generic T
                   // can't be inferred from the union — we only need the validation side-effect).
-                  const validatedParams = parseOrFail(methodSchema as import('zod').ZodType<unknown>, params, `vite.handleRPC.${method}`)
-                  if (validatedParams === null) {
-                    // prod mode — parseOrFail already warned; surface SCHEMA_VIOLATION to CLI
-                    try { ws.send(JSON.stringify({ type: 'error', code: 'SCHEMA_VIOLATION', message: `Invalid params for RPC method: ${method}` })) } catch {}
+                  const schemaResult = (methodSchema as import('zod').ZodType<unknown>).safeParse(params)
+                  if (!schemaResult.success) {
+                    // Use parseOrFail in test mode so it throws (caught below → cortex-rpc-error).
+                    // In prod mode, send cortex-rpc-error paired by requestId so only this RPC
+                    // fails — NOT a generic 'error' envelope that would fan-out reject ALL in-flight RPCs.
+                    parseOrFail(methodSchema as import('zod').ZodType<unknown>, params, `vite.handleRPC.${method}`)
+                    // prod mode: parseOrFail returned null (warned); send paired error to CLI
+                    const formatted = formatIssues(schemaResult.error.issues)
+                    try { ws.send(JSON.stringify({ type: 'cortex-rpc-error', requestId, error: `SCHEMA_VIOLATION: ${formatted}` })) } catch {}
                     return
                   }
-                  params = validatedParams as Record<string, unknown>
+                  params = schemaResult.data as Record<string, unknown>
                 }
                 const result = handleRPC(method, params)
                 try {
