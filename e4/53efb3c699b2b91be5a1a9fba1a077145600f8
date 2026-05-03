@@ -1,0 +1,28 @@
+cortex-editor/src/browser/components/CortexApp.tsx
+  8a21712c162bf4bd 947-952,959-960
+cortex-editor/src/browser/components/NoAnnotationsBanner.tsx
+  8a21712c162bf4bd 48-49,64-72,76,78-79
+cortex-editor/tests/browser/cortex-app.test.tsx
+  8a21712c162bf4bd 85-99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "e453efb3c699b2b91be5a1a9fba1a077145600f8",
+  "prompts": {
+    "8a21712c162bf4bd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6178ab93-acd4-4071-80a3-b4460270ad7c",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 172,
+      "total_deletions": 2355,
+      "accepted_lines": 3510,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/e5d714374407d771b8fbd2f8a600ef4ddc763b72a7d26ce1adef032b84fad01f"
+    }
+  }
+}
