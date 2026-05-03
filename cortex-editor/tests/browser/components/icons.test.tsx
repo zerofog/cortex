@@ -56,7 +56,12 @@ describe('icons.tsx — lucide.dev snapshot inventory', () => {
     //   +1 AlignCenterVertical  (vertical-align: middle)
     //   +1 ArrowDownToLine      (vertical-align: bottom)
     // Net new baseline: 50 + 6 = 56.
-    expect(ICON_EXPORTS.length).toBe(56)
+    //
+    // ZF0-1123 added the Lucide X for NoAnnotationsBanner's dismiss button,
+    // unifying it with the icon system instead of inlining a hand-rolled SVG:
+    //   +1 X                     (dismiss / close)
+    // Net new baseline: 56 + 1 = 57.
+    expect(ICON_EXPORTS.length).toBe(57)
   })
 
   it.each(ICON_EXPORTS)('<%s /> renders the lucide.dev SVG verbatim', (name, Component) => {

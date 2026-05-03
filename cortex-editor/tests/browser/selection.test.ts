@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { initSelection } from '../../src/browser/selection.js'
-import { createShadowHost, mockElementFromPoint, dispatchMouseEvent } from './helpers.js'
+import { createShadowHost, mockElementFromPoint, dispatchMouseEvent, createEditableDiv } from './helpers.js'
 
 describe('initSelection', () => {
   let host: HTMLDivElement
@@ -45,7 +45,7 @@ describe('initSelection', () => {
   })
 
   it('capture-phase mousemove calls onHover with the element', () => {
-    const target = document.createElement('div')
+    const target = createEditableDiv()
     document.body.appendChild(target)
     const restoreEfp = mockElementFromPoint(target)
     const handle = initSelection(shadow, onHover, onSelect)
@@ -59,7 +59,7 @@ describe('initSelection', () => {
   })
 
   it('capture-phase click calls onSelect and prevents default', () => {
-    const target = document.createElement('div')
+    const target = createEditableDiv()
     document.body.appendChild(target)
     const restoreEfp = mockElementFromPoint(target)
     const handle = initSelection(shadow, onHover, onSelect)
@@ -94,7 +94,7 @@ describe('initSelection', () => {
   })
 
   it('setDesignMode(false) disables interception', () => {
-    const target = document.createElement('div')
+    const target = createEditableDiv()
     document.body.appendChild(target)
     const restoreEfp = mockElementFromPoint(target)
     const handle = initSelection(shadow, onHover, onSelect)
@@ -111,7 +111,7 @@ describe('initSelection', () => {
   })
 
   it('setDesignMode(true) re-enables interception', () => {
-    const target = document.createElement('div')
+    const target = createEditableDiv()
     document.body.appendChild(target)
     const restoreEfp = mockElementFromPoint(target)
     const handle = initSelection(shadow, onHover, onSelect)
@@ -127,7 +127,7 @@ describe('initSelection', () => {
   })
 
   it('cleanup removes all listeners', () => {
-    const target = document.createElement('div')
+    const target = createEditableDiv()
     document.body.appendChild(target)
     const restoreEfp = mockElementFromPoint(target)
     const handle = initSelection(shadow, onHover, onSelect)
@@ -170,7 +170,7 @@ describe('initSelection', () => {
   })
 
   it('setInterceptClicks(false) allows clicks through without interception', () => {
-    const target = document.createElement('div')
+    const target = createEditableDiv()
     document.body.appendChild(target)
     const restoreEfp = mockElementFromPoint(target)
     const handle = initSelection(shadow, onHover, onSelect)
@@ -186,7 +186,7 @@ describe('initSelection', () => {
   })
 
   it('hover still works when setInterceptClicks(false)', () => {
-    const target = document.createElement('div')
+    const target = createEditableDiv()
     document.body.appendChild(target)
     const restoreEfp = mockElementFromPoint(target)
     const handle = initSelection(shadow, onHover, onSelect)
@@ -201,7 +201,7 @@ describe('initSelection', () => {
   })
 
   it('setInterceptClicks(true) re-enables click interception', () => {
-    const target = document.createElement('div')
+    const target = createEditableDiv()
     document.body.appendChild(target)
     const restoreEfp = mockElementFromPoint(target)
     const handle = initSelection(shadow, onHover, onSelect)
@@ -215,5 +215,19 @@ describe('initSelection', () => {
     handle.cleanup()
     restoreEfp()
     target.remove()
+  })
+
+  it('click on <script> tag reaches onSelect(null) through getTargetElement', () => {
+    const scriptEl = document.createElement('script')
+    document.body.appendChild(scriptEl)
+    const restoreEfp = mockElementFromPoint(scriptEl)
+    const handle = initSelection(shadow, onHover, onSelect)
+
+    dispatchMouseEvent(document.body, 'click', { clientX: 50, clientY: 50 })
+    expect(onSelect).toHaveBeenCalledWith(null)
+
+    handle.cleanup()
+    restoreEfp()
+    scriptEl.remove()
   })
 })
