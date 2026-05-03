@@ -516,6 +516,16 @@ export function Minus({ size = 16, class: cls }: IconProps = {}): JSX.Element {
   )
 }
 
+// source: https://lucide.dev/icons/x
+export function X({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
+  )
+}
+
 // source: https://lucide.dev/icons/check
 export function Check({ size = 16, class: cls }: IconProps = {}): JSX.Element {
   return (

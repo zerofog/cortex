@@ -802,18 +802,18 @@
 }
 
 .cortex-no-annotations-banner__link {
-  color: var(--cx-select);
+  color: var(--cx-destructive);
   text-decoration: underline;
 }
 
 .cortex-no-annotations-banner__dismiss {
   flex-shrink: 0;
+  align-self: center;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 20px;
   height: 20px;
-  margin-top: var(--cx-sp-1);
   padding: 0;
   background: none;
   border: none;

@@ -1,3 +1,4 @@
+// Element (not HTMLElement): .tagName and .closest are both on Element.
 const NON_VISUAL_TAGS: ReadonlySet<string> = new Set(['script', 'style', 'meta', 'head', 'title', 'link', 'noscript'])
 
 export function isNonEditable(el: Element): boolean {

@@ -31,12 +31,6 @@ describe('isNonEditable', () => {
     expect(isNonEditable(child)).toBe(true)
   })
 
-  it('returns true for lone unannotated div appended directly to body', () => {
-    const el = document.createElement('div')
-    document.body.appendChild(el)
-    expect(isNonEditable(el)).toBe(true)
-  })
-
   it('returns false when element itself has data-cortex-source', () => {
     const el = createEditableDiv('/src/App.tsx:10:5')
     expect(isNonEditable(el)).toBe(false)

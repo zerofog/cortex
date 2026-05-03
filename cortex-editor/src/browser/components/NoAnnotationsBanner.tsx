@@ -1,21 +1,82 @@
 import type { JSX } from 'preact'
-import { useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
+import { X } from './icons.js'
 
 const SETUP_DOCS_URL = 'https://github.com/zerofog/cortex#setup'
 
+function hasAnnotation(): boolean {
+  return document.querySelector('[data-cortex-source]') !== null
+}
+
 export function NoAnnotationsBanner(): JSX.Element | null {
   const [dismissed, setDismissed] = useState(false)
+  const [hidden, setHidden] = useState(() => hasAnnotation())
+  const bannerRef = useRef<HTMLDivElement>(null)
 
-  const [annotationCount] = useState(() => document.querySelectorAll('[data-cortex-source]').length)
+  useEffect(() => {
+    // Once annotations exist (or banner was dismissed) we never need the
+    // observer again — banner stays hidden for the rest of its lifetime.
+    if (hidden) return
 
-  if (annotationCount > 0 || dismissed) return null
+    const observer = new MutationObserver(() => {
+      if (hasAnnotation()) setHidden(true)
+    })
+    // childList only — `data-cortex-source` is set at JSX-element-creation
+    // by the Vite plugin transform, never as a later attribute mutation. Dropping
+    // attribute observation halves the callback volume on busy SPAs during the
+    // window where the banner is visible (the only time the observer is attached).
+    observer.observe(document.body, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [hidden])
+
+  // Push host page content + cortex's own UI down by the banner's height
+  // while visible, so the banner doesn't overlap either surface. Two
+  // mutations:
+  //   - documentElement.paddingTop  → pushes the user's app down
+  //   - --cx-banner-height variable → consumed by CortexApp's transform
+  //     wrapper, which becomes a containing block for fixed-positioned
+  //     descendants (toolbar, overlays, panel) and shifts them down too.
+  // Measured (not hardcoded) because the description text wraps on narrow
+  // viewports. Restored on unmount/hide/dismiss.
+  useEffect(() => {
+    if (hidden || dismissed) return
+    const banner = bannerRef.current
+    if (!banner) return
+    const root = document.documentElement
+    const prevPadding = root.style.paddingTop
+    const prevTransition = root.style.transition
+    const prevVar = root.style.getPropertyValue('--cx-banner-height')
+    const px = `${banner.getBoundingClientRect().height}px`
+    // Smooth the show/hide transition so dismiss doesn't visually jump.
+    // 200ms layout transition is acceptable for a one-shot banner event;
+    // not on the per-frame hot path.
+    //
+    // Trade-off: while the banner is visible, this inline `transition` on
+    // documentElement DOES clobber any host-page stylesheet rule that sets
+    // `transition` on the `<html>` element (CSS cascade: inline > stylesheet).
+    // Most pages don't transition documentElement properties; if a host page
+    // does, those transitions are suppressed for the lifetime of the banner.
+    // Restored on dismiss/unmount.
+    root.style.transition = 'padding-top 200ms ease-out'
+    root.style.paddingTop = px
+    root.style.setProperty('--cx-banner-height', px)
+    return () => {
+      root.style.paddingTop = prevPadding
+      root.style.transition = prevTransition
+      if (prevVar) root.style.setProperty('--cx-banner-height', prevVar)
+      else root.style.removeProperty('--cx-banner-height')
+    }
+  }, [hidden, dismissed])
+
+  if (hidden || dismissed) return null
 
   return (
     <div
+      ref={bannerRef}
       data-banner-id="no-annotations"
       class="cortex-no-annotations-banner"
-      role="status"
-      aria-live="polite"
+      role="alert"
+      aria-live="assertive"
     >
       <div class="cortex-no-annotations-banner__body">
         <span class="cortex-no-annotations-banner__title">
@@ -37,13 +98,15 @@ export function NoAnnotationsBanner(): JSX.Element | null {
         type="button"
         class="cortex-no-annotations-banner__dismiss"
         aria-label="Dismiss"
-        onClick={() => setDismissed(true)}
+        onClick={(e) => {
+          // selection.ts opts out of intercepting cortex-UI clicks (isOwnUI
+          // early-return), so without stopPropagation this dismiss click would
+          // bubble to any window/document handler the host app installed.
+          e.stopPropagation()
+          setDismissed(true)
+        }}
       >
-        {/* Lucide X icon — 14×14 */}
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <line x1="3.5" y1="3.5" x2="10.5" y2="10.5" />
-          <line x1="10.5" y1="3.5" x2="3.5" y2="10.5" />
-        </svg>
+        <X size={14} />
       </button>
     </div>
   )

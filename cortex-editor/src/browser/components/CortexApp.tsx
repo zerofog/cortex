@@ -939,6 +939,21 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         <CapabilityBanner systems={capabilitySystems} />
         <ErrorToast channel={channel} />
       </div>
+      {/* Wrapper shifts toolbar + every position:fixed UI down by the
+          banner's measured height when visible. The transform turns this div
+          into the containing block for fixed-positioned descendants (CSS
+          spec quirk), so toolbar/hover/selection/panel all reposition
+          relative to the wrapper instead of the viewport.
+          Trade-off: during the 200ms dismiss animation, fixed-positioned
+          descendants (e.g., dropdown popovers) are coordinate-stable
+          relative to the wrapper, but if floating-ui-style positioning
+          recomputes against viewport mid-animation, popover position can
+          be momentarily off. Bounded: banner is visible only when count=0,
+          which means no panel selection (silent filter blocks selection),
+          which means no dropdown can open. The race only matters in the
+          dismissal-animation window AND only if a popover opens within
+          ~200ms of clicking dismiss — rare in practice. */}
+      <div style={{ transform: 'translateY(var(--cx-banner-height, 0px))', transition: 'transform 200ms ease-out' }}>
       <HoverOverlay element={hoverEnabled ? hoveredElement : null} />
       <SelectionOverlay
         element={selectedElement}
@@ -1003,6 +1018,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         visible={showActivity}
         onClose={handleActivityToggle}
       />
+      </div>
     </>
   )
 }
