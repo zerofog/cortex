@@ -45,7 +45,8 @@ export function NoAnnotationsBanner(): JSX.Element | null {
     const root = document.documentElement
     const prevPadding = root.style.paddingTop
     const prevTransition = root.style.transition
-    const prevVar = root.style.getPropertyValue('--cx-banner-height')
+    const prevHeightVar = root.style.getPropertyValue('--cx-banner-height')
+    const prevTransformVar = root.style.getPropertyValue('--cx-banner-transform')
     const px = `${banner.getBoundingClientRect().height}px`
     // Smooth the show/hide transition so dismiss doesn't visually jump.
     // 200ms layout transition is acceptable for a one-shot banner event;
@@ -60,11 +61,22 @@ export function NoAnnotationsBanner(): JSX.Element | null {
     root.style.transition = 'padding-top 200ms ease-out'
     root.style.paddingTop = px
     root.style.setProperty('--cx-banner-height', px)
+    // Set the transform expression that CortexApp's wrapper consumes. We
+    // publish this as a SEPARATE variable from --cx-banner-height because
+    // when the banner is hidden, the wrapper must read `transform: none`
+    // (not `translateY(0px)`) — `translateY(0px)` still creates a CSS
+    // containing block for `position: fixed` descendants per spec, which
+    // changes how cortex's panel/overlays resolve and produces flaky
+    // intra-file test pollution in cortex-app.test.tsx. Setting this only
+    // when banner is visible means wrapper falls back to `none` otherwise.
+    root.style.setProperty('--cx-banner-transform', `translateY(${px})`)
     return () => {
       root.style.paddingTop = prevPadding
       root.style.transition = prevTransition
-      if (prevVar) root.style.setProperty('--cx-banner-height', prevVar)
+      if (prevHeightVar) root.style.setProperty('--cx-banner-height', prevHeightVar)
       else root.style.removeProperty('--cx-banner-height')
+      if (prevTransformVar) root.style.setProperty('--cx-banner-transform', prevTransformVar)
+      else root.style.removeProperty('--cx-banner-transform')
     }
   }, [hidden, dismissed])
 

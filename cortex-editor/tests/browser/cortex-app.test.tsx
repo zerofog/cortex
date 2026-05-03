@@ -82,6 +82,21 @@ describe('CortexApp', () => {
   })
 
   function setup() {
+    // Sentinel `data-cortex-source` element — keeps NoAnnotationsBanner's
+    // initial `hasAnnotation()` check returning true, so the banner never
+    // mounts visible and never attaches a MutationObserver. Without this,
+    // every test that adds annotated fixtures via createEditableDiv() or
+    // setAttribute('data-cortex-source', ...) triggers the banner's observer,
+    // which calls setHidden(true), causing CortexApp's transform-wrapper to
+    // shift mid-test. The shift races test assertions and produces flaky
+    // "expected null not to be null" failures across this file. Idempotent —
+    // safe to call multiple times per test session.
+    if (!document.querySelector('[data-cortex-source="__cortex-app-test-sentinel__"]')) {
+      const sentinel = document.createElement('div')
+      sentinel.setAttribute('data-cortex-source', '__cortex-app-test-sentinel__')
+      sentinel.style.display = 'none'
+      document.body.appendChild(sentinel)
+    }
     const sh = createShadowHost()
     root = sh.root
     shadow = sh.shadow
