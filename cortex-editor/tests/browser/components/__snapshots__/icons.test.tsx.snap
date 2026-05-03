@@ -391,3 +391,10 @@ exports[`icons.tsx — lucide.dev snapshot inventory > <Unlink /> renders the lu
   "icon": "Unlink",
 }
 `;
+
+exports[`icons.tsx — lucide.dev snapshot inventory > <X /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>",
+  "icon": "X",
+}
+`;

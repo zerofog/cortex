@@ -22,6 +22,7 @@ import { CommentPin } from './CommentPin.js'
 import { ActivityLog } from './ActivityLog.js'
 import { ErrorToast } from './ErrorToast.js'
 import { CapabilityBanner } from './CapabilityBanner.js'
+import { NoAnnotationsBanner } from './NoAnnotationsBanner.js'
 import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
 import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
@@ -934,9 +935,29 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   return (
     <>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 9998, pointerEvents: 'none', display: 'flex', flexDirection: 'column' }}>
+        <NoAnnotationsBanner />
         <CapabilityBanner systems={capabilitySystems} />
         <ErrorToast channel={channel} />
       </div>
+      {/* Wrapper shifts toolbar + every position:fixed UI down by the
+          banner's measured height when visible. The transform turns this div
+          into the containing block for fixed-positioned descendants (CSS
+          spec quirk), so toolbar/hover/selection/panel all reposition
+          relative to the wrapper instead of the viewport.
+          Critical: --cx-banner-transform falls back to `none` (not
+          `translateY(0px)`) when the banner is hidden. `translateY(0px)`
+          still creates a containing block per CSS spec, which changes how
+          fixed-positioned descendants resolve and produces intra-file test
+          pollution in cortex-app.test.tsx. With `none`, no containing block
+          forms when banner is hidden — wrapper becomes a plain pass-through.
+          Trade-off: during the 200ms dismiss animation, fixed-positioned
+          descendants (e.g., dropdown popovers) are coordinate-stable
+          relative to the wrapper, but if floating-ui-style positioning
+          recomputes against viewport mid-animation, popover position can
+          be momentarily off. Bounded: banner is visible only when count=0,
+          which means no panel selection (silent filter blocks selection),
+          which means no dropdown can open. */}
+      <div style={{ transform: 'var(--cx-banner-transform, none)', transition: 'transform 200ms ease-out' }}>
       <HoverOverlay element={hoverEnabled ? hoveredElement : null} />
       <SelectionOverlay
         element={selectedElement}
@@ -1001,6 +1022,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         visible={showActivity}
         onClose={handleActivityToggle}
       />
+      </div>
     </>
   )
 }
