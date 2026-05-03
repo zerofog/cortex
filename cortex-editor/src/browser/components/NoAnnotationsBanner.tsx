@@ -16,7 +16,7 @@ export function NoAnnotationsBanner(): JSX.Element | null {
   useEffect(() => {
     // Once annotations exist (or banner was dismissed) we never need the
     // observer again — banner stays hidden for the rest of its lifetime.
-    if (hidden) return
+    if (hidden || dismissed) return
 
     const observer = new MutationObserver(() => {
       if (hasAnnotation()) setHidden(true)
@@ -27,7 +27,7 @@ export function NoAnnotationsBanner(): JSX.Element | null {
     // window where the banner is visible (the only time the observer is attached).
     observer.observe(document.body, { childList: true, subtree: true })
     return () => observer.disconnect()
-  }, [hidden])
+  }, [hidden, dismissed])
 
   // Push host page content + cortex's own UI down by the banner's height
   // while visible, so the banner doesn't overlap either surface. Two

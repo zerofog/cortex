@@ -122,6 +122,42 @@ describe('NoAnnotationsBanner', () => {
     })
   })
 
+  it('disconnects MutationObserver when banner is dismissed (regression: ZF0-1123 PR #95 quad-flagged dep-array bug)', async () => {
+    // Falsifiability: this test fails if the MutationObserver useEffect's
+    // dependency array drops `dismissed`. Without the dep, dismiss → no
+    // effect re-run → no cleanup → observer stays attached observing
+    // document.body for the rest of the session.
+    for (const el of document.body.querySelectorAll('[data-cortex-source]')) {
+      el.remove()
+    }
+
+    container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(<NoAnnotationsBanner />, container)
+    const dismiss = container.querySelector('button[aria-label="Dismiss"]') as HTMLButtonElement
+    dismiss.click()
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-banner-id="no-annotations"]')).toBeNull()
+    })
+
+    // Observer should be disconnected. Spy on querySelector AFTER dismiss
+    // (so we can attribute calls to the observer, not the initial mount).
+    // Add a node that would normally trigger the observer's callback.
+    const spy = vi.spyOn(document, 'querySelector')
+    try {
+      const editable = createEditableDiv()
+      document.body.appendChild(editable)
+      // Wait long enough for happy-dom's setTimeout(0) MO delivery.
+      await new Promise(r => setTimeout(r, 50))
+
+      const ourCalls = spy.mock.calls.filter(([sel]) => sel === '[data-cortex-source]')
+      expect(ourCalls.length).toBe(0)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('publishes --cx-banner-height CSS variable for cortex UI to consume', async () => {
     for (const el of document.body.querySelectorAll('[data-cortex-source]')) {
       el.remove()
