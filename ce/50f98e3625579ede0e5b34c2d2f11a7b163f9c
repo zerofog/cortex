@@ -1,0 +1,28 @@
+cortex-editor/src/browser/components/controls/TokenPresetPopover.tsx
+  f63a831ca8f900e1 1-102
+cortex-editor/tests/browser/components/TokenPresetPopover.test.tsx
+  f63a831ca8f900e1 1-176
+cortex-editor/src/browser/styles.css
+  f63a831ca8f900e1 1730-1850
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "ce50f98e3625579ede0e5b34c2d2f11a7b163f9c",
+  "prompts": {
+    "f63a831ca8f900e1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c036b3b1-00fc-4141-8fc9-0c33f63dc5d4",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 400,
+      "total_deletions": 1,
+      "accepted_lines": 399,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/a87eaa7d8c5b7320f3ae4a05c64e4864cea79bbe739c5a4cd2c0d67229f3f258"
+    }
+  }
+}
