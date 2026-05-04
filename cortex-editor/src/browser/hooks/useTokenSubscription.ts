@@ -16,6 +16,10 @@ export interface UseTokenSubscriptionResult {
  * - The `ServerToBrowser` type is inferred from `serverToBrowserSchema` in
  *   src/schemas/wire-format.ts (compile-time safety only — there is no runtime
  *   browser-side parse; the server emits already-validated payloads).
+ *   TRUST BOUNDARY: this hook trusts that `msg.spacingTokens` matches the
+ *   schema shape. If a future contributor adds a raw-WebSocket path that
+ *   bypasses the centralized channel, defensive `spacingTokenSchema.array()
+ *   .safeParse(incoming)` here would be the recovery point.
  * - On channel transition, resets state before re-subscribing so consumers
  *   never observe stale tokens from a dead channel during the new handshake.
  * - Cleans up the channel subscription on unmount.

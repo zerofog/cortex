@@ -859,6 +859,10 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         console.warn('[cortex] Tailwind text component resolution failed:', err instanceof Error ? err.message : err)
         return null
       })
+      // The .catch here is defensive — resolveSpacingTokens only rejects on
+      // programmer error (non-absolute config.root, which Vite always provides
+      // as absolute). Internal failures are already swallowed inside the
+      // resolver. Kept symmetric with the other three resolver promises.
       const spacingTokensPromise = TailwindResolver.resolveSpacingTokens(config.root).catch((err) => {
         console.warn('[cortex] Tailwind spacing token resolution failed:', err instanceof Error ? err.message : err)
         return null

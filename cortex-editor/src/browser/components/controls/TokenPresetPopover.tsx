@@ -44,22 +44,25 @@ export function TokenPresetPopover({
           popoverRef.current.style.top = `${y}px`
         }
       }).catch((err) => {
-        if (!cancelled) {
-          console.warn('[cortex] TokenPresetPopover positioning failed:', err instanceof Error ? err.message : err)
-          const rect = anchor.getBoundingClientRect()
-          if (popoverRef.current) {
-            popoverRef.current.style.left = `${rect.left}px`
-            popoverRef.current.style.top = `${rect.bottom}px`
-          }
-        }
+        if (cancelled) return
+        // floating-ui's flip/shift could not place the popover (anchor detached
+        // mid-frame, weird Shadow DOM context). Dismiss rather than fall back
+        // to a raw getBoundingClientRect that ignores viewport edges and could
+        // render off-screen.
+        console.warn('[cortex] TokenPresetPopover positioning failed:', err instanceof Error ? err.message : err)
+        onDismiss()
       })
     }
     const cleanupAutoUpdate = autoUpdate(anchor, popover, update)
     return () => {
       cancelled = true
-      cleanupAutoUpdate()
+      try {
+        cleanupAutoUpdate()
+      } catch (err) {
+        console.warn('[cortex] TokenPresetPopover autoUpdate cleanup failed:', err instanceof Error ? err.message : err)
+      }
     }
-  }, [anchorRef])
+  }, [anchorRef, onDismiss])
 
   return (
     <div

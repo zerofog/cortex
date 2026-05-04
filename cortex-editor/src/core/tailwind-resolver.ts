@@ -542,11 +542,14 @@ export class TailwindResolver {
         }
       }
     } catch (err: unknown) {
-      // ERR_MODULE_NOT_FOUND: tailwindcss not installed
-      // ERR_PACKAGE_PATH_NOT_EXPORTED: tailwindcss v4 (no resolveConfig)
+      // Expected codes when tailwindcss isn't installed or only v4 is present:
+      //   ERR_MODULE_NOT_FOUND  — ESM resolver, package missing
+      //   MODULE_NOT_FOUND      — CJS resolver fallback (legacy / older Node)
+      //   ERR_PACKAGE_PATH_NOT_EXPORTED — tailwindcss v4 has no resolveConfig export
+      const expected = new Set(['ERR_MODULE_NOT_FOUND', 'MODULE_NOT_FOUND', 'ERR_PACKAGE_PATH_NOT_EXPORTED'])
       if (err && typeof err === 'object' && 'code' in err) {
         const code = (err as { code: string }).code
-        if (code !== 'ERR_MODULE_NOT_FOUND' && code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
+        if (!expected.has(code)) {
           throw err
         }
       }
@@ -592,6 +595,19 @@ export class TailwindResolver {
 
       const CSS_VAR_PATTERN = /^--(spacing|sp|gap|space)-/
 
+      // Errors we expect during a CSS scan (ENOENT/ELOOP for broken symlinks,
+      // EISDIR if the entry got recreated as a directory between readdir and
+      // realpath). Anything else (EACCES, EMFILE, EBUSY) signals a real problem
+      // worth flagging — a single warn per scan keeps the noise floor low while
+      // surfacing the cause when tokens are silently absent.
+      const expectedFsCodes = new Set(['ENOENT', 'ELOOP', 'EISDIR'])
+      const reportFsError = (label: string, file: string, err: unknown): void => {
+        const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : null
+        if (code === null || !expectedFsCodes.has(code)) {
+          console.warn(`[cortex] CSS scan ${label} failed for ${file}${code ? ` (${code})` : ''}:`, err instanceof Error ? err.message : err)
+        }
+      }
+
       // Read + parse all CSS files concurrently. Per-file errors (symlink
       // escape, oversize, parse failure) are isolated — one bad file doesn't
       // poison the rest of the scan.
@@ -603,7 +619,8 @@ export class TailwindResolver {
         let realFilePath: string
         try {
           realFilePath = await realpath(filePath)
-        } catch {
+        } catch (err) {
+          reportFsError('realpath', file, err)
           return null
         }
         if (realFilePath !== realProjectRoot && !realFilePath.startsWith(realProjectRoot + sep)) {
@@ -615,13 +632,15 @@ export class TailwindResolver {
         try {
           const stats = await stat(realFilePath)
           if (stats.size > MAX_CSS_FILE_BYTES) return null
-        } catch {
+        } catch (err) {
+          reportFsError('stat', file, err)
           return null
         }
 
         try {
           return await readFile(realFilePath, 'utf-8')
-        } catch {
+        } catch (err) {
+          reportFsError('readFile', file, err)
           return null
         }
       }))
@@ -649,8 +668,15 @@ export class TailwindResolver {
           })
         })
       }
-    } catch {
-      // postcss not available or FS error — fall through
+    } catch (err: unknown) {
+      // postcss missing is expected on projects without it; anything else
+      // (programmer error in the scan loop, FS module failure) deserves a
+      // warning rather than silent omission.
+      const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : null
+      if (code !== 'ERR_MODULE_NOT_FOUND' && code !== 'MODULE_NOT_FOUND') {
+        console.warn('[cortex] CSS variable scan failed:', err instanceof Error ? err.message : err)
+      }
+      // fall through with whatever tokens were collected before the failure
     }
 
     return tokens.length > 0 ? tokens : null
