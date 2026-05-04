@@ -18,7 +18,7 @@ import { pendingEditSchema, intentIdSchema, MAX_FULL_SYNC_SIZE } from './pending
 // ---------------------------------------------------------------------------
 
 export const spacingTokenSchema = z.object({
-  name: z.string().min(2),
+  name: z.string().min(2).max(256),
   valuePx: z.number().nonnegative().finite(),
   source: z.enum(['tailwind-v3', 'tailwind-v4', 'css-variable']),
 })
@@ -251,7 +251,7 @@ export const serverToBrowserSchema = z.discriminatedUnion('type', [
         }),
       )
       .optional(),
-    spacingTokens: z.array(spacingTokenSchema).optional(),
+    spacingTokens: z.array(spacingTokenSchema).max(500).optional(),
   }),
 
   // 5. error

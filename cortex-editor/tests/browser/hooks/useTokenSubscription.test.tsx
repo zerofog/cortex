@@ -158,6 +158,72 @@ describe('useTokenSubscription', () => {
     expect(result.current.isLoading).toBe(true)
   })
 
+  it('resets tokens + isLoading when channel transitions to a new instance', async () => {
+    // Regression: when the channel prop changes (HMR reconnect, workspace switch),
+    // the effect must reset state and re-subscribe to the new channel rather than
+    // leaving stale tokens from the dead channel visible during the new handshake.
+    const channelA = makeChannel()
+    const channelB = makeChannel()
+
+    const result = { current: null as ReturnType<typeof useTokenSubscription> | null }
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    function Wrapper({ ch }: { readonly ch: CortexChannel | null }) {
+      result.current = useTokenSubscription(ch)
+      return null
+    }
+
+    await act(async () => {
+      render(<Wrapper ch={channelA} />, container)
+    })
+
+    // Channel A delivers hello with tokens.
+    await act(async () => {
+      channelA._fire({
+        type: 'hello',
+        protocolVersion: 1,
+        sessionId: 'sess-A',
+        spacingTokens: [{ name: '--spacing-md', valuePx: 16, source: 'tailwind-v4' as const }],
+      })
+    })
+    expect(result.current!.isLoading).toBe(false)
+    expect(result.current!.tokens).toHaveLength(1)
+    expect(channelA._handlerCount()).toBe(1)
+    expect(channelB._handlerCount()).toBe(0)
+
+    // Swap channel — effect must (a) unsubscribe from A, (b) reset state, (c) subscribe to B.
+    await act(async () => {
+      render(<Wrapper ch={channelB} />, container)
+    })
+
+    // Falsifiable: state must be reset before B's hello arrives. Without the reset
+    // (setTokens([]); setIsLoading(true) at the top of the effect), the consumer
+    // briefly sees A's tokens while connected to B.
+    expect(result.current!.isLoading).toBe(true)
+    expect(result.current!.tokens).toEqual([])
+
+    // Falsifiable: handler count moved from A to B (verifies the dependency-array
+    // contract — old subscription torn down, new one registered).
+    expect(channelA._handlerCount()).toBe(0)
+    expect(channelB._handlerCount()).toBe(1)
+
+    // Channel B's hello is observed.
+    await act(async () => {
+      channelB._fire({
+        type: 'hello',
+        protocolVersion: 1,
+        sessionId: 'sess-B',
+        spacingTokens: [{ name: '--spacing-lg', valuePx: 24, source: 'css-variable' as const }],
+      })
+    })
+    expect(result.current!.isLoading).toBe(false)
+    expect(result.current!.tokens).toEqual([{ name: '--spacing-lg', valuePx: 24, source: 'css-variable' }])
+
+    act(() => { render(null, container) })
+    container.remove()
+  })
+
   it('updates tokens on a second hello', async () => {
     const { result, unmount } = await renderHook(() => useTokenSubscription(channel))
 

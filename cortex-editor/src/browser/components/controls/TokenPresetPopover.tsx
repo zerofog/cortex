@@ -1,6 +1,6 @@
 import type { JSX, RefObject } from 'preact'
 import { useRef, useEffect } from 'preact/hooks'
-import { computePosition, flip, shift } from '@floating-ui/dom'
+import { computePosition, flip, shift, autoUpdate } from '@floating-ui/dom'
 import type { SpacingPreset } from '../../tokens/family.js'
 import type { SpacingToken } from '../../../core/tailwind-resolver.js'
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js'
@@ -34,25 +34,31 @@ export function TokenPresetPopover({
     if (!anchor || !popover) return
 
     let cancelled = false
-    computePosition(anchor, popover, {
-      placement: 'bottom-start',
-      middleware: [flip(), shift()],
-    }).then(({ x, y }) => {
-      if (!cancelled && popoverRef.current) {
-        popoverRef.current.style.left = `${x}px`
-        popoverRef.current.style.top = `${y}px`
-      }
-    }).catch((err) => {
-      if (!cancelled) {
-        console.warn('[cortex] TokenPresetPopover positioning failed:', err instanceof Error ? err.message : err)
-        const rect = anchor.getBoundingClientRect()
-        if (popoverRef.current) {
-          popoverRef.current.style.left = `${rect.left}px`
-          popoverRef.current.style.top = `${rect.bottom}px`
+    const update = () => {
+      computePosition(anchor, popover, {
+        placement: 'bottom-start',
+        middleware: [flip(), shift()],
+      }).then(({ x, y }) => {
+        if (!cancelled && popoverRef.current) {
+          popoverRef.current.style.left = `${x}px`
+          popoverRef.current.style.top = `${y}px`
         }
-      }
-    })
-    return () => { cancelled = true }
+      }).catch((err) => {
+        if (!cancelled) {
+          console.warn('[cortex] TokenPresetPopover positioning failed:', err instanceof Error ? err.message : err)
+          const rect = anchor.getBoundingClientRect()
+          if (popoverRef.current) {
+            popoverRef.current.style.left = `${rect.left}px`
+            popoverRef.current.style.top = `${rect.bottom}px`
+          }
+        }
+      })
+    }
+    const cleanupAutoUpdate = autoUpdate(anchor, popover, update)
+    return () => {
+      cancelled = true
+      cleanupAutoUpdate()
+    }
   }, [anchorRef])
 
   return (

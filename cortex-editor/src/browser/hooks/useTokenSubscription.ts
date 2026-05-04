@@ -22,12 +22,13 @@ export function useTokenSubscription(channel: CortexChannel | null): UseTokenSub
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
+    setTokens([])
+    setIsLoading(true)
     if (!channel) return
 
     const unsub = channel.onMessage((msg) => {
       if (msg.type !== 'hello') return
-      // spacingTokens is optional in the hello payload — treat absence as empty array.
-      const incoming = (msg as { spacingTokens?: SpacingToken[] }).spacingTokens ?? []
+      const incoming = msg.spacingTokens ?? []
       setTokens(incoming)
       setIsLoading(false)
     })
