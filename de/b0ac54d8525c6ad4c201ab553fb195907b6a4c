@@ -1,0 +1,24 @@
+cortex-editor/tests/e2e/numeric-input-token-popover.spec.ts
+  f63a831ca8f900e1 1-563
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "deb0ac54d8525c6ad4c201ab553fb195907b6a4c",
+  "prompts": {
+    "f63a831ca8f900e1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c036b3b1-00fc-4141-8fc9-0c33f63dc5d4",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 959,
+      "total_deletions": 354,
+      "accepted_lines": 563,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/275fbb5375e0ab3aaf1839145c2673698eb150b76937a0d90000a2e39325d6d4"
+    }
+  }
+}
