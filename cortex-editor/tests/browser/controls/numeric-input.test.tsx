@@ -340,15 +340,14 @@ describe('NumericInput', () => {
       }, { timeout: 500 })
     })
 
-    it('does NOT render popover when tokenFamily is omitted', async () => {
-      const { input } = setupWithTokens()
-      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
-      await new Promise<void>(r => setTimeout(r, 0))
-      expect(container.querySelector('.cortex-token-preset-popover')).toBeNull()
-    })
-
-    it('does NOT render popover when tokenFamily="none"', async () => {
-      const { input } = setupWithTokens({ tokenFamily: 'none' })
+    // Both omission and unwired-family share a single branch — `tokenFamily !== 'spacing'`
+    // — so cover them with a single parametrized test instead of duplicate it() blocks.
+    // 'sizing' stands in for any reserved-but-unwired family from the TokenFamily union.
+    it.each([
+      ['omitted', undefined],
+      ['unwired family ("sizing")', 'sizing' as const],
+    ])('does NOT render popover when tokenFamily is %s', async (_label, tokenFamily) => {
+      const { input } = setupWithTokens(tokenFamily ? { tokenFamily } : undefined)
       input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
       await new Promise<void>(r => setTimeout(r, 0))
       expect(container.querySelector('.cortex-token-preset-popover')).toBeNull()

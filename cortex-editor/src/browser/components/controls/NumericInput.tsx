@@ -41,8 +41,8 @@ export interface NumericInputProps {
   /**
    * Opt this input into a token family popover. When set to 'spacing', a
    * TokenPresetPopover appears on focus showing canonical scale chips and
-   * any project-detected spacing tokens. Omitting this prop (or 'none')
-   * means no popover is shown — existing behavior is fully preserved.
+   * any project-detected spacing tokens. Omitting this prop means no popover
+   * is shown — existing behavior is fully preserved.
    */
   tokenFamily?: TokenFamily
 }

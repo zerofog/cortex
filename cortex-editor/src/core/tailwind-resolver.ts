@@ -528,6 +528,10 @@ export class TailwindResolver {
         if (spacing && typeof spacing === 'object') {
           const remPx = 16 // v3 default
           for (const [key, value] of Object.entries(spacing)) {
+            // v3 default theme always carries DEFAULT (alias for the base step) and
+            // sometimes px (literal '1px'). Neither belongs in the popover — they
+            // duplicate the canonical chip set without adding signal.
+            if (key === 'DEFAULT' || key === 'px') continue
             const name = `--spacing-${key}`
             if (name.startsWith('--cx-')) continue
             const px = TailwindResolver.parseToPx(value, remPx)
@@ -552,11 +556,24 @@ export class TailwindResolver {
     // Scan *.css files under projectRoot (excluding node_modules/dist/.git/build).
     // Extract custom properties matching ^--(spacing|sp|gap|space)- from :root rules.
     try {
-      const { readdir, readFile } = await import('node:fs/promises')
+      const { readdir, readFile, stat } = await import('node:fs/promises')
+      const { realpathSync } = await import('node:fs')
       const { join, sep } = await import('node:path')
       const postcss = (await import('postcss')).default
 
       const EXCLUDED_DIRS = [`${sep}node_modules${sep}`, `${sep}dist${sep}`, `${sep}.git${sep}`, `${sep}build${sep}`]
+      const MAX_CSS_FILE_BYTES = 1_048_576 // 1MB — guards against generated CSS bundles stalling the handshake
+
+      // Resolve the project root through symlinks once; per-file realpath check
+      // below uses this as the containment anchor. Mirrors the canonical
+      // requireRealpathInsideRoot helper at adapters/vite.ts:180 — same security
+      // contract, inlined here to avoid a circular dep on the Vite plugin module.
+      let realProjectRoot: string
+      try {
+        realProjectRoot = realpathSync.native(projectRoot)
+      } catch {
+        realProjectRoot = projectRoot
+      }
 
       let entries: string[]
       try {
@@ -576,9 +593,36 @@ export class TailwindResolver {
 
       const CSS_VAR_PATTERN = /^--(spacing|sp|gap|space)-/
       for (const file of cssFiles) {
+        const filePath = join(projectRoot, file)
+
+        // Symlink containment: a CSS file in the tree may be a symlink whose
+        // target escapes projectRoot (e.g., src/tokens.css -> /etc/passwd).
+        // PostCSS would happily parse arbitrary content; we'd never read its
+        // declarations as tokens (CSS_VAR_PATTERN gates that), but the readFile
+        // would still touch off-tree bytes. Reject before reading.
+        let realFilePath: string
+        try {
+          realFilePath = realpathSync.native(filePath)
+        } catch {
+          continue
+        }
+        if (realFilePath !== realProjectRoot && !realFilePath.startsWith(realProjectRoot + sep)) {
+          continue
+        }
+
+        // Size cap: skip files >1MB to avoid stalling the panel handshake on
+        // generated CSS bundles (Tailwind JIT outputs in src/ that escape the
+        // dist/ filter, monorepos with checked-in giant CSS, etc.).
+        try {
+          const stats = await stat(realFilePath)
+          if (stats.size > MAX_CSS_FILE_BYTES) continue
+        } catch {
+          continue
+        }
+
         let content: string
         try {
-          content = await readFile(join(projectRoot, file), 'utf-8')
+          content = await readFile(realFilePath, 'utf-8')
         } catch {
           continue
         }
