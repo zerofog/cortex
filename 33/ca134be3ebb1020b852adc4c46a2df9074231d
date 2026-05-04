@@ -1,0 +1,26 @@
+cortex-editor/src/browser/components/controls/TokenPresetPopover.tsx
+  2f447d29ba1dadbd 48-54,56-60,72
+cortex-editor/src/browser/components/controls/NumericInput.tsx
+  2f447d29ba1dadbd 256-261,263-266
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "33ca134be3ebb1020b852adc4c46a2df9074231d",
+  "prompts": {
+    "2f447d29ba1dadbd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "00baab1a-2631-4140-b547-d6734265d703",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 35763,
+      "total_deletions": 12,
+      "accepted_lines": 35757,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/7d376942850d05fac10c151cd6f6a84cd871ad70ac4ab5abdd308899f1dcafca"
+    }
+  }
+}
