@@ -1727,6 +1727,127 @@
   line-height: 1.4;
 }
 
+/* ── Token preset popover ───────────────────── */
+/* Hybrid layout: canonical chip grid (top) + scrollable project-token list (bottom).
+   Positioned via @floating-ui computePosition with position:fixed so it escapes
+   the panel's shadow-DOM overflow context. */
+
+.cortex-token-preset-popover {
+  z-index: 2;
+  min-width: 200px;
+  background: var(--cx-paper);
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-lg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1), 0 1px 4px rgba(0, 0, 0, 0.06);
+  animation: cortex-popover-enter 150ms ease-out;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.cortex-token-preset-popover__chip-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--cx-sp-1);
+  padding: var(--cx-sp-3);
+}
+
+.cortex-token-preset-popover__chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: var(--cx-sp-2) var(--cx-sp-1);
+  background: var(--cx-well);
+  border: none;
+  border-radius: var(--cx-radius-sm);
+  cursor: pointer;
+  transition: background 100ms ease-out;
+}
+
+.cortex-token-preset-popover__chip:hover {
+  background: var(--cx-well-hover);
+}
+
+.cortex-token-preset-popover__chip:active {
+  background: var(--cx-well-active);
+}
+
+.cortex-token-preset-popover__chip-name {
+  font-size: var(--cx-text-xs);
+  font-weight: var(--cx-weight-value);
+  color: var(--cx-ink);
+  line-height: 1;
+}
+
+.cortex-token-preset-popover__chip-value {
+  font-family: var(--cx-mono);
+  font-size: var(--cx-text-xs);
+  font-weight: var(--cx-weight-label);
+  color: var(--cx-ink-secondary);
+  line-height: 1;
+}
+
+.cortex-token-preset-popover__divider {
+  height: 1px;
+  background: var(--cx-rule);
+  margin: 0;
+}
+
+.cortex-token-preset-popover__list {
+  overflow-y: auto;
+  max-height: 200px;
+  padding: var(--cx-sp-2) 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cortex-token-preset-popover__list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--cx-sp-3);
+  height: 28px;
+  padding: 0 var(--cx-sp-3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 100ms ease-out;
+}
+
+.cortex-token-preset-popover__list-row:hover {
+  background: var(--cx-well);
+}
+
+.cortex-token-preset-popover__list-swatch {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid var(--cx-rule);
+}
+
+.cortex-token-preset-popover__list-name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--cx-mono);
+  font-size: var(--cx-text-sm);
+  font-weight: var(--cx-weight-label);
+  color: var(--cx-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cortex-token-preset-popover__list-value {
+  flex-shrink: 0;
+  font-family: var(--cx-mono);
+  font-size: var(--cx-text-sm);
+  font-weight: var(--cx-weight-label);
+  color: var(--cx-ink-secondary);
+}
+
 /* ── Layout section ─────────────────────────── */
 
 .cortex-layout-section {
