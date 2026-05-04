@@ -374,6 +374,40 @@ describe('NumericInput', () => {
       }, { timeout: 500 })
     })
 
+    it('chip mousedown is preventDefault — typed value does not phantom-commit before pick', async () => {
+      // Regression: clicking a chip after typing fired onChange twice — once for the typed
+      // value (from blur on mousedown's focus shift) and once for the picked value.
+      // Fix in TokenPresetPopover: onMouseDown={e => e.preventDefault()} on chip buttons
+      // keeps focus on the input so handleBlur never runs before onPick.
+      const { onChange, input } = setupWithTokens({ tokenFamily: 'spacing' })
+      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+
+      await vi.waitFor(() => {
+        expect(container.querySelector('.cortex-token-preset-popover')).not.toBeNull()
+      }, { timeout: 500 })
+
+      const mdChip = [...container.querySelectorAll('.cortex-token-preset-popover__chip')]
+        .find(b => b.textContent?.includes('md')) as HTMLButtonElement | undefined
+      expect(mdChip).not.toBeUndefined()
+
+      // User typed a value before clicking the chip — sets userTypedRef so blur would commit.
+      input.value = '5'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+
+      // Mousedown on the chip MUST be preventDefault — otherwise the input loses focus,
+      // handleBlur fires, and onChange(5) commits before onPick fires.
+      const mousedown = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+      mdChip!.dispatchEvent(mousedown)
+      expect(mousedown.defaultPrevented).toBe(true)
+
+      // Pick still routes through onChange exactly once with the canonical valuePx.
+      mdChip!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await vi.waitFor(() => {
+        expect(onChange).toHaveBeenCalledWith(8)
+      }, { timeout: 500 })
+      expect(onChange).toHaveBeenCalledTimes(1)
+    })
+
     it('onPick closes the popover after selection', async () => {
       const { input } = setupWithTokens({ tokenFamily: 'spacing' })
       input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))

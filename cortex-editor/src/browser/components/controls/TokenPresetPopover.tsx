@@ -67,6 +67,7 @@ export function TokenPresetPopover({
             key={preset.name}
             type="button"
             class="cortex-token-preset-popover__chip"
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => onPick({ name: preset.name, valuePx: preset.valuePx, source: 'canonical' })}
           >
             <span class="cortex-token-preset-popover__chip-name">{preset.name}</span>
@@ -83,6 +84,7 @@ export function TokenPresetPopover({
                 key={token.name}
                 type="button"
                 class="cortex-token-preset-popover__list-row"
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => onPick({ name: token.name, valuePx: token.valuePx, source: 'project' })}
               >
                 <span
