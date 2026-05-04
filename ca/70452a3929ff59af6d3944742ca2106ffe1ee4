@@ -1,0 +1,28 @@
+cortex-editor/src/core/tailwind-resolver.ts
+  f63a831ca8f900e1 496-500,502-508,511
+cortex-editor/tests/browser/hooks/useTokenSubscription.test.tsx
+  f63a831ca8f900e1 32-37,55,132-135,139-158
+cortex-editor/tests/core/tailwind-resolver.test.ts
+  f63a831ca8f900e1 1-2,979-985,996-1004,1007,1010-1024,1028-1148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "ca70452a3929ff59af6d3944742ca2106ffe1ee4",
+  "prompts": {
+    "f63a831ca8f900e1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c036b3b1-00fc-4141-8fc9-0c33f63dc5d4",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 199,
+      "total_deletions": 32,
+      "accepted_lines": 199,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/73b7d0684e54d7eedfb8b1b6f12f03ba228dfc3e6f9b6aa4633237f650791ae8"
+    }
+  }
+}
