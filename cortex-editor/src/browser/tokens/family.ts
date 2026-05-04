@@ -8,9 +8,7 @@ export interface SpacingPreset {
   readonly valuePx: number
 }
 
-// Canonical spacing scale sourced from --cx-sp-* definitions in styles.css.
-// xs=4 (--cx-sp-2), sm=6 (--cx-sp-3), md=8 (--cx-sp-4), lg=12 (--cx-sp-5), xl=16 (--cx-sp-6).
-// Sorted ascending by valuePx; none (0) is first.
+// Numeric values mirror --cx-sp-2 through --cx-sp-6 in styles.css — keep in sync.
 export const SPACING_PRESETS: readonly SpacingPreset[] = [
   { name: 'none', valuePx: 0 },
   { name: 'xs', valuePx: 4 },

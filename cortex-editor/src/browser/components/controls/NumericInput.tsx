@@ -1,5 +1,5 @@
 import type { ComponentChildren, JSX } from 'preact'
-import { useState, useRef, useCallback, useEffect, useContext } from 'preact/hooks'
+import { useState, useRef, useCallback, useEffect, useContext, useMemo } from 'preact/hooks'
 import { type TokenFamily, SPACING_PRESETS, matchesSpacingPattern } from '../../tokens/family.js'
 import { SpacingTokensContext } from '../../tokens/TokenContext.js'
 import { TokenPresetPopover } from './TokenPresetPopover.js'
@@ -74,13 +74,13 @@ export function NumericInput({
   tokenFamily,
 }: NumericInputProps): JSX.Element {
   const allSpacingTokens = useContext(SpacingTokensContext)
-  // Only show popover when an explicit spacing family is declared.
   const showPopover = tokenFamily === 'spacing'
   // Defense-in-depth: filter tokens through the spacing pattern even though
   // the server resolver already filters — cheap and eliminates edge cases.
-  const filteredTokens = showPopover
-    ? allSpacingTokens.filter(t => matchesSpacingPattern(t.name))
-    : []
+  const filteredTokens = useMemo(
+    () => (showPopover ? allSpacingTokens.filter(t => matchesSpacingPattern(t.name)) : []),
+    [allSpacingTokens, showPopover],
+  )
 
   const [localValue, setLocalValue] = useState(String(value))
   const [isEditing, setIsEditing] = useState(false)
@@ -251,6 +251,8 @@ export function NumericInput({
   }, [isEditing, value, onChange, onScrub, onScrubEnd, clampValue])
 
   const handlePopoverPick = useCallback((chosen: { name: string; valuePx: number; source: 'canonical' | 'project' }) => {
+    // `name` and `source` are part of the contract for ZF0-1210 (staging-buffer flow
+    // surfaces token identity at Apply time) but not consumed by the v1 onChange path.
     onChange(chosen.valuePx)
     setPopoverOpen(false)
   }, [onChange])
@@ -307,7 +309,7 @@ export function NumericInput({
         onWheel={handleWheel}
       />
       {unit && <span class="cortex-numeric-input__unit">{unit}</span>}
-      {popoverOpen && showPopover && (
+      {popoverOpen && (
         <TokenPresetPopover
           anchorRef={hostRef}
           presets={SPACING_PRESETS}

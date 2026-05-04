@@ -469,9 +469,10 @@ export class TailwindResolver {
    * Combines three sources in priority order:
    *   tailwind-v4 > tailwind-v3 > css-variable
    *
-   * Deduplication: if the same `valuePx` appears from a higher-priority source
-   * (e.g. tailwind-v4), the lower-priority entry for the same value is dropped.
-   * Name uniqueness is also enforced — first-seen wins across sources.
+   * Deduplication: name uniqueness across sources — first-seen wins, so a
+   * `--spacing-md` defined in v4 hides any same-named entry from v3 or CSS.
+   * Same-value tokens with different names are NOT collapsed; designers can
+   * pick by semantic name in the popover.
    *
    * Returns null when all three sources yield nothing (same shape as the other
    * resolvers — callers treat null as "no spacing data available").
@@ -556,12 +557,15 @@ export class TailwindResolver {
     // Scan *.css files under projectRoot (excluding node_modules/dist/.git/build).
     // Extract custom properties matching ^--(spacing|sp|gap|space)- from :root rules.
     try {
-      const { readdir, readFile, stat } = await import('node:fs/promises')
-      const { realpathSync } = await import('node:fs')
+      const { readdir, readFile, stat, realpath } = await import('node:fs/promises')
       const { join, sep } = await import('node:path')
       const postcss = (await import('postcss')).default
 
-      const EXCLUDED_DIRS = [`${sep}node_modules${sep}`, `${sep}dist${sep}`, `${sep}.git${sep}`, `${sep}build${sep}`]
+      // Path-segment exclusions — matched via split(sep).includes() so a segment
+      // anywhere in the relative path is rejected (root-level node_modules/foo
+      // AND nested packages/x/node_modules/foo). Per cortex CLAUDE.md "Lexer &
+      // Scanner Code Rules §6", segment matching beats bare substring includes.
+      const EXCLUDED_SEGS = ['node_modules', 'dist', '.git', 'build']
       const MAX_CSS_FILE_BYTES = 1_048_576 // 1MB — guards against generated CSS bundles stalling the handshake
 
       // Resolve the project root through symlinks once; per-file realpath check
@@ -570,7 +574,7 @@ export class TailwindResolver {
       // contract, inlined here to avoid a circular dep on the Vite plugin module.
       let realProjectRoot: string
       try {
-        realProjectRoot = realpathSync.native(projectRoot)
+        realProjectRoot = await realpath(projectRoot)
       } catch {
         realProjectRoot = projectRoot
       }
@@ -582,50 +586,51 @@ export class TailwindResolver {
         entries = []
       }
 
-      const cssFiles = entries.filter(e => {
-        if (!e.endsWith('.css')) return false
-        return !EXCLUDED_DIRS.some(dir => e.includes(dir)) &&
-          !e.startsWith(`node_modules${sep}`) &&
-          !e.startsWith(`dist${sep}`) &&
-          !e.startsWith(`.git${sep}`) &&
-          !e.startsWith(`build${sep}`)
-      })
+      const cssFiles = entries.filter(e =>
+        e.endsWith('.css') && !e.split(sep).some(seg => EXCLUDED_SEGS.includes(seg)),
+      )
 
       const CSS_VAR_PATTERN = /^--(spacing|sp|gap|space)-/
-      for (const file of cssFiles) {
+
+      // Read + parse all CSS files concurrently. Per-file errors (symlink
+      // escape, oversize, parse failure) are isolated — one bad file doesn't
+      // poison the rest of the scan.
+      const fileResults = await Promise.all(cssFiles.map(async (file): Promise<string | null> => {
         const filePath = join(projectRoot, file)
 
         // Symlink containment: a CSS file in the tree may be a symlink whose
-        // target escapes projectRoot (e.g., src/tokens.css -> /etc/passwd).
-        // PostCSS would happily parse arbitrary content; we'd never read its
-        // declarations as tokens (CSS_VAR_PATTERN gates that), but the readFile
-        // would still touch off-tree bytes. Reject before reading.
+        // target escapes projectRoot. Reject before reading.
         let realFilePath: string
         try {
-          realFilePath = realpathSync.native(filePath)
+          realFilePath = await realpath(filePath)
         } catch {
-          continue
+          return null
         }
         if (realFilePath !== realProjectRoot && !realFilePath.startsWith(realProjectRoot + sep)) {
-          continue
+          return null
         }
 
         // Size cap: skip files >1MB to avoid stalling the panel handshake on
-        // generated CSS bundles (Tailwind JIT outputs in src/ that escape the
-        // dist/ filter, monorepos with checked-in giant CSS, etc.).
+        // generated CSS bundles that escaped the dist/ exclusion.
         try {
           const stats = await stat(realFilePath)
-          if (stats.size > MAX_CSS_FILE_BYTES) continue
+          if (stats.size > MAX_CSS_FILE_BYTES) return null
         } catch {
-          continue
+          return null
         }
 
-        let content: string
         try {
-          content = await readFile(realFilePath, 'utf-8')
+          return await readFile(realFilePath, 'utf-8')
         } catch {
-          continue
+          return null
         }
+      }))
+
+      // Parse + addToken serially so dedup priority order matches the v4→v3→css
+      // source ordering. Walking PostCSS ASTs is sync and CPU-bound; concurrency
+      // here would not help.
+      for (const content of fileResults) {
+        if (content === null) continue
 
         let root: ReturnType<typeof postcss.parse>
         try {
@@ -652,21 +657,16 @@ export class TailwindResolver {
   }
 
   /**
-   * Parse a CSS length value to px. Handles px and rem (at 16px default).
+   * Parse a CSS length value to a numeric px value. Wraps the module-level
+   * `toPx` (which returns a px-suffixed string) so we share a single conversion
+   * implementation across normalizer chains and the spacing-token resolver.
    * Returns null for non-length values (colors, keywords, etc.).
    */
   private static parseToPx(value: string, remPx = 16): number | null {
-    const trimmed = value.trim()
-    if (trimmed === '0' || trimmed === '0px') return 0
-    if (trimmed.endsWith('px')) {
-      const n = parseFloat(trimmed)
-      return Number.isNaN(n) ? null : n
-    }
-    if (trimmed.endsWith('rem')) {
-      const n = parseFloat(trimmed)
-      return Number.isNaN(n) ? null : n * remPx
-    }
-    return null
+    const str = toPx(value.trim(), remPx)
+    if (str === null) return null
+    const n = parseFloat(str)
+    return Number.isNaN(n) ? null : n
   }
 
   private static async tryV3Colors(projectRoot: string): Promise<string[] | null> {

@@ -13,8 +13,11 @@ export interface UseTokenSubscriptionResult {
  * - Before the first `hello` arrives: `{ tokens: [], isLoading: true }`
  * - After first `hello`: `{ tokens, isLoading: false }` (tokens may be empty if
  *   the server omitted `spacingTokens` from the payload)
- * - Channel validation is handled upstream by the centralized zod parse in vite.ts;
- *   this hook trusts the already-validated `ServerToBrowser` type from onMessage.
+ * - The `ServerToBrowser` type is inferred from `serverToBrowserSchema` in
+ *   src/schemas/wire-format.ts (compile-time safety only — there is no runtime
+ *   browser-side parse; the server emits already-validated payloads).
+ * - On channel transition, resets state before re-subscribing so consumers
+ *   never observe stale tokens from a dead channel during the new handshake.
  * - Cleans up the channel subscription on unmount.
  */
 export function useTokenSubscription(channel: CortexChannel | null): UseTokenSubscriptionResult {
