@@ -1,0 +1,32 @@
+.gitignore
+  2f447d29ba1dadbd 18
+cortex-editor/src/browser/tokens/family.ts
+  2f447d29ba1dadbd 2-4,24-27
+cortex-editor/src/browser/components/controls/NumericInput.tsx
+  2f447d29ba1dadbd 44-45
+cortex-editor/tests/browser/controls/numeric-input.test.tsx
+  2f447d29ba1dadbd 343-350
+cortex-editor/src/core/tailwind-resolver.ts
+  2f447d29ba1dadbd 531-534,559-560,565-576,596-622,625
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "8bd6ae2c478cd12adc264eb2e32d5c1e9fb1017e",
+  "prompts": {
+    "2f447d29ba1dadbd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "00baab1a-2631-4140-b547-d6734265d703",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 2123,
+      "total_deletions": 20,
+      "accepted_lines": 496,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/4863285e2c790efb74320fddfbd565fbb775e3d810fef4f65cc286320623cf7b"
+    }
+  }
+}
