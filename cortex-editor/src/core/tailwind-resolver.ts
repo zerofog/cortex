@@ -493,19 +493,22 @@ export class TailwindResolver {
     }
 
     // ── Source 1: Tailwind v4 ───────────────────────────────────────────────
-    // Walk @theme blocks for --spacing*, --space-*, --sp-*, --gap-* properties.
+    // Reuse parseV4Theme so the canonical singular `--spacing: <base>` case
+    // (which generates the full multiplier scale) is captured the same way
+    // resolveColors / resolveTextComponents read the v4 theme. parseV4Theme
+    // returns a flat `theme.spacing` map already merged from defaults +
+    // user @theme blocks; symmetric with the v3 branch below.
     try {
-      const { findV4EntryCSS, extractThemeProperties } = await import('./tailwind-v4-parser.js')
-      const userCSS = await findV4EntryCSS(projectRoot)
-      if (userCSS) {
-        const properties = extractThemeProperties(userCSS)
-        const SPACING_PREFIXES = ['--spacing-', '--space-', '--sp-', '--gap-']
-        for (const [prop, value] of properties) {
-          if (prop.startsWith('--cx-')) continue
-          if (!SPACING_PREFIXES.some(pfx => prop.startsWith(pfx))) continue
+      const { parseV4Theme } = await import('./tailwind-v4-parser.js')
+      const v4Theme = await parseV4Theme(projectRoot)
+      const v4Spacing = v4Theme?.spacing
+      if (v4Spacing && typeof v4Spacing === 'object') {
+        for (const [key, value] of Object.entries(v4Spacing)) {
+          const name = `--spacing-${key}`
+          if (name.startsWith('--cx-')) continue
           const px = TailwindResolver.parseToPx(value)
           if (px === null) continue
-          addToken({ name: prop, valuePx: px, source: 'tailwind-v4' })
+          addToken({ name, valuePx: px, source: 'tailwind-v4' })
         }
       }
     } catch {

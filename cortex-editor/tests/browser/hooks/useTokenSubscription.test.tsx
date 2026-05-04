@@ -29,8 +29,12 @@ async function renderHook<T>(hookFn: () => T): Promise<{ result: { current: T };
   }
 }
 
-/** Minimal CortexChannel stub that lets tests fire onMessage handlers manually. */
-function makeChannel(): CortexChannel & { _fire: (msg: ServerToBrowser) => void } {
+/** Minimal CortexChannel stub that lets tests fire onMessage handlers manually
+ *  and inspect the live handler count to verify subscribe/unsubscribe lifecycle. */
+function makeChannel(): CortexChannel & {
+  _fire: (msg: ServerToBrowser) => void
+  _handlerCount: () => number
+} {
   const handlers: Array<(msg: ServerToBrowser) => void> = []
   return {
     send: vi.fn(),
@@ -48,6 +52,7 @@ function makeChannel(): CortexChannel & { _fire: (msg: ServerToBrowser) => void 
     _fire(msg: ServerToBrowser) {
       for (const h of [...handlers]) h(msg)
     },
+    _handlerCount: () => handlers.length,
   }
 }
 
@@ -124,15 +129,33 @@ describe('useTokenSubscription', () => {
   })
 
   it('cleans up the onMessage subscription on unmount', async () => {
-    const { unmount } = await renderHook(() => useTokenSubscription(channel))
+    const { result, unmount } = await renderHook(() => useTokenSubscription(channel))
+
+    // Sanity: hook subscribed exactly one handler during mount.
+    expect(channel._handlerCount()).toBe(1)
 
     unmount()
 
-    // After unmount, firing hello should not throw (handler removed)
-    await act(async () => {
-      channel._fire({ type: 'hello', protocolVersion: 1, sessionId: 'sess-3' })
-    })
-    expect(true).toBe(true)
+    // Falsifiable assertion 1: subscription removed — if the unsub closure
+    // returned by onMessage is not invoked on cleanup, this is 1, not 0.
+    expect(channel._handlerCount()).toBe(0)
+
+    // Falsifiable assertion 2: a post-unmount fire does NOT crash. If a leaked
+    // handler tried to call setState on the unmounted component, Preact would
+    // warn but not throw; we assert no throw to catch regressions where the
+    // handler dereferences a torn-down ref.
+    expect(() => {
+      channel._fire({ type: 'hello', protocolVersion: 1, sessionId: 'sess-3', spacingTokens: [
+        { name: '--sp-after', valuePx: 4, source: 'css-variable' },
+      ] })
+    }).not.toThrow()
+
+    // Falsifiable assertion 3: state observed at unmount is preserved. The
+    // post-unmount fire above carried tokens; if the listener leaked, those
+    // tokens would have replaced the unmounted result. Initial state is
+    // tokens: [], isLoading: true (no hello fired before unmount).
+    expect(result.current.tokens).toEqual([])
+    expect(result.current.isLoading).toBe(true)
   })
 
   it('updates tokens on a second hello', async () => {
