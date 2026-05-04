@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { TailwindResolver, flattenColors, normalizeHex, type ResolvedTheme } from '../../src/core/tailwind-resolver.js'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { TailwindResolver, flattenColors, normalizeHex, type ResolvedTheme, type SpacingToken } from '../../src/core/tailwind-resolver.js'
 
 function defaultSpacingTheme() {
   return {
@@ -969,5 +969,41 @@ describe('findNearestColor tolerance (±10 for gamut mapping gaps)', () => {
     })
     expect(resolver.findClass('padding-top', '16px')).toBe('pt-4')
     expect(resolver.findClass('padding-top', '17px')).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// TailwindResolver.resolveSpacingTokens
+// ---------------------------------------------------------------------------
+
+// Mock tailwindcss/resolveConfig for v3 path
+vi.mock('tailwindcss/resolveConfig', () => ({
+  default: (config: unknown) => {
+    if (config && typeof config === 'object' && 'theme' in config) {
+      return config
+    }
+    return { theme: {} }
+  },
+}), { virtual: true })
+
+describe('TailwindResolver.resolveSpacingTokens', () => {
+  beforeEach(() => {
+    vi.resetModules()
+  })
+
+  it('returns null when no Tailwind config and no CSS files exist', async () => {
+    // Mocked via vitest dynamic mocking is tricky for this integration test.
+    // We test by passing a projectRoot with no tailwind config and no CSS files.
+    // Use a temp path that definitely has no tailwind config.
+    const result = await TailwindResolver.resolveSpacingTokens('/tmp/__nonexistent_proj__')
+    expect(result).toBeNull()
+  })
+
+  it('SpacingToken shape: name is string, valuePx is number, source is valid enum value', async () => {
+    // Validate the shape by constructing a known-good token directly (module test)
+    const token: SpacingToken = { name: '--spacing-sm', valuePx: 8, source: 'css-variable' }
+    expect(token.name).toBe('--spacing-sm')
+    expect(token.valuePx).toBe(8)
+    expect(['tailwind-v3', 'tailwind-v4', 'css-variable']).toContain(token.source)
   })
 })

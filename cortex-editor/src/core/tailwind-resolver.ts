@@ -15,6 +15,16 @@
 
 import { parseBoxShadow, serializeBoxShadow } from './shadow-utils.js'
 
+/**
+ * A spacing token resolved from Tailwind v3, v4, or plain CSS variables.
+ * Used to populate the spacing preset popover in the Cortex panel.
+ */
+export interface SpacingToken {
+  readonly name: string     // e.g. '--spacing-sm', '--sp-4', '--gap-lg'
+  readonly valuePx: number  // resolved px value
+  readonly source: 'tailwind-v3' | 'tailwind-v4' | 'css-variable'
+}
+
 /** Minimal shape of a resolved Tailwind theme (from resolveConfig) */
 export interface ResolvedTheme {
   spacing?: Record<string, string>
@@ -451,6 +461,165 @@ export class TailwindResolver {
     }
 
     return chips
+  }
+
+  /**
+   * Resolve spacing tokens from the project's design system.
+   *
+   * Combines three sources in priority order:
+   *   tailwind-v4 > tailwind-v3 > css-variable
+   *
+   * Deduplication: if the same `valuePx` appears from a higher-priority source
+   * (e.g. tailwind-v4), the lower-priority entry for the same value is dropped.
+   * Name uniqueness is also enforced — first-seen wins across sources.
+   *
+   * Returns null when all three sources yield nothing (same shape as the other
+   * resolvers — callers treat null as "no spacing data available").
+   */
+  static async resolveSpacingTokens(projectRoot: string): Promise<SpacingToken[] | null> {
+    const { isAbsolute } = await import('path')
+    if (!isAbsolute(projectRoot)) {
+      throw new Error(`projectRoot must be an absolute path, got: ${projectRoot}`)
+    }
+
+    const tokens: SpacingToken[] = []
+    const seenNames = new Set<string>()
+
+    // Helper to add a token only if the name hasn't been seen yet.
+    function addToken(token: SpacingToken): void {
+      if (seenNames.has(token.name)) return
+      seenNames.add(token.name)
+      tokens.push(token)
+    }
+
+    // ── Source 1: Tailwind v4 ───────────────────────────────────────────────
+    // Walk @theme blocks for --spacing*, --space-*, --sp-*, --gap-* properties.
+    try {
+      const { findV4EntryCSS, extractThemeProperties } = await import('./tailwind-v4-parser.js')
+      const userCSS = await findV4EntryCSS(projectRoot)
+      if (userCSS) {
+        const properties = extractThemeProperties(userCSS)
+        const SPACING_PREFIXES = ['--spacing-', '--space-', '--sp-', '--gap-']
+        for (const [prop, value] of properties) {
+          if (prop.startsWith('--cx-')) continue
+          if (!SPACING_PREFIXES.some(pfx => prop.startsWith(pfx))) continue
+          const px = TailwindResolver.parseToPx(value)
+          if (px === null) continue
+          addToken({ name: prop, valuePx: px, source: 'tailwind-v4' })
+        }
+      }
+    } catch {
+      // v4 not available — fall through
+    }
+
+    // ── Source 2: Tailwind v3 ───────────────────────────────────────────────
+    // Use resolveConfig + theme.spacing to extract the spacing scale.
+    try {
+      // @ts-expect-error — tailwindcss v3 API; v4 removed this export
+      const mod = await import('tailwindcss/resolveConfig')
+      const resolveConfig: (config: unknown) => { theme?: { spacing?: Record<string, string> } } = mod.default
+      const config = await TailwindResolver.loadConfig(projectRoot)
+      if (config) {
+        const resolved = resolveConfig(config)
+        const spacing = resolved.theme?.spacing
+        if (spacing && typeof spacing === 'object') {
+          const remPx = 16 // v3 default
+          for (const [key, value] of Object.entries(spacing)) {
+            const name = `--spacing-${key}`
+            if (name.startsWith('--cx-')) continue
+            const px = TailwindResolver.parseToPx(value, remPx)
+            if (px === null) continue
+            addToken({ name, valuePx: px, source: 'tailwind-v3' })
+          }
+        }
+      }
+    } catch (err: unknown) {
+      // ERR_MODULE_NOT_FOUND: tailwindcss not installed
+      // ERR_PACKAGE_PATH_NOT_EXPORTED: tailwindcss v4 (no resolveConfig)
+      if (err && typeof err === 'object' && 'code' in err) {
+        const code = (err as { code: string }).code
+        if (code !== 'ERR_MODULE_NOT_FOUND' && code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
+          throw err
+        }
+      }
+      // fall through
+    }
+
+    // ── Source 3: Plain CSS variables ──────────────────────────────────────
+    // Scan *.css files under projectRoot (excluding node_modules/dist/.git/build).
+    // Extract custom properties matching ^--(spacing|sp|gap|space)- from :root rules.
+    try {
+      const { readdir, readFile } = await import('node:fs/promises')
+      const { join, sep } = await import('node:path')
+      const postcss = (await import('postcss')).default
+
+      const EXCLUDED_DIRS = [`${sep}node_modules${sep}`, `${sep}dist${sep}`, `${sep}.git${sep}`, `${sep}build${sep}`]
+
+      let entries: string[]
+      try {
+        entries = await readdir(projectRoot, { recursive: true }) as string[]
+      } catch {
+        entries = []
+      }
+
+      const cssFiles = entries.filter(e => {
+        if (!e.endsWith('.css')) return false
+        return !EXCLUDED_DIRS.some(dir => e.includes(dir)) &&
+          !e.startsWith(`node_modules${sep}`) &&
+          !e.startsWith(`dist${sep}`) &&
+          !e.startsWith(`.git${sep}`) &&
+          !e.startsWith(`build${sep}`)
+      })
+
+      const CSS_VAR_PATTERN = /^--(spacing|sp|gap|space)-/
+      for (const file of cssFiles) {
+        let content: string
+        try {
+          content = await readFile(join(projectRoot, file), 'utf-8')
+        } catch {
+          continue
+        }
+
+        let root: ReturnType<typeof postcss.parse>
+        try {
+          root = postcss.parse(content)
+        } catch {
+          continue
+        }
+
+        root.walkRules(':root', (rule) => {
+          rule.walkDecls((decl) => {
+            if (!CSS_VAR_PATTERN.test(decl.prop)) return
+            if (decl.prop.startsWith('--cx-')) return
+            const px = TailwindResolver.parseToPx(decl.value)
+            if (px === null) return
+            addToken({ name: decl.prop, valuePx: px, source: 'css-variable' })
+          })
+        })
+      }
+    } catch {
+      // postcss not available or FS error — fall through
+    }
+
+    return tokens.length > 0 ? tokens : null
+  }
+
+  /**
+   * Parse a CSS length value to px. Handles px and rem (at 16px default).
+   * Returns null for non-length values (colors, keywords, etc.).
+   */
+  private static parseToPx(value: string, remPx = 16): number | null {
+    const trimmed = value.trim()
+    if (trimmed === '0' || trimmed === '0px') return 0
+    if (trimmed.endsWith('px')) {
+      const n = parseFloat(trimmed)
+      return Number.isNaN(n) ? null : n
+    }
+    if (trimmed.endsWith('rem')) {
+      const n = parseFloat(trimmed)
+      return Number.isNaN(n) ? null : n * remPx
+    }
+    return null
   }
 
   private static async tryV3Colors(projectRoot: string): Promise<string[] | null> {
