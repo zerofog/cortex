@@ -45,12 +45,19 @@ export function TokenPresetPopover({
         }
       }).catch((err) => {
         if (cancelled) return
-        // floating-ui's flip/shift could not place the popover (anchor detached
-        // mid-frame, weird Shadow DOM context). Dismiss rather than fall back
-        // to a raw getBoundingClientRect that ignores viewport edges and could
-        // render off-screen.
+        // autoUpdate calls this on every scroll/resize/ancestor-mutation, so a
+        // transient computePosition failure must NOT dismiss the popover —
+        // that would close on incidental scroll. Fall back to the anchor's
+        // current rect; if the result is off-screen, the next autoUpdate cycle
+        // will retry. (Original M2 finding: raw rect ignores flip/shift, so a
+        // popover near the right edge could render partially off-viewport.
+        // Accepted risk; the dismiss-on-catch alternative breaks click flows.)
         console.warn('[cortex] TokenPresetPopover positioning failed:', err instanceof Error ? err.message : err)
-        onDismiss()
+        const rect = anchor.getBoundingClientRect()
+        if (popoverRef.current) {
+          popoverRef.current.style.left = `${rect.left}px`
+          popoverRef.current.style.top = `${rect.bottom}px`
+        }
       })
     }
     const cleanupAutoUpdate = autoUpdate(anchor, popover, update)
@@ -62,7 +69,7 @@ export function TokenPresetPopover({
         console.warn('[cortex] TokenPresetPopover autoUpdate cleanup failed:', err instanceof Error ? err.message : err)
       }
     }
-  }, [anchorRef, onDismiss])
+  }, [anchorRef])
 
   return (
     <div

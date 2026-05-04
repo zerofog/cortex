@@ -253,7 +253,17 @@ export function NumericInput({
   const handlePopoverPick = useCallback((chosen: { name: string; valuePx: number; source: 'canonical' | 'project' }) => {
     // `name` and `source` are part of the contract for ZF0-1210 (staging-buffer flow
     // surfaces token identity at Apply time) but not consumed by the v1 onChange path.
+    //
+    // The chip's onMouseDown preventDefault (TokenPresetPopover) keeps focus on the
+    // input — necessary to prevent the typed-then-pick double-onChange (Step 3f fix).
+    // But that means isEditing stays true after the pick, and the [value, isEditing]
+    // useEffect that normally syncs localValue from value prop is gated. Sync here
+    // explicitly so the input reflects the picked value immediately.
     onChange(chosen.valuePx)
+    const next = String(chosen.valuePx)
+    localValueRef.current = next
+    setLocalValue(next)
+    setIsEditing(false)
     setPopoverOpen(false)
   }, [onChange])
 
