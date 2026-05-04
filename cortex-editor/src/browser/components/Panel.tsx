@@ -43,6 +43,8 @@ import { useEditStagingBuffer, createPanelSyncEmitter } from '../hooks/useEditSt
 import type { PendingEdit, SyncEmitter } from '../hooks/useEditStagingBuffer.js'
 import { generateId } from '../uuid.js'
 import { StagingDriftBanner } from './StagingDriftBanner.js'
+import { useTokenSubscription } from '../hooks/useTokenSubscription.js'
+import { SpacingTokensContext } from '../tokens/TokenContext.js'
 
 // ── Connection status footer ─────────────────────────────────────────
 
@@ -297,6 +299,10 @@ export function Panel({
   if (syncEmitterRef.current === null && channel) {
     syncEmitterRef.current = createPanelSyncEmitter(channel)
   }
+
+  // Spacing tokens for the token preset popover — subscribed once at Panel level
+  // and provided to descendants (NumericInput) via SpacingTokensContext.
+  const { tokens: spacingTokens } = useTokenSubscription(channel ?? null)
 
   // Staging buffer for property edits — accumulates browser-side before Apply gesture.
   const buffer = useEditStagingBuffer(syncEmitterRef.current ?? undefined)
@@ -1317,6 +1323,7 @@ export function Panel({
   const elementSourceIsStale = elementSource !== '' && (staleSources?.has(elementSource) ?? false)
 
   return (
+    <SpacingTokensContext.Provider value={spacingTokens}>
     <div
       class={panelClasses}
       style={{
@@ -1603,5 +1610,6 @@ export function Panel({
       </div>
       <ConnectionStatusFooter status={connectionStatus} />
     </div>
+    </SpacingTokensContext.Provider>
   )
 }

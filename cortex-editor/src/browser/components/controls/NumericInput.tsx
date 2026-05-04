@@ -1,5 +1,8 @@
 import type { ComponentChildren, JSX } from 'preact'
-import { useState, useRef, useCallback, useEffect } from 'preact/hooks'
+import { useState, useRef, useCallback, useEffect, useContext } from 'preact/hooks'
+import { type TokenFamily, SPACING_PRESETS, matchesSpacingPattern } from '../../tokens/family.js'
+import { SpacingTokensContext } from '../../tokens/TokenContext.js'
+import { TokenPresetPopover } from './TokenPresetPopover.js'
 
 export interface NumericInputProps {
   value: number
@@ -35,6 +38,13 @@ export interface NumericInputProps {
   stale?: boolean
   /** When true, shows '--' placeholder indicating shared elements have different values. */
   mixed?: boolean
+  /**
+   * Opt this input into a token family popover. When set to 'spacing', a
+   * TokenPresetPopover appears on focus showing canonical scale chips and
+   * any project-detected spacing tokens. Omitting this prop (or 'none')
+   * means no popover is shown — existing behavior is fully preserved.
+   */
+  tokenFamily?: TokenFamily
 }
 
 function getStep(e: KeyboardEvent | WheelEvent): number {
@@ -61,10 +71,22 @@ export function NumericInput({
   overridden,
   stale,
   mixed,
+  tokenFamily,
 }: NumericInputProps): JSX.Element {
+  const allSpacingTokens = useContext(SpacingTokensContext)
+  // Only show popover when an explicit spacing family is declared.
+  const showPopover = tokenFamily === 'spacing'
+  // Defense-in-depth: filter tokens through the spacing pattern even though
+  // the server resolver already filters — cheap and eliminates edge cases.
+  const filteredTokens = showPopover
+    ? allSpacingTokens.filter(t => matchesSpacingPattern(t.name))
+    : []
+
   const [localValue, setLocalValue] = useState(String(value))
   const [isEditing, setIsEditing] = useState(false)
   const [isScrubbing, setIsScrubbing] = useState(false)
+  const [popoverOpen, setPopoverOpen] = useState(false)
+  const hostRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const localValueRef = useRef(String(value))
   const scrubStartX = useRef(0)
@@ -125,7 +147,10 @@ export function NumericInput({
       setLocalValue('')
     }
     inputRef.current?.select()
-  }, [mixed])
+    if (showPopover) {
+      setPopoverOpen(true)
+    }
+  }, [mixed, showPopover])
 
   const handleBlur = useCallback(() => {
     setIsEditing(false)
@@ -225,6 +250,15 @@ export function NumericInput({
     scrubCleanupRef.current = cleanup
   }, [isEditing, value, onChange, onScrub, onScrubEnd, clampValue])
 
+  const handlePopoverPick = useCallback((chosen: { name: string; valuePx: number; source: 'canonical' | 'project' }) => {
+    onChange(chosen.valuePx)
+    setPopoverOpen(false)
+  }, [onChange])
+
+  const handlePopoverDismiss = useCallback(() => {
+    setPopoverOpen(false)
+  }, [])
+
   // Stale tooltip takes priority over the regular tooltip — it carries the recovery hint.
   const effectiveTooltip = stale
     ? 'Edit saved but HMR didn\'t apply — refresh to verify'
@@ -232,6 +266,7 @@ export function NumericInput({
 
   return (
     <div
+      ref={hostRef}
       class={[
         'cortex-numeric-input',
         isScrubbing && 'cortex-numeric-input--scrubbing',
@@ -272,6 +307,15 @@ export function NumericInput({
         onWheel={handleWheel}
       />
       {unit && <span class="cortex-numeric-input__unit">{unit}</span>}
+      {popoverOpen && showPopover && (
+        <TokenPresetPopover
+          anchorRef={hostRef}
+          presets={SPACING_PRESETS}
+          tokens={filteredTokens}
+          onPick={handlePopoverPick}
+          onDismiss={handlePopoverDismiss}
+        />
+      )}
     </div>
   )
 }

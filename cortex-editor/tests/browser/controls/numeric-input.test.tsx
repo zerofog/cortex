@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render } from 'preact'
+import { render, createElement } from 'preact'
 import { NumericInput } from '../../../src/browser/components/controls/NumericInput.js'
+import { SpacingTokensContext } from '../../../src/browser/tokens/TokenContext.js'
+import type { SpacingToken } from '../../../src/core/tailwind-resolver.js'
 import { dispatchKeyboardEvent, dispatchPointerEvent, createShadowHost } from '../helpers.js'
 
 describe('NumericInput', () => {
@@ -303,6 +305,120 @@ describe('NumericInput', () => {
       await new Promise<void>(r => setTimeout(r, 0))
 
       expect(onChange).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('tokenFamily popover', () => {
+    const MOCK_TOKENS: readonly SpacingToken[] = [
+      { name: '--spacing-sm', valuePx: 8, source: 'css-variable' },
+      { name: '--gap-lg', valuePx: 24, source: 'css-variable' },
+    ]
+
+    function setupWithTokens(props?: Partial<Parameters<typeof NumericInput>[0]>, tokens: readonly SpacingToken[] = MOCK_TOKENS) {
+      container = document.createElement('div')
+      document.body.appendChild(container)
+      const onChange = vi.fn()
+      render(
+        createElement(SpacingTokensContext.Provider, { value: tokens },
+          createElement(NumericInput, {
+            value: 16,
+            unit: 'px',
+            onChange,
+            ...props,
+          }),
+        ),
+        container,
+      )
+      return { onChange, input: container.querySelector('input') as HTMLInputElement }
+    }
+
+    it('renders popover when tokenFamily="spacing" and input is focused', async () => {
+      const { input } = setupWithTokens({ tokenFamily: 'spacing' })
+      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+      await vi.waitFor(() => {
+        expect(container.querySelector('.cortex-token-preset-popover')).not.toBeNull()
+      }, { timeout: 500 })
+    })
+
+    it('does NOT render popover when tokenFamily is omitted', async () => {
+      const { input } = setupWithTokens()
+      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+      await new Promise<void>(r => setTimeout(r, 0))
+      expect(container.querySelector('.cortex-token-preset-popover')).toBeNull()
+    })
+
+    it('does NOT render popover when tokenFamily="none"', async () => {
+      const { input } = setupWithTokens({ tokenFamily: 'none' })
+      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+      await new Promise<void>(r => setTimeout(r, 0))
+      expect(container.querySelector('.cortex-token-preset-popover')).toBeNull()
+    })
+
+    it('onPick routes through onChange with the selected valuePx', async () => {
+      const { onChange, input } = setupWithTokens({ tokenFamily: 'spacing' })
+      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+
+      // Wait for popover to appear before looking for chip
+      await vi.waitFor(() => {
+        expect(container.querySelector('.cortex-token-preset-popover')).not.toBeNull()
+      }, { timeout: 500 })
+
+      const mdChip = [...container.querySelectorAll('.cortex-token-preset-popover__chip')]
+        .find(b => b.textContent?.includes('md')) as HTMLButtonElement | undefined
+      // md preset = 8px
+      expect(mdChip).not.toBeUndefined()
+      mdChip!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+
+      await vi.waitFor(() => {
+        expect(onChange).toHaveBeenCalledWith(8)
+      }, { timeout: 500 })
+    })
+
+    it('onPick closes the popover after selection', async () => {
+      const { input } = setupWithTokens({ tokenFamily: 'spacing' })
+      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+
+      await vi.waitFor(() => {
+        expect(container.querySelector('.cortex-token-preset-popover')).not.toBeNull()
+      }, { timeout: 500 })
+
+      const mdChip = container.querySelector('.cortex-token-preset-popover__chip') as HTMLButtonElement
+      mdChip.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+
+      await vi.waitFor(() => {
+        expect(container.querySelector('.cortex-token-preset-popover')).toBeNull()
+      }, { timeout: 500 })
+    })
+
+    it('project tokens from context appear in the popover bottom zone', async () => {
+      const { input } = setupWithTokens({ tokenFamily: 'spacing' })
+      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+
+      await vi.waitFor(() => {
+        const rows = container.querySelectorAll('.cortex-token-preset-popover__list-row')
+        expect(rows.length).toBe(MOCK_TOKENS.length)
+      }, { timeout: 500 })
+
+      const rows = container.querySelectorAll('.cortex-token-preset-popover__list-row')
+      expect(rows[0]!.textContent).toContain('--spacing-sm')
+      expect(rows[1]!.textContent).toContain('--gap-lg')
+    })
+
+    it('tokens NOT matching spacing pattern are filtered out', async () => {
+      const mixedTokens: readonly SpacingToken[] = [
+        { name: '--spacing-sm', valuePx: 8, source: 'css-variable' },
+        { name: '--color-primary', valuePx: 0, source: 'css-variable' }, // should be filtered
+      ]
+      const { input } = setupWithTokens({ tokenFamily: 'spacing' }, mixedTokens)
+      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+
+      await vi.waitFor(() => {
+        expect(container.querySelector('.cortex-token-preset-popover')).not.toBeNull()
+      }, { timeout: 500 })
+
+      const rows = container.querySelectorAll('.cortex-token-preset-popover__list-row')
+      expect(rows.length).toBe(1)
+      expect(rows[0]!.textContent).toContain('--spacing-sm')
     })
   })
 

@@ -141,6 +141,7 @@ function SpacingRow({
           min={allowNegative ? undefined : 0}
           mixed={horizontalDiverges || mixedProperties?.has(`${prefix}-left`) || mixedProperties?.has(`${prefix}-right`)}
           stale={stale}
+          tokenFamily="spacing"
           onChange={handleHorizontalChange}
           onScrub={handleHorizontalScrub}
           onScrubEnd={handleHorizontalScrubEnd}
@@ -169,6 +170,7 @@ function SpacingRow({
           min={allowNegative ? undefined : 0}
           mixed={verticalDiverges || mixedProperties?.has(`${prefix}-top`) || mixedProperties?.has(`${prefix}-bottom`)}
           stale={stale}
+          tokenFamily="spacing"
           onChange={handleVerticalChange}
           onScrub={handleVerticalScrub}
           onScrubEnd={handleVerticalScrubEnd}
