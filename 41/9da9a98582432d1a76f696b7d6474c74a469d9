@@ -1,0 +1,30 @@
+cortex-editor/src/browser/hooks/useTokenSubscription.ts
+  2f447d29ba1dadbd 16-20
+cortex-editor/src/browser/tokens/family.ts
+  2f447d29ba1dadbd 11
+cortex-editor/src/browser/components/controls/NumericInput.tsx
+  2f447d29ba1dadbd 2,80-83,254-255,312
+cortex-editor/src/core/tailwind-resolver.ts
+  2f447d29ba1dadbd 472-475,560,564-568,577,589-591,594-598,602,605,607,610,614,617,619,623,625,627-633,660-662,666-669
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "419da9a98582432d1a76f696b7d6474c74a469d9",
+  "prompts": {
+    "2f447d29ba1dadbd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "00baab1a-2631-4140-b547-d6734265d703",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 964,
+      "total_deletions": 59,
+      "accepted_lines": 532,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/06aa4ebb077671d52c1c1023dbb914c425fa5d6d732e86e698e145d445618511"
+    }
+  }
+}
