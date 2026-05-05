@@ -149,6 +149,38 @@ export function sanitizeErrorForClient(err: unknown): string {
     : msg.slice(0, MAX_CLIENT_ERROR_LEN) + '…'
 }
 
+/** Internal result shape for EditPipeline operations. Distinct from the wire
+ *  `edit_status` message: the wire collapses 'applied' and 'needs-source-edit'
+ *  into 'done' (see emitTerminal) so the browser reducer at
+ *  cortex-app-reducer.ts:216 keeps working unchanged. The MCP RPC handler
+ *  (cortex_apply_edits) consumes this richer shape via registerApplyResolver
+ *  to distinguish deterministic-apply success ('applied' + mechanism) from
+ *  source-edit fallback ('needs-source-edit').
+ *
+ *  `newToken` is set on Tailwind successes (the new class string, e.g. 'pt-4')
+ *  and forwarded to the wire so the browser's existing override-layer handoff
+ *  keeps working — see edit-pipeline.test.ts 'sends writing then done status
+ *  on successful edit'. */
+export type EditResult =
+  | {
+      status: 'applied'
+      mechanism: 'tailwind' | 'css-module' | 'inline-style'
+      newToken?: string
+    }
+  | { status: 'needs-source-edit'; reason?: string }
+  | {
+      status: 'failed'
+      reason: string
+      reason_code?:
+        | 'external_revert'
+        | 'invalid_class_token'
+        | 'write_failed'
+        | 'rewriter_failed'
+        | 'parse_failed'
+        | 'read_failed'
+        | 'apply_timeout'
+    }
+
 export interface EditRequest {
   editId: string
   /** data-cortex-source value: "filePath:line:col" */
@@ -263,6 +295,11 @@ export class EditPipeline {
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private lastValues = new Map<string, string>()
   private fileLocks = new Map<string, Promise<void>>()
+  private pendingResolvers = new Map<string, {
+    resolve: (r: EditResult) => void
+    reject: (e: Error) => void
+    timer: ReturnType<typeof setTimeout>
+  }>()
   private readonly channel: ServerChannel
   private readonly resolver: TailwindResolver
   private readonly rewriter: TailwindRewriter
@@ -303,6 +340,41 @@ export class EditPipeline {
     this.inlineStyleRewriter = options.inlineStyleRewriter
   }
 
+  registerApplyResolver(editId: string, timeoutMs = 10_000): Promise<EditResult> {
+    return new Promise<EditResult>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingResolvers.delete(editId)
+        resolve({ status: 'failed', reason: `apply timeout (${timeoutMs}ms)`, reason_code: 'apply_timeout' })
+      }, timeoutMs)
+      this.pendingResolvers.set(editId, { resolve, reject, timer })
+    })
+  }
+
+  private emitTerminal(editId: string, result: EditResult): void {
+    // Translate internal EditResult -> wire shape. Wire schema constrains
+    // status to 'writing' | 'done' | 'failed' | 'cancelled' (see
+    // cortex-editor/src/schemas/wire-format.ts:275). 'applied' and
+    // 'needs-source-edit' are MCP-internal — the wire collapses both to
+    // 'done' so the existing browser reducer at cortex-app-reducer.ts:216
+    // keeps working unchanged. The `mechanism` field stays out of the wire
+    // (browser does not consume it; the MCP RPC handler reads it from the
+    // resolved Promise instead).
+    if (result.status === 'applied') {
+      this.channel.send({ type: 'edit_status', editId, status: 'done', strategy: 'immediate', newToken: result.newToken })
+    } else if (result.status === 'needs-source-edit') {
+      this.channel.send({ type: 'edit_status', editId, status: 'done', strategy: 'deferred', reason: result.reason })
+    } else {
+      // status === 'failed'
+      this.channel.send({ type: 'edit_status', editId, status: 'failed', reason: result.reason, reason_code: result.reason_code })
+    }
+    const pending = this.pendingResolvers.get(editId)
+    if (pending) {
+      clearTimeout(pending.timer)
+      this.pendingResolvers.delete(editId)
+      pending.resolve(result)
+    }
+  }
+
   handleEdit(edit: EditRequest): void {
     if (this.disposed) return
 
@@ -329,20 +401,14 @@ export class EditPipeline {
       for (const { field, token } of tokensToValidate) {
         const result = validateClassOpToken(token)
         if (!result.ok) {
-          this.channel.send({
-            type: 'edit_status',
-            editId: edit.editId,
-            status: 'failed',
-            reason: `Invalid classOp.${field}: ${result.reason}`,
-            reason_code: 'invalid_class_token',
-          })
+          this.emitTerminal(edit.editId, { status: 'failed', reason: `Invalid classOp.${field}: ${result.reason}`, reason_code: 'invalid_class_token' })
           return
         }
       }
 
       const parsed = this.parseSource(edit.source)
       if (!parsed.ok) {
-        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: parsed.reason, reason_code: 'parse_failed' })
+        this.emitTerminal(edit.editId, { status: 'failed', reason: parsed.reason, reason_code: 'parse_failed' })
         return
       }
 
@@ -362,37 +428,19 @@ export class EditPipeline {
         // protocol inherits that guarantee.
         const shapeError = validateInlineOps(edit.inlineSets, edit.inlineRemoves)
         if (shapeError) {
-          this.channel.send({
-            type: 'edit_status',
-            editId: edit.editId,
-            status: 'failed',
-            reason: shapeError,
-            reason_code: 'invalid_class_token',
-          })
+          this.emitTerminal(edit.editId, { status: 'failed', reason: shapeError, reason_code: 'invalid_class_token' })
           return
         }
         this.handleCompoundEdit(edit, parsed.resolvedPath, parsed.line, parsed.col).catch((err) => {
           console.error('[cortex] compound-edit pipeline error for editId=%s:', edit.editId, err)
-          this.channel.send({
-            type: 'edit_status',
-            editId: edit.editId,
-            status: 'failed',
-            reason: sanitizeErrorForClient(err),
-            reason_code: classifyWriteError(err),
-          })
+          this.emitTerminal(edit.editId, { status: 'failed', reason: sanitizeErrorForClient(err), reason_code: classifyWriteError(err) })
         })
         return
       }
 
       this.handleClassOp(edit, parsed.resolvedPath, parsed.line, parsed.col).catch((err) => {
         console.error('[cortex] classOp pipeline error for editId=%s:', edit.editId, err)
-        this.channel.send({
-          type: 'edit_status',
-          editId: edit.editId,
-          status: 'failed',
-          reason: sanitizeErrorForClient(err),
-          reason_code: classifyWriteError(err),
-        })
+        this.emitTerminal(edit.editId, { status: 'failed', reason: sanitizeErrorForClient(err), reason_code: classifyWriteError(err) })
       })
       return
     }
@@ -402,15 +450,15 @@ export class EditPipeline {
     if (this.shouldBypassDebounce(edit)) {
       const parsed = this.parseSource(edit.source)
       if (!parsed.ok) {
-        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: parsed.reason })
+        this.emitTerminal(edit.editId, { status: 'failed', reason: parsed.reason })
         return
       }
       if (!isValidCSSProperty(edit.property)) {
-        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'Invalid CSS property name' })
+        this.emitTerminal(edit.editId, { status: 'failed', reason: 'Invalid CSS property name' })
         return
       }
       if (!isValidCSSValue(edit.value)) {
-        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'Invalid CSS value' })
+        this.emitTerminal(edit.editId, { status: 'failed', reason: 'Invalid CSS value' })
         return
       }
       this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
@@ -439,12 +487,7 @@ export class EditPipeline {
         this.debounceTimers.delete(debounceKey)
         this.executeEdit(edit, previousValue).catch(err => {
           console.error('[cortex] Edit pipeline error for editId=%s source=%s:', edit.editId, edit.source, err)
-          this.channel.send({
-            type: 'edit_status',
-            editId: edit.editId,
-            status: 'failed',
-            reason: sanitizeErrorForClient(err),
-          })
+          this.emitTerminal(edit.editId, { status: 'failed', reason: sanitizeErrorForClient(err) })
         })
       }, this.debounceMs),
     )
@@ -504,18 +547,18 @@ export class EditPipeline {
     // Windows drive letters (e.g. "C:\Users\foo\App.tsx:2:10")
     const parsed = this.parseSource(edit.source)
     if (!parsed.ok) {
-      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: parsed.reason })
+      this.emitTerminal(edit.editId, { status: 'failed', reason: parsed.reason })
       return
     }
     const { resolvedPath, line, col } = parsed
 
     // Server-side CSS property + value validation
     if (!isValidCSSProperty(edit.property)) {
-      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'Invalid CSS property name' })
+      this.emitTerminal(edit.editId, { status: 'failed', reason: 'Invalid CSS property name' })
       return
     }
     if (!isValidCSSValue(edit.value)) {
-      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'Invalid CSS value' })
+      this.emitTerminal(edit.editId, { status: 'failed', reason: 'Invalid CSS value' })
       return
     }
 
@@ -544,7 +587,7 @@ export class EditPipeline {
           await this.commitAIWrite(edit, resolvedPath, line, col, 'Inline style rewrite failed for instance-scoped edit.')
           return
         }
-        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'Instance-scoped editing requires InlineStyleRewriter or AI writer.' })
+        this.emitTerminal(edit.editId, { status: 'failed', reason: 'Instance-scoped editing requires InlineStyleRewriter or AI writer.' })
         return
       }
 
@@ -553,15 +596,15 @@ export class EditPipeline {
       if (mapping) {
         const resolvedCssPath = resolve(this.projectRoot, mapping.cssFilePath)
         if (!this.isInsideProjectRoot(resolvedCssPath)) {
-          this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'CSS file path outside project root' })
+          this.emitTerminal(edit.editId, { status: 'failed', reason: 'CSS file path outside project root' })
           return
         }
         // Extension check
         if (!resolvedCssPath.endsWith('.module.css')) {
           if (resolvedCssPath.match(/\.module\.(scss|less|sass)$/)) {
-            this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `${resolvedCssPath.match(/\.(scss|less|sass)$/)?.[0]} Modules editing not yet supported. Connect Claude Code for AI-assisted editing.` })
+            this.emitTerminal(edit.editId, { status: 'failed', reason: `${resolvedCssPath.match(/\.(scss|less|sass)$/)?.[0]} Modules editing not yet supported. Connect Claude Code for AI-assisted editing.` })
           } else {
-            this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'CSS mapping must target a CSS Module file' })
+            this.emitTerminal(edit.editId, { status: 'failed', reason: 'CSS mapping must target a CSS Module file' })
           }
           return
         }
@@ -615,7 +658,7 @@ export class EditPipeline {
             await this.commitAIWrite(edit, resolvedPath, line, col, 'Inline style rewrite failed for instance-scoped CSS Module element.')
             return
           }
-          this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'Instance-scoped editing requires InlineStyleRewriter or AI writer.' })
+          this.emitTerminal(edit.editId, { status: 'failed', reason: 'Instance-scoped editing requires InlineStyleRewriter or AI writer.' })
           return
         } else {
           await this.commitCSSModulesRewrite(edit, resolved.cssFilePath, resolved.selector)
@@ -648,7 +691,7 @@ export class EditPipeline {
           await this.commitAIWrite(edit, resolvedPath, line, col, 'Could not resolve CSS module mapping for this element.')
           return
         }
-        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'Could not resolve CSS module mapping for this element. Connect Claude Code for AI-assisted editing.' })
+        this.emitTerminal(edit.editId, { status: 'failed', reason: 'Could not resolve CSS module mapping for this element. Connect Claude Code for AI-assisted editing.' })
         return
       }
     }
@@ -656,12 +699,7 @@ export class EditPipeline {
     // Strategy-driven early exits (only when detection is available)
     // InlineStyleRewriter provides a fallback — don't bail when it's available
     if (strategy === 'unsupported' && !this.inlineStyleRewriter) {
-      this.channel.send({
-        type: 'edit_status',
-        editId: edit.editId,
-        status: 'failed',
-        reason: 'No supported editing strategy for this framework.',
-      })
+      this.emitTerminal(edit.editId, { status: 'failed', reason: 'No supported editing strategy for this framework.' })
       return
     }
 
@@ -715,12 +753,7 @@ export class EditPipeline {
         await this.commitAIWrite(edit, resolvedPath, line, col, reason)
         return
       }
-      this.channel.send({
-        type: 'edit_status',
-        editId: edit.editId,
-        status: 'failed',
-        reason: 'Cannot resolve Tailwind class for this change. Visual preview is active — file write skipped.',
-      })
+      this.emitTerminal(edit.editId, { status: 'failed', reason: 'Cannot resolve Tailwind class for this change. Visual preview is active — file write skipped.' })
       return
     }
 
@@ -754,12 +787,7 @@ export class EditPipeline {
           await this.executeAIWrite(edit, resolvedPath, line, col, result.reason)
           return
         }
-        this.channel.send({
-          type: 'edit_status',
-          editId: edit.editId,
-          status: 'failed',
-          reason: result.reason,
-        })
+        this.emitTerminal(edit.editId, { status: 'failed', reason: result.reason })
         return
       }
 
@@ -770,13 +798,7 @@ export class EditPipeline {
       try {
         await this.writeFile({ kind: 'immediate', filePath: resolvedPath, content: result.newContent })
       } catch (err) {
-        this.channel.send({
-          type: 'edit_status',
-          editId: edit.editId,
-          status: 'failed',
-          reason: `Write failed: ${sanitizeErrorForClient(err)}`,
-          reason_code: classifyWriteError(err),
-        })
+        this.emitTerminal(edit.editId, { status: 'failed', reason: `Write failed: ${sanitizeErrorForClient(err)}`, reason_code: classifyWriteError(err) })
         return
       }
 
@@ -787,13 +809,7 @@ export class EditPipeline {
         this.undoStack.push({ changes: [{ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent, requiresHmr: false }] })
       }
 
-      this.channel.send({
-        type: 'edit_status',
-        editId: edit.editId,
-        status: 'done',
-        newToken,
-        strategy: 'immediate',
-      })
+      this.emitTerminal(edit.editId, { status: 'applied', mechanism: 'tailwind', newToken })
     })
   }
 
@@ -1083,26 +1099,14 @@ export class EditPipeline {
       // wired during plugin init. Classified as 'rewriter_failed' because
       // from the browser's perspective the rewriter step can't proceed —
       // same failure class as a rewriter that tried and returned success:false.
-      this.channel.send({
-        type: 'edit_status',
-        editId: edit.editId,
-        status: 'failed',
-        reason: 'Compound edit requires inline-style rewriter dependency',
-        reason_code: 'rewriter_failed',
-      })
+      this.emitTerminal(edit.editId, { status: 'failed', reason: 'Compound edit requires inline-style rewriter dependency', reason_code: 'rewriter_failed' })
       return
     }
     if (!this.readFile) {
       // Server configuration error — read capability is unavailable. Uses
       // 'read_failed' for parity with the runtime read-error path below;
       // both represent "the server could not read the source file."
-      this.channel.send({
-        type: 'edit_status',
-        editId: edit.editId,
-        status: 'failed',
-        reason: 'Compound edit requires readFile dependency',
-        reason_code: 'read_failed',
-      })
+      this.emitTerminal(edit.editId, { status: 'failed', reason: 'Compound edit requires readFile dependency', reason_code: 'read_failed' })
       return
     }
 
@@ -1120,13 +1124,7 @@ export class EditPipeline {
       // scan linearly. Returns nothing; caller must `return` after.
       type ReasonCode = 'external_revert' | 'invalid_class_token' | 'write_failed' | 'rewriter_failed' | 'parse_failed' | 'read_failed'
       const fail = (reason: string, reasonCode: ReasonCode = 'parse_failed'): void => {
-        this.channel.send({
-          type: 'edit_status',
-          editId: edit.editId,
-          status: 'failed',
-          reason,
-          reason_code: reasonCode,
-        })
+        this.emitTerminal(edit.editId, { status: 'failed', reason, reason_code: reasonCode })
       }
 
       // Step 1: read source file.
@@ -1176,7 +1174,7 @@ export class EditPipeline {
       // properties), skip the write and undo push. Reporting 'done'
       // without a push keeps the undo stack clean.
       if (newContent === oldContent) {
-        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done' })
+        this.emitTerminal(edit.editId, { status: 'applied', mechanism: 'inline-style' })
         return
       }
 
@@ -1209,7 +1207,7 @@ export class EditPipeline {
         })
       }
 
-      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done' })
+      this.emitTerminal(edit.editId, { status: 'applied', mechanism: 'inline-style' })
     })
   }
 
@@ -1243,13 +1241,7 @@ export class EditPipeline {
         try {
           oldContent = await this.readFile(resolvedPath)
         } catch (err) {
-          this.channel.send({
-            type: 'edit_status',
-            editId: edit.editId,
-            status: 'failed',
-            reason: `Cannot read file: ${sanitizeErrorForClient(err)}`,
-            reason_code: 'read_failed',
-          })
+          this.emitTerminal(edit.editId, { status: 'failed', reason: `Cannot read file: ${sanitizeErrorForClient(err)}`, reason_code: 'read_failed' })
           return
         }
       }
@@ -1282,13 +1274,7 @@ export class EditPipeline {
           )
           return
         }
-        this.channel.send({
-          type: 'edit_status',
-          editId: edit.editId,
-          status: 'failed',
-          reason: result.reason ?? 'Could not rewrite className for this element.',
-          reason_code: 'rewriter_failed',
-        })
+        this.emitTerminal(edit.editId, { status: 'failed', reason: result.reason ?? 'Could not rewrite className for this element.', reason_code: 'rewriter_failed' })
         return
       }
 
@@ -1307,13 +1293,7 @@ export class EditPipeline {
           content: result.newContent,
         })
       } catch (err) {
-        this.channel.send({
-          type: 'edit_status',
-          editId: edit.editId,
-          status: 'failed',
-          reason: `Write failed: ${sanitizeErrorForClient(err)}`,
-          reason_code: classifyWriteError(err),
-        })
+        this.emitTerminal(edit.editId, { status: 'failed', reason: `Write failed: ${sanitizeErrorForClient(err)}`, reason_code: classifyWriteError(err) })
         return
       }
 
@@ -1354,7 +1334,7 @@ export class EditPipeline {
         kind: 'immediate',
       })
 
-      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done' })
+      this.emitTerminal(edit.editId, { status: 'applied', mechanism: 'tailwind' })
     })
   }
 
@@ -1376,7 +1356,7 @@ export class EditPipeline {
     edit: EditRequest, resolvedPath: string, line: number, col: number, failureReason: string,
   ): Promise<void> {
     if (!this.aiWriter) {
-      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: 'AI writer is not configured.' })
+      this.emitTerminal(edit.editId, { status: 'failed', reason: 'AI writer is not configured.' })
       return
     }
 
@@ -1390,12 +1370,7 @@ export class EditPipeline {
     })
 
     if (!result.success) {
-      this.channel.send({
-        type: 'edit_status',
-        editId: edit.editId,
-        status: 'failed',
-        reason: result.reason,
-      })
+      this.emitTerminal(edit.editId, { status: 'failed', reason: result.reason })
       return
     }
 
@@ -1403,13 +1378,7 @@ export class EditPipeline {
     try {
       await this.writeFile({ kind: 'deferred', filePath: resolvedPath, content: result.newContent })
     } catch (err) {
-      this.channel.send({
-        type: 'edit_status',
-        editId: edit.editId,
-        status: 'failed',
-        reason: `Write failed: ${sanitizeErrorForClient(err)}`,
-        reason_code: classifyWriteError(err),
-      })
+      this.emitTerminal(edit.editId, { status: 'failed', reason: `Write failed: ${sanitizeErrorForClient(err)}`, reason_code: classifyWriteError(err) })
       return
     }
 
@@ -1427,12 +1396,7 @@ export class EditPipeline {
       kind: 'deferred',
     })
 
-    this.channel.send({
-      type: 'edit_status',
-      editId: edit.editId,
-      status: 'done',
-      strategy: 'deferred',
-    })
+    this.emitTerminal(edit.editId, { status: 'needs-source-edit', reason: 'AI writer dispatched' })
   }
 
   private async commitCSSModulesRewrite(edit: EditRequest, resolvedCssPath: string, selector: string): Promise<void> {
@@ -1547,7 +1511,7 @@ export class EditPipeline {
     // Send edit_status:done AFTER compound push so the browser commits
     // its undo snapshot at the same time the server pushes its entry.
     if (cssSuccess) {
-      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done', strategy: 'immediate' })
+      this.emitTerminal(edit.editId, { status: 'applied', mechanism: 'css-module' })
     }
   }
 
@@ -1597,7 +1561,7 @@ export class EditPipeline {
         property: edit.property,
         kind: 'jsx-immediate',
       })
-      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'done', strategy: 'immediate' })
+      this.emitTerminal(edit.editId, { status: 'applied', mechanism: 'inline-style' })
       handled = true
     })
     return handled
@@ -1778,6 +1742,11 @@ export class EditPipeline {
 
   dispose(): void {
     if (this.disposed) return
+    for (const pending of this.pendingResolvers.values()) {
+      clearTimeout(pending.timer)
+      pending.reject(new Error('pipeline disposed'))
+    }
+    this.pendingResolvers.clear()
     this.disposed = true
     for (const timer of this.debounceTimers.values()) {
       clearTimeout(timer)

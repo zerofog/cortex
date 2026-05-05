@@ -276,7 +276,7 @@ export const serverToBrowserSchema = z.discriminatedUnion('type', [
     newToken: z.string().optional(),
     reason: z.string().optional(),
     reason_code: z
-      .enum(['external_revert', 'invalid_class_token', 'write_failed', 'rewriter_failed', 'parse_failed', 'read_failed'])
+      .enum(['external_revert', 'invalid_class_token', 'write_failed', 'rewriter_failed', 'parse_failed', 'read_failed', 'apply_timeout'])
       .optional(),
     strategy: z.enum(['immediate', 'deferred']).optional(),
   }),
