@@ -1,0 +1,26 @@
+cortex-editor/src/browser/components/controls/NumericInput.tsx
+  2f447d29ba1dadbd 158-162
+cortex-editor/src/core/tailwind-resolver.ts
+  2f447d29ba1dadbd 486-492,495-503,505,507-513,559,613,617-626,696,716-784
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "b592d945cc5fdf23415998a0b8132265c970170a",
+  "prompts": {
+    "2f447d29ba1dadbd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "00baab1a-2631-4140-b547-d6734265d703",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 233,
+      "total_deletions": 1326,
+      "accepted_lines": 39589,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/9c8857e38729963b55f5dfa50d5027ec46b40f2bf48f336328f2d9bdb3e2c2d3"
+    }
+  }
+}
