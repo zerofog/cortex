@@ -1728,7 +1728,7 @@
 }
 
 /* ── Token preset popover ───────────────────── */
-/* Hybrid layout: canonical chip grid (top) + scrollable project-token list (bottom).
+/* Project-token list with empty-state branch when no tokens are detected.
    Positioned via @floating-ui computePosition with position:fixed so it escapes
    the panel's shadow-DOM overflow context. */
 

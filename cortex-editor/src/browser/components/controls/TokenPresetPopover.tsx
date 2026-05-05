@@ -79,7 +79,7 @@ export function TokenPresetPopover({
       class="cortex-token-preset-popover"
       style={{ position: 'fixed' }}
     >
-      {tokens.length === 0 ? (
+      {sortedTokens.length === 0 ? (
         <div class="cortex-token-preset-popover__empty-state">
           <span class="cortex-token-preset-popover__empty-state-title">No design tokens detected</span>
           <span class="cortex-token-preset-popover__empty-state-hint">
