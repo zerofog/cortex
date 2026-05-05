@@ -1,0 +1,36 @@
+cortex-editor/src/schemas/wire-format.ts
+  2f447d29ba1dadbd 20-25,27
+cortex-editor/tests/e2e/numeric-input-token-popover.spec.ts
+  2f447d29ba1dadbd 459-470,540-545
+cortex-editor/src/core/tailwind-resolver.ts
+  2f447d29ba1dadbd 532
+cortex-editor/tests/browser/tokens/family.test.ts
+  2f447d29ba1dadbd 2
+cortex-editor/src/browser/components/controls/NumericInput.tsx
+  2f447d29ba1dadbd 268-275,279-281,283
+cortex-editor/tests/browser/components/TokenPresetPopover.test.tsx
+  2f447d29ba1dadbd 29-35
+cortex-editor/src/browser/styles.css
+  2f447d29ba1dadbd 1802-1807
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "f21359c9ee342da725d73b4dc21de21593deb3fa",
+  "prompts": {
+    "2f447d29ba1dadbd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "00baab1a-2631-4140-b547-d6734265d703",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 7178,
+      "total_deletions": 22,
+      "accepted_lines": 39528,
+      "overriden_lines": 3,
+      "messages_url": "https://usegitai.com/cas/3344c3ca4cdd77851b48bccfca17be31ea9d1a78fdcf3b70b9911db5f0eb2077"
+    }
+  }
+}
