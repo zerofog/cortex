@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { matchesSpacingPattern } from '../../../src/browser/tokens/family'
+import { matchesSpacingPattern } from '../../../src/browser/tokens/family.js'
 
 // ── matchesSpacingPattern ────────────────────────────────────────────────────
 // The function is case-sensitive — CSS custom property names are case-sensitive

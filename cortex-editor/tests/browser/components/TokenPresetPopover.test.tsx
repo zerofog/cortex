@@ -26,6 +26,13 @@ afterEach(() => {
     render(null, container)
     container.remove()
   }
+  // Clean up the test anchor too — mountPopover() appends a fresh button to
+  // document.body that wasn't unmounted by the container teardown above.
+  // Without this, anchors accumulate across tests and document-level
+  // interaction assertions become flaky.
+  if (anchor && anchor.parentNode) {
+    anchor.parentNode.removeChild(anchor)
+  }
   _resetPopoverStackForTesting()
 })
 

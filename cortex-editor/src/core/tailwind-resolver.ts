@@ -529,7 +529,7 @@ export class TailwindResolver {
         for (const [key, value] of Object.entries(v4Spacing)) {
           const name = `--spacing-${key}`
           if (name.startsWith('--cx-')) continue
-          const px = TailwindResolver.parseToPx(value)
+          const px = TailwindResolver.parseToPx(value, detectedRemPx)
           if (px === null) continue
           addToken({ name, valuePx: px, source: 'tailwind-v4' })
         }

@@ -17,8 +17,14 @@ import { pendingEditSchema, intentIdSchema, MAX_FULL_SYNC_SIZE } from './pending
 // Shared sub-schemas
 // ---------------------------------------------------------------------------
 
+// Spacing-token name pattern: `--spacing-`, `--sp-`, `--gap-`, `--space-` namespaces.
+// Mirrors `matchesSpacingPattern` in src/browser/tokens/family.ts. Tightening here
+// rejects protocol drift (e.g., a server emitting `--color-primary` or `foo`) at the
+// schema boundary rather than letting it reach the popover and fail filter-time.
+const SPACING_TOKEN_NAME_PATTERN = /^--(spacing|sp|gap|space)-\S*$/
+
 export const spacingTokenSchema = z.object({
-  name: z.string().min(2).max(256),
+  name: z.string().min(2).max(256).regex(SPACING_TOKEN_NAME_PATTERN),
   valuePx: z.number().nonnegative().finite(),
   source: z.enum(['tailwind-v3', 'tailwind-v4', 'css-variable']),
 })

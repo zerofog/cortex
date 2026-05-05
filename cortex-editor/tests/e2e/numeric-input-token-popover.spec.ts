@@ -456,15 +456,18 @@ test('z-index and rotation inputs (no tokenFamily) do not show the popover', asy
     const host = document.querySelector('[data-cortex-host]')
     const root = host && (host as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot
     if (!root) throw new Error('[test] shadow root not accessible')
-    // Find all numeric inputs in the panel. Pick one that is NOT inside a
-    // spacing/margin [data-section] row (those all have tokenFamily="spacing").
-    const allInputs = Array.from(root.querySelectorAll<HTMLInputElement>('input.cortex-numeric-input__value'))
-    const nonSpacingInput = allInputs.find((input) => {
-      const row = input.closest('[data-section="padding"], [data-section="margin"]')
-      return row === null
-    })
-    if (!nonSpacingInput) throw new Error('[test] no non-spacing NumericInput found in Panel')
-    nonSpacingInput.focus()
+    // Target a deterministic non-spacing control: the AppearanceSection's opacity
+    // input. AppearanceSection NumericInputs explicitly do NOT set tokenFamily,
+    // so this input is guaranteed to be on the no-popover branch regardless of
+    // the panel's other state. Previously this test excluded only padding/margin,
+    // but FlexControls/GridControls/PositionSection ALSO have spacing-enabled
+    // inputs — picking the first non-spacing/margin input could pick one of those
+    // and fail for the wrong reason (Cubic /review P2 #3, Codex review feedback).
+    const opacityRow = root.querySelector('[data-section-id="appearance"]')
+    if (!opacityRow) throw new Error('[test] [data-section-id="appearance"] not found')
+    const opacityInput = opacityRow.querySelector<HTMLInputElement>('input.cortex-numeric-input__value')
+    if (!opacityInput) throw new Error('[test] opacity NumericInput input not found in appearance section')
+    opacityInput.focus()
   })
 
   // The popover must NOT appear for 1500ms. Uses expect(async () => ...).toPass
@@ -534,12 +537,11 @@ test('popover flips or shifts when spacing input is near viewport bottom/right e
     // popover would render below the bottom edge and left-overflow the panel.
     expect(rect.bottom).toBeLessThanOrEqual(600)
   } else {
-    // computePosition did not resolve yet OR shadow root unreachable.
-    // Treat as a skip rather than a hard failure — edge-positioning is
-    // a nice-to-have layer above the core flow; core flow is proven by S2–S6.
-    test.info().annotations.push({
-      type: 'skip-reason',
-      description: 'computePosition did not resolve getBoundingClientRect — shadow root unreachable inside panel layout',
-    })
+    // computePosition did not resolve OR the popover unmounted before we could
+    // measure it. The poll above already confirmed the popover existed and had
+    // an inline style.left set, so a null rect here indicates the test
+    // environment is broken — fail the test rather than letting positioning
+    // regressions slip through silently (Cubic /review P2 #2, Copilot feedback).
+    throw new Error('[test] popover present + positioned but getBoundingClientRect returned null — flip/shift positioning may be broken')
   }
 })

@@ -265,13 +265,22 @@ export function NumericInput({
     // fix). But that means isEditing stays true after the pick, and the [value,
     // isEditing] useEffect that normally syncs localValue from value prop is gated.
     // Sync here explicitly so the input reflects the picked value immediately.
-    onChange(chosen.valuePx)
-    const next = String(chosen.valuePx)
+    //
+    // Route through clampValue so token picks honor the same min/max/step constraints
+    // as keyboard / scrub edits. A token like `--spacing-neg: -1rem` (resolver's
+    // Number.isFinite gate already drops Infinity but parseToPx still returns the
+    // raw value if isFinite passes) won't bypass `min={0}` here.
+    const clamped = clampValue(chosen.valuePx)
+    onChange(clamped)
+    const next = String(clamped)
     localValueRef.current = next
     setLocalValue(next)
     setIsEditing(false)
+    // Reset userTypedRef so a subsequent blur (e.g., Tab-out without further typing)
+    // doesn't fire a phantom commit using the picked value as if the user had typed it.
+    userTypedRef.current = false
     setPopoverOpen(false)
-  }, [onChange])
+  }, [onChange, clampValue])
 
   const handlePopoverDismiss = useCallback(() => {
     setPopoverOpen(false)

@@ -1799,6 +1799,12 @@
   background: var(--cx-well);
 }
 
+.cortex-token-preset-popover__list-row:focus-visible {
+  background: var(--cx-well);
+  outline: 2px solid var(--cx-select-muted);
+  outline-offset: -2px;
+}
+
 .cortex-token-preset-popover__list-name {
   flex: 1;
   min-width: 0;
