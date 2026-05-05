@@ -1,5 +1,5 @@
 import type { JSX, RefObject } from 'preact'
-import { useRef, useEffect } from 'preact/hooks'
+import { useRef, useEffect, useMemo } from 'preact/hooks'
 import { computePosition, flip, shift, autoUpdate } from '@floating-ui/dom'
 import type { SpacingToken } from '../../../core/tailwind-resolver.js'
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js'
@@ -22,6 +22,17 @@ export function TokenPresetPopover({
   onDismiss,
 }: TokenPresetPopoverProps): JSX.Element {
   const popoverRef = useRef<HTMLDivElement>(null)
+
+  // Sort by valuePx ascending so the user can scan smallest → largest. The
+  // resolver returns tokens in source-priority + insertion order (v4 → v3 →
+  // css-variable, dedup by name), which means a Tailwind v4 default scale
+  // produces 0, 1, 2, ..., 96 followed by 0.5, 1.5, 2.5, 3.5 (multiplier
+  // emission order, not numeric value). Display sort fixes this without
+  // changing the resolver's documented priority contract.
+  const sortedTokens = useMemo(
+    () => [...tokens].sort((a, b) => a.valuePx - b.valuePx),
+    [tokens],
+  )
 
   useOutsideDismiss(popoverRef, onDismiss, [anchorRef])
 
@@ -81,7 +92,7 @@ export function TokenPresetPopover({
         </div>
       ) : (
         <div class="cortex-token-preset-popover__list">
-          {tokens.map((token) => (
+          {sortedTokens.map((token) => (
             <button
               key={token.name}
               type="button"

@@ -70,6 +70,23 @@ describe('TokenPresetPopover — token rows', () => {
     expect(first?.querySelector('.cortex-token-preset-popover__list-name')?.textContent).toBe('--spacing-sm')
     expect(first?.querySelector('.cortex-token-preset-popover__list-value')?.textContent).toBe('8px')
   })
+
+  it('rows are sorted by valuePx ascending regardless of input order', () => {
+    // Regression: the resolver returns tokens in source-priority + insertion
+    // order, which puts Tailwind v4 fractional multipliers (0.5, 1.5, 2.5, 3.5)
+    // AFTER the integer scale (0..96) because of the parser's emission order.
+    // Display-time sort guarantees the user always scans smallest → largest.
+    const unsorted: readonly SpacingToken[] = [
+      { name: '--spacing-large', valuePx: 96, source: 'tailwind-v4' },
+      { name: '--spacing-tiny', valuePx: 2, source: 'tailwind-v4' },
+      { name: '--spacing-medium', valuePx: 16, source: 'css-variable' },
+      { name: '--spacing-half', valuePx: 6, source: 'tailwind-v4' },
+    ]
+    const root = mountPopover({ tokens: unsorted })
+    const valueEls = root.querySelectorAll('.cortex-token-preset-popover__list-value')
+    const renderedPx = Array.from(valueEls).map((el) => Number(el.textContent?.replace('px', '')))
+    expect(renderedPx).toEqual([2, 6, 16, 96])
+  })
 })
 
 describe('TokenPresetPopover — empty state', () => {
