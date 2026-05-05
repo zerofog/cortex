@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render } from 'preact'
+import { render, createElement } from 'preact'
 import { NumericInput } from '../../../src/browser/components/controls/NumericInput.js'
+import { SpacingTokensContext } from '../../../src/browser/tokens/TokenContext.js'
+import type { SpacingToken } from '../../../src/core/tailwind-resolver.js'
 import { dispatchKeyboardEvent, dispatchPointerEvent, createShadowHost } from '../helpers.js'
 
 describe('NumericInput', () => {
@@ -303,6 +305,166 @@ describe('NumericInput', () => {
       await new Promise<void>(r => setTimeout(r, 0))
 
       expect(onChange).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('tokenFamily popover', () => {
+    const MOCK_TOKENS: readonly SpacingToken[] = [
+      { name: '--spacing-sm', valuePx: 8, source: 'css-variable' },
+      { name: '--gap-lg', valuePx: 24, source: 'css-variable' },
+    ]
+
+    function setupWithTokens(props?: Partial<Parameters<typeof NumericInput>[0]>, tokens: readonly SpacingToken[] = MOCK_TOKENS) {
+      container = document.createElement('div')
+      document.body.appendChild(container)
+      const onChange = vi.fn()
+      render(
+        createElement(SpacingTokensContext.Provider, { value: tokens },
+          createElement(NumericInput, {
+            value: 16,
+            unit: 'px',
+            onChange,
+            ...props,
+          }),
+        ),
+        container,
+      )
+      return { onChange, input: container.querySelector('input') as HTMLInputElement }
+    }
+
+    it('renders popover when tokenFamily="spacing" and input is focused', async () => {
+      const { input } = setupWithTokens({ tokenFamily: 'spacing' })
+      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+      await vi.waitFor(() => {
+        expect(container.querySelector('.cortex-token-preset-popover')).not.toBeNull()
+      }, { timeout: 500 })
+    })
+
+    // Both omission and unwired-family share a single branch — `tokenFamily !== 'spacing'`
+    // — so cover them with a single parametrized test instead of duplicate it() blocks.
+    // 'sizing' stands in for any reserved-but-unwired family from the TokenFamily union.
+    it.each([
+      ['omitted', undefined],
+      ['unwired family ("sizing")', 'sizing' as const],
+    ])('does NOT render popover when tokenFamily is %s', async (_label, tokenFamily) => {
+      const { input } = setupWithTokens(tokenFamily ? { tokenFamily } : undefined)
+      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+      await new Promise<void>(r => setTimeout(r, 0))
+      expect(container.querySelector('.cortex-token-preset-popover')).toBeNull()
+    })
+
+    it('onPick routes through onChange with the selected token valuePx', async () => {
+      const { onChange, input } = setupWithTokens({ tokenFamily: 'spacing' })
+      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+
+      // Wait for popover to appear before looking for token row
+      await vi.waitFor(() => {
+        expect(container.querySelector('.cortex-token-preset-popover')).not.toBeNull()
+      }, { timeout: 500 })
+
+      // First MOCK_TOKEN: --spacing-sm = 8px
+      const smRow = [...container.querySelectorAll('.cortex-token-preset-popover__list-row')]
+        .find(r => r.textContent?.includes('--spacing-sm')) as HTMLButtonElement | undefined
+      expect(smRow).not.toBeUndefined()
+      smRow!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+
+      await vi.waitFor(() => {
+        expect(onChange).toHaveBeenCalledWith(8)
+      }, { timeout: 500 })
+    })
+
+    it('row mousedown is preventDefault — typed value does not phantom-commit before pick', async () => {
+      // Regression: clicking a token row after typing fired onChange twice — once for the
+      // typed value (from blur on mousedown's focus shift) and once for the picked value.
+      // Fix in TokenPresetPopover: onMouseDown={e => e.preventDefault()} on row buttons
+      // keeps focus on the input so handleBlur never runs before onPick.
+      const { onChange, input } = setupWithTokens({ tokenFamily: 'spacing' })
+      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+
+      await vi.waitFor(() => {
+        expect(container.querySelector('.cortex-token-preset-popover')).not.toBeNull()
+      }, { timeout: 500 })
+
+      const smRow = [...container.querySelectorAll('.cortex-token-preset-popover__list-row')]
+        .find(r => r.textContent?.includes('--spacing-sm')) as HTMLButtonElement | undefined
+      expect(smRow).not.toBeUndefined()
+
+      // User typed a value before clicking the row — sets userTypedRef so blur would commit.
+      input.value = '5'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+
+      // Mousedown on the row MUST be preventDefault — otherwise the input loses focus,
+      // handleBlur fires, and onChange(5) commits before onPick fires.
+      const mousedown = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+      smRow!.dispatchEvent(mousedown)
+      expect(mousedown.defaultPrevented).toBe(true)
+
+      // Pick still routes through onChange exactly once with the token's valuePx.
+      smRow!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await vi.waitFor(() => {
+        expect(onChange).toHaveBeenCalledWith(8)
+      }, { timeout: 500 })
+      expect(onChange).toHaveBeenCalledTimes(1)
+    })
+
+    it('onPick closes the popover after selection', async () => {
+      const { input } = setupWithTokens({ tokenFamily: 'spacing' })
+      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+
+      await vi.waitFor(() => {
+        expect(container.querySelector('.cortex-token-preset-popover')).not.toBeNull()
+      }, { timeout: 500 })
+
+      const firstRow = container.querySelector('.cortex-token-preset-popover__list-row') as HTMLButtonElement
+      firstRow.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+
+      await vi.waitFor(() => {
+        expect(container.querySelector('.cortex-token-preset-popover')).toBeNull()
+      }, { timeout: 500 })
+    })
+
+    it('renders empty state when no project tokens are detected', async () => {
+      const { input } = setupWithTokens({ tokenFamily: 'spacing' }, [])
+      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+
+      await vi.waitFor(() => {
+        expect(container.querySelector('.cortex-token-preset-popover')).not.toBeNull()
+      }, { timeout: 500 })
+
+      // No rows; the empty-state block is shown instead.
+      expect(container.querySelectorAll('.cortex-token-preset-popover__list-row')).toHaveLength(0)
+      expect(container.querySelector('.cortex-token-preset-popover__empty-state')).not.toBeNull()
+    })
+
+    it('project tokens from context appear as popover rows', async () => {
+      const { input } = setupWithTokens({ tokenFamily: 'spacing' })
+      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+
+      await vi.waitFor(() => {
+        const rows = container.querySelectorAll('.cortex-token-preset-popover__list-row')
+        expect(rows.length).toBe(MOCK_TOKENS.length)
+      }, { timeout: 500 })
+
+      const rows = container.querySelectorAll('.cortex-token-preset-popover__list-row')
+      expect(rows[0]!.textContent).toContain('--spacing-sm')
+      expect(rows[1]!.textContent).toContain('--gap-lg')
+    })
+
+    it('tokens NOT matching spacing pattern are filtered out', async () => {
+      const mixedTokens: readonly SpacingToken[] = [
+        { name: '--spacing-sm', valuePx: 8, source: 'css-variable' },
+        { name: '--color-primary', valuePx: 0, source: 'css-variable' }, // should be filtered
+      ]
+      const { input } = setupWithTokens({ tokenFamily: 'spacing' }, mixedTokens)
+      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+
+      await vi.waitFor(() => {
+        expect(container.querySelector('.cortex-token-preset-popover')).not.toBeNull()
+      }, { timeout: 500 })
+
+      const rows = container.querySelectorAll('.cortex-token-preset-popover__list-row')
+      expect(rows.length).toBe(1)
+      expect(rows[0]!.textContent).toContain('--spacing-sm')
     })
   })
 

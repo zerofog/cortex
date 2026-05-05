@@ -1,5 +1,9 @@
 import type { ComponentChildren, JSX } from 'preact'
-import { useState, useRef, useCallback, useEffect } from 'preact/hooks'
+import { useState, useRef, useCallback, useEffect, useContext, useMemo } from 'preact/hooks'
+import { type TokenFamily, matchesSpacingPattern } from '../../tokens/family.js'
+import type { SpacingToken } from '../../../core/tailwind-resolver.js'
+import { SpacingTokensContext } from '../../tokens/TokenContext.js'
+import { TokenPresetPopover } from './TokenPresetPopover.js'
 
 export interface NumericInputProps {
   value: number
@@ -35,6 +39,13 @@ export interface NumericInputProps {
   stale?: boolean
   /** When true, shows '--' placeholder indicating shared elements have different values. */
   mixed?: boolean
+  /**
+   * Opt this input into a token family popover. When set to 'spacing', a
+   * TokenPresetPopover appears on focus showing canonical scale chips and
+   * any project-detected spacing tokens. Omitting this prop means no popover
+   * is shown — existing behavior is fully preserved.
+   */
+  tokenFamily?: TokenFamily
 }
 
 function getStep(e: KeyboardEvent | WheelEvent): number {
@@ -61,10 +72,22 @@ export function NumericInput({
   overridden,
   stale,
   mixed,
+  tokenFamily,
 }: NumericInputProps): JSX.Element {
+  const allSpacingTokens = useContext(SpacingTokensContext)
+  const showPopover = tokenFamily === 'spacing'
+  // Defense-in-depth: filter tokens through the spacing pattern even though
+  // the server resolver already filters — cheap and eliminates edge cases.
+  const filteredTokens = useMemo(
+    () => (showPopover ? allSpacingTokens.filter(t => matchesSpacingPattern(t.name)) : []),
+    [allSpacingTokens, showPopover],
+  )
+
   const [localValue, setLocalValue] = useState(String(value))
   const [isEditing, setIsEditing] = useState(false)
   const [isScrubbing, setIsScrubbing] = useState(false)
+  const [popoverOpen, setPopoverOpen] = useState(false)
+  const hostRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const localValueRef = useRef(String(value))
   const scrubStartX = useRef(0)
@@ -125,10 +148,18 @@ export function NumericInput({
       setLocalValue('')
     }
     inputRef.current?.select()
-  }, [mixed])
+    if (showPopover) {
+      setPopoverOpen(true)
+    }
+  }, [mixed, showPopover])
 
   const handleBlur = useCallback(() => {
     setIsEditing(false)
+    // Tab-out / focus-loss should also dismiss the popover. Without this,
+    // keyboard tabbing through spacing inputs leaves stale popovers mounted
+    // and registered in popover-stack, so subsequent Escape dismisses the
+    // wrong layer (Codex /review P2 #6).
+    setPopoverOpen(false)
     const parsed = parseFloat(localValueRef.current)
     if (isNaN(parsed)) {
       // In mixed state, revert to empty (shows '--' placeholder) instead of
@@ -225,6 +256,36 @@ export function NumericInput({
     scrubCleanupRef.current = cleanup
   }, [isEditing, value, onChange, onScrub, onScrubEnd, clampValue])
 
+  const handlePopoverPick = useCallback((chosen: { name: string; valuePx: number; source: SpacingToken['source'] }) => {
+    // `name` and `source` are part of the contract for ZF0-1210 (staging-buffer flow
+    // surfaces token identity at Apply time) but not consumed by the v1 onChange path.
+    //
+    // The token row's onMouseDown preventDefault (TokenPresetPopover) keeps focus on
+    // the input — necessary to prevent the typed-then-pick double-onChange (Step 3f
+    // fix). But that means isEditing stays true after the pick, and the [value,
+    // isEditing] useEffect that normally syncs localValue from value prop is gated.
+    // Sync here explicitly so the input reflects the picked value immediately.
+    //
+    // Route through clampValue so token picks honor the same min/max/step constraints
+    // as keyboard / scrub edits. A token like `--spacing-neg: -1rem` (resolver's
+    // Number.isFinite gate already drops Infinity but parseToPx still returns the
+    // raw value if isFinite passes) won't bypass `min={0}` here.
+    const clamped = clampValue(chosen.valuePx)
+    onChange(clamped)
+    const next = String(clamped)
+    localValueRef.current = next
+    setLocalValue(next)
+    setIsEditing(false)
+    // Reset userTypedRef so a subsequent blur (e.g., Tab-out without further typing)
+    // doesn't fire a phantom commit using the picked value as if the user had typed it.
+    userTypedRef.current = false
+    setPopoverOpen(false)
+  }, [onChange, clampValue])
+
+  const handlePopoverDismiss = useCallback(() => {
+    setPopoverOpen(false)
+  }, [])
+
   // Stale tooltip takes priority over the regular tooltip — it carries the recovery hint.
   const effectiveTooltip = stale
     ? 'Edit saved but HMR didn\'t apply — refresh to verify'
@@ -232,6 +293,7 @@ export function NumericInput({
 
   return (
     <div
+      ref={hostRef}
       class={[
         'cortex-numeric-input',
         isScrubbing && 'cortex-numeric-input--scrubbing',
@@ -272,6 +334,14 @@ export function NumericInput({
         onWheel={handleWheel}
       />
       {unit && <span class="cortex-numeric-input__unit">{unit}</span>}
+      {popoverOpen && (
+        <TokenPresetPopover
+          anchorRef={hostRef}
+          tokens={filteredTokens}
+          onPick={handlePopoverPick}
+          onDismiss={handlePopoverDismiss}
+        />
+      )}
     </div>
   )
 }
