@@ -62,13 +62,16 @@ describe('TokenPresetPopover — token rows', () => {
     expect(rows).toHaveLength(PROJECT_TOKENS.length)
   })
 
-  it('each row shows swatch, token name, and px value', () => {
+  it('each row shows token name and px value', () => {
     const root = mountPopover()
     const rows = root.querySelectorAll('button.cortex-token-preset-popover__list-row')
     const first = rows[0]
-    expect(first?.querySelector('.cortex-token-preset-popover__list-swatch')).not.toBeNull()
     expect(first?.querySelector('.cortex-token-preset-popover__list-name')?.textContent).toBe('--spacing-sm')
     expect(first?.querySelector('.cortex-token-preset-popover__list-value')?.textContent).toBe('8px')
+    // Swatch icon was removed in Step 9.5 cleanup — the diagonal-stripe pattern
+    // communicated "this has a visual property" to designers familiar with color
+    // swatches but added noise for dimension tokens (Step 4 design review M3).
+    expect(first?.querySelector('.cortex-token-preset-popover__list-swatch')).toBeNull()
   })
 
   it('rows are sorted by valuePx ascending regardless of input order', () => {

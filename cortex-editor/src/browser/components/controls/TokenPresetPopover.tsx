@@ -4,10 +4,6 @@ import { computePosition, flip, shift, autoUpdate } from '@floating-ui/dom'
 import type { SpacingToken } from '../../../core/tailwind-resolver.js'
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js'
 
-/** Diagonal-stripe background for non-color value swatches (spacing, size). */
-const PATTERN_BG =
-  'repeating-linear-gradient(45deg, var(--cx-ink-ghost) 0, var(--cx-ink-ghost) 2px, transparent 2px, transparent 6px)'
-
 export interface TokenPresetPopoverProps {
   readonly anchorRef: RefObject<Element>
   readonly tokens: readonly SpacingToken[]
@@ -100,11 +96,6 @@ export function TokenPresetPopover({
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => onPick({ name: token.name, valuePx: token.valuePx, source: token.source })}
             >
-              <span
-                class="cortex-token-preset-popover__list-swatch"
-                style={{ background: PATTERN_BG }}
-                aria-hidden="true"
-              />
               <span class="cortex-token-preset-popover__list-name">{token.name}</span>
               <span class="cortex-token-preset-popover__list-value">{token.valuePx}px</span>
             </button>

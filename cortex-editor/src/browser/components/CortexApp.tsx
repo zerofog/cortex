@@ -28,7 +28,7 @@ import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
 import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
 import { captureSelectionMetadata, reResolveSelection, shouldRefreshOnHMR } from '../selection-metadata.js'
 import type { SelectionMetadata } from '../selection-metadata.js'
-import { dismissTopmostPopover } from '../popover-stack.js'
+import { dismissTopmostPopover, hasOpenPopover } from '../popover-stack.js'
 
 export interface CortexAppProps {
   channel: CortexChannel
@@ -778,8 +778,15 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (!isRealEvent(e)) return
       if (e.key !== 'Escape') return
 
-      // Priority 1: Blur focused input inside Cortex UI
-      if (isCortexUIFocused()) {
+      // Priority 1: Blur focused input inside Cortex UI.
+      // Skip when a popover is open — TokenPresetPopover (and any future popover
+      // anchored to an input) keeps focus on the input via onMouseDown
+      // preventDefault so picks don't blur-commit prematurely. If we still
+      // blurred here, the user would need TWO Escape presses to close the
+      // popover (first press blurs input, second press dismisses popover).
+      // Letting Priority 2.5 dismiss the popover first matches the LIFO
+      // expectation: Escape closes the topmost interactive layer.
+      if (isCortexUIFocused() && !hasOpenPopover()) {
         const focused = getDeepActiveElement()
         if (focused instanceof HTMLElement) {
           const tag = focused.tagName.toLowerCase()

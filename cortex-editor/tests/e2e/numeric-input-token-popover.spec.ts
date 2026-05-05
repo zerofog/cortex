@@ -400,15 +400,17 @@ test('Escape dismisses popover but leaves Panel open (LIFO via popover-stack)', 
   await bootAndPushTokens(page)
   await openPopoverOnSpacingInput(page)
 
-  // CortexApp Escape handler has two relevant priorities:
-  //   Priority 1: when a Cortex UI input is focused, Escape blurs it and returns
-  //     early — the popover is NOT yet dismissed.
-  //   Priority 2.5: on the NEXT Escape (nothing focused), dismissTopmostPopover()
-  //     pops the topmost registered popover without falling through to Priority 3
-  //     (deselect element / close panel).
-  // Two presses are required because opening the popover leaves the input focused.
-  await page.keyboard.press('Escape') // Priority 1 — blurs the spacing input
-  await page.keyboard.press('Escape') // Priority 2.5 — dismisses the popover
+  // CortexApp Escape handler:
+  //   Priority 1: blur focused Cortex UI input — SKIPPED when hasOpenPopover()
+  //     returns true (Step 9.5 fix). Without that skip, two presses would be
+  //     needed because Step 3f's onMouseDown preventDefault keeps the input
+  //     focused while the popover is open.
+  //   Priority 2.5: dismissTopmostPopover() pops the topmost registered popover
+  //     and stops propagation before Priority 3 (deselect element / close panel)
+  //     fires.
+  // ONE press dismisses the popover; the input stays focused (Step 3f preventDefault
+  // means the popover never blurred it in the first place).
+  await page.keyboard.press('Escape')
 
   // Popover dismisses.
   await expect

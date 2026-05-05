@@ -1799,14 +1799,6 @@
   background: var(--cx-well);
 }
 
-.cortex-token-preset-popover__list-swatch {
-  flex-shrink: 0;
-  width: 12px;
-  height: 12px;
-  border-radius: 2px;
-  border: 1px solid var(--cx-rule);
-}
-
 .cortex-token-preset-popover__list-name {
   flex: 1;
   min-width: 0;
