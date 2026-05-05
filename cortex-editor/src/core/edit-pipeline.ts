@@ -367,6 +367,11 @@ export class EditPipeline {
       // status === 'failed'
       this.channel.send({ type: 'edit_status', editId, status: 'failed', reason: result.reason, reason_code: result.reason_code })
     }
+    // Timeout pre-deletes the Map entry (registerApplyResolver line above);
+    // a late emitTerminal after timeout finds no pending and silently skips
+    // the resolver while still sending the wire message. That's correct —
+    // the browser is the source of truth for `done`, and the MCP caller
+    // already received the timeout failure.
     const pending = this.pendingResolvers.get(editId)
     if (pending) {
       clearTimeout(pending.timer)
@@ -1417,13 +1422,13 @@ export class EditPipeline {
         elementSelector: edit.elementSelector,
       })
       if (!result.success) {
-        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: result.reason })
+        this.emitTerminal(edit.editId, { status: 'failed', reason: result.reason })
         return
       }
       try {
         await this.writeFile({ kind: 'immediate', filePath: resolvedCssPath, content: result.newContent })
       } catch (err) {
-        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'failed', reason: `Write failed: ${sanitizeErrorForClient(err)}`, reason_code: classifyWriteError(err) })
+        this.emitTerminal(edit.editId, { status: 'failed', reason: `Write failed: ${sanitizeErrorForClient(err)}`, reason_code: classifyWriteError(err) })
         return
       }
       // requiresHmr=false: the CSS Module edit is paired with a browser-side
@@ -1539,8 +1544,8 @@ export class EditPipeline {
       try {
         await this.writeFile({ kind: 'jsx-immediate', filePath: resolvedPath, content: result.newContent })
       } catch (err) {
-        this.channel.send({
-          type: 'edit_status', editId: edit.editId, status: 'failed',
+        this.emitTerminal(edit.editId, {
+          status: 'failed',
           reason: `Write failed: ${sanitizeErrorForClient(err)}`,
           reason_code: classifyWriteError(err),
         })

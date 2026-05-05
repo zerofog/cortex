@@ -309,6 +309,37 @@ describe('EditPipeline — registerApplyResolver + emitTerminal', () => {
     await expect(resolverB).rejects.toThrow('pipeline disposed')
   })
 
+  // ── Test 7: Failed-terminal sites also resolve the Promise ──
+  // Regression guard: if a CSS Modules / inline-style write fails, the resolver
+  // Promise must resolve with status:'failed' (not hang waiting for timeout).
+  // This pins the Important finding from the ZF0-1540 consolidated review.
+
+  it('CSS Modules rewriter failure resolves resolver with status:failed', async () => {
+    const channel = stubChannel()
+    const cssModulesRewriter = stubCSSModulesRewriter({ success: false, reason: 'css module not found' })
+
+    const pipeline = new EditPipeline({
+      channel: channel as never,
+      resolver: stubResolver(),
+      rewriter: stubRewriter({ success: false }),
+      verifier: stubVerifier(),
+      writeFile: async () => {},
+      projectRoot: '/tmp/proj',
+      cssModulesRewriter,
+      detector: { hasCSSModules: true, hasTailwind: false },
+    })
+
+    const resultPromise = pipeline.registerApplyResolver('edit-fail', 60_000)
+    pipeline.handleEdit(makeCssModulesEdit('edit-fail'))
+    await vi.advanceTimersByTimeAsync(2_000)
+
+    const result = await resultPromise
+    expect(result.status).toBe('failed')
+    expect((result as Extract<EditResult, { status: 'failed' }>).reason).toBe('css module not found')
+
+    pipeline.dispose()
+  })
+
   // ── Test 6: Browser-channel contract preserved ──
 
   it('emitTerminal sends channel message with correct shape', async () => {
