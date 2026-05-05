@@ -177,10 +177,9 @@ test('hello spacingTokens propagate into SpacingTokensContext and appear in popo
 })
 
 // =============================================================================
-// Scenario 2: Focus margin input → popover appears with 6 canonical chips +
-//             project token rows
+// Scenario 2: Focus margin input → popover appears with project token rows
 // =============================================================================
-test('focus margin NumericInput → popover renders with 6 canonical chips and project token rows', async ({ page }) => {
+test('focus margin NumericInput → popover renders with project token rows', async ({ page }) => {
   await bootAndPushTokens(page)
 
   // Focus the horizontal margin input — tokenFamily="spacing" (SpacingControls.tsx:172).
@@ -226,27 +225,7 @@ test('focus margin NumericInput → popover renders with 6 canonical chips and p
     )
     .toBeGreaterThan(0)
 
-  // Assert exactly 6 chips (SPACING_PRESETS: none/xs/sm/md/lg/xl).
-  const chipCount = await page.evaluate(() => {
-    const host = document.querySelector('[data-cortex-host]')
-    const root = host && (host as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot
-    if (!root) return 0
-    return root.querySelectorAll('.cortex-token-preset-popover__chip').length
-  })
-  expect(chipCount).toBe(6)
-
-  // Assert chip names match the canonical scale.
-  const chipNames = await page.evaluate(() => {
-    const host = document.querySelector('[data-cortex-host]')
-    const root = host && (host as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot
-    if (!root) return []
-    return Array.from(root.querySelectorAll('.cortex-token-preset-popover__chip-name')).map(
-      (el) => el.textContent?.trim() ?? '',
-    )
-  })
-  expect(chipNames).toEqual(['none', 'xs', 'sm', 'md', 'lg', 'xl'])
-
-  // Assert both project token rows are present.
+  // Assert both synthetic project token rows are present.
   const rowCount = await page.evaluate(() => {
     const host = document.querySelector('[data-cortex-host]')
     const root = host && (host as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot
@@ -254,70 +233,71 @@ test('focus margin NumericInput → popover renders with 6 canonical chips and p
     return root.querySelectorAll('.cortex-token-preset-popover__list-row').length
   })
   expect(rowCount).toBe(2)
+
+  // Empty-state must NOT render when tokens are present.
+  const hasEmptyState = await page.evaluate(() => {
+    const host = document.querySelector('[data-cortex-host]')
+    const root = host && (host as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot
+    if (!root) return false
+    return !!root.querySelector('.cortex-token-preset-popover__empty-state')
+  })
+  expect(hasEmptyState).toBe(false)
 })
 
 // =============================================================================
-// Scenario 3: Click canonical chip → input value updates + popover dismisses
+// Scenario 3: Focus spacing input with NO project tokens → empty state shown
 // =============================================================================
-test('click canonical "md" chip → input updates to 8px, popover dismisses', async ({ page }) => {
-  await bootAndPushTokens(page)
-  await openPopoverOnSpacingInput(page)
+test('focus spacing input with zero project tokens → empty state appears', async ({ page }) => {
+  // Boot WITHOUT pushing spacing tokens — the panel mounts with tokens=[].
+  // Still need to select an element to render SpacingControls, but skip
+  // the bootAndPushTokens helper since it would seed tokens via hello.
+  await bootWithSendSpy(page)
+  await selectElement(page, FIXTURE_SEED_SELECTOR)
+  await waitForElementStatePanel(page)
 
-  // md is 8px in SPACING_PRESETS (family.ts:18). Pass as arg to evaluate so
-  // the Node constant doesn't sneak into browser scope.
-  const mdValuePx = 8
-
-  // Click the "md" chip via real pointer coordinates so the browser fires
-  // mousedown → blur (on input) → focus (on chip) → mouseup → click in the
-  // correct order. A synthetic `.click()` from page.evaluate() does NOT
-  // transfer focus, leaving the input in `isEditing=true`, which gates the
-  // NumericInput `useEffect` that syncs `localValue` from the `value` prop.
-  const mdChipRect = await page.evaluate(() => {
+  // Focus the padding input (first NumericInput inside [data-section="padding"]).
+  await page.evaluate(() => {
     const host = document.querySelector('[data-cortex-host]')
     const root = host && (host as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot
     if (!root) throw new Error('[test] shadow root not accessible')
-    const chips = Array.from(root.querySelectorAll<HTMLButtonElement>('.cortex-token-preset-popover__chip'))
-    const mdChip = chips.find((c) => c.querySelector('.cortex-token-preset-popover__chip-name')?.textContent?.trim() === 'md')
-    if (!mdChip) throw new Error('[test] md chip not found')
-    const rect = mdChip.getBoundingClientRect()
-    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
+    const paddingRow = root.querySelector('[data-section="padding"]')
+    if (!paddingRow) throw new Error('[test] [data-section="padding"] not found')
+    const input = paddingRow.querySelector<HTMLInputElement>('input.cortex-numeric-input__value')
+    if (!input) throw new Error('[test] padding NumericInput input not found')
+    input.focus()
   })
-  await page.mouse.click(mdChipRect.x, mdChipRect.y)
 
-  // Popover must dismiss after pick.
+  // Popover renders with the empty-state block (no list rows).
   await expect
     .poll(
       () =>
         page.evaluate(() => {
           const host = document.querySelector('[data-cortex-host]')
           const root = host && (host as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot
-          if (!root) return true
-          return !!root.querySelector('.cortex-token-preset-popover')
+          if (!root) return false
+          return !!root.querySelector('.cortex-token-preset-popover__empty-state')
         }),
       { timeout: 2000 },
     )
-    .toBe(false)
+    .toBe(true)
 
-  // The input value should reflect the picked valuePx.
-  // Poll because onChange → overrideManager.set() → scheduleRebuild() (RAF) →
-  // rebuild() → emitOverrideChange() → Panel setStyleVersion bump → re-render →
-  // computedStyles re-reads getComputedStyle(element). The RAF fires async —
-  // a synchronous read immediately after chip.click() always sees the old value.
-  await expect
-    .poll(
-      () =>
-        page.evaluate(() => {
-          const host = document.querySelector('[data-cortex-host]')
-          const root = host && (host as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot
-          if (!root) return null
-          const paddingRow = root.querySelector('[data-section="padding"]')
-          if (!paddingRow) return null
-          return paddingRow.querySelector<HTMLInputElement>('input.cortex-numeric-input__value')?.value ?? null
-        }),
-      { timeout: 2000 },
-    )
-    // Value is the numeric string — 8 from md (SPACING_PRESETS md=8px)
-    .toBe(String(mdValuePx))
+  // No list rows present.
+  const rowCount = await page.evaluate(() => {
+    const host = document.querySelector('[data-cortex-host]')
+    const root = host && (host as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot
+    if (!root) return 0
+    return root.querySelectorAll('.cortex-token-preset-popover__list-row').length
+  })
+  expect(rowCount).toBe(0)
+
+  // Empty-state title + hint copy is visible.
+  const titleText = await page.evaluate(() => {
+    const host = document.querySelector('[data-cortex-host]')
+    const root = host && (host as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot
+    if (!root) return null
+    return root.querySelector('.cortex-token-preset-popover__empty-state-title')?.textContent ?? null
+  })
+  expect(titleText).toBe('No design tokens detected')
 })
 
 // =============================================================================

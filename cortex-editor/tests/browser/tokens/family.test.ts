@@ -1,45 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SPACING_PRESETS, matchesSpacingPattern } from '../../../src/browser/tokens/family'
-
-// ── TokenFamily type ────────────────────────────────────────────────────────
-// The union is a compile-time type; structural integrity is verified via the
-// SPACING_PRESETS shape and exhaustiveness patterns below.
-
-// ── SPACING_PRESETS ─────────────────────────────────────────────────────────
-describe('SPACING_PRESETS', () => {
-  it('includes exactly the required named entries in order', () => {
-    const names = SPACING_PRESETS.map((p) => p.name)
-    expect(names).toEqual(['none', 'xs', 'sm', 'md', 'lg', 'xl'])
-  })
-
-  it('is sorted ascending by valuePx', () => {
-    const values = SPACING_PRESETS.map((p) => p.valuePx)
-    const sorted = [...values].sort((a, b) => a - b)
-    expect(values).toEqual(sorted)
-  })
-
-  it('none has valuePx 0', () => {
-    const none = SPACING_PRESETS.find((p) => p.name === 'none')
-    expect(none?.valuePx).toBe(0)
-  })
-
-  // Exact pixel values sourced from --cx-sp-* in styles.css:
-  //   --cx-sp-2: 4px  → xs
-  //   --cx-sp-3: 6px  → sm
-  //   --cx-sp-4: 8px  → md
-  //   --cx-sp-5: 12px → lg
-  //   --cx-sp-6: 16px → xl
-  it.each([
-    ['xs', 4],
-    ['sm', 6],
-    ['md', 8],
-    ['lg', 12],
-    ['xl', 16],
-  ] as const)('%s has valuePx %i (matching --cx-sp-* scale)', (name, expected) => {
-    const preset = SPACING_PRESETS.find((p) => p.name === name)
-    expect(preset?.valuePx).toBe(expected)
-  })
-})
+import { matchesSpacingPattern } from '../../../src/browser/tokens/family'
 
 // ── matchesSpacingPattern ────────────────────────────────────────────────────
 // The function is case-sensitive — CSS custom property names are case-sensitive

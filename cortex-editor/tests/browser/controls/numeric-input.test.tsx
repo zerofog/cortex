@@ -353,30 +353,30 @@ describe('NumericInput', () => {
       expect(container.querySelector('.cortex-token-preset-popover')).toBeNull()
     })
 
-    it('onPick routes through onChange with the selected valuePx', async () => {
+    it('onPick routes through onChange with the selected token valuePx', async () => {
       const { onChange, input } = setupWithTokens({ tokenFamily: 'spacing' })
       input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
 
-      // Wait for popover to appear before looking for chip
+      // Wait for popover to appear before looking for token row
       await vi.waitFor(() => {
         expect(container.querySelector('.cortex-token-preset-popover')).not.toBeNull()
       }, { timeout: 500 })
 
-      const mdChip = [...container.querySelectorAll('.cortex-token-preset-popover__chip')]
-        .find(b => b.textContent?.includes('md')) as HTMLButtonElement | undefined
-      // md preset = 8px
-      expect(mdChip).not.toBeUndefined()
-      mdChip!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      // First MOCK_TOKEN: --spacing-sm = 8px
+      const smRow = [...container.querySelectorAll('.cortex-token-preset-popover__list-row')]
+        .find(r => r.textContent?.includes('--spacing-sm')) as HTMLButtonElement | undefined
+      expect(smRow).not.toBeUndefined()
+      smRow!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
 
       await vi.waitFor(() => {
         expect(onChange).toHaveBeenCalledWith(8)
       }, { timeout: 500 })
     })
 
-    it('chip mousedown is preventDefault — typed value does not phantom-commit before pick', async () => {
-      // Regression: clicking a chip after typing fired onChange twice — once for the typed
-      // value (from blur on mousedown's focus shift) and once for the picked value.
-      // Fix in TokenPresetPopover: onMouseDown={e => e.preventDefault()} on chip buttons
+    it('row mousedown is preventDefault — typed value does not phantom-commit before pick', async () => {
+      // Regression: clicking a token row after typing fired onChange twice — once for the
+      // typed value (from blur on mousedown's focus shift) and once for the picked value.
+      // Fix in TokenPresetPopover: onMouseDown={e => e.preventDefault()} on row buttons
       // keeps focus on the input so handleBlur never runs before onPick.
       const { onChange, input } = setupWithTokens({ tokenFamily: 'spacing' })
       input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
@@ -385,22 +385,22 @@ describe('NumericInput', () => {
         expect(container.querySelector('.cortex-token-preset-popover')).not.toBeNull()
       }, { timeout: 500 })
 
-      const mdChip = [...container.querySelectorAll('.cortex-token-preset-popover__chip')]
-        .find(b => b.textContent?.includes('md')) as HTMLButtonElement | undefined
-      expect(mdChip).not.toBeUndefined()
+      const smRow = [...container.querySelectorAll('.cortex-token-preset-popover__list-row')]
+        .find(r => r.textContent?.includes('--spacing-sm')) as HTMLButtonElement | undefined
+      expect(smRow).not.toBeUndefined()
 
-      // User typed a value before clicking the chip — sets userTypedRef so blur would commit.
+      // User typed a value before clicking the row — sets userTypedRef so blur would commit.
       input.value = '5'
       input.dispatchEvent(new Event('input', { bubbles: true }))
 
-      // Mousedown on the chip MUST be preventDefault — otherwise the input loses focus,
+      // Mousedown on the row MUST be preventDefault — otherwise the input loses focus,
       // handleBlur fires, and onChange(5) commits before onPick fires.
       const mousedown = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
-      mdChip!.dispatchEvent(mousedown)
+      smRow!.dispatchEvent(mousedown)
       expect(mousedown.defaultPrevented).toBe(true)
 
-      // Pick still routes through onChange exactly once with the canonical valuePx.
-      mdChip!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      // Pick still routes through onChange exactly once with the token's valuePx.
+      smRow!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
       await vi.waitFor(() => {
         expect(onChange).toHaveBeenCalledWith(8)
       }, { timeout: 500 })
@@ -415,15 +415,28 @@ describe('NumericInput', () => {
         expect(container.querySelector('.cortex-token-preset-popover')).not.toBeNull()
       }, { timeout: 500 })
 
-      const mdChip = container.querySelector('.cortex-token-preset-popover__chip') as HTMLButtonElement
-      mdChip.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      const firstRow = container.querySelector('.cortex-token-preset-popover__list-row') as HTMLButtonElement
+      firstRow.dispatchEvent(new MouseEvent('click', { bubbles: true }))
 
       await vi.waitFor(() => {
         expect(container.querySelector('.cortex-token-preset-popover')).toBeNull()
       }, { timeout: 500 })
     })
 
-    it('project tokens from context appear in the popover bottom zone', async () => {
+    it('renders empty state when no project tokens are detected', async () => {
+      const { input } = setupWithTokens({ tokenFamily: 'spacing' }, [])
+      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+
+      await vi.waitFor(() => {
+        expect(container.querySelector('.cortex-token-preset-popover')).not.toBeNull()
+      }, { timeout: 500 })
+
+      // No rows; the empty-state block is shown instead.
+      expect(container.querySelectorAll('.cortex-token-preset-popover__list-row')).toHaveLength(0)
+      expect(container.querySelector('.cortex-token-preset-popover__empty-state')).not.toBeNull()
+    })
+
+    it('project tokens from context appear as popover rows', async () => {
       const { input } = setupWithTokens({ tokenFamily: 'spacing' })
       input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
 

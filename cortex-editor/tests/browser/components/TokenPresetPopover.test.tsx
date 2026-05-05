@@ -6,7 +6,6 @@ import {
   TokenPresetPopover,
   type TokenPresetPopoverProps,
 } from '../../../src/browser/components/controls/TokenPresetPopover.js'
-import { SPACING_PRESETS } from '../../../src/browser/tokens/family.js'
 import type { SpacingToken } from '../../../src/core/tailwind-resolver.js'
 import {
   hasOpenPopover,
@@ -46,7 +45,6 @@ function mountPopover(props: Partial<TokenPresetPopoverProps> = {}): HTMLDivElem
   return mount(
     <TokenPresetPopover
       anchorRef={anchorRef}
-      presets={SPACING_PRESETS}
       tokens={PROJECT_TOKENS}
       onPick={() => {}}
       onDismiss={() => {}}
@@ -57,26 +55,7 @@ function mountPopover(props: Partial<TokenPresetPopoverProps> = {}): HTMLDivElem
 
 const flushEffects = () => new Promise<void>(r => setTimeout(r, 10))
 
-describe('TokenPresetPopover — top zone (canonical chips)', () => {
-  it('renders 6 chips for SPACING_PRESETS', () => {
-    const root = mountPopover()
-    const chips = root.querySelectorAll('button.cortex-token-preset-popover__chip')
-    expect(chips).toHaveLength(6)
-  })
-
-  it.each(SPACING_PRESETS.map((p) => [p.name, p.valuePx] as const))(
-    'chip "%s" displays name and %dpx value',
-    (name, valuePx) => {
-      const root = mountPopover()
-      const chips = Array.from(root.querySelectorAll('button.cortex-token-preset-popover__chip'))
-      const target = chips.find((c) => c.querySelector('.cortex-token-preset-popover__chip-name')?.textContent === name)
-      expect(target).not.toBeUndefined()
-      expect(target?.querySelector('.cortex-token-preset-popover__chip-value')?.textContent).toBe(`${valuePx}px`)
-    },
-  )
-})
-
-describe('TokenPresetPopover — bottom zone (project tokens)', () => {
+describe('TokenPresetPopover — token rows', () => {
   it('renders one row per token when tokens is non-empty', () => {
     const root = mountPopover()
     const rows = root.querySelectorAll('button.cortex-token-preset-popover__list-row')
@@ -91,41 +70,51 @@ describe('TokenPresetPopover — bottom zone (project tokens)', () => {
     expect(first?.querySelector('.cortex-token-preset-popover__list-name')?.textContent).toBe('--spacing-sm')
     expect(first?.querySelector('.cortex-token-preset-popover__list-value')?.textContent).toBe('8px')
   })
+})
 
-  it('hides the bottom zone and divider when tokens is empty', () => {
+describe('TokenPresetPopover — empty state', () => {
+  it('renders empty-state title + hint when tokens is empty', () => {
+    const root = mountPopover({ tokens: [] })
+    const empty = root.querySelector('.cortex-token-preset-popover__empty-state')
+    expect(empty).not.toBeNull()
+    expect(root.querySelector('.cortex-token-preset-popover__empty-state-title')?.textContent).toBe(
+      'No design tokens detected',
+    )
+    expect(root.querySelector('.cortex-token-preset-popover__empty-state-hint')?.textContent ?? '').toMatch(
+      /Add\s+--spacing-\*\s+to your CSS/,
+    )
+  })
+
+  it('does NOT render the list zone when tokens is empty', () => {
     const root = mountPopover({ tokens: [] })
     expect(root.querySelector('.cortex-token-preset-popover__list')).toBeNull()
-    expect(root.querySelector('.cortex-token-preset-popover__divider')).toBeNull()
     expect(root.querySelectorAll('button.cortex-token-preset-popover__list-row')).toHaveLength(0)
   })
 
-  it('shows divider when tokens is non-empty', () => {
+  it('does NOT render the empty-state when tokens is non-empty', () => {
     const root = mountPopover()
-    expect(root.querySelector('.cortex-token-preset-popover__divider')).not.toBeNull()
+    expect(root.querySelector('.cortex-token-preset-popover__empty-state')).toBeNull()
   })
 })
 
 describe('TokenPresetPopover — onPick', () => {
-  it('clicking a chip fires onPick with source: "canonical"', () => {
-    let picked: TokenPresetPopoverProps['onPick'] extends (c: infer C) => void ? C : never = null!
-    const root = mountPopover({ onPick: (c) => { picked = c } })
-    const chips = root.querySelectorAll('button.cortex-token-preset-popover__chip')
-    ;(chips[1] as HTMLButtonElement).click()
-    expect(picked).not.toBeNull()
-    expect(picked.source).toBe('canonical')
-    expect(picked.name).toBe(SPACING_PRESETS[1]?.name)
-    expect(picked.valuePx).toBe(SPACING_PRESETS[1]?.valuePx)
-  })
-
-  it('clicking a list row fires onPick with source: "project"', () => {
-    let picked: { name: string; valuePx: number; source: 'canonical' | 'project' } | null = null
+  it('clicking a list row fires onPick with the resolver source preserved', () => {
+    let picked: { name: string; valuePx: number; source: SpacingToken['source'] } | null = null
     const root = mountPopover({ onPick: (c) => { picked = c } })
     const rows = root.querySelectorAll('button.cortex-token-preset-popover__list-row')
     ;(rows[0] as HTMLButtonElement).click()
     expect(picked).not.toBeNull()
-    expect(picked!.source).toBe('project')
+    expect(picked!.source).toBe('css-variable')
     expect(picked!.name).toBe('--spacing-sm')
     expect(picked!.valuePx).toBe(8)
+  })
+
+  it('row mousedown is preventDefault — keeps focus on input so click commits before blur', () => {
+    const root = mountPopover()
+    const row = root.querySelector('button.cortex-token-preset-popover__list-row') as HTMLButtonElement
+    const mousedown = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+    row.dispatchEvent(mousedown)
+    expect(mousedown.defaultPrevented).toBe(true)
   })
 })
 
@@ -143,7 +132,7 @@ describe('TokenPresetPopover — dismiss', () => {
     const root = mountPopover({ onDismiss: () => { dismissed++ } })
     await flushEffects()
 
-    ;(root.querySelector('button.cortex-token-preset-popover__chip') as HTMLButtonElement).dispatchEvent(
+    ;(root.querySelector('button.cortex-token-preset-popover__list-row') as HTMLButtonElement).dispatchEvent(
       new MouseEvent('mousedown', { bubbles: true }),
     )
     expect(dismissed).toBe(0)

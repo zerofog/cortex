@@ -1,7 +1,6 @@
 import type { JSX, RefObject } from 'preact'
 import { useRef, useEffect } from 'preact/hooks'
 import { computePosition, flip, shift, autoUpdate } from '@floating-ui/dom'
-import type { SpacingPreset } from '../../tokens/family.js'
 import type { SpacingToken } from '../../../core/tailwind-resolver.js'
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js'
 
@@ -11,15 +10,13 @@ const PATTERN_BG =
 
 export interface TokenPresetPopoverProps {
   readonly anchorRef: RefObject<Element>
-  readonly presets: readonly SpacingPreset[]
   readonly tokens: readonly SpacingToken[]
-  readonly onPick: (chosen: { name: string; valuePx: number; source: 'canonical' | 'project' }) => void
+  readonly onPick: (chosen: { name: string; valuePx: number; source: SpacingToken['source'] }) => void
   readonly onDismiss: () => void
 }
 
 export function TokenPresetPopover({
   anchorRef,
-  presets,
   tokens,
   onPick,
   onDismiss,
@@ -49,9 +46,7 @@ export function TokenPresetPopover({
         // transient computePosition failure must NOT dismiss the popover —
         // that would close on incidental scroll. Fall back to the anchor's
         // current rect; if the result is off-screen, the next autoUpdate cycle
-        // will retry. (Original M2 finding: raw rect ignores flip/shift, so a
-        // popover near the right edge could render partially off-viewport.
-        // Accepted risk; the dismiss-on-catch alternative breaks click flows.)
+        // will retry.
         console.warn('[cortex] TokenPresetPopover positioning failed:', err instanceof Error ? err.message : err)
         const rect = anchor.getBoundingClientRect()
         if (popoverRef.current) {
@@ -77,43 +72,33 @@ export function TokenPresetPopover({
       class="cortex-token-preset-popover"
       style={{ position: 'fixed' }}
     >
-      <div class="cortex-token-preset-popover__chip-grid">
-        {presets.map((preset) => (
-          <button
-            key={preset.name}
-            type="button"
-            class="cortex-token-preset-popover__chip"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onPick({ name: preset.name, valuePx: preset.valuePx, source: 'canonical' })}
-          >
-            <span class="cortex-token-preset-popover__chip-name">{preset.name}</span>
-            <span class="cortex-token-preset-popover__chip-value">{preset.valuePx}px</span>
-          </button>
-        ))}
-      </div>
-      {tokens.length > 0 && (
-        <>
-          <div class="cortex-token-preset-popover__divider" />
-          <div class="cortex-token-preset-popover__list">
-            {tokens.map((token) => (
-              <button
-                key={token.name}
-                type="button"
-                class="cortex-token-preset-popover__list-row"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => onPick({ name: token.name, valuePx: token.valuePx, source: 'project' })}
-              >
-                <span
-                  class="cortex-token-preset-popover__list-swatch"
-                  style={{ background: PATTERN_BG }}
-                  aria-hidden="true"
-                />
-                <span class="cortex-token-preset-popover__list-name">{token.name}</span>
-                <span class="cortex-token-preset-popover__list-value">{token.valuePx}px</span>
-              </button>
-            ))}
-          </div>
-        </>
+      {tokens.length === 0 ? (
+        <div class="cortex-token-preset-popover__empty-state">
+          <span class="cortex-token-preset-popover__empty-state-title">No design tokens detected</span>
+          <span class="cortex-token-preset-popover__empty-state-hint">
+            Add <code>--spacing-*</code> to your CSS or configure Tailwind.
+          </span>
+        </div>
+      ) : (
+        <div class="cortex-token-preset-popover__list">
+          {tokens.map((token) => (
+            <button
+              key={token.name}
+              type="button"
+              class="cortex-token-preset-popover__list-row"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => onPick({ name: token.name, valuePx: token.valuePx, source: token.source })}
+            >
+              <span
+                class="cortex-token-preset-popover__list-swatch"
+                style={{ background: PATTERN_BG }}
+                aria-hidden="true"
+              />
+              <span class="cortex-token-preset-popover__list-name">{token.name}</span>
+              <span class="cortex-token-preset-popover__list-value">{token.valuePx}px</span>
+            </button>
+          ))}
+        </div>
       )}
     </div>
   )

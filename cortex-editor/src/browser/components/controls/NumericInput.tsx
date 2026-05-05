@@ -1,6 +1,7 @@
 import type { ComponentChildren, JSX } from 'preact'
 import { useState, useRef, useCallback, useEffect, useContext, useMemo } from 'preact/hooks'
-import { type TokenFamily, SPACING_PRESETS, matchesSpacingPattern } from '../../tokens/family.js'
+import { type TokenFamily, matchesSpacingPattern } from '../../tokens/family.js'
+import type { SpacingToken } from '../../../core/tailwind-resolver.js'
 import { SpacingTokensContext } from '../../tokens/TokenContext.js'
 import { TokenPresetPopover } from './TokenPresetPopover.js'
 
@@ -250,15 +251,15 @@ export function NumericInput({
     scrubCleanupRef.current = cleanup
   }, [isEditing, value, onChange, onScrub, onScrubEnd, clampValue])
 
-  const handlePopoverPick = useCallback((chosen: { name: string; valuePx: number; source: 'canonical' | 'project' }) => {
+  const handlePopoverPick = useCallback((chosen: { name: string; valuePx: number; source: SpacingToken['source'] }) => {
     // `name` and `source` are part of the contract for ZF0-1210 (staging-buffer flow
     // surfaces token identity at Apply time) but not consumed by the v1 onChange path.
     //
-    // The chip's onMouseDown preventDefault (TokenPresetPopover) keeps focus on the
-    // input — necessary to prevent the typed-then-pick double-onChange (Step 3f fix).
-    // But that means isEditing stays true after the pick, and the [value, isEditing]
-    // useEffect that normally syncs localValue from value prop is gated. Sync here
-    // explicitly so the input reflects the picked value immediately.
+    // The token row's onMouseDown preventDefault (TokenPresetPopover) keeps focus on
+    // the input — necessary to prevent the typed-then-pick double-onChange (Step 3f
+    // fix). But that means isEditing stays true after the pick, and the [value,
+    // isEditing] useEffect that normally syncs localValue from value prop is gated.
+    // Sync here explicitly so the input reflects the picked value immediately.
     onChange(chosen.valuePx)
     const next = String(chosen.valuePx)
     localValueRef.current = next
@@ -322,7 +323,6 @@ export function NumericInput({
       {popoverOpen && (
         <TokenPresetPopover
           anchorRef={hostRef}
-          presets={SPACING_PRESETS}
           tokens={filteredTokens}
           onPick={handlePopoverPick}
           onDismiss={handlePopoverDismiss}
