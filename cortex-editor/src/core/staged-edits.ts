@@ -161,45 +161,81 @@ export function isValidPendingEdit(value: unknown): value is PendingEdit {
 
 /** Per-id result item produced by applyEditsCore. */
 export type ApplyEditResult =
+  | { intentId: string; status: 'applied'; mechanism: 'tailwind' | 'css-module' | 'inline-style' }
   | { intentId: string; status: 'needs-source-edit'; intent: PendingEdit; reason: string }
   | { intentId: string; status: 'failed'; error: string }
 
 /** Build the per-id result list for cortex_apply_edits.
  *
- *  ZF0-1464 deferral: production routes ALL found intents to Claude's Edit tool
- *  via 'needs-source-edit' (no deterministic-apply path yet). Missing intents
- *  return failed-not-found. Input order is preserved.
+ *  Routes each intent through EditPipeline for deterministic apply. Intents
+ *  handled directly by a rewriter (Tailwind, CSS Modules, inline-style) resolve
+ *  as 'applied' with the mechanism name. Intents that the pipeline cannot
+ *  rewrite deterministically resolve as 'needs-source-edit' with guidance for
+ *  Claude to apply via the Edit tool. Missing intentIds resolve as 'failed'.
+ *  Input order is preserved via Promise.all.
  *
- *  Why no deterministic-apply path here: EditPipeline.handleEdit() returns
- *  void and communicates results back via channel.send({ type: 'edit_status',
- *  ... }) asynchronously. There is no synchronous return-value API for
- *  "applied vs needs-source-edit", so the RPC handler can't observe pipeline
- *  outcomes within a single response. ZF0-1464 tracks a promise-based
- *  EditPipeline API that returns { status: 'applied' | 'needs-source-edit'
- *  | 'failed' } directly, after which deterministic intents would route
- *  through it here.
+ *  On 'applied': cache.remove([intentId]) is called immediately so the browser
+ *  canonical buffer and server-side StagedEditsCache stay in sync (AC3).
  *
- *  Extracted as a pure function (cache passed in) so its contract can be
- *  unit-tested without booting a full CortexSession — the test file imports
- *  this directly rather than mocking the RPC handler. This avoids the
- *  shadow-copy hazard (cortex CLAUDE.md test rule #1) for criterion 3 of
- *  ZF0-1452. */
-export function applyEditsCore(
-  cache: { getById(id: string): PendingEdit | null },
+ *  Extracted as an injectable function (cache and pipeline passed in) so its
+ *  contract can be unit-tested without booting a full CortexSession — the test
+ *  file imports this directly rather than mocking the RPC handler. This avoids
+ *  the shadow-copy hazard (cortex CLAUDE.md test rule #1).
+ *
+ *  timeoutMs is forwarded to pipeline.registerApplyResolver; for tests, pass a
+ *  short value (e.g. 100ms) to avoid blocking the test suite. */
+export async function applyEditsCore(
+  cache: {
+    getById(id: string): PendingEdit | null
+    remove(intentIds: readonly string[]): void
+  },
   intentIds: readonly string[],
-): ApplyEditResult[] {
-  return intentIds.map((intentId) => {
-    const intent = cache.getById(intentId)
-    if (!intent) {
-      return { intentId, status: 'failed', error: 'intent not found' }
-    }
-    return {
-      intentId,
-      status: 'needs-source-edit',
-      intent,
-      reason: 'Apply via source edit: use the Edit tool on the file at intent.source to set the property to intent.value',
-    }
-  })
+  pipeline: import('./edit-pipeline.js').EditPipeline,
+  timeoutMs = 10_000,
+): Promise<ApplyEditResult[]> {
+  return Promise.all(
+    intentIds.map(async (intentId) => {
+      const intent = cache.getById(intentId)
+      if (!intent) {
+        return { intentId, status: 'failed' as const, error: 'intent not found' }
+      }
+
+      // Synthetic editId — unique prefix avoids clash with browser-generated editIds.
+      const editId = `apply-${intentId}`
+      const resultPromise = pipeline.registerApplyResolver(editId, timeoutMs)
+
+      // Convert PendingEdit -> EditRequest. PendingEdit lacks elementSelector;
+      // pass '' for paths that don't need it. Paths that DO need it (some
+      // CSS-Modules / inline-style cases) will gracefully fall back to
+      // 'failed' / 'needs-source-edit' via the EditResult enum.
+      pipeline.handleEdit({
+        editId,
+        source: intent.source,
+        property: intent.property,
+        value: intent.value,
+        elementSelector: '',
+        scope: intent.scope,
+        instanceSources: intent.instanceSources,
+      })
+
+      const result = await resultPromise
+
+      if (result.status === 'applied') {
+        cache.remove([intentId]) // AC3 — remove from buffer on deterministic apply
+        return { intentId, status: 'applied' as const, mechanism: result.mechanism }
+      }
+      if (result.status === 'needs-source-edit') {
+        return {
+          intentId,
+          status: 'needs-source-edit' as const,
+          intent,
+          reason: result.reason ?? 'Apply via source edit: use the Edit tool on the file at intent.source to set the property to intent.value',
+        }
+      }
+      // result.status === 'failed' — including timeouts (reason_code: 'apply_timeout')
+      return { intentId, status: 'failed' as const, error: result.reason }
+    }),
+  )
 }
 
 // ---------------------------------------------------------------------------

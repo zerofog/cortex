@@ -381,11 +381,10 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
     }
 
     case 'applyEdits': {
-      // params.intentIds is schema-validated as string[] before handleRPC is called.
       const intentIds = params.intentIds as string[]
-      // ZF0-1464 deferral: production routes all found intents to Claude's Edit
-      // tool. See applyEditsCore docstring for the full rationale.
-      return { results: applyEditsCore(currentSession!.stagedEdits, intentIds) }
+      // Returns Promise<{results}> — handleRPC's caller awaits via Promise.resolve.
+      return applyEditsCore(currentSession!.stagedEdits, intentIds, currentSession!.pipeline!)
+        .then(results => ({ results }))
     }
 
     case 'discardEdits': {
@@ -1251,7 +1250,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
 
           ws.on('pong', () => { currentSession?.aliveFlags.set(ws, true) })
 
-          ws.on('message', (raw) => {
+          ws.on('message', async (raw) => {
             let parsed: unknown
             try { parsed = JSON.parse(raw.toString()) } catch { return }
             if (typeof parsed !== 'object' || parsed === null || !('type' in parsed)) return
@@ -1309,7 +1308,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
                   }
                   params = schemaResult.data as Record<string, unknown>
                 }
-                const result = handleRPC(method, params)
+                const result = await Promise.resolve(handleRPC(method, params))
                 try {
                   ws.send(JSON.stringify({ type: 'cortex-rpc-result', requestId, result }))
                 } catch (sendErr) {
