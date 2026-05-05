@@ -1,5 +1,6 @@
 import type { PendingEdit } from '../adapters/types.js'
 import { pendingEditSchema, MAX_FULL_SYNC_SIZE } from '../schemas/pending-edit.js'
+import type { EditPipeline } from './edit-pipeline.js'
 
 // MAX_FULL_SYNC_SIZE — single source of truth lives in schemas/pending-edit.ts
 // (kept there so the schema can enforce the cap at the envelope boundary
@@ -190,7 +191,7 @@ export async function applyEditsCore(
     remove(intentIds: readonly string[]): void
   },
   intentIds: readonly string[],
-  pipeline: import('./edit-pipeline.js').EditPipeline,
+  pipeline: EditPipeline,
   timeoutMs = 10_000,
 ): Promise<ApplyEditResult[]> {
   return Promise.all(

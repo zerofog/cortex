@@ -382,8 +382,21 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
 
     case 'applyEdits': {
       const intentIds = params.intentIds as string[]
+      // Race-during-init guard: pipeline is constructed asynchronously after
+      // detection + Tailwind config resolution complete. Mirror the pattern
+      // at vite.ts:1041-1054 — friendly fallback per intent so Claude can
+      // surface a useful message instead of a generic TypeError.
+      if (!currentSession!.pipeline) {
+        return {
+          results: intentIds.map((intentId) => ({
+            intentId,
+            status: 'failed' as const,
+            error: 'Editor is still initializing. Please try again.',
+          })),
+        }
+      }
       // Returns Promise<{results}> — handleRPC's caller awaits via Promise.resolve.
-      return applyEditsCore(currentSession!.stagedEdits, intentIds, currentSession!.pipeline!)
+      return applyEditsCore(currentSession!.stagedEdits, intentIds, currentSession!.pipeline)
         .then(results => ({ results }))
     }
 

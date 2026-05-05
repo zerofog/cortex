@@ -19,6 +19,7 @@ import { isPathInsideRoot, requireRealpathInsideRoot } from '../../src/adapters/
 import { applyEditsCore, StagedEditsCache } from '../../src/core/staged-edits.js'
 import type { ApplyEditResult } from '../../src/core/staged-edits.js'
 import { EditPipeline } from '../../src/core/edit-pipeline.js'
+import type { EditResult } from '../../src/core/edit-pipeline.js'
 import { makeEdit } from '../core/helpers.js'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -813,36 +814,12 @@ function makeInlinePipeline(inlineResult: { success: boolean; reason?: string } 
   })
 }
 
-function makeTailwindPipeline(): EditPipeline {
-  return new EditPipeline({
-    channel: stubChannel() as never,
-    resolver: { findClass: (prop: string, val: string) => prop === 'padding-top' && val === '16px' ? 'pt-4' : null, getSnapPoints: () => [] } as never,
-    rewriter: {
-      rewrite: async () => ({ success: true, filePath: '/tmp/proj/App.tsx', oldContent: 'old', newContent: 'new' }),
-      rewriteClassList: vi.fn(),
-      dispose: () => {},
-    } as never,
-    verifier: { trackEdit: () => {}, onHMRUpdate: () => {}, dispose: () => {} } as never,
-    writeFile: async () => {},
-    projectRoot: '/tmp/proj',
-  })
-}
-
-function makeCSSModulesPipeline(): EditPipeline {
-  return new EditPipeline({
-    channel: stubChannel() as never,
-    resolver: { findClass: () => null, getSnapPoints: () => [] } as never,
-    rewriter: { rewrite: async () => ({ success: false, filePath: '', reason: 'no tailwind' }), dispose: () => {} } as never,
-    verifier: { trackEdit: () => {}, onHMRUpdate: () => {}, dispose: () => {} } as never,
-    writeFile: async () => {},
-    projectRoot: '/tmp/proj',
-    cssModulesRewriter: {
-      rewrite: async () => ({ success: true, filePath: '/tmp/proj/src/Hero.module.css', oldContent: '.hero {}', newContent: '.hero { color: red; }' }),
-      dispose: () => {},
-    } as never,
-    detector: { hasCSSModules: true, hasTailwind: false },
-  })
-}
+// makeTailwindPipeline + makeCSSModulesPipeline removed — the C3-mechanism
+// test now uses stub pipelines (see comment at the it.each block) because
+// PendingEdit lacks the EditRequest fields (currentClass for Tailwind,
+// cssMapping for CSS Modules) that those happy paths require. End-to-end
+// Tailwind / CSS Modules behavior is exercised at the EditPipeline layer
+// (tests/core/edit-pipeline-resolver.test.ts Test 2).
 
 // ── [EDGE] Input order preserved across applied/needs-source-edit/failed ──────
 
@@ -912,48 +889,73 @@ describe('applyEditsCore — C3-mechanism (AC1)', () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
 
+  // Test the staged-edits.ts:225 mapping in isolation (the production
+  // mechanism: result.mechanism wiring). Using stub pipelines is the right
+  // layer here — PendingEdit deliberately lacks the EditRequest fields that
+  // EditPipeline's Tailwind (currentClass) and CSS-Modules (cssMapping) paths
+  // need to terminate with mechanism set, so a real pipeline can't drive all
+  // three mechanisms via this entry point. The mechanism EMISSION contract per
+  // writer is owned by tests/core/edit-pipeline-resolver.test.ts Test 2 —
+  // this test owns the FORWARDING from EditResult.mechanism to
+  // ApplyEditResult.mechanism + the AC3 cache.remove() semantics.
   it.each([
-    ['tailwind', 'tailwind'] as const,
-    ['css-module', 'css-module'] as const,
-    ['inline-style', 'inline-style'] as const,
-  ])('mechanism=%s: applyEditsCore forwards mechanism correctly', async (mechanism, _label) => {
+    'tailwind' as const,
+    'css-module' as const,
+    'inline-style' as const,
+  ])('mechanism=%s: applyEditsCore forwards EditResult.mechanism through to ApplyEditResult + removes from cache', async (mechanism) => {
     const cache = new StagedEditsCache()
+    cache.append(makeEdit({ intentId: 'i' }))
 
-    let pipeline: EditPipeline
-    let intentId: string
+    const stubPipeline = {
+      registerApplyResolver: () => Promise.resolve<EditResult>({ status: 'applied', mechanism }),
+      handleEdit: () => {},
+    } as unknown as EditPipeline
 
-    if (mechanism === 'tailwind') {
-      intentId = 'tw-intent'
-      // Tailwind path: currentClass must be set so pipeline uses direct oldToken path
-      cache.append(makeEdit({ intentId, property: 'padding-top', value: '16px', source: '/tmp/proj/App.tsx:2:10', scope: undefined }))
-      pipeline = makeTailwindPipeline()
-      // Inject currentClass via handleEdit override — we use scope:undefined (no inline-style path)
-      // The Tailwind pipeline resolves pt-4 for padding-top:16px
-    } else if (mechanism === 'css-module') {
-      intentId = 'css-intent'
-      cache.append(makeEdit({ intentId, property: 'padding-top', value: '16px', source: '/tmp/proj/App.tsx:2:10', scope: 'all' }))
-      pipeline = makeCSSModulesPipeline()
-    } else {
-      intentId = 'inline-intent'
-      cache.append(makeEdit({ intentId, property: 'color', value: 'red', source: '/tmp/proj/Hero.tsx:5:3', scope: 'instance' }))
-      pipeline = makeInlinePipeline({ success: true })
-    }
+    const results = await applyEditsCore(cache, ['i'], stubPipeline, 100)
 
-    const resultsPromise = applyEditsCore(cache, [intentId], pipeline, 5_000)
-    await vi.runAllTimersAsync()
-    const results = await resultsPromise
+    expect(results).toEqual([{ intentId: 'i', status: 'applied', mechanism }])
+    expect(cache.getById('i')).toBeNull() // AC3
+  })
+})
 
-    // CSS Modules without cssMapping → falls through to Tailwind → fails (no token), then inline-style
-    // We accept 'applied' for tailwind and inline-style; css-module with no cssMapping falls to failed
-    // For the css-module test, we just verify the pipeline resolves (may be failed without cssMapping).
-    // The mechanism field is verified only when status === 'applied'.
-    if (results[0].status === 'applied') {
-      expect((results[0] as Extract<ApplyEditResult, { status: 'applied' }>).mechanism).toBe(mechanism)
-    }
-    // Always verify the intentId echoes correctly
-    expect(results[0].intentId).toBe(intentId)
+// ── [needs-source-edit] applyEditsCore production code path mapping ──────────
+// Pins the staged-edits.ts:227-234 branch — the EDGE test now exercises
+// applied + applied + failed (no aiWriter stub means no needs-source-edit), so
+// without this test the production needs-source-edit mapping is unverified.
 
-    pipeline.dispose()
+describe('applyEditsCore — needs-source-edit production code path', () => {
+  it('maps EditResult.needs-source-edit to ApplyEditResult.needs-source-edit; cache NOT removed', async () => {
+    const cache = new StagedEditsCache()
+    const pendingEdit = makeEdit({
+      intentId: 'i-source-edit',
+      source: '/tmp/proj/Foo.tsx:3:7',
+      property: 'color',
+      value: 'red',
+    })
+    cache.append(pendingEdit)
+
+    // Stub pipeline whose resolver short-circuits to needs-source-edit. We test
+    // the staged-edits.ts mapping in isolation (not the full handleEdit flow);
+    // the EditPipeline-side needs-source-edit emission is exercised by
+    // edit-pipeline-resolver.test.ts (the AI-writer terminal site).
+    const stubPipeline = {
+      registerApplyResolver: () => Promise.resolve<EditResult>({
+        status: 'needs-source-edit',
+        reason: 'test fallback reason',
+      }),
+      handleEdit: () => {},
+    } as unknown as EditPipeline
+
+    const results = await applyEditsCore(cache, ['i-source-edit'], stubPipeline, 100)
+
+    expect(results).toHaveLength(1)
+    const r = results[0] as Extract<ApplyEditResult, { status: 'needs-source-edit' }>
+    expect(r.status).toBe('needs-source-edit')
+    expect(r.intentId).toBe('i-source-edit')
+    expect(r.intent).toEqual(pendingEdit)
+    expect(r.reason).toBe('test fallback reason')
+    // AC3 inverse: cache MUST NOT be removed on needs-source-edit
+    expect(cache.getById('i-source-edit')).not.toBeNull()
   })
 })
 
