@@ -483,12 +483,34 @@ export class TailwindResolver {
       throw new Error(`projectRoot must be an absolute path, got: ${projectRoot}`)
     }
 
+    // Detect the user's actual root font-size before resolving rem-based tokens.
+    // Default 16px is wrong for projects using `html { font-size: 62.5% }` (the
+    // popular 1rem=10px convention) or any other custom root size. Without this,
+    // the popover's "16px" label for a `--spacing-md: 1rem` token would be off
+    // from the actual rendered value (Codex /review P1 #1).
+    const detectedRemPx = await TailwindResolver.detectRootFontSize(projectRoot)
+
     const tokens: SpacingToken[] = []
     const seenNames = new Set<string>()
+    // Wire schema bounds spacingTokens to .max(500); cap at the resolver too so
+    // a 501+ token project doesn't silently fail schema validation downstream.
+    const MAX_TOKENS = 500
+    let truncationWarned = false
 
-    // Helper to add a token only if the name hasn't been seen yet.
+    // Helper to add a token only if the name hasn't been seen yet AND the value
+    // is finite + non-negative. parseFloat('Infinitypx') returns Infinity, which
+    // bypasses Number.isNaN; explicit isFinite + ≥0 gate before addToken catches
+    // malformed source values like `--spacing-bomb: Infinitypx` or `-1rem`.
     function addToken(token: SpacingToken): void {
+      if (!Number.isFinite(token.valuePx) || token.valuePx < 0) return
       if (seenNames.has(token.name)) return
+      if (tokens.length >= MAX_TOKENS) {
+        if (!truncationWarned) {
+          console.warn(`[cortex] spacing-token resolver capped at ${MAX_TOKENS} entries — additional tokens dropped. Reduce your design system or file a follow-up ticket if you need more.`)
+          truncationWarned = true
+        }
+        return
+      }
       seenNames.add(token.name)
       tokens.push(token)
     }
@@ -527,7 +549,6 @@ export class TailwindResolver {
         const resolved = resolveConfig(config)
         const spacing = resolved.theme?.spacing
         if (spacing && typeof spacing === 'object') {
-          const remPx = 16 // v3 default
           for (const [key, value] of Object.entries(spacing)) {
             // v3 default theme always carries DEFAULT (alias for the base step) and
             // sometimes px (literal '1px'). Neither belongs in the popover — they
@@ -535,7 +556,7 @@ export class TailwindResolver {
             if (key === 'DEFAULT' || key === 'px') continue
             const name = `--spacing-${key}`
             if (name.startsWith('--cx-')) continue
-            const px = TailwindResolver.parseToPx(value, remPx)
+            const px = TailwindResolver.parseToPx(value, detectedRemPx)
             if (px === null) continue
             addToken({ name, valuePx: px, source: 'tailwind-v3' })
           }
@@ -589,9 +610,19 @@ export class TailwindResolver {
         entries = []
       }
 
-      const cssFiles = entries.filter(e =>
+      let cssFiles = entries.filter(e =>
         e.endsWith('.css') && !e.split(sep).some(seg => EXCLUDED_SEGS.includes(seg)),
       )
+
+      // File-count cap: a monorepo with thousands of CSS files would stall the
+      // hello handshake (the spacingTokensPromise blocks Promise.all alongside
+      // the other 3 resolvers). Cap at 200; warn once if truncated. Common
+      // case: a project has well under 50 CSS files outside node_modules/dist.
+      const MAX_CSS_FILES = 200
+      if (cssFiles.length > MAX_CSS_FILES) {
+        console.warn(`[cortex] CSS scan truncated: ${cssFiles.length} matching files, scanning first ${MAX_CSS_FILES} only.`)
+        cssFiles = cssFiles.slice(0, MAX_CSS_FILES)
+      }
 
       const CSS_VAR_PATTERN = /^--(spacing|sp|gap|space)-/
 
@@ -662,7 +693,7 @@ export class TailwindResolver {
           rule.walkDecls((decl) => {
             if (!CSS_VAR_PATTERN.test(decl.prop)) return
             if (decl.prop.startsWith('--cx-')) return
-            const px = TailwindResolver.parseToPx(decl.value)
+            const px = TailwindResolver.parseToPx(decl.value, detectedRemPx)
             if (px === null) return
             addToken({ name: decl.prop, valuePx: px, source: 'css-variable' })
           })
@@ -680,6 +711,75 @@ export class TailwindResolver {
     }
 
     return tokens.length > 0 ? tokens : null
+  }
+
+  /**
+   * Detect the user's `:root` (or `html`) font-size to compute the correct
+   * rem-to-px conversion. The 16px default is wrong for projects using
+   * `html { font-size: 62.5% }` (the 1rem=10px convention) or any other
+   * custom root size. Returns the detected px value, or 16 as a fallback.
+   *
+   * Bounded scan: reads only top-level `.css` files (non-recursive, max 5).
+   * Re-uses postcss + path imports lazily. Errors silently fall back to 16.
+   */
+  private static async detectRootFontSize(projectRoot: string): Promise<number> {
+    const FALLBACK = 16
+    try {
+      const { readdir, readFile } = await import('node:fs/promises')
+      const { join } = await import('node:path')
+      const postcss = (await import('postcss')).default
+
+      // Top-level .css only — quick scan, the override usually lives in the entry CSS.
+      const entries = await readdir(projectRoot, { withFileTypes: true }) as Array<{ name: string; isFile: () => boolean }>
+      const topLevelCss = entries
+        .filter(e => e.isFile() && e.name.endsWith('.css'))
+        .slice(0, 5)
+      // Plus common nested entry paths.
+      const candidates = [
+        ...topLevelCss.map(e => e.name),
+        'src/index.css', 'src/main.css', 'src/App.css', 'src/styles.css',
+      ]
+
+      for (const rel of candidates) {
+        let content: string
+        try {
+          content = await readFile(join(projectRoot, rel), 'utf-8')
+        } catch {
+          continue
+        }
+        let root: ReturnType<typeof postcss.parse>
+        try {
+          root = postcss.parse(content)
+        } catch {
+          continue
+        }
+        let detected: number | null = null
+        // Match :root or html selectors with font-size declarations.
+        root.walkRules((rule) => {
+          if (rule.selector !== ':root' && rule.selector !== 'html' && rule.selector !== 'html, body' && rule.selector !== ':root, html') return
+          rule.walkDecls('font-size', (decl) => {
+            const v = decl.value.trim()
+            if (v.endsWith('%')) {
+              const pct = parseFloat(v)
+              if (Number.isFinite(pct)) detected = (pct / 100) * FALLBACK
+            } else if (v.endsWith('px')) {
+              const px = parseFloat(v)
+              if (Number.isFinite(px) && px > 0) detected = px
+            } else if (v.endsWith('rem') || v.endsWith('em')) {
+              // rem on :root is circular; em assumes parent = browser default.
+              const n = parseFloat(v)
+              if (Number.isFinite(n) && n > 0) detected = n * FALLBACK
+            }
+          })
+        })
+        if (detected !== null && Number.isFinite(detected) && detected > 0) {
+          return detected
+        }
+      }
+    } catch {
+      // Any unexpected error → fall back to default.
+    }
+    return FALLBACK
   }
 
   /**

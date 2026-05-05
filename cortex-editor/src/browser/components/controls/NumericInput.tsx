@@ -155,6 +155,11 @@ export function NumericInput({
 
   const handleBlur = useCallback(() => {
     setIsEditing(false)
+    // Tab-out / focus-loss should also dismiss the popover. Without this,
+    // keyboard tabbing through spacing inputs leaves stale popovers mounted
+    // and registered in popover-stack, so subsequent Escape dismisses the
+    // wrong layer (Codex /review P2 #6).
+    setPopoverOpen(false)
     const parsed = parseFloat(localValueRef.current)
     if (isNaN(parsed)) {
       // In mixed state, revert to empty (shows '--' placeholder) instead of
