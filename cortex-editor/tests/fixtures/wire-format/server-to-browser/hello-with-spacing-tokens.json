@@ -1,0 +1,10 @@
+{
+  "type": "hello",
+  "protocolVersion": 1,
+  "sessionId": "sess-abc123",
+  "spacingTokens": [
+    { "name": "--spacing-sm", "valuePx": 8, "source": "tailwind-v4" },
+    { "name": "--spacing-md", "valuePx": 16, "source": "tailwind-v3" },
+    { "name": "--gap-lg", "valuePx": 24, "source": "css-variable" }
+  ]
+}

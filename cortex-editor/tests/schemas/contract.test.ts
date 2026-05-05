@@ -50,6 +50,7 @@ describe('contract: server-to-browser fixtures', () => {
     'server-to-browser/cortex-close.json',
     'server-to-browser/cortex-toggle.json',
     'server-to-browser/hello.json',
+    'server-to-browser/hello-with-spacing-tokens.json',
     'server-to-browser/error-auth-failed.json',
     'server-to-browser/edit-status-done.json',
     'server-to-browser/edit-status-failed.json',

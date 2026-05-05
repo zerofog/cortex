@@ -43,6 +43,7 @@ import { useEditStagingBuffer, createPanelSyncEmitter } from '../hooks/useEditSt
 import type { PendingEdit, SyncEmitter } from '../hooks/useEditStagingBuffer.js'
 import { generateId } from '../uuid.js'
 import { StagingDriftBanner } from './StagingDriftBanner.js'
+import { SpacingTokensContext } from '../tokens/TokenContext.js'
 
 // ── Connection status footer ─────────────────────────────────────────
 
@@ -164,6 +165,10 @@ export interface PanelProps {
   textComponents?: import('../../core/text-components.js').TextComponent[]
   /** Design-system named color chips (token name + browser-ready hex). */
   colorChips?: Array<{ name: string; hex: string }>
+  /** Spacing tokens detected by TailwindResolver (Tailwind v3/v4 + CSS variables).
+   *  `undefined` = not yet received; `[]` = none detected. Sourced from cortex-app
+   *  reducer state — populated by the `hello` handshake at boot. */
+  spacingTokens?: readonly import('../../core/tailwind-resolver.js').SpacingToken[]
 
   activeState?: InteractionState
   hasBefore?: boolean
@@ -235,6 +240,7 @@ export function Panel({
   swatches,
   textComponents,
   colorChips,
+  spacingTokens,
   activeState = 'default',
   hasBefore = false,
   hasAfter = false,
@@ -297,6 +303,11 @@ export function Panel({
   if (syncEmitterRef.current === null && channel) {
     syncEmitterRef.current = createPanelSyncEmitter(channel)
   }
+
+  // Spacing tokens flow in as a prop from cortex-app-reducer state, populated
+  // by the `hello` handshake at boot. Provided to descendants (NumericInput)
+  // via SpacingTokensContext.
+  const resolvedSpacingTokens = spacingTokens ?? []
 
   // Staging buffer for property edits — accumulates browser-side before Apply gesture.
   const buffer = useEditStagingBuffer(syncEmitterRef.current ?? undefined)
@@ -1317,6 +1328,7 @@ export function Panel({
   const elementSourceIsStale = elementSource !== '' && (staleSources?.has(elementSource) ?? false)
 
   return (
+    <SpacingTokensContext.Provider value={resolvedSpacingTokens}>
     <div
       class={panelClasses}
       style={{
@@ -1603,5 +1615,6 @@ export function Panel({
       </div>
       <ConnectionStatusFooter status={connectionStatus} />
     </div>
+    </SpacingTokensContext.Provider>
   )
 }

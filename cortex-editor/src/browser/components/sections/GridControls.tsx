@@ -432,6 +432,7 @@ export function GridControls({
             tooltip="Gap (row-gap + column-gap)"
             min={0}
             mixed={mixedProperties?.has('row-gap') || mixedProperties?.has('column-gap')}
+            tokenFamily="spacing"
             onChange={handleGapChange}
             onScrub={handleGapScrub}
             onScrubEnd={handleGapScrubEnd}
@@ -445,6 +446,7 @@ export function GridControls({
               tooltip="Column gap"
               min={0}
               mixed={mixedProperties?.has('column-gap')}
+              tokenFamily="spacing"
               onChange={handleColumnGapChange}
               onScrub={handleColumnGapScrub}
               onScrubEnd={handleColumnGapScrubEnd}
@@ -456,6 +458,7 @@ export function GridControls({
               tooltip="Row gap"
               min={0}
               mixed={mixedProperties?.has('row-gap')}
+              tokenFamily="spacing"
               onChange={handleRowGapChange}
               onScrub={handleRowGapScrub}
               onScrubEnd={handleRowGapScrubEnd}

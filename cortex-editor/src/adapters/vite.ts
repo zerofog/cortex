@@ -846,7 +846,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       let realRootCache: string | null = null
 
       // Resolve Tailwind design-system data at server start — promises awaited in hotHandler.
-      // All three run in parallel; hello ships as fast as the slowest resolver.
+      // All four run in parallel; hello ships as fast as the slowest resolver.
       const swatchesPromise = TailwindResolver.resolveColors(config.root).catch((err) => {
         console.warn('[cortex] Tailwind color resolution failed:', err instanceof Error ? err.message : err)
         return null
@@ -857,6 +857,14 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       })
       const textComponentsPromise = TailwindResolver.resolveTextComponents(config.root).catch((err) => {
         console.warn('[cortex] Tailwind text component resolution failed:', err instanceof Error ? err.message : err)
+        return null
+      })
+      // The .catch here is defensive — resolveSpacingTokens only rejects on
+      // programmer error (non-absolute config.root, which Vite always provides
+      // as absolute). Internal failures are already swallowed inside the
+      // resolver. Kept symmetric with the other three resolver promises.
+      const spacingTokensPromise = TailwindResolver.resolveSpacingTokens(config.root).catch((err) => {
+        console.warn('[cortex] Tailwind spacing token resolution failed:', err instanceof Error ? err.message : err)
         return null
       })
 
@@ -924,8 +932,8 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         // are cached at server boot so repeat responses cost ~nothing.
         if (data.type === 'init' && currentSession!.channel) {
           const channel = currentSession!.channel
-          Promise.all([swatchesPromise, colorChipsPromise, textComponentsPromise])
-            .then(([colors, chips, textComponents]) => {
+          Promise.all([swatchesPromise, colorChipsPromise, textComponentsPromise, spacingTokensPromise])
+            .then(([colors, chips, textComponents, spacingTokens]) => {
               channel.send({
                 type: 'hello',
                 protocolVersion: 1,
@@ -934,6 +942,8 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
                 colorChips: chips && chips.length > 0 ? chips : undefined,
                 textComponents:
                   textComponents && textComponents.length > 0 ? textComponents : undefined,
+                spacingTokens:
+                  spacingTokens && spacingTokens.length > 0 ? spacingTokens : undefined,
               })
             })
             .catch((err) => {

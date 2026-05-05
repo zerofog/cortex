@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { TailwindResolver, flattenColors, normalizeHex, type ResolvedTheme } from '../../src/core/tailwind-resolver.js'
 
 function defaultSpacingTheme() {
@@ -969,5 +969,182 @@ describe('findNearestColor tolerance (±10 for gamut mapping gaps)', () => {
     })
     expect(resolver.findClass('padding-top', '16px')).toBe('pt-4')
     expect(resolver.findClass('padding-top', '17px')).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// TailwindResolver.resolveSpacingTokens
+// ---------------------------------------------------------------------------
+
+// The v3 path imports `tailwindcss/resolveConfig`. tailwindcss isn't installed
+// in cortex-editor, so we mock it as a virtual module. The mock echoes the
+// supplied config back through unchanged — which means whatever `theme.spacing`
+// shape the test fixture provides is exactly what the v3 branch consumes.
+// Real Tailwind would generate the default scale from a bare config, but our
+// behavioral tests pass an explicit theme.spacing map so the assertions remain
+// deterministic and don't depend on Tailwind being a transitive dep.
+vi.mock('tailwindcss/resolveConfig', () => ({
+  default: (config: unknown) => {
+    if (config && typeof config === 'object' && 'theme' in config) {
+      return config
+    }
+    return { theme: {} }
+  },
+}), { virtual: true })
+
+describe('TailwindResolver.resolveSpacingTokens', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const fs = require('node:fs') as typeof import('node:fs')
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const os = require('node:os') as typeof import('node:os')
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const pathMod = require('node:path') as typeof import('node:path')
+
+  let tmpDir: string
+
+  beforeEach(() => {
+    vi.resetModules()
+    tmpDir = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'cortex-spacing-tokens-'))
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  /** Write a file under tmpDir, creating any intermediate directories. */
+  function writeFixture(relativePath: string, content: string): void {
+    const full = pathMod.join(tmpDir, relativePath)
+    fs.mkdirSync(pathMod.dirname(full), { recursive: true })
+    fs.writeFileSync(full, content)
+  }
+
+  it('returns null when no Tailwind config and no spacing CSS variables exist', async () => {
+    // Empty temp dir — no tailwind.config.*, no @import "tailwindcss" CSS, no
+    // spacing-namespaced CSS variables. All three sources should yield nothing.
+    const result = await TailwindResolver.resolveSpacingTokens(tmpDir)
+    expect(result).toBeNull()
+  })
+
+  it('v3 path: surfaces explicit theme.spacing entries with px conversion', async () => {
+    // Write a tailwind.config.cjs with explicit theme.spacing — the virtual
+    // mock echoes this through resolveConfig, so the v3 branch sees it intact.
+    writeFixture('tailwind.config.cjs', `
+      module.exports = {
+        theme: {
+          spacing: {
+            '0': '0px',
+            '1': '0.25rem',
+            '4': '1rem',
+            '8': '2rem',
+            '80': '20rem',
+            'gutter': '12px',
+          },
+        },
+      }
+    `)
+    const result = await TailwindResolver.resolveSpacingTokens(tmpDir)
+    expect(result).not.toBeNull()
+    const byName = new Map(result!.map(t => [t.name, t]))
+    expect(byName.get('--spacing-0')).toEqual({ name: '--spacing-0', valuePx: 0, source: 'tailwind-v3' })
+    expect(byName.get('--spacing-1')).toEqual({ name: '--spacing-1', valuePx: 4, source: 'tailwind-v3' })
+    expect(byName.get('--spacing-4')).toEqual({ name: '--spacing-4', valuePx: 16, source: 'tailwind-v3' })
+    expect(byName.get('--spacing-8')).toEqual({ name: '--spacing-8', valuePx: 32, source: 'tailwind-v3' })
+    expect(byName.get('--spacing-80')).toEqual({ name: '--spacing-80', valuePx: 320, source: 'tailwind-v3' })
+    expect(byName.get('--spacing-gutter')).toEqual({ name: '--spacing-gutter', valuePx: 12, source: 'tailwind-v3' })
+  })
+
+  it('v4 path: canonical singular `--spacing: <base>` generates the multiplier scale', async () => {
+    // Tailwind v4's canonical convention: a singular `--spacing: <base>` in
+    // @theme drives generateSpacingScale. Reusing parseV4Theme captures this
+    // automatically (Finding 1 fix — previously we only walked namespaced
+    // `--spacing-*` and produced zero tokens for canonical v4 projects).
+    writeFixture('src/app.css', `
+      @import "tailwindcss";
+      @theme { --spacing: 0.25rem; }
+    `)
+    const result = await TailwindResolver.resolveSpacingTokens(tmpDir)
+    expect(result).not.toBeNull()
+    const byName = new Map(result!.map(t => [t.name, t]))
+    // generateSpacingScale produces fixed entries plus multipliers
+    expect(byName.get('--spacing-0')).toEqual({ name: '--spacing-0', valuePx: 0, source: 'tailwind-v4' })
+    expect(byName.get('--spacing-px')).toEqual({ name: '--spacing-px', valuePx: 1, source: 'tailwind-v4' })
+    // multiplier 4 × 0.25rem = 1rem = 16px
+    expect(byName.get('--spacing-4')).toEqual({ name: '--spacing-4', valuePx: 16, source: 'tailwind-v4' })
+    // multiplier 16 × 0.25rem = 4rem = 64px
+    expect(byName.get('--spacing-16')).toEqual({ name: '--spacing-16', valuePx: 64, source: 'tailwind-v4' })
+    // multiplier 96 × 0.25rem = 24rem = 384px
+    expect(byName.get('--spacing-96')).toEqual({ name: '--spacing-96', valuePx: 384, source: 'tailwind-v4' })
+  })
+
+  it('css-variable path: matches --spacing-/--space-/--sp-/--gap- prefixes', async () => {
+    // No Tailwind config. PostCSS scans :root for namespaced custom properties.
+    writeFixture('styles/tokens.css', `
+      :root {
+        --spacing-foo: 4px;
+        --sp-bar: 8px;
+        --gap-baz: 16px;
+        --space-qux: 32px;
+      }
+    `)
+    const result = await TailwindResolver.resolveSpacingTokens(tmpDir)
+    expect(result).not.toBeNull()
+    const byName = new Map(result!.map(t => [t.name, t]))
+    expect(byName.get('--spacing-foo')).toEqual({ name: '--spacing-foo', valuePx: 4, source: 'css-variable' })
+    expect(byName.get('--sp-bar')).toEqual({ name: '--sp-bar', valuePx: 8, source: 'css-variable' })
+    expect(byName.get('--gap-baz')).toEqual({ name: '--gap-baz', valuePx: 16, source: 'css-variable' })
+    expect(byName.get('--space-qux')).toEqual({ name: '--space-qux', valuePx: 32, source: 'css-variable' })
+  })
+
+  it('css-variable path: rejects non-spacing namespaces', async () => {
+    // Properties whose namespace isn't in the spacing allowlist must be ignored.
+    writeFixture('styles/mixed.css', `
+      :root {
+        --color-primary: red;
+        --width-md: 200px;
+        --foo: 1;
+        --spacing-keep: 10px;
+      }
+    `)
+    const result = await TailwindResolver.resolveSpacingTokens(tmpDir)
+    expect(result).not.toBeNull()
+    const names = result!.map(t => t.name)
+    expect(names).toContain('--spacing-keep')
+    expect(names).not.toContain('--color-primary')
+    expect(names).not.toContain('--width-md')
+    expect(names).not.toContain('--foo')
+  })
+
+  it('--cx-* exclusion: cortex-internal names are filtered out, namespace-twins remain', async () => {
+    // The filter is meant to discriminate, not to globally drop output. Include
+    // a non-cx token so the assertion proves filtering rather than emptiness.
+    writeFixture('styles/cx-mix.css', `
+      :root {
+        --cx-sp-1: 2px;
+        --cx-spacing-md: 16px;
+        --spacing-md: 16px;
+      }
+    `)
+    const result = await TailwindResolver.resolveSpacingTokens(tmpDir)
+    expect(result).not.toBeNull()
+    const names = result!.map(t => t.name)
+    expect(names).toContain('--spacing-md')
+    expect(names).not.toContain('--cx-sp-1')
+    expect(names).not.toContain('--cx-spacing-md')
+  })
+
+  it('node_modules exclusion: CSS files inside node_modules are not scanned', async () => {
+    // A token defined inside node_modules must not surface — third-party CSS
+    // is not the user's design system.
+    writeFixture('node_modules/some-pkg/style.css', `
+      :root { --spacing-junk: 99px; }
+    `)
+    writeFixture('styles/own.css', `
+      :root { --spacing-keep: 4px; }
+    `)
+    const result = await TailwindResolver.resolveSpacingTokens(tmpDir)
+    expect(result).not.toBeNull()
+    const names = result!.map(t => t.name)
+    expect(names).toContain('--spacing-keep')
+    expect(names).not.toContain('--spacing-junk')
   })
 })

@@ -15,6 +15,16 @@
 
 import { parseBoxShadow, serializeBoxShadow } from './shadow-utils.js'
 
+/**
+ * A spacing token resolved from Tailwind v3, v4, or plain CSS variables.
+ * Used to populate the spacing preset popover in the Cortex panel.
+ */
+export interface SpacingToken {
+  readonly name: string     // e.g. '--spacing-sm', '--sp-4', '--gap-lg'
+  readonly valuePx: number  // resolved px value
+  readonly source: 'tailwind-v3' | 'tailwind-v4' | 'css-variable'
+}
+
 /** Minimal shape of a resolved Tailwind theme (from resolveConfig) */
 export interface ResolvedTheme {
   spacing?: Record<string, string>
@@ -451,6 +461,338 @@ export class TailwindResolver {
     }
 
     return chips
+  }
+
+  /**
+   * Resolve spacing tokens from the project's design system.
+   *
+   * Combines three sources in priority order:
+   *   tailwind-v4 > tailwind-v3 > css-variable
+   *
+   * Deduplication: name uniqueness across sources — first-seen wins, so a
+   * `--spacing-md` defined in v4 hides any same-named entry from v3 or CSS.
+   * Same-value tokens with different names are NOT collapsed; designers can
+   * pick by semantic name in the popover.
+   *
+   * Returns null when all three sources yield nothing (same shape as the other
+   * resolvers — callers treat null as "no spacing data available").
+   */
+  static async resolveSpacingTokens(projectRoot: string): Promise<SpacingToken[] | null> {
+    const { isAbsolute } = await import('path')
+    if (!isAbsolute(projectRoot)) {
+      throw new Error(`projectRoot must be an absolute path, got: ${projectRoot}`)
+    }
+
+    // Detect the user's actual root font-size before resolving rem-based tokens.
+    // Default 16px is wrong for projects using `html { font-size: 62.5% }` (the
+    // popular 1rem=10px convention) or any other custom root size. Without this,
+    // the popover's "16px" label for a `--spacing-md: 1rem` token would be off
+    // from the actual rendered value (Codex /review P1 #1).
+    const detectedRemPx = await TailwindResolver.detectRootFontSize(projectRoot)
+
+    const tokens: SpacingToken[] = []
+    const seenNames = new Set<string>()
+    // Wire schema bounds spacingTokens to .max(500); cap at the resolver too so
+    // a 501+ token project doesn't silently fail schema validation downstream.
+    const MAX_TOKENS = 500
+    let truncationWarned = false
+
+    // Helper to add a token only if the name hasn't been seen yet AND the value
+    // is finite + non-negative. parseFloat('Infinitypx') returns Infinity, which
+    // bypasses Number.isNaN; explicit isFinite + ≥0 gate before addToken catches
+    // malformed source values like `--spacing-bomb: Infinitypx` or `-1rem`.
+    function addToken(token: SpacingToken): void {
+      if (!Number.isFinite(token.valuePx) || token.valuePx < 0) return
+      if (seenNames.has(token.name)) return
+      if (tokens.length >= MAX_TOKENS) {
+        if (!truncationWarned) {
+          console.warn(`[cortex] spacing-token resolver capped at ${MAX_TOKENS} entries — additional tokens dropped. Reduce your design system or file a follow-up ticket if you need more.`)
+          truncationWarned = true
+        }
+        return
+      }
+      seenNames.add(token.name)
+      tokens.push(token)
+    }
+
+    // ── Source 1: Tailwind v4 ───────────────────────────────────────────────
+    // Reuse parseV4Theme so the canonical singular `--spacing: <base>` case
+    // (which generates the full multiplier scale) is captured the same way
+    // resolveColors / resolveTextComponents read the v4 theme. parseV4Theme
+    // returns a flat `theme.spacing` map already merged from defaults +
+    // user @theme blocks; symmetric with the v3 branch below.
+    try {
+      const { parseV4Theme } = await import('./tailwind-v4-parser.js')
+      const v4Theme = await parseV4Theme(projectRoot)
+      const v4Spacing = v4Theme?.spacing
+      if (v4Spacing && typeof v4Spacing === 'object') {
+        for (const [key, value] of Object.entries(v4Spacing)) {
+          const name = `--spacing-${key}`
+          if (name.startsWith('--cx-')) continue
+          const px = TailwindResolver.parseToPx(value, detectedRemPx)
+          if (px === null) continue
+          addToken({ name, valuePx: px, source: 'tailwind-v4' })
+        }
+      }
+    } catch {
+      // v4 not available — fall through
+    }
+
+    // ── Source 2: Tailwind v3 ───────────────────────────────────────────────
+    // Use resolveConfig + theme.spacing to extract the spacing scale.
+    try {
+      // @ts-expect-error — tailwindcss v3 API; v4 removed this export
+      const mod = await import('tailwindcss/resolveConfig')
+      const resolveConfig: (config: unknown) => { theme?: { spacing?: Record<string, string> } } = mod.default
+      const config = await TailwindResolver.loadConfig(projectRoot)
+      if (config) {
+        const resolved = resolveConfig(config)
+        const spacing = resolved.theme?.spacing
+        if (spacing && typeof spacing === 'object') {
+          for (const [key, value] of Object.entries(spacing)) {
+            // v3 default theme always carries DEFAULT (alias for the base step) and
+            // sometimes px (literal '1px'). Neither belongs in the popover — they
+            // duplicate the canonical chip set without adding signal.
+            if (key === 'DEFAULT' || key === 'px') continue
+            const name = `--spacing-${key}`
+            if (name.startsWith('--cx-')) continue
+            const px = TailwindResolver.parseToPx(value, detectedRemPx)
+            if (px === null) continue
+            addToken({ name, valuePx: px, source: 'tailwind-v3' })
+          }
+        }
+      }
+    } catch (err: unknown) {
+      // Expected codes when tailwindcss isn't installed or only v4 is present:
+      //   ERR_MODULE_NOT_FOUND  — ESM resolver, package missing
+      //   MODULE_NOT_FOUND      — CJS resolver fallback (legacy / older Node)
+      //   ERR_PACKAGE_PATH_NOT_EXPORTED — tailwindcss v4 has no resolveConfig export
+      const expected = new Set(['ERR_MODULE_NOT_FOUND', 'MODULE_NOT_FOUND', 'ERR_PACKAGE_PATH_NOT_EXPORTED'])
+      if (err && typeof err === 'object' && 'code' in err) {
+        const code = (err as { code: string }).code
+        if (!expected.has(code)) {
+          throw err
+        }
+      }
+      // fall through
+    }
+
+    // ── Source 3: Plain CSS variables ──────────────────────────────────────
+    // Scan *.css files under projectRoot (excluding node_modules/dist/.git/build).
+    // Extract custom properties matching ^--(spacing|sp|gap|space)- from :root rules.
+    try {
+      const { readdir, readFile, stat, realpath } = await import('node:fs/promises')
+      const { join, sep } = await import('node:path')
+      const postcss = (await import('postcss')).default
+
+      // Path-segment exclusions — matched via split(sep).includes() so a segment
+      // anywhere in the relative path is rejected (root-level node_modules/foo
+      // AND nested packages/x/node_modules/foo). Per cortex CLAUDE.md "Lexer &
+      // Scanner Code Rules §6", segment matching beats bare substring includes.
+      const EXCLUDED_SEGS = ['node_modules', 'dist', '.git', 'build']
+      const MAX_CSS_FILE_BYTES = 1_048_576 // 1MB — guards against generated CSS bundles stalling the handshake
+
+      // Resolve the project root through symlinks once; per-file realpath check
+      // below uses this as the containment anchor. Mirrors the canonical
+      // requireRealpathInsideRoot helper at adapters/vite.ts:180 — same security
+      // contract, inlined here to avoid a circular dep on the Vite plugin module.
+      let realProjectRoot: string
+      try {
+        realProjectRoot = await realpath(projectRoot)
+      } catch {
+        realProjectRoot = projectRoot
+      }
+
+      let entries: string[]
+      try {
+        entries = await readdir(projectRoot, { recursive: true }) as string[]
+      } catch {
+        entries = []
+      }
+
+      let cssFiles = entries.filter(e =>
+        e.endsWith('.css') && !e.split(sep).some(seg => EXCLUDED_SEGS.includes(seg)),
+      )
+
+      // File-count cap: a monorepo with thousands of CSS files would stall the
+      // hello handshake (the spacingTokensPromise blocks Promise.all alongside
+      // the other 3 resolvers). Cap at 200; warn once if truncated. Common
+      // case: a project has well under 50 CSS files outside node_modules/dist.
+      const MAX_CSS_FILES = 200
+      if (cssFiles.length > MAX_CSS_FILES) {
+        console.warn(`[cortex] CSS scan truncated: ${cssFiles.length} matching files, scanning first ${MAX_CSS_FILES} only.`)
+        cssFiles = cssFiles.slice(0, MAX_CSS_FILES)
+      }
+
+      const CSS_VAR_PATTERN = /^--(spacing|sp|gap|space)-/
+
+      // Errors we expect during a CSS scan (ENOENT/ELOOP for broken symlinks,
+      // EISDIR if the entry got recreated as a directory between readdir and
+      // realpath). Anything else (EACCES, EMFILE, EBUSY) signals a real problem
+      // worth flagging — a single warn per scan keeps the noise floor low while
+      // surfacing the cause when tokens are silently absent.
+      const expectedFsCodes = new Set(['ENOENT', 'ELOOP', 'EISDIR'])
+      const reportFsError = (label: string, file: string, err: unknown): void => {
+        const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : null
+        if (code === null || !expectedFsCodes.has(code)) {
+          console.warn(`[cortex] CSS scan ${label} failed for ${file}${code ? ` (${code})` : ''}:`, err instanceof Error ? err.message : err)
+        }
+      }
+
+      // Read + parse all CSS files concurrently. Per-file errors (symlink
+      // escape, oversize, parse failure) are isolated — one bad file doesn't
+      // poison the rest of the scan.
+      const fileResults = await Promise.all(cssFiles.map(async (file): Promise<string | null> => {
+        const filePath = join(projectRoot, file)
+
+        // Symlink containment: a CSS file in the tree may be a symlink whose
+        // target escapes projectRoot. Reject before reading.
+        let realFilePath: string
+        try {
+          realFilePath = await realpath(filePath)
+        } catch (err) {
+          reportFsError('realpath', file, err)
+          return null
+        }
+        if (realFilePath !== realProjectRoot && !realFilePath.startsWith(realProjectRoot + sep)) {
+          return null
+        }
+
+        // Size cap: skip files >1MB to avoid stalling the panel handshake on
+        // generated CSS bundles that escaped the dist/ exclusion.
+        try {
+          const stats = await stat(realFilePath)
+          if (stats.size > MAX_CSS_FILE_BYTES) return null
+        } catch (err) {
+          reportFsError('stat', file, err)
+          return null
+        }
+
+        try {
+          return await readFile(realFilePath, 'utf-8')
+        } catch (err) {
+          reportFsError('readFile', file, err)
+          return null
+        }
+      }))
+
+      // Parse + addToken serially so dedup priority order matches the v4→v3→css
+      // source ordering. Walking PostCSS ASTs is sync and CPU-bound; concurrency
+      // here would not help.
+      for (const content of fileResults) {
+        if (content === null) continue
+
+        let root: ReturnType<typeof postcss.parse>
+        try {
+          root = postcss.parse(content)
+        } catch {
+          continue
+        }
+
+        root.walkRules(':root', (rule) => {
+          rule.walkDecls((decl) => {
+            if (!CSS_VAR_PATTERN.test(decl.prop)) return
+            if (decl.prop.startsWith('--cx-')) return
+            const px = TailwindResolver.parseToPx(decl.value, detectedRemPx)
+            if (px === null) return
+            addToken({ name: decl.prop, valuePx: px, source: 'css-variable' })
+          })
+        })
+      }
+    } catch (err: unknown) {
+      // postcss missing is expected on projects without it; anything else
+      // (programmer error in the scan loop, FS module failure) deserves a
+      // warning rather than silent omission.
+      const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : null
+      if (code !== 'ERR_MODULE_NOT_FOUND' && code !== 'MODULE_NOT_FOUND') {
+        console.warn('[cortex] CSS variable scan failed:', err instanceof Error ? err.message : err)
+      }
+      // fall through with whatever tokens were collected before the failure
+    }
+
+    return tokens.length > 0 ? tokens : null
+  }
+
+  /**
+   * Detect the user's `:root` (or `html`) font-size to compute the correct
+   * rem-to-px conversion. The 16px default is wrong for projects using
+   * `html { font-size: 62.5% }` (the 1rem=10px convention) or any other
+   * custom root size. Returns the detected px value, or 16 as a fallback.
+   *
+   * Bounded scan: reads only top-level `.css` files (non-recursive, max 5).
+   * Re-uses postcss + path imports lazily. Errors silently fall back to 16.
+   */
+  private static async detectRootFontSize(projectRoot: string): Promise<number> {
+    const FALLBACK = 16
+    try {
+      const { readdir, readFile } = await import('node:fs/promises')
+      const { join } = await import('node:path')
+      const postcss = (await import('postcss')).default
+
+      // Top-level .css only — quick scan, the override usually lives in the entry CSS.
+      const entries = await readdir(projectRoot, { withFileTypes: true }) as Array<{ name: string; isFile: () => boolean }>
+      const topLevelCss = entries
+        .filter(e => e.isFile() && e.name.endsWith('.css'))
+        .slice(0, 5)
+      // Plus common nested entry paths.
+      const candidates = [
+        ...topLevelCss.map(e => e.name),
+        'src/index.css', 'src/main.css', 'src/App.css', 'src/styles.css',
+      ]
+
+      for (const rel of candidates) {
+        let content: string
+        try {
+          content = await readFile(join(projectRoot, rel), 'utf-8')
+        } catch {
+          continue
+        }
+        let root: ReturnType<typeof postcss.parse>
+        try {
+          root = postcss.parse(content)
+        } catch {
+          continue
+        }
+        let detected: number | null = null
+        // Match :root or html selectors with font-size declarations.
+        root.walkRules((rule) => {
+          if (rule.selector !== ':root' && rule.selector !== 'html' && rule.selector !== 'html, body' && rule.selector !== ':root, html') return
+          rule.walkDecls('font-size', (decl) => {
+            const v = decl.value.trim()
+            if (v.endsWith('%')) {
+              const pct = parseFloat(v)
+              if (Number.isFinite(pct)) detected = (pct / 100) * FALLBACK
+            } else if (v.endsWith('px')) {
+              const px = parseFloat(v)
+              if (Number.isFinite(px) && px > 0) detected = px
+            } else if (v.endsWith('rem') || v.endsWith('em')) {
+              // rem on :root is circular; em assumes parent = browser default.
+              const n = parseFloat(v)
+              if (Number.isFinite(n) && n > 0) detected = n * FALLBACK
+            }
+          })
+        })
+        if (detected !== null && Number.isFinite(detected) && detected > 0) {
+          return detected
+        }
+      }
+    } catch {
+      // Any unexpected error → fall back to default.
+    }
+    return FALLBACK
+  }
+
+  /**
+   * Parse a CSS length value to a numeric px value. Wraps the module-level
+   * `toPx` (which returns a px-suffixed string) so we share a single conversion
+   * implementation across normalizer chains and the spacing-token resolver.
+   * Returns null for non-length values (colors, keywords, etc.).
+   */
+  private static parseToPx(value: string, remPx = 16): number | null {
+    const str = toPx(value.trim(), remPx)
+    if (str === null) return null
+    const n = parseFloat(str)
+    return Number.isNaN(n) ? null : n
   }
 
   private static async tryV3Colors(projectRoot: string): Promise<string[] | null> {

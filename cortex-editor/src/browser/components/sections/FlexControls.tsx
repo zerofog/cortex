@@ -369,6 +369,7 @@ export function FlexControls({
             tooltip="Gap (row-gap + column-gap)"
             min={0}
             mixed={gapMixed}
+            tokenFamily="spacing"
             onChange={handleGapChange}
             onScrub={handleGapScrub}
             onScrubEnd={handleGapScrubEnd}
@@ -382,6 +383,7 @@ export function FlexControls({
               tooltip="Column gap"
               min={0}
               mixed={mixedProperties?.has('column-gap')}
+              tokenFamily="spacing"
               onChange={handleColumnGapChange}
               onScrub={handleColumnGapScrub}
               onScrubEnd={handleColumnGapScrubEnd}
@@ -393,6 +395,7 @@ export function FlexControls({
               tooltip="Row gap"
               min={0}
               mixed={mixedProperties?.has('row-gap')}
+              tokenFamily="spacing"
               onChange={handleRowGapChange}
               onScrub={handleRowGapScrub}
               onScrubEnd={handleRowGapScrubEnd}

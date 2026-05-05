@@ -35,6 +35,7 @@ export type { PendingEditSchema } from './pending-edit.js'
 export {
   browserToServerSchema,
   serverToBrowserSchema,
+  spacingTokenSchema,
   cliRpcRequestSchema,
   cliRpcResultSchema,
   cliRpcErrorSchema,

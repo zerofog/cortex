@@ -208,8 +208,8 @@ export function PositionSection({
         class={`cortex-position-section__xy-row${isStatic ? ' cortex-position-section__xy-row--disabled' : ''}${isDimmed(dimmedProperties, 'left', 'top') ? ' cortex-control--dimmed' : ''}`}
         data-tooltip={isStatic ? 'Set position mode to enable' : undefined}
       >
-        <NumericInput value={xValue} unit={isStatic ? 'auto' : 'px'} prefix="X" tooltip={xTooltip} disabled={isStatic} onChange={handleXChange} onScrub={handleXScrub} onScrubEnd={handleXScrubEnd} stale={stale} />
-        <NumericInput value={yValue} unit={isStatic ? 'auto' : 'px'} prefix="Y" tooltip={yTooltip} disabled={isStatic} onChange={handleYChange} onScrub={handleYScrub} onScrubEnd={handleYScrubEnd} stale={stale} />
+        <NumericInput value={xValue} unit={isStatic ? 'auto' : 'px'} prefix="X" tooltip={xTooltip} disabled={isStatic} tokenFamily="spacing" onChange={handleXChange} onScrub={handleXScrub} onScrubEnd={handleXScrubEnd} stale={stale} />
+        <NumericInput value={yValue} unit={isStatic ? 'auto' : 'px'} prefix="Y" tooltip={yTooltip} disabled={isStatic} tokenFamily="spacing" onChange={handleYChange} onScrub={handleYScrub} onScrubEnd={handleYScrubEnd} stale={stale} />
         <NumericInput value={zValue} prefix="Z" tooltip="Z-index" onChange={handleZChange} stale={stale} />
       </div>
       <div class={`cortex-position-section__rotate-row${isDimmed(dimmedProperties, 'rotate', 'scale') ? ' cortex-control--dimmed' : ''}`}>

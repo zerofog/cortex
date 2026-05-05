@@ -25,6 +25,7 @@ vi.mock('../../src/core/tailwind-resolver.js', () => ({
     resolveColors: vi.fn().mockResolvedValue(null),
     resolveColorChips: vi.fn().mockResolvedValue(null),
     resolveTextComponents: vi.fn().mockResolvedValue(null),
+    resolveSpacingTokens: vi.fn().mockResolvedValue(null),
     fromConfig: vi.fn().mockResolvedValue(null),
     fromTheme: vi.fn().mockReturnValue({ findClass: vi.fn() }),
   },
@@ -114,9 +115,12 @@ import { DeferredWriter } from '../../src/core/deferred-writer.js'
 const mockResolveColors = vi.mocked(TailwindResolver.resolveColors)
 const MockDeferredWriter = vi.mocked(DeferredWriter)
 
+const mockResolveSpacingTokens = vi.mocked(TailwindResolver.resolveSpacingTokens)
+
 // Reset module-level state between tests so ordering doesn't matter
 beforeEach(() => {
   mockResolveColors.mockResolvedValue(null)
+  mockResolveSpacingTokens.mockResolvedValue(null)
   mockLoadEnv.mockReturnValue({})
   editPipelineConstructorArgs.length = 0
   MockDeferredWriter.mockClear()
@@ -643,6 +647,61 @@ describe('cortexEditor Vite plugin', () => {
 
       // init should NOT be forwarded to application handlers
       expect(received).toHaveLength(0)
+    })
+
+    it('hello includes spacingTokens when resolver returns tokens', async () => {
+      const mockTokens = [
+        { name: '--spacing-sm', valuePx: 8, source: 'css-variable' as const },
+        { name: '--spacing-md', valuePx: 16, source: 'css-variable' as const },
+      ]
+      vi.mocked(TailwindResolver.resolveSpacingTokens).mockResolvedValueOnce(mockTokens)
+
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+
+      server.hot._trigger('cortex:msg', { type: 'init' })
+
+      await vi.waitFor(() => {
+        expect(server._sent.find((s) => (s.data as any).type === 'hello')).toBeDefined()
+      })
+
+      const hello = server._sent.find((s) => (s.data as any).type === 'hello')!
+      expect((hello.data as any).spacingTokens).toEqual(mockTokens)
+    })
+
+    it('hello omits spacingTokens when resolver returns null', async () => {
+      vi.mocked(TailwindResolver.resolveSpacingTokens).mockResolvedValueOnce(null)
+
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+
+      server.hot._trigger('cortex:msg', { type: 'init' })
+
+      await vi.waitFor(() => {
+        expect(server._sent.find((s) => (s.data as any).type === 'hello')).toBeDefined()
+      })
+
+      const hello = server._sent.find((s) => (s.data as any).type === 'hello')!
+      expect((hello.data as any).spacingTokens).toBeUndefined()
+    })
+
+    it('hello omits spacingTokens when resolver returns empty array', async () => {
+      vi.mocked(TailwindResolver.resolveSpacingTokens).mockResolvedValueOnce([])
+
+      const plugin = initPlugin()
+      const server = mockServer()
+      ;(plugin.configureServer as Function)(server)
+
+      server.hot._trigger('cortex:msg', { type: 'init' })
+
+      await vi.waitFor(() => {
+        expect(server._sent.find((s) => (s.data as any).type === 'hello')).toBeDefined()
+      })
+
+      const hello = server._sent.find((s) => (s.data as any).type === 'hello')!
+      expect((hello.data as any).spacingTokens).toBeUndefined()
     })
   })
 

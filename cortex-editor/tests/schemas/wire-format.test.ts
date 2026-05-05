@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { browserToServerSchema, serverToBrowserSchema } from '../../src/schemas/wire-format.js'
+import { browserToServerSchema, serverToBrowserSchema, spacingTokenSchema } from '../../src/schemas/wire-format.js'
 
 // ---- BrowserToServer tests ----
 
@@ -331,11 +331,97 @@ describe('serverToBrowserSchema — hello', () => {
     }
     expect(() => serverToBrowserSchema.parse(msg)).not.toThrow()
   })
+  it('accepts hello with spacingTokens', () => {
+    const msg = {
+      ...baseHello,
+      spacingTokens: [
+        { name: '--spacing-sm', valuePx: 8, source: 'tailwind-v4' },
+        { name: '--sp-4', valuePx: 16, source: 'tailwind-v3' },
+        { name: '--gap-lg', valuePx: 24, source: 'css-variable' },
+      ],
+    }
+    expect(() => serverToBrowserSchema.parse(msg)).not.toThrow()
+  })
+  it('accepts hello without spacingTokens (optional field)', () => {
+    expect(() => serverToBrowserSchema.parse(baseHello)).not.toThrow()
+  })
+  it('rejects hello with spacingTokens entry missing name', () => {
+    const r = serverToBrowserSchema.safeParse({
+      ...baseHello,
+      spacingTokens: [{ valuePx: 8, source: 'tailwind-v4' }],
+    })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      const paths = r.error.issues.map((i) => i.path.join('.'))
+      expect(paths.some((p) => p.includes('spacingTokens'))).toBe(true)
+    }
+  })
+  it('rejects hello with spacingTokens entry having negative valuePx', () => {
+    const r = serverToBrowserSchema.safeParse({
+      ...baseHello,
+      spacingTokens: [{ name: '--sp-neg', valuePx: -1, source: 'css-variable' }],
+    })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      const paths = r.error.issues.map((i) => i.path.join('.'))
+      expect(paths.some((p) => p.includes('spacingTokens'))).toBe(true)
+    }
+  })
+  it('rejects hello with spacingTokens entry having invalid source', () => {
+    const r = serverToBrowserSchema.safeParse({
+      ...baseHello,
+      spacingTokens: [{ name: '--sp-x', valuePx: 4, source: 'unknown-source' }],
+    })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      const paths = r.error.issues.map((i) => i.path.join('.'))
+      expect(paths.some((p) => p.includes('spacingTokens'))).toBe(true)
+    }
+  })
   it('rejects hello missing protocolVersion', () => {
     const r = serverToBrowserSchema.safeParse({ ...baseHello, protocolVersion: undefined })
     expect(r.success).toBe(false)
     if (!r.success) {
       expect(r.error.issues.map((i) => i.path.join('.'))).toContain('protocolVersion')
+    }
+  })
+})
+
+describe('spacingTokenSchema', () => {
+  it.each([
+    { name: '--spacing-sm', valuePx: 8, source: 'tailwind-v4' },
+    { name: '--sp-0', valuePx: 0, source: 'tailwind-v3' },
+    { name: '--gap-lg', valuePx: 24, source: 'css-variable' },
+  ] as const)('accepts valid token: $name', (token) => {
+    expect(() => spacingTokenSchema.parse(token)).not.toThrow()
+  })
+
+  it('rejects name shorter than 2 chars', () => {
+    const r = spacingTokenSchema.safeParse({ name: '-', valuePx: 4, source: 'tailwind-v3' })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join('.'))).toContain('name')
+    }
+  })
+  it('rejects negative valuePx', () => {
+    const r = spacingTokenSchema.safeParse({ name: '--sp-x', valuePx: -4, source: 'tailwind-v3' })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join('.'))).toContain('valuePx')
+    }
+  })
+  it('rejects non-finite valuePx', () => {
+    const r = spacingTokenSchema.safeParse({ name: '--sp-x', valuePx: Infinity, source: 'tailwind-v4' })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join('.'))).toContain('valuePx')
+    }
+  })
+  it('rejects invalid source enum', () => {
+    const r = spacingTokenSchema.safeParse({ name: '--sp-x', valuePx: 4, source: 'inline' })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join('.'))).toContain('source')
     }
   })
 })
