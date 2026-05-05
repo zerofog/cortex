@@ -19,7 +19,6 @@ import { isPathInsideRoot, requireRealpathInsideRoot } from '../../src/adapters/
 import { applyEditsCore, StagedEditsCache } from '../../src/core/staged-edits.js'
 import type { ApplyEditResult } from '../../src/core/staged-edits.js'
 import { EditPipeline } from '../../src/core/edit-pipeline.js'
-import type { EditResult } from '../../src/core/edit-pipeline.js'
 import { makeEdit } from '../core/helpers.js'
 import fs from 'node:fs'
 import os from 'node:os'
