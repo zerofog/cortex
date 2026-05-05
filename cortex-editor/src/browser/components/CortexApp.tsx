@@ -66,6 +66,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const [colorChips, setColorChips] = useState<
     Array<{ name: string; hex: string }> | undefined
   >(undefined)
+  const [spacingTokens, setSpacingTokens] = useState<
+    import('../../core/tailwind-resolver.js').SpacingToken[] | undefined
+  >(undefined)
   const [activeState, setActiveState] = useState<InteractionState>('default')
   const [availableStates, setAvailableStates] = useState<StateDeclarations | undefined>(undefined)
   const [hasBefore, setHasBefore] = useState(false)
@@ -336,6 +339,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (next.swatches !== prev.swatches) setSwatches(next.swatches)
       if (next.textComponents !== prev.textComponents) setTextComponents(next.textComponents)
       if (next.colorChips !== prev.colorChips) setColorChips(next.colorChips)
+      if (next.spacingTokens !== prev.spacingTokens) setSpacingTokens(next.spacingTokens)
       if (next.capabilitySystems !== prev.capabilitySystems) setCapabilitySystems(next.capabilitySystems)
       if (next.activityCount !== prev.activityCount) setActivityCount(next.activityCount)
       if (next.editErrors !== prev.editErrors) setEditErrors(next.editErrors)
@@ -987,6 +991,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           swatches={swatches}
           textComponents={textComponents}
           colorChips={colorChips}
+          spacingTokens={spacingTokens}
           activeState={activeState}
           hasBefore={hasBefore}
           hasAfter={hasAfter}

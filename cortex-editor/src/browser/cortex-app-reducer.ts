@@ -15,6 +15,7 @@
 
 import type { Annotation, ActivityEntry, BrowserToServer, EditKind, StyleCapability } from '../adapters/types.js'
 import type { TextComponent } from '../core/text-components.js'
+import type { SpacingToken } from '../core/tailwind-resolver.js'
 import type { EditError } from './components/EditErrorCard.js'
 import type { OverrideDivergence } from './override-bus.js'
 
@@ -47,6 +48,12 @@ export interface CortexAppReducerState {
   textComponents: TextComponent[] | undefined
   /** Named colour chips from the `hello` handshake (undefined = not yet received). */
   colorChips: Array<{ name: string; hex: string }> | undefined
+  /** Spacing tokens detected by TailwindResolver (undefined = not yet received).
+   *  Populated by the `hello` handshake. Storing in reducer state — vs. a
+   *  side-channel useTokenSubscription hook — closes the race where Panel
+   *  mounts AFTER the initial hello fires (which happens reliably on fast-
+   *  booting projects). Mirrors the swatches/colorChips/textComponents pattern. */
+  spacingTokens: SpacingToken[] | undefined
   /** Non-supported styling systems — filtered from `capabilities` messages. */
   capabilitySystems: StyleCapability[]
   /** Monotonic counter bumped on every successful edit and activity-entry. */
@@ -80,6 +87,7 @@ export type CortexAppAction =
       swatches?: string[]
       textComponents?: TextComponent[]
       colorChips?: Array<{ name: string; hex: string }>
+      spacingTokens?: SpacingToken[]
     }
   | { type: 'edit_status'; status: 'done'; editId: string; dispatch?: EditDispatchEntry }
   | {
@@ -127,6 +135,7 @@ export const initialCortexAppReducerState: CortexAppReducerState = {
   swatches: undefined,
   textComponents: undefined,
   colorChips: undefined,
+  spacingTokens: undefined,
   capabilitySystems: [],
   activityCount: 0,
   editErrors: new Map(),
@@ -197,6 +206,7 @@ export function cortexAppReducer(
           swatches: action.swatches ?? [],
           textComponents: action.textComponents ?? [],
           colorChips: action.colorChips ?? [],
+          spacingTokens: action.spacingTokens ?? [],
         },
         effects: [],
       }
