@@ -90,15 +90,6 @@ afterEach(async () => {
   vi.restoreAllMocks()
 })
 
-describe('selection.ts Escape removal', () => {
-  // selection.ts is vi.mock'd in this file — this test was checking the mock, not real code.
-  // TODO: add Escape non-handling test in selection.test.ts where the real module runs.
-  it.skip('selection.ts does NOT handle Escape (needs real module, not mock)', () => {})
-
-  // Click behavior is covered by existing tests in selection.test.ts
-  // (requires elementFromPoint mock not available here)
-})
-
 // --- CortexApp integration tests for cascade + shortcuts ---
 
 import { CortexApp } from '../../src/browser/components/CortexApp.js'
