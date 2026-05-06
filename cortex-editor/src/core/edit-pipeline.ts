@@ -1071,12 +1071,15 @@ export class EditPipeline {
         return
       }
 
-      // Step 3: apply classOp. No AI fallback here — compound must be
-      // all-or-nothing at the deterministic layer.
+      // Step 3: apply classOp. Compound must be all-or-nothing at the
+      // deterministic layer; if the rewriter refuses, route MCP-mode edits
+      // to the needs-source-edit handoff (Claude takes over via Edit tool)
+      // and emit terminal-failed for browser-channel edits.
       const classResult = this.rewriter.rewriteClassListInTransaction(txn, {
         line, col, remove: classOpRemove, add: classOpAdd,
       })
       if (!classResult.success) {
+        if (this.mcpFallbackFires(edit, `Compound classOp failed: ${classResult.reason}`)) return
         // The rewriter attempted the classOp and refused — same failure
         // class as the property-keyed rewrite path's 'rewriter_failed'
         // (not a parse failure; the JSX itself parsed fine).
@@ -1089,6 +1092,7 @@ export class EditPipeline {
         line, col, sets, removes,
       })
       if (!inlineResult.success) {
+        if (this.mcpFallbackFires(edit, `Compound inline ops failed: ${inlineResult.reason}`)) return
         fail(`Compound inline ops failed: ${inlineResult.reason}`, 'rewriter_failed')
         return
       }
@@ -1182,8 +1186,11 @@ export class EditPipeline {
 
       if (!result.success) {
         // Deterministic rewriter could not handle this className shape (e.g. template literals).
-        // Emit terminal failed — the Apply gesture routes to Claude for non-deterministic edits.
-        this.emitTerminal(edit.editId, { status: 'failed', reason: result.reason ?? 'Could not rewrite className for this element.', reason_code: 'rewriter_failed' })
+        // MCP-mode edits route to needs-source-edit so Claude can write via Edit tool;
+        // browser-channel edits emit terminal-failed (user uses Apply gesture explicitly).
+        const reason = result.reason ?? 'Could not rewrite className for this element.'
+        if (this.mcpFallbackFires(edit, reason)) return
+        this.emitTerminal(edit.editId, { status: 'failed', reason, reason_code: 'rewriter_failed' })
         return
       }
 
