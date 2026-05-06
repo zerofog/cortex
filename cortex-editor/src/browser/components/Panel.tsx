@@ -202,6 +202,21 @@ export interface PanelProps {
    *  Follows the same thunk pattern as flushCommitRef. Returns the intentId so
    *  specs can pass it to staged-edits-discard messages. */
   stageEditRef?: { current: ((source: string, property: string, value: string) => string) | null }
+  /** TEST-ONLY ref written by Panel — allows the e2e test bridge to trigger a full
+   *  commit gesture (applyOverride → commitScrub → commandStack.record + buffer.append)
+   *  on the currently selected elements without going through the scrub UI.
+   *  Only populated when __CORTEX_TEST_BUILD__ is true (DCE'd from prod bundles).
+   *  Returns a Promise that resolves after the microtask-coalesced commitScrub fires. */
+  commitEditRef?: { current: ((property: string, value: string) => Promise<void>) | null }
+  /** TEST-ONLY ref written by Panel — exposes buffer.list() and buffer.size() so e2e
+   *  specs can read the staging buffer without a separate bridge surface.
+   *  Only populated when __CORTEX_TEST_BUILD__ is true (DCE'd from prod bundles). */
+  bufferListRef?: {
+    current: {
+      list: () => import('../hooks/useEditStagingBuffer.js').PendingEdit[]
+      size: () => number
+    } | null
+  }
   /** Set by CortexApp during undo/redo — suppresses phantom re-edits from Panel re-renders. */
   undoInProgressRef?: { current: boolean }
   channel?: CortexChannel
@@ -279,6 +294,8 @@ export function Panel({
   staleOverrideCount = 0,
   staleSources,
   stageEditRef,
+  commitEditRef,
+  bufferListRef,
 }: PanelProps): JSX.Element | null {
   // Back-compat alias: primary element for all CSS-parsing code paths (ZF0-1195 / T3).
   // All existing usages of `element` inside this function work unchanged.
@@ -951,6 +968,39 @@ export function Panel({
 
   const handleCommit = useCallback((c: SectionChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleScrub = useCallback((c: SectionChange) => applyOverride(c.property, c.value, false), [applyOverride])
+
+  // TEST-ONLY: expose applyOverride(property, value, true) via commitEditRef so e2e specs
+  // can trigger the full commit gesture (override set + scrubPreviousRef seed + commandStack
+  // record + buffer.append fan-out) without going through the scrub UI. Mirrors the
+  // stageEditRef pattern — Panel owns the assignment, CortexApp passes the ref.
+  // Returns a Promise that resolves after the microtask-coalesced commitScrub fires so callers
+  // don't need their own settling logic.
+  useEffect(() => {
+    if (commitEditRef) {
+      commitEditRef.current = (property: string, value: string): Promise<void> =>
+        new Promise<void>((resolve) => {
+          applyOverride(property, value, false) // arm scrubPreviousRef + override
+          applyOverride(property, value, true)  // schedule microtask commitScrub
+          queueMicrotask(resolve)               // resolve after commitScrub fires
+        })
+      return () => { commitEditRef.current = null }
+    }
+  // applyOverride is stable (useCallback) — safe dep.
+  }, [commitEditRef, applyOverride])
+
+  // TEST-ONLY: expose buffer.list() and buffer.size() via bufferListRef so e2e specs
+  // can read the staging buffer state without additional bridge plumbing. Updated on
+  // every render where the ref is present — the functions read bufferRef.current directly
+  // (synchronous, always current) so there is no staleness risk.
+  useEffect(() => {
+    if (bufferListRef) {
+      bufferListRef.current = {
+        list: () => buffer.list(),
+        size: () => buffer.size(),
+      }
+      return () => { bufferListRef.current = null }
+    }
+  }, [bufferListRef, buffer])
 
   /**
    * Dispatch a className mutation (classOp) to the server, optionally followed

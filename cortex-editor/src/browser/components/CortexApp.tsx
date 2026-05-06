@@ -158,6 +158,16 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // as the prop), the useEffect's `if (stageEditRef)` guard short-circuits,
   // ~150 bytes of dead branch. Returns the intentId so specs can inject discard.
   const stageEditRef = useRef<((source: string, property: string, value: string) => string) | null>(null)
+  // TEST-ONLY: bridge.commitEdit triggers the full applyOverride → commitScrub →
+  // commandStack.record + buffer.append fan-out so e2e specs can exercise undo
+  // without going through actual panel UI. Gated identically to stageEditRef.
+  const commitEditRef = useRef<((property: string, value: string) => Promise<void>) | null>(null)
+  // TEST-ONLY: bridge.buffer.list/size read the staging buffer contents. Panel
+  // populates this via bufferListRef so the bridge can expose them synchronously.
+  const bufferListRef = useRef<{
+    list: () => import('../hooks/useEditStagingBuffer.js').PendingEdit[]
+    size: () => number
+  } | null>(null)
   // Exposed outside the useEffect so UI handlers (X-button, Toolbar close) can
   // route through the reducer rather than calling setActive(false) directly.
   // Populated by the mount effect — may be null during first paint when
@@ -341,6 +351,33 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           }
           return stageEditRef.current(source, property, value)
         },
+        // TEST-ONLY: trigger the full applyOverride → commitScrub → commandStack.record
+        // + buffer.append fan-out on the currently selected elements. Unlike stageEdit,
+        // this path creates a PropertyEditCommand so the gesture is undoable via Cmd+Z.
+        // Routed through commitEditRef (same thunk pattern as stageEditRef) so Panel
+        // always exposes the latest applyOverride closure. Polls with a 2s ceiling.
+        commitEdit: async (property: string, value: string): Promise<void> => {
+          const start = performance.now()
+          while (!commitEditRef.current) {
+            if (performance.now() - start > 2000) {
+              throw new Error('[cortex test bridge] commitEdit timeout — Panel did not mount in 2000ms (was activateDesignMode called?)')
+            }
+            await new Promise<void>((resolve) => setTimeout(resolve, 16))
+          }
+          return commitEditRef.current(property, value)
+        },
+        // TEST-ONLY: expose buffer.list() and buffer.size() via bufferListRef.
+        // Panel populates this ref; these closures delegate to the live ref so
+        // callers always read current buffer state (no staleness risk).
+        buffer: {
+          list: () => bufferListRef.current?.list() ?? [],
+          size: () => bufferListRef.current?.size() ?? 0,
+        },
+        // TEST-ONLY: set multi-element selection via setSelection(elements, 'replace').
+        // Allows e2e specs to seed multi-select state without real click interactions.
+        // selectElement (above) handles single-element selection via the legacy shim;
+        // selectElements is the multi-element version for ZF0-1195 multi-select specs.
+        selectElements: (els: HTMLElement[]) => setSelection(els, 'replace'),
       }
     }
     // Start with design mode disabled — don't intercept events until activated
@@ -1013,6 +1050,8 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           commandStack={commandStackRef.current}
           flushCommitRef={flushCommitRef}
           stageEditRef={__CORTEX_TEST_BUILD__ ? stageEditRef : undefined}
+          commitEditRef={__CORTEX_TEST_BUILD__ ? commitEditRef : undefined}
+          bufferListRef={__CORTEX_TEST_BUILD__ ? bufferListRef : undefined}
           undoInProgressRef={undoInProgressRef}
           onClose={handleClose}
           onSelectElement={handleSelectElement}
