@@ -1194,16 +1194,15 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           ? new AIWriter({ apiKey: cortexApiKey, readFile: (p) => fs.promises.readFile(p, 'utf-8') })
           : undefined
 
-        // Deferred writer: enabled when AI writer is available. The writeFn
-        // closure captures currentSession by reference — safe because writeFn
-        // only fires after the coalescing window (250ms+), well after assignment.
+        // Deferred writer: instantiated here but no longer wired to EditPipeline
+        // (removed in ZF0-1546 T1 — AI escalation path retired). T2 (ZF0-1547)
+        // removes this block and the AIWriter instantiation above entirely.
         const deferredWriter = aiWriter
           ? new DeferredWriter({
             coalescingMs: 250,
-            writeFn: async (batch) => {
-              if (!currentSession?.pipeline) return { success: false, reason: 'Pipeline not initialized' }
-              return currentSession.pipeline.executeDeferredBatch(batch)
-            },
+            // writeFn is a no-op stub: DeferredWriter is not wired to EditPipeline
+            // after ZF0-1546. T2 (ZF0-1547) removes this block.
+            writeFn: async (_batch) => ({ success: false, reason: 'AI escalation path retired (ZF0-1546)' }),
           })
           : undefined
 
@@ -1223,8 +1222,6 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           detector: detection,
           runtimeResolver,
           undoStack,
-          aiWriter,
-          deferredWriter,
           writeFile: async (intent) => {
             // Delegates to `performEditWrite` which atomically replaces the
             // target file, tracks suppressed writes in
@@ -1248,7 +1245,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         // Compute and send capability status to browser
         const resolverState: ResolverState = {
           resolverAvailable: resolver !== null,
-          aiAvailable: !!aiWriter,
+          aiAvailable: false,
           inlineStyleAvailable: true,
         }
         const capabilities = computeCapabilities(detection, resolverState)

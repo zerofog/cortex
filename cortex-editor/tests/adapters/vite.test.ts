@@ -1693,59 +1693,9 @@ describe('validateToggleShortcut', () => {
   })
 })
 
-describe('DeferredWriter wiring', () => {
-  it('constructs DeferredWriter when API key is available', async () => {
-    mockLoadEnv.mockReturnValue({ CORTEX_API_KEY: 'test-key-123' })
-
-    const plugin = initPlugin()
-    const server = mockServer()
-    ;(plugin.configureServer as Function)(server)
-
-    // Pipeline construction is async (inside Promise.all().then()) — wait for it
-    await vi.waitFor(() => {
-      expect(editPipelineConstructorArgs.length).toBeGreaterThan(0)
-    })
-
-    // DeferredWriter constructor should have been called
-    expect(MockDeferredWriter).toHaveBeenCalledTimes(1)
-    const dwOpts = MockDeferredWriter.mock.calls[0][0]
-    expect(dwOpts.coalescingMs).toBe(250)
-    expect(typeof dwOpts.writeFn).toBe('function')
-
-    // Pipeline should have received the deferredWriter instance
-    const pipelineOpts = editPipelineConstructorArgs[0]
-    expect(pipelineOpts.deferredWriter).toBeDefined()
-    expect(pipelineOpts.aiWriter).toBeDefined()
-  })
-
-  it('does not construct DeferredWriter when no API key', async () => {
-    mockLoadEnv.mockReturnValue({})
-    // Also ensure process.env doesn't have the key
-    const origKey = process.env.CORTEX_API_KEY
-    delete process.env.CORTEX_API_KEY
-
-    try {
-      const plugin = initPlugin()
-      const server = mockServer()
-      ;(plugin.configureServer as Function)(server)
-
-      // Pipeline construction is async — wait for it
-      await vi.waitFor(() => {
-        expect(editPipelineConstructorArgs.length).toBeGreaterThan(0)
-      })
-
-      // DeferredWriter should NOT have been constructed
-      expect(MockDeferredWriter).not.toHaveBeenCalled()
-
-      // Pipeline should have undefined deferredWriter
-      const pipelineOpts = editPipelineConstructorArgs[0]
-      expect(pipelineOpts.deferredWriter).toBeUndefined()
-      expect(pipelineOpts.aiWriter).toBeUndefined()
-    } finally {
-      if (origKey !== undefined) process.env.CORTEX_API_KEY = origKey
-    }
-  })
-})
+// DeferredWriter wiring tests removed (ZF0-1546 T1):
+// AIWriter/DeferredWriter are no longer passed to EditPipeline constructor.
+// The instantiation block in vite.ts remains intact for T2 to delete.
 
 describe('CortexSession wiring (A2)', () => {
   describe('configureServer re-entry', () => {

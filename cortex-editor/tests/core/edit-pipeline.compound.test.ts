@@ -45,10 +45,6 @@ const stubInlineStyleRewriter = () => ({
   dispose: vi.fn(() => {}),
 })
 
-const stubAIWriter = () => ({
-  write: vi.fn(async () => ({ success: true, newContent: 'AI NEW', reason: undefined })),
-})
-
 const stubUndoStack = () => ({
   push: vi.fn(),
   popUndo: vi.fn(),
@@ -104,7 +100,6 @@ describe('EditPipeline — compound edit (C2)', () => {
       projectRoot: '/tmp/proj',
       readFile,
       undoStack: undoStack as never,
-      aiWriter: stubAIWriter() as never,
     })
   })
 
@@ -310,7 +305,6 @@ describe('EditPipeline — compound edit (C2)', () => {
       projectRoot: '/tmp/proj',
       readFile,
       undoStack: realUndo,
-      aiWriter: stubAIWriter() as never,
     })
 
     mutateTxnInClassOp()

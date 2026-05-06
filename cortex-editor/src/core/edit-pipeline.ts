@@ -7,8 +7,6 @@ import type { HMRVerifier } from './hmr-verifier.js'
 import type { CSSModulesRewriter } from './rewriter/css-modules.js'
 import type { RuntimeCSSResolver } from './rewriter/runtime-resolver.js'
 import type { UndoStack, UndoFileChange } from './session/undo-stack.js'
-import type { AIWriter } from './ai-writer.js'
-import type { DeferredWriter, BatchedWriteRequest } from './deferred-writer.js'
 import type { InlineStyleRewriter } from './rewriter/inline-style.js'
 import { classifyEdit } from './edit-strategy.js'
 import { ExternalRevertError } from '../adapters/atomic-write.js'
@@ -222,12 +220,10 @@ export interface EditRequest {
    *  silently and the intent times out. */
   baselineValue?: string
   /** Deterministic-only mode set by MCP `cortex_apply_edits` callers. When
-   *  set, branches that would dispatch to the legacy `aiWriter` or queue via
-   *  `deferredWriter` instead emit `needs-source-edit` so the MCP caller
-   *  (Claude) handles the change via Edit tool. Prevents double-write where
-   *  cortex's AI fallback writes the source AND Claude follows up with Edit.
-   *  Only the deterministic rewriter paths (Tailwind / CSS Modules /
-   *  InlineStyle) emit `'applied'` when this flag is set. */
+   *  set, branches that would fall through to terminal-failed instead emit
+   *  `needs-source-edit` so the MCP caller (Claude) handles the change via
+   *  the Edit tool. Only the deterministic rewriter paths (Tailwind / CSS
+   *  Modules / InlineStyle) emit `'applied'` when this flag is set. */
   mcpMode?: boolean
 }
 
@@ -263,10 +259,6 @@ export interface EditPipelineOptions {
   undoStack?: UndoStack
   /** Injected for testability. Used by undo to verify file hasn't changed. */
   readFile?: (path: string) => Promise<string>
-  /** AI writer for framework-agnostic source edits when deterministic layers fail */
-  aiWriter?: AIWriter
-  /** Deferred writer for batched AI edits with coalescing + cancellation */
-  deferredWriter?: DeferredWriter
   /** Inline style rewriter for deterministic style prop editing (Layer 3.5) */
   inlineStyleRewriter?: InlineStyleRewriter
 }
@@ -305,7 +297,7 @@ function parseCssMapping(raw: string): { cssFilePath: string; selectors: string[
  * 2. Resolve CSS value → Tailwind class via TailwindResolver
  * 3. Attempt deterministic rewrite via TailwindRewriter
  * 4. On success: write file, send status, track HMR verification
- * 5. On failure: route to AI path (sends edit_status: 'failed')
+ * 5. On failure: emit terminal failed (mcpMode → needs-source-edit for Claude)
  */
 export class EditPipeline {
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -329,8 +321,6 @@ export class EditPipeline {
   private readonly runtimeResolver?: RuntimeCSSResolver
   private readonly undoStack?: UndoStack
   private readonly readFile?: (path: string) => Promise<string>
-  private readonly aiWriter?: AIWriter
-  private readonly deferredWriter?: DeferredWriter
   private readonly inlineStyleRewriter?: InlineStyleRewriter
   private undoLock = Promise.resolve()
   private disposed = false
@@ -351,8 +341,6 @@ export class EditPipeline {
     this.runtimeResolver = options.runtimeResolver
     this.undoStack = options.undoStack
     this.readFile = options.readFile
-    this.aiWriter = options.aiWriter
-    this.deferredWriter = options.deferredWriter
     this.inlineStyleRewriter = options.inlineStyleRewriter
   }
 
@@ -397,11 +385,11 @@ export class EditPipeline {
   }
 
   /** Deterministic-only gate for MCP-routed edits. When `edit.mcpMode` is set,
-   *  routes that would dispatch to `aiWriter` or `deferredWriter` instead emit
+   *  branches that would otherwise emit terminal-failed instead emit
    *  `needs-source-edit` so the MCP caller (Claude) handles the change via
-   *  Edit tool. Returns true if the gate fired (caller should return); false
-   *  to fall through to the existing fallback routing. Prevents the double-
-   *  write hazard CodeRabbit flagged in PR review. */
+   *  the Edit tool. Returns true if the gate fired (caller should return); false
+   *  to fall through to the terminal-failed path. Prevents the double-write
+   *  hazard where cortex emits failed AND Claude then writes anyway. */
   private mcpFallbackFires(edit: EditRequest, reason: string): boolean {
     if (!edit.mcpMode) return false
     this.emitTerminal(edit.editId, { status: 'needs-source-edit', reason })
@@ -504,35 +492,6 @@ export class EditPipeline {
       return
     }
 
-    // Fast path: pure AI projects bypass the 400ms debounce and route
-    // directly to DeferredWriter's 250ms coalescing window
-    if (this.shouldBypassDebounce(edit)) {
-      const parsed = this.parseSource(edit.source)
-      if (!parsed.ok) {
-        this.emitTerminal(edit.editId, { status: 'failed', reason: parsed.reason })
-        return
-      }
-      if (!isValidCSSProperty(edit.property)) {
-        this.emitTerminal(edit.editId, { status: 'failed', reason: 'Invalid CSS property name' })
-        return
-      }
-      if (!isValidCSSValue(edit.value)) {
-        this.emitTerminal(edit.editId, { status: 'failed', reason: 'Invalid CSS value' })
-        return
-      }
-      this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
-      this.deferredWriter!.enqueue({
-        editId: edit.editId,
-        filePath: parsed.resolvedPath,
-        line: parsed.line,
-        col: parsed.col,
-        property: edit.property,
-        value: edit.value,
-        failureReason: 'Deferred to AI writer',
-      })
-      return
-    }
-
     const debounceKey = `${edit.source}:${edit.property}`
 
     const existing = this.debounceTimers.get(debounceKey)
@@ -588,24 +547,6 @@ export class EditPipeline {
     return { ok: true, resolvedPath, line, col }
   }
 
-  /** Check if this edit can skip the 400ms debounce and route directly to DeferredWriter. */
-  private shouldBypassDebounce(edit: EditRequest): boolean {
-    // No DeferredWriter → can't bypass (nothing to enqueue to)
-    if (!this.deferredWriter) return false
-    // Instance scope needs debounced path for InlineStyleRewriter routing
-    if (edit.scope === 'instance') return false
-    // CSS Modules annotation → always immediate path, need debounce
-    if (edit.cssMapping) return false
-    // No detector → can't determine framework, use debounce
-    if (!this.detector) return false
-    // InlineStyleRewriter provides a deterministic path — use debounce for coalescing
-    if (this.inlineStyleRewriter) return false
-    // Pure AI project (no Tailwind, no CSS Modules) → bypass
-    if (!this.detector.hasTailwind && !this.detector.hasCSSModules) return true
-    // Mixed framework → use debounce, let executeEdit decide
-    return false
-  }
-
   private async executeEdit(edit: EditRequest, previousValue: string | undefined): Promise<void> {
     // Parse source as "filePath:line:col" — parse from right to handle
     // Windows drive letters (e.g. "C:\Users\foo\App.tsx:2:10")
@@ -634,25 +575,12 @@ export class EditPipeline {
           let handled = false
           try {
             handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
-          } catch { /* treat throws as failed, fall through to deferred/AI */ }
+          } catch { /* treat throws as failed, fall through to terminal */ }
           if (handled) return
         }
-        // InlineStyleRewriter unavailable or failed — fall through to deferred/AI
+        // InlineStyleRewriter unavailable or failed — emit terminal
         if (this.mcpFallbackFires(edit, 'Inline style rewrite unavailable for instance-scoped edit; deterministic-only mode')) return
-        if (this.deferredWriter) {
-          this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
-          this.deferredWriter.enqueue({
-            editId: edit.editId, filePath: resolvedPath, line, col,
-            property: edit.property, value: edit.value,
-            failureReason: 'Inline style rewrite failed for instance-scoped edit.',
-          })
-          return
-        }
-        if (this.aiWriter) {
-          await this.commitAIWrite(edit, resolvedPath, line, col, 'Inline style rewrite failed for instance-scoped edit.')
-          return
-        }
-        this.emitTerminal(edit.editId, { status: 'failed', reason: 'Instance-scoped editing requires InlineStyleRewriter or AI writer.' })
+        this.emitTerminal(edit.editId, { status: 'failed', reason: 'Instance-scoped editing requires InlineStyleRewriter. Use the Apply gesture to escalate to Claude.' })
         return
       }
 
@@ -690,7 +618,7 @@ export class EditPipeline {
           this.classifyDetector,
           {
             resolverAvailable: !!this.resolver,
-            aiAvailable: !!this.deferredWriter || !!this.aiWriter,
+            aiAvailable: false,
             inlineStyleAvailable: !!this.inlineStyleRewriter,
           },
         )
@@ -709,22 +637,9 @@ export class EditPipeline {
             } catch { /* treat throws as failed, fall through to deferred/AI */ }
             if (handled) return
           }
-          // InlineStyleRewriter unavailable or failed — route to deferred/AI
+          // InlineStyleRewriter unavailable or failed — emit terminal
           if (this.mcpFallbackFires(edit, 'Inline style rewrite unavailable for instance-scoped CSS Module element; deterministic-only mode')) return
-          if (this.deferredWriter) {
-            this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
-            this.deferredWriter.enqueue({
-              editId: edit.editId, filePath: resolvedPath, line, col,
-              property: edit.property, value: edit.value,
-              failureReason: 'Inline style rewrite failed for instance-scoped CSS Module element.',
-            })
-            return
-          }
-          if (this.aiWriter) {
-            await this.commitAIWrite(edit, resolvedPath, line, col, 'Inline style rewrite failed for instance-scoped CSS Module element.')
-            return
-          }
-          this.emitTerminal(edit.editId, { status: 'failed', reason: 'Instance-scoped editing requires InlineStyleRewriter or AI writer.' })
+          this.emitTerminal(edit.editId, { status: 'failed', reason: 'Instance-scoped editing requires InlineStyleRewriter. Use the Apply gesture to escalate to Claude.' })
           return
         } else {
           await this.commitCSSModulesRewrite(edit, resolved.cssFilePath, resolved.selector)
@@ -745,20 +660,7 @@ export class EditPipeline {
           if (handled) return
         }
         if (this.mcpFallbackFires(edit, 'CSS module mapping unresolved; deterministic-only mode')) return
-        if (this.deferredWriter) {
-          this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
-          this.deferredWriter.enqueue({
-            editId: edit.editId, filePath: resolvedPath, line, col,
-            property: edit.property, value: edit.value,
-            failureReason: 'Could not resolve CSS module mapping for this element.',
-          })
-          return
-        }
-        if (this.aiWriter) {
-          await this.commitAIWrite(edit, resolvedPath, line, col, 'Could not resolve CSS module mapping for this element.')
-          return
-        }
-        this.emitTerminal(edit.editId, { status: 'failed', reason: 'Could not resolve CSS module mapping for this element. Connect Claude Code for AI-assisted editing.' })
+        this.emitTerminal(edit.editId, { status: 'failed', reason: 'Could not resolve CSS module mapping for this element. Use the Apply gesture to escalate to Claude.' })
         return
       }
     }
@@ -781,7 +683,7 @@ export class EditPipeline {
     if (!hasDirectOldToken) {
       // Legacy seed-skip: first edit establishes the baseline for Tailwind (oldToken = null without it).
       const canHandleWithoutBaseline = !!this.inlineStyleRewriter
-      if (!previousValue && !this.deferredWriter && !canHandleWithoutBaseline) return
+      if (!previousValue && !canHandleWithoutBaseline) return
     }
 
     const newToken = this.resolver.findClass(edit.property, edit.value)
@@ -800,28 +702,12 @@ export class EditPipeline {
         if (handled) return
       }
       if (this.mcpFallbackFires(edit, 'Tailwind no-token path; deterministic-only mode')) return
-      if (this.deferredWriter) {
-        const reason = !newToken
-          ? `Cannot resolve Tailwind class for ${edit.property}: ${edit.value}`
-          : previousValue
-            ? `Cannot resolve Tailwind class for ${edit.property}: ${previousValue}`
-            : `No baseline value for Tailwind token on ${edit.property}`
-        this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
-        this.deferredWriter.enqueue({
-          editId: edit.editId, filePath: resolvedPath, line, col,
-          property: edit.property, value: edit.value,
-          failureReason: reason,
-        })
-        return
-      }
-      if (this.aiWriter) {
-        const reason = !newToken
-          ? `Cannot resolve Tailwind class for ${edit.property}: ${edit.value}`
-          : `Cannot resolve Tailwind class for ${edit.property}: ${previousValue}`
-        await this.commitAIWrite(edit, resolvedPath, line, col, reason)
-        return
-      }
-      this.emitTerminal(edit.editId, { status: 'failed', reason: 'Cannot resolve Tailwind class for this change. Visual preview is active — file write skipped.' })
+      const noTokenReason = !newToken
+        ? `Cannot resolve Tailwind class for ${edit.property}: ${edit.value}`
+        : previousValue
+          ? `Cannot resolve Tailwind class for ${edit.property}: ${previousValue}`
+          : `No baseline value for Tailwind token on ${edit.property}`
+      this.emitTerminal(edit.editId, { status: 'failed', reason: noTokenReason })
       return
     }
 
@@ -841,21 +727,6 @@ export class EditPipeline {
 
       if (!result.success) {
         if (this.mcpFallbackFires(edit, `Tailwind rewrite failed: ${result.reason}; deterministic-only mode`)) return
-        if (this.deferredWriter) {
-          // enqueue() is synchronous — releases the file lock immediately.
-          // DeferredWriter's writeFn acquires its own lock later. No deadlock.
-          this.deferredWriter.enqueue({
-            editId: edit.editId, filePath: resolvedPath, line, col,
-            property: edit.property, value: edit.value,
-            failureReason: result.reason,
-          })
-          return
-        }
-        if (this.aiWriter) {
-          // Already inside withFileLock — call inner helper directly to avoid deadlock
-          await this.executeAIWrite(edit, resolvedPath, line, col, result.reason)
-          return
-        }
         this.emitTerminal(edit.editId, { status: 'failed', reason: result.reason })
         return
       }
@@ -912,9 +783,8 @@ export class EditPipeline {
   /** Unified undo/redo executor. Extracted from the former _doUndo +
    *  _doRedo pair which shared ~95% of their bodies. Direction-specific
    *  branches are isolated to the peek/write-content/stack-response
-   *  selectors below; the bulk (debounce clear, deferred-writer
-   *  cancellation, multi-file-lock validate-all + write-all with inline
-   *  rollback) is now written once.
+   *  selectors below; the bulk (debounce clear, multi-file-lock
+   *  validate-all + write-all with inline rollback) is now written once.
    *
    *  Side effect: debounce timers are now cleared for BOTH undo and
    *  redo. Prior to extraction, only undo cleared them — a latent
@@ -938,8 +808,6 @@ export class EditPipeline {
           this.lastValues.delete(key)
         }
       }
-      const cancelledIds = this.deferredWriter?.cancelForFile(change.filePath) ?? []
-      this.sendDeferredStatus(cancelledIds, 'cancelled', `Cancelled by ${direction}`)
     }
 
     // Validate-all + write-all under ONE continuous set of file locks,
@@ -1113,16 +981,6 @@ export class EditPipeline {
     return real === this.projectRoot || real.startsWith(this.projectRoot + sep)
   }
 
-  /** AI write with file lock — used at Points A and C (not already locked). */
-  private async commitAIWrite(
-    edit: EditRequest, resolvedPath: string, line: number, col: number, failureReason: string,
-  ): Promise<void> {
-    this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
-    await this.withFileLock(resolvedPath, async () => {
-      await this.executeAIWrite(edit, resolvedPath, line, col, failureReason)
-    })
-  }
-
   /**
    * Handle a compound edit: classOp + inlineSets + inlineRemoves applied
    * to the same JSX element in ONE read-mutate-write cycle.
@@ -1145,9 +1003,9 @@ export class EditPipeline {
    *
    * Failure modes (any step): no write occurs, no undo push, specific
    * reason_code sent. This preserves the all-or-nothing invariant: disk
-   * is either fully updated or untouched. NO AI fallback for compound
-   * edits — AI could only handle the class portion; a partial compound
-   * would leak the very stale-state bug Option A exists to prevent.
+   * is either fully updated or untouched. No AI fallback for compound
+   * edits — partial writes would produce the exact stale-state bug
+   * Option A exists to prevent. Use the Apply gesture to escalate.
    */
   private async handleCompoundEdit(
     edit: EditRequest,
@@ -1282,9 +1140,9 @@ export class EditPipeline {
 
   /**
    * classOp (className mutation) branch. Mirrors the property-keyed path's
-   * guarantees: captures oldContent before the write for undo, falls back
-   * to the AI writer when the deterministic rewriter can't handle the JSX
-   * shape, serializes concurrent ops on the same file via withFileLock.
+   * guarantees: captures oldContent before the write for undo, emits terminal
+   * failed when the deterministic rewriter can't handle the JSX shape,
+   * serializes concurrent ops on the same file via withFileLock.
    */
   private async handleClassOp(
     edit: EditRequest,
@@ -1324,25 +1182,8 @@ export class EditPipeline {
       })
 
       if (!result.success) {
-        // AI fallback — describe the class mutation as an instruction for the
-        // AI writer. This covers template literals and conditional objects.
-        if (this.aiWriter) {
-          const instruction = this.describeClassOpForAI(
-            { remove: classOpRemove, add: classOpAdd },
-            resolvedPath,
-            line,
-            col,
-          )
-          const reason = `Could not rewrite className deterministically (${result.reason}). Routing to AI writer.`
-          await this.executeAIWrite(
-            { ...edit, property: '__class__', value: instruction },
-            resolvedPath,
-            line,
-            col,
-            reason,
-          )
-          return
-        }
+        // Deterministic rewriter could not handle this className shape (e.g. template literals).
+        // Emit terminal failed — the Apply gesture routes to Claude for non-deterministic edits.
         this.emitTerminal(edit.editId, { status: 'failed', reason: result.reason ?? 'Could not rewrite className for this element.', reason_code: 'rewriter_failed' })
         return
       }
@@ -1405,67 +1246,6 @@ export class EditPipeline {
 
       this.emitTerminal(edit.editId, { status: 'applied', mechanism: 'tailwind' })
     })
-  }
-
-  /** Build a plain-English instruction describing a classOp for the AI writer. */
-  private describeClassOpForAI(
-    op: { remove?: string; add?: string },
-    filePath: string,
-    line: number,
-    col: number,
-  ): string {
-    const parts: string[] = []
-    if (op.remove) parts.push(`remove the class "${op.remove}"`)
-    if (op.add) parts.push(`add the class "${op.add}"`)
-    return `On the JSX element at ${filePath}:${line}:${col}, ${parts.join(' and ')} in the className attribute. Preserve all other classes, ordering, and JSX structure.`
-  }
-
-  /** AI write without lock — used at Point B (already inside withFileLock). */
-  private async executeAIWrite(
-    edit: EditRequest, resolvedPath: string, line: number, col: number, failureReason: string,
-  ): Promise<void> {
-    if (!this.aiWriter) {
-      this.emitTerminal(edit.editId, { status: 'failed', reason: 'AI writer is not configured.' })
-      return
-    }
-
-    const result = await this.aiWriter.write({
-      filePath: resolvedPath,
-      line,
-      col,
-      property: edit.property,
-      value: edit.value,
-      failureReason,
-    })
-
-    if (!result.success) {
-      this.emitTerminal(edit.editId, { status: 'failed', reason: result.reason })
-      return
-    }
-
-    // Write file FIRST — side effects only after successful write
-    try {
-      await this.writeFile({ kind: 'deferred', filePath: resolvedPath, content: result.newContent })
-    } catch (err) {
-      this.emitTerminal(edit.editId, { status: 'failed', reason: `Write failed: ${sanitizeErrorForClient(err)}`, reason_code: classifyWriteError(err) })
-      return
-    }
-
-    if (this.undoStack) {
-      // requiresHmr=true: deferred/AI writes can restructure JSX. Undo must
-      // re-render the user's component to reflect the old source.
-      this.undoStack.push({ changes: [{ filePath: resolvedPath, previousContent: result.oldContent, currentContent: result.newContent, requiresHmr: true }] })
-    }
-
-    this.verifier.trackEdit({
-      editId: edit.editId,
-      filePath: resolvedPath,
-      expectedValue: edit.value,
-      property: edit.property,
-      kind: 'deferred',
-    })
-
-    this.emitTerminal(edit.editId, { status: 'needs-source-edit', reason: 'AI writer dispatched' })
   }
 
   private async commitCSSModulesRewrite(edit: EditRequest, resolvedCssPath: string, selector: string): Promise<void> {
@@ -1636,176 +1416,6 @@ export class EditPipeline {
     return handled
   }
 
-  /** Execute a deferred batch: acquire lock, read file, call AI, validate, write, push undo, send status.
-   *  Called by DeferredWriter's writeFn — must be public for external wiring. */
-  async executeDeferredBatch(batch: BatchedWriteRequest): Promise<{ success: boolean; reason?: string }> {
-    try {
-      return await this._executeDeferredBatchInner(batch)
-    } catch (err) {
-      // Last-resort safety net: if the inner logic throws unexpectedly,
-      // ensure editIds always get a terminal status (never stuck in "writing")
-      const reason = `Unexpected error: ${sanitizeErrorForClient(err)}`
-      this.sendDeferredStatus(batch.editIds, 'failed', reason)
-      return { success: false, reason }
-    }
-  }
-
-  private async _executeDeferredBatchInner(batch: BatchedWriteRequest): Promise<{ success: boolean; reason?: string }> {
-    // Defense-in-depth: re-validate path even though handleEdit already checked.
-    // executeDeferredBatch is public and the path traversed DeferredWriter in between.
-    if (!this.isInsideProjectRoot(batch.filePath)) {
-      this.sendDeferredStatus(batch.editIds, 'failed', 'File path outside project root')
-      return { success: false, reason: 'File path outside project root' }
-    }
-
-    // Check abort before starting
-    if (batch.signal.aborted) {
-      // Coalescing supersede: silent — the newer batch handles these properties.
-      // User-initiated cancel (undo/redo): send explicit status via cancelForFile path.
-      if (batch.signal.reason !== 'superseded' && batch.signal.reason !== 'user-cancel') {
-        this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
-      }
-      return { success: false, reason: 'aborted' }
-    }
-
-    if (!this.aiWriter) {
-      this.sendDeferredStatus(batch.editIds, 'failed', 'AI writer is not configured.')
-      return { success: false, reason: 'AI writer is not configured.' }
-    }
-
-    return this.withFileLockResult(batch.filePath, async () => {
-      // Check abort after lock acquisition (may have waited)
-      if (batch.signal.aborted) {
-        if (batch.signal.reason !== 'superseded' && batch.signal.reason !== 'user-cancel') {
-          this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
-        }
-        return { success: false, reason: 'aborted' }
-      }
-
-      // Read current file content inside lock
-      let fileContent: string
-      try {
-        if (!this.readFile) throw new Error('readFile is not configured')
-        fileContent = await this.readFile(batch.filePath)
-      } catch (err) {
-        const reason = `Failed to read file: ${sanitizeErrorForClient(err)}`
-        this.sendDeferredStatus(batch.editIds, 'failed', reason)
-        return { success: false, reason }
-      }
-
-      // Check abort after file read
-      if (batch.signal.aborted) {
-        if (batch.signal.reason !== 'superseded' && batch.signal.reason !== 'user-cancel') {
-          this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
-        }
-        return { success: false, reason: 'aborted' }
-      }
-
-      // Call AI with content + signal
-      const result = await this.aiWriter!.write({
-        filePath: batch.filePath,
-        line: batch.line,
-        col: batch.col,
-        property: batch.changes[0]!.property,
-        value: batch.changes[0]!.value,
-        changes: batch.changes,
-        failureReason: batch.failureReason,
-      }, { fileContent, signal: batch.signal })
-
-      if (!result.success) {
-        // Abort during AI call: the signal fired while fetch was in-flight.
-        // Treat as cancellation, not failure — a newer edit superseded this one.
-        if (batch.signal.aborted) {
-          if (batch.signal.reason !== 'superseded' && batch.signal.reason !== 'user-cancel') {
-            this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
-          }
-          return { success: false, reason: 'aborted' }
-        }
-        // "No changes" means the file already has the desired content — this happens
-        // when a previous coalesced batch already wrote the same changes. The file is
-        // correct, so treat as success rather than confusing the user with an error.
-        if (result.reason.includes('no changes')) {
-          this.sendDeferredStatus(batch.editIds, 'done')
-          return { success: true }
-        }
-        this.sendDeferredStatus(batch.editIds, 'failed', result.reason)
-        return { success: false, reason: result.reason }
-      }
-
-      // Check abort before writing (AI may have returned after supersede)
-      if (batch.signal.aborted) {
-        if (batch.signal.reason !== 'superseded' && batch.signal.reason !== 'user-cancel') {
-          this.sendDeferredStatus(batch.editIds, 'cancelled', 'Cancelled')
-        }
-        return { success: false, reason: 'aborted' }
-      }
-
-      // Write file FIRST — side effects only after successful write
-      try {
-        await this.writeFile({ kind: 'deferred', filePath: batch.filePath, content: result.newContent })
-      } catch (err) {
-        const reason = `Write failed: ${sanitizeErrorForClient(err)}`
-        this.sendDeferredStatus(batch.editIds, 'failed', reason, classifyWriteError(err))
-        return { success: false, reason }
-      }
-
-      // Push undo (only after successful write).
-      // requiresHmr=true: deferred batch writes via AI can restructure JSX;
-      // undo must re-render to reflect the pre-batch source.
-      if (this.undoStack) {
-        this.undoStack.push({ changes: [{ filePath: batch.filePath, previousContent: result.oldContent, currentContent: result.newContent, requiresHmr: true }] })
-      }
-
-      // Track HMR for ALL changes in the batch, not just the last.
-      // Each change carries the latest editId for that property (last-write-wins
-      // in DeferredWriter's coalescing Map). This ensures the verifier sends
-      // hmr_verified for the editId the browser is actually tracking.
-      for (const change of batch.changes) {
-        this.verifier.trackEdit({
-          editId: change.editId,
-          filePath: batch.filePath,
-          expectedValue: change.value,
-          property: change.property,
-          kind: 'deferred',
-        })
-      }
-
-      // Send done for all coalesced editIds
-      this.sendDeferredStatus(batch.editIds, 'done')
-
-      return { success: true }
-    })
-  }
-
-  private sendDeferredStatus(editIds: string[], status: 'done' | 'failed' | 'cancelled', reason?: string, reason_code?: 'external_revert' | 'invalid_class_token' | 'write_failed' | 'rewriter_failed' | 'parse_failed' | 'read_failed'): void {
-    for (const editId of editIds) {
-      this.channel.send({
-        type: 'edit_status',
-        editId,
-        status,
-        strategy: 'deferred',
-        ...(reason ? { reason } : {}),
-        ...(reason_code ? { reason_code } : {}),
-      })
-      // MCP path bridge: if a resolver is registered for this editId (from
-      // cortex_apply_edits), resolve it as 'needs-source-edit'. Deferred path
-      // means the legacy AI writer queue picked the intent up — from MCP's
-      // perspective this is functionally equivalent to "use the Edit tool"
-      // because the apply did not happen via cortex's deterministic rewriters.
-      // Without this, the resolver would hang until the 10s timeout.
-      const pending = this.pendingResolvers.get(editId)
-      if (pending) {
-        clearTimeout(pending.timer)
-        this.pendingResolvers.delete(editId)
-        if (status === 'done') {
-          pending.resolve({ status: 'needs-source-edit', reason: 'Deferred to AI writer queue' })
-        } else {
-          pending.resolve({ status: 'failed', reason: reason ?? `deferred ${status}`, reason_code })
-        }
-      }
-    }
-  }
-
   private async withFileLockResult<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
     const prev = this.fileLocks.get(filePath) ?? Promise.resolve()
     let result!: T
@@ -1839,8 +1449,6 @@ export class EditPipeline {
     this.debounceTimers.clear()
     this.lastValues.clear()
     this.fileLocks.clear()
-    this.deferredWriter?.dispose()
     this.inlineStyleRewriter?.dispose()
-    this.aiWriter?.dispose()
   }
 }
