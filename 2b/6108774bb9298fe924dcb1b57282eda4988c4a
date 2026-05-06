@@ -1,0 +1,19 @@
+cortex-editor/tests/browser/keyboard-shortcuts.test.tsx
+  s_3136272232c983::t_5445eef3c66293 168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "2b6108774bb9298fe924dcb1b57282eda4988c4a",
+  "prompts": {},
+  "sessions": {
+    "s_3136272232c983": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd1056d1-e5d0-4037-9762-4640675731ec",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
