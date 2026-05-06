@@ -36,11 +36,6 @@ function mount(vnode: VNode): HTMLDivElement {
   return container
 }
 
-/** Preact's `useEffect` fires on the next microtask after commit, not
- *  synchronously at render() return. Happy-dom needs a small timeout for
- *  the effect queue to drain before event dispatch can exercise listeners. */
-const flushEffects = (): Promise<void> => new Promise((r) => setTimeout(r, 10))
-
 function Popover(props: { onDismiss: () => void; label?: string }): VNode {
   const ref = useRef<HTMLDivElement>(null)
   useOutsideDismiss(ref, props.onDismiss)
@@ -65,7 +60,7 @@ describe('useOutsideDismiss', () => {
         mount(<Popover onDismiss={onDismiss} />)
       })
       // act() wraps the dispatch so handler → setState → effect commit drains
-      // synchronously. Replaces flushEffects() polling race per ZF0-1387 / ZF0-1361.
+      // synchronously. Replaces timeout-based polling per ZF0-1387 / ZF0-1361.
       await act(() => {
         outside.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
       })
@@ -77,11 +72,14 @@ describe('useOutsideDismiss', () => {
 
   it('does NOT dismiss when the user mousedowns inside the popover', async () => {
     const onDismiss = vi.fn()
-    const root = mount(<Popover onDismiss={onDismiss} />)
-    await flushEffects()
-    const inside = root.querySelector('[data-testid="inside-btn"]') as HTMLElement
+    await act(() => {
+      mount(<Popover onDismiss={onDismiss} />)
+    })
+    const inside = container.querySelector('[data-testid="inside-btn"]') as HTMLElement
     expect(inside).toBeTruthy()
-    inside.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+    await act(() => {
+      inside.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+    })
     expect(onDismiss).not.toHaveBeenCalled()
   })
 
@@ -95,7 +93,7 @@ describe('useOutsideDismiss', () => {
       mount(<Popover onDismiss={onDismiss} />)
     })
     // act() wraps the dispatch so handler → setState → effect commit drains
-    // synchronously. Replaces flushEffects() polling race per ZF0-1387 / ZF0-1361.
+    // synchronously. Replaces timeout-based polling per ZF0-1387 / ZF0-1361.
     await act(() => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
@@ -109,17 +107,20 @@ describe('useOutsideDismiss', () => {
     // one dismissal. Without the defaultPrevented guard, users saw both
     // the modal close AND the open popover vanish on one Escape press.
     const onDismiss = vi.fn()
-    mount(<Popover onDismiss={onDismiss} />)
-    await flushEffects()
+    await act(() => {
+      mount(<Popover onDismiss={onDismiss} />)
+    })
 
     const upstream = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') e.preventDefault()
     }
     document.addEventListener('keydown', upstream, { capture: true })
     try {
-      document.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
-      )
+      await act(() => {
+        document.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+        )
+      })
       expect(onDismiss).not.toHaveBeenCalled()
     } finally {
       document.removeEventListener('keydown', upstream, { capture: true })
@@ -128,10 +129,13 @@ describe('useOutsideDismiss', () => {
 
   it('does NOT dismiss on non-Escape keydowns', async () => {
     const onDismiss = vi.fn()
-    mount(<Popover onDismiss={onDismiss} />)
-    await flushEffects()
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }))
+    await act(() => {
+      mount(<Popover onDismiss={onDismiss} />)
+    })
+    await act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }))
+    })
     expect(onDismiss).not.toHaveBeenCalled()
   })
 
@@ -139,17 +143,21 @@ describe('useOutsideDismiss', () => {
     const onDismiss = vi.fn()
     container = document.createElement('div')
     document.body.appendChild(container)
-    render(<Popover onDismiss={onDismiss} />, container)
-    await flushEffects()
+    await act(() => {
+      render(<Popover onDismiss={onDismiss} />, container)
+    })
 
     // Unmount
-    render(null, container)
+    await act(() => {
+      render(null, container)
+    })
     container.remove()
-    await flushEffects()
 
     // Events on document after unmount must not reach the hook.
-    document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await act(() => {
+      document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
     expect(onDismiss).not.toHaveBeenCalled()
   })
 
@@ -171,8 +179,9 @@ describe('useOutsideDismiss', () => {
       try {
         for (let i = 0; i < 5; i++) {
           // New inline fn per render — different identity each time.
-          render(<Popover onDismiss={() => {}} label={`r${i}`} />, outer)
-          await flushEffects()
+          await act(() => {
+            render(<Popover onDismiss={() => {}} label={`r${i}`} />, outer)
+          })
         }
         const keydownAdds = addSpy.mock.calls.filter(([ev]) => ev === 'keydown').length
         const keydownRemoves = removeSpy.mock.calls.filter(([ev]) => ev === 'keydown').length
@@ -182,7 +191,9 @@ describe('useOutsideDismiss', () => {
         expect(keydownAdds).toBe(1)
         expect(keydownRemoves).toBe(0)
       } finally {
-        render(null, outer)
+        await act(() => {
+          render(null, outer)
+        })
         outer.remove()
       }
     } finally {
@@ -221,12 +232,17 @@ describe('useOutsideDismiss', () => {
     shadow.appendChild(sibling)
     try {
       const onDismiss = vi.fn()
-      render(<Popover onDismiss={onDismiss} />, shadowContainer)
-      await flushEffects()
+      await act(() => {
+        render(<Popover onDismiss={onDismiss} />, shadowContainer)
+      })
       // Click a sibling inside the same shadow root, OUTSIDE the popover.
-      sibling.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+      await act(() => {
+        sibling.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+      })
       expect(onDismiss).toHaveBeenCalled()
-      render(null, shadowContainer)
+      await act(() => {
+        render(null, shadowContainer)
+      })
     } finally {
       host.remove()
     }
@@ -268,11 +284,14 @@ describe('useOutsideDismiss', () => {
 
     it('does NOT dismiss when mousedown hits a registered trigger element', async () => {
       const onDismiss = vi.fn()
-      mount(<PopoverWithTrigger onDismiss={onDismiss} includeTrigger={true} />)
-      await flushEffects()
+      await act(() => {
+        mount(<PopoverWithTrigger onDismiss={onDismiss} includeTrigger={true} />)
+      })
 
       const trigger = container.querySelector('[data-testid="trigger"]') as HTMLButtonElement
-      trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+      await act(() => {
+        trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+      })
 
       expect(onDismiss).not.toHaveBeenCalled()
     })
@@ -282,11 +301,14 @@ describe('useOutsideDismiss', () => {
       // trigger bypass, and confirm dismissal fires. If this didn't
       // fire, the bypass test above would be testing nothing.
       const onDismiss = vi.fn()
-      mount(<PopoverWithTrigger onDismiss={onDismiss} includeTrigger={false} />)
-      await flushEffects()
+      await act(() => {
+        mount(<PopoverWithTrigger onDismiss={onDismiss} includeTrigger={false} />)
+      })
 
       const trigger = container.querySelector('[data-testid="trigger"]') as HTMLButtonElement
-      trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+      await act(() => {
+        trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+      })
 
       expect(onDismiss).toHaveBeenCalledTimes(1)
     })
@@ -296,10 +318,13 @@ describe('useOutsideDismiss', () => {
       const outside = document.createElement('div')
       document.body.appendChild(outside)
       try {
-        mount(<PopoverWithTrigger onDismiss={onDismiss} includeTrigger={true} />)
-        await flushEffects()
+        await act(() => {
+          mount(<PopoverWithTrigger onDismiss={onDismiss} includeTrigger={true} />)
+        })
 
-        outside.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+        await act(() => {
+          outside.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+        })
 
         expect(onDismiss).toHaveBeenCalledTimes(1)
       } finally {
