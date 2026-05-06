@@ -1,0 +1,19 @@
+cortex-editor/tests/SKIPPED-AUDIT.md
+  s_ba67b9c625c603::t_614a80b6ee11a9 7-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "87560910afde753406cec5bff69eab5c6795dbf6",
+  "prompts": {},
+  "sessions": {
+    "s_ba67b9c625c603": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dff09-30b9-7f02-96e9-61e481eb5028",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
