@@ -503,7 +503,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
   server.registerTool(
     'cortex_apply_edits',
     {
-      description: 'Route staged edits to Claude for source application. Returns per-id result indicating needs-source-edit (Claude uses the Edit tool to write source) or failed (intent not found). Future (ZF0-1464): direct deterministic apply for inline-style/Tailwind/CSS-Modules cases will return an additional applied status.',
+      description: "Route staged edits via cortex's deterministic rewriters (TailwindResolver, CSS Modules rewriter, InlineStyleRewriter). Returns per-id result indicating one of: 'applied' (cortex applied directly with mechanism: tailwind | css-module | inline-style), 'needs-source-edit' (use the Edit tool to write source at intent.source), or 'failed' (intent not found, apply timeout, or rewriter error).",
       inputSchema: cortexApplyEditsInputSchema.shape,
     },
     async ({ intentIds }) => {
