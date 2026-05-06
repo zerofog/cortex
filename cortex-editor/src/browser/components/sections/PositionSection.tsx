@@ -19,6 +19,8 @@ import {
 
 export type PositionChange = SectionChange
 
+const STATIC_POSITION_TOOLTIP = 'Switch to relative, absolute, fixed, or sticky to edit position'
+
 export interface PositionValues {
   position: string   // static | relative | absolute | fixed | sticky
   left: string       // computed left (e.g., "8px", "auto")
@@ -206,10 +208,10 @@ export function PositionSection({
       <SelfAlignmentBlock onChange={onChange} />
       <div
         class={`cortex-position-section__xy-row${isStatic ? ' cortex-position-section__xy-row--disabled' : ''}${isDimmed(dimmedProperties, 'left', 'top') ? ' cortex-control--dimmed' : ''}`}
-        data-tooltip={isStatic ? 'Switch to relative, absolute, fixed, or sticky to edit position' : undefined}
+        data-tooltip={isStatic ? STATIC_POSITION_TOOLTIP : undefined}
       >
-        <NumericInput value={xValue} unit={isStatic ? 'auto' : 'px'} prefix="X" tooltip={xTooltip} disabled={isStatic} tokenFamily="spacing" onChange={handleXChange} onScrub={handleXScrub} onScrubEnd={handleXScrubEnd} stale={stale} />
-        <NumericInput value={yValue} unit={isStatic ? 'auto' : 'px'} prefix="Y" tooltip={yTooltip} disabled={isStatic} tokenFamily="spacing" onChange={handleYChange} onScrub={handleYScrub} onScrubEnd={handleYScrubEnd} stale={stale} />
+        <NumericInput value={xValue} unit={isStatic ? 'auto' : 'px'} prefix="X" tooltip={isStatic ? STATIC_POSITION_TOOLTIP : xTooltip} disabled={isStatic} tokenFamily="spacing" onChange={handleXChange} onScrub={handleXScrub} onScrubEnd={handleXScrubEnd} stale={stale} />
+        <NumericInput value={yValue} unit={isStatic ? 'auto' : 'px'} prefix="Y" tooltip={isStatic ? STATIC_POSITION_TOOLTIP : yTooltip} disabled={isStatic} tokenFamily="spacing" onChange={handleYChange} onScrub={handleYScrub} onScrubEnd={handleYScrubEnd} stale={stale} />
         <NumericInput value={zValue} prefix="Z" tooltip="Z-index" onChange={handleZChange} stale={stale} />
       </div>
       <div class={`cortex-position-section__rotate-row${isDimmed(dimmedProperties, 'rotate', 'scale') ? ' cortex-control--dimmed' : ''}`}>

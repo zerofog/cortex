@@ -99,6 +99,7 @@ export function SizingControls({
   const canLockAspect = widthMode === 'fixed' && heightMode === 'fixed'
   const widthDisabled = widthMode !== 'fixed'
   const heightDisabled = heightMode !== 'fixed'
+  const lockUiActive = canLockAspect && aspectLocked
   // Auto-unlock when either dimension switches away from fixed (e.g., to
   // fill or fit). Without this, aspectLocked survives mode changes and the
   // lock button renders as visually active while the guard silently no-ops
@@ -294,15 +295,15 @@ export function SizingControls({
         </div>
         <button
           type="button"
-          class={`cortex-lock-btn${aspectLocked ? ' cortex-lock-btn--active' : ''}${!canLockAspect ? ' cortex-lock-btn--disabled' : ''}`}
-          aria-pressed={aspectLocked ? 'true' : 'false'}
+          class={`cortex-lock-btn${lockUiActive ? ' cortex-lock-btn--active' : ''}${!canLockAspect ? ' cortex-lock-btn--disabled' : ''}`}
+          aria-pressed={lockUiActive ? 'true' : 'false'}
           aria-disabled={!canLockAspect ? 'true' : undefined}
-          aria-label={aspectLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
-          data-tooltip={!canLockAspect ? ASPECT_LOCK_REQUIRES_FIXED_TOOLTIP : aspectLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
+          aria-label={lockUiActive ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
+          data-tooltip={!canLockAspect ? ASPECT_LOCK_REQUIRES_FIXED_TOOLTIP : lockUiActive ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
           onClick={handleToggleLock}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            {aspectLocked ? (
+            {lockUiActive ? (
               <>
                 <rect x="3" y="6.5" width="8" height="5.5" rx="1" />
                 <path d="M4.5,6.5 V4.5 a2.5,2.5 0 0 1 5,0 V6.5" />

@@ -206,6 +206,41 @@ describe('SizingControls', () => {
     }, { timeout: 500 })
   })
 
+  it('aspect lock active styling drops immediately when dimensions become non-fixed', async () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    const onChange = vi.fn()
+    render(
+      <SizingControls
+        values={{ ...DEFAULT_VALUES, width: '200px', height: '100px' }}
+        onChange={onChange}
+      />,
+      container,
+    )
+
+    let lockBtn = container.querySelector('.cortex-lock-btn') as HTMLButtonElement
+    lockBtn.click()
+    await vi.waitFor(() => {
+      lockBtn = container.querySelector('.cortex-lock-btn') as HTMLButtonElement
+      expect(lockBtn.getAttribute('aria-pressed')).toBe('true')
+    }, { timeout: 500 })
+
+    render(
+      <SizingControls
+        values={{ ...DEFAULT_VALUES, width: 'fit-content', height: '100px' }}
+        onChange={onChange}
+      />,
+      container,
+    )
+
+    lockBtn = container.querySelector('.cortex-lock-btn') as HTMLButtonElement
+    expect(lockBtn.classList.contains('cortex-lock-btn--active')).toBe(false)
+    expect(lockBtn.classList.contains('cortex-lock-btn--disabled')).toBe(true)
+    expect(lockBtn.getAttribute('aria-pressed')).toBe('false')
+    expect(lockBtn.getAttribute('aria-disabled')).toBe('true')
+    expect(lockBtn.getAttribute('data-tooltip')).toBe('Aspect lock requires fixed dimensions')
+  })
+
   it('min-width toggle shows min input and fires property', async () => {
     const { onChange } = setup()
     const triggers = container.querySelectorAll('.cortex-sizing-trigger')

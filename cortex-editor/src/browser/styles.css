@@ -1007,8 +1007,10 @@
   box-shadow: var(--cx-well-shadow), 0 0 0 1.5px var(--cx-select-muted);
 }
 
-.cortex-numeric-input:focus-within {
+.cortex-numeric-input:focus-within,
+.cortex-numeric-input:focus-visible {
   box-shadow: var(--cx-well-shadow), 0 0 0 1.5px var(--cx-select-muted);
+  outline: none;
 }
 
 .cortex-numeric-input__label {

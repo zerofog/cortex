@@ -451,13 +451,15 @@ describe('GridControls', () => {
   })
 
   it.each([
-    ['columns', 'gridTemplateColumns', '.cortex-grid-controls__cols'],
-    ['rows', 'gridTemplateRows', '.cortex-grid-controls__rows'],
-  ] as const)('non-simple %s template disables count input with explanation', (label, property, selector) => {
+    ['complex columns', 'gridTemplateColumns', '.cortex-grid-controls__cols', '1fr 2fr auto', 'grid-template-columns'],
+    ['complex rows', 'gridTemplateRows', '.cortex-grid-controls__rows', '1fr 2fr auto', 'grid-template-rows'],
+    ['responsive columns', 'gridTemplateColumns', '.cortex-grid-controls__cols', 'repeat(auto-fit, minmax(200px, 1fr))', 'grid-template-columns'],
+    ['responsive rows', 'gridTemplateRows', '.cortex-grid-controls__rows', 'repeat(auto-fill, minmax(120px, 1fr))', 'grid-template-rows'],
+  ] as const)('non-simple %s template disables count input with explanation', (_label, property, selector, template, emittedProperty) => {
     const onChange = vi.fn()
     setup({
       values: {
-        [property]: '1fr 2fr auto',
+        [property]: template,
       },
       onChange,
     })
@@ -472,7 +474,7 @@ describe('GridControls', () => {
     input.value = '5'
     input.dispatchEvent(new Event('input', { bubbles: true }))
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    expect(calls(onChange, label === 'columns' ? 'grid-template-columns' : 'grid-template-rows')).toEqual([])
+    expect(calls(onChange, emittedProperty)).toEqual([])
   })
 
   // Responsive/complex template tiers removed from UI — simple tier only.

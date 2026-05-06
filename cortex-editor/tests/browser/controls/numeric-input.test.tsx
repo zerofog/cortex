@@ -117,7 +117,7 @@ describe('NumericInput', () => {
     input.value = '24'
     input.dispatchEvent(new Event('input', { bubbles: true }))
 
-    render(<NumericInput value={16} unit="px" disabled onChange={onChange} />, container)
+    render(<NumericInput value={16} unit="px" tooltip="Switch to Fixed (px) to edit dimensions" disabled onChange={onChange} />, container)
     input = container.querySelector('input') as HTMLInputElement
     input.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
 
@@ -127,6 +127,8 @@ describe('NumericInput', () => {
     }, { timeout: 500 })
     const wrapper = container.querySelector('.cortex-numeric-input') as HTMLElement
     expect(wrapper.getAttribute('aria-disabled')).toBe('true')
+    expect(wrapper.getAttribute('aria-label')).toBe('Switch to Fixed (px) to edit dimensions')
+    expect(wrapper.getAttribute('role')).toBe('group')
     expect(wrapper.tabIndex).toBe(0)
     expect(onChange).not.toHaveBeenCalled()
   })

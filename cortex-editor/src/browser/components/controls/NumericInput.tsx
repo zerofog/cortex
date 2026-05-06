@@ -318,6 +318,10 @@ export function NumericInput({
   const effectiveTooltip = stale
     ? 'Edit saved but HMR didn\'t apply — refresh to verify'
     : tooltip
+  const fallbackAccessibleLabel = label ?? (typeof prefix === 'string' ? prefix : undefined)
+  const disabledAccessibleLabel = disabled
+    ? (effectiveTooltip ?? fallbackAccessibleLabel ?? 'Disabled numeric input')
+    : undefined
 
   return (
     <div
@@ -332,6 +336,8 @@ export function NumericInput({
       onPointerDown={disabled ? undefined : handleScrubDown}
       data-tooltip={effectiveTooltip}
       aria-disabled={disabled ? 'true' : undefined}
+      aria-label={disabledAccessibleLabel}
+      role={disabled ? 'group' : undefined}
       tabIndex={disabled ? 0 : undefined}
     >
       {prefix !== undefined
@@ -351,7 +357,7 @@ export function NumericInput({
         // to fill allocated space, so other consumers (spacing, position,
         // grid/flex gap, etc.) are unaffected.
         size={4}
-        aria-label={effectiveTooltip ?? label ?? (typeof prefix === 'string' ? prefix : undefined)}
+        aria-label={effectiveTooltip ?? fallbackAccessibleLabel}
         value={mixed && !isEditing ? '' : localValue}
         placeholder={mixed ? '--' : undefined}
         disabled={disabled}

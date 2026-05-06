@@ -218,8 +218,14 @@ describe('PositionSection', () => {
     setup()
     const xyRow = container.querySelector('.cortex-position-section__xy-row')
     expect(xyRow).not.toBeNull()
+    const tooltip = 'Switch to relative, absolute, fixed, or sticky to edit position'
     expect(xyRow!.classList.contains('cortex-position-section__xy-row--disabled')).toBe(true)
-    expect(xyRow!.getAttribute('data-tooltip')).toBe('Switch to relative, absolute, fixed, or sticky to edit position')
+    expect(xyRow!.getAttribute('data-tooltip')).toBe(tooltip)
+    const numericInputs = xyRow!.querySelectorAll('.cortex-numeric-input')
+    expect(numericInputs[0].getAttribute('data-tooltip')).toBe(tooltip)
+    expect(numericInputs[0].getAttribute('aria-label')).toBe(tooltip)
+    expect(numericInputs[1].getAttribute('data-tooltip')).toBe(tooltip)
+    expect(numericInputs[1].getAttribute('aria-label')).toBe(tooltip)
   })
 
   // ── Rotate (icon prefix) ───────────────────────────────────────────
