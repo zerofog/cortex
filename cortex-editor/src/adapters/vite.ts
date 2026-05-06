@@ -395,20 +395,23 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
           })),
         }
       }
-      // Returns Promise<{results}> — handleRPC's caller awaits via Promise.resolve.
+      // Returns Promise<{results, browserNotified}> — handleRPC's caller awaits via Promise.resolve.
       return applyEditsCore(currentSession!.stagedEdits, intentIds, currentSession!.pipeline)
         .then(results => {
           // Browser-buffer sync: send `staged-edits-discard` for any intent
           // that was deterministically applied. Without this, the browser's
           // localStorage staging buffer still holds the intent; on next sync
           // it would re-add to the server cache, undoing the AC3 cache.remove.
-          // Mirrors the discardEdits MCP tool's notification pattern (best-
-          // effort; transient channel-closed errors swallowed). Codex caught
-          // this in Step 4 cross-task review.
+          // Mirrors the discardEdits MCP tool's notification pattern at
+          // vite.ts:436 — including the `browserNotified` flag in the response
+          // so the MCP caller knows whether the browser saw the discard
+          // (false → next full-sync reconciles, but Claude can warn the user).
           const appliedIds = results.filter((r) => r.status === 'applied').map((r) => r.intentId)
+          let browserNotified = appliedIds.length === 0  // vacuously true: nothing to notify
           if (appliedIds.length > 0 && currentSession!.channel) {
             try {
               currentSession!.channel.send({ type: 'staged-edits-discard', intentIds: appliedIds })
+              browserNotified = true
             } catch (err) {
               console.warn(
                 '[cortex] Failed to send staged-edits-discard for applied intents:',
@@ -416,7 +419,7 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
               )
             }
           }
-          return { results }
+          return { results, browserNotified }
         })
     }
 
