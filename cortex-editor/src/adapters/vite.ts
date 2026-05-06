@@ -384,8 +384,9 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
       const intentIds = params.intentIds as string[]
       // Race-during-init guard: pipeline is constructed asynchronously after
       // detection + Tailwind config resolution complete. Mirror the pattern
-      // at vite.ts:1041-1054 — friendly fallback per intent so Claude can
-      // surface a useful message instead of a generic TypeError.
+      // at vite.ts:1077-1086 (data.type === 'edit' / 'undo' / 'redo' branches)
+      // — friendly fallback per intent so Claude can surface a useful message
+      // instead of a generic TypeError.
       if (!currentSession!.pipeline) {
         return {
           results: intentIds.map((intentId) => ({
