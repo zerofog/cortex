@@ -119,7 +119,7 @@ export class TailwindRewriter {
       }
 
       if (exprKind === SK.TemplateExpression || exprKind === SK.NoSubstitutionTemplateLiteral) {
-        return { success: false, filePath, reason: 'Template literal in className — route to AI' }
+        return { success: false, filePath, reason: 'Template literal in className — needs source edit' }
       }
 
       return { success: false, filePath, reason: `Unsupported className expression kind: ${exprKind}` }
@@ -207,7 +207,7 @@ export class TailwindRewriter {
 
     for (const arg of call.getArguments()) {
       if (arg.getKind() === SK.ObjectLiteralExpression) {
-        return { success: false, filePath, reason: 'Conditional object in className call — route to AI' }
+        return { success: false, filePath, reason: 'Conditional object in className call — needs source edit' }
       }
 
       const literal = arg.asKind(SK.StringLiteral)
@@ -331,7 +331,7 @@ export class TailwindRewriter {
         return this.mutateCallExpression(expression, remove, add, filePath, oldContent, sourceFile, SK)
       }
       if (exprKind === SK.TemplateExpression || exprKind === SK.NoSubstitutionTemplateLiteral) {
-        return { success: false, filePath, reason: 'Template literal in className — route to AI' }
+        return { success: false, filePath, reason: 'Template literal in className — needs source edit' }
       }
       return { success: false, filePath, reason: `Unsupported className expression kind: ${expression.getKindName()}` }
     }
@@ -389,7 +389,7 @@ export class TailwindRewriter {
       } else if (exprKind === SK.CallExpression) {
         result = this.mutateCallExpression(expression, remove, add, filePath, initialContent, sourceFile, SK)
       } else if (exprKind === SK.TemplateExpression || exprKind === SK.NoSubstitutionTemplateLiteral) {
-        return { success: false, reason: 'Template literal in className — route to AI' }
+        return { success: false, reason: 'Template literal in className — needs source edit' }
       } else {
         return { success: false, reason: `Unsupported className expression kind: ${expression.getKindName()}` }
       }
@@ -536,7 +536,7 @@ export class TailwindRewriter {
 
     const args = call.getArguments()
     if (args.some((a) => a.getKind() === SK.ObjectLiteralExpression)) {
-      return { success: false, filePath, reason: 'Conditional object in className call — route to AI' }
+      return { success: false, filePath, reason: 'Conditional object in className call — needs source edit' }
     }
 
     let mutated = false

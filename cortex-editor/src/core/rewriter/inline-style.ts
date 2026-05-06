@@ -144,7 +144,7 @@ export class InlineStyleRewriter {
     }
 
     if (expression.getKind() !== SK.ObjectLiteralExpression) {
-      return { success: false, filePath, reason: `style is not an object literal — route to AI (found ${expression.getKindName()})` }
+      return { success: false, filePath, reason: `style is not an object literal — needs source edit (found ${expression.getKindName()})` }
     }
 
     const objLiteral = expression.asKind(SK.ObjectLiteralExpression)
@@ -162,7 +162,7 @@ export class InlineStyleRewriter {
         const shorthand = prop.asKind(SK.ShorthandPropertyAssignment)
         if (!shorthand) continue
         if (shorthand.getName() === camelProp) {
-          return { success: false, filePath, reason: `Property '${camelProp}' uses shorthand assignment — route to AI` }
+          return { success: false, filePath, reason: `Property '${camelProp}' uses shorthand assignment — needs source edit` }
         }
         continue
       }
@@ -185,7 +185,7 @@ export class InlineStyleRewriter {
 
         const propInitKind = propInit.getKind()
         if (propInitKind !== SK.StringLiteral && propInitKind !== SK.NumericLiteral) {
-          return { success: false, filePath, reason: `Property '${camelProp}' has non-literal value — route to AI` }
+          return { success: false, filePath, reason: `Property '${camelProp}' has non-literal value — needs source edit` }
         }
 
         existingAssignment = propAssign
@@ -474,7 +474,7 @@ export class InlineStyleRewriter {
       const expression = initializer.asKind(SK.JsxExpression)?.getExpression()
       if (!expression) return { success: false, reason: 'Empty JSX expression in style' }
       if (expression.getKind() !== SK.ObjectLiteralExpression) {
-        return { success: false, reason: `style is not an object literal — route to AI (found ${expression.getKindName()})` }
+        return { success: false, reason: `style is not an object literal — needs source edit (found ${expression.getKindName()})` }
       }
       objLiteral = expression.asKind(SK.ObjectLiteralExpression) ?? null
     } else if (sets.length > 0) {
@@ -499,7 +499,7 @@ export class InlineStyleRewriter {
         if (prop.getKind() === SK.ShorthandPropertyAssignment) {
           const shorthand = prop.asKind(SK.ShorthandPropertyAssignment)
           if (shorthand?.getName() === camelProp) {
-            return { success: false, reason: `Property '${camelProp}' uses shorthand assignment — route to AI` }
+            return { success: false, reason: `Property '${camelProp}' uses shorthand assignment — needs source edit` }
           }
           continue
         }
@@ -510,7 +510,7 @@ export class InlineStyleRewriter {
         if (!propInit) continue
         const initKind = propInit.getKind()
         if (initKind !== SK.StringLiteral && initKind !== SK.NumericLiteral) {
-          return { success: false, reason: `Property '${camelProp}' has non-literal value — route to AI` }
+          return { success: false, reason: `Property '${camelProp}' has non-literal value — needs source edit` }
         }
       }
     }

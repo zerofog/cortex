@@ -1666,8 +1666,13 @@ describe('EditPipeline', () => {
 
       // InlineStyleRewriter was called but threw
       expect(inlineRewriter.rewrite).toHaveBeenCalledTimes(1)
-      // Should NOT crash — pipeline handles gracefully
-      // After ZF0-1546: the throw terminates the edit (failed or dropped — no deferredWriter)
+      // Pipeline must emit terminal-failed (not silently drop) when the
+      // rewriter throws. Falsifiability: if the catch swallows without
+      // emitting, this assertion fails.
+      const failedStatus = channel.sent.find(
+        (m) => m.type === 'edit_status' && (m as { status: string }).status === 'failed',
+      )
+      expect(failedStatus).toBeDefined()
     })
 
     it('uses jsx-immediate WriteIntent kind', async () => {
