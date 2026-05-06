@@ -4,8 +4,8 @@ Date: 2026-05-06
 
 ## Commands
 
-- Pre-cleanup inventory: `rg -n "^\s*(describe|it|test)\.skip\(" cortex-editor/tests`
-- Executable skip inventory: `rg -n "^\s*(describe|it|test)\.skip\(" cortex-editor/tests`
+- Pre-cleanup inventory: ran `rg -n "^\s*(describe|it|test)\.skip\(" cortex-editor/tests` before deleting stale skips.
+- Final executable skip inventory: ran the same anchored `rg` command after cleanup.
 - Note: the ticket's `grep -rn "\\.skip\\(" cortex-editor/tests/` form is not portable on this macOS/BSD grep because `\(` is parsed as an unmatched grouping operator. The anchored `rg` scan above is the executable-test equivalent.
 
 ## Counts
