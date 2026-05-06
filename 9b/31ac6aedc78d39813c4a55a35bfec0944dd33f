@@ -1,0 +1,19 @@
+cortex-editor/src/browser/components/Panel.tsx
+  s_3136272232c983::t_53932fb493e886 631-635,637-638,642
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "9b31ac6aedc78d39813c4a55a35bfec0944dd33f",
+  "prompts": {},
+  "sessions": {
+    "s_3136272232c983": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd1056d1-e5d0-4037-9762-4640675731ec",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
