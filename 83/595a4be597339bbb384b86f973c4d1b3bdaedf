@@ -1,0 +1,35 @@
+cortex-editor/src/browser/components/Panel.tsx
+  s_3136272232c983::t_064d7d5e5d06b2 162
+  s_3136272232c983::t_e54beba1b0f45e 1486-1491
+  s_3136272232c983::t_b07c50c1cda875 265
+cortex-editor/tests/browser/layer-tree.test.tsx
+  s_3136272232c983::t_0132458f6f2a66 168-171
+cortex-editor/src/browser/components/sections/ElementTree.tsx
+  s_3136272232c983::t_fe2c7db294c78e 6,11-16,19-24
+cortex-editor/tests/browser/sections/ElementTree.test.tsx
+  s_3136272232c983::t_2655942c7e16c5 1,5-27,29-47,49-67,69-87,89-94
+  s_3136272232c983::t_ab99a0e5cd670e 28,48,68,88
+  s_3136272232c983::t_16e65f2c3bce6c 115,136,157,173
+cortex-editor/src/browser/components/LayerTree.tsx
+  s_3136272232c983::t_1c24bd784857a7 74
+  s_3136272232c983::t_619120deacf47e 95
+  s_3136272232c983::t_a206a8ae40dfd8 83
+cortex-editor/src/browser/components/CortexApp.tsx
+  s_3136272232c983::t_b5b4917ec22742 1019
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "83595a4be597339bbb384b86f973c4d1b3bdaedf",
+  "prompts": {},
+  "sessions": {
+    "s_3136272232c983": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd1056d1-e5d0-4037-9762-4640675731ec",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": null
+    }
+  }
+}
