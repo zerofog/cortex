@@ -1,0 +1,24 @@
+cortex-editor/src/browser/styles.css
+  s_3136272232c983::t_038c8f03dcadb0 251-259
+cortex-editor/src/browser/components/CortexApp.tsx
+  s_3136272232c983::t_45b6e72a59df92 19
+  s_3136272232c983::t_ebdb826ffa2563 1047-1057
+cortex-editor/src/browser/components/SecondarySelectionOverlay.tsx
+  s_3136272232c983::t_714d152c8c2f92 1-96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "bdcf35889dc058afe58464a750dbd2389b4b1fce",
+  "prompts": {},
+  "sessions": {
+    "s_3136272232c983": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd1056d1-e5d0-4037-9762-4640675731ec",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
