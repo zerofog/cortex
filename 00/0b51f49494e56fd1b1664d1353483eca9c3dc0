@@ -1,0 +1,25 @@
+cortex-editor/tests/browser/panel.test.tsx
+  s_3136272232c983::t_0286b77a40a750 10
+  s_3136272232c983::t_73c0f6d0539eb2 1223-1557
+cortex-editor/src/browser/components/Panel.tsx
+  s_3136272232c983::t_3f69430d81681c 950
+  s_3136272232c983::t_34fab3687b1dfb 709-783
+  s_3136272232c983::t_72e1e484cde579 912-932,935
+  s_3136272232c983::t_8441dc22797815 821
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "000b51f49494e56fd1b1664d1353483eca9c3dc0",
+  "prompts": {},
+  "sessions": {
+    "s_3136272232c983": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd1056d1-e5d0-4037-9762-4640675731ec",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
