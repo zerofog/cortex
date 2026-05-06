@@ -628,12 +628,18 @@ export function Panel({
   // all selectedElements for the 15-property watch-list. When selectedElements.length
   // <= 1 the result is always empty. Merged with scopeMixedProperties (scope='all'
   // cross-sibling comparison) so sections see a unified mixed signal.
+  //
+  // Filter to .isConnected elements before comparing (Phase-4 review A3): T1 deferred
+  // multi-element HMR re-resolution, so secondary elements may go stale (detached) after
+  // an HMR swap. getComputedStyle on a detached node returns empty strings, which would
+  // otherwise produce false "mixed" signals across all 15 watched properties.
   const multiSelectMixed = useMemo<Set<string>>(() => {
-    if (selectedElements.length <= 1) return new Set()
+    const live = selectedElements.filter(el => el.isConnected)
+    if (live.length <= 1) return new Set()
     const mixed = new Set<string>()
     for (const prop of MULTI_SELECT_WATCHED_PROPERTIES) {
       let firstVal: string | null = null
-      for (const el of selectedElements) {
+      for (const el of live) {
         const v = getComputedStyle(el).getPropertyValue(prop).trim()
         if (firstVal === null) firstVal = v
         else if (v !== firstVal) { mixed.add(prop); break }
