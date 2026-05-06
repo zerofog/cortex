@@ -1,0 +1,19 @@
+cortex-editor/tests/browser/hooks/useOutsideDismiss.test.tsx
+  s_029c66483818d5::t_b425346216de49 246
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "bb139ab92662f6aee7ac18715f2b4a7579547f7b",
+  "prompts": {},
+  "sessions": {
+    "s_029c66483818d5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dff0a-b36d-7781-84f3-0860c30c41c1",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
