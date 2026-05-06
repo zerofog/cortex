@@ -1,0 +1,42 @@
+cortex-editor/src/browser/selection.ts
+  s_3136272232c983::t_6acf25645e587f 25-30,35,88-102
+cortex-editor/tests/browser/selection.test.ts
+  s_3136272232c983::t_257d282f17de07 69
+  s_3136272232c983::t_d052558b9e3189 213
+  s_3136272232c983::t_4b738871be6775 10
+  s_3136272232c983::t_7d2fc87fdeedb2 221,228,234-288
+cortex-editor/src/browser/components/CortexApp.tsx
+  s_3136272232c983::t_8b05c255e568c4 133-134,141
+  s_3136272232c983::t_7dd871eccd6825 187-189,192,198,203-205,208-212
+  s_3136272232c983::t_bef121f3b30928 193,200-202
+  s_3136272232c983::t_673235aa9029f0 194-197
+  s_3136272232c983::t_55cfc7c8ae5b64 199
+  s_3136272232c983::t_832715aa2a261b 238-242,246
+  s_3136272232c983::t_43869dddffa2f1 517,522,539-542
+  s_3136272232c983::t_32f7e100967c8d 47-49
+  s_3136272232c983::t_8c8da9f9cb6afb 518-521
+  s_3136272232c983::t_22a9438e7b51c1 10
+cortex-editor/tests/browser/selection-state.test.ts
+  s_3136272232c983::t_ceaae1bd577d34 1-57
+cortex-editor/tests/browser/cortex-app.test.tsx
+  s_3136272232c983::t_cf8aa60c63d828 16-20,26,29,175,184,234,245,266,402,491,538,676,722,951,961,1097,1108
+cortex-editor/src/browser/cortex-app-reducer.ts
+  s_3136272232c983::t_9b789f2d5d54bb 148-151,154,159-160,164-198
+  s_3136272232c983::t_85a9bcfe65292b 152-153,155-158,161-163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "35e6ca8e7b27e583be18e652fc3782e449857b72",
+  "prompts": {},
+  "sessions": {
+    "s_3136272232c983": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd1056d1-e5d0-4037-9762-4640675731ec",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": null
+    }
+  }
+}
