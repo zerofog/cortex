@@ -95,7 +95,7 @@ export function SegmentedControl({
             type="button"
             role="radio"
             aria-checked={isActive ? 'true' : 'false'}
-            tabindex={opt.value === value ? 0 : -1}
+            tabIndex={opt.value === value ? 0 : -1}
             aria-label={opt.label ? undefined : opt.title}
             data-tooltip={opt.title}
             data-value={opt.value}

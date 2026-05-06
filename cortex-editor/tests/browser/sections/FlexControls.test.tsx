@@ -58,6 +58,8 @@ describe('FlexControls', () => {
     onChange?: (c: FlexChange) => void
     onScrub?: (c: FlexChange) => void
     onScrubEnd?: (c: FlexChange) => void
+    dimmedProperties?: Set<string>
+    mixedProperties?: Set<string>
   }) {
     container = document.createElement('div')
     document.body.appendChild(container)
@@ -70,6 +72,8 @@ describe('FlexControls', () => {
         onChange={onChange}
         onScrub={onScrub}
         onScrubEnd={onScrubEnd}
+        dimmedProperties={overrides?.dimmedProperties}
+        mixedProperties={overrides?.mixedProperties}
       />,
       container,
     )
@@ -364,6 +368,24 @@ describe('FlexControls', () => {
     // Swapped: X (horizontal) → align-items in column mode, Y (vertical) → justify-content.
     expect(xTrigger.getAttribute('data-tooltip')).toBe('align-items')
     expect(yTrigger.getAttribute('data-tooltip')).toBe('justify-content')
+  })
+
+  it('disables X/Y dropdowns while flex-direction is mixed', async () => {
+    const { onChange } = setup({
+      mixedProperties: new Set(['flex-direction']),
+    })
+    const xTrigger = getXDropdownTrigger()
+    const yTrigger = getYDropdownTrigger()
+
+    expect(xTrigger.disabled).toBe(true)
+    expect(yTrigger.disabled).toBe(true)
+
+    xTrigger.click()
+    yTrigger.click()
+    await tick()
+
+    expect(container.querySelector('.cortex-xy-dropdown__popover')).toBeNull()
+    expect(onChange).not.toHaveBeenCalled()
   })
 
   // ── 14-15: Direction SegmentedControl ────────────────────────────

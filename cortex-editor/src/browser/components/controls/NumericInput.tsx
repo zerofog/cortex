@@ -85,6 +85,7 @@ export function NumericInput({
 
   const [localValue, setLocalValue] = useState(String(value))
   const [isEditing, setIsEditing] = useState(false)
+  const [hasExplicitMixedValue, setHasExplicitMixedValue] = useState(false)
   const [isScrubbing, setIsScrubbing] = useState(false)
   const [scrubBadge, setScrubBadge] = useState<{ value: number; x: number } | null>(null)
   const [popoverOpen, setPopoverOpen] = useState(false)
@@ -109,6 +110,7 @@ export function NumericInput({
   useEffect(() => {
     if (!isEditing) {
       setLocalValue(String(value))
+      setHasExplicitMixedValue(false)
     }
   }, [value, isEditing])
 
@@ -119,10 +121,19 @@ export function NumericInput({
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault()
+      const baseValue = mixed ? parseFloat(localValueRef.current) : value
+      if (isNaN(baseValue)) return
       const step = getStep(e)
       const delta = e.key === 'ArrowUp' ? step : -step
-      const next = clampValue(roundTenth(value + delta))
+      const next = clampValue(roundTenth(baseValue + delta))
       onChange(next)
+      if (mixed) {
+        const str = String(next)
+        localValueRef.current = str
+        setLocalValue(str)
+        setHasExplicitMixedValue(true)
+        userTypedRef.current = false
+      }
     } else if (e.key === 'Enter') {
       e.preventDefault()
       const parsed = parseFloat(localValueRef.current)
@@ -130,32 +141,42 @@ export function NumericInput({
         onChange(clampValue(parsed))
       }
       userTypedRef.current = false
+      setHasExplicitMixedValue(false)
       setIsEditing(false)
       inputRef.current?.blur()
     } else if (e.key === 'Escape') {
       setLocalValue(String(value))
+      setHasExplicitMixedValue(false)
       setIsEditing(false)
       inputRef.current?.blur()
     }
-  }, [value, onChange, clampValue])
+  }, [value, onChange, clampValue, mixed])
 
-  const handleFocus = useCallback(() => {
-    setIsEditing(true)
+  const beginEditing = useCallback((focusInput = false) => {
     userTypedRef.current = false
     if (mixed) {
       // Don't reveal the selected element's value — user types the target value
       // from scratch, since there's no single "current" value in mixed state.
       localValueRef.current = ''
       setLocalValue('')
+      setHasExplicitMixedValue(false)
+      if (inputRef.current) inputRef.current.value = ''
     }
+    setIsEditing(true)
+    if (focusInput) inputRef.current?.focus()
     inputRef.current?.select()
     if (showPopover) {
       setPopoverOpen(true)
     }
   }, [mixed, showPopover])
 
+  const handleFocus = useCallback(() => {
+    beginEditing()
+  }, [beginEditing])
+
   const handleBlur = useCallback(() => {
     setIsEditing(false)
+    setHasExplicitMixedValue(false)
     // Tab-out / focus-loss should also dismiss the popover. Without this,
     // keyboard tabbing through spacing inputs leaves stale popovers mounted
     // and registered in popover-stack, so subsequent Escape dismisses the
@@ -173,7 +194,7 @@ export function NumericInput({
       const clamped = clampValue(parsed)
       // Only commit if the user actually typed a new value — prevents HMR-triggered
       // blurs from dispatching phantom edits when React replaces DOM nodes.
-      if (userTypedRef.current && clamped !== value) {
+      if (userTypedRef.current && (mixed || clamped !== value)) {
         onChange(clamped)
       }
       const str = String(clamped)
@@ -188,20 +209,55 @@ export function NumericInput({
     const v = (e.target as HTMLInputElement).value
     localValueRef.current = v
     setLocalValue(v)
-  }, [])
+    if (mixed) setHasExplicitMixedValue(v.trim() !== '')
+  }, [mixed])
 
   const handleWheel = useCallback((e: WheelEvent) => {
     const root = inputRef.current?.getRootNode() as Document | ShadowRoot
     if (root?.activeElement !== inputRef.current) return
     e.preventDefault()
+    const baseValue = mixed ? parseFloat(localValueRef.current) : value
+    if (isNaN(baseValue)) return
     const step = getStep(e)
     const delta = e.deltaY < 0 ? step : -step
-    const next = clampValue(roundTenth(value + delta))
+    const next = clampValue(roundTenth(baseValue + delta))
     onChange(next)
-  }, [value, onChange, clampValue])
+    if (mixed) {
+      const str = String(next)
+      localValueRef.current = str
+      setLocalValue(str)
+      setHasExplicitMixedValue(true)
+      userTypedRef.current = false
+    }
+  }, [value, onChange, clampValue, mixed])
 
   const handleScrubDown = useCallback((e: PointerEvent) => {
     if (isEditing) return
+    if (mixed) {
+      const target = e.currentTarget as HTMLElement
+      try { target.setPointerCapture(e.pointerId) } catch {}
+
+      const cleanup = () => {
+        scrubCleanupRef.current = null
+        target.removeEventListener('pointerup', handleMixedUp)
+        target.removeEventListener('pointercancel', handleMixedCancel)
+      }
+
+      const handleMixedUp = (ue: PointerEvent) => {
+        try { target.releasePointerCapture(ue.pointerId) } catch {}
+        cleanup()
+        beginEditing(true)
+      }
+
+      const handleMixedCancel = () => {
+        cleanup()
+      }
+
+      target.addEventListener('pointerup', handleMixedUp)
+      target.addEventListener('pointercancel', handleMixedCancel)
+      scrubCleanupRef.current = cleanup
+      return
+    }
     scrubStartX.current = e.clientX
     scrubStartValue.current = value
 
@@ -259,7 +315,7 @@ export function NumericInput({
     target.addEventListener('pointerup', handleUp)
     target.addEventListener('pointercancel', handleCancel)
     scrubCleanupRef.current = cleanup
-  }, [isEditing, value, onChange, onScrub, onScrubEnd, clampValue])
+  }, [isEditing, mixed, beginEditing, value, onChange, onScrub, onScrubEnd, clampValue])
 
   const handlePopoverPick = useCallback((chosen: { name: string; valuePx: number; source: SpacingToken['source'] }) => {
     // `name` and `source` are part of the contract for ZF0-1210 (staging-buffer flow
@@ -285,6 +341,7 @@ export function NumericInput({
     // doesn't fire a phantom commit using the picked value as if the user had typed it.
     userTypedRef.current = false
     setPopoverOpen(false)
+    setHasExplicitMixedValue(false)
   }, [onChange, clampValue])
 
   const handlePopoverDismiss = useCallback(() => {
@@ -328,7 +385,7 @@ export function NumericInput({
         // grid/flex gap, etc.) are unaffected.
         size={4}
         aria-label={effectiveTooltip ?? label ?? (typeof prefix === 'string' ? prefix : undefined)}
-        value={mixed && !isEditing ? '' : localValue}
+        value={mixed && (!isEditing || !hasExplicitMixedValue) ? '' : localValue}
         placeholder={mixed ? 'Mixed' : undefined}
         disabled={disabled}
         tabIndex={disabled ? -1 : undefined}

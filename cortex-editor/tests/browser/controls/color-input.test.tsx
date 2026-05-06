@@ -229,6 +229,20 @@ describe('ColorInput', () => {
     }, { timeout: 500 })
   })
 
+  it('commits the typed representative color while mixed', async () => {
+    const { onChange } = setup({ mixed: true, value: '#ff0000' })
+    const hex = container.querySelector('.cortex-color-input__hex') as HTMLInputElement
+    hex.dispatchEvent(new Event('focus', { bubbles: true }))
+    await flush()
+    hex.value = '#ff0000'
+    hex.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+    hex.dispatchEvent(new Event('blur', { bubbles: true }))
+    await vi.waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith('#ff0000')
+    }, { timeout: 500 })
+  })
+
   it('falls back to #000000 for unparseable colors', () => {
     setup({ value: 'transparent' })
     const hex = container.querySelector('.cortex-color-input__hex') as HTMLInputElement

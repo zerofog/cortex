@@ -291,6 +291,66 @@ describe('NumericInput', () => {
       expect(onChange).toHaveBeenCalledWith(30)
     })
 
+    it('commits the typed representative value on blur', async () => {
+      const { input, onChange } = setup({ value: 16, mixed: true })
+      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+      input.value = '16'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      input.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
+      await vi.waitFor(() => {
+        expect(onChange).toHaveBeenCalledWith(16)
+      }, { timeout: 500 })
+    })
+
+    it('ignores arrow stepping before a concrete value is typed', () => {
+      const { input, onChange } = setup({ value: 16, mixed: true })
+      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+      dispatchKeyboardEvent(input, 'keydown', { key: 'ArrowUp' })
+      expect(onChange).not.toHaveBeenCalled()
+    })
+
+    it('steps from the typed value instead of the hidden representative value', () => {
+      const { input, onChange } = setup({ value: 16, mixed: true })
+      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+      input.value = '30'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      dispatchKeyboardEvent(input, 'keydown', { key: 'ArrowUp' })
+      expect(onChange).toHaveBeenCalledWith(31)
+      expect(onChange).not.toHaveBeenCalledWith(17)
+    })
+
+    it('ignores wheel stepping before a concrete value is typed', () => {
+      const { input, onChange } = setupInShadow({ value: 16, mixed: true })
+      input.focus()
+      input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+      const wheelEvent = new WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        deltaY: -1,
+      })
+      input.dispatchEvent(wheelEvent)
+      expect(onChange).not.toHaveBeenCalled()
+    })
+
+    it('does not scrub from the hidden representative value while mixed', async () => {
+      const onScrub = vi.fn()
+      const onScrubEnd = vi.fn()
+      const { input, onChange } = setup({ value: 16, mixed: true, onScrub, onScrubEnd })
+      const wrapper = input.closest('.cortex-numeric-input') as HTMLElement
+
+      dispatchPointerEvent(wrapper, 'pointerdown', { clientX: 100 })
+      await new Promise<void>(r => setTimeout(r, 0))
+      dispatchPointerEvent(wrapper, 'pointermove', { clientX: 120 })
+      dispatchPointerEvent(wrapper, 'pointerup', { clientX: 120 })
+      await new Promise<void>(r => setTimeout(r, 0))
+
+      expect(onScrub).not.toHaveBeenCalled()
+      expect(onScrubEnd).not.toHaveBeenCalled()
+      expect(onChange).not.toHaveBeenCalled()
+      expect(wrapper.querySelector('.cortex-numeric-input__scrub-badge')).toBeNull()
+      expect(input.value).toBe('')
+    })
+
     it('does not commit on blur without typing', async () => {
       const { input, onChange } = setup({ value: 16, mixed: true })
       const wrapper = input.closest('.cortex-numeric-input') as HTMLElement

@@ -248,7 +248,7 @@ export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, s
       const nextAlpha = parsedColor.alphaWasExplicit ? parsedColor.alpha : (mixed ? 100 : alphaRef.current)
       const next = formatColor(parsedColor.hex, nextAlpha)
       const previous = formatColor(hexColor, alphaRef.current)
-      if (next.toLowerCase() !== previous.toLowerCase()) {
+      if (mixed || next.toLowerCase() !== previous.toLowerCase()) {
         emitColor(parsedColor.hex, nextAlpha)
       }
     }
