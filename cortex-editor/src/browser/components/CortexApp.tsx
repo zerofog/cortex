@@ -7,7 +7,7 @@ import { onDivergence } from '../override-bus.js'
 import { CommandStack } from '../command-stack.js'
 import { initSelection } from '../selection.js'
 import type { SelectionHandle } from '../selection.js'
-import { cortexAppReducer, initialCortexAppReducerState } from '../cortex-app-reducer.js'
+import { cortexAppReducer, initialCortexAppReducerState, applySelectionUpdate } from '../cortex-app-reducer.js'
 import type { CortexAppReducerState, CortexAppAction, CortexAppEffect, EditDispatchEntry } from '../cortex-app-reducer.js'
 // @ts-ignore — tinykeys has types but exports field doesn't include a "types" condition (TODO: add declare module shim when tinykeys updates)
 import { tinykeys } from 'tinykeys'
@@ -44,7 +44,9 @@ export interface CortexAppProps {
  */
 export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps): JSX.Element | null {
   const [hoveredElement, setHoveredElement] = useState<HTMLElement | null>(null)
-  const [selectedElement, setSelectedElement] = useState<HTMLElement | null>(null)
+  const [selectedElements, setSelectedElementsState] = useState<HTMLElement[]>([])
+  // Back-compat alias — primaryElement for all CSS parsing and existing callsites (ZF0-1195).
+  const selectedElement = selectedElements[0] ?? null
   // Monotonic counter bumped on every `hmr-applied` message (ZF0-1292).
   // Flowed to Panel so stylesheet-only source edits (App.css rule changes,
   // @theme token changes, ancestor cascade changes) force a getComputedStyle
@@ -128,13 +130,15 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const [activityCount, setActivityCount] = useState(0)
   const [active, setActive] = useState(initialActive ?? false)
   const selectionRef = useRef<SelectionHandle | null>(null)
+  const selectedElementsRef = useRef<HTMLElement[]>([])
+  selectedElementsRef.current = selectedElements
   const selectedElementRef = useRef<HTMLElement | null>(null)
   selectedElementRef.current = selectedElement
   // Metadata captured at selection time — survives HMR node replacement
   // and drives the smart-fallback re-resolution (ZF0-1292 architecture
   // review: nth-index + content-hash + shadow-root flag). Null whenever
   // selectedElement is null.
-  const selectionMetadataRef = useRef<SelectionMetadata | null>(null)
+  const selectionMetadataRef = useRef<SelectionMetadata[]>([])
   const handleExitRef = useRef<(() => void) | null>(null)
   // Mirror of `handleEditDispatch` for the test bridge. The mount effect that
   // installs `__CORTEX_TEST__` runs once with deps `[channel, shadowRoot]`, so
@@ -180,15 +184,32 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   useCanvasZoom(false)
 
   // Selection setter that keeps selectionMetadataRef in sync. Every path
-  // that sets a positive `selectedElement` must go through this helper so
-  // the HMR re-resolver has valid metadata. Null paths (exit, escape,
-  // failed re-resolve) also clear metadata here.
+  // that sets a positive selection must go through this helper so the HMR
+  // re-resolver has valid metadata. Empty-array paths (exit, escape, failed
+  // re-resolve) also clear metadata here.
   // Declared above the mount effect so later readers see it before its
   // first use — avoids the forward-reference ambiguity a reviewer flagged.
-  const setSelectionWithMetadata = useCallback((el: HTMLElement | null): void => {
-    selectionMetadataRef.current = el ? captureSelectionMetadata(el) : null
-    setSelectedElement(el)
+  //
+  // Accepts (elements, action). Delegates the replace/add/toggle algorithm to
+  // the pure helper `applySelectionUpdate` — single source of truth for
+  // selection-state algebra. Identity-stable: when the helper returns `prev`
+  // (no-op add or replace-with-same-elements), Preact bails out of the
+  // re-render and metadata is not re-captured.
+  const setSelection = useCallback((elements: HTMLElement[], action: 'replace' | 'add' | 'toggle' = 'replace'): void => {
+    setSelectedElementsState(prev => {
+      const next = applySelectionUpdate(prev, elements, action)
+      if (next !== prev) {
+        selectionMetadataRef.current = next.map(el => captureSelectionMetadata(el))
+      }
+      return next
+    })
   }, [])
+
+  // Legacy-compat shim — single element or null → setSelection([], 'replace') or setSelection([el], 'replace').
+  // Used by the test bridge, HMR re-resolver, and escape/exit paths that set null.
+  const setSelectionWithMetadata = useCallback((el: HTMLElement | null): void => {
+    setSelection(el ? [el] : [], 'replace')
+  }, [setSelection])
 
   useEffect(() => {
     // Disposal guard for async work (HMR re-resolution timers, rAF callbacks)
@@ -214,16 +235,15 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       setStaleSources(new Set(staleSet)) // defensive copy already made by emitStale
     })
 
-    // Initialize selection system. The `setSelectionWithMetadata` wrapper
-    // (defined in a useCallback below) is the ONE point of entry for
-    // populating `selectedElement` — the mount effect uses it here, and
-    // every keyboard/click handler routes through it. This prevents a new
-    // contributor from introducing a fresh selection path that bypasses
-    // metadata capture (Round 2 frontend-clink + mts-native finding).
+    // Initialize selection system. The `setSelection` callback is the ONE
+    // point of entry for populating `selectedElements` — the mount effect
+    // uses it here, and every keyboard/click handler routes through it.
+    // This prevents a new contributor from introducing a fresh selection
+    // path that bypasses metadata capture (Round 2 frontend-clink + mts-native finding).
     const selectionHandle = initSelection(
       shadowRoot,
       setHoveredElement,
-      setSelectionWithMetadata,
+      setSelection,
     )
 
     // Debug-only test bridge — dual-gated to close ZF0-1298 (XSS via dev server).
@@ -494,7 +514,12 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           if (disposed) return
           try {
             const current = selectedElementRef.current
-            const meta = selectionMetadataRef.current
+            // Re-resolution operates on the primary element (index 0) only.
+            // Multi-element re-resolve is intentionally deferred — it will be
+            // wired in a later ZF0-1195 task once multi-element gestures
+            // actually drive the system. Today the secondary selection slots
+            // exist in state but are not exercised by user input.
+            const meta = selectionMetadataRef.current[0] ?? null
             if (!current || !meta) return
             const resolved = reResolveSelection(meta)
             if (resolved !== current) {
@@ -511,7 +536,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
             if (resolved) {
               const newMeta = captureSelectionMetadata(resolved)
               const indexShifted = newMeta.index !== meta.index
-              selectionMetadataRef.current = newMeta
+              // Preserve metadata for all elements; only update primary (index 0).
+              const updatedMeta = [...selectionMetadataRef.current]
+              updatedMeta[0] = newMeta
+              selectionMetadataRef.current = updatedMeta
               // If the position drifted, views that cached against the OLD
               // DOM layout (LayerTree's sibling list, SelectionOverlay's
               // position) need to re-read. Bumping hmrAppliedVersion again

@@ -22,11 +22,17 @@ export function isOwnUI(event: Event): boolean {
  *
  * Events from within Cortex's own Shadow DOM (detected via composedPath)
  * are passed through so panel interactions work normally.
+ *
+ * The `onSelect` callback receives an array of elements and a selection action:
+ * - No modifier key → `('replace', [el])` — replaces current selection
+ * - Shift key        → `('add', [el])` — adds element to selection
+ * - Meta/Ctrl key    → `('toggle', [el])` — toggles element in selection
+ * - Click on backdrop / null target → `('replace', [])` — clears selection
  */
 export function initSelection(
   _shadowRoot: ShadowRoot,
   onHover: (el: HTMLElement | null) => void,
-  onSelect: (el: HTMLElement | null) => void,
+  onSelect: (elements: HTMLElement[], action: 'replace' | 'add' | 'toggle') => void,
 ): SelectionHandle {
   let designMode = true
   let interceptClicks = true
@@ -79,7 +85,21 @@ export function initSelection(
     event.preventDefault()
     event.stopPropagation()
     const el = getTargetElement(event)
-    onSelect(el)
+    if (!el) {
+      // Backdrop / null target — clear selection
+      onSelect([], 'replace')
+      return
+    }
+    // Translate modifier keys to selection action
+    let action: 'replace' | 'add' | 'toggle'
+    if (event.shiftKey) {
+      action = 'add'
+    } else if (event.metaKey || event.ctrlKey) {
+      action = 'toggle'
+    } else {
+      action = 'replace'
+    }
+    onSelect([el], action)
   }
 
   window.addEventListener('mousemove', handleMouseMove, { capture: true })
