@@ -9,10 +9,9 @@ import { UndoStack } from '../../src/core/session/undo-stack.js'
  *   1. Routes to handleClassOp when classOp is present
  *   2. Writes new content on success
  *   3. Captures oldContent + pushes undo entry on success
- *   4. Falls back to AI writer when the rewriter can't handle the shape
- *   5. Surfaces a 'failed' status when rewriter fails AND no AI writer
- *   6. classOp takes precedence when both classOp and property are present
- *   7. Serializes concurrent classOps on the same file via withFileLock
+ *   4. Surfaces a 'failed' status when rewriter fails (no AI escalation — ZF0-1546)
+ *   5. classOp takes precedence when both classOp and property are present
+ *   6. Serializes concurrent classOps on the same file via withFileLock
  */
 
 const stubChannel = () => ({
@@ -26,10 +25,6 @@ const stubRewriter = () => ({
   rewrite: vi.fn(),
   rewriteClassList: vi.fn(),
   dispose: vi.fn(() => {}),
-})
-
-const stubAIWriter = () => ({
-  write: vi.fn(async () => ({ success: true, newContent: 'AI NEW', reason: undefined })),
 })
 
 const stubUndoStack = () => ({
@@ -54,7 +49,6 @@ describe('EditPipeline — classOp routing', () => {
   let writes: WriteIntent[]
   let readFile: ReturnType<typeof vi.fn>
   let undoStack: ReturnType<typeof stubUndoStack>
-  let aiWriter: ReturnType<typeof stubAIWriter>
   let pipeline: EditPipeline
 
   beforeEach(() => {
@@ -64,17 +58,15 @@ describe('EditPipeline — classOp routing', () => {
     writes = []
     readFile = vi.fn(async () => 'OLD CONTENT SNAPSHOT')
     undoStack = stubUndoStack()
-    aiWriter = stubAIWriter()
     pipeline = new EditPipeline({
       channel: channel as never,
       resolver: stubResolver() as never,
       rewriter: rewriter as never,
-      verifier: { verify: vi.fn() } as never,
+      verifier: { verify: vi.fn(), trackEdit: vi.fn() } as never,
       writeFile: async (intent) => { writes.push(intent) },
       projectRoot: '/tmp/proj',
       readFile,
       undoStack: undoStack as never,
-      aiWriter: aiWriter as never,
     })
   })
 
@@ -182,7 +174,7 @@ describe('EditPipeline — classOp routing', () => {
       channel: stubChannel() as never,
       resolver: stubResolver() as never,
       rewriter: stubRewriter() as never,
-      verifier: { verify: vi.fn() } as never,
+      verifier: { verify: vi.fn(), trackEdit: vi.fn() } as never,
       writeFile: async (intent) => { undoWrites.push(intent) },
       projectRoot: '/tmp/proj',
       // Disk matches entry.currentContent — not stale, undo proceeds.
@@ -223,7 +215,7 @@ describe('EditPipeline — classOp routing', () => {
       channel: stubChannel() as never,
       resolver: stubResolver() as never,
       rewriter: stubRewriter() as never,
-      verifier: { verify: vi.fn() } as never,
+      verifier: { verify: vi.fn(), trackEdit: vi.fn() } as never,
       writeFile: async (intent) => { undoWrites.push(intent) },
       projectRoot: '/tmp/proj',
       readFile: async () => 'CURRENT ON DISK',
@@ -237,7 +229,7 @@ describe('EditPipeline — classOp routing', () => {
     expect(undoWrite).toMatchObject({ kind: 'undo', suppressHmr: true })
   })
 
-  it('falls back to AI writer when rewriteClassList fails with an unsupported shape', async () => {
+  it('sends edit_status failed with reason_code:rewriter_failed when rewriteClassList fails (SF-M-1, no AI escalation — ZF0-1546)', async () => {
     rewriter.rewriteClassList.mockResolvedValue({
       success: false,
       filePath: '/tmp/proj/App.tsx',
@@ -247,33 +239,8 @@ describe('EditPipeline — classOp routing', () => {
     pipeline.handleEdit(baseEdit({ classOp: { kind: 'add', add: 'body-md' } }))
     await flush()
 
-    expect(aiWriter.write).toHaveBeenCalled()
-    const callArg = aiWriter.write.mock.calls[0]?.[0] as { value: string } | undefined
-    expect(callArg?.value).toContain('body-md')
-  })
-
-  it('sends edit_status failed with reason_code:rewriter_failed when rewriteClassList fails AND no AI writer is wired (SF-M-1)', async () => {
-    const bareChannel = stubChannel()
-    const bareRewriter = stubRewriter()
-    const barePipeline = new EditPipeline({
-      channel: bareChannel as never,
-      resolver: stubResolver() as never,
-      rewriter: bareRewriter as never,
-      verifier: { verify: vi.fn() } as never,
-      writeFile: async () => {},
-      projectRoot: '/tmp/proj',
-    })
-    bareRewriter.rewriteClassList.mockResolvedValue({
-      success: false,
-      filePath: '/tmp/proj/App.tsx',
-      reason: 'template literal not supported',
-    })
-
-    barePipeline.handleEdit(baseEdit({ classOp: { kind: 'remove', remove: 'y' } }))
-    await flush()
-
     // Exactly one failed status message (not zero, not duplicate).
-    const failedCalls = bareChannel.send.mock.calls.filter(
+    const failedCalls = channel.send.mock.calls.filter(
       ([m]) => (m as { status?: string }).status === 'failed',
     )
     expect(failedCalls.length).toBe(1)

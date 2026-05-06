@@ -41,9 +41,6 @@ export type { UndoEntry, UndoFileChange, UndoRestoreSet } from './core/session/u
 export { determineWriteStrategy } from './core/rewriter/shorthand.js'
 export type { WriteStrategy } from './core/rewriter/shorthand.js'
 
-// AI writer (Edit Engine)
-export { AIWriter } from './core/ai-writer.js'
-export type { AIWriteRequest, AIWriteResult, AIWriterOptions } from './core/ai-writer.js'
 export { ToolApplicator } from './core/tool-applicator.js'
 export type { ToolAction, ApplyResult } from './core/tool-applicator.js'
 

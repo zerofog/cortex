@@ -10,7 +10,7 @@ export interface EditClassificationInput {
 /**
  * Classify an edit request into a write strategy.
  * - immediate: deterministic rewrite (CSS Modules, Tailwind AST) — <50ms, suppress HMR
- * - deferred: AI writer — batched, async, HMR required
+ * - deferred: edit needs source-level escalation — no in-process handler; pipeline emits terminal-failed
  * - unsupported: no write path available — preview-only
  */
 export function classifyEdit(

@@ -1,4 +1,4 @@
-import { loadEnv, type Plugin, type ResolvedConfig, type HmrContext } from 'vite'
+import type { Plugin, ResolvedConfig, HmrContext } from 'vite'
 import type { SourceMapInput } from 'rollup'
 import type { IncomingMessage } from 'http'
 import type { Duplex } from 'stream'
@@ -21,8 +21,6 @@ import type { ResolverState } from '../core/capabilities.js'
 import { CSSModulesRewriter } from '../core/rewriter/css-modules.js'
 import { RuntimeCSSResolver } from '../core/rewriter/runtime-resolver.js'
 import { UndoStack } from '../core/session/undo-stack.js'
-import { AIWriter } from '../core/ai-writer.js'
-import { DeferredWriter } from '../core/deferred-writer.js'
 import { CortexSession } from '../core/session.js'
 import { applyEditsCore, sliceIntentContext, checkIntentFileSize, parseIntentSource } from '../core/staged-edits.js'
 import type { StagedEditsCache } from '../core/staged-edits.js'
@@ -1187,26 +1185,6 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         if (currentSession.pipeline) currentSession.pipeline.dispose()
         if (currentSession.hmrUnsubscribe) currentSession.hmrUnsubscribe()
 
-        // AI writer: enabled when CORTEX_API_KEY is set via .env/.env.local or shell
-        const env = loadEnv(config.mode, config.root, 'CORTEX_')
-        const cortexApiKey = env.CORTEX_API_KEY || process.env.CORTEX_API_KEY
-        const aiWriter = cortexApiKey
-          ? new AIWriter({ apiKey: cortexApiKey, readFile: (p) => fs.promises.readFile(p, 'utf-8') })
-          : undefined
-
-        // Deferred writer: enabled when AI writer is available. The writeFn
-        // closure captures currentSession by reference — safe because writeFn
-        // only fires after the coalescing window (250ms+), well after assignment.
-        const deferredWriter = aiWriter
-          ? new DeferredWriter({
-            coalescingMs: 250,
-            writeFn: async (batch) => {
-              if (!currentSession?.pipeline) return { success: false, reason: 'Pipeline not initialized' }
-              return currentSession.pipeline.executeDeferredBatch(batch)
-            },
-          })
-          : undefined
-
         // Surface theme loading failures: if Tailwind was detected but the
         // resolver failed to load, warn clearly so the user knows why edits fail.
         if (!resolver && detection.hasTailwind) {
@@ -1223,8 +1201,6 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           detector: detection,
           runtimeResolver,
           undoStack,
-          aiWriter,
-          deferredWriter,
           writeFile: async (intent) => {
             // Delegates to `performEditWrite` which atomically replaces the
             // target file, tracks suppressed writes in
@@ -1248,7 +1224,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         // Compute and send capability status to browser
         const resolverState: ResolverState = {
           resolverAvailable: resolver !== null,
-          aiAvailable: !!aiWriter,
+          aiAvailable: false,
           inlineStyleAvailable: true,
         }
         const capabilities = computeCapabilities(detection, resolverState)
