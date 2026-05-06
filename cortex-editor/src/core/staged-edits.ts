@@ -280,10 +280,6 @@ async function applyOne(
     // through to the Tailwind path's old-token resolution (see edit-pipeline.ts
     // executeEdit). Without this, Tailwind apply fails silently when the
     // debounce-time lastValues cache is empty (always the case for MCP path).
-    // mcpMode disables the legacy aiWriter / deferredWriter fallback paths so
-    // the pipeline never writes the source itself for MCP-routed intents —
-    // Claude handles non-deterministic intents via Edit tool, eliminating the
-    // double-write risk CodeRabbit flagged.
     pipeline.handleEdit({
       editId,
       source: intent.source,
