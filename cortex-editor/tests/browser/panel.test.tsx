@@ -970,63 +970,67 @@ describe('Panel mixedProperties (ZF0-1195 / T3)', () => {
     document.body.appendChild(el1)
     document.body.appendChild(el2)
 
-    // Override getComputedStyle to return differing opacity for the two elements
+    // Override getComputedStyle to return differing opacity for the two elements.
+    // PR #104 review I3: wrap in try/finally so the global is restored even if
+    // the assertion or waitFor throws — otherwise the proxy leaks into later
+    // tests and produces unrelated failures.
     const originalGCS = window.getComputedStyle
-    window.getComputedStyle = ((target: Element, pseudo?: string | null) => {
-      if (target === el1) {
-        const base = originalGCS.call(window, target, pseudo)
-        return new Proxy(base, {
-          get(obj, prop) {
-            if (prop === 'getPropertyValue') {
-              return (p: string) => p === 'opacity' ? '1' : (obj as any).getPropertyValue?.(p) ?? ''
-            }
-            if (prop === 'opacity') return '1'
-            return (obj as any)[prop]
-          },
-        }) as CSSStyleDeclaration
-      }
-      if (target === el2) {
-        const base = originalGCS.call(window, target, pseudo)
-        return new Proxy(base, {
-          get(obj, prop) {
-            if (prop === 'getPropertyValue') {
-              return (p: string) => p === 'opacity' ? '0.5' : (obj as any).getPropertyValue?.(p) ?? ''
-            }
-            if (prop === 'opacity') return '0.5'
-            return (obj as any)[prop]
-          },
-        }) as CSSStyleDeclaration
-      }
-      return originalGCS.call(window, target, pseudo)
-    }) as typeof window.getComputedStyle
-
     const overrideManager = createOverrideManager()
     const container = document.createElement('div')
     document.body.appendChild(container)
+    try {
+      window.getComputedStyle = ((target: Element, pseudo?: string | null) => {
+        if (target === el1) {
+          const base = originalGCS.call(window, target, pseudo)
+          return new Proxy(base, {
+            get(obj, prop) {
+              if (prop === 'getPropertyValue') {
+                return (p: string) => p === 'opacity' ? '1' : (obj as any).getPropertyValue?.(p) ?? ''
+              }
+              if (prop === 'opacity') return '1'
+              return (obj as any)[prop]
+            },
+          }) as CSSStyleDeclaration
+        }
+        if (target === el2) {
+          const base = originalGCS.call(window, target, pseudo)
+          return new Proxy(base, {
+            get(obj, prop) {
+              if (prop === 'getPropertyValue') {
+                return (p: string) => p === 'opacity' ? '0.5' : (obj as any).getPropertyValue?.(p) ?? ''
+              }
+              if (prop === 'opacity') return '0.5'
+              return (obj as any)[prop]
+            },
+          }) as CSSStyleDeclaration
+        }
+        return originalGCS.call(window, target, pseudo)
+      }) as typeof window.getComputedStyle
 
-    render(
-      <Panel
-        selectedElements={[el1, el2]}
-        overrideManager={overrideManager as any}
-        onClose={() => {}}
-        onSelectElement={() => {}}
-        {...panelPositionProps}
-      />,
-      container,
-    )
+      render(
+        <Panel
+          selectedElements={[el1, el2]}
+          overrideManager={overrideManager as any}
+          onClose={() => {}}
+          onSelectElement={() => {}}
+          {...panelPositionProps}
+        />,
+        container,
+      )
 
-    // When opacity differs across selection, AppearanceSection's opacity NumericInput
-    // should be in mixed state (renders with .cortex-numeric-input--mixed class)
-    await vi.waitFor(() => {
-      const mixedInputs = container.querySelectorAll('.cortex-numeric-input--mixed')
-      expect(mixedInputs.length).toBeGreaterThan(0)
-    }, { timeout: 500 })
-
-    window.getComputedStyle = originalGCS
-    render(null, container)
-    container.remove()
-    el1.remove()
-    el2.remove()
+      // When opacity differs across selection, AppearanceSection's opacity NumericInput
+      // should be in mixed state (renders with .cortex-numeric-input--mixed class)
+      await vi.waitFor(() => {
+        const mixedInputs = container.querySelectorAll('.cortex-numeric-input--mixed')
+        expect(mixedInputs.length).toBeGreaterThan(0)
+      }, { timeout: 500 })
+    } finally {
+      window.getComputedStyle = originalGCS
+      render(null, container)
+      container.remove()
+      el1.remove()
+      el2.remove()
+    }
   })
 })
 

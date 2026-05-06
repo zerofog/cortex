@@ -24,10 +24,10 @@ export function isOwnUI(event: Event): boolean {
  * are passed through so panel interactions work normally.
  *
  * The `onSelect` callback receives an array of elements and a selection action:
- * - No modifier key → `('replace', [el])` — replaces current selection
- * - Shift key        → `('add', [el])` — adds element to selection
- * - Meta/Ctrl key    → `('toggle', [el])` — toggles element in selection
- * - Click on backdrop / null target → `('replace', [])` — clears selection
+ * - No modifier key → `([el], 'replace')` — replaces current selection
+ * - Shift key        → `([el], 'add')` — adds element to selection
+ * - Meta/Ctrl key    → `([el], 'toggle')` — toggles element in selection
+ * - Click on backdrop / null target → `([], 'replace')` — clears selection
  */
 export function initSelection(
   _shadowRoot: ShadowRoot,

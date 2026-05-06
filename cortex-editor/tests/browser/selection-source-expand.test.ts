@@ -55,6 +55,26 @@ describe('expandSharedSource (ZF0-1195 Follow-up A)', () => {
   // file paths without quotes; the impl includes the fallback for safety.
   it.skip('handles sources with quote characters via CSS.escape', () => {})
 
+  it('preserves clicked element as primary (PR #104 review C3)', () => {
+    // Append 3 nodes in DOM order a → b → c, all sharing the same source.
+    // querySelectorAll returns DOM-document order [a, b, c] regardless of
+    // which element was clicked. The expander must put the clicked element
+    // first so it remains the primary (selectedElements[0]) — otherwise
+    // primary-selection behavior shifts unexpectedly.
+    const a = document.createElement('div')
+    a.setAttribute('data-cortex-source', 'src/App.tsx:15:li')
+    const b = document.createElement('div')
+    b.setAttribute('data-cortex-source', 'src/App.tsx:15:li')
+    const c = document.createElement('div')
+    c.setAttribute('data-cortex-source', 'src/App.tsx:15:li')
+    document.body.append(a, b, c)
+    // Click the middle one (b) — it should be index 0 in the result.
+    const result = expandSharedSource([b])
+    expect(result[0]).toBe(b)
+    expect(result.length).toBe(3)
+    expect(new Set(result)).toEqual(new Set([a, b, c]))
+  })
+
   it('mixes shared-source expansion with distinct-source elements', () => {
     const a1 = document.createElement('div')
     a1.setAttribute('data-cortex-source', 'src/A.tsx:10:row')

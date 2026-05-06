@@ -633,6 +633,13 @@ export function Panel({
   // multi-element HMR re-resolution, so secondary elements may go stale (detached) after
   // an HMR swap. getComputedStyle on a detached node returns empty strings, which would
   // otherwise produce false "mixed" signals across all 15 watched properties.
+  //
+  // Deps include styleVersion / activeState / activePseudo (PR #104 review I1):
+  // computed values change when stylesheet rules update (styleVersion),
+  // when interaction state forces a different cascade (activeState), or when
+  // we're reading a pseudo-element (activePseudo). Without these deps the
+  // memo holds stale "mixed" signals through animation, hover-state preview,
+  // or pseudo-state editing.
   const multiSelectMixed = useMemo<Set<string>>(() => {
     const live = selectedElements.filter(el => el.isConnected)
     if (live.length <= 1) return new Set()
@@ -646,7 +653,7 @@ export function Panel({
       }
     }
     return mixed
-  }, [selectedElements, hmrAppliedVersion])
+  }, [selectedElements, hmrAppliedVersion, styleVersion, activeState, activePseudo])
 
   // Merge multi-select mixed with scope-based mixed for a unified signal.
   const mixedProperties = useMemo<Set<string> | undefined>(() => {
@@ -738,16 +745,24 @@ export function Panel({
     if (isMultiSelect) {
       // Filter `changes` to entries matching this element's source — mirrors the
       // single-select branch's `c.source === source` filter (Post-Fix Discipline
-      // rule 3: parallel branches should mirror). The unified fanOutTargets loop
-      // in applyOverride already wrote one scrubPreviousRef entry per
-      // (selectedElement, property) pair, so each elSource has exactly its own
-      // changes — no cross-source matching needed.
+      // rule 3: parallel branches should mirror).
+      //
+      // Source-dedup (PR #104 review C1): expandSharedSource() may put N DOM
+      // nodes with the same data-cortex-source into selectedElements (e.g.,
+      // .map()-rendered list items). Without deduping by source, the outer
+      // loop pushes one PendingEdit per DOM node — buffer's last-write-wins
+      // collapses them to one entry, but commandStack's pendingEdits inflates
+      // by N. Same class as the T4 round 2 O(N²) bug. Use a seenSources Set
+      // so the first occurrence of each source produces exactly one intent.
       pendingEdits = []
+      const seenSources = new Set<string>()
       for (const el of selectedElements) {
         const elSource = el.getAttribute('data-cortex-source')
         if (!elSource) continue
-        // When scope='all' is also active, each selected element fans out to its
-        // own shared-class siblings — each PendingEdit carries its own instanceSources.
+        if (seenSources.has(elSource)) continue
+        seenSources.add(elSource)
+        // When scope='all' is also active, each unique selected source fans out
+        // to its own shared-class siblings — each PendingEdit carries its own instanceSources.
         let perElementInstanceSources: string[] | undefined
         if (isShared) {
           try {
@@ -933,12 +948,32 @@ export function Panel({
     }
 
     // Fan-out targets for this gesture, computed once per applyOverride call.
-    // Multi-select: apply override to ALL selected elements.
+    // Multi-select alone: apply override to ALL selected elements.
     // scope='all' (single-select): apply to all shared-class siblings.
+    // Multi-select + scope='all' (PR #104 review C2): apply to UNION of selected
+    //   elements AND each selected element's shared-class siblings — otherwise
+    //   the live preview misses what `commitScrub`'s instanceSources will dispatch
+    //   to the server, producing preview/apply divergence.
     // Single-select + scope='instance': apply to the primary element only.
     const fanOutTargets: HTMLElement[] = (() => {
-      if (selectedElements.length > 1) return selectedElements
-      if (sharedInfo && editScope === 'all') return sharedInfo.elements
+      const isMulti = selectedElements.length > 1
+      const isAll = sharedInfo && editScope === 'all'
+      if (isMulti && isAll) {
+        const seen = new Set<HTMLElement>()
+        for (const sel of selectedElements) {
+          if (!seen.has(sel)) seen.add(sel)
+          try {
+            const shared = detectSharedClasses(sel)
+            if (shared) for (const sib of shared.elements) seen.add(sib)
+          } catch {
+            // detectSharedClasses can throw DOMException SecurityError on
+            // cross-origin querySelector — fall through with just selectedElements.
+          }
+        }
+        return Array.from(seen)
+      }
+      if (isMulti) return selectedElements
+      if (isAll) return sharedInfo!.elements
       return element ? [element] : []
     })()
 

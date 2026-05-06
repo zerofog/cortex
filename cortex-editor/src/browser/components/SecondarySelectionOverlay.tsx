@@ -41,7 +41,15 @@ export function SecondarySelectionOverlay({
 
     function update(): void {
       if (!overlayRef.current) return
-      if (!element.isConnected) return
+      if (!element.isConnected) {
+        // Hide the overlay when its target detaches from the DOM (PR #104
+        // review I2). Without this, the last painted box stays visible until
+        // some unrelated rerender, leaving ghost outlines after HMR or
+        // node removal — the deferred secondary-element re-resolution path
+        // (T1) means we can't always recover the new node either.
+        overlayRef.current.style.visibility = 'hidden'
+        return
+      }
       const r = element.getBoundingClientRect()
       const transform = `translate(${r.left}px, ${r.top}px)`
       const width = `${r.width}px`

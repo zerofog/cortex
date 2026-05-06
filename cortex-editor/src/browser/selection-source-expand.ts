@@ -35,6 +35,12 @@ export function expandSharedSource(elements: HTMLElement[]): HTMLElement[] {
     }
     if (seenSources.has(source)) continue
     seenSources.add(source)
+    // PR #104 review C3: emit the explicitly clicked element FIRST so it
+    // becomes the primary (selectedElements[0]) — querySelectorAll order is
+    // DOM-document order, which may put a sibling before the clicked element
+    // and silently shift primary-selection behavior.
+    seen.add(el)
+    result.push(el)
     let escaped: string
     try {
       escaped = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(source) : source.replace(/(["\\])/g, '\\$1')
@@ -45,9 +51,7 @@ export function expandSharedSource(elements: HTMLElement[]): HTMLElement[] {
     try {
       matches = document.querySelectorAll<HTMLElement>(`[data-cortex-source="${escaped}"]`)
     } catch {
-      // Malformed selector despite escape — fall back to the originally clicked element.
-      seen.add(el)
-      result.push(el)
+      // Malformed selector despite escape — clicked element already pushed above.
       continue
     }
     for (const m of matches) {

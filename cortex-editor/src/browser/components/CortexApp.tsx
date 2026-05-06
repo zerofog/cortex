@@ -132,8 +132,6 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const [activityCount, setActivityCount] = useState(0)
   const [active, setActive] = useState(initialActive ?? false)
   const selectionRef = useRef<SelectionHandle | null>(null)
-  const selectedElementsRef = useRef<HTMLElement[]>([])
-  selectedElementsRef.current = selectedElements
   const selectedElementRef = useRef<HTMLElement | null>(null)
   selectedElementRef.current = selectedElement
   // Metadata captured at selection time — survives HMR node replacement

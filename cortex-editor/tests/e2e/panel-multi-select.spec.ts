@@ -7,7 +7,7 @@
  * complete gesture lifecycle in a real browser:
  *
  *   1. Select two elements via the test bridge (sets selectedElements[]).
- *   2. Commit a padding-top edit via bridge.commitEdit — this triggers
+ *   2. Commit a color edit via bridge.commitEdit — this triggers
  *      applyOverride → queueMicrotask(commitScrub) → commandStack.record +
  *      buffer.append ×2 (one PendingEdit per selected element).
  *   3. Assert the staging buffer contains exactly 2 intents, each carrying
@@ -121,11 +121,15 @@ test.describe('Multi-select edit-dispatch fan-out (ZF0-1195) @fast-ci', () => {
     const props = intents.map((e) => e.property)
     expect(props.every((p) => p === PROP)).toBe(true)
 
-    // ── Step 4: Cmd+Z to undo ─────────────────────────────────────────────
-    // CortexApp's tinykeys handler: flushCommitRef → undoInProgressRef=true →
-    // commandStack.undo() → PropertyEditCommand.undo() → overrideManager.remove
-    // on both sources + buffer.remove on both intentIds.
-    await page.keyboard.press('Meta+Z')
+    // ── Step 4: undo ──────────────────────────────────────────────────────
+    // CortexApp's tinykeys handler binds `$mod+z` — Meta on macOS, Control
+    // elsewhere. Branch on platform so the spec exercises the same gesture
+    // path on Linux/Windows CI as on local mac dev.
+    // PR #104 review C4 fix.
+    const isMac = await page.evaluate(() =>
+      /Mac|iPod|iPhone|iPad/.test(navigator.platform),
+    )
+    await page.keyboard.press(isMac ? 'Meta+Z' : 'Control+Z')
 
     // ── Step 5: assert overrides cleared on both elements ─────────────────
     // PropertyEditCommand.undo() calls overrideManager.remove(source, property)
@@ -145,7 +149,11 @@ test.describe('Multi-select edit-dispatch fan-out (ZF0-1195) @fast-ci', () => {
             // (not as element.style). getComputedStyle reads the cascade, so after
             // overrideManager.remove the computed color reverts to the fixture baseline
             // (rgb(107, 99, 117)) — no longer the override value rgb(255, 0, 0).
+            // PR #104 review T4: include presence flags so the assertion fails
+            // (instead of vacuously passing) if either selector returns null.
             return {
+              found1: !!el1,
+              found2: !!el2,
               color1: el1 ? (globalThis as unknown as { getComputedStyle: (el: unknown) => { color: string } }).getComputedStyle(el1).color : null,
               color2: el2 ? (globalThis as unknown as { getComputedStyle: (el: unknown) => { color: string } }).getComputedStyle(el2).color : null,
             }
@@ -153,6 +161,8 @@ test.describe('Multi-select edit-dispatch fan-out (ZF0-1195) @fast-ci', () => {
         { timeout: 2000 },
       )
       .toMatchObject({
+        found1: true,
+        found2: true,
         color1: expect.not.stringContaining('255, 0, 0'),
         color2: expect.not.stringContaining('255, 0, 0'),
       })
