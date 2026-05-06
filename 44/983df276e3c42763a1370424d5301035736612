@@ -1,0 +1,38 @@
+cortex-editor/src/browser/components/sections/GridControls.tsx
+  s_794f1037f4a89c::t_623107ac652c1d 71-72,213-214,272,278,282,288,381,383,392,394
+cortex-editor/tests/browser/controls/numeric-input.test.tsx
+  s_794f1037f4a89c::t_0365c984e4c6a6 110-127,131-133
+  s_794f1037f4a89c::t_09ddb859c67695 128-130
+cortex-editor/src/browser/styles.css
+  s_794f1037f4a89c::t_623107ac652c1d 975-983,999-1003,1059-1063,1900-1906
+cortex-editor/src/browser/components/controls/NumericInput.tsx
+  s_794f1037f4a89c::t_623107ac652c1d 131-134,155,158,171,208,211,216,219,227,230,285
+  s_794f1037f4a89c::t_09ddb859c67695 335
+  s_794f1037f4a89c::t_0365c984e4c6a6 109-119,180-187
+cortex-editor/tests/browser/sections/position-section.test.tsx
+  s_794f1037f4a89c::t_7dac17456ff78a 222
+cortex-editor/tests/browser/sections/SizingControls.test.tsx
+  s_794f1037f4a89c::t_7dac17456ff78a 98-118,193-206
+cortex-editor/tests/browser/sections/GridControls.test.tsx
+  s_794f1037f4a89c::t_7dac17456ff78a 453-477
+cortex-editor/src/browser/components/sections/SizingControls.tsx
+  s_794f1037f4a89c::t_623107ac652c1d 31-33,100-101,116,122,126,132,136,142,148,154,158,164,168,174,177-180,253,255,276,278,297,299,301
+cortex-editor/src/browser/components/sections/PositionSection.tsx
+  s_794f1037f4a89c::t_623107ac652c1d 209
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "44983df276e3c42763a1370424d5301035736612",
+  "prompts": {},
+  "sessions": {
+    "s_794f1037f4a89c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dff0e-2b24-7340-be77-bcb04c58cdb5",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
