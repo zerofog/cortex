@@ -21,6 +21,25 @@ import type { ApplyEditResult } from '../../src/core/staged-edits.js'
 import { EditPipeline } from '../../src/core/edit-pipeline.js'
 import type { EditResult } from '../../src/core/edit-pipeline.js'
 import { makeEdit } from '../core/helpers.js'
+
+// Stub-pipeline helper: applyEditsCore now requires beginApply/endApply on
+// the pipeline (in-flight gate added to refuse concurrent same-intent calls
+// per CodeRabbit Major finding from PR #97 review). Wrap any partial stub
+// with this so it satisfies the contract without each test rewriting the
+// in-flight Set boilerplate.
+function withApplyGate(stub: Partial<EditPipeline>): EditPipeline {
+  const inFlight = new Set<string>()
+  const enriched = {
+    ...stub,
+    beginApply: (id: string): boolean => {
+      if (inFlight.has(id)) return false
+      inFlight.add(id)
+      return true
+    },
+    endApply: (id: string): void => { inFlight.delete(id) },
+  }
+  return enriched as unknown as EditPipeline
+}
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -906,10 +925,10 @@ describe('applyEditsCore — C3-mechanism (AC1)', () => {
     const cache = new StagedEditsCache()
     cache.append(makeEdit({ intentId: 'i' }))
 
-    const stubPipeline = {
+    const stubPipeline = withApplyGate({
       registerApplyResolver: () => Promise.resolve<EditResult>({ status: 'applied', mechanism }),
       handleEdit: () => {},
-    } as unknown as EditPipeline
+    })
 
     const results = await applyEditsCore(cache, ['i'], stubPipeline, 100)
 
@@ -938,13 +957,13 @@ describe('applyEditsCore — needs-source-edit production code path', () => {
     // the staged-edits.ts mapping in isolation (not the full handleEdit flow);
     // the EditPipeline-side needs-source-edit emission is exercised by
     // edit-pipeline-resolver.test.ts (the AI-writer terminal site).
-    const stubPipeline = {
+    const stubPipeline = withApplyGate({
       registerApplyResolver: () => Promise.resolve<EditResult>({
         status: 'needs-source-edit',
         reason: 'test fallback reason',
       }),
       handleEdit: () => {},
-    } as unknown as EditPipeline
+    })
 
     const results = await applyEditsCore(cache, ['i-source-edit'], stubPipeline, 100)
 
@@ -1051,10 +1070,10 @@ describe('applyEditsCore — pseudo-element early return (Step 4 review fix)', (
     // Spy pipeline — fail loudly if pipeline is invoked. handleEdit must NOT
     // be called for pseudo intents (they short-circuit before resolver register).
     const handleEditCalls: unknown[] = []
-    const spyPipeline = {
+    const spyPipeline = withApplyGate({
       registerApplyResolver: () => { throw new Error('pipeline.registerApplyResolver should not be called for pseudo intents') },
       handleEdit: (req: unknown) => { handleEditCalls.push(req) },
-    } as unknown as EditPipeline
+    })
 
     const results = await applyEditsCore(cache, ['pseudo-1'], spyPipeline, 100)
 
@@ -1109,14 +1128,67 @@ describe('applyEditsCore — baselineValue (previousValue) propagation (Step 4 r
     }))
 
     const handleEditCalls: Array<{ baselineValue?: string }> = []
-    const spyPipeline = {
+    const spyPipeline = withApplyGate({
       registerApplyResolver: () => Promise.resolve<EditResult>({ status: 'applied', mechanism: 'inline-style' }),
       handleEdit: (req: { baselineValue?: string }) => { handleEditCalls.push(req) },
-    } as unknown as EditPipeline
+    })
 
     await applyEditsCore(cache, ['pv-1'], spyPipeline, 100)
 
     expect(handleEditCalls).toHaveLength(1)
     expect(handleEditCalls[0].baselineValue).toBe('8px')
+  })
+
+  it('passes mcpMode:true on every dispatched EditRequest (deterministic-only gate)', async () => {
+    const cache = new StagedEditsCache()
+    cache.append(makeEdit({ intentId: 'm-1' }))
+
+    const handleEditCalls: Array<{ mcpMode?: boolean }> = []
+    const spyPipeline = withApplyGate({
+      registerApplyResolver: () => Promise.resolve<EditResult>({ status: 'applied', mechanism: 'inline-style' }),
+      handleEdit: (req: { mcpMode?: boolean }) => { handleEditCalls.push(req) },
+    })
+
+    await applyEditsCore(cache, ['m-1'], spyPipeline, 100)
+
+    expect(handleEditCalls).toHaveLength(1)
+    expect(handleEditCalls[0].mcpMode).toBe(true)
+  })
+})
+
+describe('applyEditsCore — concurrent collision (PR #97 review: 3 reviewers caught this)', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  it('two concurrent applyEditsCore calls for the SAME intentId resolve immediately (in-flight gate refuses second; first applies)', async () => {
+    const cache = new StagedEditsCache()
+    cache.append(makeEdit({ intentId: 'shared', property: 'color', value: 'red', source: '/tmp/proj/Hero.tsx:5:3', scope: 'instance' }))
+    const pipeline = makeInlinePipeline({ success: true })
+
+    // Same pipeline, same intentId, two concurrent calls.
+    // Per-call UUID solves the resolver-Map key collision; the in-flight gate
+    // (pipeline.beginApply) solves the debounce-key collision by refusing the
+    // second call before it dispatches. Without the gate, both calls would
+    // race the same `source:property` debounce timer in executeEdit and the
+    // first call's resolver would hang until timeout.
+    const promiseA = applyEditsCore(cache, ['shared'], pipeline, 5_000)
+    const promiseB = applyEditsCore(cache, ['shared'], pipeline, 5_000)
+
+    await vi.runAllTimersAsync()
+    const [resultsA, resultsB] = await Promise.all([promiseA, promiseB])
+
+    // Sorted statuses are exactly [applied, failed] — first applies, second
+    // is refused by in-flight gate (NOT a timeout).
+    const statuses = [resultsA[0].status, resultsB[0].status].sort()
+    expect(statuses).toEqual(['applied', 'failed'])
+    for (const r of [resultsA[0], resultsB[0]]) {
+      if (r.status === 'failed') {
+        const failed = r as Extract<ApplyEditResult, { status: 'failed' }>
+        expect(failed.error).toMatch(/in-flight/)
+        expect(failed.error).not.toMatch(/timeout/)
+      }
+    }
+
+    pipeline.dispose()
   })
 })

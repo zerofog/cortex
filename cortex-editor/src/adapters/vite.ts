@@ -394,10 +394,18 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
             status: 'failed' as const,
             error: 'Editor is still initializing. Please try again.',
           })),
+          browserNotified: true, // vacuous: nothing to notify, RPC shape symmetric with ready path
         }
       }
+      // Capture session refs BEFORE await — currentSession can be replaced
+      // or disposed during pipeline init/restart; deref'ing currentSession in
+      // the .then continuation could throw or notify a different/new session
+      // (Codex P2 finding from PR review).
+      const stagedEdits = currentSession!.stagedEdits
+      const pipeline = currentSession!.pipeline
+      const channel = currentSession!.channel
       // Returns Promise<{results, browserNotified}> — handleRPC's caller awaits via Promise.resolve.
-      return applyEditsCore(currentSession!.stagedEdits, intentIds, currentSession!.pipeline)
+      return applyEditsCore(stagedEdits, intentIds, pipeline)
         .then(results => {
           // Browser-buffer sync: send `staged-edits-discard` for any intent
           // that was deterministically applied. Without this, the browser's
@@ -409,9 +417,9 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
           // (false → next full-sync reconciles, but Claude can warn the user).
           const appliedIds = results.filter((r) => r.status === 'applied').map((r) => r.intentId)
           let browserNotified = appliedIds.length === 0  // vacuously true: nothing to notify
-          if (appliedIds.length > 0 && currentSession!.channel) {
+          if (appliedIds.length > 0 && channel) {
             try {
-              currentSession!.channel.send({ type: 'staged-edits-discard', intentIds: appliedIds })
+              channel.send({ type: 'staged-edits-discard', intentIds: appliedIds })
               browserNotified = true
             } catch (err) {
               console.warn(

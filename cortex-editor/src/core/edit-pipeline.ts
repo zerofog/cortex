@@ -221,6 +221,14 @@ export interface EditRequest {
    *  (which relies on `previousValue` when `currentClass` is absent) fails
    *  silently and the intent times out. */
   baselineValue?: string
+  /** Deterministic-only mode set by MCP `cortex_apply_edits` callers. When
+   *  set, branches that would dispatch to the legacy `aiWriter` or queue via
+   *  `deferredWriter` instead emit `needs-source-edit` so the MCP caller
+   *  (Claude) handles the change via Edit tool. Prevents double-write where
+   *  cortex's AI fallback writes the source AND Claude follows up with Edit.
+   *  Only the deterministic rewriter paths (Tailwind / CSS Modules /
+   *  InlineStyle) emit `'applied'` when this flag is set. */
+  mcpMode?: boolean
 }
 
 export interface WriteIntent {
@@ -386,6 +394,44 @@ export class EditPipeline {
       this.pendingResolvers.delete(editId)
       pending.resolve(result)
     }
+  }
+
+  /** Deterministic-only gate for MCP-routed edits. When `edit.mcpMode` is set,
+   *  routes that would dispatch to `aiWriter` or `deferredWriter` instead emit
+   *  `needs-source-edit` so the MCP caller (Claude) handles the change via
+   *  Edit tool. Returns true if the gate fired (caller should return); false
+   *  to fall through to the existing fallback routing. Prevents the double-
+   *  write hazard CodeRabbit flagged in PR review. */
+  private mcpFallbackFires(edit: EditRequest, reason: string): boolean {
+    if (!edit.mcpMode) return false
+    this.emitTerminal(edit.editId, { status: 'needs-source-edit', reason })
+    return true
+  }
+
+  // ── Session-level in-flight intent tracking for MCP applyEditsCore ────────
+  // Two concurrent cortex_apply_edits calls targeting the same intentId would
+  // collide on the per-key debounce timer (`source:property`) inside
+  // executeEdit — the second call's setTimeout cancels the first's, leaving
+  // the first's registered resolver to time out. CodeRabbit caught this in
+  // PR #97 review. Per-call UUID (added in staged-edits.ts) solves the
+  // resolver-Map collision; this Set solves the debounce-slot collision by
+  // refusing the second call before it dispatches.
+
+  private applyInFlight = new Set<string>()
+
+  /** Mark `intentId` as in-flight for an MCP apply. Returns true on success;
+   *  false if another applyEditsCore call already holds this intentId — caller
+   *  should return failed-already-in-flight without dispatching. */
+  beginApply(intentId: string): boolean {
+    if (this.applyInFlight.has(intentId)) return false
+    this.applyInFlight.add(intentId)
+    return true
+  }
+
+  /** Release the in-flight marker. Caller MUST call this in a finally block
+   *  to avoid leaking entries on rejection / dispose / unexpected throws. */
+  endApply(intentId: string): void {
+    this.applyInFlight.delete(intentId)
   }
 
   handleEdit(edit: EditRequest): void {
@@ -592,6 +638,7 @@ export class EditPipeline {
           if (handled) return
         }
         // InlineStyleRewriter unavailable or failed — fall through to deferred/AI
+        if (this.mcpFallbackFires(edit, 'Inline style rewrite unavailable for instance-scoped edit; deterministic-only mode')) return
         if (this.deferredWriter) {
           this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
           this.deferredWriter.enqueue({
@@ -663,6 +710,7 @@ export class EditPipeline {
             if (handled) return
           }
           // InlineStyleRewriter unavailable or failed — route to deferred/AI
+          if (this.mcpFallbackFires(edit, 'Inline style rewrite unavailable for instance-scoped CSS Module element; deterministic-only mode')) return
           if (this.deferredWriter) {
             this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
             this.deferredWriter.enqueue({
@@ -696,6 +744,7 @@ export class EditPipeline {
           } catch { /* treat throws as failed, fall through to deferred/AI */ }
           if (handled) return
         }
+        if (this.mcpFallbackFires(edit, 'CSS module mapping unresolved; deterministic-only mode')) return
         if (this.deferredWriter) {
           this.channel.send({ type: 'edit_status', editId: edit.editId, status: 'writing' })
           this.deferredWriter.enqueue({
@@ -750,6 +799,7 @@ export class EditPipeline {
         } catch { /* treat throws as failed, fall through to deferred/AI */ }
         if (handled) return
       }
+      if (this.mcpFallbackFires(edit, 'Tailwind no-token path; deterministic-only mode')) return
       if (this.deferredWriter) {
         const reason = !newToken
           ? `Cannot resolve Tailwind class for ${edit.property}: ${edit.value}`
@@ -790,6 +840,7 @@ export class EditPipeline {
       })
 
       if (!result.success) {
+        if (this.mcpFallbackFires(edit, `Tailwind rewrite failed: ${result.reason}; deterministic-only mode`)) return
         if (this.deferredWriter) {
           // enqueue() is synchronous — releases the file lock immediately.
           // DeferredWriter's writeFn acquires its own lock later. No deadlock.
