@@ -1008,7 +1008,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       />
       {overrideRef.current && (
         <Panel
-          element={selectedElement}
+          selectedElements={selectedElements}
           overrideManager={overrideRef.current}
           commandStack={commandStackRef.current}
           flushCommitRef={flushCommitRef}

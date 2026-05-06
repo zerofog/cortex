@@ -98,7 +98,7 @@ describe('Panel T4 — StagingDriftBanner wiring', () => {
     const overrideManager = makeOverrideManager()
     const { root, cleanup } = renderInShadow(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -147,7 +147,7 @@ describe('Panel T4 — StagingDriftBanner wiring', () => {
 
     const { root, cleanup } = renderInShadow(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -180,7 +180,7 @@ describe('Panel T4 — StagingDriftBanner wiring', () => {
     const overrideManager = makeOverrideManager()
     const { root, cleanup } = renderInShadow(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -226,7 +226,7 @@ describe('Panel T4 — StagingDriftBanner wiring', () => {
 
     const { root, cleanup } = renderInShadow(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -285,7 +285,7 @@ describe('Panel T4 — Apply button wiring', () => {
 
     const { root, cleanup } = renderInShadow(
       <Panel
-        element={target}
+        selectedElements={[target]}
         channel={channel as any}
         overrideManager={overrideManager as any}
         onClose={() => {}}
@@ -341,7 +341,7 @@ describe('Panel T4 — Apply button wiring', () => {
 
     const { root, cleanup } = renderInShadow(
       <Panel
-        element={target}
+        selectedElements={[target]}
         channel={channel as any}
         overrideManager={overrideManager as any}
         onClose={() => {}}
@@ -410,7 +410,7 @@ describe('Panel T4 fix-up — IMPORTANT 1: hmrEventVersion triggers reconcile fo
     // the selected element). hmrEventVersion=1 simulates the always-bump counter.
     const { root, cleanup } = renderInShadow(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -460,7 +460,7 @@ describe('Panel T4 fix-up — IMPORTANT 4: onApplyError surfaces failures to use
 
     const { root, cleanup } = renderInShadow(
       <Panel
-        element={target}
+        selectedElements={[target]}
         channel={channel as any}
         overrideManager={overrideManager as any}
         onClose={() => {}}
@@ -515,7 +515,7 @@ describe('Panel T4 fix-up — IMPORTANT 4: onApplyError surfaces failures to use
 
     const { root, cleanup } = renderInShadow(
       <Panel
-        element={target}
+        selectedElements={[target]}
         channel={channel as any}
         overrideManager={overrideManager as any}
         onClose={() => {}}
@@ -580,7 +580,7 @@ describe('Panel T4 fix-up — HIGH 1: empty-state Apply feedback', () => {
 
     const { root, cleanup } = renderInShadow(
       <Panel
-        element={null}
+        selectedElements={[]}
         channel={channel as any}
         overrideManager={overrideManager as any}
         onClose={() => {}}
@@ -617,7 +617,7 @@ describe('Panel T4 fix-up — HIGH 1: empty-state Apply feedback', () => {
 
     const { root, cleanup } = renderInShadow(
       <Panel
-        element={null}
+        selectedElements={[]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -676,7 +676,7 @@ describe('Panel T4 fix-up — IMPORTANT 1: intentDriftCount resets on empty chan
     await act(async () => {
       render(
         <Panel
-          element={target}
+          selectedElements={[target]}
           overrideManager={overrideManager as any}
           onClose={() => {}}
           onSelectElement={() => {}}
@@ -697,7 +697,7 @@ describe('Panel T4 fix-up — IMPORTANT 1: intentDriftCount resets on empty chan
     await act(async () => {
       render(
         <Panel
-          element={target}
+          selectedElements={[target]}
           overrideManager={overrideManager as any}
           onClose={() => {}}
           onSelectElement={() => {}}
@@ -776,7 +776,7 @@ describe('Panel T4 — per-control stale indicator', () => {
       const overrideManager = makeOverrideManager()
       const { root, cleanup } = renderInShadow(
         <Panel
-          element={target}
+          selectedElements={[target]}
           overrideManager={overrideManager as any}
           onClose={() => {}}
           onSelectElement={() => {}}
@@ -851,7 +851,7 @@ describe('Panel T4 — per-control stale indicator', () => {
       const overrideManager = makeOverrideManager()
       const { root, cleanup } = renderInShadow(
         <Panel
-          element={target}
+          selectedElements={[target]}
           overrideManager={overrideManager as any}
           onClose={() => {}}
           onSelectElement={() => {}}
@@ -926,7 +926,7 @@ describe('Panel T4 — per-control stale indicator', () => {
       const overrideManager = makeOverrideManager()
       const { root, cleanup } = renderInShadow(
         <Panel
-          element={target}
+          selectedElements={[target]}
           overrideManager={overrideManager as any}
           onClose={() => {}}
           onSelectElement={() => {}}

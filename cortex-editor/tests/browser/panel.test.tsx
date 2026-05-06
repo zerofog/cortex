@@ -68,7 +68,7 @@ describe('Panel', () => {
 
     const result = renderInShadow(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={onClose}
         onSelectElement={onSelectElement}
@@ -170,7 +170,7 @@ describe('Panel', () => {
     document.body.appendChild(container)
     render(
       <Panel
-        element={null}
+        selectedElements={[]}
         overrideManager={{} as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -230,7 +230,7 @@ describe('Panel', () => {
     }
     const result = renderInShadow(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -284,7 +284,7 @@ describe('Panel — library detection wiring', () => {
 
     render(
       <Panel
-        element={libEl}
+        selectedElements={[libEl]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -319,7 +319,7 @@ describe('Panel — library detection wiring', () => {
 
     render(
       <Panel
-        element={userEl}
+        selectedElements={[userEl]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -367,7 +367,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     // Render with default state
     render(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -390,7 +390,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     // Re-render with hover state — should trigger useMemo re-read
     render(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -427,7 +427,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     // Render with hasBefore=true, then click the ::before tab
     render(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -470,7 +470,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     // Initial render
     render(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -507,7 +507,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
 
     render(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -538,7 +538,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
 
     render(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -564,7 +564,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
 
     render(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -635,7 +635,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
 
       await act(() => {
         render(
-          <Panel element={el} overrideManager={overrideManager as any}
+          <Panel selectedElements={[el]} overrideManager={overrideManager as any}
             onClose={() => {}} onSelectElement={() => {}} {...panelPositionProps} />,
           container,
         )
@@ -677,7 +677,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     // Render with hasBefore, click ::before tab
     render(
       <Panel
-        element={el1}
+        selectedElements={[el1]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -697,7 +697,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     // Switch to a different element
     render(
       <Panel
-        element={el2}
+        selectedElements={[el2]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -773,7 +773,7 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
     const renderPanel = (version: number): void => {
       render(
         <Panel
-          element={target}
+          selectedElements={[target]}
           overrideManager={overrideManager as any}
           onClose={() => {}}
           onSelectElement={() => {}}
@@ -864,7 +864,7 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
     const renderPanel = (version: number): void => {
       render(
         <Panel
-          element={target}
+          selectedElements={[target]}
           overrideManager={overrideManager as any}
           onClose={() => {}}
           onSelectElement={() => {}}
@@ -919,6 +919,116 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
   })
 })
 
+describe('Panel mixedProperties (ZF0-1195 / T3)', () => {
+  function createOverrideManager() {
+    return {
+      set: vi.fn(),
+      get: vi.fn(),
+      remove: vi.fn(),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+    }
+  }
+
+  it('mixedProperties is empty for single selection — no mixed-state controls rendered', () => {
+    const el = document.createElement('div')
+    el.setAttribute('data-cortex-source', 'src/Single.tsx:1:1')
+    document.body.appendChild(el)
+
+    const overrideManager = createOverrideManager()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <Panel
+        selectedElements={[el]}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+      container,
+    )
+
+    // No mixed-state NumericInput (class .cortex-numeric-input--mixed) should appear
+    // for a single-element selection, even if the panel renders controls
+    expect(container.querySelector('.cortex-numeric-input--mixed')).toBeNull()
+
+    render(null, container)
+    container.remove()
+    el.remove()
+  })
+
+  it('mixedProperties populated when selected elements have differing opacity', async () => {
+    // Create two elements with different computed opacity values
+    const el1 = document.createElement('div')
+    el1.setAttribute('data-cortex-source', 'src/A.tsx:1:1')
+    const el2 = document.createElement('div')
+    el2.setAttribute('data-cortex-source', 'src/B.tsx:2:2')
+    document.body.appendChild(el1)
+    document.body.appendChild(el2)
+
+    // Override getComputedStyle to return differing opacity for the two elements
+    const originalGCS = window.getComputedStyle
+    window.getComputedStyle = ((target: Element, pseudo?: string | null) => {
+      if (target === el1) {
+        const base = originalGCS.call(window, target, pseudo)
+        return new Proxy(base, {
+          get(obj, prop) {
+            if (prop === 'getPropertyValue') {
+              return (p: string) => p === 'opacity' ? '1' : (obj as any).getPropertyValue?.(p) ?? ''
+            }
+            if (prop === 'opacity') return '1'
+            return (obj as any)[prop]
+          },
+        }) as CSSStyleDeclaration
+      }
+      if (target === el2) {
+        const base = originalGCS.call(window, target, pseudo)
+        return new Proxy(base, {
+          get(obj, prop) {
+            if (prop === 'getPropertyValue') {
+              return (p: string) => p === 'opacity' ? '0.5' : (obj as any).getPropertyValue?.(p) ?? ''
+            }
+            if (prop === 'opacity') return '0.5'
+            return (obj as any)[prop]
+          },
+        }) as CSSStyleDeclaration
+      }
+      return originalGCS.call(window, target, pseudo)
+    }) as typeof window.getComputedStyle
+
+    const overrideManager = createOverrideManager()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <Panel
+        selectedElements={[el1, el2]}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+      container,
+    )
+
+    // When opacity differs across selection, AppearanceSection's opacity NumericInput
+    // should be in mixed state (renders with .cortex-numeric-input--mixed class)
+    await vi.waitFor(() => {
+      const mixedInputs = container.querySelectorAll('.cortex-numeric-input--mixed')
+      expect(mixedInputs.length).toBeGreaterThan(0)
+    }, { timeout: 500 })
+
+    window.getComputedStyle = originalGCS
+    render(null, container)
+    container.remove()
+    el1.remove()
+    el2.remove()
+  })
+})
+
 describe('Panel — staging buffer wiring (ZF0-1451)', () => {
   beforeEach(() => {
     // Clear before each test so leftover state from a sibling test or other
@@ -959,7 +1069,7 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
 
     const { root, cleanup } = renderInShadow(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -1069,7 +1179,7 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
 
     const { cleanup } = renderInShadow(
       <Panel
-        element={target}
+        selectedElements={[target]}
         channel={channel}
         overrideManager={overrideManager as any}
         onClose={() => {}}

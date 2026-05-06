@@ -149,13 +149,23 @@ function removeBlastRadiusStyle(): void {
  */
 const TYPOGRAPHY_ELEMENTS = new Set(['INPUT', 'TEXTAREA', 'SELECT'])
 
+// 15-property watch-list for multi-select mixed-state detection (ZF0-1195 / T3).
+// Declared at module scope so the array is allocated once, not per render.
+const MULTI_SELECT_WATCHED_PROPERTIES = [
+  'color', 'background-color', 'font-family', 'font-size', 'font-weight',
+  'line-height', 'letter-spacing', 'padding', 'margin', 'border-radius',
+  'box-shadow', 'opacity', 'display', 'flex-direction', 'gap',
+] as const
+
 export function hasTypographyContent(element: Element): boolean {
   if (TYPOGRAPHY_ELEMENTS.has(element.tagName)) return true
   return (element.textContent ?? '').trim() !== ''
 }
 
 export interface PanelProps {
-  element: HTMLElement | null
+  /** Selected elements; `selectedElements[0]` is the primary for all CSS parsing.
+   *  Empty array means no selection. (ZF0-1195 / T3) */
+  selectedElements: HTMLElement[]
   overrideManager: CSSOverrideManager
   onClose: () => void
   onSelectElement: (el: HTMLElement | null) => void
@@ -234,7 +244,7 @@ export interface PanelProps {
 }
 
 export function Panel({
-  element,
+  selectedElements,
   overrideManager,
   onClose,
   onSelectElement,
@@ -270,6 +280,10 @@ export function Panel({
   staleSources,
   stageEditRef,
 }: PanelProps): JSX.Element | null {
+  // Back-compat alias: primary element for all CSS-parsing code paths (ZF0-1195 / T3).
+  // All existing usages of `element` inside this function work unchanged.
+  const element = selectedElements[0] ?? null
+
   // ALL hooks first — no conditional returns before hooks
   const [isEntering, setIsEntering] = useState(true)
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -580,7 +594,7 @@ export function Panel({
   // C1: Cache getComputedStyle results + compute dimmed properties in a single useMemo
   // to avoid double forced layout. CRITICAL: activeState + activePseudo in deps so
   // useMemo re-runs after state forcing (getComputedStyle returns a live reference).
-  const { computedStyles, dimmedProperties, mixedProperties } = useMemo(
+  const { computedStyles, dimmedProperties, mixedProperties: scopeMixedProperties } = useMemo(
     () => computePanelStyleSnapshot({
       element,
       activePseudo,
@@ -592,6 +606,32 @@ export function Panel({
     }),
     [element, styleVersion, hmrAppliedVersion, activeState, activePseudo, sharedInfo, editScope],
   )
+
+  // Multi-select mixed properties (ZF0-1195 / T3): compare getComputedStyle across
+  // all selectedElements for the 15-property watch-list. When selectedElements.length
+  // <= 1 the result is always empty. Merged with scopeMixedProperties (scope='all'
+  // cross-sibling comparison) so sections see a unified mixed signal.
+  const multiSelectMixed = useMemo<Set<string>>(() => {
+    if (selectedElements.length <= 1) return new Set()
+    const mixed = new Set<string>()
+    for (const prop of MULTI_SELECT_WATCHED_PROPERTIES) {
+      let firstVal: string | null = null
+      for (const el of selectedElements) {
+        const v = getComputedStyle(el).getPropertyValue(prop).trim()
+        if (firstVal === null) firstVal = v
+        else if (v !== firstVal) { mixed.add(prop); break }
+      }
+    }
+    return mixed
+  }, [selectedElements, hmrAppliedVersion])
+
+  // Merge multi-select mixed with scope-based mixed for a unified signal.
+  const mixedProperties = useMemo<Set<string> | undefined>(() => {
+    if (multiSelectMixed.size === 0 && !scopeMixedProperties) return scopeMixedProperties
+    if (multiSelectMixed.size === 0) return scopeMixedProperties
+    if (!scopeMixedProperties) return multiSelectMixed
+    return new Set([...scopeMixedProperties, ...multiSelectMixed])
+  }, [multiSelectMixed, scopeMixedProperties])
 
   const availableWeights = useMemo(
     () => {
