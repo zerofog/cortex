@@ -1,0 +1,68 @@
+cortex-editor/tests/browser/controls/numeric-input.test.tsx
+  s_32cd34190d2c45::t_c648f2b2eec22b 156,244,247
+cortex-editor/tests/browser/sections/AppearanceSection.test.ts
+  s_32cd34190d2c45::t_e8d0a7f5e82205 193,199,215
+cortex-editor/src/browser/components/sections/GridControls.tsx
+  s_32cd34190d2c45::t_1bcdb136cd120c 395
+cortex-editor/src/browser/components/sections/FlexControls.tsx
+  s_32cd34190d2c45::t_1bcdb136cd120c 331,431
+cortex-editor/src/browser/components/sections/TypographySection.tsx
+  s_32cd34190d2c45::t_01578ee1c3415d 251-252,257-258,459,488,597
+cortex-editor/src/browser/components/sections/LayoutSection.tsx
+  s_32cd34190d2c45::t_1bcdb136cd120c 175
+cortex-editor/tests/browser/sections/typography-section.test.tsx
+  s_32cd34190d2c45::t_c648f2b2eec22b 170,174-176,494-510
+cortex-editor/tests/browser/controls/segmented-control.test.tsx
+  s_32cd34190d2c45::t_c648f2b2eec22b 54-62
+cortex-editor/tests/browser/sections/border-section.test.tsx
+  s_32cd34190d2c45::t_e8d0a7f5e82205 228
+cortex-editor/src/browser/components/sections/BorderSection.tsx
+  s_32cd34190d2c45::t_e78472d909d1aa 353
+cortex-editor/tests/browser/controls/dropdown.test.tsx
+  s_32cd34190d2c45::t_c648f2b2eec22b 72-78,190-196
+cortex-editor/src/browser/components/controls/Dropdown.tsx
+  s_32cd34190d2c45::t_9f9aad9b84e170 8,16,24,33-36,127,135,139,177,182-183
+cortex-editor/tests/browser/controls/color-input.test.tsx
+  s_32cd34190d2c45::t_7ddf8fd345427c 3-5,10-12,42-43,45-47
+  s_32cd34190d2c45::t_0d7c78e4ac4173 57-62,186-191
+  s_32cd34190d2c45::t_cb54b050553879 103-116
+  s_32cd34190d2c45::t_c648f2b2eec22b 89-102,159-172,197-203
+  s_32cd34190d2c45::t_0f5610a54d69d8 206-231
+  s_32cd34190d2c45::t_df6428ca5456d3 117-144,329-332
+  s_32cd34190d2c45::t_5a068cddf5b82e 145-158
+  s_32cd34190d2c45::t_9937a209f41fce 44
+cortex-editor/src/browser/styles.css
+  s_32cd34190d2c45::t_dc61dc895a801c 1510-1535,2173-2174,2176
+  s_32cd34190d2c45::t_ad84caf928d774 958,997-1013,1083-1088,1091-1092,1098,1100,1105-1113,1126-1133
+cortex-editor/src/browser/components/controls/SegmentedControl.tsx
+  s_32cd34190d2c45::t_24bc231b261ce4 16,24,34-39,50,54,56,78,83,88,90,98
+cortex-editor/src/browser/components/controls/ColorInput.tsx
+  s_32cd34190d2c45::t_2e7779903a9ccf 239-242,246-247,250-251,253,300-301
+  s_32cd34190d2c45::t_55495b097b9776 28-33,65-68,93,96,98,102-106,111-113,122-126,136-140,155,202-203,249,252
+  s_32cd34190d2c45::t_3845895a1d48d0 161
+  s_32cd34190d2c45::t_d1b13157f3070e 248,257,315
+  s_32cd34190d2c45::t_174032d42f56f3 57-64,69,132-133,156-159
+  s_32cd34190d2c45::t_cf57cf5b664c73 34-56,84-92,95,99-101,107,110,114,143,153-154,160,162-171,173
+  s_32cd34190d2c45::t_62ba4b13da5eac 290
+  s_32cd34190d2c45::t_011b29fd8d4d50 229-230
+  s_32cd34190d2c45::t_515313c3b78ecd 70-77,116,121,129,135,145-151
+cortex-editor/src/browser/components/controls/NumericInput.tsx
+  s_32cd34190d2c45::t_798d1f7c2c87f8 89,212,214,223,230,332,342-350
+  s_32cd34190d2c45::t_62ba4b13da5eac 40,166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "ff18b3a2d2250e3374a3164cc368683c89ac657f",
+  "prompts": {},
+  "sessions": {
+    "s_32cd34190d2c45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dff0f-5cd2-7a13-8b87-32b2fa2505cc",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
