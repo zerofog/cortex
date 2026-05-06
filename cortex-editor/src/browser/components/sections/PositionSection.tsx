@@ -206,7 +206,7 @@ export function PositionSection({
       <SelfAlignmentBlock onChange={onChange} />
       <div
         class={`cortex-position-section__xy-row${isStatic ? ' cortex-position-section__xy-row--disabled' : ''}${isDimmed(dimmedProperties, 'left', 'top') ? ' cortex-control--dimmed' : ''}`}
-        data-tooltip={isStatic ? 'Set position mode to enable' : undefined}
+        data-tooltip={isStatic ? 'Switch to relative, absolute, fixed, or sticky to edit position' : undefined}
       >
         <NumericInput value={xValue} unit={isStatic ? 'auto' : 'px'} prefix="X" tooltip={xTooltip} disabled={isStatic} tokenFamily="spacing" onChange={handleXChange} onScrub={handleXScrub} onScrubEnd={handleXScrubEnd} stale={stale} />
         <NumericInput value={yValue} unit={isStatic ? 'auto' : 'px'} prefix="Y" tooltip={yTooltip} disabled={isStatic} tokenFamily="spacing" onChange={handleYChange} onScrub={handleYScrub} onScrubEnd={handleYScrubEnd} stale={stale} />

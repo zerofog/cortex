@@ -450,6 +450,31 @@ describe('GridControls', () => {
     expect(rows.value).toBe('5')
   })
 
+  it.each([
+    ['columns', 'gridTemplateColumns', '.cortex-grid-controls__cols'],
+    ['rows', 'gridTemplateRows', '.cortex-grid-controls__rows'],
+  ] as const)('non-simple %s template disables count input with explanation', (label, property, selector) => {
+    const onChange = vi.fn()
+    setup({
+      values: {
+        [property]: '1fr 2fr auto',
+      },
+      onChange,
+    })
+    const field = container.querySelector(selector) as HTMLElement
+    const numeric = field.querySelector('.cortex-numeric-input') as HTMLElement
+    const input = field.querySelector('input') as HTMLInputElement
+    expect(input.disabled).toBe(true)
+    expect(numeric.getAttribute('aria-disabled')).toBe('true')
+    expect(numeric.getAttribute('data-tooltip')).toBe('Grid count requires repeat(N, 1fr)')
+
+    input.focus()
+    input.value = '5'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(calls(onChange, label === 'columns' ? 'grid-template-columns' : 'grid-template-rows')).toEqual([])
+  })
+
   // Responsive/complex template tiers removed from UI — simple tier only.
   it.skip('responsive tier: Cols is hidden, MinWidth input shows instead', () => {
     setup({

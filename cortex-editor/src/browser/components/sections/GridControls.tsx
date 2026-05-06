@@ -68,6 +68,8 @@ import {
 
 export type GridChange = SectionChange
 
+const GRID_COUNT_REQUIRES_SIMPLE_TOOLTIP = 'Grid count requires repeat(N, 1fr)'
+
 export interface GridValues {
   gridTemplateColumns: string
   gridTemplateRows: string
@@ -208,6 +210,8 @@ export function GridControls({
 
   const cols = useMemo(() => parseGridTemplate(gridTemplateColumns), [gridTemplateColumns])
   const rows = useMemo(() => parseGridTemplate(gridTemplateRows), [gridTemplateRows])
+  const colsCountEditable = cols.tier === 'simple'
+  const rowsCountEditable = rows.tier === 'simple'
 
   // ── Gap lock ─────────────────────────────────────────────────
   const [gapLocked, setGapLocked] = useState(true)
@@ -265,21 +269,23 @@ export function GridControls({
   // ── Simple tier: Cols / Rows count reconstruction ────────────
   const handleColsCountChange = useCallback(
     (v: number) => {
+      if (cols.tier !== 'simple') return
       onChange({
         property: 'grid-template-columns',
         value: `repeat(${v}, 1fr)`,
       })
     },
-    [onChange],
+    [onChange, cols.tier],
   )
   const handleRowsCountChange = useCallback(
     (v: number) => {
+      if (rows.tier !== 'simple') return
       onChange({
         property: 'grid-template-rows',
         value: `repeat(${v}, 1fr)`,
       })
     },
-    [onChange],
+    [onChange, rows.tier],
   )
 
   // ── Responsive tier: min-width reconstruction ────────────────
@@ -372,8 +378,9 @@ export function GridControls({
           <NumericInput
             value={'count' in cols ? cols.count : 1}
             label="Cols"
-            tooltip="Columns (repeat count)"
+            tooltip={colsCountEditable ? 'Columns (repeat count)' : GRID_COUNT_REQUIRES_SIMPLE_TOOLTIP}
             min={1}
+            disabled={!colsCountEditable}
             mixed={mixedProperties?.has('grid-template-columns')}
             onChange={handleColsCountChange}
           />
@@ -382,8 +389,9 @@ export function GridControls({
           <NumericInput
             value={'count' in rows ? rows.count : 1}
             label="Rows"
-            tooltip="Rows (repeat count)"
+            tooltip={rowsCountEditable ? 'Rows (repeat count)' : GRID_COUNT_REQUIRES_SIMPLE_TOOLTIP}
             min={1}
+            disabled={!rowsCountEditable}
             mixed={mixedProperties?.has('grid-template-rows')}
             onChange={handleRowsCountChange}
           />

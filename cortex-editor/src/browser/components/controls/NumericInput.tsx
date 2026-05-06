@@ -106,6 +106,18 @@ export function NumericInput({
   localValueRef.current = localValue
 
   useEffect(() => {
+    if (!disabled) return
+    scrubCleanupRef.current?.()
+    userTypedRef.current = false
+    setIsEditing(false)
+    setIsScrubbing(false)
+    setPopoverOpen(false)
+    const next = String(value)
+    localValueRef.current = next
+    setLocalValue(next)
+  }, [disabled, value])
+
+  useEffect(() => {
     if (!isEditing) {
       setLocalValue(String(value))
     }
@@ -116,6 +128,10 @@ export function NumericInput({
   }, [min])
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (disabled) {
+      e.preventDefault()
+      return
+    }
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault()
       const step = getStep(e)
@@ -136,9 +152,10 @@ export function NumericInput({
       setIsEditing(false)
       inputRef.current?.blur()
     }
-  }, [value, onChange, clampValue])
+  }, [disabled, value, onChange, clampValue])
 
   const handleFocus = useCallback(() => {
+    if (disabled) return
     setIsEditing(true)
     userTypedRef.current = false
     if (mixed) {
@@ -151,7 +168,7 @@ export function NumericInput({
     if (showPopover) {
       setPopoverOpen(true)
     }
-  }, [mixed, showPopover])
+  }, [disabled, mixed, showPopover])
 
   const handleBlur = useCallback(() => {
     setIsEditing(false)
@@ -160,6 +177,14 @@ export function NumericInput({
     // and registered in popover-stack, so subsequent Escape dismisses the
     // wrong layer (Codex /review P2 #6).
     setPopoverOpen(false)
+    if (disabled) {
+      userTypedRef.current = false
+      const reverted = mixed ? '' : String(value)
+      localValueRef.current = reverted
+      setLocalValue(reverted)
+      if (inputRef.current) inputRef.current.value = reverted
+      return
+    }
     const parsed = parseFloat(localValueRef.current)
     if (isNaN(parsed)) {
       // In mixed state, revert to empty (shows '--' placeholder) instead of
@@ -180,16 +205,18 @@ export function NumericInput({
       setLocalValue(str)
     }
     userTypedRef.current = false
-  }, [value, onChange, clampValue, mixed])
+  }, [disabled, value, onChange, clampValue, mixed])
 
   const handleInput = useCallback((e: Event) => {
+    if (disabled) return
     userTypedRef.current = true
     const v = (e.target as HTMLInputElement).value
     localValueRef.current = v
     setLocalValue(v)
-  }, [])
+  }, [disabled])
 
   const handleWheel = useCallback((e: WheelEvent) => {
+    if (disabled) return
     const root = inputRef.current?.getRootNode() as Document | ShadowRoot
     if (root?.activeElement !== inputRef.current) return
     e.preventDefault()
@@ -197,9 +224,10 @@ export function NumericInput({
     const delta = e.deltaY < 0 ? step : -step
     const next = clampValue(roundTenth(value + delta))
     onChange(next)
-  }, [value, onChange, clampValue])
+  }, [disabled, value, onChange, clampValue])
 
   const handleScrubDown = useCallback((e: PointerEvent) => {
+    if (disabled) return
     if (isEditing) return
     scrubStartX.current = e.clientX
     scrubStartValue.current = value
@@ -254,7 +282,7 @@ export function NumericInput({
     target.addEventListener('pointerup', handleUp)
     target.addEventListener('pointercancel', handleCancel)
     scrubCleanupRef.current = cleanup
-  }, [isEditing, value, onChange, onScrub, onScrubEnd, clampValue])
+  }, [disabled, isEditing, value, onChange, onScrub, onScrubEnd, clampValue])
 
   const handlePopoverPick = useCallback((chosen: { name: string; valuePx: number; source: SpacingToken['source'] }) => {
     // `name` and `source` are part of the contract for ZF0-1210 (staging-buffer flow
@@ -304,6 +332,7 @@ export function NumericInput({
       onPointerDown={disabled ? undefined : handleScrubDown}
       data-tooltip={effectiveTooltip}
       aria-disabled={disabled ? 'true' : undefined}
+      tabIndex={disabled ? 0 : undefined}
     >
       {prefix !== undefined
         ? <span class="cortex-numeric-input__prefix">{prefix}</span>

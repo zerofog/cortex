@@ -972,6 +972,15 @@
   background: var(--cx-well-hover);
 }
 
+.cortex-numeric-input[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.cortex-numeric-input[aria-disabled="true"]:hover {
+  background: var(--cx-well);
+}
+
 /* Scrub affordance — subtle drag hint on hover */
 .cortex-numeric-input::before {
   content: '\21D4';
@@ -985,6 +994,11 @@
 
 .cortex-numeric-input:hover::before {
   color: var(--cx-ink-ghost);
+}
+
+.cortex-numeric-input[aria-disabled="true"]::before,
+.cortex-numeric-input[aria-disabled="true"]:hover::before {
+  color: transparent;
 }
 
 .cortex-numeric-input--scrubbing {
@@ -1040,6 +1054,11 @@
 
 .cortex-numeric-input__value:focus {
   cursor: text;
+}
+
+.cortex-numeric-input[aria-disabled="true"] .cortex-numeric-input__value {
+  color: var(--cx-ink-tertiary);
+  cursor: not-allowed;
 }
 
 .cortex-numeric-input__unit {
@@ -1876,6 +1895,15 @@
 
 .cortex-lock-btn--active:hover {
   color: var(--cx-select-hover);
+}
+
+.cortex-lock-btn--disabled,
+.cortex-lock-btn--disabled:hover {
+  background: transparent;
+  color: var(--cx-ink-ghost);
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
 }
 
 /* ── Typography section ─────────────────────── */

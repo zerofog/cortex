@@ -95,6 +95,27 @@ describe('SizingControls', () => {
     expect(onChange).toHaveBeenCalledWith({ property: 'width', value: '100%' })
   })
 
+  it.each([
+    ['width', 'fit-content', 0],
+    ['width', '100%', 0],
+    ['height', 'fit-content', 1],
+    ['height', '100%', 1],
+  ] as const)('disables %s input when sizing mode is non-fixed (%s)', (dimension, value, fieldIndex) => {
+    setup({
+      values: {
+        ...DEFAULT_VALUES,
+        [dimension]: value,
+      },
+    })
+    const fields = container.querySelectorAll('.cortex-layout-section__sizing-field')
+    const field = fields[fieldIndex] as HTMLElement
+    const input = field.querySelector('input') as HTMLInputElement
+    const numeric = field.querySelector('.cortex-numeric-input') as HTMLElement
+    expect(input.disabled).toBe(true)
+    expect(numeric.getAttribute('aria-disabled')).toBe('true')
+    expect(numeric.getAttribute('data-tooltip')).toBe('Switch to Fixed (px) to edit dimensions')
+  })
+
   it('clip content toggle fires overflow:hidden / overflow:visible', () => {
     const { onChange } = setup()
     const clipBtn = container.querySelector('[data-tooltip="Clip content (overflow: hidden)"]') as HTMLElement
@@ -167,6 +188,22 @@ describe('SizingControls', () => {
     expect(widthCall).toBeDefined()
     const heightCall = onChange.mock.calls.find((c: any) => c[0]?.property === 'height' && c[0]?.value === '200px')
     expect(heightCall).toBeDefined()
+  })
+
+  it('aspect lock is disabled with an explanation when either dimension is non-fixed', async () => {
+    setup({ values: { ...DEFAULT_VALUES, width: 'fit-content', height: '100px' } })
+    let lockBtn = container.querySelector('.cortex-lock-btn') as HTMLButtonElement
+    expect(lockBtn).not.toBeNull()
+    expect(lockBtn.classList.contains('cortex-lock-btn--disabled')).toBe(true)
+    expect(lockBtn.getAttribute('aria-disabled')).toBe('true')
+    expect(lockBtn.getAttribute('aria-pressed')).toBe('false')
+    expect(lockBtn.getAttribute('data-tooltip')).toBe('Aspect lock requires fixed dimensions')
+
+    lockBtn.click()
+    await vi.waitFor(() => {
+      lockBtn = container.querySelector('.cortex-lock-btn') as HTMLButtonElement
+      expect(lockBtn.getAttribute('aria-pressed')).toBe('false')
+    }, { timeout: 500 })
   })
 
   it('min-width toggle shows min input and fires property', async () => {

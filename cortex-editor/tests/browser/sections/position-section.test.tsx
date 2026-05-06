@@ -219,7 +219,7 @@ describe('PositionSection', () => {
     const xyRow = container.querySelector('.cortex-position-section__xy-row')
     expect(xyRow).not.toBeNull()
     expect(xyRow!.classList.contains('cortex-position-section__xy-row--disabled')).toBe(true)
-    expect(xyRow!.getAttribute('data-tooltip')).toBe('Set position mode to enable')
+    expect(xyRow!.getAttribute('data-tooltip')).toBe('Switch to relative, absolute, fixed, or sticky to edit position')
   })
 
   // ── Rotate (icon prefix) ───────────────────────────────────────────
