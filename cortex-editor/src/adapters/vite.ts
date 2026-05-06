@@ -381,11 +381,55 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
     }
 
     case 'applyEdits': {
-      // params.intentIds is schema-validated as string[] before handleRPC is called.
       const intentIds = params.intentIds as string[]
-      // ZF0-1464 deferral: production routes all found intents to Claude's Edit
-      // tool. See applyEditsCore docstring for the full rationale.
-      return { results: applyEditsCore(currentSession!.stagedEdits, intentIds) }
+      // Race-during-init guard: pipeline is constructed asynchronously after
+      // detection + Tailwind config resolution complete. Mirror the pattern
+      // at vite.ts:1077-1086 (data.type === 'edit' / 'undo' / 'redo' branches)
+      // — friendly fallback per intent so Claude can surface a useful message
+      // instead of a generic TypeError.
+      if (!currentSession!.pipeline) {
+        return {
+          results: intentIds.map((intentId) => ({
+            intentId,
+            status: 'failed' as const,
+            error: 'Editor is still initializing. Please try again.',
+          })),
+          browserNotified: true, // vacuous: nothing to notify, RPC shape symmetric with ready path
+        }
+      }
+      // Capture session refs BEFORE await — currentSession can be replaced
+      // or disposed during pipeline init/restart; deref'ing currentSession in
+      // the .then continuation could throw or notify a different/new session
+      // (Codex P2 finding from PR review).
+      const stagedEdits = currentSession!.stagedEdits
+      const pipeline = currentSession!.pipeline
+      const channel = currentSession!.channel
+      // Returns Promise<{results, browserNotified}> — handleRPC's caller awaits via Promise.resolve.
+      return applyEditsCore(stagedEdits, intentIds, pipeline)
+        .then(results => {
+          // Browser-buffer sync: send `staged-edits-discard` for any intent
+          // that was deterministically applied. Without this, the browser's
+          // localStorage staging buffer still holds the intent; on next sync
+          // it would re-add to the server cache, undoing the AC3 cache.remove.
+          // Mirrors the discardEdits MCP tool's notification pattern at
+          // vite.ts:436 — including the `browserNotified` flag in the response
+          // so the MCP caller knows whether the browser saw the discard
+          // (false → next full-sync reconciles, but Claude can warn the user).
+          const appliedIds = results.filter((r) => r.status === 'applied').map((r) => r.intentId)
+          let browserNotified = appliedIds.length === 0  // vacuously true: nothing to notify
+          if (appliedIds.length > 0 && channel) {
+            try {
+              channel.send({ type: 'staged-edits-discard', intentIds: appliedIds })
+              browserNotified = true
+            } catch (err) {
+              console.warn(
+                '[cortex] Failed to send staged-edits-discard for applied intents:',
+                err instanceof Error ? err.message : String(err),
+              )
+            }
+          }
+          return { results, browserNotified }
+        })
     }
 
     case 'discardEdits': {
@@ -1251,7 +1295,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
 
           ws.on('pong', () => { currentSession?.aliveFlags.set(ws, true) })
 
-          ws.on('message', (raw) => {
+          ws.on('message', async (raw) => {
             let parsed: unknown
             try { parsed = JSON.parse(raw.toString()) } catch { return }
             if (typeof parsed !== 'object' || parsed === null || !('type' in parsed)) return
@@ -1309,7 +1353,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
                   }
                   params = schemaResult.data as Record<string, unknown>
                 }
-                const result = handleRPC(method, params)
+                const result = await Promise.resolve(handleRPC(method, params))
                 try {
                   ws.send(JSON.stringify({ type: 'cortex-rpc-result', requestId, result }))
                 } catch (sendErr) {
