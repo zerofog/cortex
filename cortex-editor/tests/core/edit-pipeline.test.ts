@@ -1638,41 +1638,51 @@ describe('EditPipeline', () => {
       expect(failedStatus).toBeDefined()
     })
 
-    it('emits terminal failed when InlineStyleRewriter throws unexpectedly', async () => {
+    it('emits terminal failed via instance-scope catch when InlineStyleRewriter throws', async () => {
       const channel = mockChannel()
-      const resolver = mockResolver({}) // returns null — no Tailwind tokens
+      const resolver = mockResolver({})
       const rewriter = mockRewriter()
       const verifier = mockVerifier()
       const writeFile = vi.fn().mockResolvedValue(undefined)
+      const cssRewriter = mockCSSModulesRewriter()
       const inlineRewriter = mockInlineStyleRewriter()
-      // Make the rewrite throw (simulates unexpected error in InlineStyleRewriter)
+      // Make the rewrite throw — the catch in the instance-scope branch
+      // (edit-pipeline.ts ~line 637) must let `handled` stay false and fall
+      // through to the instance-scope-specific terminal emit.
       inlineRewriter.rewrite.mockRejectedValue(new Error('unexpected ENOENT'))
 
       const pipeline = new EditPipeline({
         channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
-        detector: { hasCSSModules: false, hasTailwind: false },
+        cssModulesRewriter: cssRewriter,
         inlineStyleRewriter: inlineRewriter as any,
       })
 
+      // scope:'instance' + cssMapping → instance-scope branch is the ONLY
+      // path that can produce 'failed' here, so the assertion below pins
+      // the catch's specific behavior (not the no-Tailwind-token fallback).
       pipeline.handleEdit({
         editId: 'edit-1',
-        source: '/project/src/App.tsx:2:10',
+        source: '/project/src/Hero.tsx:5:3',
         property: 'padding-top',
         value: '16px',
         elementSelector: 'div',
+        cssMapping: 'src/Hero.module.css:.hero',
+        scope: 'instance',
       })
       vi.advanceTimersByTime(400)
       await vi.runAllTimersAsync()
 
-      // InlineStyleRewriter was called but threw
       expect(inlineRewriter.rewrite).toHaveBeenCalledTimes(1)
-      // Pipeline must emit terminal-failed (not silently drop) when the
-      // rewriter throws. Falsifiability: if the catch swallows without
-      // emitting, this assertion fails.
+      // No write was attempted — catch swallowed the throw and the rewrite
+      // never reached writeFile.
+      expect(writeFile).not.toHaveBeenCalled()
+      // The instance-scope-specific terminal reason confirms the catch
+      // path executed (not the Tailwind no-token fallback).
       const failedStatus = channel.sent.find(
         (m) => m.type === 'edit_status' && (m as { status: string }).status === 'failed',
       )
       expect(failedStatus).toBeDefined()
+      expect((failedStatus as { reason: string }).reason).toContain('Instance-scoped editing requires InlineStyleRewriter')
     })
 
     it('uses jsx-immediate WriteIntent kind', async () => {
