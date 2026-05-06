@@ -10,15 +10,6 @@ import { makeEdit } from '../core/helpers.js'
 import type { Plugin } from 'vite'
 import { SchemaViolationError, browserToServerSchema, serverToBrowserSchema } from '../../src/schemas/index.js'
 
-// Mock loadEnv from vite so tests can control CORTEX_API_KEY availability
-const { mockLoadEnv } = vi.hoisted(() => ({
-  mockLoadEnv: vi.fn().mockReturnValue({}),
-}))
-vi.mock('vite', async () => {
-  const actual = await vi.importActual<typeof import('vite')>('vite')
-  return { ...actual, loadEnv: mockLoadEnv }
-})
-
 // Mock TailwindResolver so tests control when/how swatches resolve
 vi.mock('../../src/core/tailwind-resolver.js', () => ({
   TailwindResolver: {
@@ -47,16 +38,12 @@ vi.mock('../../src/core/hmr-verifier.js', () => ({
   },
 }))
 
-// Capture EditPipeline constructor args for DeferredWriter wiring tests
-const editPipelineConstructorArgs: any[] = []
 vi.mock('../../src/core/edit-pipeline.js', () => ({
-  EditPipeline: function(opts: any) {
-    editPipelineConstructorArgs.push(opts)
+  EditPipeline: function(_opts: any) {
     this.handleEdit = () => {}
     this.handleUndo = () => {}
     this.handleRedo = () => {}
     this.dispose = () => {}
-    this.executeDeferredBatch = vi.fn().mockResolvedValue({ success: true })
   },
 }))
 
@@ -82,20 +69,6 @@ vi.mock('../../src/core/rewriter/runtime-resolver.js', () => ({
   },
 }))
 
-vi.mock('../../src/core/ai-writer.js', () => ({
-  AIWriter: function() {
-    this.write = vi.fn().mockResolvedValue({ success: true, newContent: '' })
-  },
-}))
-
-vi.mock('../../src/core/deferred-writer.js', () => ({
-  DeferredWriter: vi.fn().mockImplementation(function(this: any) {
-    this.enqueue = vi.fn()
-    this.cancelForFile = vi.fn()
-    this.dispose = vi.fn()
-  }),
-}))
-
 vi.mock('../../src/core/session/undo-stack.js', () => ({
   UndoStack: function() {
     this.push = () => {}
@@ -111,19 +84,13 @@ vi.mock('../../src/core/session/undo-stack.js', () => ({
 
 // Import mocks for per-test control
 import { TailwindResolver } from '../../src/core/tailwind-resolver.js'
-import { DeferredWriter } from '../../src/core/deferred-writer.js'
 const mockResolveColors = vi.mocked(TailwindResolver.resolveColors)
-const MockDeferredWriter = vi.mocked(DeferredWriter)
-
 const mockResolveSpacingTokens = vi.mocked(TailwindResolver.resolveSpacingTokens)
 
 // Reset module-level state between tests so ordering doesn't matter
 beforeEach(() => {
   mockResolveColors.mockResolvedValue(null)
   mockResolveSpacingTokens.mockResolvedValue(null)
-  mockLoadEnv.mockReturnValue({})
-  editPipelineConstructorArgs.length = 0
-  MockDeferredWriter.mockClear()
 })
 afterEach(async () => {
   await _resetForTesting()
@@ -1692,10 +1659,6 @@ describe('validateToggleShortcut', () => {
     expect(validateToggleShortcut('$mod+KeyK')).toBe('$mod+KeyK')
   })
 })
-
-// DeferredWriter wiring tests removed (ZF0-1546 T1):
-// AIWriter/DeferredWriter are no longer passed to EditPipeline constructor.
-// The instantiation block in vite.ts remains intact for T2 to delete.
 
 describe('CortexSession wiring (A2)', () => {
   describe('configureServer re-entry', () => {

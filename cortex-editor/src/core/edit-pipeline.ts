@@ -634,10 +634,9 @@ export class EditPipeline {
             let handled = false
             try {
               handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
-            } catch { /* treat throws as failed, fall through to deferred/AI */ }
+            } catch { /* swallow — handled stays false → emit terminal below */ }
             if (handled) return
           }
-          // InlineStyleRewriter unavailable or failed — emit terminal
           if (this.mcpFallbackFires(edit, 'Inline style rewrite unavailable for instance-scoped CSS Module element; deterministic-only mode')) return
           this.emitTerminal(edit.editId, { status: 'failed', reason: 'Instance-scoped editing requires InlineStyleRewriter. Use the Apply gesture to escalate to Claude.' })
           return
@@ -656,7 +655,7 @@ export class EditPipeline {
           let handled = false
           try {
             handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
-          } catch { /* treat throws as failed, fall through to deferred/AI */ }
+          } catch { /* swallow — handled stays false → emit terminal below */ }
           if (handled) return
         }
         if (this.mcpFallbackFires(edit, 'CSS module mapping unresolved; deterministic-only mode')) return
@@ -698,7 +697,7 @@ export class EditPipeline {
         let handled = false
         try {
           handled = await this.tryInlineStyleWrite(edit, resolvedPath, line, col)
-        } catch { /* treat throws as failed, fall through to deferred/AI */ }
+        } catch { /* swallow — handled stays false → emit terminal below */ }
         if (handled) return
       }
       if (this.mcpFallbackFires(edit, 'Tailwind no-token path; deterministic-only mode')) return
@@ -1393,7 +1392,6 @@ export class EditPipeline {
           reason: `Write failed: ${sanitizeErrorForClient(err)}`,
           reason_code: classifyWriteError(err),
         })
-        handled = true // error handled — don't fall through to AI
         return
       }
       if (this.undoStack) {
