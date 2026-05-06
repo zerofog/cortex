@@ -1,0 +1,55 @@
+cortex-editor/src/browser/selection.ts
+  s_3136272232c983::t_6acf25645e587f 25-30,35,88-102
+cortex-editor/src/browser/components/CortexApp.tsx
+  s_3136272232c983::t_8b05c255e568c4 133-134,141
+  s_3136272232c983::t_22a9438e7b51c1 10
+  s_3136272232c983::t_7dd871eccd6825 187-189,192,198-199,203-205,208-212
+  s_3136272232c983::t_32f7e100967c8d 47-49
+  s_3136272232c983::t_8c8da9f9cb6afb 518-521
+  s_3136272232c983::t_bef121f3b30928 193-197,200-202
+  s_3136272232c983::t_832715aa2a261b 238-242,246
+  s_3136272232c983::t_43869dddffa2f1 517,522,539-542
+cortex-editor/src/browser/cortex-app-reducer.ts
+  s_3136272232c983::t_b2ddc2cfbca047 115-119
+  s_3136272232c983::t_9b789f2d5d54bb 157-206
+  s_3136272232c983::t_13c87bd559cf9c 442-444
+  s_3136272232c983::t_d4171d528dc4e6 441,445-449
+  s_3136272232c983::t_37a7c5ffccfbc5 69-71
+  s_3136272232c983::t_469e3f64e16b5a 153
+cortex-editor/tests/browser/selection.test.ts
+  s_3136272232c983::t_4b738871be6775 10
+  s_3136272232c983::t_7d2fc87fdeedb2 221,228,234-288
+  s_3136272232c983::t_257d282f17de07 69
+  s_3136272232c983::t_d052558b9e3189 213
+cortex-editor/tests/browser/cortex-app-reducer.test.ts
+  s_3136272232c983::t_609253aca66b77 665-680
+  s_3136272232c983::t_a108f2b35dfded 611-664,681
+cortex-editor/tests/browser/cortex-app.test.tsx
+  s_3136272232c983::t_648b8705f63392 491
+  s_3136272232c983::t_6500d751582df2 961
+  s_3136272232c983::t_a1f3747fc7b57a 1108
+  s_3136272232c983::t_cbbe986db67441 16-20,26,29
+  s_3136272232c983::t_7bac70c5229505 175,234,951,1097
+  s_3136272232c983::t_76298e54af49fd 676
+  s_3136272232c983::t_cab4f88c74b7e0 245,266
+  s_3136272232c983::t_4eecdaf9ce6209 538
+  s_3136272232c983::t_058a50be6e148c 184
+  s_3136272232c983::t_95246acfd98381 722
+  s_3136272232c983::t_6a53cff978fce8 402
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "db2025cb8741a4c2b1660195bb898150d24fd18a",
+  "prompts": {},
+  "sessions": {
+    "s_3136272232c983": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd1056d1-e5d0-4037-9762-4640675731ec",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": null
+    }
+  }
+}
