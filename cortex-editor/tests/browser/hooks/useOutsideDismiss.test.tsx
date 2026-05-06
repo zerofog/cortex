@@ -20,12 +20,15 @@ import { useOutsideDismiss } from '../../../src/browser/hooks/useOutsideDismiss.
  * contract is verified by manual testing and (future) Playwright.
  */
 
-let container: HTMLDivElement
+let container: HTMLDivElement | undefined
 
-afterEach(() => {
+afterEach(async () => {
   if (container) {
-    render(null, container)
+    await act(() => {
+      render(null, container)
+    })
     container.remove()
+    container = undefined
   }
 })
 
@@ -75,7 +78,7 @@ describe('useOutsideDismiss', () => {
     await act(() => {
       mount(<Popover onDismiss={onDismiss} />)
     })
-    const inside = container.querySelector('[data-testid="inside-btn"]') as HTMLElement
+    const inside = container!.querySelector('[data-testid="inside-btn"]') as HTMLElement
     expect(inside).toBeTruthy()
     await act(() => {
       inside.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
@@ -152,6 +155,7 @@ describe('useOutsideDismiss', () => {
       render(null, container)
     })
     container.remove()
+    container = undefined
 
     // Events on document after unmount must not reach the hook.
     await act(() => {
@@ -288,7 +292,7 @@ describe('useOutsideDismiss', () => {
         mount(<PopoverWithTrigger onDismiss={onDismiss} includeTrigger={true} />)
       })
 
-      const trigger = container.querySelector('[data-testid="trigger"]') as HTMLButtonElement
+      const trigger = container!.querySelector('[data-testid="trigger"]') as HTMLButtonElement
       await act(() => {
         trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
       })
@@ -305,7 +309,7 @@ describe('useOutsideDismiss', () => {
         mount(<PopoverWithTrigger onDismiss={onDismiss} includeTrigger={false} />)
       })
 
-      const trigger = container.querySelector('[data-testid="trigger"]') as HTMLButtonElement
+      const trigger = container!.querySelector('[data-testid="trigger"]') as HTMLButtonElement
       await act(() => {
         trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
       })
