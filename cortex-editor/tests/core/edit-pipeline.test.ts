@@ -1920,11 +1920,17 @@ describe('EditPipeline', () => {
       vi.advanceTimersByTime(400)
       await vi.runAllTimersAsync()
 
-      const failedStatus = channel.sent.find(
-        m => m.type === 'edit_status' && (m as { status: string }).status === 'failed',
+      // Regression: tryInlineStyleWrite previously left handled=false in the
+      // writeFile catch, causing the caller to fall through and emit a SECOND
+      // terminal status (e.g., "Tailwind class rewrite failed"). Assert exactly
+      // ONE failed status is emitted for this edit.
+      const failedStatuses = channel.sent.filter(
+        m => m.type === 'edit_status'
+          && (m as { editId: string }).editId === 'edit-1'
+          && (m as { status: string }).status === 'failed',
       )
-      expect(failedStatus).toBeDefined()
-      expect((failedStatus as { reason: string }).reason).toContain('disk full')
+      expect(failedStatuses).toHaveLength(1)
+      expect((failedStatuses[0] as { reason: string }).reason).toContain('disk full')
     })
   })
 

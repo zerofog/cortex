@@ -1392,6 +1392,13 @@ export class EditPipeline {
           reason: `Write failed: ${sanitizeErrorForClient(err)}`,
           reason_code: classifyWriteError(err),
         })
+        // Mark handled so the caller doesn't emit a SECOND terminal status.
+        // `handled` is closed over from the outer function scope — the return
+        // below exits the withFileLock callback, but the outer function still
+        // returns this variable. Without this, callers see handled=false and
+        // fall through to e.g. the no-Tailwind-token terminal, producing two
+        // edit_status events for one edit.
+        handled = true
         return
       }
       if (this.undoStack) {
