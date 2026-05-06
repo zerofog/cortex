@@ -58,6 +58,13 @@ describe('NumericInput', () => {
     expect(container.textContent).toContain('px')
   })
 
+  it('marks wrapper tooltips as start-aligned so wide inputs do not center hints over the full field', () => {
+    setup({ tooltip: 'Width' })
+    const wrapper = container.querySelector('.cortex-numeric-input') as HTMLElement
+    expect(wrapper.getAttribute('data-tooltip')).toBe('Width')
+    expect(wrapper.getAttribute('data-tooltip-placement')).toBe('top-start')
+  })
+
   it('arrow up increments by 1', () => {
     const { onChange, input } = setup()
     dispatchKeyboardEvent(input, 'keydown', { key: 'ArrowUp' })

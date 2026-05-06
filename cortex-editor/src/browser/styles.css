@@ -177,56 +177,29 @@
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
-/* ── Tooltip (CSS-only, animated) ──────────── */
+/* ── Tooltip layer ─────────────────────────── */
 
-[data-tooltip] {
-  position: relative;
-}
-
-[data-tooltip]::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%) translateY(4px);
+.cortex-tooltip {
+  z-index: 10000;
+  max-width: 220px;
   padding: var(--cx-sp-2) var(--cx-sp-4);
   background: var(--cx-tooltip-bg);
   color: var(--cx-paper);
-  font-size: var(--cx-text-sm);
+  font-family: var(--cx-mono);
+  font-size: 10px;
   font-weight: var(--cx-weight-label);
   line-height: 1.3;
   white-space: nowrap;
-  max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
   border-radius: var(--cx-radius-sm);
   pointer-events: none;
-  z-index: 11;
-  opacity: 0;
-  transition: opacity 150ms ease-out, transform 150ms ease-out;
+  animation: cortex-tooltip-enter 150ms ease-out;
 }
 
-[data-tooltip]:hover::after,
-[data-tooltip]:focus-visible::after {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-}
-
-/* Tooltip below for panel header (avoids overflow:hidden clipping) */
-.cortex-panel-header [data-tooltip]::after {
-  bottom: auto;
-  top: calc(100% + 6px);
-  transform: translateX(-50%) translateY(-4px);
-}
-
-.cortex-panel-header [data-tooltip]:hover::after,
-.cortex-panel-header [data-tooltip]:focus-visible::after {
-  transform: translateX(-50%) translateY(0);
-}
-
-/* Hide tooltip on disabled buttons */
-[data-tooltip]:disabled::after {
-  display: none;
+@keyframes cortex-tooltip-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .cortex-hover-overlay {
@@ -2793,19 +2766,6 @@
   height: 24px;
   background: var(--cx-rule);
   flex-shrink: 0;
-}
-
-/* Vertical toolbar: tooltips appear to the right */
-.cortex-toolbar--vertical [data-tooltip]::after {
-  bottom: auto;
-  left: calc(100% + 6px);
-  top: 50%;
-  transform: translateY(-50%) translateX(-4px);
-}
-
-.cortex-toolbar--vertical [data-tooltip]:hover::after,
-.cortex-toolbar--vertical [data-tooltip]:focus-visible::after {
-  transform: translateY(-50%) translateX(0);
 }
 
 /* ── Comment Input ───────────────────────────── */

@@ -76,6 +76,7 @@ export function Toolbar({
     isHorizontal ? 'cortex-toolbar--horizontal' : 'cortex-toolbar--vertical',
     isSnapping && 'cortex-toolbar--snapping',
   ].filter(Boolean).join(' ')
+  const tooltipPlacement = isHorizontal ? undefined : 'right'
 
   return (
     <div
@@ -99,6 +100,7 @@ export function Toolbar({
           onClick={onActivityToggle}
           aria-label={`${activityCount} ${activityCount === 1 ? 'change' : 'changes'}`}
           data-tooltip={`${activityCount} ${activityCount === 1 ? 'change' : 'changes'}`}
+          data-tooltip-placement={tooltipPlacement}
         >
           {activityCount}
         </button>
@@ -114,6 +116,7 @@ export function Toolbar({
           aria-label="Select mode"
           data-mode="select"
           data-tooltip={`Select (${formatShortcut('v')})`}
+          data-tooltip-placement={tooltipPlacement}
           onClick={commentMode ? onCommentMode : undefined}
         >
           <IconSelect />
@@ -126,6 +129,7 @@ export function Toolbar({
           aria-label="Comment mode"
           data-mode="comment"
           data-tooltip={`Comment (${formatShortcut('c')})`}
+          data-tooltip-placement={tooltipPlacement}
           onClick={!commentMode ? onCommentMode : undefined}
         >
           <IconComment />
@@ -141,6 +145,7 @@ export function Toolbar({
         onClick={onClose}
         aria-label="Close Cortex"
         data-tooltip="Close Cortex"
+        data-tooltip-placement={tooltipPlacement}
       >
         <IconClose />
       </button>

@@ -303,6 +303,7 @@ export function NumericInput({
       ].filter(Boolean).join(' ')}
       onPointerDown={disabled ? undefined : handleScrubDown}
       data-tooltip={effectiveTooltip}
+      data-tooltip-placement={effectiveTooltip ? 'top-start' : undefined}
       aria-disabled={disabled ? 'true' : undefined}
     >
       {prefix !== undefined
