@@ -243,7 +243,7 @@ describe('useOutsideDismiss', () => {
       await act(() => {
         sibling.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
       })
-      expect(onDismiss).toHaveBeenCalled()
+      expect(onDismiss).toHaveBeenCalledTimes(1)
     } finally {
       await act(() => {
         render(null, shadowContainer)
