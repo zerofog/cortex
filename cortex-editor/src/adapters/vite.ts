@@ -397,7 +397,27 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
       }
       // Returns Promise<{results}> — handleRPC's caller awaits via Promise.resolve.
       return applyEditsCore(currentSession!.stagedEdits, intentIds, currentSession!.pipeline)
-        .then(results => ({ results }))
+        .then(results => {
+          // Browser-buffer sync: send `staged-edits-discard` for any intent
+          // that was deterministically applied. Without this, the browser's
+          // localStorage staging buffer still holds the intent; on next sync
+          // it would re-add to the server cache, undoing the AC3 cache.remove.
+          // Mirrors the discardEdits MCP tool's notification pattern (best-
+          // effort; transient channel-closed errors swallowed). Codex caught
+          // this in Step 4 cross-task review.
+          const appliedIds = results.filter((r) => r.status === 'applied').map((r) => r.intentId)
+          if (appliedIds.length > 0 && currentSession!.channel) {
+            try {
+              currentSession!.channel.send({ type: 'staged-edits-discard', intentIds: appliedIds })
+            } catch (err) {
+              console.warn(
+                '[cortex] Failed to send staged-edits-discard for applied intents:',
+                err instanceof Error ? err.message : String(err),
+              )
+            }
+          }
+          return { results }
+        })
     }
 
     case 'discardEdits': {

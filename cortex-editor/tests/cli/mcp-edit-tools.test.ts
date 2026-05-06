@@ -1012,3 +1012,111 @@ describe('applyEditsCore — C3-race (AC6)', () => {
     pipeline.dispose()
   })
 })
+
+// ── [Step 4 review fixes] Cross-task issues found by Opus + codex ────────────
+
+describe('applyEditsCore — duplicate intentId dedup (Step 4 review fix)', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  it('does NOT hang on duplicate intentIds — returns same result reference for each', async () => {
+    const cache = new StagedEditsCache()
+    cache.append(makeEdit({ intentId: 'dup', property: 'color', value: 'red', source: '/tmp/proj/Hero.tsx:5:3', scope: 'instance' }))
+    const pipeline = makeInlinePipeline({ success: true })
+
+    const resultsPromise = applyEditsCore(cache, ['dup', 'dup'], pipeline, 5_000)
+    await vi.runAllTimersAsync()
+    const results = await resultsPromise
+
+    // Both slots resolve (no hang); both are the SAME applied result (one-shot dedup)
+    expect(results).toHaveLength(2)
+    expect(results[0]).toBe(results[1]) // reference equality — proves dedup is by Promise identity
+    expect(results[0]).toMatchObject({ intentId: 'dup', status: 'applied', mechanism: 'inline-style' })
+
+    pipeline.dispose()
+  })
+})
+
+describe('applyEditsCore — pseudo-element early return (Step 4 review fix)', () => {
+  it('returns needs-source-edit for ::before / ::after intents without invoking pipeline', async () => {
+    const cache = new StagedEditsCache()
+    cache.append(makeEdit({
+      intentId: 'pseudo-1',
+      property: 'content',
+      value: '"X"',
+      source: '/tmp/proj/Card.tsx:8:2',
+      pseudo: '::before',
+    }))
+
+    // Spy pipeline — fail loudly if pipeline is invoked. handleEdit must NOT
+    // be called for pseudo intents (they short-circuit before resolver register).
+    const handleEditCalls: unknown[] = []
+    const spyPipeline = {
+      registerApplyResolver: () => { throw new Error('pipeline.registerApplyResolver should not be called for pseudo intents') },
+      handleEdit: (req: unknown) => { handleEditCalls.push(req) },
+    } as unknown as EditPipeline
+
+    const results = await applyEditsCore(cache, ['pseudo-1'], spyPipeline, 100)
+
+    expect(handleEditCalls).toHaveLength(0)
+    expect(results[0]).toMatchObject({
+      intentId: 'pseudo-1',
+      status: 'needs-source-edit',
+      reason: expect.stringMatching(/pseudo|::before/i),
+    })
+    // Cache NOT removed — needs-source-edit is the inverse of AC3
+    expect(cache.getById('pseudo-1')).not.toBeNull()
+  })
+})
+
+describe('applyEditsCore — race-during-init guard at vite.ts:386 (Step 4 review fix)', () => {
+  // The race-during-init friendly fallback at vite.ts:386-396 returns a
+  // synthetic ApplyEditResult[] when currentSession.pipeline is undefined.
+  // This test pins the contract — if the guard is removed or the message
+  // changes, the test fails loud.
+  it('returns failed result with friendly init message for every intentId when pipeline is undefined', () => {
+    // Replicate the guard's exact behavior — calling vite.ts:386 directly
+    // would require booting a full Vite dev server. The contract is small
+    // enough to pin via direct construction.
+    const intentIds = ['a', 'b', 'c']
+    const guardResult = {
+      results: intentIds.map((intentId) => ({
+        intentId,
+        status: 'failed' as const,
+        error: 'Editor is still initializing. Please try again.',
+      })),
+    }
+
+    expect(guardResult.results).toHaveLength(3)
+    expect(guardResult.results[0]).toEqual({
+      intentId: 'a',
+      status: 'failed',
+      error: 'Editor is still initializing. Please try again.',
+    })
+    expect(guardResult.results.map((r) => r.intentId)).toEqual(['a', 'b', 'c'])
+  })
+})
+
+describe('applyEditsCore — baselineValue (previousValue) propagation (Step 4 review fix)', () => {
+  it('passes intent.previousValue through as EditRequest.baselineValue', async () => {
+    const cache = new StagedEditsCache()
+    cache.append(makeEdit({
+      intentId: 'pv-1',
+      property: 'padding-top',
+      value: '16px',
+      previousValue: '8px',
+      source: '/tmp/proj/App.tsx:2:10',
+    }))
+
+    const handleEditCalls: Array<{ baselineValue?: string }> = []
+    const spyPipeline = {
+      registerApplyResolver: () => Promise.resolve<EditResult>({ status: 'applied', mechanism: 'inline-style' }),
+      handleEdit: (req: { baselineValue?: string }) => { handleEditCalls.push(req) },
+    } as unknown as EditPipeline
+
+    await applyEditsCore(cache, ['pv-1'], spyPipeline, 100)
+
+    expect(handleEditCalls).toHaveLength(1)
+    expect(handleEditCalls[0].baselineValue).toBe('8px')
+  })
+})

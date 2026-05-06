@@ -47,7 +47,12 @@ export const cortexRespondInputSchema = z.object({
 
 /** cortex_apply_edits input */
 export const cortexApplyEditsInputSchema = z.object({
-  intentIds: z.array(intentIdField).describe('IDs of intents to apply'),
+  intentIds: z
+    .array(intentIdField)
+    .refine((arr) => new Set(arr).size === arr.length, {
+      message: 'duplicate intentIds in single apply request',
+    })
+    .describe('IDs of intents to apply'),
 })
 
 /** cortex_discard_edits input */

@@ -213,6 +213,14 @@ export interface EditRequest {
   /** Inline property REMOVES applied as part of a compound
    *  edit. Only honored when `classOp` is also present. */
   inlineRemoves?: ReadonlyArray<{ property: string }>
+  /** Optional baseline value used as a fallback when `lastValues` (the
+   *  debounce-time per-key cache) has nothing for this edit's debounce key.
+   *  Set by MCP `cortex_apply_edits` callers — they have the `previousValue`
+   *  on PendingEdit but bypass the debounce path that normally seeds
+   *  `lastValues`. Without this, the Tailwind path's old-token resolution
+   *  (which relies on `previousValue` when `currentClass` is absent) fails
+   *  silently and the intent times out. */
+  baselineValue?: string
 }
 
 export interface WriteIntent {
@@ -484,7 +492,12 @@ export class EditPipeline {
     const existing = this.debounceTimers.get(debounceKey)
     if (existing) clearTimeout(existing)
 
-    const previousValue = this.lastValues.get(debounceKey)
+    // baselineValue (set by MCP cortex_apply_edits — see EditRequest doc) is
+    // the fallback when lastValues has no entry for this key. Browser-channel
+    // path: lastValues populated by prior scrub edits → previousValue from
+    // cache. MCP path: bypasses debounce → lastValues empty → baselineValue
+    // from PendingEdit.previousValue.
+    const previousValue = this.lastValues.get(debounceKey) ?? edit.baselineValue
     this.lastValues.set(debounceKey, edit.value)
     this.debounceTimers.set(
       debounceKey,
@@ -1723,6 +1736,22 @@ export class EditPipeline {
         ...(reason ? { reason } : {}),
         ...(reason_code ? { reason_code } : {}),
       })
+      // MCP path bridge: if a resolver is registered for this editId (from
+      // cortex_apply_edits), resolve it as 'needs-source-edit'. Deferred path
+      // means the legacy AI writer queue picked the intent up — from MCP's
+      // perspective this is functionally equivalent to "use the Edit tool"
+      // because the apply did not happen via cortex's deterministic rewriters.
+      // Without this, the resolver would hang until the 10s timeout.
+      const pending = this.pendingResolvers.get(editId)
+      if (pending) {
+        clearTimeout(pending.timer)
+        this.pendingResolvers.delete(editId)
+        if (status === 'done') {
+          pending.resolve({ status: 'needs-source-edit', reason: 'Deferred to AI writer queue' })
+        } else {
+          pending.resolve({ status: 'failed', reason: reason ?? `deferred ${status}`, reason_code })
+        }
+      }
     }
   }
 

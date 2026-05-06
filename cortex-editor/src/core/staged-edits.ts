@@ -194,49 +194,92 @@ export async function applyEditsCore(
   pipeline: EditPipeline,
   timeoutMs = 10_000,
 ): Promise<ApplyEditResult[]> {
+  // Defensive dedup: the MCP input schema (mcp-tool-inputs.ts:49) refuses
+  // duplicates at the trust boundary, but tests and other callers reach
+  // applyEditsCore directly. Two intentIds with the same value would generate
+  // identical synthetic editIds (`apply-${intentId}`) and overwrite each
+  // other's pendingResolvers entry, orphaning the first timer + Promise.
+  // Track the seen set; for each duplicate, return the SAME result reference
+  // so input order + length are preserved.
+  const seen = new Map<string, Promise<ApplyEditResult>>()
+
   return Promise.all(
-    intentIds.map(async (intentId) => {
-      const intent = cache.getById(intentId)
-      if (!intent) {
-        return { intentId, status: 'failed' as const, error: 'intent not found' }
-      }
-
-      // Synthetic editId — unique prefix avoids clash with browser-generated editIds.
-      const editId = `apply-${intentId}`
-      const resultPromise = pipeline.registerApplyResolver(editId, timeoutMs)
-
-      // Convert PendingEdit -> EditRequest. PendingEdit lacks elementSelector;
-      // pass '' for paths that don't need it. Paths that DO need it (some
-      // CSS-Modules / inline-style cases) will gracefully fall back to
-      // 'failed' / 'needs-source-edit' via the EditResult enum.
-      pipeline.handleEdit({
-        editId,
-        source: intent.source,
-        property: intent.property,
-        value: intent.value,
-        elementSelector: '',
-        scope: intent.scope,
-        instanceSources: intent.instanceSources,
-      })
-
-      const result = await resultPromise
-
-      if (result.status === 'applied') {
-        cache.remove([intentId]) // AC3 — remove from buffer on deterministic apply
-        return { intentId, status: 'applied' as const, mechanism: result.mechanism }
-      }
-      if (result.status === 'needs-source-edit') {
-        return {
-          intentId,
-          status: 'needs-source-edit' as const,
-          intent,
-          reason: result.reason ?? 'Apply via source edit: use the Edit tool on the file at intent.source to set the property to intent.value',
-        }
-      }
-      // result.status === 'failed' — including timeouts (reason_code: 'apply_timeout')
-      return { intentId, status: 'failed' as const, error: result.reason }
+    intentIds.map((intentId) => {
+      const cached = seen.get(intentId)
+      if (cached) return cached
+      const fresh = applyOne(cache, intentId, pipeline, timeoutMs)
+      seen.set(intentId, fresh)
+      return fresh
     }),
   )
+}
+
+/** Per-intent apply. Extracted from applyEditsCore so the dedup-by-id loop in
+ *  applyEditsCore can cache the Promise without smearing the body. */
+async function applyOne(
+  cache: {
+    getById(id: string): PendingEdit | null
+    remove(intentIds: readonly string[]): void
+  },
+  intentId: string,
+  pipeline: EditPipeline,
+  timeoutMs: number,
+): Promise<ApplyEditResult> {
+  const intent = cache.getById(intentId)
+  if (!intent) {
+    return { intentId, status: 'failed' as const, error: 'intent not found' }
+  }
+
+  // Pseudo-element intents (::before / ::after) are not supported by the
+  // EditRequest shape — there's no `pseudo` field on it, so the pipeline
+  // would silently target the base element. Return needs-source-edit so
+  // Claude can write the pseudo selector via Edit tool. (Codex caught this
+  // in Step 4 review.)
+  if (intent.pseudo) {
+    return {
+      intentId,
+      status: 'needs-source-edit' as const,
+      intent,
+      reason: `Pseudo-element edits (${intent.pseudo}) require source rewrite — use the Edit tool on the file at intent.source.`,
+    }
+  }
+
+  // Synthetic editId — unique prefix avoids clash with browser-generated editIds.
+  const editId = `apply-${intentId}`
+  const resultPromise = pipeline.registerApplyResolver(editId, timeoutMs)
+
+  // Convert PendingEdit -> EditRequest. PendingEdit lacks elementSelector;
+  // pass '' for paths that don't need it. baselineValue carries previousValue
+  // through to the Tailwind path's old-token resolution (see edit-pipeline.ts
+  // executeEdit). Without this, Tailwind apply fails silently when the
+  // debounce-time lastValues cache is empty (always the case for MCP path).
+  pipeline.handleEdit({
+    editId,
+    source: intent.source,
+    property: intent.property,
+    value: intent.value,
+    elementSelector: '',
+    scope: intent.scope,
+    instanceSources: intent.instanceSources,
+    baselineValue: intent.previousValue,
+  })
+
+  const result = await resultPromise
+
+  if (result.status === 'applied') {
+    cache.remove([intentId]) // AC3 — remove from buffer on deterministic apply
+    return { intentId, status: 'applied' as const, mechanism: result.mechanism }
+  }
+  if (result.status === 'needs-source-edit') {
+    return {
+      intentId,
+      status: 'needs-source-edit' as const,
+      intent,
+      reason: result.reason ?? 'Apply via source edit: use the Edit tool on the file at intent.source to set the property to intent.value',
+    }
+  }
+  // result.status === 'failed' — including timeouts (reason_code: 'apply_timeout')
+  return { intentId, status: 'failed' as const, error: result.reason }
 }
 
 // ---------------------------------------------------------------------------
