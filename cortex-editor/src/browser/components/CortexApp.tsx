@@ -16,6 +16,7 @@ import { detectStates } from '../state-detector.js'
 import type { StateDeclarations, InteractionState } from '../state-detector.js'
 import { HoverOverlay } from './HoverOverlay.js'
 import { SelectionOverlay } from './SelectionOverlay.js'
+import { SecondarySelectionOverlay } from './SecondarySelectionOverlay.js'
 import { Panel } from './Panel.js'
 import { Toolbar } from './Toolbar.js'
 import { CommentPin } from './CommentPin.js'
@@ -1043,6 +1044,17 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         overlaysVisible={hoverEnabled}
         hmrAppliedVersion={hmrAppliedVersion}
       />
+      {/* ZF0-1195: render an outline for each non-primary selected element so
+          the user can see the full multi-selection. Primary already gets the
+          full overlay above (with label + state lens). */}
+      {selectedElements.slice(1).map((el, idx) => (
+        <SecondarySelectionOverlay
+          key={idx}
+          element={el}
+          overlaysVisible={hoverEnabled}
+          hmrAppliedVersion={hmrAppliedVersion}
+        />
+      ))}
       {overrideRef.current && (
         <Panel
           selectedElements={selectedElements}
