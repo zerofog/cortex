@@ -328,6 +328,7 @@ export function FlexControls({
           options={DIRECTION_OPTIONS}
           value={flexDirection}
           onChange={handleDirection}
+          mixed={mixedProperties?.has('flex-direction')}
         />
       </div>
 
@@ -427,6 +428,7 @@ export function FlexControls({
             options={WRAP_OPTIONS}
             value={flexWrap}
             onChange={handleWrap}
+            mixed={mixedProperties?.has('flex-wrap')}
           />
         </div>
       </ExpandableOptions>

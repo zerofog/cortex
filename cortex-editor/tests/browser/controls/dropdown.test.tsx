@@ -69,6 +69,13 @@ describe('Dropdown', () => {
     expect(getTrigger().textContent).toContain('Select font...')
   })
 
+  it('renders Mixed state instead of the selected value', () => {
+    setup({ value: 'Inter', mixed: true })
+    expect(getTrigger().textContent).toContain('Mixed')
+    expect(getTrigger().textContent).not.toContain('Inter')
+    expect(container.querySelector('.cortex-dropdown')?.className).toContain('cortex-dropdown--mixed')
+  })
+
   it('popover is hidden by default', () => {
     setup()
     const popover = getPopover()
@@ -178,6 +185,15 @@ describe('Dropdown', () => {
     const selected = container.querySelector('.cortex-dropdown__option--selected')
     expect(selected).not.toBeNull()
     expect(selected!.textContent).toContain('Roboto')
+  })
+
+  it('does not mark an option as selected while mixed', async () => {
+    setup({ value: 'Inter', mixed: true })
+    getTrigger().click()
+    await vi.waitFor(() => {
+      expect(getOptions().length).toBe(4)
+    }, { timeout: 500 })
+    expect(container.querySelector('.cortex-dropdown__option--selected')).toBeNull()
   })
 
   it('arrow keys navigate options', async () => {

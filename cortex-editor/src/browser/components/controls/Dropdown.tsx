@@ -5,6 +5,7 @@ import { computePosition, flip, shift } from '@floating-ui/dom'
 export interface DropdownOption {
   value: string
   label: string
+  tooltip?: string
 }
 
 export interface DropdownProps {
@@ -12,6 +13,7 @@ export interface DropdownProps {
   value: string
   onChange: (value: string) => void
   placeholder?: string
+  mixed?: boolean
 }
 
 export function Dropdown({
@@ -19,6 +21,7 @@ export function Dropdown({
   value,
   onChange,
   placeholder = 'Select...',
+  mixed,
 }: DropdownProps): JSX.Element {
   const [isOpen, setIsOpen] = useState(false)
   const [filter, setFilter] = useState('')
@@ -27,7 +30,10 @@ export function Dropdown({
   const popoverRef = useRef<HTMLDivElement>(null)
   const filterRef = useRef<HTMLInputElement>(null)
 
-  const selectedLabel = options.find((o) => o.value === value)?.label ?? ''
+  const selected = options.find((o) => o.value === value)
+  const selectedLabel = selected?.label ?? ''
+  const displayLabel = mixed ? 'Mixed' : selectedLabel || placeholder
+  const selectedTooltip = mixed ? 'Mixed values' : selected?.tooltip
 
   const filtered = useMemo(() => {
     if (!filter) return options
@@ -118,7 +124,7 @@ export function Dropdown({
   )
 
   return (
-    <div class="cortex-dropdown">
+    <div class={`cortex-dropdown${mixed ? ' cortex-dropdown--mixed' : ''}`}>
       <button
         ref={triggerRef}
         class="cortex-dropdown__trigger"
@@ -126,10 +132,11 @@ export function Dropdown({
         role="combobox"
         aria-expanded={isOpen ? 'true' : 'false'}
         aria-haspopup="listbox"
+        data-tooltip={selectedTooltip}
         onClick={isOpen ? close : open}
       >
         <span class="cortex-dropdown__value">
-          {selectedLabel || placeholder}
+          {displayLabel}
         </span>
         <span class={`cortex-dropdown__chevron${isOpen ? ' cortex-dropdown__chevron--open' : ''}`}>
           &#9662;
@@ -167,12 +174,13 @@ export function Dropdown({
                     class={[
                       'cortex-dropdown__option',
                       i === highlightIdx && 'cortex-dropdown__option--active',
-                      opt.value === value && 'cortex-dropdown__option--selected',
+                      !mixed && opt.value === value && 'cortex-dropdown__option--selected',
                     ]
                       .filter(Boolean)
                       .join(' ')}
                     role="option"
-                    aria-selected={opt.value === value ? 'true' : 'false'}
+                    aria-selected={!mixed && opt.value === value ? 'true' : 'false'}
+                    data-tooltip={opt.tooltip}
                     onClick={() => select(opt.value)}
                   >
                     {opt.label}

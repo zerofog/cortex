@@ -37,7 +37,7 @@ export interface NumericInputProps {
    * Uses the same --cx-warning token as the StagingDriftBanner accent.
    */
   stale?: boolean
-  /** When true, shows '--' placeholder indicating shared elements have different values. */
+  /** When true, shows a Mixed placeholder indicating shared elements have different values. */
   mixed?: boolean
   /**
    * Opt this input into a token family popover. When set to 'spacing', a
@@ -86,6 +86,7 @@ export function NumericInput({
   const [localValue, setLocalValue] = useState(String(value))
   const [isEditing, setIsEditing] = useState(false)
   const [isScrubbing, setIsScrubbing] = useState(false)
+  const [scrubBadge, setScrubBadge] = useState<{ value: number; x: number } | null>(null)
   const [popoverOpen, setPopoverOpen] = useState(false)
   const hostRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -162,7 +163,7 @@ export function NumericInput({
     setPopoverOpen(false)
     const parsed = parseFloat(localValueRef.current)
     if (isNaN(parsed)) {
-      // In mixed state, revert to empty (shows '--' placeholder) instead of
+      // In mixed state, revert to empty (shows the Mixed placeholder) instead of
       // revealing the selected element's value for a single frame.
       const reverted = mixed ? '' : String(value)
       localValueRef.current = reverted
@@ -208,7 +209,9 @@ export function NumericInput({
     try { target.setPointerCapture(e.pointerId) } catch {}
 
     setIsScrubbing(true)
+    setScrubBadge(null)
     let hasMoved = false
+    const targetLeft = target.getBoundingClientRect().left
 
     const handleMove = (me: PointerEvent) => {
       const delta = me.clientX - scrubStartX.current
@@ -217,12 +220,14 @@ export function NumericInput({
       const next = clampValue(roundTenth(scrubStartValue.current + delta))
       localValueRef.current = String(next)
       setLocalValue(String(next))
+      setScrubBadge({ value: next, x: Math.max(0, me.clientX - targetLeft) })
       onScrub?.(next)
     }
 
     const cleanup = () => {
       scrubCleanupRef.current = null
       setIsScrubbing(false)
+      setScrubBadge(null)
       target.removeEventListener('pointermove', handleMove)
       target.removeEventListener('pointerup', handleUp)
       target.removeEventListener('pointercancel', handleCancel)
@@ -324,7 +329,7 @@ export function NumericInput({
         size={4}
         aria-label={effectiveTooltip ?? label ?? (typeof prefix === 'string' ? prefix : undefined)}
         value={mixed && !isEditing ? '' : localValue}
-        placeholder={mixed ? '--' : undefined}
+        placeholder={mixed ? 'Mixed' : undefined}
         disabled={disabled}
         tabIndex={disabled ? -1 : undefined}
         onInput={handleInput}
@@ -334,6 +339,15 @@ export function NumericInput({
         onWheel={handleWheel}
       />
       {unit && <span class="cortex-numeric-input__unit">{unit}</span>}
+      {scrubBadge && (
+        <span
+          class="cortex-numeric-input__scrub-badge"
+          style={{ left: `${scrubBadge.x}px` }}
+          aria-hidden="true"
+        >
+          {scrubBadge.value}{unit ?? ''}
+        </span>
+      )}
       {popoverOpen && (
         <TokenPresetPopover
           anchorRef={hostRef}

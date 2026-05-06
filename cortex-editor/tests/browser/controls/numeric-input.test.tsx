@@ -153,6 +153,7 @@ describe('NumericInput', () => {
     await vi.waitFor(() => {
       expect(input.value).toBe('36')
       expect(onScrub).toHaveBeenCalledWith(36)
+      expect(wrapper.querySelector('.cortex-numeric-input__scrub-badge')?.textContent).toBe('36px')
     }, { timeout: 500 })
 
     // Release
@@ -240,10 +241,10 @@ describe('NumericInput', () => {
   })
 
   describe('mixed state', () => {
-    it('shows placeholder "--" when mixed and not editing', () => {
+    it('shows a Mixed placeholder when mixed and not editing', () => {
       const { input } = setup({ mixed: true })
       expect(input.value).toBe('')
-      expect(input.placeholder).toBe('--')
+      expect(input.placeholder).toBe('Mixed')
     })
 
     it('does not auto-fill selected element value on click', async () => {

@@ -225,7 +225,7 @@ describe('BorderSection', () => {
     const numericInput = widthRow.querySelector('.cortex-numeric-input')!
     expect(numericInput.classList.contains('cortex-numeric-input--mixed')).toBe(true)
     const input = widthRow.querySelector('input') as HTMLInputElement
-    expect(input.placeholder).toBe('--')
+    expect(input.placeholder).toBe('Mixed')
   })
 
   it('uniform width does NOT show indeterminate when all sides match', () => {

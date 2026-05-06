@@ -172,6 +172,7 @@ export function LayoutSection({
           options={DISPLAY_OPTIONS}
           value={values.display}
           onChange={handleDisplayChange}
+          mixed={mixedProperties?.has('display')}
         />
       </div>
 

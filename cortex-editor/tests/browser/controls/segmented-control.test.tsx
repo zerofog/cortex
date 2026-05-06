@@ -51,6 +51,15 @@ describe('SegmentedControl', () => {
     expect(buttons[1].getAttribute('aria-checked')).toBe('true')
   })
 
+  it('renders Mixed state without marking an active option', () => {
+    setup({ value: 'flex', mixed: true })
+    const group = container.querySelector('[role="radiogroup"]')!
+    const buttons = container.querySelectorAll('[role="radio"]')
+    expect(group.textContent).toContain('Mixed')
+    expect(group.className).toContain('cortex-segmented--mixed')
+    expect([...buttons].every((button) => button.getAttribute('aria-checked') === 'false')).toBe(true)
+  })
+
   it('calls onChange on click', () => {
     const { onChange } = setup()
     const buttons = container.querySelectorAll('[role="radio"]')

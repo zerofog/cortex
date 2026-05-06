@@ -13,6 +13,7 @@ export interface SegmentedControlProps {
   value: string
   onChange: (value: string) => void
   size?: 'sm' | 'md'
+  mixed?: boolean
 }
 
 export function SegmentedControl({
@@ -20,6 +21,7 @@ export function SegmentedControl({
   value,
   onChange,
   size = 'md',
+  mixed,
 }: SegmentedControlProps): JSX.Element {
   const trackRef = useRef<HTMLDivElement>(null)
   const indicatorRef = useRef<HTMLDivElement>(null)
@@ -28,6 +30,12 @@ export function SegmentedControl({
     const track = trackRef.current
     const indicator = indicatorRef.current
     if (!track || !indicator) return
+
+    if (mixed) {
+      indicator.style.width = '0'
+      indicator.style.opacity = '0'
+      return
+    }
 
     const activeBtn = track.querySelector(`[data-value="${CSS.escape(value)}"]`) as HTMLElement | null
     if (activeBtn) {
@@ -39,13 +47,13 @@ export function SegmentedControl({
       indicator.style.width = '0'
       indicator.style.opacity = '0'
     }
-  }, [value])
+  }, [value, mixed])
 
   const handleClick = useCallback(
     (optValue: string) => {
-      if (optValue !== value) onChange(optValue)
+      if (mixed || optValue !== value) onChange(optValue)
     },
-    [value, onChange],
+    [mixed, value, onChange],
   )
 
   const handleKeyDown = useCallback(
@@ -67,17 +75,19 @@ export function SegmentedControl({
   )
 
   const sizeClass = size === 'sm' ? ' cortex-segmented--sm' : ''
+  const mixedClass = mixed ? ' cortex-segmented--mixed' : ''
 
   return (
     <div
       ref={trackRef}
-      class={`cortex-segmented${sizeClass}`}
+      class={`cortex-segmented${sizeClass}${mixedClass}`}
       role="radiogroup"
       onKeyDown={handleKeyDown}
     >
       <div ref={indicatorRef} class="cortex-segmented__indicator" />
+      {mixed && <span class="cortex-segmented__mixed-label">Mixed</span>}
       {options.map((opt) => {
-        const isActive = opt.value === value
+        const isActive = !mixed && opt.value === value
         return (
           <button
             key={opt.value}
@@ -85,7 +95,7 @@ export function SegmentedControl({
             type="button"
             role="radio"
             aria-checked={isActive ? 'true' : 'false'}
-            tabindex={isActive ? 0 : -1}
+            tabindex={opt.value === value ? 0 : -1}
             aria-label={opt.label ? undefined : opt.title}
             data-tooltip={opt.title}
             data-value={opt.value}

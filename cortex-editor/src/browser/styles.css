@@ -955,6 +955,7 @@
 /* ── Numeric input ───────────────────────────── */
 
 .cortex-numeric-input {
+  position: relative;
   display: flex;
   align-items: center;
   height: 28px;
@@ -991,6 +992,23 @@
   cursor: ew-resize;
   background: var(--cx-well-active);
   box-shadow: var(--cx-well-shadow), 0 0 0 1.5px var(--cx-select-muted);
+}
+
+.cortex-numeric-input__scrub-badge {
+  position: absolute;
+  top: -24px;
+  z-index: 3;
+  transform: translateX(-50%);
+  padding: 2px var(--cx-sp-3);
+  border-radius: var(--cx-radius-sm);
+  background: var(--cx-tooltip-bg);
+  color: var(--cx-paper);
+  font-family: var(--cx-mono);
+  font-size: var(--cx-text-xs);
+  font-weight: var(--cx-weight-value);
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .cortex-numeric-input:focus-within {
@@ -1062,22 +1080,37 @@
   transition: color 150ms ease-out;
 }
 
-/* Mixed indicator — shows '--' placeholder when shared elements have different values */
+/* Mixed indicator — shared elements have different values */
+.cortex-numeric-input--mixed {
+  outline: 1px dashed var(--cx-rule);
+  outline-offset: -1px;
+}
+
 .cortex-numeric-input--mixed .cortex-numeric-input__value::placeholder {
   color: var(--cx-ink-tertiary);
-  font-style: italic;
+  font-family: var(--cx-sans);
+  font-style: normal;
   opacity: 1;
 }
 
 .cortex-color-input--mixed .cortex-color-input__swatch {
   background: repeating-linear-gradient(
-    45deg, var(--cx-well) 0px, var(--cx-well) 4px, var(--cx-rule) 4px, var(--cx-rule) 8px
+    45deg, var(--cx-well) 0px, var(--cx-well) 4px, var(--cx-ink-faint) 4px, var(--cx-ink-faint) 8px
   ) !important;
+  border-color: var(--cx-rule);
 }
 
 .cortex-color-input--mixed .cortex-color-input__hex {
   color: var(--cx-ink-tertiary);
-  font-style: italic;
+  font-family: var(--cx-sans);
+  font-style: normal;
+  outline: 1px dashed var(--cx-rule);
+  outline-offset: -1px;
+}
+
+.cortex-color-input--mixed .cortex-color-input__hex::placeholder {
+  color: var(--cx-ink-tertiary);
+  opacity: 1;
 }
 
 .cortex-color-input--overridden .cortex-color-input__hex {
@@ -1088,6 +1121,16 @@
 .cortex-dropdown--overridden .cortex-dropdown__value {
   color: var(--cx-select-hover);
   transition: color 150ms ease-out;
+}
+
+.cortex-dropdown--mixed .cortex-dropdown__trigger {
+  outline: 1px dashed var(--cx-rule);
+  outline-offset: -1px;
+}
+
+.cortex-dropdown--mixed .cortex-dropdown__value {
+  color: var(--cx-ink-tertiary);
+  font-family: var(--cx-sans);
 }
 
 /* ── Spacing section ─────────────────────────── */
@@ -1462,6 +1505,32 @@
   padding: 0 var(--cx-sp-3);
   min-width: 28px;
   flex: 0;
+}
+
+.cortex-segmented--mixed {
+  outline: 1px dashed var(--cx-rule);
+  outline-offset: -1px;
+}
+
+.cortex-segmented--mixed .cortex-segmented__option,
+.cortex-segmented--mixed .cortex-segmented__option:hover:not(.cortex-segmented__option--active) {
+  color: transparent;
+}
+
+.cortex-segmented__mixed-label {
+  position: absolute;
+  inset: 2px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--cx-radius-sm);
+  background: var(--cx-well);
+  color: var(--cx-ink-tertiary);
+  font-family: var(--cx-sans);
+  font-size: var(--cx-text-sm);
+  font-weight: var(--cx-weight-value);
+  pointer-events: none;
 }
 
 .cortex-segmented__icon {
@@ -2101,10 +2170,10 @@
 }
 
 .cortex-color-input__swatch {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   border-radius: 3px;
-  border: 1px solid var(--cx-rule-soft);
+  border: 1px solid var(--cx-rule);
   flex-shrink: 0;
   cursor: pointer;
   padding: 0;
