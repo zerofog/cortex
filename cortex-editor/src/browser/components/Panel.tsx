@@ -706,28 +706,81 @@ export function Panel({
     // exact shapes. Sharing one array avoids the desync where the buffer entry
     // and the command's view of "what was appended" could drift apart.
     //
-    // Filter to the selected element's source to deduplicate scope='all' sibling entries.
-    const editedProps = changes.filter(c => c.source === source)
-    const instanceSources = sharedInfo && editScope === 'all'
-      ? sharedInfo.elements.map(el => el.getAttribute('data-cortex-source')).filter((s): s is string => s !== null)
-      : undefined
-    const pendingEdits: PendingEdit[] = editedProps.map(c => ({
-      intentId: generateId(),
-      source,
-      property: c.property,
-      value: c.value,
-      previousValue: c.previousValue,
-      // Use the change's own pseudo, not the closure-scoped `activePseudo`.
-      // They're equal today via a useEffect that clears scrubPreviousRef on
-      // pseudo change, but that invariant is action-at-a-distance — local
-      // truth (`c.pseudo`) is always correct.
-      pseudo: c.pseudo,
-      // PendingEdit.scope mirrors the server's CortexEdit.scope contract
-      // ('instance' | 'all'); editScope already uses the same shape.
-      scope: editScope,
-      instanceSources,
-      timestamp: Date.now(),
-    }))
+    // Multi-select: one PendingEdit per (selectedElement, property) pair.
+    // Single-select: one PendingEdit per changed property on the primary element.
+    const isMultiSelect = selectedElements.length > 1
+    const isShared = !!sharedInfo && editScope === 'all'
+
+    let pendingEdits: PendingEdit[]
+    if (isMultiSelect) {
+      // Filter `changes` to entries matching this element's source — mirrors the
+      // single-select branch's `c.source === source` filter (Post-Fix Discipline
+      // rule 3: parallel branches should mirror). The unified fanOutTargets loop
+      // in applyOverride already wrote one scrubPreviousRef entry per
+      // (selectedElement, property) pair, so each elSource has exactly its own
+      // changes — no cross-source matching needed.
+      pendingEdits = []
+      for (const el of selectedElements) {
+        const elSource = el.getAttribute('data-cortex-source')
+        if (!elSource) continue
+        // When scope='all' is also active, each selected element fans out to its
+        // own shared-class siblings — each PendingEdit carries its own instanceSources.
+        let perElementInstanceSources: string[] | undefined
+        if (isShared) {
+          try {
+            const shared = detectSharedClasses(el)
+            perElementInstanceSources = shared
+              ? shared.elements
+                  .map(e => e.getAttribute('data-cortex-source'))
+                  .filter((s): s is string => s !== null)
+              : undefined
+          } catch (err) {
+            console.warn('[cortex] detectSharedClasses threw during multi-select fan-out', err)
+            perElementInstanceSources = undefined
+          }
+        }
+        for (const c of changes) {
+          if (c.source !== elSource) continue // mirrors single-select branch
+          pendingEdits.push({
+            intentId: generateId(),
+            source: elSource,
+            property: c.property,
+            value: c.value,
+            previousValue: c.previousValue,
+            // Use the change's own pseudo, not the closure-scoped `activePseudo`.
+            pseudo: c.pseudo,
+            scope: isShared ? 'all' : 'instance',
+            instanceSources: perElementInstanceSources,
+            timestamp: Date.now(),
+          })
+        }
+      }
+    } else {
+      // Single-select: filter to the primary source, pack optional instanceSources.
+      const editedProps = changes.filter(c => c.source === source)
+      const instanceSources = isShared
+        ? sharedInfo!.elements
+            .map(el => el.getAttribute('data-cortex-source'))
+            .filter((s): s is string => s !== null)
+        : undefined
+      pendingEdits = editedProps.map(c => ({
+        intentId: generateId(),
+        source,
+        property: c.property,
+        value: c.value,
+        previousValue: c.previousValue,
+        // Use the change's own pseudo, not the closure-scoped `activePseudo`.
+        // They're equal today via a useEffect that clears scrubPreviousRef on
+        // pseudo change, but that invariant is action-at-a-distance — local
+        // truth (`c.pseudo`) is always correct.
+        pseudo: c.pseudo,
+        // PendingEdit.scope mirrors the server's CortexEdit.scope contract
+        // ('instance' | 'all'); editScope already uses the same shape.
+        scope: editScope,
+        instanceSources,
+        timestamp: Date.now(),
+      }))
+    }
 
     // Record command on stack. Overrides are already applied during scrub phase,
     // so record() stores without re-executing (avoids double-apply). The command
@@ -765,7 +818,7 @@ export function Panel({
       // doesn't fire — so we re-establish the contract here.
       onDismissError?.(`${edit.source}${SEP}${edit.property}`)
     }
-  }, [element, overrideManager, buffer, sharedInfo, editScope, commandStack, onDismissError])
+  }, [selectedElements, element, overrideManager, buffer, sharedInfo, editScope, commandStack, onDismissError])
 
   // Expose flush for CortexApp to call before undo/redo — microtask commits
   // haven't fired yet when blur+undo runs synchronously in the same tick.
@@ -856,27 +909,30 @@ export function Panel({
       }
     }
 
-    // scope='all': apply CSS override preview to ALL shared elements so
-    // the user sees the effect everywhere, not just on the selected element.
-    if (sharedInfo && editScope === 'all') {
-      for (const el of sharedInfo.elements) {
-        const elSource = el.getAttribute('data-cortex-source')
-        if (elSource) {
-          const elPrevKey = `${elSource}${SEP}${property}${SEP}${pseudo ?? ''}`
-          if (!scrubPreviousRef.current.has(elPrevKey)) {
-            const elExisting = overrideManager.get(elSource, property, pseudo)
-            if (elExisting !== undefined) {
-              scrubPreviousRef.current.set(elPrevKey, elExisting)
-            } else {
-              const computed = getComputedStyle(el, pseudo ?? null).getPropertyValue(property).trim()
-              scrubPreviousRef.current.set(elPrevKey, computed || '')
-            }
-          }
-          overrideManager.set(elSource, property, value, pseudo)
+    // Fan-out targets for this gesture, computed once per applyOverride call.
+    // Multi-select: apply override to ALL selected elements.
+    // scope='all' (single-select): apply to all shared-class siblings.
+    // Single-select + scope='instance': apply to the primary element only.
+    const fanOutTargets: HTMLElement[] = (() => {
+      if (selectedElements.length > 1) return selectedElements
+      if (sharedInfo && editScope === 'all') return sharedInfo.elements
+      return element ? [element] : []
+    })()
+
+    for (const el of fanOutTargets) {
+      const elSource = el.getAttribute('data-cortex-source')
+      if (!elSource) continue
+      const elPrevKey = `${elSource}${SEP}${property}${SEP}${pseudo ?? ''}`
+      if (!scrubPreviousRef.current.has(elPrevKey)) {
+        const elExisting = overrideManager.get(elSource, property, pseudo)
+        if (elExisting !== undefined) {
+          scrubPreviousRef.current.set(elPrevKey, elExisting)
+        } else {
+          const computed = getComputedStyle(el, pseudo ?? null).getPropertyValue(property).trim()
+          scrubPreviousRef.current.set(elPrevKey, computed || '')
         }
       }
-    } else {
-      overrideManager.set(source, property, value, pseudo)
+      overrideManager.set(elSource, property, value, pseudo)
     }
 
     if (commitRender) {
@@ -891,7 +947,7 @@ export function Panel({
         })
       }
     }
-  }, [element, overrideManager, activePseudo, sharedInfo, editScope, commitScrub])
+  }, [selectedElements, element, overrideManager, activePseudo, sharedInfo, editScope, commitScrub])
 
   const handleCommit = useCallback((c: SectionChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleScrub = useCallback((c: SectionChange) => applyOverride(c.property, c.value, false), [applyOverride])
