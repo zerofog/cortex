@@ -8,6 +8,7 @@ import { CommandStack } from '../command-stack.js'
 import { initSelection } from '../selection.js'
 import type { SelectionHandle } from '../selection.js'
 import { cortexAppReducer, initialCortexAppReducerState, applySelectionUpdate } from '../cortex-app-reducer.js'
+import { expandSharedSource } from '../selection-source-expand.js'
 import type { CortexAppReducerState, CortexAppAction, CortexAppEffect, EditDispatchEntry } from '../cortex-app-reducer.js'
 // @ts-ignore — tinykeys has types but exports field doesn't include a "types" condition (TODO: add declare module shim when tinykeys updates)
 import { tinykeys } from 'tinykeys'
@@ -206,9 +207,18 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // selection-state algebra. Identity-stable: when the helper returns `prev`
   // (no-op add or replace-with-same-elements), Preact bails out of the
   // re-render and metadata is not re-captured.
+  //
+  // ZF0-1195 Follow-up A: incoming `elements` are auto-expanded to include
+  // every DOM node sharing the same `data-cortex-source` attribute. This makes
+  // the editor model honest — JSX inside `.map()` produces N runtime nodes
+  // that share one source, and the CSS override layer keys on source, so
+  // editing any one of them affects all N. Expanding selection up-front means
+  // the UI shows the user the full set their edit will affect, instead of
+  // letting them pick a subset that the override layer cannot honor.
   const setSelection = useCallback((elements: HTMLElement[], action: 'replace' | 'add' | 'toggle' = 'replace'): void => {
+    const expanded = expandSharedSource(elements)
     setSelectedElementsState(prev => {
-      const next = applySelectionUpdate(prev, elements, action)
+      const next = applySelectionUpdate(prev, expanded, action)
       if (next !== prev) {
         selectionMetadataRef.current = next.map(el => captureSelectionMetadata(el))
       }
