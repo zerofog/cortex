@@ -1,4 +1,4 @@
-import { loadEnv, type Plugin, type ResolvedConfig, type HmrContext } from 'vite'
+import type { Plugin, ResolvedConfig, HmrContext } from 'vite'
 import type { SourceMapInput } from 'rollup'
 import type { IncomingMessage } from 'http'
 import type { Duplex } from 'stream'
@@ -21,8 +21,6 @@ import type { ResolverState } from '../core/capabilities.js'
 import { CSSModulesRewriter } from '../core/rewriter/css-modules.js'
 import { RuntimeCSSResolver } from '../core/rewriter/runtime-resolver.js'
 import { UndoStack } from '../core/session/undo-stack.js'
-import { AIWriter } from '../core/ai-writer.js'
-import { DeferredWriter } from '../core/deferred-writer.js'
 import { CortexSession } from '../core/session.js'
 import { applyEditsCore, sliceIntentContext, checkIntentFileSize, parseIntentSource } from '../core/staged-edits.js'
 import type { StagedEditsCache } from '../core/staged-edits.js'
@@ -1186,25 +1184,6 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         // Dispose previous pipeline + HMR callback (e.g., from server restart)
         if (currentSession.pipeline) currentSession.pipeline.dispose()
         if (currentSession.hmrUnsubscribe) currentSession.hmrUnsubscribe()
-
-        // AI writer: enabled when CORTEX_API_KEY is set via .env/.env.local or shell
-        const env = loadEnv(config.mode, config.root, 'CORTEX_')
-        const cortexApiKey = env.CORTEX_API_KEY || process.env.CORTEX_API_KEY
-        const aiWriter = cortexApiKey
-          ? new AIWriter({ apiKey: cortexApiKey, readFile: (p) => fs.promises.readFile(p, 'utf-8') })
-          : undefined
-
-        // Deferred writer: instantiated here but no longer wired to EditPipeline
-        // (removed in ZF0-1546 T1 — AI escalation path retired). T2 (ZF0-1547)
-        // removes this block and the AIWriter instantiation above entirely.
-        const deferredWriter = aiWriter
-          ? new DeferredWriter({
-            coalescingMs: 250,
-            // writeFn is a no-op stub: DeferredWriter is not wired to EditPipeline
-            // after ZF0-1546. T2 (ZF0-1547) removes this block.
-            writeFn: async (_batch) => ({ success: false, reason: 'AI escalation path retired (ZF0-1546)' }),
-          })
-          : undefined
 
         // Surface theme loading failures: if Tailwind was detected but the
         // resolver failed to load, warn clearly so the user knows why edits fail.

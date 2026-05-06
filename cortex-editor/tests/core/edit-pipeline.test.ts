@@ -1132,10 +1132,10 @@ describe('EditPipeline', () => {
     })
     await vi.advanceTimersByTimeAsync(500)
     const first = channel.sent.find(
-      (m: any) => m.type === 'edit_status' && m.editId === 'e1',
+      (m) => m.type === 'edit_status' && (m as { editId?: string }).editId === 'e1',
     )
     expect(first).toBeDefined()
-    expect(first!.status).toBe('failed')
+    expect((first as { status: string }).status).toBe('failed')
 
     // Seed second property
     pipeline.handleEdit({
@@ -1151,10 +1151,10 @@ describe('EditPipeline', () => {
     })
     await vi.advanceTimersByTimeAsync(500)
     const second = channel.sent.find(
-      (m: any) => m.type === 'edit_status' && m.editId === 'e2',
+      (m) => m.type === 'edit_status' && (m as { editId?: string }).editId === 'e2',
     )
     expect(second).toBeDefined()
-    expect(second!.status).toBe('failed')
+    expect((second as { status: string }).status).toBe('failed')
 
     pipeline.dispose()
   })
