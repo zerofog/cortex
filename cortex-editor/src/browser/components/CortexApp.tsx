@@ -1016,6 +1016,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           undoInProgressRef={undoInProgressRef}
           onClose={handleClose}
           onSelectElement={handleSelectElement}
+          onSelectElements={setSelection}
           swatches={swatches}
           textComponents={textComponents}
           colorChips={colorChips}

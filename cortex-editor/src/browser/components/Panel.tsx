@@ -159,6 +159,7 @@ export interface PanelProps {
   overrideManager: CSSOverrideManager
   onClose: () => void
   onSelectElement: (el: HTMLElement | null) => void
+  onSelectElements?: (elements: HTMLElement[], action: 'replace' | 'add' | 'toggle') => void
   swatches?: string[]
   /** Design-system text-component bundles (size + line-height + letter-spacing + weight).
    *  Resolved once per dev-server lifetime; `undefined` = not yet received; `[]` = none defined. */
@@ -261,6 +262,7 @@ export function Panel({
   editErrors,
   onEditDispatch,
   onDismissError,
+  onSelectElements,
   hmrAppliedVersion,
   hmrEventVersion = 0,
   hmrChangedFiles = [],
@@ -1481,7 +1483,12 @@ export function Panel({
             Typography conditional on hasTypographyContent; Position hidden
             in shared-class "All" scope. */}
         <SectionGroup label="Elements" groupId="elements">
-          <ElementTree element={element} onSelectElement={onSelectElement} height={layerHeight} hmrAppliedVersion={hmrAppliedVersion} />
+          <ElementTree
+            element={element}
+            onSelectElements={onSelectElements ?? ((els, _action) => onSelectElement(els[0] ?? null))}
+            height={layerHeight}
+            hmrAppliedVersion={hmrAppliedVersion}
+          />
         </SectionGroup>
         <div
           class="cortex-section-resize"
