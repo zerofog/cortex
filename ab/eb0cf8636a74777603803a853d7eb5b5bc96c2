@@ -1,0 +1,25 @@
+cortex-editor/tests/HAPPY-DOM-AUDIT.md
+  s_ba67b9c625c603::t_0a59cc66e6d5a7 1-40,42,44-45,55-58,67-79,81-89
+  s_ba67b9c625c603::t_b5ba473d96b892 41,43
+  s_ba67b9c625c603::t_6f1c36e99a53a8 46-54,66
+  s_ba67b9c625c603::t_bd06a6e6ad734e 59-65,80
+cortex-editor/tests/SKIPPED-AUDIT.md
+  s_ba67b9c625c603::t_0a59cc66e6d5a7 1-6,8,10-13,15-70
+  s_ba67b9c625c603::t_bd06a6e6ad734e 7,9,14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "abeb0cf8636a74777603803a853d7eb5b5bc96c2",
+  "prompts": {},
+  "sessions": {
+    "s_ba67b9c625c603": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dff09-30b9-7f02-96e9-61e481eb5028",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
