@@ -1,0 +1,28 @@
+cortex-editor/tests/core/edit-pipeline.test.ts
+  4b1cb532ea70329f 1669-1675
+cortex-editor/src/core/rewriter/tailwind.ts
+  4b1cb532ea70329f 122,210,334,392,539
+cortex-editor/src/core/rewriter/inline-style.ts
+  4b1cb532ea70329f 147,165,188,477,502,513
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "2bfec474eaecf326c4e95064234667970ac26634",
+  "prompts": {
+    "4b1cb532ea70329f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a4966468-69ca-41f9-b9b8-734742b83512",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11",
+      "messages": [],
+      "total_additions": 4765,
+      "total_deletions": 13,
+      "accepted_lines": 57964,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/8f98d89775bb4aae992a8955873a0deb88b61e0b103539add7b69ac690ab5358"
+    }
+  }
+}
