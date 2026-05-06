@@ -253,7 +253,7 @@ export class InlineStyleRewriter {
    *    `priorValues` matching `actual`, making the spread-clobber cause
    *    distinguishable from a stale-inline-style divergence (H1).
    *  - ShorthandPropertyAssignment (`{ padding }`): bailed by Phase 2 when
-   *    the edit targets the shorthand itself (routed to AI writer). Other
+   *    the edit targets the shorthand itself (returns success=false). Other
    *    shorthand-property-assignments in the literal are skipped here —
    *    same "can't statically analyze" reasoning as spreads. */
   private needsShorthandReorder(
@@ -431,8 +431,8 @@ export class InlineStyleRewriter {
    * All-or-nothing semantics: Phase 1 prepares the style attribute (or
    * creates it if sets are requested and none exists). Phase 2 validates
    * that every set's existing-value slot is literal-compatible (non-
-   * literal slots route the entire compound op to the AI writer; we do
-   * NOT fall through to a partial mutation). Phase 3 applies removes
+   * literal slots cause the entire compound op to bail with success=false;
+   * we do NOT fall through to a partial mutation). Phase 3 applies removes
    * first, then sets — in that order so a property appearing in BOTH
    * lists ends up with the set's value, not nothing.
    *

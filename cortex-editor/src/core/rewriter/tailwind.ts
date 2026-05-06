@@ -252,7 +252,7 @@ export class TailwindRewriter {
    *
    * Supports static strings, clsx/cn/classnames/cx call args, and static-string
    * arms of a ternary. Template literals and conditional objects return
-   * success=false so the pipeline can fall back to the AI writer.
+   * success=false to signal the pipeline can't apply deterministically.
    */
   async rewriteClassList(request: {
     filePath: string
