@@ -1,0 +1,32 @@
+cortex-editor/src/browser/components/CortexApp.tsx
+  s_3136272232c983::t_24a4c452f5617f 168
+  s_3136272232c983::t_d8fa02072a2d62 354-380
+  s_3136272232c983::t_15ca6b460e9809 1053-1054
+  s_3136272232c983::t_22f92ac35fe1b9 161-167,169-170
+cortex-editor/tests/e2e/panel-multi-select.spec.ts
+  s_3136272232c983::t_090d6c509c70aa 1-75,82,84-85,87-138,153-172
+  s_3136272232c983::t_8d237fddca1162 76-81,83,86
+  s_3136272232c983::t_ebce7bd9c491bc 139-152
+cortex-editor/src/browser/components/Panel.tsx
+  s_3136272232c983::t_d3a1f1e890f1fb 297-298
+  s_3136272232c983::t_cb8b07999b2caf 972-1004
+  s_3136272232c983::t_fe4e704c05860f 205-219
+cortex-editor/tests/e2e/helpers/bridge.ts
+  s_3136272232c983::t_03f923bf038c31 78-93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "f3321fc793fb6ffba2d2a5460bc0952e07f0ebc9",
+  "prompts": {},
+  "sessions": {
+    "s_3136272232c983": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd1056d1-e5d0-4037-9762-4640675731ec",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
