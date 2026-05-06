@@ -1,0 +1,37 @@
+cortex-editor/src/browser/components/controls/ColorInput.tsx
+  s_32cd34190d2c45::t_d5d59b7dc3b2a6 251
+cortex-editor/src/browser/components/controls/SegmentedControl.tsx
+  s_32cd34190d2c45::t_d5d59b7dc3b2a6 98
+cortex-editor/src/browser/components/controls/NumericInput.tsx
+  s_32cd34190d2c45::t_d5d59b7dc3b2a6 124-125,128,130-133,135-136,153,219-220,223,225-228,230-232,236,259-260
+  s_32cd34190d2c45::t_e0dfc03c52b7cc 155,166,173-175,318
+  s_32cd34190d2c45::t_3d137ef872dd1d 163,165
+  s_32cd34190d2c45::t_2a42ccbdc76554 197
+  s_32cd34190d2c45::t_82357d9695bc08 88,113,134,144,149,162,179,212-213,229,344,388
+  s_32cd34190d2c45::t_456879636bec1d 237-258
+cortex-editor/tests/browser/controls/color-input.test.tsx
+  s_32cd34190d2c45::t_d5d59b7dc3b2a6 232-245
+cortex-editor/tests/browser/sections/FlexControls.test.tsx
+  s_32cd34190d2c45::t_d5d59b7dc3b2a6 61-62,75-76,373-388
+cortex-editor/src/browser/components/sections/FlexControls.tsx
+  s_32cd34190d2c45::t_d5d59b7dc3b2a6 183,205,214,219,225,230,236,254-258,261-265,341,357,368
+cortex-editor/tests/browser/controls/numeric-input.test.tsx
+  s_32cd34190d2c45::t_d5d59b7dc3b2a6 305-353
+  s_32cd34190d2c45::t_2a42ccbdc76554 294-304
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "10b4a8695c7b5f51b815b26a8a299a4a73665e95",
+  "prompts": {},
+  "sessions": {
+    "s_32cd34190d2c45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dff0f-5cd2-7a13-8b87-32b2fa2505cc",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
