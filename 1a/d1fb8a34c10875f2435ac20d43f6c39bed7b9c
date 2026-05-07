@@ -1,0 +1,31 @@
+cortex-editor/tests/browser/sections/SpacingControls.test.tsx
+  s_2089cbf1ccb98d::t_40a4ce5c929cc4 38-40
+cortex-editor/tests/browser/panel-t4-integration.test.tsx
+  s_2089cbf1ccb98d::t_bd429e370e2c8c 161-166
+cortex-editor/tests/browser/panel.test.tsx
+  s_2089cbf1ccb98d::t_c06b85655ceb7e 50,77,180-181,190-199
+cortex-editor/tests/browser/helpers.ts
+  s_2089cbf1ccb98d::t_a513745c46d520 127-128
+cortex-editor/src/browser/components/PanelHeader.tsx
+  s_2089cbf1ccb98d::t_47e434756fb091 2,5,49-51,55-140,143,145,154,170,182-188
+cortex-editor/tests/browser/panel-header.test.tsx
+  s_2089cbf1ccb98d::t_19bfbdcb1640d0 6,17,84-126
+cortex-editor/src/browser/components/Panel.tsx
+  s_2089cbf1ccb98d::t_e15f6db908c884 1727,1730-1731
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "1ad1fb8a34c10875f2435ac20d43f6c39bed7b9c",
+  "prompts": {},
+  "sessions": {
+    "s_2089cbf1ccb98d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e00e5-5118-7873-a865-0a02ab551502",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
