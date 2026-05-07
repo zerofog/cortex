@@ -41,6 +41,27 @@
     >
       Fixture secondary
     </div>
+    <!--
+      Shared-source list for blast-radius banner specs (ZF0-1584).
+      Business purpose: three <li> elements rendered from the SAME source
+      location simulate a .map()-rendered list. detectSharedSource() returns
+      count=3 for any of these elements, causing Panel to show the
+      "Used by N elements" banner (SharedSourceInfo path, ZF0-1583).
+
+      All three share data-cortex-source="fixture:map:1" — the same value
+      a real JSX source transform would emit for every iteration of a
+      .map() call at that source line. The first item (#map-item-0) is
+      used as the selected element in the spec; the other two (#map-item-1,
+      #map-item-2) are the "siblings" that receive data-cortex-blast-radius.
+
+      INVARIANT: do NOT change these source values without updating
+      FIXTURE_MAP_SOURCE in helpers/fixture-server.ts.
+    -->
+    <ul id="map-list">
+      <li id="map-item-0" data-cortex-source="fixture:map:1">Item A</li>
+      <li id="map-item-1" data-cortex-source="fixture:map:1">Item B</li>
+      <li id="map-item-2" data-cortex-source="fixture:map:1">Item C</li>
+    </ul>
     <script src="./cortex-bundle.js"></script>
   </body>
 </html>
