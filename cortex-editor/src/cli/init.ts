@@ -3,7 +3,7 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
-import { Project, SyntaxKind, ts, type SourceFile, type ObjectLiteralExpression } from 'ts-morph'
+import { Project, SyntaxKind, ts, type Node, type SourceFile, type ObjectLiteralExpression } from 'ts-morph'
 import {
   detectBundler,
   detectPackageManager,
@@ -60,6 +60,68 @@ function findConfigObject(sourceFile: SourceFile): ObjectLiteralExpression | und
   }
 
   return undefined
+}
+
+function createConfigSourceFile(fileName: string, content: string): SourceFile {
+  const project = new Project({
+    useInMemoryFileSystem: true,
+    compilerOptions: {
+      allowJs: true,
+      noResolve: true,
+      skipLibCheck: true,
+    },
+  })
+  return project.createSourceFile(fileName, content)
+}
+
+function hasNamedCallExpression(node: Node, name: string): boolean {
+  if (node.isKind(SyntaxKind.CallExpression) && node.getExpression().getText() === name) {
+    return true
+  }
+
+  return node.getDescendantsOfKind(SyntaxKind.CallExpression).some(call => (
+    call.getExpression().getText() === name
+  ))
+}
+
+function hasNamedImport(sourceFile: SourceFile, name: string, moduleSpecifier: string): boolean {
+  return sourceFile.getImportDeclarations().some(importDeclaration => (
+    importDeclaration.getModuleSpecifierValue() === moduleSpecifier &&
+    importDeclaration.getNamedImports().some(namedImport => namedImport.getName() === name)
+  ))
+}
+
+function configExpressionUsesNamedCall(
+  sourceFile: SourceFile,
+  expression: Node,
+  name: string
+): boolean {
+  if (hasNamedCallExpression(expression, name)) return true
+
+  const identifier = expression.getText().trim()
+  if (!/^[A-Za-z_$][\w$]*$/.test(identifier)) return false
+
+  const declaration = sourceFile.getVariableDeclaration(identifier)
+  const initializer = declaration?.getInitializer()
+  return Boolean(initializer && hasNamedCallExpression(initializer, name))
+}
+
+function nextConfigUsesWithCortex(sourceFile: SourceFile): boolean {
+  const defaultExport = sourceFile.getFirstDescendantByKind(SyntaxKind.ExportAssignment)
+  if (defaultExport && configExpressionUsesNamedCall(sourceFile, defaultExport.getExpression(), 'withCortex')) {
+    return true
+  }
+
+  return sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression).some(binaryExpression => (
+    binaryExpression.getLeft().getText() === 'module.exports' &&
+    configExpressionUsesNamedCall(sourceFile, binaryExpression.getRight(), 'withCortex')
+  ))
+}
+
+function viteConfigUsesCortexEditor(sourceFile: SourceFile): boolean {
+  const configObject = findConfigObject(sourceFile)
+  const pluginsProperty = configObject?.getProperty('plugins')
+  return Boolean(pluginsProperty && hasNamedCallExpression(pluginsProperty, 'cortexEditor'))
 }
 
 export interface InitResult {
@@ -189,6 +251,10 @@ function shouldWrapAsNextFunction(content: string, expression: string): boolean 
   )
 }
 
+function hasCjsWithCortexRequire(content: string): boolean {
+  return /\b(?:const|let|var)\s*\{[^}]*\bwithCortex\b[^}]*\}\s*=\s*require\(['"]cortex-editor\/next['"]\)/.test(content)
+}
+
 function addEsmWithCortex(content: string): string | null {
   const match = content.match(/export\s+default\s+([\s\S]*?)\s*;?\s*$/)
   if (!match || match.index === undefined) return null
@@ -196,14 +262,57 @@ function addEsmWithCortex(content: string): string | null {
   const before = content.slice(0, match.index)
   const expression = match[1]!.trim().replace(/;\s*$/, '')
   const separator = before.length > 0 && !before.endsWith('\n') ? '\n' : ''
+  const sourceFile = createConfigSourceFile('next.config.ts', content)
+  const importLines = hasNamedImport(sourceFile, 'withCortex', 'cortex-editor/next')
+    ? []
+    : ['import { withCortex } from \'cortex-editor/next\'']
   const exportExpression = shouldWrapAsNextFunction(content, expression)
     ? `async (...args) => withCortex(await (${expression})(...args))`
     : `withCortex(${expression})`
   return [
-    'import { withCortex } from \'cortex-editor/next\'',
+    ...importLines,
     `${before}${separator}export default ${exportExpression}`,
     '',
   ].join('\n')
+}
+
+function leadingTriviaLength(content: string): number {
+  return content.match(/^(?:(?:\s+)|(?:\/\/[^\n]*(?:\n|$))|(?:\/\*[\s\S]*?\*\/))*/)?.[0].length ?? 0
+}
+
+function cjsRequireInsertionPoint(content: string): number {
+  const sourceFile = createConfigSourceFile('next.config.js', content)
+  let directiveEnd = 0
+
+  for (const statement of sourceFile.getStatements()) {
+    if (!statement.isKind(SyntaxKind.ExpressionStatement)) break
+
+    const expression = statement.getExpression()
+    const expressionKind = expression.getKind()
+    if (
+      expressionKind !== SyntaxKind.StringLiteral &&
+      expressionKind !== SyntaxKind.NoSubstitutionTemplateLiteral
+    ) {
+      break
+    }
+
+    directiveEnd = statement.getEnd()
+  }
+
+  if (directiveEnd === 0) return leadingTriviaLength(content)
+  const trailingWhitespace = content.slice(directiveEnd).match(/^\s*/)?.[0] ?? ''
+  return directiveEnd + trailingWhitespace.length
+}
+
+function addCjsRequireAfterPrologue(content: string): string {
+  const requireLine = 'const { withCortex } = require(\'cortex-editor/next\')'
+  const insertionPoint = cjsRequireInsertionPoint(content)
+  const before = content.slice(0, insertionPoint)
+  const after = content.slice(insertionPoint)
+  const beforeSeparator = before.length > 0 && !before.endsWith('\n') ? '\n' : ''
+  const afterSeparator = after.length > 0 && !after.startsWith('\n') ? '\n' : ''
+
+  return `${before}${beforeSeparator}${requireLine}\n${afterSeparator}${after}`
 }
 
 function addCjsWithCortex(content: string): string | null {
@@ -212,13 +321,15 @@ function addCjsWithCortex(content: string): string | null {
 
   const before = content.slice(0, match.index)
   const expression = match[1]!.trim().replace(/;\s*$/, '')
-  const separator = before.length > 0 && !before.endsWith('\n') ? '\n' : ''
+  const beforeWithRequire = hasCjsWithCortexRequire(content)
+    ? before
+    : addCjsRequireAfterPrologue(before)
+  const separator = beforeWithRequire.length > 0 && !beforeWithRequire.endsWith('\n') ? '\n' : ''
   const exportExpression = shouldWrapAsNextFunction(content, expression)
     ? `async (...args) => withCortex(await (${expression})(...args))`
     : `withCortex(${expression})`
   return [
-    'const { withCortex } = require(\'cortex-editor/next\')',
-    `${before}${separator}module.exports = ${exportExpression}`,
+    `${beforeWithRequire}${separator}module.exports = ${exportExpression}`,
     '',
   ].join('\n')
 }
@@ -255,7 +366,7 @@ function configureNext(
 
   const basename = path.basename(configPath)
   const content = fs.readFileSync(configPath, 'utf8')
-  if (content.includes('withCortex')) {
+  if (nextConfigUsesWithCortex(createConfigSourceFile(basename, content))) {
     console.log(`  ${basename}: withCortex config found`)
     return { found: true, injected: false, created: false, configured: true }
   }
@@ -266,7 +377,7 @@ function configureNext(
     console.warn(
       `  ${basename}: could not auto-configure Next.js — wrap your config with withCortex() from cortex-editor/next`
     )
-    return { found: false, injected: false, created: false, configured: false }
+    return { found: true, injected: false, created: false, configured: false }
   }
 
   fs.writeFileSync(configPath, nextContent)
@@ -399,24 +510,14 @@ export async function runInit(
     )
     const basename = path.basename(viteConfigPath)
     const content = fs.readFileSync(viteConfigPath, 'utf8')
+    const sourceFile = createConfigSourceFile('vite.config.ts', content)
 
-    if (content.includes('cortexEditor')) {
+    if (viteConfigUsesCortexEditor(sourceFile)) {
       vitePluginFound = true
       console.log(`  ${basename}: cortexEditor plugin found`)
       bundlerConfigured = vitePeerInstalled
     } else {
       // Attempt AST-based injection
-      const project = new Project({
-        useInMemoryFileSystem: true,
-        compilerOptions: {
-          allowJs: true,
-          noResolve: true,
-          skipLibCheck: true,
-        },
-      })
-      // Use .ts extension to enable full syntax support regardless of actual file extension
-      const sourceFile = project.createSourceFile('vite.config.ts', content)
-
       // Check for syntax-level parse errors only (not type errors)
       const syntaxDiag = sourceFile.getPreEmitDiagnostics()
         .filter(d => d.getCode() >= 1000 && d.getCode() < 2000)
@@ -456,10 +557,12 @@ export async function runInit(
       }
 
       if (pluginAdded) {
-        sourceFile.addImportDeclaration({
-          namedImports: ['cortexEditor'],
-          moduleSpecifier: 'cortex-editor/vite',
-        })
+        if (!hasNamedImport(sourceFile, 'cortexEditor', 'cortex-editor/vite')) {
+          sourceFile.addImportDeclaration({
+            namedImports: ['cortexEditor'],
+            moduleSpecifier: 'cortex-editor/vite',
+          })
+        }
         fs.writeFileSync(viteConfigPath, sourceFile.getFullText())
         vitePluginFound = true
         vitePluginInjected = true
@@ -487,8 +590,7 @@ export async function runInit(
   }
 
   // 4. Check cortex-editor is installed
-  const allDeps = { ...pkg.dependencies, ...pkg.devDependencies }
-  const depFound = Boolean(allDeps['cortex-editor'])
+  const depFound = hasDependency(pkg, 'cortex-editor')
   if (!depFound) {
     const installRequest = createInstallRequest(packageManager, ['cortex-editor'], cwd)
     console.warn(

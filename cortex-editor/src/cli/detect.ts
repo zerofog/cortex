@@ -99,6 +99,7 @@ export function detectBundler(cwd: string, pkg: PackageJson): BundlerDetection {
 }
 
 export function detectPackageManager(cwd: string, pkg: PackageJson = {}): PackageManager {
+  if (fs.existsSync(path.join(cwd, 'package-lock.json'))) return 'npm'
   if (fs.existsSync(path.join(cwd, 'pnpm-lock.yaml'))) return 'pnpm'
   if (fs.existsSync(path.join(cwd, 'yarn.lock'))) return 'yarn'
   if (
