@@ -1,0 +1,21 @@
+cortex-editor/src/browser/components/sections/TypographySection.tsx
+  s_1d89566d861367::t_42e59247362889 53
+cortex-editor/src/browser/components/sections/FlexControls.tsx
+  s_1d89566d861367::t_032bd9bcc683a2 40-41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "d3db5dc9b5c226cce2545d1546c00182acacc383",
+  "prompts": {},
+  "sessions": {
+    "s_1d89566d861367": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e00e7-841f-7213-a7ba-973c0186ebb6",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
