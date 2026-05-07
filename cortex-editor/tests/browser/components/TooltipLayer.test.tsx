@@ -189,6 +189,60 @@ describe('TooltipLayer', () => {
     expect(input.getAttribute('aria-describedby')?.split(/\s+/)).toContain('cortex-tooltip')
   })
 
+  it('keeps the tooltip open while focus moves between descendants of the same anchor', async () => {
+    const shadowRoot = setup()
+    const wrapper = document.createElement('div')
+    wrapper.dataset['tooltip'] = 'Width'
+    const firstInput = document.createElement('input')
+    const secondInput = document.createElement('input')
+    wrapper.append(firstInput, secondInput)
+    shadowRoot.appendChild(wrapper)
+
+    await act(async () => {
+      firstInput.dispatchEvent(new FocusEvent('focusin', { bubbles: true, composed: true }))
+      await vi.advanceTimersByTimeAsync(200)
+    })
+
+    await act(async () => {
+      firstInput.dispatchEvent(new FocusEvent('focusout', {
+        bubbles: true,
+        composed: true,
+        relatedTarget: secondInput,
+      }))
+    })
+
+    expect(root?.querySelector('#cortex-tooltip')?.textContent).toBe('Width')
+
+    await act(async () => {
+      secondInput.dispatchEvent(new FocusEvent('focusin', { bubbles: true, composed: true }))
+      await Promise.resolve()
+    })
+
+    expect(root?.querySelector('#cortex-tooltip')?.textContent).toBe('Width')
+    expect(firstInput.getAttribute('aria-describedby')).toBeNull()
+    expect(secondInput.getAttribute('aria-describedby')?.split(/\s+/)).toContain('cortex-tooltip')
+  })
+
+  it('dismisses a visible tooltip when Escape is pressed', async () => {
+    const shadowRoot = setup()
+    const button = document.createElement('button')
+    button.dataset['tooltip'] = 'Close panel'
+    shadowRoot.appendChild(button)
+
+    await showTooltip(button)
+
+    await act(async () => {
+      button.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        composed: true,
+      }))
+    })
+
+    expect(root?.querySelector('#cortex-tooltip')).toBeNull()
+    expect(button.getAttribute('aria-describedby')).toBeNull()
+  })
+
   it('centers the fallback position using the tooltip size when Floating UI fails', async () => {
     const shadowRoot = setup()
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
@@ -240,5 +294,23 @@ describe('TooltipLayer', () => {
 
     expect(root?.querySelector('#cortex-tooltip')).toBeNull()
     expect(button.getAttribute('aria-describedby')).toBe('existing-help')
+  })
+
+  it('re-schedules a same-anchor tooltip when pointer returns before hide has committed', async () => {
+    const shadowRoot = setup()
+    const button = document.createElement('button')
+    button.dataset['tooltip'] = 'Close panel'
+    shadowRoot.appendChild(button)
+
+    await showTooltip(button)
+
+    await act(async () => {
+      dispatchPointerEvent(button, 'pointerout')
+      dispatchPointerEvent(button, 'pointerover')
+      await vi.advanceTimersByTimeAsync(200)
+    })
+
+    expect(root?.querySelector('#cortex-tooltip')?.textContent).toBe('Close panel')
+    expect(button.getAttribute('aria-describedby')?.split(/\s+/)).toContain('cortex-tooltip')
   })
 })

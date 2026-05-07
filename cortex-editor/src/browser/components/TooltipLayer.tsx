@@ -176,6 +176,8 @@ export function TooltipLayer({ shadowRoot, delayMs = DEFAULT_DELAY_MS }: Tooltip
 
     const hide = () => {
       clearShowTimer()
+      activeAnchorRef.current = null
+      activeTriggerRef.current = null
       setTooltip(null)
     }
 
@@ -231,14 +233,32 @@ export function TooltipLayer({ shadowRoot, delayMs = DEFAULT_DELAY_MS }: Tooltip
       scheduleShow(anchor, describedElement, 'focus')
     }
 
-    const handleFocusOut = () => hide()
+    const handleFocusOut = (event: Event) => {
+      const anchor = activeAnchorRef.current ?? resolveTooltipTarget(event.target)
+      if (!anchor) {
+        hide()
+        return
+      }
+
+      const relatedTarget = (event as FocusEvent).relatedTarget
+      const nextFocused = isElement(relatedTarget)
+        ? relatedTarget
+        : shadowRoot.activeElement
+      if (isElement(nextFocused) && nextFocused !== event.target && anchor.contains(nextFocused)) return
+
+      hide()
+    }
     const handlePointerDown = () => hide()
+    const handleKeyDown = (event: Event) => {
+      if ((event as KeyboardEvent).key === 'Escape') hide()
+    }
 
     shadowRoot.addEventListener('pointerover', handlePointerOver)
     shadowRoot.addEventListener('pointerout', handlePointerOut)
     shadowRoot.addEventListener('focusin', handleFocusIn)
     shadowRoot.addEventListener('focusout', handleFocusOut)
     shadowRoot.addEventListener('pointerdown', handlePointerDown, { capture: true })
+    shadowRoot.addEventListener('keydown', handleKeyDown, { capture: true })
 
     return () => {
       clearShowTimer()
@@ -247,6 +267,7 @@ export function TooltipLayer({ shadowRoot, delayMs = DEFAULT_DELAY_MS }: Tooltip
       shadowRoot.removeEventListener('focusin', handleFocusIn)
       shadowRoot.removeEventListener('focusout', handleFocusOut)
       shadowRoot.removeEventListener('pointerdown', handlePointerDown, { capture: true })
+      shadowRoot.removeEventListener('keydown', handleKeyDown, { capture: true })
     }
   }, [delayMs, shadowRoot])
 
