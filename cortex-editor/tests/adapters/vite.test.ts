@@ -129,6 +129,25 @@ function mockServer() {
   }
 }
 
+function mockServerWithHttp(http: HttpServer) {
+  const handlers = new Map<string, Function>()
+  const offHandlers = new Map<string, Function>()
+  const sent: { event: string; data: unknown }[] = []
+  return {
+    middlewares: { use: vi.fn() },
+    httpServer: http,
+    hot: {
+      on(event: string, handler: Function) { handlers.set(event, handler) },
+      off(event: string, handler: Function) { offHandlers.set(event, handler) },
+      send(event: string, data: unknown) { sent.push({ event, data }) },
+      _trigger(event: string, data: unknown) { handlers.get(event)?.(data) },
+    },
+    _handlers: handlers,
+    _offHandlers: offHandlers,
+    _sent: sent,
+  }
+}
+
 describe('cortexEditor Vite plugin', () => {
   describe('transform', () => {
     it('instruments JSX files with data-cortex-source', () => {
@@ -529,6 +548,31 @@ describe('cortexEditor Vite plugin', () => {
 
       const hello = server._sent.find((s) => (s.data as any).type === 'hello')
       expect((hello!.data as any).swatches).toEqual(['#000000'])
+    })
+
+    it('does not send delayed hello from a replaced session', async () => {
+      let resolveSwatches!: (val: string[] | null) => void
+      const pending = new Promise<string[] | null>((r) => { resolveSwatches = r })
+      mockResolveColors.mockReturnValue(pending)
+
+      const plugin = initPlugin()
+      const oldServer = mockServer()
+      ;(plugin.configureServer as Function)(oldServer)
+      oldServer.hot._trigger('cortex:msg', { type: 'init' })
+
+      const newServer = mockServer()
+      ;(plugin.configureServer as Function)(newServer)
+
+      resolveSwatches(['#111111'])
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+
+      expect(oldServer._sent.filter((s) => (s.data as any).type === 'hello')).toHaveLength(0)
+      expect(newServer._sent.filter((s) => (s.data as any).type === 'hello')).toHaveLength(0)
+
+      newServer.hot._trigger('cortex:msg', { type: 'init' })
+      await vi.waitFor(() => {
+        expect(newServer._sent.find((s) => (s.data as any).type === 'hello')).toBeDefined()
+      })
     })
 
     it('hello has undefined swatches when tailwind resolution fails', async () => {
@@ -1695,6 +1739,24 @@ describe('CortexSession wiring (A2)', () => {
       const listenerCount2 = process.listenerCount('SIGINT')
       // Should have same count (old removed, new added)
       expect(listenerCount2).toBe(listenerCount1)
+    })
+
+    it('does not accumulate httpServer listening listeners on re-entry before listen', () => {
+      const plugin = initPlugin()
+      const httpServer = createServer()
+      try {
+        const listenerCountBefore = httpServer.listenerCount('listening')
+        const server1 = mockServerWithHttp(httpServer)
+        ;(plugin.configureServer as Function)(server1)
+        expect(httpServer.listenerCount('listening')).toBe(listenerCountBefore + 1)
+
+        const server2 = mockServerWithHttp(httpServer)
+        ;(plugin.configureServer as Function)(server2)
+
+        expect(httpServer.listenerCount('listening')).toBe(listenerCountBefore + 1)
+      } finally {
+        httpServer.close()
+      }
     })
   })
 
