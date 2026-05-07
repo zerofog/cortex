@@ -25,6 +25,17 @@ import {
 import type { TextComponent } from '../../../core/text-components.js'
 import type { ColorChip } from '../../token-detector.js'
 import { detectTextComponent, detectColorChip } from '../../token-detector.js'
+import {
+  TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP,
+  flexToHorizontal,
+  flexToVertical,
+  typographyLayoutContext,
+  typographyVerticalAlignEnabled,
+  type TypographyAlignmentAxis,
+  type TypographyAlignmentValue,
+  type TypographyHorizontalAlign,
+  type TypographyVerticalAlign,
+} from '../../alignment-router.js'
 
 /** A class name known to target a Tailwind v4 `text-*` utility — used for
  *  bundle classes (`text-body-md` from `@theme { --text-body-md: ... }`) and
@@ -44,9 +55,9 @@ type TextUtilityClass = `text-${string}`
  *   combination of classOp + inline-style edits in one atomic gesture. The
  *   removeClass fields are `text-${string}` so the compiler blocks a
  *   regression to bare bundle names.
- * - vertical-align is special: the Panel expands a single value into three
- *   property edits (display, flex-direction, align-items) so a single click
- *   lands as one undo entry.
+ * - typography-align carries screen-axis intent. The Panel routes it through
+ *   the shared alignment router so block/flex-row/flex-column contexts write
+ *   the correct CSS property.
  */
 export type TypographyChange =
   | SectionChange
@@ -58,7 +69,7 @@ export type TypographyChange =
     }
   | { kind: 'link-color-chip'; chip: ColorChip; removeClass?: TextUtilityClass }
   | { kind: 'unlink-color-chip'; removeClass: TextUtilityClass; inline: Array<{ property: string; value: string }> }
-  | { kind: 'vertical-align'; value: 'flex-start' | 'center' | 'flex-end' }
+  | { kind: 'typography-align'; axis: TypographyAlignmentAxis; value: TypographyAlignmentValue }
 
 export interface TypographyValues {
   fontFamily: string
@@ -66,11 +77,19 @@ export interface TypographyValues {
   fontWeight: string
   lineHeight: number
   letterSpacing: number
+  /** Screen-coordinate horizontal alignment control value. */
   textAlign: string
-  /** Populated only when display is flex/grid AND flex-direction is column,
-   *  reflecting the align-items value. Empty string otherwise — the
-   *  vertical-align SegmentedControl renders unselected in that case. */
+  /** Screen-coordinate vertical alignment control value. Empty for block
+   *  elements because block vertical intent is only meaningful after the
+   *  user creates height room in Layout and clicks a vertical option. */
   verticalAlign: string
+  display: string
+  flexDirection: string
+  justifyContent: string
+  alignItems: string
+  height: string
+  minHeight: string
+  canAlignVertically: boolean
   color: string
 }
 
@@ -94,20 +113,50 @@ export function parseTypographyValues(cs: CSSStyleDeclaration): TypographyValues
   const fontSize = parseFloat(cs.fontSize) || 16
   const display = cs.display ?? ''
   const flexDir = cs.flexDirection ?? ''
-  const isFlexColumn =
-    (display === 'flex' || display === 'grid' || display === 'inline-flex') && flexDir === 'column'
+  const lineHeight =
+    cs.lineHeight === 'normal'
+      ? 1.5
+      : Math.round(((parseFloat(cs.lineHeight) / fontSize) || 1.5) * 100) / 100
+  const justifyContent = cs.justifyContent || 'flex-start'
+  const alignItems = cs.alignItems || 'stretch'
+  const layout = typographyLayoutContext(display, flexDir)
+  const textAlign =
+    layout === 'flex-column'
+      ? flexToHorizontal(alignItems)
+      : layout === 'flex-row'
+        ? flexToHorizontal(justifyContent)
+        : flexToHorizontal(cs.textAlign ?? 'left')
+  const verticalAlign =
+    layout === 'flex-column'
+      ? flexToVertical(justifyContent)
+      : layout === 'flex-row'
+        ? flexToVertical(alignItems)
+        : ''
+  const height = cs.height ?? 'auto'
+  const minHeight = cs.minHeight ?? '0px'
   return {
     fontFamily: cs.fontFamily ?? '',
     fontSize,
     fontWeight: cs.fontWeight ?? '400',
-    lineHeight:
-      cs.lineHeight === 'normal'
-        ? 1.5
-        : Math.round(((parseFloat(cs.lineHeight) / fontSize) || 1.5) * 100) / 100,
+    lineHeight,
     letterSpacing:
       cs.letterSpacing === 'normal' ? 0 : Math.round((parseFloat(cs.letterSpacing) || 0) * 100) / 100,
-    textAlign: cs.textAlign ?? 'left',
-    verticalAlign: isFlexColumn ? cs.alignItems ?? '' : '',
+    textAlign,
+    verticalAlign,
+    display,
+    flexDirection: flexDir,
+    justifyContent,
+    alignItems,
+    height,
+    minHeight,
+    canAlignVertically: typographyVerticalAlignEnabled({
+      display,
+      flexDirection: flexDir,
+      height,
+      minHeight,
+      fontSize,
+      lineHeight,
+    }),
     color: cs.color ?? 'rgb(0, 0, 0)',
   }
 }
@@ -157,7 +206,6 @@ const HORIZONTAL_ALIGN_OPTIONS = [
   { value: 'right', icon: <AlignRight size={14} />, title: 'Right' },
 ]
 
-/** Vertical alignment: maps to align-items when element becomes a flex column. */
 const VERTICAL_ALIGN_OPTIONS = [
   { value: 'flex-start', icon: <ArrowUpFromLine size={14} />, title: 'Top' },
   { value: 'center', icon: <AlignCenterVertical size={14} />, title: 'Middle' },
@@ -243,6 +291,19 @@ export function TypographySection({
   const chip = useMemo(() => detectColorChip(className, colorChips ?? []), [className, colorChips])
   const typographyLinked = bundle !== null
   const colorLinked = chip !== null
+  const layoutContext = typographyLayoutContext(values.display, values.flexDirection)
+  const horizontalMixed =
+    layoutContext === 'block'
+      ? mixedProperties?.has('text-align')
+      : layoutContext === 'flex-column'
+        ? mixedProperties?.has('align-items')
+        : mixedProperties?.has('justify-content')
+  const verticalMixed =
+    layoutContext === 'flex-column'
+      ? mixedProperties?.has('justify-content')
+      : layoutContext === 'flex-row'
+        ? mixedProperties?.has('align-items')
+        : false
 
   // Derived dropdown options.
   const weightOptions = useMemo(() => {
@@ -330,8 +391,11 @@ export function TypographySection({
     [makeScrubHandler, onScrubEnd],
   )
   const handleHorizontalAlignChange = useMemo(
-    () => makePropHandler<string>('text-align'),
-    [makePropHandler],
+    () => (v: string) => {
+      if (v !== 'left' && v !== 'center' && v !== 'right') return
+      onChange({ kind: 'typography-align', axis: 'horizontal', value: v as TypographyHorizontalAlign })
+    },
+    [onChange],
   )
   const handleColorChange = useMemo(() => makePropHandler<string>('color'), [makePropHandler])
 
@@ -344,9 +408,10 @@ export function TypographySection({
   const handleVerticalAlignChange = useCallback(
     (v: string) => {
       if (v !== 'flex-start' && v !== 'center' && v !== 'flex-end') return
-      onChange({ kind: 'vertical-align', value: v })
+      if (!values.canAlignVertically) return
+      onChange({ kind: 'typography-align', axis: 'vertical', value: v as TypographyVerticalAlign })
     },
-    [onChange],
+    [onChange, values.canAlignVertically],
   )
 
   // Refs for picker trigger elements — passed to the pickers so
@@ -585,16 +650,22 @@ export function TypographySection({
       )}
 
       {/* ═══ Alignment row (always shown) ═══ */}
-      {/* Vertical SegmentedControl deferred — align-items/justify-content
-       * semantics needs a design pass and a defined-height story before it
-       * can ship. Horizontal stays. */}
       <div class="cortex-typography-section__align-row">
         <SegmentedControl
           options={HORIZONTAL_ALIGN_OPTIONS}
           value={values.textAlign}
           onChange={handleHorizontalAlignChange}
           size="sm"
-          mixed={mixedProperties?.has('text-align')}
+          mixed={horizontalMixed}
+        />
+        <SegmentedControl
+          options={VERTICAL_ALIGN_OPTIONS}
+          value={values.verticalAlign}
+          onChange={handleVerticalAlignChange}
+          size="sm"
+          mixed={verticalMixed}
+          disabled={!values.canAlignVertically}
+          disabledTooltip={TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP}
         />
       </div>
     </div>

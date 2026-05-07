@@ -44,6 +44,13 @@ const DEFAULT_VALUES: TypographyValues = {
   letterSpacing: 0,
   textAlign: 'left',
   verticalAlign: '',
+  display: 'block',
+  flexDirection: 'row',
+  justifyContent: 'flex-start',
+  alignItems: 'stretch',
+  height: '24px',
+  minHeight: '0px',
+  canAlignVertically: false,
   color: 'rgb(107, 114, 128)',
 }
 

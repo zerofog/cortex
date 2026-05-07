@@ -63,6 +63,7 @@ import {
   Lock,
   LockOpen,
 } from '../icons.js'
+import { flexAxisToCssProperty, isColumnDirection } from '../../alignment-router.js'
 
 export type FlexChange = SectionChange
 
@@ -87,46 +88,6 @@ export interface FlexControlsProps {
 }
 
 // ── X/Y axis mapping ────────────────────────────────────────────────
-
-/** Screen-coordinate axis role — never a CSS property name. */
-type ScreenAxis = 'x' | 'y'
-
-/** Distribution axis relative to the flex main/cross axis (NOT screen). */
-type DistributeAxis = 'main' | 'cross'
-
-type FlexCssProperty =
-  | 'justify-content'
-  | 'align-items'
-  | 'align-content'
-
-function isColumnDirection(direction: string): boolean {
-  return direction === 'column' || direction === 'column-reverse'
-}
-
-/**
- * Single source of truth for the X/Y → CSS property mapping. Every
- * callback handler inside FlexControls routes through this helper so
- * the swap logic lives in exactly one place. Bypassing this function
- * (writing CSS property names directly in a handler) re-introduces the
- * silent-wrong-property bug the helper exists to prevent — keep the
- * call surface narrow and the helper pure.
- */
-function flexAxisToCssProperty(
-  role: ScreenAxis | { distribute: DistributeAxis },
-  direction: string,
-): FlexCssProperty {
-  const column = isColumnDirection(direction)
-  if (typeof role === 'string') {
-    if (role === 'x') return column ? 'align-items' : 'justify-content'
-    /* role === 'y' */ return column ? 'justify-content' : 'align-items'
-  }
-  // Distribution keywords (space-between, space-around, space-evenly) are
-  // only valid on justify-content and align-content — never on align-items.
-  // The AlignmentGrid already maps row overlay → 'cross' and col overlay →
-  // 'main' in a direction-agnostic way, so no direction swap is needed here.
-  if (role.distribute === 'main') return 'justify-content'
-  /* cross */ return 'align-content'
-}
 
 // ── Option catalogs ─────────────────────────────────────────────────
 

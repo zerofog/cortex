@@ -47,6 +47,7 @@ import { generateId } from '../uuid.js'
 import { StagingDriftBanner } from './StagingDriftBanner.js'
 import { SpacingTokensContext } from '../tokens/TokenContext.js'
 import { deepQueryAllElements } from '../selection-metadata.js'
+import { resolveTypographyAlignmentEdits } from '../alignment-router.js'
 
 // ── Connection status footer ─────────────────────────────────────────
 
@@ -1221,8 +1222,8 @@ export function Panel({
    * - Plain {property, value} → applyOverride (scrub/commit dance)
    * - link-* → applyClassChange with `add` + inline clear of the 5 props
    * - unlink-* → applyClassChange with `remove` + inline preservation
-   * - vertical-align → three property edits fanned into one undo entry:
-   *   display:flex, flex-direction:column, align-items:<value>
+   * - typography-align → screen-axis intent routed through the selected
+   *   element's layout context, fanning out multi-property edits as needed.
    */
   const handleTypographyChange = useCallback(
     (change: import('./sections/TypographySection.js').TypographyChange) => {
@@ -1300,12 +1301,15 @@ export function Panel({
           })
           return
         }
-        case 'vertical-align': {
-          // Three edits batched via the scrub→commit microtask queue: they
-          // all accumulate in scrubPreviousRef and commit as one PropertyEditCommand.
-          applyOverride('display', 'flex', false)
-          applyOverride('flex-direction', 'column', false)
-          applyOverride('align-items', change.value, true)
+        case 'typography-align': {
+          const result = resolveTypographyAlignmentEdits({
+            context: computedStyles.typography,
+            axis: change.axis,
+            value: change.value,
+          })
+          result.edits.forEach((edit, index) => {
+            applyOverride(edit.property, edit.value, index === result.edits.length - 1)
+          })
           return
         }
         default: {
@@ -1318,7 +1322,7 @@ export function Panel({
         }
       }
     },
-    [applyOverride, applyClassChange],
+    [applyOverride, applyClassChange, computedStyles.typography],
   )
 
   // Property section state — driven by computed values, not user toggle

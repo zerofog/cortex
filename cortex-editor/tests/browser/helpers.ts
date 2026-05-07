@@ -156,26 +156,31 @@ export function mockGetComputedStyle(
   pseudoStyles?: Record<string, Record<string, string>>,
 ): () => void {
   const original = window.getComputedStyle
+  const withGetPropertyValue = (
+    base: CSSStyleDeclaration,
+    overrides: Record<string, string>,
+  ): CSSStyleDeclaration => {
+    const merged = { ...base, ...overrides }
+    const result = new Proxy(merged, {
+      get(obj, prop) {
+        if (prop === 'getPropertyValue') {
+          return (p: string) => {
+            const camel = p.replace(/-([a-z])/g, (_, c) => c.toUpperCase())
+            return (obj as any)[camel] ?? (obj as any)[p] ?? ''
+          }
+        }
+        return (obj as any)[prop]
+      },
+    })
+    return result as unknown as CSSStyleDeclaration
+  }
+
   window.getComputedStyle = ((target: Element, pseudo?: string | null) => {
     if (target === el) {
       if (pseudo && pseudoStyles?.[pseudo]) {
-        const base = original.call(window, target) as CSSStyleDeclaration
-        const merged = { ...base, ...pseudoStyles[pseudo] }
-        // Support getPropertyValue for pseudo styles
-        const result = new Proxy(merged, {
-          get(obj, prop) {
-            if (prop === 'getPropertyValue') {
-              return (p: string) => {
-                const camel = p.replace(/-([a-z])/g, (_, c) => c.toUpperCase())
-                return (obj as any)[camel] ?? (obj as any)[p] ?? ''
-              }
-            }
-            return (obj as any)[prop]
-          }
-        })
-        return result as unknown as CSSStyleDeclaration
+        return withGetPropertyValue(original.call(window, target), pseudoStyles[pseudo])
       }
-      return { ...original.call(window, target), ...styles } as CSSStyleDeclaration
+      return withGetPropertyValue(original.call(window, target), styles)
     }
     return original.call(window, target, pseudo)
   }) as typeof window.getComputedStyle
