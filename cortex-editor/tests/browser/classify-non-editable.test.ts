@@ -23,12 +23,12 @@ describe('isNonEditable', () => {
     expect(isNonEditable(el)).toBe(true)
   })
 
-  it('returns true when neither element nor any ancestor has data-cortex-source', () => {
+  it('returns false for visual elements without data-cortex-source', () => {
     const parent = document.createElement('div')
     const child = document.createElement('div')
     parent.appendChild(child)
     document.body.appendChild(parent)
-    expect(isNonEditable(child)).toBe(true)
+    expect(isNonEditable(child)).toBe(false)
   })
 
   it('returns false when element itself has data-cortex-source', () => {

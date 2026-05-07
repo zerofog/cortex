@@ -32,6 +32,20 @@ describe('pendingEditSchema — valid inputs', () => {
     expect(() => pendingEditSchema.parse({ ...validEdit, scope: 'all' })).not.toThrow()
   })
 
+  it('accepts agent-resolve preview metadata for unannotated visual elements', () => {
+    expect(() => pendingEditSchema.parse({
+      ...validEdit,
+      source: 'cortex-preview:p123',
+      applyMode: 'agent-resolve',
+      sourceResolutionHint: {
+        tagName: 'div',
+        className: 'hero-card',
+        textPreview: 'Unannotated hero',
+        domSelector: 'div.hero-card',
+      },
+    })).not.toThrow()
+  })
+
   it('accepts instanceSources array up to 100 entries', () => {
     const sources = Array.from({ length: 100 }, (_, i) => `src/Comp.tsx:${i}:5`)
     expect(() => pendingEditSchema.parse({ ...validEdit, instanceSources: sources })).not.toThrow()
@@ -142,6 +156,28 @@ describe('pendingEditSchema — invalid inputs', () => {
     if (!result.success) {
       const paths = result.error.issues.map((i) => i.path.join('.'))
       expect(paths).toContain('pseudo')
+    }
+  })
+
+  it('rejects invalid applyMode', () => {
+    const result = pendingEditSchema.safeParse({ ...validEdit, applyMode: 'maybe-agent' })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('applyMode')
+    }
+  })
+
+  it('rejects incomplete sourceResolutionHint', () => {
+    const result = pendingEditSchema.safeParse({
+      ...validEdit,
+      applyMode: 'agent-resolve',
+      sourceResolutionHint: { tagName: 'div', textPreview: 'Hero' },
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('sourceResolutionHint.domSelector')
     }
   })
 

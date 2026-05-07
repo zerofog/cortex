@@ -167,6 +167,35 @@ describe('useEditStagingBuffer', () => {
     unmount()
   })
 
+  it('hook mount keeps preview-source agent-resolve intents from localStorage', async () => {
+    const existing = makeEdit({
+      intentId: 'preview-1',
+      source: 'cortex-preview:p123',
+      property: 'display',
+      value: 'flex',
+      applyMode: 'agent-resolve',
+      sourceResolutionHint: {
+        tagName: 'div',
+        className: 'hero-card',
+        textPreview: 'Unannotated hero',
+        domSelector: 'div.hero-card',
+      },
+    })
+    cortexStorage.set('staging-buffer', [existing])
+
+    const { result, unmount } = renderHook(() => useEditStagingBuffer())
+
+    expect(result.current.list()).toMatchObject([
+      {
+        intentId: 'preview-1',
+        source: 'cortex-preview:p123',
+        applyMode: 'agent-resolve',
+      },
+    ])
+
+    unmount()
+  })
+
   it('buffer eviction at 500 entries evicts oldest first', async () => {
     const { result, unmount } = renderHook(() => useEditStagingBuffer())
 

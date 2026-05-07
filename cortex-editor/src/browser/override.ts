@@ -2,6 +2,7 @@ import type { EditKind } from '../adapters/types.js'
 import { VALID_PROPERTY, VALID_VALUE, REJECT_URL, REJECT_COMMENT } from './css-validation.js'
 import { emitOverrideChange, emitDivergence } from './override-bus.js'
 import type { DivergenceSource, OverrideDivergenceDiagnostics } from './override-bus.js'
+import { selectorForEditSource } from './preview-source.js'
 
 /** Client-side TTL for pending edits — slightly longer than server's 30s to account for transit */
 const PENDING_EDIT_TTL_MS = 35_000
@@ -335,7 +336,7 @@ export class CSSOverrideManager {
       return
     }
 
-    const el = document.querySelector(`[data-cortex-source="${CSS.escape(source)}"]`)
+    const el = document.querySelector(selectorForEditSource(source))
     if (!el) {
       // Element gone (unmounted). Nothing left to preview — drop the override.
       trace('verify:no-element', { source, property })
@@ -412,7 +413,7 @@ export class CSSOverrideManager {
         // Re-query the element every attempt — the original `el` reference
         // may be stale if React unmounted/replaced the node during the retry
         // window. data-cortex-source is stable across HMR, so it re-resolves.
-        const currentEl = document.querySelector(`[data-cortex-source="${CSS.escape(source)}"]`)
+        const currentEl = document.querySelector(selectorForEditSource(source))
         if (!currentEl) {
           trace('verify:retry-no-element', { source, property })
           dispose()
@@ -939,7 +940,7 @@ export class CSSOverrideManager {
         .map(([prop, val]) => `${prop}: ${val} !important`)
         .join('; ')
       // CSS.escape only the source part; pseudo suffix appended outside the attribute selector
-      const selector = `[data-cortex-source="${CSS.escape(rawSource)}"]${pseudoSuffix}`
+      const selector = `${selectorForEditSource(rawSource)}${pseudoSuffix}`
       rules.push(`${selector} { ${declarations}; }`)
     }
     // Skip no-op writes — CSSOM teardown/rebuild can trigger host-app CSS

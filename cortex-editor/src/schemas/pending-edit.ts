@@ -15,6 +15,7 @@ export const MAX_INTENT_SOURCE_BYTES = 1024
 export const MAX_INTENT_ID_BYTES = 256
 export const MAX_INTENT_PROPERTY_BYTES = 256
 export const MAX_INTENT_INSTANCE_SOURCES = 100
+export const MAX_SOURCE_HINT_FIELD_BYTES = 512
 
 /** Defensive cap on staged-edits-sync batch size — 2× browser MAX_ENTRIES (500).
  *  Mirrors the cap enforced by StagedEditsCache.mergeFullSync at runtime.
@@ -58,6 +59,26 @@ export const intentIdSchema = z
     { message: `intentId exceeds ${MAX_INTENT_ID_BYTES} UTF-8 bytes` },
   )
 
+const sourceHintField = (fieldName: string) =>
+  z.string().refine(
+    (v) => utf8Bytes(v) <= MAX_SOURCE_HINT_FIELD_BYTES,
+    { message: `${fieldName} exceeds ${MAX_SOURCE_HINT_FIELD_BYTES} UTF-8 bytes` },
+  )
+
+const requiredSourceHintField = (fieldName: string) =>
+  z.string().min(1).refine(
+    (v) => utf8Bytes(v) <= MAX_SOURCE_HINT_FIELD_BYTES,
+    { message: `${fieldName} exceeds ${MAX_SOURCE_HINT_FIELD_BYTES} UTF-8 bytes` },
+  )
+
+const sourceResolutionHintSchema = z.object({
+  tagName: requiredSourceHintField('tagName'),
+  className: sourceHintField('className').optional(),
+  id: sourceHintField('id').optional(),
+  textPreview: sourceHintField('textPreview'),
+  domSelector: requiredSourceHintField('domSelector'),
+})
+
 /**
  * Zod schema for PendingEdit.
  *
@@ -77,6 +98,8 @@ export const pendingEditSchema = z.object({
   previousValue: z.string().refine((v) => utf8Bytes(v) <= MAX_INTENT_VALUE_BYTES, { message: `previousValue exceeds ${MAX_INTENT_VALUE_BYTES} UTF-8 bytes` }),
   pseudo: z.enum(['::before', '::after']).optional(),
   scope: z.enum(['instance', 'all']).optional(),
+  applyMode: z.enum(['direct', 'agent-resolve']).optional(),
+  sourceResolutionHint: sourceResolutionHintSchema.optional(),
   instanceSources: z
     .array(z.string().refine((v) => utf8Bytes(v) <= MAX_INTENT_SOURCE_BYTES, { message: `instanceSources element exceeds ${MAX_INTENT_SOURCE_BYTES} UTF-8 bytes` }))
     .max(MAX_INTENT_INSTANCE_SOURCES)

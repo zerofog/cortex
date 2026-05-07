@@ -1163,6 +1163,70 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     target.remove()
   })
 
+  it('commitScrub stages unannotated visual elements as agent-resolve intents', async () => {
+    vi.useFakeTimers()
+
+    const target = document.createElement('div')
+    target.className = 'hero-card'
+    target.textContent = 'Unannotated hero'
+    document.body.appendChild(target)
+
+    const overrideStore = new Map<string, string>()
+    const overrideManager = {
+      set: vi.fn((src: string, prop: string, val: string) => {
+        overrideStore.set(`${src}\0${prop}`, val)
+      }),
+      get: vi.fn((src: string, prop: string) => overrideStore.get(`${src}\0${prop}`)),
+      remove: vi.fn(),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+    }
+
+    const { root, cleanup } = renderInShadow(
+      <Panel
+        selectedElements={[target]}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />
+    )
+
+    const layoutSection = root.querySelector('[data-section-id="layout"]')
+    expect(layoutSection).not.toBeNull()
+    const segment = layoutSection!.querySelector(
+      '.cortex-segmented__option:not(.cortex-segmented__option--active)',
+    ) as HTMLButtonElement | null
+    expect(segment).not.toBeNull()
+    const expectedValue = segment!.getAttribute('data-value')
+    expect(expectedValue).not.toBeNull()
+
+    await act(async () => {
+      segment!.click()
+      await Promise.resolve()
+    })
+
+    await act(() => {
+      vi.advanceTimersByTime(150)
+    })
+
+    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    expect(stored).toHaveLength(1)
+    expect(stored[0].source).toMatch(/^cortex-preview:/)
+    expect(stored[0].applyMode).toBe('agent-resolve')
+    expect(stored[0].property).toBe('display')
+    expect(stored[0].value).toBe(expectedValue)
+    expect(stored[0].sourceResolutionHint).toMatchObject({
+      tagName: 'div',
+      className: 'hero-card',
+      textPreview: 'Unannotated hero',
+    })
+
+    cleanup()
+    target.remove()
+  })
+
   it('staged-edits-discard server message removes intents from canonical buffer', async () => {
     // ZF0-1452 regression: Panel.tsx's channel.onMessage handler wires
     // 'staged-edits-discard' (server-originated, emitted by the MCP server's

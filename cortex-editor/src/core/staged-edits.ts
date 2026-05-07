@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { PendingEdit } from '../adapters/types.js'
 import { pendingEditSchema, MAX_FULL_SYNC_SIZE } from '../schemas/pending-edit.js'
+import { isPreviewSource } from '../shared/preview-source.js'
 import type { EditPipeline } from './edit-pipeline.js'
 
 // MAX_FULL_SYNC_SIZE — single source of truth lives in schemas/pending-edit.ts
@@ -19,7 +20,14 @@ function snapshot(edit: PendingEdit): PendingEdit {
   if (edit.instanceSources !== undefined) {
     copy.instanceSources = [...edit.instanceSources]
   }
+  if (edit.sourceResolutionHint !== undefined) {
+    copy.sourceResolutionHint = { ...edit.sourceResolutionHint }
+  }
   return copy
+}
+
+function isAgentResolvedIntent(intent: PendingEdit): boolean {
+  return intent.applyMode === 'agent-resolve' || isPreviewSource(intent.source)
 }
 
 /**
@@ -238,6 +246,15 @@ async function applyOne(
   const intent = cache.getById(intentId)
   if (!intent) {
     return { intentId, status: 'failed' as const, error: 'intent not found' }
+  }
+
+  if (isAgentResolvedIntent(intent)) {
+    return {
+      intentId,
+      status: 'needs-source-edit' as const,
+      intent,
+      reason: 'Unannotated visual element requires agent source resolution before writing source. Use sourceResolutionHint to locate the user source, apply the edit with the Edit tool, then discard this intent after it is handled.',
+    }
   }
 
   // Pseudo-element intents (::before / ::after) are not supported by the

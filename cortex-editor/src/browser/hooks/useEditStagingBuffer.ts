@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { cortexStorage } from '../persistence.js'
 import { stripLineCol, deepQuerySelectorAll } from '../selection-metadata.js'
+import { isPreviewSource } from '../../shared/preview-source.js'
 import type { CortexChannel, PendingEdit } from '../../adapters/types.js'
 
 // Re-export for backward compatibility — existing test imports rely on this.
@@ -95,16 +96,30 @@ function isPendingEdit(v: unknown): v is PendingEdit {
   ) {
     return false
   }
-  // Source format guard (file:line:col). Rejects `"` in the path so that even
-  // if CSS.escape were ever bypassed, a malformed source can't smuggle a
-  // closing quote into the attribute selector.
-  if (!SOURCE_SHAPE.test(o.source)) return false
+  // Source format guard. Direct edits use file:line:col; unannotated preview
+  // edits use a cortex-preview source key so Apply can route them to agent
+  // resolution instead of dropping them during localStorage rehydration.
+  if (!SOURCE_SHAPE.test(o.source) && !isPreviewSource(o.source)) return false
   // Optional fields: validate ONLY when present. The whole point of the
   // validator is to short-circuit corrupted localStorage to the [] fallback
   // before bad data flows into Apply. Accepting `pseudo: 'invalid'`,
   // `scope: 42`, or `instanceSources: 'oops'` would defeat that.
   if (o.pseudo !== undefined && o.pseudo !== '::before' && o.pseudo !== '::after') return false
   if (o.scope !== undefined && o.scope !== 'instance' && o.scope !== 'all') return false
+  if (o.applyMode !== undefined && o.applyMode !== 'direct' && o.applyMode !== 'agent-resolve') return false
+  if (o.sourceResolutionHint !== undefined) {
+    if (typeof o.sourceResolutionHint !== 'object' || o.sourceResolutionHint === null) return false
+    const hint = o.sourceResolutionHint as Record<string, unknown>
+    if (
+      typeof hint.tagName !== 'string' ||
+      typeof hint.textPreview !== 'string' ||
+      typeof hint.domSelector !== 'string'
+    ) {
+      return false
+    }
+    if (hint.className !== undefined && typeof hint.className !== 'string') return false
+    if (hint.id !== undefined && typeof hint.id !== 'string') return false
+  }
   if (
     o.instanceSources !== undefined &&
     (!Array.isArray(o.instanceSources) || !o.instanceSources.every(s => typeof s === 'string'))
