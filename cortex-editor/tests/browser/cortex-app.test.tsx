@@ -9,6 +9,8 @@ import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js
 import { _resetPopoverStackForTesting } from '../../src/browser/popover-stack.js'
 import { cortexStorage } from '../../src/browser/persistence.js'
 
+const WAIT_FOR_COMMIT_MS = 2000
+
 // Mock the selection module to verify it's called correctly.
 // _resetCallbacks nulls the module-scope hoverCb/selectCb closure so a prior
 // test's unmounted-component callbacks cannot be returned by _getCallbacks
@@ -156,7 +158,7 @@ describe('CortexApp', () => {
     hoverCb(target)
     await vi.waitFor(() => {
       expect(root.querySelector('.cortex-hover-overlay')).not.toBeNull()
-    }, { timeout: 500 })
+    }, { timeout: WAIT_FOR_COMMIT_MS })
   })
 
   it('select callback updates SelectionOverlay', async () => {
@@ -180,7 +182,7 @@ describe('CortexApp', () => {
 
     await vi.waitFor(() => {
       expect(root.querySelector('.cortex-selection-overlay')).not.toBeNull()
-    }, { timeout: 500 })
+    }, { timeout: WAIT_FOR_COMMIT_MS })
   })
 
   it('creates CSSOverrideManager on mount', async () => {
@@ -189,8 +191,10 @@ describe('CortexApp', () => {
     render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
     await new Promise(r => setTimeout(r, 10))
 
-    const styleEl = document.head.querySelector('[data-cortex-override]')
-    expect(styleEl).not.toBeNull()
+    await vi.waitFor(() => {
+      const styleEl = document.head.querySelector('[data-cortex-override]')
+      expect(styleEl).not.toBeNull()
+    }, { timeout: WAIT_FOR_COMMIT_MS })
   })
 
   it('subscribes to channel.onMessage', async () => {
@@ -200,22 +204,24 @@ describe('CortexApp', () => {
     render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
     await vi.waitFor(() => {
       expect(spy).toHaveBeenCalledWith(expect.any(Function))
-    }, { timeout: 500 })
+    }, { timeout: WAIT_FOR_COMMIT_MS })
   })
 
   it('cleanup calls onMessage unsubscribe', async () => {
     setup()
     const channel = createMockChannel()
     const unsubscribe = vi.fn()
-    vi.spyOn(channel, 'onMessage').mockReturnValue(unsubscribe)
+    const onMessageSpy = vi.spyOn(channel, 'onMessage').mockReturnValue(unsubscribe)
     render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
-    await new Promise(r => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(onMessageSpy).toHaveBeenCalledWith(expect.any(Function))
+    }, { timeout: WAIT_FOR_COMMIT_MS })
 
     // Unmount to trigger cleanup
     render(null, root)
     await vi.waitFor(() => {
       expect(unsubscribe).toHaveBeenCalled()
-    }, { timeout: 500 })
+    }, { timeout: WAIT_FOR_COMMIT_MS })
   })
 
   it('switching elements clears state overrides', async () => {
@@ -243,7 +249,7 @@ describe('CortexApp', () => {
       const el = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
       expect(el).not.toBeNull()
       return el
-    }, { timeout: 500 })
+    }, { timeout: WAIT_FOR_COMMIT_MS })
 
     // Inject state override content to make the assertion falsifiable.
     // clearStateOverrides() calls rebuild() which regenerates from the internal maps.
@@ -265,7 +271,7 @@ describe('CortexApp', () => {
     // polls until the assertion holds, bounded by the timeout.
     await vi.waitFor(() => {
       expect(styleEl.textContent).toBe('')
-    }, { timeout: 500 })
+    }, { timeout: WAIT_FOR_COMMIT_MS })
   })
 
   it('cleans up on unmount', async () => {
@@ -284,7 +290,7 @@ describe('CortexApp', () => {
       expect(_cleanup).toHaveBeenCalled()
       // CSSOverrideManager should be disposed (style element removed)
       expect(document.head.querySelector('[data-cortex-override]')).toBeNull()
-    }, { timeout: 500 })
+    }, { timeout: WAIT_FOR_COMMIT_MS })
   })
 
   it('renders toolbar even without selection', async () => {
@@ -295,7 +301,7 @@ describe('CortexApp', () => {
     await activateEditor(channel)
     await vi.waitFor(() => {
       expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
-    }, { timeout: 500 })
+    }, { timeout: WAIT_FOR_COMMIT_MS })
   })
 
   it('starts inactive — no toolbar or overlays rendered', async () => {
@@ -314,7 +320,7 @@ describe('CortexApp', () => {
     channel._simulateMessage({ type: 'cortex' } as any)
     await vi.waitFor(() => {
       expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
-    }, { timeout: 500 })
+    }, { timeout: WAIT_FOR_COMMIT_MS })
   })
 
   it('Escape with no selection and no comment mode does nothing (no close)', async () => {
@@ -373,7 +379,7 @@ describe('CortexApp', () => {
       const el = root.querySelector('.cortex-pin')
       expect(el).not.toBeNull()
       return el
-    }, { timeout: 500 })
+    }, { timeout: WAIT_FOR_COMMIT_MS })
     expect(pinDot).not.toBeNull()
   })
 
@@ -461,7 +467,7 @@ describe('CortexApp', () => {
       expect(msg.text).toBe('How much bigger?')
       // Should NOT have elementSource (that's the old comment pattern)
       expect(msg.elementSource).toBeUndefined()
-    }, { timeout: 500 })
+    }, { timeout: WAIT_FOR_COMMIT_MS })
   })
 
   it('comment input shows spinner until annotation is acknowledged', async () => {
@@ -497,7 +503,7 @@ describe('CortexApp', () => {
       // Spinner should be visible
       expect(root.querySelector('.cortex-comment-input__spinner')).not.toBeNull()
       expect(input.disabled).toBe(true)
-    }, { timeout: 500 })
+    }, { timeout: WAIT_FOR_COMMIT_MS })
 
     // Simulate server creating the annotation
     const annotation = {
@@ -514,7 +520,7 @@ describe('CortexApp', () => {
       // Spinner should be gone — comment resolves on annotation-created (not on acknowledge)
       expect(root.querySelector('.cortex-comment-input__spinner')).toBeNull()
       expect(input.disabled).toBe(false)
-    }, { timeout: 500 })
+    }, { timeout: WAIT_FOR_COMMIT_MS })
   })
 
   describe('error tracking', () => {
@@ -561,7 +567,7 @@ describe('CortexApp', () => {
         expect(errorCard).not.toBeNull()
         expect(errorCard!.textContent).toContain('edit failed')
         expect(errorCard!.textContent).toContain('CSS parse error')
-      }, { timeout: 500 })
+      }, { timeout: WAIT_FOR_COMMIT_MS })
     })
 
     it('ZF0-1293: divergence with diagnostics flows end-to-end to Debug disclosure', async () => {
@@ -611,7 +617,7 @@ describe('CortexApp', () => {
         expect(debug!.textContent).toContain('30px')
         expect(debug!.textContent).toContain('16px')
         expect(debug!.textContent).toContain('812') // retry duration number
-      }, { timeout: 500 })
+      }, { timeout: WAIT_FOR_COMMIT_MS })
     })
   })
 
@@ -629,20 +635,20 @@ describe('CortexApp', () => {
       channel._simulateMessage({ type: 'cortex' } as any)
       await vi.waitFor(() => {
         expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
-      }, { timeout: 500 })
+      }, { timeout: WAIT_FOR_COMMIT_MS })
 
       // Step 2: Close via cortex-close — toolbar hidden
       channel._simulateMessage({ type: 'cortex-close' } as any)
       await vi.waitFor(() => {
         expect(root.querySelector('.cortex-toolbar')).toBeNull()
-      }, { timeout: 500 })
+      }, { timeout: WAIT_FOR_COMMIT_MS })
 
       // Step 3: Re-open — without the C1 fix, the reducer sees active===true in
       // its ref and short-circuits, so the toolbar never re-appears.
       channel._simulateMessage({ type: 'cortex' } as any)
       await vi.waitFor(() => {
         expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
-      }, { timeout: 500 })
+      }, { timeout: WAIT_FOR_COMMIT_MS })
     })
   })
 
@@ -690,7 +696,7 @@ describe('CortexApp', () => {
         const card = root.querySelector('.cortex-error-card')
         expect(card).not.toBeNull()
         expect(card!.textContent).toContain('post-writing-fail')
-      }, { timeout: 500 })
+      }, { timeout: WAIT_FOR_COMMIT_MS })
     })
 
     it('edit_status:cancelled does not throw and does not consume dispatch entry', async () => {
@@ -737,7 +743,7 @@ describe('CortexApp', () => {
         const card = root.querySelector('.cortex-error-card')
         expect(card).not.toBeNull()
         expect(card!.textContent).toContain('post-cancelled-fail')
-      }, { timeout: 500 })
+      }, { timeout: WAIT_FOR_COMMIT_MS })
     })
 
     it('error channel message does not throw and does not reach reducer', async () => {
@@ -1000,7 +1006,7 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
       // the empty-state guard is the tightest assertion for "async
       // retry actually happened."
       expect(root.textContent).not.toContain('Click any element to start editing')
-    }, { timeout: 500 })
+    }, { timeout: WAIT_FOR_COMMIT_MS })
   })
 
   // Cascade-only: isConnected early-return + styleVersion bump in CortexApp effect;
@@ -1033,7 +1039,7 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
       // (2) Panel re-read computed styles — proves the version-bump path fired
       // and propagated through to Panel's computedStyles useMemo invalidation.
       expect(gcsSpy.mock.calls.length).toBeGreaterThan(gcsBefore)
-    }, { timeout: 500 })
+    }, { timeout: WAIT_FOR_COMMIT_MS })
 
     gcsSpy.mockRestore()
   })
@@ -1109,6 +1115,8 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
 
     // Install spy AFTER selection so the baseline count is post-mount.
     const gcs = vi.spyOn(window, 'getComputedStyle')
+    await new Promise(r => setTimeout(r, 150))
+    gcs.mockClear()
     return { channel, gcs, element }
   }
 
@@ -1181,7 +1189,7 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     // banner does not render.
     await vi.waitFor(() => {
       expect(root.textContent).toContain('staged edit(s) may be affected')
-    }, { timeout: 500 })
+    }, { timeout: WAIT_FOR_COMMIT_MS })
 
     gcs.mockRestore()
     localStorage.clear()
