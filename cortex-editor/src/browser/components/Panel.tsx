@@ -108,7 +108,7 @@ function ensureBlastRadiusStyle(): void {
 let highlightFrame = 0
 let clearFrame = 0
 
-function highlightSharedElements(info: { elements: HTMLElement[]; count: number }, selected: HTMLElement | null): void {
+function highlightSharedElements(info: SharedClassInfo | SharedSourceInfo, selected: HTMLElement | null): void {
   ensureBlastRadiusStyle()
   cancelAnimationFrame(clearFrame)
   cancelAnimationFrame(highlightFrame)

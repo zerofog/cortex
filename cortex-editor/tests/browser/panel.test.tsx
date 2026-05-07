@@ -1734,10 +1734,12 @@ describe('Panel — source-only blast-radius banner (ZF0-1583)', () => {
       void shadow
     }
 
-    // Give effects time to run
-    await new Promise(r => setTimeout(r, 50))
+    // Wait for the panel root to be present — proves render + effects have flushed
+    await vi.waitFor(() => {
+      expect(shadowRoot.querySelector('.cortex-panel')).not.toBeNull()
+    }, { timeout: 500 })
 
-    // Neither banner should appear
+    // Neither banner should appear (panel is rendered but no sharing detected)
     expect(shadowRoot.querySelector('.cortex-panel__scope')).toBeNull()
     expect(shadowRoot.querySelector('.cortex-panel__scope--source-only')).toBeNull()
   })

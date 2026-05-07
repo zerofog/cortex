@@ -625,9 +625,10 @@
 
 /* Source-only variant: inherits base scope banner styles; no toggle buttons.
    Gated on {sharedSourceInfo && !sharedInfo} so CSS-class banner wins precedence
-   and this modifier never co-renders with the full scope banner (ZF0-1583). */
+   and this modifier never co-renders with the full scope banner (ZF0-1583).
+   Tighter block padding compensates for the absent toggle child's visual mass. */
 .cortex-panel__scope--source-only {
-  cursor: default;
+  padding-block: var(--cx-sp-2);
 }
 
 /* ── Staging drift banner (ZF0-1468) ─────────── */
