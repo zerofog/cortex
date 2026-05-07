@@ -1,0 +1,22 @@
+cortex-editor/src/browser/components/controls/Dropdown.tsx
+  s_32cd34190d2c45::t_6fc98dd1d35587 45
+  s_32cd34190d2c45::t_2295c0201b3c48 2,32,38,162-163,169,176
+cortex-editor/tests/browser/controls/dropdown.test.tsx
+  s_32cd34190d2c45::t_caf5f9ef3f30fb 221-251
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "3fc72a8fb63573a35d39b8244ef780a2d96e314e",
+  "prompts": {},
+  "sessions": {
+    "s_32cd34190d2c45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dff0f-5cd2-7a13-8b87-32b2fa2505cc",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
