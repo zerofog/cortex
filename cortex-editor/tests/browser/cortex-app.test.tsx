@@ -540,9 +540,14 @@ describe('CortexApp', () => {
       orphans.push(target)
       mockGetBoundingClientRect(target, { top: 50, left: 50, width: 200, height: 100 })
 
-      // Wait for Panel + sections to mount
-      selectCb([target], 'replace')
-      await new Promise(r => setTimeout(r, 50))
+      // Error cards are scoped to the selected element source, so wait for
+      // the selected Panel commit before injecting edit_status messages.
+      await act(async () => {
+        selectCb([target], 'replace')
+      })
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).not.toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
 
       return target
     }
@@ -562,10 +567,11 @@ describe('CortexApp', () => {
       // Synthetic edit dispatch — simulates what the Apply gesture will eventually do.
       const editId = 'test-edit-failed-1'
       const testBridge = (window as any).__CORTEX_TEST__ as { handleEditDispatch: (id: string, src: string, prop: string, val: string) => void }
-      testBridge.handleEditDispatch(editId, 'Hero.tsx:5:3', 'padding-bottom', '16px')
-
-      // Simulate server failure for this edit
-      channel._simulateMessage({ type: 'edit_status', editId, status: 'failed', reason: 'CSS parse error' })
+      await act(async () => {
+        testBridge.handleEditDispatch(editId, 'Hero.tsx:5:3', 'padding-bottom', '16px')
+        // Simulate server failure for this edit
+        channel._simulateMessage({ type: 'edit_status', editId, status: 'failed', reason: 'CSS parse error' })
+      })
       await vi.waitFor(() => {
         // Error card should be visible
         const errorCard = root.querySelector('.cortex-error-card')
