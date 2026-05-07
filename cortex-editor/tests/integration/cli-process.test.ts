@@ -6,7 +6,6 @@ import { dirname, resolve } from 'node:path'
 import { ensureCliBuilt } from './helpers/cli-build.js'
 import { WebSocketServer, type WebSocket as WSClient } from 'ws'
 import { createServer, type Server } from 'node:http'
-import { cortexApplyEditsInputSchema } from '../../src/schemas/index.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -16,6 +15,7 @@ const CLI_DIST = resolve(REPO_ROOT, 'dist/cli/index.js')
 describe('cortex CLI — built-process integration (Layer 5)', () => {
   let client: Client
   let transport: StdioClientTransport
+  let capturedPid: number | null = null
 
   beforeAll(async () => {
     await ensureCliBuilt()
@@ -26,14 +26,35 @@ describe('cortex CLI — built-process integration (Layer 5)', () => {
     })
     // Drain stderr to avoid pipe-buffer backpressure (matches describe 2's pattern).
     transport.stderr?.on('data', () => {})
+    transport.stderr?.on('error', (err) => { console.error('[layer5] stderr error', err) })
 
     client = new Client({ name: 'cortex-layer5-test', version: '0.0.0' }, { capabilities: {} })
     await client.connect(transport)
+    capturedPid = (transport as unknown as { pid?: number }).pid ?? null
   }, 180_000)
 
   afterAll(async () => {
-    if (client) await client.close()
-    if (transport) await transport.close()
+    // Promise.allSettled so one cleanup failure doesn't skip the rest
+    const results = await Promise.allSettled([
+      client?.close(),
+      transport?.close(),
+    ])
+    const errs = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+    // AC #5 enforcement: verify the spawned CLI actually exited.
+    // process.kill(pid, 0) throws ESRCH if the process is gone — exactly what we want.
+    if (capturedPid !== null) {
+      // Brief grace period for OS to reap the child after transport.close()
+      await new Promise(r => setTimeout(r, 100))
+      let exitedCleanly = false
+      try {
+        process.kill(capturedPid, 0)
+        // process still alive — bad
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ESRCH') exitedCleanly = true
+      }
+      if (!exitedCleanly) errs.push({ status: 'rejected', reason: new Error(`AC #5: child ${capturedPid} did not exit`) })
+    }
+    if (errs.length > 0) throw errs[0].reason
   })
 
   it('built CLI launches and accepts MCP handshake', async () => {
@@ -80,13 +101,18 @@ describe('cortex CLI — built-process notification round-trip (Layer 5)', () =>
   let client: Client
   let transport: StdioClientTransport
   let port: number
+  let capturedPid: number | null = null
 
   beforeAll(async () => {
     await ensureCliBuilt()
 
     httpServer = createServer()
     wss = new WebSocketServer({ server: httpServer, path: '/@cortex/ws' })
-    wss.on('connection', (sock) => { cliWs = sock })
+    wss.on('error', (err) => { console.error('[layer5] wss error', err) })
+    wss.on('connection', (sock) => {
+      sock.on('error', (err) => { console.error('[layer5] cliWs error', err) })
+      cliWs = sock
+    })
 
     port = await new Promise<number>((resolvePort, reject) => {
       httpServer.once('error', reject)
@@ -96,6 +122,8 @@ describe('cortex CLI — built-process notification round-trip (Layer 5)', () =>
         else reject(new Error('failed to bind ephemeral port'))
       })
     })
+    // Long-lived error handler after successful listen
+    httpServer.on('error', (err) => { console.error('[layer5] httpServer error', err) })
 
     transport = new StdioClientTransport({
       command: 'node',
@@ -104,9 +132,11 @@ describe('cortex CLI — built-process notification round-trip (Layer 5)', () =>
     })
     // Drain stderr to avoid backpressure (per T2 quality review nit).
     transport.stderr?.on('data', () => {})
+    transport.stderr?.on('error', (err) => { console.error('[layer5] stderr error', err) })
 
     client = new Client({ name: 'cortex-layer5-notify-test', version: '0.0.0' }, { capabilities: {} })
     await client.connect(transport)
+    capturedPid = (transport as unknown as { pid?: number }).pid ?? null
 
     // Wait up to 5s for the CLI's WS to connect to our fake Vite server.
     // The recursive `tick` chain stops on `stopped` so a 5s reject doesn't
@@ -127,12 +157,31 @@ describe('cortex CLI — built-process notification round-trip (Layer 5)', () =>
   }, 180_000)
 
   afterAll(async () => {
-    if (client) await client.close()
-    if (transport) await transport.close()
     if (cliWs) cliWs.terminate()
-    if (wss && httpServer) {
-      await new Promise<void>((resolve) => wss.close(() => httpServer.close(() => resolve())))
+    const results = await Promise.allSettled([
+      client?.close(),
+      transport?.close(),
+      new Promise<void>((resolve) => {
+        if (!wss || !httpServer) return resolve()
+        wss.close(() => httpServer.close(() => resolve()))
+      }),
+    ])
+    const errs = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+    // AC #5 enforcement: verify the spawned CLI actually exited.
+    // process.kill(pid, 0) throws ESRCH if the process is gone — exactly what we want.
+    if (capturedPid !== null) {
+      // Brief grace period for OS to reap the child after transport.close()
+      await new Promise(r => setTimeout(r, 100))
+      let exitedCleanly = false
+      try {
+        process.kill(capturedPid, 0)
+        // process still alive — bad
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ESRCH') exitedCleanly = true
+      }
+      if (!exitedCleanly) errs.push({ status: 'rejected', reason: new Error(`AC #5: child ${capturedPid} did not exit`) })
     }
+    if (errs.length > 0) throw errs[0].reason
   })
 
   it('forwards staged-edits-ready notification when Vite client sends one', async () => {
@@ -177,28 +226,27 @@ describe('cortex CLI — built-process notification round-trip (Layer 5)', () =>
     expect(params.meta.kind).toBe('staged-edits')
     expect(params.meta.request_id).toBe('layer5-test-1')
     expect(params.meta.count).toBe('3')
+    expect(params.content).toContain('3')
+    expect(typeof params.content).toBe('string')
+    expect(params.content.length).toBeGreaterThan(0)
   })
 
-  it('cortex_apply_edits validates intentIds across the SDK process boundary', async () => {
-    // Direct schema check — proves the schema is what enforces the contract.
-    expect(cortexApplyEditsInputSchema.safeParse({ intentIds: ['stub-1'] }).success).toBe(true)
-    expect(cortexApplyEditsInputSchema.safeParse({ intentIds: 'not-an-array' }).success).toBe(false)
-    expect(cortexApplyEditsInputSchema.safeParse({}).success).toBe(false)
-
-    // SDK round-trip — proves the schema is wired into the MCP tool registration
-    // in the BUILT artifact (not just the source). Reference pattern:
-    // tests/cli/mcp.test.ts:723-733.
-    const invalid = await client.callTool({
-      name: 'cortex_apply_edits',
-      arguments: { intentIds: 'not-an-array' },
-    })
-    expect(invalid.isError).toBe(true)
-    const text = (invalid.content as Array<{ text: string }>)[0].text
-    expect(text).toContain('intentIds')
-
-    // Falsifiability: rename 'intentIds' to anything else in
-    // cortexApplyEditsInputSchema (src/schemas/mcp-tool-inputs.ts) — direct
-    // parse of valid input fails (good shape now invalid), and SDK round-trip
-    // text won't contain 'intentIds'.
+  it('cortex_apply_edits exposes a wired-up inputSchema via the SDK boundary', async () => {
+    // Layer-5-unique assertion: the BUILT artifact's tool registration must
+    // include the schema. Layer 4 (tests/cli/mcp.test.ts:723-733) already
+    // proves the schema rejects bad input via SDK round-trip; Layer 3
+    // (tests/schemas/mcp-tool-inputs.test.ts) already proves the schema
+    // itself rejects bad shape. What's UNIQUE here: the schema is bundled
+    // and registered correctly in dist/cli/index.js.
+    const result = await client.listTools()
+    const applyEdits = result.tools.find(t => t.name === 'cortex_apply_edits')
+    expect(applyEdits).toBeTruthy()
+    expect(applyEdits!.inputSchema).toBeTruthy()
+    expect(applyEdits!.inputSchema.type).toBe('object')
+    expect(applyEdits!.inputSchema.properties).toBeTruthy()
+    expect((applyEdits!.inputSchema.properties as Record<string, unknown>).intentIds).toBeTruthy()
+    // Falsifiability: drop `inputSchema: cortexApplyEditsInputSchema.shape`
+    // from the tool registration in src/cli/mcp.ts — this assertion fails
+    // because the built artifact's tool definition won't expose properties.intentIds.
   })
 })

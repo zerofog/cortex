@@ -32,6 +32,18 @@ describe('ensureCliBuilt', () => {
     expect(secondMtime).toBe(firstMtime)
   }, 180_000)
 
+  it('does not rebuild via mtime path when src is unchanged (cache flag bypassed)', async () => {
+    await ensureCliBuilt()
+    // Reset the in-memory cache flag so the next call goes through the mtime check
+    _resetBuildCacheForTesting()
+    const firstMtime = statSync(CLI_DIST).mtimeMs
+    // No source files were touched, so mtime gate should detect "no rebuild needed"
+    await ensureCliBuilt()
+    const secondMtime = statSync(CLI_DIST).mtimeMs
+    // mtime is unchanged ONLY if the build did not run — proves the mtime gate works
+    expect(secondMtime).toBe(firstMtime)
+  }, 180_000)
+
   it('rebuilds when dist is older than a source file', async () => {
     await ensureCliBuilt()
     _resetBuildCacheForTesting()

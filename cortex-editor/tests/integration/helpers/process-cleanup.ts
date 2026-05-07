@@ -32,7 +32,12 @@ export async function killChildGracefully(
       if (settled) return
       // Force-kill. If the child is already dead, kill() returns false and no
       // 'exit' event fires — resolve directly to avoid a permanent hang.
-      child.kill('SIGKILL')
+      try {
+        child.kill('SIGKILL')
+      } catch {
+        // child.kill() can rarely throw synchronously (e.g., EPERM on some platforms).
+        // Treat as already-dead: the catch + post-check will resolve via finish().
+      }
       if (child.exitCode !== null || child.signalCode !== null) finish()
     }, timeoutMs)
 
