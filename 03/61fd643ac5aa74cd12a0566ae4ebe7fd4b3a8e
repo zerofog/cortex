@@ -1,0 +1,46 @@
+cortex-editor/src/browser/components/sections/FlexControls.tsx
+  s_1d89566d861367::t_e633cc510a35d3 66
+cortex-editor/tests/browser/panel.typography-alignment.test.tsx
+  s_1d89566d861367::t_da6b8c46281e71 1-152
+cortex-editor/src/browser/styles.css
+  s_1d89566d861367::t_8fd2df4c70df38 1652-1661
+cortex-editor/src/browser/components/Panel.tsx
+  s_1d89566d861367::t_53b3ceba2ee321 50,1225-1226,1304-1312,1325
+cortex-editor/tests/browser/sections/typography-section.test.tsx
+  s_1d89566d861367::t_aa102222d00a3d 13,26,28-29,66-72,298,301,304-308,337,342-363,365-366,368-373,472,483,485-486,491-504,506-511,513,517-527
+  s_1d89566d861367::t_28826322fcb5f1 338
+  s_1d89566d861367::t_2f03b27bcd662b 575-610
+  s_1d89566d861367::t_588b824837879a 364,367
+cortex-editor/src/browser/alignment-router.ts
+  s_1d89566d861367::t_38ceb52327e622 1-70,72,74,76-150
+  s_1d89566d861367::t_20233dcf523cbd 71,73,75
+cortex-editor/src/browser/components/controls/SegmentedControl.tsx
+  s_1d89566d861367::t_a1dbe490f7eeed 17-18,27-28,58,61,67,82,87,93,95,110,112
+  s_1d89566d861367::t_0f697b9b9fc799 88,109
+cortex-editor/tests/browser/sections/typography-section.dispatch.test.tsx
+  s_1d89566d861367::t_195955a00bb4cc 47-53
+cortex-editor/src/browser/components/sections/TypographySection.tsx
+  s_1d89566d861367::t_986affaa385ebc 28-38,58-60,72,80,82-84,86-92,116-136,141,144-159,394-398,411-412,414,660-664,667-668
+  s_1d89566d861367::t_b80b667f0874c4 294-306,659,666
+cortex-editor/tests/browser/alignment-router.test.ts
+  s_1d89566d861367::t_ab0bbd5ea1234c 1-83,85-101
+  s_1d89566d861367::t_fd7035fbdd1031 84
+cortex-editor/tests/browser/helpers.ts
+  s_1d89566d861367::t_a904f7fae4b31a 159-177,181,183
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "0361fd643ac5aa74cd12a0566ae4ebe7fd4b3a8e",
+  "prompts": {},
+  "sessions": {
+    "s_1d89566d861367": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e00e7-841f-7213-a7ba-973c0186ebb6",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
