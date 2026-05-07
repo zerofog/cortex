@@ -60,6 +60,22 @@ describe('SegmentedControl', () => {
     expect([...buttons].every((button) => button.getAttribute('aria-checked') === 'false')).toBe(true)
   })
 
+  it('uses a deterministic tab stop while mixed', () => {
+    setup({ value: 'grid', mixed: true })
+    const buttons = container.querySelectorAll('[role="radio"]')
+    expect(buttons[0].getAttribute('tabindex')).toBe('0')
+    expect(buttons[1].getAttribute('tabindex')).toBe('-1')
+    expect(buttons[2].getAttribute('tabindex')).toBe('-1')
+  })
+
+  it('moves from the focused option while mixed, not the hidden value', () => {
+    const { onChange } = setup({ value: 'grid', mixed: true })
+    const buttons = container.querySelectorAll('[role="radio"]')
+    dispatchKeyboardEvent(buttons[0] as HTMLElement, 'keydown', { key: 'ArrowRight' })
+    expect(onChange).toHaveBeenCalledWith('flex')
+    expect(onChange).not.toHaveBeenCalledWith('none')
+  })
+
   it('calls onChange on click', () => {
     const { onChange } = setup()
     const buttons = container.querySelectorAll('[role="radio"]')

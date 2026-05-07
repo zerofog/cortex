@@ -58,7 +58,9 @@ export function SegmentedControl({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      const idx = options.findIndex((o) => o.value === value)
+      const targetValue = (e.target as HTMLElement | null)?.getAttribute('data-value')
+      const focusedIdx = targetValue ? options.findIndex((o) => o.value === targetValue) : -1
+      const idx = mixed ? (focusedIdx >= 0 ? focusedIdx : 0) : options.findIndex((o) => o.value === value)
       if (idx === -1) return
       let next = -1
       if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
@@ -71,7 +73,7 @@ export function SegmentedControl({
       const target = next >= 0 ? options[next] : undefined
       if (target) onChange(target.value)
     },
-    [options, value, onChange],
+    [options, value, mixed, onChange],
   )
 
   const sizeClass = size === 'sm' ? ' cortex-segmented--sm' : ''
@@ -86,7 +88,7 @@ export function SegmentedControl({
     >
       <div ref={indicatorRef} class="cortex-segmented__indicator" />
       {mixed && <span class="cortex-segmented__mixed-label">Mixed</span>}
-      {options.map((opt) => {
+      {options.map((opt, index) => {
         const isActive = !mixed && opt.value === value
         return (
           <button
@@ -95,7 +97,7 @@ export function SegmentedControl({
             type="button"
             role="radio"
             aria-checked={isActive ? 'true' : 'false'}
-            tabIndex={opt.value === value ? 0 : -1}
+            tabIndex={mixed ? (index === 0 ? 0 : -1) : (opt.value === value ? 0 : -1)}
             aria-label={opt.label ? undefined : opt.title}
             data-tooltip={opt.title}
             data-value={opt.value}
