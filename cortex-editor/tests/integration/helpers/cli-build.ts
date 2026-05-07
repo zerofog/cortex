@@ -1,6 +1,10 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, statSync } from 'node:fs'
-import { resolve, join } from 'node:path'
+import { dirname, resolve, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
 
 const REPO_ROOT = resolve(__dirname, '../../..')
 const CLI_DIST = resolve(REPO_ROOT, 'dist/cli/index.js')
