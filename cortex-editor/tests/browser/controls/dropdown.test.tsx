@@ -218,6 +218,37 @@ describe('Dropdown', () => {
     expect(onChange).toHaveBeenCalledWith('Open Sans')
   })
 
+  it('uses generated active descendant ids for special-character option values', async () => {
+    setup({
+      options: [
+        { value: 'Open Sans / "Serif"', label: 'Open Sans / "Serif"' },
+        { value: 'Roboto Flex [VF]', label: 'Roboto Flex [VF]' },
+      ],
+      value: 'Open Sans / "Serif"',
+    })
+
+    getTrigger().click()
+    await vi.waitFor(() => {
+      expect(getOptions().length).toBe(2)
+    }, { timeout: 500 })
+
+    const filter = getFilter()!
+    let activeId = filter.getAttribute('aria-activedescendant')
+    expect(activeId).toBeTruthy()
+    expect(activeId).not.toContain('Open Sans')
+    expect(activeId).not.toContain('/')
+    expect(activeId).not.toContain('"')
+    expect(document.getElementById(activeId!)).toBe(getOptions()[0])
+
+    dispatchKeyboardEvent(filter, 'keydown', { key: 'ArrowDown' })
+    await vi.waitFor(() => {
+      activeId = filter.getAttribute('aria-activedescendant')
+      expect(document.getElementById(activeId!)).toBe(getOptions()[1])
+    }, { timeout: 500 })
+    expect(activeId).not.toContain('Roboto Flex')
+    expect(activeId).not.toContain('[')
+  })
+
   it('renders chevron icon', () => {
     setup()
     const chevron = container.querySelector('.cortex-dropdown__chevron')

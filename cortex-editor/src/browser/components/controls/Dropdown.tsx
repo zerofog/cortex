@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useState, useRef, useCallback, useEffect, useMemo } from 'preact/hooks'
+import { useState, useRef, useCallback, useEffect, useMemo, useId } from 'preact/hooks'
 import { computePosition, flip, shift } from '@floating-ui/dom'
 
 export interface DropdownOption {
@@ -29,17 +29,20 @@ export function Dropdown({
   const triggerRef = useRef<HTMLButtonElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
   const filterRef = useRef<HTMLInputElement>(null)
+  const dropdownId = useId()
 
   const selected = options.find((o) => o.value === value)
   const selectedLabel = selected?.label ?? ''
   const displayLabel = mixed ? 'Mixed' : selectedLabel || placeholder
   const selectedTooltip = mixed ? 'Mixed values' : selected?.tooltip
+  const listboxId = `${dropdownId}-listbox`
 
   const filtered = useMemo(() => {
     if (!filter) return options
     const lc = filter.toLowerCase()
     return options.filter((o) => o.label.toLowerCase().includes(lc))
   }, [options, filter])
+  const activeOptionId = filtered[highlightIdx] ? `${dropdownId}-option-${highlightIdx}` : undefined
 
   // Position popover when opened — only on open, not on filter changes
   useEffect(() => {
@@ -156,21 +159,21 @@ export function Dropdown({
               type="text"
               role="combobox"
               aria-autocomplete="list"
-              aria-controls="cortex-dropdown-listbox"
-              aria-activedescendant={filtered[highlightIdx] ? `cortex-opt-${filtered[highlightIdx].value}` : undefined}
+              aria-controls={listboxId}
+              aria-activedescendant={activeOptionId}
               value={filter}
               onInput={handleFilterInput}
               onKeyDown={handleKeyDown}
               placeholder="Filter..."
             />
-            <div class="cortex-dropdown__list" role="listbox" id="cortex-dropdown-listbox">
+            <div class="cortex-dropdown__list" role="listbox" id={listboxId}>
               {filtered.length === 0 ? (
                 <div class="cortex-dropdown__empty">No matches</div>
               ) : (
                 filtered.map((opt, i) => (
                   <div
                     key={opt.value}
-                    id={`cortex-opt-${opt.value}`}
+                    id={`${dropdownId}-option-${i}`}
                     class={[
                       'cortex-dropdown__option',
                       i === highlightIdx && 'cortex-dropdown__option--active',
