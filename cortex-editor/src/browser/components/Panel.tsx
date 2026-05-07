@@ -149,16 +149,27 @@ function removeBlastRadiusStyle(): void {
  */
 const TYPOGRAPHY_ELEMENTS = new Set(['INPUT', 'TEXTAREA', 'SELECT'])
 
+// 15-property watch-list for multi-select mixed-state detection (ZF0-1195 / T3).
+// Declared at module scope so the array is allocated once, not per render.
+const MULTI_SELECT_WATCHED_PROPERTIES = [
+  'color', 'background-color', 'font-family', 'font-size', 'font-weight',
+  'line-height', 'letter-spacing', 'padding', 'margin', 'border-radius',
+  'box-shadow', 'opacity', 'display', 'flex-direction', 'gap',
+] as const
+
 export function hasTypographyContent(element: Element): boolean {
   if (TYPOGRAPHY_ELEMENTS.has(element.tagName)) return true
   return (element.textContent ?? '').trim() !== ''
 }
 
 export interface PanelProps {
-  element: HTMLElement | null
+  /** Selected elements; `selectedElements[0]` is the primary for all CSS parsing.
+   *  Empty array means no selection. (ZF0-1195 / T3) */
+  selectedElements: HTMLElement[]
   overrideManager: CSSOverrideManager
   onClose: () => void
   onSelectElement: (el: HTMLElement | null) => void
+  onSelectElements?: (elements: HTMLElement[], action: 'replace' | 'add' | 'toggle') => void
   swatches?: string[]
   /** Design-system text-component bundles (size + line-height + letter-spacing + weight).
    *  Resolved once per dev-server lifetime; `undefined` = not yet received; `[]` = none defined. */
@@ -191,6 +202,21 @@ export interface PanelProps {
    *  Follows the same thunk pattern as flushCommitRef. Returns the intentId so
    *  specs can pass it to staged-edits-discard messages. */
   stageEditRef?: { current: ((source: string, property: string, value: string) => string) | null }
+  /** TEST-ONLY ref written by Panel — allows the e2e test bridge to trigger a full
+   *  commit gesture (applyOverride → commitScrub → commandStack.record + buffer.append)
+   *  on the currently selected elements without going through the scrub UI.
+   *  Only populated when __CORTEX_TEST_BUILD__ is true (DCE'd from prod bundles).
+   *  Returns a Promise that resolves after the microtask-coalesced commitScrub fires. */
+  commitEditRef?: { current: ((property: string, value: string) => Promise<void>) | null }
+  /** TEST-ONLY ref written by Panel — exposes buffer.list() and buffer.size() so e2e
+   *  specs can read the staging buffer without a separate bridge surface.
+   *  Only populated when __CORTEX_TEST_BUILD__ is true (DCE'd from prod bundles). */
+  bufferListRef?: {
+    current: {
+      list: () => import('../hooks/useEditStagingBuffer.js').PendingEdit[]
+      size: () => number
+    } | null
+  }
   /** Set by CortexApp during undo/redo — suppresses phantom re-edits from Panel re-renders. */
   undoInProgressRef?: { current: boolean }
   channel?: CortexChannel
@@ -233,7 +259,7 @@ export interface PanelProps {
 }
 
 export function Panel({
-  element,
+  selectedElements,
   overrideManager,
   onClose,
   onSelectElement,
@@ -261,13 +287,20 @@ export function Panel({
   editErrors,
   onEditDispatch,
   onDismissError,
+  onSelectElements,
   hmrAppliedVersion,
   hmrEventVersion = 0,
   hmrChangedFiles = [],
   staleOverrideCount = 0,
   staleSources,
   stageEditRef,
+  commitEditRef,
+  bufferListRef,
 }: PanelProps): JSX.Element | null {
+  // Back-compat alias: primary element for all CSS-parsing code paths (ZF0-1195 / T3).
+  // All existing usages of `element` inside this function work unchanged.
+  const element = selectedElements[0] ?? null
+
   // ALL hooks first — no conditional returns before hooks
   const [isEntering, setIsEntering] = useState(true)
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -578,7 +611,7 @@ export function Panel({
   // C1: Cache getComputedStyle results + compute dimmed properties in a single useMemo
   // to avoid double forced layout. CRITICAL: activeState + activePseudo in deps so
   // useMemo re-runs after state forcing (getComputedStyle returns a live reference).
-  const { computedStyles, dimmedProperties, mixedProperties } = useMemo(
+  const { computedStyles, dimmedProperties, mixedProperties: scopeMixedProperties } = useMemo(
     () => computePanelStyleSnapshot({
       element,
       activePseudo,
@@ -590,6 +623,45 @@ export function Panel({
     }),
     [element, styleVersion, hmrAppliedVersion, activeState, activePseudo, sharedInfo, editScope],
   )
+
+  // Multi-select mixed properties (ZF0-1195 / T3): compare getComputedStyle across
+  // all selectedElements for the 15-property watch-list. When selectedElements.length
+  // <= 1 the result is always empty. Merged with scopeMixedProperties (scope='all'
+  // cross-sibling comparison) so sections see a unified mixed signal.
+  //
+  // Filter to .isConnected elements before comparing (Phase-4 review A3): T1 deferred
+  // multi-element HMR re-resolution, so secondary elements may go stale (detached) after
+  // an HMR swap. getComputedStyle on a detached node returns empty strings, which would
+  // otherwise produce false "mixed" signals across all 15 watched properties.
+  //
+  // Deps include styleVersion / activeState / activePseudo (PR #104 review I1):
+  // computed values change when stylesheet rules update (styleVersion),
+  // when interaction state forces a different cascade (activeState), or when
+  // we're reading a pseudo-element (activePseudo). Without these deps the
+  // memo holds stale "mixed" signals through animation, hover-state preview,
+  // or pseudo-state editing.
+  const multiSelectMixed = useMemo<Set<string>>(() => {
+    const live = selectedElements.filter(el => el.isConnected)
+    if (live.length <= 1) return new Set()
+    const mixed = new Set<string>()
+    for (const prop of MULTI_SELECT_WATCHED_PROPERTIES) {
+      let firstVal: string | null = null
+      for (const el of live) {
+        const v = getComputedStyle(el).getPropertyValue(prop).trim()
+        if (firstVal === null) firstVal = v
+        else if (v !== firstVal) { mixed.add(prop); break }
+      }
+    }
+    return mixed
+  }, [selectedElements, hmrAppliedVersion, styleVersion, activeState, activePseudo])
+
+  // Merge multi-select mixed with scope-based mixed for a unified signal.
+  const mixedProperties = useMemo<Set<string> | undefined>(() => {
+    if (multiSelectMixed.size === 0 && !scopeMixedProperties) return scopeMixedProperties
+    if (multiSelectMixed.size === 0) return scopeMixedProperties
+    if (!scopeMixedProperties) return multiSelectMixed
+    return new Set([...scopeMixedProperties, ...multiSelectMixed])
+  }, [multiSelectMixed, scopeMixedProperties])
 
   const availableWeights = useMemo(
     () => {
@@ -664,28 +736,89 @@ export function Panel({
     // exact shapes. Sharing one array avoids the desync where the buffer entry
     // and the command's view of "what was appended" could drift apart.
     //
-    // Filter to the selected element's source to deduplicate scope='all' sibling entries.
-    const editedProps = changes.filter(c => c.source === source)
-    const instanceSources = sharedInfo && editScope === 'all'
-      ? sharedInfo.elements.map(el => el.getAttribute('data-cortex-source')).filter((s): s is string => s !== null)
-      : undefined
-    const pendingEdits: PendingEdit[] = editedProps.map(c => ({
-      intentId: generateId(),
-      source,
-      property: c.property,
-      value: c.value,
-      previousValue: c.previousValue,
-      // Use the change's own pseudo, not the closure-scoped `activePseudo`.
-      // They're equal today via a useEffect that clears scrubPreviousRef on
-      // pseudo change, but that invariant is action-at-a-distance — local
-      // truth (`c.pseudo`) is always correct.
-      pseudo: c.pseudo,
-      // PendingEdit.scope mirrors the server's CortexEdit.scope contract
-      // ('instance' | 'all'); editScope already uses the same shape.
-      scope: editScope,
-      instanceSources,
-      timestamp: Date.now(),
-    }))
+    // Multi-select: one PendingEdit per (selectedElement, property) pair.
+    // Single-select: one PendingEdit per changed property on the primary element.
+    const isMultiSelect = selectedElements.length > 1
+    const isShared = !!sharedInfo && editScope === 'all'
+
+    let pendingEdits: PendingEdit[]
+    if (isMultiSelect) {
+      // Filter `changes` to entries matching this element's source — mirrors the
+      // single-select branch's `c.source === source` filter (Post-Fix Discipline
+      // rule 3: parallel branches should mirror).
+      //
+      // Source-dedup (PR #104 review C1): expandSharedSource() may put N DOM
+      // nodes with the same data-cortex-source into selectedElements (e.g.,
+      // .map()-rendered list items). Without deduping by source, the outer
+      // loop pushes one PendingEdit per DOM node — buffer's last-write-wins
+      // collapses them to one entry, but commandStack's pendingEdits inflates
+      // by N. Same class as the T4 round 2 O(N²) bug. Use a seenSources Set
+      // so the first occurrence of each source produces exactly one intent.
+      pendingEdits = []
+      const seenSources = new Set<string>()
+      for (const el of selectedElements) {
+        const elSource = el.getAttribute('data-cortex-source')
+        if (!elSource) continue
+        if (seenSources.has(elSource)) continue
+        seenSources.add(elSource)
+        // When scope='all' is also active, each unique selected source fans out
+        // to its own shared-class siblings — each PendingEdit carries its own instanceSources.
+        let perElementInstanceSources: string[] | undefined
+        if (isShared) {
+          try {
+            const shared = detectSharedClasses(el)
+            perElementInstanceSources = shared
+              ? shared.elements
+                  .map(e => e.getAttribute('data-cortex-source'))
+                  .filter((s): s is string => s !== null)
+              : undefined
+          } catch (err) {
+            console.warn('[cortex] detectSharedClasses threw during multi-select fan-out', err)
+            perElementInstanceSources = undefined
+          }
+        }
+        for (const c of changes) {
+          if (c.source !== elSource) continue // mirrors single-select branch
+          pendingEdits.push({
+            intentId: generateId(),
+            source: elSource,
+            property: c.property,
+            value: c.value,
+            previousValue: c.previousValue,
+            // Use the change's own pseudo, not the closure-scoped `activePseudo`.
+            pseudo: c.pseudo,
+            scope: isShared ? 'all' : 'instance',
+            instanceSources: perElementInstanceSources,
+            timestamp: Date.now(),
+          })
+        }
+      }
+    } else {
+      // Single-select: filter to the primary source, pack optional instanceSources.
+      const editedProps = changes.filter(c => c.source === source)
+      const instanceSources = isShared
+        ? sharedInfo!.elements
+            .map(el => el.getAttribute('data-cortex-source'))
+            .filter((s): s is string => s !== null)
+        : undefined
+      pendingEdits = editedProps.map(c => ({
+        intentId: generateId(),
+        source,
+        property: c.property,
+        value: c.value,
+        previousValue: c.previousValue,
+        // Use the change's own pseudo, not the closure-scoped `activePseudo`.
+        // They're equal today via a useEffect that clears scrubPreviousRef on
+        // pseudo change, but that invariant is action-at-a-distance — local
+        // truth (`c.pseudo`) is always correct.
+        pseudo: c.pseudo,
+        // PendingEdit.scope mirrors the server's CortexEdit.scope contract
+        // ('instance' | 'all'); editScope already uses the same shape.
+        scope: editScope,
+        instanceSources,
+        timestamp: Date.now(),
+      }))
+    }
 
     // Record command on stack. Overrides are already applied during scrub phase,
     // so record() stores without re-executing (avoids double-apply). The command
@@ -723,7 +856,7 @@ export function Panel({
       // doesn't fire — so we re-establish the contract here.
       onDismissError?.(`${edit.source}${SEP}${edit.property}`)
     }
-  }, [element, overrideManager, buffer, sharedInfo, editScope, commandStack, onDismissError])
+  }, [selectedElements, element, overrideManager, buffer, sharedInfo, editScope, commandStack, onDismissError])
 
   // Expose flush for CortexApp to call before undo/redo — microtask commits
   // haven't fired yet when blur+undo runs synchronously in the same tick.
@@ -814,27 +947,50 @@ export function Panel({
       }
     }
 
-    // scope='all': apply CSS override preview to ALL shared elements so
-    // the user sees the effect everywhere, not just on the selected element.
-    if (sharedInfo && editScope === 'all') {
-      for (const el of sharedInfo.elements) {
-        const elSource = el.getAttribute('data-cortex-source')
-        if (elSource) {
-          const elPrevKey = `${elSource}${SEP}${property}${SEP}${pseudo ?? ''}`
-          if (!scrubPreviousRef.current.has(elPrevKey)) {
-            const elExisting = overrideManager.get(elSource, property, pseudo)
-            if (elExisting !== undefined) {
-              scrubPreviousRef.current.set(elPrevKey, elExisting)
-            } else {
-              const computed = getComputedStyle(el, pseudo ?? null).getPropertyValue(property).trim()
-              scrubPreviousRef.current.set(elPrevKey, computed || '')
-            }
+    // Fan-out targets for this gesture, computed once per applyOverride call.
+    // Multi-select alone: apply override to ALL selected elements.
+    // scope='all' (single-select): apply to all shared-class siblings.
+    // Multi-select + scope='all' (PR #104 review C2): apply to UNION of selected
+    //   elements AND each selected element's shared-class siblings — otherwise
+    //   the live preview misses what `commitScrub`'s instanceSources will dispatch
+    //   to the server, producing preview/apply divergence.
+    // Single-select + scope='instance': apply to the primary element only.
+    const fanOutTargets: HTMLElement[] = (() => {
+      const isMulti = selectedElements.length > 1
+      const isAll = sharedInfo && editScope === 'all'
+      if (isMulti && isAll) {
+        const seen = new Set<HTMLElement>()
+        for (const sel of selectedElements) {
+          if (!seen.has(sel)) seen.add(sel)
+          try {
+            const shared = detectSharedClasses(sel)
+            if (shared) for (const sib of shared.elements) seen.add(sib)
+          } catch {
+            // detectSharedClasses can throw DOMException SecurityError on
+            // cross-origin querySelector — fall through with just selectedElements.
           }
-          overrideManager.set(elSource, property, value, pseudo)
+        }
+        return Array.from(seen)
+      }
+      if (isMulti) return selectedElements
+      if (isAll) return sharedInfo!.elements
+      return element ? [element] : []
+    })()
+
+    for (const el of fanOutTargets) {
+      const elSource = el.getAttribute('data-cortex-source')
+      if (!elSource) continue
+      const elPrevKey = `${elSource}${SEP}${property}${SEP}${pseudo ?? ''}`
+      if (!scrubPreviousRef.current.has(elPrevKey)) {
+        const elExisting = overrideManager.get(elSource, property, pseudo)
+        if (elExisting !== undefined) {
+          scrubPreviousRef.current.set(elPrevKey, elExisting)
+        } else {
+          const computed = getComputedStyle(el, pseudo ?? null).getPropertyValue(property).trim()
+          scrubPreviousRef.current.set(elPrevKey, computed || '')
         }
       }
-    } else {
-      overrideManager.set(source, property, value, pseudo)
+      overrideManager.set(elSource, property, value, pseudo)
     }
 
     if (commitRender) {
@@ -849,10 +1005,43 @@ export function Panel({
         })
       }
     }
-  }, [element, overrideManager, activePseudo, sharedInfo, editScope, commitScrub])
+  }, [selectedElements, element, overrideManager, activePseudo, sharedInfo, editScope, commitScrub])
 
   const handleCommit = useCallback((c: SectionChange) => applyOverride(c.property, c.value, true), [applyOverride])
   const handleScrub = useCallback((c: SectionChange) => applyOverride(c.property, c.value, false), [applyOverride])
+
+  // TEST-ONLY: expose applyOverride(property, value, true) via commitEditRef so e2e specs
+  // can trigger the full commit gesture (override set + scrubPreviousRef seed + commandStack
+  // record + buffer.append fan-out) without going through the scrub UI. Mirrors the
+  // stageEditRef pattern — Panel owns the assignment, CortexApp passes the ref.
+  // Returns a Promise that resolves after the microtask-coalesced commitScrub fires so callers
+  // don't need their own settling logic.
+  useEffect(() => {
+    if (commitEditRef) {
+      commitEditRef.current = (property: string, value: string): Promise<void> =>
+        new Promise<void>((resolve) => {
+          applyOverride(property, value, false) // arm scrubPreviousRef + override
+          applyOverride(property, value, true)  // schedule microtask commitScrub
+          queueMicrotask(resolve)               // resolve after commitScrub fires
+        })
+      return () => { commitEditRef.current = null }
+    }
+  // applyOverride is stable (useCallback) — safe dep.
+  }, [commitEditRef, applyOverride])
+
+  // TEST-ONLY: expose buffer.list() and buffer.size() via bufferListRef so e2e specs
+  // can read the staging buffer state without additional bridge plumbing. Updated on
+  // every render where the ref is present — the functions read bufferRef.current directly
+  // (synchronous, always current) so there is no staleness risk.
+  useEffect(() => {
+    if (bufferListRef) {
+      bufferListRef.current = {
+        list: () => buffer.list(),
+        size: () => buffer.size(),
+      }
+      return () => { bufferListRef.current = null }
+    }
+  }, [bufferListRef, buffer])
 
   /**
    * Dispatch a className mutation (classOp) to the server, optionally followed
@@ -1481,7 +1670,12 @@ export function Panel({
             Typography conditional on hasTypographyContent; Position hidden
             in shared-class "All" scope. */}
         <SectionGroup label="Elements" groupId="elements">
-          <ElementTree element={element} onSelectElement={onSelectElement} height={layerHeight} hmrAppliedVersion={hmrAppliedVersion} />
+          <ElementTree
+            element={element}
+            onSelectElements={onSelectElements ?? ((els, _action) => onSelectElement(els[0] ?? null))}
+            height={layerHeight}
+            hmrAppliedVersion={hmrAppliedVersion}
+          />
         </SectionGroup>
         <div
           class="cortex-section-resize"

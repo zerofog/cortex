@@ -165,7 +165,10 @@ describe('LayerTree rendering', () => {
     expect(parentNode).toBeDefined()
     parentNode!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
 
-    expect(onSelect).toHaveBeenCalledWith(parent)
+    // ZF0-1195 (T2): LayerTree now forwards the native MouseEvent as an
+    // optional second arg. Assert on the element only — modifier-key behavior
+    // is exercised in ElementTree.test.tsx where it actually matters.
+    expect(onSelect).toHaveBeenCalledWith(parent, expect.anything())
   })
 
   it('shows chevron for nodes with children', () => {

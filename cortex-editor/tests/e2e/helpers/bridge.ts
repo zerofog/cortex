@@ -75,6 +75,22 @@ export interface CortexTestBridge {
    *  first paint — the bridge polls the ref internally with a 2s ceiling
    *  so callers don't need their own settling logic. */
   stageEdit?: (source: string, property: string, value: string) => Promise<string>
+  /** TEST-ONLY: trigger the full applyOverride → commitScrub → commandStack.record
+   *  + buffer.append fan-out on the currently selected elements. Unlike stageEdit,
+   *  this path creates a PropertyEditCommand so the gesture is undoable via Cmd+Z.
+   *  Requires selectedElements to be non-empty before calling.
+   *  Only present in test builds; undefined in prod bundles. */
+  commitEdit?: (property: string, value: string) => Promise<void>
+  /** TEST-ONLY: read the current staging buffer contents.
+   *  Only present in test builds; undefined in prod bundles. */
+  buffer?: {
+    list: () => Array<{ intentId: string; source: string; property: string; value: string; [key: string]: unknown }>
+    size: () => number
+  }
+  /** TEST-ONLY: set multi-element selection directly (bypasses click interactions).
+   *  Calls setSelection(els, 'replace') so Panel fans out edits to all elements.
+   *  Only present in test builds; undefined in prod bundles. */
+  selectElements?: (els: HTMLElement[]) => void
   /** TEST-ONLY: invoke Panel's onEditDispatch handler directly. Allows unit
    *  tests to seed editDispatchRef without going through the scrub commit
    *  path. Only present in test builds; undefined in prod bundles. */

@@ -248,6 +248,15 @@
   transition: border-radius 150ms ease-out;
 }
 
+/* ZF0-1195: Secondary selection outline for non-primary multi-selected elements.
+ * Slightly thinner border so the primary's full-chrome overlay (with label and
+ * state lens) still reads as the focus. Same accent color so the user perceives
+ * the selection as one logical group. */
+.cortex-selection-overlay--secondary {
+  border-width: 2px;
+  border-style: dashed;
+}
+
 .cortex-label {
   position: absolute;
   left: 0;

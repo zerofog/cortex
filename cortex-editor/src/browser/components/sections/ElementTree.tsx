@@ -3,15 +3,25 @@ import { LayerTree } from '../LayerTree.js'
 
 export interface ElementTreeProps {
   element: HTMLElement | null
-  onSelectElement: (el: HTMLElement) => void
+  onSelectElements: (elements: HTMLElement[], action: 'replace' | 'add' | 'toggle') => void
   height: number
   hmrAppliedVersion?: number
 }
 
-export function ElementTree({ element, onSelectElement, height, hmrAppliedVersion }: ElementTreeProps): JSX.Element {
+export function ElementTree({ element, onSelectElements, height, hmrAppliedVersion }: ElementTreeProps): JSX.Element {
+  const handleSelect = (el: HTMLElement, ev?: MouseEvent): void => {
+    const action: 'replace' | 'add' | 'toggle' =
+      ev?.shiftKey ? 'add' : (ev?.metaKey || ev?.ctrlKey) ? 'toggle' : 'replace'
+    onSelectElements([el], action)
+  }
   return (
     <div class="cortex-element-tree">
-      <LayerTree element={element} onSelectElement={onSelectElement} height={height} hmrAppliedVersion={hmrAppliedVersion} />
+      <LayerTree
+        element={element}
+        onSelectElement={handleSelect}
+        height={height}
+        hmrAppliedVersion={hmrAppliedVersion}
+      />
     </div>
   )
 }
