@@ -1,0 +1,25 @@
+cortex-editor/src/browser/components/controls/ColorInput.tsx
+  s_32cd34190d2c45::t_990d380655f04f 228-234,256
+cortex-editor/src/browser/components/controls/NumericInput.tsx
+  s_32cd34190d2c45::t_990d380655f04f 121-135,138,140,145,162,227,234-235
+cortex-editor/tests/browser/controls/numeric-input.test.tsx
+  s_32cd34190d2c45::t_974530e5d68cfa 85-97,143-160
+cortex-editor/tests/browser/controls/color-input.test.tsx
+  s_32cd34190d2c45::t_974530e5d68cfa 117-133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "750ed8983e0fa29dc3ce5697419319ffff4bfa9c",
+  "prompts": {},
+  "sessions": {
+    "s_32cd34190d2c45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dff0f-5cd2-7a13-8b87-32b2fa2505cc",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
