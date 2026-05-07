@@ -1,0 +1,32 @@
+cortex-editor/tests/e2e/README.md
+  s_54aeff9faaade7::t_4520cfddc1a23a 141-149
+cortex-editor/src/browser/styles.css
+  s_54aeff9faaade7::t_8ac77f849744cd 1076-1090,2232,4231-4247
+cortex-editor/tests/styles/css-compliance.test.ts
+  s_54aeff9faaade7::t_10713609a714a6 143-145,149-151
+  s_54aeff9faaade7::t_7cb6c7bdf5e3a8 1-142,146-148,152-212
+cortex-editor/vitest.config.ts
+  s_54aeff9faaade7::t_12dc72c957a226 22
+cortex-editor/src/browser/components/controls/TokenChip.tsx
+  s_54aeff9faaade7::t_1321fb59b2feab 51
+cortex-editor/tests/e2e/panel-design-compliance.spec.ts
+  s_54aeff9faaade7::t_6f48ddc024f6e5 2,4-7,9-10,12-16,18,21-22,36,38-39,53,58
+cortex-editor/tests/browser/components/controls/TokenChip.test.tsx
+  s_54aeff9faaade7::t_32ebdc49b4a374 56-58,62,64,67-69,73,82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "b4c97b6d578642af8ae4eec3bddf51503ef22c72",
+  "prompts": {},
+  "sessions": {
+    "s_54aeff9faaade7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e00e6-3466-7843-b050-731286cbec8d",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
