@@ -450,6 +450,33 @@ describe('GridControls', () => {
     expect(rows.value).toBe('5')
   })
 
+  it.each([
+    ['complex columns', 'gridTemplateColumns', '.cortex-grid-controls__cols', '1fr 2fr auto', 'grid-template-columns'],
+    ['complex rows', 'gridTemplateRows', '.cortex-grid-controls__rows', '1fr 2fr auto', 'grid-template-rows'],
+    ['responsive columns', 'gridTemplateColumns', '.cortex-grid-controls__cols', 'repeat(auto-fit, minmax(200px, 1fr))', 'grid-template-columns'],
+    ['responsive rows', 'gridTemplateRows', '.cortex-grid-controls__rows', 'repeat(auto-fill, minmax(120px, 1fr))', 'grid-template-rows'],
+  ] as const)('non-simple %s template disables count input with explanation', (_label, property, selector, template, emittedProperty) => {
+    const onChange = vi.fn()
+    setup({
+      values: {
+        [property]: template,
+      },
+      onChange,
+    })
+    const field = container.querySelector(selector) as HTMLElement
+    const numeric = field.querySelector('.cortex-numeric-input') as HTMLElement
+    const input = field.querySelector('input') as HTMLInputElement
+    expect(input.disabled).toBe(true)
+    expect(numeric.getAttribute('aria-disabled')).toBe('true')
+    expect(numeric.getAttribute('data-tooltip')).toBe('Grid count requires repeat(N, 1fr)')
+
+    input.focus()
+    input.value = '5'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(calls(onChange, emittedProperty)).toEqual([])
+  })
+
   // ── Simple tier reconstruct emissions ─────────────────────────
 
   it('simple tier: changing cols from 3 to 5 emits repeat(5, 1fr)', () => {
