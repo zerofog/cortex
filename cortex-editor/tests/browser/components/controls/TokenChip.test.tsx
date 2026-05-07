@@ -53,24 +53,24 @@ describe('TokenChip', () => {
     expect(swatch?.style.backgroundColor).toBe('#abc123')
   })
 
-  it('renders a swatch element without a backgroundColor for pattern kind', () => {
-    // happy-dom drops `background: repeating-linear-gradient(...)` from
-    // inline style entirely, so we assert the observable contrast: a swatch
-    // element exists but has no backgroundColor (which would indicate the
-    // color branch was taken). Task 17 visual verification confirms the
-    // actual stripe renders in a real browser.
+  it('renders a pattern swatch without inline color styles for pattern kind', () => {
+    // Pattern rendering is CSS-owned so DESIGN.md source lint can guard it
+    // without allowing inline decorative gradients.
     const root = mount(<TokenChip tokenName="t" swatch={{ kind: 'pattern' }} />)
     const swatch = root.querySelector('.cortex-token-chip__swatch') as HTMLElement | null
     expect(swatch).not.toBeNull()
+    expect(swatch?.classList.contains('cortex-token-chip__swatch--pattern')).toBe(true)
     expect(swatch?.style.backgroundColor).toBe('')
+    expect(swatch?.style.background).toBe('')
   })
 
-  it('distinguishes color and pattern swatches by inline backgroundColor', () => {
-    // Falsifiability: if the component accidentally sets backgroundColor for
-    // the pattern branch (or drops it for the color branch), this test fails.
+  it('distinguishes color and pattern swatches by inline color vs CSS class', () => {
+    // Falsifiability: if the component accidentally sets inline color for the
+    // pattern branch (or drops it for the color branch), this test fails.
     const colorRoot = mount(<TokenChip tokenName="c" swatch={{ kind: 'color', value: '#abc123' }} />)
     const colorSwatch = colorRoot.querySelector('.cortex-token-chip__swatch') as HTMLElement
     expect(colorSwatch.style.backgroundColor).toBe('#abc123')
+    expect(colorSwatch.classList.contains('cortex-token-chip__swatch--pattern')).toBe(false)
     render(null, colorRoot)
     colorRoot.remove()
 
@@ -79,6 +79,7 @@ describe('TokenChip', () => {
       '.cortex-token-chip__swatch',
     ) as HTMLElement
     expect(patternSwatch.style.backgroundColor).toBe('')
+    expect(patternSwatch.classList.contains('cortex-token-chip__swatch--pattern')).toBe(true)
   })
 
   it('omits the swatch element entirely when swatch prop is undefined', () => {
