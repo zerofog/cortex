@@ -101,6 +101,34 @@ export function deepQuerySelectorAll(
 }
 
 /**
+ * Element-typed sibling of `deepQuerySelectorAll`. Returns ALL matching
+ * elements without the `HTMLElement` filter — including SVG / MathML /
+ * other namespaced elements that source-transform may have annotated.
+ *
+ * Used where attribute-set/clear symmetry matters across element types
+ * (e.g., `clearHighlights` must clear what `highlightSharedElements` set,
+ * even on SVG nodes), and where the detector counts must reflect the true
+ * sibling set across loop-rendered SVG icons.
+ *
+ * Same shadow-root traversal semantics as `deepQuerySelectorAll`.
+ */
+export function deepQueryAllElements(
+  selector: string,
+  root: Document | ShadowRoot = document,
+): Element[] {
+  const matches: Element[] = []
+  for (const el of root.querySelectorAll(selector)) {
+    matches.push(el)
+  }
+  for (const el of root.querySelectorAll('*')) {
+    if (el.shadowRoot) {
+      matches.push(...deepQueryAllElements(selector, el.shadowRoot))
+    }
+  }
+  return matches
+}
+
+/**
  * Re-resolve a selection after HMR using the captured metadata.
  *
  * Algorithm is position-first, content-second, preserve-third:

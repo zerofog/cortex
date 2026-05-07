@@ -402,6 +402,7 @@ export function GridControls({
           options={DIRECTION_OPTIONS}
           value={gridAutoFlow}
           onChange={handleDirection}
+          mixed={mixedProperties?.has('grid-auto-flow')}
         />
       </div>
 

@@ -37,7 +37,7 @@ export interface NumericInputProps {
    * Uses the same --cx-warning token as the StagingDriftBanner accent.
    */
   stale?: boolean
-  /** When true, shows '--' placeholder indicating shared elements have different values. */
+  /** When true, shows a Mixed placeholder indicating shared elements have different values. */
   mixed?: boolean
   /**
    * Opt this input into a token family popover. When set to 'spacing', a
@@ -85,7 +85,9 @@ export function NumericInput({
 
   const [localValue, setLocalValue] = useState(String(value))
   const [isEditing, setIsEditing] = useState(false)
+  const [hasExplicitMixedValue, setHasExplicitMixedValue] = useState(false)
   const [isScrubbing, setIsScrubbing] = useState(false)
+  const [scrubBadge, setScrubBadge] = useState<{ value: number; x: number } | null>(null)
   const [popoverOpen, setPopoverOpen] = useState(false)
   const hostRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -120,6 +122,7 @@ export function NumericInput({
   useEffect(() => {
     if (!isEditing) {
       setLocalValue(String(value))
+      setHasExplicitMixedValue(false)
     }
   }, [value, isEditing])
 
@@ -127,17 +130,35 @@ export function NumericInput({
     return min !== undefined ? Math.max(min, v) : v
   }, [min])
 
+  const getStepBaseValue = useCallback(() => {
+    const draftValue = parseFloat(localValueRef.current)
+    if (!isNaN(draftValue)) return draftValue
+    return mixed ? NaN : value
+  }, [mixed, value])
+
+  const syncSteppedValue = useCallback((next: number) => {
+    const str = String(next)
+    localValueRef.current = str
+    setLocalValue(str)
+    if (inputRef.current) inputRef.current.value = str
+    if (mixed) setHasExplicitMixedValue(true)
+    userTypedRef.current = false
+  }, [mixed])
+
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (disabled) {
       e.preventDefault()
       return
     }
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      const baseValue = getStepBaseValue()
+      if (isNaN(baseValue)) return
       e.preventDefault()
       const step = getStep(e)
       const delta = e.key === 'ArrowUp' ? step : -step
-      const next = clampValue(roundTenth(value + delta))
+      const next = clampValue(roundTenth(baseValue + delta))
       onChange(next)
+      syncSteppedValue(next)
     } else if (e.key === 'Enter') {
       e.preventDefault()
       const parsed = parseFloat(localValueRef.current)
@@ -145,33 +166,43 @@ export function NumericInput({
         onChange(clampValue(parsed))
       }
       userTypedRef.current = false
+      setHasExplicitMixedValue(false)
       setIsEditing(false)
       inputRef.current?.blur()
     } else if (e.key === 'Escape') {
       setLocalValue(String(value))
+      setHasExplicitMixedValue(false)
       setIsEditing(false)
       inputRef.current?.blur()
     }
-  }, [disabled, value, onChange, clampValue])
+  }, [disabled, value, onChange, clampValue, getStepBaseValue, syncSteppedValue])
 
-  const handleFocus = useCallback(() => {
+  const beginEditing = useCallback((focusInput = false) => {
     if (disabled) return
-    setIsEditing(true)
     userTypedRef.current = false
     if (mixed) {
       // Don't reveal the selected element's value — user types the target value
       // from scratch, since there's no single "current" value in mixed state.
       localValueRef.current = ''
       setLocalValue('')
+      setHasExplicitMixedValue(false)
+      if (inputRef.current) inputRef.current.value = ''
     }
+    setIsEditing(true)
+    if (focusInput) inputRef.current?.focus()
     inputRef.current?.select()
     if (showPopover) {
       setPopoverOpen(true)
     }
   }, [disabled, mixed, showPopover])
 
+  const handleFocus = useCallback(() => {
+    beginEditing()
+  }, [beginEditing])
+
   const handleBlur = useCallback(() => {
     setIsEditing(false)
+    setHasExplicitMixedValue(false)
     // Tab-out / focus-loss should also dismiss the popover. Without this,
     // keyboard tabbing through spacing inputs leaves stale popovers mounted
     // and registered in popover-stack, so subsequent Escape dismisses the
@@ -187,7 +218,7 @@ export function NumericInput({
     }
     const parsed = parseFloat(localValueRef.current)
     if (isNaN(parsed)) {
-      // In mixed state, revert to empty (shows '--' placeholder) instead of
+      // In mixed state, revert to empty (shows the Mixed placeholder) instead of
       // revealing the selected element's value for a single frame.
       const reverted = mixed ? '' : String(value)
       localValueRef.current = reverted
@@ -197,7 +228,7 @@ export function NumericInput({
       const clamped = clampValue(parsed)
       // Only commit if the user actually typed a new value — prevents HMR-triggered
       // blurs from dispatching phantom edits when React replaces DOM nodes.
-      if (userTypedRef.current && clamped !== value) {
+      if (userTypedRef.current && (mixed || clamped !== value)) {
         onChange(clamped)
       }
       const str = String(clamped)
@@ -213,22 +244,51 @@ export function NumericInput({
     const v = (e.target as HTMLInputElement).value
     localValueRef.current = v
     setLocalValue(v)
-  }, [disabled])
+    if (mixed) setHasExplicitMixedValue(v.trim() !== '')
+  }, [disabled, mixed])
 
   const handleWheel = useCallback((e: WheelEvent) => {
     if (disabled) return
     const root = inputRef.current?.getRootNode() as Document | ShadowRoot
     if (root?.activeElement !== inputRef.current) return
+    const baseValue = getStepBaseValue()
+    if (isNaN(baseValue)) return
     e.preventDefault()
     const step = getStep(e)
     const delta = e.deltaY < 0 ? step : -step
-    const next = clampValue(roundTenth(value + delta))
+    const next = clampValue(roundTenth(baseValue + delta))
     onChange(next)
-  }, [disabled, value, onChange, clampValue])
+    syncSteppedValue(next)
+  }, [disabled, onChange, clampValue, getStepBaseValue, syncSteppedValue])
 
   const handleScrubDown = useCallback((e: PointerEvent) => {
     if (disabled) return
     if (isEditing) return
+    if (mixed) {
+      const target = e.currentTarget as HTMLElement
+      try { target.setPointerCapture(e.pointerId) } catch {}
+
+      const cleanup = () => {
+        scrubCleanupRef.current = null
+        target.removeEventListener('pointerup', handleMixedUp)
+        target.removeEventListener('pointercancel', handleMixedCancel)
+      }
+
+      const handleMixedUp = (ue: PointerEvent) => {
+        try { target.releasePointerCapture(ue.pointerId) } catch {}
+        cleanup()
+        beginEditing(true)
+      }
+
+      const handleMixedCancel = () => {
+        cleanup()
+      }
+
+      target.addEventListener('pointerup', handleMixedUp)
+      target.addEventListener('pointercancel', handleMixedCancel)
+      scrubCleanupRef.current = cleanup
+      return
+    }
     scrubStartX.current = e.clientX
     scrubStartValue.current = value
 
@@ -236,7 +296,9 @@ export function NumericInput({
     try { target.setPointerCapture(e.pointerId) } catch {}
 
     setIsScrubbing(true)
+    setScrubBadge(null)
     let hasMoved = false
+    const targetLeft = target.getBoundingClientRect().left
 
     const handleMove = (me: PointerEvent) => {
       const delta = me.clientX - scrubStartX.current
@@ -245,12 +307,14 @@ export function NumericInput({
       const next = clampValue(roundTenth(scrubStartValue.current + delta))
       localValueRef.current = String(next)
       setLocalValue(String(next))
+      setScrubBadge({ value: next, x: Math.max(0, me.clientX - targetLeft) })
       onScrub?.(next)
     }
 
     const cleanup = () => {
       scrubCleanupRef.current = null
       setIsScrubbing(false)
+      setScrubBadge(null)
       target.removeEventListener('pointermove', handleMove)
       target.removeEventListener('pointerup', handleUp)
       target.removeEventListener('pointercancel', handleCancel)
@@ -282,7 +346,7 @@ export function NumericInput({
     target.addEventListener('pointerup', handleUp)
     target.addEventListener('pointercancel', handleCancel)
     scrubCleanupRef.current = cleanup
-  }, [disabled, isEditing, value, onChange, onScrub, onScrubEnd, clampValue])
+  }, [disabled, isEditing, mixed, beginEditing, value, onChange, onScrub, onScrubEnd, clampValue])
 
   const handlePopoverPick = useCallback((chosen: { name: string; valuePx: number; source: SpacingToken['source'] }) => {
     // `name` and `source` are part of the contract for ZF0-1210 (staging-buffer flow
@@ -308,6 +372,7 @@ export function NumericInput({
     // doesn't fire a phantom commit using the picked value as if the user had typed it.
     userTypedRef.current = false
     setPopoverOpen(false)
+    setHasExplicitMixedValue(false)
   }, [onChange, clampValue])
 
   const handlePopoverDismiss = useCallback(() => {
@@ -359,8 +424,8 @@ export function NumericInput({
         // grid/flex gap, etc.) are unaffected.
         size={4}
         aria-label={effectiveTooltip ?? fallbackAccessibleLabel}
-        value={mixed && !isEditing ? '' : localValue}
-        placeholder={mixed ? '--' : undefined}
+        value={mixed && (!isEditing || !hasExplicitMixedValue) ? '' : localValue}
+        placeholder={mixed ? 'Mixed' : undefined}
         disabled={disabled}
         tabIndex={disabled ? -1 : undefined}
         onInput={handleInput}
@@ -370,6 +435,15 @@ export function NumericInput({
         onWheel={handleWheel}
       />
       {unit && <span class="cortex-numeric-input__unit">{unit}</span>}
+      {scrubBadge && (
+        <span
+          class="cortex-numeric-input__scrub-badge"
+          style={{ left: `${scrubBadge.x}px` }}
+          aria-hidden="true"
+        >
+          {scrubBadge.value}{unit ?? ''}
+        </span>
+      )}
       {popoverOpen && (
         <TokenPresetPopover
           anchorRef={hostRef}

@@ -182,6 +182,7 @@ export function FlexControls({
   // `mixedProperties` (set by Panel.tsx), not by rendering two numbers.
   const { flexDirection, justifyContent, alignItems, rowGap, columnGap, flexWrap } = values
   const column = isColumnDirection(flexDirection)
+  const directionMixed = mixedProperties?.has('flex-direction') === true
 
   // ── Gap lock ─────────────────────────────────────────────────
   const [gapLocked, setGapLocked] = useState(true)
@@ -203,6 +204,7 @@ export function FlexControls({
 
   const handleGridJustify = useCallback(
     (v: string) => {
+      if (directionMixed) return
       // X-axis (horizontal on screen) — main in row, cross in column.
       // Route via the single-source-of-truth helper so the swap is
       // enforced uniformly.
@@ -211,27 +213,29 @@ export function FlexControls({
         value: v,
       })
     },
-    [onChange, flexDirection],
+    [onChange, flexDirection, directionMixed],
   )
 
   const handleGridAlign = useCallback(
     (v: string) => {
+      if (directionMixed) return
       onChange({
         property: flexAxisToCssProperty('y', flexDirection),
         value: v,
       })
     },
-    [onChange, flexDirection],
+    [onChange, flexDirection, directionMixed],
   )
 
   const handleGridDistribute = useCallback(
     (axis: 'main' | 'cross', v: string) => {
+      if (directionMixed) return
       onChange({
         property: flexAxisToCssProperty({ distribute: axis }, flexDirection),
         value: v,
       })
     },
-    [onChange, flexDirection],
+    [onChange, flexDirection, directionMixed],
   )
 
   // ── X / Y dropdowns ──────────────────────────────────────────
@@ -249,12 +253,18 @@ export function FlexControls({
   const yValue = column ? justifyContent : alignItems
 
   const handleX = useCallback(
-    (v: string) => onChange({ property: xProperty, value: v }),
-    [onChange, xProperty],
+    (v: string) => {
+      if (directionMixed) return
+      onChange({ property: xProperty, value: v })
+    },
+    [onChange, xProperty, directionMixed],
   )
   const handleY = useCallback(
-    (v: string) => onChange({ property: yProperty, value: v }),
-    [onChange, yProperty],
+    (v: string) => {
+      if (directionMixed) return
+      onChange({ property: yProperty, value: v })
+    },
+    [onChange, yProperty, directionMixed],
   )
 
   // ── Gap (linked axes) ────────────────────────────────────────
@@ -330,6 +340,7 @@ export function FlexControls({
           options={DIRECTION_OPTIONS}
           value={flexDirection}
           onChange={handleDirection}
+          mixed={directionMixed}
         />
       </div>
 
@@ -345,6 +356,7 @@ export function FlexControls({
               ariaLabel="X alignment"
               axisLabel="X"
               tooltip={xProperty}
+              disabled={directionMixed}
             />
           </div>
           <div data-xy-axis="y" class="cortex-flex-controls__xy-field">
@@ -355,6 +367,7 @@ export function FlexControls({
               ariaLabel="Y alignment"
               axisLabel="Y"
               tooltip={yProperty}
+              disabled={directionMixed}
             />
           </div>
         </div>
@@ -423,6 +436,7 @@ export function FlexControls({
             options={WRAP_OPTIONS}
             value={flexWrap}
             onChange={handleWrap}
+            mixed={mixedProperties?.has('flex-wrap')}
           />
         </div>
       </ExpandableOptions>
