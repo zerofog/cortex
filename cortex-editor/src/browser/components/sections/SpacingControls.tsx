@@ -2,8 +2,8 @@
  * SpacingControls — Panel v2 Task 10 (ZF0-1188)
  *
  * Simplified spacing sub-control for Padding + Margin (gap is handled
- * by FlexControls / GridControls). Uses compact text prefixes in the
- * NumericInput fields (e.g., "P ↔" / "P ↕") instead of icon prefixes.
+ * by FlexControls / GridControls). Uses compact text + Lucide axis icon
+ * prefixes in the NumericInput fields.
  *
  * Business logic: Controls the padding and margin CSS properties of the
  * selected element. Horizontal inputs set left+right, vertical inputs
@@ -15,6 +15,7 @@ import { useState, useCallback } from 'preact/hooks'
 import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { NumericInput } from '../controls/NumericInput.js'
+import { ArrowLeftRight, ArrowUpDown, Lock, LockOpen } from '../icons.js'
 
 export type SpacingChange = SectionChange
 
@@ -136,7 +137,7 @@ function SpacingRow({
         <NumericInput
           value={horizontal}
           unit="px"
-          prefix={`${short} \u2194`}
+          prefix={<><span>{short}</span><ArrowLeftRight size={12} /></>}
           tooltip={`Horizontal ${prefix}`}
           min={allowNegative ? undefined : 0}
           mixed={horizontalDiverges || mixedProperties?.has(`${prefix}-left`) || mixedProperties?.has(`${prefix}-right`)}
@@ -154,18 +155,12 @@ function SpacingRow({
           data-tooltip={locked ? 'Unlock axes' : 'Lock axes'}
           onClick={onToggleLock}
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="6.5" width="8" height="5.5" rx="1" />
-            {locked
-              ? <path d="M4.5,6.5 V4.5 a2.5,2.5 0 0 1 5,0 V6.5" />
-              : <path d="M4.5,6.5 V4.5 a2.5,2.5 0 0 1 5,0" />
-            }
-          </svg>
+          {locked ? <Lock size={14} /> : <LockOpen size={14} />}
         </button>
         <NumericInput
           value={vertical}
           unit="px"
-          prefix={`${short} \u2195`}
+          prefix={<><span>{short}</span><ArrowUpDown size={12} /></>}
           tooltip={`Vertical ${prefix}`}
           min={allowNegative ? undefined : 0}
           mixed={verticalDiverges || mixedProperties?.has(`${prefix}-top`) || mixedProperties?.has(`${prefix}-bottom`)}
