@@ -1,0 +1,80 @@
+cortex-editor/src/cli/index.ts
+  s_9661fe16c38514::t_72d6342dfaf0f3 27,32
+cortex-editor/tests/cli/init.test.ts
+  s_9661fe16c38514::t_d66c4e01c1790d 452-453
+  s_9661fe16c38514::t_dc8a73388864cd 355-387
+  s_9661fe16c38514::t_6c65edd0c007f9 35-36,47-88,252-354,388-420,422-426,432
+  s_9661fe16c38514::t_93607491949c43 421,427-431,433-449,451
+  s_9661fe16c38514::t_df247ceb56a32e 450
+cortex-editor/src/adapters/source-loader-utils.ts
+  s_9661fe16c38514::t_9e9b54e3afab62 1-8
+cortex-editor/tests/adapters/webpack.test.ts
+  s_9661fe16c38514::t_54aae00542d628 6-11,21-35,37-40,43-48,61-68,70-74,77-87,89-97,99-102,104,175,199-201,206-214,218,268-269,303
+  s_9661fe16c38514::t_44228ea99d3bc8 36,41-42,69,75-76,88,98,103,105-108
+  s_9661fe16c38514::t_0e2f2f6f6161e5 295-298
+  s_9661fe16c38514::t_f556168e569986 111-134,205,217,222-230,242-267
+  s_9661fe16c38514::t_69d2210c8c5d8c 1-5,12-14,16-20,109-110,135-174,176-198,202-204,215-216,219-221,231-241,270-294,299-302
+  s_9661fe16c38514::t_382ebf2ea524c0 15,49-60
+cortex-editor/tests/adapters/next.test.ts
+  s_9661fe16c38514::t_0d4dad1ee0509e 17,19-47
+cortex-editor/src/adapters/source-transform.ts
+  s_9661fe16c38514::t_b842810071b39d 5,275
+docs/superpowers/specs/2026-05-07-webpack-adapter-current-architecture.md
+  s_9661fe16c38514::t_7520f85ae49a14 1-8,11-88
+  s_9661fe16c38514::t_8b6f57f894626d 9-10
+cortex-editor/tests/cli/mcp.test.ts
+  s_9661fe16c38514::t_72d6342dfaf0f3 444
+  s_9661fe16c38514::t_6c65edd0c007f9 307-351
+cortex-editor/src/adapters/webpack.ts
+  s_9661fe16c38514::t_76e739fa66178e 1-19,21-45,48-104,106-169,171-190,202-235,283-311,313-322,324-326,328-344,346-355,361-858,860-862,864-867,869-877,879-896,898-899,901-971,995-999
+  s_9661fe16c38514::t_e184af9e5d525a 868
+  s_9661fe16c38514::t_ffc761a45ed18c 312,323,327,345,356-360,859,863,878,897,900
+  s_9661fe16c38514::t_0a2efc27fb839a 972-994
+  s_9661fe16c38514::t_b03703934fd8ae 20,46-47,105,170,191-201,236-282
+cortex-editor/tests/cli/demo.test.ts
+  s_9661fe16c38514::t_b76e5c8a8d9be4 14-23
+cortex-editor/src/cli/mcp.ts
+  s_9661fe16c38514::t_6c65edd0c007f9 95-104,122-125,127-128,136-137,287-288,305-306
+  s_9661fe16c38514::t_72d6342dfaf0f3 131,133,172,204,315,348,372
+cortex-editor/src/adapters/source-loader.ts
+  s_9661fe16c38514::t_e2b07de9364e71 1-77
+README.md
+  s_9661fe16c38514::t_6c65edd0c007f9 3,5,8-10,12,15-61,64-96,98,100-108,111-183,194-203,205-211,213-214,216-242
+  s_9661fe16c38514::t_f556168e569986 11,109,204
+  s_9661fe16c38514::t_55e4d51a431503 7,63,97,99,110,184-193,212,215,243
+  s_9661fe16c38514::t_09c11ae11bd923 13-14
+  s_9661fe16c38514::t_61bbcd6509f1de 62
+cortex-editor/tests/adapters/source-loader.test.ts
+  s_9661fe16c38514::t_cc5d309c8dcd9d 66
+  s_9661fe16c38514::t_54aae00542d628 1-65,67-68
+cortex-editor/src/cli/init.ts
+  s_9661fe16c38514::t_1e6586db2adefc 452-453
+  s_9661fe16c38514::t_dae3f85b104705 183-261,288,378-379,382-383,437-451,477
+  s_9661fe16c38514::t_72d6342dfaf0f3 455
+  s_9661fe16c38514::t_6c65edd0c007f9 3,33-182,262-278,281-282,285-287,299-303,349-365,368,371-377,380-381,384-392,394-413,427-429,458,468-476,478-479
+  s_9661fe16c38514::t_028a1fffaf4fc2 415-420
+cortex-editor/package.json
+  s_9661fe16c38514::t_e7672dfbf16f97 4,45-54,90,102
+cortex-editor/src/adapters/next-source-loader.ts
+  s_9661fe16c38514::t_e2b07de9364e71 1
+cortex-editor/src/adapters/next.ts
+  s_9661fe16c38514::t_a908429475e139 3,29-32,45,63,67-71
+cortex-editor/tsup.config.ts
+  s_9661fe16c38514::t_e7672dfbf16f97 113-133,165-166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "f15d36b9027279f9eb4073393bad1acc9da06616",
+  "prompts": {},
+  "sessions": {
+    "s_9661fe16c38514": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dff0b-b7cf-7ce0-8f88-50a592653b21",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
