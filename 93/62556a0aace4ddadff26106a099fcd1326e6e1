@@ -1,0 +1,23 @@
+cortex-editor/tests/e2e/fixtures/basic.html
+  s_0ba77446ba5f72::t_05c378868d17a8 44-64
+cortex-editor/tests/e2e/helpers/fixture-server.ts
+  s_0ba77446ba5f72::t_05c378868d17a8 43-53
+cortex-editor/tests/e2e/panel-template-blast-radius.spec.ts
+  s_0ba77446ba5f72::t_3f4fde43341491 1-180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "9362556a0aace4ddadff26106a099fcd1326e6e1",
+  "prompts": {},
+  "sessions": {
+    "s_0ba77446ba5f72": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "229d6890-66da-4c81-a1ce-d9345a63ebb2",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
