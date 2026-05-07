@@ -41,4 +41,28 @@ describe('cortex CLI — built-process integration (Layer 5)', () => {
     expect(serverInfo).toBeTruthy()
     expect(serverInfo?.name).toBe('cortex')
   })
+
+  it('exposes the expected MCP tools across the process boundary', async () => {
+    // Reuses the client + transport opened by Test 1's beforeAll.
+    const result = await client.listTools()
+    const names = result.tools.map(t => t.name).sort()
+    expect(names).toEqual([
+      'cortex_acknowledge',
+      'cortex_activate',
+      'cortex_apply_edits',
+      'cortex_channel_test',
+      'cortex_deactivate',
+      'cortex_discard_edits',
+      'cortex_dismiss',
+      'cortex_get_details',
+      'cortex_get_intent_context',
+      'cortex_get_pending',
+      'cortex_get_pending_edits',
+      'cortex_resolve',
+      'cortex_respond',
+      'cortex_status',
+    ])
+    // Falsifiability: comment out any `server.registerTool(...)` call in
+    // src/cli/mcp.ts — this assertion will fail with the missing name.
+  })
 })
