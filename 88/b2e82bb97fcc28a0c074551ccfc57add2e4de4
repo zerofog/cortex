@@ -1,0 +1,21 @@
+cortex-editor/tests/browser/shared-source-detector.test.ts
+  s_0ba77446ba5f72::t_1248aed5cdfc92 1-67
+cortex-editor/src/browser/shared-source-detector.ts
+  s_0ba77446ba5f72::t_328c5863287859 1-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "88b2e82bb97fcc28a0c074551ccfc57add2e4de4",
+  "prompts": {},
+  "sessions": {
+    "s_0ba77446ba5f72": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "229d6890-66da-4c81-a1ce-d9345a63ebb2",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
