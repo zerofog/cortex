@@ -1,0 +1,21 @@
+cortex-editor/src/browser/components/controls/SegmentedControl.tsx
+  s_32cd34190d2c45::t_b21cadecf16cd5 61-63,76,91,100
+cortex-editor/tests/browser/controls/segmented-control.test.tsx
+  s_32cd34190d2c45::t_b21cadecf16cd5 63-78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "d81feee172a900d8373d2ac1ab456982a8ab09dd",
+  "prompts": {},
+  "sessions": {
+    "s_32cd34190d2c45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dff0f-5cd2-7a13-8b87-32b2fa2505cc",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
