@@ -63,6 +63,7 @@ import { bootFixture } from './helpers/boot.js'
 import { selectElement, waitForElementStatePanel } from './helpers/panel.js'
 import {
   FIXTURE_MAP_SELECTOR,
+  FIXTURE_MAP_SOURCE,
   FIXTURE_MAP_COUNT,
 } from './helpers/fixture-server.js'
 
@@ -113,8 +114,9 @@ test.describe('Template blast-radius banner (ZF0-1584) @fast-ci', () => {
       // Asserting both the banner text AND the raw DOM count verifies that:
       //   a) the banner reads from sharedSourceInfo.count (not a hardcoded stub)
       //   b) the fixture elements are present as expected
-      const actualDomCount = await page.evaluate(() =>
-        document.querySelectorAll('[data-cortex-source="fixture:map:1"]').length,
+      const actualDomCount = await page.evaluate(
+        (source) => document.querySelectorAll(`[data-cortex-source="${source}"]`).length,
+        FIXTURE_MAP_SOURCE,
       )
       expect(actualDomCount).toBe(FIXTURE_MAP_COUNT)
 

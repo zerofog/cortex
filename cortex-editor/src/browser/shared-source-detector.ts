@@ -15,7 +15,7 @@ export interface SharedSourceInfo {
  * Business logic: When a user selects an element in the visual editor, this
  * function determines whether editing it would affect other elements rendered
  * from the same source location (e.g., list items from the same .map() call).
- * If so, the Panel can display a "Shared by N elements" warning, letting the
+ * If so, the Panel can display a "Used by N elements" warning, letting the
  * designer make an informed decision before applying changes.
  *
  * This parallels detectSharedClasses (for CSS-Module elements) but operates
@@ -42,13 +42,14 @@ export function detectSharedSource(el: HTMLElement): SharedSourceInfo | null {
 
   let flat: HTMLElement[]
   try {
-    // For shadow-hosted selections, use deep traversal directly: the selected
-    // element itself lives in a shadow root not reachable from document, AND
-    // its siblings may span both light and shadow DOM. The flat document query
-    // would miss the shadow-side and return a misleading partial set.
-    flat = el.getRootNode() instanceof ShadowRoot
-      ? deepQuerySelectorAll(selector)
-      : Array.from(document.querySelectorAll<HTMLElement>(selector))
+    // Always use deep traversal so the count is symmetric across both
+    // shadow scenarios: (a) selected element lives in a shadow root with
+    // siblings in light or shadow DOM; (b) selected element lives in light
+    // DOM with siblings inside open shadow roots. A document-only query
+    // would undercount in either case. Cost is one `*` walk per detection;
+    // for typical apps without open shadow roots the recursion is a no-op
+    // beyond the initial `*` scan, which is acceptable for correctness.
+    flat = deepQuerySelectorAll(selector)
   } catch {
     // Malformed selector despite escape — treat as no matches.
     return null
