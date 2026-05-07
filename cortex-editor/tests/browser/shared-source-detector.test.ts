@@ -58,10 +58,12 @@ it('does not return matches for a different source value', () => {
 })
 
 it.skip('handles shadow-hosted siblings (real CSSOM)', () => {
-  // TODO: happy-dom does not expose open shadow roots in querySelectorAll
-  // in the same way a real browser does. The deepQuerySelectorAll fallback
-  // path (when getRootNode() instanceof ShadowRoot) cannot be verified here
-  // without real CSSOM. Per cortex CLAUDE.md test anti-pattern 3, this is
-  // left as it.skip rather than writing a test that always passes regardless
-  // of implementation.
+  // TODO: Cases that need real CSSOM:
+  //   1. Selected element in shadow root, no siblings → null
+  //   2. Selected element in shadow root, 2+ shadow-hosted siblings → SharedSourceInfo with count
+  //   3. Selected element in shadow root, mixed light + shadow siblings → SharedSourceInfo
+  //      with combined count (regression test for ZF0-1020 codex Bug #2)
+  // happy-dom does not expose open shadow roots in querySelectorAll the same
+  // way real browsers do. Per cortex CLAUDE.md test anti-pattern 3, this
+  // remains it.skip rather than a happy-dom-passes-anyway test.
 })

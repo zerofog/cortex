@@ -42,16 +42,16 @@ export function detectSharedSource(el: HTMLElement): SharedSourceInfo | null {
 
   let flat: HTMLElement[]
   try {
-    flat = Array.from(document.querySelectorAll<HTMLElement>(selector))
+    // For shadow-hosted selections, use deep traversal directly: the selected
+    // element itself lives in a shadow root not reachable from document, AND
+    // its siblings may span both light and shadow DOM. The flat document query
+    // would miss the shadow-side and return a misleading partial set.
+    flat = el.getRootNode() instanceof ShadowRoot
+      ? deepQuerySelectorAll(selector)
+      : Array.from(document.querySelectorAll<HTMLElement>(selector))
   } catch {
     // Malformed selector despite escape — treat as no matches.
     return null
-  }
-
-  // Shadow-DOM fallback: when the selected element lives in a shadow tree and
-  // the flat document query returned nothing, walk all open shadow roots.
-  if (el.getRootNode() instanceof ShadowRoot && flat.length === 0) {
-    flat = deepQuerySelectorAll(selector)
   }
 
   if (flat.length <= 1) return null
