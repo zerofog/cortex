@@ -24,6 +24,9 @@ describe('cortex CLI — built-process integration (Layer 5)', () => {
       args: [CLI_DIST, 'mcp'],
       stderr: 'pipe',
     })
+    // Drain stderr to avoid pipe-buffer backpressure (matches describe 2's pattern).
+    transport.stderr?.on('data', () => {})
+
     client = new Client({ name: 'cortex-layer5-test', version: '0.0.0' }, { capabilities: {} })
     await client.connect(transport)
   }, 180_000)
