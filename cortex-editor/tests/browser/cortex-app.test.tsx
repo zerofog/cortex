@@ -112,8 +112,15 @@ describe('CortexApp', () => {
   }
 
   async function activateEditor(channel: ReturnType<typeof createMockChannel>) {
-    channel._simulateMessage({ type: 'cortex' } as any)
-    await new Promise(r => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(channel._handlerCount()).toBeGreaterThan(0)
+    }, { timeout: WAIT_FOR_COMMIT_MS })
+    await act(async () => {
+      channel._simulateMessage({ type: 'cortex' } as any)
+    })
+    await vi.waitFor(() => {
+      expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
+    }, { timeout: WAIT_FOR_COMMIT_MS })
   }
 
   it('renders without crash', () => {
