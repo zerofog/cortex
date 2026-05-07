@@ -28,6 +28,9 @@ import type { SizingMode } from '../controls/SizingDropdown.js'
 
 export type SizingChange = SectionChange
 
+const DIMENSION_REQUIRES_FIXED_TOOLTIP = 'Switch to Fixed (px) to edit dimensions'
+const ASPECT_LOCK_REQUIRES_FIXED_TOOLTIP = 'Aspect lock requires fixed dimensions'
+
 export interface SizingControlsProps {
   values: {
     width: string
@@ -94,6 +97,9 @@ export function SizingControls({
   const isAutoHeight = isNaN(heightNum)
 
   const canLockAspect = widthMode === 'fixed' && heightMode === 'fixed'
+  const widthDisabled = widthMode !== 'fixed'
+  const heightDisabled = heightMode !== 'fixed'
+  const lockUiActive = canLockAspect && aspectLocked
   // Auto-unlock when either dimension switches away from fixed (e.g., to
   // fill or fit). Without this, aspectLocked survives mode changes and the
   // lock button renders as visually active while the guard silently no-ops
@@ -108,62 +114,71 @@ export function SizingControls({
   // ── Width handlers ──────────────────────────────────────────────
   const handleWidthChange = useCallback(
     (v: number) => {
+      if (widthDisabled) return
       onChange({ property: 'width', value: `${v}px` })
       if (aspectLocked && canLockAspect && aspectRatio > 0) {
         onChange({ property: 'height', value: `${Math.round(v / aspectRatio)}px` })
       }
     },
-    [onChange, aspectLocked, canLockAspect, aspectRatio],
+    [onChange, widthDisabled, aspectLocked, canLockAspect, aspectRatio],
   )
   const handleWidthScrub = useCallback(
     (v: number) => {
+      if (widthDisabled) return
       if (onScrub) onScrub({ property: 'width', value: `${v}px` })
       if (aspectLocked && canLockAspect && aspectRatio > 0 && onScrub) {
         onScrub({ property: 'height', value: `${Math.round(v / aspectRatio)}px` })
       }
     },
-    [onScrub, aspectLocked, canLockAspect, aspectRatio],
+    [onScrub, widthDisabled, aspectLocked, canLockAspect, aspectRatio],
   )
   const handleWidthScrubEnd = useCallback(
     (v: number) => {
+      if (widthDisabled) return
       if (onScrubEnd) onScrubEnd({ property: 'width', value: `${v}px` })
       if (aspectLocked && canLockAspect && aspectRatio > 0 && onScrubEnd) {
         onScrubEnd({ property: 'height', value: `${Math.round(v / aspectRatio)}px` })
       }
     },
-    [onScrubEnd, aspectLocked, canLockAspect, aspectRatio],
+    [onScrubEnd, widthDisabled, aspectLocked, canLockAspect, aspectRatio],
   )
 
   // ── Height handlers ─────────────────────────────────────────────
   const handleHeightChange = useCallback(
     (v: number) => {
+      if (heightDisabled) return
       onChange({ property: 'height', value: `${v}px` })
       if (aspectLocked && canLockAspect && aspectRatio > 0) {
         onChange({ property: 'width', value: `${Math.round(v * aspectRatio)}px` })
       }
     },
-    [onChange, aspectLocked, canLockAspect, aspectRatio],
+    [onChange, heightDisabled, aspectLocked, canLockAspect, aspectRatio],
   )
   const handleHeightScrub = useCallback(
     (v: number) => {
+      if (heightDisabled) return
       if (onScrub) onScrub({ property: 'height', value: `${v}px` })
       if (aspectLocked && canLockAspect && aspectRatio > 0 && onScrub) {
         onScrub({ property: 'width', value: `${Math.round(v * aspectRatio)}px` })
       }
     },
-    [onScrub, aspectLocked, canLockAspect, aspectRatio],
+    [onScrub, heightDisabled, aspectLocked, canLockAspect, aspectRatio],
   )
   const handleHeightScrubEnd = useCallback(
     (v: number) => {
+      if (heightDisabled) return
       if (onScrubEnd) onScrubEnd({ property: 'height', value: `${v}px` })
       if (aspectLocked && canLockAspect && aspectRatio > 0 && onScrubEnd) {
         onScrubEnd({ property: 'width', value: `${Math.round(v * aspectRatio)}px` })
       }
     },
-    [onScrubEnd, aspectLocked, canLockAspect, aspectRatio],
+    [onScrubEnd, heightDisabled, aspectLocked, canLockAspect, aspectRatio],
   )
 
-  const handleToggleLock = useCallback(() => setAspectLocked((v) => !v), [])
+  const handleToggleLock = useCallback(() => {
+    if (!canLockAspect) return
+    setAspectLocked((v) => !v)
+  }, [canLockAspect])
 
   // ── Mode change handlers ────────────────────────────────────────
   const handleWidthModeChange = useCallback((mode: SizingMode) => {
@@ -236,8 +251,9 @@ export function SizingControls({
           <NumericInput
             value={isAutoWidth ? 0 : widthNum}
             label="W"
-            tooltip="Width"
+            tooltip={widthDisabled ? DIMENSION_REQUIRES_FIXED_TOOLTIP : 'Width'}
             min={0}
+            disabled={widthDisabled}
             mixed={mixedProperties?.has('width')}
             stale={stale}
             onChange={handleWidthChange}
@@ -258,8 +274,9 @@ export function SizingControls({
           <NumericInput
             value={isAutoHeight ? 0 : heightNum}
             label="H"
-            tooltip="Height"
+            tooltip={heightDisabled ? DIMENSION_REQUIRES_FIXED_TOOLTIP : 'Height'}
             min={0}
+            disabled={heightDisabled}
             mixed={mixedProperties?.has('height')}
             stale={stale}
             onChange={handleHeightChange}
@@ -278,14 +295,15 @@ export function SizingControls({
         </div>
         <button
           type="button"
-          class={`cortex-lock-btn${aspectLocked ? ' cortex-lock-btn--active' : ''}`}
-          aria-pressed={aspectLocked ? 'true' : 'false'}
-          aria-label={aspectLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
-          data-tooltip={aspectLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
+          class={`cortex-lock-btn${lockUiActive ? ' cortex-lock-btn--active' : ''}${!canLockAspect ? ' cortex-lock-btn--disabled' : ''}`}
+          aria-pressed={lockUiActive ? 'true' : 'false'}
+          aria-disabled={!canLockAspect ? 'true' : undefined}
+          aria-label={lockUiActive ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
+          data-tooltip={!canLockAspect ? ASPECT_LOCK_REQUIRES_FIXED_TOOLTIP : lockUiActive ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
           onClick={handleToggleLock}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            {aspectLocked ? (
+            {lockUiActive ? (
               <>
                 <rect x="3" y="6.5" width="8" height="5.5" rx="1" />
                 <path d="M4.5,6.5 V4.5 a2.5,2.5 0 0 1 5,0 V6.5" />

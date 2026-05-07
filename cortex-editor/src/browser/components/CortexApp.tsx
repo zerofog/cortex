@@ -7,7 +7,8 @@ import { onDivergence } from '../override-bus.js'
 import { CommandStack } from '../command-stack.js'
 import { initSelection } from '../selection.js'
 import type { SelectionHandle } from '../selection.js'
-import { cortexAppReducer, initialCortexAppReducerState } from '../cortex-app-reducer.js'
+import { cortexAppReducer, initialCortexAppReducerState, applySelectionUpdate } from '../cortex-app-reducer.js'
+import { expandSharedSource } from '../selection-source-expand.js'
 import type { CortexAppReducerState, CortexAppAction, CortexAppEffect, EditDispatchEntry } from '../cortex-app-reducer.js'
 // @ts-ignore — tinykeys has types but exports field doesn't include a "types" condition (TODO: add declare module shim when tinykeys updates)
 import { tinykeys } from 'tinykeys'
@@ -16,6 +17,7 @@ import { detectStates } from '../state-detector.js'
 import type { StateDeclarations, InteractionState } from '../state-detector.js'
 import { HoverOverlay } from './HoverOverlay.js'
 import { SelectionOverlay } from './SelectionOverlay.js'
+import { SecondarySelectionOverlay } from './SecondarySelectionOverlay.js'
 import { Panel } from './Panel.js'
 import { Toolbar } from './Toolbar.js'
 import { CommentPin } from './CommentPin.js'
@@ -44,7 +46,9 @@ export interface CortexAppProps {
  */
 export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps): JSX.Element | null {
   const [hoveredElement, setHoveredElement] = useState<HTMLElement | null>(null)
-  const [selectedElement, setSelectedElement] = useState<HTMLElement | null>(null)
+  const [selectedElements, setSelectedElementsState] = useState<HTMLElement[]>([])
+  // Back-compat alias — primaryElement for all CSS parsing and existing callsites (ZF0-1195).
+  const selectedElement = selectedElements[0] ?? null
   // Monotonic counter bumped on every `hmr-applied` message (ZF0-1292).
   // Flowed to Panel so stylesheet-only source edits (App.css rule changes,
   // @theme token changes, ancestor cascade changes) force a getComputedStyle
@@ -134,7 +138,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // and drives the smart-fallback re-resolution (ZF0-1292 architecture
   // review: nth-index + content-hash + shadow-root flag). Null whenever
   // selectedElement is null.
-  const selectionMetadataRef = useRef<SelectionMetadata | null>(null)
+  const selectionMetadataRef = useRef<SelectionMetadata[]>([])
   const handleExitRef = useRef<(() => void) | null>(null)
   // Mirror of `handleEditDispatch` for the test bridge. The mount effect that
   // installs `__CORTEX_TEST__` runs once with deps `[channel, shadowRoot]`, so
@@ -154,6 +158,16 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // as the prop), the useEffect's `if (stageEditRef)` guard short-circuits,
   // ~150 bytes of dead branch. Returns the intentId so specs can inject discard.
   const stageEditRef = useRef<((source: string, property: string, value: string) => string) | null>(null)
+  // TEST-ONLY: bridge.commitEdit triggers the full applyOverride → commitScrub →
+  // commandStack.record + buffer.append fan-out so e2e specs can exercise undo
+  // without going through actual panel UI. Gated identically to stageEditRef.
+  const commitEditRef = useRef<((property: string, value: string) => Promise<void>) | null>(null)
+  // TEST-ONLY: bridge.buffer.list/size read the staging buffer contents. Panel
+  // populates this via bufferListRef so the bridge can expose them synchronously.
+  const bufferListRef = useRef<{
+    list: () => import('../hooks/useEditStagingBuffer.js').PendingEdit[]
+    size: () => number
+  } | null>(null)
   // Exposed outside the useEffect so UI handlers (X-button, Toolbar close) can
   // route through the reducer rather than calling setActive(false) directly.
   // Populated by the mount effect — may be null during first paint when
@@ -180,15 +194,41 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   useCanvasZoom(false)
 
   // Selection setter that keeps selectionMetadataRef in sync. Every path
-  // that sets a positive `selectedElement` must go through this helper so
-  // the HMR re-resolver has valid metadata. Null paths (exit, escape,
-  // failed re-resolve) also clear metadata here.
+  // that sets a positive selection must go through this helper so the HMR
+  // re-resolver has valid metadata. Empty-array paths (exit, escape, failed
+  // re-resolve) also clear metadata here.
   // Declared above the mount effect so later readers see it before its
   // first use — avoids the forward-reference ambiguity a reviewer flagged.
-  const setSelectionWithMetadata = useCallback((el: HTMLElement | null): void => {
-    selectionMetadataRef.current = el ? captureSelectionMetadata(el) : null
-    setSelectedElement(el)
+  //
+  // Accepts (elements, action). Delegates the replace/add/toggle algorithm to
+  // the pure helper `applySelectionUpdate` — single source of truth for
+  // selection-state algebra. Identity-stable: when the helper returns `prev`
+  // (no-op add or replace-with-same-elements), Preact bails out of the
+  // re-render and metadata is not re-captured.
+  //
+  // ZF0-1195 Follow-up A: incoming `elements` are auto-expanded to include
+  // every DOM node sharing the same `data-cortex-source` attribute. This makes
+  // the editor model honest — JSX inside `.map()` produces N runtime nodes
+  // that share one source, and the CSS override layer keys on source, so
+  // editing any one of them affects all N. Expanding selection up-front means
+  // the UI shows the user the full set their edit will affect, instead of
+  // letting them pick a subset that the override layer cannot honor.
+  const setSelection = useCallback((elements: HTMLElement[], action: 'replace' | 'add' | 'toggle' = 'replace'): void => {
+    const expanded = expandSharedSource(elements)
+    setSelectedElementsState(prev => {
+      const next = applySelectionUpdate(prev, expanded, action)
+      if (next !== prev) {
+        selectionMetadataRef.current = next.map(el => captureSelectionMetadata(el))
+      }
+      return next
+    })
   }, [])
+
+  // Legacy-compat shim — single element or null → setSelection([], 'replace') or setSelection([el], 'replace').
+  // Used by the test bridge, HMR re-resolver, and escape/exit paths that set null.
+  const setSelectionWithMetadata = useCallback((el: HTMLElement | null): void => {
+    setSelection(el ? [el] : [], 'replace')
+  }, [setSelection])
 
   useEffect(() => {
     // Disposal guard for async work (HMR re-resolution timers, rAF callbacks)
@@ -214,16 +254,15 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       setStaleSources(new Set(staleSet)) // defensive copy already made by emitStale
     })
 
-    // Initialize selection system. The `setSelectionWithMetadata` wrapper
-    // (defined in a useCallback below) is the ONE point of entry for
-    // populating `selectedElement` — the mount effect uses it here, and
-    // every keyboard/click handler routes through it. This prevents a new
-    // contributor from introducing a fresh selection path that bypasses
-    // metadata capture (Round 2 frontend-clink + mts-native finding).
+    // Initialize selection system. The `setSelection` callback is the ONE
+    // point of entry for populating `selectedElements` — the mount effect
+    // uses it here, and every keyboard/click handler routes through it.
+    // This prevents a new contributor from introducing a fresh selection
+    // path that bypasses metadata capture (Round 2 frontend-clink + mts-native finding).
     const selectionHandle = initSelection(
       shadowRoot,
       setHoveredElement,
-      setSelectionWithMetadata,
+      setSelection,
     )
 
     // Debug-only test bridge — dual-gated to close ZF0-1298 (XSS via dev server).
@@ -321,6 +360,33 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           }
           return stageEditRef.current(source, property, value)
         },
+        // TEST-ONLY: trigger the full applyOverride → commitScrub → commandStack.record
+        // + buffer.append fan-out on the currently selected elements. Unlike stageEdit,
+        // this path creates a PropertyEditCommand so the gesture is undoable via Cmd+Z.
+        // Routed through commitEditRef (same thunk pattern as stageEditRef) so Panel
+        // always exposes the latest applyOverride closure. Polls with a 2s ceiling.
+        commitEdit: async (property: string, value: string): Promise<void> => {
+          const start = performance.now()
+          while (!commitEditRef.current) {
+            if (performance.now() - start > 2000) {
+              throw new Error('[cortex test bridge] commitEdit timeout — Panel did not mount in 2000ms (was activateDesignMode called?)')
+            }
+            await new Promise<void>((resolve) => setTimeout(resolve, 16))
+          }
+          return commitEditRef.current(property, value)
+        },
+        // TEST-ONLY: expose buffer.list() and buffer.size() via bufferListRef.
+        // Panel populates this ref; these closures delegate to the live ref so
+        // callers always read current buffer state (no staleness risk).
+        buffer: {
+          list: () => bufferListRef.current?.list() ?? [],
+          size: () => bufferListRef.current?.size() ?? 0,
+        },
+        // TEST-ONLY: set multi-element selection via setSelection(elements, 'replace').
+        // Allows e2e specs to seed multi-select state without real click interactions.
+        // selectElement (above) handles single-element selection via the legacy shim;
+        // selectElements is the multi-element version for ZF0-1195 multi-select specs.
+        selectElements: (els: HTMLElement[]) => setSelection(els, 'replace'),
       }
     }
     // Start with design mode disabled — don't intercept events until activated
@@ -494,7 +560,12 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           if (disposed) return
           try {
             const current = selectedElementRef.current
-            const meta = selectionMetadataRef.current
+            // Re-resolution operates on the primary element (index 0) only.
+            // Multi-element re-resolve is intentionally deferred — it will be
+            // wired in a later ZF0-1195 task once multi-element gestures
+            // actually drive the system. Today the secondary selection slots
+            // exist in state but are not exercised by user input.
+            const meta = selectionMetadataRef.current[0] ?? null
             if (!current || !meta) return
             const resolved = reResolveSelection(meta)
             if (resolved !== current) {
@@ -511,7 +582,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
             if (resolved) {
               const newMeta = captureSelectionMetadata(resolved)
               const indexShifted = newMeta.index !== meta.index
-              selectionMetadataRef.current = newMeta
+              // Preserve metadata for all elements; only update primary (index 0).
+              const updatedMeta = [...selectionMetadataRef.current]
+              updatedMeta[0] = newMeta
+              selectionMetadataRef.current = updatedMeta
               // If the position drifted, views that cached against the OLD
               // DOM layout (LayerTree's sibling list, SelectionOverlay's
               // position) need to re-read. Bumping hmrAppliedVersion again
@@ -978,16 +1052,30 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         overlaysVisible={hoverEnabled}
         hmrAppliedVersion={hmrAppliedVersion}
       />
+      {/* ZF0-1195: render an outline for each non-primary selected element so
+          the user can see the full multi-selection. Primary already gets the
+          full overlay above (with label + state lens). */}
+      {selectedElements.slice(1).map((el, idx) => (
+        <SecondarySelectionOverlay
+          key={idx}
+          element={el}
+          overlaysVisible={hoverEnabled}
+          hmrAppliedVersion={hmrAppliedVersion}
+        />
+      ))}
       {overrideRef.current && (
         <Panel
-          element={selectedElement}
+          selectedElements={selectedElements}
           overrideManager={overrideRef.current}
           commandStack={commandStackRef.current}
           flushCommitRef={flushCommitRef}
           stageEditRef={__CORTEX_TEST_BUILD__ ? stageEditRef : undefined}
+          commitEditRef={__CORTEX_TEST_BUILD__ ? commitEditRef : undefined}
+          bufferListRef={__CORTEX_TEST_BUILD__ ? bufferListRef : undefined}
           undoInProgressRef={undoInProgressRef}
           onClose={handleClose}
           onSelectElement={handleSelectElement}
+          onSelectElements={setSelection}
           swatches={swatches}
           textComponents={textComponents}
           colorChips={colorChips}

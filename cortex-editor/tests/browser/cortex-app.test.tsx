@@ -13,15 +13,20 @@ import { cortexStorage } from '../../src/browser/persistence.js'
 // _resetCallbacks nulls the module-scope hoverCb/selectCb closure so a prior
 // test's unmounted-component callbacks cannot be returned by _getCallbacks
 // under async timing — call from afterEach (ZF0-1297 test-hygiene fix).
+//
+// selectCb now receives (elements: HTMLElement[], action: 'replace' | 'add' | 'toggle').
+// Tests that need to select a single element use: selectCb([target], 'replace')
+// Tests that need to clear selection use: selectCb([], 'replace')
+// For back-compat with existing tests, a selectOne(el) helper is also exported.
 vi.mock('../../src/browser/selection.js', () => {
   const cleanupFn = vi.fn()
   const setDesignModeFn = vi.fn()
   const setInterceptClicksFn = vi.fn()
   let hoverCb: ((el: HTMLElement | null) => void) | null = null
-  let selectCb: ((el: HTMLElement | null) => void) | null = null
+  let selectCb: ((elements: HTMLElement[], action: 'replace' | 'add' | 'toggle') => void) | null = null
 
   return {
-    initSelection: vi.fn((_shadow: ShadowRoot, onHover: (el: HTMLElement | null) => void, onSelect: (el: HTMLElement | null) => void) => {
+    initSelection: vi.fn((_shadow: ShadowRoot, onHover: (el: HTMLElement | null) => void, onSelect: (elements: HTMLElement[], action: 'replace' | 'add' | 'toggle') => void) => {
       hoverCb = onHover
       selectCb = onSelect
       return { cleanup: cleanupFn, setDesignMode: setDesignModeFn, setInterceptClicks: setInterceptClicksFn }
@@ -167,7 +172,7 @@ describe('CortexApp', () => {
     await activateEditor(channel)
 
     const { _getCallbacks } = await import('../../src/browser/selection.js') as unknown as {
-      _getCallbacks: () => { selectCb: (el: HTMLElement | null) => void }
+      _getCallbacks: () => { selectCb: (elements: HTMLElement[], action: 'replace' | 'add' | 'toggle') => void }
     }
     const { selectCb } = _getCallbacks()
 
@@ -176,7 +181,7 @@ describe('CortexApp', () => {
     orphans.push(target)
     mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
 
-    selectCb(target)
+    selectCb([target], 'replace')
 
     await vi.waitFor(() => {
       expect(root.querySelector('.cortex-selection-overlay')).not.toBeNull()
@@ -226,7 +231,7 @@ describe('CortexApp', () => {
     await activateEditor(channel)
 
     const { _getCallbacks } = await import('../../src/browser/selection.js') as unknown as {
-      _getCallbacks: () => { selectCb: (el: HTMLElement | null) => void }
+      _getCallbacks: () => { selectCb: (elements: HTMLElement[], action: 'replace' | 'add' | 'toggle') => void }
     }
     const { selectCb } = _getCallbacks()
 
@@ -237,7 +242,7 @@ describe('CortexApp', () => {
     orphans.push(elA)
     mockGetBoundingClientRect(elA, { top: 50, left: 50, width: 100, height: 40 })
 
-    selectCb(elA)
+    selectCb([elA], 'replace')
     // Verify CSSOverrideManager style element exists
     const styleEl = await vi.waitFor(() => {
       const el = document.head.querySelector('[data-cortex-override]') as HTMLStyleElement
@@ -258,7 +263,7 @@ describe('CortexApp', () => {
     orphans.push(elB)
     mockGetBoundingClientRect(elB, { top: 150, left: 50, width: 100, height: 40 })
 
-    selectCb(elB)
+    selectCb([elB], 'replace')
 
     // Wait for clearStateOverrides → rebuild() effect to fire. A fixed
     // setTimeout(10) flaked under CI load on GitHub Linux runners; vi.waitFor
@@ -394,7 +399,7 @@ describe('CortexApp', () => {
     document.body.appendChild(target)
     orphans.push(target)
     mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
-    selectCb(target)
+    selectCb([target], 'replace')
     await new Promise(r => setTimeout(r, 10))
 
     // Escape deselects, not exits (mock isRealEvent for cascading handler)
@@ -483,7 +488,7 @@ describe('CortexApp', () => {
     document.body.appendChild(target)
     orphans.push(target)
     mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
-    selectCb(target)
+    selectCb([target], 'replace')
     await new Promise(r => setTimeout(r, 50))
 
     // Type and submit a comment
@@ -530,7 +535,7 @@ describe('CortexApp', () => {
       mockGetBoundingClientRect(target, { top: 50, left: 50, width: 200, height: 100 })
 
       // Wait for Panel + sections to mount
-      selectCb(target)
+      selectCb([target], 'replace')
       await new Promise(r => setTimeout(r, 50))
 
       return target
@@ -668,7 +673,7 @@ describe('CortexApp', () => {
       document.body.appendChild(target1)
       orphans.push(target1)
       mockGetBoundingClientRect(target1, { top: 50, left: 50, width: 100, height: 40 })
-      selectCb1(target1)
+      selectCb1([target1], 'replace')
       await new Promise(r => setTimeout(r, 50))
 
       // Synthetic edit dispatch — simulates what the Apply gesture will eventually do.
@@ -714,7 +719,7 @@ describe('CortexApp', () => {
       document.body.appendChild(target2)
       orphans.push(target2)
       mockGetBoundingClientRect(target2, { top: 50, left: 50, width: 100, height: 40 })
-      selectCb2(target2)
+      selectCb2([target2], 'replace')
       await new Promise(r => setTimeout(r, 50))
 
       // Synthetic edit dispatch — simulates what the Apply gesture will eventually do.
@@ -943,7 +948,7 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
 
     // Select an element.
     const { _getCallbacks } = await import('../../src/browser/selection.js') as unknown as {
-      _getCallbacks: () => { selectCb: (el: HTMLElement | null) => void }
+      _getCallbacks: () => { selectCb: (elements: HTMLElement[], action: 'replace' | 'add' | 'toggle') => void }
     }
     const { selectCb } = _getCallbacks()
 
@@ -953,7 +958,7 @@ describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
     orphans.push(el)
     mockGetBoundingClientRect(el, { top: 50, left: 50, width: 100, height: 40 })
 
-    selectCb(el)
+    selectCb([el], 'replace')
     await new Promise(r => setTimeout(r, 20))
 
     return { channel, el }
@@ -1089,7 +1094,7 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     await new Promise(r => setTimeout(r, 10))
 
     const { _getCallbacks } = await import('../../src/browser/selection.js') as unknown as {
-      _getCallbacks: () => { selectCb: (el: HTMLElement | null) => void }
+      _getCallbacks: () => { selectCb: (elements: HTMLElement[], action: 'replace' | 'add' | 'toggle') => void }
     }
     const { selectCb } = _getCallbacks()
 
@@ -1100,7 +1105,7 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     orphans.push(element)
     mockGetBoundingClientRect(element, { top: 50, left: 50, width: 100, height: 40 })
 
-    selectCb(element)
+    selectCb([element], 'replace')
     // Wait for Panel to fully settle (initial getComputedStyle calls complete)
     // before installing the spy. Under serial-loop load 20ms wasn't enough —
     // ambient effects continued into the 200ms observation window and inflated

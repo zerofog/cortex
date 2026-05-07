@@ -1,8 +1,97 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render } from 'preact'
 import { ElementTree } from '../../../src/browser/components/sections/ElementTree.js'
 
-// TODO: multi-select tests deferred to follow-up task
+describe('ElementTree multi-select modifiers (ZF0-1195)', () => {
+  let container: HTMLDivElement
+
+  afterEach(() => {
+    if (container) {
+      render(null, container)
+      container.remove()
+    }
+  })
+
+  it('plain click emits action=replace', () => {
+    const onSelectElements = vi.fn()
+    const root = document.createElement('div')
+    root.setAttribute('data-cortex-source', 's1')
+    document.body.appendChild(root)
+    container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <ElementTree element={root} onSelectElements={onSelectElements} height={100} />,
+      container,
+    )
+
+    const row = container.querySelector('.cortex-layer-node--selected') as HTMLElement
+    row.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(onSelectElements).toHaveBeenCalledWith([root], 'replace')
+
+    root.remove()
+  })
+
+  it('shift+click emits action=add', () => {
+    const onSelectElements = vi.fn()
+    const root = document.createElement('div')
+    root.setAttribute('data-cortex-source', 's1')
+    document.body.appendChild(root)
+    container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <ElementTree element={root} onSelectElements={onSelectElements} height={100} />,
+      container,
+    )
+
+    const row = container.querySelector('.cortex-layer-node--selected') as HTMLElement
+    row.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }))
+    expect(onSelectElements).toHaveBeenCalledWith([root], 'add')
+
+    root.remove()
+  })
+
+  it('cmd+click emits action=toggle', () => {
+    const onSelectElements = vi.fn()
+    const root = document.createElement('div')
+    root.setAttribute('data-cortex-source', 's1')
+    document.body.appendChild(root)
+    container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <ElementTree element={root} onSelectElements={onSelectElements} height={100} />,
+      container,
+    )
+
+    const row = container.querySelector('.cortex-layer-node--selected') as HTMLElement
+    row.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true }))
+    expect(onSelectElements).toHaveBeenCalledWith([root], 'toggle')
+
+    root.remove()
+  })
+
+  it('ctrl+click emits action=toggle', () => {
+    const onSelectElements = vi.fn()
+    const root = document.createElement('div')
+    root.setAttribute('data-cortex-source', 's1')
+    document.body.appendChild(root)
+    container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <ElementTree element={root} onSelectElements={onSelectElements} height={100} />,
+      container,
+    )
+
+    const row = container.querySelector('.cortex-layer-node--selected') as HTMLElement
+    row.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }))
+    expect(onSelectElements).toHaveBeenCalledWith([root], 'toggle')
+
+    root.remove()
+  })
+})
 
 describe('ElementTree', () => {
   let container: HTMLDivElement
@@ -23,7 +112,7 @@ describe('ElementTree', () => {
     document.body.appendChild(target)
 
     render(
-      <ElementTree element={target} onSelectElement={() => {}} height={200} />,
+      <ElementTree element={target} onSelectElements={() => {}} height={200} />,
       container,
     )
 
@@ -44,7 +133,7 @@ describe('ElementTree', () => {
     document.body.appendChild(target)
 
     render(
-      <ElementTree element={target} onSelectElement={() => {}} height={200} />,
+      <ElementTree element={target} onSelectElements={() => {}} height={200} />,
       container,
     )
 
@@ -65,7 +154,7 @@ describe('ElementTree', () => {
     document.body.appendChild(parent)
 
     render(
-      <ElementTree element={child} onSelectElement={() => {}} height={200} />,
+      <ElementTree element={child} onSelectElements={() => {}} height={200} />,
       container,
     )
 
@@ -81,7 +170,7 @@ describe('ElementTree', () => {
     document.body.appendChild(container)
 
     render(
-      <ElementTree element={null} onSelectElement={() => {}} height={200} />,
+      <ElementTree element={null} onSelectElements={() => {}} height={200} />,
       container,
     )
 

@@ -108,6 +108,18 @@ export function NumericInput({
   localValueRef.current = localValue
 
   useEffect(() => {
+    if (!disabled) return
+    scrubCleanupRef.current?.()
+    userTypedRef.current = false
+    setIsEditing(false)
+    setIsScrubbing(false)
+    setPopoverOpen(false)
+    const next = String(value)
+    localValueRef.current = next
+    setLocalValue(next)
+  }, [disabled, value])
+
+  useEffect(() => {
     if (!isEditing) {
       setLocalValue(String(value))
       setHasExplicitMixedValue(false)
@@ -134,6 +146,10 @@ export function NumericInput({
   }, [mixed])
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (disabled) {
+      e.preventDefault()
+      return
+    }
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       const baseValue = getStepBaseValue()
       if (isNaN(baseValue)) return
@@ -159,9 +175,10 @@ export function NumericInput({
       setIsEditing(false)
       inputRef.current?.blur()
     }
-  }, [value, onChange, clampValue, getStepBaseValue, syncSteppedValue])
+  }, [disabled, value, onChange, clampValue, getStepBaseValue, syncSteppedValue])
 
   const beginEditing = useCallback((focusInput = false) => {
+    if (disabled) return
     userTypedRef.current = false
     if (mixed) {
       // Don't reveal the selected element's value — user types the target value
@@ -177,7 +194,7 @@ export function NumericInput({
     if (showPopover) {
       setPopoverOpen(true)
     }
-  }, [mixed, showPopover])
+  }, [disabled, mixed, showPopover])
 
   const handleFocus = useCallback(() => {
     beginEditing()
@@ -191,6 +208,14 @@ export function NumericInput({
     // and registered in popover-stack, so subsequent Escape dismisses the
     // wrong layer (Codex /review P2 #6).
     setPopoverOpen(false)
+    if (disabled) {
+      userTypedRef.current = false
+      const reverted = mixed ? '' : String(value)
+      localValueRef.current = reverted
+      setLocalValue(reverted)
+      if (inputRef.current) inputRef.current.value = reverted
+      return
+    }
     const parsed = parseFloat(localValueRef.current)
     if (isNaN(parsed)) {
       // In mixed state, revert to empty (shows the Mixed placeholder) instead of
@@ -211,17 +236,19 @@ export function NumericInput({
       setLocalValue(str)
     }
     userTypedRef.current = false
-  }, [value, onChange, clampValue, mixed])
+  }, [disabled, value, onChange, clampValue, mixed])
 
   const handleInput = useCallback((e: Event) => {
+    if (disabled) return
     userTypedRef.current = true
     const v = (e.target as HTMLInputElement).value
     localValueRef.current = v
     setLocalValue(v)
     if (mixed) setHasExplicitMixedValue(v.trim() !== '')
-  }, [mixed])
+  }, [disabled, mixed])
 
   const handleWheel = useCallback((e: WheelEvent) => {
+    if (disabled) return
     const root = inputRef.current?.getRootNode() as Document | ShadowRoot
     if (root?.activeElement !== inputRef.current) return
     const baseValue = getStepBaseValue()
@@ -232,9 +259,10 @@ export function NumericInput({
     const next = clampValue(roundTenth(baseValue + delta))
     onChange(next)
     syncSteppedValue(next)
-  }, [onChange, clampValue, getStepBaseValue, syncSteppedValue])
+  }, [disabled, onChange, clampValue, getStepBaseValue, syncSteppedValue])
 
   const handleScrubDown = useCallback((e: PointerEvent) => {
+    if (disabled) return
     if (isEditing) return
     if (mixed) {
       const target = e.currentTarget as HTMLElement
@@ -318,7 +346,7 @@ export function NumericInput({
     target.addEventListener('pointerup', handleUp)
     target.addEventListener('pointercancel', handleCancel)
     scrubCleanupRef.current = cleanup
-  }, [isEditing, mixed, beginEditing, value, onChange, onScrub, onScrubEnd, clampValue])
+  }, [disabled, isEditing, mixed, beginEditing, value, onChange, onScrub, onScrubEnd, clampValue])
 
   const handlePopoverPick = useCallback((chosen: { name: string; valuePx: number; source: SpacingToken['source'] }) => {
     // `name` and `source` are part of the contract for ZF0-1210 (staging-buffer flow
@@ -355,6 +383,10 @@ export function NumericInput({
   const effectiveTooltip = stale
     ? 'Edit saved but HMR didn\'t apply — refresh to verify'
     : tooltip
+  const fallbackAccessibleLabel = label ?? (typeof prefix === 'string' ? prefix : undefined)
+  const disabledAccessibleLabel = disabled
+    ? (effectiveTooltip ?? fallbackAccessibleLabel ?? 'Disabled numeric input')
+    : undefined
 
   return (
     <div
@@ -369,6 +401,9 @@ export function NumericInput({
       onPointerDown={disabled ? undefined : handleScrubDown}
       data-tooltip={effectiveTooltip}
       aria-disabled={disabled ? 'true' : undefined}
+      aria-label={disabledAccessibleLabel}
+      role={disabled ? 'group' : undefined}
+      tabIndex={disabled ? 0 : undefined}
     >
       {prefix !== undefined
         ? <span class="cortex-numeric-input__prefix">{prefix}</span>
@@ -387,7 +422,7 @@ export function NumericInput({
         // to fill allocated space, so other consumers (spacing, position,
         // grid/flex gap, etc.) are unaffected.
         size={4}
-        aria-label={effectiveTooltip ?? label ?? (typeof prefix === 'string' ? prefix : undefined)}
+        aria-label={effectiveTooltip ?? fallbackAccessibleLabel}
         value={mixed && (!isEditing || !hasExplicitMixedValue) ? '' : localValue}
         placeholder={mixed ? 'Mixed' : undefined}
         disabled={disabled}

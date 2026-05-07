@@ -120,6 +120,32 @@ describe('NumericInput', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
+  it('drops an uncommitted draft when the input becomes disabled', async () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    const onChange = vi.fn()
+    render(<NumericInput value={16} unit="px" onChange={onChange} />, container)
+    let input = container.querySelector('input') as HTMLInputElement
+    input.focus()
+    input.value = '24'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+
+    render(<NumericInput value={16} unit="px" tooltip="Switch to Fixed (px) to edit dimensions" disabled onChange={onChange} />, container)
+    input = container.querySelector('input') as HTMLInputElement
+    input.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
+
+    await vi.waitFor(() => {
+      expect(input.disabled).toBe(true)
+      expect(input.value).toBe('16')
+    }, { timeout: 500 })
+    const wrapper = container.querySelector('.cortex-numeric-input') as HTMLElement
+    expect(wrapper.getAttribute('aria-disabled')).toBe('true')
+    expect(wrapper.getAttribute('aria-label')).toBe('Switch to Fixed (px) to edit dimensions')
+    expect(wrapper.getAttribute('role')).toBe('group')
+    expect(wrapper.tabIndex).toBe(0)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
   it('selects all text on focus', () => {
     const { input } = setup()
     const selectSpy = vi.spyOn(input, 'select')

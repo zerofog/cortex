@@ -71,7 +71,7 @@ export function buildScopedTree(element: HTMLElement | null): TreeNode | null {
 
 interface LayerTreeProps {
   element: HTMLElement | null
-  onSelectElement: (el: HTMLElement) => void
+  onSelectElement: (el: HTMLElement, ev?: MouseEvent) => void
   height: number
   /** Counter that bumps on every HMR cycle. Forces `buildScopedTree` to
    *  rebuild when the selected element's DOM node is preserved but its
@@ -80,7 +80,7 @@ interface LayerTreeProps {
   hmrAppliedVersion?: number
 }
 
-function TreeNodeRow({ node, onSelectElement }: { node: TreeNode; onSelectElement: (el: HTMLElement) => void }): JSX.Element {
+function TreeNodeRow({ node, onSelectElement }: { node: TreeNode; onSelectElement: (el: HTMLElement, ev?: MouseEvent) => void }): JSX.Element {
   const [collapsed, setCollapsed] = useState(false)
   const hasChildren = node.hasChildren
   const showChildren = node.children.length > 0 && node.expanded && !collapsed
@@ -92,7 +92,7 @@ function TreeNodeRow({ node, onSelectElement }: { node: TreeNode; onSelectElemen
         style={{ paddingLeft: `${node.depth * 12 + 8}px` }}
         onClick={(e) => {
           e.stopPropagation()
-          onSelectElement(node.element)
+          onSelectElement(node.element, e as MouseEvent)
         }}
       >
         {hasChildren ? (

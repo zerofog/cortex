@@ -90,15 +90,6 @@ afterEach(async () => {
   vi.restoreAllMocks()
 })
 
-describe('selection.ts Escape removal', () => {
-  // selection.ts is vi.mock'd in this file — this test was checking the mock, not real code.
-  // TODO: add Escape non-handling test in selection.test.ts where the real module runs.
-  it.skip('selection.ts does NOT handle Escape (needs real module, not mock)', () => {})
-
-  // Click behavior is covered by existing tests in selection.test.ts
-  // (requires elementFromPoint mock not available here)
-})
-
 // --- CortexApp integration tests for cascade + shortcuts ---
 
 import { CortexApp } from '../../src/browser/components/CortexApp.js'
@@ -165,7 +156,7 @@ describe('cascade priorities (integration)', () => {
     const target = document.createElement('div')
     document.body.appendChild(target)
     mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
-    selectCb(target)
+    selectCb([target], 'replace')
     await new Promise(r => setTimeout(r, SETTLE))
 
     // Should have selection overlay

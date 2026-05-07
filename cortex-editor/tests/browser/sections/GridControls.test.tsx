@@ -450,31 +450,31 @@ describe('GridControls', () => {
     expect(rows.value).toBe('5')
   })
 
-  // Responsive/complex template tiers removed from UI — simple tier only.
-  it.skip('responsive tier: Cols is hidden, MinWidth input shows instead', () => {
+  it.each([
+    ['complex columns', 'gridTemplateColumns', '.cortex-grid-controls__cols', '1fr 2fr auto', 'grid-template-columns'],
+    ['complex rows', 'gridTemplateRows', '.cortex-grid-controls__rows', '1fr 2fr auto', 'grid-template-rows'],
+    ['responsive columns', 'gridTemplateColumns', '.cortex-grid-controls__cols', 'repeat(auto-fit, minmax(200px, 1fr))', 'grid-template-columns'],
+    ['responsive rows', 'gridTemplateRows', '.cortex-grid-controls__rows', 'repeat(auto-fill, minmax(120px, 1fr))', 'grid-template-rows'],
+  ] as const)('non-simple %s template disables count input with explanation', (_label, property, selector, template, emittedProperty) => {
+    const onChange = vi.fn()
     setup({
       values: {
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+        [property]: template,
       },
+      onChange,
     })
-    // Cols input not in the DOM when responsive.
-    const cols = container.querySelector('.cortex-grid-controls__cols input')
-    expect(cols).toBeNull()
-    // Min-width input IS in the DOM.
-    const minw = container.querySelector(
-      '.cortex-grid-controls__minwidth input',
-    ) as HTMLInputElement
-    expect(minw).not.toBeNull()
-    expect(minw.value).toBe('200')
-  })
+    const field = container.querySelector(selector) as HTMLElement
+    const numeric = field.querySelector('.cortex-numeric-input') as HTMLElement
+    const input = field.querySelector('input') as HTMLInputElement
+    expect(input.disabled).toBe(true)
+    expect(numeric.getAttribute('aria-disabled')).toBe('true')
+    expect(numeric.getAttribute('data-tooltip')).toBe('Grid count requires repeat(N, 1fr)')
 
-  it.skip('complex tier: read-only raw CSS shown, neither Cols nor MinWidth editable', () => {
-    setup({ values: { gridTemplateColumns: '1fr 2fr auto' } })
-    expect(container.querySelector('.cortex-grid-controls__cols input')).toBeNull()
-    expect(container.querySelector('.cortex-grid-controls__minwidth input')).toBeNull()
-    const raw = container.querySelector('.cortex-grid-controls__raw') as HTMLElement
-    expect(raw).not.toBeNull()
-    expect(raw.textContent).toContain('1fr 2fr auto')
+    input.focus()
+    input.value = '5'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(calls(onChange, emittedProperty)).toEqual([])
   })
 
   // ── Simple tier reconstruct emissions ─────────────────────────
@@ -517,54 +517,6 @@ describe('GridControls', () => {
       expect(c).toEqual({
         property: 'grid-template-rows',
         value: 'repeat(4, 1fr)',
-      })
-    }
-  })
-
-  // ── Responsive tier reconstruct emissions ─────────────────────
-
-  it.skip('responsive tier: changing min-width from 200 to 240 emits repeat(auto-fit, minmax(240px, 1fr))', () => {
-    const { onChange } = setup({
-      values: {
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-      },
-    })
-    const input = container.querySelector(
-      '.cortex-grid-controls__minwidth input',
-    ) as HTMLInputElement
-    input.focus()
-    input.value = '240'
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    const emissions = calls(onChange, 'grid-template-columns')
-    expect(emissions.length).toBeGreaterThanOrEqual(1)
-    for (const c of emissions) {
-      expect(c).toEqual({
-        property: 'grid-template-columns',
-        value: 'repeat(auto-fit, minmax(240px, 1fr))',
-      })
-    }
-  })
-
-  it.skip('responsive auto-fill: changing min-width preserves the autoMode', () => {
-    const { onChange } = setup({
-      values: {
-        gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
-      },
-    })
-    const input = container.querySelector(
-      '.cortex-grid-controls__minwidth input',
-    ) as HTMLInputElement
-    input.focus()
-    input.value = '160'
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    const emissions = calls(onChange, 'grid-template-columns')
-    expect(emissions.length).toBeGreaterThanOrEqual(1)
-    for (const c of emissions) {
-      expect(c).toEqual({
-        property: 'grid-template-columns',
-        value: 'repeat(auto-fill, minmax(160px, 1fr))',
       })
     }
   })

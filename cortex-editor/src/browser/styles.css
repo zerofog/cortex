@@ -248,6 +248,15 @@
   transition: border-radius 150ms ease-out;
 }
 
+/* ZF0-1195: Secondary selection outline for non-primary multi-selected elements.
+ * Slightly thinner border so the primary's full-chrome overlay (with label and
+ * state lens) still reads as the focus. Same accent color so the user perceives
+ * the selection as one logical group. */
+.cortex-selection-overlay--secondary {
+  border-width: 2px;
+  border-style: dashed;
+}
+
 .cortex-label {
   position: absolute;
   left: 0;
@@ -973,6 +982,15 @@
   background: var(--cx-well-hover);
 }
 
+.cortex-numeric-input[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.cortex-numeric-input[aria-disabled="true"]:hover {
+  background: var(--cx-well);
+}
+
 /* Scrub affordance — subtle drag hint on hover */
 .cortex-numeric-input::before {
   content: '\21D4';
@@ -986,6 +1004,11 @@
 
 .cortex-numeric-input:hover::before {
   color: var(--cx-ink-ghost);
+}
+
+.cortex-numeric-input[aria-disabled="true"]::before,
+.cortex-numeric-input[aria-disabled="true"]:hover::before {
+  color: transparent;
 }
 
 .cortex-numeric-input--scrubbing {
@@ -1011,8 +1034,10 @@
   pointer-events: none;
 }
 
-.cortex-numeric-input:focus-within {
+.cortex-numeric-input:focus-within,
+.cortex-numeric-input:focus-visible {
   box-shadow: var(--cx-well-shadow), 0 0 0 1.5px var(--cx-select-muted);
+  outline: none;
 }
 
 .cortex-numeric-input__label {
@@ -1058,6 +1083,11 @@
 
 .cortex-numeric-input__value:focus {
   cursor: text;
+}
+
+.cortex-numeric-input[aria-disabled="true"] .cortex-numeric-input__value {
+  color: var(--cx-ink-tertiary);
+  cursor: not-allowed;
 }
 
 .cortex-numeric-input__unit {
@@ -1945,6 +1975,15 @@
 
 .cortex-lock-btn--active:hover {
   color: var(--cx-select-hover);
+}
+
+.cortex-lock-btn--disabled,
+.cortex-lock-btn--disabled:hover {
+  background: transparent;
+  color: var(--cx-ink-ghost);
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
 }
 
 /* ── Typography section ─────────────────────── */
