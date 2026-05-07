@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
 const COMPONENTS_DIR = join(process.cwd(), 'src/browser/components')
+const ICON_INVENTORY_FILE = join(COMPONENTS_DIR, 'icons.tsx')
 
 function collectSourceFiles(dir: string): string[] {
   const entries = readdirSync(dir)
@@ -22,7 +23,7 @@ function collectSourceFiles(dir: string): string[] {
 describe('panel icon source compliance', () => {
   it('keeps panel and toolbar icons in the shared Lucide inventory', () => {
     const offenders = collectSourceFiles(COMPONENTS_DIR)
-      .filter((file) => !file.endsWith('/icons.tsx'))
+      .filter((file) => file !== ICON_INVENTORY_FILE)
       .filter((file) => readFileSync(file, 'utf8').includes('<svg'))
       .map((file) => relative(process.cwd(), file))
 
