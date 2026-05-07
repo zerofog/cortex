@@ -1,0 +1,19 @@
+cortex-editor/tests/browser/cortex-app.test.tsx
+  s_2089cbf1ccb98d::t_4cdc132d23c3ba 543-550,570-574
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "0fa59ebac3612f0bb11a7da2f251b49bf6eae19b",
+  "prompts": {},
+  "sessions": {
+    "s_2089cbf1ccb98d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e00e5-5118-7873-a865-0a02ab551502",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
