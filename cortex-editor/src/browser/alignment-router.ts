@@ -81,10 +81,11 @@ function horizontalToFlex(value: TypographyAlignmentValue): TypographyVerticalAl
   return 'flex-start'
 }
 
-export function flexToHorizontal(value: string): TypographyHorizontalAlign {
+export function flexToHorizontal(value: string): TypographyHorizontalAlign | '' {
+  if (value === 'flex-start' || value === 'start' || value === 'left') return 'left'
   if (value === 'flex-end' || value === 'end' || value === 'right') return 'right'
   if (value === 'center') return 'center'
-  return 'left'
+  return ''
 }
 
 export function flexToVertical(value: string): TypographyVerticalAlign | '' {

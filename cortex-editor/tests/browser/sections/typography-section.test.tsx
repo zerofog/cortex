@@ -514,6 +514,23 @@ describe('parseTypographyValues', () => {
     expect(values.verticalAlign).toBe('center')
   })
 
+  it('leaves horizontal control unselected for unsupported flex alignment values', () => {
+    expect(
+      parseTypographyValues(fakeCS({
+        display: 'flex',
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+      })).textAlign,
+    ).toBe('')
+    expect(
+      parseTypographyValues(fakeCS({
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'stretch',
+      })).textAlign,
+    ).toBe('')
+  })
+
   it('keeps block vertical alignment disabled until height or min-height creates space', () => {
     const contentSized = parseTypographyValues(fakeCS({ display: 'block', height: '24px' }))
     expect(contentSized.textAlign).toBe('left')

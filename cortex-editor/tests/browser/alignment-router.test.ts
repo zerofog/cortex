@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP,
   flexAxisToCssProperty,
+  flexToHorizontal,
   resolveTypographyAlignmentEdits,
   typographyVerticalAlignEnabled,
 } from '../../src/browser/alignment-router.js'
@@ -98,4 +99,11 @@ describe('alignment-router', () => {
   ])('enables block vertical alignment when %s creates space', (_label, context) => {
     expect(typographyVerticalAlignEnabled(context)).toBe(true)
   })
+
+  it.each(['stretch', 'space-between', 'space-around'] as const)(
+    'leaves unsupported horizontal flex value %s unselected',
+    (value) => {
+      expect(flexToHorizontal(value)).toBe('')
+    },
+  )
 })
