@@ -1,0 +1,46 @@
+cortex-editor/tests/browser/cortex-app.test.tsx
+  a27bebb451c90054 7,69,1085,1227
+cortex-editor/tests/browser/selection-overlay.test.tsx
+  a27bebb451c90054 6,21-24
+cortex-editor/tests/browser/hover-overlay.test.tsx
+  a27bebb451c90054 4,20-25
+cortex-editor/vitest.config.ts
+  a27bebb451c90054 38,50,57
+cortex-editor/tests/browser/panel.test.tsx
+  a27bebb451c90054 6-7,30-36
+cortex-editor/src/browser/transform-bus.ts
+  a27bebb451c90054 7,17-27,31-33
+  28dc615ada1e6bc0 28-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "3e21b5913c660709bfdfbf5ce8ad538028a01047",
+  "prompts": {
+    "28dc615ada1e6bc0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "21d0b5a7-bc22-4c8b-aad0-a1505227d7c6",
+        "model": "<synthetic>"
+      },
+      "human_author": null,
+      "total_additions": 555,
+      "total_deletions": 8,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    },
+    "a27bebb451c90054": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2fc37017-5294-4605-90ed-fa6925f82c87",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dklzf",
+      "messages_url": "https://usegitai.com/cas/d11475f28d639876e553cf8c8ad5f71e679e3646767873c6c4988061460ea20d",
+      "total_additions": 460,
+      "total_deletions": 456,
+      "accepted_lines": 43,
+      "overriden_lines": 0
+    }
+  }
+}

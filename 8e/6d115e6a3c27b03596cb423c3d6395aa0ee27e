@@ -1,0 +1,24 @@
+cortex-editor/vitest.config.ts
+  a27bebb451c90054 38,49,57
+  28dc615ada1e6bc0 39-48,50-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "8e6d115e6a3c27b03596cb423c3d6395aa0ee27e",
+  "prompts": {
+    "28dc615ada1e6bc0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "21d0b5a7-bc22-4c8b-aad0-a1505227d7c6",
+        "model": "<synthetic>"
+      },
+      "human_author": "dklzf",
+      "messages_url": "https://usegitai.com/cas/f18461edcbe155c4d4c19375743d74e3db304a5c931c5a459db38f211164b37f",
+      "total_additions": 13,
+      "total_deletions": 13,
+      "accepted_lines": 13,
+      "overriden_lines": 0
+    }
+  }
+}
