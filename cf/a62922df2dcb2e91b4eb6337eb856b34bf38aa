@@ -1,0 +1,25 @@
+cortex-editor/tests/integration/helpers/cli-build.test.ts
+  s_0e5ee60ed8203a::t_75179990b6b64f 1-42
+cortex-editor/tests/integration/helpers/process-cleanup.test.ts
+  s_0e5ee60ed8203a::t_7bf6d8e43e557c 1-35
+cortex-editor/tests/integration/helpers/process-cleanup.ts
+  s_0e5ee60ed8203a::t_4d2b1ffd3e3b00 1-23
+cortex-editor/tests/integration/helpers/cli-build.ts
+  s_0e5ee60ed8203a::t_33303c4df74ff3 1-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "cfa62922df2dcb2e91b4eb6337eb856b34bf38aa",
+  "prompts": {},
+  "sessions": {
+    "s_0e5ee60ed8203a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "73512202-0d84-4b6c-8884-abf0e45ccd20",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
