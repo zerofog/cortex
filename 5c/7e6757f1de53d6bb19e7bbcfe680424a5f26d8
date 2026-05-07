@@ -1,0 +1,23 @@
+cortex-editor/tests/browser/sections/typography-section.test.tsx
+  s_1d89566d861367::t_e71501a5142d68 517-533
+cortex-editor/tests/browser/alignment-router.test.ts
+  s_1d89566d861367::t_444ec228dd5fe8 5,102-108
+cortex-editor/src/browser/alignment-router.ts
+  s_1d89566d861367::t_0479c16cdf8d25 84-85,88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "5c7e6757f1de53d6bb19e7bbcfe680424a5f26d8",
+  "prompts": {},
+  "sessions": {
+    "s_1d89566d861367": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e00e7-841f-7213-a7ba-973c0186ebb6",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
