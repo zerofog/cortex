@@ -7,6 +7,7 @@ describe('initSelection', () => {
   let shadow: ShadowRoot
   let cleanupHost: () => void
   let onHover: ReturnType<typeof vi.fn>
+  // onSelect receives (elements: HTMLElement[], action: 'replace' | 'add' | 'toggle')
   let onSelect: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
@@ -65,7 +66,7 @@ describe('initSelection', () => {
     const handle = initSelection(shadow, onHover, onSelect)
 
     const event = dispatchMouseEvent(target, 'click', { clientX: 50, clientY: 50 })
-    expect(onSelect).toHaveBeenCalledWith(target)
+    expect(onSelect).toHaveBeenCalledWith([target], 'replace')
     expect(event.defaultPrevented).toBe(true)
 
     handle.cleanup()
@@ -209,7 +210,7 @@ describe('initSelection', () => {
     handle.setInterceptClicks(false)
     handle.setInterceptClicks(true)
     const event = dispatchMouseEvent(target, 'click', { clientX: 50, clientY: 50 })
-    expect(onSelect).toHaveBeenCalledWith(target)
+    expect(onSelect).toHaveBeenCalledWith([target], 'replace')
     expect(event.defaultPrevented).toBe(true)
 
     handle.cleanup()
@@ -217,17 +218,73 @@ describe('initSelection', () => {
     target.remove()
   })
 
-  it('click on <script> tag reaches onSelect(null) through getTargetElement', () => {
+  it('click on <script> tag reaches onSelect([], replace) through getTargetElement', () => {
     const scriptEl = document.createElement('script')
     document.body.appendChild(scriptEl)
     const restoreEfp = mockElementFromPoint(scriptEl)
     const handle = initSelection(shadow, onHover, onSelect)
 
     dispatchMouseEvent(document.body, 'click', { clientX: 50, clientY: 50 })
-    expect(onSelect).toHaveBeenCalledWith(null)
+    expect(onSelect).toHaveBeenCalledWith([], 'replace')
 
     handle.cleanup()
     restoreEfp()
     scriptEl.remove()
+  })
+
+  it('shift+click calls onSelect with action="add"', () => {
+    const target = createEditableDiv()
+    document.body.appendChild(target)
+    const restoreEfp = mockElementFromPoint(target)
+    const handle = initSelection(shadow, onHover, onSelect)
+
+    dispatchMouseEvent(target, 'click', { clientX: 50, clientY: 50, shiftKey: true })
+    expect(onSelect).toHaveBeenCalledWith([target], 'add')
+
+    handle.cleanup()
+    restoreEfp()
+    target.remove()
+  })
+
+  it('meta+click calls onSelect with action="toggle"', () => {
+    const target = createEditableDiv()
+    document.body.appendChild(target)
+    const restoreEfp = mockElementFromPoint(target)
+    const handle = initSelection(shadow, onHover, onSelect)
+
+    dispatchMouseEvent(target, 'click', { clientX: 50, clientY: 50, metaKey: true })
+    expect(onSelect).toHaveBeenCalledWith([target], 'toggle')
+
+    handle.cleanup()
+    restoreEfp()
+    target.remove()
+  })
+
+  it('ctrl+click calls onSelect with action="toggle"', () => {
+    const target = createEditableDiv()
+    document.body.appendChild(target)
+    const restoreEfp = mockElementFromPoint(target)
+    const handle = initSelection(shadow, onHover, onSelect)
+
+    dispatchMouseEvent(target, 'click', { clientX: 50, clientY: 50, ctrlKey: true })
+    expect(onSelect).toHaveBeenCalledWith([target], 'toggle')
+
+    handle.cleanup()
+    restoreEfp()
+    target.remove()
+  })
+
+  it('click on null target calls onSelect with action="replace" and empty array', () => {
+    const restoreEfp = mockElementFromPoint(null)
+    const handle = initSelection(shadow, onHover, onSelect)
+
+    const target = document.createElement('div')
+    document.body.appendChild(target)
+    dispatchMouseEvent(target, 'click', { clientX: 50, clientY: 50 })
+    expect(onSelect).toHaveBeenCalledWith([], 'replace')
+
+    handle.cleanup()
+    restoreEfp()
+    target.remove()
   })
 })

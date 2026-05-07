@@ -92,7 +92,7 @@ describe('Panel — canonical section ordering', () => {
     const overrideManager = makeOverrideManager()
     const result = renderInShadow(
       h(Panel, {
-        element,
+        selectedElements: [element],
         overrideManager: overrideManager as any,
         onClose: () => {},
         onSelectElement: () => {},
@@ -317,7 +317,7 @@ describe('Panel — Typography conditional rendering', () => {
     const overrideManager = makeOverrideManager()
     const result = renderInShadow(
       h(Panel, {
-        element,
+        selectedElements: [element],
         overrideManager: overrideManager as any,
         onClose: () => {},
         onSelectElement: () => {},

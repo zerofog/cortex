@@ -165,7 +165,7 @@ describe('cascade priorities (integration)', () => {
     const target = document.createElement('div')
     document.body.appendChild(target)
     mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
-    selectCb(target)
+    selectCb([target], 'replace')
     await new Promise(r => setTimeout(r, SETTLE))
 
     // Should have selection overlay

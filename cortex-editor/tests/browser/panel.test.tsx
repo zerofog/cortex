@@ -7,6 +7,7 @@ import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js
 import { _resetBusForTesting } from '../../src/browser/override-bus.js'
 import { cortexStorage } from '../../src/browser/persistence.js'
 import { isPendingEditArray, type PendingEdit } from '../../src/browser/hooks/useEditStagingBuffer.js'
+import { CommandStack } from '../../src/browser/command-stack.js'
 
 const panelPositionProps = {
   position: { x: 1000, y: 12 },
@@ -68,7 +69,7 @@ describe('Panel', () => {
 
     const result = renderInShadow(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={onClose}
         onSelectElement={onSelectElement}
@@ -170,7 +171,7 @@ describe('Panel', () => {
     document.body.appendChild(container)
     render(
       <Panel
-        element={null}
+        selectedElements={[]}
         overrideManager={{} as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -230,7 +231,7 @@ describe('Panel', () => {
     }
     const result = renderInShadow(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -284,7 +285,7 @@ describe('Panel — library detection wiring', () => {
 
     render(
       <Panel
-        element={libEl}
+        selectedElements={[libEl]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -319,7 +320,7 @@ describe('Panel — library detection wiring', () => {
 
     render(
       <Panel
-        element={userEl}
+        selectedElements={[userEl]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -367,7 +368,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     // Render with default state
     render(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -390,7 +391,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     // Re-render with hover state — should trigger useMemo re-read
     render(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -427,7 +428,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     // Render with hasBefore=true, then click the ::before tab
     render(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -470,7 +471,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     // Initial render
     render(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -507,7 +508,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
 
     render(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -538,7 +539,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
 
     render(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -564,7 +565,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
 
     render(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -635,7 +636,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
 
       await act(() => {
         render(
-          <Panel element={el} overrideManager={overrideManager as any}
+          <Panel selectedElements={[el]} overrideManager={overrideManager as any}
             onClose={() => {}} onSelectElement={() => {}} {...panelPositionProps} />,
           container,
         )
@@ -677,7 +678,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     // Render with hasBefore, click ::before tab
     render(
       <Panel
-        element={el1}
+        selectedElements={[el1]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -697,7 +698,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     // Switch to a different element
     render(
       <Panel
-        element={el2}
+        selectedElements={[el2]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -773,7 +774,7 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
     const renderPanel = (version: number): void => {
       render(
         <Panel
-          element={target}
+          selectedElements={[target]}
           overrideManager={overrideManager as any}
           onClose={() => {}}
           onSelectElement={() => {}}
@@ -864,7 +865,7 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
     const renderPanel = (version: number): void => {
       render(
         <Panel
-          element={target}
+          selectedElements={[target]}
           overrideManager={overrideManager as any}
           onClose={() => {}}
           onSelectElement={() => {}}
@@ -919,6 +920,120 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
   })
 })
 
+describe('Panel mixedProperties (ZF0-1195 / T3)', () => {
+  function createOverrideManager() {
+    return {
+      set: vi.fn(),
+      get: vi.fn(),
+      remove: vi.fn(),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+    }
+  }
+
+  it('mixedProperties is empty for single selection — no mixed-state controls rendered', () => {
+    const el = document.createElement('div')
+    el.setAttribute('data-cortex-source', 'src/Single.tsx:1:1')
+    document.body.appendChild(el)
+
+    const overrideManager = createOverrideManager()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <Panel
+        selectedElements={[el]}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+      container,
+    )
+
+    // No mixed-state NumericInput (class .cortex-numeric-input--mixed) should appear
+    // for a single-element selection, even if the panel renders controls
+    expect(container.querySelector('.cortex-numeric-input--mixed')).toBeNull()
+
+    render(null, container)
+    container.remove()
+    el.remove()
+  })
+
+  it('mixedProperties populated when selected elements have differing opacity', async () => {
+    // Create two elements with different computed opacity values
+    const el1 = document.createElement('div')
+    el1.setAttribute('data-cortex-source', 'src/A.tsx:1:1')
+    const el2 = document.createElement('div')
+    el2.setAttribute('data-cortex-source', 'src/B.tsx:2:2')
+    document.body.appendChild(el1)
+    document.body.appendChild(el2)
+
+    // Override getComputedStyle to return differing opacity for the two elements.
+    // PR #104 review I3: wrap in try/finally so the global is restored even if
+    // the assertion or waitFor throws — otherwise the proxy leaks into later
+    // tests and produces unrelated failures.
+    const originalGCS = window.getComputedStyle
+    const overrideManager = createOverrideManager()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    try {
+      window.getComputedStyle = ((target: Element, pseudo?: string | null) => {
+        if (target === el1) {
+          const base = originalGCS.call(window, target, pseudo)
+          return new Proxy(base, {
+            get(obj, prop) {
+              if (prop === 'getPropertyValue') {
+                return (p: string) => p === 'opacity' ? '1' : (obj as any).getPropertyValue?.(p) ?? ''
+              }
+              if (prop === 'opacity') return '1'
+              return (obj as any)[prop]
+            },
+          }) as CSSStyleDeclaration
+        }
+        if (target === el2) {
+          const base = originalGCS.call(window, target, pseudo)
+          return new Proxy(base, {
+            get(obj, prop) {
+              if (prop === 'getPropertyValue') {
+                return (p: string) => p === 'opacity' ? '0.5' : (obj as any).getPropertyValue?.(p) ?? ''
+              }
+              if (prop === 'opacity') return '0.5'
+              return (obj as any)[prop]
+            },
+          }) as CSSStyleDeclaration
+        }
+        return originalGCS.call(window, target, pseudo)
+      }) as typeof window.getComputedStyle
+
+      render(
+        <Panel
+          selectedElements={[el1, el2]}
+          overrideManager={overrideManager as any}
+          onClose={() => {}}
+          onSelectElement={() => {}}
+          {...panelPositionProps}
+        />,
+        container,
+      )
+
+      // When opacity differs across selection, AppearanceSection's opacity NumericInput
+      // should be in mixed state (renders with .cortex-numeric-input--mixed class)
+      await vi.waitFor(() => {
+        const mixedInputs = container.querySelectorAll('.cortex-numeric-input--mixed')
+        expect(mixedInputs.length).toBeGreaterThan(0)
+      }, { timeout: 500 })
+    } finally {
+      window.getComputedStyle = originalGCS
+      render(null, container)
+      container.remove()
+      el1.remove()
+      el2.remove()
+    }
+  })
+})
+
 describe('Panel — staging buffer wiring (ZF0-1451)', () => {
   beforeEach(() => {
     // Clear before each test so leftover state from a sibling test or other
@@ -959,7 +1074,7 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
 
     const { root, cleanup } = renderInShadow(
       <Panel
-        element={target}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -1069,7 +1184,7 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
 
     const { cleanup } = renderInShadow(
       <Panel
-        element={target}
+        selectedElements={[target]}
         channel={channel}
         overrideManager={overrideManager as any}
         onClose={() => {}}
@@ -1106,6 +1221,380 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     expect(remaining[0].intentId).toBe('keep-me')
 
     cleanup()
+    target.remove()
+  })
+})
+
+describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
+  // Shared override-manager factory that actually stores values so commitScrub
+  // can distinguish changed from unchanged properties.
+  function createTrackingOverrideManager() {
+    const store = new Map<string, string>()
+    return {
+      set: vi.fn((src: string, prop: string, val: string, _pseudo?: string) => {
+        store.set(`${src}\0${prop}`, val)
+      }),
+      get: vi.fn((src: string, prop: string, _pseudo?: string) =>
+        store.get(`${src}\0${prop}`),
+      ),
+      remove: vi.fn(),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+      _store: store,
+    }
+  }
+
+  // Install a getComputedStyle proxy that provides getPropertyValue on any
+  // element (needed when applyOverride reads computed styles for previousValue).
+  function installGCSProxy(): () => void {
+    const original = window.getComputedStyle
+    window.getComputedStyle = ((el: Element, pseudo?: string | null) => {
+      const base = original.call(window, el, pseudo)
+      return new Proxy(base, {
+        get(obj, prop) {
+          if (prop === 'getPropertyValue') {
+            return (_p: string) => ''
+          }
+          return (obj as any)[prop]
+        },
+      }) as CSSStyleDeclaration
+    }) as typeof window.getComputedStyle
+    return () => { window.getComputedStyle = original }
+  }
+
+  beforeEach(() => {
+    localStorage.clear()
+    vi.useFakeTimers()
+    _resetBusForTesting()
+    _resetTransformBusForTesting()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    localStorage.clear()
+    _resetBusForTesting()
+    _resetTransformBusForTesting()
+  })
+
+  // Helper: trigger a single commitScrub by clicking an inactive SegmentedControl
+  // option in the layout section. Returns the clicked segment's data-value.
+  async function triggerCommitScrub(container: Element): Promise<string | null> {
+    const layoutSection = container.querySelector('[data-section-id="layout"]')
+    if (!layoutSection) return null
+    const segment = layoutSection.querySelector(
+      '.cortex-segmented__option:not(.cortex-segmented__option--active)',
+    ) as HTMLButtonElement | null
+    if (!segment) return null
+    const expectedValue = segment.getAttribute('data-value')
+    await act(async () => {
+      segment.click()
+      await Promise.resolve() // flush microtask commit
+    })
+    return expectedValue
+  }
+
+  it('AC1: 2-element selection appends 2 intents with correct sources', async () => {
+    const el1 = document.createElement('div')
+    el1.setAttribute('data-cortex-source', 'src/A.tsx:10:3')
+    const el2 = document.createElement('div')
+    el2.setAttribute('data-cortex-source', 'src/B.tsx:20:3')
+    document.body.append(el1, el2)
+
+    const overrideManager = createTrackingOverrideManager()
+    const restoreGCS = installGCSProxy()
+    const commandStack = new CommandStack()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <Panel
+        selectedElements={[el1, el2]}
+        overrideManager={overrideManager as any}
+        commandStack={commandStack}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+      container,
+    )
+
+    await triggerCommitScrub(container)
+
+    // Advance past the 150ms persist debounce
+    await act(() => { vi.advanceTimersByTime(200) })
+
+    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    expect(stored).toHaveLength(2)
+
+    const sources = stored.map(e => e.source).sort()
+    expect(sources).toEqual(['src/A.tsx:10:3', 'src/B.tsx:20:3'])
+
+    for (const e of stored) {
+      expect(e.instanceSources).toBeUndefined()
+      expect(e.scope).toBe('instance')
+      expect(e.property).toBe('display')
+      expect(e.intentId).toMatch(/^[0-9a-f-]{36}$|^cortex-[0-9a-z]+-[0-9a-z]+$/)
+    }
+
+    // O(N²) intent-inflation guard: assert the command's pendingEdits array
+    // has exactly N entries, not N² × P. The buffer's last-write-wins dedup
+    // hides inflation from the surface `stored` array — we MUST inspect the
+    // command directly to catch a regression where each outer-loop iteration
+    // pushes intents for every source's properties (not just its own).
+    expect(commandStack.undoCount).toBe(1)
+    const cmd = commandStack.peekUndo()!
+    // pendingEdits is private on PropertyEditCommand; access via cast for test.
+    // @ts-expect-error — accessing private field for inflation regression check
+    const cmdPendingEdits: readonly PendingEdit[] = cmd.pendingEdits
+    expect(cmdPendingEdits).toHaveLength(2)
+    expect(new Set(cmdPendingEdits.map(e => e.source))).toEqual(new Set([
+      'src/A.tsx:10:3',
+      'src/B.tsx:20:3',
+    ]))
+
+    render(null, container)
+    container.remove()
+    restoreGCS()
+    el1.remove()
+    el2.remove()
+  })
+
+  it('AC5: 3-element selection appends 3 intents', async () => {
+    const el1 = document.createElement('div')
+    el1.setAttribute('data-cortex-source', 'src/A.tsx:10:3')
+    const el2 = document.createElement('div')
+    el2.setAttribute('data-cortex-source', 'src/B.tsx:20:3')
+    const el3 = document.createElement('div')
+    el3.setAttribute('data-cortex-source', 'src/C.tsx:30:3')
+    document.body.append(el1, el2, el3)
+
+    const overrideManager = createTrackingOverrideManager()
+    const restoreGCS = installGCSProxy()
+    const commandStack = new CommandStack()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <Panel
+        selectedElements={[el1, el2, el3]}
+        overrideManager={overrideManager as any}
+        commandStack={commandStack}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+      container,
+    )
+
+    await triggerCommitScrub(container)
+
+    await act(() => { vi.advanceTimersByTime(200) })
+
+    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    expect(stored).toHaveLength(3)
+
+    const sources = stored.map(e => e.source).sort()
+    expect(sources).toEqual(['src/A.tsx:10:3', 'src/B.tsx:20:3', 'src/C.tsx:30:3'])
+
+    // O(N²) inflation guard at N=3: command.pendingEdits must be 3, not 9.
+    // Without this assertion the buffer-dedup'd `stored` would hide the bug.
+    expect(commandStack.undoCount).toBe(1)
+    const cmd = commandStack.peekUndo()!
+    // @ts-expect-error — accessing private field for inflation regression check
+    const cmdPendingEdits: readonly PendingEdit[] = cmd.pendingEdits
+    expect(cmdPendingEdits).toHaveLength(3)
+    expect(new Set(cmdPendingEdits.map(e => e.source))).toEqual(new Set([
+      'src/A.tsx:10:3',
+      'src/B.tsx:20:3',
+      'src/C.tsx:30:3',
+    ]))
+
+    render(null, container)
+    container.remove()
+    restoreGCS()
+    el1.remove()
+    el2.remove()
+    el3.remove()
+  })
+
+  it('AC2: single PropertyEditCommand — cmd.undo() removes all intent ids', async () => {
+    const el1 = document.createElement('div')
+    el1.setAttribute('data-cortex-source', 'src/A.tsx:10:3')
+    const el2 = document.createElement('div')
+    el2.setAttribute('data-cortex-source', 'src/B.tsx:20:3')
+    document.body.append(el1, el2)
+
+    const overrideManager = createTrackingOverrideManager()
+    const restoreGCS = installGCSProxy()
+    const commandStack = new CommandStack()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <Panel
+        selectedElements={[el1, el2]}
+        overrideManager={overrideManager as any}
+        commandStack={commandStack}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+      container,
+    )
+
+    await triggerCommitScrub(container)
+
+    // Advance so intents are persisted
+    await act(() => { vi.advanceTimersByTime(200) })
+
+    // Verify 2 intents in the buffer
+    const before = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    expect(before).toHaveLength(2)
+
+    // One command was recorded
+    expect(commandStack.undoCount).toBe(1)
+
+    // Undo the command — should remove both intents from the buffer
+    await act(async () => {
+      commandStack.undo()
+      await Promise.resolve()
+    })
+
+    // Advance to flush the post-undo remove through the debounce
+    await act(() => { vi.advanceTimersByTime(200) })
+
+    const after = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    expect(after).toHaveLength(0)
+
+    render(null, container)
+    container.remove()
+    restoreGCS()
+    el1.remove()
+    el2.remove()
+  })
+
+  it('AC3: multi-select + scope=all packs instanceSources per selected source', async () => {
+    // Set up shared class: el1 and its sibling share the same CSS module selector.
+    // el2 is an independent element with its own class.
+    const sharedCss = 'Component.module.css:.badge'
+
+    const el1 = document.createElement('div')
+    el1.setAttribute('data-cortex-source', 'src/A.tsx:10:3')
+    el1.setAttribute('data-cortex-css', sharedCss)
+
+    const el1Sibling = document.createElement('div')
+    el1Sibling.setAttribute('data-cortex-source', 'src/A.tsx:15:3')
+    el1Sibling.setAttribute('data-cortex-css', sharedCss)
+
+    const el2 = document.createElement('div')
+    el2.setAttribute('data-cortex-source', 'src/B.tsx:20:3')
+    // el2 has no shared class — scope=all on its source won't find siblings
+
+    document.body.append(el1, el1Sibling, el2)
+
+    const overrideManager = createTrackingOverrideManager()
+    const restoreGCS = installGCSProxy()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <Panel
+        selectedElements={[el1, el2]}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+      container,
+    )
+
+    // Wait for sharedInfo to populate (detectSharedClasses runs in a useEffect)
+    let allBtn!: HTMLButtonElement
+    await vi.waitFor(() => {
+      allBtn = container.querySelector('.cortex-panel__scope-btn:last-child') as HTMLButtonElement
+      expect(allBtn).not.toBeNull()
+      expect(allBtn.textContent).toContain('All')
+    }, { timeout: 500 })
+
+    // Click "All" scope button
+    await act(async () => {
+      allBtn.click()
+      await Promise.resolve()
+    })
+
+    // Now trigger an edit
+    await triggerCommitScrub(container)
+
+    await act(() => { vi.advanceTimersByTime(200) })
+
+    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    // 2 intents: one for el1-source, one for el2-source
+    expect(stored).toHaveLength(2)
+
+    const el1Intent = stored.find(e => e.source === 'src/A.tsx:10:3')
+    const el2Intent = stored.find(e => e.source === 'src/B.tsx:20:3')
+
+    expect(el1Intent).toBeDefined()
+    expect(el2Intent).toBeDefined()
+
+    // el1 has a shared sibling — its instanceSources should include the sibling
+    expect(el1Intent!.scope).toBe('all')
+    expect(el1Intent!.instanceSources).toBeDefined()
+    expect(el1Intent!.instanceSources!).toContain('src/A.tsx:15:3')
+
+    // el2 has no shared class siblings — instanceSources may be undefined or empty
+    expect(el2Intent!.scope).toBe('all')
+
+    // Per-element isolation: el2's instanceSources must NOT match el1's. If a
+    // regression collapses both intents onto the same instanceSources array
+    // (e.g., reusing the primary element's sharedInfo for both), this assertion
+    // catches it. el1 has a sibling, el2 doesn't — they cannot be equal.
+    expect(el2Intent!.instanceSources).not.toEqual(el1Intent!.instanceSources)
+
+    render(null, container)
+    container.remove()
+    restoreGCS()
+    el1.remove()
+    el1Sibling.remove()
+    el2.remove()
+  })
+
+  it('AC4 regression: single-select unchanged — 1 intent, no instanceSources', async () => {
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    document.body.appendChild(target)
+
+    const overrideManager = createTrackingOverrideManager()
+    const restoreGCS = installGCSProxy()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <Panel
+        selectedElements={[target]}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+      container,
+    )
+
+    await triggerCommitScrub(container)
+
+    await act(() => { vi.advanceTimersByTime(200) })
+
+    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    // Single-select: exactly 1 intent for the primary element
+    expect(stored).toHaveLength(1)
+    expect(stored[0].source).toBe('src/Hero.tsx:14:5')
+    expect(stored[0].instanceSources).toBeUndefined()
+    expect(stored[0].scope).toBe('instance')
+
+    render(null, container)
+    container.remove()
+    restoreGCS()
     target.remove()
   })
 })

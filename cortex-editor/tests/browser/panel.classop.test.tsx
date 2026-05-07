@@ -77,7 +77,7 @@ async function mountPanelWithLinkedHeading(
 
   render(
     <Panel
-      element={targetElement}
+      selectedElements={[targetElement]}
       overrideManager={overrideManager}
       commandStack={commandStack}
       channel={channel}

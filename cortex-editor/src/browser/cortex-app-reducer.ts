@@ -145,6 +145,60 @@ export const initialCortexAppReducerState: CortexAppReducerState = {
 }
 
 // ---------------------------------------------------------------------------
+// Selection helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Pure selection-update helper used by the component-level `setSelection`
+ * setter in CortexApp.tsx (ZF0-1195).
+ *
+ * Selection state is component-local (`useState`) — it never lived in the
+ * reducer. This helper is exported alongside the reducer because both
+ * reason about discrete state-shape transitions and share the
+ * "named-export, framework-agnostic" conventions of this module.
+ *
+ * Identity-stable: returns `prev` unchanged when the action is a no-op
+ * (e.g. `add` of an element already in the selection, or `replace` with
+ * the same elements in the same order). Reference equality lets Preact
+ * bail out of re-render via `setSelectedElementsState(prev => prev)`.
+ */
+export function applySelectionUpdate(
+  prev: HTMLElement[],
+  elements: HTMLElement[],
+  action: 'replace' | 'add' | 'toggle',
+): HTMLElement[] {
+  if (action === 'replace') {
+    // Identity-stable replace: same contents in same order → return prev.
+    if (
+      elements.length === prev.length &&
+      elements.every((el, i) => el === prev[i])
+    ) {
+      return prev
+    }
+    return elements
+  }
+  if (action === 'add') {
+    const next = [...prev]
+    let changed = false
+    for (const el of elements) {
+      if (!next.includes(el)) {
+        next.push(el)
+        changed = true
+      }
+    }
+    return changed ? next : prev
+  }
+  // toggle
+  const next = [...prev]
+  for (const el of elements) {
+    const idx = next.indexOf(el)
+    if (idx >= 0) next.splice(idx, 1)
+    else next.push(el)
+  }
+  return next
+}
+
+// ---------------------------------------------------------------------------
 // Reducer
 // ---------------------------------------------------------------------------
 
