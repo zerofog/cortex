@@ -1,0 +1,34 @@
+cortex-editor/src/shared/preview-source.ts
+  s_cee3b11ac40ebb::t_76a060cd772e7e 1
+cortex-editor/src/browser/hooks/useEditStagingBuffer.ts
+  s_cee3b11ac40ebb::t_df03bf4712a59b 102-103,111
+cortex-editor/tests/browser/preview-source.test.ts
+  s_cee3b11ac40ebb::t_3e7f9a24d20662 1-42,56
+  s_cee3b11ac40ebb::t_0022383d65c7d9 43-48,50-53,55
+  s_cee3b11ac40ebb::t_f8f248ab68dfea 49,54
+cortex-editor/tests/schemas/pending-edit.test.ts
+  s_cee3b11ac40ebb::t_3fdb8a871203c3 184-208
+cortex-editor/tests/browser/hooks/use-edit-staging-buffer.test.tsx
+  s_cee3b11ac40ebb::t_2f0da8dbae270b 478-490
+cortex-editor/src/schemas/pending-edit.ts
+  s_cee3b11ac40ebb::t_a5942f9f1310ad 2,19,109-116
+cortex-editor/src/browser/preview-source.ts
+  s_cee3b11ac40ebb::t_ff06928466c190 69-70
+  s_cee3b11ac40ebb::t_9d11145bcbd641 1-2,7,53-55,60,67,73,77-89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "5330371a625fab3255024c0a85f32ead1f07e0a2",
+  "prompts": {},
+  "sessions": {
+    "s_cee3b11ac40ebb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e00e8-d694-72f3-8663-05c15a7a3005",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
