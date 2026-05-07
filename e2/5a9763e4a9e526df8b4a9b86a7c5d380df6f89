@@ -1,0 +1,79 @@
+cortex-editor/tests/browser/panel-section-order.test.ts
+  s_32cd34190d2c45::t_492ada048c4332 95,320
+cortex-editor/tests/browser/layer-tree.test.tsx
+  s_32cd34190d2c45::t_492ada048c4332 168-171
+cortex-editor/tests/browser/panel.test.tsx
+  s_32cd34190d2c45::t_492ada048c4332 10,72,174,234,288,323,371,394,431,474,505,536,562,633,675,695,771,862,917-1030,1071,1181,1221-1591
+cortex-editor/tests/HAPPY-DOM-AUDIT.md
+  s_32cd34190d2c45::t_492ada048c4332 1-89
+cortex-editor/src/browser/components/Panel.tsx
+  s_32cd34190d2c45::t_492ada048c4332 152-159,166-168,172,205-219,262,290,297-298,300-303,614,627-665,739-821,859,950-970,973,975-993,1008,1013-1045,1673-1678
+cortex-editor/src/browser/components/LayerTree.tsx
+  s_32cd34190d2c45::t_492ada048c4332 74,83,95
+cortex-editor/src/browser/cortex-app-reducer.ts
+  s_32cd34190d2c45::t_492ada048c4332 148-200
+cortex-editor/tests/browser/sections/ElementTree.test.tsx
+  s_32cd34190d2c45::t_492ada048c4332 1,5-94,115,136,157,173
+cortex-editor/tests/e2e/helpers/bridge.ts
+  s_32cd34190d2c45::t_492ada048c4332 78-93
+cortex-editor/src/browser/components/CortexApp.tsx
+  s_32cd34190d2c45::t_492ada048c4332 10-11,20,49-51,141,161-170,197-199,202-224,227-232,257-261,265,363-389,563-568,585-588,1055-1065,1068,1073-1074,1078
+cortex-editor/src/browser/components/SecondarySelectionOverlay.tsx
+  s_32cd34190d2c45::t_492ada048c4332 1-104
+cortex-editor/tests/browser/keyboard-shortcuts.test.tsx
+  s_32cd34190d2c45::t_492ada048c4332 159
+cortex-editor/tests/browser/selection-state.test.ts
+  s_32cd34190d2c45::t_492ada048c4332 1-57
+cortex-editor/tests/e2e/panel-multi-select.spec.ts
+  s_32cd34190d2c45::t_492ada048c4332 1-182
+cortex-editor/tests/browser/sections/SizingControls.test.tsx
+  s_32cd34190d2c45::t_492ada048c4332 98-118,193-241
+cortex-editor/src/browser/components/sections/ElementTree.tsx
+  s_32cd34190d2c45::t_492ada048c4332 6,11-16,19-24
+cortex-editor/tests/browser/sections/GridControls.test.tsx
+  s_32cd34190d2c45::t_492ada048c4332 453-459,462,464,466-471,473-477
+cortex-editor/tests/browser/hooks/useOutsideDismiss.test.tsx
+  s_32cd34190d2c45::t_492ada048c4332 23,25,27-29,31,66,78-81,83-85,99,113-115,122-126,135-141,149-151,154-156,158,161-164,186-188,198-200,239-241,243-246,248-250,291-293,295-298,308-310,312-315,325-327,329-331
+cortex-editor/src/browser/components/sections/PositionSection.tsx
+  s_32cd34190d2c45::t_492ada048c4332 22-23,211,213-214
+cortex-editor/tests/browser/cortex-app.test.tsx
+  s_32cd34190d2c45::t_492ada048c4332 16-20,26,29,175,184,234,245,266,402,491,538,676,722,951,961,1097,1108
+cortex-editor/tests/browser/panel.classop.test.tsx
+  s_32cd34190d2c45::t_492ada048c4332 80
+cortex-editor/tests/browser/selection.test.ts
+  s_32cd34190d2c45::t_492ada048c4332 10,69,213,221,228,234-288
+cortex-editor/tests/browser/selection-source-expand.test.ts
+  s_32cd34190d2c45::t_492ada048c4332 1-89
+cortex-editor/src/browser/selection-source-expand.ts
+  s_32cd34190d2c45::t_492ada048c4332 1-65
+cortex-editor/tests/browser/controls/numeric-input.test.tsx
+  s_32cd34190d2c45::t_492ada048c4332 123-148
+cortex-editor/src/browser/components/sections/GridControls.tsx
+  s_32cd34190d2c45::t_492ada048c4332 71-72,213-214,272,278,282,288,381,383,392,394
+cortex-editor/tests/browser/panel-t4-integration.test.tsx
+  s_32cd34190d2c45::t_492ada048c4332 101,150,183,229,288,344,413,463,518,583,620,679,700,779,854,929
+cortex-editor/tests/browser/sections/position-section.test.tsx
+  s_32cd34190d2c45::t_492ada048c4332 221,223-228
+cortex-editor/src/browser/components/sections/SizingControls.tsx
+  s_32cd34190d2c45::t_492ada048c4332 31-33,100-102,117,123,127,133,137,143,149,155,159,165,169,175,178-181,254,256,277,279,298-302,306
+cortex-editor/src/browser/selection.ts
+  s_32cd34190d2c45::t_492ada048c4332 25-30,35,88-102
+cortex-editor/tests/SKIPPED-AUDIT.md
+  s_32cd34190d2c45::t_492ada048c4332 1-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "e25a9763e4a9e526df8b4a9b86a7c5d380df6f89",
+  "prompts": {},
+  "sessions": {
+    "s_32cd34190d2c45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dff0f-5cd2-7a13-8b87-32b2fa2505cc",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
