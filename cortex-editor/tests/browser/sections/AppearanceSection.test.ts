@@ -190,13 +190,13 @@ describe('AppearanceSection', () => {
     expect(lastCall.value).toBe('0.81')
   })
 
-  it('shows an indeterminate uniform radius (-- placeholder) when per-corner radii disagree on the element', () => {
+  it('shows an indeterminate uniform radius (Mixed placeholder) when per-corner radii disagree on the element', () => {
     // CSSOM emits `border-radius` as a shorthand when the 4 corners differ
     // (e.g. "12px 12px 12px 0px"). `parseFloat` would capture only the
     // leading `12`, silently misrepresenting state. The section detects
     // this intra-element divergence and flips the uniform input to the
     // same "mixed" state used for multi-selection variance: empty value
-    // + "--" placeholder, so the user can type a target to unify.
+    // + Mixed placeholder, so the user can type a target to unify.
     setup({
       values: {
         ...DEFAULT_VALUES,
@@ -212,7 +212,7 @@ describe('AppearanceSection', () => {
     ) as HTMLElement
     const input = radiusInput.querySelector('input') as HTMLInputElement
     expect(input.value).toBe('')
-    expect(input.placeholder).toBe('--')
+    expect(input.placeholder).toBe('Mixed')
   })
 
   it('keeps the uniform radius concrete when all 4 per-corner radii agree', () => {

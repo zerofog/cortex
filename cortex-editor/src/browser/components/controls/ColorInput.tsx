@@ -25,41 +25,172 @@ export interface ColorInputProps {
 
 export const HEX_REGEX = /^#[0-9a-fA-F]{6}$/
 
+interface EditableColor {
+  hex: string
+  alpha: number
+  alphaWasExplicit: boolean
+}
+
+const NAMED_COLOR_HEX: Record<string, string> = {
+  black: '#000000',
+  blue: '#0000ff',
+  cyan: '#00ffff',
+  fuchsia: '#ff00ff',
+  gray: '#808080',
+  green: '#008000',
+  grey: '#808080',
+  lime: '#00ff00',
+  magenta: '#ff00ff',
+  maroon: '#800000',
+  navy: '#000080',
+  olive: '#808000',
+  orange: '#ffa500',
+  purple: '#800080',
+  rebeccapurple: '#663399',
+  red: '#ff0000',
+  silver: '#c0c0c0',
+  teal: '#008080',
+  white: '#ffffff',
+  yellow: '#ffff00',
+}
+
+const CSS_COLOR_KEYWORDS_REQUIRING_CONTEXT = new Set([
+  'currentcolor',
+  'inherit',
+  'initial',
+  'revert',
+  'revert-layer',
+  'unset',
+])
+
+const CSS_NUMBER_PATTERN = '-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)'
+const CSS_ALPHA_REGEX = new RegExp(`^(${CSS_NUMBER_PATTERN})(%)?$`)
+const RGB_COLOR_REGEX = new RegExp(
+  `^rgba?\\(\\s*(${CSS_NUMBER_PATTERN})(?:\\s*,\\s*|\\s+)(${CSS_NUMBER_PATTERN})(?:\\s*,\\s*|\\s+)(${CSS_NUMBER_PATTERN})(?:\\s*(?:,|/)\\s*(${CSS_NUMBER_PATTERN}%?))?\\s*\\)$`,
+  'i',
+)
+const HSL_COLOR_REGEX = new RegExp(
+  `^hsla?\\(\\s*(${CSS_NUMBER_PATTERN})(?:\\s*,\\s*|\\s+)(${CSS_NUMBER_PATTERN})%(?:\\s*,\\s*|\\s+)(${CSS_NUMBER_PATTERN})%(?:\\s*(?:,|/)\\s*(${CSS_NUMBER_PATTERN}%?))?\\s*\\)$`,
+  'i',
+)
+const OKLCH_ALPHA_REGEX = new RegExp(`/\\s*(${CSS_NUMBER_PATTERN}%?)\\s*\\)$`, 'i')
+const OKLCH_HAS_ALPHA_REGEX = /\/\s*[^)]+\s*\)$/i
+
+function editableColor(hex: string, alpha = 100, alphaWasExplicit = false): EditableColor {
+  return { hex, alpha, alphaWasExplicit }
+}
+
+function parseCssAlpha(alpha: string): number | null {
+  const trimmed = alpha.trim()
+  const match = trimmed.match(CSS_ALPHA_REGEX)
+  if (!match) return null
+  const parsed = Number(match[1])
+  if (!Number.isFinite(parsed)) return null
+  const normalized = match[2] === '%' ? parsed / 100 : parsed
+  return Math.round(Math.min(1, Math.max(0, normalized)) * 100)
+}
+
 /**
  * Convert any CSS color string to #rrggbb.
  * Handles #rgb, #rrggbb, rgb(), rgba(), hsl(), hsla(), oklch() (comma or space syntax).
  * Returns #000000 if unparseable.
  */
 export function rgbToHex(color: string): string {
+  return parseEditableColor(color)?.hex ?? '#000000'
+}
+
+/**
+ * Parse user-entered CSS colors into the canonical model emitted by Cortex.
+ * This preserves the editor's source-edit safety while accepting the color
+ * syntax designers naturally type: hex, rgb/rgba, hsl/hsla, oklch, and common
+ * named colors.
+ */
+export function parseEditableColor(color: string): EditableColor | null {
   const trimmed = color.trim()
+  const lower = trimmed.toLowerCase()
+  if (lower === 'transparent') return editableColor('#000000', 0, true)
   // 6-digit hex
-  if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) return trimmed.toLowerCase()
+  if (HEX_REGEX.test(trimmed)) return editableColor(trimmed.toLowerCase())
+  // 8-digit hex → split alpha into the opacity channel
+  const hex8 = trimmed.match(/^#([0-9a-fA-F]{6})([0-9a-fA-F]{2})$/)
+  if (hex8) {
+    return editableColor(
+      `#${hex8[1]!.toLowerCase()}`,
+      Math.round((parseInt(hex8[2]!, 16) / 255) * 100),
+      true,
+    )
+  }
   // 3-digit hex → expand
   const short = trimmed.match(/^#([0-9a-fA-F])([0-9a-fA-F])([0-9a-fA-F])$/)
-  if (short) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`.toLowerCase()
+  if (short) {
+    return editableColor(
+      `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`.toLowerCase(),
+    )
+  }
   // rgb/rgba — comma or space-separated, possibly with decimals
-  const rgbMatch = trimmed.match(/rgba?\(\s*(-?[\d.]+)[,\s]+(-?[\d.]+)[,\s]+(-?[\d.]+)/)
+  const rgbMatch = trimmed.match(RGB_COLOR_REGEX)
   if (rgbMatch) {
     const r = Math.round(Math.min(255, Math.max(0, parseFloat(rgbMatch[1]!))))
     const g = Math.round(Math.min(255, Math.max(0, parseFloat(rgbMatch[2]!))))
     const b = Math.round(Math.min(255, Math.max(0, parseFloat(rgbMatch[3]!))))
-    return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`
+    const alpha = rgbMatch[4] === undefined ? 100 : parseCssAlpha(rgbMatch[4]!)
+    if (alpha === null) return null
+    return editableColor(
+      `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`,
+      alpha,
+      rgbMatch[4] !== undefined,
+    )
   }
   // hsl/hsla — convert to rgb (supports negative hue and hue > 360)
-  const hslMatch = trimmed.match(/hsla?\(\s*(-?[\d.]+)[,\s]+([\d.]+)%[,\s]+([\d.]+)%/)
+  const hslMatch = trimmed.match(HSL_COLOR_REGEX)
   if (hslMatch) {
     const h = ((parseFloat(hslMatch[1]!) % 360) + 360) % 360 / 360
-    const s = parseFloat(hslMatch[2]!) / 100
-    const l = parseFloat(hslMatch[3]!) / 100
+    const s = Math.min(1, Math.max(0, parseFloat(hslMatch[2]!) / 100))
+    const l = Math.min(1, Math.max(0, parseFloat(hslMatch[3]!) / 100))
     const [r, g, b] = hslToRgb(h, s, l)
-    return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`
+    const alpha = hslMatch[4] === undefined ? 100 : parseCssAlpha(hslMatch[4]!)
+    if (alpha === null) return null
+    return editableColor(
+      `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`,
+      alpha,
+      hslMatch[4] !== undefined,
+    )
   }
   // oklch() — delegate to canonical converter (single source of truth)
-  if (trimmed.startsWith('oklch(')) {
+  if (lower.startsWith('oklch(')) {
     const hex = oklchToHex(trimmed)
-    return hex ?? '#000000'
+    if (!hex) return null
+    const alphaMatch = trimmed.match(OKLCH_ALPHA_REGEX)
+    if (OKLCH_HAS_ALPHA_REGEX.test(trimmed) && !alphaMatch) return null
+    const alpha = alphaMatch ? parseCssAlpha(alphaMatch[1]!) : 100
+    if (alpha === null) return null
+    return editableColor(
+      hex,
+      alpha,
+      alphaMatch !== null,
+    )
   }
-  return '#000000'
+
+  const namedHex = NAMED_COLOR_HEX[lower]
+  if (namedHex) return editableColor(namedHex)
+
+  if (CSS_COLOR_KEYWORDS_REQUIRING_CONTEXT.has(lower)) {
+    return null
+  }
+
+  if (typeof document !== 'undefined' && document.body && typeof getComputedStyle !== 'undefined') {
+    const probe = document.createElement('span')
+    probe.style.color = lower
+    if (probe.style.color) {
+      document.body.appendChild(probe)
+      const computed = getComputedStyle(probe).color
+      probe.remove()
+      if (computed && computed.toLowerCase() !== lower) {
+        return parseEditableColor(computed)
+      }
+    }
+  }
+  return null
 }
 
 /** HSL to RGB. All inputs/outputs in [0,1] except returns [0,255]. */
@@ -88,23 +219,8 @@ function hslToRgb(h: number, s: number, l: number): [number, number, number] {
 /** Parse any CSS color string into { hex, alpha }. Alpha is 0–100 integer. */
 export function parseColor(color: string): { hex: string; alpha: number } {
   const trimmed = color.trim()
-  if (trimmed === 'transparent') return { hex: '#000000', alpha: 0 }
-
-  // 8-digit hex (#rrggbbaa)
-  const hex8 = trimmed.match(/^#([0-9a-fA-F]{6})([0-9a-fA-F]{2})$/)
-  if (hex8) {
-    return { hex: `#${hex8[1]!.toLowerCase()}`, alpha: Math.round((parseInt(hex8[2]!, 16) / 255) * 100) }
-  }
-
-  // rgba with alpha channel
-  const rgba = trimmed.match(/rgba\(\s*(-?[\d.]+)[,\s]+(-?[\d.]+)[,\s]+(-?[\d.]+)[,/\s]+([\d.]+)\s*\)/)
-  if (rgba) {
-    const hex = rgbToHex(`rgb(${rgba[1]}, ${rgba[2]}, ${rgba[3]})`)
-    return { hex, alpha: Math.round(parseFloat(rgba[4]!) * 100) }
-  }
-
-  // Everything else: delegate to rgbToHex, assume full opacity
-  return { hex: rgbToHex(trimmed), alpha: 100 }
+  const parsed = parseEditableColor(trimmed)
+  return parsed ? { hex: parsed.hex, alpha: parsed.alpha } : { hex: '#000000', alpha: 100 }
 }
 
 /** Format hex + alpha into a CSS color value. Returns hex when alpha=100, rgba() otherwise. */
@@ -129,8 +245,12 @@ export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, s
   const alphaRef = useRef(currentAlpha)
   alphaRef.current = currentAlpha
 
-  const emitColor = useCallback((hex: string, a: number) => {
-    onChange(onAlphaChange ? formatColor(hex, a) : hex)
+  const emitColor = useCallback((hex: string, a: number, options?: { syncAlpha?: boolean; forceSyncAlpha?: boolean }) => {
+    const nextAlpha = Math.round(Math.max(0, Math.min(100, a)))
+    if (options?.syncAlpha && (options.forceSyncAlpha || nextAlpha !== alphaRef.current)) {
+      onAlphaChange?.(nextAlpha)
+    }
+    onChange(formatColor(hex, nextAlpha))
   }, [onChange, onAlphaChange])
 
   const handleHexInput = useCallback((e: Event) => {
@@ -140,18 +260,28 @@ export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, s
   }, [])
 
   const handleHexFocus = useCallback(() => {
-    editingHexRef.current = hexColor
-    setEditingHex(hexColor)
-  }, [hexColor])
+    const next = mixed ? '' : hexColor
+    editingHexRef.current = next
+    setEditingHex(next)
+  }, [hexColor, mixed])
 
   const handleHexBlur = useCallback(() => {
     const current = editingHexRef.current
-    if (current !== null && HEX_REGEX.test(current) && current.toLowerCase() !== hexColor.toLowerCase()) {
-      emitColor(current, alphaRef.current)
+    const parsedColor = current !== null && current.trim() !== '' ? parseEditableColor(current) : null
+    if (parsedColor) {
+      const nextAlpha = parsedColor.alphaWasExplicit ? parsedColor.alpha : (mixed ? 100 : alphaRef.current)
+      const next = formatColor(parsedColor.hex, nextAlpha)
+      const previous = formatColor(hexColor, alphaRef.current)
+      if (mixed || next.toLowerCase() !== previous.toLowerCase()) {
+        emitColor(parsedColor.hex, nextAlpha, {
+          syncAlpha: parsedColor.alphaWasExplicit || mixed,
+          forceSyncAlpha: mixed,
+        })
+      }
     }
     editingHexRef.current = null
     setEditingHex(null)
-  }, [emitColor, hexColor])
+  }, [emitColor, hexColor, mixed])
 
   const handleSwatchClick = useCallback(() => {
     setPickerOpen(true)
@@ -184,7 +314,7 @@ export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, s
       <input
         class="cortex-color-input__hex"
         type="text"
-        aria-label="Hex color value"
+        aria-label="Color value"
         // `size={9}` drops the input's intrinsic min-content from the browser
         // default of 20 chars (~140px) to ~63px — enough to fit "#ffffffff"
         // (8-digit hex with alpha) plus one buffer char. Without this, the
@@ -194,7 +324,8 @@ export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, s
         // happens to work despite the same default because it has no trailing
         // button and therefore an extra ~34px of free space.
         size={9}
-        value={mixed ? '--' : displayedHex}
+        value={mixed && editingHex === null ? '' : displayedHex}
+        placeholder={mixed ? 'Mixed' : undefined}
         onInput={handleHexInput}
         onFocus={handleHexFocus}
         onBlur={handleHexBlur}
@@ -208,6 +339,7 @@ export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, s
             tooltip="Opacity"
             min={0}
             onChange={handleAlphaChange}
+            mixed={mixed}
           />
         </div>
       )}

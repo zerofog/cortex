@@ -1,10 +1,11 @@
 import type { JSX } from 'preact'
-import { useState, useRef, useCallback, useEffect, useMemo } from 'preact/hooks'
+import { useState, useRef, useCallback, useEffect, useMemo, useId } from 'preact/hooks'
 import { computePosition, flip, shift } from '@floating-ui/dom'
 
 export interface DropdownOption {
   value: string
   label: string
+  tooltip?: string
 }
 
 export interface DropdownProps {
@@ -12,6 +13,7 @@ export interface DropdownProps {
   value: string
   onChange: (value: string) => void
   placeholder?: string
+  mixed?: boolean
 }
 
 export function Dropdown({
@@ -19,6 +21,7 @@ export function Dropdown({
   value,
   onChange,
   placeholder = 'Select...',
+  mixed,
 }: DropdownProps): JSX.Element {
   const [isOpen, setIsOpen] = useState(false)
   const [filter, setFilter] = useState('')
@@ -26,14 +29,20 @@ export function Dropdown({
   const triggerRef = useRef<HTMLButtonElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
   const filterRef = useRef<HTMLInputElement>(null)
+  const dropdownId = useId()
 
-  const selectedLabel = options.find((o) => o.value === value)?.label ?? ''
+  const selected = options.find((o) => o.value === value)
+  const selectedLabel = selected?.label ?? ''
+  const displayLabel = mixed ? 'Mixed' : selectedLabel || placeholder
+  const selectedTooltip = mixed ? 'Mixed values' : selected?.tooltip
+  const listboxId = `${dropdownId}-listbox`
 
   const filtered = useMemo(() => {
     if (!filter) return options
     const lc = filter.toLowerCase()
     return options.filter((o) => o.label.toLowerCase().includes(lc))
   }, [options, filter])
+  const activeOptionId = filtered[highlightIdx] ? `${dropdownId}-option-${highlightIdx}` : undefined
 
   // Position popover when opened — only on open, not on filter changes
   useEffect(() => {
@@ -118,7 +127,7 @@ export function Dropdown({
   )
 
   return (
-    <div class="cortex-dropdown">
+    <div class={`cortex-dropdown${mixed ? ' cortex-dropdown--mixed' : ''}`}>
       <button
         ref={triggerRef}
         class="cortex-dropdown__trigger"
@@ -126,10 +135,11 @@ export function Dropdown({
         role="combobox"
         aria-expanded={isOpen ? 'true' : 'false'}
         aria-haspopup="listbox"
+        data-tooltip={selectedTooltip}
         onClick={isOpen ? close : open}
       >
         <span class="cortex-dropdown__value">
-          {selectedLabel || placeholder}
+          {displayLabel}
         </span>
         <span class={`cortex-dropdown__chevron${isOpen ? ' cortex-dropdown__chevron--open' : ''}`}>
           &#9662;
@@ -149,30 +159,31 @@ export function Dropdown({
               type="text"
               role="combobox"
               aria-autocomplete="list"
-              aria-controls="cortex-dropdown-listbox"
-              aria-activedescendant={filtered[highlightIdx] ? `cortex-opt-${filtered[highlightIdx].value}` : undefined}
+              aria-controls={listboxId}
+              aria-activedescendant={activeOptionId}
               value={filter}
               onInput={handleFilterInput}
               onKeyDown={handleKeyDown}
               placeholder="Filter..."
             />
-            <div class="cortex-dropdown__list" role="listbox" id="cortex-dropdown-listbox">
+            <div class="cortex-dropdown__list" role="listbox" id={listboxId}>
               {filtered.length === 0 ? (
                 <div class="cortex-dropdown__empty">No matches</div>
               ) : (
                 filtered.map((opt, i) => (
                   <div
                     key={opt.value}
-                    id={`cortex-opt-${opt.value}`}
+                    id={`${dropdownId}-option-${i}`}
                     class={[
                       'cortex-dropdown__option',
                       i === highlightIdx && 'cortex-dropdown__option--active',
-                      opt.value === value && 'cortex-dropdown__option--selected',
+                      !mixed && opt.value === value && 'cortex-dropdown__option--selected',
                     ]
                       .filter(Boolean)
                       .join(' ')}
                     role="option"
-                    aria-selected={opt.value === value ? 'true' : 'false'}
+                    aria-selected={!mixed && opt.value === value ? 'true' : 'false'}
+                    data-tooltip={opt.tooltip}
                     onClick={() => select(opt.value)}
                   >
                     {opt.label}
