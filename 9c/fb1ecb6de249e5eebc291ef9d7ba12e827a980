@@ -1,0 +1,23 @@
+cortex-editor/src/browser/shared-source-detector.ts
+  s_0ba77446ba5f72::t_0497590d6a17a6 18
+  s_0ba77446ba5f72::t_9ce36afc4bd6d5 45-52
+cortex-editor/tests/e2e/panel-template-blast-radius.spec.ts
+  s_0ba77446ba5f72::t_df2532dd460843 117-119
+  s_0ba77446ba5f72::t_8f25c99d8087ac 66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "9cfb1ecb6de249e5eebc291ef9d7ba12e827a980",
+  "prompts": {},
+  "sessions": {
+    "s_0ba77446ba5f72": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "229d6890-66da-4c81-a1ce-d9345a63ebb2",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
