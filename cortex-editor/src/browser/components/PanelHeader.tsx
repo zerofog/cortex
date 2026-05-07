@@ -1,7 +1,8 @@
 import type { JSX } from 'preact'
-import { useState, useRef, useLayoutEffect, useEffect } from 'preact/hooks'
+import { useState, useRef, useLayoutEffect, useEffect, useCallback } from 'preact/hooks'
 import { getThemePreference, setThemePreference, type ThemePreference } from '../theme.js'
 import { encodeFilePath } from '../label.js'
+import { registerPopoverDismiss } from '../popover-stack.js'
 import { Check, ChevronDown, Monitor, Moon, Sun, X } from './icons.js'
 
 const THEME_OPTIONS = [
@@ -45,17 +46,103 @@ function ThemeDropdown({
   onChange: (value: ThemePreference) => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const optionRefs = useRef(new Map<ThemePreference, HTMLButtonElement>())
   const selected = THEME_OPTIONS.find((option) => option.value === value) ?? THEME_OPTIONS[2]!
   const SelectedIcon = selected.icon
 
-  const handleSelect = (next: ThemePreference) => {
-    onChange(next)
-    setOpen(false)
-  }
+  const close = useCallback(() => setOpen(false), [])
+  const focusSelectedOption = useCallback(() => {
+    const fallback = THEME_OPTIONS[0] ? optionRefs.current.get(THEME_OPTIONS[0].value) : null
+    const selectedOption = optionRefs.current.get(selected.value) ?? fallback
+    selectedOption?.focus()
+  }, [selected.value])
+
+  const handleSelect = useCallback(
+    (next: ThemePreference) => {
+      onChange(next)
+      close()
+      triggerRef.current?.focus()
+    },
+    [onChange, close],
+  )
+
+  useEffect(() => {
+    if (!open) return undefined
+    return registerPopoverDismiss(close)
+  }, [open, close])
+
+  useLayoutEffect(() => {
+    if (!open) return
+    focusSelectedOption()
+  }, [open, focusSelectedOption])
+
+  useEffect(() => {
+    if (!open) return undefined
+    const root = rootRef.current
+    if (!root) return undefined
+
+    const handleFocusOut = (event: FocusEvent): void => {
+      const next = event.relatedTarget
+      if (next instanceof Node && root.contains(next)) return
+      close()
+    }
+
+    root.addEventListener('focusout', handleFocusOut)
+    return () => root.removeEventListener('focusout', handleFocusOut)
+  }, [open, close])
+
+  const handleTriggerKeyDown = useCallback(
+    (event: KeyboardEvent): void => {
+      if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        event.stopPropagation()
+        if (open) {
+          focusSelectedOption()
+        } else {
+          setOpen(true)
+        }
+      } else if (event.key === 'Escape' && open) {
+        event.preventDefault()
+        event.stopPropagation()
+        close()
+      }
+    },
+    [open, close, focusSelectedOption],
+  )
+
+  const handleMenuKeyDown = useCallback(
+    (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        close()
+        triggerRef.current?.focus()
+        return
+      }
+
+      const currentIndex = THEME_OPTIONS.findIndex((option) => optionRefs.current.get(option.value) === document.activeElement)
+      if (currentIndex < 0) return
+
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
+        event.preventDefault()
+        event.stopPropagation()
+        let nextIndex = currentIndex
+        if (event.key === 'ArrowDown') nextIndex = Math.min(currentIndex + 1, THEME_OPTIONS.length - 1)
+        if (event.key === 'ArrowUp') nextIndex = Math.max(currentIndex - 1, 0)
+        if (event.key === 'Home') nextIndex = 0
+        if (event.key === 'End') nextIndex = THEME_OPTIONS.length - 1
+        optionRefs.current.get(THEME_OPTIONS[nextIndex]!.value)?.focus()
+      }
+    },
+    [close],
+  )
 
   return (
-    <div class="cortex-theme-dropdown">
+    <div ref={rootRef} class="cortex-theme-dropdown">
       <button
+        ref={triggerRef}
         type="button"
         class="cortex-theme-dropdown__trigger"
         data-action="theme"
@@ -64,6 +151,7 @@ function ThemeDropdown({
         aria-haspopup="menu"
         aria-expanded={open ? 'true' : 'false'}
         onClick={() => setOpen((v) => !v)}
+        onKeyDown={handleTriggerKeyDown}
       >
         <SelectedIcon size={12} />
         <ChevronDown size={10} />
@@ -79,9 +167,7 @@ function ThemeDropdown({
             class="cortex-theme-dropdown__menu"
             role="menu"
             aria-label="Theme"
-            onKeyDown={(event: KeyboardEvent) => {
-              if (event.key === 'Escape') setOpen(false)
-            }}
+            onKeyDown={handleMenuKeyDown}
           >
             {THEME_OPTIONS.map((option) => {
               const OptionIcon = option.icon
@@ -93,6 +179,13 @@ function ThemeDropdown({
                   data-theme-option={option.value}
                   role="menuitemradio"
                   aria-checked={option.value === value ? 'true' : 'false'}
+                  ref={(node) => {
+                    if (node) {
+                      optionRefs.current.set(option.value, node)
+                    } else {
+                      optionRefs.current.delete(option.value)
+                    }
+                  }}
                   onClick={() => handleSelect(option.value)}
                 >
                   <span class="cortex-theme-dropdown__option-icon"><OptionIcon size={12} /></span>

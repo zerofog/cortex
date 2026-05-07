@@ -1724,9 +1724,11 @@ export function Panel({
                 type="button"
                 class={`cortex-elements-header-actions__btn${hoverEnabled ? '' : ' cortex-elements-header-actions__btn--toggled-off'}`}
                 data-action="toggle-hover"
+                disabled={!onToggleHover}
                 data-tooltip={hoverEnabled ? 'Hide hover overlay' : 'Show hover overlay'}
                 aria-label={hoverEnabled ? 'Hide hover overlay' : 'Show hover overlay'}
-                onClick={onToggleHover}
+                aria-pressed={hoverEnabled ? 'true' : 'false'}
+                onClick={() => onToggleHover?.()}
               >
                 {hoverEnabled ? <Eye size={14} /> : <EyeOff size={14} />}
               </button>

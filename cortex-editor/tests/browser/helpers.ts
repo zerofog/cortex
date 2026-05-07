@@ -124,6 +124,9 @@ export function createMockChannel(): CortexChannel & {
         if (idx >= 0) handlers.splice(idx, 1)
       }
     },
+    async sendAndAck() {
+      throw new Error('createMockChannel.sendAndAck must be stubbed by tests that exercise Apply')
+    },
     onConnectionChange(handler) {
       statusHandlers.push(handler)
       return () => {

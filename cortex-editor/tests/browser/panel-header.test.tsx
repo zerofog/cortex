@@ -3,6 +3,7 @@ import { render } from 'preact'
 import { act } from 'preact/test-utils'
 import { PanelHeader } from '../../src/browser/components/PanelHeader.js'
 import { THEME_STORAGE_KEY } from '../../src/browser/theme.js'
+import { _resetPopoverStackForTesting, dismissTopmostPopover, hasOpenPopover } from '../../src/browser/popover-stack.js'
 
 describe('PanelHeader', () => {
   let container: HTMLDivElement
@@ -13,6 +14,7 @@ describe('PanelHeader', () => {
       container.remove()
     }
     localStorage.removeItem(THEME_STORAGE_KEY)
+    _resetPopoverStackForTesting()
   })
 
   function setup(overrides?: Partial<Parameters<typeof PanelHeader>[0]>) {
@@ -77,6 +79,51 @@ describe('PanelHeader', () => {
     expect(darkOption).not.toBeNull()
     act(() => { darkOption.click() })
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
+  })
+
+  it('opens the compact theme dropdown from the keyboard and focuses the selected option', () => {
+    setup()
+    const trigger = container.querySelector('[data-action="theme"]') as HTMLButtonElement
+
+    act(() => {
+      trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }))
+    })
+
+    expect(container.querySelector('.cortex-theme-dropdown__menu')).not.toBeNull()
+    expect((document.activeElement as HTMLElement).dataset.themeOption).toBe('system')
+  })
+
+  it('registers the compact theme dropdown with the popover stack for global Escape dismissal', () => {
+    setup()
+    const trigger = container.querySelector('[data-action="theme"]') as HTMLButtonElement
+
+    act(() => { trigger.click() })
+    expect(hasOpenPopover()).toBe(true)
+
+    act(() => {
+      expect(dismissTopmostPopover()).toBe(true)
+    })
+
+    expect(container.querySelector('.cortex-theme-dropdown__menu')).toBeNull()
+    expect(hasOpenPopover()).toBe(false)
+  })
+
+  it('closes the compact theme dropdown when focus leaves the dropdown surface', () => {
+    setup()
+    const trigger = container.querySelector('[data-action="theme"]') as HTMLButtonElement
+    const outside = document.createElement('button')
+    document.body.appendChild(outside)
+
+    act(() => { trigger.click() })
+    const selectedOption = container.querySelector('[data-theme-option="system"]') as HTMLButtonElement
+    expect(selectedOption).not.toBeNull()
+
+    act(() => {
+      selectedOption.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: outside }))
+    })
+
+    expect(container.querySelector('.cortex-theme-dropdown__menu')).toBeNull()
+    outside.remove()
   })
 
   it('does not render source link when filePath is null', () => {

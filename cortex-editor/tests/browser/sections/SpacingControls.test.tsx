@@ -35,8 +35,9 @@ describe('SpacingControls', () => {
   it('renders Spacing label with P/M prefix inputs', () => {
     setup()
     expect(container.textContent).toContain('Spacing')
-    expect(container.textContent).toContain('P')
-    expect(container.textContent).toContain('M')
+    const labels = [...container.querySelectorAll('.cortex-numeric-input__prefix span')]
+      .map((label) => label.textContent)
+    expect(labels).toEqual(['P', 'P', 'M', 'M'])
     expect(container.textContent).not.toContain('\u2194')
     expect(container.textContent).not.toContain('\u2195')
   })
