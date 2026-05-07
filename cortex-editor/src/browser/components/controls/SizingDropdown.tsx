@@ -1,6 +1,7 @@
 import type { JSX } from 'preact'
 import { useState, useRef, useCallback, useEffect } from 'preact/hooks'
 import { computePosition, flip, shift } from '@floating-ui/dom'
+import { Check, ChevronDown } from '../icons.js'
 
 export type SizingMode = 'fixed' | 'fit' | 'fill'
 
@@ -109,7 +110,9 @@ export function SizingDropdown({
         onClick={isOpen ? close : open}
       >
         <span class="cortex-sizing-trigger__label">{MODE_LABELS[mode]}</span>
-        <span class={`cortex-sizing-trigger__chevron${isOpen ? ' cortex-sizing-trigger__chevron--open' : ''}`}>&#9662;</span>
+        <span class={`cortex-sizing-trigger__chevron${isOpen ? ' cortex-sizing-trigger__chevron--open' : ''}`}>
+          <ChevronDown size={10} />
+        </span>
       </button>
       {isOpen && (
         <>
@@ -154,7 +157,7 @@ export function SizingDropdown({
               onClick={onToggleMin}
             >
               <span class="cortex-sizing-menu__indicator">
-                {minEnabled ? '\u2713' : '\u00A0'}
+                {minEnabled && <Check size={12} />}
               </span>
               Add Min {dimension}
             </div>
@@ -172,7 +175,7 @@ export function SizingDropdown({
               onClick={onToggleMax}
             >
               <span class="cortex-sizing-menu__indicator">
-                {maxEnabled ? '\u2713' : '\u00A0'}
+                {maxEnabled && <Check size={12} />}
               </span>
               Add Max {dimension}
             </div>

@@ -1,4 +1,5 @@
 import type { JSX, ComponentChildren } from 'preact'
+import { Plus, X } from './icons.js'
 
 export interface CollapsibleSectionProps {
   sectionId: string
@@ -39,7 +40,7 @@ export function CollapsibleSection({
             data-tooltip={`Add ${label.toLowerCase()}`}
             onClick={onAdd}
           >
-            +
+            <Plus size={14} />
           </button>
         )}
         {showRemove && (
@@ -50,7 +51,7 @@ export function CollapsibleSection({
             data-tooltip={`Remove ${label.toLowerCase()}`}
             onClick={onRemove}
           >
-            ×
+            <X size={14} />
           </button>
         )}
       </div>

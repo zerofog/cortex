@@ -35,7 +35,7 @@ import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
 import { IconButton } from './controls/IconButton.js'
 import { BackgroundSection } from './sections/BackgroundSection.js'
-import { Plus, X } from './icons.js'
+import { ChevronDown, ChevronUp, Eye, EyeOff, Plus, X } from './icons.js'
 import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
 import { computePanelStyleSnapshot } from './panel-style-snapshot.js'
 import { ALL_DIMMING_PROPERTIES } from './sections/spacing-utils.js'
@@ -1422,17 +1422,11 @@ export function Panel({
           sourceFile={null}
           sourceLine={null}
           filePath={null}
-          hasParent={false}
-          hasChildren={false}
           onClose={onClose}
-          onSelectParent={() => {}}
-          onSelectChild={() => {}}
           onPointerDown={panelPointerDown}
           onPointerMove={panelPointerMove}
           onPointerUp={panelPointerUp}
           onPointerCancel={panelPointerCancel}
-          hoverEnabled={hoverEnabled}
-          onToggleHover={onToggleHover}
           bufferSize={buffer.size()}
           onApply={onApply}
           onApplyError={handleApplyError}
@@ -1527,11 +1521,7 @@ export function Panel({
         sourceFile={sourceFile}
         sourceLine={sourceLine}
         filePath={filePath}
-        hasParent={hasParent}
-        hasChildren={hasChildren}
         onClose={onClose}
-        onSelectParent={handleSelectParent}
-        onSelectChild={handleSelectChild}
         onPointerDown={panelPointerDown}
         onPointerMove={panelPointerMove}
         onPointerUp={panelPointerUp}
@@ -1543,8 +1533,6 @@ export function Panel({
         isLibrary={isLibrary}
         ancestorSource={ancestor?.source.fileName ?? null}
         ancestorLine={ancestor?.source.line ?? null}
-        hoverEnabled={hoverEnabled}
-        onToggleHover={onToggleHover}
         bufferSize={buffer.size()}
         onApply={onApply}
         onApplyError={handleApplyError}
@@ -1661,7 +1649,46 @@ export function Panel({
             Typography → Appearance → Background → Border → Effects.
             Typography conditional on hasTypographyContent; Position hidden
             in shared-class "All" scope. */}
-        <SectionGroup label="Elements" groupId="elements">
+        <SectionGroup
+          label="Elements"
+          groupId="elements"
+          headerAction={(
+            <div class="cortex-elements-header-actions" role="group" aria-label="Element navigation and overlay controls">
+              <button
+                type="button"
+                class="cortex-elements-header-actions__btn"
+                data-action="parent"
+                disabled={!hasParent}
+                data-tooltip="Select parent element"
+                aria-label="Select parent element"
+                onClick={handleSelectParent}
+              >
+                <ChevronUp size={14} />
+              </button>
+              <button
+                type="button"
+                class="cortex-elements-header-actions__btn"
+                data-action="child"
+                disabled={!hasChildren}
+                data-tooltip="Select child element"
+                aria-label="Select child element"
+                onClick={handleSelectChild}
+              >
+                <ChevronDown size={14} />
+              </button>
+              <button
+                type="button"
+                class={`cortex-elements-header-actions__btn${hoverEnabled ? '' : ' cortex-elements-header-actions__btn--toggled-off'}`}
+                data-action="toggle-hover"
+                data-tooltip={hoverEnabled ? 'Hide hover overlay' : 'Show hover overlay'}
+                aria-label={hoverEnabled ? 'Hide hover overlay' : 'Show hover overlay'}
+                onClick={onToggleHover}
+              >
+                {hoverEnabled ? <Eye size={14} /> : <EyeOff size={14} />}
+              </button>
+            </div>
+          )}
+        >
           <ElementTree
             element={element}
             onSelectElements={onSelectElements ?? ((els, _action) => onSelectElement(els[0] ?? null))}

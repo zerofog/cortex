@@ -326,7 +326,7 @@ export function SizingControls({
                 aria-label="Remove Min Width"
                 onClick={handleToggleMinWidth}
               >
-                <X size={10} />
+                <X size={14} />
               </button>
             </div>
           )}
@@ -349,7 +349,7 @@ export function SizingControls({
                 aria-label="Remove Max Width"
                 onClick={handleToggleMaxWidth}
               >
-                <X size={10} />
+                <X size={14} />
               </button>
             </div>
           )}
@@ -372,7 +372,7 @@ export function SizingControls({
                 aria-label="Remove Min Height"
                 onClick={handleToggleMinHeight}
               >
-                <X size={10} />
+                <X size={14} />
               </button>
             </div>
           )}
@@ -395,7 +395,7 @@ export function SizingControls({
                 aria-label="Remove Max Height"
                 onClick={handleToggleMaxHeight}
               >
-                <X size={10} />
+                <X size={14} />
               </button>
             </div>
           )}

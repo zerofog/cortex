@@ -927,11 +927,101 @@
   width: auto;
   min-width: 72px;
   padding: 0 var(--cx-sp-3);
+  background: var(--cx-well);
+  font-size: var(--cx-text-sm);
+  font-weight: var(--cx-weight-value);
+  font-family: var(--cx-sans);
+  color: var(--cx-ink);
+  letter-spacing: 0;
+}
+
+.cortex-panel-header__btn--apply:hover:not(:disabled) {
+  background: var(--cx-well-hover);
+  color: var(--cx-ink);
+}
+
+.cortex-panel-header__btn--apply:disabled {
+  background: var(--cx-well);
+}
+
+.cortex-theme-dropdown {
+  position: relative;
+  display: flex;
+}
+
+.cortex-theme-dropdown__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--cx-sp-1);
+  width: 34px;
+  height: 28px;
+  border: none;
+  background: var(--cx-well);
+  color: var(--cx-ink-secondary);
+  border-radius: var(--cx-radius-sm);
+  cursor: pointer;
+  padding: 0;
+  transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out;
+}
+
+.cortex-theme-dropdown__trigger:hover {
+  background: var(--cx-well-hover);
+  color: var(--cx-ink);
+}
+
+.cortex-theme-dropdown__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 12;
+}
+
+.cortex-theme-dropdown__menu {
+  position: absolute;
+  top: calc(100% + var(--cx-sp-1));
+  right: 0;
+  z-index: 13;
+  width: 108px;
+  padding: var(--cx-sp-1);
+  background: var(--cx-paper);
+  border: 1px solid var(--cx-rule);
+  border-radius: var(--cx-radius-md);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1), 0 1px 4px rgba(0, 0, 0, 0.06);
+  animation: cortex-popover-enter 150ms ease-out;
+}
+
+.cortex-theme-dropdown__option {
+  display: grid;
+  grid-template-columns: 16px 1fr 12px;
+  align-items: center;
+  gap: var(--cx-sp-2);
+  width: 100%;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: var(--cx-radius-sm);
+  color: var(--cx-ink-secondary);
+  cursor: pointer;
   font-size: var(--cx-text-sm);
   font-weight: var(--cx-weight-label);
-  font-family: var(--cx-sans);
-  color: var(--cx-ink-secondary);
-  letter-spacing: 0;
+  padding: 0 var(--cx-sp-2);
+  text-align: left;
+}
+
+.cortex-theme-dropdown__option:hover,
+.cortex-theme-dropdown__option--selected {
+  background: var(--cx-well);
+  color: var(--cx-ink);
+}
+
+.cortex-theme-dropdown__option-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cortex-theme-dropdown__option-label {
+  min-width: 0;
 }
 
 /* ── Numeric input ───────────────────────────── */
@@ -1199,6 +1289,41 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
+}
+
+.cortex-elements-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--cx-sp-1);
+}
+
+.cortex-elements-header-actions__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: var(--cx-radius-sm);
+  color: var(--cx-ink-ghost);
+  cursor: pointer;
+  padding: 0;
+  transition: background 150ms ease-out, color 150ms ease-out, opacity 150ms ease-out, outline-color 150ms ease-out;
+}
+
+.cortex-elements-header-actions__btn:hover:not(:disabled) {
+  background: var(--cx-well);
+  color: var(--cx-ink-secondary);
+}
+
+.cortex-elements-header-actions__btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.cortex-elements-header-actions__btn--toggled-off {
+  opacity: 0.4;
 }
 
 /* Sub-section label — lightweight divider + caption used inside a section
@@ -1513,8 +1638,10 @@
 }
 
 .cortex-dropdown__chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  font-size: var(--cx-text-md);
   color: var(--cx-ink-tertiary);
   margin-left: var(--cx-sp-2);
   transition: transform 150ms ease-out;
@@ -3117,6 +3244,10 @@
 .cortex-effects-section__expand-btn,
 .cortex-spacing-group__toggle,
 .cortex-lock-btn,
+.cortex-layout-section__minmax-dismiss,
+.cortex-theme-dropdown__trigger,
+.cortex-theme-dropdown__option,
+.cortex-elements-header-actions__btn,
 .cortex-icon-button,
 .cortex-position-dropdown__trigger,
 .cortex-xy-dropdown__trigger,
@@ -3135,6 +3266,10 @@
 .cortex-effects-section__expand-btn:focus-visible,
 .cortex-spacing-group__toggle:focus-visible,
 .cortex-lock-btn:focus-visible,
+.cortex-layout-section__minmax-dismiss:focus-visible,
+.cortex-theme-dropdown__trigger:focus-visible,
+.cortex-theme-dropdown__option:focus-visible,
+.cortex-elements-header-actions__btn:focus-visible,
 .cortex-icon-button:focus-visible,
 .cortex-position-dropdown__trigger:focus-visible,
 .cortex-xy-dropdown__trigger:focus-visible,
@@ -3149,6 +3284,12 @@
 /* ── Active press feedback ────────────────── */
 
 .cortex-panel-header__btn:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.cortex-theme-dropdown__trigger:active,
+.cortex-elements-header-actions__btn:active:not(:disabled),
+.cortex-layout-section__minmax-dismiss:active {
   transform: scale(0.92);
 }
 
@@ -3907,7 +4048,9 @@
 }
 
 .cortex-sizing-trigger__chevron {
-  font-size: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--cx-ink-tertiary);
   transition: transform 200ms ease-out;
 }
@@ -3954,10 +4097,11 @@
 }
 
 .cortex-sizing-menu__indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 14px;
-  font-size: var(--cx-text-sm);
   color: var(--cx-ink-tertiary);
-  text-align: center;
   flex-shrink: 0;
 }
 
@@ -4005,25 +4149,26 @@
 
 .cortex-layout-section__minmax {
   display: flex;
+  flex-direction: column;
   gap: var(--cx-sp-2);
+  margin-top: var(--cx-sp-2);
 }
 
 .cortex-layout-section__minmax-field {
-  display: flex;
-  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  column-gap: var(--cx-sp-3);
   min-width: 0;
   align-items: center;
-  gap: var(--cx-sp-1);
 }
 
 .cortex-layout-section__minmax-field > .cortex-numeric-input {
-  flex: 1;
   min-width: 0;
 }
 
 .cortex-layout-section__minmax-dismiss {
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4033,7 +4178,7 @@
   cursor: pointer;
   color: var(--cx-ink-faint);
   flex-shrink: 0;
-  transition: background 150ms ease-out, color 150ms ease-out;
+  transition: background 150ms ease-out, color 150ms ease-out, outline-color 150ms ease-out;
 }
 
 .cortex-layout-section__minmax-dismiss:hover {

@@ -159,6 +159,31 @@ describe('Panel', () => {
     expect(effectsGroup.querySelector('[data-section-id="effects"]')).not.toBeNull()
   })
 
+  it('places element navigation and hover controls in the Elements header', () => {
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    const child = document.createElement('span')
+    target.appendChild(child)
+    document.body.appendChild(target)
+
+    const { root, onSelectElement } = setup(target)
+    const elementsGroup = root.querySelector('[data-group="elements"]')!
+    const parentBtn = elementsGroup.querySelector('[data-action="parent"]') as HTMLButtonElement
+    const childBtn = elementsGroup.querySelector('[data-action="child"]') as HTMLButtonElement
+    const hoverBtn = elementsGroup.querySelector('[data-action="toggle-hover"]') as HTMLButtonElement
+
+    expect(parentBtn).not.toBeNull()
+    expect(childBtn).not.toBeNull()
+    expect(hoverBtn).not.toBeNull()
+    expect(root.querySelector('.cortex-panel-header [data-action="parent"]')).toBeNull()
+
+    parentBtn.click()
+    childBtn.click()
+
+    expect(onSelectElement).toHaveBeenCalledWith(target.parentElement)
+    expect(onSelectElement).toHaveBeenCalledWith(child)
+  })
+
   it('calls onClose when close button clicked', () => {
     const { root, onClose } = setup()
     const closeBtn = root.querySelector('[data-action="close"]') as HTMLButtonElement

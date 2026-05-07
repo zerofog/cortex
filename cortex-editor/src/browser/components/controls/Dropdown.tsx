@@ -1,6 +1,7 @@
 import type { JSX } from 'preact'
 import { useState, useRef, useCallback, useEffect, useMemo } from 'preact/hooks'
 import { computePosition, flip, shift } from '@floating-ui/dom'
+import { ChevronDown } from '../icons.js'
 
 export interface DropdownOption {
   value: string
@@ -132,7 +133,7 @@ export function Dropdown({
           {selectedLabel || placeholder}
         </span>
         <span class={`cortex-dropdown__chevron${isOpen ? ' cortex-dropdown__chevron--open' : ''}`}>
-          &#9662;
+          <ChevronDown size={12} />
         </span>
       </button>
       {isOpen && (

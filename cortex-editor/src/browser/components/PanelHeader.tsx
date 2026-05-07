@@ -1,27 +1,112 @@
 import type { JSX } from 'preact'
 import { useState, useRef, useLayoutEffect, useEffect } from 'preact/hooks'
-import { SegmentedControl } from './controls/SegmentedControl.js'
 import { getThemePreference, setThemePreference, type ThemePreference } from '../theme.js'
 import { encodeFilePath } from '../label.js'
-import { ChevronDown, ChevronUp, Eye, EyeOff, Monitor, Moon, Sun, X } from './icons.js'
+import { Check, ChevronDown, Monitor, Moon, Sun, X } from './icons.js'
 
 const THEME_OPTIONS = [
   {
     value: 'light',
+    label: 'Light',
     title: 'Light theme',
-    icon: <Sun size={12} />,
+    icon: Sun,
   },
   {
     value: 'dark',
+    label: 'Dark',
     title: 'Dark theme',
-    icon: <Moon size={12} />,
+    icon: Moon,
   },
   {
     value: 'system',
+    label: 'System',
     title: 'Match system theme',
-    icon: <Monitor size={12} />,
+    icon: Monitor,
   },
-]
+] satisfies Array<{
+  value: ThemePreference
+  label: string
+  title: string
+  icon: (props: { size?: number }) => JSX.Element
+}>
+
+/**
+ * Compact theme selector for the panel chrome.
+ *
+ * Business logic: updates the persisted Cortex theme preference through the
+ * same theme API as the old segmented control; only the presentation changes
+ * from three always-visible choices to a compact menu.
+ */
+function ThemeDropdown({
+  value,
+  onChange,
+}: {
+  value: ThemePreference
+  onChange: (value: ThemePreference) => void
+}): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const selected = THEME_OPTIONS.find((option) => option.value === value) ?? THEME_OPTIONS[2]!
+  const SelectedIcon = selected.icon
+
+  const handleSelect = (next: ThemePreference) => {
+    onChange(next)
+    setOpen(false)
+  }
+
+  return (
+    <div class="cortex-theme-dropdown">
+      <button
+        type="button"
+        class="cortex-theme-dropdown__trigger"
+        data-action="theme"
+        data-tooltip={selected.title}
+        aria-label={`Theme: ${selected.label}`}
+        aria-haspopup="menu"
+        aria-expanded={open ? 'true' : 'false'}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <SelectedIcon size={12} />
+        <ChevronDown size={10} />
+      </button>
+      {open && (
+        <>
+          <div
+            class="cortex-theme-dropdown__backdrop"
+            aria-hidden="true"
+            onClick={() => setOpen(false)}
+          />
+          <div
+            class="cortex-theme-dropdown__menu"
+            role="menu"
+            aria-label="Theme"
+            onKeyDown={(event: KeyboardEvent) => {
+              if (event.key === 'Escape') setOpen(false)
+            }}
+          >
+            {THEME_OPTIONS.map((option) => {
+              const OptionIcon = option.icon
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  class={`cortex-theme-dropdown__option${option.value === value ? ' cortex-theme-dropdown__option--selected' : ''}`}
+                  data-theme-option={option.value}
+                  role="menuitemradio"
+                  aria-checked={option.value === value ? 'true' : 'false'}
+                  onClick={() => handleSelect(option.value)}
+                >
+                  <span class="cortex-theme-dropdown__option-icon"><OptionIcon size={12} /></span>
+                  <span class="cortex-theme-dropdown__option-label">{option.label}</span>
+                  {option.value === value && <Check size={12} />}
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
 
 export interface PanelHeaderProps {
   tagName: string
@@ -29,11 +114,7 @@ export interface PanelHeaderProps {
   sourceFile: string | null
   sourceLine: string | null
   filePath: string | null
-  hasParent: boolean
-  hasChildren: boolean
   onClose: () => void
-  onSelectParent: () => void
-  onSelectChild: () => void
   onPointerDown?: (e: PointerEvent) => void
   onPointerMove?: (e: PointerEvent) => void
   onPointerUp?: (e: PointerEvent) => void
@@ -45,8 +126,6 @@ export interface PanelHeaderProps {
   isLibrary?: boolean
   ancestorSource?: string | null
   ancestorLine?: string | null
-  hoverEnabled?: boolean
-  onToggleHover?: () => void
   /** Number of edits in the staging buffer. Apply button is hidden when 0. */
   bufferSize: number
   /** Called when the designer clicks Apply. Returns a Promise that resolves on
@@ -73,11 +152,7 @@ export function PanelHeader({
   sourceFile,
   sourceLine,
   filePath,
-  hasParent,
-  hasChildren,
   onClose,
-  onSelectParent,
-  onSelectChild,
   onPointerDown,
   onPointerMove,
   onPointerUp,
@@ -89,8 +164,6 @@ export function PanelHeader({
   isLibrary,
   ancestorSource,
   ancestorLine,
-  hoverEnabled = true,
-  onToggleHover,
   bufferSize,
   onApply,
   onApplyError,
@@ -198,41 +271,7 @@ export function PanelHeader({
         )}
       </div>
       <div class="cortex-panel-header__actions">
-        <SegmentedControl
-          options={THEME_OPTIONS}
-          value={themePref}
-          onChange={(v) => handleThemeChange(v as ThemePreference)}
-          size="sm"
-        />
-        <button
-          class="cortex-panel-header__btn"
-          data-action="parent"
-          disabled={!hasParent}
-          data-tooltip="Select parent element"
-          aria-label="Select parent element"
-          onClick={onSelectParent}
-        >
-          <ChevronUp size={14} />
-        </button>
-        <button
-          class="cortex-panel-header__btn"
-          data-action="child"
-          disabled={!hasChildren}
-          data-tooltip="Select child element"
-          aria-label="Select child element"
-          onClick={onSelectChild}
-        >
-          <ChevronDown size={14} />
-        </button>
-        <button
-          class={`cortex-panel-header__btn${hoverEnabled ? '' : ' cortex-panel-header__btn--toggled-off'}`}
-          data-action="toggle-hover"
-          data-tooltip={hoverEnabled ? 'Hide hover overlay' : 'Show hover overlay'}
-          aria-label={hoverEnabled ? 'Hide hover overlay' : 'Show hover overlay'}
-          onClick={onToggleHover}
-        >
-          {hoverEnabled ? <Eye size={14} /> : <EyeOff size={14} />}
-        </button>
+        <ThemeDropdown value={themePref} onChange={handleThemeChange} />
         {bufferSize > 0 && !pendingClaude && (
           <button
             class="cortex-panel-header__btn cortex-panel-header__btn--apply"
