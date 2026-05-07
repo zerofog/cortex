@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { runInit } from '../../src/cli/init.js'
+import { detectPackageManager } from '../../src/cli/detect.js'
 
 /** Create a temp directory with optional files pre-seeded. */
 function makeTmpProject(files: Record<string, string> = {}): string {
@@ -20,6 +21,39 @@ function cleanup(dir: string): void {
 }
 
 describe('cortex init', () => {
+  it.each([
+    [{}, 'npm'],
+    [{ 'package-lock.json': '' }, 'npm'],
+    [{ 'pnpm-lock.yaml': '' }, 'pnpm'],
+    [{ 'yarn.lock': '' }, 'yarn'],
+    [{ 'bun.lockb': '' }, 'bun'],
+    [{ 'bun.lock': '' }, 'bun'],
+  ] as Array<[Record<string, string>, string]>)('detects %s as %s', (files, expected) => {
+    const dir = makeTmpProject({ 'package.json': '{"name":"test"}', ...files })
+    try {
+      expect(detectPackageManager(dir)).toBe(expected)
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it.each([
+    ['pnpm@9.15.0', 'pnpm'],
+    ['yarn@4.5.1', 'yarn'],
+    ['bun@1.1.42', 'bun'],
+    ['npm@10.9.2', 'npm'],
+  ] as Array<[string, string]>)(
+    'detects packageManager=%s as %s when no lockfile exists',
+    (packageManager, expected) => {
+      const dir = makeTmpProject({ 'package.json': '{"name":"test"}' })
+      try {
+        expect(detectPackageManager(dir, { packageManager })).toBe(expected)
+      } finally {
+        cleanup(dir)
+      }
+    }
+  )
+
   it('errors when no package.json found', async () => {
     const dir = makeTmpProject()
     try {
@@ -144,6 +178,84 @@ describe('cortex init', () => {
     }
   })
 
+  it('prompts to install the missing Vite peer before treating an existing Vite config as complete', async () => {
+    const viteConfig = [
+      'import { defineConfig } from \'vite\'',
+      '',
+      'export default defineConfig({',
+      '  plugins: [],',
+      '})',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0"}}',
+      'vite.config.ts': viteConfig,
+    })
+    try {
+      const promptInstall = vi.fn(async () => true)
+      const installPackages = vi.fn(async () => {})
+
+      const result = await runInit(dir, { promptInstall, installPackages })
+
+      expect(result.detectedBundler).toBe('vite')
+      expect(result.vitePluginInjected).toBe(true)
+      expect(result.setupComplete).toBe(true)
+      expect(promptInstall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reason: 'missing-vite-peer',
+          packages: ['vite'],
+        })
+      )
+      expect(installPackages).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: 'npm',
+          args: ['install', '-D', 'vite'],
+          cwd: dir,
+        })
+      )
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('does not treat peerDependencies as installed packages for the missing Vite peer check', async () => {
+    const viteConfig = [
+      'import { defineConfig } from \'vite\'',
+      '',
+      'export default defineConfig({',
+      '  plugins: [],',
+      '})',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': JSON.stringify({
+        name: 'test',
+        devDependencies: { 'cortex-editor': '^0.1.0' },
+        peerDependencies: { vite: '^5.1.0' },
+      }),
+      'vite.config.ts': viteConfig,
+    })
+    try {
+      const promptInstall = vi.fn(async () => true)
+      const installPackages = vi.fn(async () => {})
+
+      const result = await runInit(dir, { promptInstall, installPackages })
+
+      expect(result.setupComplete).toBe(true)
+      expect(promptInstall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reason: 'missing-vite-peer',
+          packages: ['vite'],
+        })
+      )
+      expect(installPackages).toHaveBeenCalledWith(
+        expect.objectContaining({
+          args: ['install', '-D', 'vite'],
+        })
+      )
+    } finally {
+      cleanup(dir)
+    }
+  })
+
   it('injects cortexEditor into defineConfig with no plugins', async () => {
     const viteConfig = [
       'import { defineConfig } from \'vite\'',
@@ -224,17 +336,201 @@ describe('cortex init', () => {
     }
   })
 
-  it('warns when cortex-editor not in dependencies', async () => {
+  it('warns with the detected package manager when cortex-editor is not in dependencies', async () => {
     const dir = makeTmpProject({
       'package.json': '{"name":"test","dependencies":{}}',
+      'pnpm-lock.yaml': '',
     })
     try {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       try {
         await runInit(dir)
         expect(warnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('cortex-editor not in dependencies')
+          expect.stringContaining('pnpm add -D cortex-editor')
         )
+      } finally {
+        warnSpy.mockRestore()
+      }
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('installs Vite with the detected package manager and creates a configured Vite stub when no bundler is detected', async () => {
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0"}}',
+      'pnpm-lock.yaml': '',
+    })
+    try {
+      const promptInstall = vi.fn(async () => true)
+      const installPackages = vi.fn(async () => {})
+
+      const result = await runInit(dir, { promptInstall, installPackages })
+
+      expect(result.detectedBundler).toBe('none')
+      expect(result.packageManager).toBe('pnpm')
+      expect(result.viteConfigCreated).toBe(true)
+      expect(result.setupComplete).toBe(true)
+      expect(promptInstall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          packageManager: 'pnpm',
+          packages: ['vite', '@vitejs/plugin-react'],
+        })
+      )
+      expect(installPackages).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: 'pnpm',
+          args: ['add', '-D', 'vite', '@vitejs/plugin-react'],
+          cwd: dir,
+        })
+      )
+
+      const content = fs.readFileSync(path.join(dir, 'vite.config.ts'), 'utf8')
+      expect(content).toContain('import react from \'@vitejs/plugin-react\'')
+      expect(content).toContain('import { cortexEditor } from \'cortex-editor/vite\'')
+      expect(content).toContain('plugins: [react(), cortexEditor()]')
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('creates a configured Vite stub without installing packages when Vite is already a dependency', async () => {
+    const dir = makeTmpProject({
+      'package.json': JSON.stringify({
+        name: 'test',
+        devDependencies: {
+          'cortex-editor': '^0.1.0',
+          vite: '^5.1.0',
+          '@vitejs/plugin-react': '^5.0.0',
+        },
+      }),
+    })
+    try {
+      const promptInstall = vi.fn(async () => true)
+      const installPackages = vi.fn(async () => {})
+
+      const result = await runInit(dir, { promptInstall, installPackages })
+
+      expect(result.detectedBundler).toBe('vite')
+      expect(result.viteConfigCreated).toBe(true)
+      expect(result.setupComplete).toBe(true)
+      expect(promptInstall).not.toHaveBeenCalled()
+      expect(installPackages).not.toHaveBeenCalled()
+      expect(fs.existsSync(path.join(dir, 'vite.config.ts'))).toBe(true)
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('does not claim setup is complete when the user declines missing Vite installation', async () => {
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0"}}',
+    })
+    try {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const result = await runInit(dir, {
+          promptInstall: async () => false,
+          installPackages: async () => {},
+        })
+
+        expect(result.setupComplete).toBe(false)
+        expect(result.viteConfigCreated).toBe(false)
+        expect(fs.existsSync(path.join(dir, 'vite.config.ts'))).toBe(false)
+
+        const logs = logSpy.mock.calls.flat().join('\n')
+        const warnings = warnSpy.mock.calls.flat().join('\n')
+        expect(logs).not.toContain('Setup complete')
+        expect(warnings).toContain('Cortex setup incomplete')
+        expect(warnings).toContain('Install Vite')
+      } finally {
+        logSpy.mockRestore()
+        warnSpy.mockRestore()
+      }
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('wraps an existing Next.js config with withCortex instead of trying the Vite path', async () => {
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'next.config.mjs': 'export default { reactStrictMode: true }\n',
+    })
+    try {
+      const result = await runInit(dir)
+
+      expect(result.detectedBundler).toBe('next')
+      expect(result.nextConfigInjected).toBe(true)
+      expect(result.viteConfigCreated).toBe(false)
+      expect(result.setupComplete).toBe(true)
+
+      const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
+      expect(content).toContain('import { withCortex } from \'cortex-editor/next\'')
+      expect(content).toContain('export default withCortex({ reactStrictMode: true })')
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('wraps a CommonJS Next.js config with withCortex', async () => {
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'next.config.cjs': 'module.exports = { reactStrictMode: true }\n',
+    })
+    try {
+      const result = await runInit(dir)
+
+      expect(result.detectedBundler).toBe('next')
+      expect(result.nextConfigInjected).toBe(true)
+      expect(result.setupComplete).toBe(true)
+
+      const content = fs.readFileSync(path.join(dir, 'next.config.cjs'), 'utf8')
+      expect(content).toContain('const { withCortex } = require(\'cortex-editor/next\')')
+      expect(content).toContain('module.exports = withCortex({ reactStrictMode: true })')
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('creates a Next.js config when Next is detected without a config file', async () => {
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+    })
+    try {
+      const result = await runInit(dir)
+
+      expect(result.detectedBundler).toBe('next')
+      expect(result.nextConfigCreated).toBe(true)
+      expect(result.setupComplete).toBe(true)
+
+      const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
+      expect(content).toContain('withCortex')
+      expect(content).toContain('cortex-editor/next')
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('reports Webpack as unsupported without creating Vite or Webpack adapter config', async () => {
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","webpack":"^5.0.0"}}',
+    })
+    try {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const result = await runInit(dir)
+
+        expect(result.detectedBundler).toBe('webpack')
+        expect(result.setupComplete).toBe(false)
+        expect(result.viteConfigCreated).toBe(false)
+        expect(fs.existsSync(path.join(dir, 'vite.config.ts'))).toBe(false)
+        expect(fs.existsSync(path.join(dir, 'webpack.config.js'))).toBe(false)
+
+        const warnings = warnSpy.mock.calls.flat().join('\n')
+        expect(warnings).toContain('does not support standalone Webpack yet')
+        expect(warnings).toContain('ZF0-934')
       } finally {
         warnSpy.mockRestore()
       }

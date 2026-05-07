@@ -1,6 +1,38 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { spawn } from 'node:child_process'
+import { stdin, stdout } from 'node:process'
+import { createInterface } from 'node:readline/promises'
 import { Project, SyntaxKind, ts, type SourceFile, type ObjectLiteralExpression } from 'ts-morph'
+import {
+  detectBundler,
+  detectPackageManager,
+  hasDependency,
+  type BundlerKind,
+  type PackageJson,
+  type PackageManager,
+} from './detect.js'
+
+const VITE_SETUP_PACKAGES = ['vite', '@vitejs/plugin-react'] as const
+
+export interface PromptInstallRequest {
+  packageManager: PackageManager
+  packages: string[]
+  reason: 'missing-bundler' | 'missing-vite-config' | 'missing-vite-peer'
+}
+
+export interface InstallPackagesRequest {
+  packageManager: PackageManager
+  command: string
+  args: string[]
+  cwd: string
+  packages: string[]
+}
+
+export interface InitOptions {
+  promptInstall?: (request: PromptInstallRequest) => Promise<boolean>
+  installPackages?: (request: InstallPackagesRequest) => Promise<void>
+}
 
 /**
  * Find the config object literal in a Vite config file.
@@ -34,17 +66,211 @@ export interface InitResult {
   mcpWritten: boolean
   vitePluginFound: boolean | null
   vitePluginInjected: boolean
+  viteConfigCreated: boolean
+  nextConfigFound: boolean | null
+  nextConfigInjected: boolean
+  nextConfigCreated: boolean
   depFound: boolean
+  detectedBundler: BundlerKind
+  packageManager: PackageManager
+  setupComplete: boolean
 }
 
-export async function runInit(cwd: string = process.cwd()): Promise<InitResult> {
+function createInstallRequest(
+  packageManager: PackageManager,
+  packages: string[],
+  cwd: string
+): InstallPackagesRequest {
+  if (packageManager === 'pnpm') {
+    return {
+      packageManager,
+      command: 'pnpm',
+      args: ['add', '-D', ...packages],
+      cwd,
+      packages,
+    }
+  }
+  if (packageManager === 'yarn') {
+    return {
+      packageManager,
+      command: 'yarn',
+      args: ['add', '-D', ...packages],
+      cwd,
+      packages,
+    }
+  }
+  if (packageManager === 'bun') {
+    return {
+      packageManager,
+      command: 'bun',
+      args: ['add', '-d', ...packages],
+      cwd,
+      packages,
+    }
+  }
+  return {
+    packageManager,
+    command: 'npm',
+    args: ['install', '-D', ...packages],
+    cwd,
+    packages,
+  }
+}
+
+async function defaultInstallPackages(request: InstallPackagesRequest): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(request.command, request.args, {
+      cwd: request.cwd,
+      stdio: 'inherit',
+    })
+    child.on('error', reject)
+    child.on('close', code => {
+      if (code === 0) {
+        resolve()
+      } else {
+        reject(new Error(`${request.command} ${request.args.join(' ')} exited with ${code}`))
+      }
+    })
+  })
+}
+
+async function defaultPromptInstall(request: PromptInstallRequest): Promise<boolean> {
+  if (!stdin.isTTY) return false
+
+  const command = createInstallRequest(request.packageManager, request.packages, process.cwd())
+  const rl = createInterface({ input: stdin, output: stdout })
+  try {
+    const answer = await rl.question(
+      `Cortex needs ${request.packages.join(' and ')} to configure source annotations. Run "${command.command} ${command.args.join(' ')}" now? [Y/n] `
+    )
+    return answer.trim() === '' || /^y(es)?$/i.test(answer.trim())
+  } finally {
+    rl.close()
+  }
+}
+
+function writeViteConfig(cwd: string): string {
+  const viteConfigPath = path.join(cwd, 'vite.config.ts')
+  const content = [
+    'import { defineConfig } from \'vite\'',
+    'import react from \'@vitejs/plugin-react\'',
+    'import { cortexEditor } from \'cortex-editor/vite\'',
+    '',
+    'export default defineConfig({',
+    '  plugins: [react(), cortexEditor()],',
+    '})',
+    '',
+  ].join('\n')
+  fs.writeFileSync(viteConfigPath, content)
+  console.log('  vite.config.ts: created with cortexEditor plugin')
+  return viteConfigPath
+}
+
+function addEsmWithCortex(content: string): string | null {
+  const match = content.match(/export\s+default\s+([\s\S]*?)\s*;?\s*$/)
+  if (!match || match.index === undefined) return null
+
+  const before = content.slice(0, match.index)
+  const expression = match[1]!.trim().replace(/;\s*$/, '')
+  const separator = before.length > 0 && !before.endsWith('\n') ? '\n' : ''
+  return [
+    'import { withCortex } from \'cortex-editor/next\'',
+    `${before}${separator}export default withCortex(${expression})`,
+    '',
+  ].join('\n')
+}
+
+function addCjsWithCortex(content: string): string | null {
+  const match = content.match(/module\.exports\s*=\s*([\s\S]*?)\s*;?\s*$/)
+  if (!match || match.index === undefined) return null
+
+  const before = content.slice(0, match.index)
+  const expression = match[1]!.trim().replace(/;\s*$/, '')
+  const separator = before.length > 0 && !before.endsWith('\n') ? '\n' : ''
+  return [
+    'const { withCortex } = require(\'cortex-editor/next\')',
+    `${before}${separator}module.exports = withCortex(${expression})`,
+    '',
+  ].join('\n')
+}
+
+function configureNext(cwd: string, configPath: string | null): {
+  found: boolean | null
+  injected: boolean
+  created: boolean
+  configured: boolean
+} {
+  if (!configPath) {
+    const nextConfigPath = path.join(cwd, 'next.config.mjs')
+    fs.writeFileSync(nextConfigPath, [
+      'import { withCortex } from \'cortex-editor/next\'',
+      '',
+      'export default withCortex({})',
+      '',
+    ].join('\n'))
+    console.log('  next.config.mjs: created with withCortex()')
+    return { found: true, injected: true, created: true, configured: true }
+  }
+
+  const basename = path.basename(configPath)
+  const content = fs.readFileSync(configPath, 'utf8')
+  if (content.includes('withCortex')) {
+    console.log(`  ${basename}: withCortex config found`)
+    return { found: true, injected: false, created: false, configured: true }
+  }
+
+  const isCjs = basename.endsWith('.cjs') || content.includes('module.exports')
+  const nextContent = isCjs ? addCjsWithCortex(content) : addEsmWithCortex(content)
+  if (!nextContent) {
+    console.warn(
+      `  ${basename}: could not auto-configure Next.js — wrap your config with withCortex() from cortex-editor/next`
+    )
+    return { found: false, injected: false, created: false, configured: false }
+  }
+
+  fs.writeFileSync(configPath, nextContent)
+  console.log(`  ${basename}: withCortex config injected`)
+  return { found: true, injected: true, created: false, configured: true }
+}
+
+async function ensurePackages(
+  cwd: string,
+  pkg: PackageJson,
+  packageManager: PackageManager,
+  packages: readonly string[],
+  reason: PromptInstallRequest['reason'],
+  options: InitOptions
+): Promise<boolean> {
+  const missing = packages.filter(name => !hasDependency(pkg, name))
+  if (missing.length === 0) return true
+
+  const promptInstall = options.promptInstall ?? defaultPromptInstall
+  const approved = await promptInstall({ packageManager, packages: missing, reason })
+  if (!approved) {
+    const installRequest = createInstallRequest(packageManager, missing, cwd)
+    console.warn('  Cortex setup incomplete: Vite is required to add source annotations.')
+    console.warn(`  Install Vite with: ${installRequest.command} ${installRequest.args.join(' ')}`)
+    console.warn('  Then re-run: npx cortex init')
+    return false
+  }
+
+  const installPackages = options.installPackages ?? defaultInstallPackages
+  const installRequest = createInstallRequest(packageManager, missing, cwd)
+  await installPackages(installRequest)
+  return true
+}
+
+export async function runInit(
+  cwd: string = process.cwd(),
+  options: InitOptions = {}
+): Promise<InitResult> {
   // 1. Check for package.json and parse it once (used later for dep check)
   const pkgPath = path.join(cwd, 'package.json')
   if (!fs.existsSync(pkgPath)) {
     throw new Error('No package.json found. Run this from your project root.')
   }
 
-  let pkg: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> }
+  let pkg: PackageJson
   try {
     pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'))
   } catch (err) {
@@ -90,23 +316,53 @@ export async function runInit(cwd: string = process.cwd()): Promise<InitResult> 
     mcpWritten = true
   }
 
-  // 3. Inject cortexEditor plugin into Vite config (or detect existing)
+  const detected = detectBundler(cwd, pkg)
+  const packageManager = detectPackageManager(cwd, pkg)
+
+  // 3. Configure the detected bundler.
   let vitePluginFound: boolean | null = null
   let vitePluginInjected = false
-  const viteConfigPath = [
-    'vite.config.ts', 'vite.config.js', 'vite.config.mts',
-    'vite.config.mjs', 'vite.config.cts', 'vite.config.cjs',
-  ]
-    .map(f => path.join(cwd, f))
-    .find(f => fs.existsSync(f))
+  let viteConfigCreated = false
+  let nextConfigFound: boolean | null = null
+  let nextConfigInjected = false
+  let nextConfigCreated = false
+  let bundlerConfigured = false
 
-  if (viteConfigPath) {
+  const configureVite = async (viteConfigPath: string | null): Promise<void> => {
+    if (!viteConfigPath) {
+      const installed = await ensurePackages(
+        cwd,
+        pkg,
+        packageManager,
+        VITE_SETUP_PACKAGES,
+        detected.kind === 'none' ? 'missing-bundler' : 'missing-vite-config',
+        options
+      )
+      if (!installed) return
+
+      writeViteConfig(cwd)
+      vitePluginFound = true
+      vitePluginInjected = true
+      viteConfigCreated = true
+      bundlerConfigured = true
+      return
+    }
+
+    const vitePeerInstalled = await ensurePackages(
+      cwd,
+      pkg,
+      packageManager,
+      ['vite'],
+      'missing-vite-peer',
+      options
+    )
     const basename = path.basename(viteConfigPath)
     const content = fs.readFileSync(viteConfigPath, 'utf8')
 
     if (content.includes('cortexEditor')) {
       vitePluginFound = true
       console.log(`  ${basename}: cortexEditor plugin found`)
+      bundlerConfigured = vitePeerInstalled
     } else {
       // Attempt AST-based injection
       const project = new Project({
@@ -166,24 +422,59 @@ export async function runInit(cwd: string = process.cwd()): Promise<InitResult> 
         fs.writeFileSync(viteConfigPath, sourceFile.getFullText())
         vitePluginFound = true
         vitePluginInjected = true
+        bundlerConfigured = vitePeerInstalled
         console.log(`  ${basename}: cortexEditor plugin injected`)
       } else {
         vitePluginFound = false
       }
     }
-  } else {
-    console.warn('  No vite.config found — skipping plugin check')
+  }
+
+  if (detected.kind === 'vite' || detected.kind === 'none') {
+    await configureVite(detected.configPath)
+  } else if (detected.kind === 'next') {
+    const nextResult = configureNext(cwd, detected.configPath)
+    nextConfigFound = nextResult.found
+    nextConfigInjected = nextResult.injected
+    nextConfigCreated = nextResult.created
+    bundlerConfigured = nextResult.configured
+  } else if (detected.kind === 'webpack') {
+    console.warn(
+      '  cortex-editor does not support standalone Webpack yet (tracked by ZF0-934).'
+    )
+    console.warn('  Use Vite or Next.js for now, or follow ZF0-934 for Webpack adapter support.')
   }
 
   // 4. Check cortex-editor is installed
   const allDeps = { ...pkg.dependencies, ...pkg.devDependencies }
   const depFound = Boolean(allDeps['cortex-editor'])
   if (!depFound) {
-    console.warn('  cortex-editor not in dependencies. Run: npm install -D cortex-editor')
+    const installRequest = createInstallRequest(packageManager, ['cortex-editor'], cwd)
+    console.warn(
+      `  cortex-editor not in dependencies. Run: ${installRequest.command} ${installRequest.args.join(' ')}`
+    )
   }
 
-  console.log('')
-  console.log('Setup complete. Restart your editor to pick up the MCP server.')
+  const setupComplete = depFound && bundlerConfigured
+  if (setupComplete) {
+    console.log('')
+    console.log('Setup complete. Restart your editor to pick up the MCP server.')
+  } else {
+    console.warn('')
+    console.warn('Cortex setup incomplete. Fix the messages above, then re-run: npx cortex init')
+  }
 
-  return { mcpWritten, vitePluginFound, vitePluginInjected, depFound }
+  return {
+    mcpWritten,
+    vitePluginFound,
+    vitePluginInjected,
+    viteConfigCreated,
+    nextConfigFound,
+    nextConfigInjected,
+    nextConfigCreated,
+    depFound,
+    detectedBundler: detected.kind,
+    packageManager,
+    setupComplete,
+  }
 }
