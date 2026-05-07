@@ -1,0 +1,67 @@
+cortex-editor/src/browser/styles.css
+  s_794f1037f4a89c::t_b2bdf7f98d9286 251-259
+cortex-editor/tests/browser/layer-tree.test.tsx
+  s_794f1037f4a89c::t_b2bdf7f98d9286 168-171
+cortex-editor/tests/browser/panel-t4-integration.test.tsx
+  s_794f1037f4a89c::t_b2bdf7f98d9286 101,150,183,229,288,344,413,463,518,583,620,679,700,779,854,929
+cortex-editor/src/browser/components/Panel.tsx
+  s_794f1037f4a89c::t_b2bdf7f98d9286 152-159,166-168,172,205-219,262,290,297-298,300-303,614,627-665,739-821,859,950-970,973,975-993,1008,1013-1045,1673-1678
+cortex-editor/tests/e2e/panel-multi-select.spec.ts
+  s_794f1037f4a89c::t_b2bdf7f98d9286 1-182
+cortex-editor/tests/browser/panel-section-order.test.ts
+  s_794f1037f4a89c::t_b2bdf7f98d9286 95,320
+cortex-editor/tests/HAPPY-DOM-AUDIT.md
+  s_794f1037f4a89c::t_b2bdf7f98d9286 1-89
+cortex-editor/src/browser/components/CortexApp.tsx
+  s_794f1037f4a89c::t_b2bdf7f98d9286 10-11,20,49-51,141,161-170,197-199,202-224,227-232,257-261,265,363-389,563-568,585-588,1055-1065,1068,1073-1074,1078
+cortex-editor/tests/SKIPPED-AUDIT.md
+  s_794f1037f4a89c::t_b2bdf7f98d9286 1-70
+cortex-editor/tests/browser/selection-source-expand.test.ts
+  s_794f1037f4a89c::t_b2bdf7f98d9286 1-89
+cortex-editor/tests/browser/keyboard-shortcuts.test.tsx
+  s_794f1037f4a89c::t_b2bdf7f98d9286 159
+cortex-editor/src/browser/components/SecondarySelectionOverlay.tsx
+  s_794f1037f4a89c::t_b2bdf7f98d9286 1-104
+cortex-editor/src/browser/cortex-app-reducer.ts
+  s_794f1037f4a89c::t_b2bdf7f98d9286 148-200
+cortex-editor/tests/browser/cortex-app.test.tsx
+  s_794f1037f4a89c::t_b2bdf7f98d9286 16-20,26,29,175,184,234,245,266,402,491,538,676,722,951,961,1097,1108
+cortex-editor/tests/browser/selection.test.ts
+  s_794f1037f4a89c::t_b2bdf7f98d9286 10,69,213,221,228,234-288
+cortex-editor/tests/browser/hooks/useOutsideDismiss.test.tsx
+  s_794f1037f4a89c::t_b2bdf7f98d9286 23,25,27-29,31,66,78-81,83-85,99,113-115,122-126,135-141,149-151,154-156,158,161-164,186-188,198-200,239-241,243-246,248-250,291-293,295-298,308-310,312-315,325-327,329-331
+cortex-editor/tests/browser/selection-state.test.ts
+  s_794f1037f4a89c::t_b2bdf7f98d9286 1-57
+cortex-editor/src/browser/components/LayerTree.tsx
+  s_794f1037f4a89c::t_b2bdf7f98d9286 74,83,95
+cortex-editor/src/browser/selection.ts
+  s_794f1037f4a89c::t_b2bdf7f98d9286 25-30,35,88-102
+cortex-editor/tests/browser/panel.test.tsx
+  s_794f1037f4a89c::t_b2bdf7f98d9286 10,72,174,234,288,323,371,394,431,474,505,536,562,633,675,695,771,862,917-1030,1071,1181,1221-1591
+cortex-editor/tests/browser/sections/ElementTree.test.tsx
+  s_794f1037f4a89c::t_b2bdf7f98d9286 1,5-94,115,136,157,173
+cortex-editor/tests/e2e/helpers/bridge.ts
+  s_794f1037f4a89c::t_b2bdf7f98d9286 78-93
+cortex-editor/src/browser/components/sections/ElementTree.tsx
+  s_794f1037f4a89c::t_b2bdf7f98d9286 6,11-16,19-24
+cortex-editor/src/browser/selection-source-expand.ts
+  s_794f1037f4a89c::t_b2bdf7f98d9286 1-65
+cortex-editor/tests/browser/panel.classop.test.tsx
+  s_794f1037f4a89c::t_b2bdf7f98d9286 80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "f7302ca8fef9607a63532dc761140d73a9ab81bb",
+  "prompts": {},
+  "sessions": {
+    "s_794f1037f4a89c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dff0e-2b24-7340-be77-bcb04c58cdb5",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
