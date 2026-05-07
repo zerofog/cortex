@@ -1,0 +1,21 @@
+cortex-editor/tests/browser/controls/numeric-input.test.tsx
+  s_32cd34190d2c45::t_b4c8920c3f35f4 333
+cortex-editor/src/browser/components/controls/NumericInput.tsx
+  s_32cd34190d2c45::t_b4c8920c3f35f4 220
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "c7218b2cadc7837c801c0de5783e692774ad187f",
+  "prompts": {},
+  "sessions": {
+    "s_32cd34190d2c45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dff0f-5cd2-7a13-8b87-32b2fa2505cc",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
