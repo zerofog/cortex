@@ -167,11 +167,13 @@ describe('TypographySection v2 — rendering', () => {
       expect(findInputByValue('0')?.value).toBe('0')
     })
 
-    it('weight dropdown trigger shows the named label (e.g. "400 - Regular")', () => {
+    it('weight dropdown trigger shows compact label with numeric tooltip', () => {
       setup({ className: '' })
       const triggers = container.querySelectorAll('.cortex-dropdown__trigger')
       // Order: family dropdown → weight dropdown (pill replaces both when linked).
-      expect(triggers[1]?.textContent).toContain('400 - Regular')
+      expect(triggers[1]?.textContent).toContain('Regular')
+      expect(triggers[1]?.textContent).not.toContain('400 - Regular')
+      expect(triggers[1]?.getAttribute('data-tooltip')).toBe('font-weight: 400')
     })
   })
 
@@ -488,6 +490,24 @@ describe('TypographySection v2 — dimmed + mixed props', () => {
       container.querySelectorAll('.cortex-typography-section__row'),
     ).find((r) => r.className.includes('cortex-control--dimmed'))
     expect(dimmedRow).toBeTruthy()
+  })
+
+  it('mixedProperties.has("font-weight") renders the weight dropdown as Mixed', () => {
+    setup({
+      className: '',
+      mixedProperties: new Set(['font-weight']),
+    })
+    const triggers = container.querySelectorAll('.cortex-dropdown__trigger')
+    expect(triggers[1]?.textContent).toContain('Mixed')
+  })
+
+  it('mixedProperties.has("text-align") renders alignment segmented control as Mixed', () => {
+    setup({
+      className: '',
+      mixedProperties: new Set(['text-align']),
+    })
+    const alignGroup = container.querySelector('.cortex-typography-section__align-row [role="radiogroup"]')
+    expect(alignGroup?.textContent).toContain('Mixed')
   })
 })
 
