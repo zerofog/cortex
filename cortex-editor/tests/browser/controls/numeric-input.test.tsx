@@ -82,6 +82,19 @@ describe('NumericInput', () => {
     expect(onChange).toHaveBeenCalledWith(16.1)
   })
 
+  it('arrow stepping uses the live draft value and syncs the input', () => {
+    const { onChange, input } = setup()
+    input.value = '30'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    dispatchKeyboardEvent(input, 'keydown', { key: 'ArrowUp' })
+    expect(onChange).toHaveBeenCalledWith(31)
+    expect(onChange).not.toHaveBeenCalledWith(17)
+    expect(input.value).toBe('31')
+
+    input.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
+    expect(onChange).toHaveBeenCalledTimes(1)
+  })
+
   it('commits text input on Enter exactly once (no double-fire from blur)', async () => {
     const { onChange, input } = setup()
     // Simulate typing by setting value and dispatching input event
@@ -125,6 +138,26 @@ describe('NumericInput', () => {
     })
     input.dispatchEvent(wheelEvent)
     expect(onChange).toHaveBeenCalledWith(17)
+  })
+
+  it('wheel stepping uses the live draft value and syncs the input', () => {
+    const { onChange, input } = setupInShadow()
+    input.focus()
+    input.value = '30'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    const wheelEvent = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaY: -1,
+    })
+    input.dispatchEvent(wheelEvent)
+    expect(onChange).toHaveBeenCalledWith(31)
+    expect(onChange).not.toHaveBeenCalledWith(17)
+    expect(wheelEvent.defaultPrevented).toBe(true)
+    expect(input.value).toBe('31')
+
+    input.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
+    expect(onChange).toHaveBeenCalledTimes(1)
   })
 
   it('wheel is ignored when input is not focused inside Shadow DOM', () => {

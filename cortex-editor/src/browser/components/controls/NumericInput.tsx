@@ -118,22 +118,31 @@ export function NumericInput({
     return min !== undefined ? Math.max(min, v) : v
   }, [min])
 
+  const getStepBaseValue = useCallback(() => {
+    const draftValue = parseFloat(localValueRef.current)
+    if (!isNaN(draftValue)) return draftValue
+    return mixed ? NaN : value
+  }, [mixed, value])
+
+  const syncSteppedValue = useCallback((next: number) => {
+    const str = String(next)
+    localValueRef.current = str
+    setLocalValue(str)
+    if (inputRef.current) inputRef.current.value = str
+    if (mixed) setHasExplicitMixedValue(true)
+    userTypedRef.current = false
+  }, [mixed])
+
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-      e.preventDefault()
-      const baseValue = mixed ? parseFloat(localValueRef.current) : value
+      const baseValue = getStepBaseValue()
       if (isNaN(baseValue)) return
+      e.preventDefault()
       const step = getStep(e)
       const delta = e.key === 'ArrowUp' ? step : -step
       const next = clampValue(roundTenth(baseValue + delta))
       onChange(next)
-      if (mixed) {
-        const str = String(next)
-        localValueRef.current = str
-        setLocalValue(str)
-        setHasExplicitMixedValue(true)
-        userTypedRef.current = false
-      }
+      syncSteppedValue(next)
     } else if (e.key === 'Enter') {
       e.preventDefault()
       const parsed = parseFloat(localValueRef.current)
@@ -150,7 +159,7 @@ export function NumericInput({
       setIsEditing(false)
       inputRef.current?.blur()
     }
-  }, [value, onChange, clampValue, mixed])
+  }, [value, onChange, clampValue, getStepBaseValue, syncSteppedValue])
 
   const beginEditing = useCallback((focusInput = false) => {
     userTypedRef.current = false
@@ -215,21 +224,15 @@ export function NumericInput({
   const handleWheel = useCallback((e: WheelEvent) => {
     const root = inputRef.current?.getRootNode() as Document | ShadowRoot
     if (root?.activeElement !== inputRef.current) return
-    const baseValue = mixed ? parseFloat(localValueRef.current) : value
+    const baseValue = getStepBaseValue()
     if (isNaN(baseValue)) return
     e.preventDefault()
     const step = getStep(e)
     const delta = e.deltaY < 0 ? step : -step
     const next = clampValue(roundTenth(baseValue + delta))
     onChange(next)
-    if (mixed) {
-      const str = String(next)
-      localValueRef.current = str
-      setLocalValue(str)
-      setHasExplicitMixedValue(true)
-      userTypedRef.current = false
-    }
-  }, [value, onChange, clampValue, mixed])
+    syncSteppedValue(next)
+  }, [onChange, clampValue, getStepBaseValue, syncSteppedValue])
 
   const handleScrubDown = useCallback((e: PointerEvent) => {
     if (isEditing) return

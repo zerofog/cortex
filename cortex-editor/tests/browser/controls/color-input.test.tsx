@@ -114,6 +114,23 @@ describe('ColorInput', () => {
     }, { timeout: 500 })
   })
 
+  it('notifies split alpha callers before committing typed embedded opacity', async () => {
+    const onAlphaChange = vi.fn()
+    const { onChange } = setup({ value: '#0000ff', alpha: 100, onAlphaChange })
+    const hex = container.querySelector('.cortex-color-input__hex') as HTMLInputElement
+    hex.dispatchEvent(new Event('focus', { bubbles: true }))
+    await flush()
+    hex.value = 'rgba(255, 0, 0, 0.5)'
+    hex.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+    hex.dispatchEvent(new Event('blur', { bubbles: true }))
+    await vi.waitFor(() => {
+      expect(onAlphaChange).toHaveBeenCalledWith(50)
+      expect(onChange).toHaveBeenCalledWith('rgba(255, 0, 0, 0.5)')
+    }, { timeout: 500 })
+    expect(onAlphaChange.mock.invocationCallOrder[0]).toBeLessThan(onChange.mock.invocationCallOrder[0])
+  })
+
   it('commits typed modern rgb() percentage alpha', async () => {
     const { onChange } = setup()
     const hex = container.querySelector('.cortex-color-input__hex') as HTMLInputElement

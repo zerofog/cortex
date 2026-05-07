@@ -225,9 +225,13 @@ export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, s
   const alphaRef = useRef(currentAlpha)
   alphaRef.current = currentAlpha
 
-  const emitColor = useCallback((hex: string, a: number) => {
-    onChange(formatColor(hex, a))
-  }, [onChange])
+  const emitColor = useCallback((hex: string, a: number, options?: { syncExplicitAlpha?: boolean }) => {
+    const nextAlpha = Math.round(Math.max(0, Math.min(100, a)))
+    if (options?.syncExplicitAlpha && nextAlpha !== alphaRef.current) {
+      onAlphaChange?.(nextAlpha)
+    }
+    onChange(formatColor(hex, nextAlpha))
+  }, [onChange, onAlphaChange])
 
   const handleHexInput = useCallback((e: Event) => {
     const v = (e.target as HTMLInputElement).value
@@ -249,7 +253,7 @@ export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, s
       const next = formatColor(parsedColor.hex, nextAlpha)
       const previous = formatColor(hexColor, alphaRef.current)
       if (mixed || next.toLowerCase() !== previous.toLowerCase()) {
-        emitColor(parsedColor.hex, nextAlpha)
+        emitColor(parsedColor.hex, nextAlpha, { syncExplicitAlpha: parsedColor.alphaWasExplicit })
       }
     }
     editingHexRef.current = null
