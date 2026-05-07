@@ -1,0 +1,19 @@
+cortex-editor/tests/browser/components/icon-source-compliance.test.ts
+  s_2089cbf1ccb98d::t_afa7aae899dff9 6,26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "56fe4278d4e3c8a60a04408ae14fde33efab0cf9",
+  "prompts": {},
+  "sessions": {
+    "s_2089cbf1ccb98d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e00e5-5118-7873-a865-0a02ab551502",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
