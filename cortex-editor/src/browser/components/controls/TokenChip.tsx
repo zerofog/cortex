@@ -29,10 +29,6 @@ export interface TokenChipProps {
   bodyRef?: RefObject<HTMLButtonElement>
 }
 
-/** Diagonal-stripe background for non-color values (e.g. spacing, sizes). */
-const PATTERN_BG =
-  'repeating-linear-gradient(45deg, var(--cx-ink-ghost) 0, var(--cx-ink-ghost) 2px, transparent 2px, transparent 6px)'
-
 /**
  * Pill-shaped chip with an optional leading swatch, clickable body, and
  * trailing unlink button. Pure display component — no internal state.
@@ -52,7 +48,7 @@ export function TokenChip({
     swatch === undefined ? null : swatch.kind === 'color' ? (
       <span class="cortex-token-chip__swatch" style={{ backgroundColor: swatch.value }} />
     ) : (
-      <span class="cortex-token-chip__swatch" style={{ background: PATTERN_BG }} />
+      <span class="cortex-token-chip__swatch cortex-token-chip__swatch--pattern" />
     )
 
   const bodyChildren = (

@@ -1196,10 +1196,22 @@
 }
 
 .cortex-color-input--mixed .cortex-color-input__swatch {
-  background: repeating-linear-gradient(
-    45deg, var(--cx-well) 0px, var(--cx-well) 4px, var(--cx-ink-faint) 4px, var(--cx-ink-faint) 8px
-  ) !important;
+  position: relative;
+  overflow: hidden;
+  background: var(--cx-well) !important;
   border-color: var(--cx-rule);
+}
+
+.cortex-color-input--mixed .cortex-color-input__swatch::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -20%;
+  width: 140%;
+  height: 1px;
+  background: var(--cx-rule);
+  transform: rotate(-45deg);
+  transform-origin: center;
 }
 
 .cortex-color-input--mixed .cortex-color-input__hex {
@@ -2422,7 +2434,7 @@
   width: 16px;
   height: 16px;
   border: 2px solid white;
-  box-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
+  outline: 1px solid rgba(0, 0, 0, 0.3);
 }
 
 .cortex-color-picker__popover hex-color-picker::part(hue-pointer) {
@@ -4437,6 +4449,25 @@ button.cortex-token-chip__body:focus-visible {
   height: 14px;
   border-radius: var(--cx-radius-sm);
   flex-shrink: 0;
+}
+
+.cortex-token-chip__swatch--pattern {
+  position: relative;
+  overflow: hidden;
+  background: var(--cx-well);
+  border: 1px solid var(--cx-rule);
+}
+
+.cortex-token-chip__swatch--pattern::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -30%;
+  width: 160%;
+  height: 1px;
+  background: var(--cx-rule);
+  transform: rotate(-45deg);
+  transform-origin: center;
 }
 
 .cortex-token-chip__name {
