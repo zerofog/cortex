@@ -25,6 +25,7 @@ import { ActivityLog } from './ActivityLog.js'
 import { ErrorToast } from './ErrorToast.js'
 import { CapabilityBanner } from './CapabilityBanner.js'
 import { NoAnnotationsBanner } from './NoAnnotationsBanner.js'
+import { TooltipLayer } from './TooltipLayer.js'
 import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
 import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
@@ -1024,6 +1025,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         <CapabilityBanner systems={capabilitySystems} />
         <ErrorToast channel={channel} />
       </div>
+      <TooltipLayer shadowRoot={shadowRoot} />
       {/* Wrapper shifts toolbar + every position:fixed UI down by the
           banner's measured height when visible. The transform turns this div
           into the containing block for fixed-positioned descendants (CSS
