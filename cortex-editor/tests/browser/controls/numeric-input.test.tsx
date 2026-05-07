@@ -330,6 +330,7 @@ describe('NumericInput', () => {
       })
       input.dispatchEvent(wheelEvent)
       expect(onChange).not.toHaveBeenCalled()
+      expect(wheelEvent.defaultPrevented).toBe(false)
     })
 
     it('does not scrub from the hidden representative value while mixed', async () => {

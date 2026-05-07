@@ -215,9 +215,9 @@ export function NumericInput({
   const handleWheel = useCallback((e: WheelEvent) => {
     const root = inputRef.current?.getRootNode() as Document | ShadowRoot
     if (root?.activeElement !== inputRef.current) return
-    e.preventDefault()
     const baseValue = mixed ? parseFloat(localValueRef.current) : value
     if (isNaN(baseValue)) return
+    e.preventDefault()
     const step = getStep(e)
     const delta = e.deltaY < 0 ? step : -step
     const next = clampValue(roundTenth(baseValue + delta))
