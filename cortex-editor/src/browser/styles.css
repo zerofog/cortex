@@ -623,6 +623,13 @@
   background: var(--cx-btn-hover);
 }
 
+/* Source-only variant: inherits base scope banner styles; no toggle buttons.
+   Gated on {sharedSourceInfo && !sharedInfo} so CSS-class banner wins precedence
+   and this modifier never co-renders with the full scope banner (ZF0-1583). */
+.cortex-panel__scope--source-only {
+  cursor: default;
+}
+
 /* ── Staging drift banner (ZF0-1468) ─────────── */
 
 .cortex-drift-banner {
