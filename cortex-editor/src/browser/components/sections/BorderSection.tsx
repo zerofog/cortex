@@ -350,7 +350,7 @@ export function BorderSection({
       {/* Row 2: Width + Per-side toggle */}
       {/* Same pattern as AppearanceSection's uniform radius indeterminate
           state: when the 4 per-side widths disagree on a SINGLE element,
-          the uniform input shows '--' (mixed). This catches the case where
+          the uniform input shows Mixed. This catches the case where
           getComputedStyle returns e.g. "5px 1px 1px 1px" and parseFloat
           silently captures only the leading number, misrepresenting state. */}
       <div class={`cortex-border-section__width-row${isDimmed(dimmedProperties, 'border-width', 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width') ? ' cortex-control--dimmed' : ''}`}>

@@ -1,5 +1,5 @@
 /**
- * Static DESIGN.md compliance checks for cortex-editor/src/browser/styles.css.
+ * Static DESIGN.md compliance checks for Cortex source styles.
  *
  * Business logic impact: this test protects the Cortex panel's source styling
  * contract. It blocks hardcoded cortex-* rule colors, decorative gradients, and
@@ -24,8 +24,8 @@
  *     - Glow test reported the zero-offset blur shadow.
  *   Revert: restored the zero-blur focus-ring style and reran green.
  */
-import { readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { readFileSync, readdirSync } from 'node:fs'
+import { dirname, extname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import postcss, { type Declaration, type Rule } from 'postcss'
 import { describe, expect, it } from 'vitest'
@@ -33,8 +33,10 @@ import { describe, expect, it } from 'vitest'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 const CSS_PATH = resolve(__dirname, '../../src/browser/styles.css')
-const HEX_PATTERN = /#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b/
+const BROWSER_SRC_PATH = resolve(__dirname, '../../src/browser')
+const HEX_PATTERN = /#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})(?![0-9a-fA-F])/
 const GRADIENT_PATTERN = /\b(?:repeating-)?linear-gradient\(/i
+const GRADIENT_SCAN_PATTERN = /\b(?:repeating-)?linear-gradient\(/gi
 
 interface Violation {
   line: number
@@ -43,8 +45,29 @@ interface Violation {
   value: string
 }
 
+interface SourceViolation {
+  path: string
+  line: number
+  context: string
+  value: string
+}
+
 function parseCss(css: string) {
   return postcss.parse(css, { from: CSS_PATH })
+}
+
+function browserTsxPaths(): string[] {
+  const paths: string[] = []
+  const visit = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === 'node_modules') continue
+      const path = resolve(dir, entry.name)
+      if (entry.isDirectory()) visit(path)
+      else if (extname(entry.name) === '.tsx') paths.push(path)
+    }
+  }
+  visit(BROWSER_SRC_PATH)
+  return paths.sort()
 }
 
 function declarationRule(decl: Declaration): Rule | null {
@@ -58,7 +81,7 @@ function declarationRule(decl: Declaration): Rule | null {
 
 function isCortexRule(decl: Declaration): boolean {
   const rule = declarationRule(decl)
-  return rule?.selector.split(',').some((selector) => /(^|[^a-zA-Z0-9_-])\.cortex-[\w-]+/.test(selector)) ?? false
+  return rule?.selector.split(',').some((selector) => /\.cortex-[\w-]+/.test(selector)) ?? false
 }
 
 function formatViolation(decl: Declaration): Violation {
@@ -157,9 +180,52 @@ function scanGlowViolations(css: string): Violation[] {
     .map(formatViolation)
 }
 
+function lineNumberAt(source: string, index: number): number {
+  let line = 1
+  for (let i = 0; i < index; i += 1) {
+    if (source[i] === '\n') line += 1
+  }
+  return line
+}
+
+function inlineViolation(path: string, source: string, index: number, value: string): SourceViolation {
+  const line = lineNumberAt(source, index)
+  const context = source.split('\n')[line - 1]?.trim() ?? ''
+  return { path, line, context, value }
+}
+
+function scanInlineGradientViolationsFromSource(source: string, path = '<inline fixture>'): SourceViolation[] {
+  return Array.from(source.matchAll(GRADIENT_SCAN_PATTERN))
+    .map((match) => inlineViolation(path, source, match.index ?? 0, match[0] ?? 'linear-gradient('))
+}
+
+function scanInlineGlowViolationsFromSource(source: string, path = '<inline fixture>'): SourceViolation[] {
+  const violations: SourceViolation[] = []
+  const shadowPattern = /(?:boxShadow|['"]box-shadow['"])\s*:\s*(['"`])([\s\S]*?)\1/g
+  for (const match of source.matchAll(shadowPattern)) {
+    const value = match[2] ?? ''
+    if (hasZeroOffsetBlurShadow(value)) {
+      violations.push(inlineViolation(path, source, match.index ?? 0, value))
+    }
+  }
+  return violations
+}
+
+function scanTsxSources(scan: (source: string, path: string) => SourceViolation[]): SourceViolation[] {
+  return browserTsxPaths().flatMap((path) =>
+    scan(readFileSync(path, 'utf8'), relative(BROWSER_SRC_PATH, path)),
+  )
+}
+
 function violationMessage(violations: Violation[]): string {
   return violations
     .map((violation) => `L${violation.line} ${violation.selector} -> ${violation.property}: ${violation.value}`)
+    .join('\n')
+}
+
+function sourceViolationMessage(violations: SourceViolation[]): string {
+  return violations
+    .map((violation) => `${violation.path}:L${violation.line} ${violation.context} -> ${violation.value}`)
     .join('\n')
 }
 
@@ -177,9 +243,18 @@ describe('styles.css DESIGN.md compliance', () => {
         color: #ff0000; /* inline comment must not hide this declaration */
         background: var(--cx-paper);
       }
+      .cortex-bad-alpha-short { color: #f008; }
+      .cortex-bad-alpha-long { color: #ff0000cc; }
+      button.cortex-compound {
+        color: #0000ff;
+      }
     `)
-    expect(fixtureViolations).toHaveLength(1)
-    expect(fixtureViolations[0]?.property).toBe('color')
+    expect(fixtureViolations.map((violation) => violation.selector)).toEqual([
+      '.cortex-bad',
+      '.cortex-bad-alpha-short',
+      '.cortex-bad-alpha-long',
+      'button.cortex-compound',
+    ])
 
     const violations = scanHexViolations(css)
     expect(violations, violationMessage(violations)).toEqual([])
@@ -195,6 +270,16 @@ describe('styles.css DESIGN.md compliance', () => {
 
     const violations = scanGradientViolations(css)
     expect(violations, violationMessage(violations)).toEqual([])
+
+    const inlineFixtureViolations = scanInlineGradientViolationsFromSource(`
+      export function Fixture() {
+        return <div class="cortex-inline" style={{ background: 'linear-gradient(red, blue)' }} />
+      }
+    `)
+    expect(inlineFixtureViolations).toHaveLength(1)
+
+    const inlineViolations = scanTsxSources(scanInlineGradientViolationsFromSource)
+    expect(inlineViolations, sourceViolationMessage(inlineViolations)).toEqual([])
   })
 
   it('no zero-offset blur glow box-shadows in cortex-* rule declarations', () => {
@@ -208,5 +293,15 @@ describe('styles.css DESIGN.md compliance', () => {
 
     const violations = scanGlowViolations(css)
     expect(violations, violationMessage(violations)).toEqual([])
+
+    const inlineFixtureViolations = scanInlineGlowViolationsFromSource(`
+      export function Fixture() {
+        return <div class="cortex-inline" style={{ boxShadow: '0 0 12px red' }} />
+      }
+    `)
+    expect(inlineFixtureViolations).toHaveLength(1)
+
+    const inlineViolations = scanTsxSources(scanInlineGlowViolationsFromSource)
+    expect(inlineViolations, sourceViolationMessage(inlineViolations)).toEqual([])
   })
 })

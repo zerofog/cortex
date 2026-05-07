@@ -58,6 +58,8 @@ export class CortexSession {
   readonly aliveFlags: WeakMap<WebSocket, boolean> = new WeakMap()
   upgradeHandlerRef: ((req: IncomingMessage, socket: Duplex, head: Buffer) => void) | null = null
   portFilePath: string | null = null
+  /** Adapter-owned cleanup for pending httpServer lifecycle listeners. */
+  listeningCleanup: (() => void) | null = null
 
   // --- Editor state ---
   editorActive = false
@@ -135,7 +137,14 @@ export class CortexSession {
       }
     })
 
-    // 4. Remove discovery files — ENOENT is expected (file may already be gone).
+    // 4. Remove pending HTTP-server lifecycle listeners before file cleanup.
+    trySync('http-listening-listener', () => {
+      const cleanup = this.listeningCleanup
+      this.listeningCleanup = null
+      cleanup?.()
+    })
+
+    // 5. Remove discovery files — ENOENT is expected (file may already be gone).
     //    Other errors (EPERM, EACCES) surface via the errors array.
     for (const [step, prop] of [['port-file', 'portFilePath'], ['token-file', 'tokenFilePath']] as const) {
       if (this[prop]) {
@@ -149,7 +158,7 @@ export class CortexSession {
       }
     }
 
-    // 5. Unsubscribe HMR — must precede pipeline dispose to prevent
+    // 6. Unsubscribe HMR — must precede pipeline dispose to prevent
     //    callbacks firing into a disposed pipeline's verifier.
     trySync('hmr-unsubscribe', () => {
       const unsub = this.hmrUnsubscribe
@@ -157,7 +166,7 @@ export class CortexSession {
       unsub?.()
     })
 
-    // 6. Dispose pipeline before channel — pipeline holds a channel
+    // 7. Dispose pipeline before channel — pipeline holds a channel
     //    reference (EditPipeline.dispose() is synchronous today).
     trySync('pipeline', () => {
       const p = this.pipeline
@@ -165,13 +174,13 @@ export class CortexSession {
       p?.dispose()
     })
 
-    // 7. Dispose channel (async — detaches server.hot listeners).
+    // 8. Dispose channel (async — detaches server.hot listeners).
     if (this.channel) {
       try { await this.channel.dispose() } catch (e) { errors.push({ step: 'channel', error: e }) }
       this.channel = null
     }
 
-    // 8. Clear collections and reset flags.
+    // 9. Clear collections and reset flags.
     this.hmrCallbacks.length = 0
     // Cancel pending timers before clearing — otherwise they fire into
     // a disposed Map (harmless optional chaining) but keep the event
@@ -184,6 +193,7 @@ export class CortexSession {
     this.browserConnected = false
     this.capabilitiesCache = null
     this.upgradeHandlerRef = null
+    this.listeningCleanup = null
 
     if (errors.length > 0) {
       for (const { step, error } of errors) {

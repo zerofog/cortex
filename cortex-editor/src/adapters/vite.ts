@@ -843,6 +843,8 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         if (currentSession.upgradeHandlerRef && server.httpServer) {
           server.httpServer.removeListener('upgrade', currentSession.upgradeHandlerRef)
         }
+        currentSession.listeningCleanup?.()
+        currentSession.listeningCleanup = null
         currentSession.dispose().catch((err) => {
           console.warn('[cortex] Failed to dispose previous session:', err instanceof Error ? err.message : err)
         })
@@ -973,13 +975,15 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         // and strict-mode double-mount all work without special-casing. Resolvers
         // are cached at server boot so repeat responses cost ~nothing.
         if (data.type === 'init' && currentSession!.channel) {
-          const channel = currentSession!.channel
+          const session = currentSession!
+          const channel = session.channel!
           Promise.all([swatchesPromise, colorChipsPromise, textComponentsPromise, spacingTokensPromise])
             .then(([colors, chips, textComponents, spacingTokens]) => {
+              if (currentSession !== session || session.isDisposed) return
               channel.send({
                 type: 'hello',
                 protocolVersion: 1,
-                sessionId: currentSession!.sessionId,
+                sessionId: session.sessionId,
                 swatches: colors && colors.length > 0 ? colors : undefined,
                 colorChips: chips && chips.length > 0 ? chips : undefined,
                 textComponents:
@@ -1410,7 +1414,10 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         const cortexDir = path.join(config.root, '.cortex')
         currentSession.portFilePath = path.join(cortexDir, 'port')
         currentSession.tokenFilePath = path.join(cortexDir, 'token')
-        server.httpServer.on('listening', () => {
+        const session = currentSession!
+        const writeDiscoveryFiles = () => {
+          if (currentSession !== session || session.isDisposed) return
+          session.listeningCleanup = null
           const addr = server.httpServer!.address()
           if (addr && typeof addr === 'object') {
             try {
@@ -1420,19 +1427,23 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
               return
             }
             try {
-              fs.writeFileSync(currentSession!.portFilePath!, String(addr.port))
+              fs.writeFileSync(session.portFilePath!, String(addr.port))
             } catch (err) {
               console.warn('[cortex] Could not write port file:', err instanceof Error ? err.message : err)
             }
             try {
-              fs.writeFileSync(currentSession!.tokenFilePath!, currentSession!.token, { mode: 0o600 })
+              fs.writeFileSync(session.tokenFilePath!, session.token, { mode: 0o600 })
               // Ensure 0o600 even if the file pre-existed with looser permissions
-              fs.chmodSync(currentSession!.tokenFilePath!, 0o600)
+              fs.chmodSync(session.tokenFilePath!, 0o600)
             } catch (err) {
               console.error('[cortex] Could not write token file — CLI authentication will fail:', err instanceof Error ? err.message : err)
             }
           }
-        })
+        }
+        server.httpServer.once('listening', writeDiscoveryFiles)
+        session.listeningCleanup = () => {
+          server.httpServer?.removeListener('listening', writeDiscoveryFiles)
+        }
       } else {
         console.warn('[cortex] No httpServer — running in middleware mode. CLI connections unavailable.')
       }

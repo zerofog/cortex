@@ -1592,3 +1592,155 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     target.remove()
   })
 })
+
+// ── ZF0-1583: source-only banner (warning-only, no scope toggle) ─────────────
+
+describe('Panel — source-only blast-radius banner (ZF0-1583)', () => {
+  let cleanup: (() => void) | null = null
+
+  afterEach(() => {
+    cleanup?.()
+    cleanup = null
+  })
+
+  it('renders source-only banner with no scope toggle when shared source detected (data-cortex-source matches 2+ elements)', async () => {
+    // Two elements share the same data-cortex-source → detectSharedSource returns count=2
+    // Neither element has data-cortex-css → detectSharedClasses returns null
+    const source = 'src/Card.tsx:42:5'
+    const el1 = document.createElement('div')
+    el1.setAttribute('data-cortex-source', source)
+    document.body.appendChild(el1)
+
+    const el2 = document.createElement('div')
+    el2.setAttribute('data-cortex-source', source)
+    document.body.appendChild(el2)
+
+    const overrideManager = {
+      set: vi.fn(), get: vi.fn(), remove: vi.fn(),
+      clearAll: vi.fn(), dispose: vi.fn(), flush: vi.fn(),
+    }
+
+    const { shadow, root: shadowRoot, cleanup: removeHost } = createShadowHost()
+    render(
+      <Panel
+        selectedElements={[el1]}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+      shadowRoot,
+    )
+    cleanup = () => {
+      render(null, shadowRoot)
+      removeHost()
+      el1.remove()
+      el2.remove()
+      void shadow
+    }
+
+    // Wait for the source-only banner to appear (useEffect is async)
+    await vi.waitFor(() => {
+      const sourceBanner = shadowRoot.querySelector('.cortex-panel__scope--source-only')
+      expect(sourceBanner).not.toBeNull()
+    }, { timeout: 500 })
+
+    const sourceBanner = shadowRoot.querySelector('.cortex-panel__scope--source-only')!
+    // Banner copy: "Used by N elements"
+    expect(sourceBanner.textContent).toContain('Used by 2 elements')
+    // No scope-toggle buttons inside the source banner
+    expect(sourceBanner.querySelector('.cortex-panel__scope-toggle')).toBeNull()
+    expect(sourceBanner.querySelector('.cortex-panel__scope-btn')).toBeNull()
+  })
+
+  it('does NOT render source-only banner when CSS-class shared (precedence: class wins)', async () => {
+    // Element has BOTH shared CSS class AND shared source — CSS-class banner takes precedence,
+    // source banner must NOT render simultaneously.
+    const source = 'src/Badge.tsx:10:3'
+    const sharedCss = 'Badge.module.css:.badge'
+
+    const el1 = document.createElement('div')
+    el1.setAttribute('data-cortex-source', source)
+    el1.setAttribute('data-cortex-css', sharedCss)
+    document.body.appendChild(el1)
+
+    const el2 = document.createElement('div')
+    el2.setAttribute('data-cortex-source', source)
+    el2.setAttribute('data-cortex-css', sharedCss)
+    document.body.appendChild(el2)
+
+    const overrideManager = {
+      set: vi.fn(), get: vi.fn(), remove: vi.fn(),
+      clearAll: vi.fn(), dispose: vi.fn(), flush: vi.fn(),
+    }
+
+    const { shadow, root: shadowRoot, cleanup: removeHost } = createShadowHost()
+    render(
+      <Panel
+        selectedElements={[el1]}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+      shadowRoot,
+    )
+    cleanup = () => {
+      render(null, shadowRoot)
+      removeHost()
+      el1.remove()
+      el2.remove()
+      void shadow
+    }
+
+    // Wait for CSS-class banner to appear
+    await vi.waitFor(() => {
+      expect(shadowRoot.querySelector('.cortex-panel__scope')).not.toBeNull()
+    }, { timeout: 500 })
+
+    // CSS-class banner is present
+    expect(shadowRoot.querySelector('.cortex-panel__scope')).not.toBeNull()
+    // Source-only banner must NOT be rendered (class wins precedence)
+    expect(shadowRoot.querySelector('.cortex-panel__scope--source-only')).toBeNull()
+  })
+
+  it('renders neither banner when neither detector returns sharing', async () => {
+    // Element with a unique source — detectSharedSource returns null, detectSharedClasses returns null
+    const el = document.createElement('div')
+    el.setAttribute('data-cortex-source', 'src/Unique.tsx:99:1')
+    // No data-cortex-css attribute — detectSharedClasses returns null immediately
+    document.body.appendChild(el)
+
+    const overrideManager = {
+      set: vi.fn(), get: vi.fn(), remove: vi.fn(),
+      clearAll: vi.fn(), dispose: vi.fn(), flush: vi.fn(),
+    }
+
+    const { shadow, root: shadowRoot, cleanup: removeHost } = createShadowHost()
+    render(
+      <Panel
+        selectedElements={[el]}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+      shadowRoot,
+    )
+    cleanup = () => {
+      render(null, shadowRoot)
+      removeHost()
+      el.remove()
+      void shadow
+    }
+
+    // Wait for the panel root to be present — proves render + effects have flushed
+    await vi.waitFor(() => {
+      expect(shadowRoot.querySelector('.cortex-panel')).not.toBeNull()
+    }, { timeout: 500 })
+
+    // Neither banner should appear (panel is rendered but no sharing detected)
+    expect(shadowRoot.querySelector('.cortex-panel__scope')).toBeNull()
+    expect(shadowRoot.querySelector('.cortex-panel__scope--source-only')).toBeNull()
+  })
+})

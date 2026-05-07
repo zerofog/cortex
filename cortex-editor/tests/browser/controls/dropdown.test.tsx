@@ -69,6 +69,13 @@ describe('Dropdown', () => {
     expect(getTrigger().textContent).toContain('Select font...')
   })
 
+  it('renders Mixed state instead of the selected value', () => {
+    setup({ value: 'Inter', mixed: true })
+    expect(getTrigger().textContent).toContain('Mixed')
+    expect(getTrigger().textContent).not.toContain('Inter')
+    expect(container.querySelector('.cortex-dropdown')?.className).toContain('cortex-dropdown--mixed')
+  })
+
   it('popover is hidden by default', () => {
     setup()
     const popover = getPopover()
@@ -180,6 +187,15 @@ describe('Dropdown', () => {
     expect(selected!.textContent).toContain('Roboto')
   })
 
+  it('does not mark an option as selected while mixed', async () => {
+    setup({ value: 'Inter', mixed: true })
+    getTrigger().click()
+    await vi.waitFor(() => {
+      expect(getOptions().length).toBe(4)
+    }, { timeout: 500 })
+    expect(container.querySelector('.cortex-dropdown__option--selected')).toBeNull()
+  })
+
   it('arrow keys navigate options', async () => {
     const { onChange } = setup()
     getTrigger().click()
@@ -200,6 +216,37 @@ describe('Dropdown', () => {
     }, { timeout: 500 })
     dispatchKeyboardEvent(filter, 'keydown', { key: 'Enter' })
     expect(onChange).toHaveBeenCalledWith('Open Sans')
+  })
+
+  it('uses generated active descendant ids for special-character option values', async () => {
+    setup({
+      options: [
+        { value: 'Open Sans / "Serif"', label: 'Open Sans / "Serif"' },
+        { value: 'Roboto Flex [VF]', label: 'Roboto Flex [VF]' },
+      ],
+      value: 'Open Sans / "Serif"',
+    })
+
+    getTrigger().click()
+    await vi.waitFor(() => {
+      expect(getOptions().length).toBe(2)
+    }, { timeout: 500 })
+
+    const filter = getFilter()!
+    let activeId = filter.getAttribute('aria-activedescendant')
+    expect(activeId).toBeTruthy()
+    expect(activeId).not.toContain('Open Sans')
+    expect(activeId).not.toContain('/')
+    expect(activeId).not.toContain('"')
+    expect(document.getElementById(activeId!)).toBe(getOptions()[0])
+
+    dispatchKeyboardEvent(filter, 'keydown', { key: 'ArrowDown' })
+    await vi.waitFor(() => {
+      activeId = filter.getAttribute('aria-activedescendant')
+      expect(document.getElementById(activeId!)).toBe(getOptions()[1])
+    }, { timeout: 500 })
+    expect(activeId).not.toContain('Roboto Flex')
+    expect(activeId).not.toContain('[')
   })
 
   it('renders chevron icon', () => {

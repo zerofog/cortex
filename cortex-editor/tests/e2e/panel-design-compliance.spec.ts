@@ -2,7 +2,7 @@
  * Runtime DESIGN.md compliance + per-control stale indicator e2e spec.
  *
  * Business purpose: ZF0-1495 moved source-level CSS linting for hardcoded
- * hex colors, gradients, and glow shadows into `tests/styles/css-compliance`.
+ * hex colors, gradients, and glow shadows into `tests/styles/css-compliance.test.ts`.
  * This Playwright spec keeps the two checks that genuinely need a rendered
  * Panel: runtime text-content emoji scanning and stale-indicator behavior.
  *
