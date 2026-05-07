@@ -1,0 +1,51 @@
+cortex-editor/src/browser/components/sections/SizingControls.tsx
+  s_2089cbf1ccb98d::t_044264e78877fc 26,305,329,352,375,398
+cortex-editor/src/browser/components/Panel.tsx
+  s_2089cbf1ccb98d::t_b267d0802194a3 38,1455,1632
+cortex-editor/src/browser/components/StagingDriftBanner.tsx
+  s_2089cbf1ccb98d::t_991d5cc4758967 3,117
+cortex-editor/src/browser/components/EditErrorCard.tsx
+  s_2089cbf1ccb98d::t_f1f7d36e5b6b0c 5,62
+cortex-editor/src/browser/components/controls/AlignmentGrid.tsx
+  s_2089cbf1ccb98d::t_f6fac2342811a0 40,393,424
+cortex-editor/tests/browser/components/icons.test.tsx
+  s_2089cbf1ccb98d::t_b798248fbd3d98 64-76
+cortex-editor/tests/browser/components/icon-source-compliance.test.ts
+  s_2089cbf1ccb98d::t_020488c8dcd535 1-31
+cortex-editor/src/browser/components/sections/GridControls.tsx
+  s_2089cbf1ccb98d::t_04b369c06c1a28 67-68,486
+cortex-editor/src/browser/components/PanelHeader.tsx
+  s_2089cbf1ccb98d::t_830d343d5f9a6f 6,12,17,22,215,225,234,256
+cortex-editor/src/browser/components/LayerTree.tsx
+  s_2089cbf1ccb98d::t_7e21dab2de4109 4,110
+cortex-editor/src/browser/components/sections/FlexControls.tsx
+  s_2089cbf1ccb98d::t_9ce47b1fe0f34b 63-64,415
+cortex-editor/tests/browser/sections/SpacingControls.test.tsx
+  s_2089cbf1ccb98d::t_42b2efee4250d5 38-41,50,55-62
+cortex-editor/src/browser/components/icons.tsx
+  s_2089cbf1ccb98d::t_5f6b4d410efcbd 462-485,571-579,707-795
+cortex-editor/tests/e2e/panel-design-compliance.spec.ts
+  s_2089cbf1ccb98d::t_eafb8fd2388d86 277
+cortex-editor/src/browser/components/Toolbar.tsx
+  s_2089cbf1ccb98d::t_ac95838c0c65cc 6,71,100,113,128
+cortex-editor/src/browser/styles.css
+  s_2089cbf1ccb98d::t_0a8c12c5f9d19b 1010
+cortex-editor/src/browser/components/sections/SpacingControls.tsx
+  s_2089cbf1ccb98d::t_81909bca4cce75 5-6,18,140,158,163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "6e9ccbe88c4ab2fcc5b8b5518530c68317db5c31",
+  "prompts": {},
+  "sessions": {
+    "s_2089cbf1ccb98d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e00e5-5118-7873-a865-0a02ab551502",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
