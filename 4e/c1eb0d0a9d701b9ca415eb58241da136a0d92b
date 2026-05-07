@@ -1,0 +1,44 @@
+cortex-editor/tests/browser/hooks/use-edit-staging-buffer.test.tsx
+  s_cee3b11ac40ebb::t_2f0da8dbae270b 479-487,513-516
+  s_cee3b11ac40ebb::t_1a81c5e15dadae 7,488-512
+cortex-editor/src/schemas/pending-edit.ts
+  s_cee3b11ac40ebb::t_a5942f9f1310ad 2,19,109-116
+cortex-editor/src/browser/hooks/useEditStagingBuffer.ts
+  s_cee3b11ac40ebb::t_cac45ccdc98002 4,80,117-119,123-124,135-138
+  s_cee3b11ac40ebb::t_df03bf4712a59b 103-104,112
+cortex-editor/tests/browser/classify-non-editable.test.ts
+  s_cee3b11ac40ebb::t_f8decbad8b0289 21,27-30
+cortex-editor/src/shared/preview-source.ts
+  s_cee3b11ac40ebb::t_76a060cd772e7e 1
+cortex-editor/tests/browser/panel.test.tsx
+  s_cee3b11ac40ebb::t_1ed219fecb43a2 11,1662-1718
+cortex-editor/tests/schemas/pending-edit.test.ts
+  s_cee3b11ac40ebb::t_3fdb8a871203c3 184-208
+cortex-editor/src/browser/components/Panel.tsx
+  s_cee3b11ac40ebb::t_560b232c709168 111-114,816,844
+cortex-editor/src/browser/preview-source.ts
+  s_cee3b11ac40ebb::t_ff06928466c190 69-70
+  s_cee3b11ac40ebb::t_9d11145bcbd641 1-2,7,53-55,60,67,73,77-89
+cortex-editor/tests/browser/preview-source.test.ts
+  s_cee3b11ac40ebb::t_0022383d65c7d9 43-48,50-53,55
+  s_cee3b11ac40ebb::t_f8f248ab68dfea 49,54
+  s_cee3b11ac40ebb::t_3e7f9a24d20662 1-42,56
+cortex-editor/tests/browser/selection.test.ts
+  s_cee3b11ac40ebb::t_32e336ca066597 84-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "4ec1eb0d0a9d701b9ca415eb58241da136a0d92b",
+  "prompts": {},
+  "sessions": {
+    "s_cee3b11ac40ebb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e00e8-d694-72f3-8663-05c15a7a3005",
+        "model": "gpt-5.5"
+      },
+      "human_author": null
+    }
+  }
+}
