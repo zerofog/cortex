@@ -1,0 +1,39 @@
+cortex-editor/tests/cli/init.test.ts
+  s_93c37bd7663a85::t_10db1ec3365d6a 637-664
+  s_93c37bd7663a85::t_2881a5ae18a9d2 46-47,183-202
+  s_93c37bd7663a85::t_7c8f55b5dda929 230,631
+  s_93c37bd7663a85::t_6534cd48762d9c 208-229,231-235
+  s_93c37bd7663a85::t_9e0e2d5f2b94c5 588-609
+  s_93c37bd7663a85::t_4efeb72559f449 414-446
+  s_93c37bd7663a85::t_38aef82a7cc7ac 610-630,632-636
+  s_93c37bd7663a85::t_d4483c3ec7a0bb 565-587,685-708
+cortex-editor/src/cli/detect.ts
+  s_93c37bd7663a85::t_7876f685613c98 102
+cortex-editor/src/cli/init.ts
+  s_93c37bd7663a85::t_ae4e7c21f365c4 87-93,254-257,265-268,273,324-326
+  s_93c37bd7663a85::t_141b27fa65e7c1 279-317,327,332
+  s_93c37bd7663a85::t_2a9cac80976756 6,77,82,85-86,94-124
+  s_93c37bd7663a85::t_0d48da56abbf35 83
+  s_93c37bd7663a85::t_bbfd23522e10e8 78-81
+  s_93c37bd7663a85::t_f8d91c95673571 380
+  s_93c37bd7663a85::t_89441bcbc6e478 369,515
+  s_93c37bd7663a85::t_a02d11b42fa175 513,593
+  s_93c37bd7663a85::t_57f05d244a995e 65-76,84,125-126
+  s_93c37bd7663a85::t_b0e7bfb356ddb7 560-565
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "9a57479396dd25c53629da308e0129a1bd66a5c6",
+  "prompts": {},
+  "sessions": {
+    "s_93c37bd7663a85": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e012f-a76c-7db1-804c-82d372d03e6a",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
