@@ -1,0 +1,53 @@
+cortex-editor/tests/browser/selection.test.ts
+  s_cee3b11ac40ebb::t_1d680f15e63314 77-87
+cortex-editor/src/core/staged-edits.ts
+  s_cee3b11ac40ebb::t_a0c62566be6dce 29,251-257
+  s_cee3b11ac40ebb::t_e595adf1dc28b4 4,30
+  s_cee3b11ac40ebb::t_2aca73635fef5a 23-25
+cortex-editor/tests/browser/panel.test.tsx
+  s_cee3b11ac40ebb::t_cd4e2f7b014f41 1166-1229
+cortex-editor/tests/schemas/pending-edit.test.ts
+  s_cee3b11ac40ebb::t_9bec9166cd8477 35-48,162-180
+cortex-editor/tests/browser/hooks/use-edit-staging-buffer.test.tsx
+  s_cee3b11ac40ebb::t_1e0db978de26cf 170-198
+cortex-editor/tests/browser/classify-non-editable.test.ts
+  s_cee3b11ac40ebb::t_2e5ad8ee787e28 26,31
+cortex-editor/src/browser/hooks/useEditStagingBuffer.ts
+  s_cee3b11ac40ebb::t_e5538e4f845eb7 4
+  s_cee3b11ac40ebb::t_a715bd0e85d682 99-102,109-122
+cortex-editor/src/browser/override.ts
+  s_cee3b11ac40ebb::t_47af305877f4bf 5,339,416,943
+cortex-editor/src/shared/preview-source.ts
+  s_cee3b11ac40ebb::t_7979a4fc112307 1-5
+cortex-editor/src/browser/classify-non-editable.ts
+  s_cee3b11ac40ebb::t_1908e236f24162 2-3,6-7
+cortex-editor/src/browser/components/Panel.tsx
+  s_cee3b11ac40ebb::t_b717a05a8817a7 754-755,801-802,833,861,955-956,1024
+  s_cee3b11ac40ebb::t_7252247fdd0fce 50-51,102-103,105-109
+  s_cee3b11ac40ebb::t_16b1f6fc12a47e 104
+cortex-editor/src/schemas/pending-edit.ts
+  s_cee3b11ac40ebb::t_b03a03e89775df 62-73,75-79
+  s_cee3b11ac40ebb::t_a867f07ab37f28 18,74,80-81,101-102
+cortex-editor/tests/cli/mcp-edit-tools.test.ts
+  s_cee3b11ac40ebb::t_8e1ca7eb5e608c 1091-1129
+cortex-editor/src/browser/preview-source.ts
+  s_cee3b11ac40ebb::t_538b54f137d4ad 1,3
+  s_cee3b11ac40ebb::t_7e22e0f3345e47 2
+  s_cee3b11ac40ebb::t_a9c60873751632 4-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "898215c30d8562576c77d0cc1785edcc9cc31890",
+  "prompts": {},
+  "sessions": {
+    "s_cee3b11ac40ebb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e00e8-d694-72f3-8663-05c15a7a3005",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
