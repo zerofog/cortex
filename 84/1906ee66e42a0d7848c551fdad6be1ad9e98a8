@@ -1,0 +1,26 @@
+cortex-editor/tests/e2e/tooltip-layer.spec.ts
+  s_aa46e5544c2278::t_ee60ab154e4171 45-58
+cortex-editor/tests/browser/components/TooltipLayer.test.tsx
+  s_aa46e5544c2278::t_b52a46d1adc63b 34,104-116,133-150,169-193,195-224
+  s_aa46e5544c2278::t_c242af162641d3 194,225
+cortex-editor/src/browser/components/TooltipLayer.tsx
+  s_aa46e5544c2278::t_058853098987bc 7,9-22,29,41-45,47,52-65,70,81-110,116,120,144,152-154,182-186,192-198,202,209,212,216,231
+cortex-editor/src/browser/styles.css
+  s_aa46e5544c2278::t_fa8f4735cbf306 189
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "841906ee66e42a0d7848c551fdad6be1ad9e98a8",
+  "prompts": {},
+  "sessions": {
+    "s_aa46e5544c2278": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dff0d-36c6-7f02-aa2e-46bb142a8872",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
