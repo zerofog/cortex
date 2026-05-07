@@ -1,0 +1,19 @@
+cortex-editor/tests/integration/cli-process.test.ts
+  s_0e5ee60ed8203a::t_f21d497a5aec8d 1-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "62407745d51661c2c9bf038b42a908ae2887207b",
+  "prompts": {},
+  "sessions": {
+    "s_0e5ee60ed8203a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "73512202-0d84-4b6c-8884-abf0e45ccd20",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
