@@ -50,7 +50,7 @@ type TextUtilityClass = `text-${string}`
  * TypographyChange — the discriminated union the section emits to the Panel.
  *
  * - Plain {property, value} (SectionChange) for font-family, font-weight,
- *   font-size, line-height, letter-spacing, text-align, and color scrubs.
+ *   font-size, line-height, letter-spacing, and color scrubs.
  * - link/unlink variants carry enough data for the Panel to dispatch the
  *   combination of classOp + inline-style edits in one atomic gesture. The
  *   removeClass fields are `text-${string}` so the compiler blocks a

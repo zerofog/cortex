@@ -37,7 +37,8 @@
  * Silently writing the wrong CSS property is a trust vulnerability:
  * the user sees "X = Left" and rationally expects horizontal-start, but
  * column-flex would write the wrong axis. Every path through this file
- * must route through the single `flexAxisToCssProperty` helper below.
+ * must route through the shared `flexAxisToCssProperty` helper imported
+ * from `alignment-router`.
  * Tests assert on the exact property name emitted for every code path.
  */
 import type { JSX } from 'preact'
