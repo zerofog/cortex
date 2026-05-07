@@ -178,9 +178,9 @@ export function mockGetComputedStyle(
   window.getComputedStyle = ((target: Element, pseudo?: string | null) => {
     if (target === el) {
       if (pseudo && pseudoStyles?.[pseudo]) {
-        return withGetPropertyValue(original.call(window, target), pseudoStyles[pseudo])
+        return withGetPropertyValue(original.call(window, target, pseudo), pseudoStyles[pseudo])
       }
-      return withGetPropertyValue(original.call(window, target), styles)
+      return withGetPropertyValue(original.call(window, target, pseudo ?? null), styles)
     }
     return original.call(window, target, pseudo)
   }) as typeof window.getComputedStyle
