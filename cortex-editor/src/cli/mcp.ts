@@ -92,8 +92,16 @@ export function discoverToken(projectRoot?: string): string | null {
 }
 
 export async function startMCPServer(options: MCPServerOptions = {}): Promise<MCPServerHandle> {
-  const port = options.port ?? discoverPort() ?? 5173
-  const wsUrl = `ws://localhost:${port}/@cortex/ws`
+  let port = options.port ?? discoverPort() ?? 5173
+
+  function refreshDevServerPort(): void {
+    if (options.port !== undefined) return
+    port = discoverPort() ?? port
+  }
+
+  function wsUrl(): string {
+    return `ws://localhost:${port}/@cortex/ws`
+  }
 
   let ws: WebSocket | null = null
   let connected = false
@@ -111,17 +119,25 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
   }>()
 
   function connect(): void {
-    ws = new WebSocket(wsUrl)
+    refreshDevServerPort()
+    const url = wsUrl()
+    const socket = new WebSocket(url)
+    ws = socket
 
-    ws.on('open', () => {
+    socket.on('open', () => {
+      if (ws !== socket) return
       connected = true
       retryCount = 0
-      // Re-read token on each connection — token changes on Vite server restart
+      // Re-read token on each connection — token changes on dev server restart
       token = discoverToken()
-      process.stderr.write(`[cortex] Connected to Vite server at ${wsUrl}${token ? '' : ' (token not found — writes will be rejected)'}\n`)
+      process.stderr.write(`[cortex] Connected to Cortex dev server at ${url}${token ? '' : ' (token not found — writes will be rejected)'}\n`)
+      if (token) {
+        socket.send(JSON.stringify({ type: 'cortex-status-request', token }))
+      }
     })
 
-    ws.on('message', (raw) => {
+    socket.on('message', (raw) => {
+      if (ws !== socket) return
       let msg: Record<string, unknown>
       try { msg = JSON.parse(raw.toString()) } catch { return }
       if (typeof msg.type !== 'string') return
@@ -142,6 +158,9 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         if (newToken && newToken !== token) {
           token = newToken
           process.stderr.write('[cortex] Token refreshed after AUTH_FAILED — future requests will use new token\n')
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: 'cortex-status-request', token: newToken }))
+          }
         } else {
           process.stderr.write('[cortex] AUTH_FAILED — token may be stale or missing. Try restarting the dev server.\n')
         }
@@ -156,7 +175,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
 
       // Server-originated error codes without a requestId.
       //
-      // SCHEMA_VIOLATION: the Vite server rejected a malformed cortex-rpc envelope
+      // SCHEMA_VIOLATION: the dev server rejected a malformed cortex-rpc envelope
       // before it could extract requestId. Reject ALL pending RPCs immediately —
       // without this, Claude sees "RPC timeout" 10s later instead of the real reason.
       //
@@ -188,7 +207,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         return
       }
 
-      // Vite server is single source of truth for state
+      // Cortex-enabled dev server is single source of truth for state
       if (msg.type === 'cortex') editorActive = true
       if (msg.type === 'cortex-closed') editorActive = false
       if (msg.type === 'cortex-status') {
@@ -271,7 +290,8 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
       }
     })
 
-    ws.on('close', () => {
+    socket.on('close', () => {
+      if (ws !== socket) return
       // Reject all pending RPC requests on disconnect
       for (const [, pending] of pendingRequests) {
         pending.reject(new Error('WebSocket disconnected'))
@@ -288,7 +308,8 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
       reconnectTimer.unref()
     })
 
-    ws.on('error', (err) => {
+    socket.on('error', (err) => {
+      if (ws !== socket) return
       process.stderr.write(`[cortex] WebSocket error: ${err.message}\n`)
     })
   }
@@ -297,7 +318,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
 
   function rpc(method: string, params: Record<string, unknown>): Promise<unknown> {
     const socket = ws
-    if (!connected || !socket) return Promise.reject(new Error('Not connected to Vite dev server'))
+    if (!connected || !socket) return Promise.reject(new Error('Not connected to Cortex dev server'))
     const requestId = randomUUID()
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -330,7 +351,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     async () => {
       if (!connected || !ws) {
         return {
-          content: [{ type: 'text' as const, text: `Cannot connect to Vite dev server at ${wsUrl}. Start your dev server first: npm run dev` }],
+          content: [{ type: 'text' as const, text: `Cannot connect to Cortex dev server at ${wsUrl()}. Start your app's normal dev server, then retry.` }],
           isError: true,
         }
       }
@@ -354,7 +375,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     async () => {
       if (!connected || !ws) {
         return {
-          content: [{ type: 'text' as const, text: `Cannot connect to Vite dev server at ${wsUrl}. Start your dev server first: npm run dev` }],
+          content: [{ type: 'text' as const, text: `Cannot connect to Cortex dev server at ${wsUrl()}. Start your app's normal dev server, then retry.` }],
           isError: true,
         }
       }

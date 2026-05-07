@@ -24,12 +24,12 @@ if (values.help || !command) {
 Usage: cortex <command> [options]
 
 Commands:
-  mcp     Start MCP stdio server (connects to Vite dev server)
+  mcp     Start MCP stdio server (connects to Cortex-enabled dev server)
   init    Set up Cortex in current project
   demo    Scaffold a sample app with Cortex pre-wired
 
 Options:
-  --port     Vite dev server port (overrides .cortex/port auto-discovery)
+  --port     Cortex-enabled dev server port (overrides .cortex/port auto-discovery)
   --fresh    (demo) Delete existing demo and re-scaffold from scratch
   -h, --help     Show this help message
   -v, --version  Show version`)

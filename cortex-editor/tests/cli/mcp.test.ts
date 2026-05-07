@@ -6,6 +6,7 @@ import { startMCPServer, discoverPort, discoverToken, findProjectRoot, calculate
 import fs from 'node:fs'
 import path from 'node:path'
 import http from 'node:http'
+import os from 'node:os'
 
 // --- Helpers ---
 
@@ -80,6 +81,20 @@ function waitForConnection(mockVite: MockViteServer, timeoutMs = 2000): Promise<
     const timer = setTimeout(() => reject(new Error('WS connect timeout')), timeoutMs)
     mockVite.wss.on('connection', () => { clearTimeout(timer); resolve() })
   })
+}
+
+async function waitForMessage(
+  mockVite: MockViteServer,
+  predicate: (msg: Record<string, unknown>) => boolean,
+  timeoutMs = 2000,
+): Promise<Record<string, unknown>> {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < timeoutMs) {
+    const msg = mockVite.messages.find(predicate)
+    if (msg) return msg
+    await new Promise(resolve => setTimeout(resolve, 25))
+  }
+  throw new Error('WS message timeout')
 }
 
 // --- Tests ---
@@ -209,6 +224,34 @@ describe('cortex mcp', () => {
     expect(status.devServerUrl).toBe(`http://localhost:${mockVite.port}`)
   })
 
+  it('re-requests status immediately after refreshing a stale token on AUTH_FAILED', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-mcp-token-'))
+    const cortexDir = path.join(tmpDir, '.cortex')
+    fs.mkdirSync(cortexDir, { recursive: true })
+    fs.writeFileSync(path.join(cortexDir, 'port'), String(mockVite.port))
+    fs.writeFileSync(path.join(cortexDir, 'token'), 'stale-token')
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(tmpDir)
+
+    try {
+      await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+
+      await waitForMessage(mockVite, msg =>
+        msg.type === 'cortex-status-request' && msg.token === 'stale-token'
+      )
+
+      fs.writeFileSync(path.join(cortexDir, 'token'), 'fresh-token')
+      mockVite.sendToAll({ type: 'error', code: 'AUTH_FAILED' })
+
+      await waitForMessage(mockVite, msg =>
+        msg.type === 'cortex-status-request' && msg.token === 'fresh-token'
+      )
+    } finally {
+      cwdSpy.mockRestore()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
   it('tracks editor active state only from server messages (not optimistically)', async () => {
     const client = await startTestServer(mockVite.port)
     await waitForConnection(mockVite)
@@ -304,6 +347,51 @@ describe('cortex mcp', () => {
     }
   })
 
+  it('rediscovers .cortex/port on reconnect when the dev server port changes after MCP starts', async () => {
+    const tmpRoot = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'cortex-late-port-'))
+    const cortexDir = path.join(tmpRoot, '.cortex')
+    fs.mkdirSync(cortexDir, { recursive: true })
+    const stalePort = await new Promise<number>((resolve) => {
+      const server = http.createServer()
+      server.listen(0, '127.0.0.1', () => {
+        const addr = server.address()
+        const port = typeof addr === 'object' && addr ? addr.port : 0
+        server.close(() => resolve(port))
+      })
+    })
+    fs.writeFileSync(path.join(cortexDir, 'port'), String(stalePort))
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(tmpRoot)
+
+    try {
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+      const client = new Client({ name: 'test-client', version: '0.1.0' })
+      const handlePromise = startMCPServer({ transport: serverTransport })
+      await client.connect(clientTransport)
+      mcpHandle = await handlePromise
+      mcpClient = client
+
+      fs.writeFileSync(path.join(cortexDir, 'port'), String(mockVite.port))
+      fs.writeFileSync(path.join(cortexDir, 'token'), 'test-token')
+
+      await waitForConnection(mockVite, 5000)
+
+      let status: { devServerConnected: boolean; devServerUrl: string } | null = null
+      const deadline = Date.now() + 1000
+      while (Date.now() < deadline) {
+        const result = await client.callTool({ name: 'cortex_status' })
+        status = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+        if (status?.devServerConnected) break
+        await new Promise(resolve => setTimeout(resolve, 25))
+      }
+      expect(status).not.toBeNull()
+      expect(status!.devServerConnected).toBe(true)
+      expect(status!.devServerUrl).toBe(`http://localhost:${mockVite.port}`)
+    } finally {
+      cwdSpy.mockRestore()
+      fs.rmSync(tmpRoot, { recursive: true, force: true })
+    }
+  }, 8000)
+
   describe('findProjectRoot walk-up discovery', () => {
     let tmpRoot: string
     let cortexDir: string
@@ -396,7 +484,7 @@ describe('cortex mcp', () => {
       // Give time for the connect log to fire
       await new Promise(r => setTimeout(r, 50))
       expect(stderrSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[cortex] Connected to Vite server')
+        expect.stringContaining('[cortex] Connected to Cortex dev server')
       )
     } finally {
       stderrSpy.mockRestore()

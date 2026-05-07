@@ -1,5 +1,6 @@
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { shouldExcludeCortexSource } from './source-loader-utils.js'
 
 /**
  * Minimal subset of next's NextConfig sufficient for wrapping.
@@ -25,7 +26,10 @@ interface WebpackContext {
 }
 
 export interface CortexNextOptions {
-  // Reserved for future options
+  /** Resolve JSX CSS Module aliases. Example: { '@': '/abs/project/src' }. */
+  resolveAlias?: Record<string, string>
+  /** Package names in node_modules to instrument. */
+  includeNodeModules?: string[]
 }
 
 // Resolve loader path relative to this file's compiled location.
@@ -38,7 +42,7 @@ function resolveLoaderPath(): string {
   return path.join(path.dirname(fileURLToPath(import.meta.url)), 'next-source-loader.cjs')
 }
 
-export function withCortex(nextConfig: NextConfig = {}, _options?: CortexNextOptions): NextConfig {
+export function withCortex(nextConfig: NextConfig = {}, options: CortexNextOptions = {}): NextConfig {
   if (process.env.NODE_ENV === 'production') return nextConfig
 
   return {
@@ -56,11 +60,15 @@ export function withCortex(nextConfig: NextConfig = {}, _options?: CortexNextOpt
       // enforce: 'pre' ensures this runs before SWC/Babel strip JSX syntax
       config.module.rules.push({
         test: /\.[jt]sx$/,
-        exclude: /\/node_modules\//,
+        exclude: (resourcePath: string) => shouldExcludeCortexSource(resourcePath, options.includeNodeModules),
         enforce: 'pre' as const,
         use: [{
           loader: resolveLoaderPath(),
-          options: { projectRoot: context.dir },
+          options: {
+            projectRoot: context.dir,
+            resolveAlias: options.resolveAlias,
+            includeNodeModules: options.includeNodeModules,
+          },
         }],
       })
 
