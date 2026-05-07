@@ -166,6 +166,29 @@ function writeViteConfig(cwd: string): string {
   return viteConfigPath
 }
 
+function isFunctionExpression(expression: string): boolean {
+  const trimmed = expression.trim()
+  return (
+    /^(async\s+)?function\b/.test(trimmed) ||
+    /^(async\s+)?(\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/.test(trimmed)
+  )
+}
+
+function isFunctionIdentifier(content: string, identifier: string): boolean {
+  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return (
+    new RegExp(`\\b(async\\s+)?function\\s+${escaped}\\s*\\(`).test(content) ||
+    new RegExp(`\\b(?:const|let|var)\\s+${escaped}\\s*=\\s*(?:async\\s+)?(?:function\\b|\\([^)]*\\)\\s*=>|[A-Za-z_$][\\w$]*\\s*=>)`).test(content)
+  )
+}
+
+function shouldWrapAsNextFunction(content: string, expression: string): boolean {
+  const trimmed = expression.trim()
+  return isFunctionExpression(trimmed) || (
+    /^[A-Za-z_$][\w$]*$/.test(trimmed) && isFunctionIdentifier(content, trimmed)
+  )
+}
+
 function addEsmWithCortex(content: string): string | null {
   const match = content.match(/export\s+default\s+([\s\S]*?)\s*;?\s*$/)
   if (!match || match.index === undefined) return null
@@ -173,9 +196,12 @@ function addEsmWithCortex(content: string): string | null {
   const before = content.slice(0, match.index)
   const expression = match[1]!.trim().replace(/;\s*$/, '')
   const separator = before.length > 0 && !before.endsWith('\n') ? '\n' : ''
+  const exportExpression = shouldWrapAsNextFunction(content, expression)
+    ? `async (...args) => withCortex(await (${expression})(...args))`
+    : `withCortex(${expression})`
   return [
     'import { withCortex } from \'cortex-editor/next\'',
-    `${before}${separator}export default withCortex(${expression})`,
+    `${before}${separator}export default ${exportExpression}`,
     '',
   ].join('\n')
 }
@@ -187,19 +213,34 @@ function addCjsWithCortex(content: string): string | null {
   const before = content.slice(0, match.index)
   const expression = match[1]!.trim().replace(/;\s*$/, '')
   const separator = before.length > 0 && !before.endsWith('\n') ? '\n' : ''
+  const exportExpression = shouldWrapAsNextFunction(content, expression)
+    ? `async (...args) => withCortex(await (${expression})(...args))`
+    : `withCortex(${expression})`
   return [
     'const { withCortex } = require(\'cortex-editor/next\')',
-    `${before}${separator}module.exports = withCortex(${expression})`,
+    `${before}${separator}module.exports = ${exportExpression}`,
     '',
   ].join('\n')
 }
 
-function configureNext(cwd: string, configPath: string | null): {
+function configureNext(
+  cwd: string,
+  configPath: string | null,
+  unsupportedConfigPath: string | null = null
+): {
   found: boolean | null
   injected: boolean
   created: boolean
   configured: boolean
 } {
+  if (!configPath && unsupportedConfigPath) {
+    const basename = path.basename(unsupportedConfigPath)
+    console.warn(
+      `  ${basename}: Next.js does not support this config extension. Rename it to next.config.js, next.config.mjs, or next.config.ts, then re-run cortex init.`
+    )
+    return { found: false, injected: false, created: false, configured: false }
+  }
+
   if (!configPath) {
     const nextConfigPath = path.join(cwd, 'next.config.mjs')
     fs.writeFileSync(nextConfigPath, [
@@ -219,7 +260,7 @@ function configureNext(cwd: string, configPath: string | null): {
     return { found: true, injected: false, created: false, configured: true }
   }
 
-  const isCjs = basename.endsWith('.cjs') || content.includes('module.exports')
+  const isCjs = content.includes('module.exports')
   const nextContent = isCjs ? addCjsWithCortex(content) : addEsmWithCortex(content)
   if (!nextContent) {
     console.warn(
@@ -433,7 +474,7 @@ export async function runInit(
   if (detected.kind === 'vite' || detected.kind === 'none') {
     await configureVite(detected.configPath)
   } else if (detected.kind === 'next') {
-    const nextResult = configureNext(cwd, detected.configPath)
+    const nextResult = configureNext(cwd, detected.configPath, detected.unsupportedConfigPath ?? null)
     nextConfigFound = nextResult.found
     nextConfigInjected = nextResult.injected
     nextConfigCreated = nextResult.created

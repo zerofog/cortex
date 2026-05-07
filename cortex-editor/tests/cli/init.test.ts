@@ -477,7 +477,7 @@ describe('cortex init', () => {
   it('wraps a CommonJS Next.js config with withCortex', async () => {
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
-      'next.config.cjs': 'module.exports = { reactStrictMode: true }\n',
+      'next.config.js': 'module.exports = { reactStrictMode: true }\n',
     })
     try {
       const result = await runInit(dir)
@@ -486,9 +486,90 @@ describe('cortex init', () => {
       expect(result.nextConfigInjected).toBe(true)
       expect(result.setupComplete).toBe(true)
 
-      const content = fs.readFileSync(path.join(dir, 'next.config.cjs'), 'utf8')
+      const content = fs.readFileSync(path.join(dir, 'next.config.js'), 'utf8')
       expect(content).toContain('const { withCortex } = require(\'cortex-editor/next\')')
       expect(content).toContain('module.exports = withCortex({ reactStrictMode: true })')
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('does not claim setup is complete for unsupported Next.js config extensions', async () => {
+    const originalConfig = 'module.exports = { reactStrictMode: true }\n'
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'next.config.cjs': originalConfig,
+    })
+    try {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const result = await runInit(dir)
+
+        expect(result.detectedBundler).toBe('next')
+        expect(result.nextConfigInjected).toBe(false)
+        expect(result.nextConfigCreated).toBe(false)
+        expect(result.setupComplete).toBe(false)
+        expect(fs.readFileSync(path.join(dir, 'next.config.cjs'), 'utf8')).toBe(originalConfig)
+        expect(fs.existsSync(path.join(dir, 'next.config.mjs'))).toBe(false)
+
+        const warnings = warnSpy.mock.calls.flat().join('\n')
+        expect(warnings).toContain('does not support this config extension')
+        expect(warnings).toContain('next.config.js')
+      } finally {
+        warnSpy.mockRestore()
+      }
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('preserves phase arguments when wrapping a function-style Next.js config', async () => {
+    const nextConfig = [
+      'export default (phase, { defaultConfig }) => {',
+      '  return { reactStrictMode: phase === "phase-development-server" }',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'next.config.mjs': nextConfig,
+    })
+    try {
+      const result = await runInit(dir)
+
+      expect(result.nextConfigInjected).toBe(true)
+      expect(result.setupComplete).toBe(true)
+
+      const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
+      expect(content).toContain('export default async (...args) => withCortex(await ((phase, { defaultConfig }) => {')
+      expect(content).toContain('})(...args))')
+      expect(content).toContain('phase === "phase-development-server"')
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('preserves async function configs when wrapping CommonJS Next.js config', async () => {
+    const nextConfig = [
+      'module.exports = async (phase) => {',
+      '  return { reactStrictMode: phase === "phase-production-build" }',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'next.config.js': nextConfig,
+    })
+    try {
+      const result = await runInit(dir)
+
+      expect(result.nextConfigInjected).toBe(true)
+      expect(result.setupComplete).toBe(true)
+
+      const content = fs.readFileSync(path.join(dir, 'next.config.js'), 'utf8')
+      expect(content).toContain('module.exports = async (...args) => withCortex(await (async (phase) => {')
+      expect(content).toContain('})(...args))')
+      expect(content).toContain('phase === "phase-production-build"')
     } finally {
       cleanup(dir)
     }
@@ -513,9 +594,30 @@ describe('cortex init', () => {
     }
   })
 
-  it('reports Webpack as unsupported without creating Vite or Webpack adapter config', async () => {
+  it.each([
+    [
+      'webpack dependency',
+      {
+        'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","webpack":"^5.0.0"}}',
+      },
+    ],
+    [
+      'webpack config',
+      {
+        'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0"}}',
+        'webpack.config.js': 'module.exports = {}\n',
+      },
+    ],
+    [
+      'react-scripts dependency',
+      {
+        'package.json': '{"name":"test","dependencies":{"react-scripts":"^5.0.0"},"devDependencies":{"cortex-editor":"^0.1.0"}}',
+      },
+    ],
+  ] as Array<[string, Record<string, string>]>)
+  ('reports Webpack as unsupported for %s without creating Vite or Webpack adapter config', async (_caseName, files) => {
     const dir = makeTmpProject({
-      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","webpack":"^5.0.0"}}',
+      ...files,
     })
     try {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -526,7 +628,11 @@ describe('cortex init', () => {
         expect(result.setupComplete).toBe(false)
         expect(result.viteConfigCreated).toBe(false)
         expect(fs.existsSync(path.join(dir, 'vite.config.ts'))).toBe(false)
-        expect(fs.existsSync(path.join(dir, 'webpack.config.js'))).toBe(false)
+        if (files['webpack.config.js']) {
+          expect(fs.readFileSync(path.join(dir, 'webpack.config.js'), 'utf8')).toBe(files['webpack.config.js'])
+        } else {
+          expect(fs.existsSync(path.join(dir, 'webpack.config.js'))).toBe(false)
+        }
 
         const warnings = warnSpy.mock.calls.flat().join('\n')
         expect(warnings).toContain('does not support standalone Webpack yet')
