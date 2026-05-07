@@ -114,6 +114,23 @@ describe('ColorInput', () => {
     }, { timeout: 500 })
   })
 
+  it.each([
+    'rgba(255, 0, 0, .)',
+    'rgba(255, 0, 0, 1..2)',
+    'hsl(1..2, 50%, 50%)',
+  ])('rejects malformed numeric CSS color tokens: %s', async (typedColor) => {
+    const { onChange } = setup()
+    const hex = container.querySelector('.cortex-color-input__hex') as HTMLInputElement
+    hex.dispatchEvent(new Event('focus', { bubbles: true }))
+    await flush()
+    hex.value = typedColor
+    hex.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+    hex.dispatchEvent(new Event('blur', { bubbles: true }))
+    await flush()
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
   it('notifies split alpha callers before committing typed embedded opacity', async () => {
     const onAlphaChange = vi.fn()
     const { onChange } = setup({ value: '#0000ff', alpha: 100, onAlphaChange })
@@ -233,7 +250,13 @@ describe('ColorInput', () => {
   })
 
   it('commits a plain typed color as full opacity while mixed', async () => {
-    const { onChange } = setup({ mixed: true, value: 'rgba(0, 0, 255, 0.5)' })
+    const onAlphaChange = vi.fn()
+    const { onChange } = setup({
+      mixed: true,
+      value: 'rgba(0, 0, 255, 0.5)',
+      alpha: 50,
+      onAlphaChange,
+    })
     const hex = container.querySelector('.cortex-color-input__hex') as HTMLInputElement
     hex.dispatchEvent(new Event('focus', { bubbles: true }))
     await flush()
@@ -243,7 +266,9 @@ describe('ColorInput', () => {
     hex.dispatchEvent(new Event('blur', { bubbles: true }))
     await vi.waitFor(() => {
       expect(onChange).toHaveBeenCalledWith('#ff0000')
+      expect(onAlphaChange).toHaveBeenCalledWith(100)
     }, { timeout: 500 })
+    expect(onAlphaChange.mock.invocationCallOrder[0]).toBeLessThan(onChange.mock.invocationCallOrder[0])
   })
 
   it('commits the typed representative color while mixed', async () => {

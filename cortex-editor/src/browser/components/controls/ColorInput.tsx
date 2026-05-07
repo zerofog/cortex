@@ -63,15 +63,30 @@ const CSS_COLOR_KEYWORDS_REQUIRING_CONTEXT = new Set([
   'unset',
 ])
 
+const CSS_NUMBER_PATTERN = '-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)'
+const CSS_ALPHA_REGEX = new RegExp(`^(${CSS_NUMBER_PATTERN})(%)?$`)
+const RGB_COLOR_REGEX = new RegExp(
+  `^rgba?\\(\\s*(${CSS_NUMBER_PATTERN})(?:\\s*,\\s*|\\s+)(${CSS_NUMBER_PATTERN})(?:\\s*,\\s*|\\s+)(${CSS_NUMBER_PATTERN})(?:\\s*(?:,|/)\\s*(${CSS_NUMBER_PATTERN}%?))?\\s*\\)$`,
+  'i',
+)
+const HSL_COLOR_REGEX = new RegExp(
+  `^hsla?\\(\\s*(${CSS_NUMBER_PATTERN})(?:\\s*,\\s*|\\s+)(${CSS_NUMBER_PATTERN})%(?:\\s*,\\s*|\\s+)(${CSS_NUMBER_PATTERN})%(?:\\s*(?:,|/)\\s*(${CSS_NUMBER_PATTERN}%?))?\\s*\\)$`,
+  'i',
+)
+const OKLCH_ALPHA_REGEX = new RegExp(`/\\s*(${CSS_NUMBER_PATTERN}%?)\\s*\\)$`, 'i')
+const OKLCH_HAS_ALPHA_REGEX = /\/\s*[^)]+\s*\)$/i
+
 function editableColor(hex: string, alpha = 100, alphaWasExplicit = false): EditableColor {
   return { hex, alpha, alphaWasExplicit }
 }
 
-function parseCssAlpha(alpha: string): number {
+function parseCssAlpha(alpha: string): number | null {
   const trimmed = alpha.trim()
-  const parsed = parseFloat(trimmed)
-  if (Number.isNaN(parsed)) return 100
-  const normalized = trimmed.endsWith('%') ? parsed / 100 : parsed
+  const match = trimmed.match(CSS_ALPHA_REGEX)
+  if (!match) return null
+  const parsed = Number(match[1])
+  if (!Number.isFinite(parsed)) return null
+  const normalized = match[2] === '%' ? parsed / 100 : parsed
   return Math.round(Math.min(1, Math.max(0, normalized)) * 100)
 }
 
@@ -113,12 +128,13 @@ export function parseEditableColor(color: string): EditableColor | null {
     )
   }
   // rgb/rgba — comma or space-separated, possibly with decimals
-  const rgbMatch = trimmed.match(/^rgba?\(\s*(-?[\d.]+)(?:\s*,\s*|\s+)(-?[\d.]+)(?:\s*,\s*|\s+)(-?[\d.]+)(?:\s*(?:,|\/)\s*([\d.]+%?))?\s*\)$/i)
+  const rgbMatch = trimmed.match(RGB_COLOR_REGEX)
   if (rgbMatch) {
     const r = Math.round(Math.min(255, Math.max(0, parseFloat(rgbMatch[1]!))))
     const g = Math.round(Math.min(255, Math.max(0, parseFloat(rgbMatch[2]!))))
     const b = Math.round(Math.min(255, Math.max(0, parseFloat(rgbMatch[3]!))))
     const alpha = rgbMatch[4] === undefined ? 100 : parseCssAlpha(rgbMatch[4]!)
+    if (alpha === null) return null
     return editableColor(
       `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`,
       alpha,
@@ -126,13 +142,14 @@ export function parseEditableColor(color: string): EditableColor | null {
     )
   }
   // hsl/hsla — convert to rgb (supports negative hue and hue > 360)
-  const hslMatch = trimmed.match(/^hsla?\(\s*(-?[\d.]+)(?:\s*,\s*|\s+)([\d.]+)%(?:\s*,\s*|\s+)([\d.]+)%(?:\s*(?:,|\/)\s*([\d.]+%?))?\s*\)$/i)
+  const hslMatch = trimmed.match(HSL_COLOR_REGEX)
   if (hslMatch) {
     const h = ((parseFloat(hslMatch[1]!) % 360) + 360) % 360 / 360
     const s = Math.min(1, Math.max(0, parseFloat(hslMatch[2]!) / 100))
     const l = Math.min(1, Math.max(0, parseFloat(hslMatch[3]!) / 100))
     const [r, g, b] = hslToRgb(h, s, l)
     const alpha = hslMatch[4] === undefined ? 100 : parseCssAlpha(hslMatch[4]!)
+    if (alpha === null) return null
     return editableColor(
       `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`,
       alpha,
@@ -143,10 +160,13 @@ export function parseEditableColor(color: string): EditableColor | null {
   if (lower.startsWith('oklch(')) {
     const hex = oklchToHex(trimmed)
     if (!hex) return null
-    const alphaMatch = trimmed.match(/\/\s*([\d.]+%?)\s*\)$/i)
+    const alphaMatch = trimmed.match(OKLCH_ALPHA_REGEX)
+    if (OKLCH_HAS_ALPHA_REGEX.test(trimmed) && !alphaMatch) return null
+    const alpha = alphaMatch ? parseCssAlpha(alphaMatch[1]!) : 100
+    if (alpha === null) return null
     return editableColor(
       hex,
-      alphaMatch ? parseCssAlpha(alphaMatch[1]!) : 100,
+      alpha,
       alphaMatch !== null,
     )
   }
@@ -225,9 +245,9 @@ export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, s
   const alphaRef = useRef(currentAlpha)
   alphaRef.current = currentAlpha
 
-  const emitColor = useCallback((hex: string, a: number, options?: { syncExplicitAlpha?: boolean }) => {
+  const emitColor = useCallback((hex: string, a: number, options?: { syncAlpha?: boolean; forceSyncAlpha?: boolean }) => {
     const nextAlpha = Math.round(Math.max(0, Math.min(100, a)))
-    if (options?.syncExplicitAlpha && nextAlpha !== alphaRef.current) {
+    if (options?.syncAlpha && (options.forceSyncAlpha || nextAlpha !== alphaRef.current)) {
       onAlphaChange?.(nextAlpha)
     }
     onChange(formatColor(hex, nextAlpha))
@@ -253,7 +273,10 @@ export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, s
       const next = formatColor(parsedColor.hex, nextAlpha)
       const previous = formatColor(hexColor, alphaRef.current)
       if (mixed || next.toLowerCase() !== previous.toLowerCase()) {
-        emitColor(parsedColor.hex, nextAlpha, { syncExplicitAlpha: parsedColor.alphaWasExplicit })
+        emitColor(parsedColor.hex, nextAlpha, {
+          syncAlpha: parsedColor.alphaWasExplicit || mixed,
+          forceSyncAlpha: mixed,
+        })
       }
     }
     editingHexRef.current = null
