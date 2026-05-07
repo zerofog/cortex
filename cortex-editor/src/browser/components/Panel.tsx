@@ -46,7 +46,7 @@ import type { PendingEdit, SyncEmitter } from '../hooks/useEditStagingBuffer.js'
 import { generateId } from '../uuid.js'
 import { StagingDriftBanner } from './StagingDriftBanner.js'
 import { SpacingTokensContext } from '../tokens/TokenContext.js'
-import { deepQuerySelectorAll } from '../selection-metadata.js'
+import { deepQueryAllElements } from '../selection-metadata.js'
 
 // ── Connection status footer ─────────────────────────────────────────
 
@@ -126,11 +126,15 @@ function clearHighlights(): void {
   cancelAnimationFrame(highlightFrame)
   cancelAnimationFrame(clearFrame)
   clearFrame = requestAnimationFrame(() => {
-    // Use deep traversal so shadow-hosted highlights (set by
-    // highlightSharedElements when detectSharedSource returns shadow-hosted
-    // siblings via deepQuerySelectorAll) are also cleared. document-only
-    // querySelectorAll does NOT pierce shadow boundaries.
-    for (const el of deepQuerySelectorAll(`[${HIGHLIGHT_ATTR}]`)) {
+    // Use deep, Element-typed traversal so highlights set on:
+    //   (a) shadow-hosted nodes (document.querySelectorAll doesn't pierce
+    //       shadow boundaries — would leak the attribute), and
+    //   (b) non-HTMLElement nodes (SVG / MathML / other namespaced siblings
+    //       that highlightSharedElements may have set the attribute on via
+    //       SharedClassInfo.elements — deepQuerySelectorAll's HTMLElement
+    //       filter would silently skip these and orphan the attribute)
+    // are both cleared symmetrically.
+    for (const el of deepQueryAllElements(`[${HIGHLIGHT_ATTR}]`)) {
       el.removeAttribute(HIGHLIGHT_ATTR)
     }
   })

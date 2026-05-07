@@ -1,10 +1,17 @@
-import { deepQuerySelectorAll } from './selection-metadata.js'
+import { deepQueryAllElements } from './selection-metadata.js'
 
 export interface SharedSourceInfo {
   /** The data-cortex-source value that is shared (e.g., 'src/Card.tsx:42') */
   source: string
-  /** All elements in the DOM that share this source value */
-  elements: HTMLElement[]
+  /**
+   * All elements in the DOM that share this source value. Typed as `Element[]`
+   * (not `HTMLElement[]`) because cortex's source-transform annotates every
+   * JSX element — including SVG / MathML / other namespaced elements that
+   * are not `HTMLElement` instances. A `.map()` over an icon list rendered
+   * as `<svg>` siblings is a real case; filtering to `HTMLElement` here would
+   * silently undercount.
+   */
+  elements: Element[]
   /** Count of elements sharing this source value */
   count: number
 }
@@ -40,7 +47,7 @@ export function detectSharedSource(el: HTMLElement): SharedSourceInfo | null {
 
   const selector = `[data-cortex-source="${escaped}"]`
 
-  let flat: HTMLElement[]
+  let flat: Element[]
   try {
     // Always use deep traversal so the count is symmetric across both
     // shadow scenarios: (a) selected element lives in a shadow root with
@@ -49,7 +56,12 @@ export function detectSharedSource(el: HTMLElement): SharedSourceInfo | null {
     // would undercount in either case. Cost is one `*` walk per detection;
     // for typical apps without open shadow roots the recursion is a no-op
     // beyond the initial `*` scan, which is acceptable for correctness.
-    flat = deepQuerySelectorAll(selector)
+    //
+    // deepQueryAllElements (Element[], no HTMLElement filter) so SVG /
+    // MathML / other namespaced siblings that source-transform annotated
+    // are counted too — `.map()` over icon lists rendered as <svg> nodes
+    // is a real case the HTMLElement filter would silently miss.
+    flat = deepQueryAllElements(selector)
   } catch {
     // Malformed selector despite escape — treat as no matches.
     return null
