@@ -1,0 +1,25 @@
+cortex-editor/src/cli/detect.ts
+  s_93c37bd7663a85::t_751ad7469e149a 19,35-37,39-40,79-88,94-96
+cortex-editor/src/cli/init.ts
+  s_93c37bd7663a85::t_b2b803046aab35 169-191,199-201,204,216-218,221,226-230,236-243,263,477
+cortex-editor/tests/cli/init.test.ts
+  s_93c37bd7663a85::t_1f82ef91ff3687 618
+  s_93c37bd7663a85::t_2c0b53401e7e26 480,489,497-577,597-617,620
+  s_93c37bd7663a85::t_41e377d4032c90 631-635
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "648ff45b68ff21648645e8aad520514a8429a673",
+  "prompts": {},
+  "sessions": {
+    "s_93c37bd7663a85": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e012f-a76c-7db1-804c-82d372d03e6a",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
