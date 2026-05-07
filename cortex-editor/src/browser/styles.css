@@ -1007,6 +1007,7 @@
 .cortex-numeric-input__prefix {
   display: inline-flex;
   align-items: center;
+  gap: var(--cx-sp-1);
   font-size: var(--cx-text-sm);
   color: var(--cx-ink-ghost);
   flex-shrink: 0;

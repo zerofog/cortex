@@ -1,5 +1,6 @@
 import type { JSX } from 'preact'
 import { useState, useLayoutEffect, useRef } from 'preact/hooks'
+import { X } from './icons.js'
 
 export interface StagingDriftBannerProps {
   intentDriftCount: number    // 0 = trigger 1 hidden
@@ -113,11 +114,7 @@ export function StagingDriftBanner({
         aria-label="Dismiss"
         onClick={handleDismiss}
       >
-        {/* Lucide X icon — 14×14 */}
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <line x1="3.5" y1="3.5" x2="10.5" y2="10.5" />
-          <line x1="10.5" y1="3.5" x2="3.5" y2="10.5" />
-        </svg>
+        <X size={14} />
       </button>
     </div>
   )

@@ -61,7 +61,19 @@ describe('icons.tsx — lucide.dev snapshot inventory', () => {
     // unifying it with the icon system instead of inlining a hand-rolled SVG:
     //   +1 X                     (dismiss / close)
     // Net new baseline: 56 + 1 = 57.
-    expect(ICON_EXPORTS.length).toBe(57)
+    //
+    // ZF0-1496 centralized remaining panel/toolbar inline glyphs and spacing
+    // axis prefixes:
+    //   +2 ArrowLeftRight / ArrowUpDown  (spacing axis prefixes)
+    //   +1 ChevronUp                    (PanelHeader parent button)
+    //   +1 GripVertical                 (floating toolbar drag handle)
+    //   +1 MousePointer2                (floating toolbar select mode)
+    //   +1 MessageSquare                (floating toolbar comment mode)
+    //   +3 Sun / Moon / Monitor         (theme segmented control)
+    //   +1 TriangleAlert                (EditErrorCard warning)
+    //   +1 Baseline                     (AlignmentGrid baseline indicator)
+    // Net new baseline: 57 + 11 = 68.
+    expect(ICON_EXPORTS.length).toBe(68)
   })
 
   it.each(ICON_EXPORTS)('<%s /> renders the lucide.dev SVG verbatim', (name, Component) => {

@@ -23,7 +23,7 @@ import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { SizingDropdown } from '../controls/SizingDropdown.js'
-import { Check } from '../icons.js'
+import { Check, Lock, LockOpen, X } from '../icons.js'
 import type { SizingMode } from '../controls/SizingDropdown.js'
 
 export type SizingChange = SectionChange
@@ -302,19 +302,7 @@ export function SizingControls({
           data-tooltip={!canLockAspect ? ASPECT_LOCK_REQUIRES_FIXED_TOOLTIP : lockUiActive ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
           onClick={handleToggleLock}
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            {lockUiActive ? (
-              <>
-                <rect x="3" y="6.5" width="8" height="5.5" rx="1" />
-                <path d="M4.5,6.5 V4.5 a2.5,2.5 0 0 1 5,0 V6.5" />
-              </>
-            ) : (
-              <>
-                <rect x="3" y="6.5" width="8" height="5.5" rx="1" />
-                <path d="M4.5,6.5 V4.5 a2.5,2.5 0 0 1 5,0" />
-              </>
-            )}
-          </svg>
+          {lockUiActive ? <Lock size={14} /> : <LockOpen size={14} />}
         </button>
       </div>
       {(minWidthEnabled || maxWidthEnabled || minHeightEnabled || maxHeightEnabled) && (
@@ -338,7 +326,7 @@ export function SizingControls({
                 aria-label="Remove Min Width"
                 onClick={handleToggleMinWidth}
               >
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg>
+                <X size={10} />
               </button>
             </div>
           )}
@@ -361,7 +349,7 @@ export function SizingControls({
                 aria-label="Remove Max Width"
                 onClick={handleToggleMaxWidth}
               >
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg>
+                <X size={10} />
               </button>
             </div>
           )}
@@ -384,7 +372,7 @@ export function SizingControls({
                 aria-label="Remove Min Height"
                 onClick={handleToggleMinHeight}
               >
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg>
+                <X size={10} />
               </button>
             </div>
           )}
@@ -407,7 +395,7 @@ export function SizingControls({
                 aria-label="Remove Max Height"
                 onClick={handleToggleMaxHeight}
               >
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg>
+                <X size={10} />
               </button>
             </div>
           )}

@@ -37,6 +37,7 @@
  */
 import type { JSX } from 'preact'
 import { useState, useRef, useEffect, useCallback } from 'preact/hooks'
+import { Baseline } from '../icons.js'
 
 // CSS literals — never screen-coordinate strings. The 3 values for each
 // axis are fixed by the spec; changing them means shipping a new control.
@@ -389,11 +390,7 @@ export function AlignmentGrid({
           {justifyValue !== 'space-between' && (
             <span class="cortex-alignment-grid__span-baseline-tick" aria-hidden="true" />
           )}
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="cortex-alignment-grid__span-icon">
-            <path d="M4 20h16" />
-            <path d="m6 16 6-12 6 12" />
-            <path d="M8 12h8" />
-          </svg>
+          <Baseline class="cortex-alignment-grid__span-icon" />
           <span class="cortex-alignment-grid__span-baseline-line" aria-hidden="true" />
           {justifyValue !== 'space-between' && (
             <span class="cortex-alignment-grid__span-baseline-tick" aria-hidden="true" />
@@ -424,11 +421,7 @@ export function AlignmentGrid({
           onDblClick={(e) => handleSpanDblClick(e, 'col', indicatorMode.col)}
         >
           <span class="cortex-alignment-grid__cell__dot" aria-hidden="true" />
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="cortex-alignment-grid__span-icon">
-            <path d="M4 20h16" />
-            <path d="m6 16 6-12 6 12" />
-            <path d="M8 12h8" />
-          </svg>
+          <Baseline class="cortex-alignment-grid__span-icon" />
           <span class="cortex-alignment-grid__cell__dot" aria-hidden="true" />
         </div>
       )}

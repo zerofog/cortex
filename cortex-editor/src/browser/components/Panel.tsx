@@ -35,7 +35,7 @@ import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
 import { IconButton } from './controls/IconButton.js'
 import { BackgroundSection } from './sections/BackgroundSection.js'
-import { Plus } from './icons.js'
+import { Plus, X } from './icons.js'
 import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
 import { computePanelStyleSnapshot } from './panel-style-snapshot.js'
 import { ALL_DIMMING_PROPERTIES } from './sections/spacing-utils.js'
@@ -1452,11 +1452,7 @@ export function Panel({
                 class="cortex-apply-error__dismiss"
                 aria-label="Dismiss apply error"
               >
-                {/* Lucide X icon — 14×14, matches StagingDriftBanner dismiss */}
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <line x1="3.5" y1="3.5" x2="10.5" y2="10.5" />
-                  <line x1="10.5" y1="3.5" x2="3.5" y2="10.5" />
-                </svg>
+                <X size={14} />
               </button>
             </div>
           )}
@@ -1633,11 +1629,7 @@ export function Panel({
               class="cortex-apply-error__dismiss"
               aria-label="Dismiss apply error"
             >
-              {/* Lucide X icon — 14×14, matches StagingDriftBanner dismiss */}
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <line x1="3.5" y1="3.5" x2="10.5" y2="10.5" />
-                <line x1="10.5" y1="3.5" x2="3.5" y2="10.5" />
-              </svg>
+              <X size={14} />
             </button>
           </div>
         )}

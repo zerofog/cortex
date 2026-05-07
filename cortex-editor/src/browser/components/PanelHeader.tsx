@@ -3,36 +3,23 @@ import { useState, useRef, useLayoutEffect, useEffect } from 'preact/hooks'
 import { SegmentedControl } from './controls/SegmentedControl.js'
 import { getThemePreference, setThemePreference, type ThemePreference } from '../theme.js'
 import { encodeFilePath } from '../label.js'
+import { ChevronDown, ChevronUp, Eye, EyeOff, Monitor, Moon, Sun, X } from './icons.js'
 
 const THEME_OPTIONS = [
   {
     value: 'light',
     title: 'Light theme',
-    icon: (
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="6" cy="6" r="2.5" />
-        <path d="M6 1v1M6 10v1M1 6h1M10 6h1M2.5 2.5l.7.7M8.8 8.8l.7.7M9.5 2.5l-.7.7M3.2 8.8l-.7.7" />
-      </svg>
-    ),
+    icon: <Sun size={12} />,
   },
   {
     value: 'dark',
     title: 'Dark theme',
-    icon: (
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M10 7.5A4.5 4.5 0 014.5 2c0-.3 0-.6.1-.9A5 5 0 006 11a5 5 0 004.9-4.4c-.3.1-.6.1-.9-.1z" />
-      </svg>
-    ),
+    icon: <Moon size={12} />,
   },
   {
     value: 'system',
     title: 'Match system theme',
-    icon: (
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="1.5" y="2.5" width="9" height="6" rx="1" />
-        <line x1="4" y1="10" x2="8" y2="10" />
-      </svg>
-    ),
+    icon: <Monitor size={12} />,
   },
 ]
 
@@ -225,9 +212,7 @@ export function PanelHeader({
           aria-label="Select parent element"
           onClick={onSelectParent}
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="3.5,8.5 7,5 10.5,8.5" />
-          </svg>
+          <ChevronUp size={14} />
         </button>
         <button
           class="cortex-panel-header__btn"
@@ -237,9 +222,7 @@ export function PanelHeader({
           aria-label="Select child element"
           onClick={onSelectChild}
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="3.5,5.5 7,9 10.5,5.5" />
-          </svg>
+          <ChevronDown size={14} />
         </button>
         <button
           class={`cortex-panel-header__btn${hoverEnabled ? '' : ' cortex-panel-header__btn--toggled-off'}`}
@@ -248,17 +231,7 @@ export function PanelHeader({
           aria-label={hoverEnabled ? 'Hide hover overlay' : 'Show hover overlay'}
           onClick={onToggleHover}
         >
-          {hoverEnabled ? (
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M1 7s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z" />
-              <circle cx="7" cy="7" r="1.5" />
-            </svg>
-          ) : (
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M1 7s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z" />
-              <line x1="2" y1="2" x2="12" y2="12" />
-            </svg>
-          )}
+          {hoverEnabled ? <Eye size={14} /> : <EyeOff size={14} />}
         </button>
         {bufferSize > 0 && !pendingClaude && (
           <button
@@ -280,10 +253,7 @@ export function PanelHeader({
           aria-label="Close panel"
           onClick={onClose}
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="3.5" y1="3.5" x2="10.5" y2="10.5" />
-            <line x1="10.5" y1="3.5" x2="3.5" y2="10.5" />
-          </svg>
+          <X size={14} />
         </button>
       </div>
       {showPseudoTabs && (
