@@ -6,6 +6,7 @@ import { dirname, resolve } from 'node:path'
 import { ensureCliBuilt } from './helpers/cli-build.js'
 import { WebSocketServer, type WebSocket as WSClient } from 'ws'
 import { createServer, type Server } from 'node:http'
+import { cortexApplyEditsInputSchema } from '../../src/schemas/index.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -173,5 +174,28 @@ describe('cortex CLI — built-process notification round-trip (Layer 5)', () =>
     expect(params.meta.kind).toBe('staged-edits')
     expect(params.meta.request_id).toBe('layer5-test-1')
     expect(params.meta.count).toBe('3')
+  })
+
+  it('cortex_apply_edits validates intentIds across the SDK process boundary', async () => {
+    // Direct schema check — proves the schema is what enforces the contract.
+    expect(cortexApplyEditsInputSchema.safeParse({ intentIds: ['stub-1'] }).success).toBe(true)
+    expect(cortexApplyEditsInputSchema.safeParse({ intentIds: 'not-an-array' }).success).toBe(false)
+    expect(cortexApplyEditsInputSchema.safeParse({}).success).toBe(false)
+
+    // SDK round-trip — proves the schema is wired into the MCP tool registration
+    // in the BUILT artifact (not just the source). Reference pattern:
+    // tests/cli/mcp.test.ts:723-733.
+    const invalid = await client.callTool({
+      name: 'cortex_apply_edits',
+      arguments: { intentIds: 'not-an-array' },
+    })
+    expect(invalid.isError).toBe(true)
+    const text = (invalid.content as Array<{ text: string }>)[0].text
+    expect(text).toContain('intentIds')
+
+    // Falsifiability: rename 'intentIds' to anything else in
+    // cortexApplyEditsInputSchema (src/schemas/mcp-tool-inputs.ts) — direct
+    // parse of valid input fails (good shape now invalid), and SDK round-trip
+    // text won't contain 'intentIds'.
   })
 })
