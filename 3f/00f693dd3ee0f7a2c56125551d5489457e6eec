@@ -1,0 +1,21 @@
+cortex-editor/src/browser/components/TooltipLayer.tsx
+  s_aa46e5544c2278::t_69f13f11218a34 179-180,236-250,252-254,261,270
+cortex-editor/tests/browser/components/TooltipLayer.test.tsx
+  s_aa46e5544c2278::t_fc32df8540df34 192-245,298-314
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "3f00f693dd3ee0f7a2c56125551d5489457e6eec",
+  "prompts": {},
+  "sessions": {
+    "s_aa46e5544c2278": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dff0d-36c6-7f02-aa2e-46bb142a8872",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
