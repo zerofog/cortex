@@ -4,13 +4,29 @@ import { autoUpdate, computePosition, flip, offset, shift, type Placement } from
 
 const TOOLTIP_ID = 'cortex-tooltip'
 const DEFAULT_DELAY_MS = 200
+const TOOLTIP_OFFSET_PX = 6
 const DEFAULT_PLACEMENT: Placement = 'top'
+const VALID_PLACEMENTS: readonly Placement[] = [
+  'top',
+  'top-start',
+  'top-end',
+  'right',
+  'right-start',
+  'right-end',
+  'bottom',
+  'bottom-start',
+  'bottom-end',
+  'left',
+  'left-start',
+  'left-end',
+]
 
 interface ActiveTooltip {
   readonly anchor: HTMLElement
   readonly describedElement: HTMLElement
   readonly text: string
   readonly placement: Placement
+  readonly trigger: 'focus' | 'pointer'
 }
 
 export interface TooltipLayerProps {
@@ -22,25 +38,36 @@ function isElement(value: EventTarget | Node | null): value is Element {
   return value instanceof Element
 }
 
+function isDisabledTooltipTarget(target: HTMLElement): boolean {
+  if (target.getAttribute('aria-disabled') === 'true') return true
+  return 'disabled' in target && Boolean((target as HTMLButtonElement | HTMLInputElement).disabled)
+}
+
 function resolveTooltipTarget(target: EventTarget | null): HTMLElement | null {
-  const element = isElement(target)
+  let element: Element | null = isElement(target)
     ? target
     : target instanceof Node && isElement(target.parentElement)
       ? target.parentElement
       : null
-  const tooltipTarget = element?.closest('[data-tooltip]')
-  if (!(tooltipTarget instanceof HTMLElement)) return null
 
-  const text = tooltipTarget.dataset['tooltip']?.trim()
-  if (!text) return null
-  if (tooltipTarget.getAttribute('aria-disabled') === 'true') return null
-  if ('disabled' in tooltipTarget && Boolean((tooltipTarget as HTMLButtonElement | HTMLInputElement).disabled)) return null
-  return tooltipTarget
+  while (element) {
+    if (element instanceof HTMLElement && element.hasAttribute('data-tooltip')) {
+      const text = element.dataset['tooltip']?.trim()
+      if (text && !isDisabledTooltipTarget(element)) return element
+    }
+    element = element.parentElement
+  }
+
+  return null
+}
+
+function isPlacement(value: string | undefined): value is Placement {
+  return value !== undefined && (VALID_PLACEMENTS as readonly string[]).includes(value)
 }
 
 function readPlacement(anchor: HTMLElement): Placement {
   const placement = anchor.dataset['tooltipPlacement']
-  return placement ? placement as Placement : DEFAULT_PLACEMENT
+  return isPlacement(placement) ? placement : DEFAULT_PLACEMENT
 }
 
 function removeDescribedByToken(anchor: HTMLElement): void {
@@ -51,14 +78,46 @@ function removeDescribedByToken(anchor: HTMLElement): void {
   else anchor.removeAttribute('aria-describedby')
 }
 
+function getFallbackPosition(anchor: HTMLElement, floating: HTMLElement, placement: Placement): { left: number, top: number } {
+  const rect = anchor.getBoundingClientRect()
+  const floatingWidth = floating.offsetWidth
+  const floatingHeight = floating.offsetHeight
+  const [side, alignment] = placement.split('-') as [string, string | undefined]
+
+  let left: number
+  let top: number
+
+  if (side === 'top' || side === 'bottom') {
+    if (alignment === 'start') left = rect.left
+    else if (alignment === 'end') left = rect.right - floatingWidth
+    else left = rect.left + (rect.width - floatingWidth) / 2
+
+    top = side === 'bottom'
+      ? rect.bottom + TOOLTIP_OFFSET_PX
+      : rect.top - floatingHeight - TOOLTIP_OFFSET_PX
+  } else {
+    left = side === 'right'
+      ? rect.right + TOOLTIP_OFFSET_PX
+      : rect.left - floatingWidth - TOOLTIP_OFFSET_PX
+
+    if (alignment === 'start') top = rect.top
+    else if (alignment === 'end') top = rect.bottom - floatingHeight
+    else top = rect.top + (rect.height - floatingHeight) / 2
+  }
+
+  return { left, top }
+}
+
 export function TooltipLayer({ shadowRoot, delayMs = DEFAULT_DELAY_MS }: TooltipLayerProps): JSX.Element | null {
   const [tooltip, setTooltip] = useState<ActiveTooltip | null>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
   const showTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const activeAnchorRef = useRef<HTMLElement | null>(null)
+  const activeTriggerRef = useRef<ActiveTooltip['trigger'] | null>(null)
 
   useEffect(() => {
     activeAnchorRef.current = tooltip?.anchor ?? null
+    activeTriggerRef.current = tooltip?.trigger ?? null
   }, [tooltip])
 
   useEffect(() => {
@@ -82,7 +141,7 @@ export function TooltipLayer({ shadowRoot, delayMs = DEFAULT_DELAY_MS }: Tooltip
       computePosition(tooltip.anchor, floating, {
         strategy: 'fixed',
         placement: tooltip.placement,
-        middleware: [offset(6), flip(), shift({ padding: 6 })],
+        middleware: [offset(TOOLTIP_OFFSET_PX), flip(), shift({ padding: TOOLTIP_OFFSET_PX })],
       }).then(({ x, y }) => {
         if (cancelled) return
         floating.style.left = `${x}px`
@@ -90,11 +149,9 @@ export function TooltipLayer({ shadowRoot, delayMs = DEFAULT_DELAY_MS }: Tooltip
       }).catch((err) => {
         if (cancelled) return
         console.warn('[cortex] Tooltip positioning failed:', err instanceof Error ? err.message : err)
-        const rect = tooltip.anchor.getBoundingClientRect()
-        const startAligned = tooltip.placement.endsWith('-start')
-        const below = tooltip.placement.startsWith('bottom')
-        floating.style.left = `${startAligned ? rect.left : rect.left + rect.width / 2}px`
-        floating.style.top = `${below ? rect.bottom + 6 : rect.top - floating.offsetHeight - 6}px`
+        const { left, top } = getFallbackPosition(tooltip.anchor, floating, tooltip.placement)
+        floating.style.left = `${left}px`
+        floating.style.top = `${top}px`
       })
     }
 
@@ -122,30 +179,41 @@ export function TooltipLayer({ shadowRoot, delayMs = DEFAULT_DELAY_MS }: Tooltip
       setTooltip(null)
     }
 
-    const scheduleShow = (anchor: HTMLElement, describedElement = anchor) => {
+    const scheduleShow = (
+      anchor: HTMLElement,
+      describedElement: HTMLElement,
+      trigger: ActiveTooltip['trigger'],
+    ) => {
       const text = anchor.dataset['tooltip']?.trim()
       if (!text) {
         hide()
         return
       }
-      if (activeAnchorRef.current === anchor) return
+      if (activeAnchorRef.current === anchor) {
+        clearShowTimer()
+        setTooltip(current => current && current.anchor === anchor
+          ? { anchor, describedElement, text, placement: readPlacement(anchor), trigger }
+          : current)
+        return
+      }
       clearShowTimer()
       showTimerRef.current = setTimeout(() => {
         showTimerRef.current = null
-        setTooltip({ anchor, describedElement, text, placement: readPlacement(anchor) })
+        setTooltip({ anchor, describedElement, text, placement: readPlacement(anchor), trigger })
       }, delayMs)
     }
 
     const handlePointerOver = (event: Event) => {
       const anchor = resolveTooltipTarget(event.target)
       if (!anchor || !shadowRoot.contains(anchor)) {
-        hide()
+        if (activeTriggerRef.current === 'pointer') hide()
         return
       }
-      scheduleShow(anchor)
+      scheduleShow(anchor, anchor, 'pointer')
     }
 
     const handlePointerOut = (event: Event) => {
+      if (activeTriggerRef.current === 'focus') return
       const anchor = activeAnchorRef.current ?? resolveTooltipTarget(event.target)
       if (!anchor) {
         hide()
@@ -160,7 +228,7 @@ export function TooltipLayer({ shadowRoot, delayMs = DEFAULT_DELAY_MS }: Tooltip
       const anchor = resolveTooltipTarget(event.target)
       if (!anchor || !shadowRoot.contains(anchor)) return
       const describedElement = event.target instanceof HTMLElement ? event.target : anchor
-      scheduleShow(anchor, describedElement)
+      scheduleShow(anchor, describedElement, 'focus')
     }
 
     const handleFocusOut = () => hide()

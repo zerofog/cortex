@@ -42,7 +42,20 @@ test('NumericInput tooltip escapes panel-body clipping without Native Popover AP
     body.scrollTop += targetRect.top - bodyRect.top
   })
 
-  await page.waitForTimeout(50)
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const host = document.querySelector('[data-cortex-host]')
+          const root = host && (host as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot
+          const body = root?.querySelector<HTMLElement>('.cortex-panel__body')
+          const target = root?.querySelector<HTMLElement>('.cortex-panel__body .cortex-numeric-input[data-tooltip="Width"]')
+          if (!body || !target) return false
+          return Math.abs(target.getBoundingClientRect().top - body.getBoundingClientRect().top) <= 1
+        }),
+      { timeout: 2000 },
+    )
+    .toBe(true)
 
   await page.evaluate(() => {
     const host = document.querySelector('[data-cortex-host]')

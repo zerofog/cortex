@@ -186,7 +186,7 @@
   background: var(--cx-tooltip-bg);
   color: var(--cx-paper);
   font-family: var(--cx-mono);
-  font-size: 10px;
+  font-size: var(--cx-text-sm);
   font-weight: var(--cx-weight-label);
   line-height: 1.3;
   white-space: nowrap;
