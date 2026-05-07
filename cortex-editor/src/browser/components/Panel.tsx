@@ -116,6 +116,7 @@ function highlightSharedElements(info: SharedClassInfo | SharedSourceInfo, selec
   highlightFrame = requestAnimationFrame(() => {
     for (const el of info.elements) {
       if (el === selected) continue
+      if (!el.isConnected) continue
       el.setAttribute(HIGHLIGHT_ATTR, '')
     }
   })
