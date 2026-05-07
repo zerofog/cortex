@@ -105,10 +105,18 @@ describe('cortex CLI — built-process notification round-trip (Layer 5)', () =>
     await client.connect(transport)
 
     // Wait up to 5s for the CLI's WS to connect to our fake Vite server.
+    // The recursive `tick` chain stops on `stopped` so a 5s reject doesn't
+    // continue accruing timers in the background.
     await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('CLI did not connect to fake Vite WS within 5s')), 5000)
+      let stopped = false
+      const timeout = setTimeout(() => {
+        stopped = true
+        reject(new Error('CLI did not connect to fake Vite WS within 5s'))
+      }, 5000)
       const tick = (): void => {
-        if (cliWs) { clearTimeout(timeout); resolve() } else setTimeout(tick, 50)
+        if (stopped) return
+        if (cliWs) { clearTimeout(timeout); resolve() }
+        else setTimeout(tick, 50)
       }
       tick()
     })
@@ -149,11 +157,21 @@ describe('cortex CLI — built-process notification round-trip (Layer 5)', () =>
     })
 
     expect(received).toHaveLength(1)
-    // Exact method name confirmed from first run: src/cli/mcp.ts sends
-    // server.server.notification({ method: 'notifications/claude/channel', ... }).
-    // Falsifiability: corrupt the forwarder in src/cli/mcp.ts (the
-    // server.notification(...) for 'staged-edits-ready') — must fail with
-    // 'no notification received within 2s'.
     expect(received[0].method).toBe('notifications/claude/channel')
+    // The method is shared by three forwarder branches in src/cli/mcp.ts —
+    // pin the assertion to fields unique to staged-edits-ready (meta.kind),
+    // and fields we sent in (request_id, count) so a regression that
+    // re-routes the message through a different branch is caught.
+    //
+    // Falsifiability: corrupt the staged-edits-ready forwarder in
+    // src/cli/mcp.ts (or change meta.kind to a different string) — this
+    // assertion fails with a clear meta.kind mismatch.
+    const params = received[0].params as {
+      content: string
+      meta: { kind: string; request_id: string; count: string }
+    }
+    expect(params.meta.kind).toBe('staged-edits')
+    expect(params.meta.request_id).toBe('layer5-test-1')
+    expect(params.meta.count).toBe('3')
   })
 })
