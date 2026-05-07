@@ -494,12 +494,6 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     target.remove()
   })
 
-  // TODO: assert dimmed CSS class when sections render dimmedProperties.
-  // dimmedProperties is computed in Panel's useMemo but no section component
-  // consumes the prop in JSX yet — there's no DOM output to assert against.
-  it.skip('computes dimmedProperties when activeState is not default', () => {})
-  it.skip('does not compute dimmedProperties when activeState is default', () => {})
-
   it('renders pseudo tabs when hasBefore or hasAfter is true', async () => {
     const target = createTarget()
     const overrideManager = createOverrideManager()
