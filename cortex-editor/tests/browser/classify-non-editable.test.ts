@@ -18,8 +18,16 @@ describe('isNonEditable', () => {
     ['title'],
     ['link'],
     ['noscript'],
+    ['template'],
   ])('returns true for non-visual tag: %s', (tag) => {
     const el = document.createElement(tag)
+    expect(isNonEditable(el)).toBe(true)
+  })
+
+  it.each([
+    ['html', document.documentElement],
+    ['body', document.body],
+  ])('returns true for document root tag: %s', (_tag, el) => {
     expect(isNonEditable(el)).toBe(true)
   })
 

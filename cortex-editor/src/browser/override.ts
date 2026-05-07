@@ -412,7 +412,8 @@ export class CSSOverrideManager {
         }
         // Re-query the element every attempt — the original `el` reference
         // may be stale if React unmounted/replaced the node during the retry
-        // window. data-cortex-source is stable across HMR, so it re-resolves.
+        // window. Annotated sources re-resolve across HMR; preview sources are
+        // best-effort DOM targets for the active browser session.
         const currentEl = document.querySelector(selectorForEditSource(source))
         if (!currentEl) {
           trace('verify:retry-no-element', { source, property })

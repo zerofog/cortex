@@ -101,11 +101,14 @@ const HIGHLIGHT_ATTR = 'data-cortex-blast-radius'
 
 function pendingEditTargetFields(target: ElementEditTarget): Partial<PendingEdit> {
   if (target.applyMode === 'direct') return {}
-  if (!target.sourceResolutionHint) return { applyMode: target.applyMode }
   return {
     applyMode: target.applyMode,
     sourceResolutionHint: target.sourceResolutionHint,
   }
+}
+
+function editSourcesForElements(elements: readonly HTMLElement[]): string[] {
+  return elements.map(el => getElementEditTarget(el).source)
 }
 
 function ensureBlastRadiusStyle(): void {
@@ -809,9 +812,7 @@ export function Panel({
           try {
             const shared = detectSharedClasses(el)
             perElementInstanceSources = shared
-              ? shared.elements
-                  .map(e => e.getAttribute('data-cortex-source'))
-                  .filter((s): s is string => s !== null)
+              ? editSourcesForElements(shared.elements)
               : undefined
           } catch (err) {
             console.warn('[cortex] detectSharedClasses threw during multi-select fan-out', err)
@@ -839,9 +840,7 @@ export function Panel({
       // Single-select: filter to the primary source, pack optional instanceSources.
       const editedProps = changes.filter(c => c.source === source)
       const instanceSources = isShared
-        ? sharedInfo!.elements
-            .map(el => el.getAttribute('data-cortex-source'))
-            .filter((s): s is string => s !== null)
+        ? editSourcesForElements(sharedInfo!.elements)
         : undefined
       pendingEdits = editedProps.map(c => ({
         intentId: generateId(),

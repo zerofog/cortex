@@ -8,6 +8,7 @@ import { _resetBusForTesting } from '../../src/browser/override-bus.js'
 import { cortexStorage } from '../../src/browser/persistence.js'
 import { isPendingEditArray, type PendingEdit } from '../../src/browser/hooks/useEditStagingBuffer.js'
 import { CommandStack } from '../../src/browser/command-stack.js'
+import { PREVIEW_SOURCE_ATTR, PREVIEW_SOURCE_PREFIX } from '../../src/browser/preview-source.js'
 
 const panelPositionProps = {
   position: { x: 1000, y: 12 },
@@ -1656,6 +1657,65 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     el1.remove()
     el1Sibling.remove()
     el2.remove()
+  })
+
+  it('scope=all packs preview sources for unannotated shared siblings', async () => {
+    const sharedCss = 'Component.module.css:.badge'
+
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/A.tsx:10:3')
+    target.setAttribute('data-cortex-css', sharedCss)
+
+    const unannotatedSibling = document.createElement('div')
+    unannotatedSibling.setAttribute('data-cortex-css', sharedCss)
+
+    document.body.append(target, unannotatedSibling)
+
+    const overrideManager = createTrackingOverrideManager()
+    const restoreGCS = installGCSProxy()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <Panel
+        selectedElements={[target]}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+      container,
+    )
+
+    let allBtn!: HTMLButtonElement
+    await vi.waitFor(() => {
+      allBtn = container.querySelector('.cortex-panel__scope-btn:last-child') as HTMLButtonElement
+      expect(allBtn).not.toBeNull()
+      expect(allBtn.textContent).toContain('All')
+    }, { timeout: 500 })
+
+    await act(async () => {
+      allBtn.click()
+      await Promise.resolve()
+    })
+
+    await triggerCommitScrub(container)
+    await act(() => { vi.advanceTimersByTime(200) })
+
+    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    expect(stored).toHaveLength(1)
+    expect(stored[0].source).toBe('src/A.tsx:10:3')
+    expect(stored[0].instanceSources).toContain('src/A.tsx:10:3')
+
+    const siblingPreviewId = unannotatedSibling.getAttribute(PREVIEW_SOURCE_ATTR)
+    expect(siblingPreviewId).not.toBeNull()
+    expect(stored[0].instanceSources).toContain(`${PREVIEW_SOURCE_PREFIX}${siblingPreviewId}`)
+
+    render(null, container)
+    container.remove()
+    restoreGCS()
+    target.remove()
+    unannotatedSibling.remove()
   })
 
   it('AC4 regression: single-select unchanged — 1 intent, no instanceSources', async () => {

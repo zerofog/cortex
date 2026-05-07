@@ -1,4 +1,4 @@
-// Element (not HTMLElement): .tagName and .closest are both on Element.
+// Element (not HTMLElement): tag-name classification works for all Elements.
 const NON_VISUAL_TAGS: ReadonlySet<string> = new Set(['script', 'style', 'meta', 'head', 'title', 'link', 'noscript', 'template'])
 const DOCUMENT_ROOT_TAGS: ReadonlySet<string> = new Set(['html', 'body'])
 

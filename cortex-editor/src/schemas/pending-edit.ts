@@ -1,21 +1,22 @@
 import { z } from 'zod'
+import { MAX_INTENT_SOURCE_BYTES, MAX_SOURCE_HINT_FIELD_BYTES } from '../shared/pending-edit-limits.js'
+import { isPreviewSource } from '../shared/preview-source.js'
 
 // ---------------------------------------------------------------------------
 // PendingEdit schema — canonical source for the staging-buffer wire format and
 // its size bounds. core/staged-edits.ts imports MAX_FULL_SYNC_SIZE and
 // pendingEditSchema from this module; types.ts re-exports z.infer<typeof pendingEditSchema>.
 //
-// If you need to change a size bound, change it here. The imperative validator
-// isValidPendingEdit (now @deprecated thin wrapper at core/staged-edits.ts) delegates
-// to pendingEditSchema.safeParse, so consistency is structural.
+// Shared browser/core bounds live in shared/pending-edit-limits.ts. The imperative
+// validator isValidPendingEdit (now @deprecated thin wrapper at core/staged-edits.ts)
+// delegates to pendingEditSchema.safeParse, so consistency is structural.
 // ---------------------------------------------------------------------------
 
 export const MAX_INTENT_VALUE_BYTES = 4096
-export const MAX_INTENT_SOURCE_BYTES = 1024
 export const MAX_INTENT_ID_BYTES = 256
 export const MAX_INTENT_PROPERTY_BYTES = 256
 export const MAX_INTENT_INSTANCE_SOURCES = 100
-export const MAX_SOURCE_HINT_FIELD_BYTES = 512
+export { MAX_INTENT_SOURCE_BYTES, MAX_SOURCE_HINT_FIELD_BYTES }
 
 /** Defensive cap on staged-edits-sync batch size — 2× browser MAX_ENTRIES (500).
  *  Mirrors the cap enforced by StagedEditsCache.mergeFullSync at runtime.
@@ -105,6 +106,14 @@ export const pendingEditSchema = z.object({
     .max(MAX_INTENT_INSTANCE_SOURCES)
     .optional(),
   timestamp: z.number().finite(),
+}).superRefine((edit, ctx) => {
+  if ((edit.applyMode === 'agent-resolve' || isPreviewSource(edit.source)) && !edit.sourceResolutionHint) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['sourceResolutionHint'],
+      message: 'sourceResolutionHint is required for agent-resolve or preview-source intents',
+    })
+  }
 })
 
 export type PendingEditSchema = z.infer<typeof pendingEditSchema>

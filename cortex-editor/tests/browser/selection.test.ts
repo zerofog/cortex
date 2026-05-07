@@ -81,9 +81,18 @@ describe('initSelection', () => {
     const restoreEfp = mockElementFromPoint(target)
     const handle = initSelection(shadow, onHover, onSelect)
 
-    const event = dispatchMouseEvent(target, 'click', { clientX: 50, clientY: 50 })
-    expect(onSelect).toHaveBeenCalledWith([target], 'replace')
-    expect(event.defaultPrevented).toBe(true)
+    const cases = [
+      [{}, 'replace'],
+      [{ shiftKey: true }, 'add'],
+      [{ metaKey: true }, 'toggle'],
+      [{ ctrlKey: true }, 'toggle'],
+    ] as const
+    for (const [modifiers, action] of cases) {
+      onSelect.mockClear()
+      const event = dispatchMouseEvent(target, 'click', { clientX: 50, clientY: 50, ...modifiers })
+      expect(onSelect).toHaveBeenCalledWith([target], action)
+      expect(event.defaultPrevented).toBe(true)
+    }
 
     handle.cleanup()
     restoreEfp()

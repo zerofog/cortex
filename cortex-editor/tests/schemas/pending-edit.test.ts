@@ -181,6 +181,31 @@ describe('pendingEditSchema — invalid inputs', () => {
     }
   })
 
+  it('rejects agent-resolve edits without sourceResolutionHint', () => {
+    const result = pendingEditSchema.safeParse({
+      ...validEdit,
+      source: 'cortex-preview:p123',
+      applyMode: 'agent-resolve',
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('sourceResolutionHint')
+    }
+  })
+
+  it('rejects preview-source edits without sourceResolutionHint even when applyMode is omitted', () => {
+    const result = pendingEditSchema.safeParse({
+      ...validEdit,
+      source: 'cortex-preview:p123',
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('sourceResolutionHint')
+    }
+  })
+
   it('rejects instanceSources exceeding 100 entries', () => {
     const sources = Array.from({ length: 101 }, (_, i) => `src/Comp.tsx:${i}:5`)
     const result = pendingEditSchema.safeParse({ ...validEdit, instanceSources: sources })

@@ -253,7 +253,7 @@ async function applyOne(
       intentId,
       status: 'needs-source-edit' as const,
       intent,
-      reason: 'Unannotated visual element requires agent source resolution before writing source. Use sourceResolutionHint to locate the user source, apply the edit with the Edit tool, then discard this intent after it is handled.',
+      reason: 'Agent-resolve edit requires source resolution before writing source. Use sourceResolutionHint when present to locate the user source, apply the edit with the Edit tool, then discard this intent after it is handled.',
     }
   }
 
