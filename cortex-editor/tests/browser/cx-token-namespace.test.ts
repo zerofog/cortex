@@ -109,6 +109,12 @@ describe('--cx-* token namespace migration (ZF0-1179)', () => {
     expect(css).toContain('--cx-sp-8: 32px')
   })
 
+  it('tooltip rendering no longer uses overflow-clipped CSS pseudo-elements', () => {
+    const css = readFileSync(join(BROWSER_SRC, 'styles.css'), 'utf8')
+    expect(css).not.toContain('[data-tooltip]::after')
+    expect(css).toContain('.cortex-tooltip')
+  })
+
   it('blueprint dark-mode block uses --cx-* namespace', () => {
     const css = readFileSync(join(BROWSER_SRC, 'styles.css'), 'utf8')
     const blueprintMatch = css.match(/:host\(\[data-theme="blueprint"\]\)\s*\{([^}]*)\}/s)
