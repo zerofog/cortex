@@ -37,7 +37,7 @@ import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
 import { IconButton } from './controls/IconButton.js'
 import { BackgroundSection } from './sections/BackgroundSection.js'
-import { Plus } from './icons.js'
+import { ChevronDown, ChevronUp, Eye, EyeOff, Plus, X } from './icons.js'
 import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
 import { computePanelStyleSnapshot } from './panel-style-snapshot.js'
 import { ALL_DIMMING_PROPERTIES } from './sections/spacing-utils.js'
@@ -1455,17 +1455,11 @@ export function Panel({
           sourceFile={null}
           sourceLine={null}
           filePath={null}
-          hasParent={false}
-          hasChildren={false}
           onClose={onClose}
-          onSelectParent={() => {}}
-          onSelectChild={() => {}}
           onPointerDown={panelPointerDown}
           onPointerMove={panelPointerMove}
           onPointerUp={panelPointerUp}
           onPointerCancel={panelPointerCancel}
-          hoverEnabled={hoverEnabled}
-          onToggleHover={onToggleHover}
           bufferSize={buffer.size()}
           onApply={onApply}
           onApplyError={handleApplyError}
@@ -1485,11 +1479,7 @@ export function Panel({
                 class="cortex-apply-error__dismiss"
                 aria-label="Dismiss apply error"
               >
-                {/* Lucide X icon — 14×14, matches StagingDriftBanner dismiss */}
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <line x1="3.5" y1="3.5" x2="10.5" y2="10.5" />
-                  <line x1="10.5" y1="3.5" x2="3.5" y2="10.5" />
-                </svg>
+                <X size={14} />
               </button>
             </div>
           )}
@@ -1564,11 +1554,7 @@ export function Panel({
         sourceFile={sourceFile}
         sourceLine={sourceLine}
         filePath={filePath}
-        hasParent={hasParent}
-        hasChildren={hasChildren}
         onClose={onClose}
-        onSelectParent={handleSelectParent}
-        onSelectChild={handleSelectChild}
         onPointerDown={panelPointerDown}
         onPointerMove={panelPointerMove}
         onPointerUp={panelPointerUp}
@@ -1580,8 +1566,6 @@ export function Panel({
         isLibrary={isLibrary}
         ancestorSource={ancestor?.source.fileName ?? null}
         ancestorLine={ancestor?.source.line ?? null}
-        hoverEnabled={hoverEnabled}
-        onToggleHover={onToggleHover}
         bufferSize={buffer.size()}
         onApply={onApply}
         onApplyError={handleApplyError}
@@ -1677,11 +1661,7 @@ export function Panel({
               class="cortex-apply-error__dismiss"
               aria-label="Dismiss apply error"
             >
-              {/* Lucide X icon — 14×14, matches StagingDriftBanner dismiss */}
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <line x1="3.5" y1="3.5" x2="10.5" y2="10.5" />
-                <line x1="10.5" y1="3.5" x2="3.5" y2="10.5" />
-              </svg>
+              <X size={14} />
             </button>
           </div>
         )}
@@ -1713,7 +1693,48 @@ export function Panel({
             Typography → Appearance → Background → Border → Effects.
             Typography conditional on hasTypographyContent; Position hidden
             in shared-class "All" scope. */}
-        <SectionGroup label="Elements" groupId="elements">
+        <SectionGroup
+          label="Elements"
+          groupId="elements"
+          headerAction={(
+            <div class="cortex-elements-header-actions" role="group" aria-label="Element navigation and overlay controls">
+              <button
+                type="button"
+                class="cortex-elements-header-actions__btn"
+                data-action="parent"
+                disabled={!hasParent}
+                data-tooltip="Select parent element"
+                aria-label="Select parent element"
+                onClick={handleSelectParent}
+              >
+                <ChevronUp size={14} />
+              </button>
+              <button
+                type="button"
+                class="cortex-elements-header-actions__btn"
+                data-action="child"
+                disabled={!hasChildren}
+                data-tooltip="Select child element"
+                aria-label="Select child element"
+                onClick={handleSelectChild}
+              >
+                <ChevronDown size={14} />
+              </button>
+              <button
+                type="button"
+                class={`cortex-elements-header-actions__btn${hoverEnabled ? '' : ' cortex-elements-header-actions__btn--toggled-off'}`}
+                data-action="toggle-hover"
+                disabled={!onToggleHover}
+                data-tooltip={hoverEnabled ? 'Hide hover overlay' : 'Show hover overlay'}
+                aria-label={hoverEnabled ? 'Hide hover overlay' : 'Show hover overlay'}
+                aria-pressed={hoverEnabled ? 'true' : 'false'}
+                onClick={() => onToggleHover?.()}
+              >
+                {hoverEnabled ? <Eye size={14} /> : <EyeOff size={14} />}
+              </button>
+            </div>
+          )}
+        >
           <ElementTree
             element={element}
             onSelectElements={onSelectElements ?? ((els, _action) => onSelectElement(els[0] ?? null))}

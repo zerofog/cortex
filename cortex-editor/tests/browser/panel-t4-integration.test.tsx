@@ -158,14 +158,13 @@ describe('Panel T4 — StagingDriftBanner wiring', () => {
       />,
     )
 
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      // Banner should be present with the intent-drift row after the
+      // hmrChangedFiles reconcile effect commits.
+      const banner = root.querySelector('.cortex-drift-banner')
+      expect(banner).not.toBeNull()
+      expect(banner!.textContent).toContain('staged edit(s) may be affected by external changes')
     })
-
-    // Banner should be present with the intent-drift row
-    const banner = root.querySelector('.cortex-drift-banner')
-    expect(banner).not.toBeNull()
-    expect(banner!.textContent).toContain('staged edit(s) may be affected by external changes')
 
     cleanup()
     target.remove()

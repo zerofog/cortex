@@ -107,6 +107,7 @@ export function createShadowHost(opts?: { mode?: 'open' | 'closed' }): {
 export function createMockChannel(): CortexChannel & {
   _simulateMessage(msg: ServerToBrowser): void
   _simulateConnectionChange(state: ConnectionState): void
+  _handlerCount(): number
   _lastSent: unknown[]
 } {
   const handlers: Array<(msg: ServerToBrowser) => void> = []
@@ -123,6 +124,9 @@ export function createMockChannel(): CortexChannel & {
         if (idx >= 0) handlers.splice(idx, 1)
       }
     },
+    async sendAndAck() {
+      throw new Error('createMockChannel.sendAndAck must be stubbed by tests that exercise Apply')
+    },
     onConnectionChange(handler) {
       statusHandlers.push(handler)
       return () => {
@@ -132,6 +136,10 @@ export function createMockChannel(): CortexChannel & {
     },
     _simulateMessage(msg) { [...handlers].forEach(h => h(msg)) },
     _simulateConnectionChange(state) { [...statusHandlers].forEach(h => h(state)) },
+    // Lets tests wait for CortexApp's mount effect to subscribe before
+    // simulating server messages. That keeps activation tests on the same
+    // listener-before-message contract as production.
+    _handlerCount() { return handlers.length },
     _lastSent: sent,
   }
 }

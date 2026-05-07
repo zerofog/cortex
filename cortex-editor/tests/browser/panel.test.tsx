@@ -47,7 +47,7 @@ describe('Panel', () => {
     cleanup = null
   })
 
-  function setup(element?: HTMLElement) {
+  function setup(element?: HTMLElement, overrides?: Partial<Parameters<typeof Panel>[0]>) {
     const target = element ?? (() => {
       const el = document.createElement('div')
       el.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
@@ -74,6 +74,7 @@ describe('Panel', () => {
         onClose={onClose}
         onSelectElement={onSelectElement}
         {...panelPositionProps}
+        {...overrides}
       />
     )
     cleanup = () => {
@@ -157,6 +158,45 @@ describe('Panel', () => {
     // Task 15 consolidated shadow + effects into a single EffectsSection.
     const effectsGroup = root.querySelector('[data-group="effects"]')!
     expect(effectsGroup.querySelector('[data-section-id="effects"]')).not.toBeNull()
+  })
+
+  it('places element navigation and hover controls in the Elements header', () => {
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    const child = document.createElement('span')
+    target.appendChild(child)
+    document.body.appendChild(target)
+
+    const { root, onSelectElement } = setup(target)
+    const elementsGroup = root.querySelector('[data-group="elements"]')!
+    const parentBtn = elementsGroup.querySelector('[data-action="parent"]') as HTMLButtonElement
+    const childBtn = elementsGroup.querySelector('[data-action="child"]') as HTMLButtonElement
+    const hoverBtn = elementsGroup.querySelector('[data-action="toggle-hover"]') as HTMLButtonElement
+
+    expect(parentBtn).not.toBeNull()
+    expect(childBtn).not.toBeNull()
+    expect(hoverBtn).not.toBeNull()
+    expect(root.querySelector('.cortex-panel-header [data-action="parent"]')).toBeNull()
+    expect(hoverBtn.disabled).toBe(true)
+    expect(hoverBtn.getAttribute('aria-pressed')).toBe('true')
+
+    parentBtn.click()
+    childBtn.click()
+
+    expect(onSelectElement).toHaveBeenCalledWith(target.parentElement)
+    expect(onSelectElement).toHaveBeenCalledWith(child)
+  })
+
+  it('enables the hover overlay toggle when a handler is present and exposes pressed state', () => {
+    const onToggleHover = vi.fn()
+    const { root } = setup(undefined, { hoverEnabled: false, onToggleHover })
+    const hoverBtn = root.querySelector('[data-action="toggle-hover"]') as HTMLButtonElement
+
+    expect(hoverBtn.disabled).toBe(false)
+    expect(hoverBtn.getAttribute('aria-pressed')).toBe('false')
+
+    hoverBtn.click()
+    expect(onToggleHover).toHaveBeenCalledTimes(1)
   })
 
   it('calls onClose when close button clicked', () => {

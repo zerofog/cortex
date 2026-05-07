@@ -273,21 +273,8 @@ test.describe('Panel DESIGN.md compliance + per-control stale indicator (ZF0-149
           // "lucide-icons-only, no emoji" rule covers all pictographic glyphs,
           // not just the supplementary-plane emoji blocks.
           //
-          // ALLOWLIST: SpacingControls.tsx:6 documents an intentional choice
-          // to use ↔ (U+2194) and ↕ (U+2195) as compact axis indicators in
-          // NumericInput prefix labels rather than icon prefixes. These two
-          // codepoints have default emoji presentation per UTS #51 (so they
-          // match Extended_Pictographic), but they're text-style math/arrow
-          // symbols functioning as UI labels — same DESIGN.md role as the
-          // string "P" in "P ↔". A future refactor could swap them for
-          // Lucide ArrowLeftRight/ArrowUpDown icons; until then, the
-          // allowlist documents the deliberate exception so the scanner
-          // doesn't whack-a-mole on legitimate UI semantics.
-          const ALLOWED_PICTOGRAPHIC = new Set(['↔', '↕'])
           const emojiPattern = /\p{Extended_Pictographic}/u
-          const emojiChars = [...content].filter(
-            (ch) => emojiPattern.test(ch) && !ALLOWED_PICTOGRAPHIC.has(ch),
-          )
+          const emojiChars = [...content].filter((ch) => emojiPattern.test(ch))
           for (const ch of emojiChars) {
             found.push(`${cortexClassName}: U+${(ch.codePointAt(0) ?? 0).toString(16).toUpperCase()} "${ch}"`)
           }

@@ -1,40 +1,205 @@
 import type { JSX } from 'preact'
-import { useState, useRef, useLayoutEffect, useEffect } from 'preact/hooks'
-import { SegmentedControl } from './controls/SegmentedControl.js'
+import { useState, useRef, useLayoutEffect, useEffect, useCallback } from 'preact/hooks'
 import { getThemePreference, setThemePreference, type ThemePreference } from '../theme.js'
 import { encodeFilePath } from '../label.js'
+import { registerPopoverDismiss } from '../popover-stack.js'
+import { Check, ChevronDown, Monitor, Moon, Sun, X } from './icons.js'
 
 const THEME_OPTIONS = [
   {
     value: 'light',
+    label: 'Light',
     title: 'Light theme',
-    icon: (
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="6" cy="6" r="2.5" />
-        <path d="M6 1v1M6 10v1M1 6h1M10 6h1M2.5 2.5l.7.7M8.8 8.8l.7.7M9.5 2.5l-.7.7M3.2 8.8l-.7.7" />
-      </svg>
-    ),
+    icon: Sun,
   },
   {
     value: 'dark',
+    label: 'Dark',
     title: 'Dark theme',
-    icon: (
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M10 7.5A4.5 4.5 0 014.5 2c0-.3 0-.6.1-.9A5 5 0 006 11a5 5 0 004.9-4.4c-.3.1-.6.1-.9-.1z" />
-      </svg>
-    ),
+    icon: Moon,
   },
   {
     value: 'system',
+    label: 'System',
     title: 'Match system theme',
-    icon: (
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="1.5" y="2.5" width="9" height="6" rx="1" />
-        <line x1="4" y1="10" x2="8" y2="10" />
-      </svg>
-    ),
+    icon: Monitor,
   },
-]
+] satisfies Array<{
+  value: ThemePreference
+  label: string
+  title: string
+  icon: (props: { size?: number }) => JSX.Element
+}>
+
+/**
+ * Compact theme selector for the panel chrome.
+ *
+ * Business logic: updates the persisted Cortex theme preference through the
+ * same theme API as the old segmented control; only the presentation changes
+ * from three always-visible choices to a compact menu.
+ */
+function ThemeDropdown({
+  value,
+  onChange,
+}: {
+  value: ThemePreference
+  onChange: (value: ThemePreference) => void
+}): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const optionRefs = useRef(new Map<ThemePreference, HTMLButtonElement>())
+  const selected = THEME_OPTIONS.find((option) => option.value === value) ?? THEME_OPTIONS[2]!
+  const SelectedIcon = selected.icon
+
+  const close = useCallback(() => setOpen(false), [])
+  const focusSelectedOption = useCallback(() => {
+    const fallback = THEME_OPTIONS[0] ? optionRefs.current.get(THEME_OPTIONS[0].value) : null
+    const selectedOption = optionRefs.current.get(selected.value) ?? fallback
+    selectedOption?.focus()
+  }, [selected.value])
+
+  const handleSelect = useCallback(
+    (next: ThemePreference) => {
+      onChange(next)
+      close()
+      triggerRef.current?.focus()
+    },
+    [onChange, close],
+  )
+
+  useEffect(() => {
+    if (!open) return undefined
+    return registerPopoverDismiss(close)
+  }, [open, close])
+
+  useLayoutEffect(() => {
+    if (!open) return
+    focusSelectedOption()
+  }, [open, focusSelectedOption])
+
+  useEffect(() => {
+    if (!open) return undefined
+    const root = rootRef.current
+    if (!root) return undefined
+
+    const handleFocusOut = (event: FocusEvent): void => {
+      const next = event.relatedTarget
+      if (next instanceof Node && root.contains(next)) return
+      close()
+    }
+
+    root.addEventListener('focusout', handleFocusOut)
+    return () => root.removeEventListener('focusout', handleFocusOut)
+  }, [open, close])
+
+  const handleTriggerKeyDown = useCallback(
+    (event: KeyboardEvent): void => {
+      if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        event.stopPropagation()
+        if (open) {
+          focusSelectedOption()
+        } else {
+          setOpen(true)
+        }
+      } else if (event.key === 'Escape' && open) {
+        event.preventDefault()
+        event.stopPropagation()
+        close()
+      }
+    },
+    [open, close, focusSelectedOption],
+  )
+
+  const handleMenuKeyDown = useCallback(
+    (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        close()
+        triggerRef.current?.focus()
+        return
+      }
+
+      const currentIndex = THEME_OPTIONS.findIndex((option) => optionRefs.current.get(option.value) === document.activeElement)
+      if (currentIndex < 0) return
+
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
+        event.preventDefault()
+        event.stopPropagation()
+        let nextIndex = currentIndex
+        if (event.key === 'ArrowDown') nextIndex = Math.min(currentIndex + 1, THEME_OPTIONS.length - 1)
+        if (event.key === 'ArrowUp') nextIndex = Math.max(currentIndex - 1, 0)
+        if (event.key === 'Home') nextIndex = 0
+        if (event.key === 'End') nextIndex = THEME_OPTIONS.length - 1
+        optionRefs.current.get(THEME_OPTIONS[nextIndex]!.value)?.focus()
+      }
+    },
+    [close],
+  )
+
+  return (
+    <div ref={rootRef} class="cortex-theme-dropdown">
+      <button
+        ref={triggerRef}
+        type="button"
+        class="cortex-theme-dropdown__trigger"
+        data-action="theme"
+        data-tooltip={selected.title}
+        aria-label={`Theme: ${selected.label}`}
+        aria-haspopup="menu"
+        aria-expanded={open ? 'true' : 'false'}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={handleTriggerKeyDown}
+      >
+        <SelectedIcon size={12} />
+        <ChevronDown size={10} />
+      </button>
+      {open && (
+        <>
+          <div
+            class="cortex-theme-dropdown__backdrop"
+            aria-hidden="true"
+            onClick={() => setOpen(false)}
+          />
+          <div
+            class="cortex-theme-dropdown__menu"
+            role="menu"
+            aria-label="Theme"
+            onKeyDown={handleMenuKeyDown}
+          >
+            {THEME_OPTIONS.map((option) => {
+              const OptionIcon = option.icon
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  class={`cortex-theme-dropdown__option${option.value === value ? ' cortex-theme-dropdown__option--selected' : ''}`}
+                  data-theme-option={option.value}
+                  role="menuitemradio"
+                  aria-checked={option.value === value ? 'true' : 'false'}
+                  ref={(node) => {
+                    if (node) {
+                      optionRefs.current.set(option.value, node)
+                    } else {
+                      optionRefs.current.delete(option.value)
+                    }
+                  }}
+                  onClick={() => handleSelect(option.value)}
+                >
+                  <span class="cortex-theme-dropdown__option-icon"><OptionIcon size={12} /></span>
+                  <span class="cortex-theme-dropdown__option-label">{option.label}</span>
+                  {option.value === value && <Check size={12} />}
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
 
 export interface PanelHeaderProps {
   tagName: string
@@ -42,11 +207,7 @@ export interface PanelHeaderProps {
   sourceFile: string | null
   sourceLine: string | null
   filePath: string | null
-  hasParent: boolean
-  hasChildren: boolean
   onClose: () => void
-  onSelectParent: () => void
-  onSelectChild: () => void
   onPointerDown?: (e: PointerEvent) => void
   onPointerMove?: (e: PointerEvent) => void
   onPointerUp?: (e: PointerEvent) => void
@@ -58,8 +219,6 @@ export interface PanelHeaderProps {
   isLibrary?: boolean
   ancestorSource?: string | null
   ancestorLine?: string | null
-  hoverEnabled?: boolean
-  onToggleHover?: () => void
   /** Number of edits in the staging buffer. Apply button is hidden when 0. */
   bufferSize: number
   /** Called when the designer clicks Apply. Returns a Promise that resolves on
@@ -86,11 +245,7 @@ export function PanelHeader({
   sourceFile,
   sourceLine,
   filePath,
-  hasParent,
-  hasChildren,
   onClose,
-  onSelectParent,
-  onSelectChild,
   onPointerDown,
   onPointerMove,
   onPointerUp,
@@ -102,8 +257,6 @@ export function PanelHeader({
   isLibrary,
   ancestorSource,
   ancestorLine,
-  hoverEnabled = true,
-  onToggleHover,
   bufferSize,
   onApply,
   onApplyError,
@@ -211,55 +364,7 @@ export function PanelHeader({
         )}
       </div>
       <div class="cortex-panel-header__actions">
-        <SegmentedControl
-          options={THEME_OPTIONS}
-          value={themePref}
-          onChange={(v) => handleThemeChange(v as ThemePreference)}
-          size="sm"
-        />
-        <button
-          class="cortex-panel-header__btn"
-          data-action="parent"
-          disabled={!hasParent}
-          data-tooltip="Select parent element"
-          aria-label="Select parent element"
-          onClick={onSelectParent}
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="3.5,8.5 7,5 10.5,8.5" />
-          </svg>
-        </button>
-        <button
-          class="cortex-panel-header__btn"
-          data-action="child"
-          disabled={!hasChildren}
-          data-tooltip="Select child element"
-          aria-label="Select child element"
-          onClick={onSelectChild}
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="3.5,5.5 7,9 10.5,5.5" />
-          </svg>
-        </button>
-        <button
-          class={`cortex-panel-header__btn${hoverEnabled ? '' : ' cortex-panel-header__btn--toggled-off'}`}
-          data-action="toggle-hover"
-          data-tooltip={hoverEnabled ? 'Hide hover overlay' : 'Show hover overlay'}
-          aria-label={hoverEnabled ? 'Hide hover overlay' : 'Show hover overlay'}
-          onClick={onToggleHover}
-        >
-          {hoverEnabled ? (
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M1 7s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z" />
-              <circle cx="7" cy="7" r="1.5" />
-            </svg>
-          ) : (
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M1 7s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z" />
-              <line x1="2" y1="2" x2="12" y2="12" />
-            </svg>
-          )}
-        </button>
+        <ThemeDropdown value={themePref} onChange={handleThemeChange} />
         {bufferSize > 0 && !pendingClaude && (
           <button
             class="cortex-panel-header__btn cortex-panel-header__btn--apply"
@@ -280,10 +385,7 @@ export function PanelHeader({
           aria-label="Close panel"
           onClick={onClose}
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="3.5" y1="3.5" x2="10.5" y2="10.5" />
-            <line x1="10.5" y1="3.5" x2="3.5" y2="10.5" />
-          </svg>
+          <X size={14} />
         </button>
       </div>
       {showPseudoTabs && (

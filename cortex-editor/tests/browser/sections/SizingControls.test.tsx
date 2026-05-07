@@ -311,6 +311,15 @@ describe('SizingControls', () => {
     expect(maxInput).not.toBeNull()
   })
 
+  it('renders min/max dismiss affordance with the same Lucide icon size as the lock control', () => {
+    setup({ values: { ...DEFAULT_VALUES, maxWidth: '500px' } })
+    const dismiss = container.querySelector('[aria-label="Remove Max Width"]') as HTMLButtonElement
+    const icon = dismiss.querySelector('svg')
+    expect(dismiss.classList.contains('cortex-layout-section__minmax-dismiss')).toBe(true)
+    expect(icon?.getAttribute('width')).toBe('14')
+    expect(icon?.getAttribute('height')).toBe('14')
+  })
+
   it('handles auto width gracefully — displays 0 and shows "fixed" mode', () => {
     setup({ values: { ...DEFAULT_VALUES, width: 'auto' } })
     const widthInput = container.querySelector('.cortex-numeric-input input') as HTMLInputElement

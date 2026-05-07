@@ -1,6 +1,7 @@
 import type { JSX } from 'preact'
 import { useMemo, useState } from 'preact/hooks'
 import { getTreeLabel } from '../label.js'
+import { ChevronRight } from './icons.js'
 
 export interface TreeNode {
   element: HTMLElement
@@ -106,9 +107,7 @@ function TreeNodeRow({ node, onSelectElement }: { node: TreeNode; onSelectElemen
               else onSelectElement(node.element)
             }}
           >
-            <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
-              <path d="M2 1l4 3-4 3z" />
-            </svg>
+            <ChevronRight size={8} />
           </span>
         ) : (
           <span class="cortex-layer-chevron-spacer" />

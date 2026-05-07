@@ -98,6 +98,13 @@ exports[`icons.tsx — lucide.dev snapshot inventory > <ArrowLeft /> renders the
 }
 `;
 
+exports[`icons.tsx — lucide.dev snapshot inventory > <ArrowLeftRight /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M8 3 4 7l4 4"></path><path d="M4 7h16"></path><path d="m16 21 4-4-4-4"></path><path d="M20 17H4"></path></svg>",
+  "icon": "ArrowLeftRight",
+}
+`;
+
 exports[`icons.tsx — lucide.dev snapshot inventory > <ArrowRight /> renders the lucide.dev SVG verbatim 1`] = `
 {
   "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>",
@@ -112,10 +119,24 @@ exports[`icons.tsx — lucide.dev snapshot inventory > <ArrowUp /> renders the l
 }
 `;
 
+exports[`icons.tsx — lucide.dev snapshot inventory > <ArrowUpDown /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="m21 16-4 4-4-4"></path><path d="M17 20V4"></path><path d="m3 8 4-4 4 4"></path><path d="M7 4v16"></path></svg>",
+  "icon": "ArrowUpDown",
+}
+`;
+
 exports[`icons.tsx — lucide.dev snapshot inventory > <ArrowUpFromLine /> renders the lucide.dev SVG verbatim 1`] = `
 {
   "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="m18 9-6-6-6 6"></path><path d="M12 3v14"></path><path d="M5 21h14"></path></svg>",
   "icon": "ArrowUpFromLine",
+}
+`;
+
+exports[`icons.tsx — lucide.dev snapshot inventory > <Baseline /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M4 20h16"></path><path d="m6 16 6-12 6 12"></path><path d="M8 12h8"></path></svg>",
+  "icon": "Baseline",
 }
 `;
 
@@ -144,6 +165,13 @@ exports[`icons.tsx — lucide.dev snapshot inventory > <ChevronRight /> renders 
 {
   "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>",
   "icon": "ChevronRight",
+}
+`;
+
+exports[`icons.tsx — lucide.dev snapshot inventory > <ChevronUp /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="m18 15-6-6-6 6"></path></svg>",
+  "icon": "ChevronUp",
 }
 `;
 
@@ -231,6 +259,13 @@ exports[`icons.tsx — lucide.dev snapshot inventory > <GalleryVerticalEnd /> re
 }
 `;
 
+exports[`icons.tsx — lucide.dev snapshot inventory > <GripVertical /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="9" cy="12" r="1"></circle><circle cx="9" cy="5" r="1"></circle><circle cx="9" cy="19" r="1"></circle><circle cx="15" cy="12" r="1"></circle><circle cx="15" cy="5" r="1"></circle><circle cx="15" cy="19" r="1"></circle></svg>",
+  "icon": "GripVertical",
+}
+`;
+
 exports[`icons.tsx — lucide.dev snapshot inventory > <LayoutGrid /> renders the lucide.dev SVG verbatim 1`] = `
 {
   "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><rect width="7" height="7" x="3" y="3" rx="1"></rect><rect width="7" height="7" x="14" y="3" rx="1"></rect><rect width="7" height="7" x="14" y="14" rx="1"></rect><rect width="7" height="7" x="3" y="14" rx="1"></rect></svg>",
@@ -273,10 +308,38 @@ exports[`icons.tsx — lucide.dev snapshot inventory > <Maximize /> renders the 
 }
 `;
 
+exports[`icons.tsx — lucide.dev snapshot inventory > <MessageSquare /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"></path></svg>",
+  "icon": "MessageSquare",
+}
+`;
+
 exports[`icons.tsx — lucide.dev snapshot inventory > <Minus /> renders the lucide.dev SVG verbatim 1`] = `
 {
   "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M5 12h14"></path></svg>",
   "icon": "Minus",
+}
+`;
+
+exports[`icons.tsx — lucide.dev snapshot inventory > <Monitor /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><rect width="20" height="14" x="2" y="3" rx="2"></rect><line x1="8" x2="16" y1="21" y2="21"></line><line x1="12" x2="12" y1="17" y2="21"></line></svg>",
+  "icon": "Monitor",
+}
+`;
+
+exports[`icons.tsx — lucide.dev snapshot inventory > <Moon /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"></path></svg>",
+  "icon": "Moon",
+}
+`;
+
+exports[`icons.tsx — lucide.dev snapshot inventory > <MousePointer2 /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z"></path></svg>",
+  "icon": "MousePointer2",
 }
 `;
 
@@ -371,10 +434,24 @@ exports[`icons.tsx — lucide.dev snapshot inventory > <SquareSideTop /> renders
 }
 `;
 
+exports[`icons.tsx — lucide.dev snapshot inventory > <Sun /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></svg>",
+  "icon": "Sun",
+}
+`;
+
 exports[`icons.tsx — lucide.dev snapshot inventory > <SwatchBook /> renders the lucide.dev SVG verbatim 1`] = `
 {
   "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M11 17a4 4 0 0 1-8 0V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2z"></path><path d="M16.7 13H19a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H7"></path><path d="M10.9 7.114l1.515-1.515a2 2 0 0 1 2.828 0l2.829 2.829a2 2 0 0 1 0 2.828l-7.071 7.071"></path><path d="M7 17h.01"></path></svg>",
   "icon": "SwatchBook",
+}
+`;
+
+exports[`icons.tsx — lucide.dev snapshot inventory > <TriangleAlert /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>",
+  "icon": "TriangleAlert",
 }
 `;
 
