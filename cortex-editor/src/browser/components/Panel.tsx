@@ -29,6 +29,8 @@ import { AppearanceSection } from './sections/AppearanceSection.js'
 import type { InteractionState } from '../state-detector.js'
 import { detectSharedClasses } from '../shared-class-detector.js'
 import type { SharedClassInfo } from '../shared-class-detector.js'
+import { detectSharedSource } from '../shared-source-detector.js'
+import type { SharedSourceInfo } from '../shared-source-detector.js'
 import { EditErrorCard } from './EditErrorCard.js'
 import type { EditError } from './EditErrorCard.js'
 import { CommentInput } from './CommentInput.js'
@@ -44,6 +46,7 @@ import type { PendingEdit, SyncEmitter } from '../hooks/useEditStagingBuffer.js'
 import { generateId } from '../uuid.js'
 import { StagingDriftBanner } from './StagingDriftBanner.js'
 import { SpacingTokensContext } from '../tokens/TokenContext.js'
+import { deepQueryAllElements } from '../selection-metadata.js'
 
 // ── Connection status footer ─────────────────────────────────────────
 
@@ -106,13 +109,14 @@ function ensureBlastRadiusStyle(): void {
 let highlightFrame = 0
 let clearFrame = 0
 
-function highlightSharedElements(info: SharedClassInfo, selected: HTMLElement | null): void {
+function highlightSharedElements(info: SharedClassInfo | SharedSourceInfo, selected: HTMLElement | null): void {
   ensureBlastRadiusStyle()
   cancelAnimationFrame(clearFrame)
   cancelAnimationFrame(highlightFrame)
   highlightFrame = requestAnimationFrame(() => {
     for (const el of info.elements) {
       if (el === selected) continue
+      if (!el.isConnected) continue
       el.setAttribute(HIGHLIGHT_ATTR, '')
     }
   })
@@ -122,8 +126,15 @@ function clearHighlights(): void {
   cancelAnimationFrame(highlightFrame)
   cancelAnimationFrame(clearFrame)
   clearFrame = requestAnimationFrame(() => {
-    const highlighted = document.querySelectorAll(`[${HIGHLIGHT_ATTR}]`)
-    for (const el of highlighted) {
+    // Use deep, Element-typed traversal so highlights set on:
+    //   (a) shadow-hosted nodes (document.querySelectorAll doesn't pierce
+    //       shadow boundaries — would leak the attribute), and
+    //   (b) non-HTMLElement nodes (SVG / MathML / other namespaced siblings
+    //       that highlightSharedElements may have set the attribute on via
+    //       SharedClassInfo.elements — deepQuerySelectorAll's HTMLElement
+    //       filter would silently skip these and orphan the attribute)
+    // are both cleared symmetrically.
+    for (const el of deepQueryAllElements(`[${HIGHLIGHT_ATTR}]`)) {
       el.removeAttribute(HIGHLIGHT_ATTR)
     }
   })
@@ -448,6 +459,8 @@ export function Panel({
   // Shared class detection + scope toggle for instance-level editing (ZF0-1018)
   const [sharedInfo, setSharedInfo] = useState<SharedClassInfo | null>(null)
   const [editScope, setEditScope] = useState<'instance' | 'all'>('instance')
+  // Shared source detection for warning-only banner (ZF0-1583)
+  const [sharedSourceInfo, setSharedSourceInfo] = useState<SharedSourceInfo | null>(null)
 
   // Typography section dual-mode toggle: auto picks from detected token classes
 
@@ -551,6 +564,26 @@ export function Panel({
     }
   }, [element, hmrAppliedVersion])
 
+  // Detect shared source location when a new element is selected (ZF0-1583), and
+  // re-run on hmrAppliedVersion bumps because `sharedSourceInfo.elements` caches
+  // DOM refs — an HMR edit can add or remove siblings sharing the same source.
+  // Warning-only: no scope toggle, no commit-path changes.
+  useEffect(() => {
+    if (element) {
+      try {
+        setSharedSourceInfo(detectSharedSource(element))
+      } catch (err) {
+        // Cross-origin DOM access throws SecurityError — known path, don't
+        // warn. Anything else is a bug; log it so it shows up in devtools.
+        if (!(err instanceof DOMException && err.name === 'SecurityError')) {
+          console.warn('[cortex] detectSharedSource unexpected error', err)
+        }
+        setSharedSourceInfo(null)
+      }
+    } else {
+      setSharedSourceInfo(null)
+    }
+  }, [element, hmrAppliedVersion])
 
   // Sync strategy: bump counter on committed changes to force getComputedStyle re-read.
   // During scrub, trust NumericInput local state (no re-render per frame).
@@ -1616,6 +1649,17 @@ export function Panel({
               All
             </button>
           </div>
+        </div>
+      )}
+      {sharedSourceInfo && !sharedInfo && (
+        <div
+          class="cortex-panel__scope cortex-panel__scope--source-only"
+          onMouseEnter={() => highlightSharedElements(sharedSourceInfo, element)}
+          onMouseLeave={() => clearHighlights()}
+        >
+          <span class="cortex-panel__scope-label">
+            Used by {sharedSourceInfo.count} elements
+          </span>
         </div>
       )}
       <div class="cortex-panel__body" ref={bodyRef}>
