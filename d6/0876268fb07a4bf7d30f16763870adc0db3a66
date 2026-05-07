@@ -1,0 +1,19 @@
+cortex-editor/tests/browser/hooks/use-canvas-zoom.test.tsx
+  s_32cd34190d2c45::t_6a93e2a5091b9b 154-168,171,183,201,246,261,291,316,327,419,447,468,496
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "d60876268fb07a4bf7d30f16763870adc0db3a66",
+  "prompts": {},
+  "sessions": {
+    "s_32cd34190d2c45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dff0f-5cd2-7a13-8b87-32b2fa2505cc",
+        "model": "gpt-5.5"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
