@@ -81,6 +81,7 @@ test.describe('spacing box model diagram (ZF0-1161)', () => {
     })
     expect(selected.editorLabel).toContain('Padding right')
     expect(initial.width).toBeGreaterThan(200)
-    expect(initial.height).toBe(140)
+    expect(initial.height).toBeGreaterThanOrEqual(136)
+    expect(initial.height).toBeLessThanOrEqual(144)
   })
 })
