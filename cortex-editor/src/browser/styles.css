@@ -1649,6 +1649,16 @@
   font-weight: var(--cx-weight-value);
 }
 
+.cortex-segmented--disabled .cortex-segmented__indicator {
+  opacity: 0;
+}
+
+.cortex-segmented--disabled .cortex-segmented__option,
+.cortex-segmented--disabled .cortex-segmented__option:hover:not(.cortex-segmented__option--active) {
+  color: var(--cx-ink-tertiary);
+  cursor: not-allowed;
+}
+
 .cortex-segmented--sm .cortex-segmented__option {
   height: 22px;
   padding: 0 var(--cx-sp-3);
