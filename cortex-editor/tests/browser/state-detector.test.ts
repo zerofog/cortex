@@ -86,24 +86,6 @@ describe('detectStates', () => {
     expect(result.hover.get('display')).toBe('flex')
   })
 
-  // TODO: requires real CSSOM (happy-dom limitation)
-  it.skip('recurses into @layer rules', () => {
-    styleEl.textContent = '@layer base { .btn:hover { opacity: 0.8; } }'
-    const result = detectStates(target)
-    expect(result.hover.get('opacity')).toBe('0.8')
-  })
-
-  // TODO: requires real CSSOM (happy-dom limitation)
-  it.skip('handles cross-origin stylesheets gracefully (no throw)', () => {
-    // Needs real cross-origin simulation to verify SecurityError handling.
-    // With a real cross-origin <link>, cssRules access throws SecurityError.
-    // The function should catch it and return empty maps (no states detected).
-    const result = detectStates(target)
-    expect(result.hover.size).toBe(0)
-    expect(result.focus.size).toBe(0)
-    expect(result.active.size).toBe(0)
-  })
-
   it('handles descendant selectors: .parent:hover .child', () => {
     const parent = document.createElement('div')
     parent.className = 'parent'
@@ -191,13 +173,6 @@ describe('detectStates', () => {
     link.remove()
   })
 
-  // TODO: requires real CSSOM (happy-dom limitation)
-  it.skip('handles CSS nesting (&:hover inside parent rule)', () => {
-    styleEl.textContent = '.btn { color: red; &:hover { background-color: blue; } }'
-    const result = detectStates(target)
-    expect(result.hover.get('background-color')).toBe('blue')
-  })
-
   it('skips ::after pseudo-element selectors', () => {
     styleEl.textContent = '.btn:hover::after { content: "→"; }'
     const result = detectStates(target)
@@ -226,10 +201,4 @@ describe('detectStates', () => {
     wrapper.remove()
   })
 
-  // TODO: requires real CSSOM (happy-dom limitation)
-  it.skip('handles &.modifier:hover in nested CSS (no crash)', () => {
-    styleEl.textContent = '.btn { &.primary:hover { color: white; } }'
-    const result = detectStates(target)
-    expect(result.hover.get('color')).toBe('white')
-  })
 })
