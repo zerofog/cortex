@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { extractTextComponents } from '../../src/core/text-components.js'
@@ -159,6 +159,28 @@ describe('TailwindResolver.resolveColorChips', () => {
         { name: 'gray-900', hex: '#111827' },
       ]),
     )
+  })
+
+  it('returns default v4 color chips when the app only imports tailwindcss', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-default-'))
+    mkdirSync(join(dir, 'node_modules', 'tailwindcss'), { recursive: true })
+    writeFileSync(join(dir, 'node_modules', 'tailwindcss', 'package.json'), '{"name":"tailwindcss"}')
+    writeFileSync(
+      join(dir, 'node_modules', 'tailwindcss', 'theme.css'),
+      `@theme default {
+  --color-white: #fff;
+  --color-slate-200: #e2e8f0;
+}
+`,
+    )
+    writeFileSync(join(dir, 'app.css'), '@import "tailwindcss";\n')
+
+    const result = await TailwindResolver.resolveColorChips(dir)
+
+    expect(result).toEqual([
+      { name: 'white', hex: '#ffffff' },
+      { name: 'slate-200', hex: '#e2e8f0' },
+    ])
   })
 
   it('returns empty array when @theme has no color entries', async () => {

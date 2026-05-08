@@ -424,7 +424,7 @@ export class TailwindResolver {
 
   /**
    * Resolve named design-system color chips from the project's Tailwind v4
-   * @theme. Returns `[{ name: 'brand-500', hex: '#3b82f6' }, ...]` — names
+   * theme. Returns `[{ name: 'brand-500', hex: '#3b82f6' }, ...]` — names
    * are the token identifier stripped of `--color-`, hex is the browser-
    * ready value after OKLCH/rgb normalization.
    *
@@ -437,14 +437,13 @@ export class TailwindResolver {
   static async resolveColorChips(
     projectRoot: string,
   ): Promise<Array<{ name: string; hex: string }> | null> {
-    const { findV4EntryCSS, extractThemeProperties, themePropertiesToResolved } = await import(
-      './tailwind-v4-parser.js'
-    )
+    const { findV4EntryCSS, parseV4Theme } = await import('./tailwind-v4-parser.js')
     const userCSS = await findV4EntryCSS(projectRoot)
     if (!userCSS) return null
 
-    const properties = extractThemeProperties(userCSS)
-    const theme = themePropertiesToResolved(properties)
+    const theme = await parseV4Theme(projectRoot)
+    if (!theme) return []
+
     const chips: Array<{ name: string; hex: string }> = []
 
     const flatten = (obj: Record<string, unknown>, prefix: string): void => {
