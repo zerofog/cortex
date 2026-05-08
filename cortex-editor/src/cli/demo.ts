@@ -291,6 +291,15 @@ const TEMPLATE_FILES: Record<string, string> = {
   'src/index.css': INDEX_CSS,
 }
 
+const DEMO_GIT_CONFIG = [
+  '-c',
+  'maintenance.auto=false',
+  '-c',
+  'gc.auto=0',
+  '-c',
+  'core.hooksPath=.git/hooks-disabled',
+]
+
 function writeTemplates(demoDir: string): void {
   // package.json is dynamic (resolves cortex-editor path)
   const pkgJson = resolvePackageJson(demoDir)
@@ -305,19 +314,36 @@ function writeTemplates(demoDir: string): void {
   }
 }
 
+function runDemoGit(demoDir: string, args: string[]): void {
+  execFileSync('git', [...DEMO_GIT_CONFIG, ...args], {
+    cwd: demoDir,
+    stdio: 'ignore',
+    env: {
+      ...process.env,
+      GIT_TRACE2: '0',
+      GIT_TRACE2_EVENT: '0',
+      GIT_TRACE2_PERF: '0',
+    },
+  })
+}
+
 function gitInit(demoDir: string): void {
-  execFileSync('git', ['init'], { cwd: demoDir, stdio: 'ignore' })
-  execFileSync('git', ['add', '-A'], { cwd: demoDir, stdio: 'ignore' })
-  execFileSync(
-    'git',
-    ['-c', 'user.name=cortex', '-c', 'user.email=cortex@demo', 'commit', '-m', 'initial scaffold'],
-    { cwd: demoDir, stdio: 'ignore' }
-  )
+  runDemoGit(demoDir, ['init'])
+  runDemoGit(demoDir, ['add', '-A'])
+  runDemoGit(demoDir, [
+    '-c',
+    'user.name=cortex',
+    '-c',
+    'user.email=cortex@demo',
+    'commit',
+    '-m',
+    'initial scaffold',
+  ])
 }
 
 function gitReset(demoDir: string): void {
-  execFileSync('git', ['checkout', '.'], { cwd: demoDir, stdio: 'ignore' })
-  execFileSync('git', ['clean', '-fd'], { cwd: demoDir, stdio: 'ignore' })
+  runDemoGit(demoDir, ['checkout', '.'])
+  runDemoGit(demoDir, ['clean', '-fd'])
 }
 
 function openBrowser(url: string): void {
