@@ -63,6 +63,11 @@ export interface CortexTestBridge {
     handleHMRVerified: (editId: string, match: boolean, kind: string) => void
     _testOnly_evictStale: (source: string, property: string, pseudo?: '::before' | '::after') => void
   }
+  detectStates?: (el: HTMLElement) => {
+    hover: Record<string, string>
+    focus: Record<string, string>
+    active: Record<string, string>
+  }
   channel?: unknown
   selectElement?: (el: HTMLElement | null) => void
   onDivergence?: (cb: (d: OverrideDivergence) => void) => () => void

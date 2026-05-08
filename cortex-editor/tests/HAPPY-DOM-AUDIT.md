@@ -19,10 +19,10 @@ Primary scan commands:
 
 | File:line | Signal | Classification | Decision |
 | --- | --- | --- | --- |
-| `tests/browser/state-detector.test.ts:90` | `@layer` recursion skipped | Happy-dom theatre if kept in Layer 2 | Move to e2e. Filed ZF0-1558. |
-| `tests/browser/state-detector.test.ts:97` | cross-origin stylesheet `cssRules` access skipped | Happy-dom theatre if kept in Layer 2 | Move to e2e. Filed ZF0-1558. |
-| `tests/browser/state-detector.test.ts:195` | CSS nesting `&:hover` skipped | Happy-dom theatre if kept in Layer 2 | Move to e2e. Filed ZF0-1558. |
-| `tests/browser/state-detector.test.ts:230` | nested `&.modifier:hover` skipped | Happy-dom theatre if kept in Layer 2 | Move to e2e. Filed ZF0-1558. |
+| `tests/browser/state-detector.test.ts:90` | `@layer` recursion skipped | Happy-dom theatre if kept in Layer 2 | Covered by `tests/e2e/state-detector-cssom.spec.ts` in ZF0-1558; Layer 2 skip removed. |
+| `tests/browser/state-detector.test.ts:97` | cross-origin stylesheet `cssRules` access skipped | Happy-dom theatre if kept in Layer 2 | Covered by `tests/e2e/state-detector-cssom.spec.ts` in ZF0-1558; Layer 2 skip removed. |
+| `tests/browser/state-detector.test.ts:195` | CSS nesting `&:hover` skipped | Happy-dom theatre if kept in Layer 2 | Covered by `tests/e2e/state-detector-cssom.spec.ts` in ZF0-1558; Layer 2 skip removed. |
+| `tests/browser/state-detector.test.ts:230` | nested `&.modifier:hover` skipped | Happy-dom theatre if kept in Layer 2 | Covered by `tests/e2e/state-detector-cssom.spec.ts` in ZF0-1558; Layer 2 skip removed. |
 | `tests/browser/override.test.ts:1303` | color canonicalization skipped because happy-dom does not canonicalize like Chromium | Correct skip | Already covered by `tests/e2e/override-canonicalization.spec.ts`. |
 | `tests/browser/bootstrap.test.ts:191` | background luminance fallback skipped because computed background colors are not meaningful | Happy-dom theatre if kept in Layer 2 | Move to e2e. Filed ZF0-1562. |
 | `tests/browser/components/SectionGroup.test.tsx:104` | title typography token resolution skipped until real CSSOM | Happy-dom theatre if kept in Layer 2 | Move to e2e. Filed ZF0-1565. |
