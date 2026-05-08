@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
 import { AlignmentGrid } from '../../../src/browser/components/controls/AlignmentGrid.js'
-import { dispatchMouseEvent } from '../helpers.js'
+import { dispatchMouseEvent, mockGetBoundingClientRect } from '../helpers.js'
 
 /**
  * AlignmentGrid tests.
@@ -221,8 +221,154 @@ describe('AlignmentGrid', () => {
     // Span element is rendered.
     const span = container.querySelector('.cortex-alignment-grid__span--row')
     expect(span).not.toBeNull()
+    expect(span!.getAttribute('aria-label')).toBe('Distribution indicator')
     const bars = span!.querySelectorAll('.cortex-alignment-grid__span-bar')
     expect(bars.length).toBe(3)
+  })
+
+  it('non-canonical justifyValue (stretch) replaces the row with a span indicator for grid X stretch', () => {
+    setup({ justifyValue: 'stretch', alignValue: 'center' })
+    const cells = getCells()
+    expect(cells.length).toBe(6)
+    const span = container.querySelector('.cortex-alignment-grid__span--row')
+    expect(span).not.toBeNull()
+    expect(span!.getAttribute('aria-label')).toBe('Main-axis span indicator')
+    expect(span!.querySelectorAll('.cortex-alignment-grid__span-bar').length).toBe(3)
+  })
+
+  it('distribution + stretch renders a full-grid indicator with no blank cells', () => {
+    setup({ justifyValue: 'space-around', alignValue: 'stretch' })
+    expect(getCells().length).toBe(0)
+    const full = container.querySelector('.cortex-alignment-grid__span--full')
+    expect(full).not.toBeNull()
+    expect(full!.getAttribute('aria-label')).toBe('Full alignment span indicator')
+    expect(full!.querySelectorAll('.cortex-alignment-grid__span-bar').length).toBe(3)
+  })
+
+  it('stretch + stretch renders a full-grid indicator for grid item stretch on both axes', () => {
+    setup({ justifyValue: 'stretch', alignValue: 'stretch' })
+    expect(getCells().length).toBe(0)
+    const full = container.querySelector('.cortex-alignment-grid__span--full')
+    expect(full).not.toBeNull()
+    expect(full!.getAttribute('aria-label')).toBe('Full alignment span indicator')
+    expect(full!.querySelectorAll('.cortex-alignment-grid__span-bar').length).toBe(3)
+    expect(full!.querySelectorAll('.cortex-alignment-grid__span-dot').length).toBe(0)
+  })
+
+  it('clicking a full-grid stretch indicator maps the click position to the virtual cell', () => {
+    const { onJustify, onAlign } = setup({ justifyValue: 'stretch', alignValue: 'stretch' })
+    const full = container.querySelector('.cortex-alignment-grid__span--full') as HTMLElement
+    const restoreRect = mockGetBoundingClientRect(full, {
+      left: 0,
+      top: 0,
+      right: 90,
+      bottom: 90,
+      width: 90,
+      height: 90,
+    })
+
+    try {
+      dispatchMouseEvent(full, 'click', { clientX: 75, clientY: 75, detail: 1 })
+      expect(onJustify).toHaveBeenCalledTimes(1)
+      expect(onJustify).toHaveBeenCalledWith('flex-end')
+      expect(onAlign).toHaveBeenCalledTimes(1)
+      expect(onAlign).toHaveBeenCalledWith('flex-end')
+    } finally {
+      restoreRect()
+    }
+  })
+
+  it('baseline on a positional cross axis renders a column baseline indicator, not stretch bars', () => {
+    setup({ justifyValue: 'flex-end', alignValue: 'baseline' })
+    expect(getCells().length).toBe(6)
+    const span = container.querySelector('.cortex-alignment-grid__span--col-baseline')
+    expect(span).not.toBeNull()
+    expect(span!.getAttribute('aria-label')).toBe('Baseline indicator')
+    expect(span!.querySelector('.cortex-alignment-grid__span-icon')).not.toBeNull()
+    expect(span!.querySelectorAll('.cortex-alignment-grid__cell__dot').length).toBe(2)
+    expect(span!.querySelectorAll('.cortex-alignment-grid__span-bar').length).toBe(0)
+    expect(container.querySelector('.cortex-alignment-grid__span--full')).toBeNull()
+  })
+
+  it('space-between + baseline renders the row baseline without edge ticks', () => {
+    setup({ justifyValue: 'space-between', alignValue: 'baseline' })
+    expect(getCells().length).toBe(6)
+    const span = container.querySelector('.cortex-alignment-grid__span--row-baseline')
+    expect(span).not.toBeNull()
+    expect(span!.getAttribute('aria-label')).toBe('Baseline distribution indicator')
+    expect(span!.querySelector('.cortex-alignment-grid__span-icon')).not.toBeNull()
+    expect(span!.querySelector('.cortex-alignment-grid__span-baseline-line')).not.toBeNull()
+    expect(span!.querySelectorAll('.cortex-alignment-grid__span-baseline-tick').length).toBe(0)
+    expect(span!.querySelectorAll('.cortex-alignment-grid__span-bar').length).toBe(0)
+  })
+
+  it('space-around + baseline renders the baseline row with tick marks, not full-grid bars', () => {
+    setup({ justifyValue: 'space-around', alignValue: 'baseline' })
+    expect(getCells().length).toBe(6)
+    const span = container.querySelector('.cortex-alignment-grid__span--row-baseline')
+    expect(span).not.toBeNull()
+    expect(span!.querySelector('.cortex-alignment-grid__span-baseline-line')).not.toBeNull()
+    expect(span!.querySelectorAll('.cortex-alignment-grid__span-baseline-tick').length).toBe(2)
+    expect(span!.querySelectorAll('.cortex-alignment-grid__span-bar').length).toBe(0)
+    expect(container.querySelector('.cortex-alignment-grid__span--full')).toBeNull()
+  })
+
+  it('stretch + baseline renders a baseline row without distribution tick marks', () => {
+    setup({ justifyValue: 'stretch', alignValue: 'baseline' })
+    expect(getCells().length).toBe(6)
+    const span = container.querySelector('.cortex-alignment-grid__span--row-baseline')
+    expect(span).not.toBeNull()
+    expect(span!.getAttribute('aria-label')).toBe('Baseline main-axis span indicator')
+    expect(span!.querySelector('.cortex-alignment-grid__span-baseline-line')).not.toBeNull()
+    expect(span!.querySelectorAll('.cortex-alignment-grid__span-baseline-tick').length).toBe(0)
+    expect(container.querySelector('.cortex-alignment-grid__span--col-baseline')).toBeNull()
+  })
+
+  const interactiveSpanCases: Array<{
+    name: string
+    props: Partial<Parameters<typeof AlignmentGrid>[0]>
+    selector: string
+    label: string
+  }> = [
+    {
+      name: 'full-grid',
+      props: { justifyValue: 'stretch', alignValue: 'stretch' },
+      selector: '.cortex-alignment-grid__span--full',
+      label: 'Full alignment span indicator',
+    },
+    {
+      name: 'row',
+      props: { justifyValue: 'space-between', alignValue: 'center' },
+      selector: '.cortex-alignment-grid__span--row',
+      label: 'Distribution indicator',
+    },
+    {
+      name: 'row baseline',
+      props: { justifyValue: 'stretch', alignValue: 'baseline' },
+      selector: '.cortex-alignment-grid__span--row-baseline',
+      label: 'Baseline main-axis span indicator',
+    },
+    {
+      name: 'column',
+      props: { justifyValue: 'center', alignValue: 'stretch' },
+      selector: '.cortex-alignment-grid__span--col',
+      label: 'Stretch indicator',
+    },
+    {
+      name: 'column baseline',
+      props: { justifyValue: 'flex-end', alignValue: 'baseline' },
+      selector: '.cortex-alignment-grid__span--col-baseline',
+      label: 'Baseline indicator',
+    },
+  ]
+
+  it.each(interactiveSpanCases)('$name span indicator is a semantic button', ({ props, selector, label }) => {
+    setup(props)
+    const span = container.querySelector(selector)
+    expect(span).toBeInstanceOf(HTMLButtonElement)
+    expect((span as HTMLButtonElement).type).toBe('button')
+    expect(span!.getAttribute('role')).toBeNull()
+    expect(span!.getAttribute('aria-label')).toBe(label)
   })
 
   // ── dblclick → overlay ────────────────────────────────────────────

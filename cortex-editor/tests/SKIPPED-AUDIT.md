@@ -14,7 +14,9 @@ Date: 2026-05-06
 - Ticket expected skipped tests: 33; current branch contained 34 before cleanup.
 - Deleted stale skips during this audit: 7
 - Final executable skips after original audit: 27
-- Current executable skips after ZF0-1558/ZF0-1559 cleanup: 24
+- Current executable skips after ZF0-1211 and ZF0-1558/ZF0-1559 cleanup: 11
+- ZF0-1211 re-enabled 13 AlignmentGrid visibility tests.
+- ZF0-1558/ZF0-1559 moved 5 CSSOM/live-rect skips to real Chromium e2e coverage.
 - "Actually fix" skips found: 0, so the 5x coverage-instrumentation loop is not required.
 
 ## Active Skips
@@ -22,29 +24,22 @@ Date: 2026-05-06
 | File:line | Test | Classification | Decision |
 | --- | --- | --- | --- |
 | `tests/core/edit-pipeline.sanitize.test.ts:228` | unquoted path with spaces followed by prose | Correct skip - permanent limitation | This documents an intentionally accepted ambiguity. Node fs errors quote paths, and unquoted paths with spaces plus prose cannot be safely separated by the current sanitizer regex. Leave skipped with the limitation comment. |
-| `tests/browser/sections/typography-section.test.tsx:500` | font-size scrub fires onScrub during drag and onScrubEnd on release | Correct skip - Layer 2 would be theatre | Section-level drag is not reliable in happy-dom. The reusable `NumericInput` scrub behavior has direct Layer 2 coverage in `tests/browser/controls/numeric-input.test.tsx`; no separate section-level e2e is required unless full-panel drag becomes load-bearing. |
-| `tests/browser/sections/FlexControls.test.tsx:208` | AlignmentGrid top-center click emits row flex properties | Correct skip - blocked by hidden UI | AlignmentGrid is intentionally hidden in FlexControls until ZF0-1211. Leave skipped and tied to that ticket. |
-| `tests/browser/sections/FlexControls.test.tsx:225` | AlignmentGrid top-center click emits swapped column properties | Correct skip - blocked by hidden UI | Same ZF0-1211 dependency. |
-| `tests/browser/sections/FlexControls.test.tsx:243` | row distribute main-axis emits justify-content | Correct skip - blocked by hidden UI | Same ZF0-1211 dependency. |
-| `tests/browser/sections/FlexControls.test.tsx:272` | row distribute cross-axis emits align-content | Correct skip - blocked by hidden UI | Same ZF0-1211 dependency. |
-| `tests/browser/sections/FlexControls.test.tsx:293` | column distribute main-axis emits justify-content | Correct skip - blocked by hidden UI | Same ZF0-1211 dependency. |
-| `tests/browser/sections/FlexControls.test.tsx:320` | column distribute cross-axis emits align-content | Correct skip - blocked by hidden UI | Same ZF0-1211 dependency. |
-| `tests/browser/sections/FlexControls.test.tsx:545` | column mode reverse-mapped active cell | Correct skip - blocked by hidden UI | Same ZF0-1211 dependency. |
-| `tests/browser/sections/FlexControls.test.tsx:577` | row mode direct active cell | Correct skip - blocked by hidden UI | Same ZF0-1211 dependency. |
-| `tests/browser/sections/GridControls.test.tsx:284` | AlignmentGrid top-center emits grid values | Correct skip - blocked by hidden UI | AlignmentGrid is intentionally hidden in GridControls until ZF0-1211. Leave skipped and tied to that ticket. |
-| `tests/browser/sections/GridControls.test.tsx:306` | AlignmentGrid bottom-right canonicalizes flex-end to end | Correct skip - blocked by hidden UI | Same ZF0-1211 dependency. |
-| `tests/browser/sections/GridControls.test.tsx:325` | AlignmentGrid active cell highlights grid canonical values | Correct skip - blocked by hidden UI | Same ZF0-1211 dependency. |
-| `tests/browser/sections/GridControls.test.tsx:340` | AlignmentGrid distribute main-axis emits justify-content | Correct skip - blocked by hidden UI | Same ZF0-1211 dependency. |
-| `tests/browser/sections/GridControls.test.tsx:369` | AlignmentGrid distribute cross-axis emits align-content | Correct skip - blocked by hidden UI | Same ZF0-1211 dependency. |
-| `tests/browser/override.test.ts:1303` | canonicalizes CSS values before declaring divergence | Correct skip - covered by e2e | Happy-dom cannot canonicalize color formats meaningfully. Covered by `tests/e2e/override-canonicalization.spec.ts`. |
-| `tests/browser/channel.test.ts:875` | sendAndAck rejects on disconnect during wait | Correct skip - N/A branch | Vite channel has no disconnect lifecycle; timeout rejection is the reachable rejection path and is covered. |
-| `tests/browser/components/SectionGroup.test.tsx:104` | lock title typography invariants once real CSSOM is available | Move to e2e | Computed typography token resolution belongs in Chromium. Follow-up: ZF0-1565. |
-| `tests/browser/components/NoAnnotationsBanner.test.tsx:192` | self-heals when annotated element is added after mount | Move to e2e | Needs real MutationObserver delivery and Preact effect timing. Follow-up: ZF0-1561. |
-| `tests/browser/components/TokenPresetPopover.test.tsx:187` | floating-ui flip/shift positioning | Correct skip - covered by e2e | Covered by `tests/e2e/numeric-input-token-popover.spec.ts` from ZF0-1527. |
-| `tests/browser/hooks/useOutsideDismiss.test.tsx:194` | closed ShadowRoot outside dismiss | Move to e2e | Closed-shadow retargeting needs real Chromium. Follow-up: ZF0-1560. |
-| `tests/browser/bootstrap.test.ts:191` | background luminance theme fallback | Move to e2e | Happy-dom computed background colors are not meaningful. Follow-up: ZF0-1562. |
+| `tests/browser/sections/typography-section.test.tsx:711` | font-size scrub fires onScrub during drag and onScrubEnd on release | Correct skip - Layer 2 would be theatre | Section-level drag is not reliable in happy-dom. The reusable `NumericInput` scrub behavior has direct Layer 2 coverage in `tests/browser/controls/numeric-input.test.tsx`; no separate section-level e2e is required unless full-panel drag becomes load-bearing. |
 | `tests/browser/shared-source-detector.test.ts:60` | shadow-hosted siblings | Move to e2e | Happy-dom does not model shadow-root query coverage like Chromium. Outside ZF0-1558. |
 | `tests/browser/selection-source-expand.test.ts:56` | sources with quote characters via CSS.escape | Correct skip - browser API gap | Documents a defensive fallback for uncommon source strings; outside ZF0-1558. |
+| `tests/browser/override.test.ts:1386` | canonicalizes CSS values before declaring divergence | Correct skip - covered by e2e | Happy-dom cannot canonicalize color formats meaningfully. Covered by `tests/e2e/override-canonicalization.spec.ts`. |
+| `tests/browser/channel.test.ts:875` | sendAndAck rejects on disconnect during wait | Correct skip - N/A branch | Vite channel has no disconnect lifecycle; timeout rejection is the reachable rejection path and is covered. |
+| `tests/browser/bootstrap.test.ts:191` | background luminance theme fallback | Move to e2e | Happy-dom computed background colors are not meaningful. Follow-up: ZF0-1562. |
+| `tests/browser/components/SectionGroup.test.tsx:104` | lock title typography invariants once real CSSOM is available | Move to e2e | Computed typography token resolution belongs in Chromium. Follow-up: ZF0-1565. |
+| `tests/browser/components/NoAnnotationsBanner.test.tsx:204` | self-heals when annotated element is added after mount | Move to e2e | Needs real MutationObserver delivery and Preact effect timing. Follow-up: ZF0-1561. |
+| `tests/browser/components/TokenPresetPopover.test.tsx:187` | floating-ui flip/shift positioning | Correct skip - covered by e2e | Covered by `tests/e2e/numeric-input-token-popover.spec.ts` from ZF0-1527. |
+| `tests/browser/hooks/useOutsideDismiss.test.tsx:209` | closed ShadowRoot outside dismiss | Move to e2e | Closed-shadow retargeting needs real Chromium. Follow-up: ZF0-1560. |
+
+## Re-Enabled After Audit
+
+| Original files | Tests | Coverage | Action |
+| --- | --- | --- | --- |
+| `tests/browser/sections/FlexControls.test.tsx`, `tests/browser/sections/GridControls.test.tsx` | 13 AlignmentGrid visibility and interaction skips | Focused FlexControls/GridControls/AlignmentGrid tests plus `tests/e2e/alignment-grid-panel.spec.ts` | Removed by ZF0-1211 after the controls became visible again. |
 
 ## Covered After Audit
 

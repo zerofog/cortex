@@ -3353,6 +3353,7 @@
 .cortex-expandable-options__trigger,
 .cortex-alignment-grid__cell,
 .cortex-alignment-grid__distribute-btn,
+.cortex-alignment-grid__span,
 .cortex-sizing-trigger,
 .cortex-token-chip__unlink {
   outline: 2px solid transparent;
@@ -3375,6 +3376,7 @@
 .cortex-expandable-options__trigger:focus-visible,
 .cortex-alignment-grid__cell:focus-visible,
 .cortex-alignment-grid__distribute-btn:focus-visible,
+.cortex-alignment-grid__span:focus-visible,
 .cortex-sizing-trigger:focus-visible,
 .cortex-token-chip__unlink:focus-visible {
   outline-color: var(--cx-select-muted);
@@ -3576,6 +3578,12 @@
   justify-content: center;
   gap: 2px;
   cursor: pointer;
+  border: none;
+  background: transparent;
+  appearance: none;
+  padding: 0;
+  color: var(--cx-ink);
+  font: inherit;
   border-radius: var(--cx-radius-sm);
 }
 
