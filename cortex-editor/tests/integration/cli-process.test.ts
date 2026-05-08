@@ -20,7 +20,7 @@ describe('cortex CLI — built-process integration (Layer 5)', () => {
   beforeAll(async () => {
     await ensureCliBuilt()
     transport = new StdioClientTransport({
-      command: 'node',
+      command: process.execPath,
       args: [CLI_DIST, 'mcp'],
       stderr: 'pipe',
     })
@@ -126,7 +126,7 @@ describe('cortex CLI — built-process notification round-trip (Layer 5)', () =>
     httpServer.on('error', (err) => { console.error('[layer5] httpServer error', err) })
 
     transport = new StdioClientTransport({
-      command: 'node',
+      command: process.execPath,
       args: [CLI_DIST, 'mcp', `--port=${port}`],
       stderr: 'pipe',
     })

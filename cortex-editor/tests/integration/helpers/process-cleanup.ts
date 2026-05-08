@@ -6,12 +6,15 @@ import type { ChildProcess } from 'node:child_process'
  *
  * Safe on already-exited children (no-op, returns immediately).
  *
- * Handles three race conditions:
+ * Handles four race conditions:
  *  1. Child died before we were called (top-of-fn check)
  *  2. Child died between top-of-fn check and 'exit' listener registration
  *     (re-check after attaching listener)
- *  3. SIGKILL is sent to an already-dead PID (kill() returns false, no 'exit'
- *     fires) — re-check after kill() and resolve if the child is already gone.
+ *  3. SIGKILL/SIGTERM sent to an already-dead PID (kill() returns false, no
+ *     'exit' fires) — re-check after kill() and resolve if the child is gone.
+ *  4. SIGTERM/SIGKILL throw synchronously (rare — EPERM on some platforms).
+ *     Both calls are wrapped in try/catch and a post-call exit-state check
+ *     finishes the Promise so afterAll never hangs.
  */
 export async function killChildGracefully(
   child: ChildProcess,
@@ -51,6 +54,13 @@ export async function killChildGracefully(
       return
     }
 
-    child.kill('SIGTERM')
+    try {
+      child.kill('SIGTERM')
+    } catch {
+      // child.kill('SIGTERM') can rarely throw synchronously (e.g., EPERM/ESRCH
+      // when the process exits between the re-check and this call). Symmetric
+      // with the SIGKILL guard inside the timer above.
+    }
+    if (child.exitCode !== null || child.signalCode !== null) finish()
   })
 }

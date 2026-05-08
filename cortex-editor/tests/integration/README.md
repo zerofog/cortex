@@ -40,8 +40,15 @@ cannot:
 ## Helpers
 
 - `helpers/cli-build.ts` — `ensureCliBuilt()` builds the CLI iff `dist/cli/index.js`
-  is missing or older than any source file in `src/cli/`, `src/core/`, `src/schemas/`.
-  Cached at module scope so the build runs at most once per vitest fork.
+  is missing or older than any source file in `src/cli/`, `src/core/`, `src/schemas/`,
+  or any tracked build input (`src/version.ts`, `package.json`, `tsup.config.ts`,
+  `tsconfig.json`). Two layers of caching:
+  - **Mtime gate** — the cross-file mechanism. Even when each test file gets a
+    fresh module instance (vitest's `isolate: true`), the gate skips the build
+    because `dist/cli/index.js` is already newer than the inputs.
+  - **In-memory `built` flag** — module-scope. Prevents redundant work within a
+    single test file's lifetime; resets when vitest re-imports the module for
+    another file.
 - `helpers/process-cleanup.ts` — `killChildGracefully(child, timeoutMs)` sends
   SIGTERM, waits up to `timeoutMs`, then escalates to SIGKILL. Safe on
   already-exited children. Use this in `afterAll` for any child you spawn
