@@ -260,6 +260,20 @@ export function AlignmentGrid({
     [],
   )
 
+  function getVirtualCellFromEvent(event: MouseEvent): { row: number; col: number } {
+    const el = event.currentTarget as HTMLElement
+    const rect = el.getBoundingClientRect()
+    const col = Math.max(
+      0,
+      Math.min(2, Math.floor(((event.clientX - rect.left) / (rect.width || 1)) * 3)),
+    )
+    const row = Math.max(
+      0,
+      Math.min(2, Math.floor(((event.clientY - rect.top) / (rect.height || 1)) * 3)),
+    )
+    return { row, col }
+  }
+
   const indicatorMode = getIndicatorMode(justifyValue, alignValue)
   const usesMainAxisStretch = MAIN_SPAN_VALUES.has(justifyValue)
   const fullSpanLabel = usesMainAxisStretch || alignValue === 'stretch'
@@ -357,14 +371,16 @@ export function AlignmentGrid({
           style={{ gridRow: '1 / -1', gridColumn: '1 / -1' }}
           onClick={(e) => {
             if (e.detail > 1) return
-            onJustify(justifyForCol(1))
-            onAlign(alignForRow(1))
+            const { row, col } = getVirtualCellFromEvent(e)
+            onJustify(justifyForCol(col))
+            onAlign(alignForRow(row))
           }}
-          onDblClick={() => {
+          onDblClick={(e) => {
+            const { row, col } = getVirtualCellFromEvent(e)
             setOverlay((prev) => {
-              if (prev === null) return { axis: 'row', index: 1 }
-              if (prev.axis === 'row') return { axis: 'col', index: 1 }
-              return { axis: 'row', index: 1 }
+              if (prev === null) return { axis: 'row', index: row }
+              if (prev.axis === 'row') return { axis: 'col', index: col }
+              return { axis: 'row', index: row }
             })
           }}
         >

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
 import { AlignmentGrid } from '../../../src/browser/components/controls/AlignmentGrid.js'
-import { dispatchMouseEvent } from '../helpers.js'
+import { dispatchMouseEvent, mockGetBoundingClientRect } from '../helpers.js'
 
 /**
  * AlignmentGrid tests.
@@ -253,6 +253,29 @@ describe('AlignmentGrid', () => {
     expect(full!.getAttribute('aria-label')).toBe('Full alignment span indicator')
     expect(full!.querySelectorAll('.cortex-alignment-grid__span-bar').length).toBe(3)
     expect(full!.querySelectorAll('.cortex-alignment-grid__span-dot').length).toBe(0)
+  })
+
+  it('clicking a full-grid stretch indicator maps the click position to the virtual cell', () => {
+    const { onJustify, onAlign } = setup({ justifyValue: 'stretch', alignValue: 'stretch' })
+    const full = container.querySelector('.cortex-alignment-grid__span--full') as HTMLElement
+    const restoreRect = mockGetBoundingClientRect(full, {
+      left: 0,
+      top: 0,
+      right: 90,
+      bottom: 90,
+      width: 90,
+      height: 90,
+    })
+
+    try {
+      dispatchMouseEvent(full, 'click', { clientX: 75, clientY: 75, detail: 1 })
+      expect(onJustify).toHaveBeenCalledTimes(1)
+      expect(onJustify).toHaveBeenCalledWith('flex-end')
+      expect(onAlign).toHaveBeenCalledTimes(1)
+      expect(onAlign).toHaveBeenCalledWith('flex-end')
+    } finally {
+      restoreRect()
+    }
   })
 
   it('baseline on a positional cross axis renders a column baseline indicator, not stretch bars', () => {
