@@ -164,7 +164,7 @@ describe('TailwindResolver.resolveColorChips', () => {
     expect(result).toEqual([])
   })
 
-  it('orders used app colors first, then includes the remaining current theme colors', async () => {
+  it('keeps current theme colors in resolved palette order', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-theme-'))
     mkdirSync(join(dir, 'node_modules', 'tailwindcss'), { recursive: true })
     mkdirSync(join(dir, 'src'), { recursive: true })
@@ -200,9 +200,59 @@ describe('TailwindResolver.resolveColorChips', () => {
       { name: 'white', hex: '#ffffff' },
       { name: 'slate-200', hex: '#e2e8f0' },
       { name: 'slate-900', hex: '#0f172a' },
-      { name: 'blue-700', hex: '#1d4ed8' },
       { name: 'blue-500', hex: '#3b82f6' },
+      { name: 'blue-700', hex: '#1d4ed8' },
       { name: 'red-500', hex: '#ef4444' },
+    ])
+  })
+
+  it('does not split color families by source usage order', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-theme-order-'))
+    mkdirSync(join(dir, 'node_modules', 'tailwindcss'), { recursive: true })
+    mkdirSync(join(dir, 'src'), { recursive: true })
+    writeFileSync(join(dir, 'node_modules', 'tailwindcss', 'package.json'), '{"name":"tailwindcss"}')
+    writeFileSync(
+      join(dir, 'node_modules', 'tailwindcss', 'theme.css'),
+      `@theme default {
+  --color-blue-300: #91c5ff;
+  --color-blue-600: #155dfc;
+  --color-emerald-50: #ecfdf5;
+  --color-emerald-300: #5ee9b5;
+  --color-emerald-700: #007857;
+  --color-emerald-900: #004e3b;
+  --color-amber-50: #fffbeb;
+  --color-amber-300: #ffd237;
+  --color-amber-700: #b55200;
+  --color-amber-900: #7b3306;
+}
+`,
+    )
+    writeFileSync(join(dir, 'app.css'), '@import "tailwindcss";\n')
+    writeFileSync(
+      join(dir, 'src', 'App.tsx'),
+      `export function App() {
+  return (
+    <section className="bg-blue-300 text-emerald-50 border-emerald-900 ring-emerald-700 outline-emerald-300 decoration-amber-50 caret-amber-900 accent-amber-700 fill-amber-300 stroke-blue-600">
+      hello
+    </section>
+  )
+}
+`,
+    )
+
+    const result = await TailwindResolver.resolveColorChips(dir)
+
+    expect(result?.map((chip) => chip.name)).toEqual([
+      'blue-300',
+      'blue-600',
+      'emerald-50',
+      'emerald-300',
+      'emerald-700',
+      'emerald-900',
+      'amber-50',
+      'amber-300',
+      'amber-700',
+      'amber-900',
     ])
   })
 
