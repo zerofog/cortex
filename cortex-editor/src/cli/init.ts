@@ -13,39 +13,15 @@ import {
   type SourceFile,
 } from 'ts-morph'
 import {
+  NEXT_CONFIG_FILES,
+  VITE_CONFIG_FILES,
+  WEBPACK_CONFIG_FILES,
   detectPackageManager,
   hasDependency,
   type BundlerKind,
   type PackageJson,
   type PackageManager,
 } from './detect.js'
-
-const VITE_CONFIG_FILES = [
-  'vite.config.ts',
-  'vite.config.js',
-  'vite.config.mts',
-  'vite.config.mjs',
-  'vite.config.cts',
-  'vite.config.cjs',
-] as const
-
-const NEXT_CONFIG_FILES = [
-  'next.config.ts',
-  'next.config.mts',
-  'next.config.mjs',
-  'next.config.js',
-  'next.config.cjs',
-  'next.config.cts',
-] as const
-
-const WEBPACK_CONFIG_FILES = [
-  'webpack.config.js',
-  'webpack.config.cjs',
-  'webpack.config.mjs',
-  'webpack.config.ts',
-  'webpack.config.cts',
-  'webpack.config.mts',
-] as const
 
 const VITE_SETUP_PACKAGES = ['vite', '@vitejs/plugin-react'] as const
 
@@ -103,15 +79,7 @@ function resolveObjectLiteralExpression(
 }
 
 function isCommonJsExportTarget(node: Node): boolean {
-  if (node.getText() === 'exports') return true
-
-  const propertyAccess = node.asKind(SyntaxKind.PropertyAccessExpression)
-  if (!propertyAccess) return false
-
-  return (
-    propertyAccess.getExpression().getText() === 'module' &&
-    propertyAccess.getName() === 'exports'
-  ) || propertyAccess.getExpression().getText() === 'exports'
+  return node.getText().trim() === 'module.exports'
 }
 
 function isCommonJsExportAssignment(binaryExpression: Node): boolean {
@@ -342,11 +310,14 @@ function isModuleConfig(filePath: string, content: string, pkgType?: string): bo
   return pkgType === 'module'
 }
 
-function commonJsViteConfigCanBeAutoConfigured(content: string, basename: string): boolean {
+function viteConfigCanBeAutoConfigured(
+  content: string,
+  basename: string,
+  moduleConfig: boolean,
+): boolean {
   const sourceFile = createConfigSourceFile(basename, content)
   assertParseable(sourceFile, basename)
-  const exportExpr = findCommonJSExportExpression(sourceFile)
-  return exportExpr?.getKind() === SyntaxKind.CallExpression
+  return Boolean(findConfigObject(sourceFile, moduleConfig))
 }
 
 function injectVitePlugin(
@@ -840,10 +811,10 @@ export async function runInit(
           vitePluginFound = true
           adapterConfigured = true
           console.log(`  ${basename}: cortexEditor plugin found`)
-        } else if (!moduleConfig && !commonJsViteConfigCanBeAutoConfigured(content, basename)) {
+        } else if (!viteConfigCanBeAutoConfigured(content, basename, moduleConfig)) {
           vitePluginFound = false
           console.warn(
-            `  ${basename}: CommonJS Vite configs cannot be auto-configured - use export default syntax or add cortexEditor() manually.`
+            `  ${basename}: Vite config cannot be auto-configured - use export default/module.exports syntax or add cortexEditor() manually.`
           )
         } else {
           const result = injectVitePlugin(content, basename, moduleConfig)

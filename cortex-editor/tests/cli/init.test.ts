@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { runInit } from '../../src/cli/init.js'
-import { detectPackageManager } from '../../src/cli/detect.js'
+import { detectBundler, detectPackageManager } from '../../src/cli/detect.js'
 
 /** Create a temp directory with optional files pre-seeded. */
 function makeTmpProject(files: Record<string, string> = {}): string {
@@ -55,6 +55,22 @@ describe('cortex init', () => {
       }
     }
   )
+
+  it('detects Vite from config files even when vite is not listed in package.json', () => {
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test"}',
+      'vite.config.ts': 'export default {}\n',
+    })
+    try {
+      expect(detectBundler(dir, {})).toEqual({
+        kind: 'vite',
+        configPath: path.join(dir, 'vite.config.ts'),
+        source: 'config',
+      })
+    } finally {
+      cleanup(dir)
+    }
+  })
 
   it('errors when no package.json found', async () => {
     const dir = makeTmpProject()
@@ -326,8 +342,8 @@ describe('cortex init', () => {
     }
   })
 
-  it('warns instead of crashing on CommonJS Vite configs', async () => {
-    const viteConfig = 'module.exports = { plugins: [] }\n'
+  it('warns instead of crashing on unsupported CommonJS Vite config export shapes', async () => {
+    const viteConfig = 'exports.config = { plugins: [] }\n'
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","vite":"^5.1.0"}}',
       'vite.config.cjs': viteConfig,
@@ -343,7 +359,7 @@ describe('cortex init', () => {
         expect(fs.readFileSync(path.join(dir, 'vite.config.cjs'), 'utf8')).toBe(viteConfig)
         expect(fs.existsSync(path.join(dir, 'vite.config.ts'))).toBe(false)
         expect(warnSpy.mock.calls.flat().join('\n')).toContain(
-          'CommonJS Vite configs cannot be auto-configured'
+          'Vite config cannot be auto-configured'
         )
       } finally {
         warnSpy.mockRestore()
@@ -557,6 +573,29 @@ describe('cortex init', () => {
       const result = await runInit(dir)
       expect(result.vitePluginFound).toBe(true)
       expect(result.vitePluginInjected).toBe(true)
+      const content = fs.readFileSync(path.join(dir, 'vite.config.cjs'), 'utf8')
+      expect(content).toContain('const { cortexEditor } = require("cortex-editor/vite")')
+      expect(content).toContain('plugins: [cortexEditor()]')
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('injects cortexEditor into CommonJS Vite object-literal configs', async () => {
+    const viteConfig = [
+      'module.exports = {',
+      '  plugins: [],',
+      '}',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","vite":"^6.0.0"}}',
+      'vite.config.cjs': viteConfig,
+    })
+    try {
+      const result = await runInit(dir)
+      expect(result.vitePluginFound).toBe(true)
+      expect(result.vitePluginInjected).toBe(true)
+      expect(result.setupComplete).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'vite.config.cjs'), 'utf8')
       expect(content).toContain('const { cortexEditor } = require("cortex-editor/vite")')
       expect(content).toContain('plugins: [cortexEditor()]')
@@ -1362,6 +1401,29 @@ describe('cortex init', () => {
 
       const content = fs.readFileSync(path.join(dir, 'next.config.js'), 'utf8')
       expect(content).toContain('const { withCortex } = require("cortex-editor/next")')
+      expect(content).toContain('module.exports = withCortex({ reactStrictMode: true })')
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('ignores exports.* assignments when locating the CommonJS Next.js config export', async () => {
+    const nextConfig = [
+      'exports.metadata = { reactStrictMode: false }',
+      'module.exports = { reactStrictMode: true }',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'next.config.js': nextConfig,
+    })
+    try {
+      const result = await runInit(dir)
+
+      expect(result.nextConfigInjected).toBe(true)
+      expect(result.setupComplete).toBe(true)
+      const content = fs.readFileSync(path.join(dir, 'next.config.js'), 'utf8')
+      expect(content).toContain('exports.metadata = { reactStrictMode: false }')
       expect(content).toContain('module.exports = withCortex({ reactStrictMode: true })')
     } finally {
       cleanup(dir)

@@ -53,7 +53,7 @@ export const WEBPACK_CONFIG_FILES = [
  * Locally installed dependency sections only.
  * peerDependencies are intentionally excluded because they do not prove the package is installed here.
  */
-export function allDependencies(pkg: PackageJson): Record<string, string> {
+export function installedDependencies(pkg: PackageJson): Record<string, string> {
   return {
     ...pkg.dependencies,
     ...pkg.devDependencies,
@@ -62,7 +62,7 @@ export function allDependencies(pkg: PackageJson): Record<string, string> {
 }
 
 export function hasDependency(pkg: PackageJson, name: string): boolean {
-  return Boolean(allDependencies(pkg)[name])
+  return Boolean(installedDependencies(pkg)[name])
 }
 
 export function findConfigPath(cwd: string, files: readonly string[]): string | null {
@@ -86,6 +86,9 @@ export function detectBundler(cwd: string, pkg: PackageJson): BundlerDetection {
       unsupportedConfigPath: unsupportedNextConfig,
     }
   }
+
+  const viteConfig = findConfigPath(cwd, VITE_CONFIG_FILES)
+  if (viteConfig) return { kind: 'vite', configPath: viteConfig, source: 'config' }
 
   const webpackConfig = findConfigPath(cwd, WEBPACK_CONFIG_FILES)
   if (webpackConfig) return { kind: 'webpack', configPath: webpackConfig, source: 'config' }
