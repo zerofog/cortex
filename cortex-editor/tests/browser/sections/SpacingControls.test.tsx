@@ -77,6 +77,15 @@ describe('SpacingControls', () => {
     expect(leftPadding?.textContent).toBe('20')
   })
 
+  it('dims the box model diagram when a spacing side is dimmed', () => {
+    setup({
+      dimmedProperties: new Set(['margin-left']),
+    })
+
+    const diagram = container.querySelector('[data-testid="spacing-box-model-diagram"]')
+    expect(diagram?.classList.contains('cortex-control--dimmed')).toBe(true)
+  })
+
   it('clicking a non-default padding side opens exact-side editing and emits only that padding property', async () => {
     const { onChange } = setup({
       padding: { top: 8, right: 12, bottom: 16, left: 20 },

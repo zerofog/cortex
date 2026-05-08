@@ -105,6 +105,7 @@ interface SpacingBoxModelDiagramProps {
   onChange: (change: SpacingChange) => void
   onScrub?: (change: SpacingChange) => void
   onScrubEnd?: (change: SpacingChange) => void
+  dimmed?: boolean
   mixedProperties?: Set<string>
   stale?: boolean
 }
@@ -125,6 +126,7 @@ function SpacingBoxModelDiagram({
   onChange,
   onScrub,
   onScrubEnd,
+  dimmed,
   mixedProperties,
   stale,
 }: SpacingBoxModelDiagramProps): JSX.Element {
@@ -175,7 +177,7 @@ function SpacingBoxModelDiagram({
 
   return (
     <div
-      class="cortex-box-model"
+      class={`cortex-box-model${dimmed ? ' cortex-control--dimmed' : ''}`}
       data-testid="spacing-box-model-diagram"
       data-box-sizing={normalizedBoxSizing}
       role="group"
@@ -389,6 +391,17 @@ export function SpacingControls({
         onChange={onChange}
         onScrub={onScrub}
         onScrubEnd={onScrubEnd}
+        dimmed={isDimmed(
+          dimmedProperties,
+          'padding-top',
+          'padding-right',
+          'padding-bottom',
+          'padding-left',
+          'margin-top',
+          'margin-right',
+          'margin-bottom',
+          'margin-left',
+        )}
         mixedProperties={mixedProperties}
         stale={stale}
       />
