@@ -480,6 +480,7 @@ export async function runInit(
 
   const detected = detectBundler(cwd, pkg)
   const packageManager = detectPackageManager(cwd, pkg)
+  const depFound = hasDependency(pkg, 'cortex-editor')
 
   // 3. Configure the detected bundler.
   let vitePluginFound: boolean | null = null
@@ -586,9 +587,16 @@ export async function runInit(
     }
   }
 
-  if (detected.kind === 'vite' || detected.kind === 'none') {
+  if (!depFound) {
+    const installRequest = createInstallRequest(packageManager, ['cortex-editor'], cwd)
+    console.warn(
+      `  cortex-editor not in dependencies. Run: ${installRequest.command} ${installRequest.args.join(' ')}`
+    )
+  }
+
+  if (depFound && (detected.kind === 'vite' || detected.kind === 'none')) {
     await configureVite(detected.configPath)
-  } else if (detected.kind === 'next') {
+  } else if (depFound && detected.kind === 'next') {
     const nextResult = configureNext(cwd, detected.configPath, detected.unsupportedConfigPath ?? null)
     nextConfigFound = nextResult.found
     nextConfigInjected = nextResult.injected
@@ -599,15 +607,6 @@ export async function runInit(
       '  cortex-editor does not support standalone Webpack yet (tracked by ZF0-934).'
     )
     console.warn('  Use Vite or Next.js for now, or follow ZF0-934 for Webpack adapter support.')
-  }
-
-  // 4. Check cortex-editor is installed
-  const depFound = hasDependency(pkg, 'cortex-editor')
-  if (!depFound) {
-    const installRequest = createInstallRequest(packageManager, ['cortex-editor'], cwd)
-    console.warn(
-      `  cortex-editor not in dependencies. Run: ${installRequest.command} ${installRequest.args.join(' ')}`
-    )
   }
 
   const setupComplete = depFound && bundlerConfigured

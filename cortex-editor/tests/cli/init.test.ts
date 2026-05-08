@@ -453,6 +453,61 @@ describe('cortex init', () => {
     }
   })
 
+  it.each([
+    [
+      'Vite',
+      {
+        'package.json': '{"name":"test","devDependencies":{"vite":"^5.1.0"}}',
+        'vite.config.ts': [
+          'import { defineConfig } from \'vite\'',
+          '',
+          'export default defineConfig({',
+          '  plugins: [],',
+          '})',
+        ].join('\n'),
+      },
+      'vite.config.ts',
+    ],
+    [
+      'Next.js',
+      {
+        'package.json': '{"name":"test","devDependencies":{"next":"^16.0.0"}}',
+        'next.config.mjs': 'export default { reactStrictMode: true }\n',
+      },
+      'next.config.mjs',
+    ],
+  ] as Array<[string, Record<string, string>, string]>)(
+    'does not rewrite %s config before cortex-editor is installed',
+    async (_bundler, files, configPath) => {
+      const dir = makeTmpProject(files)
+      try {
+        const promptInstall = vi.fn(async () => true)
+        const installPackages = vi.fn(async () => {})
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+        try {
+          const originalConfig = fs.readFileSync(path.join(dir, configPath), 'utf8')
+
+          const result = await runInit(dir, { promptInstall, installPackages })
+
+          expect(result.depFound).toBe(false)
+          expect(result.setupComplete).toBe(false)
+          expect(result.vitePluginInjected).toBe(false)
+          expect(result.nextConfigInjected).toBe(false)
+          expect(fs.readFileSync(path.join(dir, configPath), 'utf8')).toBe(originalConfig)
+          expect(promptInstall).not.toHaveBeenCalled()
+          expect(installPackages).not.toHaveBeenCalled()
+          expect(warnSpy.mock.calls.flat().join('\n')).toContain(
+            'cortex-editor not in dependencies'
+          )
+        } finally {
+          warnSpy.mockRestore()
+        }
+      } finally {
+        cleanup(dir)
+      }
+    }
+  )
+
   it('counts cortex-editor optionalDependencies as installed for setup completeness', async () => {
     const viteConfig = [
       'import { defineConfig } from \'vite\'',
