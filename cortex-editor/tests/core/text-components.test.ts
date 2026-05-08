@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { extractTextComponents } from '../../src/core/text-components.js'
@@ -162,5 +162,47 @@ describe('TailwindResolver.resolveColorChips', () => {
     writeFileSync(join(dir, 'app.css'), '@import "tailwindcss";\n')
     const result = await TailwindResolver.resolveColorChips(dir)
     expect(result).toEqual([])
+  })
+
+  it('includes Tailwind default colors only when referenced by app source', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-used-'))
+    mkdirSync(join(dir, 'node_modules', 'tailwindcss'), { recursive: true })
+    mkdirSync(join(dir, 'src'), { recursive: true })
+    writeFileSync(join(dir, 'node_modules', 'tailwindcss', 'package.json'), '{"name":"tailwindcss"}')
+    writeFileSync(
+      join(dir, 'node_modules', 'tailwindcss', 'theme.css'),
+      `@theme default {
+  --color-white: #fff;
+  --color-slate-200: #e2e8f0;
+  --color-slate-900: #0f172a;
+  --color-blue-500: #3b82f6;
+  --color-blue-700: #1d4ed8;
+  --color-red-500: #ef4444;
+}
+`,
+    )
+    writeFileSync(join(dir, 'app.css'), '@import "tailwindcss";\n')
+    writeFileSync(
+      join(dir, 'src', 'App.tsx'),
+      `export function App() {
+  return (
+    <section className="bg-white border border-slate-200 text-slate-900 hover:bg-blue-700 focus:ring-blue-500">
+      hello
+    </section>
+  )
+}
+`,
+    )
+
+    const result = await TailwindResolver.resolveColorChips(dir)
+
+    expect(result).toEqual([
+      { name: 'white', hex: '#ffffff' },
+      { name: 'slate-200', hex: '#e2e8f0' },
+      { name: 'slate-900', hex: '#0f172a' },
+      { name: 'blue-700', hex: '#1d4ed8' },
+      { name: 'blue-500', hex: '#3b82f6' },
+    ])
+    expect(result).not.toContainEqual({ name: 'red-500', hex: '#ef4444' })
   })
 })
