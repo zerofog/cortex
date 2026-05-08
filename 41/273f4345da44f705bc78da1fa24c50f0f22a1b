@@ -1,0 +1,20 @@
+cortex-editor/tests/browser/panel-no-bottom-input.test.tsx
+  s_45aacdf87d6586::t_857aadb7ffbfc7 1-104,108-110,113-114
+  s_45aacdf87d6586::t_8d114dec277bbb 105-107,111-112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "41273f4345da44f705bc78da1fa24c50f0f22a1b",
+  "prompts": {},
+  "sessions": {
+    "s_45aacdf87d6586": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51aa1b71-4b8e-4365-bdc8-e6ac32e410e7",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
