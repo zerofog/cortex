@@ -1088,6 +1088,45 @@ describe('applyEditsCore — pseudo-element early return (Step 4 review fix)', (
   })
 })
 
+describe('applyEditsCore — agent-resolve preview-source fallback', () => {
+  it('returns needs-source-edit for unannotated visual-element intents without invoking pipeline', async () => {
+    const cache = new StagedEditsCache()
+    cache.append(makeEdit({
+      intentId: 'preview-1',
+      source: 'cortex-preview:p123',
+      property: 'display',
+      value: 'flex',
+      applyMode: 'agent-resolve',
+      sourceResolutionHint: {
+        tagName: 'div',
+        className: 'hero-card',
+        textPreview: 'Unannotated hero',
+        domSelector: 'div.hero-card',
+      },
+    }))
+
+    const handleEditCalls: unknown[] = []
+    const spyPipeline = withApplyGate({
+      registerApplyResolver: () => { throw new Error('pipeline.registerApplyResolver should not be called for agent-resolve intents') },
+      handleEdit: (req: unknown) => { handleEditCalls.push(req) },
+    })
+
+    const results = await applyEditsCore(cache, ['preview-1'], spyPipeline, 100)
+
+    expect(handleEditCalls).toHaveLength(0)
+    expect(results[0]).toMatchObject({
+      intentId: 'preview-1',
+      status: 'needs-source-edit',
+      intent: expect.objectContaining({
+        source: 'cortex-preview:p123',
+        sourceResolutionHint: expect.objectContaining({ className: 'hero-card' }),
+      }),
+      reason: expect.stringMatching(/unannotated|source resolution/i),
+    })
+    expect(cache.getById('preview-1')).not.toBeNull()
+  })
+})
+
 describe('applyEditsCore — race-during-init guard at vite.ts:386 (Step 4 review fix)', () => {
   // The race-during-init friendly fallback at vite.ts:386-396 returns a
   // synthetic ApplyEditResult[] when currentSession.pipeline is undefined.

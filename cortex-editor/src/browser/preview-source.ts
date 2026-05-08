@@ -1,0 +1,90 @@
+import { MAX_SOURCE_HINT_FIELD_BYTES, PREVIEW_SOURCE_PREFIX, isPreviewSource } from '../shared/preview-source.js'
+export { MAX_SOURCE_HINT_FIELD_BYTES, PREVIEW_SOURCE_PREFIX, isPreviewSource } from '../shared/preview-source.js'
+
+export const PREVIEW_SOURCE_ATTR = 'data-cortex-preview-id'
+
+let previewIdCounter = 0
+const encoder = new TextEncoder()
+const decoder = new TextDecoder('utf-8', { fatal: true })
+
+export interface SourceResolutionHint {
+  tagName: string
+  className?: string
+  id?: string
+  textPreview: string
+  domSelector: string
+}
+
+export type ElementEditTarget =
+  | { source: string; applyMode: 'direct'; sourceResolutionHint?: undefined }
+  | { source: string; applyMode: 'agent-resolve'; sourceResolutionHint: SourceResolutionHint }
+
+export function selectorForEditSource(source: string): string {
+  if (isPreviewSource(source)) {
+    return `[${PREVIEW_SOURCE_ATTR}="${CSS.escape(source.slice(PREVIEW_SOURCE_PREFIX.length))}"]`
+  }
+  return `[data-cortex-source="${CSS.escape(source)}"]`
+}
+
+export function getElementEditTarget(el: HTMLElement): ElementEditTarget {
+  const source = el.getAttribute('data-cortex-source')
+  if (source) return { source, applyMode: 'direct' }
+
+  const previewId = ensurePreviewId(el)
+  const previewSource = `${PREVIEW_SOURCE_PREFIX}${previewId}`
+  return {
+    source: previewSource,
+    applyMode: 'agent-resolve',
+    sourceResolutionHint: buildSourceResolutionHint(el),
+  }
+}
+
+function ensurePreviewId(el: HTMLElement): string {
+  const existing = el.getAttribute(PREVIEW_SOURCE_ATTR)
+  if (existing) return existing
+  previewIdCounter += 1
+  const previewId = `p${Date.now().toString(36)}-${previewIdCounter.toString(36)}`
+  el.setAttribute(PREVIEW_SOURCE_ATTR, previewId)
+  return previewId
+}
+
+function buildSourceResolutionHint(el: HTMLElement): SourceResolutionHint {
+  const className = clampUtf8(typeof el.className === 'string' ? el.className.trim() : '')
+  const id = clampUtf8(el.id.trim())
+  const textPreview = clampUtf8((el.textContent ?? '').trim())
+  return {
+    tagName: el.tagName.toLowerCase(),
+    ...(className ? { className } : {}),
+    ...(id ? { id } : {}),
+    textPreview,
+    domSelector: buildDomSelectorHint(el, className, id),
+  }
+}
+
+function buildDomSelectorHint(el: HTMLElement, className: string, id: string): string {
+  const tagName = el.tagName.toLowerCase()
+  if (id) return clampUtf8(`${tagName}#${CSS.escape(id)}`)
+  const testId = el.getAttribute('data-testid')
+  const trimmedTestId = testId ? clampUtf8(testId.trim()) : ''
+  if (trimmedTestId) return clampUtf8(`${tagName}[data-testid=${CSS.escape(trimmedTestId)}]`)
+  if (className) {
+    const firstClass = className.split(/\s+/)[0]
+    if (firstClass) return clampUtf8(`${tagName}.${CSS.escape(firstClass)}`)
+  }
+  return tagName
+}
+
+function clampUtf8(value: string): string {
+  const bytes = encoder.encode(value)
+  if (bytes.length <= MAX_SOURCE_HINT_FIELD_BYTES) return value
+
+  const minEnd = Math.max(0, MAX_SOURCE_HINT_FIELD_BYTES - 3)
+  for (let end = MAX_SOURCE_HINT_FIELD_BYTES; end >= minEnd; end -= 1) {
+    try {
+      return decoder.decode(bytes.subarray(0, end))
+    } catch {
+      // Trimming up to three bytes handles a cut through one UTF-8 code point.
+    }
+  }
+  return ''
+}

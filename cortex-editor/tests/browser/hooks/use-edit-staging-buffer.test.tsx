@@ -4,6 +4,7 @@ import { act } from 'preact/test-utils'
 import { useEditStagingBuffer, createPanelSyncEmitter, type PendingEdit, type SyncEmitter } from '../../../src/browser/hooks/useEditStagingBuffer.js'
 import type { CortexChannel } from '../../../src/adapters/types.js'
 import { cortexStorage } from '../../../src/browser/persistence.js'
+import { MAX_INTENT_SOURCE_BYTES, MAX_SOURCE_HINT_FIELD_BYTES } from '../../../src/shared/pending-edit-limits.js'
 import { makeEdit } from '../../core/helpers.js'
 
 function renderHook<T>(hookFn: () => T): { result: { current: T }; unmount: () => void; rerender: (newHookFn: () => T) => void } {
@@ -163,6 +164,35 @@ describe('useEditStagingBuffer', () => {
     expect(list).toHaveLength(2)
     expect(list[0].intentId).toBe('existing-1')
     expect(list[1].intentId).toBe('existing-2')
+
+    unmount()
+  })
+
+  it('hook mount keeps preview-source agent-resolve intents from localStorage', async () => {
+    const existing = makeEdit({
+      intentId: 'preview-1',
+      source: 'cortex-preview:p123',
+      property: 'display',
+      value: 'flex',
+      applyMode: 'agent-resolve',
+      sourceResolutionHint: {
+        tagName: 'div',
+        className: 'hero-card',
+        textPreview: 'Unannotated hero',
+        domSelector: 'div.hero-card',
+      },
+    })
+    cortexStorage.set('staging-buffer', [existing])
+
+    const { result, unmount } = renderHook(() => useEditStagingBuffer())
+
+    expect(result.current.list()).toMatchObject([
+      {
+        intentId: 'preview-1',
+        source: 'cortex-preview:p123',
+        applyMode: 'agent-resolve',
+      },
+    ])
 
     unmount()
   })
@@ -437,6 +467,73 @@ describe('useEditStagingBuffer', () => {
     const goodEdit = makeEdit({ intentId: 'good' })
     const injected = { ...makeEdit(), source: 'src/x".tsx:1:1' }
     cortexStorage.set('staging-buffer', [goodEdit, injected])
+
+    const { result, unmount } = renderHook(() => useEditStagingBuffer())
+    expect(result.current.list()).toHaveLength(1)
+    expect(result.current.list()[0].intentId).toBe('good')
+
+    warnSpy.mockRestore()
+    unmount()
+  })
+
+  it('mount drops preview-source entries without sourceResolutionHint', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const goodEdit = makeEdit({ intentId: 'good' })
+    const missingHint = makeEdit({
+      intentId: 'preview-missing-hint',
+      source: 'cortex-preview:p123',
+      applyMode: 'agent-resolve',
+    })
+    cortexStorage.set('staging-buffer', [goodEdit, missingHint])
+
+    const { result, unmount } = renderHook(() => useEditStagingBuffer())
+    expect(result.current.list()).toHaveLength(1)
+    expect(result.current.list()[0].intentId).toBe('good')
+
+    warnSpy.mockRestore()
+    unmount()
+  })
+
+  it('mount drops preview-source entries with oversized sourceResolutionHint fields', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const goodEdit = makeEdit({ intentId: 'good' })
+    const oversized = 'x'.repeat(MAX_SOURCE_HINT_FIELD_BYTES + 1)
+    const oversizedHint = makeEdit({
+      intentId: 'preview-oversized-hint',
+      source: 'cortex-preview:p123',
+      applyMode: 'agent-resolve',
+      sourceResolutionHint: {
+        tagName: 'div',
+        className: oversized,
+        textPreview: 'Preview',
+        domSelector: 'div.preview',
+      },
+    })
+    cortexStorage.set('staging-buffer', [goodEdit, oversizedHint])
+
+    const { result, unmount } = renderHook(() => useEditStagingBuffer())
+    expect(result.current.list()).toHaveLength(1)
+    expect(result.current.list()[0].intentId).toBe('good')
+
+    warnSpy.mockRestore()
+    unmount()
+  })
+
+  it('mount drops preview-source entries with oversized source values', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const goodEdit = makeEdit({ intentId: 'good' })
+    const oversizedPreviewSource = `cortex-preview:${'x'.repeat(MAX_INTENT_SOURCE_BYTES + 1)}`
+    const oversizedSource = makeEdit({
+      intentId: 'preview-oversized-source',
+      source: oversizedPreviewSource,
+      applyMode: 'agent-resolve',
+      sourceResolutionHint: {
+        tagName: 'div',
+        textPreview: 'Preview',
+        domSelector: 'div.preview',
+      },
+    })
+    cortexStorage.set('staging-buffer', [goodEdit, oversizedSource])
 
     const { result, unmount } = renderHook(() => useEditStagingBuffer())
     expect(result.current.list()).toHaveLength(1)
