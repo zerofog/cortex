@@ -1,0 +1,19 @@
+cortex-editor/src/browser/alignment-router.ts
+  s_075690dccddd81::t_4ec8bba7635686 45,48,50,53,73-77,80-81,84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "f78f6949a2706946bdd002ecdba5be31278d22ed",
+  "prompts": {},
+  "sessions": {
+    "s_075690dccddd81": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "05da7b77-69fa-47d2-b6de-aaba3d784ec3",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
