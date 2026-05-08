@@ -59,8 +59,8 @@ describe('BackgroundSection', () => {
     expect(chip).toBeNull()
   })
 
-  // Test 3: Unlink fires onChange with resolved value
-  it('unlink fires onChange with resolved value', () => {
+  // Test 3: Unlink removes the linked class while preserving the rendered value.
+  it('unlink fires a class-removal change with inline color preservation', () => {
     const { onChange } = setup({
       backgroundColor: 'rgb(59, 130, 246)',
       backgroundToken: 'bg-blue-500',
@@ -69,8 +69,9 @@ describe('BackgroundSection', () => {
     expect(unlinkBtn).not.toBeNull()
     unlinkBtn.click()
     expect(onChange).toHaveBeenCalledWith({
-      property: 'background-color',
-      value: 'rgb(59, 130, 246)',
+      kind: 'unlink-background-token',
+      removeClass: 'bg-blue-500',
+      inline: [{ property: 'background-color', value: 'rgb(59, 130, 246)' }],
     })
   })
 

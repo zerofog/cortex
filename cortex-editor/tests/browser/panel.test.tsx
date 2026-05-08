@@ -1353,6 +1353,139 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     }
   })
 
+  it('unlinks a background color token by removing the class and preserving the rendered color', async () => {
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    target.className = 'bg-white'
+    document.body.appendChild(target)
+
+    const restoreStyles = mockGetComputedStyle(target, {
+      backgroundColor: 'rgb(255, 255, 255)',
+      backgroundImage: 'none',
+      borderWidth: '0px',
+      borderTopWidth: '0px',
+      borderRightWidth: '0px',
+      borderBottomWidth: '0px',
+      borderLeftWidth: '0px',
+      borderStyle: 'none',
+    })
+    const overrideManager = {
+      set: vi.fn(),
+      get: vi.fn(),
+      remove: vi.fn(),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+      trackPendingEdit: vi.fn(),
+    }
+    const channel = createMockChannel()
+    const commandStack = new CommandStack()
+
+    const { root, cleanup } = renderInShadow(
+      <Panel
+        selectedElements={[target]}
+        overrideManager={overrideManager as any}
+        commandStack={commandStack}
+        channel={channel}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+    )
+
+    try {
+      const unlink = root.querySelector('button[aria-label="Detach token"]') as HTMLButtonElement | null
+      expect(unlink).not.toBeNull()
+
+      await act(async () => {
+        unlink!.click()
+        await Promise.resolve()
+      })
+
+      const editMessage = channel._lastSent.find(
+        (msg): msg is { type: string } => (msg as { type?: string }).type === 'edit',
+      )
+      expect(editMessage).toMatchObject({
+        type: 'edit',
+        source: 'src/Hero.tsx:14:5',
+        classOp: { kind: 'remove', remove: 'bg-white' },
+        inlineSets: [{ property: 'background-color', value: 'rgb(255, 255, 255)' }],
+      })
+      expect(commandStack.undoCount).toBe(1)
+    } finally {
+      cleanup()
+      restoreStyles()
+      target.remove()
+    }
+  })
+
+  it('unlinks a border color token by removing the class and preserving the rendered color', async () => {
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    target.className = 'border border-slate-200'
+    document.body.appendChild(target)
+
+    const restoreStyles = mockGetComputedStyle(target, {
+      backgroundColor: 'rgba(0, 0, 0, 0)',
+      backgroundImage: 'none',
+      borderWidth: '1px',
+      borderTopWidth: '1px',
+      borderRightWidth: '1px',
+      borderBottomWidth: '1px',
+      borderLeftWidth: '1px',
+      borderStyle: 'solid',
+      borderColor: 'rgb(226, 232, 240)',
+    })
+    const overrideManager = {
+      set: vi.fn(),
+      get: vi.fn(),
+      remove: vi.fn(),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+      trackPendingEdit: vi.fn(),
+    }
+    const channel = createMockChannel()
+    const commandStack = new CommandStack()
+
+    const { root, cleanup } = renderInShadow(
+      <Panel
+        selectedElements={[target]}
+        overrideManager={overrideManager as any}
+        commandStack={commandStack}
+        channel={channel}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+    )
+
+    try {
+      const unlink = root.querySelector('button[aria-label="Detach token"]') as HTMLButtonElement | null
+      expect(unlink).not.toBeNull()
+
+      await act(async () => {
+        unlink!.click()
+        await Promise.resolve()
+      })
+
+      const editMessage = channel._lastSent.find(
+        (msg): msg is { type: string } => (msg as { type?: string }).type === 'edit',
+      )
+      expect(editMessage).toMatchObject({
+        type: 'edit',
+        source: 'src/Hero.tsx:14:5',
+        classOp: { kind: 'remove', remove: 'border-slate-200' },
+        inlineSets: [{ property: 'border-color', value: 'rgb(226, 232, 240)' }],
+      })
+      expect(commandStack.undoCount).toBe(1)
+    } finally {
+      cleanup()
+      restoreStyles()
+      target.remove()
+    }
+  })
+
   it('staged-edits-discard server message removes intents from canonical buffer', async () => {
     // ZF0-1452 regression: Panel.tsx's channel.onMessage handler wires
     // 'staged-edits-discard' (server-originated, emitted by the MCP server's

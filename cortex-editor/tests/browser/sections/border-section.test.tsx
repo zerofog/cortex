@@ -81,6 +81,21 @@ describe('BorderSection', () => {
     expect(swatch).toBeNull()
   })
 
+  it('unlink fires a class-removal change with inline color preservation', () => {
+    const { onChange } = setup({
+      borderToken: 'border-blue-500',
+      values: { ...DEFAULT_VALUES, borderColor: 'rgb(59, 130, 246)' },
+    })
+    const unlinkBtn = container.querySelector('[aria-label="Detach token"]') as HTMLButtonElement
+    expect(unlinkBtn).not.toBeNull()
+    unlinkBtn.click()
+    expect(onChange).toHaveBeenCalledWith({
+      kind: 'unlink-border-token',
+      removeClass: 'border-blue-500',
+      inline: [{ property: 'border-color', value: 'rgb(59, 130, 246)' }],
+    })
+  })
+
   it('eye toggle snapshots widths and fires border-style hidden when visible', () => {
     // CSS spec §8.5.3 zeroes getComputedStyle(el).borderWidth whenever
     // border-style is 'none' or 'hidden'. That would make a user-hidden

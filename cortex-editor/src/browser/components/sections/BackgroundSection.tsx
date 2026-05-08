@@ -7,7 +7,13 @@ import { TokenChip, isColorLike } from '../controls/TokenChip.js'
 import { IconButton } from '../controls/IconButton.js'
 import { Minus } from '../icons.js'
 
-export type BackgroundChange = SectionChange
+export type BackgroundChange =
+  | SectionChange
+  | {
+    kind: 'unlink-background-token'
+    removeClass: string
+    inline: Array<{ property: string; value: string }>
+  }
 
 export interface BackgroundSectionProps {
   /** Resolved background color from getComputedStyle */
@@ -15,8 +21,8 @@ export interface BackgroundSectionProps {
   /** Tailwind class name if detected (e.g. "bg-blue-500"), null if raw value */
   backgroundToken: string | null
   onChange: (change: BackgroundChange) => void
-  onScrub?: (change: BackgroundChange) => void
-  onScrubEnd?: (change: BackgroundChange) => void
+  onScrub?: (change: SectionChange) => void
+  onScrubEnd?: (change: SectionChange) => void
   /** When provided, renders a minus button at the row end that clears the fill. */
   onRemove?: () => void
   swatches?: string[]
@@ -50,8 +56,13 @@ export function BackgroundSection({
   const parsed = useMemo(() => parseColor(backgroundColor), [backgroundColor])
 
   const handleUnlink = useCallback(() => {
-    onChange({ property: 'background-color', value: backgroundColor })
-  }, [onChange, backgroundColor])
+    if (backgroundToken === null) return
+    onChange({
+      kind: 'unlink-background-token',
+      removeClass: backgroundToken,
+      inline: [{ property: 'background-color', value: backgroundColor }],
+    })
+  }, [onChange, backgroundColor, backgroundToken])
 
   const handleColorChange = useCallback(
     (color: string) => onChange({ property: 'background-color', value: color }),

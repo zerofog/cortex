@@ -22,7 +22,7 @@ import {
   COLOR_LINKED_PROPERTIES,
 } from './sections/TypographySection.js'
 import { summarizeFill } from './sections/fill-utils.js'
-import { BorderSection, summarizeBorder } from './sections/BorderSection.js'
+import { BorderSection, summarizeBorder, type BorderChange } from './sections/BorderSection.js'
 import { EffectsSection, addShadow } from './sections/EffectsSection.js'
 import { PositionSection } from './sections/PositionSection.js'
 import { AppearanceSection } from './sections/AppearanceSection.js'
@@ -36,7 +36,7 @@ import type { EditError } from './EditErrorCard.js'
 import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
 import { IconButton } from './controls/IconButton.js'
-import { BackgroundSection } from './sections/BackgroundSection.js'
+import { BackgroundSection, type BackgroundChange } from './sections/BackgroundSection.js'
 import { ChevronDown, ChevronUp, Eye, EyeOff, Plus, X } from './icons.js'
 import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
 import { computePanelStyleSnapshot } from './panel-style-snapshot.js'
@@ -1333,6 +1333,36 @@ export function Panel({
     [applyOverride, applyClassChange, computedStyles.typography],
   )
 
+  const handleBackgroundChange = useCallback(
+    (change: BackgroundChange) => {
+      if ('property' in change) {
+        applyOverride(change.property, change.value, true)
+        return
+      }
+
+      applyClassChange({
+        remove: change.removeClass,
+        inlineSets: change.inline,
+      })
+    },
+    [applyOverride, applyClassChange],
+  )
+
+  const handleBorderChange = useCallback(
+    (change: BorderChange) => {
+      if ('property' in change) {
+        applyOverride(change.property, change.value, true)
+        return
+      }
+
+      applyClassChange({
+        remove: change.removeClass,
+        inlineSets: change.inline,
+      })
+    },
+    [applyOverride, applyClassChange],
+  )
+
   // Property section state — driven by computed values, not user toggle
   const fillSummary = useMemo(() => summarizeFill(computedStyles.fill), [computedStyles.fill])
   const fillHasValue = fillSummary !== 'transparent'
@@ -1829,7 +1859,7 @@ export function Panel({
             <BackgroundSection
               backgroundColor={computedStyles.fill.backgroundColor}
               backgroundToken={extractedUtilities.get('background-color') ?? null}
-              onChange={handleCommit}
+              onChange={handleBackgroundChange}
               onScrub={handleScrub}
               onScrubEnd={handleCommit}
               onRemove={handleFillRemove}
@@ -1852,7 +1882,7 @@ export function Panel({
             <BorderSection
               values={computedStyles.border}
               borderToken={extractedUtilities.get('border-color') ?? null}
-              onChange={handleCommit}
+              onChange={handleBorderChange}
               onScrub={handleScrub}
               onScrubEnd={handleCommit}
               onRemove={handleBorderRemove}

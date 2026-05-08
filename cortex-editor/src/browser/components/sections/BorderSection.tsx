@@ -17,7 +17,13 @@ import {
   SquareSideLeft,
 } from '../icons.js'
 
-export type BorderChange = SectionChange
+export type BorderChange =
+  | SectionChange
+  | {
+    kind: 'unlink-border-token'
+    removeClass: string
+    inline: Array<{ property: string; value: string }>
+  }
 
 export interface BorderValues {
   borderWidth: number
@@ -36,8 +42,8 @@ export interface BorderSectionProps {
   /** Tailwind class name if detected (e.g. "border-blue-500"), null if raw value */
   borderToken: string | null
   onChange: (change: BorderChange) => void
-  onScrub?: (change: BorderChange) => void
-  onScrubEnd?: (change: BorderChange) => void
+  onScrub?: (change: SectionChange) => void
+  onScrubEnd?: (change: SectionChange) => void
   /** When provided, renders a minus button at the row end that clears the border. */
   onRemove?: () => void
   swatches?: string[]
@@ -141,8 +147,13 @@ export function BorderSection({
   )
 
   const handleUnlink = useCallback(() => {
-    onChange({ property: 'border-color', value: values.borderColor })
-  }, [onChange, values.borderColor])
+    if (borderToken === null) return
+    onChange({
+      kind: 'unlink-border-token',
+      removeClass: borderToken,
+      inline: [{ property: 'border-color', value: values.borderColor }],
+    })
+  }, [onChange, values.borderColor, borderToken])
 
   const handleAlphaChange = useCallback(
     (alpha: number) => {
