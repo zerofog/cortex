@@ -25,6 +25,7 @@ import {
 import type { TextComponent } from '../../../core/text-components.js'
 import type { ColorChip } from '../../token-detector.js'
 import { detectTextComponent, detectColorChip } from '../../token-detector.js'
+import type { DisabledReason } from '../../alignment-router.js'
 import {
   TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP,
   flexToHorizontal,
@@ -90,7 +91,7 @@ export interface TypographyValues {
   height: string
   minHeight: string
   canAlignVertically: boolean
-  verticalAlignDisabledReason: string | null
+  verticalAlignDisabledReason: DisabledReason | null
   color: string
 }
 
@@ -669,7 +670,7 @@ export function TypographySection({
           size="sm"
           mixed={verticalMixed}
           disabled={!values.canAlignVertically}
-          disabledTooltip={values.verticalAlignDisabledReason ?? TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP}
+          disabledTooltip={values.verticalAlignDisabledReason?.tooltip ?? TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP}
         />
       </div>
     </div>
