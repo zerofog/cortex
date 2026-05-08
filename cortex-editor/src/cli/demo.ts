@@ -94,6 +94,13 @@ createRoot(document.getElementById('root')!).render(<App />)
 
 const INDEX_CSS = `@import 'tailwindcss';
 
+@theme {
+  --color-canvas: #f8fafc;
+  --color-surface: #ffffff;
+  --color-border-muted: #e2e8f0;
+  --color-brand: #2563eb;
+}
+
 @custom-variant dark (&:is(.dark *));
 `
 

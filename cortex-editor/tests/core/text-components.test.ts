@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { extractTextComponents } from '../../src/core/text-components.js'
@@ -151,35 +151,9 @@ describe('TailwindResolver.resolveColorChips', () => {
 `,
     )
     const result = await TailwindResolver.resolveColorChips(dir)
-    // Note: user-defined entries are merged with Tailwind defaults via
-    // themePropertiesToResolved. Assert our chips are present (not equality).
-    expect(result).toEqual(
-      expect.arrayContaining([
-        { name: 'brand-500', hex: '#3b82f6' },
-        { name: 'gray-900', hex: '#111827' },
-      ]),
-    )
-  })
-
-  it('returns default v4 color chips when the app only imports tailwindcss', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-default-'))
-    mkdirSync(join(dir, 'node_modules', 'tailwindcss'), { recursive: true })
-    writeFileSync(join(dir, 'node_modules', 'tailwindcss', 'package.json'), '{"name":"tailwindcss"}')
-    writeFileSync(
-      join(dir, 'node_modules', 'tailwindcss', 'theme.css'),
-      `@theme default {
-  --color-white: #fff;
-  --color-slate-200: #e2e8f0;
-}
-`,
-    )
-    writeFileSync(join(dir, 'app.css'), '@import "tailwindcss";\n')
-
-    const result = await TailwindResolver.resolveColorChips(dir)
-
     expect(result).toEqual([
-      { name: 'white', hex: '#ffffff' },
-      { name: 'slate-200', hex: '#e2e8f0' },
+      { name: 'brand-500', hex: '#3b82f6' },
+      { name: 'gray-900', hex: '#111827' },
     ])
   })
 
@@ -187,8 +161,6 @@ describe('TailwindResolver.resolveColorChips', () => {
     const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-empty-'))
     writeFileSync(join(dir, 'app.css'), '@import "tailwindcss";\n')
     const result = await TailwindResolver.resolveColorChips(dir)
-    // May include Tailwind defaults depending on whether tailwindcss is installed.
-    // The contract: returns an array (not null, since CSS was found).
-    expect(Array.isArray(result)).toBe(true)
+    expect(result).toEqual([])
   })
 })
