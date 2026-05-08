@@ -31,7 +31,6 @@ import {
   flexToVertical,
   typographyLayoutContext,
   typographyVerticalAlignDisabledReason,
-  typographyVerticalAlignEnabled,
   type TypographyAlignmentAxis,
   type TypographyAlignmentValue,
   type TypographyHorizontalAlign,
@@ -160,7 +159,7 @@ export function parseTypographyValues(cs: CSSStyleDeclaration): TypographyValues
     alignItems,
     height,
     minHeight,
-    canAlignVertically: typographyVerticalAlignEnabled(verticalAlignContext),
+    canAlignVertically: verticalAlignDisabledReason === null,
     verticalAlignDisabledReason,
     color: cs.color ?? 'rgb(0, 0, 0)',
   }
