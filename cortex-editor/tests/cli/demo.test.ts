@@ -2,8 +2,17 @@ import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { runDemo, type DemoResult } from '../../src/cli/demo.js'
+
+const DEMO_TEST_GIT_CONFIG = [
+  '-c',
+  'maintenance.auto=false',
+  '-c',
+  'gc.auto=0',
+  '-c',
+  'core.hooksPath=.git/hooks-disabled',
+]
 
 /** Create a temp directory to serve as the parent cwd for demo scaffolding. */
 function makeTmpDir(): string {
@@ -12,6 +21,23 @@ function makeTmpDir(): string {
 
 function cleanup(dir: string): void {
   fs.rmSync(dir, { recursive: true, force: true })
+}
+
+function demoTestGitEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    GIT_TRACE2: '0',
+    GIT_TRACE2_EVENT: '0',
+    GIT_TRACE2_PERF: '0',
+  }
+}
+
+function readDemoGitLog(demoDir: string): string {
+  return execFileSync('git', [...DEMO_TEST_GIT_CONFIG, 'log', '--oneline'], {
+    cwd: demoDir,
+    encoding: 'utf8',
+    env: demoTestGitEnv(),
+  })
 }
 
 describe('cortex demo', () => {
@@ -123,7 +149,7 @@ describe('cortex demo', () => {
         expect(fs.existsSync(path.join(demoDir, '.git'))).toBe(true)
 
         // Should have at least one commit
-        const log = execSync('git log --oneline', { cwd: demoDir, encoding: 'utf8' })
+        const log = readDemoGitLog(demoDir)
         expect(log.trim().length).toBeGreaterThan(0)
         expect(log).toContain('initial scaffold')
       } finally {
