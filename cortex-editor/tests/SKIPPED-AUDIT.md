@@ -14,7 +14,7 @@ Date: 2026-05-06
 - Ticket expected skipped tests: 33; current branch contained 34 before cleanup.
 - Deleted stale skips during this audit: 7
 - Final executable skips after original audit: 27
-- Current executable skips after ZF0-1558 cleanup: 25
+- Current executable skips after ZF0-1558/ZF0-1559 cleanup: 24
 - "Actually fix" skips found: 0, so the 5x coverage-instrumentation loop is not required.
 
 ## Active Skips
@@ -38,7 +38,6 @@ Date: 2026-05-06
 | `tests/browser/sections/GridControls.test.tsx:369` | AlignmentGrid distribute cross-axis emits align-content | Correct skip - blocked by hidden UI | Same ZF0-1211 dependency. |
 | `tests/browser/override.test.ts:1303` | canonicalizes CSS values before declaring divergence | Correct skip - covered by e2e | Happy-dom cannot canonicalize color formats meaningfully. Covered by `tests/e2e/override-canonicalization.spec.ts`. |
 | `tests/browser/channel.test.ts:875` | sendAndAck rejects on disconnect during wait | Correct skip - N/A branch | Vite channel has no disconnect lifecycle; timeout rejection is the reachable rejection path and is covered. |
-| `tests/browser/selection-overlay.test.tsx:386` | updates lens position when element rect changes | Move to e2e | Happy-dom rAF/rect-change pumping is unreliable. Follow-up: ZF0-1559. |
 | `tests/browser/components/SectionGroup.test.tsx:104` | lock title typography invariants once real CSSOM is available | Move to e2e | Computed typography token resolution belongs in Chromium. Follow-up: ZF0-1565. |
 | `tests/browser/components/NoAnnotationsBanner.test.tsx:192` | self-heals when annotated element is added after mount | Move to e2e | Needs real MutationObserver delivery and Preact effect timing. Follow-up: ZF0-1561. |
 | `tests/browser/components/TokenPresetPopover.test.tsx:187` | floating-ui flip/shift positioning | Correct skip - covered by e2e | Covered by `tests/e2e/numeric-input-token-popover.spec.ts` from ZF0-1527. |
@@ -55,6 +54,7 @@ Date: 2026-05-06
 | `tests/browser/state-detector.test.ts:97` | handles cross-origin stylesheets gracefully | `tests/e2e/state-detector-cssom.spec.ts` | Removed Layer 2 skip; cross-origin stylesheet is route-fulfilled by Playwright. |
 | `tests/browser/state-detector.test.ts:195` | handles CSS nesting `&:hover` | `tests/e2e/state-detector-cssom.spec.ts` | Removed Layer 2 skip; covered by native CSS nesting in Chromium. |
 | `tests/browser/state-detector.test.ts:230` | handles `&.modifier:hover` nested CSS | `tests/e2e/state-detector-cssom.spec.ts` | Removed Layer 2 skip; covered by native CSS nesting in Chromium. |
+| `tests/browser/selection-overlay.test.tsx:386` | updates lens position when element rect changes | `tests/e2e/selection-overlay-live-rect.spec.ts` | Removed Layer 2 skip; covered by ZF0-1559 real Chromium live-rect tracking test. |
 
 ## Deleted During Audit
 
@@ -71,7 +71,7 @@ Date: 2026-05-06
 ## Follow-Up Tickets Filed
 
 - ZF0-1558 - Layer 4 state-detector CSSOM coverage. Covered by `tests/e2e/state-detector-cssom.spec.ts`; corresponding Layer 2 skips removed.
-- ZF0-1559 - SelectionOverlay live-rect tracking in real browser.
+- ZF0-1559 - SelectionOverlay live-rect tracking in real browser. Covered by `tests/e2e/selection-overlay-live-rect.spec.ts`; corresponding Layer 2 skip removed.
 - ZF0-1560 - Closed ShadowRoot outside-dismiss coverage.
 - ZF0-1561 - NoAnnotationsBanner MutationObserver self-heal coverage.
 - ZF0-1562 - Background-luminance theme fallback in real browser.
