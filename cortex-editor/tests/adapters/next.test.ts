@@ -14,9 +14,37 @@ describe('withCortex', () => {
     config.webpack!(webpackConfig as any, context as any)
 
     expect(webpackConfig.module.rules).toHaveLength(1)
-    const rule = webpackConfig.module.rules[0] as { test: RegExp; exclude: RegExp }
+    const rule = webpackConfig.module.rules[0] as { test: RegExp; exclude: (resourcePath: string) => boolean }
     expect(rule.test).toEqual(/\.[jt]sx$/)
-    expect(rule.exclude).toEqual(/\/node_modules\//)
+    expect(rule.exclude('/project/src/App.tsx')).toBe(false)
+    expect(rule.exclude('/project/node_modules/react/index.jsx')).toBe(true)
+  })
+
+  it('lets explicitly included node_modules packages reach the shared loader', () => {
+    const config = withCortex({}, { includeNodeModules: ['@acme/ui'] })
+    const webpackConfig = { module: { rules: [] as unknown[] } }
+    const context = { dir: '/project', dev: true, isServer: false }
+
+    config.webpack!(webpackConfig as any, context as any)
+
+    const rule = webpackConfig.module.rules[0] as {
+      exclude: (resourcePath: string) => boolean
+      use: Array<{ options: { includeNodeModules?: string[] } }>
+    }
+    expect(rule.exclude('/project/node_modules/react/index.jsx')).toBe(true)
+    expect(rule.exclude('/project/node_modules/@acme/ui/Button.tsx')).toBe(false)
+    expect(rule.use[0]!.options.includeNodeModules).toEqual(['@acme/ui'])
+  })
+
+  it('passes resolve aliases through to the shared loader', () => {
+    const config = withCortex({}, { resolveAlias: { '@': '/project/src' } })
+    const webpackConfig = { module: { rules: [] as unknown[] } }
+    const context = { dir: '/project', dev: true, isServer: false }
+
+    config.webpack!(webpackConfig as any, context as any)
+
+    const rule = webpackConfig.module.rules[0] as { use: Array<{ options: { resolveAlias?: Record<string, string> } }> }
+    expect(rule.use[0]!.options.resolveAlias).toEqual({ '@': '/project/src' })
   })
 
   it('preserves existing webpack config', () => {
