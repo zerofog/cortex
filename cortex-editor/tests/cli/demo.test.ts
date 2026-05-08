@@ -11,16 +11,6 @@ function makeTmpDir(): string {
 }
 
 function cleanup(dir: string): void {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    try {
-      fs.rmSync(dir, { recursive: true, force: true })
-      return
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code
-      if (code !== 'ENOTEMPTY' && code !== 'EBUSY' && code !== 'EPERM') throw err
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20 * (attempt + 1))
-    }
-  }
   fs.rmSync(dir, { recursive: true, force: true })
 }
 
@@ -235,6 +225,39 @@ describe('cortex demo', () => {
           demoDir: path.join(cwd, 'cortex-demo'),
         })
       } finally {
+        cleanup(cwd)
+      }
+    })
+  })
+
+  describe('git process determinism', () => {
+    it('does not inherit ambient trace2 writers while creating the demo repo', async () => {
+      const cwd = makeTmpDir()
+      const tracePath = path.join(cwd, 'git-trace.json')
+      const gitConfigPath = path.join(cwd, 'gitconfig')
+      const previousConfig = process.env.GIT_CONFIG_GLOBAL
+      const previousNoSystem = process.env.GIT_CONFIG_NOSYSTEM
+
+      try {
+        fs.writeFileSync(gitConfigPath, `[trace2]\n\teventTarget = ${tracePath}\n`)
+        process.env.GIT_CONFIG_GLOBAL = gitConfigPath
+        process.env.GIT_CONFIG_NOSYSTEM = '1'
+
+        await runDemo({ cwd, skipServe: true })
+
+        expect(fs.existsSync(path.join(cwd, 'cortex-demo', '.git'))).toBe(true)
+        expect(fs.existsSync(tracePath)).toBe(false)
+      } finally {
+        if (previousConfig === undefined) {
+          delete process.env.GIT_CONFIG_GLOBAL
+        } else {
+          process.env.GIT_CONFIG_GLOBAL = previousConfig
+        }
+        if (previousNoSystem === undefined) {
+          delete process.env.GIT_CONFIG_NOSYSTEM
+        } else {
+          process.env.GIT_CONFIG_NOSYSTEM = previousNoSystem
+        }
         cleanup(cwd)
       }
     })
