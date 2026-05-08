@@ -661,6 +661,89 @@ describe('CSSOverrideManager', () => {
     })
   })
 
+  describe('getOverrides()', () => {
+    it('returns an empty Map for a source with no overrides', () => {
+      expect(manager.getOverrides('Hero.tsx:5:3')).toEqual(new Map())
+    })
+
+    it('returns property values for the requested source', () => {
+      manager.set('Hero.tsx:5:3', 'color', 'red')
+      manager.set('Hero.tsx:5:3', 'font-size', '16px')
+      manager.set('Nav.tsx:10:1', 'margin', '0')
+
+      expect(manager.getOverrides('Hero.tsx:5:3')).toEqual(new Map([
+        ['color', 'red'],
+        ['font-size', '16px'],
+      ]))
+    })
+
+    it('reflects removing one property from a source', () => {
+      manager.set('Hero.tsx:5:3', 'color', 'red')
+      manager.set('Hero.tsx:5:3', 'font-size', '16px')
+
+      manager.remove('Hero.tsx:5:3', 'color')
+
+      expect(manager.getOverrides('Hero.tsx:5:3')).toEqual(new Map([
+        ['font-size', '16px'],
+      ]))
+    })
+
+    it('reflects removing all properties for a source', () => {
+      manager.set('Hero.tsx:5:3', 'color', 'red')
+      manager.set('Hero.tsx:5:3', 'font-size', '16px')
+
+      manager.remove('Hero.tsx:5:3')
+
+      expect(manager.getOverrides('Hero.tsx:5:3')).toEqual(new Map())
+    })
+
+    it('keeps element and pseudo-element overrides independent', () => {
+      manager.set('Hero.tsx:5:3', 'color', 'red')
+      manager.set('Hero.tsx:5:3', 'content', '"hello"', '::before')
+
+      expect(manager.getOverrides('Hero.tsx:5:3')).toEqual(new Map([
+        ['color', 'red'],
+      ]))
+      expect(manager.getOverrides('Hero.tsx:5:3', '::before')).toEqual(new Map([
+        ['content', '"hello"'],
+      ]))
+      expect(manager.getOverrides('Hero.tsx:5:3', '::after')).toEqual(new Map())
+    })
+
+    it('returns a defensive copy that caller mutations cannot write through', () => {
+      manager.set('Hero.tsx:5:3', 'color', 'red')
+      const snapshot = manager.getOverrides('Hero.tsx:5:3')
+
+      snapshot.set('margin', '0')
+      snapshot.delete('color')
+
+      expect(manager.getOverrides('Hero.tsx:5:3')).toEqual(new Map([
+        ['color', 'red'],
+      ]))
+    })
+
+    it('does not include state overrides', () => {
+      manager.setStateOverrides('Hero.tsx:5:3', new Map([['background', 'blue']]))
+      manager.set('Hero.tsx:5:3', 'color', 'red')
+
+      expect(manager.getOverrides('Hero.tsx:5:3')).toEqual(new Map([
+        ['color', 'red'],
+      ]))
+    })
+
+    it('returns an empty Map for a source with only state overrides', () => {
+      manager.setStateOverrides('Hero.tsx:5:3', new Map([['background', 'blue']]))
+
+      expect(manager.getOverrides('Hero.tsx:5:3')).toEqual(new Map())
+    })
+
+    it('does not leak raw-source state overrides into pseudo-element reads', () => {
+      manager.setStateOverrides('Hero.tsx:5:3', new Map([['background', 'blue']]))
+
+      expect(manager.getOverrides('Hero.tsx:5:3', '::before')).toEqual(new Map())
+    })
+  })
+
   describe('verified override removal', () => {
     let rafCallbacks: Map<number, FrameRequestCallback>
     let nextId: number
