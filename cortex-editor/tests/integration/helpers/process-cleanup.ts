@@ -1,0 +1,66 @@
+import type { ChildProcess } from 'node:child_process'
+
+/**
+ * Kill a child process with SIGTERM, escalating to SIGKILL after `timeoutMs`.
+ * Resolves once the child has exited.
+ *
+ * Safe on already-exited children (no-op, returns immediately).
+ *
+ * Handles four race conditions:
+ *  1. Child died before we were called (top-of-fn check)
+ *  2. Child died between top-of-fn check and 'exit' listener registration
+ *     (re-check after attaching listener)
+ *  3. SIGKILL/SIGTERM sent to an already-dead PID (kill() returns false, no
+ *     'exit' fires) — re-check after kill() and resolve if the child is gone.
+ *  4. SIGTERM/SIGKILL throw synchronously (rare — EPERM on some platforms).
+ *     Both calls are wrapped in try/catch and a post-call exit-state check
+ *     finishes the Promise so afterAll never hangs.
+ */
+export async function killChildGracefully(
+  child: ChildProcess,
+  timeoutMs = 2000,
+): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return
+
+  return new Promise<void>((resolve) => {
+    let settled = false
+    const finish = (): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve()
+    }
+
+    const timer = setTimeout(() => {
+      if (settled) return
+      // Force-kill. If the child is already dead, kill() returns false and no
+      // 'exit' event fires — resolve directly to avoid a permanent hang.
+      try {
+        child.kill('SIGKILL')
+      } catch {
+        // child.kill() can rarely throw synchronously (e.g., EPERM on some platforms).
+        // Treat as already-dead: the catch + post-check will resolve via finish().
+      }
+      if (child.exitCode !== null || child.signalCode !== null) finish()
+    }, timeoutMs)
+
+    child.once('exit', finish)
+
+    // Race-protection: if the child died between the top-of-function check
+    // and listener registration, the 'exit' event already fired. Detect that
+    // and resolve immediately.
+    if (child.exitCode !== null || child.signalCode !== null) {
+      finish()
+      return
+    }
+
+    try {
+      child.kill('SIGTERM')
+    } catch {
+      // child.kill('SIGTERM') can rarely throw synchronously (e.g., EPERM/ESRCH
+      // when the process exits between the re-check and this call). Symmetric
+      // with the SIGKILL guard inside the timer above.
+    }
+    if (child.exitCode !== null || child.signalCode !== null) finish()
+  })
+}
