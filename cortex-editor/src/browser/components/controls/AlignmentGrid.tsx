@@ -82,6 +82,20 @@ function cellLabel(row: number, col: number): string {
   return CELL_LABELS[row]?.[col] ?? 'Alignment cell'
 }
 
+function getVirtualCellFromEvent(event: MouseEvent): { row: number; col: number } {
+  const el = event.currentTarget as HTMLElement
+  const rect = el.getBoundingClientRect()
+  const col = Math.max(
+    0,
+    Math.min(2, Math.floor(((event.clientX - rect.left) / (rect.width || 1)) * 3)),
+  )
+  const row = Math.max(
+    0,
+    Math.min(2, Math.floor(((event.clientY - rect.top) / (rect.height || 1)) * 3)),
+  )
+  return { row, col }
+}
+
 export interface AlignmentGridProps {
   /** Current `justify-content` value (main axis). Used for active detection. */
   justifyValue: string
@@ -253,20 +267,6 @@ export function AlignmentGrid({
     },
     [],
   )
-
-  function getVirtualCellFromEvent(event: MouseEvent): { row: number; col: number } {
-    const el = event.currentTarget as HTMLElement
-    const rect = el.getBoundingClientRect()
-    const col = Math.max(
-      0,
-      Math.min(2, Math.floor(((event.clientX - rect.left) / (rect.width || 1)) * 3)),
-    )
-    const row = Math.max(
-      0,
-      Math.min(2, Math.floor(((event.clientY - rect.top) / (rect.height || 1)) * 3)),
-    )
-    return { row, col }
-  }
 
   const indicatorMode = getIndicatorMode(justifyValue, alignValue)
   const usesMainAxisStretch = MAIN_SPAN_VALUES.has(justifyValue)
