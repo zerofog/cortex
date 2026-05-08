@@ -22,7 +22,7 @@ import {
   COLOR_LINKED_PROPERTIES,
 } from './sections/TypographySection.js'
 import { summarizeFill } from './sections/fill-utils.js'
-import { BorderSection, summarizeBorder } from './sections/BorderSection.js'
+import { BorderSection, summarizeBorder, type BorderChange } from './sections/BorderSection.js'
 import { EffectsSection, addShadow } from './sections/EffectsSection.js'
 import { PositionSection } from './sections/PositionSection.js'
 import { AppearanceSection } from './sections/AppearanceSection.js'
@@ -36,7 +36,7 @@ import type { EditError } from './EditErrorCard.js'
 import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
 import { IconButton } from './controls/IconButton.js'
-import { BackgroundSection } from './sections/BackgroundSection.js'
+import { BackgroundSection, type BackgroundChange } from './sections/BackgroundSection.js'
 import { ChevronDown, ChevronUp, Eye, EyeOff, Plus, X } from './icons.js'
 import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
 import { computePanelStyleSnapshot } from './panel-style-snapshot.js'
@@ -201,7 +201,7 @@ export interface PanelProps {
    *  Resolved once per dev-server lifetime; `undefined` = not yet received; `[]` = none defined. */
   textComponents?: import('../../core/text-components.js').TextComponent[]
   /** Design-system named color chips (token name + browser-ready hex). */
-  colorChips?: Array<{ name: string; hex: string }>
+  colorChips?: Array<{ name: string; hex: string; aliases?: string[]; source?: 'page' | 'theme' }>
   /** Spacing tokens detected by TailwindResolver (Tailwind v3/v4 + CSS variables).
    *  `undefined` = not yet received; `[]` = none detected. Sourced from cortex-app
    *  reducer state — populated by the `hello` handshake at boot. */
@@ -1333,6 +1333,66 @@ export function Panel({
     [applyOverride, applyClassChange, computedStyles.typography],
   )
 
+  const handleBackgroundChange = useCallback(
+    (change: BackgroundChange) => {
+      if ('property' in change) {
+        applyOverride(change.property, change.value, true)
+        return
+      }
+
+      switch (change.kind) {
+        case 'link-background-token':
+          applyClassChange({
+            remove: change.removeClass,
+            add: `bg-${change.chip.name}`,
+            inlineRemoves: [{ property: 'background-color' }],
+          })
+          return
+        case 'unlink-background-token':
+          applyClassChange({
+            remove: change.removeClass,
+            inlineSets: change.inline,
+          })
+          return
+        default: {
+          const _exhaustive: never = change
+          console.error('[cortex] Unhandled BackgroundChange kind:', _exhaustive)
+        }
+      }
+    },
+    [applyOverride, applyClassChange],
+  )
+
+  const handleBorderChange = useCallback(
+    (change: BorderChange) => {
+      if ('property' in change) {
+        applyOverride(change.property, change.value, true)
+        return
+      }
+
+      switch (change.kind) {
+        case 'link-border-token':
+          applyClassChange({
+            remove: change.removeClass,
+            add: `border-${change.chip.name}`,
+            inlineRemoves: [{ property: 'border-color' }],
+          })
+          return
+        case 'unlink-border-token':
+          applyClassChange({
+            remove: change.removeClass,
+            inlineSets: change.inline,
+          })
+          return
+        default: {
+          const _exhaustive: never = change
+          console.error('[cortex] Unhandled BorderChange kind:', _exhaustive)
+        }
+      }
+    },
+    [applyOverride, applyClassChange],
+  )
+
   // Property section state — driven by computed values, not user toggle
   const fillSummary = useMemo(() => summarizeFill(computedStyles.fill), [computedStyles.fill])
   const fillHasValue = fillSummary !== 'transparent'
@@ -1829,9 +1889,12 @@ export function Panel({
             <BackgroundSection
               backgroundColor={computedStyles.fill.backgroundColor}
               backgroundToken={extractedUtilities.get('background-color') ?? null}
-              onChange={handleCommit}
+              onChange={handleBackgroundChange}
+              onScrub={handleScrub}
+              onScrubEnd={handleCommit}
               onRemove={handleFillRemove}
               swatches={swatches}
+              colorChips={colorChips}
               dimmedProperties={dimmedProperties}
               mixedProperties={mixedProperties}
             />
@@ -1850,11 +1913,12 @@ export function Panel({
             <BorderSection
               values={computedStyles.border}
               borderToken={extractedUtilities.get('border-color') ?? null}
-              onChange={handleCommit}
+              onChange={handleBorderChange}
               onScrub={handleScrub}
               onScrubEnd={handleCommit}
               onRemove={handleBorderRemove}
               swatches={swatches}
+              colorChips={colorChips}
               dimmedProperties={dimmedProperties}
               mixedProperties={mixedProperties}
             />

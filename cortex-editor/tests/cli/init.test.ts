@@ -254,9 +254,7 @@ describe('cortex init', () => {
       expect(result.vitePluginInjected).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'vite.config.ts'), 'utf8')
       expect(content).toContain('import { cortexEditor } from "cortex-editor/vite"')
-      expect(content).toContain('cortexEditor()')
-      // Original plugin still present
-      expect(content).toContain('react()')
+      expect(content).toContain('plugins: [cortexEditor(), react()]')
     } finally {
       cleanup(dir)
     }
@@ -1101,7 +1099,7 @@ describe('cortex init', () => {
       const content = fs.readFileSync(path.join(dir, 'vite.config.ts'), 'utf8')
       expect(content).toContain('import react from \'@vitejs/plugin-react\'')
       expect(content).toContain('import { cortexEditor } from \'cortex-editor/vite\'')
-      expect(content).toContain('plugins: [react(), cortexEditor()]')
+      expect(content).toContain('plugins: [cortexEditor(), react()]')
     } finally {
       cleanup(dir)
     }

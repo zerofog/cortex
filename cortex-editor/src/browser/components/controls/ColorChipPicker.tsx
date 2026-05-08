@@ -44,26 +44,42 @@ export function ColorChipPicker({
     )
   }
 
+  const pageChips = chips.filter((c) => c.source === 'page')
+  const themeChips = chips.filter((c) => c.source !== 'page')
+  const showGroups = pageChips.length > 0 && themeChips.length > 0
+
+  const renderOption = (c: ColorChip): JSX.Element => (
+    <button
+      key={c.name}
+      type="button"
+      role="option"
+      aria-selected={c.name === currentName}
+      class={`cortex-color-chip-picker__option${c.name === currentName ? ' cortex-color-chip-picker__option--active' : ''}`}
+      onClick={() => onPick(c)}
+    >
+      <span
+        class="cortex-color-chip-picker__swatch"
+        style={{ backgroundColor: c.hex }}
+        aria-hidden="true"
+      />
+      <span class="cortex-color-chip-picker__name">{c.name}</span>
+      <span class="cortex-color-chip-picker__hex">{c.hex}</span>
+    </button>
+  )
+
   return (
     <div ref={ref} class="cortex-color-chip-picker" role="listbox">
-      {chips.map((c) => (
-        <button
-          key={c.name}
-          type="button"
-          role="option"
-          aria-selected={c.name === currentName}
-          class={`cortex-color-chip-picker__option${c.name === currentName ? ' cortex-color-chip-picker__option--active' : ''}`}
-          onClick={() => onPick(c)}
-        >
-          <span
-            class="cortex-color-chip-picker__swatch"
-            style={{ backgroundColor: c.hex }}
-            aria-hidden="true"
-          />
-          <span class="cortex-color-chip-picker__name">{c.name}</span>
-          <span class="cortex-color-chip-picker__hex">{c.hex}</span>
-        </button>
-      ))}
+      {showGroups ? (
+        <>
+          <div class="cortex-color-chip-picker__group-label" role="presentation">On this page</div>
+          {pageChips.map(renderOption)}
+          <div class="cortex-color-chip-picker__divider" role="presentation" />
+          <div class="cortex-color-chip-picker__group-label" role="presentation">Theme colors</div>
+          {themeChips.map(renderOption)}
+        </>
+      ) : (
+        chips.map(renderOption)
+      )}
     </div>
   )
 }

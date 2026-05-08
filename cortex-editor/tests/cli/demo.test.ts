@@ -103,7 +103,7 @@ describe('cortex demo', () => {
         )
         expect(content).toContain('cortexEditor')
         expect(content).toContain("from 'cortex-editor/vite'")
-        expect(content).toContain('cortexEditor()')
+        expect(content).toContain('plugins: [cortexEditor(), react(), tailwindcss()]')
       } finally {
         cleanup(cwd)
       }
@@ -134,6 +134,23 @@ describe('cortex demo', () => {
           'utf8'
         )
         expect(content).toContain('export default function App')
+      } finally {
+        cleanup(cwd)
+      }
+    })
+
+    it('src/index.css defines app-owned color chips', async () => {
+      const cwd = makeTmpDir()
+      try {
+        await runDemo({ cwd, skipServe: true })
+        const content = fs.readFileSync(
+          path.join(cwd, 'cortex-demo', 'src', 'index.css'),
+          'utf8'
+        )
+        expect(content).toContain('@theme')
+        expect(content).toContain('--color-surface')
+        expect(content).toContain('--color-border-muted')
+        expect(content).toContain('--color-brand')
       } finally {
         cleanup(cwd)
       }
