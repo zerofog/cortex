@@ -221,6 +221,7 @@ describe('AlignmentGrid', () => {
     // Span element is rendered.
     const span = container.querySelector('.cortex-alignment-grid__span--row')
     expect(span).not.toBeNull()
+    expect(span!.getAttribute('aria-label')).toBe('Distribution indicator')
     const bars = span!.querySelectorAll('.cortex-alignment-grid__span-bar')
     expect(bars.length).toBe(3)
   })
@@ -231,6 +232,7 @@ describe('AlignmentGrid', () => {
     expect(cells.length).toBe(6)
     const span = container.querySelector('.cortex-alignment-grid__span--row')
     expect(span).not.toBeNull()
+    expect(span!.getAttribute('aria-label')).toBe('Main-axis span indicator')
     expect(span!.querySelectorAll('.cortex-alignment-grid__span-bar').length).toBe(3)
   })
 
@@ -239,7 +241,7 @@ describe('AlignmentGrid', () => {
     expect(getCells().length).toBe(0)
     const full = container.querySelector('.cortex-alignment-grid__span--full')
     expect(full).not.toBeNull()
-    expect(full!.getAttribute('aria-label')).toBe('Full distribution indicator')
+    expect(full!.getAttribute('aria-label')).toBe('Full alignment span indicator')
     expect(full!.querySelectorAll('.cortex-alignment-grid__span-bar').length).toBe(3)
   })
 
@@ -248,6 +250,7 @@ describe('AlignmentGrid', () => {
     expect(getCells().length).toBe(0)
     const full = container.querySelector('.cortex-alignment-grid__span--full')
     expect(full).not.toBeNull()
+    expect(full!.getAttribute('aria-label')).toBe('Full alignment span indicator')
     expect(full!.querySelectorAll('.cortex-alignment-grid__span-bar').length).toBe(3)
     expect(full!.querySelectorAll('.cortex-alignment-grid__span-dot').length).toBe(0)
   })
@@ -292,6 +295,7 @@ describe('AlignmentGrid', () => {
     expect(getCells().length).toBe(6)
     const span = container.querySelector('.cortex-alignment-grid__span--row-baseline')
     expect(span).not.toBeNull()
+    expect(span!.getAttribute('aria-label')).toBe('Baseline main-axis span indicator')
     expect(span!.querySelector('.cortex-alignment-grid__span-baseline-line')).not.toBeNull()
     expect(span!.querySelectorAll('.cortex-alignment-grid__span-baseline-tick').length).toBe(0)
     expect(container.querySelector('.cortex-alignment-grid__span--col-baseline')).toBeNull()

@@ -261,6 +261,14 @@ export function AlignmentGrid({
   )
 
   const indicatorMode = getIndicatorMode(justifyValue, alignValue)
+  const usesMainAxisStretch = MAIN_SPAN_VALUES.has(justifyValue)
+  const fullSpanLabel = usesMainAxisStretch || alignValue === 'stretch'
+    ? 'Full alignment span indicator'
+    : 'Full distribution indicator'
+  const rowSpanLabel = usesMainAxisStretch ? 'Main-axis span indicator' : 'Distribution indicator'
+  const rowBaselineLabel = usesMainAxisStretch
+    ? 'Baseline main-axis span indicator'
+    : 'Baseline distribution indicator'
   const showDistributionEdgeMarks =
     justifyValue === 'space-around' || justifyValue === 'space-evenly'
 
@@ -345,7 +353,7 @@ export function AlignmentGrid({
         <div
           class="cortex-alignment-grid__span cortex-alignment-grid__span--full"
           role="group"
-          aria-label="Full distribution indicator"
+          aria-label={fullSpanLabel}
           style={{ gridRow: '1 / -1', gridColumn: '1 / -1' }}
           onClick={(e) => {
             if (e.detail > 1) return
@@ -377,7 +385,7 @@ export function AlignmentGrid({
         <div
           class="cortex-alignment-grid__span cortex-alignment-grid__span--row"
           role="group"
-          aria-label="Distribution indicator"
+          aria-label={rowSpanLabel}
           style={{ gridRow: `${indicatorMode.row + 1}`, gridColumn: '1 / -1' }}
           onClick={(e) => handleSpanClick(e, 'row', indicatorMode.row)}
           onDblClick={(e) => handleSpanDblClick(e, 'row', indicatorMode.row)}
@@ -391,7 +399,7 @@ export function AlignmentGrid({
         <div
           class="cortex-alignment-grid__span cortex-alignment-grid__span--row cortex-alignment-grid__span--row-baseline"
           role="group"
-          aria-label="Baseline distribution indicator"
+          aria-label={rowBaselineLabel}
           style={{ gridRow: `${indicatorMode.row + 1}`, gridColumn: '1 / -1' }}
           onClick={(e) => handleSpanClick(e, 'row', indicatorMode.row)}
           onDblClick={(e) => handleSpanDblClick(e, 'row', indicatorMode.row)}
