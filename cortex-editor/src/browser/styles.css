@@ -4471,6 +4471,10 @@
   color: var(--cx-ink);
 }
 
+.cortex-box-model__side--mixed {
+  color: var(--cx-ink-ghost);
+}
+
 .cortex-box-model__side--top {
   top: var(--cx-sp-2);
   left: 50%;

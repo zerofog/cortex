@@ -19,21 +19,20 @@ test.describe('spacing box model diagram (ZF0-1161)', () => {
     await selectElement(page, FIXTURE_SEED_SELECTOR)
     await waitForElementStatePanel(page)
 
-    const snapshot = await page.evaluate(() => {
+    const initial = await page.evaluate(() => {
       const host = document.querySelector('[data-cortex-host]')
       const root = host && (host as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot
       if (!root) throw new Error('[spacing-box-model] shadow root unavailable')
 
       const diagram = root.querySelector<HTMLElement>('[data-testid="spacing-box-model-diagram"]')
       if (!diagram) throw new Error('[spacing-box-model] diagram missing')
-      const rect = diagram.getBoundingClientRect()
+      const diagramSurface = diagram.querySelector<HTMLElement>('.cortex-box-model__diagram')
+      if (!diagramSurface) throw new Error('[spacing-box-model] diagram surface missing')
+      const rect = diagramSurface.getBoundingClientRect()
 
-      const topPadding = diagram.querySelector<HTMLButtonElement>('[data-layer="padding"][data-side="top"]')
-      if (!topPadding) throw new Error('[spacing-box-model] top padding side missing')
-      topPadding.click()
-
-      const editor = root.querySelector<HTMLElement>('[data-testid="spacing-box-model-side-editor"]')
-      const input = editor?.querySelector<HTMLInputElement>('input')
+      const rightPadding = diagram.querySelector<HTMLButtonElement>('[data-layer="padding"][data-side="right"]')
+      if (!rightPadding) throw new Error('[spacing-box-model] right padding side missing')
+      rightPadding.click()
 
       return {
         boxSizing: diagram.dataset['boxSizing'],
@@ -43,28 +42,45 @@ test.describe('spacing box model diagram (ZF0-1161)', () => {
         hasBorder: !!diagram.querySelector('.cortex-box-model__layer--border'),
         hasPadding: !!diagram.querySelector('.cortex-box-model__layer--padding'),
         hasContent: !!diagram.querySelector('.cortex-box-model__content'),
-        topPaddingPressed: topPadding.getAttribute('aria-pressed'),
-        editorLayer: editor?.dataset['layer'] ?? null,
-        editorSide: editor?.dataset['side'] ?? null,
-        editorLabel: editor?.textContent ?? '',
-        inputValue: input?.value ?? null,
       }
     })
 
-    expect(snapshot).toMatchObject({
+    const readSelection = () =>
+      page.evaluate(() => {
+        const host = document.querySelector('[data-cortex-host]')
+        const root = host && (host as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot
+        if (!root) throw new Error('[spacing-box-model] shadow root unavailable')
+
+        const rightPadding = root.querySelector<HTMLButtonElement>('[data-layer="padding"][data-side="right"]')
+        const editor = root.querySelector<HTMLElement>('[data-testid="spacing-box-model-side-editor"]')
+        const input = editor?.querySelector<HTMLInputElement>('input')
+
+        return {
+          rightPaddingPressed: rightPadding?.getAttribute('aria-pressed') ?? null,
+          editorLayer: editor?.dataset['layer'] ?? null,
+          editorSide: editor?.dataset['side'] ?? null,
+          editorLabel: editor?.textContent ?? '',
+          inputValue: input?.value ?? null,
+        }
+      })
+
+    await expect.poll(readSelection, { timeout: 2000 }).toMatchObject({
+      rightPaddingPressed: 'true',
+      editorLayer: 'padding',
+      editorSide: 'right',
+      inputValue: '0',
+    })
+    const selected = await readSelection()
+
+    expect(initial).toMatchObject({
       boxSizing: 'content-box',
       hasMargin: true,
       hasBorder: true,
       hasPadding: true,
       hasContent: true,
-      topPaddingPressed: 'true',
-      editorLayer: 'padding',
-      editorSide: 'top',
-      inputValue: '10',
     })
-    expect(snapshot.editorLabel).toContain('Padding top')
-    expect(snapshot.width).toBeGreaterThan(200)
-    expect(snapshot.height).toBeGreaterThanOrEqual(150)
-    expect(snapshot.height).toBeLessThanOrEqual(180)
+    expect(selected.editorLabel).toContain('Padding right')
+    expect(initial.width).toBeGreaterThan(200)
+    expect(initial.height).toBe(140)
   })
 })

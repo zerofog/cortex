@@ -62,32 +62,47 @@ describe('SpacingControls', () => {
     expect(diagram!.textContent).toContain('border-box')
   })
 
-  it('clicking a padding side opens exact-side editing and emits only that padding property', async () => {
+  it('renders mixed side buttons as indeterminate', () => {
+    setup({
+      padding: { top: 8, right: 12, bottom: 16, left: 20 },
+      mixedProperties: new Set(['padding-right']),
+    })
+
+    const rightPadding = container.querySelector('[data-layer="padding"][data-side="right"]')
+    const leftPadding = container.querySelector('[data-layer="padding"][data-side="left"]')
+
+    expect(rightPadding?.textContent).toBe('--')
+    expect(rightPadding?.classList.contains('cortex-box-model__side--mixed')).toBe(true)
+    expect(rightPadding?.getAttribute('aria-label')).toBe('Edit Padding right, mixed value')
+    expect(leftPadding?.textContent).toBe('20')
+  })
+
+  it('clicking a non-default padding side opens exact-side editing and emits only that padding property', async () => {
     const { onChange } = setup({
       padding: { top: 8, right: 12, bottom: 16, left: 20 },
       margin: DEFAULT_MARGIN,
     })
 
-    const topPadding = container.querySelector('[data-layer="padding"][data-side="top"]') as HTMLElement
-    expect(topPadding).not.toBeNull()
-    topPadding.click()
+    const rightPadding = container.querySelector('[data-layer="padding"][data-side="right"]') as HTMLElement
+    expect(rightPadding).not.toBeNull()
+    rightPadding.click()
 
     await vi.waitFor(() => {
-      expect(topPadding.getAttribute('aria-pressed')).toBe('true')
+      expect(rightPadding.getAttribute('aria-pressed')).toBe('true')
     }, { timeout: 500 })
 
     const editor = container.querySelector('[data-testid="spacing-box-model-side-editor"]')!
-    expect(editor.textContent).toContain('Padding top')
+    expect(editor.textContent).toContain('Padding right')
     const input = editor.querySelector('.cortex-numeric-input input') as HTMLInputElement
     input.focus()
     input.value = '18'
     input.dispatchEvent(new Event('input', { bubbles: true }))
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
 
-    expect(onChange).toHaveBeenCalledWith({ property: 'padding-top', value: '18px' })
+    expect(onChange).toHaveBeenCalledWith({ property: 'padding-right', value: '18px' })
+    expect(onChange).not.toHaveBeenCalledWith({ property: 'padding-top', value: '18px' })
     expect(onChange).not.toHaveBeenCalledWith({ property: 'padding-bottom', value: '18px' })
     expect(onChange).not.toHaveBeenCalledWith({ property: 'padding-left', value: '18px' })
-    expect(onChange).not.toHaveBeenCalledWith({ property: 'padding-right', value: '18px' })
   })
 
   it('clicking a margin side opens exact-side editing and allows negative values', async () => {

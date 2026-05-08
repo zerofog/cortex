@@ -152,20 +152,23 @@ function SpacingBoxModelDiagram({
   // staging a CSS edit until the user commits a value in the NumericInput.
   const renderSideButton = (layer: EditableBoxModelLayer, side: BoxModelSide, value: number) => {
     const isSelected = selected.layer === layer && selected.side === side
+    const property = toSpacingProperty(layer, side)
+    const isMixed = mixedProperties?.has(property) === true
     const label = `${BOX_MODEL_LAYER_LABEL[layer]} ${BOX_MODEL_SIDE_LABEL[side]}`
+    const mixedSuffix = isMixed ? ', mixed value' : ''
     return (
       <button
         key={`${layer}-${side}`}
-        class={`cortex-box-model__side cortex-box-model__side--${side}${isSelected ? ' cortex-box-model__side--selected' : ''}`}
+        class={`cortex-box-model__side cortex-box-model__side--${side}${isSelected ? ' cortex-box-model__side--selected' : ''}${isMixed ? ' cortex-box-model__side--mixed' : ''}`}
         type="button"
         data-layer={layer}
         data-side={side}
         aria-pressed={isSelected ? 'true' : 'false'}
-        aria-label={`Edit ${label}`}
-        data-tooltip={`Edit ${label}`}
+        aria-label={`Edit ${label}${mixedSuffix}`}
+        data-tooltip={`Edit ${label}${mixedSuffix}`}
         onClick={() => setSelected({ layer, side })}
       >
-        {formatBoxModelValue(value)}
+        {isMixed ? '--' : formatBoxModelValue(value)}
       </button>
     )
   }
