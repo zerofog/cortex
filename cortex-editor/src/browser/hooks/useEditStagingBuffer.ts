@@ -1,6 +1,8 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { cortexStorage } from '../persistence.js'
 import { stripLineCol, deepQuerySelectorAll } from '../selection-metadata.js'
+import { MAX_INTENT_SOURCE_BYTES, MAX_SOURCE_HINT_FIELD_BYTES } from '../../shared/pending-edit-limits.js'
+import { isPreviewSource } from '../../shared/preview-source.js'
 import type { CortexChannel, PendingEdit } from '../../adapters/types.js'
 
 // Re-export for backward compatibility — existing test imports rely on this.
@@ -76,6 +78,7 @@ export interface StagingBufferHandle {
 const MAX_ENTRIES = 500
 const DEBOUNCE_MS = 150
 const STORAGE_KEY = 'staging-buffer'
+const encoder = new TextEncoder()
 
 /** `path:line:col` shape — line/col must be digits, path must not contain a `"`
  *  (defense-in-depth alongside CSS.escape at the querySelector callsite). */
@@ -95,16 +98,33 @@ function isPendingEdit(v: unknown): v is PendingEdit {
   ) {
     return false
   }
-  // Source format guard (file:line:col). Rejects `"` in the path so that even
-  // if CSS.escape were ever bypassed, a malformed source can't smuggle a
-  // closing quote into the attribute selector.
-  if (!SOURCE_SHAPE.test(o.source)) return false
+  // Source format guard. Direct edits use file:line:col; unannotated preview
+  // edits use a cortex-preview source key so Apply can route them to agent
+  // resolution instead of dropping them during localStorage rehydration.
+  const hasPreviewSource = isPreviewSource(o.source)
+  if (encoder.encode(o.source).length > MAX_INTENT_SOURCE_BYTES) return false
+  if (!SOURCE_SHAPE.test(o.source) && !hasPreviewSource) return false
   // Optional fields: validate ONLY when present. The whole point of the
   // validator is to short-circuit corrupted localStorage to the [] fallback
   // before bad data flows into Apply. Accepting `pseudo: 'invalid'`,
   // `scope: 42`, or `instanceSources: 'oops'` would defeat that.
   if (o.pseudo !== undefined && o.pseudo !== '::before' && o.pseudo !== '::after') return false
   if (o.scope !== undefined && o.scope !== 'instance' && o.scope !== 'all') return false
+  if (o.applyMode !== undefined && o.applyMode !== 'direct' && o.applyMode !== 'agent-resolve') return false
+  if ((o.applyMode === 'agent-resolve' || hasPreviewSource) && o.sourceResolutionHint === undefined) return false
+  if (o.sourceResolutionHint !== undefined) {
+    if (typeof o.sourceResolutionHint !== 'object' || o.sourceResolutionHint === null) return false
+    const hint = o.sourceResolutionHint as Record<string, unknown>
+    if (
+      !isSourceHintField(hint.tagName, { required: true }) ||
+      !isSourceHintField(hint.textPreview) ||
+      !isSourceHintField(hint.domSelector, { required: true })
+    ) {
+      return false
+    }
+    if (hint.className !== undefined && !isSourceHintField(hint.className)) return false
+    if (hint.id !== undefined && !isSourceHintField(hint.id)) return false
+  }
   if (
     o.instanceSources !== undefined &&
     (!Array.isArray(o.instanceSources) || !o.instanceSources.every(s => typeof s === 'string'))
@@ -112,6 +132,12 @@ function isPendingEdit(v: unknown): v is PendingEdit {
     return false
   }
   return true
+}
+
+function isSourceHintField(value: unknown, options?: { required?: boolean }): value is string {
+  if (typeof value !== 'string') return false
+  if (options?.required && value.length === 0) return false
+  return encoder.encode(value).length <= MAX_SOURCE_HINT_FIELD_BYTES
 }
 
 /** Type guard for an array of PendingEdit (all-or-nothing — exported for tests

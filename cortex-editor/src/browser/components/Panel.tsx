@@ -47,6 +47,8 @@ import { generateId } from '../uuid.js'
 import { StagingDriftBanner } from './StagingDriftBanner.js'
 import { SpacingTokensContext } from '../tokens/TokenContext.js'
 import { deepQueryAllElements } from '../selection-metadata.js'
+import { getElementEditTarget } from '../preview-source.js'
+import type { ElementEditTarget } from '../preview-source.js'
 
 // ── Connection status footer ─────────────────────────────────────────
 
@@ -96,6 +98,18 @@ export function ConnectionStatusFooter({ status }: { status?: ConnectionDisplay 
 // attribute toggle is batched inside requestAnimationFrame to prevent layout thrashing.
 
 const HIGHLIGHT_ATTR = 'data-cortex-blast-radius'
+
+function pendingEditTargetFields(target: ElementEditTarget): Partial<PendingEdit> {
+  if (target.applyMode === 'direct') return {}
+  return {
+    applyMode: target.applyMode,
+    sourceResolutionHint: target.sourceResolutionHint,
+  }
+}
+
+function editSourcesForElements(elements: readonly HTMLElement[]): string[] {
+  return elements.map(el => getElementEditTarget(el).source)
+}
 
 function ensureBlastRadiusStyle(): void {
   // Query DOM instead of module-level ref — survives Vite HMR module re-execution
@@ -740,11 +754,8 @@ export function Panel({
       return
     }
     if (!element || scrubPreviousRef.current.size === 0) return
-    const source = element.getAttribute('data-cortex-source')
-    if (!source) {
-      scrubPreviousRef.current.clear()
-      return
-    }
+    const primaryTarget = getElementEditTarget(element)
+    const source = primaryTarget.source
 
     // Build PropertyChange[] from accumulated scrub previous values.
     // Filter out no-op changes where value didn't change.
@@ -790,8 +801,8 @@ export function Panel({
       pendingEdits = []
       const seenSources = new Set<string>()
       for (const el of selectedElements) {
-        const elSource = el.getAttribute('data-cortex-source')
-        if (!elSource) continue
+        const elTarget = getElementEditTarget(el)
+        const elSource = elTarget.source
         if (seenSources.has(elSource)) continue
         seenSources.add(elSource)
         // When scope='all' is also active, each unique selected source fans out
@@ -801,9 +812,7 @@ export function Panel({
           try {
             const shared = detectSharedClasses(el)
             perElementInstanceSources = shared
-              ? shared.elements
-                  .map(e => e.getAttribute('data-cortex-source'))
-                  .filter((s): s is string => s !== null)
+              ? editSourcesForElements(shared.elements)
               : undefined
           } catch (err) {
             console.warn('[cortex] detectSharedClasses threw during multi-select fan-out', err)
@@ -822,6 +831,7 @@ export function Panel({
             pseudo: c.pseudo,
             scope: isShared ? 'all' : 'instance',
             instanceSources: perElementInstanceSources,
+            ...pendingEditTargetFields(elTarget),
             timestamp: Date.now(),
           })
         }
@@ -830,9 +840,7 @@ export function Panel({
       // Single-select: filter to the primary source, pack optional instanceSources.
       const editedProps = changes.filter(c => c.source === source)
       const instanceSources = isShared
-        ? sharedInfo!.elements
-            .map(el => el.getAttribute('data-cortex-source'))
-            .filter((s): s is string => s !== null)
+        ? editSourcesForElements(sharedInfo!.elements)
         : undefined
       pendingEdits = editedProps.map(c => ({
         intentId: generateId(),
@@ -849,6 +857,7 @@ export function Panel({
         // ('instance' | 'all'); editScope already uses the same shape.
         scope: editScope,
         instanceSources,
+        ...pendingEditTargetFields(primaryTarget),
         timestamp: Date.now(),
       }))
     }
@@ -942,8 +951,8 @@ export function Panel({
     // causing section inputs to re-render with new values and fire onChange.
     if (undoInProgressRef?.current) return
     if (!element) return
-    const source = element.getAttribute('data-cortex-source')
-    if (!source) return
+    const primaryTarget = getElementEditTarget(element)
+    const source = primaryTarget.source
     const pseudo = activePseudo !== 'element' ? activePseudo : undefined
     const prevKey = `${source}${SEP}${property}${SEP}${pseudo ?? ''}`
 
@@ -1011,8 +1020,7 @@ export function Panel({
     })()
 
     for (const el of fanOutTargets) {
-      const elSource = el.getAttribute('data-cortex-source')
-      if (!elSource) continue
+      const elSource = getElementEditTarget(el).source
       const elPrevKey = `${elSource}${SEP}${property}${SEP}${pseudo ?? ''}`
       if (!scrubPreviousRef.current.has(elPrevKey)) {
         const elExisting = overrideManager.get(elSource, property, pseudo)
