@@ -164,8 +164,8 @@ describe('TailwindResolver.resolveColorChips', () => {
     expect(result).toEqual([])
   })
 
-  it('includes Tailwind default colors only when referenced by app source', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-used-'))
+  it('orders used app colors first, then includes the remaining current theme colors', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-theme-'))
     mkdirSync(join(dir, 'node_modules', 'tailwindcss'), { recursive: true })
     mkdirSync(join(dir, 'src'), { recursive: true })
     writeFileSync(join(dir, 'node_modules', 'tailwindcss', 'package.json'), '{"name":"tailwindcss"}')
@@ -202,7 +202,44 @@ describe('TailwindResolver.resolveColorChips', () => {
       { name: 'slate-900', hex: '#0f172a' },
       { name: 'blue-700', hex: '#1d4ed8' },
       { name: 'blue-500', hex: '#3b82f6' },
+      { name: 'red-500', hex: '#ef4444' },
     ])
-    expect(result).not.toContainEqual({ name: 'red-500', hex: '#ef4444' })
+  })
+
+  it('uses the resolved theme subset when the app clears Tailwind default colors', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-theme-subset-'))
+    mkdirSync(join(dir, 'node_modules', 'tailwindcss'), { recursive: true })
+    mkdirSync(join(dir, 'src'), { recursive: true })
+    writeFileSync(join(dir, 'node_modules', 'tailwindcss', 'package.json'), '{"name":"tailwindcss"}')
+    writeFileSync(
+      join(dir, 'node_modules', 'tailwindcss', 'theme.css'),
+      `@theme default {
+  --color-red-500: #ef4444;
+  --color-blue-500: #3b82f6;
+}
+`,
+    )
+    writeFileSync(
+      join(dir, 'app.css'),
+      `@import "tailwindcss";
+@theme {
+  --color-*: initial;
+  --color-brand: #2563eb;
+}
+`,
+    )
+    writeFileSync(
+      join(dir, 'src', 'App.tsx'),
+      `export function App() {
+  return <section className="bg-red-500 text-brand">hello</section>
+}
+`,
+    )
+
+    const result = await TailwindResolver.resolveColorChips(dir)
+
+    expect(result).toEqual([
+      { name: 'brand', hex: '#2563eb' },
+    ])
   })
 })

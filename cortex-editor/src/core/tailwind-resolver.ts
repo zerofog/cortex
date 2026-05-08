@@ -450,7 +450,7 @@ export class TailwindResolver {
 
   /**
    * Resolve named design-system color chips from the project's Tailwind v4
-   * @theme plus color utilities actually referenced by the app source.
+   * resolved theme plus color utilities actually referenced by the app source.
    * Returns `[{ name: 'brand-500', hex: '#3b82f6' }, ...]` — names are the
    * token identifier stripped of `--color-` or the Tailwind utility suffix,
    * hex is the browser-ready value after OKLCH/rgb normalization.
@@ -459,9 +459,10 @@ export class TailwindResolver {
    * the UI can render "text-gray-900" in linked pills and pickers rather
    * than bare hex strings.
    *
-   * The source-scan branch deliberately filters Tailwind's default theme down
-   * to classes the application already references. This keeps the picker tied
-   * to the app without showing the whole generic Tailwind color table.
+   * Ordering is relevance-first: colors already used by the app source, then
+   * every remaining color in the resolved Tailwind theme. For a stock
+   * `@import "tailwindcss"` app this means the full default Tailwind palette;
+   * if the app clears or overrides `--color-*`, the theme list is that subset.
    *
    * Returns null when no Tailwind v4 entry CSS is found.
    */
@@ -485,21 +486,23 @@ export class TailwindResolver {
       chips.push(chip)
     }
 
-    for (const chip of TailwindResolver.flattenNamedColors(appTheme.colors)) {
-      addChip(chip)
-    }
-
-    const fullTheme = await TailwindResolver.parseV4ThemeOrNull(projectRoot)
+    const fullTheme = await TailwindResolver.parseV4ThemeOrNull(projectRoot) ?? appTheme
     const themeChipByName = new Map(
       TailwindResolver.flattenNamedColors(fullTheme?.colors).map((chip) => [chip.name, chip]),
     )
 
+    // Relevance pass: source-used colors first.
     const usedNames = await TailwindResolver.collectUsedColorNames(projectRoot)
     for (const name of usedNames) {
       const chip = themeChipByName.get(name)
       if (chip) {
         addChip(chip)
       }
+    }
+
+    // Theme pass: expose the rest of the current page's resolved theme.
+    for (const chip of themeChipByName.values()) {
+      addChip(chip)
     }
 
     return chips
