@@ -52,7 +52,7 @@ const DEFAULT_VALUES: TypographyValues = {
   height: '24px',
   minHeight: '0px',
   canAlignVertically: false,
-  verticalAlignDisabledReason: TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP,
+  verticalAlignDisabledReason: { code: 'no-height' as const, tooltip: TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP },
   color: 'rgb(107, 114, 128)',
 }
 

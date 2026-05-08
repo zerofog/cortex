@@ -33,6 +33,57 @@ export const TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP =
 export const TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP =
   'Use Layout controls for this display type, or switch Display to Block/Flex.'
 
+/**
+ * Internal API contract for layout-context-aware editing resolvers.
+ *
+ * `code` is a stable machine-readable token consumers can branch on
+ * (e.g., Apply-review at the MCP boundary may handle 'no-height' by
+ * suggesting an explicit `min-height` write before the user retries).
+ * `tooltip` is the user-facing string rendered by the Panel.
+ *
+ * Stability: this is an INTERNAL contract within cortex-editor, not a
+ * published public API. Add new codes as resolvers grow new disabled
+ * conditions; do not assume external consumers depend on the union.
+ */
+export type DisabledCode = 'no-height' | 'unsupported-display'
+
+export type DisabledReason = {
+  code: DisabledCode
+  tooltip: string
+}
+
+export type PropertyEdit = {
+  property: string
+  value: string
+}
+
+/**
+ * Result shape returned by every layout-context-aware editing resolver.
+ *
+ * - `disabledReason: null` ⇒ resolver could route the intent to property
+ *   edits; `edits` is the concrete property-write list to dispatch.
+ * - `disabledReason: { code, tooltip }` ⇒ resolver could not route the
+ *   intent in this context; `edits` is empty. The caller should render
+ *   `tooltip` and skip dispatching.
+ *
+ * Future intent resolvers (sizing, spacing, distribution) should return
+ * this same shape so consumers (Panel, Apply-review) can treat them
+ * uniformly.
+ */
+export type LayoutResolution = {
+  disabledReason: DisabledReason | null
+  edits: PropertyEdit[]
+}
+
+const NO_HEIGHT_REASON: DisabledReason = {
+  code: 'no-height',
+  tooltip: TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP,
+}
+const UNSUPPORTED_DISPLAY_REASON: DisabledReason = {
+  code: 'unsupported-display',
+  tooltip: TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP,
+}
+
 const ABSOLUTE_LINE_HEIGHT_WARNING_THRESHOLD = 10
 let warnedAboutAbsoluteTypographyLineHeight = false
 
@@ -102,15 +153,15 @@ export function typographyVerticalAlignEnabled(
 
 export function typographyVerticalAlignDisabledReason(
   context: TypographyAlignmentContext,
-): string | null {
+): DisabledReason | null {
   const layout = typographyLayoutContext(context.display, context.flexDirection)
-  if (layout === 'unsupported') return TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP
+  if (layout === 'unsupported') return UNSUPPORTED_DISPLAY_REASON
   if (layout !== 'block') return null
   const contentHeight = lineHeightPx(context)
   const minHeight = parsePositivePx(context.minHeight)
   if (minHeight > contentHeight + 1) return null
   const height = parsePositivePx(context.height)
-  return height > contentHeight + 1 ? null : TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP
+  return height > contentHeight + 1 ? null : NO_HEIGHT_REASON
 }
 
 function horizontalToFlex(
@@ -130,12 +181,23 @@ function verticalToFlex(
   value: TypographyAlignmentValue,
   flexDirection: string,
 ): TypographyVerticalAlign | '' {
-  const aligned = flexToVertical(value)
+  // Inline value-mapping mirrors `horizontalToFlex` style. Previously this
+  // delegated to `flexToVertical(value, '')` to leverage its value-mapping
+  // while suppressing the reverse-direction flip; that empty-string sentinel
+  // pattern is gone now that `flexToVertical` requires an explicit direction.
+  const aligned: TypographyVerticalAlign | '' =
+    value === 'flex-end'
+      ? 'flex-end'
+      : value === 'flex-start'
+        ? 'flex-start'
+        : value === 'center'
+          ? 'center'
+          : ''
   if (!aligned) return ''
   return isColumnReverseDirection(flexDirection) ? flipFlexEdge(aligned) : aligned
 }
 
-export function flexToHorizontal(value: string, flexDirection = ''): TypographyHorizontalAlign | '' {
+export function flexToHorizontal(value: string, flexDirection: string): TypographyHorizontalAlign | '' {
   if (value === 'flex-start') return isRowReverseDirection(flexDirection) ? 'right' : 'left'
   if (value === 'flex-end') return isRowReverseDirection(flexDirection) ? 'left' : 'right'
   if (value === 'start' || value === 'left') return 'left'
@@ -144,7 +206,7 @@ export function flexToHorizontal(value: string, flexDirection = ''): TypographyH
   return ''
 }
 
-export function flexToVertical(value: string, flexDirection = ''): TypographyVerticalAlign | '' {
+export function flexToVertical(value: string, flexDirection: string): TypographyVerticalAlign | '' {
   if (value === 'flex-end') return isColumnReverseDirection(flexDirection) ? 'flex-start' : 'flex-end'
   if (value === 'flex-start') return isColumnReverseDirection(flexDirection) ? 'flex-end' : 'flex-start'
   if (value === 'end') return 'flex-end'
@@ -161,7 +223,7 @@ export function resolveTypographyAlignmentEdits({
   context: TypographyAlignmentContext
   axis: TypographyAlignmentAxis
   value: TypographyAlignmentValue
-}): { disabledReason: string | null; edits: TypographyAlignmentEdit[] } {
+}): LayoutResolution {
   const layout = typographyLayoutContext(context.display, context.flexDirection)
 
   if (axis === 'horizontal') {
@@ -186,7 +248,7 @@ export function resolveTypographyAlignmentEdits({
   const vertical = verticalToFlex(value, context.flexDirection)
   if (!vertical) return { disabledReason: null, edits: [] }
   if (layout === 'unsupported') {
-    return { disabledReason: TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP, edits: [] }
+    return { disabledReason: UNSUPPORTED_DISPLAY_REASON, edits: [] }
   }
   if (layout === 'block') {
     const disabledReason = typographyVerticalAlignDisabledReason(context)

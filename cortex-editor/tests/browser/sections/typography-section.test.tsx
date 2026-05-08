@@ -74,7 +74,7 @@ const DEFAULT_VALUES: TypographyValues = {
   height: '24px',
   minHeight: '0px',
   canAlignVertically: false,
-  verticalAlignDisabledReason: TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP,
+  verticalAlignDisabledReason: { code: 'no-height', tooltip: TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP },
   color: 'rgb(107, 114, 128)',
 }
 
@@ -377,7 +377,7 @@ describe('TypographySection v2 — plain property dispatch', () => {
         display: 'grid',
         height: '80px',
         canAlignVertically: false,
-        verticalAlignDisabledReason: TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP,
+        verticalAlignDisabledReason: { code: 'unsupported-display', tooltip: TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP },
       },
     })
     const verticalGroup = findAlignmentGroupByOptionValue('flex-start')
@@ -602,7 +602,7 @@ describe('parseTypographyValues', () => {
     expect(contentSized.textAlign).toBe('left')
     expect(contentSized.verticalAlign).toBe('')
     expect(contentSized.canAlignVertically).toBe(false)
-    expect(contentSized.verticalAlignDisabledReason).toBe(TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP)
+    expect(contentSized.verticalAlignDisabledReason).toEqual({ code: 'no-height', tooltip: TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP })
 
     const tall = parseTypographyValues(fakeCS({ display: 'block', height: '80px' }))
     expect(tall.canAlignVertically).toBe(true)
@@ -618,7 +618,7 @@ describe('parseTypographyValues', () => {
     expect(values.textAlign).toBe('left')
     expect(values.verticalAlign).toBe('')
     expect(values.canAlignVertically).toBe(false)
-    expect(values.verticalAlignDisabledReason).toBe(TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP)
+    expect(values.verticalAlignDisabledReason).toEqual({ code: 'unsupported-display', tooltip: TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP })
   })
 })
 
