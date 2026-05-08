@@ -186,11 +186,17 @@ async function defaultInstallPackages(request: InstallPackagesRequest): Promise<
       stdio: 'inherit',
     })
     child.on('error', reject)
-    child.on('close', code => {
+    child.on('close', (code, signal) => {
       if (code === 0) {
         resolve()
+      } else if (signal) {
+        reject(new Error(`${request.command} ${request.args.join(' ')} exited with signal ${signal}`))
       } else {
-        reject(new Error(`${request.command} ${request.args.join(' ')} exited with ${code}`))
+        reject(
+          new Error(
+            `${request.command} ${request.args.join(' ')} exited with ${code ?? 'unknown status'}`
+          )
+        )
       }
     })
   })
@@ -400,8 +406,12 @@ async function ensurePackages(
   const approved = await promptInstall({ packageManager, packages: missing, reason })
   if (!approved) {
     const installRequest = createInstallRequest(packageManager, missing, cwd)
-    console.warn('  Cortex setup incomplete: Vite is required to add source annotations.')
-    console.warn(`  Install Vite with: ${installRequest.command} ${installRequest.args.join(' ')}`)
+    console.warn(
+      `  Cortex setup incomplete: missing ${missing.join(' and ')} required to configure source annotations.`
+    )
+    console.warn(
+      `  Install missing packages with: ${installRequest.command} ${installRequest.args.join(' ')}`
+    )
     console.warn('  Then re-run: npx cortex init')
     return false
   }
@@ -508,6 +518,8 @@ export async function runInit(
       'missing-vite-peer',
       options
     )
+    if (!vitePeerInstalled) return
+
     const basename = path.basename(viteConfigPath)
     const content = fs.readFileSync(viteConfigPath, 'utf8')
     const sourceFile = createConfigSourceFile('vite.config.ts', content)
