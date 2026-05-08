@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
+import { act } from 'preact/test-utils'
 import { BorderSection, parseBorderValues, summarizeBorder } from '../../../src/browser/components/sections/BorderSection.js'
 import type { BorderValues } from '../../../src/browser/components/sections/BorderSection.js'
 
@@ -72,6 +73,30 @@ describe('BorderSection', () => {
     expect(swatch).not.toBeNull()
   })
 
+  it('raw color mode can link back to a color chip', async () => {
+    const colorChip = { name: 'brand-500', hex: '#3b82f6' }
+    const { onChange } = setup({
+      colorChips: [colorChip],
+    })
+    const tokenButton = container.querySelector('[aria-label="Link to color chip"]') as HTMLButtonElement
+    expect(tokenButton).not.toBeNull()
+    await act(async () => {
+      tokenButton.click()
+    })
+
+    const option = container.querySelector('.cortex-color-chip-picker__option') as HTMLButtonElement
+    expect(option).not.toBeNull()
+    await act(async () => {
+      option.click()
+    })
+
+    expect(onChange).toHaveBeenCalledWith({
+      kind: 'link-border-token',
+      chip: colorChip,
+      removeClass: undefined,
+    })
+  })
+
   it('renders TokenChip when borderToken is provided', () => {
     setup({ borderToken: 'border-blue-500' })
     const chip = container.querySelector('.cortex-token-chip')
@@ -79,6 +104,31 @@ describe('BorderSection', () => {
     // No color swatch when token is present
     const swatch = container.querySelector('.cortex-color-input__swatch')
     expect(swatch).toBeNull()
+  })
+
+  it('linked color chip body can swap to another border token', async () => {
+    const colorChip = { name: 'brand-500', hex: '#3b82f6' }
+    const { onChange } = setup({
+      borderToken: 'border-blue-500',
+      colorChips: [colorChip],
+    })
+    const chipBody = container.querySelector('button.cortex-token-chip__body') as HTMLButtonElement
+    expect(chipBody).not.toBeNull()
+    await act(async () => {
+      chipBody.click()
+    })
+
+    const option = container.querySelector('.cortex-color-chip-picker__option') as HTMLButtonElement
+    expect(option).not.toBeNull()
+    await act(async () => {
+      option.click()
+    })
+
+    expect(onChange).toHaveBeenCalledWith({
+      kind: 'link-border-token',
+      chip: colorChip,
+      removeClass: 'border-blue-500',
+    })
   })
 
   it('unlink fires a class-removal change with inline color preservation', () => {

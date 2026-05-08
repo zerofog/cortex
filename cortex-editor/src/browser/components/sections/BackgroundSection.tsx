@@ -1,17 +1,22 @@
 import type { JSX } from 'preact'
-import { useCallback, useMemo } from 'preact/hooks'
+import { useCallback, useMemo, useRef, useState } from 'preact/hooks'
 import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { ColorInput, parseColor, formatColor } from '../controls/ColorInput.js'
 import { TokenChip, isColorLike } from '../controls/TokenChip.js'
+import { ColorChipPicker } from '../controls/ColorChipPicker.js'
 import { IconButton } from '../controls/IconButton.js'
-import { Minus } from '../icons.js'
+import { Minus, SwatchBook } from '../icons.js'
+import type { ColorChip } from '../../token-detector.js'
+
+type BackgroundUtilityClass = `bg-${string}`
 
 export type BackgroundChange =
   | SectionChange
+  | { kind: 'link-background-token'; chip: ColorChip; removeClass?: BackgroundUtilityClass }
   | {
     kind: 'unlink-background-token'
-    removeClass: string
+    removeClass: BackgroundUtilityClass
     inline: Array<{ property: string; value: string }>
   }
 
@@ -26,6 +31,7 @@ export interface BackgroundSectionProps {
   /** When provided, renders a minus button at the row end that clears the fill. */
   onRemove?: () => void
   swatches?: string[]
+  colorChips?: ColorChip[]
   dimmedProperties?: Set<string>
   mixedProperties?: Set<string>
 }
@@ -50,19 +56,47 @@ export function BackgroundSection({
   onScrubEnd,
   onRemove,
   swatches,
+  colorChips,
   dimmedProperties,
   mixedProperties,
 }: BackgroundSectionProps): JSX.Element {
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const tokenBodyRef = useRef<HTMLButtonElement>(null)
+  const tokenButtonRef = useRef<HTMLButtonElement>(null)
   const parsed = useMemo(() => parseColor(backgroundColor), [backgroundColor])
+  const backgroundTokenName = backgroundToken?.startsWith('bg-') ? backgroundToken.slice(3) : null
+  const backgroundRemoveClass = backgroundToken?.startsWith('bg-')
+    ? backgroundToken as BackgroundUtilityClass
+    : undefined
 
   const handleUnlink = useCallback(() => {
-    if (backgroundToken === null) return
+    if (backgroundRemoveClass === undefined) return
     onChange({
       kind: 'unlink-background-token',
-      removeClass: backgroundToken,
+      removeClass: backgroundRemoveClass,
       inline: [{ property: 'background-color', value: backgroundColor }],
     })
-  }, [onChange, backgroundColor, backgroundToken])
+  }, [onChange, backgroundColor, backgroundRemoveClass])
+
+  const handleOpenPicker = useCallback(() => {
+    setPickerOpen((open) => !open)
+  }, [])
+
+  const handleClosePicker = useCallback(() => {
+    setPickerOpen(false)
+  }, [])
+
+  const handlePickToken = useCallback(
+    (chip: ColorChip) => {
+      onChange({
+        kind: 'link-background-token',
+        chip,
+        removeClass: backgroundRemoveClass,
+      })
+      setPickerOpen(false)
+    },
+    [onChange, backgroundRemoveClass],
+  )
 
   const handleColorChange = useCallback(
     (color: string) => onChange({ property: 'background-color', value: color }),
@@ -97,6 +131,27 @@ export function BackgroundSection({
       onClick={onRemove}
     />
   ) : null
+  const tokenButton = (
+    <button
+      ref={tokenButtonRef}
+      type="button"
+      class="cortex-icon-button"
+      aria-label="Link to color chip"
+      data-tooltip="Link to color chip"
+      onClick={handleOpenPicker}
+    >
+      <SwatchBook size={14} />
+    </button>
+  )
+  const picker = pickerOpen ? (
+    <ColorChipPicker
+      chips={colorChips ?? []}
+      currentName={backgroundTokenName}
+      onPick={handlePickToken}
+      onDismiss={handleClosePicker}
+      triggerRefs={[tokenBodyRef, tokenButtonRef]}
+    />
+  ) : null
 
   return (
     <div class={`cortex-background-section${isDimmed(dimmedProperties, 'background-color') ? ' cortex-control--dimmed' : ''}`} data-section-id="background">
@@ -109,22 +164,34 @@ export function BackgroundSection({
                 ? { kind: 'color', value: backgroundColor }
                 : { kind: 'pattern' }
             }
+            onBodyClick={handleOpenPicker}
             onUnlink={handleUnlink}
+            ariaLabel={`Swap color chip (currently ${backgroundToken})`}
+            bodyRef={tokenBodyRef}
           />
           {removeButton}
+          {picker}
         </div>
       ) : (
-        <ColorInput
-          value={backgroundColor}
-          onChange={handleColorChange}
-          onScrub={onScrub ? handleColorScrub : undefined}
-          onScrubEnd={onScrubEnd ? handleColorScrubEnd : undefined}
-          alpha={parsed.alpha}
-          onAlphaChange={handleAlphaChange}
-          swatches={swatches}
-          mixed={mixedProperties?.has('background-color')}
-          trailing={removeButton}
-        />
+        <div class="cortex-background-section__row cortex-background-section__row--raw">
+          <ColorInput
+            value={backgroundColor}
+            onChange={handleColorChange}
+            onScrub={onScrub ? handleColorScrub : undefined}
+            onScrubEnd={onScrubEnd ? handleColorScrubEnd : undefined}
+            alpha={parsed.alpha}
+            onAlphaChange={handleAlphaChange}
+            swatches={swatches}
+            mixed={mixedProperties?.has('background-color')}
+            trailing={
+              <>
+                {tokenButton}
+                {removeButton}
+              </>
+            }
+          />
+          {picker}
+        </div>
       )}
     </div>
   )

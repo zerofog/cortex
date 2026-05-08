@@ -404,7 +404,11 @@ function addPluginToConfigObject(
   if (pluginsProp) {
     const initializer = pluginsProp.getChildrenOfKind(SyntaxKind.ArrayLiteralExpression)[0]
     if (initializer) {
-      initializer.addElement(pluginExpression)
+      // Cortex must run before React's dev transform. React injects Fast
+      // Refresh scaffolding above the user's JSX; if Cortex annotates after
+      // that, data-cortex-source line numbers point at generated code instead
+      // of the real file and deterministic JSX edits miss their target.
+      initializer.insertElement(0, pluginExpression)
       return true
     }
     console.warn(`  ${basename}: plugins is not an array literal - add ${pluginExpression} manually`)
@@ -595,7 +599,7 @@ function writeViteConfig(cwd: string): string {
     'import { cortexEditor } from \'cortex-editor/vite\'',
     '',
     'export default defineConfig({',
-    '  plugins: [react(), cortexEditor()],',
+    '  plugins: [cortexEditor(), react()],',
     '})',
     '',
   ].join('\n')

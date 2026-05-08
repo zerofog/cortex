@@ -87,7 +87,7 @@ describe('cortex demo', () => {
         )
         expect(content).toContain('cortexEditor')
         expect(content).toContain("from 'cortex-editor/vite'")
-        expect(content).toContain('cortexEditor()')
+        expect(content).toContain('plugins: [cortexEditor(), react(), tailwindcss()]')
       } finally {
         cleanup(cwd)
       }

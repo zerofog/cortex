@@ -1,10 +1,11 @@
 import type { JSX } from 'preact'
-import { useState, useCallback, useMemo } from 'preact/hooks'
+import { useState, useCallback, useMemo, useRef } from 'preact/hooks'
 import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { NumericInput } from '../controls/NumericInput.js'
 import { ColorInput, parseColor, formatColor } from '../controls/ColorInput.js'
 import { TokenChip, isColorLike } from '../controls/TokenChip.js'
+import { ColorChipPicker } from '../controls/ColorChipPicker.js'
 import { IconButton } from '../controls/IconButton.js'
 import {
   Eye,
@@ -15,13 +16,18 @@ import {
   SquareSideRight,
   SquareSideBottom,
   SquareSideLeft,
+  SwatchBook,
 } from '../icons.js'
+import type { ColorChip } from '../../token-detector.js'
+
+type BorderUtilityClass = `border-${string}`
 
 export type BorderChange =
   | SectionChange
+  | { kind: 'link-border-token'; chip: ColorChip; removeClass?: BorderUtilityClass }
   | {
     kind: 'unlink-border-token'
-    removeClass: string
+    removeClass: BorderUtilityClass
     inline: Array<{ property: string; value: string }>
   }
 
@@ -47,6 +53,7 @@ export interface BorderSectionProps {
   /** When provided, renders a minus button at the row end that clears the border. */
   onRemove?: () => void
   swatches?: string[]
+  colorChips?: ColorChip[]
   /** Set of CSS properties that changed in the forced state. When present, unchanged properties are dimmed. */
   dimmedProperties?: Set<string>
   /** Set of CSS properties whose values differ across selected elements. */
@@ -122,12 +129,20 @@ export function BorderSection({
   onScrubEnd,
   onRemove,
   swatches,
+  colorChips,
   dimmedProperties,
   mixedProperties,
 }: BorderSectionProps): JSX.Element {
   const [perSideOpen, setPerSideOpen] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const tokenBodyRef = useRef<HTMLButtonElement>(null)
+  const tokenButtonRef = useRef<HTMLButtonElement>(null)
 
   const parsed = useMemo(() => parseColor(values.borderColor), [values.borderColor])
+  const borderTokenName = borderToken?.startsWith('border-') ? borderToken.slice(7) : null
+  const borderRemoveClass = borderToken?.startsWith('border-')
+    ? borderToken as BorderUtilityClass
+    : undefined
 
   // ── Row 1: Color ──────────────────────────────────────────────────
 
@@ -147,13 +162,33 @@ export function BorderSection({
   )
 
   const handleUnlink = useCallback(() => {
-    if (borderToken === null) return
+    if (borderRemoveClass === undefined) return
     onChange({
       kind: 'unlink-border-token',
-      removeClass: borderToken,
+      removeClass: borderRemoveClass,
       inline: [{ property: 'border-color', value: values.borderColor }],
     })
-  }, [onChange, values.borderColor, borderToken])
+  }, [onChange, values.borderColor, borderRemoveClass])
+
+  const handleOpenPicker = useCallback(() => {
+    setPickerOpen((open) => !open)
+  }, [])
+
+  const handleClosePicker = useCallback(() => {
+    setPickerOpen(false)
+  }, [])
+
+  const handlePickToken = useCallback(
+    (chip: ColorChip) => {
+      onChange({
+        kind: 'link-border-token',
+        chip,
+        removeClass: borderRemoveClass,
+      })
+      setPickerOpen(false)
+    },
+    [onChange, borderRemoveClass],
+  )
 
   const handleAlphaChange = useCallback(
     (alpha: number) => {
@@ -331,6 +366,27 @@ export function BorderSection({
               onClick={onRemove}
             />
           ) : null
+          const tokenButton = (
+            <button
+              ref={tokenButtonRef}
+              type="button"
+              class="cortex-icon-button"
+              aria-label="Link to color chip"
+              data-tooltip="Link to color chip"
+              onClick={handleOpenPicker}
+            >
+              <SwatchBook size={14} />
+            </button>
+          )
+          const picker = pickerOpen ? (
+            <ColorChipPicker
+              chips={colorChips ?? []}
+              currentName={borderTokenName}
+              onPick={handlePickToken}
+              onDismiss={handleClosePicker}
+              triggerRefs={[tokenBodyRef, tokenButtonRef]}
+            />
+          ) : null
           // [eye][minus]: eye first (non-destructive), minus at the far end
           // (destructive, click last). Rendered as a fragment so both share
           // the single `trailing` flex slot in ColorInput — same layout
@@ -350,22 +406,34 @@ export function BorderSection({
                     ? { kind: 'color', value: values.borderColor }
                     : { kind: 'pattern' }
                 }
+                onBodyClick={handleOpenPicker}
                 onUnlink={handleUnlink}
+                ariaLabel={`Swap color chip (currently ${borderToken})`}
+                bodyRef={tokenBodyRef}
               />
               {trailing}
+              {picker}
             </div>
           ) : (
-            <ColorInput
-              value={values.borderColor}
-              onChange={handleColorChange}
-              onScrub={onScrub ? handleColorScrub : undefined}
-              onScrubEnd={onScrubEnd ? handleColorScrubEnd : undefined}
-              alpha={values.borderOpacity}
-              onAlphaChange={handleAlphaChange}
-              swatches={swatches}
-              mixed={mixedProperties?.has('border-color')}
-              trailing={trailing}
-            />
+            <div class="cortex-border-section__token-row cortex-border-section__token-row--raw">
+              <ColorInput
+                value={values.borderColor}
+                onChange={handleColorChange}
+                onScrub={onScrub ? handleColorScrub : undefined}
+                onScrubEnd={onScrubEnd ? handleColorScrubEnd : undefined}
+                alpha={values.borderOpacity}
+                onAlphaChange={handleAlphaChange}
+                swatches={swatches}
+                mixed={mixedProperties?.has('border-color')}
+                trailing={
+                  <>
+                    {tokenButton}
+                    {trailing}
+                  </>
+                }
+              />
+              {picker}
+            </div>
           )
         })()}
       </div>

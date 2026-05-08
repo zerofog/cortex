@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
+import { act } from 'preact/test-utils'
 import { BackgroundSection } from '../../../src/browser/components/sections/BackgroundSection.js'
 import type { BackgroundSectionProps } from '../../../src/browser/components/sections/BackgroundSection.js'
 
@@ -57,6 +58,56 @@ describe('BackgroundSection', () => {
     // TokenChip should NOT be present
     const chip = container.querySelector('.cortex-token-chip')
     expect(chip).toBeNull()
+  })
+
+  it('raw color mode can link back to a color chip', async () => {
+    const colorChip = { name: 'brand-500', hex: '#3b82f6' }
+    const { onChange } = setup({
+      backgroundToken: null,
+      colorChips: [colorChip],
+    })
+    const tokenButton = container.querySelector('[aria-label="Link to color chip"]') as HTMLButtonElement
+    expect(tokenButton).not.toBeNull()
+    await act(async () => {
+      tokenButton.click()
+    })
+
+    const option = container.querySelector('.cortex-color-chip-picker__option') as HTMLButtonElement
+    expect(option).not.toBeNull()
+    await act(async () => {
+      option.click()
+    })
+
+    expect(onChange).toHaveBeenCalledWith({
+      kind: 'link-background-token',
+      chip: colorChip,
+      removeClass: undefined,
+    })
+  })
+
+  it('linked color chip body can swap to another background token', async () => {
+    const colorChip = { name: 'brand-500', hex: '#3b82f6' }
+    const { onChange } = setup({
+      backgroundToken: 'bg-blue-500',
+      colorChips: [colorChip],
+    })
+    const chipBody = container.querySelector('button.cortex-token-chip__body') as HTMLButtonElement
+    expect(chipBody).not.toBeNull()
+    await act(async () => {
+      chipBody.click()
+    })
+
+    const option = container.querySelector('.cortex-color-chip-picker__option') as HTMLButtonElement
+    expect(option).not.toBeNull()
+    await act(async () => {
+      option.click()
+    })
+
+    expect(onChange).toHaveBeenCalledWith({
+      kind: 'link-background-token',
+      chip: colorChip,
+      removeClass: 'bg-blue-500',
+    })
   })
 
   // Test 3: Unlink removes the linked class while preserving the rendered value.

@@ -67,7 +67,7 @@ import tailwindcss from '@tailwindcss/vite'
 import { cortexEditor } from 'cortex-editor/vite'
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), cortexEditor()],
+  plugins: [cortexEditor(), react(), tailwindcss()],
 })
 `
 

@@ -1340,10 +1340,25 @@ export function Panel({
         return
       }
 
-      applyClassChange({
-        remove: change.removeClass,
-        inlineSets: change.inline,
-      })
+      switch (change.kind) {
+        case 'link-background-token':
+          applyClassChange({
+            remove: change.removeClass,
+            add: `bg-${change.chip.name}`,
+            inlineRemoves: [{ property: 'background-color' }],
+          })
+          return
+        case 'unlink-background-token':
+          applyClassChange({
+            remove: change.removeClass,
+            inlineSets: change.inline,
+          })
+          return
+        default: {
+          const _exhaustive: never = change
+          console.error('[cortex] Unhandled BackgroundChange kind:', _exhaustive)
+        }
+      }
     },
     [applyOverride, applyClassChange],
   )
@@ -1355,10 +1370,25 @@ export function Panel({
         return
       }
 
-      applyClassChange({
-        remove: change.removeClass,
-        inlineSets: change.inline,
-      })
+      switch (change.kind) {
+        case 'link-border-token':
+          applyClassChange({
+            remove: change.removeClass,
+            add: `border-${change.chip.name}`,
+            inlineRemoves: [{ property: 'border-color' }],
+          })
+          return
+        case 'unlink-border-token':
+          applyClassChange({
+            remove: change.removeClass,
+            inlineSets: change.inline,
+          })
+          return
+        default: {
+          const _exhaustive: never = change
+          console.error('[cortex] Unhandled BorderChange kind:', _exhaustive)
+        }
+      }
     },
     [applyOverride, applyClassChange],
   )
@@ -1864,6 +1894,7 @@ export function Panel({
               onScrubEnd={handleCommit}
               onRemove={handleFillRemove}
               swatches={swatches}
+              colorChips={colorChips}
               dimmedProperties={dimmedProperties}
               mixedProperties={mixedProperties}
             />
@@ -1887,6 +1918,7 @@ export function Panel({
               onScrubEnd={handleCommit}
               onRemove={handleBorderRemove}
               swatches={swatches}
+              colorChips={colorChips}
               dimmedProperties={dimmedProperties}
               mixedProperties={mixedProperties}
             />
