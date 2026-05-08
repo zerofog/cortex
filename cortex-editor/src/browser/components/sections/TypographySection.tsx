@@ -122,15 +122,15 @@ export function parseTypographyValues(cs: CSSStyleDeclaration): TypographyValues
   const layout = typographyLayoutContext(display, flexDir)
   const textAlign =
     layout === 'flex-column'
-      ? flexToHorizontal(alignItems)
+      ? flexToHorizontal(alignItems, flexDir)
       : layout === 'flex-row'
-        ? flexToHorizontal(justifyContent)
-        : flexToHorizontal(cs.textAlign ?? 'left')
+        ? flexToHorizontal(justifyContent, flexDir)
+        : flexToHorizontal(cs.textAlign ?? 'left', flexDir)
   const verticalAlign =
     layout === 'flex-column'
-      ? flexToVertical(justifyContent)
+      ? flexToVertical(justifyContent, flexDir)
       : layout === 'flex-row'
-        ? flexToVertical(alignItems)
+        ? flexToVertical(alignItems, flexDir)
         : ''
   const height = cs.height ?? 'auto'
   const minHeight = cs.minHeight ?? '0px'

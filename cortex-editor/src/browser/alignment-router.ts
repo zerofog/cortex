@@ -33,6 +33,20 @@ export function isColumnDirection(direction: string): boolean {
   return direction === 'column' || direction === 'column-reverse'
 }
 
+function isRowReverseDirection(direction: string): boolean {
+  return direction === 'row-reverse'
+}
+
+function isColumnReverseDirection(direction: string): boolean {
+  return direction === 'column-reverse'
+}
+
+function flipFlexEdge(value: TypographyVerticalAlign): TypographyVerticalAlign {
+  if (value === 'flex-start') return 'flex-end'
+  if (value === 'flex-end') return 'flex-start'
+  return value
+}
+
 export function flexAxisToCssProperty(
   role: ScreenAxis | { distribute: DistributeAxis },
   direction: string,
@@ -75,23 +89,43 @@ export function typographyVerticalAlignEnabled(
   return height > contentHeight + 1
 }
 
-function horizontalToFlex(value: TypographyAlignmentValue): TypographyVerticalAlign {
-  if (value === 'right' || value === 'flex-end') return 'flex-end'
-  if (value === 'center') return 'center'
-  return 'flex-start'
+function horizontalToFlex(
+  value: TypographyAlignmentValue,
+  flexDirection: string,
+): TypographyVerticalAlign {
+  const aligned =
+    value === 'right' || value === 'flex-end'
+      ? 'flex-end'
+      : value === 'center'
+        ? 'center'
+        : 'flex-start'
+  return isRowReverseDirection(flexDirection) ? flipFlexEdge(aligned) : aligned
 }
 
-export function flexToHorizontal(value: string): TypographyHorizontalAlign | '' {
-  if (value === 'flex-start' || value === 'start' || value === 'left') return 'left'
-  if (value === 'flex-end' || value === 'end' || value === 'right') return 'right'
+function verticalToFlex(
+  value: TypographyAlignmentValue,
+  flexDirection: string,
+): TypographyVerticalAlign | '' {
+  const aligned = flexToVertical(value)
+  if (!aligned) return ''
+  return isColumnReverseDirection(flexDirection) ? flipFlexEdge(aligned) : aligned
+}
+
+export function flexToHorizontal(value: string, flexDirection = ''): TypographyHorizontalAlign | '' {
+  if (value === 'flex-start') return isRowReverseDirection(flexDirection) ? 'right' : 'left'
+  if (value === 'flex-end') return isRowReverseDirection(flexDirection) ? 'left' : 'right'
+  if (value === 'start' || value === 'left') return 'left'
+  if (value === 'end' || value === 'right') return 'right'
   if (value === 'center') return 'center'
   return ''
 }
 
-export function flexToVertical(value: string): TypographyVerticalAlign | '' {
-  if (value === 'flex-end' || value === 'end') return 'flex-end'
+export function flexToVertical(value: string, flexDirection = ''): TypographyVerticalAlign | '' {
+  if (value === 'flex-end') return isColumnReverseDirection(flexDirection) ? 'flex-start' : 'flex-end'
+  if (value === 'flex-start') return isColumnReverseDirection(flexDirection) ? 'flex-end' : 'flex-start'
+  if (value === 'end') return 'flex-end'
   if (value === 'center') return 'center'
-  if (value === 'flex-start' || value === 'start') return 'flex-start'
+  if (value === 'start') return 'flex-start'
   return ''
 }
 
@@ -120,12 +154,12 @@ export function resolveTypographyAlignmentEdits({
       disabledReason: null,
       edits: [{
         property: layout === 'flex-column' ? 'align-items' : 'justify-content',
-        value: horizontalToFlex(value),
+        value: horizontalToFlex(value, context.flexDirection),
       }],
     }
   }
 
-  const vertical = flexToVertical(value)
+  const vertical = verticalToFlex(value, context.flexDirection)
   if (!vertical) return { disabledReason: null, edits: [] }
   if (layout === 'block') {
     if (!typographyVerticalAlignEnabled(context)) {

@@ -35,7 +35,7 @@ export function SegmentedControl({
     const indicator = indicatorRef.current
     if (!track || !indicator) return
 
-    if (mixed) {
+    if (disabled || mixed) {
       indicator.style.width = '0'
       indicator.style.opacity = '0'
       return
@@ -51,7 +51,7 @@ export function SegmentedControl({
       indicator.style.width = '0'
       indicator.style.opacity = '0'
     }
-  }, [value, mixed])
+  }, [value, mixed, disabled])
 
   const handleClick = useCallback(
     (optValue: string) => {

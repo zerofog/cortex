@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
+import { act } from 'preact/test-utils'
 import {
   TypographySection,
   parseTypographyValues,
@@ -82,8 +83,6 @@ afterEach(() => {
   }
 })
 
-const flushEffects = (): Promise<void> => new Promise((r) => setTimeout(r, 10))
-
 function setup(
   overrides?: Partial<Parameters<typeof TypographySection>[0]>,
 ): {
@@ -147,6 +146,15 @@ function findPropertyChange(
   return collectChanges(onChange).find(
     (c): c is { property: string; value: string } => 'property' in c && c.property === property,
   )
+}
+
+function findAlignmentGroupByOptionValue(optionValue: string): HTMLElement {
+  const groups = Array.from(
+    container.querySelectorAll('.cortex-typography-section__align-row [role="radiogroup"]'),
+  ) as HTMLElement[]
+  const group = groups.find((g) => g.querySelector(`[data-value="${optionValue}"]`))
+  if (!group) throw new Error(`Alignment radiogroup with option ${optionValue} not found`)
+  return group
 }
 
 // ── Rendering ────────────────────────────────────────────────────────────
@@ -221,8 +229,9 @@ describe('TypographySection v2 — rendering', () => {
       // for alpha) nor the typography raw controls are present. Asserting on
       // a mixed state would confuse alpha's NumericInput with a typography one.
       setup({ className: 'text-body-md text-brand-500' })
-      // Load-bearing hold — NOT vi.waitFor; negative assertions would pass immediately.
-      await flushEffects()
+      await vi.waitFor(() => {
+        expect(container.querySelectorAll('.cortex-token-chip')).toHaveLength(2)
+      }, { timeout: 500 })
       expect(container.querySelector('.cortex-typography-section__t-button')).toBeNull()
       expect(container.querySelectorAll('.cortex-numeric-input')).toHaveLength(0)
     })
@@ -297,8 +306,7 @@ describe('TypographySection v2 — plain property dispatch', () => {
 
   it('emits horizontal alignment intent via the horizontal SegmentedControl', () => {
     const { onChange } = setup({ className: '' })
-    const groups = container.querySelectorAll('[role="radiogroup"]')
-    const alignGroup = groups[0] as HTMLElement
+    const alignGroup = findAlignmentGroupByOptionValue('left')
     const centerBtn = alignGroup.querySelector('[data-value="center"]') as HTMLElement
     centerBtn.click()
     expect(onChange).toHaveBeenCalledWith({
@@ -311,11 +319,14 @@ describe('TypographySection v2 — plain property dispatch', () => {
   it('emits color change when a valid hex is entered and blurred', async () => {
     const { onChange } = setup({ className: '' })
     const hex = container.querySelector('.cortex-color-input__hex') as HTMLInputElement
-    hex.focus()
-    hex.value = '#ff0000'
-    hex.dispatchEvent(new Event('input', { bubbles: true }))
-    await flushEffects()
-    hex.dispatchEvent(new Event('blur', { bubbles: true }))
+    await act(() => {
+      hex.focus()
+      hex.value = '#ff0000'
+      hex.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(() => {
+      hex.dispatchEvent(new Event('blur', { bubbles: true }))
+    })
     await vi.waitFor(() => {
       expect(findPropertyChange(onChange, 'color')?.value).toBe('#ff0000')
     }, { timeout: 500 })
@@ -324,13 +335,17 @@ describe('TypographySection v2 — plain property dispatch', () => {
   it('reverts invalid hex input on blur AND suppresses color emission', async () => {
     const { onChange } = setup({ className: '' })
     const hex = container.querySelector('.cortex-color-input__hex') as HTMLInputElement
-    hex.focus()
-    hex.value = 'notahex'
-    hex.dispatchEvent(new Event('input', { bubbles: true }))
-    await flushEffects()
-    hex.dispatchEvent(new Event('blur', { bubbles: true }))
-    await flushEffects()
-    expect(hex.value).toBe('#6b7280')
+    await act(() => {
+      hex.focus()
+      hex.value = 'notahex'
+      hex.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(() => {
+      hex.dispatchEvent(new Event('blur', { bubbles: true }))
+    })
+    await vi.waitFor(() => {
+      expect(hex.value).toBe('#6b7280')
+    }, { timeout: 500 })
     expect(findPropertyChange(onChange, 'color')).toBeUndefined()
   })
 
@@ -340,7 +355,7 @@ describe('TypographySection v2 — plain property dispatch', () => {
     expect(alignRow).not.toBeNull()
     const groups = alignRow!.querySelectorAll('[role="radiogroup"]')
     expect(groups).toHaveLength(2)
-    const verticalGroup = groups[1] as HTMLElement
+    const verticalGroup = findAlignmentGroupByOptionValue('flex-start')
     const middle = verticalGroup.querySelector('[data-value="center"]') as HTMLElement
     expect(middle.getAttribute('aria-disabled')).toBe('true')
     expect(middle.getAttribute('data-tooltip')).toBe(TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP)
@@ -359,8 +374,7 @@ describe('TypographySection v2 — plain property dispatch', () => {
         canAlignVertically: true,
       },
     })
-    const groups = container.querySelectorAll('.cortex-typography-section__align-row [role="radiogroup"]')
-    const verticalGroup = groups[1] as HTMLElement
+    const verticalGroup = findAlignmentGroupByOptionValue('flex-start')
     const top = verticalGroup.querySelector('[data-value="flex-start"]') as HTMLElement
     const middle = verticalGroup.querySelector('[data-value="center"]') as HTMLElement
     expect(middle.getAttribute('aria-disabled')).toBeNull()
@@ -514,6 +528,32 @@ describe('parseTypographyValues', () => {
     expect(values.verticalAlign).toBe('center')
   })
 
+  it('reads flex-row-reverse main-axis alignment as screen horizontal alignment', () => {
+    const values = parseTypographyValues(
+      fakeCS({
+        display: 'flex',
+        flexDirection: 'row-reverse',
+        justifyContent: 'flex-start',
+        alignItems: 'center',
+      }),
+    )
+    expect(values.textAlign).toBe('right')
+    expect(values.verticalAlign).toBe('center')
+  })
+
+  it('reads flex-column-reverse main-axis alignment as screen vertical alignment', () => {
+    const values = parseTypographyValues(
+      fakeCS({
+        display: 'flex',
+        flexDirection: 'column-reverse',
+        alignItems: 'flex-end',
+        justifyContent: 'flex-start',
+      }),
+    )
+    expect(values.textAlign).toBe('right')
+    expect(values.verticalAlign).toBe('flex-end')
+  })
+
   it('leaves horizontal control unselected for unsupported flex alignment values', () => {
     expect(
       parseTypographyValues(fakeCS({
@@ -603,9 +643,8 @@ describe('TypographySection v2 — dimmed + mixed props', () => {
       },
       mixedProperties: new Set(['align-items']),
     })
-    const groups = container.querySelectorAll('.cortex-typography-section__align-row [role="radiogroup"]')
-    expect(groups[0]?.textContent).not.toContain('Mixed')
-    expect(groups[1]?.textContent).toContain('Mixed')
+    expect(findAlignmentGroupByOptionValue('left').textContent).not.toContain('Mixed')
+    expect(findAlignmentGroupByOptionValue('flex-start').textContent).toContain('Mixed')
   })
 
   it('maps flex-column mixed properties to the same screen axes as alignment writes', () => {
@@ -621,9 +660,8 @@ describe('TypographySection v2 — dimmed + mixed props', () => {
       },
       mixedProperties: new Set(['align-items']),
     })
-    const groups = container.querySelectorAll('.cortex-typography-section__align-row [role="radiogroup"]')
-    expect(groups[0]?.textContent).toContain('Mixed')
-    expect(groups[1]?.textContent).not.toContain('Mixed')
+    expect(findAlignmentGroupByOptionValue('left').textContent).toContain('Mixed')
+    expect(findAlignmentGroupByOptionValue('flex-start').textContent).not.toContain('Mixed')
   })
 })
 

@@ -1,0 +1,2 @@
+export const MAX_INTENT_SOURCE_BYTES = 1024
+export const MAX_SOURCE_HINT_FIELD_BYTES = 512

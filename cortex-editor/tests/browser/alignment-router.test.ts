@@ -3,6 +3,7 @@ import {
   TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP,
   flexAxisToCssProperty,
   flexToHorizontal,
+  flexToVertical,
   resolveTypographyAlignmentEdits,
   typographyVerticalAlignEnabled,
 } from '../../src/browser/alignment-router.js'
@@ -73,6 +74,20 @@ describe('alignment-router', () => {
       'center',
       [{ property: 'justify-content', value: 'center' }],
     ],
+    [
+      'flex-row-reverse horizontal',
+      { ...BASE, display: 'flex', flexDirection: 'row-reverse' },
+      'horizontal',
+      'left',
+      [{ property: 'justify-content', value: 'flex-end' }],
+    ],
+    [
+      'flex-column-reverse vertical',
+      { ...BASE, display: 'flex', flexDirection: 'column-reverse' },
+      'vertical',
+      'flex-start',
+      [{ property: 'justify-content', value: 'flex-end' }],
+    ],
   ] as const)('resolves typography %s edit', (_label, context, axis, value, expected) => {
     expect(resolveTypographyAlignmentEdits({ context, axis, value })).toEqual({
       disabledReason: null,
@@ -106,4 +121,24 @@ describe('alignment-router', () => {
       expect(flexToHorizontal(value)).toBe('')
     },
   )
+
+  it('maps flex-row-reverse main-axis edges to screen left and right', () => {
+    expect(flexToHorizontal('flex-start', 'row-reverse')).toBe('right')
+    expect(flexToHorizontal('flex-end', 'row-reverse')).toBe('left')
+    expect(resolveTypographyAlignmentEdits({
+      context: { ...BASE, display: 'flex', flexDirection: 'row-reverse' },
+      axis: 'horizontal',
+      value: 'right',
+    }).edits).toEqual([{ property: 'justify-content', value: 'flex-start' }])
+  })
+
+  it('maps flex-column-reverse main-axis edges to screen top and bottom', () => {
+    expect(flexToVertical('flex-start', 'column-reverse')).toBe('flex-end')
+    expect(flexToVertical('flex-end', 'column-reverse')).toBe('flex-start')
+    expect(resolveTypographyAlignmentEdits({
+      context: { ...BASE, display: 'flex', flexDirection: 'column-reverse' },
+      axis: 'vertical',
+      value: 'flex-end',
+    }).edits).toEqual([{ property: 'justify-content', value: 'flex-start' }])
+  })
 })

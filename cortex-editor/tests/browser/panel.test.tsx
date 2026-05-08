@@ -8,6 +8,7 @@ import { _resetBusForTesting } from '../../src/browser/override-bus.js'
 import { cortexStorage } from '../../src/browser/persistence.js'
 import { isPendingEditArray, type PendingEdit } from '../../src/browser/hooks/useEditStagingBuffer.js'
 import { CommandStack } from '../../src/browser/command-stack.js'
+import { PREVIEW_SOURCE_ATTR, PREVIEW_SOURCE_PREFIX } from '../../src/browser/preview-source.js'
 
 const panelPositionProps = {
   position: { x: 1000, y: 12 },
@@ -1163,6 +1164,70 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     target.remove()
   })
 
+  it('commitScrub stages unannotated visual elements as agent-resolve intents', async () => {
+    vi.useFakeTimers()
+
+    const target = document.createElement('div')
+    target.className = 'hero-card'
+    target.textContent = 'Unannotated hero'
+    document.body.appendChild(target)
+
+    const overrideStore = new Map<string, string>()
+    const overrideManager = {
+      set: vi.fn((src: string, prop: string, val: string) => {
+        overrideStore.set(`${src}\0${prop}`, val)
+      }),
+      get: vi.fn((src: string, prop: string) => overrideStore.get(`${src}\0${prop}`)),
+      remove: vi.fn(),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+    }
+
+    const { root, cleanup } = renderInShadow(
+      <Panel
+        selectedElements={[target]}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />
+    )
+
+    const layoutSection = root.querySelector('[data-section-id="layout"]')
+    expect(layoutSection).not.toBeNull()
+    const segment = layoutSection!.querySelector(
+      '.cortex-segmented__option:not(.cortex-segmented__option--active)',
+    ) as HTMLButtonElement | null
+    expect(segment).not.toBeNull()
+    const expectedValue = segment!.getAttribute('data-value')
+    expect(expectedValue).not.toBeNull()
+
+    await act(async () => {
+      segment!.click()
+      await Promise.resolve()
+    })
+
+    await act(() => {
+      vi.advanceTimersByTime(150)
+    })
+
+    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    expect(stored).toHaveLength(1)
+    expect(stored[0].source).toMatch(/^cortex-preview:/)
+    expect(stored[0].applyMode).toBe('agent-resolve')
+    expect(stored[0].property).toBe('display')
+    expect(stored[0].value).toBe(expectedValue)
+    expect(stored[0].sourceResolutionHint).toMatchObject({
+      tagName: 'div',
+      className: 'hero-card',
+      textPreview: 'Unannotated hero',
+    })
+
+    cleanup()
+    target.remove()
+  })
+
   it('staged-edits-discard server message removes intents from canonical buffer', async () => {
     // ZF0-1452 regression: Panel.tsx's channel.onMessage handler wires
     // 'staged-edits-discard' (server-originated, emitted by the MCP server's
@@ -1592,6 +1657,65 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     el1.remove()
     el1Sibling.remove()
     el2.remove()
+  })
+
+  it('scope=all packs preview sources for unannotated shared siblings', async () => {
+    const sharedCss = 'Component.module.css:.badge'
+
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/A.tsx:10:3')
+    target.setAttribute('data-cortex-css', sharedCss)
+
+    const unannotatedSibling = document.createElement('div')
+    unannotatedSibling.setAttribute('data-cortex-css', sharedCss)
+
+    document.body.append(target, unannotatedSibling)
+
+    const overrideManager = createTrackingOverrideManager()
+    const restoreGCS = installGCSProxy()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <Panel
+        selectedElements={[target]}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+      container,
+    )
+
+    let allBtn!: HTMLButtonElement
+    await vi.waitFor(() => {
+      allBtn = container.querySelector('.cortex-panel__scope-btn:last-child') as HTMLButtonElement
+      expect(allBtn).not.toBeNull()
+      expect(allBtn.textContent).toContain('All')
+    }, { timeout: 500 })
+
+    await act(async () => {
+      allBtn.click()
+      await Promise.resolve()
+    })
+
+    await triggerCommitScrub(container)
+    await act(() => { vi.advanceTimersByTime(200) })
+
+    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    expect(stored).toHaveLength(1)
+    expect(stored[0].source).toBe('src/A.tsx:10:3')
+    expect(stored[0].instanceSources).toContain('src/A.tsx:10:3')
+
+    const siblingPreviewId = unannotatedSibling.getAttribute(PREVIEW_SOURCE_ATTR)
+    expect(siblingPreviewId).not.toBeNull()
+    expect(stored[0].instanceSources).toContain(`${PREVIEW_SOURCE_PREFIX}${siblingPreviewId}`)
+
+    render(null, container)
+    container.remove()
+    restoreGCS()
+    target.remove()
+    unannotatedSibling.remove()
   })
 
   it('AC4 regression: single-select unchanged — 1 intent, no instanceSources', async () => {

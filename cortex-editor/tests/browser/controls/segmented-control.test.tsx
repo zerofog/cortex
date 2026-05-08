@@ -159,6 +159,14 @@ describe('SegmentedControl', () => {
     expect(indicator).not.toBeNull()
   })
 
+  it('collapses the indicator when disabled even if a value is active', async () => {
+    setup({ value: 'flex', disabled: true })
+    const indicator = container.querySelector('.cortex-segmented__indicator') as HTMLElement
+    await vi.waitFor(() => {
+      expect(indicator.style.opacity).toBe('0')
+    }, { timeout: 500 })
+  })
+
   it('does not call onChange when clicking already active option', () => {
     const { onChange } = setup({ value: 'block' })
     const buttons = container.querySelectorAll('[role="radio"]')
