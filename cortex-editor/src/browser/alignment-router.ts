@@ -6,7 +6,7 @@ export type FlexCssProperty =
   | 'align-items'
   | 'align-content'
 
-export type TypographyLayoutContext = 'block' | 'flex-row' | 'flex-column'
+export type TypographyLayoutContext = 'block' | 'flex-row' | 'flex-column' | 'unsupported'
 export type TypographyAlignmentAxis = 'horizontal' | 'vertical'
 export type TypographyHorizontalAlign = 'left' | 'center' | 'right'
 export type TypographyVerticalAlign = 'flex-start' | 'center' | 'flex-end'
@@ -30,6 +30,8 @@ export interface TypographyAlignmentEdit {
 
 export const TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP =
   'Set Height or Min H in Layout before aligning text vertically.'
+export const TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP =
+  'Use Layout controls for this display type, or switch Display to Block/Flex.'
 
 const ABSOLUTE_LINE_HEIGHT_WARNING_THRESHOLD = 10
 let warnedAboutAbsoluteTypographyLineHeight = false
@@ -70,8 +72,8 @@ export function typographyLayoutContext(
   flexDirection: string,
 ): TypographyLayoutContext {
   const flex = display === 'flex' || display === 'inline-flex'
-  if (!flex) return 'block'
-  return isColumnDirection(flexDirection) ? 'flex-column' : 'flex-row'
+  if (flex) return isColumnDirection(flexDirection) ? 'flex-column' : 'flex-row'
+  return display === '' || display === 'block' ? 'block' : 'unsupported'
 }
 
 function parsePositivePx(value: string): number {
@@ -95,12 +97,20 @@ function lineHeightPx(context: TypographyAlignmentContext): number {
 export function typographyVerticalAlignEnabled(
   context: TypographyAlignmentContext,
 ): boolean {
-  if (typographyLayoutContext(context.display, context.flexDirection) !== 'block') return true
+  return typographyVerticalAlignDisabledReason(context) === null
+}
+
+export function typographyVerticalAlignDisabledReason(
+  context: TypographyAlignmentContext,
+): string | null {
+  const layout = typographyLayoutContext(context.display, context.flexDirection)
+  if (layout === 'unsupported') return TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP
+  if (layout !== 'block') return null
   const contentHeight = lineHeightPx(context)
   const minHeight = parsePositivePx(context.minHeight)
-  if (minHeight > contentHeight + 1) return true
+  if (minHeight > contentHeight + 1) return null
   const height = parsePositivePx(context.height)
-  return height > contentHeight + 1
+  return height > contentHeight + 1 ? null : TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP
 }
 
 function horizontalToFlex(
@@ -155,7 +165,7 @@ export function resolveTypographyAlignmentEdits({
   const layout = typographyLayoutContext(context.display, context.flexDirection)
 
   if (axis === 'horizontal') {
-    if (layout === 'block') {
+    if (layout === 'block' || layout === 'unsupported') {
       const textAlign: TypographyHorizontalAlign =
         value === 'right' || value === 'flex-end'
           ? 'right'
@@ -175,9 +185,13 @@ export function resolveTypographyAlignmentEdits({
 
   const vertical = verticalToFlex(value, context.flexDirection)
   if (!vertical) return { disabledReason: null, edits: [] }
+  if (layout === 'unsupported') {
+    return { disabledReason: TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP, edits: [] }
+  }
   if (layout === 'block') {
-    if (!typographyVerticalAlignEnabled(context)) {
-      return { disabledReason: TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP, edits: [] }
+    const disabledReason = typographyVerticalAlignDisabledReason(context)
+    if (disabledReason) {
+      return { disabledReason, edits: [] }
     }
     return {
       disabledReason: null,

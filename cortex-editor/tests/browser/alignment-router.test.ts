@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP,
+  TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP,
   flexAxisToCssProperty,
   flexToHorizontal,
   flexToVertical,
@@ -133,6 +134,31 @@ describe('alignment-router', () => {
       expect(flexToHorizontal(value)).toBe('')
     },
   )
+
+  it('does not convert grid displays to flex for vertical typography alignment', () => {
+    const context = { ...BASE, display: 'grid', height: '80px' }
+
+    expect(typographyVerticalAlignEnabled(context)).toBe(false)
+    expect(resolveTypographyAlignmentEdits({
+      context,
+      axis: 'vertical',
+      value: 'center',
+    })).toEqual({
+      disabledReason: TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP,
+      edits: [],
+    })
+  })
+
+  it('keeps horizontal typography alignment as text-align for unsupported displays', () => {
+    expect(resolveTypographyAlignmentEdits({
+      context: { ...BASE, display: 'grid' },
+      axis: 'horizontal',
+      value: 'center',
+    })).toEqual({
+      disabledReason: null,
+      edits: [{ property: 'text-align', value: 'center' }],
+    })
+  })
 
   it('maps flex-row-reverse main-axis edges to screen left and right', () => {
     expect(flexToHorizontal('flex-start', 'row-reverse')).toBe('right')

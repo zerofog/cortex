@@ -30,6 +30,7 @@ import {
   flexToHorizontal,
   flexToVertical,
   typographyLayoutContext,
+  typographyVerticalAlignDisabledReason,
   typographyVerticalAlignEnabled,
   type TypographyAlignmentAxis,
   type TypographyAlignmentValue,
@@ -90,6 +91,7 @@ export interface TypographyValues {
   height: string
   minHeight: string
   canAlignVertically: boolean
+  verticalAlignDisabledReason: string | null
   color: string
 }
 
@@ -134,6 +136,15 @@ export function parseTypographyValues(cs: CSSStyleDeclaration): TypographyValues
         : ''
   const height = cs.height ?? 'auto'
   const minHeight = cs.minHeight ?? '0px'
+  const verticalAlignContext = {
+    display,
+    flexDirection: flexDir,
+    height,
+    minHeight,
+    fontSize,
+    lineHeight,
+  }
+  const verticalAlignDisabledReason = typographyVerticalAlignDisabledReason(verticalAlignContext)
   return {
     fontFamily: cs.fontFamily ?? '',
     fontSize,
@@ -149,14 +160,8 @@ export function parseTypographyValues(cs: CSSStyleDeclaration): TypographyValues
     alignItems,
     height,
     minHeight,
-    canAlignVertically: typographyVerticalAlignEnabled({
-      display,
-      flexDirection: flexDir,
-      height,
-      minHeight,
-      fontSize,
-      lineHeight,
-    }),
+    canAlignVertically: typographyVerticalAlignEnabled(verticalAlignContext),
+    verticalAlignDisabledReason,
     color: cs.color ?? 'rgb(0, 0, 0)',
   }
 }
@@ -293,11 +298,11 @@ export function TypographySection({
   const colorLinked = chip !== null
   const layoutContext = typographyLayoutContext(values.display, values.flexDirection)
   const horizontalMixed =
-    layoutContext === 'block'
-      ? mixedProperties?.has('text-align')
-      : layoutContext === 'flex-column'
+    layoutContext === 'flex-column'
         ? mixedProperties?.has('align-items')
-        : mixedProperties?.has('justify-content')
+        : layoutContext === 'flex-row'
+          ? mixedProperties?.has('justify-content')
+          : mixedProperties?.has('text-align')
   const verticalMixed =
     layoutContext === 'flex-column'
       ? mixedProperties?.has('justify-content')
@@ -665,7 +670,7 @@ export function TypographySection({
           size="sm"
           mixed={verticalMixed}
           disabled={!values.canAlignVertically}
-          disabledTooltip={TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP}
+          disabledTooltip={values.verticalAlignDisabledReason ?? TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP}
         />
       </div>
     </div>

@@ -4,6 +4,7 @@ import { TypographySection } from '../../../src/browser/components/sections/Typo
 import type { TypographyValues, TypographyChange } from '../../../src/browser/components/sections/TypographySection.js'
 import type { TextComponent } from '../../../src/core/text-components.js'
 import type { ColorChip } from '../../../src/browser/token-detector.js'
+import { TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP } from '../../../src/browser/alignment-router.js'
 
 /**
  * Narrow dispatch-contract tests for the Task 17 naming fix.
@@ -51,6 +52,7 @@ const DEFAULT_VALUES: TypographyValues = {
   height: '24px',
   minHeight: '0px',
   canAlignVertically: false,
+  verticalAlignDisabledReason: TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP,
   color: 'rgb(107, 114, 128)',
 }
 

@@ -11,7 +11,10 @@ import type {
 } from '../../../src/browser/components/sections/TypographySection.js'
 import type { TextComponent } from '../../../src/core/text-components.js'
 import type { ColorChip } from '../../../src/browser/token-detector.js'
-import { TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP } from '../../../src/browser/alignment-router.js'
+import {
+  TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP,
+  TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP,
+} from '../../../src/browser/alignment-router.js'
 
 /**
  * Replacement test suite for ZF0-1215 Task 18 — the section was rewritten to
@@ -71,6 +74,7 @@ const DEFAULT_VALUES: TypographyValues = {
   height: '24px',
   minHeight: '0px',
   canAlignVertically: false,
+  verticalAlignDisabledReason: TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP,
   color: 'rgb(107, 114, 128)',
 }
 
@@ -365,6 +369,28 @@ describe('TypographySection v2 — plain property dispatch', () => {
     )
   })
 
+  it('renders disabled vertical alignment controls with display recovery tooltip for grid elements', () => {
+    const { onChange } = setup({
+      className: '',
+      values: {
+        ...DEFAULT_VALUES,
+        display: 'grid',
+        height: '80px',
+        canAlignVertically: false,
+        verticalAlignDisabledReason: TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP,
+      },
+    })
+    const verticalGroup = findAlignmentGroupByOptionValue('flex-start')
+    const middle = verticalGroup.querySelector('[data-value="center"]') as HTMLElement
+
+    expect(middle.getAttribute('aria-disabled')).toBe('true')
+    expect(middle.getAttribute('data-tooltip')).toBe(TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP)
+    middle.click()
+    expect(onChange).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'typography-align', axis: 'vertical' }),
+    )
+  })
+
   it('emits vertical alignment intent when the element has Layout height room', () => {
     const { onChange } = setup({
       className: '',
@@ -576,12 +602,23 @@ describe('parseTypographyValues', () => {
     expect(contentSized.textAlign).toBe('left')
     expect(contentSized.verticalAlign).toBe('')
     expect(contentSized.canAlignVertically).toBe(false)
+    expect(contentSized.verticalAlignDisabledReason).toBe(TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP)
 
     const tall = parseTypographyValues(fakeCS({ display: 'block', height: '80px' }))
     expect(tall.canAlignVertically).toBe(true)
+    expect(tall.verticalAlignDisabledReason).toBeNull()
 
     const minTall = parseTypographyValues(fakeCS({ display: 'block', minHeight: '80px' }))
     expect(minTall.canAlignVertically).toBe(true)
+    expect(minTall.verticalAlignDisabledReason).toBeNull()
+  })
+
+  it('disables vertical alignment for grid displays instead of treating them as block', () => {
+    const values = parseTypographyValues(fakeCS({ display: 'grid', height: '80px' }))
+    expect(values.textAlign).toBe('left')
+    expect(values.verticalAlign).toBe('')
+    expect(values.canAlignVertically).toBe(false)
+    expect(values.verticalAlignDisabledReason).toBe(TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP)
   })
 })
 
