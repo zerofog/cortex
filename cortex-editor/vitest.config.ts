@@ -6,6 +6,12 @@ export default defineConfig({
     jsxImportSource: 'preact',
   },
   test: {
+    // Some integration tests shell out to full tsup builds. Keep Vitest's
+    // file sequencing non-concurrent so timing-sensitive adapter performance
+    // assertions do not measure contention from build-artifact tests.
+    sequence: {
+      concurrent: false,
+    },
     coverage: {
       provider: 'v8',
       include: ['src/**'],

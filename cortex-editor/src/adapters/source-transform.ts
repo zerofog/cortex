@@ -2,6 +2,7 @@ import path from 'path'
 import { parse } from '@babel/parser'
 import MagicString from 'magic-string'
 import type { SourceTransformOptions, TransformResult } from './types.js'
+import { shouldExcludeCortexSource } from './source-loader-utils.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -271,10 +272,7 @@ export function createSourceTransform(
     // Strip Vite HMR query params (e.g. ?v=abc123) before extension check
     const cleanId = id.split('?')[0]!
     if (!/\.[jt]sx$/.test(cleanId)) return null
-    if (cleanId.includes('/node_modules/')) {
-      const included = options?.includeNodeModules ?? []
-      if (!included.some(pkg => cleanId.includes(`/node_modules/${pkg}/`))) return null
-    }
+    if (shouldExcludeCortexSource(cleanId, options?.includeNodeModules)) return null
 
     const relativePath = path.relative(projectRoot, cleanId).replace(/\\/g, '/')
     const safePath = relativePath.startsWith('..')

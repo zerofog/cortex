@@ -17,7 +17,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act } from 'preact/test-utils'
 import { Panel } from '../../src/browser/components/Panel.js'
-import { renderInShadow, createMockChannel } from './helpers.js'
+import { renderInShadow, createMockChannel, cleanDocumentHead } from './helpers.js'
 import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
 import { _resetBusForTesting } from '../../src/browser/override-bus.js'
 import { cortexStorage } from '../../src/browser/persistence.js'
@@ -64,15 +64,19 @@ function seedEdit(edit: PendingEdit): void {
 beforeEach(() => {
   vi.useRealTimers()
   localStorage.clear()
+  document.body.querySelectorAll('[data-cortex-source], [data-cortex-host]').forEach(el => el.remove())
   _resetBusForTesting()
   _resetTransformBusForTesting()
+  cleanDocumentHead()
 })
 
 afterEach(() => {
   vi.useRealTimers()
   localStorage.clear()
+  document.body.querySelectorAll('[data-cortex-source], [data-cortex-host]').forEach(el => el.remove())
   _resetBusForTesting()
   _resetTransformBusForTesting()
+  cleanDocumentHead()
 })
 
 describe('Panel T4 — StagingDriftBanner wiring', () => {
@@ -164,7 +168,7 @@ describe('Panel T4 — StagingDriftBanner wiring', () => {
       const banner = root.querySelector('.cortex-drift-banner')
       expect(banner).not.toBeNull()
       expect(banner!.textContent).toContain('staged edit(s) may be affected by external changes')
-    })
+    }, { timeout: 2000 })
 
     cleanup()
     target.remove()

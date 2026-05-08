@@ -11,6 +11,16 @@ function makeTmpDir(): string {
 }
 
 function cleanup(dir: string): void {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true })
+      return
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code !== 'ENOTEMPTY' && code !== 'EBUSY' && code !== 'EPERM') throw err
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20 * (attempt + 1))
+    }
+  }
   fs.rmSync(dir, { recursive: true, force: true })
 }
 
