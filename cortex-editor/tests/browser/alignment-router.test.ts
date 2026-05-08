@@ -104,7 +104,7 @@ describe('alignment-router', () => {
       axis: 'vertical',
       value: 'center',
     })).toEqual({
-      disabledReason: TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP,
+      disabledReason: { code: 'no-height', tooltip: TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP },
       edits: [],
     })
   })
@@ -131,7 +131,7 @@ describe('alignment-router', () => {
   it.each(['stretch', 'space-between', 'space-around'] as const)(
     'leaves unsupported horizontal flex value %s unselected',
     (value) => {
-      expect(flexToHorizontal(value)).toBe('')
+      expect(flexToHorizontal(value, 'row')).toBe('')
     },
   )
 
@@ -144,7 +144,7 @@ describe('alignment-router', () => {
       axis: 'vertical',
       value: 'center',
     })).toEqual({
-      disabledReason: TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP,
+      disabledReason: { code: 'unsupported-display', tooltip: TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP },
       edits: [],
     })
   })
@@ -168,6 +168,31 @@ describe('alignment-router', () => {
       axis: 'horizontal',
       value: 'right',
     }).edits).toEqual([{ property: 'justify-content', value: 'flex-start' }])
+  })
+
+  it('exposes typed disabledReason.code so consumers can branch programmatically', () => {
+    const noHeight = resolveTypographyAlignmentEdits({
+      context: BASE,
+      axis: 'vertical',
+      value: 'center',
+    })
+    expect(noHeight.disabledReason?.code).toBe('no-height')
+    expect(noHeight.disabledReason?.tooltip).toBe(TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP)
+
+    const unsupported = resolveTypographyAlignmentEdits({
+      context: { ...BASE, display: 'grid', height: '80px' },
+      axis: 'vertical',
+      value: 'center',
+    })
+    expect(unsupported.disabledReason?.code).toBe('unsupported-display')
+    expect(unsupported.disabledReason?.tooltip).toBe(TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP)
+
+    const enabled = resolveTypographyAlignmentEdits({
+      context: { ...BASE, display: 'block', height: '80px' },
+      axis: 'vertical',
+      value: 'center',
+    })
+    expect(enabled.disabledReason).toBeNull()
   })
 
   it('maps flex-column-reverse main-axis edges to screen top and bottom', () => {
