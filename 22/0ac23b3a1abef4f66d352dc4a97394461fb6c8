@@ -1,0 +1,28 @@
+cortex-editor/tests/integration/helpers/process-cleanup.ts
+  s_0e5ee60ed8203a::t_f1af5c1f8c8e6f 57-64
+  s_0e5ee60ed8203a::t_d27c6d17dbd706 9,13-17
+cortex-editor/tests/integration/cli-process.test.ts
+  s_0e5ee60ed8203a::t_97edec92c7f41e 129
+  s_0e5ee60ed8203a::t_11cee3864ab123 23
+cortex-editor/tests/integration/README.md
+  s_0e5ee60ed8203a::t_5e3fb0d07a6b93 43-51
+cortex-editor/tests/integration/helpers/cli-build.ts
+  s_0e5ee60ed8203a::t_d64d8cd92bc62b 57-68
+  s_0e5ee60ed8203a::t_6092f2893ffd55 11-13,16-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "220ac23b3a1abef4f66d352dc4a97394461fb6c8",
+  "prompts": {},
+  "sessions": {
+    "s_0e5ee60ed8203a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "73512202-0d84-4b6c-8884-abf0e45ccd20",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
