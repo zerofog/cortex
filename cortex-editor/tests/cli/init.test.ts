@@ -233,6 +233,33 @@ describe('cortex init', () => {
     }
   })
 
+  it('detects cortexEditor when Vite plugins are referenced by identifier', async () => {
+    const viteConfig = [
+      'import { defineConfig } from \'vite\'',
+      'import react from \'@vitejs/plugin-react\'',
+      'import { cortexEditor } from \'cortex-editor/vite\'',
+      '',
+      'const plugins = [react(), cortexEditor()]',
+      '',
+      'export default defineConfig({',
+      '  plugins,',
+      '})',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","vite":"^5.1.0"}}',
+      'vite.config.ts': viteConfig,
+    })
+    try {
+      const result = await runInit(dir)
+      expect(result.vitePluginFound).toBe(true)
+      expect(result.vitePluginInjected).toBe(false)
+      expect(result.setupComplete).toBe(true)
+      expect(fs.readFileSync(path.join(dir, 'vite.config.ts'), 'utf8')).toBe(viteConfig)
+    } finally {
+      cleanup(dir)
+    }
+  })
+
   it('prompts to install the missing Vite peer before treating an existing Vite config as complete', async () => {
     const viteConfig = [
       'import { defineConfig } from \'vite\'',
@@ -920,6 +947,7 @@ describe('cortex init', () => {
         const result = await runInit(dir)
 
         expect(result.detectedBundler).toBe('next')
+        expect(result.nextConfigFound).toBe(true)
         expect(result.nextConfigInjected).toBe(false)
         expect(result.nextConfigCreated).toBe(false)
         expect(result.setupComplete).toBe(false)

@@ -49,6 +49,10 @@ export const WEBPACK_CONFIG_FILES = [
   'webpack.config.cjs',
 ] as const
 
+/**
+ * Locally installed dependency sections only.
+ * peerDependencies are intentionally excluded because they do not prove the package is installed here.
+ */
 export function allDependencies(pkg: PackageJson): Record<string, string> {
   return {
     ...pkg.dependencies,

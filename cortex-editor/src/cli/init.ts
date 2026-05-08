@@ -106,6 +106,19 @@ function configExpressionUsesNamedCall(
   return Boolean(initializer && hasNamedCallExpression(initializer, name))
 }
 
+function objectPropertyValueUsesNamedCall(
+  sourceFile: SourceFile,
+  property: Node,
+  name: string
+): boolean {
+  if (property.isKind(SyntaxKind.PropertyAssignment)) {
+    const initializer = property.getInitializer()
+    return Boolean(initializer && configExpressionUsesNamedCall(sourceFile, initializer, name))
+  }
+
+  return configExpressionUsesNamedCall(sourceFile, property, name)
+}
+
 function isCommonJsExportTarget(node: Node): boolean {
   if (node.getText() === 'exports') return true
 
@@ -139,7 +152,9 @@ function nextConfigUsesWithCortex(sourceFile: SourceFile): boolean {
 function viteConfigUsesCortexEditor(sourceFile: SourceFile): boolean {
   const configObject = findConfigObject(sourceFile)
   const pluginsProperty = configObject?.getProperty('plugins')
-  return Boolean(pluginsProperty && hasNamedCallExpression(pluginsProperty, 'cortexEditor'))
+  return Boolean(
+    pluginsProperty && objectPropertyValueUsesNamedCall(sourceFile, pluginsProperty, 'cortexEditor')
+  )
 }
 
 export interface InitResult {
@@ -373,7 +388,7 @@ function configureNext(
     console.warn(
       `  ${basename}: Next.js does not support this config extension. Rename it to next.config.js, next.config.mjs, or next.config.ts, then re-run cortex init.`
     )
-    return { found: false, injected: false, created: false, configured: false }
+    return { found: true, injected: false, created: false, configured: false }
   }
 
   if (!configPath) {
