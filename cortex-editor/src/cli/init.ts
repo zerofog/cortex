@@ -106,6 +106,24 @@ function configExpressionUsesNamedCall(
   return Boolean(initializer && hasNamedCallExpression(initializer, name))
 }
 
+function isCommonJsExportTarget(node: Node): boolean {
+  if (node.getText() === 'exports') return true
+
+  const propertyAccess = node.asKind(SyntaxKind.PropertyAccessExpression)
+  if (!propertyAccess) return false
+
+  return (
+    propertyAccess.getExpression().getText() === 'module' &&
+    propertyAccess.getName() === 'exports'
+  ) || propertyAccess.getExpression().getText() === 'exports'
+}
+
+function isCommonJsExportAssignment(binaryExpression: Node): boolean {
+  if (!binaryExpression.isKind(SyntaxKind.BinaryExpression)) return false
+  if (binaryExpression.getOperatorToken().getKind() !== SyntaxKind.EqualsToken) return false
+  return isCommonJsExportTarget(binaryExpression.getLeft())
+}
+
 function nextConfigUsesWithCortex(sourceFile: SourceFile): boolean {
   const defaultExport = sourceFile.getFirstDescendantByKind(SyntaxKind.ExportAssignment)
   if (defaultExport && configExpressionUsesNamedCall(sourceFile, defaultExport.getExpression(), 'withCortex')) {
@@ -113,7 +131,7 @@ function nextConfigUsesWithCortex(sourceFile: SourceFile): boolean {
   }
 
   return sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression).some(binaryExpression => (
-    binaryExpression.getLeft().getText() === 'module.exports' &&
+    isCommonJsExportAssignment(binaryExpression) &&
     configExpressionUsesNamedCall(sourceFile, binaryExpression.getRight(), 'withCortex')
   ))
 }
@@ -372,12 +390,14 @@ function configureNext(
 
   const basename = path.basename(configPath)
   const content = fs.readFileSync(configPath, 'utf8')
-  if (nextConfigUsesWithCortex(createConfigSourceFile(basename, content))) {
+  const sourceFile = createConfigSourceFile(basename, content)
+  if (nextConfigUsesWithCortex(sourceFile)) {
     console.log(`  ${basename}: withCortex config found`)
     return { found: true, injected: false, created: false, configured: true }
   }
 
-  const isCjs = content.includes('module.exports')
+  const isCjs = sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)
+    .some(binaryExpression => isCommonJsExportAssignment(binaryExpression))
   const nextContent = isCjs ? addCjsWithCortex(content) : addEsmWithCortex(content)
   if (!nextContent) {
     console.warn(

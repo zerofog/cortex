@@ -758,6 +758,30 @@ describe('cortex init', () => {
     }
   })
 
+  it('does not treat commented module.exports text as a CommonJS Next.js config', async () => {
+    const nextConfig = [
+      '// Legacy example: module.exports = {}',
+      'export default { reactStrictMode: true }',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'next.config.mjs': nextConfig,
+    })
+    try {
+      const result = await runInit(dir)
+
+      expect(result.nextConfigInjected).toBe(true)
+      expect(result.setupComplete).toBe(true)
+      const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
+      expect(content).toContain('import { withCortex } from \'cortex-editor/next\'')
+      expect(content).toContain('export default withCortex({ reactStrictMode: true })')
+      expect(content).not.toContain('module.exports = withCortex')
+    } finally {
+      cleanup(dir)
+    }
+  })
+
   it('skips injection when an ESM Next.js config export is already wrapped with withCortex', async () => {
     const nextConfig = [
       'import { withCortex } from \'cortex-editor/next\'',
