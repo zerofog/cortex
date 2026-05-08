@@ -318,7 +318,7 @@ describe('serverToBrowserSchema — hello', () => {
     const msg = {
       ...baseHello,
       swatches: ['#ff0000'],
-      colorChips: [{ name: 'primary', hex: '#ff0000', source: 'page' }],
+      colorChips: [{ name: 'primary', hex: '#ff0000', aliases: ['red-500'], source: 'page' }],
     }
     expect(() => serverToBrowserSchema.parse(msg)).not.toThrow()
   })

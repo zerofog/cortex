@@ -3,6 +3,7 @@ import type { TextComponent } from '../core/text-components.js'
 export interface ColorChip {
   name: string
   hex: string
+  aliases?: string[]
   source?: 'page' | 'theme'
 }
 

@@ -201,7 +201,7 @@ export interface PanelProps {
    *  Resolved once per dev-server lifetime; `undefined` = not yet received; `[]` = none defined. */
   textComponents?: import('../../core/text-components.js').TextComponent[]
   /** Design-system named color chips (token name + browser-ready hex). */
-  colorChips?: Array<{ name: string; hex: string; source?: 'page' | 'theme' }>
+  colorChips?: Array<{ name: string; hex: string; aliases?: string[]; source?: 'page' | 'theme' }>
   /** Spacing tokens detected by TailwindResolver (Tailwind v3/v4 + CSS variables).
    *  `undefined` = not yet received; `[]` = none detected. Sourced from cortex-app
    *  reducer state — populated by the `hello` handshake at boot. */

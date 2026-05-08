@@ -43,6 +43,7 @@ export interface ResolvedTheme {
 interface ColorChip {
   name: string
   hex: string
+  aliases?: string[]
   source?: 'page' | 'theme'
 }
 
@@ -156,27 +157,6 @@ const STATIC_MAP: Record<string, Record<string, string>> = {
     'not-allowed': 'cursor-not-allowed', 'crosshair': 'cursor-crosshair', 'none': 'cursor-none',
   },
 }
-
-const COLOR_UTILITY_PREFIXES = [
-  'bg-',
-  'text-',
-  'border-',
-  'ring-offset-',
-  'ring-',
-  'outline-',
-  'decoration-',
-  'caret-',
-  'accent-',
-  'fill-',
-  'stroke-',
-] as const
-
-const BG_NON_COLOR_PREFIXES = [
-  'bg-opacity', 'bg-clip', 'bg-gradient', 'bg-no-repeat', 'bg-repeat',
-  'bg-cover', 'bg-contain', 'bg-center', 'bg-bottom', 'bg-top',
-  'bg-left', 'bg-right', 'bg-fixed', 'bg-local', 'bg-scroll',
-  'bg-origin', 'bg-blend', 'bg-none',
-]
 
 // ── Normalizer functions ─────────────────────────────────────────────
 
@@ -451,7 +431,7 @@ export class TailwindResolver {
 
   /**
    * Resolve named design-system color chips from the project's Tailwind v4
-   * resolved theme plus color utilities actually referenced by the app source.
+   * resolved theme.
    * Returns `[{ name: 'brand-500', hex: '#3b82f6' }, ...]` — names are the
    * token identifier stripped of `--color-` or the Tailwind utility suffix,
    * hex is the browser-ready value after OKLCH/rgb normalization.
@@ -461,13 +441,12 @@ export class TailwindResolver {
    * than bare hex strings.
    *
    * Ordering follows the resolved Tailwind theme so color families and shade
-   * scales stay contiguous. Chips whose colors are referenced in source are
-   * marked as `source: 'page'`; the remaining resolved palette is marked
-   * `source: 'theme'` so the picker can render section headers without
-   * duplicating values. Equivalent hex values are collapsed, with app theme names
-   * preferred over default Tailwind aliases. For a stock `@import "tailwindcss"`
-   * app this means the full default Tailwind palette; if the app clears or
-   * overrides `--color-*`, the theme list is that subset.
+   * scales stay contiguous. Equivalent hex values are collapsed, with app theme
+   * names preferred over default Tailwind aliases. Alias names are preserved so
+   * the browser can mark a semantic chip like `surface` as page-used when the
+   * rendered DOM still carries Tailwind's `bg-white` utility. For a stock
+   * `@import "tailwindcss"` app this means the full default Tailwind palette; if
+   * the app clears or overrides `--color-*`, the theme list is that subset.
    *
    * Returns null when no Tailwind v4 entry CSS is found.
    */
@@ -483,7 +462,10 @@ export class TailwindResolver {
     const properties = extractThemeProperties(userCSS)
     const appTheme = themePropertiesToResolved(properties)
     const appChips = TailwindResolver.flattenNamedColors(appTheme.colors)
-    const appChipByHex = new Map(appChips.map((chip) => [chip.hex, chip]))
+    const appChipByHex = new Map<string, ColorChip>()
+    for (const chip of appChips) {
+      if (!appChipByHex.has(chip.hex)) appChipByHex.set(chip.hex, chip)
+    }
     const chips: ColorChip[] = []
     const chipNames = new Set<string>()
     const chipHexes = new Set<string>()
@@ -496,19 +478,24 @@ export class TailwindResolver {
     }
 
     const fullTheme = await TailwindResolver.parseV4ThemeOrNull(projectRoot) ?? appTheme
-    const themeChipByName = new Map(
-      TailwindResolver.flattenNamedColors(fullTheme?.colors).map((chip) => [chip.name, chip]),
-    )
-    const usedHexes = await TailwindResolver.collectUsedColorHexes(projectRoot, themeChipByName)
+    const themeChips = TailwindResolver.flattenNamedColors(fullTheme?.colors)
+    const aliasesByHex = new Map<string, string[]>()
+    for (const chip of themeChips) {
+      const aliases = aliasesByHex.get(chip.hex) ?? []
+      if (!aliases.includes(chip.name)) aliases.push(chip.name)
+      aliasesByHex.set(chip.hex, aliases)
+    }
 
     // Theme pass: expose the current page's resolved theme in palette order.
     // App-owned semantic names win over same-value Tailwind aliases at the same
     // position, so `surface` replaces `white` without splitting the color scale.
-    for (const chip of themeChipByName.values()) {
+    for (const chip of themeChips) {
       const preferred = appChipByHex.get(chip.hex) ?? chip
+      const aliases = (aliasesByHex.get(chip.hex) ?? []).filter((name) => name !== preferred.name)
       addChip({
         ...preferred,
-        source: usedHexes.has(chip.hex) ? 'page' : 'theme',
+        aliases: aliases.length > 0 ? aliases : undefined,
+        source: 'theme',
       })
     }
 
@@ -792,154 +779,6 @@ export class TailwindResolver {
 
     flatten(colors as Record<string, unknown>, '')
     return chips
-  }
-
-  private static async collectUsedColorHexes(
-    projectRoot: string,
-    chipByName: ReadonlyMap<string, ColorChip>,
-  ): Promise<Set<string>> {
-    const usedNames = await TailwindResolver.collectUsedColorNames(projectRoot)
-    const usedHexes = new Set<string>()
-
-    for (const name of usedNames) {
-      const chip = chipByName.get(name)
-      if (chip) usedHexes.add(chip.hex)
-    }
-
-    return usedHexes
-  }
-
-  private static async collectUsedColorNames(projectRoot: string): Promise<string[]> {
-    const { readdir, readFile, realpath, stat } = await import('node:fs/promises')
-    const { extname, join, sep } = await import('node:path')
-
-    const SOURCE_EXTENSIONS = new Set(['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.html', '.vue', '.svelte', '.astro', '.mdx'])
-    const EXCLUDED_SEGS = new Set(['node_modules', 'dist', '.git', 'build', '.next', 'coverage'])
-    const MAX_SOURCE_FILES = 500
-    const MAX_SOURCE_FILE_BYTES = 1_048_576
-
-    let realProjectRoot: string
-    try {
-      realProjectRoot = await realpath(projectRoot)
-    } catch {
-      realProjectRoot = projectRoot
-    }
-
-    let entries: string[]
-    try {
-      entries = await readdir(projectRoot, { recursive: true }) as string[]
-    } catch {
-      return []
-    }
-
-    let sourceFiles = entries.filter((entry) => {
-      if (!SOURCE_EXTENSIONS.has(extname(entry))) return false
-      return !entry.split(sep).some((segment) => EXCLUDED_SEGS.has(segment))
-    })
-
-    if (sourceFiles.length > MAX_SOURCE_FILES) {
-      console.warn(`[cortex] color chip source scan truncated: ${sourceFiles.length} matching files, scanning first ${MAX_SOURCE_FILES} only.`)
-      sourceFiles = sourceFiles.slice(0, MAX_SOURCE_FILES)
-    }
-
-    const names: string[] = []
-    const seen = new Set<string>()
-
-    const addName = (name: string): void => {
-      if (seen.has(name)) return
-      seen.add(name)
-      names.push(name)
-    }
-
-    const fileResults = await Promise.all(sourceFiles.map(async (file): Promise<string | null> => {
-      const filePath = join(projectRoot, file)
-
-      let realFilePath: string
-      try {
-        realFilePath = await realpath(filePath)
-      } catch {
-        return null
-      }
-      if (realFilePath !== realProjectRoot && !realFilePath.startsWith(realProjectRoot + sep)) {
-        return null
-      }
-
-      try {
-        const stats = await stat(realFilePath)
-        if (stats.size > MAX_SOURCE_FILE_BYTES) return null
-      } catch {
-        return null
-      }
-
-      try {
-        return await readFile(realFilePath, 'utf-8')
-      } catch {
-        return null
-      }
-    }))
-
-    for (const content of fileResults) {
-      if (content === null) continue
-      for (const token of TailwindResolver.extractClassCandidates(content)) {
-        const name = TailwindResolver.colorNameFromUtility(token)
-        if (name) addName(name)
-      }
-    }
-
-    return names
-  }
-
-  private static extractClassCandidates(content: string): string[] {
-    const candidates: string[] = []
-    const stringLiteral = /(["'`])((?:\\.|(?!\1)[\s\S])*?)\1/g
-
-    let match: RegExpExecArray | null
-    while ((match = stringLiteral.exec(content)) !== null) {
-      const literal = match[2] ?? ''
-      if (!COLOR_UTILITY_PREFIXES.some((prefix) => literal.includes(prefix))) continue
-
-      for (const rawToken of literal.split(/\s+/)) {
-        const token = rawToken.replace(/^[`'",;{([?]+|[`'",;})\]]+$/g, '')
-        if (token) candidates.push(token)
-      }
-    }
-
-    return candidates
-  }
-
-  private static colorNameFromUtility(token: string): string | null {
-    const base = TailwindResolver.stripVariantPrefix(token)
-
-    for (const prefix of COLOR_UTILITY_PREFIXES) {
-      if (!base.startsWith(prefix)) continue
-      if (prefix === 'bg-' && BG_NON_COLOR_PREFIXES.some((excluded) => base.startsWith(excluded))) {
-        return null
-      }
-      const suffix = base.slice(prefix.length)
-      if (!suffix) return null
-      const name = suffix.split('/')[0] ?? ''
-      return name || null
-    }
-
-    return null
-  }
-
-  private static stripVariantPrefix(token: string): string {
-    let bracketDepth = 0
-    let start = 0
-
-    for (let i = 0; i < token.length; i++) {
-      const ch = token[i]
-      if (ch === '[') {
-        bracketDepth++
-      } else if (ch === ']') {
-        bracketDepth = Math.max(0, bracketDepth - 1)
-      } else if (ch === ':' && bracketDepth === 0) {
-        start = i + 1
-      }
-    }
-
-    return token.slice(start)
   }
 
   /**

@@ -47,7 +47,7 @@ export interface CortexAppReducerState {
   /** Typography bundles from the `hello` handshake (undefined = not yet received). */
   textComponents: TextComponent[] | undefined
   /** Named colour chips from the `hello` handshake (undefined = not yet received). */
-  colorChips: Array<{ name: string; hex: string; source?: 'page' | 'theme' }> | undefined
+  colorChips: Array<{ name: string; hex: string; aliases?: string[]; source?: 'page' | 'theme' }> | undefined
   /** Spacing tokens detected by TailwindResolver (undefined = not yet received).
    *  Populated by the `hello` handshake. Storing in reducer state — vs. a
    *  side-channel useTokenSubscription hook — closes the race where Panel
@@ -86,7 +86,7 @@ export type CortexAppAction =
       type: 'hello'
       swatches?: string[]
       textComponents?: TextComponent[]
-      colorChips?: Array<{ name: string; hex: string; source?: 'page' | 'theme' }>
+      colorChips?: Array<{ name: string; hex: string; aliases?: string[]; source?: 'page' | 'theme' }>
       spacingTokens?: SpacingToken[]
     }
   | { type: 'edit_status'; status: 'done'; editId: string; dispatch?: EditDispatchEntry }

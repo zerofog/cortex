@@ -164,7 +164,7 @@ describe('TailwindResolver.resolveColorChips', () => {
     expect(result).toEqual([])
   })
 
-  it('keeps current theme colors in resolved palette order', async () => {
+  it('keeps current theme colors in resolved palette order without source-scanning files', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-theme-'))
     mkdirSync(join(dir, 'node_modules', 'tailwindcss'), { recursive: true })
     mkdirSync(join(dir, 'src'), { recursive: true })
@@ -197,11 +197,11 @@ describe('TailwindResolver.resolveColorChips', () => {
     const result = await TailwindResolver.resolveColorChips(dir)
 
     expect(result).toEqual([
-      { name: 'white', hex: '#ffffff', source: 'page' },
-      { name: 'slate-200', hex: '#e2e8f0', source: 'page' },
-      { name: 'slate-900', hex: '#0f172a', source: 'page' },
-      { name: 'blue-500', hex: '#3b82f6', source: 'page' },
-      { name: 'blue-700', hex: '#1d4ed8', source: 'page' },
+      { name: 'white', hex: '#ffffff', source: 'theme' },
+      { name: 'slate-200', hex: '#e2e8f0', source: 'theme' },
+      { name: 'slate-900', hex: '#0f172a', source: 'theme' },
+      { name: 'blue-500', hex: '#3b82f6', source: 'theme' },
+      { name: 'blue-700', hex: '#1d4ed8', source: 'theme' },
       { name: 'red-500', hex: '#ef4444', source: 'theme' },
     ])
   })
@@ -254,7 +254,7 @@ describe('TailwindResolver.resolveColorChips', () => {
       'amber-700',
       'amber-900',
     ])
-    expect(new Set(result?.map((chip) => chip.source))).toEqual(new Set(['page']))
+    expect(new Set(result?.map((chip) => chip.source))).toEqual(new Set(['theme']))
   })
 
   it('deduplicates same-value colors and prefers app theme names', async () => {
@@ -291,9 +291,9 @@ describe('TailwindResolver.resolveColorChips', () => {
     const result = await TailwindResolver.resolveColorChips(dir)
 
     expect(result).toEqual([
-      { name: 'surface', hex: '#ffffff', source: 'page' },
-      { name: 'border-muted', hex: '#e2e8f0', source: 'page' },
-      { name: 'red-500', hex: '#ef4444', source: 'page' },
+      { name: 'surface', hex: '#ffffff', aliases: ['white'], source: 'theme' },
+      { name: 'border-muted', hex: '#e2e8f0', aliases: ['slate-200'], source: 'theme' },
+      { name: 'red-500', hex: '#ef4444', source: 'theme' },
     ])
   })
 
@@ -330,7 +330,7 @@ describe('TailwindResolver.resolveColorChips', () => {
     const result = await TailwindResolver.resolveColorChips(dir)
 
     expect(result).toEqual([
-      { name: 'brand', hex: '#2563eb', source: 'page' },
+      { name: 'brand', hex: '#2563eb', source: 'theme' },
     ])
   })
 })

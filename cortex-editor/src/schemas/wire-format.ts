@@ -247,6 +247,7 @@ export const serverToBrowserSchema = z.discriminatedUnion('type', [
     colorChips: z.array(z.object({
       name: z.string(),
       hex: z.string(),
+      aliases: z.array(z.string()).optional(),
       source: z.enum(['page', 'theme']).optional(),
     })).optional(),
     textComponents: z

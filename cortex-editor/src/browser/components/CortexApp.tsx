@@ -32,6 +32,7 @@ import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
 import { captureSelectionMetadata, reResolveSelection, shouldRefreshOnHMR } from '../selection-metadata.js'
 import type { SelectionMetadata } from '../selection-metadata.js'
 import { dismissTopmostPopover, hasOpenPopover } from '../popover-stack.js'
+import { markPageColorChips } from '../page-color-chips.js'
 
 export interface CortexAppProps {
   channel: CortexChannel
@@ -69,7 +70,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     import('../../core/text-components.js').TextComponent[] | undefined
   >(undefined)
   const [colorChips, setColorChips] = useState<
-    Array<{ name: string; hex: string; source?: 'page' | 'theme' }> | undefined
+    Array<{ name: string; hex: string; aliases?: string[]; source?: 'page' | 'theme' }> | undefined
+  >(undefined)
+  const colorChipThemeRef = useRef<
+    Array<{ name: string; hex: string; aliases?: string[]; source?: 'page' | 'theme' }> | undefined
   >(undefined)
   const [spacingTokens, setSpacingTokens] = useState<
     import('../../core/tailwind-resolver.js').SpacingToken[] | undefined
@@ -183,6 +187,12 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     ...initialCortexAppReducerState,
     active: initialActive ?? false,
   })
+
+  const refreshPageColorChips = useCallback((): void => {
+    const chips = colorChipThemeRef.current
+    if (!chips) return
+    setColorChips(markPageColorChips(chips))
+  }, [])
 
   // Panel positioning
   const { position: panelPosition, isSnapping: panelSnapping, setPosition: setPanelPosition, snap: panelSnap } = useSnapToEdge()
@@ -405,7 +415,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (next.active !== prev.active) setActive(next.active)
       if (next.swatches !== prev.swatches) setSwatches(next.swatches)
       if (next.textComponents !== prev.textComponents) setTextComponents(next.textComponents)
-      if (next.colorChips !== prev.colorChips) setColorChips(next.colorChips)
+      if (next.colorChips !== prev.colorChips) {
+        colorChipThemeRef.current = next.colorChips
+        setColorChips(next.colorChips ? markPageColorChips(next.colorChips) : next.colorChips)
+      }
       if (next.spacingTokens !== prev.spacingTokens) setSpacingTokens(next.spacingTokens)
       if (next.capabilitySystems !== prev.capabilitySystems) setCapabilitySystems(next.capabilitySystems)
       if (next.activityCount !== prev.activityCount) setActivityCount(next.activityCount)
@@ -540,6 +553,15 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         // the DOM-refresh heuristic above. An empty/absent files list is represented
         // as [] so Panel's reconcile early-returns cleanly (changedFiles.length === 0).
         setHmrChangedFiles(files ?? [])
+
+        const attemptRefreshPageColorChips = (): void => {
+          if (disposed) return
+          refreshPageColorChips()
+        }
+        attemptRefreshPageColorChips()
+        requestAnimationFrame(() => requestAnimationFrame(attemptRefreshPageColorChips))
+        setTimeout(attemptRefreshPageColorChips, 100)
+        setTimeout(attemptRefreshPageColorChips, 250)
 
         // Re-resolve the selection after HMR node replacement. Runs
         // synchronously (catches CSS-only / classname-flip cases where the
@@ -722,6 +744,33 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       }
     }
   }, [channel, shadowRoot])
+
+  useEffect(() => {
+    let raf: number | null = null
+    const scheduleRefresh = (): void => {
+      if (raf !== null) return
+      raf = requestAnimationFrame(() => {
+        raf = null
+        refreshPageColorChips()
+      })
+    }
+
+    const observer = new MutationObserver(scheduleRefresh)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    if (document.body) {
+      observer.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class'],
+        childList: true,
+        subtree: true,
+      })
+    }
+
+    return () => {
+      observer.disconnect()
+      if (raf !== null) cancelAnimationFrame(raf)
+    }
+  }, [refreshPageColorChips])
 
   // Detect interaction states and pseudo-elements on element selection change
   useEffect(() => {
