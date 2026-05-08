@@ -23,11 +23,6 @@ export interface TypographyAlignmentContext {
   lineHeight: number
 }
 
-export interface TypographyAlignmentEdit {
-  property: string
-  value: string
-}
-
 export const TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP =
   'Set Height or Min H in Layout before aligning text vertically.'
 export const TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP =
@@ -47,15 +42,15 @@ export const TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP =
  */
 export type DisabledCode = 'no-height' | 'unsupported-display'
 
-export type DisabledReason = {
+export type DisabledReason = Readonly<{
   code: DisabledCode
   tooltip: string
-}
+}>
 
-export type PropertyEdit = {
+export type PropertyEdit = Readonly<{
   property: string
   value: string
-}
+}>
 
 /**
  * Result shape returned by every layout-context-aware editing resolver.
@@ -75,14 +70,18 @@ export type LayoutResolution = {
   edits: PropertyEdit[]
 }
 
-const NO_HEIGHT_REASON: DisabledReason = {
+// Frozen at runtime so accidental `result.disabledReason.tooltip = '...'`
+// throws in dev (strict mode) or silently fails — never propagates a mutation
+// to other resolver returns of the same singleton. Belt-and-suspenders with
+// the Readonly<> type which catches mutation attempts at compile time.
+const NO_HEIGHT_REASON: DisabledReason = Object.freeze({
   code: 'no-height',
   tooltip: TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP,
-}
-const UNSUPPORTED_DISPLAY_REASON: DisabledReason = {
+})
+const UNSUPPORTED_DISPLAY_REASON: DisabledReason = Object.freeze({
   code: 'unsupported-display',
   tooltip: TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP,
-}
+})
 
 const ABSOLUTE_LINE_HEIGHT_WARNING_THRESHOLD = 10
 let warnedAboutAbsoluteTypographyLineHeight = false
