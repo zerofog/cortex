@@ -45,8 +45,8 @@ async function detectStatesForFixture(
     target.className = className
     document.body.appendChild(target)
 
-    const bridge = (globalThis as unknown as { __CORTEX_TEST__: CortexTestBridge }).__CORTEX_TEST__
-    if (!bridge.detectStates) throw new Error('detectStates bridge is not installed')
+    const bridge = (globalThis as unknown as { __CORTEX_TEST__?: CortexTestBridge }).__CORTEX_TEST__
+    if (!bridge?.detectStates) throw new Error('detectStates bridge is not installed')
     return bridge.detectStates(target)
   }, fixture)
 }
@@ -118,8 +118,8 @@ test.describe('detectStates real-browser CSSOM coverage (ZF0-1558)', () => {
       target.className = 'zf0-cross-origin-target'
       document.body.appendChild(target)
 
-      const bridge = (globalThis as unknown as { __CORTEX_TEST__: CortexTestBridge }).__CORTEX_TEST__
-      if (!bridge.detectStates) throw new Error('detectStates bridge is not installed')
+      const bridge = (globalThis as unknown as { __CORTEX_TEST__?: CortexTestBridge }).__CORTEX_TEST__
+      if (!bridge?.detectStates) throw new Error('detectStates bridge is not installed')
       return bridge.detectStates(target)
     }, `${crossOrigin}/state.css`)
 
