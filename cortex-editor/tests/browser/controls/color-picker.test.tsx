@@ -12,6 +12,23 @@ vi.mock('@floating-ui/dom', () => ({
 /** Yield one macrotask so Preact state updates flush between events. */
 const flush = () => new Promise<void>(r => setTimeout(r, 0))
 
+function fireDragStart(picker: HTMLElement): void {
+  picker.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+  picker.dispatchEvent(new Event('mousedown', { bubbles: true }))
+  picker.dispatchEvent(new Event('touchstart', { bubbles: true }))
+}
+
+function fireDragEnd(): void {
+  document.dispatchEvent(new Event('pointerup', { bubbles: true }))
+  document.dispatchEvent(new Event('mouseup', { bubbles: true }))
+  document.dispatchEvent(new Event('touchend', { bubbles: true }))
+}
+
+function fireDragCancel(): void {
+  document.dispatchEvent(new Event('pointercancel', { bubbles: true }))
+  document.dispatchEvent(new Event('touchcancel', { bubbles: true }))
+}
+
 describe('ColorPicker', () => {
   let container: HTMLDivElement
   let anchor: HTMLDivElement
@@ -125,5 +142,57 @@ describe('ColorPicker', () => {
     input.dispatchEvent(new Event('blur', { bubbles: true }))
     await flush()
     expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('commits the scrubbed color when duplicate start events occur', async () => {
+    let scrubbed: string | null = null
+    let ended: string | null = null
+    setup({
+      onScrub: (hex) => { scrubbed = hex },
+      onScrubEnd: (hex) => { ended = hex },
+    })
+    await flush()
+    await flush()
+    const picker = container.querySelector('hex-color-picker') as HTMLElement
+
+    fireDragStart(picker)
+    picker.dispatchEvent(new CustomEvent('color-changed', { detail: { value: '#ff0000' } }))
+    fireDragStart(picker)
+    fireDragEnd()
+
+    await vi.waitFor(() => {
+      expect(scrubbed).toBe('#ff0000')
+      expect(ended).toBe('#ff0000')
+    }, { timeout: 500 })
+  })
+
+  it('commits the latest scrubbed color on drag cancel', async () => {
+    let ended: string | null = null
+    setup({ onScrub: () => {}, onScrubEnd: (hex) => { ended = hex } })
+    await flush()
+    await flush()
+    const picker = container.querySelector('hex-color-picker') as HTMLElement
+
+    fireDragStart(picker)
+    picker.dispatchEvent(new CustomEvent('color-changed', { detail: { value: '#00ff00' } }))
+    fireDragCancel()
+
+    expect(ended).toBe('#00ff00')
+  })
+
+  it('updates the hex input while scrubbing', async () => {
+    setup({ onScrub: vi.fn(), onScrubEnd: vi.fn() })
+    await flush()
+    await flush()
+    const picker = container.querySelector('hex-color-picker') as HTMLElement
+    const input = container.querySelector('.cortex-color-picker__hex-input') as HTMLInputElement
+
+    fireDragStart(picker)
+    picker.dispatchEvent(new CustomEvent('color-changed', { detail: { value: '#123456' } }))
+    await flush()
+
+    await vi.waitFor(() => {
+      expect(input.value).toBe('#123456')
+    }, { timeout: 500 })
   })
 })

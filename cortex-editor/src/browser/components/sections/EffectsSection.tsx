@@ -175,6 +175,28 @@ export function EffectsSection({
     [shadows, emitChange],
   )
 
+  const handleFieldScrub = useCallback(
+    (index: number, field: keyof Shadow, value: number | string | boolean) => {
+      if (!onScrub) return
+      const updated = shadows.map((s, i) =>
+        i === index ? { ...s, [field]: value } : s,
+      )
+      onScrub({ property: 'box-shadow', value: serializeBoxShadow(updated) })
+    },
+    [shadows, onScrub],
+  )
+
+  const handleFieldScrubEnd = useCallback(
+    (index: number, field: keyof Shadow, value: number | string | boolean) => {
+      if (!onScrubEnd) return
+      const updated = shadows.map((s, i) =>
+        i === index ? { ...s, [field]: value } : s,
+      )
+      onScrubEnd({ property: 'box-shadow', value: serializeBoxShadow(updated) })
+    },
+    [shadows, onScrubEnd],
+  )
+
   const handleTypeChange = useCallback(
     (index: number, type: string) => {
       handleFieldChange(index, 'inset', type === 'inset')
@@ -321,6 +343,8 @@ export function EffectsSection({
                   <ColorInput
                     value={shadow.color}
                     onChange={(hex: string) => handleFieldChange(index, 'color', hex)}
+                    onScrub={onScrub ? (hex: string) => handleFieldScrub(index, 'color', hex) : undefined}
+                    onScrubEnd={onScrubEnd ? (hex: string) => handleFieldScrubEnd(index, 'color', hex) : undefined}
                     swatches={swatches}
                     mixed={mixedProperties?.has('box-shadow')}
                   />

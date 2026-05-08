@@ -32,11 +32,32 @@ import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
 import { captureSelectionMetadata, reResolveSelection, shouldRefreshOnHMR } from '../selection-metadata.js'
 import type { SelectionMetadata } from '../selection-metadata.js'
 import { dismissTopmostPopover, hasOpenPopover } from '../popover-stack.js'
+import { markPageColorChips } from '../page-color-chips.js'
 
 export interface CortexAppProps {
   channel: CortexChannel
   shadowRoot: ShadowRoot
   initialActive?: boolean
+}
+
+type ColorChipState = Array<{ name: string; hex: string; aliases?: string[]; source?: 'page' | 'theme' }>
+
+function sameColorChipSources(
+  prev: ColorChipState | undefined,
+  next: ColorChipState,
+): boolean {
+  if (!prev || prev.length !== next.length) return false
+  for (let i = 0; i < next.length; i++) {
+    const a = prev[i]
+    const b = next[i]
+    if (!a || !b || a.name !== b.name || a.hex !== b.hex || a.source !== b.source) return false
+  }
+  return true
+}
+
+function isCortexHostMutation(record: MutationRecord): boolean {
+  const target = record.target instanceof Element ? record.target : record.target.parentElement
+  return !!target?.closest('[data-cortex-host]')
 }
 
 /**
@@ -68,9 +89,8 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const [textComponents, setTextComponents] = useState<
     import('../../core/text-components.js').TextComponent[] | undefined
   >(undefined)
-  const [colorChips, setColorChips] = useState<
-    Array<{ name: string; hex: string }> | undefined
-  >(undefined)
+  const [colorChips, setColorChips] = useState<ColorChipState | undefined>(undefined)
+  const colorChipThemeRef = useRef<ColorChipState | undefined>(undefined)
   const [spacingTokens, setSpacingTokens] = useState<
     import('../../core/tailwind-resolver.js').SpacingToken[] | undefined
   >(undefined)
@@ -183,6 +203,13 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     ...initialCortexAppReducerState,
     active: initialActive ?? false,
   })
+
+  const refreshPageColorChips = useCallback((): void => {
+    const chips = colorChipThemeRef.current
+    if (!chips) return
+    const next = markPageColorChips(chips)
+    setColorChips(prev => sameColorChipSources(prev, next) ? prev : next)
+  }, [])
 
   // Panel positioning
   const { position: panelPosition, isSnapping: panelSnapping, setPosition: setPanelPosition, snap: panelSnap } = useSnapToEdge()
@@ -417,7 +444,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (next.active !== prev.active) setActive(next.active)
       if (next.swatches !== prev.swatches) setSwatches(next.swatches)
       if (next.textComponents !== prev.textComponents) setTextComponents(next.textComponents)
-      if (next.colorChips !== prev.colorChips) setColorChips(next.colorChips)
+      if (next.colorChips !== prev.colorChips) {
+        colorChipThemeRef.current = next.colorChips
+        setColorChips(next.colorChips ? markPageColorChips(next.colorChips) : next.colorChips)
+      }
       if (next.spacingTokens !== prev.spacingTokens) setSpacingTokens(next.spacingTokens)
       if (next.capabilitySystems !== prev.capabilitySystems) setCapabilitySystems(next.capabilitySystems)
       if (next.activityCount !== prev.activityCount) setActivityCount(next.activityCount)
@@ -552,6 +582,15 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         // the DOM-refresh heuristic above. An empty/absent files list is represented
         // as [] so Panel's reconcile early-returns cleanly (changedFiles.length === 0).
         setHmrChangedFiles(files ?? [])
+
+        const attemptRefreshPageColorChips = (): void => {
+          if (disposed) return
+          refreshPageColorChips()
+        }
+        attemptRefreshPageColorChips()
+        requestAnimationFrame(() => requestAnimationFrame(attemptRefreshPageColorChips))
+        setTimeout(attemptRefreshPageColorChips, 100)
+        setTimeout(attemptRefreshPageColorChips, 250)
 
         // Re-resolve the selection after HMR node replacement. Runs
         // synchronously (catches CSS-only / classname-flip cases where the
@@ -734,6 +773,38 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       }
     }
   }, [channel, shadowRoot])
+
+  useEffect(() => {
+    let raf: number | null = null
+    const scheduleRefresh = (): void => {
+      if (raf !== null) return
+      raf = requestAnimationFrame(() => {
+        raf = null
+        refreshPageColorChips()
+      })
+    }
+    const handleMutations = (records: MutationRecord[]): void => {
+      if (records.some((record) => !isCortexHostMutation(record))) {
+        scheduleRefresh()
+      }
+    }
+
+    const observer = new MutationObserver(handleMutations)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    if (document.body) {
+      observer.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class'],
+        childList: true,
+        subtree: true,
+      })
+    }
+
+    return () => {
+      observer.disconnect()
+      if (raf !== null) cancelAnimationFrame(raf)
+    }
+  }, [refreshPageColorChips])
 
   // Detect interaction states and pseudo-elements on element selection change
   useEffect(() => {

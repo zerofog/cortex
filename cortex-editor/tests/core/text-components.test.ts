@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { extractTextComponents } from '../../src/core/text-components.js'
@@ -141,6 +141,9 @@ describe('TailwindResolver.resolveColorChips', () => {
 
   it('returns named chips from @theme --color-* entries', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-'))
+    mkdirSync(join(dir, 'node_modules', 'tailwindcss'), { recursive: true })
+    writeFileSync(join(dir, 'node_modules', 'tailwindcss', 'package.json'), '{"name":"tailwindcss"}')
+    writeFileSync(join(dir, 'node_modules', 'tailwindcss', 'theme.css'), '')
     writeFileSync(
       join(dir, 'app.css'),
       `@import "tailwindcss";
@@ -151,22 +154,189 @@ describe('TailwindResolver.resolveColorChips', () => {
 `,
     )
     const result = await TailwindResolver.resolveColorChips(dir)
-    // Note: user-defined entries are merged with Tailwind defaults via
-    // themePropertiesToResolved. Assert our chips are present (not equality).
-    expect(result).toEqual(
-      expect.arrayContaining([
-        { name: 'brand-500', hex: '#3b82f6' },
-        { name: 'gray-900', hex: '#111827' },
-      ]),
-    )
+    expect(result).toEqual([
+      { name: 'brand-500', hex: '#3b82f6', source: 'theme' },
+      { name: 'gray-900', hex: '#111827', source: 'theme' },
+    ])
   })
 
   it('returns empty array when @theme has no color entries', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-empty-'))
+    mkdirSync(join(dir, 'node_modules', 'tailwindcss'), { recursive: true })
+    writeFileSync(join(dir, 'node_modules', 'tailwindcss', 'package.json'), '{"name":"tailwindcss"}')
+    writeFileSync(join(dir, 'node_modules', 'tailwindcss', 'theme.css'), '')
     writeFileSync(join(dir, 'app.css'), '@import "tailwindcss";\n')
     const result = await TailwindResolver.resolveColorChips(dir)
-    // May include Tailwind defaults depending on whether tailwindcss is installed.
-    // The contract: returns an array (not null, since CSS was found).
-    expect(Array.isArray(result)).toBe(true)
+    expect(result).toEqual([])
+  })
+
+  it('keeps current theme colors in resolved palette order without source-scanning files', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-theme-'))
+    mkdirSync(join(dir, 'node_modules', 'tailwindcss'), { recursive: true })
+    mkdirSync(join(dir, 'src'), { recursive: true })
+    writeFileSync(join(dir, 'node_modules', 'tailwindcss', 'package.json'), '{"name":"tailwindcss"}')
+    writeFileSync(
+      join(dir, 'node_modules', 'tailwindcss', 'theme.css'),
+      `@theme default {
+  --color-white: #fff;
+  --color-slate-200: #e2e8f0;
+  --color-slate-900: #0f172a;
+  --color-blue-500: #3b82f6;
+  --color-blue-700: #1d4ed8;
+  --color-red-500: #ef4444;
+}
+`,
+    )
+    writeFileSync(join(dir, 'app.css'), '@import "tailwindcss";\n')
+    writeFileSync(
+      join(dir, 'src', 'App.tsx'),
+      `export function App() {
+  return (
+    <section className="bg-white border border-slate-200 text-slate-900 hover:bg-blue-700 focus:ring-blue-500">
+      hello
+    </section>
+  )
+}
+`,
+    )
+
+    const result = await TailwindResolver.resolveColorChips(dir)
+
+    expect(result).toEqual([
+      { name: 'white', hex: '#ffffff', source: 'theme' },
+      { name: 'slate-200', hex: '#e2e8f0', source: 'theme' },
+      { name: 'slate-900', hex: '#0f172a', source: 'theme' },
+      { name: 'blue-500', hex: '#3b82f6', source: 'theme' },
+      { name: 'blue-700', hex: '#1d4ed8', source: 'theme' },
+      { name: 'red-500', hex: '#ef4444', source: 'theme' },
+    ])
+  })
+
+  it('does not split color families by source usage order', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-theme-order-'))
+    mkdirSync(join(dir, 'node_modules', 'tailwindcss'), { recursive: true })
+    mkdirSync(join(dir, 'src'), { recursive: true })
+    writeFileSync(join(dir, 'node_modules', 'tailwindcss', 'package.json'), '{"name":"tailwindcss"}')
+    writeFileSync(
+      join(dir, 'node_modules', 'tailwindcss', 'theme.css'),
+      `@theme default {
+  --color-blue-300: #91c5ff;
+  --color-blue-600: #155dfc;
+  --color-emerald-50: #ecfdf5;
+  --color-emerald-300: #5ee9b5;
+  --color-emerald-700: #007857;
+  --color-emerald-900: #004e3b;
+  --color-amber-50: #fffbeb;
+  --color-amber-300: #ffd237;
+  --color-amber-700: #b55200;
+  --color-amber-900: #7b3306;
+}
+`,
+    )
+    writeFileSync(join(dir, 'app.css'), '@import "tailwindcss";\n')
+    writeFileSync(
+      join(dir, 'src', 'App.tsx'),
+      `export function App() {
+  return (
+    <section className="bg-blue-300 text-emerald-50 border-emerald-900 ring-emerald-700 outline-emerald-300 decoration-amber-50 caret-amber-900 accent-amber-700 fill-amber-300 stroke-blue-600">
+      hello
+    </section>
+  )
+}
+`,
+    )
+
+    const result = await TailwindResolver.resolveColorChips(dir)
+
+    expect(result?.map((chip) => chip.name)).toEqual([
+      'blue-300',
+      'blue-600',
+      'emerald-50',
+      'emerald-300',
+      'emerald-700',
+      'emerald-900',
+      'amber-50',
+      'amber-300',
+      'amber-700',
+      'amber-900',
+    ])
+    expect(new Set(result?.map((chip) => chip.source))).toEqual(new Set(['theme']))
+  })
+
+  it('deduplicates same-value colors and prefers app theme names', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-theme-dedupe-'))
+    mkdirSync(join(dir, 'node_modules', 'tailwindcss'), { recursive: true })
+    mkdirSync(join(dir, 'src'), { recursive: true })
+    writeFileSync(join(dir, 'node_modules', 'tailwindcss', 'package.json'), '{"name":"tailwindcss"}')
+    writeFileSync(
+      join(dir, 'node_modules', 'tailwindcss', 'theme.css'),
+      `@theme default {
+  --color-white: #fff;
+  --color-slate-200: #e2e8f0;
+  --color-red-500: #ef4444;
+}
+`,
+    )
+    writeFileSync(
+      join(dir, 'app.css'),
+      `@import "tailwindcss";
+@theme {
+  --color-surface: #ffffff;
+  --color-border-muted: #e2e8f0;
+}
+`,
+    )
+    writeFileSync(
+      join(dir, 'src', 'App.tsx'),
+      `export function App() {
+  return <section className="bg-white border border-slate-200 text-red-500">hello</section>
+}
+`,
+    )
+
+    const result = await TailwindResolver.resolveColorChips(dir)
+
+    expect(result).toEqual([
+      { name: 'surface', hex: '#ffffff', aliases: ['white'], source: 'theme' },
+      { name: 'border-muted', hex: '#e2e8f0', aliases: ['slate-200'], source: 'theme' },
+      { name: 'red-500', hex: '#ef4444', source: 'theme' },
+    ])
+  })
+
+  it('uses the resolved theme subset when the app clears Tailwind default colors', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-theme-subset-'))
+    mkdirSync(join(dir, 'node_modules', 'tailwindcss'), { recursive: true })
+    mkdirSync(join(dir, 'src'), { recursive: true })
+    writeFileSync(join(dir, 'node_modules', 'tailwindcss', 'package.json'), '{"name":"tailwindcss"}')
+    writeFileSync(
+      join(dir, 'node_modules', 'tailwindcss', 'theme.css'),
+      `@theme default {
+  --color-red-500: #ef4444;
+  --color-blue-500: #3b82f6;
+}
+`,
+    )
+    writeFileSync(
+      join(dir, 'app.css'),
+      `@import "tailwindcss";
+@theme {
+  --color-*: initial;
+  --color-brand: #2563eb;
+}
+`,
+    )
+    writeFileSync(
+      join(dir, 'src', 'App.tsx'),
+      `export function App() {
+  return <section className="bg-red-500 text-brand">hello</section>
+}
+`,
+    )
+
+    const result = await TailwindResolver.resolveColorChips(dir)
+
+    expect(result).toEqual([
+      { name: 'brand', hex: '#2563eb', source: 'theme' },
+    ])
   })
 })

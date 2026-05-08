@@ -403,6 +403,14 @@ export function TypographySection({
     [onChange],
   )
   const handleColorChange = useMemo(() => makePropHandler<string>('color'), [makePropHandler])
+  const handleColorScrub = useMemo(
+    () => makeScrubHandler<string>(onScrub, 'color'),
+    [makeScrubHandler, onScrub],
+  )
+  const handleColorScrubEnd = useMemo(
+    () => makeScrubHandler<string>(onScrubEnd, 'color'),
+    [makeScrubHandler, onScrubEnd],
+  )
 
   // ── Bespoke handlers (don't fit the generator shape) ─────────────
   const handleColorAlphaChange = useCallback(
@@ -628,6 +636,8 @@ export function TypographySection({
           <ColorInput
             value={values.color}
             onChange={handleColorChange}
+            onScrub={onScrub ? handleColorScrub : undefined}
+            onScrubEnd={onScrubEnd ? handleColorScrubEnd : undefined}
             alpha={colorParsed.alpha}
             onAlphaChange={handleColorAlphaChange}
             swatches={swatches}

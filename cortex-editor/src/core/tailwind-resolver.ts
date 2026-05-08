@@ -40,6 +40,13 @@ export interface ResolvedTheme {
   boxShadow?: Record<string, string>
 }
 
+export interface ColorChip {
+  name: string
+  hex: string
+  aliases?: string[]
+  source?: 'page' | 'theme'
+}
+
 type ThemeKey = keyof ResolvedTheme
 type ValueNormalizer = 'toPx' | 'identity' | 'normalizeHex' | 'rgbToHex' | 'extractBlur' | 'normalizeShadow'
 
@@ -424,40 +431,72 @@ export class TailwindResolver {
 
   /**
    * Resolve named design-system color chips from the project's Tailwind v4
-   * @theme. Returns `[{ name: 'brand-500', hex: '#3b82f6' }, ...]` — names
-   * are the token identifier stripped of `--color-`, hex is the browser-
-   * ready value after OKLCH/rgb normalization.
+   * resolved theme.
+   * Returns `[{ name: 'brand-500', hex: '#3b82f6' }, ...]` — names are the
+   * token identifier stripped of `--color-` or the Tailwind utility suffix,
+   * hex is the browser-ready value after OKLCH/rgb normalization.
    *
    * Unlike resolveColors (which flattens to hex[]), this keeps the name so
    * the UI can render "text-gray-900" in linked pills and pickers rather
    * than bare hex strings.
    *
+   * Ordering follows the resolved Tailwind theme so color families and shade
+   * scales stay contiguous. Equivalent hex values are collapsed, with app theme
+   * names preferred over default Tailwind aliases. Alias names are preserved so
+   * the browser can mark a semantic chip like `surface` as page-used when the
+   * rendered DOM still carries Tailwind's `bg-white` utility. For a stock
+   * `@import "tailwindcss"` app this means the full default Tailwind palette; if
+   * the app clears or overrides `--color-*`, the theme list is that subset.
+   *
    * Returns null when no Tailwind v4 entry CSS is found.
    */
   static async resolveColorChips(
     projectRoot: string,
-  ): Promise<Array<{ name: string; hex: string }> | null> {
-    const { findV4EntryCSS, extractThemeProperties, themePropertiesToResolved } = await import(
+  ): Promise<ColorChip[] | null> {
+    const { findV4EntryCSS, extractThemeProperties, parseV4ThemeFromCSS, themePropertiesToResolved } = await import(
       './tailwind-v4-parser.js'
     )
     const userCSS = await findV4EntryCSS(projectRoot)
     if (!userCSS) return null
 
     const properties = extractThemeProperties(userCSS)
-    const theme = themePropertiesToResolved(properties)
-    const chips: Array<{ name: string; hex: string }> = []
-
-    const flatten = (obj: Record<string, unknown>, prefix: string): void => {
-      for (const [key, val] of Object.entries(obj)) {
-        if (typeof val === 'string') {
-          chips.push({ name: prefix ? `${prefix}-${key}` : key, hex: val })
-        } else if (val && typeof val === 'object') {
-          flatten(val as Record<string, unknown>, prefix ? `${prefix}-${key}` : key)
-        }
-      }
+    const appTheme = themePropertiesToResolved(properties)
+    const appChips = TailwindResolver.flattenNamedColors(appTheme.colors)
+    const appChipByHex = new Map<string, ColorChip>()
+    for (const chip of appChips) {
+      if (!appChipByHex.has(chip.hex)) appChipByHex.set(chip.hex, chip)
     }
-    if (theme.colors && typeof theme.colors === 'object') {
-      flatten(theme.colors as Record<string, unknown>, '')
+    const chips: ColorChip[] = []
+    const chipNames = new Set<string>()
+    const chipHexes = new Set<string>()
+
+    const addChip = (chip: ColorChip): void => {
+      if (chipNames.has(chip.name) || chipHexes.has(chip.hex)) return
+      chipNames.add(chip.name)
+      chipHexes.add(chip.hex)
+      chips.push(chip)
+    }
+
+    const fullTheme = await parseV4ThemeFromCSS(projectRoot, userCSS) ?? appTheme
+    const themeChips = TailwindResolver.flattenNamedColors(fullTheme?.colors)
+    const aliasesByHex = new Map<string, string[]>()
+    for (const chip of themeChips) {
+      const aliases = aliasesByHex.get(chip.hex) ?? []
+      if (!aliases.includes(chip.name)) aliases.push(chip.name)
+      aliasesByHex.set(chip.hex, aliases)
+    }
+
+    // Theme pass: expose the current page's resolved theme in palette order.
+    // App-owned semantic names win over same-value Tailwind aliases at the same
+    // position, so `surface` replaces `white` without splitting the color scale.
+    for (const chip of themeChips) {
+      const preferred = appChipByHex.get(chip.hex) ?? chip
+      const aliases = (aliasesByHex.get(chip.hex) ?? []).filter((name) => name !== preferred.name)
+      addChip({
+        ...preferred,
+        aliases: aliases.length > 0 ? aliases : undefined,
+        source: 'theme',
+      })
     }
 
     return chips
@@ -711,6 +750,26 @@ export class TailwindResolver {
     }
 
     return tokens.length > 0 ? tokens : null
+  }
+
+  private static flattenNamedColors(colors: ResolvedTheme['colors']): ColorChip[] {
+    if (!colors || typeof colors !== 'object') return []
+
+    const chips: ColorChip[] = []
+
+    const flatten = (obj: Record<string, unknown>, prefix: string): void => {
+      for (const [key, val] of Object.entries(obj)) {
+        const name = prefix ? `${prefix}-${key}` : key
+        if (typeof val === 'string') {
+          chips.push({ name, hex: val })
+        } else if (val && typeof val === 'object') {
+          flatten(val as Record<string, unknown>, name)
+        }
+      }
+    }
+
+    flatten(colors as Record<string, unknown>, '')
+    return chips
   }
 
   /**

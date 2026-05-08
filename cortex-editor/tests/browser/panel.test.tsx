@@ -1228,6 +1228,413 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     target.remove()
   })
 
+  it('coalesces color picker drag updates into one PropertyEditCommand (ZF0-1569)', async () => {
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    document.body.appendChild(target)
+
+    const originalGetComputedStyle = window.getComputedStyle
+    window.getComputedStyle = ((el: Element, pseudo?: string | null) => {
+      const base = originalGetComputedStyle.call(window, el, pseudo)
+      if (el !== target) return base
+      return new Proxy(base, {
+        get(obj, prop) {
+          if (prop === 'backgroundColor') return '#000000'
+          if (prop === 'backgroundImage') return 'none'
+          if (prop === 'getPropertyValue') {
+            return (property: string) => {
+              if (property === 'background-color') return '#000000'
+              if (property === 'background-image') return 'none'
+              return base.getPropertyValue(property)
+            }
+          }
+          return (obj as any)[prop]
+        },
+      }) as CSSStyleDeclaration
+    }) as typeof window.getComputedStyle
+
+    const overrideStore = new Map<string, string>()
+    const overrideManager = {
+      set: vi.fn((src: string, prop: string, val: string, pseudo?: string) => {
+        overrideStore.set(`${src}\0${prop}\0${pseudo ?? ''}`, val)
+      }),
+      get: vi.fn((src: string, prop: string, pseudo?: string) =>
+        overrideStore.get(`${src}\0${prop}\0${pseudo ?? ''}`),
+      ),
+      remove: vi.fn((src: string, prop: string, pseudo?: string) => {
+        overrideStore.delete(`${src}\0${prop}\0${pseudo ?? ''}`)
+      }),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+    }
+    const commandStack = new CommandStack()
+
+    const { root, cleanup } = renderInShadow(
+      <Panel
+        selectedElements={[target]}
+        overrideManager={overrideManager as any}
+        commandStack={commandStack}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+    )
+
+    try {
+      const swatch = root.querySelector('.cortex-color-input__swatch') as HTMLButtonElement | null
+      expect(swatch).not.toBeNull()
+
+      await act(async () => {
+        swatch!.click()
+        await new Promise(r => setTimeout(r, 0))
+      })
+
+      const picker = root.querySelector('hex-color-picker') as HTMLElement | null
+      expect(picker).not.toBeNull()
+
+      const emitColor = async (value: string) => {
+        await act(async () => {
+          picker!.dispatchEvent(new CustomEvent('color-changed', {
+            bubbles: true,
+            composed: true,
+            detail: { value },
+          }))
+          await Promise.resolve()
+        })
+      }
+
+      await act(async () => {
+        picker!.dispatchEvent(new MouseEvent('mousedown', {
+          bubbles: true,
+          composed: true,
+          cancelable: true,
+          button: 0,
+        }))
+      })
+
+      await emitColor('#111111')
+      await emitColor('#222222')
+      await emitColor('#333333')
+
+      expect(commandStack.undoCount).toBe(0)
+      expect(overrideManager.set).toHaveBeenLastCalledWith(
+        'src/Hero.tsx:14:5',
+        'background-color',
+        '#333333',
+        undefined,
+      )
+
+      await act(async () => {
+        document.dispatchEvent(new MouseEvent('mouseup', {
+          bubbles: true,
+          composed: true,
+          cancelable: true,
+          button: 0,
+        }))
+        await Promise.resolve()
+      })
+
+      expect(commandStack.undoCount).toBe(1)
+      const cmd = commandStack.peekUndo()
+      expect(cmd?.changes).toEqual([
+        {
+          source: 'src/Hero.tsx:14:5',
+          property: 'background-color',
+          value: '#333333',
+          previousValue: '#000000',
+          pseudo: undefined,
+        },
+      ])
+    } finally {
+      cleanup()
+      target.remove()
+      window.getComputedStyle = originalGetComputedStyle
+    }
+  })
+
+  it('unlinks a background color token by removing the class and preserving the rendered color', async () => {
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    target.className = 'bg-white'
+    document.body.appendChild(target)
+
+    const restoreStyles = mockGetComputedStyle(target, {
+      backgroundColor: 'rgb(255, 255, 255)',
+      backgroundImage: 'none',
+      borderWidth: '0px',
+      borderTopWidth: '0px',
+      borderRightWidth: '0px',
+      borderBottomWidth: '0px',
+      borderLeftWidth: '0px',
+      borderStyle: 'none',
+    })
+    const overrideManager = {
+      set: vi.fn(),
+      get: vi.fn(),
+      remove: vi.fn(),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+      trackPendingEdit: vi.fn(),
+    }
+    const channel = createMockChannel()
+    const commandStack = new CommandStack()
+
+    const { root, cleanup } = renderInShadow(
+      <Panel
+        selectedElements={[target]}
+        overrideManager={overrideManager as any}
+        commandStack={commandStack}
+        channel={channel}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+    )
+
+    try {
+      const unlink = root.querySelector('button[aria-label="Detach token"]') as HTMLButtonElement | null
+      expect(unlink).not.toBeNull()
+
+      await act(async () => {
+        unlink!.click()
+        await Promise.resolve()
+      })
+
+      const editMessage = channel._lastSent.find(
+        (msg): msg is { type: string } => (msg as { type?: string }).type === 'edit',
+      )
+      expect(editMessage).toMatchObject({
+        type: 'edit',
+        source: 'src/Hero.tsx:14:5',
+        classOp: { kind: 'remove', remove: 'bg-white' },
+        inlineSets: [{ property: 'background-color', value: 'rgb(255, 255, 255)' }],
+      })
+      expect(commandStack.undoCount).toBe(1)
+    } finally {
+      cleanup()
+      restoreStyles()
+      target.remove()
+    }
+  })
+
+  it('links a raw background color back to a color token', async () => {
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    document.body.appendChild(target)
+
+    const restoreStyles = mockGetComputedStyle(target, {
+      backgroundColor: 'rgb(59, 130, 246)',
+      backgroundImage: 'none',
+      borderWidth: '0px',
+      borderTopWidth: '0px',
+      borderRightWidth: '0px',
+      borderBottomWidth: '0px',
+      borderLeftWidth: '0px',
+      borderStyle: 'none',
+    })
+    const overrideManager = {
+      set: vi.fn(),
+      get: vi.fn(),
+      remove: vi.fn(),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+      trackPendingEdit: vi.fn(),
+    }
+    const channel = createMockChannel()
+    const commandStack = new CommandStack()
+
+    const { root, cleanup } = renderInShadow(
+      <Panel
+        selectedElements={[target]}
+        overrideManager={overrideManager as any}
+        commandStack={commandStack}
+        channel={channel}
+        colorChips={[{ name: 'brand-500', hex: '#3b82f6' }]}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+    )
+
+    try {
+      const link = root.querySelector('button[aria-label="Link to color chip"]') as HTMLButtonElement | null
+      expect(link).not.toBeNull()
+
+      await act(async () => {
+        link!.click()
+        await Promise.resolve()
+      })
+
+      const option = root.querySelector('.cortex-color-chip-picker__option') as HTMLButtonElement | null
+      expect(option).not.toBeNull()
+
+      await act(async () => {
+        option!.click()
+        await Promise.resolve()
+      })
+
+      const editMessage = channel._lastSent.find(
+        (msg): msg is { type: string } => (msg as { type?: string }).type === 'edit',
+      )
+      expect(editMessage).toMatchObject({
+        type: 'edit',
+        source: 'src/Hero.tsx:14:5',
+        classOp: { kind: 'add', add: 'bg-brand-500' },
+        inlineRemoves: [{ property: 'background-color' }],
+      })
+      expect(commandStack.undoCount).toBe(1)
+    } finally {
+      cleanup()
+      restoreStyles()
+      target.remove()
+    }
+  })
+
+  it('unlinks a border color token by removing the class and preserving the rendered color', async () => {
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    target.className = 'border border-slate-200'
+    document.body.appendChild(target)
+
+    const restoreStyles = mockGetComputedStyle(target, {
+      backgroundColor: 'rgba(0, 0, 0, 0)',
+      backgroundImage: 'none',
+      borderWidth: '1px',
+      borderTopWidth: '1px',
+      borderRightWidth: '1px',
+      borderBottomWidth: '1px',
+      borderLeftWidth: '1px',
+      borderStyle: 'solid',
+      borderColor: 'rgb(226, 232, 240)',
+    })
+    const overrideManager = {
+      set: vi.fn(),
+      get: vi.fn(),
+      remove: vi.fn(),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+      trackPendingEdit: vi.fn(),
+    }
+    const channel = createMockChannel()
+    const commandStack = new CommandStack()
+
+    const { root, cleanup } = renderInShadow(
+      <Panel
+        selectedElements={[target]}
+        overrideManager={overrideManager as any}
+        commandStack={commandStack}
+        channel={channel}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+    )
+
+    try {
+      const unlink = root.querySelector('button[aria-label="Detach token"]') as HTMLButtonElement | null
+      expect(unlink).not.toBeNull()
+
+      await act(async () => {
+        unlink!.click()
+        await Promise.resolve()
+      })
+
+      const editMessage = channel._lastSent.find(
+        (msg): msg is { type: string } => (msg as { type?: string }).type === 'edit',
+      )
+      expect(editMessage).toMatchObject({
+        type: 'edit',
+        source: 'src/Hero.tsx:14:5',
+        classOp: { kind: 'remove', remove: 'border-slate-200' },
+        inlineSets: [{ property: 'border-color', value: 'rgb(226, 232, 240)' }],
+      })
+      expect(commandStack.undoCount).toBe(1)
+    } finally {
+      cleanup()
+      restoreStyles()
+      target.remove()
+    }
+  })
+
+  it('links a raw border color back to a color token', async () => {
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    document.body.appendChild(target)
+
+    const restoreStyles = mockGetComputedStyle(target, {
+      backgroundColor: 'rgba(0, 0, 0, 0)',
+      backgroundImage: 'none',
+      borderWidth: '1px',
+      borderTopWidth: '1px',
+      borderRightWidth: '1px',
+      borderBottomWidth: '1px',
+      borderLeftWidth: '1px',
+      borderStyle: 'solid',
+      borderColor: 'rgb(59, 130, 246)',
+    })
+    const overrideManager = {
+      set: vi.fn(),
+      get: vi.fn(),
+      remove: vi.fn(),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+      trackPendingEdit: vi.fn(),
+    }
+    const channel = createMockChannel()
+    const commandStack = new CommandStack()
+
+    const { root, cleanup } = renderInShadow(
+      <Panel
+        selectedElements={[target]}
+        overrideManager={overrideManager as any}
+        commandStack={commandStack}
+        channel={channel}
+        colorChips={[{ name: 'brand-500', hex: '#3b82f6' }]}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+    )
+
+    try {
+      const link = root.querySelector('button[aria-label="Link to color chip"]') as HTMLButtonElement | null
+      expect(link).not.toBeNull()
+
+      await act(async () => {
+        link!.click()
+        await Promise.resolve()
+      })
+
+      const option = root.querySelector('.cortex-color-chip-picker__option') as HTMLButtonElement | null
+      expect(option).not.toBeNull()
+
+      await act(async () => {
+        option!.click()
+        await Promise.resolve()
+      })
+
+      const editMessage = channel._lastSent.find(
+        (msg): msg is { type: string } => (msg as { type?: string }).type === 'edit',
+      )
+      expect(editMessage).toMatchObject({
+        type: 'edit',
+        source: 'src/Hero.tsx:14:5',
+        classOp: { kind: 'add', add: 'border-brand-500' },
+        inlineRemoves: [{ property: 'border-color' }],
+      })
+      expect(commandStack.undoCount).toBe(1)
+    } finally {
+      cleanup()
+      restoreStyles()
+      target.remove()
+    }
+  })
+
   it('staged-edits-discard server message removes intents from canonical buffer', async () => {
     // ZF0-1452 regression: Panel.tsx's channel.onMessage handler wires
     // 'staged-edits-discard' (server-originated, emitted by the MCP server's
