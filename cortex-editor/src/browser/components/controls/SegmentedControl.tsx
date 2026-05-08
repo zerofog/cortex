@@ -61,12 +61,17 @@ export function SegmentedControl({
     [disabled, mixed, value, onChange],
   )
 
+  const hasActiveOption = options.some((opt) => opt.value === value)
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       const targetValue = (e.target as HTMLElement | null)?.getAttribute('data-value')
       if (disabled) return
       const focusedIdx = targetValue ? options.findIndex((o) => o.value === targetValue) : -1
-      const idx = mixed ? (focusedIdx >= 0 ? focusedIdx : 0) : options.findIndex((o) => o.value === value)
+      const idx =
+        mixed || !hasActiveOption
+          ? (focusedIdx >= 0 ? focusedIdx : 0)
+          : options.findIndex((o) => o.value === value)
       if (idx === -1) return
       let next = -1
       if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
@@ -79,13 +84,12 @@ export function SegmentedControl({
       const target = next >= 0 ? options[next] : undefined
       if (target) onChange(target.value)
     },
-    [disabled, options, value, mixed, onChange],
+    [disabled, options, value, mixed, hasActiveOption, onChange],
   )
 
   const sizeClass = size === 'sm' ? ' cortex-segmented--sm' : ''
   const mixedClass = mixed ? ' cortex-segmented--mixed' : ''
   const disabledClass = disabled ? ' cortex-segmented--disabled' : ''
-  const hasActiveOption = options.some((opt) => opt.value === value)
 
   return (
     <div

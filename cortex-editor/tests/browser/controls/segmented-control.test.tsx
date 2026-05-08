@@ -76,6 +76,16 @@ describe('SegmentedControl', () => {
     expect(onChange).not.toHaveBeenCalledWith('none')
   })
 
+  it('moves from the focused option when value is unselected', () => {
+    const { onChange } = setup({ value: '' })
+    const buttons = container.querySelectorAll('[role="radio"]')
+    expect(buttons[0].getAttribute('tabindex')).toBe('0')
+
+    dispatchKeyboardEvent(buttons[0] as HTMLElement, 'keydown', { key: 'ArrowRight' })
+
+    expect(onChange).toHaveBeenCalledWith('flex')
+  })
+
   it('calls onChange on click', () => {
     const { onChange } = setup()
     const buttons = container.querySelectorAll('[role="radio"]')
