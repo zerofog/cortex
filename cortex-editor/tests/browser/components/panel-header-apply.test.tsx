@@ -20,11 +20,7 @@ const BASE_PROPS = {
   sourceFile: null,
   sourceLine: null,
   filePath: null,
-  hasParent: false,
-  hasChildren: false,
   onClose: () => {},
-  onSelectParent: () => {},
-  onSelectChild: () => {},
 }
 
 describe('PanelHeader Apply button', () => {

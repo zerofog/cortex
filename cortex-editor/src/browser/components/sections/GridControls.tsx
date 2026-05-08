@@ -64,6 +64,8 @@ import {
   AlignVerticalJustifyStart,
   AlignVerticalJustifyCenter,
   AlignVerticalJustifyEnd,
+  Lock,
+  LockOpen,
 } from '../icons.js'
 
 export type GridChange = SectionChange
@@ -400,6 +402,7 @@ export function GridControls({
           options={DIRECTION_OPTIONS}
           value={gridAutoFlow}
           onChange={handleDirection}
+          mixed={mixedProperties?.has('grid-auto-flow')}
         />
       </div>
 
@@ -481,13 +484,7 @@ export function GridControls({
           data-tooltip={gapLocked ? 'Unlock gap axes' : 'Lock gap axes'}
           onClick={toggleGapLock}
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="6.5" width="8" height="5.5" rx="1" />
-            {gapLocked
-              ? <path d="M4.5,6.5 V4.5 a2.5,2.5 0 0 1 5,0 V6.5" />
-              : <path d="M4.5,6.5 V4.5 a2.5,2.5 0 0 1 5,0" />
-            }
-          </svg>
+          {gapLocked ? <Lock size={14} /> : <LockOpen size={14} />}
         </button>
       </div>
     </div>

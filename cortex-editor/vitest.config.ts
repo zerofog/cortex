@@ -6,6 +6,12 @@ export default defineConfig({
     jsxImportSource: 'preact',
   },
   test: {
+    // Some integration tests shell out to full tsup builds. Keep Vitest's
+    // file sequencing non-concurrent so timing-sensitive adapter performance
+    // assertions do not measure contention from build-artifact tests.
+    sequence: {
+      concurrent: false,
+    },
     coverage: {
       provider: 'v8',
       include: ['src/**'],
@@ -19,6 +25,7 @@ export default defineConfig({
     },
     projects: [
       { test: { name: 'server', environment: 'node', include: ['tests/adapters/**/*.test.ts', 'tests/core/**/*.test.ts', 'tests/cli/**/*.test.ts', 'tests/schemas/**/*.test.ts'] } },
+      { test: { name: 'styles', environment: 'node', include: ['tests/styles/**/*.test.ts'] } },
       {
         // Mirror the tsup browser bundle's __CORTEX_TEST_BUILD__ define so
         // source-compiled imports see the bridge path as live (ZF0-1298).

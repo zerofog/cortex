@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { useDrag } from '../hooks/useDrag.js'
 import { useToolbarDock } from '../hooks/useToolbarDock.js'
 import { formatShortcut } from '../format-shortcut.js'
+import { GripVertical, MessageSquare, MousePointer2, X } from './icons.js'
 
 export interface ToolbarProps {
   activityCount: number
@@ -10,29 +11,6 @@ export interface ToolbarProps {
   commentMode?: boolean
   onCommentMode?: () => void
   onActivityToggle?: () => void
-}
-
-// Inline SVG icons — 16×16 viewBox, stroke-based, 1.5px stroke
-const iconSize = 16
-const svgProps = { width: iconSize, height: iconSize, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round' as const, 'stroke-linejoin': 'round' as const }
-
-function IconGrip(): JSX.Element {
-  // 2×3 grip dots — universal drag handle indicator
-  return <svg {...svgProps}><circle cx="6" cy="4" r="1.5" fill="currentColor" stroke="none" /><circle cx="10" cy="4" r="1.5" fill="currentColor" stroke="none" /><circle cx="6" cy="8" r="1.5" fill="currentColor" stroke="none" /><circle cx="10" cy="8" r="1.5" fill="currentColor" stroke="none" /><circle cx="6" cy="12" r="1.5" fill="currentColor" stroke="none" /><circle cx="10" cy="12" r="1.5" fill="currentColor" stroke="none" /></svg>
-}
-
-function IconClose(): JSX.Element {
-  return <svg {...svgProps}><path d="M4 4 L12 12 M12 4 L4 12" /></svg>
-}
-
-function IconComment(): JSX.Element {
-  // Rounded speech bubble with bottom-left tail
-  return <svg {...svgProps}><path d="M3 10V4A1.5 1.5 0 014.5 2.5h7A1.5 1.5 0 0113 4v4.5a1.5 1.5 0 01-1.5 1.5H7l-4 3.5z" /></svg>
-}
-
-function IconSelect(): JSX.Element {
-  // Cursor pointer — kite shape
-  return <svg {...svgProps}><path d="M3 2.5L7 14L9.5 9.5L14 7z" /></svg>
 }
 
 export function Toolbar({
@@ -90,7 +68,7 @@ export function Toolbar({
       onPointerCancel={handlePointerCancel}
     >
       <div class="cortex-toolbar__grip" role="presentation">
-        <IconGrip />
+        <GripVertical size={16} />
       </div>
 
       {activityCount > 0 && (
@@ -119,7 +97,7 @@ export function Toolbar({
           data-tooltip-placement={tooltipPlacement}
           onClick={commentMode ? onCommentMode : undefined}
         >
-          <IconSelect />
+          <MousePointer2 size={16} />
         </button>
         <button
           type="button"
@@ -132,7 +110,7 @@ export function Toolbar({
           data-tooltip-placement={tooltipPlacement}
           onClick={!commentMode ? onCommentMode : undefined}
         >
-          <IconComment />
+          <MessageSquare size={16} />
         </button>
       </div>
 
@@ -147,7 +125,7 @@ export function Toolbar({
         data-tooltip="Close Cortex"
         data-tooltip-placement={tooltipPlacement}
       >
-        <IconClose />
+        <X size={16} />
       </button>
     </div>
   )

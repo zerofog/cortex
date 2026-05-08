@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 export type PackageJson = {
+  type?: string
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
   optionalDependencies?: Record<string, string>
@@ -30,15 +31,14 @@ export const VITE_CONFIG_FILES = [
 
 export const NEXT_CONFIG_FILES = [
   'next.config.ts',
-  'next.config.js',
+  'next.config.mts',
   'next.config.mjs',
-] as const
-
-export const UNSUPPORTED_NEXT_CONFIG_FILES = [
+  'next.config.js',
   'next.config.cjs',
   'next.config.cts',
-  'next.config.mts',
 ] as const
+
+export const UNSUPPORTED_NEXT_CONFIG_FILES = [] as const
 
 export const WEBPACK_CONFIG_FILES = [
   'webpack.config.ts',
@@ -74,9 +74,6 @@ export function findConfigPath(cwd: string, files: readonly string[]): string | 
 }
 
 export function detectBundler(cwd: string, pkg: PackageJson): BundlerDetection {
-  const viteConfig = findConfigPath(cwd, VITE_CONFIG_FILES)
-  if (viteConfig) return { kind: 'vite', configPath: viteConfig, source: 'config' }
-
   const nextConfig = findConfigPath(cwd, NEXT_CONFIG_FILES)
   if (nextConfig) return { kind: 'next', configPath: nextConfig, source: 'config' }
 
@@ -93,8 +90,8 @@ export function detectBundler(cwd: string, pkg: PackageJson): BundlerDetection {
   const webpackConfig = findConfigPath(cwd, WEBPACK_CONFIG_FILES)
   if (webpackConfig) return { kind: 'webpack', configPath: webpackConfig, source: 'config' }
 
-  if (hasDependency(pkg, 'vite')) return { kind: 'vite', configPath: null, source: 'dependency' }
   if (hasDependency(pkg, 'next')) return { kind: 'next', configPath: null, source: 'dependency' }
+  if (hasDependency(pkg, 'vite')) return { kind: 'vite', configPath: null, source: 'dependency' }
   if (hasDependency(pkg, 'webpack') || hasDependency(pkg, 'react-scripts')) {
     return { kind: 'webpack', configPath: null, source: 'dependency' }
   }

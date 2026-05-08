@@ -138,6 +138,15 @@ When a spec fails in GitHub Actions:
 
 ## Helper surface reference
 
+### DESIGN.md compliance layers
+
+DESIGN.md compliance now has two test layers:
+
+- Layer 1: `tests/styles/css-compliance.test.ts` statically scans `src/browser/styles.css` for source-level hardcoded hex colors, gradients, and zero-offset blur glow shadows. It runs in Vitest and does not need a browser bundle.
+- Layer 4: `tests/e2e/panel-design-compliance.spec.ts` keeps runtime-only checks for rendered text emoji and per-control stale-indicator behavior.
+
+ZF0-1495 moved the CSS-source lint out of Playwright. At the time of the move, `npm exec playwright -- test --list` changed from 32 tests to 30 tests because the two CSS-source cases were deleted from `panel-design-compliance.spec.ts`.
+
 ### `helpers/boot.ts`
 - `bootFixture(page, opts?)` — one-line orchestrator that composes the primitives below into the canonical 5-step arm sequence; returns a ready-to-use `DivergenceCollector | null`
 

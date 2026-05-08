@@ -248,14 +248,14 @@ export function TypographySection({
   const weightOptions = useMemo(() => {
     const opts = availableWeights.map((w) => ({
       value: w,
-      label: WEIGHT_LABELS[w] ? `${w} - ${WEIGHT_LABELS[w]}` : w,
+      label: WEIGHT_LABELS[w] ?? w,
+      tooltip: WEIGHT_LABELS[w] ? `font-weight: ${w}` : undefined,
     }))
     if (!availableWeights.includes(values.fontWeight)) {
       opts.push({
         value: values.fontWeight,
-        label: WEIGHT_LABELS[values.fontWeight]
-          ? `${values.fontWeight} - ${WEIGHT_LABELS[values.fontWeight]}`
-          : values.fontWeight,
+        label: WEIGHT_LABELS[values.fontWeight] ?? values.fontWeight,
+        tooltip: WEIGHT_LABELS[values.fontWeight] ? `font-weight: ${values.fontWeight}` : undefined,
       })
     }
     return opts
@@ -456,6 +456,7 @@ export function TypographySection({
               options={fontFamilyOptions}
               value={fontFamilyOptions[0]?.value ?? ''}
               onChange={handleFamilyChange}
+              mixed={mixedProperties?.has('font-family')}
             />
             <button
               ref={typographyTriggerTButtonRef}
@@ -484,6 +485,7 @@ export function TypographySection({
                 options={weightOptions}
                 value={values.fontWeight}
                 onChange={handleWeightChange}
+                mixed={mixedProperties?.has('font-weight')}
               />
             </div>
             <div class="cortex-typography-section__field">
@@ -592,6 +594,7 @@ export function TypographySection({
           value={values.textAlign}
           onChange={handleHorizontalAlignChange}
           size="sm"
+          mixed={mixedProperties?.has('text-align')}
         />
       </div>
     </div>

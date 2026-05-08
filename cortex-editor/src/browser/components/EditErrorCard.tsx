@@ -2,6 +2,7 @@ import type { JSX } from 'preact'
 import { useState, useMemo, useRef, useCallback } from 'preact/hooks'
 import type { FixMeta } from '../../adapters/types.js'
 import type { OverrideDivergenceDiagnostics } from '../override-bus.js'
+import { TriangleAlert } from './icons.js'
 
 export interface EditError extends FixMeta {
   source: string
@@ -58,11 +59,7 @@ export function EditErrorCard({ errors, elementSource, agentConnected, onDismiss
       {elementErrors.map(([key, err]) => (
         <div key={key} class="cortex-error-card">
           <div class="cortex-error-card__header">
-            <svg class="cortex-error-card__icon" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M6 1L11 10H1L6 1z" />
-              <line x1="6" y1="4.5" x2="6" y2="6.5" />
-              <circle cx="6" cy="8" r="0.5" fill="currentColor" />
-            </svg>
+            <TriangleAlert size={12} class="cortex-error-card__icon" />
             <span class="cortex-error-card__property">{err.property} edit failed</span>
           </div>
           <div class="cortex-error-card__reason">{err.reason}</div>

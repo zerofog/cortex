@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render } from 'preact'
 import { NoAnnotationsBanner } from '../../../src/browser/components/NoAnnotationsBanner.js'
 import { createEditableDiv } from '../helpers.js'
@@ -6,10 +6,22 @@ import { createEditableDiv } from '../helpers.js'
 describe('NoAnnotationsBanner', () => {
   let container: HTMLDivElement
 
-  afterEach(() => {
+  function resetHostDocument(): void {
     for (const el of document.body.querySelectorAll('[data-cortex-source]')) {
       el.remove()
     }
+    document.documentElement.style.paddingTop = ''
+    document.documentElement.style.transition = ''
+    document.documentElement.style.removeProperty('--cx-banner-height')
+    document.documentElement.style.removeProperty('--cx-banner-transform')
+  }
+
+  beforeEach(() => {
+    resetHostDocument()
+  })
+
+  afterEach(() => {
+    resetHostDocument()
     if (container) {
       render(null, container)
       container.remove()

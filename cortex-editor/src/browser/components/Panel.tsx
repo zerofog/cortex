@@ -29,13 +29,15 @@ import { AppearanceSection } from './sections/AppearanceSection.js'
 import type { InteractionState } from '../state-detector.js'
 import { detectSharedClasses } from '../shared-class-detector.js'
 import type { SharedClassInfo } from '../shared-class-detector.js'
+import { detectSharedSource } from '../shared-source-detector.js'
+import type { SharedSourceInfo } from '../shared-source-detector.js'
 import { EditErrorCard } from './EditErrorCard.js'
 import type { EditError } from './EditErrorCard.js'
 import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
 import { IconButton } from './controls/IconButton.js'
 import { BackgroundSection } from './sections/BackgroundSection.js'
-import { Plus } from './icons.js'
+import { ChevronDown, ChevronUp, Eye, EyeOff, Plus, X } from './icons.js'
 import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
 import { computePanelStyleSnapshot } from './panel-style-snapshot.js'
 import { ALL_DIMMING_PROPERTIES } from './sections/spacing-utils.js'
@@ -44,6 +46,9 @@ import type { PendingEdit, SyncEmitter } from '../hooks/useEditStagingBuffer.js'
 import { generateId } from '../uuid.js'
 import { StagingDriftBanner } from './StagingDriftBanner.js'
 import { SpacingTokensContext } from '../tokens/TokenContext.js'
+import { deepQueryAllElements } from '../selection-metadata.js'
+import { getElementEditTarget } from '../preview-source.js'
+import type { ElementEditTarget } from '../preview-source.js'
 
 // ── Connection status footer ─────────────────────────────────────────
 
@@ -94,6 +99,18 @@ export function ConnectionStatusFooter({ status }: { status?: ConnectionDisplay 
 
 const HIGHLIGHT_ATTR = 'data-cortex-blast-radius'
 
+function pendingEditTargetFields(target: ElementEditTarget): Partial<PendingEdit> {
+  if (target.applyMode === 'direct') return {}
+  return {
+    applyMode: target.applyMode,
+    sourceResolutionHint: target.sourceResolutionHint,
+  }
+}
+
+function editSourcesForElements(elements: readonly HTMLElement[]): string[] {
+  return elements.map(el => getElementEditTarget(el).source)
+}
+
 function ensureBlastRadiusStyle(): void {
   // Query DOM instead of module-level ref — survives Vite HMR module re-execution
   if (document.head.querySelector('[data-cortex-blast-radius-style]')) return
@@ -106,13 +123,14 @@ function ensureBlastRadiusStyle(): void {
 let highlightFrame = 0
 let clearFrame = 0
 
-function highlightSharedElements(info: SharedClassInfo, selected: HTMLElement | null): void {
+function highlightSharedElements(info: SharedClassInfo | SharedSourceInfo, selected: HTMLElement | null): void {
   ensureBlastRadiusStyle()
   cancelAnimationFrame(clearFrame)
   cancelAnimationFrame(highlightFrame)
   highlightFrame = requestAnimationFrame(() => {
     for (const el of info.elements) {
       if (el === selected) continue
+      if (!el.isConnected) continue
       el.setAttribute(HIGHLIGHT_ATTR, '')
     }
   })
@@ -122,8 +140,15 @@ function clearHighlights(): void {
   cancelAnimationFrame(highlightFrame)
   cancelAnimationFrame(clearFrame)
   clearFrame = requestAnimationFrame(() => {
-    const highlighted = document.querySelectorAll(`[${HIGHLIGHT_ATTR}]`)
-    for (const el of highlighted) {
+    // Use deep, Element-typed traversal so highlights set on:
+    //   (a) shadow-hosted nodes (document.querySelectorAll doesn't pierce
+    //       shadow boundaries — would leak the attribute), and
+    //   (b) non-HTMLElement nodes (SVG / MathML / other namespaced siblings
+    //       that highlightSharedElements may have set the attribute on via
+    //       SharedClassInfo.elements — deepQuerySelectorAll's HTMLElement
+    //       filter would silently skip these and orphan the attribute)
+    // are both cleared symmetrically.
+    for (const el of deepQueryAllElements(`[${HIGHLIGHT_ATTR}]`)) {
       el.removeAttribute(HIGHLIGHT_ATTR)
     }
   })
@@ -448,6 +473,8 @@ export function Panel({
   // Shared class detection + scope toggle for instance-level editing (ZF0-1018)
   const [sharedInfo, setSharedInfo] = useState<SharedClassInfo | null>(null)
   const [editScope, setEditScope] = useState<'instance' | 'all'>('instance')
+  // Shared source detection for warning-only banner (ZF0-1583)
+  const [sharedSourceInfo, setSharedSourceInfo] = useState<SharedSourceInfo | null>(null)
 
   // Typography section dual-mode toggle: auto picks from detected token classes
 
@@ -551,6 +578,26 @@ export function Panel({
     }
   }, [element, hmrAppliedVersion])
 
+  // Detect shared source location when a new element is selected (ZF0-1583), and
+  // re-run on hmrAppliedVersion bumps because `sharedSourceInfo.elements` caches
+  // DOM refs — an HMR edit can add or remove siblings sharing the same source.
+  // Warning-only: no scope toggle, no commit-path changes.
+  useEffect(() => {
+    if (element) {
+      try {
+        setSharedSourceInfo(detectSharedSource(element))
+      } catch (err) {
+        // Cross-origin DOM access throws SecurityError — known path, don't
+        // warn. Anything else is a bug; log it so it shows up in devtools.
+        if (!(err instanceof DOMException && err.name === 'SecurityError')) {
+          console.warn('[cortex] detectSharedSource unexpected error', err)
+        }
+        setSharedSourceInfo(null)
+      }
+    } else {
+      setSharedSourceInfo(null)
+    }
+  }, [element, hmrAppliedVersion])
 
   // Sync strategy: bump counter on committed changes to force getComputedStyle re-read.
   // During scrub, trust NumericInput local state (no re-render per frame).
@@ -707,11 +754,8 @@ export function Panel({
       return
     }
     if (!element || scrubPreviousRef.current.size === 0) return
-    const source = element.getAttribute('data-cortex-source')
-    if (!source) {
-      scrubPreviousRef.current.clear()
-      return
-    }
+    const primaryTarget = getElementEditTarget(element)
+    const source = primaryTarget.source
 
     // Build PropertyChange[] from accumulated scrub previous values.
     // Filter out no-op changes where value didn't change.
@@ -757,8 +801,8 @@ export function Panel({
       pendingEdits = []
       const seenSources = new Set<string>()
       for (const el of selectedElements) {
-        const elSource = el.getAttribute('data-cortex-source')
-        if (!elSource) continue
+        const elTarget = getElementEditTarget(el)
+        const elSource = elTarget.source
         if (seenSources.has(elSource)) continue
         seenSources.add(elSource)
         // When scope='all' is also active, each unique selected source fans out
@@ -768,9 +812,7 @@ export function Panel({
           try {
             const shared = detectSharedClasses(el)
             perElementInstanceSources = shared
-              ? shared.elements
-                  .map(e => e.getAttribute('data-cortex-source'))
-                  .filter((s): s is string => s !== null)
+              ? editSourcesForElements(shared.elements)
               : undefined
           } catch (err) {
             console.warn('[cortex] detectSharedClasses threw during multi-select fan-out', err)
@@ -789,6 +831,7 @@ export function Panel({
             pseudo: c.pseudo,
             scope: isShared ? 'all' : 'instance',
             instanceSources: perElementInstanceSources,
+            ...pendingEditTargetFields(elTarget),
             timestamp: Date.now(),
           })
         }
@@ -797,9 +840,7 @@ export function Panel({
       // Single-select: filter to the primary source, pack optional instanceSources.
       const editedProps = changes.filter(c => c.source === source)
       const instanceSources = isShared
-        ? sharedInfo!.elements
-            .map(el => el.getAttribute('data-cortex-source'))
-            .filter((s): s is string => s !== null)
+        ? editSourcesForElements(sharedInfo!.elements)
         : undefined
       pendingEdits = editedProps.map(c => ({
         intentId: generateId(),
@@ -816,6 +857,7 @@ export function Panel({
         // ('instance' | 'all'); editScope already uses the same shape.
         scope: editScope,
         instanceSources,
+        ...pendingEditTargetFields(primaryTarget),
         timestamp: Date.now(),
       }))
     }
@@ -909,8 +951,8 @@ export function Panel({
     // causing section inputs to re-render with new values and fire onChange.
     if (undoInProgressRef?.current) return
     if (!element) return
-    const source = element.getAttribute('data-cortex-source')
-    if (!source) return
+    const primaryTarget = getElementEditTarget(element)
+    const source = primaryTarget.source
     const pseudo = activePseudo !== 'element' ? activePseudo : undefined
     const prevKey = `${source}${SEP}${property}${SEP}${pseudo ?? ''}`
 
@@ -978,8 +1020,7 @@ export function Panel({
     })()
 
     for (const el of fanOutTargets) {
-      const elSource = el.getAttribute('data-cortex-source')
-      if (!elSource) continue
+      const elSource = getElementEditTarget(el).source
       const elPrevKey = `${elSource}${SEP}${property}${SEP}${pseudo ?? ''}`
       if (!scrubPreviousRef.current.has(elPrevKey)) {
         const elExisting = overrideManager.get(elSource, property, pseudo)
@@ -1422,17 +1463,11 @@ export function Panel({
           sourceFile={null}
           sourceLine={null}
           filePath={null}
-          hasParent={false}
-          hasChildren={false}
           onClose={onClose}
-          onSelectParent={() => {}}
-          onSelectChild={() => {}}
           onPointerDown={panelPointerDown}
           onPointerMove={panelPointerMove}
           onPointerUp={panelPointerUp}
           onPointerCancel={panelPointerCancel}
-          hoverEnabled={hoverEnabled}
-          onToggleHover={onToggleHover}
           bufferSize={buffer.size()}
           onApply={onApply}
           onApplyError={handleApplyError}
@@ -1452,11 +1487,7 @@ export function Panel({
                 class="cortex-apply-error__dismiss"
                 aria-label="Dismiss apply error"
               >
-                {/* Lucide X icon — 14×14, matches StagingDriftBanner dismiss */}
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <line x1="3.5" y1="3.5" x2="10.5" y2="10.5" />
-                  <line x1="10.5" y1="3.5" x2="3.5" y2="10.5" />
-                </svg>
+                <X size={14} />
               </button>
             </div>
           )}
@@ -1531,11 +1562,7 @@ export function Panel({
         sourceFile={sourceFile}
         sourceLine={sourceLine}
         filePath={filePath}
-        hasParent={hasParent}
-        hasChildren={hasChildren}
         onClose={onClose}
-        onSelectParent={handleSelectParent}
-        onSelectChild={handleSelectChild}
         onPointerDown={panelPointerDown}
         onPointerMove={panelPointerMove}
         onPointerUp={panelPointerUp}
@@ -1547,8 +1574,6 @@ export function Panel({
         isLibrary={isLibrary}
         ancestorSource={ancestor?.source.fileName ?? null}
         ancestorLine={ancestor?.source.line ?? null}
-        hoverEnabled={hoverEnabled}
-        onToggleHover={onToggleHover}
         bufferSize={buffer.size()}
         onApply={onApply}
         onApplyError={handleApplyError}
@@ -1618,6 +1643,17 @@ export function Panel({
           </div>
         </div>
       )}
+      {sharedSourceInfo && !sharedInfo && (
+        <div
+          class="cortex-panel__scope cortex-panel__scope--source-only"
+          onMouseEnter={() => highlightSharedElements(sharedSourceInfo, element)}
+          onMouseLeave={() => clearHighlights()}
+        >
+          <span class="cortex-panel__scope-label">
+            Used by {sharedSourceInfo.count} elements
+          </span>
+        </div>
+      )}
       <div class="cortex-panel__body" ref={bodyRef}>
         {/* ZF0-1470 (T4 fix-up, IMPORTANT 4): Apply error inline banner. Surfaces
             sendAndAck rejections (timeout/disconnect/server error) that PanelHeader
@@ -1633,11 +1669,7 @@ export function Panel({
               class="cortex-apply-error__dismiss"
               aria-label="Dismiss apply error"
             >
-              {/* Lucide X icon — 14×14, matches StagingDriftBanner dismiss */}
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <line x1="3.5" y1="3.5" x2="10.5" y2="10.5" />
-                <line x1="10.5" y1="3.5" x2="3.5" y2="10.5" />
-              </svg>
+              <X size={14} />
             </button>
           </div>
         )}
@@ -1669,7 +1701,48 @@ export function Panel({
             Typography → Appearance → Background → Border → Effects.
             Typography conditional on hasTypographyContent; Position hidden
             in shared-class "All" scope. */}
-        <SectionGroup label="Elements" groupId="elements">
+        <SectionGroup
+          label="Elements"
+          groupId="elements"
+          headerAction={(
+            <div class="cortex-elements-header-actions" role="group" aria-label="Element navigation and overlay controls">
+              <button
+                type="button"
+                class="cortex-elements-header-actions__btn"
+                data-action="parent"
+                disabled={!hasParent}
+                data-tooltip="Select parent element"
+                aria-label="Select parent element"
+                onClick={handleSelectParent}
+              >
+                <ChevronUp size={14} />
+              </button>
+              <button
+                type="button"
+                class="cortex-elements-header-actions__btn"
+                data-action="child"
+                disabled={!hasChildren}
+                data-tooltip="Select child element"
+                aria-label="Select child element"
+                onClick={handleSelectChild}
+              >
+                <ChevronDown size={14} />
+              </button>
+              <button
+                type="button"
+                class={`cortex-elements-header-actions__btn${hoverEnabled ? '' : ' cortex-elements-header-actions__btn--toggled-off'}`}
+                data-action="toggle-hover"
+                disabled={!onToggleHover}
+                data-tooltip={hoverEnabled ? 'Hide hover overlay' : 'Show hover overlay'}
+                aria-label={hoverEnabled ? 'Hide hover overlay' : 'Show hover overlay'}
+                aria-pressed={hoverEnabled ? 'true' : 'false'}
+                onClick={() => onToggleHover?.()}
+              >
+                {hoverEnabled ? <Eye size={14} /> : <EyeOff size={14} />}
+              </button>
+            </div>
+          )}
+        >
           <ElementTree
             element={element}
             onSelectElements={onSelectElements ?? ((els, _action) => onSelectElement(els[0] ?? null))}

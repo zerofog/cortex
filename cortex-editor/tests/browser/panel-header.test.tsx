@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
+import { act } from 'preact/test-utils'
 import { PanelHeader } from '../../src/browser/components/PanelHeader.js'
+import { THEME_STORAGE_KEY } from '../../src/browser/theme.js'
+import { _resetPopoverStackForTesting, dismissTopmostPopover, hasOpenPopover } from '../../src/browser/popover-stack.js'
 
 describe('PanelHeader', () => {
   let container: HTMLDivElement
@@ -10,6 +13,8 @@ describe('PanelHeader', () => {
       render(null, container)
       container.remove()
     }
+    localStorage.removeItem(THEME_STORAGE_KEY)
+    _resetPopoverStackForTesting()
   })
 
   function setup(overrides?: Partial<Parameters<typeof PanelHeader>[0]>) {
@@ -21,11 +26,9 @@ describe('PanelHeader', () => {
       sourceFile: 'Hero.tsx',
       sourceLine: '14',
       filePath: '/src/Hero.tsx',
-      hasParent: true,
-      hasChildren: true,
       onClose: vi.fn(),
-      onSelectParent: vi.fn(),
-      onSelectChild: vi.fn(),
+      bufferSize: 0,
+      onApply: () => Promise.resolve(),
       ...overrides,
     }
     render(<PanelHeader {...props} />, container)
@@ -55,30 +58,72 @@ describe('PanelHeader', () => {
     expect(props.onClose).toHaveBeenCalled()
   })
 
-  it('up button calls onSelectParent', () => {
-    const props = setup()
-    const upBtn = container.querySelector('[data-action="parent"]') as HTMLButtonElement
-    upBtn.click()
-    expect(props.onSelectParent).toHaveBeenCalled()
+  it('keeps element navigation controls out of the global panel header', () => {
+    setup()
+    expect(container.querySelector('[data-action="parent"]')).toBeNull()
+    expect(container.querySelector('[data-action="child"]')).toBeNull()
+    expect(container.querySelector('[data-action="toggle-hover"]')).toBeNull()
   })
 
-  it('down button calls onSelectChild', () => {
-    const props = setup()
-    const downBtn = container.querySelector('[data-action="child"]') as HTMLButtonElement
-    downBtn.click()
-    expect(props.onSelectChild).toHaveBeenCalled()
+  it('renders a compact theme dropdown instead of the wide segmented selector', () => {
+    setup()
+    expect(container.querySelector('[data-action="theme"]')).not.toBeNull()
+    expect(container.querySelector('.cortex-segmented')).toBeNull()
   })
 
-  it('disables parent button when hasParent is false', () => {
-    setup({ hasParent: false })
-    const upBtn = container.querySelector('[data-action="parent"]') as HTMLButtonElement
-    expect(upBtn.disabled).toBe(true)
+  it('persists theme preference from the compact dropdown', () => {
+    setup()
+    const trigger = container.querySelector('[data-action="theme"]') as HTMLButtonElement
+    act(() => { trigger.click() })
+    const darkOption = container.querySelector('[data-theme-option="dark"]') as HTMLButtonElement
+    expect(darkOption).not.toBeNull()
+    act(() => { darkOption.click() })
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
   })
 
-  it('disables child button when hasChildren is false', () => {
-    setup({ hasChildren: false })
-    const downBtn = container.querySelector('[data-action="child"]') as HTMLButtonElement
-    expect(downBtn.disabled).toBe(true)
+  it('opens the compact theme dropdown from the keyboard and focuses the selected option', () => {
+    setup()
+    const trigger = container.querySelector('[data-action="theme"]') as HTMLButtonElement
+
+    act(() => {
+      trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }))
+    })
+
+    expect(container.querySelector('.cortex-theme-dropdown__menu')).not.toBeNull()
+    expect((document.activeElement as HTMLElement).dataset.themeOption).toBe('system')
+  })
+
+  it('registers the compact theme dropdown with the popover stack for global Escape dismissal', () => {
+    setup()
+    const trigger = container.querySelector('[data-action="theme"]') as HTMLButtonElement
+
+    act(() => { trigger.click() })
+    expect(hasOpenPopover()).toBe(true)
+
+    act(() => {
+      expect(dismissTopmostPopover()).toBe(true)
+    })
+
+    expect(container.querySelector('.cortex-theme-dropdown__menu')).toBeNull()
+    expect(hasOpenPopover()).toBe(false)
+  })
+
+  it('closes the compact theme dropdown when focus leaves the dropdown surface', () => {
+    setup()
+    const trigger = container.querySelector('[data-action="theme"]') as HTMLButtonElement
+    const outside = document.createElement('button')
+    document.body.appendChild(outside)
+
+    act(() => { trigger.click() })
+    const selectedOption = container.querySelector('[data-theme-option="system"]') as HTMLButtonElement
+    expect(selectedOption).not.toBeNull()
+
+    act(() => {
+      selectedOption.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: outside }))
+    })
+
+    expect(container.querySelector('.cortex-theme-dropdown__menu')).toBeNull()
+    outside.remove()
   })
 
   it('does not render source link when filePath is null', () => {

@@ -35,8 +35,11 @@ describe('SpacingControls', () => {
   it('renders Spacing label with P/M prefix inputs', () => {
     setup()
     expect(container.textContent).toContain('Spacing')
-    expect(container.textContent).toContain('P \u2194')
-    expect(container.textContent).toContain('M \u2194')
+    const labels = [...container.querySelectorAll('.cortex-numeric-input__prefix span')]
+      .map((label) => label.textContent)
+    expect(labels).toEqual(['P', 'P', 'M', 'M'])
+    expect(container.textContent).not.toContain('\u2194')
+    expect(container.textContent).not.toContain('\u2195')
   })
 
   it('renders data-section attributes for padding and margin', () => {
@@ -45,13 +48,19 @@ describe('SpacingControls', () => {
     expect(container.querySelector('[data-section="margin"]')).not.toBeNull()
   })
 
-  it('uses text prefixes (P/M with arrow characters) instead of SVG icons', () => {
+  it('uses P/M text plus Lucide axis icons in prefix slots', () => {
     setup()
     const prefixes = container.querySelectorAll('.cortex-numeric-input__prefix')
     expect(prefixes.length).toBe(4)
-    // Text prefixes, not SVG icons
     const svgInPrefixes = container.querySelectorAll('.cortex-numeric-input__prefix svg')
-    expect(svgInPrefixes.length).toBe(0)
+    expect(svgInPrefixes.length).toBe(4)
+
+    // ArrowLeftRight: horizontal axis; ArrowUpDown: vertical axis. These path
+    // fragments make the test falsifiable against an accidental icon swap.
+    expect(prefixes[0].innerHTML).toContain('M4 7h16')
+    expect(prefixes[1].innerHTML).toContain('M17 20V4')
+    expect(prefixes[2].innerHTML).toContain('M4 7h16')
+    expect(prefixes[3].innerHTML).toContain('M17 20V4')
   })
 
   it('padding uses padding-* properties', () => {

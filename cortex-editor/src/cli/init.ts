@@ -1,17 +1,51 @@
+import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
-import { spawn } from 'node:child_process'
 import { stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
-import { Project, SyntaxKind, ts, type Node, type SourceFile, type ObjectLiteralExpression } from 'ts-morph'
 import {
-  detectBundler,
+  Project,
+  SyntaxKind,
+  ts,
+  type Expression,
+  type Node,
+  type ObjectLiteralExpression,
+  type SourceFile,
+} from 'ts-morph'
+import {
   detectPackageManager,
   hasDependency,
   type BundlerKind,
   type PackageJson,
   type PackageManager,
 } from './detect.js'
+
+const VITE_CONFIG_FILES = [
+  'vite.config.ts',
+  'vite.config.js',
+  'vite.config.mts',
+  'vite.config.mjs',
+  'vite.config.cts',
+  'vite.config.cjs',
+] as const
+
+const NEXT_CONFIG_FILES = [
+  'next.config.ts',
+  'next.config.mts',
+  'next.config.mjs',
+  'next.config.js',
+  'next.config.cjs',
+  'next.config.cts',
+] as const
+
+const WEBPACK_CONFIG_FILES = [
+  'webpack.config.js',
+  'webpack.config.cjs',
+  'webpack.config.mjs',
+  'webpack.config.ts',
+  'webpack.config.cts',
+  'webpack.config.mts',
+] as const
 
 const VITE_SETUP_PACKAGES = ['vite', '@vitejs/plugin-react'] as const
 
@@ -36,31 +70,71 @@ export interface InitOptions {
 }
 
 /**
- * Find the config object literal in a Vite config file.
- * Supports: `export default defineConfig({...})` and `export default {...}`
+ * Find a config object literal through the simple shapes init can rewrite:
+ * object literals, defineConfig({ ... }), and same-file identifier indirection.
  */
-function findConfigObject(sourceFile: SourceFile): ObjectLiteralExpression | undefined {
-  // Look for `export default ...`
-  const defaultExport = sourceFile.getFirstDescendantByKind(SyntaxKind.ExportAssignment)
-  if (!defaultExport) return undefined
-
-  const expr = defaultExport.getExpression()
-
-  // Case 1: `export default defineConfig({...})` — call expression with object arg
-  if (expr.getKind() === SyntaxKind.CallExpression) {
-    const callExpr = expr.asKindOrThrow(SyntaxKind.CallExpression)
-    const firstArg = callExpr.getArguments()[0]
-    if (firstArg?.getKind() === SyntaxKind.ObjectLiteralExpression) {
-      return firstArg.asKindOrThrow(SyntaxKind.ObjectLiteralExpression)
-    }
-  }
-
-  // Case 2: `export default {...}` — bare object literal
+function resolveObjectLiteralExpression(
+  sourceFile: SourceFile,
+  expr: Expression,
+  options: { allowCallObjectArg?: boolean } = {},
+  seen = new Set<string>(),
+): ObjectLiteralExpression | undefined {
   if (expr.getKind() === SyntaxKind.ObjectLiteralExpression) {
     return expr.asKindOrThrow(SyntaxKind.ObjectLiteralExpression)
   }
 
+  if (options.allowCallObjectArg && expr.getKind() === SyntaxKind.CallExpression) {
+    const callExpr = expr.asKindOrThrow(SyntaxKind.CallExpression)
+    const firstArg = callExpr.getArguments()[0]
+    if (firstArg && firstArg.getKind() !== SyntaxKind.SpreadElement) {
+      return resolveObjectLiteralExpression(sourceFile, firstArg as Expression, options, seen)
+    }
+  }
+
+  if (expr.getKind() === SyntaxKind.Identifier) {
+    const name = expr.getText()
+    if (seen.has(name)) return undefined
+    seen.add(name)
+    const initializer = sourceFile.getVariableDeclaration(name)?.getInitializer()
+    if (initializer) return resolveObjectLiteralExpression(sourceFile, initializer, options, seen)
+  }
+
   return undefined
+}
+
+function isCommonJsExportTarget(node: Node): boolean {
+  if (node.getText() === 'exports') return true
+
+  const propertyAccess = node.asKind(SyntaxKind.PropertyAccessExpression)
+  if (!propertyAccess) return false
+
+  return (
+    propertyAccess.getExpression().getText() === 'module' &&
+    propertyAccess.getName() === 'exports'
+  ) || propertyAccess.getExpression().getText() === 'exports'
+}
+
+function isCommonJsExportAssignment(binaryExpression: Node): boolean {
+  if (!binaryExpression.isKind(SyntaxKind.BinaryExpression)) return false
+  if (binaryExpression.getOperatorToken().getKind() !== SyntaxKind.EqualsToken) return false
+  return isCommonJsExportTarget(binaryExpression.getLeft())
+}
+
+function findCommonJSExportExpression(sourceFile: SourceFile): Expression | undefined {
+  const assignment = sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)
+    .find(expr => isCommonJsExportAssignment(expr))
+  return assignment?.getRight()
+}
+
+function findConfigObject(sourceFile: SourceFile, moduleConfig: boolean): ObjectLiteralExpression | undefined {
+  if (moduleConfig) {
+    const defaultExport = sourceFile.getFirstDescendantByKind(SyntaxKind.ExportAssignment)
+    const expr = defaultExport?.getExpression()
+    return expr ? resolveObjectLiteralExpression(sourceFile, expr, { allowCallObjectArg: true }) : undefined
+  }
+
+  const expr = findCommonJSExportExpression(sourceFile)
+  return expr ? resolveObjectLiteralExpression(sourceFile, expr, { allowCallObjectArg: true }) : undefined
 }
 
 function createConfigSourceFile(fileName: string, content: string): SourceFile {
@@ -75,6 +149,20 @@ function createConfigSourceFile(fileName: string, content: string): SourceFile {
   return project.createSourceFile(fileName, content)
 }
 
+function assertParseable(sourceFile: SourceFile, basename: string): void {
+  const compilerSourceFile = sourceFile.compilerNode as ts.SourceFile & {
+    parseDiagnostics?: readonly ts.Diagnostic[]
+  }
+  const syntaxDiag = compilerSourceFile.parseDiagnostics ?? []
+  if (syntaxDiag.length === 0) return
+
+  const raw = syntaxDiag[0]!.messageText
+  const text = typeof raw === 'string'
+    ? raw
+    : ts.flattenDiagnosticMessageText(raw, '\n')
+  throw new Error(`${basename}: failed to parse - ${text}`)
+}
+
 function hasNamedCallExpression(node: Node, name: string): boolean {
   if (node.isKind(SyntaxKind.CallExpression) && node.getExpression().getText() === name) {
     return true
@@ -85,11 +173,73 @@ function hasNamedCallExpression(node: Node, name: string): boolean {
   ))
 }
 
-function hasNamedImport(sourceFile: SourceFile, name: string, moduleSpecifier: string): boolean {
-  return sourceFile.getImportDeclarations().some(importDeclaration => (
-    importDeclaration.getModuleSpecifierValue() === moduleSpecifier &&
-    importDeclaration.getNamedImports().some(namedImport => namedImport.getName() === name)
-  ))
+function isRequireCall(expr: Expression | undefined, moduleSpecifier: string): boolean {
+  if (!expr || expr.getKind() !== SyntaxKind.CallExpression) return false
+  const call = expr.asKindOrThrow(SyntaxKind.CallExpression)
+  if (call.getExpression().getText() !== 'require') return false
+  const firstArg = call.getArguments()[0]
+  return firstArg?.getText().replace(/^['"]|['"]$/g, '') === moduleSpecifier
+}
+
+function hasNamedImport(sourceFile: SourceFile, functionName: string, moduleSpecifier: string): boolean {
+  return sourceFile.getImportDeclarations().some(declaration =>
+    declaration.getModuleSpecifierValue() === moduleSpecifier &&
+    declaration.getNamedImports().some(namedImport => namedImport.getName() === functionName)
+  )
+}
+
+function hasNamedRequire(sourceFile: SourceFile, functionName: string, moduleSpecifier: string): boolean {
+  return sourceFile.getVariableDeclarations().some(declaration => {
+    const nameNode = declaration.getNameNode()
+    if (nameNode.getKind() !== SyntaxKind.ObjectBindingPattern) return false
+    const binding = nameNode.asKindOrThrow(SyntaxKind.ObjectBindingPattern)
+    const hasBinding = binding.getElements().some(element => element.getName() === functionName)
+    return hasBinding && isRequireCall(declaration.getInitializer(), moduleSpecifier)
+  })
+}
+
+function getCommonJSHelperInsertIndex(sourceFile: SourceFile): number {
+  const statements = sourceFile.getStatements()
+  let insertIndex = 0
+
+  while (insertIndex < statements.length) {
+    const statement = statements[insertIndex]!
+    if (statement.getKind() !== SyntaxKind.ExpressionStatement) break
+    const expression = statement.asKindOrThrow(SyntaxKind.ExpressionStatement).getExpression()
+    if (
+      expression.getKind() !== SyntaxKind.StringLiteral &&
+      expression.getKind() !== SyntaxKind.NoSubstitutionTemplateLiteral
+    ) {
+      break
+    }
+    insertIndex++
+  }
+
+  return insertIndex
+}
+
+function ensureHelperBinding(
+  sourceFile: SourceFile,
+  functionName: string,
+  moduleSpecifier: string,
+  moduleConfig: boolean,
+): void {
+  if (hasNamedImport(sourceFile, functionName, moduleSpecifier) ||
+      hasNamedRequire(sourceFile, functionName, moduleSpecifier)) {
+    return
+  }
+
+  if (moduleConfig) {
+    sourceFile.addImportDeclaration({
+      namedImports: [functionName],
+      moduleSpecifier,
+    })
+  } else {
+    sourceFile.insertStatements(
+      getCommonJSHelperInsertIndex(sourceFile),
+      `const { ${functionName} } = require("${moduleSpecifier}")\n`
+    )
+  }
 }
 
 function configExpressionUsesNamedCall(
@@ -120,28 +270,34 @@ function objectPropertyValueUsesNamedCall(
   return configExpressionUsesNamedCall(sourceFile, property, name)
 }
 
-function isCommonJsExportTarget(node: Node): boolean {
-  if (node.getText() === 'exports') return true
-
-  const propertyAccess = node.asKind(SyntaxKind.PropertyAccessExpression)
-  if (!propertyAccess) return false
-
-  return (
-    propertyAccess.getExpression().getText() === 'module' &&
-    propertyAccess.getName() === 'exports'
-  ) || propertyAccess.getExpression().getText() === 'exports'
+function viteConfigUsesCortexEditor(
+  content: string,
+  basename: string,
+  moduleConfig: boolean,
+): boolean {
+  const sourceFile = createConfigSourceFile(basename, content)
+  assertParseable(sourceFile, basename)
+  const configObject = findConfigObject(sourceFile, moduleConfig)
+  const pluginsProperty = configObject?.getProperty('plugins')
+  return Boolean(
+    pluginsProperty && objectPropertyValueUsesNamedCall(sourceFile, pluginsProperty, 'cortexEditor')
+  )
 }
 
-function isCommonJsExportAssignment(binaryExpression: Node): boolean {
-  if (!binaryExpression.isKind(SyntaxKind.BinaryExpression)) return false
-  if (binaryExpression.getOperatorToken().getKind() !== SyntaxKind.EqualsToken) return false
-  return isCommonJsExportTarget(binaryExpression.getLeft())
-}
+function nextConfigUsesWithCortex(
+  content: string,
+  basename: string,
+  moduleConfig: boolean,
+): boolean {
+  const sourceFile = createConfigSourceFile(basename, content)
+  assertParseable(sourceFile, basename)
 
-function nextConfigUsesWithCortex(sourceFile: SourceFile): boolean {
-  const defaultExport = sourceFile.getFirstDescendantByKind(SyntaxKind.ExportAssignment)
-  if (defaultExport && configExpressionUsesNamedCall(sourceFile, defaultExport.getExpression(), 'withCortex')) {
-    return true
+  if (moduleConfig) {
+    const defaultExport = sourceFile.getFirstDescendantByKind(SyntaxKind.ExportAssignment)
+    return Boolean(
+      defaultExport &&
+      configExpressionUsesNamedCall(sourceFile, defaultExport.getExpression(), 'withCortex')
+    )
   }
 
   return sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression).some(binaryExpression => (
@@ -150,22 +306,196 @@ function nextConfigUsesWithCortex(sourceFile: SourceFile): boolean {
   ))
 }
 
-function viteConfigUsesCortexEditor(sourceFile: SourceFile): boolean {
-  const configObject = findConfigObject(sourceFile)
+function webpackConfigUsesCortexWebpack(
+  content: string,
+  basename: string,
+  moduleConfig: boolean,
+): boolean {
+  const sourceFile = createConfigSourceFile(basename, content)
+  assertParseable(sourceFile, basename)
+  const configObject = findConfigObject(sourceFile, moduleConfig)
   const pluginsProperty = configObject?.getProperty('plugins')
   return Boolean(
-    pluginsProperty && objectPropertyValueUsesNamedCall(sourceFile, pluginsProperty, 'cortexEditor')
+    pluginsProperty && objectPropertyValueUsesNamedCall(sourceFile, pluginsProperty, 'cortexWebpack')
   )
 }
 
+function findFirstExisting(cwd: string, names: readonly string[]): string | null {
+  return names
+    .map(file => path.join(cwd, file))
+    .find(file => fs.existsSync(file)) ?? null
+}
+
+function isModuleConfig(filePath: string, content: string, pkgType?: string): boolean {
+  const ext = path.extname(filePath)
+  if (ext === '.mjs' || ext === '.mts') return true
+  if (ext === '.cjs' || ext === '.cts') return false
+
+  const sourceFile = createConfigSourceFile(path.basename(filePath), content)
+  if (findCommonJSExportExpression(sourceFile)) return false
+
+  const exportAssignment = sourceFile.getFirstDescendantByKind(SyntaxKind.ExportAssignment)
+  if (exportAssignment && !(exportAssignment.compilerNode as ts.ExportAssignment).isExportEquals) {
+    return true
+  }
+
+  return pkgType === 'module'
+}
+
+function commonJsViteConfigCanBeAutoConfigured(content: string, basename: string): boolean {
+  const sourceFile = createConfigSourceFile(basename, content)
+  assertParseable(sourceFile, basename)
+  const exportExpr = findCommonJSExportExpression(sourceFile)
+  return exportExpr?.getKind() === SyntaxKind.CallExpression
+}
+
+function injectVitePlugin(
+  content: string,
+  basename: string,
+  moduleConfig: boolean,
+): { content: string; injected: boolean } {
+  const sourceFile = createConfigSourceFile(basename, content)
+  assertParseable(sourceFile, basename)
+
+  const configObject = findConfigObject(sourceFile, moduleConfig)
+  if (!configObject) {
+    throw new Error(
+      `${basename}: could not find config object - expected defineConfig({...}), export default {...}, or module.exports = {...}`
+    )
+  }
+
+  const pluginAdded = addPluginToConfigObject(configObject, 'cortexEditor()', basename)
+  if (!pluginAdded) return { content, injected: false }
+
+  ensureHelperBinding(sourceFile, 'cortexEditor', 'cortex-editor/vite', moduleConfig)
+  return { content: sourceFile.getFullText(), injected: true }
+}
+
+function isFunctionConfigExpression(sourceFile: SourceFile, expr: Expression): boolean {
+  const kind = expr.getKind()
+  if (kind === SyntaxKind.ArrowFunction || kind === SyntaxKind.FunctionExpression) return true
+  if (kind !== SyntaxKind.Identifier) return false
+
+  const name = expr.getText()
+  const variable = sourceFile.getVariableDeclaration(name)
+  const initializer = variable?.getInitializer()
+  if (initializer) {
+    const initializerKind = initializer.getKind()
+    return initializerKind === SyntaxKind.ArrowFunction ||
+      initializerKind === SyntaxKind.FunctionExpression
+  }
+
+  return Boolean(sourceFile.getFunction(name))
+}
+
+function wrapConfigExpression(sourceFile: SourceFile, expr: Expression, helperName: string): string {
+  const exprText = expr.getText()
+  if (isFunctionConfigExpression(sourceFile, expr)) {
+    return `async (...args) => ${helperName}(await (${exprText})(...args))`
+  }
+  return `${helperName}(${exprText})`
+}
+
+function injectNextWrapper(
+  content: string,
+  basename: string,
+  moduleConfig: boolean,
+): { content: string; injected: boolean } {
+  const sourceFile = createConfigSourceFile(basename, content)
+  assertParseable(sourceFile, basename)
+
+  if (moduleConfig) {
+    const defaultExport = sourceFile.getFirstDescendantByKind(SyntaxKind.ExportAssignment)
+    if (!defaultExport) return { content, injected: false }
+
+    const expr = defaultExport.getExpression()
+    expr.replaceWithText(wrapConfigExpression(sourceFile, expr, 'withCortex'))
+    ensureHelperBinding(sourceFile, 'withCortex', 'cortex-editor/next', moduleConfig)
+    return { content: sourceFile.getFullText(), injected: true }
+  }
+
+  const assignment = sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)
+    .find(expr => isCommonJsExportAssignment(expr))
+  if (!assignment) return { content, injected: false }
+
+  const right = assignment.getRight()
+  right.replaceWithText(wrapConfigExpression(sourceFile, right, 'withCortex'))
+  ensureHelperBinding(sourceFile, 'withCortex', 'cortex-editor/next', moduleConfig)
+  return { content: sourceFile.getFullText(), injected: true }
+}
+
+function addPluginToConfigObject(
+  configObject: ObjectLiteralExpression,
+  pluginExpression: string,
+  basename: string,
+): boolean {
+  const pluginsProp = configObject.getProperty('plugins')
+  if (pluginsProp) {
+    const initializer = pluginsProp.getChildrenOfKind(SyntaxKind.ArrayLiteralExpression)[0]
+    if (initializer) {
+      initializer.addElement(pluginExpression)
+      return true
+    }
+    console.warn(`  ${basename}: plugins is not an array literal - add ${pluginExpression} manually`)
+    return false
+  }
+  configObject.addPropertyAssignment({
+    name: 'plugins',
+    initializer: `[${pluginExpression}]`,
+  })
+  return true
+}
+
+function injectWebpackPlugin(
+  content: string,
+  basename: string,
+  moduleConfig: boolean,
+): { content: string; injected: boolean } {
+  const sourceFile = createConfigSourceFile(basename, content)
+  assertParseable(sourceFile, basename)
+
+  const configObject = findConfigObject(sourceFile, moduleConfig)
+  if (!configObject) {
+    const exportKind = moduleConfig ? 'default export object' : 'module.exports object'
+    throw new Error(`${basename}: expected ${exportKind} to configure with cortexWebpack()`)
+  }
+
+  const pluginAdded = addPluginToConfigObject(configObject, 'cortexWebpack()', basename)
+  if (!pluginAdded) return { content, injected: false }
+
+  ensureHelperBinding(sourceFile, 'cortexWebpack', 'cortex-editor/webpack', moduleConfig)
+  return { content: sourceFile.getFullText(), injected: true }
+}
+
+const CORTEX_SLASH_COMMAND = `---
+description: Activate or manage the Cortex visual editor for this project
+argument-hint: [activate|status|apply|deactivate]
+---
+
+# Cortex
+
+Use the Cortex MCP tools for this project. Interpret \`$ARGUMENTS\` as an optional action:
+
+- No arguments or \`activate\`: call \`cortex_status\`. If the dev server is not connected, tell the user to start the app's normal dev server and open the app in a browser. If connected, call \`cortex_activate\`.
+- \`status\`: call \`cortex_status\` and summarize whether the dev server, browser, and editor are connected.
+- \`deactivate\` or \`close\`: call \`cortex_deactivate\`.
+- \`apply\`: call \`cortex_get_pending_edits\`. If there are staged edits, call \`cortex_apply_edits\` with their intent IDs. For any \`needs-source-edit\` result, inspect the intent/source context as needed, edit the source with normal file-editing tools, then call \`cortex_discard_edits\` for completed intent IDs. Report failed IDs clearly.
+
+If the Cortex MCP server is unavailable, ask the user to restart Claude Code or run \`/mcp\` and approve the project-scoped \`cortex\` server.
+`
+
 export interface InitResult {
   mcpWritten: boolean
+  slashCommandFound: boolean
+  slashCommandWritten: boolean
   vitePluginFound: boolean | null
   vitePluginInjected: boolean
   viteConfigCreated: boolean
   nextConfigFound: boolean | null
   nextConfigInjected: boolean
   nextConfigCreated: boolean
+  webpackConfigFound: boolean
+  webpackConfigInjected: boolean
   depFound: boolean
   detectedBundler: BundlerKind
   packageManager: PackageManager
@@ -255,182 +585,6 @@ async function defaultPromptInstall(request: PromptInstallRequest): Promise<bool
   }
 }
 
-function writeViteConfig(cwd: string): string {
-  const viteConfigPath = path.join(cwd, 'vite.config.ts')
-  const content = [
-    'import { defineConfig } from \'vite\'',
-    'import react from \'@vitejs/plugin-react\'',
-    'import { cortexEditor } from \'cortex-editor/vite\'',
-    '',
-    'export default defineConfig({',
-    '  plugins: [react(), cortexEditor()],',
-    '})',
-    '',
-  ].join('\n')
-  fs.writeFileSync(viteConfigPath, content)
-  console.log('  vite.config.ts: created with cortexEditor plugin')
-  return viteConfigPath
-}
-
-function isFunctionExpression(expression: string): boolean {
-  const trimmed = expression.trim()
-  return (
-    /^(async\s+)?function\b/.test(trimmed) ||
-    /^(async\s+)?(\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/.test(trimmed)
-  )
-}
-
-function isFunctionIdentifier(content: string, identifier: string): boolean {
-  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return (
-    new RegExp(`\\b(async\\s+)?function\\s+${escaped}\\s*\\(`).test(content) ||
-    new RegExp(`\\b(?:const|let|var)\\s+${escaped}\\s*=\\s*(?:async\\s+)?(?:function\\b|\\([^)]*\\)\\s*=>|[A-Za-z_$][\\w$]*\\s*=>)`).test(content)
-  )
-}
-
-function shouldWrapAsNextFunction(content: string, expression: string): boolean {
-  const trimmed = expression.trim()
-  return isFunctionExpression(trimmed) || (
-    /^[A-Za-z_$][\w$]*$/.test(trimmed) && isFunctionIdentifier(content, trimmed)
-  )
-}
-
-function hasCjsWithCortexRequire(content: string): boolean {
-  return /\b(?:const|let|var)\s*\{[^}]*\bwithCortex\b[^}]*\}\s*=\s*require\(['"]cortex-editor\/next['"]\)/.test(content)
-}
-
-function addEsmWithCortex(content: string): string | null {
-  const match = content.match(/export\s+default\s+([\s\S]*?)\s*;?\s*$/)
-  if (!match || match.index === undefined) return null
-
-  const before = content.slice(0, match.index)
-  const expression = match[1]!.trim().replace(/;\s*$/, '')
-  const separator = before.length > 0 && !before.endsWith('\n') ? '\n' : ''
-  const sourceFile = createConfigSourceFile('next.config.ts', content)
-  const importLines = hasNamedImport(sourceFile, 'withCortex', 'cortex-editor/next')
-    ? []
-    : ['import { withCortex } from \'cortex-editor/next\'']
-  const exportExpression = shouldWrapAsNextFunction(content, expression)
-    ? `async (...args) => withCortex(await (${expression})(...args))`
-    : `withCortex(${expression})`
-  return [
-    ...importLines,
-    `${before}${separator}export default ${exportExpression}`,
-    '',
-  ].join('\n')
-}
-
-function leadingTriviaLength(content: string): number {
-  return content.match(/^(?:(?:\s+)|(?:\/\/[^\n]*(?:\n|$))|(?:\/\*[\s\S]*?\*\/))*/)?.[0].length ?? 0
-}
-
-function cjsRequireInsertionPoint(content: string): number {
-  const sourceFile = createConfigSourceFile('next.config.js', content)
-  let directiveEnd = 0
-
-  for (const statement of sourceFile.getStatements()) {
-    if (!statement.isKind(SyntaxKind.ExpressionStatement)) break
-
-    const expression = statement.getExpression()
-    const expressionKind = expression.getKind()
-    if (
-      expressionKind !== SyntaxKind.StringLiteral &&
-      expressionKind !== SyntaxKind.NoSubstitutionTemplateLiteral
-    ) {
-      break
-    }
-
-    directiveEnd = statement.getEnd()
-  }
-
-  if (directiveEnd === 0) return leadingTriviaLength(content)
-  const trailingWhitespace = content.slice(directiveEnd).match(/^\s*/)?.[0] ?? ''
-  return directiveEnd + trailingWhitespace.length
-}
-
-function addCjsRequireAfterPrologue(content: string): string {
-  const requireLine = 'const { withCortex } = require(\'cortex-editor/next\')'
-  const insertionPoint = cjsRequireInsertionPoint(content)
-  const before = content.slice(0, insertionPoint)
-  const after = content.slice(insertionPoint)
-  const beforeSeparator = before.length > 0 && !before.endsWith('\n') ? '\n' : ''
-  const afterSeparator = after.length > 0 && !after.startsWith('\n') ? '\n' : ''
-
-  return `${before}${beforeSeparator}${requireLine}\n${afterSeparator}${after}`
-}
-
-function addCjsWithCortex(content: string): string | null {
-  const match = content.match(/module\.exports\s*=\s*([\s\S]*?)\s*;?\s*$/)
-  if (!match || match.index === undefined) return null
-
-  const before = content.slice(0, match.index)
-  const expression = match[1]!.trim().replace(/;\s*$/, '')
-  const beforeWithRequire = hasCjsWithCortexRequire(content)
-    ? before
-    : addCjsRequireAfterPrologue(before)
-  const separator = beforeWithRequire.length > 0 && !beforeWithRequire.endsWith('\n') ? '\n' : ''
-  const exportExpression = shouldWrapAsNextFunction(content, expression)
-    ? `async (...args) => withCortex(await (${expression})(...args))`
-    : `withCortex(${expression})`
-  return [
-    `${beforeWithRequire}${separator}module.exports = ${exportExpression}`,
-    '',
-  ].join('\n')
-}
-
-function configureNext(
-  cwd: string,
-  configPath: string | null,
-  unsupportedConfigPath: string | null = null
-): {
-  found: boolean | null
-  injected: boolean
-  created: boolean
-  configured: boolean
-} {
-  if (!configPath && unsupportedConfigPath) {
-    const basename = path.basename(unsupportedConfigPath)
-    console.warn(
-      `  ${basename}: Next.js does not support this config extension. Rename it to next.config.js, next.config.mjs, or next.config.ts, then re-run cortex init.`
-    )
-    return { found: true, injected: false, created: false, configured: false }
-  }
-
-  if (!configPath) {
-    const nextConfigPath = path.join(cwd, 'next.config.mjs')
-    fs.writeFileSync(nextConfigPath, [
-      'import { withCortex } from \'cortex-editor/next\'',
-      '',
-      'export default withCortex({})',
-      '',
-    ].join('\n'))
-    console.log('  next.config.mjs: created with withCortex()')
-    return { found: true, injected: true, created: true, configured: true }
-  }
-
-  const basename = path.basename(configPath)
-  const content = fs.readFileSync(configPath, 'utf8')
-  const sourceFile = createConfigSourceFile(basename, content)
-  if (nextConfigUsesWithCortex(sourceFile)) {
-    console.log(`  ${basename}: withCortex config found`)
-    return { found: true, injected: false, created: false, configured: true }
-  }
-
-  const isCjs = sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)
-    .some(binaryExpression => isCommonJsExportAssignment(binaryExpression))
-  const nextContent = isCjs ? addCjsWithCortex(content) : addEsmWithCortex(content)
-  if (!nextContent) {
-    console.warn(
-      `  ${basename}: could not auto-configure Next.js — wrap your config with withCortex() from cortex-editor/next`
-    )
-    return { found: true, injected: false, created: false, configured: false }
-  }
-
-  fs.writeFileSync(configPath, nextContent)
-  console.log(`  ${basename}: withCortex config injected`)
-  return { found: true, injected: true, created: false, configured: true }
-}
-
 async function ensurePackages(
   cwd: string,
   pkg: PackageJson,
@@ -462,11 +616,59 @@ async function ensurePackages(
   return true
 }
 
+function writeViteConfig(cwd: string): string {
+  const viteConfigPath = path.join(cwd, 'vite.config.ts')
+  const content = [
+    'import { defineConfig } from \'vite\'',
+    'import react from \'@vitejs/plugin-react\'',
+    'import { cortexEditor } from \'cortex-editor/vite\'',
+    '',
+    'export default defineConfig({',
+    '  plugins: [react(), cortexEditor()],',
+    '})',
+    '',
+  ].join('\n')
+  fs.writeFileSync(viteConfigPath, content)
+  console.log('  vite.config.ts: created with cortexEditor plugin')
+  return viteConfigPath
+}
+
+function writeNextConfig(cwd: string): string {
+  const nextConfigPath = path.join(cwd, 'next.config.mjs')
+  const content = [
+    'import { withCortex } from \'cortex-editor/next\'',
+    '',
+    'export default withCortex({})',
+    '',
+  ].join('\n')
+  fs.writeFileSync(nextConfigPath, content)
+  console.log('  next.config.mjs: created with withCortex()')
+  return nextConfigPath
+}
+
+function selectBundler(
+  cwd: string,
+  pkg: PackageJson,
+  paths: {
+    viteConfigPath: string | null
+    nextConfigPath: string | null
+    webpackConfigPath: string | null
+  },
+): BundlerKind {
+  if (paths.nextConfigPath) return 'next'
+  if (paths.viteConfigPath) return 'vite'
+  if (paths.webpackConfigPath) return 'webpack'
+  if (hasDependency(pkg, 'next')) return 'next'
+  if (hasDependency(pkg, 'vite')) return 'vite'
+  if (hasDependency(pkg, 'webpack') || hasDependency(pkg, 'react-scripts')) return 'webpack'
+  void cwd
+  return 'none'
+}
+
 export async function runInit(
   cwd: string = process.cwd(),
   options: InitOptions = {}
 ): Promise<InitResult> {
-  // 1. Check for package.json and parse it once (used later for dep check)
   const pkgPath = path.join(cwd, 'package.json')
   if (!fs.existsSync(pkgPath)) {
     throw new Error('No package.json found. Run this from your project root.')
@@ -477,11 +679,10 @@ export async function runInit(
     pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'))
   } catch (err) {
     throw new Error(
-      `package.json: failed to parse — ${err instanceof Error ? err.message : String(err)}`
+      `package.json: failed to parse - ${err instanceof Error ? err.message : String(err)}`
     )
   }
 
-  // 2. Write/update .mcp.json
   const mcpPath = path.join(cwd, '.mcp.json')
   let mcpConfig: Record<string, unknown> = {}
   let mcpWritten = false
@@ -491,7 +692,7 @@ export async function runInit(
       mcpConfig = JSON.parse(fs.readFileSync(mcpPath, 'utf8'))
     } catch (err) {
       throw new Error(
-        `.mcp.json: failed to parse — ${err instanceof Error ? err.message : String(err)}\n` +
+        `.mcp.json: failed to parse - ${err instanceof Error ? err.message : String(err)}\n` +
         'Fix the JSON syntax and re-run cortex init.'
       )
     }
@@ -500,7 +701,6 @@ export async function runInit(
     }
   }
 
-  // Validate mcpServers is an object if present
   const rawServers = mcpConfig.mcpServers
   if (rawServers !== undefined && rawServers !== null &&
       (typeof rawServers !== 'object' || Array.isArray(rawServers))) {
@@ -518,165 +718,209 @@ export async function runInit(
     mcpWritten = true
   }
 
-  const detected = detectBundler(cwd, pkg)
+  const slashCommandPath = path.join(cwd, '.claude', 'commands', 'cortex.md')
+  let slashCommandFound = false
+  let slashCommandWritten = false
+  if (fs.existsSync(slashCommandPath)) {
+    slashCommandFound = true
+    console.log('  .claude/commands/cortex.md: /cortex command already configured')
+  } else {
+    fs.mkdirSync(path.dirname(slashCommandPath), { recursive: true })
+    fs.writeFileSync(slashCommandPath, CORTEX_SLASH_COMMAND)
+    slashCommandFound = true
+    slashCommandWritten = true
+    console.log('  .claude/commands/cortex.md: added /cortex slash command')
+  }
+
+  const viteConfigPath = findFirstExisting(cwd, VITE_CONFIG_FILES)
+  const nextConfigPath = findFirstExisting(cwd, NEXT_CONFIG_FILES)
+  const webpackConfigPath = findFirstExisting(cwd, WEBPACK_CONFIG_FILES)
+  const webpackConfigFound = Boolean(webpackConfigPath)
+  const detectedBundler = selectBundler(cwd, pkg, {
+    viteConfigPath,
+    nextConfigPath,
+    webpackConfigPath,
+  })
   const packageManager = detectPackageManager(cwd, pkg)
   const depFound = hasDependency(pkg, 'cortex-editor')
 
-  // 3. Configure the detected bundler.
   let vitePluginFound: boolean | null = null
   let vitePluginInjected = false
   let viteConfigCreated = false
   let nextConfigFound: boolean | null = null
   let nextConfigInjected = false
   let nextConfigCreated = false
-  let bundlerConfigured = false
+  let webpackConfigInjected = false
+  let adapterConfigured = false
 
-  const configureVite = async (viteConfigPath: string | null): Promise<void> => {
+  if (!depFound) {
+    const installRequest = createInstallRequest(packageManager, ['cortex-editor'], cwd)
+    console.warn(
+      '  cortex-editor not in dependencies - add it before configuring source annotations.'
+    )
+    console.warn(
+      `  Install cortex-editor with: ${installRequest.command} ${installRequest.args.join(' ')}`
+    )
+  } else if (detectedBundler === 'next') {
+    if (viteConfigPath && nextConfigPath) {
+      console.warn(
+        `  ${path.basename(viteConfigPath)} found alongside ${path.basename(nextConfigPath)}; ` +
+        'skipping Vite setup to avoid configuring auxiliary tooling'
+      )
+    }
+
+    if (!nextConfigPath) {
+      writeNextConfig(cwd)
+      nextConfigFound = true
+      nextConfigInjected = true
+      nextConfigCreated = true
+      adapterConfigured = true
+    } else {
+      nextConfigFound = true
+      const basename = path.basename(nextConfigPath)
+      const content = fs.readFileSync(nextConfigPath, 'utf8')
+      const moduleConfig = isModuleConfig(nextConfigPath, content, pkg.type)
+
+      if (nextConfigUsesWithCortex(content, basename, moduleConfig)) {
+        console.log(`  ${basename}: withCortex config found`)
+        adapterConfigured = true
+      } else {
+        const result = injectNextWrapper(content, basename, moduleConfig)
+        if (result.injected) {
+          fs.writeFileSync(nextConfigPath, result.content)
+          nextConfigInjected = true
+          adapterConfigured = true
+          console.log(`  ${basename}: withCortex config injected`)
+        } else {
+          console.warn(
+            `  ${basename}: could not auto-configure Next.js - wrap your config with withCortex() from cortex-editor/next`
+          )
+        }
+      }
+    }
+  } else if (detectedBundler === 'vite') {
+    if (webpackConfigPath && viteConfigPath) {
+      console.warn(
+        `  ${path.basename(webpackConfigPath)} found alongside ${path.basename(viteConfigPath)}; ` +
+        'skipping Webpack setup because Vite is the selected app adapter'
+      )
+    }
+
     if (!viteConfigPath) {
       const installed = await ensurePackages(
         cwd,
         pkg,
         packageManager,
         VITE_SETUP_PACKAGES,
-        detected.kind === 'none' ? 'missing-bundler' : 'missing-vite-config',
+        'missing-vite-config',
         options
       )
-      if (!installed) return
+      if (installed) {
+        writeViteConfig(cwd)
+        vitePluginFound = true
+        vitePluginInjected = true
+        viteConfigCreated = true
+        adapterConfigured = true
+      }
+    } else {
+      const vitePeerInstalled = await ensurePackages(
+        cwd,
+        pkg,
+        packageManager,
+        ['vite'],
+        'missing-vite-peer',
+        options
+      )
+      if (vitePeerInstalled) {
+        const basename = path.basename(viteConfigPath)
+        const content = fs.readFileSync(viteConfigPath, 'utf8')
+        const moduleConfig = isModuleConfig(viteConfigPath, content, pkg.type)
 
+        if (viteConfigUsesCortexEditor(content, basename, moduleConfig)) {
+          vitePluginFound = true
+          adapterConfigured = true
+          console.log(`  ${basename}: cortexEditor plugin found`)
+        } else if (!moduleConfig && !commonJsViteConfigCanBeAutoConfigured(content, basename)) {
+          vitePluginFound = false
+          console.warn(
+            `  ${basename}: CommonJS Vite configs cannot be auto-configured - use export default syntax or add cortexEditor() manually.`
+          )
+        } else {
+          const result = injectVitePlugin(content, basename, moduleConfig)
+          if (result.injected) {
+            fs.writeFileSync(viteConfigPath, result.content)
+            vitePluginFound = true
+            vitePluginInjected = true
+            adapterConfigured = true
+            console.log(`  ${basename}: cortexEditor plugin injected`)
+          } else {
+            vitePluginFound = false
+          }
+        }
+      }
+    }
+  } else if (detectedBundler === 'webpack') {
+    if (!webpackConfigPath) {
+      console.warn(
+        '  Webpack detected but no webpack.config.* file was found - add cortexWebpack() manually or create a config file, then re-run cortex init.'
+      )
+    } else {
+      const basename = path.basename(webpackConfigPath)
+      const content = fs.readFileSync(webpackConfigPath, 'utf8')
+      const moduleConfig = isModuleConfig(webpackConfigPath, content, pkg.type)
+
+      if (webpackConfigUsesCortexWebpack(content, basename, moduleConfig)) {
+        adapterConfigured = true
+        console.log(`  ${basename}: cortexWebpack plugin found`)
+      } else {
+        const result = injectWebpackPlugin(content, basename, moduleConfig)
+        if (result.injected) {
+          fs.writeFileSync(webpackConfigPath, result.content)
+          webpackConfigInjected = true
+          adapterConfigured = true
+          console.log(`  ${basename}: cortexWebpack plugin injected`)
+        }
+      }
+    }
+  } else {
+    const installed = await ensurePackages(
+      cwd,
+      pkg,
+      packageManager,
+      VITE_SETUP_PACKAGES,
+      'missing-bundler',
+      options
+    )
+    if (installed) {
       writeViteConfig(cwd)
       vitePluginFound = true
       vitePluginInjected = true
       viteConfigCreated = true
-      bundlerConfigured = true
-      return
-    }
-
-    const vitePeerInstalled = await ensurePackages(
-      cwd,
-      pkg,
-      packageManager,
-      ['vite'],
-      'missing-vite-peer',
-      options
-    )
-    if (!vitePeerInstalled) return
-
-    const basename = path.basename(viteConfigPath)
-    const content = fs.readFileSync(viteConfigPath, 'utf8')
-    const sourceFile = createConfigSourceFile(basename, content)
-
-    if (viteConfigUsesCortexEditor(sourceFile)) {
-      vitePluginFound = true
-      console.log(`  ${basename}: cortexEditor plugin found`)
-      bundlerConfigured = vitePeerInstalled
-    } else {
-      if (sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)
-        .some(binaryExpression => isCommonJsExportAssignment(binaryExpression))) {
-        console.warn(
-          `  ${basename}: CommonJS Vite configs cannot be auto-configured — use export default syntax or add cortexEditor() manually.`
-        )
-        vitePluginFound = false
-        return
-      }
-
-      // Attempt AST-based injection
-      // Check for syntax-level parse errors only (not type errors)
-      const syntaxDiag = sourceFile.getPreEmitDiagnostics()
-        .filter(d => d.getCode() >= 1000 && d.getCode() < 2000)
-      if (syntaxDiag.length > 0) {
-        const raw = syntaxDiag[0]!.getMessageText()
-        const text = typeof raw === 'string'
-          ? raw
-          : ts.flattenDiagnosticMessageText(raw.compilerObject, '\n')
-        throw new Error(`${basename}: failed to parse — ${text}`)
-      }
-
-      // Find the config object literal
-      const configObject = findConfigObject(sourceFile)
-      if (!configObject) {
-        throw new Error(
-          `${basename}: could not find config object — expected defineConfig({...}) or export default {...}`
-        )
-      }
-
-      // Find or create the plugins property
-      let pluginAdded = false
-      const pluginsProp = configObject.getProperty('plugins')
-      if (pluginsProp) {
-        const initializer = pluginsProp.getChildrenOfKind(SyntaxKind.ArrayLiteralExpression)[0]
-        if (initializer) {
-          initializer.addElement('cortexEditor()')
-          pluginAdded = true
-        } else {
-          console.warn(`  ${basename}: plugins is not an array literal — add cortexEditor() manually`)
-        }
-      } else {
-        configObject.addPropertyAssignment({
-          name: 'plugins',
-          initializer: '[cortexEditor()]',
-        })
-        pluginAdded = true
-      }
-
-      if (pluginAdded) {
-        if (!hasNamedImport(sourceFile, 'cortexEditor', 'cortex-editor/vite')) {
-          sourceFile.addImportDeclaration({
-            namedImports: ['cortexEditor'],
-            moduleSpecifier: 'cortex-editor/vite',
-          })
-        }
-        fs.writeFileSync(viteConfigPath, sourceFile.getFullText())
-        vitePluginFound = true
-        vitePluginInjected = true
-        bundlerConfigured = vitePeerInstalled
-        console.log(`  ${basename}: cortexEditor plugin injected`)
-      } else {
-        vitePluginFound = false
-      }
+      adapterConfigured = true
     }
   }
 
-  if (!depFound) {
-    const installRequest = createInstallRequest(packageManager, ['cortex-editor'], cwd)
-    console.warn(
-      `  cortex-editor not in dependencies. Run: ${installRequest.command} ${installRequest.args.join(' ')}`
-    )
-  }
-
-  if (depFound && (detected.kind === 'vite' || detected.kind === 'none')) {
-    await configureVite(detected.configPath)
-  } else if (depFound && detected.kind === 'next') {
-    const nextResult = configureNext(cwd, detected.configPath, detected.unsupportedConfigPath ?? null)
-    nextConfigFound = nextResult.found
-    nextConfigInjected = nextResult.injected
-    nextConfigCreated = nextResult.created
-    bundlerConfigured = nextResult.configured
-  } else if (detected.kind === 'webpack') {
-    console.warn(
-      '  cortex-editor does not support standalone Webpack yet (tracked by ZF0-934).'
-    )
-    console.warn('  Use Vite or Next.js for now, or follow ZF0-934 for Webpack adapter support.')
-  }
-
-  const setupComplete = depFound && bundlerConfigured
+  const setupComplete = depFound && adapterConfigured
   if (setupComplete) {
-    console.log('')
-    console.log('Setup complete. Restart your editor to pick up the MCP server.')
+    console.log('  Setup complete. Restart your AI agent so it picks up .mcp.json.')
   } else {
-    console.warn('')
-    console.warn('Cortex setup incomplete. Fix the messages above, then re-run: npx cortex init')
+    console.warn('  Cortex setup incomplete. Resolve the warnings above, then re-run cortex init.')
   }
 
   return {
     mcpWritten,
+    slashCommandFound,
+    slashCommandWritten,
     vitePluginFound,
     vitePluginInjected,
     viteConfigCreated,
     nextConfigFound,
     nextConfigInjected,
     nextConfigCreated,
+    webpackConfigFound,
+    webpackConfigInjected,
     depFound,
-    detectedBundler: detected.kind,
+    detectedBundler,
     packageManager,
     setupComplete,
   }

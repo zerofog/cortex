@@ -74,6 +74,31 @@ describe('initSelection', () => {
     target.remove()
   })
 
+  it('capture-phase click selects visual elements without data-cortex-source', () => {
+    const target = document.createElement('div')
+    target.textContent = 'Unannotated visual card'
+    document.body.appendChild(target)
+    const restoreEfp = mockElementFromPoint(target)
+    const handle = initSelection(shadow, onHover, onSelect)
+
+    const cases = [
+      [{}, 'replace'],
+      [{ shiftKey: true }, 'add'],
+      [{ metaKey: true }, 'toggle'],
+      [{ ctrlKey: true }, 'toggle'],
+    ] as const
+    for (const [modifiers, action] of cases) {
+      onSelect.mockClear()
+      const event = dispatchMouseEvent(target, 'click', { clientX: 50, clientY: 50, ...modifiers })
+      expect(onSelect).toHaveBeenCalledWith([target], action)
+      expect(event.defaultPrevented).toBe(true)
+    }
+
+    handle.cleanup()
+    restoreEfp()
+    target.remove()
+  })
+
   it('events from Cortex shadow DOM are passed through', () => {
     const handle = initSelection(shadow, onHover, onSelect)
 

@@ -40,6 +40,17 @@ export const FIXTURE_SEED_SOURCE = 'fixture:1:1'
 export const FIXTURE_SECONDARY_SELECTOR = '#left'
 export const FIXTURE_SECONDARY_SOURCE = 'fixture:2:1'
 
+/** First item of the shared-source list added in ZF0-1584 for blast-radius
+ *  banner specs. All three `#map-item-*` elements share FIXTURE_MAP_SOURCE,
+ *  simulating items rendered from the same `.map()` call site. Selecting any
+ *  of them causes detectSharedSource() to return count=3 and Panel to show
+ *  the "Used by N elements" banner. */
+export const FIXTURE_MAP_SELECTOR = '#map-item-0'
+export const FIXTURE_MAP_SOURCE = 'fixture:map:1'
+/** Total count of elements sharing FIXTURE_MAP_SOURCE in basic.html.
+ *  Keep in sync with the number of #map-item-* elements in the fixture. */
+export const FIXTURE_MAP_COUNT = 3
+
 /** Module-scoped file cache. The IIFE bundle is built once via
  *  `npm run build` before `npm run test:e2e` and doesn't change mid-run,
  *  so reading 22 times across specs+workers just wastes syscalls. A

@@ -151,9 +151,24 @@ describe('useCanvasZoom', () => {
     window.dispatchEvent(event)
   }
 
+  async function waitForWindowHandlers(): Promise<void> {
+    await vi.waitFor(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }))
+      expect(document.body.style.cursor).toBe('grab')
+    }, { timeout: 1000 })
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', bubbles: true }))
+  }
+
+  async function holdSpaceUntilReady(): Promise<void> {
+    await vi.waitFor(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }))
+      expect(document.body.style.cursor).toBe('grab')
+    }, { timeout: 1000 })
+  }
+
   it('Cmd+scroll down decreases scale', async () => {
     const { result, rerender, unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise<void>(r => setTimeout(r, 10))
+    await waitForWindowHandlers()
     const initialScale = result.current.scale
     dispatchWheel(100, true)
     await vi.waitFor(() => {
@@ -165,7 +180,7 @@ describe('useCanvasZoom', () => {
 
   it('Cmd+scroll up increases scale', async () => {
     const { result, rerender, unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise<void>(r => setTimeout(r, 10))
+    await waitForWindowHandlers()
     dispatchWheel(100, true) // zoom out first
     let zoomedOut!: number
     await vi.waitFor(() => {
@@ -183,7 +198,7 @@ describe('useCanvasZoom', () => {
 
   it('regular scroll without Cmd does not change scale', async () => {
     const { result, rerender, unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise<void>(r => setTimeout(r, 10))
+    await waitForWindowHandlers()
     const initialScale = result.current.scale
     dispatchWheel(100, false)
     rerender(() => useCanvasZoom(true))
@@ -228,7 +243,7 @@ describe('useCanvasZoom', () => {
 
   it('regular scroll pans horizontally', async () => {
     const { unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise<void>(r => setTimeout(r, 10))
+    await waitForWindowHandlers()
     const before = document.body.style.transform
     dispatchWheel(0, false, 100)
     const getX = (t: string) => parseFloat(t.match(/translate\(([^p]+)px/)![1])
@@ -243,7 +258,7 @@ describe('useCanvasZoom', () => {
 
   it('pan offset is clamped to prevent canvas from going off-screen', async () => {
     const { unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise<void>(r => setTimeout(r, 10))
+    await waitForWindowHandlers()
 
     const getX = (t: string) => parseFloat(t.match(/translate\(([^p]+)px/)![1])
 
@@ -273,9 +288,7 @@ describe('useCanvasZoom', () => {
 
   it('Space+drag shows grabbing cursor', async () => {
     const { unmount } = renderHook(() => useCanvasZoom(true))
-    // 10ms needed for useEffect to install window key/pointer handlers in happy-dom
-    await new Promise<void>(r => setTimeout(r, 10))
-    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }))
+    await holdSpaceUntilReady()
     window.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true }))
     expect(document.body.style.cursor).toBe('grabbing')
     window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
@@ -300,9 +313,7 @@ describe('useCanvasZoom', () => {
 
   it('Space+drag pointer up returns to grab (not grabbing)', async () => {
     const { unmount } = renderHook(() => useCanvasZoom(true))
-    // 10ms needed for useEffect to install window key/pointer handlers in happy-dom
-    await new Promise<void>(r => setTimeout(r, 10))
-    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }))
+    await holdSpaceUntilReady()
     window.dispatchEvent(new PointerEvent('pointerdown', { clientX: 50, clientY: 50, bubbles: true }))
     expect(document.body.style.cursor).toBe('grabbing')
     window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
@@ -313,7 +324,7 @@ describe('useCanvasZoom', () => {
 
   it('zooming preserves pan offset', async () => {
     const { result, rerender, unmount } = renderHook(() => useCanvasZoom(true))
-    await new Promise<void>(r => setTimeout(r, 10))
+    await waitForWindowHandlers()
 
     const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
     const beforeY = getY(document.body.style.transform)
@@ -405,7 +416,7 @@ describe('useCanvasZoom', () => {
 
     it('momentum stops within expected frame count', async () => {
       const { unmount } = renderHook(() => useCanvasZoom(true))
-      await new Promise<void>(r => setTimeout(r, 10))
+      await waitForWindowHandlers()
       installRAFMock()
 
       const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
@@ -433,7 +444,7 @@ describe('useCanvasZoom', () => {
 
     it('new wheel event cancels existing momentum', async () => {
       const { unmount } = renderHook(() => useCanvasZoom(true))
-      await new Promise<void>(r => setTimeout(r, 10))
+      await waitForWindowHandlers()
       installRAFMock()
 
       const getX = (t: string) => parseFloat(t.match(/translate\(([^p]+)px/)![1])
@@ -454,7 +465,7 @@ describe('useCanvasZoom', () => {
 
     it('Cmd+scroll cancels momentum and changes scale', async () => {
       const { result, rerender, unmount } = renderHook(() => useCanvasZoom(true))
-      await new Promise<void>(r => setTimeout(r, 10))
+      await waitForWindowHandlers()
       installRAFMock()
 
       const getY = (t: string) => parseFloat(t.match(/translate\([^,]+,\s*([^)]+)px\)/)![1])
@@ -482,7 +493,7 @@ describe('useCanvasZoom', () => {
 
     it('disabling canvas mode during momentum stops animation', async () => {
       const { rerender, unmount } = renderHook(() => useCanvasZoom(true))
-      await new Promise<void>(r => setTimeout(r, 10))
+      await waitForWindowHandlers()
       installRAFMock()
 
       dispatchWheel(100, false) // start momentum

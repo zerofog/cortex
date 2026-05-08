@@ -110,6 +110,27 @@ export default defineConfig([
     sourcemap: true,
     external: externals,
   },
+  // Webpack adapter
+  {
+    entry: ['src/adapters/webpack.ts'],
+    outDir: 'dist/webpack',
+    format: ['esm', 'cjs'],
+    target: 'node20',
+    sourcemap: true,
+    external: externals,
+    esbuildOptions(options) {
+      options.logOverride = { 'empty-import-meta': 'silent' }
+    },
+  },
+  // Shared webpack-compatible source loader — CJS only (webpack requires CJS loaders)
+  {
+    entry: ['src/adapters/source-loader.ts'],
+    outDir: 'dist/webpack',
+    format: ['cjs'],
+    target: 'node20',
+    sourcemap: true,
+    external: externals,
+  },
   // CLI entry — cortex mcp / cortex init
   {
     entry: ['src/cli/index.ts'],
@@ -141,6 +162,8 @@ export default defineConfig([
       'vite/vite': 'src/adapters/vite.ts',
       'next/next': 'src/adapters/next.ts',
       'next/next-source-loader': 'src/adapters/next-source-loader.ts',
+      'webpack/webpack': 'src/adapters/webpack.ts',
+      'webpack/source-loader': 'src/adapters/source-loader.ts',
     },
     format: ['esm', 'cjs'],
     target: 'node20',

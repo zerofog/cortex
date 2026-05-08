@@ -8,6 +8,7 @@ import { _resetBusForTesting } from '../../src/browser/override-bus.js'
 import { cortexStorage } from '../../src/browser/persistence.js'
 import { isPendingEditArray, type PendingEdit } from '../../src/browser/hooks/useEditStagingBuffer.js'
 import { CommandStack } from '../../src/browser/command-stack.js'
+import { PREVIEW_SOURCE_ATTR, PREVIEW_SOURCE_PREFIX } from '../../src/browser/preview-source.js'
 
 const panelPositionProps = {
   position: { x: 1000, y: 12 },
@@ -47,7 +48,7 @@ describe('Panel', () => {
     cleanup = null
   })
 
-  function setup(element?: HTMLElement) {
+  function setup(element?: HTMLElement, overrides?: Partial<Parameters<typeof Panel>[0]>) {
     const target = element ?? (() => {
       const el = document.createElement('div')
       el.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
@@ -74,6 +75,7 @@ describe('Panel', () => {
         onClose={onClose}
         onSelectElement={onSelectElement}
         {...panelPositionProps}
+        {...overrides}
       />
     )
     cleanup = () => {
@@ -157,6 +159,45 @@ describe('Panel', () => {
     // Task 15 consolidated shadow + effects into a single EffectsSection.
     const effectsGroup = root.querySelector('[data-group="effects"]')!
     expect(effectsGroup.querySelector('[data-section-id="effects"]')).not.toBeNull()
+  })
+
+  it('places element navigation and hover controls in the Elements header', () => {
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    const child = document.createElement('span')
+    target.appendChild(child)
+    document.body.appendChild(target)
+
+    const { root, onSelectElement } = setup(target)
+    const elementsGroup = root.querySelector('[data-group="elements"]')!
+    const parentBtn = elementsGroup.querySelector('[data-action="parent"]') as HTMLButtonElement
+    const childBtn = elementsGroup.querySelector('[data-action="child"]') as HTMLButtonElement
+    const hoverBtn = elementsGroup.querySelector('[data-action="toggle-hover"]') as HTMLButtonElement
+
+    expect(parentBtn).not.toBeNull()
+    expect(childBtn).not.toBeNull()
+    expect(hoverBtn).not.toBeNull()
+    expect(root.querySelector('.cortex-panel-header [data-action="parent"]')).toBeNull()
+    expect(hoverBtn.disabled).toBe(true)
+    expect(hoverBtn.getAttribute('aria-pressed')).toBe('true')
+
+    parentBtn.click()
+    childBtn.click()
+
+    expect(onSelectElement).toHaveBeenCalledWith(target.parentElement)
+    expect(onSelectElement).toHaveBeenCalledWith(child)
+  })
+
+  it('enables the hover overlay toggle when a handler is present and exposes pressed state', () => {
+    const onToggleHover = vi.fn()
+    const { root } = setup(undefined, { hoverEnabled: false, onToggleHover })
+    const hoverBtn = root.querySelector('[data-action="toggle-hover"]') as HTMLButtonElement
+
+    expect(hoverBtn.disabled).toBe(false)
+    expect(hoverBtn.getAttribute('aria-pressed')).toBe('false')
+
+    hoverBtn.click()
+    expect(onToggleHover).toHaveBeenCalledTimes(1)
   })
 
   it('calls onClose when close button clicked', () => {
@@ -1123,6 +1164,70 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     target.remove()
   })
 
+  it('commitScrub stages unannotated visual elements as agent-resolve intents', async () => {
+    vi.useFakeTimers()
+
+    const target = document.createElement('div')
+    target.className = 'hero-card'
+    target.textContent = 'Unannotated hero'
+    document.body.appendChild(target)
+
+    const overrideStore = new Map<string, string>()
+    const overrideManager = {
+      set: vi.fn((src: string, prop: string, val: string) => {
+        overrideStore.set(`${src}\0${prop}`, val)
+      }),
+      get: vi.fn((src: string, prop: string) => overrideStore.get(`${src}\0${prop}`)),
+      remove: vi.fn(),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+    }
+
+    const { root, cleanup } = renderInShadow(
+      <Panel
+        selectedElements={[target]}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />
+    )
+
+    const layoutSection = root.querySelector('[data-section-id="layout"]')
+    expect(layoutSection).not.toBeNull()
+    const segment = layoutSection!.querySelector(
+      '.cortex-segmented__option:not(.cortex-segmented__option--active)',
+    ) as HTMLButtonElement | null
+    expect(segment).not.toBeNull()
+    const expectedValue = segment!.getAttribute('data-value')
+    expect(expectedValue).not.toBeNull()
+
+    await act(async () => {
+      segment!.click()
+      await Promise.resolve()
+    })
+
+    await act(() => {
+      vi.advanceTimersByTime(150)
+    })
+
+    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    expect(stored).toHaveLength(1)
+    expect(stored[0].source).toMatch(/^cortex-preview:/)
+    expect(stored[0].applyMode).toBe('agent-resolve')
+    expect(stored[0].property).toBe('display')
+    expect(stored[0].value).toBe(expectedValue)
+    expect(stored[0].sourceResolutionHint).toMatchObject({
+      tagName: 'div',
+      className: 'hero-card',
+      textPreview: 'Unannotated hero',
+    })
+
+    cleanup()
+    target.remove()
+  })
+
   it('staged-edits-discard server message removes intents from canonical buffer', async () => {
     // ZF0-1452 regression: Panel.tsx's channel.onMessage handler wires
     // 'staged-edits-discard' (server-originated, emitted by the MCP server's
@@ -1554,6 +1659,65 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     el2.remove()
   })
 
+  it('scope=all packs preview sources for unannotated shared siblings', async () => {
+    const sharedCss = 'Component.module.css:.badge'
+
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/A.tsx:10:3')
+    target.setAttribute('data-cortex-css', sharedCss)
+
+    const unannotatedSibling = document.createElement('div')
+    unannotatedSibling.setAttribute('data-cortex-css', sharedCss)
+
+    document.body.append(target, unannotatedSibling)
+
+    const overrideManager = createTrackingOverrideManager()
+    const restoreGCS = installGCSProxy()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    render(
+      <Panel
+        selectedElements={[target]}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+      container,
+    )
+
+    let allBtn!: HTMLButtonElement
+    await vi.waitFor(() => {
+      allBtn = container.querySelector('.cortex-panel__scope-btn:last-child') as HTMLButtonElement
+      expect(allBtn).not.toBeNull()
+      expect(allBtn.textContent).toContain('All')
+    }, { timeout: 500 })
+
+    await act(async () => {
+      allBtn.click()
+      await Promise.resolve()
+    })
+
+    await triggerCommitScrub(container)
+    await act(() => { vi.advanceTimersByTime(200) })
+
+    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    expect(stored).toHaveLength(1)
+    expect(stored[0].source).toBe('src/A.tsx:10:3')
+    expect(stored[0].instanceSources).toContain('src/A.tsx:10:3')
+
+    const siblingPreviewId = unannotatedSibling.getAttribute(PREVIEW_SOURCE_ATTR)
+    expect(siblingPreviewId).not.toBeNull()
+    expect(stored[0].instanceSources).toContain(`${PREVIEW_SOURCE_PREFIX}${siblingPreviewId}`)
+
+    render(null, container)
+    container.remove()
+    restoreGCS()
+    target.remove()
+    unannotatedSibling.remove()
+  })
+
   it('AC4 regression: single-select unchanged — 1 intent, no instanceSources', async () => {
     const target = document.createElement('div')
     target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
@@ -1590,5 +1754,157 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     container.remove()
     restoreGCS()
     target.remove()
+  })
+})
+
+// ── ZF0-1583: source-only banner (warning-only, no scope toggle) ─────────────
+
+describe('Panel — source-only blast-radius banner (ZF0-1583)', () => {
+  let cleanup: (() => void) | null = null
+
+  afterEach(() => {
+    cleanup?.()
+    cleanup = null
+  })
+
+  it('renders source-only banner with no scope toggle when shared source detected (data-cortex-source matches 2+ elements)', async () => {
+    // Two elements share the same data-cortex-source → detectSharedSource returns count=2
+    // Neither element has data-cortex-css → detectSharedClasses returns null
+    const source = 'src/Card.tsx:42:5'
+    const el1 = document.createElement('div')
+    el1.setAttribute('data-cortex-source', source)
+    document.body.appendChild(el1)
+
+    const el2 = document.createElement('div')
+    el2.setAttribute('data-cortex-source', source)
+    document.body.appendChild(el2)
+
+    const overrideManager = {
+      set: vi.fn(), get: vi.fn(), remove: vi.fn(),
+      clearAll: vi.fn(), dispose: vi.fn(), flush: vi.fn(),
+    }
+
+    const { shadow, root: shadowRoot, cleanup: removeHost } = createShadowHost()
+    render(
+      <Panel
+        selectedElements={[el1]}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+      shadowRoot,
+    )
+    cleanup = () => {
+      render(null, shadowRoot)
+      removeHost()
+      el1.remove()
+      el2.remove()
+      void shadow
+    }
+
+    // Wait for the source-only banner to appear (useEffect is async)
+    await vi.waitFor(() => {
+      const sourceBanner = shadowRoot.querySelector('.cortex-panel__scope--source-only')
+      expect(sourceBanner).not.toBeNull()
+    }, { timeout: 500 })
+
+    const sourceBanner = shadowRoot.querySelector('.cortex-panel__scope--source-only')!
+    // Banner copy: "Used by N elements"
+    expect(sourceBanner.textContent).toContain('Used by 2 elements')
+    // No scope-toggle buttons inside the source banner
+    expect(sourceBanner.querySelector('.cortex-panel__scope-toggle')).toBeNull()
+    expect(sourceBanner.querySelector('.cortex-panel__scope-btn')).toBeNull()
+  })
+
+  it('does NOT render source-only banner when CSS-class shared (precedence: class wins)', async () => {
+    // Element has BOTH shared CSS class AND shared source — CSS-class banner takes precedence,
+    // source banner must NOT render simultaneously.
+    const source = 'src/Badge.tsx:10:3'
+    const sharedCss = 'Badge.module.css:.badge'
+
+    const el1 = document.createElement('div')
+    el1.setAttribute('data-cortex-source', source)
+    el1.setAttribute('data-cortex-css', sharedCss)
+    document.body.appendChild(el1)
+
+    const el2 = document.createElement('div')
+    el2.setAttribute('data-cortex-source', source)
+    el2.setAttribute('data-cortex-css', sharedCss)
+    document.body.appendChild(el2)
+
+    const overrideManager = {
+      set: vi.fn(), get: vi.fn(), remove: vi.fn(),
+      clearAll: vi.fn(), dispose: vi.fn(), flush: vi.fn(),
+    }
+
+    const { shadow, root: shadowRoot, cleanup: removeHost } = createShadowHost()
+    render(
+      <Panel
+        selectedElements={[el1]}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+      shadowRoot,
+    )
+    cleanup = () => {
+      render(null, shadowRoot)
+      removeHost()
+      el1.remove()
+      el2.remove()
+      void shadow
+    }
+
+    // Wait for CSS-class banner to appear
+    await vi.waitFor(() => {
+      expect(shadowRoot.querySelector('.cortex-panel__scope')).not.toBeNull()
+    }, { timeout: 500 })
+
+    // CSS-class banner is present
+    expect(shadowRoot.querySelector('.cortex-panel__scope')).not.toBeNull()
+    // Source-only banner must NOT be rendered (class wins precedence)
+    expect(shadowRoot.querySelector('.cortex-panel__scope--source-only')).toBeNull()
+  })
+
+  it('renders neither banner when neither detector returns sharing', async () => {
+    // Element with a unique source — detectSharedSource returns null, detectSharedClasses returns null
+    const el = document.createElement('div')
+    el.setAttribute('data-cortex-source', 'src/Unique.tsx:99:1')
+    // No data-cortex-css attribute — detectSharedClasses returns null immediately
+    document.body.appendChild(el)
+
+    const overrideManager = {
+      set: vi.fn(), get: vi.fn(), remove: vi.fn(),
+      clearAll: vi.fn(), dispose: vi.fn(), flush: vi.fn(),
+    }
+
+    const { shadow, root: shadowRoot, cleanup: removeHost } = createShadowHost()
+    render(
+      <Panel
+        selectedElements={[el]}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+      shadowRoot,
+    )
+    cleanup = () => {
+      render(null, shadowRoot)
+      removeHost()
+      el.remove()
+      void shadow
+    }
+
+    // Wait for the panel root to be present — proves render + effects have flushed
+    await vi.waitFor(() => {
+      expect(shadowRoot.querySelector('.cortex-panel')).not.toBeNull()
+    }, { timeout: 500 })
+
+    // Neither banner should appear (panel is rendered but no sharing detected)
+    expect(shadowRoot.querySelector('.cortex-panel__scope')).toBeNull()
+    expect(shadowRoot.querySelector('.cortex-panel__scope--source-only')).toBeNull()
   })
 })
