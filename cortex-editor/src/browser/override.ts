@@ -819,6 +819,15 @@ export class CSSOverrideManager {
     return this.overrides.get(key)?.get(property)
   }
 
+  /** Return a defensive-copy Map of user overrides for this source.
+   *  State overrides are intentionally excluded; they represent forced state
+   *  declarations, not user edits. */
+  getOverrides(source: string, pseudo?: '::before' | '::after'): Map<string, string> {
+    const key = `${source}${pseudo ?? ''}`
+    const props = this.overrides.get(key)
+    return props ? new Map(props) : new Map()
+  }
+
   /** Clear all overrides (e.g. on SPA navigation) */
   clearAll(): void {
     this.disposeVerifyRetryObservers()
