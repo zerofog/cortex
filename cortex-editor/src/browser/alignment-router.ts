@@ -17,7 +17,9 @@ export interface TypographyAlignmentContext {
   flexDirection: string
   height: string
   minHeight: string
+  /** Font size in CSS pixels, e.g. `16` for `16px`. */
   fontSize: number
+  /** Line height as a unitless multiplier of `fontSize`, e.g. `1.5`. */
   lineHeight: number
 }
 
@@ -28,6 +30,9 @@ export interface TypographyAlignmentEdit {
 
 export const TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP =
   'Set Height or Min H in Layout before aligning text vertically.'
+
+const ABSOLUTE_LINE_HEIGHT_WARNING_THRESHOLD = 10
+let warnedAboutAbsoluteTypographyLineHeight = false
 
 export function isColumnDirection(direction: string): boolean {
   return direction === 'column' || direction === 'column-reverse'
@@ -75,6 +80,15 @@ function parsePositivePx(value: string): number {
 }
 
 function lineHeightPx(context: TypographyAlignmentContext): number {
+  if (context.lineHeight > ABSOLUTE_LINE_HEIGHT_WARNING_THRESHOLD) {
+    if (!warnedAboutAbsoluteTypographyLineHeight) {
+      console.warn(
+        `[cortex] TypographyAlignmentContext.lineHeight should be a unitless multiplier; received ${context.lineHeight}. Treating it as CSS pixels for vertical alignment.`,
+      )
+      warnedAboutAbsoluteTypographyLineHeight = true
+    }
+    return Math.max(1, context.lineHeight)
+  }
   return Math.max(1, context.fontSize * context.lineHeight)
 }
 

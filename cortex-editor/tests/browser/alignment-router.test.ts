@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP,
   flexAxisToCssProperty,
@@ -113,6 +113,18 @@ describe('alignment-router', () => {
     ['min-height', { ...BASE, minHeight: '80px' }],
   ])('enables block vertical alignment when %s creates space', (_label, context) => {
     expect(typographyVerticalAlignEnabled(context)).toBe(true)
+  })
+
+  it('warns and recovers when a caller passes absolute-pixel line height', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      expect(typographyVerticalAlignEnabled({ ...BASE, height: '80px', lineHeight: 24 })).toBe(true)
+      expect(warn).toHaveBeenCalledWith(
+        '[cortex] TypographyAlignmentContext.lineHeight should be a unitless multiplier; received 24. Treating it as CSS pixels for vertical alignment.',
+      )
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it.each(['stretch', 'space-between', 'space-around'] as const)(
