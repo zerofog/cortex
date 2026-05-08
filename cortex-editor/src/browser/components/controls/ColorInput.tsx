@@ -8,6 +8,8 @@ import { oklchToHex } from '../../../core/oklch.js'
 export interface ColorInputProps {
   value: string
   onChange: (color: string) => void
+  onScrub?: (color: string) => void
+  onScrubEnd?: (color: string) => void
   alpha?: number
   onAlphaChange?: (alpha: number) => void
   swatches?: string[]
@@ -232,7 +234,17 @@ export function formatColor(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${Math.round(alpha) / 100})`
 }
 
-export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, swatches, mixed, trailing }: ColorInputProps): JSX.Element {
+export function ColorInput({
+  value,
+  onChange,
+  onScrub,
+  onScrubEnd,
+  alpha: alphaProp,
+  onAlphaChange,
+  swatches,
+  mixed,
+  trailing,
+}: ColorInputProps): JSX.Element {
   const parsed = parseColor(value)
   const hexColor = parsed.hex
   const currentAlpha = alphaProp ?? parsed.alpha
@@ -245,12 +257,16 @@ export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, s
   const alphaRef = useRef(currentAlpha)
   alphaRef.current = currentAlpha
 
-  const emitColor = useCallback((hex: string, a: number, options?: { syncAlpha?: boolean; forceSyncAlpha?: boolean }) => {
+  const emitColor = useCallback((hex: string, a: number, options?: {
+    syncAlpha?: boolean
+    forceSyncAlpha?: boolean
+    target?: (color: string) => void
+  }) => {
     const nextAlpha = Math.round(Math.max(0, Math.min(100, a)))
     if (options?.syncAlpha && (options.forceSyncAlpha || nextAlpha !== alphaRef.current)) {
       onAlphaChange?.(nextAlpha)
     }
-    onChange(formatColor(hex, nextAlpha))
+    ;(options?.target ?? onChange)(formatColor(hex, nextAlpha))
   }, [onChange, onAlphaChange])
 
   const handleHexInput = useCallback((e: Event) => {
@@ -294,6 +310,14 @@ export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, s
   const handlePickerChange = useCallback((hex: string) => {
     emitColor(hex, alphaRef.current)
   }, [emitColor])
+
+  const handlePickerScrub = useCallback((hex: string) => {
+    emitColor(hex, alphaRef.current, { target: onScrub })
+  }, [emitColor, onScrub])
+
+  const handlePickerScrubEnd = useCallback((hex: string) => {
+    emitColor(hex, alphaRef.current, { target: onScrubEnd })
+  }, [emitColor, onScrubEnd])
 
   // Alpha changes are dispatched solely by the parent's onAlphaChange handler
   // (which calls applyOverride with the formatted color). We do NOT also call
@@ -348,6 +372,8 @@ export function ColorInput({ value, onChange, alpha: alphaProp, onAlphaChange, s
         <ColorPicker
           color={hexColor}
           onChange={handlePickerChange}
+          onScrub={onScrub ? handlePickerScrub : undefined}
+          onScrubEnd={onScrubEnd ? handlePickerScrubEnd : undefined}
           onClose={handlePickerClose}
           anchor={swatchRef.current}
           alpha={onAlphaChange ? currentAlpha : undefined}

@@ -1228,6 +1228,131 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     target.remove()
   })
 
+  it('coalesces color picker drag updates into one PropertyEditCommand (ZF0-1569)', async () => {
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    document.body.appendChild(target)
+
+    const originalGetComputedStyle = window.getComputedStyle
+    window.getComputedStyle = ((el: Element, pseudo?: string | null) => {
+      const base = originalGetComputedStyle.call(window, el, pseudo)
+      if (el !== target) return base
+      return new Proxy(base, {
+        get(obj, prop) {
+          if (prop === 'backgroundColor') return '#000000'
+          if (prop === 'backgroundImage') return 'none'
+          if (prop === 'getPropertyValue') {
+            return (property: string) => {
+              if (property === 'background-color') return '#000000'
+              if (property === 'background-image') return 'none'
+              return base.getPropertyValue(property)
+            }
+          }
+          return (obj as any)[prop]
+        },
+      }) as CSSStyleDeclaration
+    }) as typeof window.getComputedStyle
+
+    const overrideStore = new Map<string, string>()
+    const overrideManager = {
+      set: vi.fn((src: string, prop: string, val: string, pseudo?: string) => {
+        overrideStore.set(`${src}\0${prop}\0${pseudo ?? ''}`, val)
+      }),
+      get: vi.fn((src: string, prop: string, pseudo?: string) =>
+        overrideStore.get(`${src}\0${prop}\0${pseudo ?? ''}`),
+      ),
+      remove: vi.fn((src: string, prop: string, pseudo?: string) => {
+        overrideStore.delete(`${src}\0${prop}\0${pseudo ?? ''}`)
+      }),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+    }
+    const commandStack = new CommandStack()
+
+    const { root, cleanup } = renderInShadow(
+      <Panel
+        selectedElements={[target]}
+        overrideManager={overrideManager as any}
+        commandStack={commandStack}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+    )
+
+    try {
+      const swatch = root.querySelector('.cortex-color-input__swatch') as HTMLButtonElement | null
+      expect(swatch).not.toBeNull()
+
+      await act(async () => {
+        swatch!.click()
+        await new Promise(r => setTimeout(r, 0))
+      })
+
+      const picker = root.querySelector('hex-color-picker') as HTMLElement | null
+      expect(picker).not.toBeNull()
+
+      const emitColor = async (value: string) => {
+        await act(async () => {
+          picker!.dispatchEvent(new CustomEvent('color-changed', {
+            bubbles: true,
+            composed: true,
+            detail: { value },
+          }))
+          await Promise.resolve()
+        })
+      }
+
+      await act(async () => {
+        picker!.dispatchEvent(new MouseEvent('mousedown', {
+          bubbles: true,
+          composed: true,
+          cancelable: true,
+          button: 0,
+        }))
+      })
+
+      await emitColor('#111111')
+      await emitColor('#222222')
+      await emitColor('#333333')
+
+      expect(commandStack.undoCount).toBe(0)
+      expect(overrideManager.set).toHaveBeenLastCalledWith(
+        'src/Hero.tsx:14:5',
+        'background-color',
+        '#333333',
+        undefined,
+      )
+
+      await act(async () => {
+        document.dispatchEvent(new MouseEvent('mouseup', {
+          bubbles: true,
+          composed: true,
+          cancelable: true,
+          button: 0,
+        }))
+        await Promise.resolve()
+      })
+
+      expect(commandStack.undoCount).toBe(1)
+      const cmd = commandStack.peekUndo()
+      expect(cmd?.changes).toEqual([
+        {
+          source: 'src/Hero.tsx:14:5',
+          property: 'background-color',
+          value: '#333333',
+          previousValue: '#000000',
+          pseudo: undefined,
+        },
+      ])
+    } finally {
+      cleanup()
+      target.remove()
+      window.getComputedStyle = originalGetComputedStyle
+    }
+  })
+
   it('staged-edits-discard server message removes intents from canonical buffer', async () => {
     // ZF0-1452 regression: Panel.tsx's channel.onMessage handler wires
     // 'staged-edits-discard' (server-originated, emitted by the MCP server's

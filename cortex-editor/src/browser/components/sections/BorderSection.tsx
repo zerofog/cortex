@@ -130,6 +130,16 @@ export function BorderSection({
     [onChange],
   )
 
+  const handleColorScrub = useCallback(
+    (hex: string) => onScrub?.({ property: 'border-color', value: hex }),
+    [onScrub],
+  )
+
+  const handleColorScrubEnd = useCallback(
+    (hex: string) => onScrubEnd?.({ property: 'border-color', value: hex }),
+    [onScrubEnd],
+  )
+
   const handleUnlink = useCallback(() => {
     onChange({ property: 'border-color', value: values.borderColor })
   }, [onChange, values.borderColor])
@@ -337,6 +347,8 @@ export function BorderSection({
             <ColorInput
               value={values.borderColor}
               onChange={handleColorChange}
+              onScrub={onScrub ? handleColorScrub : undefined}
+              onScrubEnd={onScrubEnd ? handleColorScrubEnd : undefined}
               alpha={values.borderOpacity}
               onAlphaChange={handleAlphaChange}
               swatches={swatches}

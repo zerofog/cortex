@@ -1830,6 +1830,8 @@ export function Panel({
               backgroundColor={computedStyles.fill.backgroundColor}
               backgroundToken={extractedUtilities.get('background-color') ?? null}
               onChange={handleCommit}
+              onScrub={handleScrub}
+              onScrubEnd={handleCommit}
               onRemove={handleFillRemove}
               swatches={swatches}
               dimmedProperties={dimmedProperties}

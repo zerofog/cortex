@@ -6,6 +6,8 @@ import 'vanilla-colorful/hex-color-picker.js'
 export interface ColorPickerProps {
   color: string
   onChange: (hex: string) => void
+  onScrub?: (hex: string) => void
+  onScrubEnd?: (hex: string) => void
   onClose: () => void
   anchor: HTMLElement
   alpha?: number
@@ -26,6 +28,8 @@ const SWATCHES = [
 export function ColorPicker({
   color,
   onChange,
+  onScrub,
+  onScrubEnd,
   onClose,
   anchor,
   alpha = 100,
@@ -74,22 +78,69 @@ export function ColorPicker({
     ;(picker as any).color = color
   }, [color])
 
-  // Subscribe to color-changed event once (use ref for onChange to avoid re-subscribing)
+  // Subscribe once; refs keep drag callbacks current without re-wiring listeners.
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
+  const onScrubRef = useRef(onScrub)
+  onScrubRef.current = onScrub
+  const onScrubEndRef = useRef(onScrubEnd)
+  onScrubEndRef.current = onScrubEnd
+  const isDraggingRef = useRef(false)
+  const dragValueRef = useRef<string | null>(null)
 
   useEffect(() => {
     const picker = pickerRef.current
     if (!picker) return
+    const doc = picker.ownerDocument
     const handleColorChanged = (e: Event) => {
       const detail = (e as CustomEvent).detail
       if (detail && typeof detail.value === 'string' && HEX_REGEX.test(detail.value)) {
-        onChangeRef.current(detail.value)
+        const hasScrubHandler = !!onScrubRef.current || !!onScrubEndRef.current
+        if (isDraggingRef.current && hasScrubHandler) {
+          dragValueRef.current = detail.value
+          onScrubRef.current?.(detail.value)
+        } else {
+          onChangeRef.current(detail.value)
+        }
       }
     }
+    const beginDrag = () => {
+      isDraggingRef.current = true
+      dragValueRef.current = null
+    }
+    const endDrag = () => {
+      if (!isDraggingRef.current) return
+      isDraggingRef.current = false
+      const latest = dragValueRef.current
+      dragValueRef.current = null
+      if (latest !== null) {
+        ;(onScrubEndRef.current ?? onChangeRef.current)(latest)
+      }
+    }
+    const cancelDrag = () => {
+      isDraggingRef.current = false
+      dragValueRef.current = null
+    }
+
     picker.addEventListener('color-changed', handleColorChanged)
+    picker.addEventListener('pointerdown', beginDrag, true)
+    picker.addEventListener('mousedown', beginDrag, true)
+    picker.addEventListener('touchstart', beginDrag, true)
+    doc.addEventListener('pointerup', endDrag)
+    doc.addEventListener('mouseup', endDrag)
+    doc.addEventListener('touchend', endDrag)
+    doc.addEventListener('pointercancel', cancelDrag)
+    doc.addEventListener('touchcancel', cancelDrag)
     return () => {
       picker.removeEventListener('color-changed', handleColorChanged)
+      picker.removeEventListener('pointerdown', beginDrag, true)
+      picker.removeEventListener('mousedown', beginDrag, true)
+      picker.removeEventListener('touchstart', beginDrag, true)
+      doc.removeEventListener('pointerup', endDrag)
+      doc.removeEventListener('mouseup', endDrag)
+      doc.removeEventListener('touchend', endDrag)
+      doc.removeEventListener('pointercancel', cancelDrag)
+      doc.removeEventListener('touchcancel', cancelDrag)
     }
   }, [])
 

@@ -15,6 +15,8 @@ export interface BackgroundSectionProps {
   /** Tailwind class name if detected (e.g. "bg-blue-500"), null if raw value */
   backgroundToken: string | null
   onChange: (change: BackgroundChange) => void
+  onScrub?: (change: BackgroundChange) => void
+  onScrubEnd?: (change: BackgroundChange) => void
   /** When provided, renders a minus button at the row end that clears the fill. */
   onRemove?: () => void
   swatches?: string[]
@@ -38,6 +40,8 @@ export function BackgroundSection({
   backgroundColor,
   backgroundToken,
   onChange,
+  onScrub,
+  onScrubEnd,
   onRemove,
   swatches,
   dimmedProperties,
@@ -52,6 +56,16 @@ export function BackgroundSection({
   const handleColorChange = useCallback(
     (color: string) => onChange({ property: 'background-color', value: color }),
     [onChange],
+  )
+
+  const handleColorScrub = useCallback(
+    (color: string) => onScrub?.({ property: 'background-color', value: color }),
+    [onScrub],
+  )
+
+  const handleColorScrubEnd = useCallback(
+    (color: string) => onScrubEnd?.({ property: 'background-color', value: color }),
+    [onScrubEnd],
   )
 
   const handleAlphaChange = useCallback(
@@ -92,6 +106,8 @@ export function BackgroundSection({
         <ColorInput
           value={backgroundColor}
           onChange={handleColorChange}
+          onScrub={onScrub ? handleColorScrub : undefined}
+          onScrubEnd={onScrubEnd ? handleColorScrubEnd : undefined}
           alpha={parsed.alpha}
           onAlphaChange={handleAlphaChange}
           swatches={swatches}
