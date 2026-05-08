@@ -29,6 +29,9 @@ test.describe('spacing box model diagram (ZF0-1161)', () => {
       const diagramSurface = diagram.querySelector<HTMLElement>('.cortex-box-model__diagram')
       if (!diagramSurface) throw new Error('[spacing-box-model] diagram surface missing')
       const rect = diagramSurface.getBoundingClientRect()
+      const content = diagram.querySelector<HTMLElement>('.cortex-box-model__content')
+      if (!content) throw new Error('[spacing-box-model] content region missing')
+      const contentRect = content.getBoundingClientRect()
 
       const rightPadding = diagram.querySelector<HTMLButtonElement>('[data-layer="padding"][data-side="right"]')
       if (!rightPadding) throw new Error('[spacing-box-model] right padding side missing')
@@ -42,6 +45,7 @@ test.describe('spacing box model diagram (ZF0-1161)', () => {
         hasBorder: !!diagram.querySelector('.cortex-box-model__layer--border'),
         hasPadding: !!diagram.querySelector('.cortex-box-model__layer--padding'),
         hasContent: !!diagram.querySelector('.cortex-box-model__content'),
+        contentHeight: contentRect.height,
       }
     })
 
@@ -83,5 +87,6 @@ test.describe('spacing box model diagram (ZF0-1161)', () => {
     expect(initial.width).toBeGreaterThan(200)
     expect(initial.height).toBeGreaterThanOrEqual(136)
     expect(initial.height).toBeLessThanOrEqual(144)
+    expect(initial.contentHeight).toBeGreaterThanOrEqual(30)
   })
 })

@@ -4382,7 +4382,7 @@
 
 .cortex-box-model__content {
   position: absolute;
-  inset: 26px 34px;
+  inset: 8px 18px;
   display: flex;
   flex-direction: column;
   align-items: center;

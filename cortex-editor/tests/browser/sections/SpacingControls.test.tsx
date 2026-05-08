@@ -92,12 +92,13 @@ describe('SpacingControls', () => {
       margin: DEFAULT_MARGIN,
     })
 
-    const rightPadding = container.querySelector('[data-layer="padding"][data-side="right"]') as HTMLElement
+    const rightPaddingSelector = '[data-layer="padding"][data-side="right"]'
+    const rightPadding = container.querySelector(rightPaddingSelector) as HTMLElement
     expect(rightPadding).not.toBeNull()
     rightPadding.click()
 
     await vi.waitFor(() => {
-      expect(rightPadding.getAttribute('aria-pressed')).toBe('true')
+      expect(container.querySelector(`${rightPaddingSelector}[aria-pressed="true"]`)).not.toBeNull()
     }, { timeout: 500 })
 
     const editor = container.querySelector('[data-testid="spacing-box-model-side-editor"]')!
@@ -120,12 +121,13 @@ describe('SpacingControls', () => {
       margin: { top: 0, right: 0, bottom: 0, left: 4 },
     })
 
-    const leftMargin = container.querySelector('[data-layer="margin"][data-side="left"]') as HTMLElement
+    const leftMarginSelector = '[data-layer="margin"][data-side="left"]'
+    const leftMargin = container.querySelector(leftMarginSelector) as HTMLElement
     expect(leftMargin).not.toBeNull()
     leftMargin.click()
 
     await vi.waitFor(() => {
-      expect(leftMargin.getAttribute('aria-pressed')).toBe('true')
+      expect(container.querySelector(`${leftMarginSelector}[aria-pressed="true"]`)).not.toBeNull()
     }, { timeout: 500 })
 
     const editor = container.querySelector('[data-testid="spacing-box-model-side-editor"]')!
