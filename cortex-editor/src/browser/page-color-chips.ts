@@ -23,18 +23,26 @@ const BG_NON_COLOR_PREFIXES = [
 
 const INACTIVE_STATE_VARIANTS = new Set([
   'active',
+  'autofill',
   'checked',
   'disabled',
   'empty',
   'enabled',
+  'even',
+  'first',
   'focus',
   'focus-visible',
   'focus-within',
   'hover',
+  'in-range',
   'indeterminate',
   'invalid',
+  'last',
+  'only',
   'open',
   'optional',
+  'out-of-range',
+  'odd',
   'placeholder-shown',
   'read-only',
   'required',
@@ -42,6 +50,21 @@ const INACTIVE_STATE_VARIANTS = new Set([
   'valid',
   'visited',
 ])
+
+const MEDIA_VARIANT_QUERIES: Record<string, string> = {
+  sm: '(min-width: 40rem)',
+  md: '(min-width: 48rem)',
+  lg: '(min-width: 64rem)',
+  xl: '(min-width: 80rem)',
+  '2xl': '(min-width: 96rem)',
+  portrait: '(orientation: portrait)',
+  landscape: '(orientation: landscape)',
+  'motion-safe': '(prefers-reduced-motion: no-preference)',
+  'motion-reduce': '(prefers-reduced-motion: reduce)',
+  'contrast-more': '(prefers-contrast: more)',
+  'contrast-less': '(prefers-contrast: less)',
+  print: 'print',
+}
 
 export function markPageColorChips(
   chips: readonly ColorChip[],
@@ -145,5 +168,7 @@ function variantAppliesNow(variant: string, doc: Document): boolean {
   if (variant === 'light') return doc.documentElement.classList.contains('light')
   if (INACTIVE_STATE_VARIANTS.has(variant)) return false
   if (variant.startsWith('group-') || variant.startsWith('peer-')) return false
-  return true
+  const query = MEDIA_VARIANT_QUERIES[variant]
+  if (query) return doc.defaultView?.matchMedia?.(query).matches ?? false
+  return false
 }

@@ -40,6 +40,26 @@ export interface CortexAppProps {
   initialActive?: boolean
 }
 
+type ColorChipState = Array<{ name: string; hex: string; aliases?: string[]; source?: 'page' | 'theme' }>
+
+function sameColorChipSources(
+  prev: ColorChipState | undefined,
+  next: ColorChipState,
+): boolean {
+  if (!prev || prev.length !== next.length) return false
+  for (let i = 0; i < next.length; i++) {
+    const a = prev[i]
+    const b = next[i]
+    if (!a || !b || a.name !== b.name || a.hex !== b.hex || a.source !== b.source) return false
+  }
+  return true
+}
+
+function isCortexHostMutation(record: MutationRecord): boolean {
+  const target = record.target instanceof Element ? record.target : record.target.parentElement
+  return !!target?.closest('[data-cortex-host]')
+}
+
 /**
  * Root component. Wires selection events, overlay rendering,
  * CSS override manager, channel message handling, and panel
@@ -69,12 +89,8 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const [textComponents, setTextComponents] = useState<
     import('../../core/text-components.js').TextComponent[] | undefined
   >(undefined)
-  const [colorChips, setColorChips] = useState<
-    Array<{ name: string; hex: string; aliases?: string[]; source?: 'page' | 'theme' }> | undefined
-  >(undefined)
-  const colorChipThemeRef = useRef<
-    Array<{ name: string; hex: string; aliases?: string[]; source?: 'page' | 'theme' }> | undefined
-  >(undefined)
+  const [colorChips, setColorChips] = useState<ColorChipState | undefined>(undefined)
+  const colorChipThemeRef = useRef<ColorChipState | undefined>(undefined)
   const [spacingTokens, setSpacingTokens] = useState<
     import('../../core/tailwind-resolver.js').SpacingToken[] | undefined
   >(undefined)
@@ -191,7 +207,8 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const refreshPageColorChips = useCallback((): void => {
     const chips = colorChipThemeRef.current
     if (!chips) return
-    setColorChips(markPageColorChips(chips))
+    const next = markPageColorChips(chips)
+    setColorChips(prev => sameColorChipSources(prev, next) ? prev : next)
   }, [])
 
   // Panel positioning
@@ -754,8 +771,13 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         refreshPageColorChips()
       })
     }
+    const handleMutations = (records: MutationRecord[]): void => {
+      if (records.some((record) => !isCortexHostMutation(record))) {
+        scheduleRefresh()
+      }
+    }
 
-    const observer = new MutationObserver(scheduleRefresh)
+    const observer = new MutationObserver(handleMutations)
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
     if (document.body) {
       observer.observe(document.body, {

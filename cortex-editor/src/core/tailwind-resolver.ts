@@ -40,7 +40,7 @@ export interface ResolvedTheme {
   boxShadow?: Record<string, string>
 }
 
-interface ColorChip {
+export interface ColorChip {
   name: string
   hex: string
   aliases?: string[]
@@ -453,7 +453,7 @@ export class TailwindResolver {
   static async resolveColorChips(
     projectRoot: string,
   ): Promise<ColorChip[] | null> {
-    const { findV4EntryCSS, extractThemeProperties, themePropertiesToResolved } = await import(
+    const { findV4EntryCSS, extractThemeProperties, parseV4ThemeFromCSS, themePropertiesToResolved } = await import(
       './tailwind-v4-parser.js'
     )
     const userCSS = await findV4EntryCSS(projectRoot)
@@ -477,7 +477,7 @@ export class TailwindResolver {
       chips.push(chip)
     }
 
-    const fullTheme = await TailwindResolver.parseV4ThemeOrNull(projectRoot) ?? appTheme
+    const fullTheme = await parseV4ThemeFromCSS(projectRoot, userCSS) ?? appTheme
     const themeChips = TailwindResolver.flattenNamedColors(fullTheme?.colors)
     const aliasesByHex = new Map<string, string[]>()
     for (const chip of themeChips) {
@@ -750,15 +750,6 @@ export class TailwindResolver {
     }
 
     return tokens.length > 0 ? tokens : null
-  }
-
-  private static async parseV4ThemeOrNull(projectRoot: string): Promise<ResolvedTheme | null> {
-    try {
-      const { parseV4Theme } = await import('./tailwind-v4-parser.js')
-      return await parseV4Theme(projectRoot)
-    } catch {
-      return null
-    }
   }
 
   private static flattenNamedColors(colors: ResolvedTheme['colors']): ColorChip[] {

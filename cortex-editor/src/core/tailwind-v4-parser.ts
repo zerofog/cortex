@@ -376,6 +376,20 @@ async function loadDefaultTheme(projectRoot: string): Promise<string | null> {
   }
 }
 
+export async function parseV4ThemeFromCSS(
+  projectRoot: string,
+  userCSS: string,
+): Promise<ResolvedTheme | null> {
+  const defaultCSS = await loadDefaultTheme(projectRoot)
+
+  // Concatenate defaults first so user CSS overrides
+  const combined = (defaultCSS ?? '') + '\n' + userCSS
+  const properties = extractThemeProperties(combined)
+  if (properties.size === 0) return null
+
+  return themePropertiesToResolved(properties)
+}
+
 /**
  * Main entry point: find user CSS with @import "tailwindcss", load
  * tailwindcss defaults, merge, extract theme properties, and convert
@@ -386,13 +400,5 @@ async function loadDefaultTheme(projectRoot: string): Promise<string | null> {
 export async function parseV4Theme(projectRoot: string): Promise<ResolvedTheme | null> {
   const userCSS = await findV4EntryCSS(projectRoot)
   if (!userCSS) return null
-
-  const defaultCSS = await loadDefaultTheme(projectRoot)
-
-  // Concatenate defaults first so user CSS overrides
-  const combined = (defaultCSS ?? '') + '\n' + userCSS
-  const properties = extractThemeProperties(combined)
-  if (properties.size === 0) return null
-
-  return themePropertiesToResolved(properties)
+  return parseV4ThemeFromCSS(projectRoot, userCSS)
 }

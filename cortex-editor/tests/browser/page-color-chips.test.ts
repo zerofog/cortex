@@ -48,6 +48,40 @@ describe('markPageColorChips', () => {
     ])
   })
 
+  it('does not mark unrecognized variants as page-used', () => {
+    document.body.innerHTML = '<section class="supports-[display:grid]:bg-red-500 bg-white">demo</section>'
+
+    expect([...collectPageColorNames(document)]).toEqual(['white'])
+    expect(markPageColorChips(CHIPS, document).filter((chip) => chip.source === 'page').map((chip) => chip.name)).toEqual([
+      'surface',
+    ])
+  })
+
+  it('marks known media variants only when matchMedia says they apply', () => {
+    const originalMatchMedia = window.matchMedia
+    window.matchMedia = ((query: string) => ({
+      matches: query === '(min-width: 48rem)',
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    })) as typeof window.matchMedia
+    try {
+      document.body.innerHTML = '<section class="md:bg-red-500 lg:bg-blue-900 bg-white">demo</section>'
+
+      expect([...collectPageColorNames(document)]).toEqual(['red-500', 'white'])
+      expect(markPageColorChips(CHIPS, document).filter((chip) => chip.source === 'page').map((chip) => chip.name)).toEqual([
+        'surface',
+        'red-500',
+      ])
+    } finally {
+      window.matchMedia = originalMatchMedia
+    }
+  })
+
   it('ignores Cortex UI classes when scanning the host page', () => {
     document.body.innerHTML = `
       <main class="bg-white">demo</main>

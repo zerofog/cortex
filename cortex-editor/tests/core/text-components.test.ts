@@ -141,6 +141,9 @@ describe('TailwindResolver.resolveColorChips', () => {
 
   it('returns named chips from @theme --color-* entries', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-'))
+    mkdirSync(join(dir, 'node_modules', 'tailwindcss'), { recursive: true })
+    writeFileSync(join(dir, 'node_modules', 'tailwindcss', 'package.json'), '{"name":"tailwindcss"}')
+    writeFileSync(join(dir, 'node_modules', 'tailwindcss', 'theme.css'), '')
     writeFileSync(
       join(dir, 'app.css'),
       `@import "tailwindcss";
@@ -159,6 +162,9 @@ describe('TailwindResolver.resolveColorChips', () => {
 
   it('returns empty array when @theme has no color entries', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-empty-'))
+    mkdirSync(join(dir, 'node_modules', 'tailwindcss'), { recursive: true })
+    writeFileSync(join(dir, 'node_modules', 'tailwindcss', 'package.json'), '{"name":"tailwindcss"}')
+    writeFileSync(join(dir, 'node_modules', 'tailwindcss', 'theme.css'), '')
     writeFileSync(join(dir, 'app.css'), '@import "tailwindcss";\n')
     const result = await TailwindResolver.resolveColorChips(dir)
     expect(result).toEqual([])

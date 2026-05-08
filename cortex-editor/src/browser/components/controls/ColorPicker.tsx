@@ -41,8 +41,9 @@ export function ColorPicker({
   const pickerRef = useRef<HTMLElement>(null)
 
   const [editingHex, setEditingHex] = useState<string | null>(null)
+  const [liveHex, setLiveHex] = useState<string | null>(null)
   const editingHexRef = useRef<string | null>(null)
-  const displayedHex = editingHex !== null ? editingHex : color
+  const displayedHex = editingHex !== null ? editingHex : liveHex ?? color
 
   // Position popover via floating-ui
   useEffect(() => {
@@ -76,6 +77,7 @@ export function ColorPicker({
     const picker = pickerRef.current
     if (!picker) return
     ;(picker as any).color = color
+    setLiveHex(null)
   }, [color])
 
   // Subscribe once; refs keep drag callbacks current without re-wiring listeners.
@@ -98,13 +100,17 @@ export function ColorPicker({
         const hasScrubHandler = !!onScrubRef.current || !!onScrubEndRef.current
         if (isDraggingRef.current && hasScrubHandler) {
           dragValueRef.current = detail.value
-          onScrubRef.current?.(detail.value)
+          setLiveHex(detail.value)
+          const scrub = onScrubRef.current
+          if (scrub) scrub(detail.value)
         } else {
+          setLiveHex(null)
           onChangeRef.current(detail.value)
         }
       }
     }
     const beginDrag = () => {
+      if (isDraggingRef.current) return
       isDraggingRef.current = true
       dragValueRef.current = null
     }
@@ -114,13 +120,11 @@ export function ColorPicker({
       const latest = dragValueRef.current
       dragValueRef.current = null
       if (latest !== null) {
-        ;(onScrubEndRef.current ?? onChangeRef.current)(latest)
+        const scrubEnd = onScrubEndRef.current ?? onChangeRef.current
+        scrubEnd(latest)
       }
     }
-    const cancelDrag = () => {
-      isDraggingRef.current = false
-      dragValueRef.current = null
-    }
+    const cancelDrag = () => { endDrag() }
 
     picker.addEventListener('color-changed', handleColorChanged)
     picker.addEventListener('pointerdown', beginDrag, true)
