@@ -227,14 +227,11 @@ export function AlignmentGrid({
   const handleSpanClick = useCallback(
     (event: MouseEvent, spanAxis: 'row' | 'col', fixedIndex: number) => {
       if (event.detail > 1) return
-      const el = event.currentTarget as HTMLElement
-      const rect = el.getBoundingClientRect()
+      const { row, col } = getVirtualCellFromEvent(event)
       if (spanAxis === 'row') {
-        const col = Math.min(2, Math.floor(((event.clientX - rect.left) / rect.width) * 3))
         onJustify(justifyForCol(col))
         onAlign(alignForRow(fixedIndex))
       } else {
-        const row = Math.min(2, Math.floor(((event.clientY - rect.top) / rect.height) * 3))
         onJustify(justifyForCol(fixedIndex))
         onAlign(alignForRow(row))
       }
@@ -245,12 +242,9 @@ export function AlignmentGrid({
   // Span dblclick → open overlay (same state machine as cell dblclick).
   const handleSpanDblClick = useCallback(
     (event: MouseEvent, spanAxis: 'row' | 'col', fixedIndex: number) => {
-      const el = event.currentTarget as HTMLElement
-      const rect = el.getBoundingClientRect()
-      const row = spanAxis === 'row' ? fixedIndex
-        : Math.min(2, Math.floor(((event.clientY - rect.top) / rect.height) * 3))
-      const col = spanAxis === 'col' ? fixedIndex
-        : Math.min(2, Math.floor(((event.clientX - rect.left) / rect.width) * 3))
+      const virtualCell = getVirtualCellFromEvent(event)
+      const row = spanAxis === 'row' ? fixedIndex : virtualCell.row
+      const col = spanAxis === 'col' ? fixedIndex : virtualCell.col
       setOverlay((prev) => {
         if (prev === null) return { axis: 'row', index: row }
         if (prev.axis === 'row') return { axis: 'col', index: col }
@@ -361,8 +355,8 @@ export function AlignmentGrid({
       aria-label={label}
     >
       {cells}
-      {/* Full-grid indicator — both axes non-positional (e.g. space-between +
-          stretch). 3 vertical bars spread across the entire grid, no dots. */}
+      {/* Full-grid indicator — both axes non-positional (e.g. space-around +
+          stretch). Distribution modes add edge dots; stretch-only modes do not. */}
       {!overlay && indicatorMode.type === 'full' && (
         <div
           class="cortex-alignment-grid__span cortex-alignment-grid__span--full"
