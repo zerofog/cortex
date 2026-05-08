@@ -459,10 +459,12 @@ export class TailwindResolver {
    * the UI can render "text-gray-900" in linked pills and pickers rather
    * than bare hex strings.
    *
-   * Ordering is relevance-first: colors already used by the app source, then
-   * every remaining color in the resolved Tailwind theme. For a stock
-   * `@import "tailwindcss"` app this means the full default Tailwind palette;
-   * if the app clears or overrides `--color-*`, the theme list is that subset.
+   * Ordering is relevance-first: colors already used by the app source, app
+   * theme colors, then every remaining color in the resolved Tailwind theme.
+   * Equivalent hex values are collapsed, with app theme names preferred over
+   * default Tailwind aliases. For a stock `@import "tailwindcss"` app this means
+   * the full default Tailwind palette; if the app clears or overrides
+   * `--color-*`, the theme list is that subset.
    *
    * Returns null when no Tailwind v4 entry CSS is found.
    */
@@ -477,12 +479,16 @@ export class TailwindResolver {
 
     const properties = extractThemeProperties(userCSS)
     const appTheme = themePropertiesToResolved(properties)
+    const appChips = TailwindResolver.flattenNamedColors(appTheme.colors)
+    const appChipByHex = new Map(appChips.map((chip) => [chip.hex, chip]))
     const chips: ColorChip[] = []
     const chipNames = new Set<string>()
+    const chipHexes = new Set<string>()
 
     const addChip = (chip: ColorChip): void => {
-      if (chipNames.has(chip.name)) return
+      if (chipNames.has(chip.name) || chipHexes.has(chip.hex)) return
       chipNames.add(chip.name)
+      chipHexes.add(chip.hex)
       chips.push(chip)
     }
 
@@ -496,8 +502,13 @@ export class TailwindResolver {
     for (const name of usedNames) {
       const chip = themeChipByName.get(name)
       if (chip) {
-        addChip(chip)
+        addChip(appChipByHex.get(chip.hex) ?? chip)
       }
+    }
+
+    // App pass: app-owned semantic names win over same-value Tailwind aliases.
+    for (const chip of appChips) {
+      addChip(chip)
     }
 
     // Theme pass: expose the rest of the current page's resolved theme.

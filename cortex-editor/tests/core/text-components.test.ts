@@ -206,6 +206,46 @@ describe('TailwindResolver.resolveColorChips', () => {
     ])
   })
 
+  it('deduplicates same-value colors and prefers app theme names', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-theme-dedupe-'))
+    mkdirSync(join(dir, 'node_modules', 'tailwindcss'), { recursive: true })
+    mkdirSync(join(dir, 'src'), { recursive: true })
+    writeFileSync(join(dir, 'node_modules', 'tailwindcss', 'package.json'), '{"name":"tailwindcss"}')
+    writeFileSync(
+      join(dir, 'node_modules', 'tailwindcss', 'theme.css'),
+      `@theme default {
+  --color-white: #fff;
+  --color-slate-200: #e2e8f0;
+  --color-red-500: #ef4444;
+}
+`,
+    )
+    writeFileSync(
+      join(dir, 'app.css'),
+      `@import "tailwindcss";
+@theme {
+  --color-surface: #ffffff;
+  --color-border-muted: #e2e8f0;
+}
+`,
+    )
+    writeFileSync(
+      join(dir, 'src', 'App.tsx'),
+      `export function App() {
+  return <section className="bg-white border border-slate-200 text-red-500">hello</section>
+}
+`,
+    )
+
+    const result = await TailwindResolver.resolveColorChips(dir)
+
+    expect(result).toEqual([
+      { name: 'surface', hex: '#ffffff' },
+      { name: 'border-muted', hex: '#e2e8f0' },
+      { name: 'red-500', hex: '#ef4444' },
+    ])
+  })
+
   it('uses the resolved theme subset when the app clears Tailwind default colors', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cortex-cc-theme-subset-'))
     mkdirSync(join(dir, 'node_modules', 'tailwindcss'), { recursive: true })
