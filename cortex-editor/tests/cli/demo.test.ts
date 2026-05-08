@@ -2,8 +2,17 @@ import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { runDemo, type DemoResult } from '../../src/cli/demo.js'
+
+const DEMO_TEST_GIT_CONFIG = [
+  '-c',
+  'maintenance.auto=false',
+  '-c',
+  'gc.auto=0',
+  '-c',
+  'core.hooksPath=.git/hooks-disabled',
+]
 
 /** Create a temp directory to serve as the parent cwd for demo scaffolding. */
 function makeTmpDir(): string {
@@ -11,17 +20,24 @@ function makeTmpDir(): string {
 }
 
 function cleanup(dir: string): void {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    try {
-      fs.rmSync(dir, { recursive: true, force: true })
-      return
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code
-      if (code !== 'ENOTEMPTY' && code !== 'EBUSY' && code !== 'EPERM') throw err
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20 * (attempt + 1))
-    }
-  }
   fs.rmSync(dir, { recursive: true, force: true })
+}
+
+function demoTestGitEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    GIT_TRACE2: '0',
+    GIT_TRACE2_EVENT: '0',
+    GIT_TRACE2_PERF: '0',
+  }
+}
+
+function readDemoGitLog(demoDir: string): string {
+  return execFileSync('git', [...DEMO_TEST_GIT_CONFIG, 'log', '--oneline'], {
+    cwd: demoDir,
+    encoding: 'utf8',
+    env: demoTestGitEnv(),
+  })
 }
 
 describe('cortex demo', () => {
@@ -133,7 +149,7 @@ describe('cortex demo', () => {
         expect(fs.existsSync(path.join(demoDir, '.git'))).toBe(true)
 
         // Should have at least one commit
-        const log = execSync('git log --oneline', { cwd: demoDir, encoding: 'utf8' })
+        const log = readDemoGitLog(demoDir)
         expect(log.trim().length).toBeGreaterThan(0)
         expect(log).toContain('initial scaffold')
       } finally {
@@ -235,6 +251,39 @@ describe('cortex demo', () => {
           demoDir: path.join(cwd, 'cortex-demo'),
         })
       } finally {
+        cleanup(cwd)
+      }
+    })
+  })
+
+  describe('git process determinism', () => {
+    it('does not inherit ambient trace2 writers while creating the demo repo', async () => {
+      const cwd = makeTmpDir()
+      const tracePath = path.join(cwd, 'git-trace.json')
+      const gitConfigPath = path.join(cwd, 'gitconfig')
+      const previousConfig = process.env.GIT_CONFIG_GLOBAL
+      const previousNoSystem = process.env.GIT_CONFIG_NOSYSTEM
+
+      try {
+        fs.writeFileSync(gitConfigPath, `[trace2]\n\teventTarget = ${tracePath}\n`)
+        process.env.GIT_CONFIG_GLOBAL = gitConfigPath
+        process.env.GIT_CONFIG_NOSYSTEM = '1'
+
+        await runDemo({ cwd, skipServe: true })
+
+        expect(fs.existsSync(path.join(cwd, 'cortex-demo', '.git'))).toBe(true)
+        expect(fs.existsSync(tracePath)).toBe(false)
+      } finally {
+        if (previousConfig === undefined) {
+          delete process.env.GIT_CONFIG_GLOBAL
+        } else {
+          process.env.GIT_CONFIG_GLOBAL = previousConfig
+        }
+        if (previousNoSystem === undefined) {
+          delete process.env.GIT_CONFIG_NOSYSTEM
+        } else {
+          process.env.GIT_CONFIG_NOSYSTEM = previousNoSystem
+        }
         cleanup(cwd)
       }
     })
