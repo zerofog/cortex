@@ -399,29 +399,29 @@ describe('CortexApp', () => {
     setup()
     const channel = createMockChannel()
     render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
-    await new Promise(r => setTimeout(r, 10))
-
-    // Activate
-    channel._simulateMessage({ type: 'cortex' } as any)
-    await new Promise(r => setTimeout(r, 10))
+    await activateEditor(channel)
 
     // Simulate element selection
     const { _getCallbacks } = await import('../../src/browser/selection.js') as any
     const { selectCb } = _getCallbacks()
+    expect(selectCb).toBeTypeOf('function')
     const target = document.createElement('div')
     document.body.appendChild(target)
     orphans.push(target)
     mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
     selectCb([target], 'replace')
-    await new Promise(r => setTimeout(r, 10))
+    await vi.waitFor(() => {
+      expect(root.querySelector('.cortex-selection-overlay')).not.toBeNull()
+    }, { timeout: WAIT_FOR_COMMIT_MS })
 
     // Escape deselects, not exits (mock isRealEvent for cascading handler)
     vi.spyOn(focusUtils, 'isRealEvent').mockReturnValue(true)
     dispatchKeyboardEvent(window, 'keydown', { key: 'Escape' })
-    await new Promise(r => setTimeout(r, 10))
 
-    expect(root.querySelector('.cortex-toolbar')).not.toBeNull() // still active
-    expect(root.querySelector('.cortex-selection-overlay')).toBeNull() // deselected
+    await vi.waitFor(() => {
+      expect(root.querySelector('.cortex-toolbar')).not.toBeNull() // still active
+      expect(root.querySelector('.cortex-selection-overlay')).toBeNull() // deselected
+    }, { timeout: WAIT_FOR_COMMIT_MS })
     expect(channel._lastSent).not.toContainEqual({ type: 'cortex-closed' })
   })
 

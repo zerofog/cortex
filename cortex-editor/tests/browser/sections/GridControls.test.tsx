@@ -211,7 +211,7 @@ describe('GridControls', () => {
   // ── X/Y dropdown → justify-items / align-items ────────────────
 
   it('X dropdown change emits justify-items (NO swap, unlike flex)', async () => {
-    const { onChange } = setup()
+    const { onChange } = setup({ values: { justifyItems: 'start', alignItems: 'start' } })
     await openXDropdown()
     getOpenXYOption('center').click()
     await vi.waitFor(() => {
@@ -224,7 +224,7 @@ describe('GridControls', () => {
   })
 
   it('Y dropdown change emits align-items (NO swap, unlike flex)', async () => {
-    const { onChange } = setup()
+    const { onChange } = setup({ values: { justifyItems: 'start', alignItems: 'start' } })
     await openYDropdown()
     getOpenXYOption('start').click()
     await vi.waitFor(() => {
@@ -280,8 +280,7 @@ describe('GridControls', () => {
 
   // ── AlignmentGrid ──────────────────────────────────────────────
 
-  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
-  it.skip('AlignmentGrid top-center click emits canonical grid values (justify-items=center, align-items=start)', () => {
+  it('AlignmentGrid top-center click emits canonical grid values (justify-items=center, align-items=start)', () => {
     const { onChange } = setup({ values: { justifyItems: 'start', alignItems: 'start' } })
     const topCenter = container.querySelector(
       '.cortex-alignment-grid__cell[data-row="0"][data-col="1"]',
@@ -302,9 +301,8 @@ describe('GridControls', () => {
     ])
   })
 
-  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
-  it.skip('AlignmentGrid bottom-right click canonicalizes flex-end → end', () => {
-    const { onChange } = setup()
+  it('AlignmentGrid bottom-right click canonicalizes flex-end -> end', () => {
+    const { onChange } = setup({ values: { justifyItems: 'start', alignItems: 'start' } })
     const bottomRight = container.querySelector(
       '.cortex-alignment-grid__cell[data-row="2"][data-col="2"]',
     ) as HTMLButtonElement
@@ -321,8 +319,7 @@ describe('GridControls', () => {
     ])
   })
 
-  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
-  it.skip('AlignmentGrid active cell highlights correctly with grid canonical values', () => {
+  it('AlignmentGrid active cell highlights correctly with grid canonical values', () => {
     // GridControls passes grid values (start/end) through gridAlignToFlexAlign
     // so AlignmentGrid's internal flex-start/flex-end matching works.
     setup({ values: { justifyItems: 'center', alignItems: 'start' } })
@@ -336,8 +333,7 @@ describe('GridControls', () => {
     expect(activeCells.length).toBe(1)
   })
 
-  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
-  it.skip('AlignmentGrid distribute main-axis emits justify-content (track distribution, not item align)', async () => {
+  it('AlignmentGrid distribute main-axis emits justify-content (track distribution, not item align)', async () => {
     const { onChange } = setup({ values: { justifyItems: 'start', alignItems: 'start' } })
     // First dblclick → row overlay (cross axis). Second dblclick on a
     // different cell → col overlay (main axis).
@@ -365,8 +361,7 @@ describe('GridControls', () => {
     expect(calls(onChange, 'justify-items')).toEqual([])
   })
 
-  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
-  it.skip('AlignmentGrid distribute cross-axis emits align-content', async () => {
+  it('AlignmentGrid distribute cross-axis emits align-content', async () => {
     const { onChange } = setup({ values: { justifyItems: 'start', alignItems: 'start' } })
     const cell = container.querySelector(
       '.cortex-alignment-grid__cell[data-row="1"][data-col="1"]',

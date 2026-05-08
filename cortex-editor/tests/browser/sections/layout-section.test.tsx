@@ -97,7 +97,7 @@ describe('LayoutSection', () => {
   it('shows FlexControls for flex display with X/Y dropdowns', () => {
     setup({ values: { ...DEFAULT_VALUES, display: 'flex' } })
     expect(container.querySelector('.cortex-flex-controls')).not.toBeNull()
-    // AlignmentGrid hidden (ZF0-1211) — X/Y dropdowns still render.
+    expect(container.querySelector('.cortex-flex-controls .cortex-alignment-grid')).not.toBeNull()
     expect(
       container.querySelector('[data-xy-axis="x"] .cortex-xy-dropdown__trigger'),
     ).not.toBeNull()
@@ -109,6 +109,7 @@ describe('LayoutSection', () => {
   it('renders GridControls for grid display (Task 9 / ZF0-1187)', () => {
     setup({ values: { ...DEFAULT_VALUES, display: 'grid' } })
     expect(container.querySelector('.cortex-grid-controls')).not.toBeNull()
+    expect(container.querySelector('.cortex-grid-controls .cortex-alignment-grid')).not.toBeNull()
     expect(
       container.querySelector('.cortex-grid-controls [data-xy-axis="x"] .cortex-xy-dropdown__trigger'),
     ).not.toBeNull()
