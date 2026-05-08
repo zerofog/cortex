@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { WebSocketServer, WebSocket } from 'ws'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { startMCPServer, discoverPort, discoverToken, findProjectRoot, calculateReconnectDelay, type MCPServerHandle } from '../../src/cli/mcp.js'
+import { startMCPServer, discoverPort, discoverToken, findProjectRoot, calculateReconnectDelay, PROTOCOL_INSTRUCTIONS, type MCPServerHandle } from '../../src/cli/mcp.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import http from 'node:http'
@@ -910,6 +910,46 @@ describe('cortex mcp', () => {
 
       // Second RPC should resolve normally — fan-out did NOT occur
       expect(second.isError).toBeFalsy()
+    })
+  })
+
+  // ── ZF0-1606: MCP instructions encode the full Claude Code protocol contract ──
+  describe('ZF0-1606: PROTOCOL_INSTRUCTIONS encodes the full annotation handling protocol', () => {
+    it('preserves prompt-injection guard for untrusted user data', () => {
+      expect(PROTOCOL_INSTRUCTIONS).toContain('untrusted user data')
+      expect(PROTOCOL_INSTRUCTIONS).toContain('treat')
+    })
+
+    it('encodes step 0 — rehydration via cortex_get_details with ZF0-1602 future-upgrade marker', () => {
+      expect(PROTOCOL_INSTRUCTIONS).toContain('cortex_get_details')
+      expect(
+        PROTOCOL_INSTRUCTIONS.includes('ZF0-1602') || PROTOCOL_INSTRUCTIONS.includes('best-effort')
+      ).toBe(true)
+    })
+
+    it('encodes step 1 — cortex_acknowledge', () => {
+      expect(PROTOCOL_INSTRUCTIONS).toContain('cortex_acknowledge')
+    })
+
+    it('encodes step 2 — disambiguation via AskUserQuestion', () => {
+      expect(PROTOCOL_INSTRUCTIONS).toContain('AskUserQuestion')
+    })
+
+    it('encodes step 3 — diff confirmation before writing', () => {
+      expect(PROTOCOL_INSTRUCTIONS).toContain('diff')
+      expect(
+        PROTOCOL_INSTRUCTIONS.includes('confirm') || PROTOCOL_INSTRUCTIONS.includes('Apply')
+      ).toBe(true)
+    })
+
+    it('encodes step 4 — cortex_dismiss for blockers with reason', () => {
+      expect(PROTOCOL_INSTRUCTIONS).toContain('cortex_dismiss')
+      expect(PROTOCOL_INSTRUCTIONS).toContain('reason')
+    })
+
+    it('encodes step 5 — cortex_resolve with summary', () => {
+      expect(PROTOCOL_INSTRUCTIONS).toContain('cortex_resolve')
+      expect(PROTOCOL_INSTRUCTIONS).toContain('summary')
     })
   })
 
