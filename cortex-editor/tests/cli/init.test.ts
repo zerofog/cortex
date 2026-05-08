@@ -260,6 +260,33 @@ describe('cortex init', () => {
     }
   })
 
+  it('warns instead of crashing on CommonJS Vite configs', async () => {
+    const viteConfig = 'module.exports = { plugins: [] }\n'
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","vite":"^5.1.0"}}',
+      'vite.config.cjs': viteConfig,
+    })
+    try {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const result = await runInit(dir)
+
+        expect(result.detectedBundler).toBe('vite')
+        expect(result.vitePluginInjected).toBe(false)
+        expect(result.setupComplete).toBe(false)
+        expect(fs.readFileSync(path.join(dir, 'vite.config.cjs'), 'utf8')).toBe(viteConfig)
+        expect(fs.existsSync(path.join(dir, 'vite.config.ts'))).toBe(false)
+        expect(warnSpy.mock.calls.flat().join('\n')).toContain(
+          'CommonJS Vite configs cannot be auto-configured'
+        )
+      } finally {
+        warnSpy.mockRestore()
+      }
+    } finally {
+      cleanup(dir)
+    }
+  })
+
   it('prompts to install the missing Vite peer before treating an existing Vite config as complete', async () => {
     const viteConfig = [
       'import { defineConfig } from \'vite\'',
@@ -283,6 +310,7 @@ describe('cortex init', () => {
       expect(result.setupComplete).toBe(true)
       expect(promptInstall).toHaveBeenCalledWith(
         expect.objectContaining({
+          cwd: dir,
           reason: 'missing-vite-peer',
           packages: ['vite'],
         })
@@ -324,6 +352,7 @@ describe('cortex init', () => {
         expect(fs.readFileSync(path.join(dir, 'vite.config.ts'), 'utf8')).toBe(viteConfig)
         expect(promptInstall).toHaveBeenCalledWith(
           expect.objectContaining({
+            cwd: dir,
             reason: 'missing-vite-peer',
             packages: ['vite'],
           })
@@ -366,6 +395,7 @@ describe('cortex init', () => {
       expect(result.setupComplete).toBe(true)
       expect(promptInstall).toHaveBeenCalledWith(
         expect.objectContaining({
+          cwd: dir,
           reason: 'missing-vite-peer',
           packages: ['vite'],
         })
@@ -585,6 +615,7 @@ describe('cortex init', () => {
       expect(result.setupComplete).toBe(true)
       expect(promptInstall).toHaveBeenCalledWith(
         expect.objectContaining({
+          cwd: dir,
           packageManager: 'pnpm',
           packages: ['vite', '@vitejs/plugin-react'],
         })

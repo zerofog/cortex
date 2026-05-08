@@ -16,6 +16,7 @@ import {
 const VITE_SETUP_PACKAGES = ['vite', '@vitejs/plugin-react'] as const
 
 export interface PromptInstallRequest {
+  cwd: string
   packageManager: PackageManager
   packages: string[]
   reason: 'missing-bundler' | 'missing-vite-config' | 'missing-vite-peer'
@@ -238,11 +239,15 @@ async function defaultInstallPackages(request: InstallPackagesRequest): Promise<
 async function defaultPromptInstall(request: PromptInstallRequest): Promise<boolean> {
   if (!stdin.isTTY) return false
 
-  const command = createInstallRequest(request.packageManager, request.packages, process.cwd())
+  const command = createInstallRequest(request.packageManager, request.packages, request.cwd)
+  const promptCwd = path.resolve(request.cwd)
+  const cwdHint = promptCwd === path.resolve(process.cwd())
+    ? ''
+    : ` in ${promptCwd}`
   const rl = createInterface({ input: stdin, output: stdout })
   try {
     const answer = await rl.question(
-      `Cortex needs ${request.packages.join(' and ')} to configure source annotations. Run "${command.command} ${command.args.join(' ')}" now? [Y/n] `
+      `Cortex needs ${request.packages.join(' and ')} to configure source annotations. Run "${command.command} ${command.args.join(' ')}"${cwdHint} now? [Y/n] `
     )
     return answer.trim() === '' || /^y(es)?$/i.test(answer.trim())
   } finally {
@@ -438,7 +443,7 @@ async function ensurePackages(
   if (missing.length === 0) return true
 
   const promptInstall = options.promptInstall ?? defaultPromptInstall
-  const approved = await promptInstall({ packageManager, packages: missing, reason })
+  const approved = await promptInstall({ cwd, packageManager, packages: missing, reason })
   if (!approved) {
     const installRequest = createInstallRequest(packageManager, missing, cwd)
     console.warn(
@@ -558,13 +563,22 @@ export async function runInit(
 
     const basename = path.basename(viteConfigPath)
     const content = fs.readFileSync(viteConfigPath, 'utf8')
-    const sourceFile = createConfigSourceFile('vite.config.ts', content)
+    const sourceFile = createConfigSourceFile(basename, content)
 
     if (viteConfigUsesCortexEditor(sourceFile)) {
       vitePluginFound = true
       console.log(`  ${basename}: cortexEditor plugin found`)
       bundlerConfigured = vitePeerInstalled
     } else {
+      if (sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)
+        .some(binaryExpression => isCommonJsExportAssignment(binaryExpression))) {
+        console.warn(
+          `  ${basename}: CommonJS Vite configs cannot be auto-configured — use export default syntax or add cortexEditor() manually.`
+        )
+        vitePluginFound = false
+        return
+      }
+
       // Attempt AST-based injection
       // Check for syntax-level parse errors only (not type errors)
       const syntaxDiag = sourceFile.getPreEmitDiagnostics()
