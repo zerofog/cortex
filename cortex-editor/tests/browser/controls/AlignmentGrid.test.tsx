@@ -324,6 +324,53 @@ describe('AlignmentGrid', () => {
     expect(container.querySelector('.cortex-alignment-grid__span--col-baseline')).toBeNull()
   })
 
+  const interactiveSpanCases: Array<{
+    name: string
+    props: Partial<Parameters<typeof AlignmentGrid>[0]>
+    selector: string
+    label: string
+  }> = [
+    {
+      name: 'full-grid',
+      props: { justifyValue: 'stretch', alignValue: 'stretch' },
+      selector: '.cortex-alignment-grid__span--full',
+      label: 'Full alignment span indicator',
+    },
+    {
+      name: 'row',
+      props: { justifyValue: 'space-between', alignValue: 'center' },
+      selector: '.cortex-alignment-grid__span--row',
+      label: 'Distribution indicator',
+    },
+    {
+      name: 'row baseline',
+      props: { justifyValue: 'stretch', alignValue: 'baseline' },
+      selector: '.cortex-alignment-grid__span--row-baseline',
+      label: 'Baseline main-axis span indicator',
+    },
+    {
+      name: 'column',
+      props: { justifyValue: 'center', alignValue: 'stretch' },
+      selector: '.cortex-alignment-grid__span--col',
+      label: 'Stretch indicator',
+    },
+    {
+      name: 'column baseline',
+      props: { justifyValue: 'flex-end', alignValue: 'baseline' },
+      selector: '.cortex-alignment-grid__span--col-baseline',
+      label: 'Baseline indicator',
+    },
+  ]
+
+  it.each(interactiveSpanCases)('$name span indicator is a semantic button', ({ props, selector, label }) => {
+    setup(props)
+    const span = container.querySelector(selector)
+    expect(span).toBeInstanceOf(HTMLButtonElement)
+    expect((span as HTMLButtonElement).type).toBe('button')
+    expect(span!.getAttribute('role')).toBeNull()
+    expect(span!.getAttribute('aria-label')).toBe(label)
+  })
+
   // ── dblclick → overlay ────────────────────────────────────────────
 
   it('double-clicking opens a row overlay covering the target row', async () => {

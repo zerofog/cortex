@@ -358,9 +358,9 @@ export function AlignmentGrid({
       {/* Full-grid indicator — both axes non-positional (e.g. space-around +
           stretch). Distribution modes add edge dots; stretch-only modes do not. */}
       {!overlay && indicatorMode.type === 'full' && (
-        <div
+        <button
+          type="button"
           class="cortex-alignment-grid__span cortex-alignment-grid__span--full"
-          role="group"
           aria-label={fullSpanLabel}
           style={{ gridRow: '1 / -1', gridColumn: '1 / -1' }}
           onClick={(e) => {
@@ -387,14 +387,14 @@ export function AlignmentGrid({
           {showDistributionEdgeMarks && (
             <span class="cortex-alignment-grid__span-dot cortex-alignment-grid__span-dot--right" aria-hidden="true" />
           )}
-        </div>
+        </button>
       )}
       {/* Row/column span indicators — replace cells in one row or column
           with 3 bars. Figma spec: 2px wide, 1px rounded, ink color. */}
       {!overlay && indicatorMode.type === 'row' && alignValue !== 'baseline' && (
-        <div
+        <button
+          type="button"
           class="cortex-alignment-grid__span cortex-alignment-grid__span--row"
-          role="group"
           aria-label={rowSpanLabel}
           style={{ gridRow: `${indicatorMode.row + 1}`, gridColumn: '1 / -1' }}
           onClick={(e) => handleSpanClick(e, 'row', indicatorMode.row)}
@@ -403,12 +403,12 @@ export function AlignmentGrid({
           <span class="cortex-alignment-grid__span-bar" />
           <span class="cortex-alignment-grid__span-bar" />
           <span class="cortex-alignment-grid__span-bar" />
-        </div>
+        </button>
       )}
       {!overlay && indicatorMode.type === 'row' && alignValue === 'baseline' && (
-        <div
+        <button
+          type="button"
           class="cortex-alignment-grid__span cortex-alignment-grid__span--row cortex-alignment-grid__span--row-baseline"
-          role="group"
           aria-label={rowBaselineLabel}
           style={{ gridRow: `${indicatorMode.row + 1}`, gridColumn: '1 / -1' }}
           onClick={(e) => handleSpanClick(e, 'row', indicatorMode.row)}
@@ -422,12 +422,12 @@ export function AlignmentGrid({
           {showDistributionEdgeMarks && (
             <span class="cortex-alignment-grid__span-baseline-tick" aria-hidden="true" />
           )}
-        </div>
+        </button>
       )}
       {!overlay && indicatorMode.type === 'col' && alignValue !== 'baseline' && (
-        <div
+        <button
+          type="button"
           class="cortex-alignment-grid__span cortex-alignment-grid__span--col"
-          role="group"
           aria-label="Stretch indicator"
           style={{ gridColumn: `${indicatorMode.col + 1}`, gridRow: '1 / -1' }}
           onClick={(e) => handleSpanClick(e, 'col', indicatorMode.col)}
@@ -436,12 +436,12 @@ export function AlignmentGrid({
           <span class="cortex-alignment-grid__span-bar" />
           <span class="cortex-alignment-grid__span-bar" />
           <span class="cortex-alignment-grid__span-bar" />
-        </div>
+        </button>
       )}
       {!overlay && indicatorMode.type === 'col' && alignValue === 'baseline' && (
-        <div
+        <button
+          type="button"
           class="cortex-alignment-grid__span cortex-alignment-grid__span--col-baseline"
-          role="group"
           aria-label="Baseline indicator"
           style={{ gridColumn: `${indicatorMode.col + 1}`, gridRow: '1 / -1' }}
           onClick={(e) => handleSpanClick(e, 'col', indicatorMode.col)}
@@ -450,7 +450,7 @@ export function AlignmentGrid({
           <span class="cortex-alignment-grid__cell__dot" aria-hidden="true" />
           <Baseline class="cortex-alignment-grid__span-icon" />
           <span class="cortex-alignment-grid__cell__dot" aria-hidden="true" />
-        </div>
+        </button>
       )}
       {overlay?.axis === 'row' && (
         <div
