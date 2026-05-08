@@ -69,7 +69,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     import('../../core/text-components.js').TextComponent[] | undefined
   >(undefined)
   const [colorChips, setColorChips] = useState<
-    Array<{ name: string; hex: string }> | undefined
+    Array<{ name: string; hex: string; source?: 'page' | 'theme' }> | undefined
   >(undefined)
   const [spacingTokens, setSpacingTokens] = useState<
     import('../../core/tailwind-resolver.js').SpacingToken[] | undefined

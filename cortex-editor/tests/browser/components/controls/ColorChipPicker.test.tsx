@@ -9,6 +9,13 @@ const CHIPS: readonly ColorChip[] = [
   { name: 'brand-500', hex: '#3b82f6' },
 ]
 
+const GROUPED_CHIPS: readonly ColorChip[] = [
+  { name: 'blue-300', hex: '#91c5ff', source: 'page' },
+  { name: 'emerald-300', hex: '#5ee9b5', source: 'page' },
+  { name: 'amber-300', hex: '#ffd237', source: 'theme' },
+  { name: 'rose-300', hex: '#ffa1ad', source: 'theme' },
+]
+
 let container: HTMLDivElement
 
 afterEach(() => {
@@ -53,6 +60,25 @@ describe('ColorChipPicker', () => {
     expect(swatches).toHaveLength(2)
     expect(swatches[0]?.style.backgroundColor).toBe('#111827')
     expect(swatches[1]?.style.backgroundColor).toBe('#3b82f6')
+  })
+
+  it('splits page chips from remaining theme chips with headers', () => {
+    const root = mount(
+      <ColorChipPicker chips={GROUPED_CHIPS} currentName={null} onPick={() => {}} onDismiss={() => {}} />,
+    )
+
+    expect(root.querySelectorAll('.cortex-color-chip-picker__group-label')).toHaveLength(2)
+    expect(root.textContent).toContain('On this page')
+    expect(root.textContent).toContain('Theme colors')
+    expect(root.querySelector('.cortex-color-chip-picker__divider')).not.toBeNull()
+
+    const options = [...root.querySelectorAll('button.cortex-color-chip-picker__option')]
+    expect(options.map((option) => option.textContent)).toEqual([
+      'blue-300#91c5ff',
+      'emerald-300#5ee9b5',
+      'amber-300#ffd237',
+      'rose-300#ffa1ad',
+    ])
   })
 
   it('marks the option matching currentName as active + aria-selected', () => {

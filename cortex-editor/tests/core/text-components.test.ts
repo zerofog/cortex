@@ -152,8 +152,8 @@ describe('TailwindResolver.resolveColorChips', () => {
     )
     const result = await TailwindResolver.resolveColorChips(dir)
     expect(result).toEqual([
-      { name: 'brand-500', hex: '#3b82f6' },
-      { name: 'gray-900', hex: '#111827' },
+      { name: 'brand-500', hex: '#3b82f6', source: 'theme' },
+      { name: 'gray-900', hex: '#111827', source: 'theme' },
     ])
   })
 
@@ -197,12 +197,12 @@ describe('TailwindResolver.resolveColorChips', () => {
     const result = await TailwindResolver.resolveColorChips(dir)
 
     expect(result).toEqual([
-      { name: 'white', hex: '#ffffff' },
-      { name: 'slate-200', hex: '#e2e8f0' },
-      { name: 'slate-900', hex: '#0f172a' },
-      { name: 'blue-500', hex: '#3b82f6' },
-      { name: 'blue-700', hex: '#1d4ed8' },
-      { name: 'red-500', hex: '#ef4444' },
+      { name: 'white', hex: '#ffffff', source: 'page' },
+      { name: 'slate-200', hex: '#e2e8f0', source: 'page' },
+      { name: 'slate-900', hex: '#0f172a', source: 'page' },
+      { name: 'blue-500', hex: '#3b82f6', source: 'page' },
+      { name: 'blue-700', hex: '#1d4ed8', source: 'page' },
+      { name: 'red-500', hex: '#ef4444', source: 'theme' },
     ])
   })
 
@@ -254,6 +254,7 @@ describe('TailwindResolver.resolveColorChips', () => {
       'amber-700',
       'amber-900',
     ])
+    expect(new Set(result?.map((chip) => chip.source))).toEqual(new Set(['page']))
   })
 
   it('deduplicates same-value colors and prefers app theme names', async () => {
@@ -290,9 +291,9 @@ describe('TailwindResolver.resolveColorChips', () => {
     const result = await TailwindResolver.resolveColorChips(dir)
 
     expect(result).toEqual([
-      { name: 'surface', hex: '#ffffff' },
-      { name: 'border-muted', hex: '#e2e8f0' },
-      { name: 'red-500', hex: '#ef4444' },
+      { name: 'surface', hex: '#ffffff', source: 'page' },
+      { name: 'border-muted', hex: '#e2e8f0', source: 'page' },
+      { name: 'red-500', hex: '#ef4444', source: 'page' },
     ])
   })
 
@@ -329,7 +330,7 @@ describe('TailwindResolver.resolveColorChips', () => {
     const result = await TailwindResolver.resolveColorChips(dir)
 
     expect(result).toEqual([
-      { name: 'brand', hex: '#2563eb' },
+      { name: 'brand', hex: '#2563eb', source: 'page' },
     ])
   })
 })

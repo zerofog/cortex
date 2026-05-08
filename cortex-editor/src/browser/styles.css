@@ -2309,6 +2309,21 @@
   color: var(--cx-select);
 }
 
+.cortex-color-chip-picker__group-label {
+  padding: var(--cx-sp-2) var(--cx-sp-3) var(--cx-sp-1);
+  color: var(--cx-ink-ghost);
+  font-size: var(--cx-text-xs);
+  font-weight: var(--cx-weight-label);
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+}
+
+.cortex-color-chip-picker__divider {
+  height: 1px;
+  margin: var(--cx-sp-1) var(--cx-sp-2);
+  background: var(--cx-rule);
+}
+
 .cortex-color-chip-picker__swatch {
   width: 16px;
   height: 16px;

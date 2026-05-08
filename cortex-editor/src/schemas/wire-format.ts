@@ -244,7 +244,11 @@ export const serverToBrowserSchema = z.discriminatedUnion('type', [
     protocolVersion: z.number(),
     sessionId: z.string(),
     swatches: z.array(z.string()).optional(),
-    colorChips: z.array(z.object({ name: z.string(), hex: z.string() })).optional(),
+    colorChips: z.array(z.object({
+      name: z.string(),
+      hex: z.string(),
+      source: z.enum(['page', 'theme']).optional(),
+    })).optional(),
     textComponents: z
       .array(
         z.object({
