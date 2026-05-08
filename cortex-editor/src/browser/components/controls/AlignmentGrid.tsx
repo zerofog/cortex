@@ -27,10 +27,12 @@
  *     button             → fires onDistribute and dismisses
  *   - Click outside grid → dismisses without firing onDistribute
  *
- * Active cell detection: a cell is active iff `alignValue === alignForRow
- * && justifyValue === justifyForCol`. Non-canonical values (`stretch`,
- * `baseline`) leave the entire grid inactive — the caller falls back to
- * the X/Y dropdowns for those edge cases.
+ * Active indicator detection:
+ *   - positional values light up a single cell
+ *   - main-axis span values (`space-*`, grid `stretch`) replace a row
+ *   - cross-axis span values (`stretch`, `baseline`) replace a column
+ *   - both axes spanning replace the full grid, except baseline keeps the
+ *     A + underline row treatment
  *
  * No animation: DESIGN.md motion rules specify conditional controls mount
  * instantly. The overlay swap is plain show/hide, no transition.
@@ -110,7 +112,10 @@ interface OverlayState {
 
 // Distribution values: highlight the entire row (main axis).
 const DISTRIBUTION_VALUES = new Set(['space-between', 'space-around', 'space-evenly'])
-// Span values: highlight the entire column (cross axis).
+// Main-axis stretch is used by grid item alignment; visually it occupies
+// the row selected by the cross-axis value.
+const MAIN_SPAN_VALUES = new Set(['stretch'])
+// Cross-axis span values highlight the entire column.
 const SPAN_VALUES = new Set(['stretch', 'baseline'])
 
 type IndicatorMode =
@@ -123,7 +128,7 @@ type IndicatorMode =
 /**
  * Determine the grid indicator shape from the current axis values:
  *   - point: both axes positional → single active cell
- *   - row:   distribution on main axis → 3 bars spanning the row
+ *   - row:   distribution/stretch on main axis → 3 bars spanning the row
  *   - col:   stretch/baseline on cross axis → 3 bars spanning the column
  *   - full:  BOTH axes non-positional → 3 bars spanning the entire grid
  *   - none:  unrecognized combination → no indicator
@@ -131,17 +136,19 @@ type IndicatorMode =
 function getIndicatorMode(justifyValue: string, alignValue: string): IndicatorMode {
   const col = JUSTIFY_VALUES.indexOf(justifyValue as JustifyValue)
   const row = ALIGN_VALUES.indexOf(alignValue as AlignValue)
+  const spansMainAxis = DISTRIBUTION_VALUES.has(justifyValue) || MAIN_SPAN_VALUES.has(justifyValue)
+  const spansCrossAxis = SPAN_VALUES.has(alignValue)
 
   if (col >= 0 && row >= 0) return { type: 'point', row, col }
-  if (DISTRIBUTION_VALUES.has(justifyValue) && row >= 0) return { type: 'row', row }
-  if (SPAN_VALUES.has(alignValue) && col >= 0) return { type: 'col', col }
-  // Distribution + baseline → row 0 with baseline underline (A + line),
+  if (spansMainAxis && row >= 0) return { type: 'row', row }
+  if (spansCrossAxis && col >= 0) return { type: 'col', col }
+  // Main-axis span + baseline → row 0 with baseline underline (A + line),
   // not full-grid bars. Figma: A icon + underline in top row, 6 dots below.
-  if (DISTRIBUTION_VALUES.has(justifyValue) && alignValue === 'baseline') return { type: 'row', row: 0 }
-  // Distribution + stretch → full grid indicator (3 bars, no dots).
-  if (DISTRIBUTION_VALUES.has(justifyValue) && SPAN_VALUES.has(alignValue)) return { type: 'full' }
-  if (DISTRIBUTION_VALUES.has(justifyValue)) return { type: 'row', row: 1 }
-  if (SPAN_VALUES.has(alignValue)) return { type: 'col', col: 1 }
+  if (spansMainAxis && alignValue === 'baseline') return { type: 'row', row: 0 }
+  // Both axes span → full grid indicator (3 bars, no dots).
+  if (spansMainAxis && spansCrossAxis) return { type: 'full' }
+  if (spansMainAxis) return { type: 'row', row: 1 }
+  if (spansCrossAxis) return { type: 'col', col: 1 }
   return { type: 'none' }
 }
 
@@ -254,6 +261,8 @@ export function AlignmentGrid({
   )
 
   const indicatorMode = getIndicatorMode(justifyValue, alignValue)
+  const showDistributionEdgeMarks =
+    justifyValue === 'space-around' || justifyValue === 'space-evenly'
 
   function renderCell(row: number, col: number): JSX.Element {
     const active = indicatorMode.type === 'point' && indicatorMode.row === row && indicatorMode.col === col
@@ -351,13 +360,13 @@ export function AlignmentGrid({
             })
           }}
         >
-          {justifyValue !== 'space-between' && (
+          {showDistributionEdgeMarks && (
             <span class="cortex-alignment-grid__span-dot cortex-alignment-grid__span-dot--left" aria-hidden="true" />
           )}
           <span class="cortex-alignment-grid__span-bar" />
           <span class="cortex-alignment-grid__span-bar" />
           <span class="cortex-alignment-grid__span-bar" />
-          {justifyValue !== 'space-between' && (
+          {showDistributionEdgeMarks && (
             <span class="cortex-alignment-grid__span-dot cortex-alignment-grid__span-dot--right" aria-hidden="true" />
           )}
         </div>
@@ -387,12 +396,12 @@ export function AlignmentGrid({
           onClick={(e) => handleSpanClick(e, 'row', indicatorMode.row)}
           onDblClick={(e) => handleSpanDblClick(e, 'row', indicatorMode.row)}
         >
-          {justifyValue !== 'space-between' && (
+          {showDistributionEdgeMarks && (
             <span class="cortex-alignment-grid__span-baseline-tick" aria-hidden="true" />
           )}
           <Baseline class="cortex-alignment-grid__span-icon" />
           <span class="cortex-alignment-grid__span-baseline-line" aria-hidden="true" />
-          {justifyValue !== 'space-between' && (
+          {showDistributionEdgeMarks && (
             <span class="cortex-alignment-grid__span-baseline-tick" aria-hidden="true" />
           )}
         </div>

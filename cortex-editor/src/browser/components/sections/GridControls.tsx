@@ -406,8 +406,16 @@ export function GridControls({
         />
       </div>
 
-      {/* X/Y alignment dropdowns (AlignmentGrid hidden — ZF0-1211). */}
+      {/* Alignment — grid + X/Y dropdowns share one row. */}
       <div class={`cortex-grid-controls__align${isDimmed(dimmedProperties, 'justify-items', 'align-items', 'justify-content', 'align-content') ? ' cortex-control--dimmed' : ''}`}>
+        <AlignmentGrid
+          justifyValue={gridAlignToFlexAlign(justifyItems)}
+          alignValue={gridAlignToFlexAlign(alignItems)}
+          onJustify={handleGridJustify}
+          onAlign={handleGridAlign}
+          onDistribute={handleGridDistribute}
+          label="Grid alignment grid"
+        />
         <div class="cortex-grid-controls__xy">
           <div data-xy-axis="x" class="cortex-grid-controls__xy-field">
             <XYDropdown

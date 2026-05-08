@@ -346,7 +346,14 @@ export function FlexControls({
 
       {/* Alignment — grid + X/Y dropdowns share one row. */}
       <div class={`cortex-flex-controls__align${isDimmed(dimmedProperties, 'justify-content', 'align-items', 'align-content') ? ' cortex-control--dimmed' : ''}`}>
-        {/* AlignmentGrid hidden pending visual fixes — see ZF0-1211 */}
+        <AlignmentGrid
+          justifyValue={gridJustifyValue}
+          alignValue={gridAlignValue}
+          onJustify={handleGridJustify}
+          onAlign={handleGridAlign}
+          onDistribute={handleGridDistribute}
+          label="Flex alignment grid"
+        />
         <div class="cortex-flex-controls__xy">
           <div data-xy-axis="x" class="cortex-flex-controls__xy-field">
             <XYDropdown

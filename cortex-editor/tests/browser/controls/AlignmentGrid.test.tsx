@@ -225,6 +225,78 @@ describe('AlignmentGrid', () => {
     expect(bars.length).toBe(3)
   })
 
+  it('non-canonical justifyValue (stretch) replaces the row with a span indicator for grid X stretch', () => {
+    setup({ justifyValue: 'stretch', alignValue: 'center' })
+    const cells = getCells()
+    expect(cells.length).toBe(6)
+    const span = container.querySelector('.cortex-alignment-grid__span--row')
+    expect(span).not.toBeNull()
+    expect(span!.querySelectorAll('.cortex-alignment-grid__span-bar').length).toBe(3)
+  })
+
+  it('distribution + stretch renders a full-grid indicator with no blank cells', () => {
+    setup({ justifyValue: 'space-around', alignValue: 'stretch' })
+    expect(getCells().length).toBe(0)
+    const full = container.querySelector('.cortex-alignment-grid__span--full')
+    expect(full).not.toBeNull()
+    expect(full!.getAttribute('aria-label')).toBe('Full distribution indicator')
+    expect(full!.querySelectorAll('.cortex-alignment-grid__span-bar').length).toBe(3)
+  })
+
+  it('stretch + stretch renders a full-grid indicator for grid item stretch on both axes', () => {
+    setup({ justifyValue: 'stretch', alignValue: 'stretch' })
+    expect(getCells().length).toBe(0)
+    const full = container.querySelector('.cortex-alignment-grid__span--full')
+    expect(full).not.toBeNull()
+    expect(full!.querySelectorAll('.cortex-alignment-grid__span-bar').length).toBe(3)
+    expect(full!.querySelectorAll('.cortex-alignment-grid__span-dot').length).toBe(0)
+  })
+
+  it('baseline on a positional cross axis renders a column baseline indicator, not stretch bars', () => {
+    setup({ justifyValue: 'flex-end', alignValue: 'baseline' })
+    expect(getCells().length).toBe(6)
+    const span = container.querySelector('.cortex-alignment-grid__span--col-baseline')
+    expect(span).not.toBeNull()
+    expect(span!.getAttribute('aria-label')).toBe('Baseline indicator')
+    expect(span!.querySelector('.cortex-alignment-grid__span-icon')).not.toBeNull()
+    expect(span!.querySelectorAll('.cortex-alignment-grid__cell__dot').length).toBe(2)
+    expect(span!.querySelectorAll('.cortex-alignment-grid__span-bar').length).toBe(0)
+    expect(container.querySelector('.cortex-alignment-grid__span--full')).toBeNull()
+  })
+
+  it('space-between + baseline renders the row baseline without edge ticks', () => {
+    setup({ justifyValue: 'space-between', alignValue: 'baseline' })
+    expect(getCells().length).toBe(6)
+    const span = container.querySelector('.cortex-alignment-grid__span--row-baseline')
+    expect(span).not.toBeNull()
+    expect(span!.getAttribute('aria-label')).toBe('Baseline distribution indicator')
+    expect(span!.querySelector('.cortex-alignment-grid__span-icon')).not.toBeNull()
+    expect(span!.querySelector('.cortex-alignment-grid__span-baseline-line')).not.toBeNull()
+    expect(span!.querySelectorAll('.cortex-alignment-grid__span-baseline-tick').length).toBe(0)
+    expect(span!.querySelectorAll('.cortex-alignment-grid__span-bar').length).toBe(0)
+  })
+
+  it('space-around + baseline renders the baseline row with tick marks, not full-grid bars', () => {
+    setup({ justifyValue: 'space-around', alignValue: 'baseline' })
+    expect(getCells().length).toBe(6)
+    const span = container.querySelector('.cortex-alignment-grid__span--row-baseline')
+    expect(span).not.toBeNull()
+    expect(span!.querySelector('.cortex-alignment-grid__span-baseline-line')).not.toBeNull()
+    expect(span!.querySelectorAll('.cortex-alignment-grid__span-baseline-tick').length).toBe(2)
+    expect(span!.querySelectorAll('.cortex-alignment-grid__span-bar').length).toBe(0)
+    expect(container.querySelector('.cortex-alignment-grid__span--full')).toBeNull()
+  })
+
+  it('stretch + baseline renders a baseline row without distribution tick marks', () => {
+    setup({ justifyValue: 'stretch', alignValue: 'baseline' })
+    expect(getCells().length).toBe(6)
+    const span = container.querySelector('.cortex-alignment-grid__span--row-baseline')
+    expect(span).not.toBeNull()
+    expect(span!.querySelector('.cortex-alignment-grid__span-baseline-line')).not.toBeNull()
+    expect(span!.querySelectorAll('.cortex-alignment-grid__span-baseline-tick').length).toBe(0)
+    expect(container.querySelector('.cortex-alignment-grid__span--col-baseline')).toBeNull()
+  })
+
   // ── dblclick → overlay ────────────────────────────────────────────
 
   it('double-clicking opens a row overlay covering the target row', async () => {

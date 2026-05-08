@@ -162,7 +162,7 @@ describe('FlexControls', () => {
   })
 
   it('column direction: X dropdown change emits align-items (SWAPPED from row)', async () => {
-    const { onChange } = setup({ values: { flexDirection: 'column' } })
+    const { onChange } = setup({ values: { flexDirection: 'column', alignItems: 'flex-start' } })
     await openXDropdown()
     getOpenXYOption('center').click()
     await vi.waitFor(() => {
@@ -173,7 +173,7 @@ describe('FlexControls', () => {
   })
 
   it('column direction: Y dropdown change emits justify-content (SWAPPED from row)', async () => {
-    const { onChange } = setup({ values: { flexDirection: 'column' } })
+    const { onChange } = setup({ values: { flexDirection: 'column', alignItems: 'flex-start' } })
     await openYDropdown()
     getOpenXYOption('flex-start').click()
     await vi.waitFor(() => {
@@ -208,8 +208,7 @@ describe('FlexControls', () => {
     expect(calls(onChange, 'align-items')).toEqual([])
   })
 
-  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
-  it.skip('row direction: AlignmentGrid top-center click emits justify-content=center AND align-items=flex-start', () => {
+  it('row direction: AlignmentGrid top-center click emits justify-content=center AND align-items=flex-start', () => {
     const { onChange } = setup({ values: { flexDirection: 'row' } })
     const topCenter = container.querySelector(
       '.cortex-alignment-grid__cell[data-row="0"][data-col="1"]',
@@ -225,9 +224,8 @@ describe('FlexControls', () => {
     ])
   })
 
-  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
-  it.skip('column direction: AlignmentGrid top-center click emits SWAPPED properties', () => {
-    const { onChange } = setup({ values: { flexDirection: 'column' } })
+  it('column direction: AlignmentGrid top-center click emits SWAPPED properties', () => {
+    const { onChange } = setup({ values: { flexDirection: 'column', alignItems: 'flex-start' } })
     // In column mode, caller reverse-maps the grid input so the visual
     // top-center cell still represents "horizontal center, vertical start".
     // After swap: onJustify(center) → align-items; onAlign(flex-start) → justify-content.
@@ -243,8 +241,7 @@ describe('FlexControls', () => {
     ])
   })
 
-  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
-  it.skip('row direction: AlignmentGrid distribute main-axis emits justify-content', async () => {
+  it('row direction: AlignmentGrid distribute main-axis emits justify-content', async () => {
     const { onChange } = setup({ values: { flexDirection: 'row', alignItems: 'flex-start' } })
     // Open the overlay via dblclick. First dblclick → row overlay (cross axis).
     // Second dblclick → col overlay (main axis). Pick main axis to check
@@ -272,8 +269,7 @@ describe('FlexControls', () => {
     ])
   })
 
-  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
-  it.skip('row direction: AlignmentGrid distribute cross-axis emits align-content', async () => {
+  it('row direction: AlignmentGrid distribute cross-axis emits align-content', async () => {
     const { onChange } = setup({ values: { flexDirection: 'row' } })
     // First dblclick → row overlay (cross axis).
     const cell = container.querySelector(
@@ -293,9 +289,8 @@ describe('FlexControls', () => {
     ])
   })
 
-  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
-  it.skip('column direction: AlignmentGrid distribute main-axis emits justify-content', async () => {
-    const { onChange } = setup({ values: { flexDirection: 'column' } })
+  it('column direction: AlignmentGrid distribute main-axis emits justify-content', async () => {
+    const { onChange } = setup({ values: { flexDirection: 'column', alignItems: 'flex-start' } })
     const cell = container.querySelector(
       '.cortex-alignment-grid__cell[data-row="0"][data-col="0"]',
     ) as HTMLButtonElement
@@ -320,8 +315,7 @@ describe('FlexControls', () => {
     ])
   })
 
-  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
-  it.skip('column direction: AlignmentGrid distribute cross-axis emits align-content', async () => {
+  it('column direction: AlignmentGrid distribute cross-axis emits align-content', async () => {
     const { onChange } = setup({ values: { flexDirection: 'column' } })
     const cell = container.querySelector(
       '.cortex-alignment-grid__cell[data-row="1"][data-col="1"]',
@@ -563,8 +557,7 @@ describe('FlexControls', () => {
   // `parseLayoutValues reads gap and flex-wrap fields from a
   // CSSStyleDeclaration` + the `defaults gap and flex-wrap` sibling.)
 
-  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
-  it.skip('column mode: AlignmentGrid receives reverse-mapped align/justify props so the visual active cell matches user intent', () => {
+  it('column mode: AlignmentGrid receives reverse-mapped align/justify props so the visual active cell matches user intent', () => {
     // User has set "horizontal=center, vertical=start" on a column flex.
     // In CSS that reads as: align-items=center, justify-content=flex-start.
     // The AlignmentGrid, which is always parameterized in ROW semantics,
@@ -595,8 +588,7 @@ describe('FlexControls', () => {
     expect(activeCount).toBe(1)
   })
 
-  // TODO(ZF0-1211): re-enable when AlignmentGrid is visible
-  it.skip('row mode: AlignmentGrid receives direct props so the visual active cell matches user intent', () => {
+  it('row mode: AlignmentGrid receives direct props so the visual active cell matches user intent', () => {
     setup({
       values: {
         flexDirection: 'row',
