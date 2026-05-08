@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
+import { act } from 'preact/test-utils'
 import {
   TypographySection,
   parseTypographyValues,
@@ -10,6 +11,10 @@ import type {
 } from '../../../src/browser/components/sections/TypographySection.js'
 import type { TextComponent } from '../../../src/core/text-components.js'
 import type { ColorChip } from '../../../src/browser/token-detector.js'
+import {
+  TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP,
+  TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP,
+} from '../../../src/browser/alignment-router.js'
 
 /**
  * Replacement test suite for ZF0-1215 Task 18 — the section was rewritten to
@@ -22,10 +27,10 @@ import type { ColorChip } from '../../../src/browser/token-detector.js'
  *   text-component dispatch surface). That file is authoritative for
  *   link-text-component / unlink-text-component removeClass shape.
  * - This file covers rendering (linked vs unlinked vs degraded), plain
- *   property dispatch (font-size / line-height / letter-spacing / text-align
+ *   property dispatch (font-size / line-height / letter-spacing / alignment
  *   / color), color-chip dispatch (link / unlink / swap), value parsing
- *   (color strings, verticalAlign derivation), dimmed/mixed states, and
- *   the vertical-align UI deferral.
+ *   (color strings, context-aware alignment derivation), dimmed/mixed states,
+ *   and the vertical-align height precondition.
  *
  * CLAUDE.md anti-patterns honored:
  *   - No shadow copies of production logic.
@@ -62,6 +67,14 @@ const DEFAULT_VALUES: TypographyValues = {
   letterSpacing: 0,
   textAlign: 'left',
   verticalAlign: '',
+  display: 'block',
+  flexDirection: 'row',
+  justifyContent: 'flex-start',
+  alignItems: 'stretch',
+  height: '24px',
+  minHeight: '0px',
+  canAlignVertically: false,
+  verticalAlignDisabledReason: TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP,
   color: 'rgb(107, 114, 128)',
 }
 
@@ -73,8 +86,6 @@ afterEach(() => {
     container.remove()
   }
 })
-
-const flushEffects = (): Promise<void> => new Promise((r) => setTimeout(r, 10))
 
 function setup(
   overrides?: Partial<Parameters<typeof TypographySection>[0]>,
@@ -139,6 +150,15 @@ function findPropertyChange(
   return collectChanges(onChange).find(
     (c): c is { property: string; value: string } => 'property' in c && c.property === property,
   )
+}
+
+function findAlignmentGroupByOptionValue(optionValue: string): HTMLElement {
+  const groups = Array.from(
+    container.querySelectorAll('.cortex-typography-section__align-row [role="radiogroup"]'),
+  ) as HTMLElement[]
+  const group = groups.find((g) => g.querySelector(`[data-value="${optionValue}"]`))
+  if (!group) throw new Error(`Alignment radiogroup with option ${optionValue} not found`)
+  return group
 }
 
 // ── Rendering ────────────────────────────────────────────────────────────
@@ -213,8 +233,9 @@ describe('TypographySection v2 — rendering', () => {
       // for alpha) nor the typography raw controls are present. Asserting on
       // a mixed state would confuse alpha's NumericInput with a typography one.
       setup({ className: 'text-body-md text-brand-500' })
-      // Load-bearing hold — NOT vi.waitFor; negative assertions would pass immediately.
-      await flushEffects()
+      await vi.waitFor(() => {
+        expect(container.querySelectorAll('.cortex-token-chip')).toHaveLength(2)
+      }, { timeout: 500 })
       expect(container.querySelector('.cortex-typography-section__t-button')).toBeNull()
       expect(container.querySelectorAll('.cortex-numeric-input')).toHaveLength(0)
     })
@@ -287,23 +308,29 @@ describe('TypographySection v2 — plain property dispatch', () => {
     expect(call?.value).toBe(expected)
   })
 
-  it('emits text-align via the horizontal SegmentedControl', () => {
+  it('emits horizontal alignment intent via the horizontal SegmentedControl', () => {
     const { onChange } = setup({ className: '' })
-    const groups = container.querySelectorAll('[role="radiogroup"]')
-    const alignGroup = groups[groups.length - 1] as HTMLElement
+    const alignGroup = findAlignmentGroupByOptionValue('left')
     const centerBtn = alignGroup.querySelector('[data-value="center"]') as HTMLElement
     centerBtn.click()
-    expect(onChange).toHaveBeenCalledWith({ property: 'text-align', value: 'center' })
+    expect(onChange).toHaveBeenCalledWith({
+      kind: 'typography-align',
+      axis: 'horizontal',
+      value: 'center',
+    })
   })
 
   it('emits color change when a valid hex is entered and blurred', async () => {
     const { onChange } = setup({ className: '' })
     const hex = container.querySelector('.cortex-color-input__hex') as HTMLInputElement
-    hex.focus()
-    hex.value = '#ff0000'
-    hex.dispatchEvent(new Event('input', { bubbles: true }))
-    await flushEffects()
-    hex.dispatchEvent(new Event('blur', { bubbles: true }))
+    await act(() => {
+      hex.focus()
+      hex.value = '#ff0000'
+      hex.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(() => {
+      hex.dispatchEvent(new Event('blur', { bubbles: true }))
+    })
     await vi.waitFor(() => {
       expect(findPropertyChange(onChange, 'color')?.value).toBe('#ff0000')
     }, { timeout: 500 })
@@ -312,23 +339,78 @@ describe('TypographySection v2 — plain property dispatch', () => {
   it('reverts invalid hex input on blur AND suppresses color emission', async () => {
     const { onChange } = setup({ className: '' })
     const hex = container.querySelector('.cortex-color-input__hex') as HTMLInputElement
-    hex.focus()
-    hex.value = 'notahex'
-    hex.dispatchEvent(new Event('input', { bubbles: true }))
-    await flushEffects()
-    hex.dispatchEvent(new Event('blur', { bubbles: true }))
-    await flushEffects()
-    expect(hex.value).toBe('#6b7280')
+    await act(() => {
+      hex.focus()
+      hex.value = 'notahex'
+      hex.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(() => {
+      hex.dispatchEvent(new Event('blur', { bubbles: true }))
+    })
+    await vi.waitFor(() => {
+      expect(hex.value).toBe('#6b7280')
+    }, { timeout: 500 })
     expect(findPropertyChange(onChange, 'color')).toBeUndefined()
   })
 
-  it('vertical-align SegmentedControl is NOT rendered (Task 17 deferred UI)', () => {
-    setup({ className: '' })
+  it('renders disabled vertical alignment controls with Layout recovery tooltip when block height is content-sized', () => {
+    const { onChange } = setup({ className: '' })
     const alignRow = container.querySelector('.cortex-typography-section__align-row')
     expect(alignRow).not.toBeNull()
-    // Only the horizontal SegmentedControl should be present in the row.
     const groups = alignRow!.querySelectorAll('[role="radiogroup"]')
-    expect(groups).toHaveLength(1)
+    expect(groups).toHaveLength(2)
+    const verticalGroup = findAlignmentGroupByOptionValue('flex-start')
+    const middle = verticalGroup.querySelector('[data-value="center"]') as HTMLElement
+    expect(middle.getAttribute('aria-disabled')).toBe('true')
+    expect(middle.getAttribute('data-tooltip')).toBe(TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP)
+    middle.click()
+    expect(onChange).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'typography-align', axis: 'vertical' }),
+    )
+  })
+
+  it('renders disabled vertical alignment controls with display recovery tooltip for grid elements', () => {
+    const { onChange } = setup({
+      className: '',
+      values: {
+        ...DEFAULT_VALUES,
+        display: 'grid',
+        height: '80px',
+        canAlignVertically: false,
+        verticalAlignDisabledReason: TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP,
+      },
+    })
+    const verticalGroup = findAlignmentGroupByOptionValue('flex-start')
+    const middle = verticalGroup.querySelector('[data-value="center"]') as HTMLElement
+
+    expect(middle.getAttribute('aria-disabled')).toBe('true')
+    expect(middle.getAttribute('data-tooltip')).toBe(TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP)
+    middle.click()
+    expect(onChange).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'typography-align', axis: 'vertical' }),
+    )
+  })
+
+  it('emits vertical alignment intent when the element has Layout height room', () => {
+    const { onChange } = setup({
+      className: '',
+      values: {
+        ...DEFAULT_VALUES,
+        height: '80px',
+        canAlignVertically: true,
+      },
+    })
+    const verticalGroup = findAlignmentGroupByOptionValue('flex-start')
+    const top = verticalGroup.querySelector('[data-value="flex-start"]') as HTMLElement
+    const middle = verticalGroup.querySelector('[data-value="center"]') as HTMLElement
+    expect(middle.getAttribute('aria-disabled')).toBeNull()
+    expect(top.getAttribute('tabindex')).toBe('0')
+    middle.click()
+    expect(onChange).toHaveBeenCalledWith({
+      kind: 'typography-align',
+      axis: 'vertical',
+      value: 'center',
+    })
   })
 })
 
@@ -427,7 +509,7 @@ describe('parseTypographyValues', () => {
     // Minimal shape — happy-dom doesn't give us a real CSSStyleDeclaration,
     // so we cast a plain object. Properties the function reads: fontFamily,
     // fontSize, fontWeight, lineHeight, letterSpacing, textAlign, color,
-    // display, flexDirection, alignItems.
+    // display, flexDirection, alignItems, justifyContent, height, minHeight.
     return {
       fontFamily: 'Inter',
       fontSize: '16px',
@@ -438,30 +520,105 @@ describe('parseTypographyValues', () => {
       color: 'rgb(0, 0, 0)',
       display: 'block',
       flexDirection: 'row',
+      justifyContent: 'flex-start',
       alignItems: 'stretch',
+      height: '24px',
+      minHeight: '0px',
       ...partial,
     } as CSSStyleDeclaration
   }
 
-  it('returns verticalAlign as alignItems ONLY when display:flex + flex-direction:column', () => {
+  it('reads flex-column screen axes from align-items and justify-content', () => {
     const values = parseTypographyValues(
-      fakeCS({ display: 'flex', flexDirection: 'column', alignItems: 'center' }),
+      fakeCS({
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+      }),
     )
+    expect(values.textAlign).toBe('center')
+    expect(values.verticalAlign).toBe('flex-end')
+  })
+
+  it('reads flex-row screen axes from justify-content and align-items', () => {
+    const values = parseTypographyValues(
+      fakeCS({
+        display: 'flex',
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        alignItems: 'center',
+      }),
+    )
+    expect(values.textAlign).toBe('right')
     expect(values.verticalAlign).toBe('center')
   })
 
-  it('returns verticalAlign as empty string for non-column layouts (prevents writing a misleading default)', () => {
-    // display:block (default) — vertical-align is not meaningful; must return '' so
-    // the SegmentedControl renders unselected rather than showing a garbage value.
-    expect(parseTypographyValues(fakeCS({ display: 'block' })).verticalAlign).toBe('')
-    // display:flex + flex-direction:row — align-items is cross-axis (vertical)
-    // but the Typography section's vertical SegmentedControl is specifically
-    // for column layouts where align-items IS the vertical axis. Row layouts
-    // return '' to avoid misrouting.
+  it('reads flex-row-reverse main-axis alignment as screen horizontal alignment', () => {
+    const values = parseTypographyValues(
+      fakeCS({
+        display: 'flex',
+        flexDirection: 'row-reverse',
+        justifyContent: 'flex-start',
+        alignItems: 'center',
+      }),
+    )
+    expect(values.textAlign).toBe('right')
+    expect(values.verticalAlign).toBe('center')
+  })
+
+  it('reads flex-column-reverse main-axis alignment as screen vertical alignment', () => {
+    const values = parseTypographyValues(
+      fakeCS({
+        display: 'flex',
+        flexDirection: 'column-reverse',
+        alignItems: 'flex-end',
+        justifyContent: 'flex-start',
+      }),
+    )
+    expect(values.textAlign).toBe('right')
+    expect(values.verticalAlign).toBe('flex-end')
+  })
+
+  it('leaves horizontal control unselected for unsupported flex alignment values', () => {
     expect(
-      parseTypographyValues(fakeCS({ display: 'flex', flexDirection: 'row', alignItems: 'center' }))
-        .verticalAlign,
+      parseTypographyValues(fakeCS({
+        display: 'flex',
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+      })).textAlign,
     ).toBe('')
+    expect(
+      parseTypographyValues(fakeCS({
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'stretch',
+      })).textAlign,
+    ).toBe('')
+  })
+
+  it('keeps block vertical alignment disabled until height or min-height creates space', () => {
+    const contentSized = parseTypographyValues(fakeCS({ display: 'block', height: '24px' }))
+    expect(contentSized.textAlign).toBe('left')
+    expect(contentSized.verticalAlign).toBe('')
+    expect(contentSized.canAlignVertically).toBe(false)
+    expect(contentSized.verticalAlignDisabledReason).toBe(TYPOGRAPHY_VERTICAL_DISABLED_TOOLTIP)
+
+    const tall = parseTypographyValues(fakeCS({ display: 'block', height: '80px' }))
+    expect(tall.canAlignVertically).toBe(true)
+    expect(tall.verticalAlignDisabledReason).toBeNull()
+
+    const minTall = parseTypographyValues(fakeCS({ display: 'block', minHeight: '80px' }))
+    expect(minTall.canAlignVertically).toBe(true)
+    expect(minTall.verticalAlignDisabledReason).toBeNull()
+  })
+
+  it('disables vertical alignment for grid displays instead of treating them as block', () => {
+    const values = parseTypographyValues(fakeCS({ display: 'grid', height: '80px' }))
+    expect(values.textAlign).toBe('left')
+    expect(values.verticalAlign).toBe('')
+    expect(values.canAlignVertically).toBe(false)
+    expect(values.verticalAlignDisabledReason).toBe(TYPOGRAPHY_VERTICAL_UNSUPPORTED_DISPLAY_TOOLTIP)
   })
 })
 
@@ -508,6 +665,40 @@ describe('TypographySection v2 — dimmed + mixed props', () => {
     })
     const alignGroup = container.querySelector('.cortex-typography-section__align-row [role="radiogroup"]')
     expect(alignGroup?.textContent).toContain('Mixed')
+  })
+
+  it('maps flex-row mixed properties to the same screen axes as alignment writes', () => {
+    setup({
+      className: '',
+      values: {
+        ...DEFAULT_VALUES,
+        display: 'flex',
+        flexDirection: 'row',
+        textAlign: 'center',
+        verticalAlign: 'center',
+        canAlignVertically: true,
+      },
+      mixedProperties: new Set(['align-items']),
+    })
+    expect(findAlignmentGroupByOptionValue('left').textContent).not.toContain('Mixed')
+    expect(findAlignmentGroupByOptionValue('flex-start').textContent).toContain('Mixed')
+  })
+
+  it('maps flex-column mixed properties to the same screen axes as alignment writes', () => {
+    setup({
+      className: '',
+      values: {
+        ...DEFAULT_VALUES,
+        display: 'flex',
+        flexDirection: 'column',
+        textAlign: 'right',
+        verticalAlign: 'center',
+        canAlignVertically: true,
+      },
+      mixedProperties: new Set(['align-items']),
+    })
+    expect(findAlignmentGroupByOptionValue('left').textContent).toContain('Mixed')
+    expect(findAlignmentGroupByOptionValue('flex-start').textContent).not.toContain('Mixed')
   })
 })
 
