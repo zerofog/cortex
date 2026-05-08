@@ -1,0 +1,39 @@
+cortex-editor/tests/browser/sections/typography-section.dispatch.test.tsx
+  s_075690dccddd81::t_1a2b1bcdfaec32 55
+cortex-editor/src/browser/alignment-router.ts
+  s_075690dccddd81::t_d9e21c0b804674 200,209
+  s_075690dccddd81::t_dfb8612c81ddc3 226,251
+  s_075690dccddd81::t_6d597e77f5b396 156,158,164
+  s_075690dccddd81::t_7622be4e80d9ec 184-195
+  s_075690dccddd81::t_2e86e9bb97c43b 36-86
+cortex-editor/tests/browser/sections/typography-section.test.tsx
+  s_075690dccddd81::t_445f25500fdb36 621
+  s_075690dccddd81::t_747fef8c2f273a 77
+  s_075690dccddd81::t_f3c6dbac9e321d 380
+  s_075690dccddd81::t_6d9e3f736a2ef6 605
+cortex-editor/tests/browser/alignment-router.test.ts
+  s_075690dccddd81::t_953e6f89c6fbc3 147
+  s_075690dccddd81::t_17816b5b5873d7 107
+  s_075690dccddd81::t_554fbad0cabfd3 173-197
+  s_075690dccddd81::t_c2c1f89a9e4173 134
+cortex-editor/src/browser/components/sections/TypographySection.tsx
+  s_075690dccddd81::t_58450cda8520e7 28
+  s_075690dccddd81::t_2a065292308603 94
+  s_075690dccddd81::t_9197f28919f08e 673
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "ca8b9b318a15d586f82c0c98f9c47fd8a9f742b5",
+  "prompts": {},
+  "sessions": {
+    "s_075690dccddd81": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "05da7b77-69fa-47d2-b6de-aaba3d784ec3",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
