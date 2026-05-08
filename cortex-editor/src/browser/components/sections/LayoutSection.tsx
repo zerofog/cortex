@@ -230,6 +230,7 @@ export function LayoutSection({
           <SpacingControls
             padding={spacing.padding}
             margin={spacing.margin}
+            boxSizing={values.boxSizing}
             onChange={onSpacingChange}
             onScrub={onSpacingScrub}
             onScrubEnd={onSpacingScrubEnd}

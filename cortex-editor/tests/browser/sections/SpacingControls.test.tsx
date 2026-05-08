@@ -35,11 +35,84 @@ describe('SpacingControls', () => {
   it('renders Spacing label with P/M prefix inputs', () => {
     setup()
     expect(container.textContent).toContain('Spacing')
-    const labels = [...container.querySelectorAll('.cortex-numeric-input__prefix span')]
+    const labels = [...container.querySelectorAll('.cortex-spacing-row .cortex-numeric-input__prefix span')]
       .map((label) => label.textContent)
     expect(labels).toEqual(['P', 'P', 'M', 'M'])
     expect(container.textContent).not.toContain('\u2194')
     expect(container.textContent).not.toContain('\u2195')
+  })
+
+  it('renders a compact box model diagram with margin, border, padding, and content regions', () => {
+    setup({
+      boxSizing: 'border-box',
+      padding: { top: 8, right: 12, bottom: 16, left: 20 },
+      margin: { top: 2, right: 4, bottom: 6, left: 8 },
+    })
+    const diagram = container.querySelector('[data-testid="spacing-box-model-diagram"]')
+    expect(diagram).not.toBeNull()
+    expect(diagram!.getAttribute('data-box-sizing')).toBe('border-box')
+    expect(diagram!.querySelector('.cortex-box-model__layer--margin')).not.toBeNull()
+    expect(diagram!.querySelector('.cortex-box-model__layer--border')).not.toBeNull()
+    expect(diagram!.querySelector('.cortex-box-model__layer--padding')).not.toBeNull()
+    expect(diagram!.querySelector('.cortex-box-model__content')).not.toBeNull()
+
+    expect(diagram!.querySelector('[data-layer="margin"][data-side="left"]')?.textContent).toBe('8')
+    expect(diagram!.querySelector('[data-layer="padding"][data-side="bottom"]')?.textContent).toBe('16')
+    expect(diagram!.textContent).toContain('content')
+    expect(diagram!.textContent).toContain('border-box')
+  })
+
+  it('clicking a padding side opens exact-side editing and emits only that padding property', async () => {
+    const { onChange } = setup({
+      padding: { top: 8, right: 12, bottom: 16, left: 20 },
+      margin: DEFAULT_MARGIN,
+    })
+
+    const topPadding = container.querySelector('[data-layer="padding"][data-side="top"]') as HTMLElement
+    expect(topPadding).not.toBeNull()
+    topPadding.click()
+
+    await vi.waitFor(() => {
+      expect(topPadding.getAttribute('aria-pressed')).toBe('true')
+    }, { timeout: 500 })
+
+    const editor = container.querySelector('[data-testid="spacing-box-model-side-editor"]')!
+    expect(editor.textContent).toContain('Padding top')
+    const input = editor.querySelector('.cortex-numeric-input input') as HTMLInputElement
+    input.focus()
+    input.value = '18'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+
+    expect(onChange).toHaveBeenCalledWith({ property: 'padding-top', value: '18px' })
+    expect(onChange).not.toHaveBeenCalledWith({ property: 'padding-bottom', value: '18px' })
+    expect(onChange).not.toHaveBeenCalledWith({ property: 'padding-left', value: '18px' })
+    expect(onChange).not.toHaveBeenCalledWith({ property: 'padding-right', value: '18px' })
+  })
+
+  it('clicking a margin side opens exact-side editing and allows negative values', async () => {
+    const { onChange } = setup({
+      padding: DEFAULT_PADDING,
+      margin: { top: 0, right: 0, bottom: 0, left: 4 },
+    })
+
+    const leftMargin = container.querySelector('[data-layer="margin"][data-side="left"]') as HTMLElement
+    expect(leftMargin).not.toBeNull()
+    leftMargin.click()
+
+    await vi.waitFor(() => {
+      expect(leftMargin.getAttribute('aria-pressed')).toBe('true')
+    }, { timeout: 500 })
+
+    const editor = container.querySelector('[data-testid="spacing-box-model-side-editor"]')!
+    expect(editor.textContent).toContain('Margin left')
+    const input = editor.querySelector('.cortex-numeric-input input') as HTMLInputElement
+    input.focus()
+    input.value = '-12'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+
+    expect(onChange).toHaveBeenCalledWith({ property: 'margin-left', value: '-12px' })
   })
 
   it('renders data-section attributes for padding and margin', () => {
@@ -50,9 +123,9 @@ describe('SpacingControls', () => {
 
   it('uses P/M text plus Lucide axis icons in prefix slots', () => {
     setup()
-    const prefixes = container.querySelectorAll('.cortex-numeric-input__prefix')
+    const prefixes = container.querySelectorAll('.cortex-spacing-row .cortex-numeric-input__prefix')
     expect(prefixes.length).toBe(4)
-    const svgInPrefixes = container.querySelectorAll('.cortex-numeric-input__prefix svg')
+    const svgInPrefixes = container.querySelectorAll('.cortex-spacing-row .cortex-numeric-input__prefix svg')
     expect(svgInPrefixes.length).toBe(4)
 
     // ArrowLeftRight: horizontal axis; ArrowUpDown: vertical axis. These path

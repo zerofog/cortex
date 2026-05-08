@@ -134,6 +134,14 @@ describe('LayoutSection', () => {
     expect(container.textContent).toContain('H')
   })
 
+  it('threads box-sizing context into the spacing box model diagram', () => {
+    setup({ values: { ...DEFAULT_VALUES, boxSizing: 'border-box' } })
+    const diagram = container.querySelector('[data-testid="spacing-box-model-diagram"]')
+    expect(diagram).not.toBeNull()
+    expect(diagram!.getAttribute('data-box-sizing')).toBe('border-box')
+    expect(diagram!.textContent).toContain('border-box')
+  })
+
   it('emits display change on segmented control click', () => {
     const { onChange } = setup()
     const flexBtn = container.querySelector('[data-value="flex"]') as HTMLElement
