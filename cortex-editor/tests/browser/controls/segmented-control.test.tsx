@@ -76,6 +76,16 @@ describe('SegmentedControl', () => {
     expect(onChange).not.toHaveBeenCalledWith('none')
   })
 
+  it('moves from the focused option when value is unselected', () => {
+    const { onChange } = setup({ value: '' })
+    const buttons = container.querySelectorAll('[role="radio"]')
+    expect(buttons[0].getAttribute('tabindex')).toBe('0')
+
+    dispatchKeyboardEvent(buttons[0] as HTMLElement, 'keydown', { key: 'ArrowRight' })
+
+    expect(onChange).toHaveBeenCalledWith('flex')
+  })
+
   it('calls onChange on click', () => {
     const { onChange } = setup()
     const buttons = container.querySelectorAll('[role="radio"]')
@@ -157,6 +167,14 @@ describe('SegmentedControl', () => {
     setup()
     const indicator = container.querySelector('.cortex-segmented__indicator')
     expect(indicator).not.toBeNull()
+  })
+
+  it('collapses the indicator when disabled even if a value is active', async () => {
+    setup({ value: 'flex', disabled: true })
+    const indicator = container.querySelector('.cortex-segmented__indicator') as HTMLElement
+    await vi.waitFor(() => {
+      expect(indicator.style.opacity).toBe('0')
+    }, { timeout: 500 })
   })
 
   it('does not call onChange when clicking already active option', () => {

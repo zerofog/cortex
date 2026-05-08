@@ -319,6 +319,18 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         },
         channel,
         selectElement: setSelectionWithMetadata,
+        // Expose the page-side `detectStates` call so Playwright specs can
+        // exercise browser-only CSSOM branches without making it a public API.
+        // The Map-to-object conversion keeps the bridge return value
+        // structured-clone friendly.
+        detectStates: (el: HTMLElement) => {
+          const states = detectStates(el)
+          return {
+            hover: Object.fromEntries(states.hover),
+            focus: Object.fromEntries(states.focus),
+            active: Object.fromEntries(states.active),
+          }
+        },
         // Expose the page-side `onDivergence` subscription so Playwright
         // specs can collect divergence events through Node-side callbacks.
         // The bus itself is module-scoped (private), but routing through

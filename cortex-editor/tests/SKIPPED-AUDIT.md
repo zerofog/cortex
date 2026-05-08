@@ -13,7 +13,10 @@ Date: 2026-05-06
 - Pre-cleanup executable skips found: 34
 - Ticket expected skipped tests: 33; current branch contained 34 before cleanup.
 - Deleted stale skips during this audit: 7
-- Final executable skips: 16 after ZF0-1211 re-enabled 13 AlignmentGrid visibility tests.
+- Final executable skips after original audit: 27
+- Current executable skips after ZF0-1211 and ZF0-1558/ZF0-1559 cleanup: 11
+- ZF0-1211 re-enabled 13 AlignmentGrid visibility tests.
+- ZF0-1558/ZF0-1559 moved 5 CSSOM/live-rect skips to real Chromium e2e coverage.
 - "Actually fix" skips found: 0, so the 5x coverage-instrumentation loop is not required.
 
 ## Active Skips
@@ -21,21 +24,32 @@ Date: 2026-05-06
 | File:line | Test | Classification | Decision |
 | --- | --- | --- | --- |
 | `tests/core/edit-pipeline.sanitize.test.ts:228` | unquoted path with spaces followed by prose | Correct skip - permanent limitation | This documents an intentionally accepted ambiguity. Node fs errors quote paths, and unquoted paths with spaces plus prose cannot be safely separated by the current sanitizer regex. Leave skipped with the limitation comment. |
-| `tests/browser/sections/typography-section.test.tsx:520` | font-size scrub fires onScrub during drag and onScrubEnd on release | Correct skip - Layer 2 would be theatre | Section-level drag is not reliable in happy-dom. The reusable `NumericInput` scrub behavior has direct Layer 2 coverage in `tests/browser/controls/numeric-input.test.tsx`; no separate section-level e2e is required unless full-panel drag becomes load-bearing. |
-| `tests/browser/shared-source-detector.test.ts:60` | handles shadow-hosted siblings | Move to e2e | Real shadow-root query behavior is not faithfully represented by happy-dom. Leave skipped until browser coverage exists. |
-| `tests/browser/selection-source-expand.test.ts:56` | handles sources with quote characters via CSS.escape | Correct skip - happy-dom limitation | Real sources are file paths without quotes; implementation has the fallback, but happy-dom cannot prove the selector behavior. |
-| `tests/browser/override.test.ts:1303` | canonicalizes CSS values before declaring divergence | Correct skip - covered by e2e | Happy-dom cannot canonicalize color formats meaningfully. Covered by `tests/e2e/override-canonicalization.spec.ts`. |
+| `tests/browser/sections/typography-section.test.tsx:711` | font-size scrub fires onScrub during drag and onScrubEnd on release | Correct skip - Layer 2 would be theatre | Section-level drag is not reliable in happy-dom. The reusable `NumericInput` scrub behavior has direct Layer 2 coverage in `tests/browser/controls/numeric-input.test.tsx`; no separate section-level e2e is required unless full-panel drag becomes load-bearing. |
+| `tests/browser/shared-source-detector.test.ts:60` | shadow-hosted siblings | Move to e2e | Happy-dom does not model shadow-root query coverage like Chromium. Outside ZF0-1558. |
+| `tests/browser/selection-source-expand.test.ts:56` | sources with quote characters via CSS.escape | Correct skip - browser API gap | Documents a defensive fallback for uncommon source strings; outside ZF0-1558. |
+| `tests/browser/override.test.ts:1386` | canonicalizes CSS values before declaring divergence | Correct skip - covered by e2e | Happy-dom cannot canonicalize color formats meaningfully. Covered by `tests/e2e/override-canonicalization.spec.ts`. |
 | `tests/browser/channel.test.ts:875` | sendAndAck rejects on disconnect during wait | Correct skip - N/A branch | Vite channel has no disconnect lifecycle; timeout rejection is the reachable rejection path and is covered. |
-| `tests/browser/state-detector.test.ts:90` | recurses into `@layer` rules | Move to e2e | Real CSSOM behavior. Follow-up: ZF0-1558. |
-| `tests/browser/state-detector.test.ts:97` | handles cross-origin stylesheets gracefully | Move to e2e | Needs real `cssRules` SecurityError behavior. Follow-up: ZF0-1558. |
-| `tests/browser/state-detector.test.ts:195` | handles CSS nesting `&:hover` | Move to e2e | Real CSSOM/nesting behavior. Follow-up: ZF0-1558. |
-| `tests/browser/state-detector.test.ts:230` | handles `&.modifier:hover` nested CSS | Move to e2e | Real CSSOM/nesting behavior. Follow-up: ZF0-1558. |
-| `tests/browser/selection-overlay.test.tsx:386` | updates lens position when element rect changes | Move to e2e | Happy-dom rAF/rect-change pumping is unreliable. Follow-up: ZF0-1559. |
+| `tests/browser/bootstrap.test.ts:191` | background luminance theme fallback | Move to e2e | Happy-dom computed background colors are not meaningful. Follow-up: ZF0-1562. |
 | `tests/browser/components/SectionGroup.test.tsx:104` | lock title typography invariants once real CSSOM is available | Move to e2e | Computed typography token resolution belongs in Chromium. Follow-up: ZF0-1565. |
 | `tests/browser/components/NoAnnotationsBanner.test.tsx:204` | self-heals when annotated element is added after mount | Move to e2e | Needs real MutationObserver delivery and Preact effect timing. Follow-up: ZF0-1561. |
 | `tests/browser/components/TokenPresetPopover.test.tsx:187` | floating-ui flip/shift positioning | Correct skip - covered by e2e | Covered by `tests/e2e/numeric-input-token-popover.spec.ts` from ZF0-1527. |
 | `tests/browser/hooks/useOutsideDismiss.test.tsx:209` | closed ShadowRoot outside dismiss | Move to e2e | Closed-shadow retargeting needs real Chromium. Follow-up: ZF0-1560. |
-| `tests/browser/bootstrap.test.ts:191` | background luminance theme fallback | Move to e2e | Happy-dom computed background colors are not meaningful. Follow-up: ZF0-1562. |
+
+## Re-Enabled After Audit
+
+| Original files | Tests | Coverage | Action |
+| --- | --- | --- | --- |
+| `tests/browser/sections/FlexControls.test.tsx`, `tests/browser/sections/GridControls.test.tsx` | 13 AlignmentGrid visibility and interaction skips | Focused FlexControls/GridControls/AlignmentGrid tests plus `tests/e2e/alignment-grid-panel.spec.ts` | Removed by ZF0-1211 after the controls became visible again. |
+
+## Covered After Audit
+
+| Original file:line | Test | Coverage | Action |
+| --- | --- | --- | --- |
+| `tests/browser/state-detector.test.ts:90` | recurses into `@layer` rules | `tests/e2e/state-detector-cssom.spec.ts` | Removed Layer 2 skip; covered by ZF0-1558 real Chromium CSSOM test. |
+| `tests/browser/state-detector.test.ts:97` | handles cross-origin stylesheets gracefully | `tests/e2e/state-detector-cssom.spec.ts` | Removed Layer 2 skip; cross-origin stylesheet is route-fulfilled by Playwright. |
+| `tests/browser/state-detector.test.ts:195` | handles CSS nesting `&:hover` | `tests/e2e/state-detector-cssom.spec.ts` | Removed Layer 2 skip; covered by native CSS nesting in Chromium. |
+| `tests/browser/state-detector.test.ts:230` | handles `&.modifier:hover` nested CSS | `tests/e2e/state-detector-cssom.spec.ts` | Removed Layer 2 skip; covered by native CSS nesting in Chromium. |
+| `tests/browser/selection-overlay.test.tsx:386` | updates lens position when element rect changes | `tests/e2e/selection-overlay-live-rect.spec.ts` | Removed Layer 2 skip; covered by ZF0-1559 real Chromium live-rect tracking test. |
 
 ## Deleted During Audit
 
@@ -51,8 +65,8 @@ Date: 2026-05-06
 
 ## Follow-Up Tickets Filed
 
-- ZF0-1558 - Layer 4 state-detector CSSOM coverage.
-- ZF0-1559 - SelectionOverlay live-rect tracking in real browser.
+- ZF0-1558 - Layer 4 state-detector CSSOM coverage. Covered by `tests/e2e/state-detector-cssom.spec.ts`; corresponding Layer 2 skips removed.
+- ZF0-1559 - SelectionOverlay live-rect tracking in real browser. Covered by `tests/e2e/selection-overlay-live-rect.spec.ts`; corresponding Layer 2 skip removed.
 - ZF0-1560 - Closed ShadowRoot outside-dismiss coverage.
 - ZF0-1561 - NoAnnotationsBanner MutationObserver self-heal coverage.
 - ZF0-1562 - Background-luminance theme fallback in real browser.

@@ -19,16 +19,16 @@ Primary scan commands:
 
 | File:line | Signal | Classification | Decision |
 | --- | --- | --- | --- |
-| `tests/browser/state-detector.test.ts:90` | `@layer` recursion skipped | Happy-dom theatre if kept in Layer 2 | Move to e2e. Filed ZF0-1558. |
-| `tests/browser/state-detector.test.ts:97` | cross-origin stylesheet `cssRules` access skipped | Happy-dom theatre if kept in Layer 2 | Move to e2e. Filed ZF0-1558. |
-| `tests/browser/state-detector.test.ts:195` | CSS nesting `&:hover` skipped | Happy-dom theatre if kept in Layer 2 | Move to e2e. Filed ZF0-1558. |
-| `tests/browser/state-detector.test.ts:230` | nested `&.modifier:hover` skipped | Happy-dom theatre if kept in Layer 2 | Move to e2e. Filed ZF0-1558. |
+| `tests/browser/state-detector.test.ts:90` | `@layer` recursion skipped | Happy-dom theatre if kept in Layer 2 | Covered by `tests/e2e/state-detector-cssom.spec.ts` in ZF0-1558; Layer 2 skip removed. |
+| `tests/browser/state-detector.test.ts:97` | cross-origin stylesheet `cssRules` access skipped | Happy-dom theatre if kept in Layer 2 | Covered by `tests/e2e/state-detector-cssom.spec.ts` in ZF0-1558; Layer 2 skip removed. |
+| `tests/browser/state-detector.test.ts:195` | CSS nesting `&:hover` skipped | Happy-dom theatre if kept in Layer 2 | Covered by `tests/e2e/state-detector-cssom.spec.ts` in ZF0-1558; Layer 2 skip removed. |
+| `tests/browser/state-detector.test.ts:230` | nested `&.modifier:hover` skipped | Happy-dom theatre if kept in Layer 2 | Covered by `tests/e2e/state-detector-cssom.spec.ts` in ZF0-1558; Layer 2 skip removed. |
 | `tests/browser/override.test.ts:1303` | color canonicalization skipped because happy-dom does not canonicalize like Chromium | Correct skip | Already covered by `tests/e2e/override-canonicalization.spec.ts`. |
 | `tests/browser/bootstrap.test.ts:191` | background luminance fallback skipped because computed background colors are not meaningful | Happy-dom theatre if kept in Layer 2 | Move to e2e. Filed ZF0-1562. |
 | `tests/browser/components/SectionGroup.test.tsx:104` | title typography token resolution skipped until real CSSOM | Happy-dom theatre if kept in Layer 2 | Move to e2e. Filed ZF0-1565. |
 | `tests/browser/components/TokenPresetPopover.test.tsx:187` | floating-ui flip/shift skipped because layout is zeroed in happy-dom | Correct skip | Covered by `tests/e2e/numeric-input-token-popover.spec.ts` from ZF0-1527. |
 | `tests/browser/hooks/useOutsideDismiss.test.tsx:194` | closed ShadowRoot `composedPath()` retargeting skipped | Happy-dom theatre if kept in Layer 2 | Move to e2e. Filed ZF0-1560. |
-| `tests/browser/selection-overlay.test.tsx:386` | rect-change/rAF position update skipped | Happy-dom/rAF theatre if kept in Layer 2 | Move to e2e. Filed ZF0-1559. |
+| `tests/browser/selection-overlay.test.tsx:386` (removed) | rect-change/rAF position update skipped | Happy-dom/rAF theatre if kept in Layer 2 | Migrated to `tests/e2e/selection-overlay-live-rect.spec.ts` in ZF0-1559. |
 | `tests/browser/components/NoAnnotationsBanner.test.tsx:192` | MutationObserver self-heal skipped | Happy-dom timer/MO theatre if kept in Layer 2 | Move to e2e. Filed ZF0-1561. |
 
 CSS parsing tests that feed explicit CSS strings into production parsers, such as `tests/browser/components/panel-style-snapshot.test.ts`, `tests/browser/sections/border-section.test.tsx`, `tests/browser/sections/effects-section.test.tsx`, and `tests/browser/sections/AppearanceSection.test.ts`, are not classified as theatre: they assert parser/fallback behavior over controlled CSSStyleDeclaration-like inputs, not browser cascade fidelity.
