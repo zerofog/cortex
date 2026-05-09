@@ -11,9 +11,14 @@ import type { ColorChip } from '../../src/browser/token-detector.js'
  * Regression guard for ZF0-1605: panel-bottom CommentInput removal.
  *
  * The bug under guard: if the CommentInput JSX mount is re-added at the bottom
- * of the panel body, an <input type="text"> will appear in the panel DOM. This
- * test asserts its absence. Falsifiability: re-adding the CommentInput JSX
- * (or any other bottom-mounted text input) will cause the test to fail.
+ * of the panel body, the input identified by aria-label="Comment to AI agent"
+ * will reappear in the panel DOM. This test asserts its absence.
+ *
+ * Falsifiability: this test fails specifically when the CommentInput component
+ * (or any equivalent input using the same aria-label) is re-mounted. Other
+ * future text inputs in the panel (with different aria-labels) are out of scope
+ * and will not trip this guard — that's the right tightness, since legitimate
+ * property-section inputs may be added without violating ZF0-1605's intent.
  */
 
 vi.mock('@floating-ui/dom', () => ({
