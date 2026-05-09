@@ -10,10 +10,15 @@ import type { ColorChip } from '../../src/browser/token-detector.js'
 /**
  * Regression guard for ZF0-1605: panel-bottom CommentInput removal.
  *
- * Asserts the input with aria-label="Comment to AI agent" is absent from the
- * panel body. Falsifies on re-mount of CommentInput (or any equivalent using
- * the same aria-label); other future text inputs with different aria-labels
- * are out of scope.
+ * Falsifies on re-mount of the CommentInput specifically (matched by
+ * aria-label="Comment to AI agent"). Panel renders many other `<input>`
+ * elements via property-section sub-components (NumericInput, ColorInput,
+ * sliders) — those are out of scope. The narrow selector is intentional:
+ * a broader "no input anywhere in panel body" assertion would either be
+ * false today (property inputs exist) or force a deliberate test update
+ * for any legitimate future input addition. Targeting the deleted
+ * component's aria-label is the right tightness for "this specific
+ * regression must not return."
  */
 
 vi.mock('@floating-ui/dom', () => ({
@@ -62,7 +67,7 @@ describe('Panel bottom-input removal (ZF0-1605 regression)', () => {
     if (targetElement.parentElement) targetElement.remove()
   })
 
-  it('renders no <input type="text"> in the panel body when a channel is present', async () => {
+  it('renders no input with aria-label "Comment to AI agent" in the panel body (CommentInput regression guard)', async () => {
     const channel = createMockChannel()
     const commandStack = new CommandStack()
     const overrideManager = new CSSOverrideManager()

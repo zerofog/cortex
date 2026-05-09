@@ -1011,75 +1011,15 @@ describe('cortex mcp', () => {
       expect(notifications).toHaveLength(2) // still 2 — no duplicate push
     })
 
-    // Confirms agent replies (from='agent') advance the cursor without pushing,
-    // so the next genuine user reply isn't blocked by the dup-push gate.
-    it('agent reply advances cursor without push, then next user reply pushes correctly', async () => {
-      const client = await startTestServer(mockVite.port)
-      mcpClient = client
-      await waitForConnection(mockVite)
-
-      const notifications: Array<{ method: string; params: unknown }> = []
-      client.fallbackNotificationHandler = async (notification) => {
-        notifications.push({ method: notification.method, params: notification.params })
-      }
-
-      const cliWs = [...mockVite.clients][0]
-      const id = 'ann-cursor-1'
-      const baseAnn = {
-        id,
-        elementSource: 'src/App.tsx:2:2',
-        text: 'Initial',
-        kind: 'comment',
-        pinPosition: { x: 2, y: 2 },
-        createdAt: Date.now() - 1000,
-      }
-
-      // Seed cursor via annotation-created
-      cliWs.send(JSON.stringify({
-        type: 'annotation-created',
-        annotation: { ...baseAnn, status: 'pending', updatedAt: Date.now() - 900, thread: [] },
-      }))
-      await new Promise(r => setTimeout(r, 200))
-      expect(notifications).toHaveLength(1) // initial comment push
-
-      // Agent posts a clarification (from='agent') — feedback-loop guard skips push,
-      // but the cursor MUST still advance so the next user reply isn't gated against length 0.
-      cliWs.send(JSON.stringify({
-        type: 'annotation-updated',
-        annotation: {
-          ...baseAnn,
-          status: 'acknowledged',
-          updatedAt: Date.now() - 600,
-          thread: [
-            { id: 'msg-a', from: 'agent', text: 'Which token should I use?', timestamp: Date.now() - 600 },
-          ],
-        },
-      }))
-      await new Promise(r => setTimeout(r, 200))
-      expect(notifications).toHaveLength(1) // no push for agent reply
-
-      // User responds — thread grows from 1 → 2, push must fire for the new user message.
-      // (This would fail if cursor was still 0 from creation: the gate would skip because
-      // we'd treat the existing thread as "already pushed up to length 0" → "thread.length > 0
-      // means push," but `getLastUserReplyText` would return only the latest, not the agent
-      // intermediate. Test that the cursor advanced correctly.)
-      cliWs.send(JSON.stringify({
-        type: 'annotation-updated',
-        annotation: {
-          ...baseAnn,
-          status: 'acknowledged',
-          updatedAt: Date.now(),
-          thread: [
-            { id: 'msg-a', from: 'agent', text: 'Which token should I use?', timestamp: Date.now() - 600 },
-            { id: 'msg-u', from: 'user', text: 'Use brand-700', timestamp: Date.now() },
-          ],
-        },
-      }))
-      await new Promise(r => setTimeout(r, 200))
-      expect(notifications).toHaveLength(2)
-      expect((notifications[1].params as { meta: { kind: string } }).meta.kind).toBe('thread-reply')
-      expect((notifications[1].params as { content: string }).content).toContain('Use brand-700')
-    })
+    // Note: an earlier draft of this section had a test claiming to verify
+    // "agent reply advances the cursor whether-or-not push fired so the next user
+    // reply isn't blocked." The Step 8.5 test-meaningfulness audit caught that the
+    // assertions held under both the "always advance" and "advance only on push"
+    // production code paths — it could not falsify the regression it claimed to
+    // guard. The dup-push regression test above (with Phase 4 state-transition
+    // after the user reply pushes) is the meaningful coverage for the actual
+    // ZF0-1044 Step 6 finding. The agent-reply-no-push assertion at line 932
+    // covers the from='agent' feedback-loop guard.
   })
 
   // ── ZF0-1500: MCP tool input schema validation (Boundary 2) ──────────────
