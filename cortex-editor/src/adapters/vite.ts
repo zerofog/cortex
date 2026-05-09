@@ -74,10 +74,11 @@ type BrowserToServerType = BrowserToServer['type']
  *
  *  Verified against mcp.ts ws.on('message'): MCP branches on cortex-rpc-result,
  *  cortex-rpc-error, error, cortex, cortex-closed, cortex-status, staged-edits-ready,
- *  annotation-created. Of those, only cortex-closed and staged-edits-ready are
- *  browser-originated; the rest are server-originated (forwarded via the
- *  channel.send → forwardToCLI path at the bottom of configureServer, not here).
- *  'init' is browser-originated but MCP does not branch on it. */
+ *  annotation-created, annotation-updated. Of those, only cortex-closed and
+ *  staged-edits-ready are browser-originated; the rest are server-originated
+ *  (forwarded via the channel.send → forwardToCLI path at the bottom of
+ *  configureServer, not here). 'init' is browser-originated but MCP does not
+ *  branch on it. */
 export const BROWSER_TO_CLI_FORWARD_TYPES_ARRAY = [
   'cortex-closed',
   'staged-edits-ready',

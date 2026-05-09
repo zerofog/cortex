@@ -98,7 +98,7 @@ export const PROTOCOL_INSTRUCTIONS = `Fix requests arrive as <channel source="co
 
 Annotation handling protocol (call these tools in this order):
 
-0. Rehydrate before responding: for the annotationId in the channel JSON, call cortex_get_details — if thread.length > 0, read it before doing anything else. After /clear, call cortex_get_pending to catch up on annotations awaiting acknowledgement. cortex_list_active does not exist yet — do not attempt to call it (ZF0-1602 will add cortex_list_active for full pending+acknowledged continuity).
+0. Rehydrate before responding: every channel notification carries the active annotation's id in its meta.annotation_id field (not in the content JSON itself). Call cortex_get_details with that id — if thread.length > 0, read it before doing anything else. After /clear, call cortex_get_pending to catch up on annotations awaiting acknowledgement. cortex_list_active does not exist yet — do not attempt to call it (ZF0-1602 will add cortex_list_active for full pending+acknowledged continuity).
 
 1. Acknowledge immediately: call cortex_acknowledge(annotationId).
 
