@@ -780,6 +780,218 @@ describe('cortex mcp', () => {
       expect(params.content).not.toContain('\n')
       expect(params.content).toContain('\\n')
     })
+
+    // ── ZF0-1044 M-C(a): annotation-created meta includes has_pin ─────────────
+    it('annotation-created meta includes has_pin=true when annotation has pinPosition', async () => {
+      const client = await startTestServer(mockVite.port)
+      mcpClient = client
+      await waitForConnection(mockVite)
+
+      const notifications: Array<{ method: string; params: unknown }> = []
+      client.fallbackNotificationHandler = async (notification) => {
+        notifications.push({ method: notification.method, params: notification.params })
+      }
+
+      const cliWs = [...mockVite.clients][0]
+      cliWs.send(JSON.stringify({
+        type: 'annotation-created',
+        annotation: {
+          id: 'ann-pin-1',
+          status: 'pending',
+          elementSource: 'src/App.tsx:20:5',
+          text: 'Change this color',
+          kind: 'comment',
+          pinPosition: { x: 120, y: 340 },
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          thread: [],
+        },
+      }))
+
+      await new Promise(r => setTimeout(r, 200))
+
+      expect(notifications).toHaveLength(1)
+      const params = notifications[0].params as { content: string; meta: Record<string, string> }
+      expect(params.meta.has_pin).toBe('true')
+    })
+
+    it('annotation-created meta includes has_pin=false when annotation has no pinPosition', async () => {
+      const client = await startTestServer(mockVite.port)
+      mcpClient = client
+      await waitForConnection(mockVite)
+
+      const notifications: Array<{ method: string; params: unknown }> = []
+      client.fallbackNotificationHandler = async (notification) => {
+        notifications.push({ method: notification.method, params: notification.params })
+      }
+
+      const cliWs = [...mockVite.clients][0]
+      cliWs.send(JSON.stringify({
+        type: 'annotation-created',
+        annotation: {
+          id: 'ann-nopin-1',
+          status: 'pending',
+          elementSource: 'src/App.tsx:20:5',
+          text: 'Panel comment no pin',
+          kind: 'comment',
+          // no pinPosition
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          thread: [],
+        },
+      }))
+
+      await new Promise(r => setTimeout(r, 200))
+
+      expect(notifications).toHaveLength(1)
+      const params = notifications[0].params as { content: string; meta: Record<string, string> }
+      expect(params.meta.has_pin).toBe('false')
+    })
+
+    // ── ZF0-1044 M-C(b): annotation-updated pushes thread-reply notification ──
+    it('comment-reply produces MCP channel notification with kind=thread-reply', async () => {
+      const client = await startTestServer(mockVite.port)
+      mcpClient = client
+      await waitForConnection(mockVite)
+
+      const notifications: Array<{ method: string; params: unknown }> = []
+      client.fallbackNotificationHandler = async (notification) => {
+        notifications.push({ method: notification.method, params: notification.params })
+      }
+
+      const cliWs = [...mockVite.clients][0]
+      // Simulate the server emitting annotation-updated after a comment-reply.
+      // In production this is emitted by vite.ts after addMessage; in tests we
+      // send it directly from the mock Vite server to the MCP server's WS client.
+      cliWs.send(JSON.stringify({
+        type: 'annotation-updated',
+        annotation: {
+          id: 'ann-reply-1',
+          status: 'acknowledged',
+          elementSource: 'src/App.tsx:30:7',
+          text: 'Original comment',
+          kind: 'comment',
+          pinPosition: { x: 50, y: 80 },
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          thread: [
+            { id: 'msg-1', from: 'user', text: 'Actually make it darker please', timestamp: Date.now() },
+          ],
+        },
+      }))
+
+      await new Promise(r => setTimeout(r, 200))
+
+      expect(notifications).toHaveLength(1)
+      expect(notifications[0].method).toBe('notifications/claude/channel')
+      const params = notifications[0].params as { content: string; meta: Record<string, string> }
+      expect(params.meta.kind).toBe('thread-reply')
+      expect(params.content).toContain('Actually make it darker please')
+      expect(params.meta.annotation_id).toBe('ann-reply-1')
+      expect(params.meta.has_pin).toBe('true')
+    })
+
+    it('annotation-updated notification includes message text and has_pin=false when no pin', async () => {
+      const client = await startTestServer(mockVite.port)
+      mcpClient = client
+      await waitForConnection(mockVite)
+
+      const notifications: Array<{ method: string; params: unknown }> = []
+      client.fallbackNotificationHandler = async (notification) => {
+        notifications.push({ method: notification.method, params: notification.params })
+      }
+
+      const cliWs = [...mockVite.clients][0]
+      cliWs.send(JSON.stringify({
+        type: 'annotation-updated',
+        annotation: {
+          id: 'ann-reply-nopin',
+          status: 'acknowledged',
+          elementSource: 'src/App.tsx:10:2',
+          text: 'Original',
+          kind: 'comment',
+          // no pinPosition
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          thread: [
+            { id: 'msg-2', from: 'user', text: 'Clarification from user', timestamp: Date.now() },
+          ],
+        },
+      }))
+
+      await new Promise(r => setTimeout(r, 200))
+
+      expect(notifications).toHaveLength(1)
+      const params = notifications[0].params as { content: string; meta: Record<string, string> }
+      expect(params.meta.kind).toBe('thread-reply')
+      expect(params.meta.has_pin).toBe('false')
+      expect(params.content).toContain('Clarification from user')
+    })
+
+    // ── ZF0-1044 M-C: agent replies do NOT trigger thread-reply notification ──
+    it('annotation-updated with last message from=agent does NOT push MCP notification (no feedback loop)', async () => {
+      const client = await startTestServer(mockVite.port)
+      mcpClient = client
+      await waitForConnection(mockVite)
+
+      const notifications: Array<{ method: string; params: unknown }> = []
+      client.fallbackNotificationHandler = async (notification) => {
+        notifications.push({ method: notification.method, params: notification.params })
+      }
+
+      const cliWs = [...mockVite.clients][0]
+      // Last message is from 'agent' (e.g. cortex_respond was called) — must NOT push
+      cliWs.send(JSON.stringify({
+        type: 'annotation-updated',
+        annotation: {
+          id: 'ann-agent-reply',
+          status: 'acknowledged',
+          elementSource: 'src/App.tsx:5:1',
+          text: 'Original',
+          kind: 'comment',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          thread: [
+            { id: 'msg-a', from: 'agent', text: 'I will look into this', timestamp: Date.now() },
+          ],
+        },
+      }))
+
+      await new Promise(r => setTimeout(r, 200))
+
+      // No notification should be pushed — agent replies must not create a feedback loop
+      expect(notifications).toHaveLength(0)
+    })
+
+    it('annotation-updated with empty thread does NOT push MCP notification', async () => {
+      const client = await startTestServer(mockVite.port)
+      mcpClient = client
+      await waitForConnection(mockVite)
+
+      const notifications: Array<{ method: string; params: unknown }> = []
+      client.fallbackNotificationHandler = async (notification) => {
+        notifications.push({ method: notification.method, params: notification.params })
+      }
+
+      const cliWs = [...mockVite.clients][0]
+      cliWs.send(JSON.stringify({
+        type: 'annotation-updated',
+        annotation: {
+          id: 'ann-empty-thread',
+          status: 'acknowledged',
+          elementSource: 'src/App.tsx:5:1',
+          text: 'Original',
+          kind: 'comment',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          thread: [],
+        },
+      }))
+
+      await new Promise(r => setTimeout(r, 200))
+
+      expect(notifications).toHaveLength(0)
+    })
   })
 
   // ── ZF0-1500: MCP tool input schema validation (Boundary 2) ──────────────
@@ -927,6 +1139,7 @@ describe('cortex mcp', () => {
       ['step 3 — diff-confirm gate',     ['terminal diff', 'Show diff', 'confirm with AskUserQuestion']],
       ['step 4 — dismiss-with-reason',   ['cortex_dismiss(annotationId, reason)']],
       ['step 5 — resolve-with-summary',  ['cortex_resolve(annotationId, summary)']],
+      ['thread-reply notification',      ['thread-reply', 'annotation-updated']],
     ] as const satisfies ReadonlyArray<readonly [string, readonly string[]]>
 
     it.each(PROTOCOL_CONTRACTS)('encodes %s', (_name, tokens) => {

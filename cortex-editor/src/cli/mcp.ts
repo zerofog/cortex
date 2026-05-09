@@ -107,7 +107,9 @@ Annotation handling protocol (call these tools in this order):
 
 4. Surface blockers honestly: if no path forward, call cortex_dismiss(annotationId, reason) with a specific blocker reason.
 
-5. Resolve with summary: after the write succeeds, call cortex_resolve(annotationId, summary) with a one-line summary of what changed.`
+5. Resolve with summary: after the write succeeds, call cortex_resolve(annotationId, summary) with a one-line summary of what changed.
+
+Thread replies arriving while you're working: when the user types a clarification into the iframe thread, you'll receive an annotation-updated channel notification with kind: 'thread-reply'. Treat these like a fresh disambiguation answer — re-read with cortex_get_details and continue.`
 
 export async function startMCPServer(options: MCPServerOptions = {}): Promise<MCPServerHandle> {
   let port = options.port ?? discoverPort() ?? 5173
@@ -298,12 +300,43 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
                   severity,
                   source: String(ann.elementSource).slice(0, 512),
                   kind: String(ann.kind ?? 'comment'),
+                  has_pin: String(Boolean(ann.pinPosition)),
                 },
               },
             } as never),
           ).catch((err: unknown) => {
             process.stderr.write(`[cortex] Failed to send channel notification: ${err instanceof Error ? err.message : String(err)}\n`)
           })
+        }
+      }
+
+      // Push MCP channel notification for thread replies (from='user' only).
+      // Agent replies (from='agent', produced by cortex_respond) are intentionally
+      // excluded to prevent a feedback loop where Claude Code hears its own posts.
+      if (msg.type === 'annotation-updated') {
+        const ann = (msg as Record<string, unknown>).annotation as Record<string, unknown> | undefined
+        if (ann && typeof ann.id === 'string') {
+          const thread = Array.isArray(ann.thread) ? ann.thread as Array<Record<string, unknown>> : []
+          const lastMsg = thread.length > 0 ? thread[thread.length - 1] : null
+          if (lastMsg && lastMsg.from === 'user' && typeof lastMsg.text === 'string') {
+            const replyText = lastMsg.text.slice(0, 2048)
+            void Promise.resolve().then(() =>
+              server.server.notification({
+                method: 'notifications/claude/channel',
+                params: {
+                  content: replyText,
+                  meta: {
+                    annotation_id: ann.id as string,
+                    severity: 'info',
+                    kind: 'thread-reply',
+                    has_pin: String(Boolean(ann.pinPosition)),
+                  },
+                },
+              } as never),
+            ).catch((err: unknown) => {
+              process.stderr.write(`[cortex] Failed to send thread-reply notification: ${err instanceof Error ? err.message : String(err)}\n`)
+            })
+          }
         }
       }
     })
