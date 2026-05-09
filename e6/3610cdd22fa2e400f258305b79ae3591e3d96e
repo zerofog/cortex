@@ -1,0 +1,28 @@
+cortex-editor/src/cli/mcp.ts
+  s_45aacdf87d6586::t_bdc9b691c1c275 95-96
+  s_45aacdf87d6586::t_c3da83907493ee 115-126
+  s_45aacdf87d6586::t_692ac157f4bc94 312,331-342,344-348
+cortex-editor/tests/cli/mcp.test.ts
+  s_45aacdf87d6586::t_cf9057c73fe153 667,674
+  s_45aacdf87d6586::t_46e7aa8a141e27 785-790,811,819,823-827,838-839,850,852,862-864
+  s_45aacdf87d6586::t_5e39da5d408f6c 1072-1078
+cortex-editor/tests/browser/panel-no-bottom-input.test.tsx
+  s_45aacdf87d6586::t_9fb98788706fe6 66
+  s_45aacdf87d6586::t_f5448db87839ad 6,13-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "e63610cdd22fa2e400f258305b79ae3591e3d96e",
+  "prompts": {},
+  "sessions": {
+    "s_45aacdf87d6586": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51aa1b71-4b8e-4365-bdc8-e6ac32e410e7",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
