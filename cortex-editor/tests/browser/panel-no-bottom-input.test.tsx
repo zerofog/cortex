@@ -3,22 +3,17 @@ import { render } from 'preact'
 import { Panel } from '../../src/browser/components/Panel.js'
 import { CommandStack } from '../../src/browser/command-stack.js'
 import { CSSOverrideManager } from '../../src/browser/override.js'
-import type { CortexChannel } from '../../src/adapters/types.js'
+import { createMockChannel } from './helpers.js'
 import type { TextComponent } from '../../src/core/text-components.js'
 import type { ColorChip } from '../../src/browser/token-detector.js'
 
 /**
  * Regression guard for ZF0-1605: panel-bottom CommentInput removal.
  *
- * The bug under guard: if the CommentInput JSX mount is re-added at the bottom
- * of the panel body, the input identified by aria-label="Comment to AI agent"
- * will reappear in the panel DOM. This test asserts its absence.
- *
- * Falsifiability: this test fails specifically when the CommentInput component
- * (or any equivalent input using the same aria-label) is re-mounted. Other
- * future text inputs in the panel (with different aria-labels) are out of scope
- * and will not trip this guard — that's the right tightness, since legitimate
- * property-section inputs may be added without violating ZF0-1605's intent.
+ * Asserts the input with aria-label="Comment to AI agent" is absent from the
+ * panel body. Falsifies on re-mount of CommentInput (or any equivalent using
+ * the same aria-label); other future text inputs with different aria-labels
+ * are out of scope.
  */
 
 vi.mock('@floating-ui/dom', () => ({
@@ -41,16 +36,6 @@ let container: HTMLDivElement
 let targetElement: HTMLElement
 
 const flushEffects = (): Promise<void> => new Promise((r) => setTimeout(r, 10))
-
-function createChannelMock(): CortexChannel {
-  return {
-    send: vi.fn(),
-    onMessage: vi.fn(() => () => {}),
-    onConnectionChange: vi.fn(() => () => {}),
-    connected: true,
-    dispose: vi.fn(),
-  } as unknown as CortexChannel
-}
 
 describe('Panel bottom-input removal (ZF0-1605 regression)', () => {
   const originalRAF = window.requestAnimationFrame
@@ -78,7 +63,7 @@ describe('Panel bottom-input removal (ZF0-1605 regression)', () => {
   })
 
   it('renders no <input type="text"> in the panel body when a channel is present', async () => {
-    const channel = createChannelMock()
+    const channel = createMockChannel()
     const commandStack = new CommandStack()
     const overrideManager = new CSSOverrideManager()
 
@@ -107,9 +92,6 @@ describe('Panel bottom-input removal (ZF0-1605 regression)', () => {
     )
     await flushEffects()
 
-    // The panel body must not contain the CommentInput field. The CommentInput
-    // uniquely identifies itself with aria-label="Comment to AI agent". If the
-    // component (or any equivalent) is re-added, this assertion will fail.
     const panelBody = container.querySelector('.cortex-panel__body')
     expect(panelBody, 'panel body must render').not.toBeNull()
 
