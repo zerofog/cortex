@@ -1,0 +1,22 @@
+cortex-editor/tests/browser/panel-no-bottom-input.test.tsx
+  s_45aacdf87d6586::t_950253a2fc7342 13-21
+  s_45aacdf87d6586::t_44ddb86ecfbd05 70
+cortex-editor/tests/cli/mcp.test.ts
+  s_45aacdf87d6586::t_6fa6ac2ecc36a1 1014-1022
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "b0fe1c9b26188774ab6b468082dc77fcd50e4f72",
+  "prompts": {},
+  "sessions": {
+    "s_45aacdf87d6586": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "51aa1b71-4b8e-4365-bdc8-e6ac32e410e7",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
