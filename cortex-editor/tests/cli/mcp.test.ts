@@ -928,6 +928,158 @@ describe('cortex mcp', () => {
 
       expect(notifications).toHaveLength(0)
     })
+
+    // ── ZF0-1044 Step 6 dup-push fix: state transitions don't re-push existing thread replies ──
+    // Bug surfaced by Step 6 security review: cortex_acknowledge / cortex_resolve / cortex_dismiss
+    // emit annotation-updated WITHOUT mutating the thread. The naive guard (push if last
+    // message is from='user') would re-push the same prior reply on every state transition,
+    // making Claude see "Actually make it darker please" twice. Fix: track per-annotation
+    // last-pushed thread length and only push when thread grew.
+    it('annotation-updated for state transition does NOT re-push when thread is unchanged', async () => {
+      const client = await startTestServer(mockVite.port)
+      mcpClient = client
+      await waitForConnection(mockVite)
+
+      const notifications: Array<{ method: string; params: unknown }> = []
+      client.fallbackNotificationHandler = async (notification) => {
+        notifications.push({ method: notification.method, params: notification.params })
+      }
+
+      const cliWs = [...mockVite.clients][0]
+      const id = 'ann-dup-1'
+      const baseAnn = {
+        id,
+        elementSource: 'src/App.tsx:1:1',
+        text: 'Initial comment',
+        kind: 'comment',
+        pinPosition: { x: 1, y: 1 },
+        createdAt: Date.now() - 1000,
+      }
+
+      // Phase 1: annotation-created — initial push, kind='comment'. Seeds the thread-length
+      // cursor at 0 (empty thread) so subsequent grows are detectable.
+      cliWs.send(JSON.stringify({
+        type: 'annotation-created',
+        annotation: { ...baseAnn, status: 'pending', updatedAt: Date.now() - 900, thread: [] },
+      }))
+      await new Promise(r => setTimeout(r, 200))
+      expect(notifications).toHaveLength(1)
+      expect((notifications[0].params as { meta: { kind: string } }).meta.kind).toBe('comment')
+
+      // Phase 2: state transition pending → acknowledged, thread STILL empty (no growth).
+      // Without the fix this would have been a no-op anyway because empty threads don't
+      // trip the user-reply guard. Asserts the gate doesn't accidentally fire.
+      cliWs.send(JSON.stringify({
+        type: 'annotation-updated',
+        annotation: { ...baseAnn, status: 'acknowledged', updatedAt: Date.now() - 800, thread: [] },
+      }))
+      await new Promise(r => setTimeout(r, 200))
+      expect(notifications).toHaveLength(1)
+
+      // Phase 3: user adds a thread reply — thread grows from 0 → 1, push fires (kind='thread-reply').
+      cliWs.send(JSON.stringify({
+        type: 'annotation-updated',
+        annotation: {
+          ...baseAnn,
+          status: 'acknowledged',
+          updatedAt: Date.now() - 700,
+          thread: [
+            { id: 'msg-1', from: 'user', text: 'Make it darker please', timestamp: Date.now() - 700 },
+          ],
+        },
+      }))
+      await new Promise(r => setTimeout(r, 200))
+      expect(notifications).toHaveLength(2)
+      expect((notifications[1].params as { meta: { kind: string } }).meta.kind).toBe('thread-reply')
+      expect((notifications[1].params as { content: string }).content).toContain('Make it darker please')
+
+      // Phase 4: THE BUG. State transition acknowledged → resolved. Thread length still 1
+      // (no growth). Without the cursor fix, the `from='user'` check on the last message
+      // would push 'Make it darker please' a SECOND time. With the fix, no push.
+      cliWs.send(JSON.stringify({
+        type: 'annotation-updated',
+        annotation: {
+          ...baseAnn,
+          status: 'resolved',
+          updatedAt: Date.now(),
+          thread: [
+            { id: 'msg-1', from: 'user', text: 'Make it darker please', timestamp: Date.now() - 700 },
+          ],
+        },
+      }))
+      await new Promise(r => setTimeout(r, 200))
+      expect(notifications).toHaveLength(2) // still 2 — no duplicate push
+    })
+
+    // Confirms agent replies (from='agent') advance the cursor without pushing,
+    // so the next genuine user reply isn't blocked by the dup-push gate.
+    it('agent reply advances cursor without push, then next user reply pushes correctly', async () => {
+      const client = await startTestServer(mockVite.port)
+      mcpClient = client
+      await waitForConnection(mockVite)
+
+      const notifications: Array<{ method: string; params: unknown }> = []
+      client.fallbackNotificationHandler = async (notification) => {
+        notifications.push({ method: notification.method, params: notification.params })
+      }
+
+      const cliWs = [...mockVite.clients][0]
+      const id = 'ann-cursor-1'
+      const baseAnn = {
+        id,
+        elementSource: 'src/App.tsx:2:2',
+        text: 'Initial',
+        kind: 'comment',
+        pinPosition: { x: 2, y: 2 },
+        createdAt: Date.now() - 1000,
+      }
+
+      // Seed cursor via annotation-created
+      cliWs.send(JSON.stringify({
+        type: 'annotation-created',
+        annotation: { ...baseAnn, status: 'pending', updatedAt: Date.now() - 900, thread: [] },
+      }))
+      await new Promise(r => setTimeout(r, 200))
+      expect(notifications).toHaveLength(1) // initial comment push
+
+      // Agent posts a clarification (from='agent') — feedback-loop guard skips push,
+      // but the cursor MUST still advance so the next user reply isn't gated against length 0.
+      cliWs.send(JSON.stringify({
+        type: 'annotation-updated',
+        annotation: {
+          ...baseAnn,
+          status: 'acknowledged',
+          updatedAt: Date.now() - 600,
+          thread: [
+            { id: 'msg-a', from: 'agent', text: 'Which token should I use?', timestamp: Date.now() - 600 },
+          ],
+        },
+      }))
+      await new Promise(r => setTimeout(r, 200))
+      expect(notifications).toHaveLength(1) // no push for agent reply
+
+      // User responds — thread grows from 1 → 2, push must fire for the new user message.
+      // (This would fail if cursor was still 0 from creation: the gate would skip because
+      // we'd treat the existing thread as "already pushed up to length 0" → "thread.length > 0
+      // means push," but `getLastUserReplyText` would return only the latest, not the agent
+      // intermediate. Test that the cursor advanced correctly.)
+      cliWs.send(JSON.stringify({
+        type: 'annotation-updated',
+        annotation: {
+          ...baseAnn,
+          status: 'acknowledged',
+          updatedAt: Date.now(),
+          thread: [
+            { id: 'msg-a', from: 'agent', text: 'Which token should I use?', timestamp: Date.now() - 600 },
+            { id: 'msg-u', from: 'user', text: 'Use brand-700', timestamp: Date.now() },
+          ],
+        },
+      }))
+      await new Promise(r => setTimeout(r, 200))
+      expect(notifications).toHaveLength(2)
+      expect((notifications[1].params as { meta: { kind: string } }).meta.kind).toBe('thread-reply')
+      expect((notifications[1].params as { content: string }).content).toContain('Use brand-700')
+    })
   })
 
   // ── ZF0-1500: MCP tool input schema validation (Boundary 2) ──────────────

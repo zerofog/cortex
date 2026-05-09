@@ -142,6 +142,15 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
   let browserConnected = false
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let retryCount = 0
+
+  // Tracks per-annotation thread length at the time of the last MCP push.
+  // The Vite server emits `annotation-updated` for *both* thread additions
+  // (user replies) and state transitions (acknowledge/resolve/dismiss). Without
+  // this cursor, a state transition fired *after* a user reply would re-push
+  // the same reply text — Claude would see "Actually make it darker please"
+  // a second time when the user hasn't said anything new. Pushing only when
+  // `thread.length` grows rules out that case.
+  const lastPushedThreadLength = new Map<string, number>()
   let closed = false
   let token: string | null = null
 
@@ -320,32 +329,52 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
           ).catch((err: unknown) => {
             process.stderr.write(`[cortex] Failed to send channel notification: ${err instanceof Error ? err.message : String(err)}\n`)
           })
+
+          // Seed the cursor at the thread length we just shipped. State-transition
+          // updates (acknowledge/resolve/dismiss) that arrive next won't grow the
+          // thread, so they correctly fall through the "thread grew" gate below.
+          if (typeof ann.id === 'string') {
+            lastPushedThreadLength.set(ann.id, Array.isArray(ann.thread) ? ann.thread.length : 0)
+          }
         }
       }
 
       // Push MCP channel notification for thread replies (from='user' only).
       // Agent replies (from='agent', produced by cortex_respond) are intentionally
       // excluded to prevent a feedback loop where Claude Code hears its own posts.
+      // State-transition updates (acknowledge/resolve/dismiss) are excluded by the
+      // thread-grew gate — they re-emit annotation-updated without changing thread.
       if (msg.type === 'annotation-updated') {
         const ann = (msg as Record<string, unknown>).annotation as Record<string, unknown> | undefined
-        const replyText = ann && typeof ann.id === 'string' ? getLastUserReplyText(ann.thread) : null
-        if (ann && replyText !== null) {
-          void Promise.resolve().then(() =>
-            server.server.notification({
-              method: 'notifications/claude/channel',
-              params: {
-                content: replyText,
-                meta: {
-                  annotation_id: ann.id as string,
-                  severity: 'info',
-                  kind: 'thread-reply',
-                  has_pin: String(Boolean(ann.pinPosition)),
-                },
-              },
-            } as never),
-          ).catch((err: unknown) => {
-            process.stderr.write(`[cortex] Failed to send thread-reply notification: ${err instanceof Error ? err.message : String(err)}\n`)
-          })
+        if (ann && typeof ann.id === 'string') {
+          const threadLength = Array.isArray(ann.thread) ? ann.thread.length : 0
+          const prevLength = lastPushedThreadLength.get(ann.id) ?? 0
+          if (threadLength > prevLength) {
+            const replyText = getLastUserReplyText(ann.thread)
+            if (replyText !== null) {
+              void Promise.resolve().then(() =>
+                server.server.notification({
+                  method: 'notifications/claude/channel',
+                  params: {
+                    content: replyText,
+                    meta: {
+                      annotation_id: ann.id as string,
+                      severity: 'info',
+                      kind: 'thread-reply',
+                      has_pin: String(Boolean(ann.pinPosition)),
+                    },
+                  },
+                } as never),
+              ).catch((err: unknown) => {
+                process.stderr.write(`[cortex] Failed to send thread-reply notification: ${err instanceof Error ? err.message : String(err)}\n`)
+              })
+            }
+            // Advance the cursor whether or not we pushed. Agent replies
+            // (replyText === null per the from='user' guard) still grow the
+            // thread, so the next user reply must be measured against the new
+            // length — not the pre-agent-reply length.
+            lastPushedThreadLength.set(ann.id, threadLength)
+          }
         }
       }
     })
