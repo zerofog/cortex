@@ -98,7 +98,7 @@ export const PROTOCOL_INSTRUCTIONS = `Fix requests arrive as <channel source="co
 
 Annotation handling protocol (call these tools in this order):
 
-0. Rehydrate before responding: annotation channel notifications (meta.kind = comment, fix-request, or thread-reply) carry the active annotation's id in meta.annotation_id; call cortex_get_details with that id — if thread.length > 0, read it before doing anything else. Other channel notifications (e.g. staged-edits-ready) carry different meta shapes and do not include annotation_id — do not call annotation tools for them. After /clear, call cortex_get_pending to catch up on annotations awaiting acknowledgement. cortex_list_active does not exist yet — do not attempt to call it (ZF0-1602 will add cortex_list_active for full pending+acknowledged continuity).
+0. Rehydrate before responding: annotation channel notifications (meta.kind = comment, fix-request, or thread-reply) carry the active annotation's id in meta.annotation_id; call cortex_get_details with that id — if thread.length > 0, read it before doing anything else. Other channel notifications (e.g. meta.kind = staged-edits, or notifications with no kind at all) carry different meta shapes and do not include annotation_id — do not call annotation tools for them. After /clear, call cortex_get_pending to catch up on annotations awaiting acknowledgement. cortex_list_active does not exist yet — do not attempt to call it (ZF0-1602 will add cortex_list_active for full pending+acknowledged continuity).
 
 1. Acknowledge immediately: call cortex_acknowledge(annotationId).
 
@@ -333,7 +333,15 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
           // Seed the cursor at the thread length we just shipped. State-transition
           // updates (acknowledge/resolve/dismiss) that arrive next won't grow the
           // thread, so they correctly fall through the "thread grew" gate below.
-          if (typeof ann.id === 'string') {
+          //
+          // ZF0-1044 PR #122 reviewer-finding P3 (defensive symmetry): use setdefault
+          // semantics (only seed if no entry) rather than overwrite. Production
+          // order guarantees annotation-created precedes annotation-updated, so
+          // this is defensive-only — but if a buffered-replay scenario ever
+          // arrives where annotation-updated fired first (taking the F1 silent-
+          // seed path), the subsequent annotation-created should NOT clobber the
+          // cursor back to 0 and re-enable stale-replay on the next event.
+          if (typeof ann.id === 'string' && !lastPushedThreadLength.has(ann.id)) {
             lastPushedThreadLength.set(ann.id, Array.isArray(ann.thread) ? ann.thread.length : 0)
           }
         }

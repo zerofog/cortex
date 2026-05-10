@@ -930,10 +930,40 @@ describe('cortex mcp', () => {
 
       await new Promise(r => setTimeout(r, 200))
 
-      // The fix silently seeds the cursor (no push). Without the fix, a stale
-      // thread-reply with "Already-seen reply from prior session" would be
-      // re-pushed to Claude as if the user just typed it.
+      // Phase 1: the fix silently seeds the cursor (no push). Without the fix,
+      // a stale thread-reply with "Already-seen reply from prior session" would
+      // be re-pushed to Claude as if the user just typed it.
       expect(notifications).toHaveLength(0)
+
+      // Phase 2 (P2-A strengthening): proves the cursor was seeded at threadLength=1,
+      // not at 0. Send a follow-up annotation-updated with a NEW user reply
+      // appended (thread.length=2). If the cursor was correctly seeded at 1, the
+      // gate `2 > 1` passes and ONLY the new reply pushes. If the cursor had
+      // been wrongly seeded at 0 (the bug F1 prevents), both messages would
+      // re-push and notifications.length would be > 1 (or the wrong content
+      // would land first). This test isolates F1's contract from F3's cleanup.
+      cliWs.send(JSON.stringify({
+        type: 'annotation-updated',
+        annotation: {
+          id: 'ann-prior-session',
+          status: 'acknowledged',
+          elementSource: 'src/App.tsx:5:3',
+          text: 'Original comment from prior session',
+          kind: 'comment',
+          pinPosition: { x: 10, y: 20 },
+          createdAt: Date.now() - 100000,
+          updatedAt: Date.now(),
+          thread: [
+            { id: 'msg-stale', from: 'user', text: 'Already-seen reply from prior session', timestamp: Date.now() - 50000 },
+            { id: 'msg-fresh', from: 'user', text: 'Fresh reply this session', timestamp: Date.now() },
+          ],
+        },
+      }))
+      await new Promise(r => setTimeout(r, 200))
+      expect(notifications).toHaveLength(1)
+      const params = notifications[0].params as { content: string; meta: Record<string, string> }
+      expect(params.content).toContain('Fresh reply this session')
+      expect(params.content).not.toContain('Already-seen reply from prior session')
     })
 
     // ── ZF0-1044 PR #122 reviewer-finding F3 (Copilot): cursor cleanup on terminal status ──
