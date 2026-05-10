@@ -821,6 +821,11 @@ describe('cortex mcp', () => {
 
     // ── ZF0-1044 M-C(b): annotation-updated pushes thread-reply notification ──
     // Same branch (the thread-reply MCP push), parameterized over has_pin true/false.
+    // Each row seeds the cursor via annotation-created first, then sends
+    // annotation-updated with a fresh user reply (thread grew from 0 → 1).
+    // This matches production reality: MCP normally observes annotation-created
+    // before annotation-updated. The "MCP started mid-stream" case (no prior
+    // annotation-created) is covered by a dedicated F1 regression test below.
     it.each([
       ['with pinPosition', { id: 'ann-reply-1', pinPosition: { x: 50, y: 80 } }, 'Actually make it darker please', 'true'],
       ['without pinPosition', { id: 'ann-reply-nopin' /* no pinPosition */ }, 'Clarification from user', 'false'],
@@ -835,8 +840,27 @@ describe('cortex mcp', () => {
       }
 
       const cliWs = [...mockVite.clients][0]
-      // In production, vite.ts emits annotation-updated after addMessage; tests
-      // send it directly so the MCP push branch receives the same event shape.
+
+      // Step 1: seed the cursor by sending annotation-created first (empty thread).
+      // Mirrors production: every annotation has a creation event before updates.
+      cliWs.send(JSON.stringify({
+        type: 'annotation-created',
+        annotation: {
+          status: 'pending',
+          elementSource: 'src/App.tsx:30:7',
+          text: 'Original comment',
+          kind: 'comment',
+          createdAt: Date.now() - 1000,
+          updatedAt: Date.now() - 1000,
+          thread: [],
+          ...extra,
+        },
+      }))
+      await new Promise(r => setTimeout(r, 200))
+      expect(notifications).toHaveLength(1) // initial annotation-created push (kind=comment)
+      notifications.length = 0 // reset to isolate the next assertion to thread-reply
+
+      // Step 2: user types a reply — thread grows from 0 → 1, MCP push should fire.
       cliWs.send(JSON.stringify({
         type: 'annotation-updated',
         annotation: {
@@ -844,7 +868,7 @@ describe('cortex mcp', () => {
           elementSource: 'src/App.tsx:30:7',
           text: 'Original comment',
           kind: 'comment',
-          createdAt: Date.now(),
+          createdAt: Date.now() - 1000,
           updatedAt: Date.now(),
           thread: [
             { id: 'msg-1', from: 'user', text: replyText, timestamp: Date.now() },
@@ -862,6 +886,118 @@ describe('cortex mcp', () => {
       expect(params.content).toContain(replyText)
       expect(params.meta.annotation_id).toBe((extra as { id: string }).id)
       expect(params.meta.has_pin).toBe(expectedHasPin)
+    })
+
+    // ── ZF0-1044 PR #122 reviewer-finding F1 (Codex P2): cursor init for unobserved annotations ──
+    // If MCP starts AFTER an annotation was created in a prior session, the cursor Map
+    // has no entry for that annotation. A naive `prevLength = 0` would re-push the
+    // last user reply on the first state transition (acknowledge/resolve/dismiss),
+    // since threadLength > 0 passes the gate. Fix: on annotation-updated for an
+    // unknown annotation, silently seed the cursor at threadLength and skip push —
+    // treats the existing thread as "already-seen by virtue of we missed creation."
+    // Claude recovers via the protocol's mandated cortex_get_details rehydration step.
+    it('annotation-updated for unobserved annotation does NOT re-push existing user reply (F1: mid-stream MCP startup)', async () => {
+      const client = await startTestServer(mockVite.port)
+      mcpClient = client
+      await waitForConnection(mockVite)
+
+      const notifications: Array<{ method: string; params: unknown }> = []
+      client.fallbackNotificationHandler = async (notification) => {
+        notifications.push({ method: notification.method, params: notification.params })
+      }
+
+      const cliWs = [...mockVite.clients][0]
+      // Send annotation-updated directly — no prior annotation-created. This
+      // simulates "MCP just started, the annotation existed in a prior session,
+      // and a state transition just fired." The thread contains a user message
+      // that would have been seen and processed in the prior session.
+      cliWs.send(JSON.stringify({
+        type: 'annotation-updated',
+        annotation: {
+          id: 'ann-prior-session',
+          status: 'acknowledged', // state transition — pending → acknowledged
+          elementSource: 'src/App.tsx:5:3',
+          text: 'Original comment from prior session',
+          kind: 'comment',
+          pinPosition: { x: 10, y: 20 },
+          createdAt: Date.now() - 100000, // pre-session timestamp
+          updatedAt: Date.now(),
+          thread: [
+            { id: 'msg-stale', from: 'user', text: 'Already-seen reply from prior session', timestamp: Date.now() - 50000 },
+          ],
+        },
+      }))
+
+      await new Promise(r => setTimeout(r, 200))
+
+      // The fix silently seeds the cursor (no push). Without the fix, a stale
+      // thread-reply with "Already-seen reply from prior session" would be
+      // re-pushed to Claude as if the user just typed it.
+      expect(notifications).toHaveLength(0)
+    })
+
+    // ── ZF0-1044 PR #122 reviewer-finding F3 (Copilot): cursor cleanup on terminal status ──
+    // After cortex_resolve / cortex_dismiss, no further pushes are possible for
+    // an annotation. The cursor entry should be removed to avoid memory leak.
+    // Asserted indirectly: after terminal transition, an event with an
+    // unobserved annotation id behaves the same as if the cursor was never set
+    // (silently seeds, no push).
+    it('annotation-updated with status=resolved removes cursor entry (F3: terminal-state cleanup)', async () => {
+      const client = await startTestServer(mockVite.port)
+      mcpClient = client
+      await waitForConnection(mockVite)
+
+      const notifications: Array<{ method: string; params: unknown }> = []
+      client.fallbackNotificationHandler = async (notification) => {
+        notifications.push({ method: notification.method, params: notification.params })
+      }
+
+      const cliWs = [...mockVite.clients][0]
+      const id = 'ann-terminal-1'
+
+      // Seed cursor via annotation-created
+      cliWs.send(JSON.stringify({
+        type: 'annotation-created',
+        annotation: {
+          id, status: 'pending', elementSource: 'src/App.tsx:1:1',
+          text: 'Initial', kind: 'comment', pinPosition: { x: 1, y: 1 },
+          createdAt: Date.now() - 1000, updatedAt: Date.now() - 1000, thread: [],
+        },
+      }))
+      await new Promise(r => setTimeout(r, 200))
+      notifications.length = 0
+
+      // Terminal transition (resolved) with same id
+      cliWs.send(JSON.stringify({
+        type: 'annotation-updated',
+        annotation: {
+          id, status: 'resolved', elementSource: 'src/App.tsx:1:1',
+          text: 'Initial', kind: 'comment', pinPosition: { x: 1, y: 1 },
+          createdAt: Date.now() - 1000, updatedAt: Date.now(), thread: [],
+        },
+      }))
+      await new Promise(r => setTimeout(r, 200))
+      // Terminal transition with unchanged empty thread — no push expected.
+      expect(notifications).toHaveLength(0)
+
+      // The cursor entry should have been removed by the F3 cleanup. Verify by
+      // sending annotation-updated again with the SAME id but with a user
+      // reply in the thread. Because the cursor was cleared, this update is
+      // treated as "unobserved annotation" (F1 path): silently seed, no push.
+      // Without F3 cleanup, the cursor would still hold thread.length=0, and
+      // the new reply (thread.length=1) would gate-pass and push.
+      cliWs.send(JSON.stringify({
+        type: 'annotation-updated',
+        annotation: {
+          id, status: 'resolved', elementSource: 'src/App.tsx:1:1',
+          text: 'Initial', kind: 'comment', pinPosition: { x: 1, y: 1 },
+          createdAt: Date.now() - 1000, updatedAt: Date.now(), thread: [
+            { id: 'msg-post-resolve', from: 'user', text: 'late reply', timestamp: Date.now() },
+          ],
+        },
+      }))
+      await new Promise(r => setTimeout(r, 200))
+      expect(notifications).toHaveLength(0) // F3 cleanup confirmed
     })
 
     // ── ZF0-1044 M-C: agent replies do NOT trigger thread-reply notification ──

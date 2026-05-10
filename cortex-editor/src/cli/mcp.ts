@@ -98,7 +98,7 @@ export const PROTOCOL_INSTRUCTIONS = `Fix requests arrive as <channel source="co
 
 Annotation handling protocol (call these tools in this order):
 
-0. Rehydrate before responding: every channel notification carries the active annotation's id in its meta.annotation_id field (not in the content JSON itself). Call cortex_get_details with that id — if thread.length > 0, read it before doing anything else. After /clear, call cortex_get_pending to catch up on annotations awaiting acknowledgement. cortex_list_active does not exist yet — do not attempt to call it (ZF0-1602 will add cortex_list_active for full pending+acknowledged continuity).
+0. Rehydrate before responding: annotation channel notifications (meta.kind = comment, fix-request, or thread-reply) carry the active annotation's id in meta.annotation_id; call cortex_get_details with that id — if thread.length > 0, read it before doing anything else. Other channel notifications (e.g. staged-edits-ready) carry different meta shapes and do not include annotation_id — do not call annotation tools for them. After /clear, call cortex_get_pending to catch up on annotations awaiting acknowledgement. cortex_list_active does not exist yet — do not attempt to call it (ZF0-1602 will add cortex_list_active for full pending+acknowledged continuity).
 
 1. Acknowledge immediately: call cortex_acknowledge(annotationId).
 
@@ -348,32 +348,52 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         const ann = (msg as Record<string, unknown>).annotation as Record<string, unknown> | undefined
         if (ann && typeof ann.id === 'string') {
           const threadLength = Array.isArray(ann.thread) ? ann.thread.length : 0
-          const prevLength = lastPushedThreadLength.get(ann.id) ?? 0
-          if (threadLength > prevLength) {
-            const replyText = getLastUserReplyText(ann.thread)
-            if (replyText !== null) {
-              void Promise.resolve().then(() =>
-                server.server.notification({
-                  method: 'notifications/claude/channel',
-                  params: {
-                    content: replyText,
-                    meta: {
-                      annotation_id: ann.id as string,
-                      severity: 'info',
-                      kind: 'thread-reply',
-                      has_pin: String(Boolean(ann.pinPosition)),
-                    },
-                  },
-                } as never),
-              ).catch((err: unknown) => {
-                process.stderr.write(`[cortex] Failed to send thread-reply notification: ${err instanceof Error ? err.message : String(err)}\n`)
-              })
-            }
-            // Advance the cursor whether or not we pushed. Agent replies
-            // (replyText === null per the from='user' guard) still grow the
-            // thread, so the next user reply must be measured against the new
-            // length — not the pre-agent-reply length.
+
+          // ZF0-1044 PR #122 reviewer-finding F1 (Codex P2): if this MCP process
+          // never observed `annotation-created` for this annotation (e.g. MCP
+          // restarted after the annotation was created in a prior session), we
+          // have no way to know which thread messages were already pushed. A
+          // default `prevLength = 0` would re-push the last user reply on the
+          // first state transition we observe. Treat the existing thread as
+          // already-seen by seeding the cursor silently — don't push.
+          if (!lastPushedThreadLength.has(ann.id)) {
             lastPushedThreadLength.set(ann.id, threadLength)
+          } else {
+            const prevLength = lastPushedThreadLength.get(ann.id) ?? 0
+            if (threadLength > prevLength) {
+              const replyText = getLastUserReplyText(ann.thread)
+              if (replyText !== null) {
+                void Promise.resolve().then(() =>
+                  server.server.notification({
+                    method: 'notifications/claude/channel',
+                    params: {
+                      content: replyText,
+                      meta: {
+                        annotation_id: ann.id as string,
+                        severity: 'info',
+                        kind: 'thread-reply',
+                        has_pin: String(Boolean(ann.pinPosition)),
+                      },
+                    },
+                  } as never),
+                ).catch((err: unknown) => {
+                  process.stderr.write(`[cortex] Failed to send thread-reply notification: ${err instanceof Error ? err.message : String(err)}\n`)
+                })
+              }
+              // Advance the cursor whether or not we pushed. Agent replies
+              // (replyText === null per the from='user' guard) still grow the
+              // thread, so the next user reply must be measured against the new
+              // length — not the pre-agent-reply length.
+              lastPushedThreadLength.set(ann.id, threadLength)
+            }
+          }
+
+          // ZF0-1044 PR #122 reviewer-finding F3 (Copilot): release per-annotation
+          // cursor entries when the annotation reaches a terminal state. After
+          // resolved/dismissed, no further pushes are possible for this id, so
+          // keeping the entry is dead weight.
+          if (ann.status === 'resolved' || ann.status === 'dismissed') {
+            lastPushedThreadLength.delete(ann.id)
           }
         }
       }
@@ -386,6 +406,13 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         pending.reject(new Error('WebSocket disconnected'))
       }
       pendingRequests.clear()
+
+      // ZF0-1044 PR #122 reviewer-finding F3 (Copilot): drop per-annotation
+      // thread-length cursors on disconnect. Without this, a reconnect inherits
+      // stale cursor state across sessions; if the dev server restarts and
+      // re-emits annotation-updated for the same id with a shorter thread, the
+      // gate logic skips work that should re-fire.
+      lastPushedThreadLength.clear()
 
       connected = false
       editorActive = false
