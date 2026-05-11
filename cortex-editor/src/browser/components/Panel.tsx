@@ -33,7 +33,6 @@ import { detectSharedSource } from '../shared-source-detector.js'
 import type { SharedSourceInfo } from '../shared-source-detector.js'
 import { EditErrorCard } from './EditErrorCard.js'
 import type { EditError } from './EditErrorCard.js'
-import { CommentInput } from './CommentInput.js'
 import { SectionGroup } from './SectionGroup.js'
 import { IconButton } from './controls/IconButton.js'
 import { BackgroundSection, type BackgroundChange } from './sections/BackgroundSection.js'
@@ -503,10 +502,6 @@ export function Panel({
   // Plain object snapshot (NOT a live CSSStyleDeclaration) — taken once per element.
   const defaultStylesRef = useRef<Record<string, string> | null>(null)
 
-  // Cleanup for pending comment subscription + timeout
-  const commentCleanupRef = useRef<(() => void) | null>(null)
-  useEffect(() => () => { commentCleanupRef.current?.() }, [])
-  useEffect(() => { commentCleanupRef.current?.() }, [element])
   useEffect(() => {
     if (!element) { defaultStylesRef.current = null; return }
     const cs = getComputedStyle(element)
@@ -1471,43 +1466,6 @@ export function Panel({
     }
   }, [element, onSelectElement])
 
-  const handleCommentSubmit = useCallback(async (text: string): Promise<void> => {
-    const source = element?.getAttribute('data-cortex-source')
-    if (!source || !channel) return
-
-    commentCleanupRef.current?.()
-    channel.send({ type: 'comment', elementSource: source, text })
-
-    // Resolve as soon as the server creates the annotation (annotation-created).
-    // Agent processing (acknowledged/resolved) happens asynchronously afterward.
-    return new Promise<void>((resolve, reject) => {
-      let settled = false
-      const timeout = setTimeout(() => {
-        if (settled) return
-        settle()
-        reject(new Error('timeout'))
-      }, 15_000)
-
-      const unsubscribe = channel.onMessage((msg) => {
-        if (settled) return
-        if (msg.type === 'annotation-created' && !msg.annotation.pinPosition) {
-          settle()
-          resolve()
-        }
-      })
-
-      function settle() {
-        settled = true
-        clearTimeout(timeout)
-        unsubscribe()
-        if (commentCleanupRef.current === cancelRef) commentCleanupRef.current = null
-      }
-      function cancel() { settle(); reject(new Error('cancelled')) }
-      const cancelRef = cancel
-      commentCleanupRef.current = cancel
-    })
-  }, [element, channel])
-
   const panelClasses = [
     'cortex-panel',
     isEntering && 'cortex-panel--entering',
@@ -1941,12 +1899,6 @@ export function Panel({
             mixedProperties={mixedProperties}
           />
         </SectionGroup>
-        {channel && (
-          <CommentInput
-            agentConnected={agentConnected ?? false}
-            onSubmit={handleCommentSubmit}
-          />
-        )}
       </div>
       <ConnectionStatusFooter status={connectionStatus} />
     </div>
