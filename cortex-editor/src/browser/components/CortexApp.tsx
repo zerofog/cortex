@@ -438,40 +438,27 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         // fresh closure over new state so multiple mounts in the same test
         // cannot share dismissCount or buttonNode. DCE'd from prod bundles.
         useOutsideDismissKit: {
-          mountInRoot: (root: ParentNode, options?: { positionX?: number; positionY?: number; size?: number }) => {
+          mountInRoot: async (root: ParentNode) => {
             let dismissCount = 0
             let buttonNode: HTMLButtonElement | null = null
-            // Set to true inside a useEffect so specs can waitForFunction on
-            // it — Preact schedules useEffect after rAF, so event listeners
-            // from useOutsideDismiss are NOT yet registered when preactRender
-            // returns. Polling `ready()` in a waitForFunction gives the
-            // browser one rAF to flush effects before the spec dispatches
-            // events.
-            let effectsReady = false
             const Popover = (): JSX.Element => {
               const ref = useRef<HTMLDivElement>(null)
               useOutsideDismiss(ref, () => { dismissCount++ })
-              useEffect(() => {
-                // This effect runs AFTER useOutsideDismiss's effect because
-                // effects run in declaration order. By the time this sets the
-                // flag, the hook's event listeners are guaranteed registered.
-                effectsReady = true
-              }, [])
               return (
                 <div
                   ref={ref}
                   data-testid="test-popover"
                   style={{
                     position: 'fixed',
-                    top: `${options?.positionY ?? 200}px`,
-                    left: `${options?.positionX ?? 200}px`,
-                    width: `${options?.size ?? 120}px`,
-                    height: `${options?.size ?? 120}px`,
+                    top: '200px',
+                    left: '200px',
+                    width: '120px',
+                    height: '120px',
                     background: 'rgb(220, 220, 220)',
                   }}
                 >
                   <button
-                    ref={(n) => { buttonNode = n }}
+                    ref={(n) => { if (n) buttonNode = n }}
                     data-testid="popover-inside-btn"
                     type="button"
                   >
@@ -483,13 +470,30 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
             const container = document.createElement('div')
             root.appendChild(container)
             preactRender(<Popover />, container)
+            // Wait for Preact's post-rAF effect flush so useOutsideDismiss has
+            // registered its document listeners before the spec dispatches events.
+            // Preact's afterNextFrame schedules effects via
+            //   requestAnimationFrame(() => setTimeout(flushAfterPaintEffects))
+            // so a single rAF wait is insufficient — effects run in the setTimeout
+            // INSIDE the rAF callback. We await rAF then a setTimeout to match
+            // Preact's double-deferral, ensuring all useEffect callbacks are
+            // registered before the Promise resolves.
+            await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve)))
+            if (!buttonNode) throw new Error('[useOutsideDismissKit] inside button ref never resolved after rAF flush')
             return {
+              insideButton: buttonNode,
               dismissCount: () => dismissCount,
-              getInsideButton: () => buttonNode,
-              ready: () => effectsReady,
               cleanup: () => {
-                preactRender(null, container)
-                container.remove()
+                try {
+                  preactRender(null, container)
+                } catch (err) {
+                  console.error('[useOutsideDismissKit] cleanup render failed — listeners may leak:', err)
+                }
+                try {
+                  container.remove()
+                } catch (err) {
+                  console.error('[useOutsideDismissKit] container.remove failed:', err)
+                }
               },
             }
           },

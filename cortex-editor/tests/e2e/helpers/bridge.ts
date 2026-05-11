@@ -107,16 +107,11 @@ export interface CortexTestBridge {
    *  cannot simulate that retargeting faithfully (ZF0-1560).
    *  Only present in test builds; undefined in prod bundles. */
   useOutsideDismissKit?: {
-    mountInRoot: (root: ParentNode, options?: { positionX?: number; positionY?: number; size?: number }) => {
+    mountInRoot: (root: ParentNode) => Promise<{
+      readonly insideButton: HTMLButtonElement
       dismissCount: () => number
-      getInsideButton: () => HTMLButtonElement | null
-      /** True once the hook's useEffect listeners are registered (fires after
-       *  Preact's post-rAF flush). Specs must waitForFunction on this before
-       *  dispatching events, because preactRender schedules effects
-       *  asynchronously via requestAnimationFrame. */
-      ready: () => boolean
       cleanup: () => void
-    }
+    }>
   }
 }
 

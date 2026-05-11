@@ -16,23 +16,20 @@ import { test, expect } from '@playwright/test'
 import { bootBundleWithClosedShadow } from './helpers/closed-shadow.js'
 import type { CortexTestBridge } from './helpers/bridge.js'
 
-/** Derived handle type from the kit's mountInRoot return value. */
-type KitHandle = ReturnType<NonNullable<CortexTestBridge['useOutsideDismissKit']>['mountInRoot']>
+/** Resolved handle type from the kit's mountInRoot Promise. */
+type KitHandle = Awaited<ReturnType<NonNullable<CortexTestBridge['useOutsideDismissKit']>['mountInRoot']>>
 
 test.describe('useOutsideDismiss inside closed ShadowRoot (ZF0-1560) @fast-ci', () => {
   test.beforeEach(async ({ page }) => {
     await bootBundleWithClosedShadow(page)
-    await page.evaluate(() => {
+    await page.evaluate(async () => {
       const host = document.createElement('div')
       host.id = 'closed-shadow-host'
-      host.style.cssText = 'position:fixed;top:200px;left:200px;width:120px;height:120px;'
       document.body.appendChild(host)
       const shadow = host.attachShadow({ mode: 'closed' })
       const kit = (window as { __CORTEX_TEST__?: CortexTestBridge }).__CORTEX_TEST__!.useOutsideDismissKit!
-      ;(window as { __test_kit_handle?: KitHandle }).__test_kit_handle = kit.mountInRoot(shadow)
+      ;(window as { __test_kit_handle?: KitHandle }).__test_kit_handle = await kit.mountInRoot(shadow)
     })
-    // Wait for Preact's post-rAF effect flush to register the hook's event listeners.
-    await page.waitForFunction(() => !!(window as { __test_kit_handle?: KitHandle }).__test_kit_handle?.ready())
   })
 
   test.afterEach(async ({ page }) => {
@@ -42,7 +39,7 @@ test.describe('useOutsideDismiss inside closed ShadowRoot (ZF0-1560) @fast-ci', 
   })
 
   test('outside mousedown dismisses (Chromium retargeting through closed boundary)', async ({ page }) => {
-    // Click outside the host's bounding box (host is at 200,200 with size 120; click at 50,50 in light DOM).
+    // Click outside the host's bounding box (popover is at 200,200 with size 120; click at 50,50 in light DOM).
     await page.mouse.click(50, 50)
 
     const dismissCount = await page.evaluate(() => (window as { __test_kit_handle?: KitHandle }).__test_kit_handle!.dismissCount())
@@ -53,8 +50,8 @@ test.describe('useOutsideDismiss inside closed ShadowRoot (ZF0-1560) @fast-ci', 
     // Dispatch mousedown directly on the inside button (queryable via the kit's captured node ref, since
     // shadow is closed and Playwright cannot reach into it via DOM queries).
     await page.evaluate(() => {
-      const btn = (window as { __test_kit_handle?: KitHandle }).__test_kit_handle!.getInsideButton()!
-      btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+      const handle = (window as { __test_kit_handle?: KitHandle }).__test_kit_handle!
+      handle.insideButton.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
     })
 
     const dismissCount = await page.evaluate(() => (window as { __test_kit_handle?: KitHandle }).__test_kit_handle!.dismissCount())
