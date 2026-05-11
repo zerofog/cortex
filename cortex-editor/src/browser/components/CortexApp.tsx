@@ -437,6 +437,46 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         // retargeting faithfully (Test Anti-Pattern #3). Each call returns a
         // fresh closure over new state so multiple mounts in the same test
         // cannot share dismissCount or buttonNode. DCE'd from prod bundles.
+        // TEST-ONLY: mount a production `<NoAnnotationsBanner />` into any
+        // ParentNode so Playwright specs can exercise the MutationObserver
+        // self-heal flow with real Chromium delivery. Happy-dom cannot
+        // faithfully simulate the Preact effect scheduling × MO timer queue
+        // interaction (Test Anti-Pattern #3). Each call returns a fresh
+        // closure over a new container so multiple mounts in the same test
+        // don't share state. Caller is responsible for stripping existing
+        // `[data-cortex-source]` elements BEFORE mounting when testing the
+        // "initially visible" path — banner reads `document` globally, not
+        // from its mount-parent. DCE'd from prod bundles.
+        noAnnotationsBannerKit: {
+          mountInRoot: async (root: ParentNode) => {
+            const container = document.createElement('div')
+            root.appendChild(container)
+            preactRender(<NoAnnotationsBanner />, container)
+            // Same Preact-scheduler dance as useOutsideDismissKit:
+            // rAF → setTimeout ensures the MutationObserver useEffect has
+            // registered before the spec dispatches mutations. Preact's
+            // afterNextFrame schedules effects via
+            //   requestAnimationFrame(() => setTimeout(flushAfterPaintEffects))
+            // so a single rAF wait is insufficient — effects run in the
+            // setTimeout INSIDE the rAF callback.
+            await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve)))
+            return {
+              isVisible: () => container.querySelector('[data-banner-id="no-annotations"]') !== null,
+              cleanup: () => {
+                try {
+                  preactRender(null, container)
+                } catch (err) {
+                  console.error('[noAnnotationsBannerKit] cleanup render failed — MO may leak:', err)
+                }
+                try {
+                  container.remove()
+                } catch (err) {
+                  console.error('[noAnnotationsBannerKit] container.remove failed:', err)
+                }
+              },
+            }
+          },
+        },
         useOutsideDismissKit: {
           mountInRoot: async (root: ParentNode) => {
             let dismissCount = 0
