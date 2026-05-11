@@ -1,0 +1,41 @@
+cortex-editor/tests/e2e/helpers/boot.ts
+  s_a5e985545741cc::t_a6053fdfc94027 29-57
+  s_a5e985545741cc::t_59a287d8026c81 113-117
+cortex-editor/tests/e2e/fixtures/theme-luminance-light.html
+  s_a5e985545741cc::t_7d4b1d6c9270b2 1-16
+cortex-editor/tests/e2e/fixtures/theme-luminance-transparent.html
+  s_a5e985545741cc::t_fbd13fc1e22ae4 1-20
+cortex-editor/tests/e2e/helpers/fixture-server.ts
+  s_a5e985545741cc::t_165ebb74dcf368 125-141
+  s_a5e985545741cc::t_d7c9681bc2606c 62-70
+cortex-editor/tests/e2e/helpers/theme-fixture.ts
+  s_a5e985545741cc::t_1b5c314ff5018e 1-18,20-22,24-97,107-108,110
+  s_a5e985545741cc::t_b00e53254765ea 19,23
+  s_a5e985545741cc::t_4b54d3bbbf084f 98-106,109
+cortex-editor/tests/e2e/fixtures/theme-luminance-dark.html
+  s_a5e985545741cc::t_a47f095edc96e8 1-21
+cortex-editor/tests/e2e/theme-luminance-fallback.spec.ts
+  s_a5e985545741cc::t_8f11c7e92a41e4 62-63,72-76,78,104,110-113,122,125-128,143-145
+  s_a5e985545741cc::t_7dc5be3a629954 82-103,105
+  s_a5e985545741cc::t_a3127fd6a0a807 1-13,43,56-57,61,64-71,77,79-81,106-109,123-124,129-142,146-149
+  s_a5e985545741cc::t_c1e143fd84551d 114-121
+  s_a5e985545741cc::t_f5ade2d72dc4e1 14-15,17,19-21,23-24,26,28,30-31,34,42,54-55,58-60
+  s_a5e985545741cc::t_6fb1d9bb81bf24 16,18,22,25,27,29,32-33,35-41
+  s_a5e985545741cc::t_f4743e7f9d5841 44-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "9cf5cbc01c62a9c8a56dcfe9285f4523d2ccd7da",
+  "prompts": {},
+  "sessions": {
+    "s_a5e985545741cc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "04189b68-e97d-4ed4-8a88-dec28b46b2bf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
