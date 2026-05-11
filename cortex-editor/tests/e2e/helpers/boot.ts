@@ -56,7 +56,7 @@ export interface BootFixtureOptions {
    * CortexApp mounts. The wait uses a 5 s ceiling — same as the
    * bundle-boot wait — and throws if the kit doesn't appear in time.
    */
-  waitForKit?: 'useOutsideDismissKit'
+  waitForKit?: 'useOutsideDismissKit' | 'noAnnotationsBannerKit'
 }
 
 /**

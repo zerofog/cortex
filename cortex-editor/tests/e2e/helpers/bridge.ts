@@ -100,6 +100,18 @@ export interface CortexTestBridge {
    *  tests to seed editDispatchRef without going through the scrub commit
    *  path. Only present in test builds; undefined in prod bundles. */
   handleEditDispatch?: (editId: string, source: string, property: string, value: string) => void
+  /** TEST-ONLY: mount a production `<NoAnnotationsBanner />` into any
+   *  ParentNode so Playwright specs can exercise the MutationObserver
+   *  self-heal flow with real Chromium delivery. Happy-dom cannot
+   *  faithfully simulate the Preact effect scheduling × MO timer queue
+   *  interaction (Test Anti-Pattern #3, ZF0-1561).
+   *  Only present in test builds; undefined in prod bundles. */
+  noAnnotationsBannerKit?: {
+    mountInRoot: (root: ParentNode) => Promise<{
+      isVisible: () => boolean
+      cleanup: () => void
+    }>
+  }
   /** TEST-ONLY: mount a minimal Preact popover (using the production
    *  `useOutsideDismiss` hook) into any ParentNode including a genuinely
    *  closed ShadowRoot. Exists to exercise the hook's closed-shadow

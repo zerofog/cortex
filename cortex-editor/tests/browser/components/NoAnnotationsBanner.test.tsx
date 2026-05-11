@@ -195,27 +195,4 @@ describe('NoAnnotationsBanner', () => {
     })
   })
 
-  // TODO: requires real browser — happy-dom delivers MutationObserver
-  // callbacks via its own timer queue, and the interaction between Preact's
-  // effect scheduling, happy-dom's MO setTimeout, and vitest's polling makes
-  // this flow untestable here despite the production code being correct.
-  // Verified in Step 9.5 manual verification (banner self-heals after Vite
-  // plugin install). See ZF0-1123 ship-task checkpoint Step 9.5 entry.
-  it.skip('self-heals when an annotated element is added to the DOM after mount', async () => {
-    for (const el of document.body.querySelectorAll('[data-cortex-source]')) {
-      el.remove()
-    }
-
-    container = document.createElement('div')
-    document.body.appendChild(container)
-
-    render(<NoAnnotationsBanner />, container)
-    expect(container.querySelector('[data-banner-id="no-annotations"]')).not.toBeNull()
-
-    document.body.appendChild(createEditableDiv())
-
-    await vi.waitFor(() => {
-      expect(container.querySelector('[data-banner-id="no-annotations"]')).toBeNull()
-    })
-  })
 })
