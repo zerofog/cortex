@@ -42,6 +42,24 @@ vi.mock('../../src/browser/selection.js', () => {
 // Import the mocked module to access internals
 import { initSelection } from '../../src/browser/selection.js'
 
+// ZF0-1564: spy on the selected-element refresh callback so the HMR file-list
+// filter tests can assert "the gated refresh path did not fire" against a
+// specific function rather than a global side-effect count. The passthrough
+// keeps the real implementation for tests that exercise re-resolution end-to-end
+// (related-files cases); the spy only captures whether/how often the function
+// was invoked. Replaces brittle `expect(gcs.mock.calls.length).toBe(before)`
+// assertions that flaked under coverage instrumentation.
+vi.mock('../../src/browser/selection-metadata.js', async (importOriginal) => {
+  const actual = (await importOriginal()) as typeof import('../../src/browser/selection-metadata.js')
+  return {
+    ...actual,
+    reResolveSelection: vi.fn(actual.reResolveSelection),
+  }
+})
+
+// Import the mocked module to access the spy
+import { reResolveSelection } from '../../src/browser/selection-metadata.js'
+
 describe('CortexApp', () => {
   let root: HTMLDivElement
   let shadow: ShadowRoot
@@ -1082,23 +1100,26 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     const gcs = vi.spyOn(window, 'getComputedStyle')
     await new Promise(r => setTimeout(r, 150))
     gcs.mockClear()
+    // ZF0-1564: clear the file-scope reResolveSelection spy so each test
+    // starts with zero recorded calls. Cross-test pollution would otherwise
+    // make `not.toHaveBeenCalled()` reflect prior tests, not gate behavior.
+    vi.mocked(reResolveSelection).mockClear()
     return { channel, gcs, element }
   }
 
   it('skips Panel refresh when hmr files are fully unrelated to the selection', async () => {
     const { channel, gcs } = await setup('src/foo.tsx:10:5')
-    const before = gcs.mock.calls.length
     channel._simulateMessage({ type: 'hmr-applied', files: ['src/bar.tsx', 'src/baz.tsx'] })
-    // Negative assertion: the shouldRefresh gate short-circuits the version
-    // bump AND the attemptReResolve fan-out, so with the gate in place nothing
-    // fires regardless of wait length. We wait 200ms as an empirical upper
-    // bound on happy-dom's Preact-scheduler + override-bus ambient effects
-    // under CI fork-pool load. vi.waitFor cannot help here — you can't poll
-    // for a thing NOT happening.
-    await new Promise(r => setTimeout(r, 200))
-    // No CSS in list, no ancestor match, no own-file match → gate returns
-    // false → neither the version bump nor the re-resolve fan-out fires.
-    expect(gcs.mock.calls.length).toBe(before)
+    // ZF0-1564: assert against a SPECIFIC function (reResolveSelection) instead
+    // of `gcs.mock.calls.length`. Production gate at CortexApp.tsx:779 calls
+    // `attemptReResolve()` SYNCHRONOUSLY inside `if (shouldRefresh)` and
+    // schedules its rAF/setTimeout fan-out inside the same block. When the gate
+    // returns false (this test's scenario: no CSS in list, no ancestor match,
+    // no own-file match), the sync call is skipped AND nothing is scheduled —
+    // so reResolveSelection is never called, ever. No 200ms wait needed; the
+    // assertion is purely synchronous against a deterministic code path,
+    // immune to coverage-instrumentation noise on shared globals.
+    expect(reResolveSelection).not.toHaveBeenCalled()
     gcs.mockRestore()
   })
 
@@ -1133,7 +1154,6 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     }])
 
     const { channel, gcs } = await setup('src/foo.tsx:10:5')
-    const before = gcs.mock.calls.length
 
     // Fire hmr-applied with files that include src/Sidebar.tsx — shouldRefreshOnHMR
     // returns false (src/foo.tsx:10:5 is selected, Sidebar.tsx is unrelated),
@@ -1144,14 +1164,19 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
       channel._simulateMessage({ type: 'hmr-applied', files: ['src/Sidebar.tsx', 'src/Other.tsx'] })
     }).not.toThrow()
 
-    // DOM refresh skipped (no new getComputedStyle calls) — confirms gate worked
-    await new Promise(r => setTimeout(r, 200))
-    expect(gcs.mock.calls.length).toBe(before)
+    // ZF0-1564 negative signal: selected-element refresh path was skipped.
+    // shouldRefreshOnHMR returns false because Sidebar.tsx/Other.tsx don't match
+    // the selected element's source (src/foo.tsx). The gate at CortexApp.tsx:779
+    // synchronously skips the entire attemptReResolve fan-out (sync call +
+    // double-rAF + 100ms/250ms setTimeouts). Assertion is synchronous and
+    // deterministic — no 200ms sleep, no reliance on `getComputedStyle` global
+    // side-effects that coverage instrumentation can inflate.
+    expect(reResolveSelection).not.toHaveBeenCalled()
 
-    // Falsifiable: the drift banner must appear, proving hmrChangedFiles was propagated
-    // non-empty. If setHmrChangedFiles regressed to setHmrChangedFiles([]), the Panel
-    // reconcile effect takes the early-return path (intentDriftCount stays 0) and the
-    // banner does not render.
+    // ZF0-1564 positive signal (unchanged): the drift banner must appear, proving
+    // hmrChangedFiles was propagated non-empty. If setHmrChangedFiles regressed
+    // to setHmrChangedFiles([]), the Panel reconcile effect takes the
+    // early-return path (intentDriftCount stays 0) and the banner does not render.
     await vi.waitFor(() => {
       expect(root.textContent).toContain('staged edit(s) may be affected')
     }, { timeout: WAIT_FOR_COMMIT_MS })
