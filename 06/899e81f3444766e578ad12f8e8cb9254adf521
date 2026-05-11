@@ -1,0 +1,19 @@
+cortex-editor/tests/e2e/helpers/boot.ts
+  s_45e16d3ecb3859::t_5e092ff0effe6f 120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "06899e81f3444766e578ad12f8e8cb9254adf521",
+  "prompts": {},
+  "sessions": {
+    "s_45e16d3ecb3859": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e5f4128-18e6-42d9-b2ea-b5f9fcd5a7cb",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
