@@ -1,0 +1,23 @@
+cortex-editor/tests/e2e/helpers/bridge.ts
+  s_4ada437cc490e5::t_adba5f94f3518e 103-114
+cortex-editor/src/browser/components/CortexApp.tsx
+  s_4ada437cc490e5::t_d5064e1e1e6f42 440-479
+cortex-editor/tests/e2e/helpers/boot.ts
+  s_4ada437cc490e5::t_3f130790d59c8d 59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "de61d02f05be818adb6159709c08a260d4b72784",
+  "prompts": {},
+  "sessions": {
+    "s_4ada437cc490e5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ba643432-1d06-4873-b983-be75a5e2b167",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
