@@ -31,4 +31,21 @@ export async function bootBundleWithClosedShadow(page: Page): Promise<void> {
     waitForKit: 'useOutsideDismissKit',
     collectDivergences: false,
   })
+  const patchActive = await page.evaluate(() => {
+    const host = document.createElement('div')
+    host.setAttribute('data-cortex-shadow-probe', '')
+    document.body.appendChild(host)
+    host.attachShadow({ mode: 'closed' })
+    const leaked = host.shadowRoot !== null
+    host.remove()
+    return leaked
+  })
+  if (patchActive) {
+    throw new Error(
+      '[bootBundleWithClosedShadow] attachShadow patch is ACTIVE despite ' +
+      'patchAttachShadow: false — closed-shadow specs cannot exercise ' +
+      'real shadow retargeting. Check that BootFixtureOptions.patchAttachShadow ' +
+      'still forwards to setupDebugBridge in helpers/boot.ts.',
+    )
+  }
 }

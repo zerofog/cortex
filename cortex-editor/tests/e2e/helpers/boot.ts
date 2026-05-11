@@ -105,14 +105,24 @@ export async function bootFixture(
   await waitForBridge(page)
   if (opts.waitForKit) {
     const kit = opts.waitForKit
-    await page.waitForFunction(
-      (kitName: string) => {
-        const t = (globalThis as unknown as { __CORTEX_TEST__?: Record<string, unknown> }).__CORTEX_TEST__
-        return !!t?.[kitName]
-      },
-      kit,
-      { timeout: 5000 },
-    )
+    try {
+      await page.waitForFunction(
+        (kitName: string) => {
+          const t = (globalThis as unknown as { __CORTEX_TEST__?: Record<string, unknown> }).__CORTEX_TEST__
+          return !!t?.[kitName]
+        },
+        kit,
+        { timeout: 5000 },
+      )
+    } catch (err) {
+      throw new Error(
+        `[bootFixture] __CORTEX_TEST__.${kit} did not appear within 5000ms. Likely causes:\n` +
+          `  1. Bundle built without __CORTEX_TEST_BUILD__=true — run \`npm run build:test\`.\n` +
+          `  2. Kit name drift — confirm CortexApp.tsx still assigns __CORTEX_TEST__.${kit}.\n` +
+          `  3. __CORTEX_DEBUG_OVERRIDES__ not set before navigation — confirm setupDebugBridge ran pre-goto.\n` +
+          `Original error: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
   }
   if (opts.selectElement) {
     await page.evaluate((selector) => {
