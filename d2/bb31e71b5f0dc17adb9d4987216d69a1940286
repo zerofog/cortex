@@ -1,0 +1,25 @@
+cortex-editor/src/browser/components/CortexApp.tsx
+  s_45e16d3ecb3859::t_8a5e81ff4ee13d 33
+  s_45e16d3ecb3859::t_996c42820417d6 2
+  s_45e16d3ecb3859::t_93467fee226bed 444-450,454-459,489
+  s_45e16d3ecb3859::t_f4f0f2b52bf2c1 432-443,451-453,460-488,490-496
+cortex-editor/tests/e2e/helpers/bridge.ts
+  s_45e16d3ecb3859::t_d1e9bab20c654a 113-117
+  s_45e16d3ecb3859::t_e9d864142d41d9 103-112,118-120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "d2bb31e71b5f0dc17adb9d4987216d69a1940286",
+  "prompts": {},
+  "sessions": {
+    "s_45e16d3ecb3859": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e5f4128-18e6-42d9-b2ea-b5f9fcd5a7cb",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
