@@ -1,0 +1,19 @@
+cortex-editor/tests/browser/hooks/useOutsideDismiss.test.tsx
+  s_45e16d3ecb3859::t_ad8dfaa3a50cbb 219-221
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "797dcf11e3d9337cc968b1df8ab0babb77760fae",
+  "prompts": {},
+  "sessions": {
+    "s_45e16d3ecb3859": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e5f4128-18e6-42d9-b2ea-b5f9fcd5a7cb",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
