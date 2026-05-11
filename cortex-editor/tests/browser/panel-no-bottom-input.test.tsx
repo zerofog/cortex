@@ -39,6 +39,7 @@ const CHIPS: readonly ColorChip[] = [
 
 let container: HTMLDivElement
 let targetElement: HTMLElement
+let overrideManager: CSSOverrideManager
 
 const flushEffects = (): Promise<void> => new Promise((r) => setTimeout(r, 10))
 
@@ -65,12 +66,19 @@ describe('Panel bottom-input removal (ZF0-1605 regression)', () => {
     render(null, container)
     container.remove()
     if (targetElement.parentElement) targetElement.remove()
+    // PR #122 reviewer-finding F5 (Copilot): CSSOverrideManager appends
+    // <style data-cortex-override> to document.head. Without cleanup these
+    // leak across the browser test suite and can cause cross-test interference.
+    // Belt-and-suspenders: call dispose() if the manager was instantiated,
+    // then sweep any remaining override style tags.
+    overrideManager?.dispose()
+    document.head.querySelectorAll('[data-cortex-override]').forEach(el => el.remove())
   })
 
   it('renders no input with aria-label "Comment to AI agent" in the panel body (CommentInput regression guard)', async () => {
     const channel = createMockChannel()
     const commandStack = new CommandStack()
-    const overrideManager = new CSSOverrideManager()
+    overrideManager = new CSSOverrideManager()
 
     render(
       <Panel
