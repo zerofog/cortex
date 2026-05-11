@@ -59,7 +59,15 @@ export const FIXTURE_MAP_COUNT = 3
  *  on disk. */
 const fileCache = new Map<string, string>()
 
-function readCached(p: string): string {
+/**
+ * Per-worker `readFileSync` cache for e2e fixture helpers. Exported so
+ * sibling fixture helpers (e.g. `theme-fixture.ts`) share the same cache
+ * and the same on-disk-read semantics. The IIFE bundle is built once per
+ * `npm run test:e2e` and doesn't change mid-run; caching makes the second+
+ * read O(0) on disk. Edits to a fixture HTML during `playwright --watch`
+ * require a worker restart to invalidate the cache.
+ */
+export function readCached(p: string): string {
   const hit = fileCache.get(p)
   if (hit !== undefined) return hit
   const content = readFileSync(p, 'utf8')
@@ -114,13 +122,23 @@ export async function installFixtureServer(page: Page): Promise<void> {
     await route.fulfill({ status: 404, body: `not found: ${url.pathname}` })
   })
 
-  // Block external fonts so the harness is truly hermetic. CortexApp's
-  // `bootstrap()` injects a <link> to fonts.googleapis.com for Geist —
-  // left unintercepted, every spec fires live HTTPS requests (flaky on
-  // restricted runners, misleading network traces). Abort with
-  // `internetdisconnected` so the browser logs a network error rather
-  // than silently hanging. Fixture-relative CSS already ships inside the
-  // IIFE bundle; external fonts degrade gracefully to system fallbacks.
+  await blockExternalFonts(page)
+}
+
+/**
+ * Block external font requests so e2e specs stay hermetic. CortexApp's
+ * `bootstrap()` injects a `<link>` to fonts.googleapis.com for Geist —
+ * left unintercepted, every spec fires live HTTPS requests (flaky on
+ * restricted runners, misleading network traces). Abort with
+ * `internetdisconnected` so the browser logs a clean network error
+ * instead of silently hanging. The IIFE bundle already ships its own
+ * scoped CSS; external fonts degrade to system fallbacks.
+ *
+ * Exported so sibling fixture helpers (e.g. `theme-fixture.ts`) call the
+ * same route block. Adding a new hermeticity endpoint (telemetry,
+ * analytics) lands in one place.
+ */
+export async function blockExternalFonts(page: Page): Promise<void> {
   await page.route(/fonts\.(googleapis|gstatic)\.com/, async (route) => {
     await route.abort('internetdisconnected')
   })

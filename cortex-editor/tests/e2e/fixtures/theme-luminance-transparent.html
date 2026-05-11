@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Cortex E2E — Luminance Fallback (transparent, alpha-guard control)</title>
+  </head>
+  <body style="background-color: rgba(0, 0, 0, 0);">
+    <!--
+      Alpha-guard negative control for ZF0-1562: body bg is fully transparent.
+      detectTheme() at index.tsx:47-48 checks `alpha < 0.01` BEFORE computing
+      luminance and returns null (inconclusive) — so even though the RGB
+      channels are (0,0,0) and would otherwise score very dark, the guard
+      must short-circuit and leave data-theme unset.
+
+      Without this fixture the alpha branch is untested in real browser.
+    -->
+    <script src="./cortex-bundle.js"></script>
+  </body>
+</html>

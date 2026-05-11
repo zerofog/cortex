@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Cortex E2E — Luminance Fallback (light, negative control)</title>
+  </head>
+  <body style="background-color: rgb(250, 250, 250);">
+    <!--
+      Negative-control fixture for ZF0-1562: body bg luminance ≈ 0.97 (well
+      above the 0.4 threshold) → host should NOT receive a data-theme attr.
+      Proves the threshold side of the branch isn't biased toward blueprint.
+    -->
+    <script src="./cortex-bundle.js"></script>
+  </body>
+</html>
