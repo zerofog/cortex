@@ -9,12 +9,12 @@
  * and the send stub, leaving any `attachShadow({ mode: 'closed' })` call
  * genuinely closed.
  *
- * Cross-reference: if `setupDebugBridge` in bridge.ts changes its boot
- * sequence (e.g. a new global it must set), audit this file for parity.
+ * Cross-reference: if `bootFixture` in boot.ts changes its boot sequence
+ * (e.g. a new global it must set), this file stays in sync automatically
+ * because it delegates to `bootFixture` with `patchAttachShadow: false`.
  */
 import type { Page } from '@playwright/test'
-import { assertPreNavigation } from './bridge.js'
-import { installFixtureServer, FIXTURE_URL } from './fixture-server.js'
+import { bootFixture } from './boot.js'
 
 /**
  * Boots the IIFE bundle WITHOUT patching attachShadow. Use this for any
@@ -26,24 +26,9 @@ import { installFixtureServer, FIXTURE_URL } from './fixture-server.js'
  * it does NOT touch attachShadow.
  */
 export async function bootBundleWithClosedShadow(page: Page): Promise<void> {
-  assertPreNavigation(page, 'bootBundleWithClosedShadow')
-  await page.addInitScript(() => {
-    ;(globalThis as unknown as { __CORTEX_DEBUG_OVERRIDES__?: boolean }).__CORTEX_DEBUG_OVERRIDES__ = true
-    ;(globalThis as unknown as { __cortex_send__?: (msg: unknown) => void }).__cortex_send__ = () => { /* no-op */ }
+  await bootFixture(page, {
+    patchAttachShadow: false,
+    waitForKit: 'useOutsideDismissKit',
+    collectDivergences: false,
   })
-  await installFixtureServer(page)
-  await page.goto(FIXTURE_URL)
-  await page.waitForFunction(
-    () => typeof (globalThis as unknown as { CortexEditor?: unknown }).CortexEditor !== 'undefined',
-    null,
-    { timeout: 5000 },
-  )
-  await page.waitForFunction(
-    () => {
-      const t = (globalThis as unknown as { __CORTEX_TEST__?: { useOutsideDismissKit?: unknown } }).__CORTEX_TEST__
-      return !!t?.useOutsideDismissKit
-    },
-    null,
-    { timeout: 5000 },
-  )
 }
