@@ -75,16 +75,28 @@ export async function installThemeFixture(page: Page): Promise<void> {
     }
   }
 
+  // Pre-read all served files at install time (symmetry with `bundleJs`
+  // below + the eager-read pattern in `installFixtureServer`). Without
+  // this, a fixture-HTML read failure surfaces asynchronously inside a
+  // Playwright route handler — Playwright reports a generic route failure
+  // rather than the actual ENOENT/EACCES at the source line that called
+  // `installThemeFixture`. The `existsSync` loop above already ensures
+  // files exist; this just ensures read errors surface at the same call
+  // site that install errors do.
   const bundleJs = readCached(bundlePath)
+  const fixtureBodies = new Map<string, string>()
+  for (const [pathname, file] of Object.entries(FIXTURE_FILES)) {
+    fixtureBodies.set(pathname, readCached(resolve(fixturesDir, file)))
+  }
 
   await page.route(`${THEME_FIXTURE_ORIGIN}/**`, async (route) => {
     const url = new URL(route.request().url())
-    const fixtureFile = FIXTURE_FILES[url.pathname as keyof typeof FIXTURE_FILES]
-    if (fixtureFile) {
+    const fixtureBody = fixtureBodies.get(url.pathname)
+    if (fixtureBody !== undefined) {
       await route.fulfill({
         status: 200,
         contentType: 'text/html; charset=utf-8',
-        body: readCached(resolve(fixturesDir, fixtureFile)),
+        body: fixtureBody,
       })
       return
     }
