@@ -1,0 +1,23 @@
+cortex-editor/tests/browser/cortex-app.test.tsx
+  s_96701236b2eadd::t_aaf30e169a8822 1113-1122
+  s_96701236b2eadd::t_b0a294d669fec0 53
+  s_96701236b2eadd::t_6255ca084264c6 45-52,54-62
+  s_96701236b2eadd::t_6fc176719fb6d7 1103-1106
+  s_96701236b2eadd::t_7ee2b07f6efab6 1167-1179
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "29e20522d4d150650030f89d2bd15c72e20393e5",
+  "prompts": {},
+  "sessions": {
+    "s_96701236b2eadd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d888345a-2271-4751-82db-98d55eee57c9",
+        "model": "unknown"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
