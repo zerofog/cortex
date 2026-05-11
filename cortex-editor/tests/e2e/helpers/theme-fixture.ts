@@ -1,14 +1,15 @@
 /**
  * Route-interception "server" for the ZF0-1562 luminance-fallback specs.
  *
- * Business purpose: the luminance branch of detectTheme()
- * (src/browser/index.tsx:42-54) reads `getComputedStyle(document.body).backgroundColor`
- * and applies the blueprint theme when luminance < 0.4. Happy-dom does
- * not return meaningful computed background colors, so the unit-test layer
- * had to skip this branch (bootstrap.test.ts:190-193, Layer-4 audit
- * ZF0-1494). These specs run against real Chromium with three minimal
- * body-bg fixtures (dark / light / transparent) to exercise the positive,
- * negative, and alpha-guard cases.
+ * Business purpose: the luminance branch of detectTheme() reads
+ * `getComputedStyle(document.body).backgroundColor` and applies the
+ * blueprint theme when luminance < 0.4. Happy-dom does not return
+ * meaningful computed background colors, so the unit-test layer had to
+ * skip this branch (the "falls back to background luminance when no other
+ * signals present" test in bootstrap.test.ts, removed in this PR — see
+ * git history; Layer-4 audit ZF0-1494). These specs run against real
+ * Chromium with three minimal body-bg fixtures (dark / light /
+ * transparent) to exercise the positive, negative, and alpha-guard cases.
  *
  * Mirrors the structure of `installFixtureServer` (basic.html spec harness)
  * but uses a distinct synthetic origin so route patterns never collide

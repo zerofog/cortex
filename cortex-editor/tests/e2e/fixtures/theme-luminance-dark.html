@@ -13,8 +13,10 @@
 
       Deliberately no html.class, no data-theme, no data-mode — the cascade
       must fall through to luminance, not short-circuit on an explicit signal.
-      Spec sets prefers-color-scheme=light via emulateMedia so matchMedia
-      doesn't short-circuit before the luminance branch either.
+      Spec sets prefers-color-scheme=light via test.use({colorScheme:'light'})
+      at the describe level (a browser-context option applied at context
+      creation, not page.emulateMedia) so matchMedia doesn't short-circuit
+      before the luminance branch either.
     -->
     <script src="./cortex-bundle.js"></script>
   </body>
