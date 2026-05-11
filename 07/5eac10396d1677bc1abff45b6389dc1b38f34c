@@ -1,0 +1,25 @@
+cortex-editor/tests/e2e/helpers/closed-shadow.ts
+  s_45e16d3ecb3859::t_aa2d9b34fb39d3 1-49
+cortex-editor/tests/e2e/use-outside-dismiss-closed-shadow.spec.ts
+  s_45e16d3ecb3859::t_6a7bcf21a78c7a 40-41
+  s_45e16d3ecb3859::t_e5cbeb48c53357 19-25
+  s_45e16d3ecb3859::t_35c2d13ce25432 62-63
+  s_45e16d3ecb3859::t_0d28850e0eb3ba 86-87
+  s_45e16d3ecb3859::t_317c26e657a167 1-18,26-39,42-61,64-85,88-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "075eac10396d1677bc1abff45b6389dc1b38f34c",
+  "prompts": {},
+  "sessions": {
+    "s_45e16d3ecb3859": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e5f4128-18e6-42d9-b2ea-b5f9fcd5a7cb",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
