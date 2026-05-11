@@ -1,0 +1,21 @@
+cortex-editor/tests/e2e/helpers/theme-fixture.ts
+  s_a5e985545741cc::t_9101abdde7a4eb 4-12
+cortex-editor/tests/e2e/fixtures/theme-luminance-dark.html
+  s_a5e985545741cc::t_b15c2f9af99bca 16-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "4bd13520ca8bd0bb528c3c3fc3fac57a4a58e798",
+  "prompts": {},
+  "sessions": {
+    "s_a5e985545741cc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "04189b68-e97d-4ed4-8a88-dec28b46b2bf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
