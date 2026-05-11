@@ -206,14 +206,6 @@ describe('useOutsideDismiss', () => {
     }
   })
 
-  it.skip('dismisses correctly when mounted inside a closed ShadowRoot — requires real browser', () => {
-    // Happy-dom does not faithfully simulate closed-shadow `composedPath()`
-    // retargeting. Attaching this test in happy-dom would pass regardless
-    // of whether the hook walks the shadow chain or not — the exact
-    // "happy-dom theatre" pattern CLAUDE.md forbids. Covered by manual
-    // verification and (TODO) a Playwright suite against a real browser.
-  })
-
   it('dismisses when mousedown hits a shadow-sibling outside the popover (ZF0-1292 follow-up)', async () => {
     // Regression test for the bug where the hook's `hosts` retargeting
     // check fired at the popover's OWN shadow-root listener. At that
@@ -224,8 +216,9 @@ describe('useOutsideDismiss', () => {
     //
     // Open shadow is used because happy-dom retargets composedPath
     // reliably for open roots. The closed-shadow case shares the same
-    // `ownRoot` branch but can't be verified here — see the `it.skip`
-    // above; coverage is deferred to a real-browser Playwright suite.
+    // `ownRoot` branch but cannot be tested in happy-dom — covered in
+    // `cortex-editor/tests/e2e/use-outside-dismiss-closed-shadow.spec.ts`
+    // (ZF0-1560).
     const host = document.createElement('div')
     document.body.appendChild(host)
     const shadow = host.attachShadow({ mode: 'open' })
