@@ -37,7 +37,7 @@ test.describe('NoAnnotationsBanner self-heal (ZF0-1561) @fast-ci', () => {
   })
 
   test('banner is visible when document has no annotated elements', async ({ page }) => {
-    await bootFixture(page, { collectDivergences: false })
+    await bootFixture(page, { collectDivergences: false, waitForKit: 'noAnnotationsBannerKit' })
 
     await page.evaluate(async () => {
       // Strip all existing annotations — fixture has #center with data-cortex-source.
@@ -57,7 +57,7 @@ test.describe('NoAnnotationsBanner self-heal (ZF0-1561) @fast-ci', () => {
   })
 
   test('banner self-heals when an annotated element is added after mount', async ({ page }) => {
-    await bootFixture(page, { collectDivergences: false })
+    await bootFixture(page, { collectDivergences: false, waitForKit: 'noAnnotationsBannerKit' })
 
     await page.evaluate(async () => {
       // Strip all existing annotations so banner renders initially visible.
@@ -93,7 +93,7 @@ test.describe('NoAnnotationsBanner self-heal (ZF0-1561) @fast-ci', () => {
   })
 
   test('banner stays hidden when an annotated element exists at mount time', async ({ page }) => {
-    await bootFixture(page, { collectDivergences: false })
+    await bootFixture(page, { collectDivergences: false, waitForKit: 'noAnnotationsBannerKit' })
 
     // Do NOT strip annotations — fixture's #center with data-cortex-source="fixture:1:1" is present.
     // Validates the useState(() => hasAnnotation()) synchronous initializer at NoAnnotationsBanner.tsx:13.
