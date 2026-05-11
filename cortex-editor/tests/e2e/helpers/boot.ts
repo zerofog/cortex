@@ -46,7 +46,7 @@ export async function waitForBundleBoot(page: Page, opts: { timeout?: number } =
   } catch (err) {
     throw new Error(
       `[waitForBundleBoot] CortexEditor bundle did not boot within ${timeout}ms. Likely causes:\n` +
-        `  1. Bundle missing — run \`npm run build\` to produce dist/browser/index.js.\n` +
+        `  1. Bundle missing or stale — run \`npm run build:test\` to produce dist/browser/index.js with test-only kits. The full e2e workflow \`npm run test:e2e\` wraps this; running \`playwright test\` directly does NOT rebuild. NOTE: \`npm run build\` (prod, no kits) overwrites the test bundle — use build:test for e2e.\n` +
         `  2. Fixture server serving wrong content — check installFixtureServer / installThemeFixture routes.\n` +
         `  3. Bundle threw on load — check page.on('pageerror') output.\n` +
         `Page URL: ${page.url()}\n` +

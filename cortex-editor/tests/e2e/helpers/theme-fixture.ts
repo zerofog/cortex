@@ -65,7 +65,7 @@ export async function installThemeFixture(page: Page): Promise<void> {
 
   if (!existsSync(bundlePath)) {
     throw new Error(
-      `[theme-fixture] bundle not found at ${bundlePath}. Did you run \`npm run build\`?`,
+      `[theme-fixture] bundle not found at ${bundlePath}. Run \`npm run build:test\` (or \`npm run test:e2e\` which wraps it). NOTE: \`npm run build\` produces the prod bundle without test-only kits — use build:test for e2e.`,
     )
   }
   for (const file of Object.values(FIXTURE_FILES)) {
