@@ -40,6 +40,23 @@ export interface BootFixtureOptions {
    *  Set to false for specs that don't care about divergence events
    *  (rare — most override-lifecycle specs need it). */
   collectDivergences?: boolean
+  /**
+   * When true (the default), patch `Element.prototype.attachShadow` to
+   * force open mode on `[data-cortex-host]` elements so Panel internals
+   * are introspectable by Playwright. Set to `false` for specs that must
+   * exercise a genuinely closed ShadowRoot — the patch defeats those tests
+   * by converting the closed root to open before the spec can attach one.
+   * Forwarded verbatim to `setupDebugBridge`. Default: true.
+   */
+  patchAttachShadow?: boolean
+  /**
+   * After the bundle boots, additionally wait for a specific kit to appear
+   * on `window.__CORTEX_TEST__`. Useful for specs that exercise a test kit
+   * (e.g. `'useOutsideDismissKit'`) that is populated asynchronously after
+   * CortexApp mounts. The wait uses a 5 s ceiling — same as the
+   * bundle-boot wait — and throws if the kit doesn't appear in time.
+   */
+  waitForKit?: 'useOutsideDismissKit'
 }
 
 /**
@@ -60,7 +77,7 @@ export async function bootFixture(
   page: Page,
   opts: BootFixtureOptions = {},
 ): Promise<DivergenceCollector | null> {
-  await setupDebugBridge(page)
+  await setupDebugBridge(page, { patchAttachShadow: opts.patchAttachShadow })
   if (opts.activateDesignMode) await activateDesignMode(page)
   await installFixtureServer(page)
   await page.goto(FIXTURE_URL)
@@ -86,6 +103,27 @@ export async function bootFixture(
     )
   }
   await waitForBridge(page)
+  if (opts.waitForKit) {
+    const kit = opts.waitForKit
+    try {
+      await page.waitForFunction(
+        (kitName: string) => {
+          const t = (globalThis as unknown as { __CORTEX_TEST__?: Record<string, unknown> }).__CORTEX_TEST__
+          return !!t?.[kitName]
+        },
+        kit,
+        { timeout: 5000 },
+      )
+    } catch (err) {
+      throw new Error(
+        `[bootFixture] __CORTEX_TEST__.${kit} did not appear within 5000ms. Likely causes:\n` +
+          `  1. Bundle built without CORTEX_TEST_BUILD=true env var (run \`npm run build:test\` — kit is DCE'd from prod bundles).\n` +
+          `  2. Kit name drift — confirm CortexApp.tsx still assigns __CORTEX_TEST__.${kit}.\n` +
+          `  3. __CORTEX_DEBUG_OVERRIDES__ not set before navigation — confirm setupDebugBridge ran pre-goto.\n` +
+          `Original error: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+  }
   if (opts.selectElement) {
     await page.evaluate((selector) => {
       const el = document.querySelector<HTMLElement>(selector)

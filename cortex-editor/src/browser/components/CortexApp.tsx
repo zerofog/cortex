@@ -1,4 +1,5 @@
 import type { JSX } from 'preact'
+import { render as preactRender } from 'preact'
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
 import type { CortexChannel, ConnectionDisplay, Annotation, ActivityEntry, StyleCapability } from '../../adapters/types.js'
 import type { EditError } from './EditErrorCard.js'
@@ -29,6 +30,7 @@ import { TooltipLayer } from './TooltipLayer.js'
 import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
 import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
+import { useOutsideDismiss } from '../hooks/useOutsideDismiss.js'
 import { captureSelectionMetadata, reResolveSelection, shouldRefreshOnHMR } from '../selection-metadata.js'
 import type { SelectionMetadata } from '../selection-metadata.js'
 import { dismissTopmostPopover, hasOpenPopover } from '../popover-stack.js'
@@ -427,6 +429,75 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         // selectElement (above) handles single-element selection via the legacy shim;
         // selectElements is the multi-element version for ZF0-1195 multi-select specs.
         selectElements: (els: HTMLElement[]) => setSelection(els, 'replace'),
+        // TEST-ONLY: mount a minimal Preact popover (using the production
+        // `useOutsideDismiss` hook) into any ParentNode including a genuinely
+        // closed ShadowRoot. Exists to exercise the hook's closed-shadow
+        // retargeting branch (lines 114-129 in useOutsideDismiss.ts) from a
+        // real-Chromium Playwright spec — happy-dom cannot simulate that
+        // retargeting faithfully (Test Anti-Pattern #3). Each call returns a
+        // fresh closure over new state so multiple mounts in the same test
+        // cannot share dismissCount or buttonNode. DCE'd from prod bundles.
+        useOutsideDismissKit: {
+          mountInRoot: async (root: ParentNode) => {
+            let dismissCount = 0
+            let buttonNode: HTMLButtonElement | null = null
+            const Popover = (): JSX.Element => {
+              const ref = useRef<HTMLDivElement>(null)
+              useOutsideDismiss(ref, () => { dismissCount++ })
+              return (
+                <div
+                  ref={ref}
+                  data-testid="test-popover"
+                  style={{
+                    position: 'fixed',
+                    top: '200px',
+                    left: '200px',
+                    width: '120px',
+                    height: '120px',
+                    background: 'rgb(220, 220, 220)',
+                  }}
+                >
+                  <button
+                    ref={(n) => { if (n) buttonNode = n }}
+                    data-testid="popover-inside-btn"
+                    type="button"
+                  >
+                    inside
+                  </button>
+                </div>
+              )
+            }
+            const container = document.createElement('div')
+            root.appendChild(container)
+            preactRender(<Popover />, container)
+            // Wait for Preact's post-rAF effect flush so useOutsideDismiss has
+            // registered its document listeners before the spec dispatches events.
+            // Preact's afterNextFrame schedules effects via
+            //   requestAnimationFrame(() => setTimeout(flushAfterPaintEffects))
+            // so a single rAF wait is insufficient — effects run in the setTimeout
+            // INSIDE the rAF callback. We await rAF then a setTimeout to match
+            // Preact's double-deferral, ensuring all useEffect callbacks are
+            // registered before the Promise resolves.
+            await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve)))
+            if (!buttonNode) throw new Error('[useOutsideDismissKit] inside button ref never resolved after rAF flush')
+            return {
+              insideButton: buttonNode,
+              dismissCount: () => dismissCount,
+              cleanup: () => {
+                try {
+                  preactRender(null, container)
+                } catch (err) {
+                  console.error('[useOutsideDismissKit] cleanup render failed — listeners may leak:', err)
+                }
+                try {
+                  container.remove()
+                } catch (err) {
+                  console.error('[useOutsideDismissKit] container.remove failed:', err)
+                }
+              },
+            }
+          },
+        },
       }
     }
     // Start with design mode disabled — don't intercept events until activated

@@ -100,6 +100,19 @@ export interface CortexTestBridge {
    *  tests to seed editDispatchRef without going through the scrub commit
    *  path. Only present in test builds; undefined in prod bundles. */
   handleEditDispatch?: (editId: string, source: string, property: string, value: string) => void
+  /** TEST-ONLY: mount a minimal Preact popover (using the production
+   *  `useOutsideDismiss` hook) into any ParentNode including a genuinely
+   *  closed ShadowRoot. Exists to exercise the hook's closed-shadow
+   *  retargeting branch from a real-Chromium Playwright spec — happy-dom
+   *  cannot simulate that retargeting faithfully (ZF0-1560).
+   *  Only present in test builds; undefined in prod bundles. */
+  useOutsideDismissKit?: {
+    mountInRoot: (root: ParentNode) => Promise<{
+      readonly insideButton: HTMLButtonElement
+      dismissCount: () => number
+      cleanup: () => void
+    }>
+  }
 }
 
 /** Guard for helpers that MUST run before `page.goto`. Playwright's
@@ -120,19 +133,38 @@ export function assertPreNavigation(page: Page, helperName: string): void {
   }
 }
 
+/** Options for `setupDebugBridge`. */
+export interface SetupDebugBridgeOptions {
+  /**
+   * When true (the default), patch `Element.prototype.attachShadow` to
+   * force open mode on `[data-cortex-host]` elements so Panel internals
+   * are introspectable by Playwright. Set to `false` for specs that must
+   * exercise a genuinely closed ShadowRoot (e.g. ZF0-1560
+   * closed-shadow event-retargeting tests) — the patch defeats those tests
+   * by converting the closed root to open before the spec can attach one.
+   */
+  patchAttachShadow?: boolean
+}
+
 /**
- * Arm the debug bridge and force open Shadow DOM. MUST be called before
- * `page.goto` — `addInitScript` only fires on subsequent navigations.
+ * Arm the debug bridge and (by default) force open Shadow DOM. MUST be
+ * called before `page.goto` — `addInitScript` only fires on subsequent
+ * navigations.
  *
  * The open-shadow patch is load-bearing: CortexApp does
  * `attachShadow({ mode: 'closed' })` by default, which makes Panel DOM
  * inaccessible from Playwright. Overriding `mode` at the prototype level
  * is the only reliable way; the hack is documented in the ZF0-1235 live
  * repros that this harness replaces.
+ *
+ * Pass `{ patchAttachShadow: false }` to skip the attachShadow patch while
+ * still arming the debug flag and send stub — needed for specs that must
+ * keep a ShadowRoot genuinely closed (ZF0-1560).
  */
-export async function setupDebugBridge(page: Page): Promise<void> {
+export async function setupDebugBridge(page: Page, opts: SetupDebugBridgeOptions = {}): Promise<void> {
   assertPreNavigation(page, 'setupDebugBridge')
-  await page.addInitScript(() => {
+  const patchAttachShadow = opts.patchAttachShadow !== false
+  await page.addInitScript((shouldPatch: boolean) => {
     ;(globalThis as unknown as { __CORTEX_DEBUG_OVERRIDES__?: boolean }).__CORTEX_DEBUG_OVERRIDES__ = true
 
     // Stub `__cortex_send__` to a no-op so the bundle's Vite channel branch
@@ -147,6 +179,8 @@ export async function setupDebugBridge(page: Page): Promise<void> {
       /* no-op: fixture runs offline */
     }
 
+    if (!shouldPatch) return
+
     // Patch attachShadow so the Cortex host's closed root becomes open.
     // Scoped to `[data-cortex-host]` so third-party widgets in future
     // richer fixtures (Stripe Elements, reCAPTCHA, etc.) keep their
@@ -160,7 +194,7 @@ export async function setupDebugBridge(page: Page): Promise<void> {
       }
       return original.call(this, init)
     }
-  })
+  }, patchAttachShadow)
 }
 
 /**
