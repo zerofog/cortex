@@ -14,18 +14,13 @@
  */
 import { test, expect } from '@playwright/test'
 import { bootBundleWithClosedShadow } from './helpers/closed-shadow.js'
+import type { CortexTestBridge } from './helpers/bridge.js'
 
-/** Shared type alias for the kit handle kept on window during each test. */
-type KitHandle = {
-  dismissCount: () => number
-  getInsideButton: () => HTMLButtonElement | null
-  /** True once Preact's post-rAF useEffect flush has registered the hook's event listeners. */
-  ready: () => boolean
-  cleanup: () => void
-}
+/** Derived handle type from the kit's mountInRoot return value. */
+type KitHandle = ReturnType<NonNullable<CortexTestBridge['useOutsideDismissKit']>['mountInRoot']>
 
 test.describe('useOutsideDismiss inside closed ShadowRoot (ZF0-1560) @fast-ci', () => {
-  test('outside mousedown dismisses (Chromium retargeting through closed boundary)', async ({ page }) => {
+  test.beforeEach(async ({ page }) => {
     await bootBundleWithClosedShadow(page)
     await page.evaluate(() => {
       const host = document.createElement('div')
@@ -33,13 +28,20 @@ test.describe('useOutsideDismiss inside closed ShadowRoot (ZF0-1560) @fast-ci', 
       host.style.cssText = 'position:fixed;top:200px;left:200px;width:120px;height:120px;'
       document.body.appendChild(host)
       const shadow = host.attachShadow({ mode: 'closed' })
-      const kit = (window as { __CORTEX_TEST__?: { useOutsideDismissKit?: { mountInRoot: (r: ParentNode) => KitHandle } } }).__CORTEX_TEST__!.useOutsideDismissKit!
-      const handle = kit.mountInRoot(shadow)
-      ;(window as { __test_kit_handle?: KitHandle }).__test_kit_handle = handle
+      const kit = (window as { __CORTEX_TEST__?: CortexTestBridge }).__CORTEX_TEST__!.useOutsideDismissKit!
+      ;(window as { __test_kit_handle?: KitHandle }).__test_kit_handle = kit.mountInRoot(shadow)
     })
     // Wait for Preact's post-rAF effect flush to register the hook's event listeners.
     await page.waitForFunction(() => !!(window as { __test_kit_handle?: KitHandle }).__test_kit_handle?.ready())
+  })
 
+  test.afterEach(async ({ page }) => {
+    await page.evaluate(() => {
+      ;(window as { __test_kit_handle?: KitHandle }).__test_kit_handle?.cleanup()
+    })
+  })
+
+  test('outside mousedown dismisses (Chromium retargeting through closed boundary)', async ({ page }) => {
     // Click outside the host's bounding box (host is at 200,200 with size 120; click at 50,50 in light DOM).
     await page.mouse.click(50, 50)
 
@@ -48,20 +50,6 @@ test.describe('useOutsideDismiss inside closed ShadowRoot (ZF0-1560) @fast-ci', 
   })
 
   test('mousedown inside popover does NOT dismiss (closed-shadow path retargeting check)', async ({ page }) => {
-    await bootBundleWithClosedShadow(page)
-    await page.evaluate(() => {
-      const host = document.createElement('div')
-      host.id = 'closed-shadow-host'
-      host.style.cssText = 'position:fixed;top:200px;left:200px;width:120px;height:120px;'
-      document.body.appendChild(host)
-      const shadow = host.attachShadow({ mode: 'closed' })
-      const kit = (window as { __CORTEX_TEST__?: { useOutsideDismissKit?: { mountInRoot: (r: ParentNode) => KitHandle } } }).__CORTEX_TEST__!.useOutsideDismissKit!
-      const handle = kit.mountInRoot(shadow)
-      ;(window as { __test_kit_handle?: KitHandle }).__test_kit_handle = handle
-    })
-    // Wait for Preact's post-rAF effect flush to register the hook's event listeners.
-    await page.waitForFunction(() => !!(window as { __test_kit_handle?: KitHandle }).__test_kit_handle?.ready())
-
     // Dispatch mousedown directly on the inside button (queryable via the kit's captured node ref, since
     // shadow is closed and Playwright cannot reach into it via DOM queries).
     await page.evaluate(() => {
@@ -74,18 +62,6 @@ test.describe('useOutsideDismiss inside closed ShadowRoot (ZF0-1560) @fast-ci', 
   })
 
   test('Escape dismisses regardless of focus location', async ({ page }) => {
-    await bootBundleWithClosedShadow(page)
-    await page.evaluate(() => {
-      const host = document.createElement('div')
-      host.id = 'closed-shadow-host'
-      document.body.appendChild(host)
-      const shadow = host.attachShadow({ mode: 'closed' })
-      const kit = (window as { __CORTEX_TEST__?: { useOutsideDismissKit?: { mountInRoot: (r: ParentNode) => KitHandle } } }).__CORTEX_TEST__!.useOutsideDismissKit!
-      ;(window as { __test_kit_handle?: KitHandle }).__test_kit_handle = kit.mountInRoot(shadow)
-    })
-    // Wait for Preact's post-rAF effect flush to register the hook's event listeners.
-    await page.waitForFunction(() => !!(window as { __test_kit_handle?: KitHandle }).__test_kit_handle?.ready())
-
     await page.keyboard.press('Escape')
 
     const dismissCount = await page.evaluate(() => (window as { __test_kit_handle?: KitHandle }).__test_kit_handle!.dismissCount())
