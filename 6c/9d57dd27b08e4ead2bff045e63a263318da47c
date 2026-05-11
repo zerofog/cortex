@@ -1,0 +1,20 @@
+cortex-editor/tests/e2e/no-annotations-banner-self-heal.spec.ts
+  s_4ada437cc490e5::t_eccde757d048d7 14-17
+  s_4ada437cc490e5::t_6158a76fae79d4 99-100
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "6c9d57dd27b08e4ead2bff045e63a263318da47c",
+  "prompts": {},
+  "sessions": {
+    "s_4ada437cc490e5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ba643432-1d06-4873-b983-be75a5e2b167",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
