@@ -1,0 +1,19 @@
+cortex-editor/tests/e2e/use-outside-dismiss-closed-shadow.spec.ts
+  s_45e16d3ecb3859::t_c7a83e2e20c71f 17,19-20,23,31-32,36-42,44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "de97ab5d8f32f51c3798a4dab633447e32b605a4",
+  "prompts": {},
+  "sessions": {
+    "s_45e16d3ecb3859": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e5f4128-18e6-42d9-b2ea-b5f9fcd5a7cb",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
