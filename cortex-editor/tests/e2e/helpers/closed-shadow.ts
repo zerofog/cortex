@@ -33,7 +33,11 @@ export async function bootBundleWithClosedShadow(page: Page): Promise<void> {
   })
   const patchActive = await page.evaluate(() => {
     const host = document.createElement('div')
-    host.setAttribute('data-cortex-shadow-probe', '')
+    // The patch in bridge.ts:192 is scoped to `[data-cortex-host]` — a generic
+    // attribute would never trigger it, leaving the guard always-pass (theatre).
+    // Use the exact selector so an active patch leaks `host.shadowRoot` here
+    // and trips the throw below. Caught by CodeRabbit on PR #123.
+    host.setAttribute('data-cortex-host', '')
     document.body.appendChild(host)
     host.attachShadow({ mode: 'closed' })
     const leaked = host.shadowRoot !== null
