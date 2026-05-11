@@ -1,0 +1,21 @@
+cortex-editor/tests/e2e/helpers/theme-fixture.ts
+  s_a5e985545741cc::t_71867c510aab2d 68
+cortex-editor/tests/e2e/helpers/boot.ts
+  s_a5e985545741cc::t_8d367f0afcb260 49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "28acb049898747d1ddbde04c2adec7c6da2324c1",
+  "prompts": {},
+  "sessions": {
+    "s_a5e985545741cc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "04189b68-e97d-4ed4-8a88-dec28b46b2bf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
