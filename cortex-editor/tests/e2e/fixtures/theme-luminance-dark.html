@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Cortex E2E — Luminance Fallback (dark)</title>
+  </head>
+  <body style="background-color: rgb(10, 10, 10);">
+    <!--
+      Fixture for ZF0-1562: exercises the luminance fallback branch of
+      detectTheme() (src/browser/index.tsx:42-54). Body bg luminance ≈ 0.04
+      (well under the 0.4 threshold) → host should receive data-theme="blueprint".
+
+      Deliberately no html.class, no data-theme, no data-mode — the cascade
+      must fall through to luminance, not short-circuit on an explicit signal.
+      Spec sets prefers-color-scheme=light via emulateMedia so matchMedia
+      doesn't short-circuit before the luminance branch either.
+    -->
+    <script src="./cortex-bundle.js"></script>
+  </body>
+</html>

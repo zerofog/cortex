@@ -187,11 +187,6 @@ describe('theme detection', () => {
     },
   )
 
-  // TODO: requires real CSSOM — happy-dom does not return meaningful computed background-color values
-  it.skip('falls back to background luminance when no other signals present', async () => {
-    // Would test: dark body background → blueprint theme
-  })
-
   it('updates theme when matchMedia fires a change event', async () => {
     mockMatchMedia(false)
 

@@ -26,6 +26,35 @@ import {
 } from './bridge.js'
 import { installFixtureServer, FIXTURE_URL } from './fixture-server.js'
 
+/**
+ * Wait for the IIFE bundle to expose `globalThis.CortexEditor`, with
+ * actionable triage on timeout. Used by `bootFixture` AND by specs that
+ * install their own fixture server (e.g. `theme-luminance-fallback.spec.ts`)
+ * and need the same bundle-boot guarantee + error messages.
+ *
+ * Extracted from `bootFixture`'s inline boot wait so a future bundle-load
+ * change lands in one place. Same 5000ms ceiling as the original.
+ */
+export async function waitForBundleBoot(page: Page, opts: { timeout?: number } = {}): Promise<void> {
+  const timeout = opts.timeout ?? 5000
+  try {
+    await page.waitForFunction(
+      () => typeof (globalThis as unknown as { CortexEditor?: unknown }).CortexEditor !== 'undefined',
+      null,
+      { timeout },
+    )
+  } catch (err) {
+    throw new Error(
+      `[waitForBundleBoot] CortexEditor bundle did not boot within ${timeout}ms. Likely causes:\n` +
+        `  1. Bundle missing — run \`npm run build\` to produce dist/browser/index.js.\n` +
+        `  2. Fixture server serving wrong content — check installFixtureServer / installThemeFixture routes.\n` +
+        `  3. Bundle threw on load — check page.on('pageerror') output.\n` +
+        `Page URL: ${page.url()}\n` +
+        `Original error: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+}
+
 export interface BootFixtureOptions {
   /** Set `data-cortex-active` before boot so Panel renders. Default: false.
    *  Omit for specs that only assert on bus events; set true for any spec
@@ -81,27 +110,11 @@ export async function bootFixture(
   if (opts.activateDesignMode) await activateDesignMode(page)
   await installFixtureServer(page)
   await page.goto(FIXTURE_URL)
-  // Bundle-boot wait: this is the FIRST wait to fire after navigation,
-  // so its timeout is what users see on infra regression (bundle 404,
-  // bundle threw on load, fixture served wrong content). Rewrap the
-  // generic Playwright timeout with actionable triage — matches the
-  // pattern in waitForBridge.
-  try {
-    await page.waitForFunction(
-      () => typeof (globalThis as unknown as { CortexEditor?: unknown }).CortexEditor !== 'undefined',
-      null,
-      { timeout: 5000 },
-    )
-  } catch (err) {
-    throw new Error(
-      `[bootFixture] CortexEditor bundle did not boot within 5000ms. Likely causes:\n` +
-        `  1. Bundle missing — run \`npm run build\` to produce dist/browser/index.js.\n` +
-        `  2. Fixture server serving wrong content — check installFixtureServer routes.\n` +
-        `  3. Bundle threw on load — check page.on('pageerror') output.\n` +
-        `Page URL: ${page.url()}\n` +
-        `Original error: ${err instanceof Error ? err.message : String(err)}`,
-    )
-  }
+  // Bundle-boot wait — the FIRST wait to fire after navigation, so its
+  // triage messaging is what users see on infra regression. Delegated to
+  // `waitForBundleBoot` so the new theme-fixture specs share the same
+  // rich error.
+  await waitForBundleBoot(page)
   await waitForBridge(page)
   if (opts.waitForKit) {
     const kit = opts.waitForKit
