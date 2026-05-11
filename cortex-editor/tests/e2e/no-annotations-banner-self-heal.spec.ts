@@ -11,9 +11,10 @@
  * Standard `bootFixture` (with default open-shadow patch) is used — no
  * closed-shadow concerns, banner renders into light DOM.
  *
- * The standard fixture includes a pre-existing annotated element (#center,
- * data-cortex-source="fixture:1:1"). T1 and T2 strip it before mounting;
- * T3 intentionally leaves it to validate the synchronous useState initializer.
+ * The standard fixture contains pre-existing `[data-cortex-source]` elements
+ * (count varies with fixture growth). T1 and T2 strip them all via
+ * `querySelectorAll` before mounting; T3 intentionally leaves them to validate
+ * the synchronous useState initializer.
  */
 import { test, expect } from '@playwright/test'
 import { bootFixture } from './helpers/boot.js'
@@ -95,8 +96,8 @@ test.describe('NoAnnotationsBanner self-heal (ZF0-1561) @fast-ci', () => {
   test('banner stays hidden when an annotated element exists at mount time', async ({ page }) => {
     await bootFixture(page, { collectDivergences: false, waitForKit: 'noAnnotationsBannerKit' })
 
-    // Do NOT strip annotations — fixture's #center with data-cortex-source="fixture:1:1" is present.
-    // Validates the useState(() => hasAnnotation()) synchronous initializer at NoAnnotationsBanner.tsx:13.
+    // Do NOT strip annotations — fixture's pre-existing `[data-cortex-source]` elements stay.
+    // Validates the `useState(() => hasAnnotation())` synchronous initializer in NoAnnotationsBanner.
     await page.evaluate(async () => {
       const kit = (window as { __CORTEX_TEST__?: CortexTestBridge }).__CORTEX_TEST__!.noAnnotationsBannerKit!
       const handle = await kit.mountInRoot(document.body)
