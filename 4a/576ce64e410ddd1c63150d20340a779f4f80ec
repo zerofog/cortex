@@ -1,0 +1,25 @@
+cortex-editor/tests/e2e/helpers/boot.ts
+  s_45e16d3ecb3859::t_cb3ac3409c5f1d 80
+  s_45e16d3ecb3859::t_2a0ca3ee80cebc 106-116
+  s_45e16d3ecb3859::t_4effd305e9866e 43-59
+cortex-editor/tests/e2e/helpers/bridge.ts
+  s_45e16d3ecb3859::t_4b4b71cf940fdd 141-153,155-157,164-167,169,171-172,187-188,202
+cortex-editor/tests/e2e/helpers/closed-shadow.ts
+  s_45e16d3ecb3859::t_289bdd1370ffe1 12-14,17,29-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "4a576ce64e410ddd1c63150d20340a779f4f80ec",
+  "prompts": {},
+  "sessions": {
+    "s_45e16d3ecb3859": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e5f4128-18e6-42d9-b2ea-b5f9fcd5a7cb",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
