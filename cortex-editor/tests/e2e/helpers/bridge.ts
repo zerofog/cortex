@@ -100,6 +100,24 @@ export interface CortexTestBridge {
    *  tests to seed editDispatchRef without going through the scrub commit
    *  path. Only present in test builds; undefined in prod bundles. */
   handleEditDispatch?: (editId: string, source: string, property: string, value: string) => void
+  /** TEST-ONLY: mount a minimal Preact popover (using the production
+   *  `useOutsideDismiss` hook) into any ParentNode including a genuinely
+   *  closed ShadowRoot. Exists to exercise the hook's closed-shadow
+   *  retargeting branch from a real-Chromium Playwright spec — happy-dom
+   *  cannot simulate that retargeting faithfully (ZF0-1560).
+   *  Only present in test builds; undefined in prod bundles. */
+  useOutsideDismissKit?: {
+    mountInRoot: (root: ParentNode, options?: { positionX?: number; positionY?: number; size?: number }) => {
+      dismissCount: () => number
+      getInsideButton: () => HTMLButtonElement | null
+      /** True once the hook's useEffect listeners are registered (fires after
+       *  Preact's post-rAF flush). Specs must waitForFunction on this before
+       *  dispatching events, because preactRender schedules effects
+       *  asynchronously via requestAnimationFrame. */
+      ready: () => boolean
+      cleanup: () => void
+    }
+  }
 }
 
 /** Guard for helpers that MUST run before `page.goto`. Playwright's

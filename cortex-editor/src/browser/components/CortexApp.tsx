@@ -1,4 +1,5 @@
 import type { JSX } from 'preact'
+import { render as preactRender } from 'preact'
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
 import type { CortexChannel, ConnectionDisplay, Annotation, ActivityEntry, StyleCapability } from '../../adapters/types.js'
 import type { EditError } from './EditErrorCard.js'
@@ -29,6 +30,7 @@ import { TooltipLayer } from './TooltipLayer.js'
 import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
 import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
+import { useOutsideDismiss } from '../hooks/useOutsideDismiss.js'
 import { captureSelectionMetadata, reResolveSelection, shouldRefreshOnHMR } from '../selection-metadata.js'
 import type { SelectionMetadata } from '../selection-metadata.js'
 import { dismissTopmostPopover, hasOpenPopover } from '../popover-stack.js'
@@ -427,6 +429,71 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         // selectElement (above) handles single-element selection via the legacy shim;
         // selectElements is the multi-element version for ZF0-1195 multi-select specs.
         selectElements: (els: HTMLElement[]) => setSelection(els, 'replace'),
+        // TEST-ONLY: mount a minimal Preact popover (using the production
+        // `useOutsideDismiss` hook) into any ParentNode including a genuinely
+        // closed ShadowRoot. Exists to exercise the hook's closed-shadow
+        // retargeting branch (lines 114-129 in useOutsideDismiss.ts) from a
+        // real-Chromium Playwright spec — happy-dom cannot simulate that
+        // retargeting faithfully (Test Anti-Pattern #3). Each call returns a
+        // fresh closure over new state so multiple mounts in the same test
+        // cannot share dismissCount or buttonNode. DCE'd from prod bundles.
+        useOutsideDismissKit: {
+          mountInRoot: (root: ParentNode, options?: { positionX?: number; positionY?: number; size?: number }) => {
+            let dismissCount = 0
+            let buttonNode: HTMLButtonElement | null = null
+            // Set to true inside a useEffect so specs can waitForFunction on
+            // it — Preact schedules useEffect after rAF, so event listeners
+            // from useOutsideDismiss are NOT yet registered when preactRender
+            // returns. Polling `ready()` in a waitForFunction gives the
+            // browser one rAF to flush effects before the spec dispatches
+            // events.
+            let effectsReady = false
+            const Popover = (): JSX.Element => {
+              const ref = useRef<HTMLDivElement>(null)
+              useOutsideDismiss(ref, () => { dismissCount++ })
+              useEffect(() => {
+                // This effect runs AFTER useOutsideDismiss's effect because
+                // effects run in declaration order. By the time this sets the
+                // flag, the hook's event listeners are guaranteed registered.
+                effectsReady = true
+              }, [])
+              return (
+                <div
+                  ref={ref}
+                  data-testid="test-popover"
+                  style={{
+                    position: 'fixed',
+                    top: `${options?.positionY ?? 200}px`,
+                    left: `${options?.positionX ?? 200}px`,
+                    width: `${options?.size ?? 120}px`,
+                    height: `${options?.size ?? 120}px`,
+                    background: 'rgb(220, 220, 220)',
+                  }}
+                >
+                  <button
+                    ref={(n) => { buttonNode = n }}
+                    data-testid="popover-inside-btn"
+                    type="button"
+                  >
+                    inside
+                  </button>
+                </div>
+              )
+            }
+            const container = document.createElement('div')
+            root.appendChild(container)
+            preactRender(<Popover />, container)
+            return {
+              dismissCount: () => dismissCount,
+              getInsideButton: () => buttonNode,
+              ready: () => effectsReady,
+              cleanup: () => {
+                preactRender(null, container)
+                container.remove()
+              },
+            }
+          },
+        },
       }
     }
     // Start with design mode disabled — don't intercept events until activated
