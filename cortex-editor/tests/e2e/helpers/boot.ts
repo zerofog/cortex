@@ -117,7 +117,7 @@ export async function bootFixture(
     } catch (err) {
       throw new Error(
         `[bootFixture] __CORTEX_TEST__.${kit} did not appear within 5000ms. Likely causes:\n` +
-          `  1. Bundle built without __CORTEX_TEST_BUILD__=true — run \`npm run build:test\`.\n` +
+          `  1. Bundle built without CORTEX_TEST_BUILD=true env var (run \`npm run build:test\` — kit is DCE'd from prod bundles).\n` +
           `  2. Kit name drift — confirm CortexApp.tsx still assigns __CORTEX_TEST__.${kit}.\n` +
           `  3. __CORTEX_DEBUG_OVERRIDES__ not set before navigation — confirm setupDebugBridge ran pre-goto.\n` +
           `Original error: ${err instanceof Error ? err.message : String(err)}`,
