@@ -1252,4 +1252,37 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     expect(getVersion!()).toBe(versionBefore)
   })
 
+  // ZF0-1804: symmetric positive-case companion to the test above. The negative
+  // test alone catches "gate forced open" regressions (if (true)), but a
+  // regression that closes the gate entirely (if (false), or removing
+  // setHmrAppliedVersion) would slip past — the cited gcsSpy test above proves
+  // the downstream Panel re-read, not that this gate's own setter fired (the
+  // re-resolve gate's rAF/setTimeout fan-out would still trigger a Panel commit
+  // and getComputedStyle cascade independently). This test closes the symmetric
+  // gap by asserting hmrAppliedVersion DOES bump when hmr files match the
+  // selected source, using the same DCE-gated hook for a falsifiable signal.
+  it('does bump hmrAppliedVersion when hmr files match the selected source', async () => {
+    const { channel } = await setup('src/foo.tsx:10:5')
+
+    const getVersion = (window as any).__cortex_test_get_hmr_applied_version as (() => number) | undefined
+    expect(getVersion).toBeDefined()
+    const versionBefore = getVersion!()
+
+    // hmr-applied with files that include src/foo.tsx — the same source the
+    // selected element was registered with. shouldRefreshOnHMR returns true →
+    // the version-bump gate fires → hmrAppliedVersion increments.
+    channel._simulateMessage({ type: 'hmr-applied', files: ['src/foo.tsx'] })
+
+    // vi.waitFor polls until the assertion succeeds (or times out at
+    // WAIT_FOR_COMMIT_MS). Preferred over a bare setTimeout for the positive
+    // path because the bump fires synchronously inside the handler — typical
+    // wait is <10ms, but the re-resolve gate's rAF/setTimeout fan-out could
+    // contribute additional bumps (lines that call setHmrAppliedVersion inside
+    // attemptReResolve when indexShifted), so we want "greater than before"
+    // rather than "exactly +1".
+    await vi.waitFor(() => {
+      expect(getVersion!()).toBeGreaterThan(versionBefore)
+    }, { timeout: WAIT_FOR_COMMIT_MS })
+  })
+
 })
