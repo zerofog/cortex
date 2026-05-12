@@ -219,15 +219,20 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // independently verify the version-bump gate at line 686-688. Reads pure
   // React state via a ref — coverage-instrumentation cannot fake state values
   // (the failure mode of the original gcs.mock.calls.length assertion, see
-  // ZF0-1564 audit). The `__CORTEX_TEST_BUILD__` constant fold removes this
-  // entire effect from production bundles.
+  // ZF0-1564 audit). `__CORTEX_TEST_BUILD__` is inlined directly into the `if`
+  // condition (per the load-bearing DCE contract documented in types.ts) so
+  // esbuild's `minifySyntax: true` folds the entire branch to dead code and
+  // strips the install + cleanup from production bundles. Do NOT rewrite as
+  // `if (!__CORTEX_TEST_BUILD__) return` — early-return forms are not
+  // reliably folded.
   useEffect(() => {
-    if (!__CORTEX_TEST_BUILD__) return
-    ;(window as unknown as { __cortex_test_get_hmr_applied_version?: () => number })
-      .__cortex_test_get_hmr_applied_version = () => hmrAppliedVersionRef.current
-    return () => {
-      delete (window as unknown as { __cortex_test_get_hmr_applied_version?: () => number })
-        .__cortex_test_get_hmr_applied_version
+    if (__CORTEX_TEST_BUILD__) {
+      ;(window as unknown as { __cortex_test_get_hmr_applied_version?: () => number })
+        .__cortex_test_get_hmr_applied_version = () => hmrAppliedVersionRef.current
+      return () => {
+        delete (window as unknown as { __cortex_test_get_hmr_applied_version?: () => number })
+          .__cortex_test_get_hmr_applied_version
+      }
     }
   }, [])
 
