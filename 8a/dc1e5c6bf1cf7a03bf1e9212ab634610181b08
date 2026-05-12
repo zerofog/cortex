@@ -1,0 +1,44 @@
+cortex-editor/vitest.config.ts
+  s_cd7665d4595dab::t_030b62d7de6717 143-146
+  s_cd7665d4595dab::t_1cddb3a0d5347e 6-9,18-19
+  s_cd7665d4595dab::t_81aeca8a9199b6 41-49
+  s_cd7665d4595dab::t_d8ae4d4428c8ea 3-5,33-34,39-40
+  s_cd7665d4595dab::t_154dcaa1921af6 84-85
+  s_cd7665d4595dab::t_05de0fd2a029c9 11-16,21-27
+  s_cd7665d4595dab::t_afd5676132ffd9 62-66
+  s_cd7665d4595dab::t_4489d6da8214e4 70-71
+  s_cd7665d4595dab::t_5e725d2bb1f396 99-102
+  s_cd7665d4595dab::t_6bf73c2c1efa27 67-69
+  s_cd7665d4595dab::t_07ddd8098b3609 10,17,20,28-32,35-38
+cortex-editor/tests/HAPPY-DOM-AUDIT.md
+  s_cd7665d4595dab::t_8cc8b9542f2e1f 66
+cortex-editor/tests/adapters/vite.test.ts
+  s_cd7665d4595dab::t_b4f197dbe0e1e0 2543-2549
+cortex-editor/tests/COVERAGE.md
+  s_cd7665d4595dab::t_5f24d1c9591f9e 14
+  s_cd7665d4595dab::t_0c5dc71f5dd8ff 56
+  s_cd7665d4595dab::t_892948eace98fc 1-13,15-35,37-43,45-47,52-55
+  s_cd7665d4595dab::t_cf22cc4ac4301c 36
+  s_cd7665d4595dab::t_d85a7b4166bc36 44
+  s_cd7665d4595dab::t_bef04f3b822d6f 48-51
+cortex-editor/tests/adapters/source-transform.test.ts
+  s_cd7665d4595dab::t_122c7807bf17be 532-535
+  s_cd7665d4595dab::t_46c85a56874772 524-529
+  s_cd7665d4595dab::t_e2831d88bda6b1 530-531
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "8adc1e5c6bf1cf7a03bf1e9212ab634610181b08",
+  "prompts": {},
+  "sessions": {
+    "s_cd7665d4595dab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d8365a3e-0615-42e9-8aa1-02956cd36627",
+        "model": "unknown"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
