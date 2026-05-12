@@ -1,0 +1,19 @@
+cortex-editor/tests/core/annotations.test.ts
+  s_ba0ced8dfac074::t_367351947d068a 405,414,417,425,428,430,433,445
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "72c1913401f30bc65a5eada7882fcc201ac37cee",
+  "prompts": {},
+  "sessions": {
+    "s_ba0ced8dfac074": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c76d29f0-c58a-4c16-8a1e-0e1413e64c0d",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
