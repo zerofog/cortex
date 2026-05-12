@@ -655,7 +655,33 @@ describe('EditPipeline — compound edit (C2)', () => {
     }))
     await flush()
 
-    // Not rejected — the request flows through to the rewriter.
+    // Affirmative progression: the request must flow through to the
+    // rewrite+write path, not just "fail to reject for some other reason".
+    // Negative-only assertions can pass for the wrong reason (silent
+    // failure, no flush, wrong reason_code) so positive-state checks
+    // are required to prove the bound accepted the request.
+    expect(rewriter.rewriteClassListInTransaction).toHaveBeenCalledTimes(1)
+    expect(writes).toHaveLength(1)
+    expect(channel.send).not.toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed',
+      reason_code: 'invalid_class_token',
+    }))
+  })
+
+  it('accepts compound requests with exactly 50 inlineRemoves entries (ZF0-1284 — boundary check, symmetric)', async () => {
+    // Symmetric boundary guard for inlineRemoves. If the bound logic
+    // were ever split into separate per-array constants, or a comparator
+    // bug were introduced on the removes branch, drift would escape
+    // the inlineSets-only boundary test above. This locks in symmetry.
+    mutateTxnInClassOp()
+    pipeline.handleEdit(baseEdit({
+      classOp: { kind: 'add', add: 'text-heading-1' },
+      inlineRemoves: Array.from({ length: 50 }, () => ({ property: 'font-size' })),
+    }))
+    await flush()
+
+    expect(rewriter.rewriteClassListInTransaction).toHaveBeenCalledTimes(1)
+    expect(writes).toHaveLength(1)
     expect(channel.send).not.toHaveBeenCalledWith(expect.objectContaining({
       status: 'failed',
       reason_code: 'invalid_class_token',
