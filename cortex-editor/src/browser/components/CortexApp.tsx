@@ -210,9 +210,18 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     active: initialActive ?? false,
   })
 
-  // ZF0-1804: sync ref → state every commit so the test hook reads the latest value.
+  // ZF0-1804: sync ref → state every commit so the test hook reads the latest
+  // value. Gated by `__CORTEX_TEST_BUILD__` so esbuild's `minifySyntax: true`
+  // strips the ref-write from production bundles (the consumer — the test
+  // hook below — is DCE'd in prod, so the write is dead). Matches the
+  // "runtime-inert plumbing" pattern documented at the stageEditRef
+  // declaration above. The bare `useRef(0)` survives — refs are ~zero-cost
+  // and adding a second top-level conditional ref would violate the React
+  // Rules of Hooks.
   useEffect(() => {
-    hmrAppliedVersionRef.current = hmrAppliedVersion
+    if (__CORTEX_TEST_BUILD__) {
+      hmrAppliedVersionRef.current = hmrAppliedVersion
+    }
   })
 
   // ZF0-1804: DCE-gated test hook. Used by the HMR file-list filter test to
