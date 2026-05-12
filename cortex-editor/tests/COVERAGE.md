@@ -7,7 +7,7 @@ Related: `HAPPY-DOM-AUDIT.md`, `SKIPPED-AUDIT.md`
 
 This is the command used by the Layer 2 audit (ZF0-1494) and the one the test suite is wired to support:
 
-```
+```bash
 npx vitest run --coverage --coverage.reportOnFailure --coverage.reporter=json-summary --coverage.reporter=text --no-file-parallelism
 ```
 
@@ -30,13 +30,13 @@ This handles tests that exercise ts-morph (`tests/cli/init.test.ts`, `tests/core
 
 ### Adjustment 2 — Skip wall-clock perf assertions under coverage
 
-`tests/adapters/source-transform.test.ts` has a 1000-element transform perf budget (`< 50ms` local / `< 100ms` CI). Under V8 coverage, `performance.now()` measures the cost of hooked instrumentation rather than the transform itself (~214.5ms observed against the 50ms budget). The test uses `it.skipIf(process.env.VITEST_COVERAGE)`:
+`tests/adapters/source-transform.test.ts` has a 1000-element transform perf budget (`< 50ms` local / `< 100ms` CI). Under V8 coverage, `performance.now()` measures the cost of hooked instrumentation rather than the transform itself (~214.5ms observed against the 50ms budget). The test uses `it.skipIf(process.env.VITEST_COVERAGE === '1')` (strict equality so a stray `VITEST_COVERAGE=0` shell export does not silently skip):
 
 ```ts
 it.skipIf(process.env.VITEST_COVERAGE === '1')('transforms a 1000-element file in under 50ms (median of 3)', () => { ... })
 ```
 
-The perf assertion still runs in `npm test` / `npm run test:ci` (without `--coverage`) where wall-clock timing has meaning. Relaxing the budget to accommodate coverage overhead was rejected because a relaxed budget loses regression signal: a true 2× transform regression could still slip under a coverage-tolerant ceiling.
+The perf assertion still runs in `npm test` (without `--coverage`) where wall-clock timing has meaning. Relaxing the budget to accommodate coverage overhead was rejected because a relaxed budget loses regression signal: a true 2× transform regression could still slip under a coverage-tolerant ceiling.
 
 ## What to do if a new test times out under coverage
 

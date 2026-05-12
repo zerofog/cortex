@@ -7,35 +7,35 @@ import { defineConfig } from 'vitest/config'
 // var we set propagates to forked worker processes via inheritance.
 // See `tests/COVERAGE.md` for the canonical detection contract.
 //
-// Match `--coverage`, `--coverage=true`, `--coverage.<sub>=...`. We scan ALL
-// matching args (not just the first) and only treat `--coverage=false|0`,
-// `--coverage.enabled=false|0`, or Vitest's `--no-coverage` / `--no-coverage.enabled`
-// as explicit-disable. Sub-flags like `--coverage.thresholds.lines=0` must NOT
-// disable detection, otherwise a developer running
-// `vitest --coverage --coverage.thresholds.lines=0` (legitimate threshold
-// override) would unintentionally skip our adjustments.
-const coverageArgs = process.argv.filter(
-  (a) => a === '--coverage' || a.startsWith('--coverage=') || a.startsWith('--coverage.'),
-)
-const COVERAGE_EXPLICIT_DISABLE = /^--coverage(\.enabled)?=(false|0)$/
-// Vitest CLI also supports `--no-coverage` and `--no-coverage.enabled` as
-// negated boolean disables — these don't match the coverageArgs filter
-// (different prefix), so we scan argv directly.
-const NEGATED_DISABLE = /^--no-coverage(\.enabled)?$/
-const coverageExplicitlyDisabled =
-  coverageArgs.some((a) => COVERAGE_EXPLICIT_DISABLE.test(a)) ||
-  process.argv.some((a) => NEGATED_DISABLE.test(a))
+// Only the EXPLICIT-ENABLE forms count: bare `--coverage`, `--coverage=true|1`,
+// and `--coverage.enabled=true|1`. Other dot-notation args like
+// `--coverage.reporter=text` configure coverage but do NOT enable it on their
+// own (Vitest treats coverage.enabled as the gate). Treating any `--coverage.*`
+// as enable would flip our adjustments on for invocations that aren't actually
+// instrumented — false positive flagged by Codex review.
+const COVERAGE_EXPLICIT_ENABLE = /^(--coverage(=(true|1))?|--coverage\.enabled=(true|1))$/
+// Vitest CLI also supports negated boolean disables `--no-coverage` and
+// `--no-coverage.enabled`, plus `--coverage=false|0` / `--coverage.enabled=false|0`.
+const COVERAGE_EXPLICIT_DISABLE = /^(--coverage(\.enabled)?=(false|0)|--no-coverage(\.enabled)?)$/
+const coverageEnabledByArgv = process.argv.some((a) => COVERAGE_EXPLICIT_ENABLE.test(a))
+const coverageExplicitlyDisabled = process.argv.some((a) => COVERAGE_EXPLICIT_DISABLE.test(a))
 // Explicit disable wins over BOTH the argv match and the NODE_V8_COVERAGE
 // env-var fallback — if the user said no, they meant it.
 const COVERAGE_ENABLED = coverageExplicitlyDisabled
   ? false
-  : coverageArgs.length > 0 || !!process.env.NODE_V8_COVERAGE
+  : coverageEnabledByArgv || !!process.env.NODE_V8_COVERAGE
 if (COVERAGE_ENABLED) {
   process.env.VITEST_COVERAGE = '1'
   // Visible breadcrumb so a future debug of "why was my test skipped?" or
   // "why is my timeout 15s?" lands here first. One line, stderr.
   // eslint-disable-next-line no-console
   console.warn('[vitest.config] ZF0-1566: coverage detected — testTimeout=15s, wall-clock perf assertions skipped')
+} else {
+  // Watch-mode toggle-off: if the previous config-load set VITEST_COVERAGE='1'
+  // and the user is now running without --coverage, clear the stale env so
+  // perf tests run again rather than silently staying skipped. Flagged by
+  // Greptile P2, Copilot, and CodeRabbit (same finding from three reviewers).
+  delete process.env.VITEST_COVERAGE
 }
 
 // Defensive duplication: the project-based workspace config in this repo has
