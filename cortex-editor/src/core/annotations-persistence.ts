@@ -71,6 +71,12 @@ const EnvelopeSchema = z.object({
   annotations: z.array(AnnotationSchema),
 })
 
+// Compile-time guard: if `Annotation` in types.ts gains a required field,
+// this assignment fails type-checking until AnnotationSchema is updated.
+// Catches schema/type drift before it becomes a silent runtime data loss.
+const _annotationSchemaMatchesType: z.ZodType<Annotation> = AnnotationSchema
+void _annotationSchemaMatchesType
+
 // ---------------------------------------------------------------------------
 // Internal type guards
 // ---------------------------------------------------------------------------

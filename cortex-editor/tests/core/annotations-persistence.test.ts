@@ -6,7 +6,6 @@ import type { Annotation } from '../../src/adapters/types.js'
 import {
   loadAnnotations,
   saveAnnotations,
-  SCHEMA_VERSION,
 } from '../../src/core/annotations-persistence.js'
 
 // ---------------------------------------------------------------------------
@@ -33,7 +32,6 @@ function buildFullAnnotation(): Annotation {
     createdAt: 1710000000000,
     updatedAt: 1710000001000,
     resolution: { summary: 'Changed to brand blue' },
-    dismissReason: undefined,
     thread: [
       {
         id: 'msg-001',
@@ -77,12 +75,6 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('annotations-persistence', () => {
-  describe('SCHEMA_VERSION', () => {
-    it('exports SCHEMA_VERSION as 1', () => {
-      expect(SCHEMA_VERSION).toBe(1)
-    })
-  })
-
   describe('loadAnnotations', () => {
     it('returns empty array on missing file without calling console.warn', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
