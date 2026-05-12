@@ -62,12 +62,15 @@ describe('LazyTsMorph', () => {
   })
 
   it('useInMemoryFileSystem option is forwarded to Project constructor', async () => {
-    // Two LazyTsMorph instances with different options should create independent projects.
+    // Falsifiable check: ts-morph selects a different FileSystemHost implementation based
+    // on useInMemoryFileSystem — InMemoryFileSystemHost vs RealFileSystemHost. If the option
+    // were ignored or hardcoded, the second assertion would fail.
     const morphDisk = new LazyTsMorph('OwnerDisk', { useInMemoryFileSystem: false })
     const morphMem = new LazyTsMorph('OwnerMem', { useInMemoryFileSystem: true })
     const { project: projDisk } = await morphDisk.ensureReady()
     const { project: projMem } = await morphMem.ensureReady()
-    expect(projDisk).not.toBe(projMem)
+    expect(projDisk.getFileSystem().constructor.name).toBe('RealFileSystemHost')
+    expect(projMem.getFileSystem().constructor.name).toBe('InMemoryFileSystemHost')
     morphDisk.dispose()
     morphMem.dispose()
   })
