@@ -1,0 +1,28 @@
+cortex-editor/tests/integration/annotation-lifecycle.test.ts
+  s_7f494e7f4583da::t_fb7c129ad0c77c 47
+cortex-editor/tests/schemas/mcp-tool-inputs.test.ts
+  s_7f494e7f4583da::t_0bac6e4742d709 14-15
+cortex-editor/tests/cli/mcp.test.ts
+  s_7f494e7f4583da::t_ee294c71ffcd6a 515-517
+  s_7f494e7f4583da::t_65ad156c001702 152
+cortex-editor/tests/integration/cli-process.test.ts
+  s_7f494e7f4583da::t_b61a92f0d98921 88
+cortex-editor/src/cli/mcp.ts
+  s_7f494e7f4583da::t_7205d5eec05c3c 101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "8e16dccd9c5f2ed2d5a626b05161f04534835422",
+  "prompts": {},
+  "sessions": {
+    "s_7f494e7f4583da": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "634c3489-7edb-4184-9eb6-c51bd471548f",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
