@@ -164,8 +164,15 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const selectionMetadataRef = useRef<SelectionMetadata[]>([])
   // ZF0-1804: ref-synced mirror of hmrAppliedVersion for the DCE-gated test
   // hook below. The hook reads ref.current (not closure-captured state) so the
-  // returned value is always the latest committed React value.
+  // returned value is always the latest committed React value. Render-time
+  // mirror matches the commentModeRef / selectedElementRef pattern above;
+  // gated by __CORTEX_TEST_BUILD__ so esbuild's minifySyntax: true strips the
+  // ref-write from production bundles (the consumer — the test hook below —
+  // is DCE'd in prod, so the write is dead). The bare `useRef(0)` survives;
+  // refs are ~zero-cost and adding a conditional top-level ref would violate
+  // the React Rules of Hooks.
   const hmrAppliedVersionRef = useRef(0)
+  if (__CORTEX_TEST_BUILD__) hmrAppliedVersionRef.current = hmrAppliedVersion
   const handleExitRef = useRef<(() => void) | null>(null)
   // Mirror of `handleEditDispatch` for the test bridge. The mount effect that
   // installs `__CORTEX_TEST__` runs once with deps `[channel, shadowRoot]`, so
@@ -208,20 +215,6 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const reducerStateRef = useRef<CortexAppReducerState>({
     ...initialCortexAppReducerState,
     active: initialActive ?? false,
-  })
-
-  // ZF0-1804: sync ref → state every commit so the test hook reads the latest
-  // value. Gated by `__CORTEX_TEST_BUILD__` so esbuild's `minifySyntax: true`
-  // strips the ref-write from production bundles (the consumer — the test
-  // hook below — is DCE'd in prod, so the write is dead). Matches the
-  // "runtime-inert plumbing" pattern documented at the stageEditRef
-  // declaration above. The bare `useRef(0)` survives — refs are ~zero-cost
-  // and adding a second top-level conditional ref would violate the React
-  // Rules of Hooks.
-  useEffect(() => {
-    if (__CORTEX_TEST_BUILD__) {
-      hmrAppliedVersionRef.current = hmrAppliedVersion
-    }
   })
 
   // ZF0-1804: DCE-gated test hook. Used by the HMR file-list filter test to
