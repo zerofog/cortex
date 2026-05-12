@@ -164,7 +164,17 @@ export async function createJsxTransaction(
       overwrite: true,
     });
   } catch (err) {
-    pool.release(project);
+    // Noexcept boundary: if pool.release itself throws (e.g., a future
+    // ts-morph removeSourceFile regression), we must NOT replace the
+    // primary createSourceFile error with the cleanup error. Same
+    // semantics as the dispose() try/catch — pool integrity is preserved
+    // by release()'s own cleanupOk=false drop, so swallowing here is safe.
+    try {
+      pool.release(project);
+    } catch {
+      // Pool integrity preserved by release()'s own cleanupOk=false drop.
+      // Swallow to avoid replacing the primary createSourceFile error.
+    }
     throw err;
   }
 

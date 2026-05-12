@@ -1043,6 +1043,51 @@ describe("EditPipeline — compound edit pool-state invariants (ZF0-1824)", () =
     expect(pool!.availableCount).toBe(1);
   });
 
+  // Test 3 — no-op compound (newContent === oldContent) returns Project to pool
+  //
+  // Both rewriter steps succeed but neither mutates the source file (e.g.,
+  // classOp idempotent + inlineSets match existing values + removes target
+  // absent properties). The pipeline detects newContent === oldContent and
+  // takes the early-return at line 1499-1504 emitting 'applied' BEFORE
+  // writeFile. This path lives inside the try block — the finally must
+  // still dispose, returning the Project to the pool.
+  //
+  // Falsifiability: if the early-return bypassed the finally (e.g., via
+  // some future `return` placed outside the try), inUseCount would remain 1.
+  it("T3: no-op compound (newContent === oldContent) — Project returned to pool (inUseCount=0, availableCount=1)", async () => {
+    // Default stubs already return success:true without mutating source —
+    // exactly the no-op shape. Compound routing requires at least one
+    // inline op present (handleEdit branches on hasInlineOps), so we
+    // include an inlineRemoves entry; the stub returns success without
+    // touching the source, producing newContent === oldContent.
+    pipeline.handleEdit(
+      baseEditPool({
+        classOp: { kind: "add", add: "seed" }, // idempotent against seed content
+        inlineRemoves: [{ property: "font-size" }], // stub no-ops; routes to compound
+      }),
+    );
+    await flush();
+
+    // Verify the edit took the no-op early-return path. emitTerminal with
+    // status:'applied' translates on the wire to status:'done',
+    // strategy:'immediate'. No writeFile invocation on the no-op path.
+    expect(channel.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        editId: "pool1",
+        status: "done",
+        strategy: "immediate",
+      }),
+    );
+    expect(writes).toHaveLength(0); // no writeFile invocation on no-op path
+
+    // Core assertion: dispose ran via finally even though the return
+    // fired before writeFile.
+    const pool = _getPoolForTesting();
+    expect(pool).not.toBeNull();
+    expect(pool!.inUseCount).toBe(0);
+    expect(pool!.availableCount).toBe(1);
+  });
+
   // Test 4 — writeFile throw returns Project to pool
   //
   // Both rewriter steps succeed and the content changes, but writeFile
