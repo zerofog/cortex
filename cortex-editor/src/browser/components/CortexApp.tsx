@@ -162,6 +162,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // review: nth-index + content-hash + shadow-root flag). Null whenever
   // selectedElement is null.
   const selectionMetadataRef = useRef<SelectionMetadata[]>([])
+  // ZF0-1804: ref-synced mirror of hmrAppliedVersion for the DCE-gated test
+  // hook below. The hook reads ref.current (not closure-captured state) so the
+  // returned value is always the latest committed React value.
+  const hmrAppliedVersionRef = useRef(0)
   const handleExitRef = useRef<(() => void) | null>(null)
   // Mirror of `handleEditDispatch` for the test bridge. The mount effect that
   // installs `__CORTEX_TEST__` runs once with deps `[channel, shadowRoot]`, so
@@ -205,6 +209,27 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     ...initialCortexAppReducerState,
     active: initialActive ?? false,
   })
+
+  // ZF0-1804: sync ref → state every commit so the test hook reads the latest value.
+  useEffect(() => {
+    hmrAppliedVersionRef.current = hmrAppliedVersion
+  })
+
+  // ZF0-1804: DCE-gated test hook. Used by the HMR file-list filter test to
+  // independently verify the version-bump gate at line 686-688. Reads pure
+  // React state via a ref — coverage-instrumentation cannot fake state values
+  // (the failure mode of the original gcs.mock.calls.length assertion, see
+  // ZF0-1564 audit). The `__CORTEX_TEST_BUILD__` constant fold removes this
+  // entire effect from production bundles.
+  useEffect(() => {
+    if (!__CORTEX_TEST_BUILD__) return
+    ;(window as unknown as { __cortex_test_get_hmr_applied_version?: () => number })
+      .__cortex_test_get_hmr_applied_version = () => hmrAppliedVersionRef.current
+    return () => {
+      delete (window as unknown as { __cortex_test_get_hmr_applied_version?: () => number })
+        .__cortex_test_get_hmr_applied_version
+    }
+  }, [])
 
   const refreshPageColorChips = useCallback((): void => {
     const chips = colorChipThemeRef.current
