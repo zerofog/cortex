@@ -1,0 +1,19 @@
+cortex-editor/tests/integration/annotation-lifecycle.test.ts
+  s_7f494e7f4583da::t_fa75f9d9a96e67 187-213
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "a0bc57b56475f1ae9905ab49a65117fc7866be4c",
+  "prompts": {},
+  "sessions": {
+    "s_7f494e7f4583da": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "634c3489-7edb-4184-9eb6-c51bd471548f",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
