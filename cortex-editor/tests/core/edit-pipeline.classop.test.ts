@@ -96,7 +96,7 @@ describe('EditPipeline — classOp routing', () => {
     expect(rewriter.rewrite).not.toHaveBeenCalled()
   })
 
-  it('writes new content to disk with suppressHmr:false so the browser re-renders', async () => {
+  it('writes new content to disk with allowHmr:true so the browser re-renders', async () => {
     rewriter.rewriteClassList.mockResolvedValue({
       success: true,
       filePath: '/tmp/proj/App.tsx',
@@ -108,14 +108,14 @@ describe('EditPipeline — classOp routing', () => {
     await flush()
 
     expect(writes).toHaveLength(1)
-    // suppressHmr:false is the load-bearing invariant for ZF0-1215 Bug 3:
+    // allowHmr:true is the load-bearing invariant for ZF0-1215 Bug 3:
     // classOp writes have no browser-side override layer, so HMR must fire
     // for the DOM className to update. A regression here resurfaces the
     // stale-Panel bug where every subsequent click dispatches against the
     // pre-edit className.
     expect(writes[0]).toMatchObject({
       kind: 'immediate',
-      suppressHmr: false,
+      allowHmr: true,
       content: 'NEW CONTENT',
     })
   })
@@ -132,7 +132,7 @@ describe('EditPipeline — classOp routing', () => {
     pipeline.handleEdit(baseEdit({ classOp: { kind: 'remove', remove: 'text-body-md' } }))
     await flush()
 
-    // requiresHmr=true is read by _doUndo/_doRedo to derive suppressHmr=false
+    // requiresHmr=true is read by _doUndo/_doRedo to derive allowHmr=true
     // per change. Without this tag, the kind:'undo'/'redo' default restores
     // the disk but leaves the DOM stale — the undo twin of Bug 3.
     expect(undoStack.push).toHaveBeenCalledWith(
@@ -149,9 +149,9 @@ describe('EditPipeline — classOp routing', () => {
     )
   })
 
-  it('_doUndo of a classOp write passes suppressHmr:false to writeFile (undo twin of Bug 3)', async () => {
+  it('_doUndo of a classOp write passes allowHmr:true to writeFile (undo twin of Bug 3)', async () => {
     // Invariant under test: when _doUndo replays an UndoFileChange with
-    // requiresHmr:true, it must derive suppressHmr:false for the writeFile
+    // requiresHmr:true, it must derive allowHmr:true for the writeFile
     // call — NOT fall back to kind:'undo's default (suppress). That fallback
     // would leave the DOM stale after undo, resurfacing Bug 3 on every undo.
     //
@@ -189,12 +189,12 @@ describe('EditPipeline — classOp routing', () => {
     expect(undoWrite).toBeDefined()
     expect(undoWrite).toMatchObject({
       kind: 'undo',
-      suppressHmr: false,
+      allowHmr: true,
       content: 'PREVIOUS',
     })
   })
 
-  it('_doUndo of a property-edit write keeps suppressHmr:true (no re-render needed)', async () => {
+  it('_doUndo of a property-edit write keeps allowHmr:false (no re-render needed)', async () => {
     // Symmetric to the above: property edits paint via the browser-side
     // !important override layer, so undo suppresses HMR to avoid flicker.
     // This test guards the policy from being collapsed into "always allow".
@@ -226,7 +226,7 @@ describe('EditPipeline — classOp routing', () => {
     await flush()
 
     const undoWrite = undoWrites.find(w => w.kind === 'undo')
-    expect(undoWrite).toMatchObject({ kind: 'undo', suppressHmr: true })
+    expect(undoWrite).toMatchObject({ kind: 'undo', allowHmr: false })
   })
 
   it('sends edit_status failed with reason_code:rewriter_failed when rewriteClassList fails (SF-M-1, no AI escalation — ZF0-1546)', async () => {

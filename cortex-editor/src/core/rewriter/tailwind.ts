@@ -1,7 +1,8 @@
 import type { Project, SourceFile, Node, SyntaxKind as SyntaxKindEnum } from 'ts-morph'
 import { readFile } from 'fs/promises'
 import type { RewriteRequest, RewriteResult } from './types.js'
-import { ensureTsMorph, findJsxElementAt } from './jsx-utils.js'
+import { findJsxElementAt } from './jsx-utils.js'
+import { LazyTsMorph } from './lazy-ts-morph.js'
 import type { JsxTransactionHandle, TransactionRewriteResult } from './jsx-transaction.js'
 
 /** Recognized className helper functions (clsx, classnames, cn, cx). */
@@ -20,35 +21,10 @@ const CLASSNAME_HELPERS = new Set(['clsx', 'classnames', 'cn', 'cx'])
  * Not concurrent-safe for the same file — callers must serialize per-file access.
  */
 export class TailwindRewriter {
-  private project: Project | null = null
-  private SK: typeof SyntaxKindEnum | null = null
-  private _readyPromise: Promise<{ project: Project; SK: typeof SyntaxKindEnum }> | null = null
-  private disposed = false
-
-  private ensureReady(): Promise<{ project: Project; SK: typeof SyntaxKindEnum }> {
-    if (this.disposed) return Promise.reject(new Error('TailwindRewriter is disposed'))
-    if (!this._readyPromise) {
-      this._readyPromise = this._initialize().catch(err => {
-        this._readyPromise = null // allow retry on failure
-        throw err
-      })
-    }
-    return this._readyPromise
-  }
-
-  private async _initialize(): Promise<{ project: Project; SK: typeof SyntaxKindEnum }> {
-    const mod = await ensureTsMorph()
-    this.SK = mod.SyntaxKind
-    this.project = new mod.Project({
-      useInMemoryFileSystem: false,
-      compilerOptions: { jsx: 4 /* JsxEmit.ReactJSX */, allowJs: true },
-      skipAddingFilesFromTsConfig: true,
-    })
-    return { project: this.project, SK: this.SK }
-  }
+  private morph = new LazyTsMorph('TailwindRewriter')
 
   async rewrite(request: RewriteRequest): Promise<RewriteResult> {
-    if (this.disposed) {
+    if (this.morph.isDisposed) {
       return { success: false, filePath: request.filePath, reason: 'Rewriter is disposed' }
     }
 
@@ -64,7 +40,7 @@ export class TailwindRewriter {
     let project: Project
     let SK: typeof SyntaxKindEnum
     try {
-      const ready = await this.ensureReady()
+      const ready = await this.morph.ensureReady()
       project = ready.project
       SK = ready.SK
     } catch (err) {
@@ -261,7 +237,7 @@ export class TailwindRewriter {
     remove?: string
     add?: string
   }): Promise<RewriteResult> {
-    if (this.disposed) {
+    if (this.morph.isDisposed) {
       return { success: false, filePath: request.filePath, reason: 'Rewriter is disposed' }
     }
     const { filePath, line, col, remove, add } = request
@@ -280,7 +256,7 @@ export class TailwindRewriter {
     let project: Project
     let SK: typeof SyntaxKindEnum
     try {
-      const ready = await this.ensureReady()
+      const ready = await this.morph.ensureReady()
       project = ready.project
       SK = ready.SK
     } catch (err) {
@@ -359,7 +335,7 @@ export class TailwindRewriter {
     txn: JsxTransactionHandle,
     request: { line: number; col: number; remove?: string; add?: string },
   ): TransactionRewriteResult {
-    if (this.disposed) return { success: false, reason: 'TailwindRewriter is disposed' }
+    if (this.morph.isDisposed) return { success: false, reason: 'TailwindRewriter is disposed' }
     const { line, col, remove, add } = request
     if (!remove && !add) return { success: true }
 
@@ -580,10 +556,6 @@ export class TailwindRewriter {
   }
 
   dispose(): void {
-    if (this.disposed) return
-    this.disposed = true
-    this.project = null
-    this.SK = null
-    this._readyPromise = null
+    this.morph.dispose()
   }
 }

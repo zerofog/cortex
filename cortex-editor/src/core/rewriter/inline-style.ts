@@ -12,7 +12,8 @@
 import type { Project, SourceFile, SyntaxKind as SyntaxKindEnum, ObjectLiteralExpression } from 'ts-morph'
 import { readFile } from 'fs/promises'
 import type { RewriteResult } from './types.js'
-import { ensureTsMorph, findJsxElementAt, cssPropertyToCamelCase, LONGHAND_TO_SHORTHAND, LONGHAND_TO_SHORTHANDS } from './jsx-utils.js'
+import { findJsxElementAt, cssPropertyToCamelCase, LONGHAND_TO_SHORTHAND, LONGHAND_TO_SHORTHANDS } from './jsx-utils.js'
+import { LazyTsMorph } from './lazy-ts-morph.js'
 import type { JsxTransactionHandle, TransactionRewriteResult } from './jsx-transaction.js'
 
 export interface InlineStyleRewriteRequest {
@@ -29,32 +30,7 @@ export interface InlineStyleRewriteRequest {
 }
 
 export class InlineStyleRewriter {
-  private project: Project | null = null
-  private SK: typeof SyntaxKindEnum | null = null
-  private _readyPromise: Promise<{ project: Project; SK: typeof SyntaxKindEnum }> | null = null
-  private disposed = false
-
-  private ensureReady(): Promise<{ project: Project; SK: typeof SyntaxKindEnum }> {
-    if (this.disposed) return Promise.reject(new Error('Rewriter is disposed'))
-    if (!this._readyPromise) {
-      this._readyPromise = this._initialize().catch(err => {
-        this._readyPromise = null
-        throw err
-      })
-    }
-    return this._readyPromise
-  }
-
-  private async _initialize(): Promise<{ project: Project; SK: typeof SyntaxKindEnum }> {
-    const mod = await ensureTsMorph()
-    this.SK = mod.SyntaxKind
-    this.project = new mod.Project({
-      useInMemoryFileSystem: false,
-      compilerOptions: { jsx: 4 /* JsxEmit.ReactJSX */, allowJs: true },
-      skipAddingFilesFromTsConfig: true,
-    })
-    return { project: this.project, SK: this.SK }
-  }
+  private morph = new LazyTsMorph('InlineStyleRewriter')
 
   /**
    * Read a file and prepare a ts-morph SourceFile for manipulation.
@@ -65,7 +41,7 @@ export class InlineStyleRewriter {
     | { ok: true; sourceFile: SourceFile; oldContent: string; SK: typeof SyntaxKindEnum }
     | { ok: false; result: RewriteResult }
   > {
-    if (this.disposed) {
+    if (this.morph.isDisposed) {
       return { ok: false, result: { success: false, filePath, reason: 'Rewriter is disposed' } }
     }
 
@@ -79,7 +55,7 @@ export class InlineStyleRewriter {
     let project: Project
     let SK: typeof SyntaxKindEnum
     try {
-      const ready = await this.ensureReady()
+      const ready = await this.morph.ensureReady()
       project = ready.project
       SK = ready.SK
     } catch (err) {
@@ -453,7 +429,7 @@ export class InlineStyleRewriter {
       removes: ReadonlyArray<{ property: string }>
     },
   ): TransactionRewriteResult {
-    if (this.disposed) return { success: false, reason: 'InlineStyleRewriter is disposed' }
+    if (this.morph.isDisposed) return { success: false, reason: 'InlineStyleRewriter is disposed' }
     const { line, col, sets, removes } = request
     if (sets.length === 0 && removes.length === 0) return { success: true }
 
@@ -633,10 +609,6 @@ export class InlineStyleRewriter {
   }
 
   dispose(): void {
-    if (this.disposed) return
-    this.disposed = true
-    this.project = null
-    this.SK = null
-    this._readyPromise = null
+    this.morph.dispose()
   }
 }

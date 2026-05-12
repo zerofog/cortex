@@ -1841,3 +1841,134 @@ describe('CSSOverrideManager', () => {
     })
   })
 })
+
+describe('OverrideManager dirty-flag short-circuit (ZF0-1835)', () => {
+  let manager: CSSOverrideManager
+  const originalRAF = window.requestAnimationFrame
+
+  beforeEach(() => {
+    // Synchronous RAF so flush() triggers rebuild() immediately
+    window.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+      cb(performance.now())
+      return 0
+    }) as typeof requestAnimationFrame
+    document.querySelectorAll('[data-cortex-override]').forEach(el => el.remove())
+    document.querySelectorAll('[data-cortex-source]').forEach(el => el.remove())
+    manager = new CSSOverrideManager()
+  })
+
+  afterEach(() => {
+    window.requestAnimationFrame = originalRAF
+    manager.dispose()
+    document.querySelectorAll('[data-cortex-source]').forEach(el => el.remove())
+  })
+
+  it('starts dirty so cold-start rebuild always runs', () => {
+    expect(manager._isDirtyForTesting).toBe(true)
+  })
+
+  it('rebuild short-circuits when nothing changed since last rebuild', () => {
+    manager.set('src.tsx:1:1', 'color', 'red')
+    manager.flush()
+    expect(manager._isDirtyForTesting).toBe(false)
+    manager.flush() // second flush — no mutations between
+    expect(manager._isDirtyForTesting).toBe(false)
+  })
+
+  it('set() marks manager dirty; RAF fires clear it', () => {
+    // Drain initial cold-start dirty: primer set() + flush().
+    // - set() schedules RAF; the beforeEach's synchronous RAF runs rebuild immediately,
+    //   which clears isDirty. But the sync-RAF mock returns 0 (not null), so the outer
+    //   assignment in scheduleRebuild leaves rafId=0 — preventing later set() calls from
+    //   scheduling fresh RAFs (rafId !== null short-circuits the schedule guard).
+    // - flush() runs cancelPendingRebuild(), restoring rafId=null, then runs a no-op
+    //   rebuild (dirty already false). Clean state for the load-bearing assertion below.
+    // Without this drain the subsequent set() assertion would be non-falsifiable.
+    manager.set('primer.tsx:0:0', 'color', 'red')
+    manager.flush()
+    expect(manager._isDirtyForTesting).toBe(false)
+    // Use a capturing RAF so we can inspect isDirty BEFORE the frame executes.
+    // The outer beforeEach uses synchronous RAF which clears dirty inline;
+    // swap it out for this single test so the intermediate state is visible.
+    const rafQueue: FrameRequestCallback[] = []
+    const capturingRaf = ((cb: FrameRequestCallback) => {
+      rafQueue.push(cb)
+      return rafQueue.length
+    }) as typeof requestAnimationFrame
+    window.requestAnimationFrame = capturingRaf
+
+    manager.set('src.tsx:1:1', 'color', 'red')
+    // Dirty must flip back to true via set() — would fail if set() did NOT mark dirty
+    expect(manager._isDirtyForTesting).toBe(true)
+    // Fire the queued frame — rebuild runs, clears dirty
+    rafQueue.forEach(cb => cb(performance.now()))
+    expect(manager._isDirtyForTesting).toBe(false)
+  })
+
+  it('remove() marks manager dirty before rebuild clears it', () => {
+    manager.set('src.tsx:1:1', 'color', 'red')
+    manager.flush()
+    expect(manager._isDirtyForTesting).toBe(false)
+    // Spy on rebuild to capture isDirty at the moment the mutator triggers it.
+    // Without this, asserting only post-rebuild state would pass even if remove()
+    // did NOT mark dirty (rebuild's exit clears it regardless).
+    let dirtyAtRebuild: boolean | null = null
+    const origRebuild = (manager as unknown as { rebuild: () => void }).rebuild
+    ;(manager as unknown as { rebuild: () => void }).rebuild = function (this: { isDirty: boolean }) {
+      dirtyAtRebuild = this.isDirty
+      origRebuild.call(this)
+    }
+    manager.remove('src.tsx:1:1', 'color')
+    ;(manager as unknown as { rebuild: () => void }).rebuild = origRebuild
+    expect(dirtyAtRebuild).toBe(true)
+    expect(manager._isDirtyForTesting).toBe(false)
+  })
+
+  it('setStateOverrides() marks manager dirty before rebuild clears it', () => {
+    manager.set('src.tsx:1:1', 'color', 'red')
+    manager.flush()
+    expect(manager._isDirtyForTesting).toBe(false)
+    let dirtyAtRebuild: boolean | null = null
+    const origRebuild = (manager as unknown as { rebuild: () => void }).rebuild
+    ;(manager as unknown as { rebuild: () => void }).rebuild = function (this: { isDirty: boolean }) {
+      dirtyAtRebuild = this.isDirty
+      origRebuild.call(this)
+    }
+    manager.setStateOverrides('src.tsx:1:1', new Map([['background-color', 'blue']]))
+    ;(manager as unknown as { rebuild: () => void }).rebuild = origRebuild
+    expect(dirtyAtRebuild).toBe(true)
+    expect(manager._isDirtyForTesting).toBe(false)
+  })
+
+  it('clearStateOverrides() marks manager dirty before rebuild clears it', () => {
+    manager.setStateOverrides('src.tsx:1:1', new Map([['background-color', 'blue']]))
+    // already rebuilt synchronously
+    expect(manager._isDirtyForTesting).toBe(false)
+    let dirtyAtRebuild: boolean | null = null
+    const origRebuild = (manager as unknown as { rebuild: () => void }).rebuild
+    ;(manager as unknown as { rebuild: () => void }).rebuild = function (this: { isDirty: boolean }) {
+      dirtyAtRebuild = this.isDirty
+      origRebuild.call(this)
+    }
+    manager.clearStateOverrides()
+    ;(manager as unknown as { rebuild: () => void }).rebuild = origRebuild
+    expect(dirtyAtRebuild).toBe(true)
+    expect(manager._isDirtyForTesting).toBe(false)
+  })
+
+  it('clearAll() marks manager dirty before rebuild clears it', () => {
+    manager.set('src.tsx:1:1', 'color', 'red')
+    manager.flush()
+    expect(manager._isDirtyForTesting).toBe(false)
+    let dirtyAtRebuild: boolean | null = null
+    const origRebuild = (manager as unknown as { rebuild: () => void }).rebuild
+    ;(manager as unknown as { rebuild: () => void }).rebuild = function (this: { isDirty: boolean }) {
+      dirtyAtRebuild = this.isDirty
+      origRebuild.call(this)
+    }
+    manager.clearAll()
+    ;(manager as unknown as { rebuild: () => void }).rebuild = origRebuild
+    expect(dirtyAtRebuild).toBe(true)
+    expect(manager._isDirtyForTesting).toBe(false)
+  })
+})

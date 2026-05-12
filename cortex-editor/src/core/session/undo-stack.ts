@@ -11,7 +11,7 @@ export interface UndoFileChange {
    *  source write lands — the common case for inline-style property edits.
    *
    *  Consumed by `_doUndo`/`_doRedo` in edit-pipeline.ts to compute the
-   *  `suppressHmr` flag per writeFile call. Without this field, undo/redo
+   *  `allowHmr` flag per writeFile call. Without this field, undo/redo
    *  fall back to the default kind-based HMR policy, which for `'undo'`/
    *  `'redo'` means "suppress". That left undone className edits stranded:
    *  file restored, DOM not refreshed, Panel state stale. */

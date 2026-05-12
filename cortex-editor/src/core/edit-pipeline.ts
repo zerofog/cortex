@@ -271,11 +271,11 @@ export interface EditRequest {
 
 export interface WriteIntent {
   kind: "immediate" | "jsx-immediate" | "deferred" | "undo" | "redo";
-  /** Override HMR suppression. When set, takes precedence over kind-based default.
-   *  false = allow HMR (file not added to recentEditWriteTimers).
-   *  true = suppress HMR (file added to recentEditWriteTimers with a TTL).
+  /** Override HMR allow flag. When set, takes precedence over kind-based default.
+   *  true = allow HMR (file not added to recentEditWriteTimers).
+   *  false = suppress HMR (file added to recentEditWriteTimers with a TTL).
    *  undefined = use kind-based default (immediate/undo/redo suppress; others allow). */
-  suppressHmr?: boolean;
+  allowHmr?: boolean;
   filePath: string;
   content: string;
 }
@@ -1242,7 +1242,7 @@ export class EditPipeline {
           try {
             await this.writeFile({
               kind: direction,
-              suppressHmr: !change.requiresHmr,
+              allowHmr: change.requiresHmr,
               filePath: change.filePath,
               content: writeContent(change),
             });
@@ -1252,7 +1252,7 @@ export class EditPipeline {
               try {
                 await this.writeFile({
                   kind: direction,
-                  suppressHmr: !w.requiresHmr,
+                  allowHmr: w.requiresHmr,
                   filePath: w.filePath,
                   content: w.rollbackContent,
                 });
@@ -1527,12 +1527,12 @@ export class EditPipeline {
           return;
         }
 
-        // Step 5: ONE write. suppressHmr:false because the compound
+        // Step 5: ONE write. allowHmr:true because the compound
         // includes a className change (browser has no override for it).
         try {
           await this.writeFile({
             kind: "immediate",
-            suppressHmr: false,
+            allowHmr: true,
             filePath: resolvedPath,
             content: newContent,
           });
@@ -1649,7 +1649,7 @@ export class EditPipeline {
         // classOp against the same stale state.
         await this.writeFile({
           kind: "immediate",
-          suppressHmr: false,
+          allowHmr: true,
           filePath: resolvedPath,
           content: result.newContent,
         });
@@ -1821,11 +1821,11 @@ export class EditPipeline {
               // (CSS value in browser can't be rolled back when undo suppresses HMR).
               await this.writeFile({
                 kind: "jsx-immediate",
-                suppressHmr: true,
+                allowHmr: false,
                 filePath,
                 content: cleanup.newContent,
               });
-              // requiresHmr=false matches the forward write's suppressHmr=true.
+              // requiresHmr=false matches the forward write's allowHmr=false.
               // The cleanup removes inline styles whose visual is supplied by
               // the browser-side CSS override; undo restores those inline
               // styles, but the override is still present at undo time so

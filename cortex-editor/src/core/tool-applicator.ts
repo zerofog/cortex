@@ -7,7 +7,8 @@
  * Uses in-memory file system (no disk I/O). Thread-safe for different files, not for the same file.
  */
 import type { Project, SyntaxKind as SyntaxKindEnum } from 'ts-morph'
-import { ensureTsMorph, findJsxElementAt, cssPropertyToCamelCase } from './rewriter/jsx-utils.js'
+import { findJsxElementAt, cssPropertyToCamelCase } from './rewriter/jsx-utils.js'
+import { LazyTsMorph } from './rewriter/lazy-ts-morph.js'
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -38,32 +39,7 @@ function isValidJsxInitializer(v: string): boolean {
 // ── ToolApplicator ────────────────────────────────────────────────
 
 export class ToolApplicator {
-  private project: Project | null = null
-  private SK: typeof SyntaxKindEnum | null = null
-  private _readyPromise: Promise<{ project: Project; SK: typeof SyntaxKindEnum }> | null = null
-  private disposed = false
-
-  private ensureReady(): Promise<{ project: Project; SK: typeof SyntaxKindEnum }> {
-    if (this.disposed) return Promise.reject(new Error('Applicator is disposed'))
-    if (!this._readyPromise) {
-      this._readyPromise = this._initialize().catch(err => {
-        this._readyPromise = null
-        throw err
-      })
-    }
-    return this._readyPromise
-  }
-
-  private async _initialize(): Promise<{ project: Project; SK: typeof SyntaxKindEnum }> {
-    const mod = await ensureTsMorph()
-    this.SK = mod.SyntaxKind
-    this.project = new mod.Project({
-      useInMemoryFileSystem: true,
-      compilerOptions: { jsx: 4 /* JsxEmit.ReactJSX */, allowJs: true },
-      skipAddingFilesFromTsConfig: true,
-    })
-    return { project: this.project, SK: this.SK }
-  }
+  private morph = new LazyTsMorph('ToolApplicator', { useInMemoryFileSystem: true })
 
   /**
    * Apply a structured tool action to source content.
@@ -80,7 +56,7 @@ export class ToolApplicator {
     col: number,
     action: ToolAction,
   ): Promise<ApplyResult> {
-    if (this.disposed) {
+    if (this.morph.isDisposed) {
       return { success: false, reason: 'Applicator is disposed' }
     }
 
@@ -110,7 +86,7 @@ export class ToolApplicator {
     let project: Project
     let SK: typeof SyntaxKindEnum
     try {
-      const ready = await this.ensureReady()
+      const ready = await this.morph.ensureReady()
       project = ready.project
       SK = ready.SK
     } catch (err) {
@@ -254,7 +230,7 @@ export class ToolApplicator {
     let project: Project
     let SK: typeof SyntaxKindEnum
     try {
-      const ready = await this.ensureReady()
+      const ready = await this.morph.ensureReady()
       project = ready.project
       SK = ready.SK
     } catch (err) {
@@ -346,10 +322,6 @@ export class ToolApplicator {
   }
 
   dispose(): void {
-    if (this.disposed) return
-    this.disposed = true
-    this.project = null
-    this.SK = null
-    this._readyPromise = null
+    this.morph.dispose()
   }
 }
