@@ -69,6 +69,10 @@ export class AnnotationStore {
       .map((a) => this.snapshot(a))
   }
 
+  getActive(): Annotation[] {
+    return [...this.annotations.values()].filter(a => a.status === 'pending' || a.status === 'acknowledged').map(a => this.snapshot(a))
+  }
+
   getById(id: string): Annotation | null {
     const ann = this.annotations.get(id)
     return ann ? this.snapshot(ann) : null

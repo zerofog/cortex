@@ -71,7 +71,7 @@ const BROWSER_TO_CLI_FORWARD_TYPES: ReadonlySet<string> = new Set(BROWSER_TO_CLI
 
 const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close'])
 const ALLOWED_RPC_METHODS = new Set([
-  'getPending', 'getDetails', 'acknowledge', 'resolve', 'dismiss', 'respond',
+  'getActive', 'getPending', 'getDetails', 'acknowledge', 'resolve', 'dismiss', 'respond',
   'getPendingEdits', 'applyEdits', 'discardEdits', 'getIntentContext',
 ])
 
@@ -84,6 +84,7 @@ const RPC_METHOD_SCHEMAS = {
   resolve: cortexResolveInputSchema,
   dismiss: cortexDismissInputSchema,
   respond: cortexRespondInputSchema,
+  getActive: null,
   getPending: null,
   getPendingEdits: null,
 } as const
@@ -864,6 +865,7 @@ class CortexWebpackRuntime {
   private handleRPC(session: CortexSession, method: string, params: Record<string, unknown>): unknown {
     const id = params.annotationId as string | undefined ?? ''
     switch (method) {
+      case 'getActive': return session.annotations.getActive()
       case 'getPending': return session.annotations.getPending()
       case 'getDetails': return session.annotations.getById(id)
       case 'acknowledge': return session.annotations.acknowledge(id)
