@@ -591,4 +591,74 @@ describe('EditPipeline — compound edit (C2)', () => {
       reason: expect.stringContaining('/*'),
     }))
   })
+
+  // ZF0-1284: array-length bound on inlineSets / inlineRemoves. Per-entry
+  // validation alone permitted Array(10000) of valid entries through to the
+  // rewriter, triggering O(N) ts-morph AST mutations under the single file-
+  // lock. Threat model is DoS-self (the WebSocket sits behind localhost-
+  // origin + token auth, so the attacker is the user's own browser), but
+  // an upper bound is cheap hygiene and catches a buggy client before it
+  // wedges the server. MAX_COMPOUND_OPS = 50 is generous — a real text-
+  // bundle "unlink" gesture caps at ~6 inline ops.
+  it('rejects compound requests with >50 inlineSets entries (ZF0-1284 — array-length bound)', async () => {
+    pipeline.handleEdit(baseEdit({
+      classOp: { kind: 'add', add: 'holder' },
+      inlineSets: Array.from({ length: 51 }, () => ({
+        property: 'font-size',
+        value: '14px',
+      })),
+    }))
+    await flush()
+
+    expect(writes).toHaveLength(0)
+    expect(undoStack.push).not.toHaveBeenCalled()
+    // Bound fires BEFORE the per-entry loop and BEFORE handleCompoundEdit,
+    // so the rewriter must never see this request. This is the DoS-self
+    // protection: validation cost stays O(1) regardless of array length.
+    expect(rewriter.rewriteClassListInTransaction).not.toHaveBeenCalled()
+    expect(channel.send).toHaveBeenCalledWith(expect.objectContaining({
+      editId: 'ec1',
+      status: 'failed',
+      reason_code: 'invalid_class_token',
+      reason: expect.stringContaining('exceeds 50'),
+    }))
+  })
+
+  it('rejects compound requests with >50 inlineRemoves entries (ZF0-1284 — array-length bound, symmetric)', async () => {
+    pipeline.handleEdit(baseEdit({
+      classOp: { kind: 'remove', remove: 'text-body-md' },
+      inlineRemoves: Array.from({ length: 51 }, () => ({ property: 'font-size' })),
+    }))
+    await flush()
+
+    expect(writes).toHaveLength(0)
+    expect(undoStack.push).not.toHaveBeenCalled()
+    expect(rewriter.rewriteClassListInTransaction).not.toHaveBeenCalled()
+    expect(channel.send).toHaveBeenCalledWith(expect.objectContaining({
+      editId: 'ec1',
+      status: 'failed',
+      reason_code: 'invalid_class_token',
+      reason: expect.stringContaining('exceeds 50'),
+    }))
+  })
+
+  it('accepts compound requests with exactly 50 inlineSets entries (ZF0-1284 — boundary check)', async () => {
+    // Boundary: 50 entries is the inclusive ceiling; 51 is the first
+    // rejected count. This guards against off-by-one drift in the bound.
+    mutateTxnInClassOp()
+    pipeline.handleEdit(baseEdit({
+      classOp: { kind: 'remove', remove: 'text-body-md' },
+      inlineSets: Array.from({ length: 50 }, () => ({
+        property: 'font-size',
+        value: '14px',
+      })),
+    }))
+    await flush()
+
+    // Not rejected — the request flows through to the rewriter.
+    expect(channel.send).not.toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed',
+      reason_code: 'invalid_class_token',
+    }))
+  })
 })

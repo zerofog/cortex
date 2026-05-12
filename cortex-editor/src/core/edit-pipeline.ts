@@ -37,6 +37,15 @@ const MAX_INLINE_PROP_NAME_LEN = 64
  *  `linear-gradient(...)` strings without being a payload vector. */
 const MAX_INLINE_PROP_VALUE_LEN = 512
 
+/** ZF0-1284: upper bound on compound-edit inline-op array length.
+ *  Per-entry validation alone permitted Array(10000) of valid entries
+ *  through to ts-morph, triggering O(N) AST mutations under the single
+ *  file-lock. Threat model is DoS-self (WebSocket sits behind localhost-
+ *  origin + token auth), so this is hygiene against a buggy client
+ *  rather than a remote-attacker mitigation. 50 is generous: a real
+ *  "unlink text bundle" gesture caps at ~6 inline ops. */
+const MAX_COMPOUND_OPS = 50
+
 /** Shape-validate the compound-edit inline op arrays. Returns null on
  *  success or a specific rejection reason (for reason_code propagation).
  *  Values for sets must be non-empty — empty-string inline edits were
@@ -51,6 +60,11 @@ function validateInlineOps(
   sets: ReadonlyArray<{ property: string; value: string }> | undefined,
   removes: ReadonlyArray<{ property: string }> | undefined,
 ): string | null {
+  // ZF0-1284: fail-fast on oversized arrays BEFORE per-entry loop so
+  // rejection cost stays O(1) regardless of attacker-supplied length.
+  if ((sets?.length ?? 0) > MAX_COMPOUND_OPS || (removes?.length ?? 0) > MAX_COMPOUND_OPS) {
+    return `inline ops array exceeds ${MAX_COMPOUND_OPS} entries`
+  }
   for (const s of sets ?? []) {
     const nameErr = validatePropertyName(s.property, MAX_INLINE_PROP_NAME_LEN, 'inlineSets')
     if (nameErr) return nameErr
