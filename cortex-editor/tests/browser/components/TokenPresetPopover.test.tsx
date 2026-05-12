@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import type { VNode } from 'preact'
 import { render } from 'preact'
 import { createRef } from 'preact'
@@ -150,8 +150,16 @@ describe('TokenPresetPopover — dismiss', () => {
     let dismissed = 0
     mountPopover({ onDismiss: () => { dismissed++ } })
     await flushEffects()
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-    expect(dismissed).toBe(1)
+    // Symmetric with outside-mousedown above: useOutsideDismiss listener
+    // may not have attached yet under full-suite serial-singleFork load.
+    // Poll dispatch+assert; the `dismissed === 0` guard ensures exactly
+    // one Escape press is processed once the listener catches it.
+    await vi.waitFor(() => {
+      if (dismissed === 0) {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      }
+      expect(dismissed).toBe(1)
+    }, { timeout: 500 })
   })
 
   it('fires onDismiss on outside mousedown, not on inside mousedown', async () => {
@@ -159,13 +167,29 @@ describe('TokenPresetPopover — dismiss', () => {
     const root = mountPopover({ onDismiss: () => { dismissed++ } })
     await flushEffects()
 
+    // Inside click — must not dismiss. Safe to assert synchronously: if the
+    // useOutsideDismiss useEffect has already committed (common case), the
+    // listener correctly identifies the target as inside and skips onDismiss.
+    // If the effect has NOT committed yet (rare under load), no listener
+    // exists at all — also yielding dismissed=0. Both paths satisfy the
+    // assertion.
     ;(root.querySelector('button.cortex-token-preset-popover__list-row') as HTMLButtonElement).dispatchEvent(
       new MouseEvent('mousedown', { bubbles: true }),
     )
     expect(dismissed).toBe(0)
 
-    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-    expect(dismissed).toBe(1)
+    // Outside click — must dismiss. The useOutsideDismiss listener may not
+    // have attached yet under full-suite serial-singleFork load (ZF0-1568
+    // reproduction: post-fix run 5). vi.waitFor polls the dispatch+assertion
+    // until the listener attaches and fires. The dispatch is guarded by
+    // `if (dismissed === 0)` so once the listener catches the event we stop
+    // dispatching — final dismissed is exactly 1 from a single outside click.
+    await vi.waitFor(() => {
+      if (dismissed === 0) {
+        document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      }
+      expect(dismissed).toBe(1)
+    }, { timeout: 500 })
   })
 })
 
@@ -173,13 +197,21 @@ describe('TokenPresetPopover — popover-stack registration', () => {
   it('registers with popover-stack on mount and unregisters on unmount', async () => {
     expect(hasOpenPopover()).toBe(false)
     mountPopover()
-    // useOutsideDismiss calls registerPopoverDismiss inside a useEffect;
-    // flush one macrotask so Preact runs post-render effects before asserting.
-    await flushEffects()
-    expect(hasOpenPopover()).toBe(true)
+    // useOutsideDismiss calls registerPopoverDismiss inside a useEffect. Under
+    // full-suite serial load, the local 10ms `flushEffects()` helper is not
+    // always enough — the Preact effect can still be queued behind a busy
+    // macrotask backlog when the 10ms timer fires, leaving the popover-stack
+    // empty (ZF0-1568 reproduction: run 3 of 5 full-suite runs). vi.waitFor
+    // polls the assertion until it passes — a deterministic primitive rather
+    // than a hand-tuned wall-clock delay. Acceptance per ZF0-1568: no timeout
+    // widening, no retries; this is the "act-based flushing" alternative.
+    await vi.waitFor(() => {
+      expect(hasOpenPopover()).toBe(true)
+    }, { timeout: 500 })
     render(null, container)
-    await flushEffects()
-    expect(hasOpenPopover()).toBe(false)
+    await vi.waitFor(() => {
+      expect(hasOpenPopover()).toBe(false)
+    }, { timeout: 500 })
   })
 })
 
