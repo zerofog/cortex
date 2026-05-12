@@ -1,0 +1,27 @@
+cortex-editor/src/core/annotations.ts
+  s_991875e68eb679::t_9580e975e1aea9 7,18-20,27,37-56
+  s_991875e68eb679::t_37e5c4d80f4724 108,119,131,150
+  s_991875e68eb679::t_99745f831039fe 88
+cortex-editor/src/core/session.ts
+  s_991875e68eb679::t_701ea66de09a6a 103-107
+  s_991875e68eb679::t_84138513a0efd1 18-21
+cortex-editor/tests/core/annotations.test.ts
+  s_991875e68eb679::t_d5809a7846e51e 324-521
+  s_991875e68eb679::t_03d9def74876c9 1-4,6-7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "5041e585deea940a0c37d2f5750b0baa9d14473a",
+  "prompts": {},
+  "sessions": {
+    "s_991875e68eb679": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "265c3166-c81d-493e-a6cd-25a1e5dcbc1f",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
