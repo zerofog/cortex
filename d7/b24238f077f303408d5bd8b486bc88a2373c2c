@@ -1,0 +1,19 @@
+cortex-editor/src/browser/components/CortexApp.tsx
+  s_f45484f7453d59::t_8d65907c2c0aa8 167-173,175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "d7b24238f077f303408d5bd8b486bc88a2373c2c",
+  "prompts": {},
+  "sessions": {
+    "s_f45484f7453d59": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "338d7c02-aec7-4677-88dd-58c4eed0d85b",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
