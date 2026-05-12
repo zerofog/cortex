@@ -727,13 +727,18 @@ export function Panel({
   // Extract Tailwind utility classes from element's className.
   // Enables the "direct class path": send the actual class name to the server
   // instead of relying on fragile computed-style → hex → class-name reverse lookup.
-  const extractedUtilities = useMemo(() => {
-    if (!element) return new Map<string, string>()
-    return extractUtilities(rawClassName)
-  }, [element, rawClassName])
+  // Note: when element is null, rawClassName resolves to '' and extractUtilities('')
+  // returns an empty Map — no explicit guard needed. element is transitively covered
+  // by rawClassName's deps, so it's omitted from this memo's deps.
+  const extractedUtilities = useMemo(
+    () => extractUtilities(rawClassName),
+    [rawClassName],
+  )
 
   // Raw className attribute — TypographySection detects bundle + chip membership against it.
-  const typographyClassName = useMemo<string>(() => rawClassName, [rawClassName])
+  // String identity is stable from rawClassName's memo, so a passthrough useMemo would
+  // add no memoization value; bind directly.
+  const typographyClassName: string = rawClassName
 
   // Null-byte separator for composite scrub keys — never appears in CSS properties or source paths.
   const SEP = '\0'
