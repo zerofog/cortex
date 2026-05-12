@@ -1,0 +1,25 @@
+cortex-editor/tests/adapters/vite.test.ts
+  s_cd7665d4595dab::t_9413ae88b528ae 2543-2549
+cortex-editor/vitest.config.ts
+  s_cd7665d4595dab::t_93da5d234f398c 10-21,26,33-38
+cortex-editor/tests/COVERAGE.md
+  s_cd7665d4595dab::t_28146ca8aea07c 33
+  s_cd7665d4595dab::t_9379f09c511ea2 10
+  s_cd7665d4595dab::t_c73db98fe99788 39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "32467ae380e54913f02f22c42dae2a718651d600",
+  "prompts": {},
+  "sessions": {
+    "s_cd7665d4595dab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d8365a3e-0615-42e9-8aa1-02956cd36627",
+        "model": "unknown"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
