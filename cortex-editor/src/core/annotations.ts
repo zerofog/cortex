@@ -32,7 +32,7 @@ export class AnnotationStore {
   }
 
   private snapshot(ann: Annotation): Annotation {
-    return { ...ann, thread: [...ann.thread] }
+    return structuredClone(ann)
   }
 
   private markTerminal(id: string): void {
