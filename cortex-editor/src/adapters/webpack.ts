@@ -400,15 +400,19 @@ class CortexWebpackRuntime {
     // Optional annotations persistence — see CORTEX_PERSIST_ANNOTATIONS in README.
     const persistAnnotations =
       (process.env.CORTEX_PERSIST_ANNOTATIONS ?? '').trim().toLowerCase() === 'true'
-    const annotationsFilePath = persistAnnotations
+    let annotationsFilePath: string | undefined = persistAnnotations
       ? path.join(this.root, '.cortex', 'annotations.json')
       : undefined
 
     if (annotationsFilePath) {
+      // Pre-create .cortex/ so the persistence layer can hydrate on construction.
+      // On failure we downgrade to undefined so the session runs ephemeral —
+      // otherwise every mutation would emit a write-failure warning silently.
       try {
         fs.mkdirSync(path.dirname(annotationsFilePath), { recursive: true, mode: 0o700 })
       } catch (err) {
-        console.warn('[cortex] Could not create .cortex/ for annotations:', err instanceof Error ? err.message : err)
+        console.warn('[cortex] Disabling annotations persistence — could not create .cortex/:', err instanceof Error ? err.message : err)
+        annotationsFilePath = undefined
       }
     }
 

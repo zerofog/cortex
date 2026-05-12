@@ -313,8 +313,11 @@ describe('CortexSession', () => {
       ephemeralSession.annotations.create({ elementSource: 'App.tsx:1:1', text: 'ephemeral' })
       await ephemeralSession.dispose()
 
-      // No file should have been written
+      // No file at the specific path we'd expect, AND nothing else written
+      // into tmpDir either — proves the store wasn't asked to persist anywhere,
+      // not just that this one path is absent.
       expect(fs.existsSync(filePath)).toBe(false)
+      expect(fs.readdirSync(tmpDir)).toEqual([])
     })
   })
 
