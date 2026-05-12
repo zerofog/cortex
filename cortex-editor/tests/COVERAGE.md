@@ -45,9 +45,9 @@ The perf assertion still runs in `npm test` (without `--coverage`) where wall-cl
 3. **Does it allocate a large amount of memory or hold many open file handles?** First confirm coverage overhead is the cause (run the same test without `--coverage`). If yes, the test may need a smaller fixture or a coverage-aware fixture-size knob — not a longer timeout.
 4. **Are you tempted to write `--coverage.exclude='**/your.test.ts'`?** Don't. Excluding source files from coverage is acceptable for type-only or barrel files (see `vitest.config.ts` coverage.exclude); excluding tests defeats the audit. Use `skipIf` instead.
 
-## Shell Hygiene Note
+## Diagnostics
 
-`VITEST_COVERAGE` is set by `vitest.config.ts` at config-load time and only when `--coverage` is actually detected. If you manually export `VITEST_COVERAGE=1` in your shell (e.g., copied from a stale terminal session) and then run `npm test` *without* `--coverage`, the wall-clock perf test will silently skip. This is a shell-hygiene problem rather than a config bug — `unset VITEST_COVERAGE` to clear it. The config also writes a `[vitest.config]` stderr breadcrumb whenever it sets the var, which is the canonical evidence that detection fired.
+`VITEST_COVERAGE` is set by `vitest.config.ts` at config-load time only when `--coverage` is actually detected; on non-coverage loads the var is `delete`d so stale shell exports cannot silently skip the perf tests. The config also writes a `[vitest.config]` stderr breadcrumb whenever detection fires — that line is the canonical evidence that adjustments are active. If you suspect a misfire, look for (or grep for) the breadcrumb in your run output.
 
 ## What NOT to do
 
