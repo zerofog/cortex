@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import type { VNode } from 'preact'
 import { render } from 'preact'
 import { createRef } from 'preact'
@@ -59,8 +59,6 @@ function mountPopover(props: Partial<TokenPresetPopoverProps> = {}): HTMLDivElem
     />,
   )
 }
-
-const flushEffects = () => new Promise<void>(r => setTimeout(r, 10))
 
 describe('TokenPresetPopover — token rows', () => {
   it('renders one row per token when tokens is non-empty', () => {
@@ -149,7 +147,15 @@ describe('TokenPresetPopover — dismiss', () => {
   it('fires onDismiss on Escape keydown', async () => {
     let dismissed = 0
     mountPopover({ onDismiss: () => { dismissed++ } })
-    await flushEffects()
+    // Wait for useOutsideDismiss to register with the popover-stack. Under
+    // full-suite serial-singleFork load, the useEffect that attaches the
+    // Escape listener can be queued behind a macrotask backlog past any
+    // fixed wall-clock yield (ZF0-1568). Polling the popover-stack readiness
+    // signal is the deterministic primitive — same signal the popover-stack
+    // registration test asserts on.
+    await vi.waitFor(() => {
+      expect(hasOpenPopover()).toBe(true)
+    }, { timeout: 500 })
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     expect(dismissed).toBe(1)
   })
@@ -157,13 +163,23 @@ describe('TokenPresetPopover — dismiss', () => {
   it('fires onDismiss on outside mousedown, not on inside mousedown', async () => {
     let dismissed = 0
     const root = mountPopover({ onDismiss: () => { dismissed++ } })
-    await flushEffects()
+    // Same readiness wait as the Escape test above. Without this, the
+    // negative "inside mousedown must not dismiss" assertion below is
+    // vacuous: if the useEffect hasn't fired yet, NO listener exists, so
+    // dismissed=0 trivially — masking a regression where the listener
+    // wrongly dismisses on inside clicks (Copilot review, PR #132).
+    await vi.waitFor(() => {
+      expect(hasOpenPopover()).toBe(true)
+    }, { timeout: 500 })
 
+    // Inside click — listener IS attached now, must correctly identify
+    // the target as inside the popover and skip onDismiss.
     ;(root.querySelector('button.cortex-token-preset-popover__list-row') as HTMLButtonElement).dispatchEvent(
       new MouseEvent('mousedown', { bubbles: true }),
     )
     expect(dismissed).toBe(0)
 
+    // Outside click — listener fires exactly once.
     document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
     expect(dismissed).toBe(1)
   })
@@ -173,13 +189,21 @@ describe('TokenPresetPopover — popover-stack registration', () => {
   it('registers with popover-stack on mount and unregisters on unmount', async () => {
     expect(hasOpenPopover()).toBe(false)
     mountPopover()
-    // useOutsideDismiss calls registerPopoverDismiss inside a useEffect;
-    // flush one macrotask so Preact runs post-render effects before asserting.
-    await flushEffects()
-    expect(hasOpenPopover()).toBe(true)
+    // useOutsideDismiss calls registerPopoverDismiss inside a useEffect. Under
+    // full-suite serial load, the local 10ms `flushEffects()` helper is not
+    // always enough — the Preact effect can still be queued behind a busy
+    // macrotask backlog when the 10ms timer fires, leaving the popover-stack
+    // empty (ZF0-1568 reproduction: run 3 of 5 full-suite runs). vi.waitFor
+    // polls the assertion until it passes — a deterministic primitive rather
+    // than a hand-tuned wall-clock delay. Acceptance per ZF0-1568: no timeout
+    // widening, no retries; this is the "act-based flushing" alternative.
+    await vi.waitFor(() => {
+      expect(hasOpenPopover()).toBe(true)
+    }, { timeout: 500 })
     render(null, container)
-    await flushEffects()
-    expect(hasOpenPopover()).toBe(false)
+    await vi.waitFor(() => {
+      expect(hasOpenPopover()).toBe(false)
+    }, { timeout: 500 })
   })
 })
 
