@@ -41,13 +41,12 @@ export class AnnotationStore {
       for (const ann of loaded) {
         this.annotations.set(ann.id, ann)
       }
-      // Rebuild terminalOrder: collect terminal annotations sorted by updatedAt ascending
-      const terminalAnns = loaded
+      // terminalOrder must be FIFO by updatedAt so future eviction removes
+      // the oldest terminal annotation first — same contract as live writes.
+      this.terminalOrder = loaded
         .filter((a) => a.status === 'resolved' || a.status === 'dismissed')
         .sort((a, b) => a.updatedAt - b.updatedAt)
-      for (const ann of terminalAnns) {
-        this.terminalOrder.push(ann.id)
-      }
+        .map((a) => a.id)
     }
   }
 

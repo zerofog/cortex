@@ -17,7 +17,7 @@ export interface CortexConfig {
   readonly mode: string
   /** When set, AnnotationStore hydrates from this file on construction
    *  and write-throughs every mutation. Adapter resolves the path from
-   *  CORTEX_PERSIST_ANNOTATIONS env var (Sub-task C). */
+   *  the CORTEX_PERSIST_ANNOTATIONS env var. */
   readonly annotationsFilePath?: string
 }
 

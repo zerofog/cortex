@@ -336,7 +336,7 @@ describe('AnnotationStore', () => {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     })
 
-    it('hydrates from existing valid file', () => {
+    it('hydrates from existing valid file — store integration', () => {
       const knownAnn = {
         id: 'hydrate-test-id',
         status: 'pending' as const,
@@ -350,8 +350,17 @@ describe('AnnotationStore', () => {
       saveAnnotations(filePath, [knownAnn])
 
       const store = new AnnotationStore({ persistence: { filePath } })
+
+      // Assert the store integrates the loaded data — getById and getPending
+      // must surface the hydrated annotation. (A bug where hydration writes
+      // to a different internal field would pass a getAll-only assertion.)
+      expect(store.getById('hydrate-test-id')).toMatchObject({
+        id: 'hydrate-test-id',
+        text: 'hydrate me',
+        status: 'pending',
+      })
+      expect(store.getPending().map((a) => a.id)).toEqual(['hydrate-test-id'])
       expect(store.getAll()).toHaveLength(1)
-      expect(store.getAll()[0]).toEqual(knownAnn)
     })
 
     it('starts empty when file is missing', () => {
@@ -415,7 +424,7 @@ describe('AnnotationStore', () => {
       expect(persisted[0]!.thread[0]!.from).toBe('user')
     })
 
-    it('eviction is reflected in the persisted file', () => {
+    it('eviction is reflected in the persisted file — memory and disk agree', () => {
       const store = new AnnotationStore({ maxTerminal: 2, persistence: { filePath } })
 
       const anns: string[] = []
@@ -432,34 +441,37 @@ describe('AnnotationStore', () => {
       expect(persistedIds).not.toContain(anns[0])
       expect(persistedIds).toContain(anns[1])
       expect(persistedIds).toContain(anns[2])
+
+      // Integration claim: in-memory state and on-disk state must agree after eviction.
+      // Without this, a bug where eviction wipes the Map but persists a stale snapshot
+      // would still pass the above 3 assertions.
+      const memoryIds = store.getAll().map((a) => a.id).sort()
+      expect(persistedIds.sort()).toEqual(memoryIds)
     })
 
-    it('does not write file when persistence is unset', () => {
-      const noopFilePath = path.join(tmpDir, 'should-not-exist.json')
+    it('does not call writeFileSync when persistence is unset', () => {
+      // Spy proves negative-behavior: no write attempt anywhere, not just to a
+      // path we happen to know about. Falsifiable by any regression that calls
+      // saveAnnotations() unconditionally.
+      const writeSpy = vi.spyOn(fs, 'writeFileSync')
       const store = new AnnotationStore()
-      store.create({ elementSource: 'App.tsx:1:1', text: 'no persist' })
+      const ann = store.create({ elementSource: 'App.tsx:1:1', text: 'no persist' })
+      store.acknowledge(ann.id)
+      store.resolve(ann.id, 'done')
 
-      expect(fs.existsSync(noopFilePath)).toBe(false)
+      expect(writeSpy).not.toHaveBeenCalled()
     })
 
     it('hydrated terminalOrder is chronological — evicts oldest by updatedAt', () => {
-      // Step 1: build a store with 3 resolved annotations, controlling timestamps
-      const dateSpy = vi.spyOn(Date, 'now')
-        // ann1: createdAt=100, updatedAt=100 (create), then ack updatedAt=200, then resolve updatedAt=300
-        .mockReturnValueOnce(100)   // ann1 create — createdAt
-        .mockReturnValueOnce(100)   // ann1 create — updatedAt
-        .mockReturnValueOnce(200)   // ann1 acknowledge — updatedAt
-        .mockReturnValueOnce(300)   // ann1 resolve — updatedAt
-        // ann2: create=1000/1000, ack=2000, resolve=3000
-        .mockReturnValueOnce(1000)
-        .mockReturnValueOnce(1000)
-        .mockReturnValueOnce(2000)
-        .mockReturnValueOnce(3000)
-        // ann3: create=10000/10000, ack=20000, resolve=30000
-        .mockReturnValueOnce(10000)
-        .mockReturnValueOnce(10000)
-        .mockReturnValueOnce(20000)
-        .mockReturnValueOnce(30000)
+      // Counter-based mock: every Date.now() call returns a strictly increasing
+      // value. Robust to refactors that change how many times each mutation
+      // invokes Date.now() — the chronological invariant (ann1 < ann2 < ann3)
+      // holds regardless of call count.
+      let mockTime = 0
+      const dateSpy = vi.spyOn(Date, 'now').mockImplementation(() => {
+        mockTime += 100
+        return mockTime
+      })
 
       const storeA = new AnnotationStore({ maxTerminal: 3, persistence: { filePath } })
       const ann1 = storeA.create({ elementSource: 'A.tsx:1:1', text: 'oldest' })
