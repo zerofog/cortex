@@ -131,4 +131,26 @@ describe('debug bridge build-time gate', () => {
       expect(testBundle.length).toBeGreaterThan(prodBundle.length)
     })
   })
+
+  describe('hmr-applied-version test hook DCE (ZF0-1804)', () => {
+    it('production bundle does NOT contain the hmr-applied-version hook installation token', () => {
+      // The hook installs `window.__cortex_test_get_hmr_applied_version` —
+      // if DCE worked, this string should not appear anywhere in the prod
+      // bundle. Falsifiable: a future regression that hoists the build flag
+      // into a helper function or const initializer (forms explicitly
+      // warned-against in types.ts:31-44) would leave the literal in the
+      // bundle and fail this test. Without this assertion, the DCE claim
+      // for the new hook is unenforced — only documented.
+      expect(prodBundle).not.toContain('__cortex_test_get_hmr_applied_version')
+    })
+
+    it('test bundle DOES contain the hmr-applied-version hook installation token', () => {
+      // Positive side of the DCE check: proves the test build actually
+      // emits the hook so the falsifiable HMR file-list filter test can
+      // call it. If this fails, esbuild's define injection is broken
+      // and the corresponding browser test would fail with "hook not
+      // installed."
+      expect(testBundle).toContain('__cortex_test_get_hmr_applied_version')
+    })
+  })
 })
