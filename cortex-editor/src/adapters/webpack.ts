@@ -5,6 +5,7 @@ import { createServer, type IncomingMessage, type Server as HttpServer } from 'n
 import type { Duplex } from 'node:stream'
 import { WebSocket, WebSocketServer } from 'ws'
 import { CortexSession } from '../core/session.js'
+import { resolveAnnotationsFilePath } from './annotations-path-resolver.js'
 import { TailwindResolver } from '../core/tailwind-resolver.js'
 import { TailwindRewriter } from '../core/rewriter/tailwind.js'
 import { InlineStyleRewriter } from '../core/rewriter/inline-style.js'
@@ -397,24 +398,9 @@ class CortexWebpackRuntime {
 
   private async startInternal(): Promise<void> {
     if (this.session || this.httpServer) return
-    // Optional annotations persistence — see CORTEX_PERSIST_ANNOTATIONS in README.
-    const persistAnnotations =
-      (process.env.CORTEX_PERSIST_ANNOTATIONS ?? '').trim().toLowerCase() === 'true'
-    let annotationsFilePath: string | undefined = persistAnnotations
-      ? path.join(this.root, '.cortex', 'annotations.json')
-      : undefined
-
-    if (annotationsFilePath) {
-      // Pre-create .cortex/ so the persistence layer can hydrate on construction.
-      // On failure we downgrade to undefined so the session runs ephemeral —
-      // otherwise every mutation would emit a write-failure warning silently.
-      try {
-        fs.mkdirSync(path.dirname(annotationsFilePath), { recursive: true, mode: 0o700 })
-      } catch (err) {
-        console.warn('[cortex] Disabling annotations persistence — could not create .cortex/:', err instanceof Error ? err.message : err)
-        annotationsFilePath = undefined
-      }
-    }
+    // Annotations persistence opt-in lives in resolveAnnotationsFilePath —
+    // shared by the vite adapter and unit-tested without a webpack runtime.
+    const annotationsFilePath = resolveAnnotationsFilePath({ root: this.root })
 
     const session = new CortexSession({
       root: this.root,

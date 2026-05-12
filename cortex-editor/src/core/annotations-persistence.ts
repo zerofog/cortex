@@ -1,4 +1,5 @@
 import fs from 'fs'
+import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import type { Annotation } from '../adapters/types.js'
 
@@ -153,7 +154,17 @@ export function saveAnnotations(
       annotations,
     }
     const serialized = JSON.stringify(envelope, null, 2)
-    const tmpPath = filePath + '.tmp'
+    // PID + nonce in the temp filename keeps concurrent writers (two cortex
+    // dev servers on the same project root) from interleaving bytes into a
+    // shared `.tmp` file before rename. The async `atomicWrite` helper in
+    // adapters/atomic-write.ts is the canonical implementation (it also does
+    // read-back verification against editor revert) but it is async, and
+    // saveAnnotations is called synchronously from six AnnotationStore
+    // mutation paths — migrating to async would change the sync hydrate→ready
+    // contract that adapters depend on. PID + nonce is the smallest delta
+    // that closes the collision-safety gap without that ripple.
+    const nonce = randomBytes(6).toString('hex')
+    const tmpPath = `${filePath}.cortex-${process.pid}-${nonce}.tmp`
 
     try {
       // mode 0o600 matches the rest of .cortex/ (parent dir is 0o700, token is 0o600).
@@ -171,7 +182,15 @@ export function saveAnnotations(
       fs.renameSync(tmpPath, filePath)
     } catch (err) {
       console.warn('[cortex] annotations.json rename failed:', errMessage(err))
-      // Orphan .tmp left — cleanup is out of scope
+      // Best-effort cleanup of the orphan .tmp. Under a unique nonce it is
+      // harmless (no collision with future writes) but stale-file accumulation
+      // is undesirable if the volume can be written but rename specifically
+      // fails (rare; e.g., EXDEV cross-device, EBUSY on Windows).
+      try {
+        fs.unlinkSync(tmpPath)
+      } catch {
+        /* tmp already gone or unreachable — ignore */
+      }
     }
   } catch (err) {
     console.warn(
