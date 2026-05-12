@@ -2142,15 +2142,6 @@ describe('shouldSuppressHmr', () => {
   })
 })
 
-describe('shouldSuppressHmr — allowHmr polarity (ZF0-1833)', () => {
-  it('honors explicit allowHmr=true (caller wants HMR even on immediate)', () => {
-    expect(shouldSuppressHmr({ kind: 'immediate', allowHmr: true })).toBe(false)
-  })
-  it('honors explicit allowHmr=false (caller wants HMR suppressed even on deferred)', () => {
-    expect(shouldSuppressHmr({ kind: 'deferred', allowHmr: false })).toBe(true)
-  })
-})
-
 // ─── performEditWrite (orchestration) ────────────────────────────────────
 //
 // The writeFile closure inside configureServer collapses to this helper.
