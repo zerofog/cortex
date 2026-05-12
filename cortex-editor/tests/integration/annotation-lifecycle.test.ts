@@ -44,6 +44,7 @@ describe('annotation lifecycle integration', () => {
           try {
             let result: unknown
             switch (method) {
+              case 'getActive':   result = annotationStore.getActive(); break
               case 'getPending':  result = annotationStore.getPending(); break
               case 'getDetails':  result = annotationStore.getById(id); break
               case 'acknowledge': result = annotationStore.acknowledge(id); break
