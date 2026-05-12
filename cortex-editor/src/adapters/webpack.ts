@@ -9,7 +9,7 @@ import { TailwindResolver } from '../core/tailwind-resolver.js'
 import { TailwindRewriter } from '../core/rewriter/tailwind.js'
 import { InlineStyleRewriter } from '../core/rewriter/inline-style.js'
 import { HMRVerifier } from '../core/hmr-verifier.js'
-import { EditPipeline, type WriteIntent } from '../core/edit-pipeline.js'
+import { EditPipeline } from '../core/edit-pipeline.js'
 import { StyleDetector, type DetectionResult } from '../core/rewriter/detector.js'
 import { computeCapabilities, type ResolverState } from '../core/capabilities.js'
 import { CSSModulesRewriter } from '../core/rewriter/css-modules.js'
@@ -17,6 +17,7 @@ import { RuntimeCSSResolver } from '../core/rewriter/runtime-resolver.js'
 import { UndoStack } from '../core/session/undo-stack.js'
 import { applyEditsCore, checkIntentFileSize, parseIntentSource, sliceIntentContext } from '../core/staged-edits.js'
 import { atomicWrite } from './atomic-write.js'
+import { shouldSuppressHmr } from './vite.js'
 import { shouldExcludeCortexSource } from './source-loader-utils.js'
 import type { BrowserToServer, ServerChannel, ServerToBrowser } from './types.js'
 import {
@@ -229,11 +230,6 @@ function requireRealpathInsideRoot(
   }
   if (!isPathInsideRoot(real, realRoot)) return { ok: false, error: 'Path outside project root (symlink-resolved)' }
   return { ok: true, real, realRoot }
-}
-
-function shouldSuppressHmr(intent: Pick<WriteIntent, 'kind' | 'suppressHmr'>): boolean {
-  return intent.suppressHmr
-    ?? (intent.kind !== 'deferred' && intent.kind !== 'jsx-immediate')
 }
 
 function getElementSourceFile(elementSource: string): string {

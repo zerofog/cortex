@@ -686,18 +686,18 @@ export interface EditWriteDeps {
 
 /** Decide whether a WriteIntent should suppress HMR.
  *
- *  Policy: honor an explicit `suppressHmr`. Otherwise suppress iff the
+ *  Policy: honor an explicit `allowHmr`. Otherwise suppress iff the
  *  edit paints via the browser-side `!important` override layer — i.e.,
  *  `'immediate'`, `'undo'`, `'redo'`. Kinds that may restructure JSX
  *  (`'jsx-immediate'`, `'deferred'`) must NOT suppress, because the
  *  framework needs to re-render with the new source.
  *
- *  ZF0-1215 note: classOp writes pass `{ kind: 'immediate', suppressHmr:
- *  false }` explicitly — className mutations have no browser-side override
+ *  ZF0-1215 note: classOp writes pass `{ kind: 'immediate', allowHmr:
+ *  true }` explicitly — className mutations have no browser-side override
  *  layer and need HMR to re-render the element with the new class. */
-export function shouldSuppressHmr(intent: Pick<WriteIntent, 'kind' | 'suppressHmr'>): boolean {
-  return intent.suppressHmr
-    ?? (intent.kind !== 'deferred' && intent.kind !== 'jsx-immediate')
+export function shouldSuppressHmr(intent: Pick<WriteIntent, 'kind' | 'allowHmr'>): boolean {
+  return !(intent.allowHmr
+    ?? (intent.kind === 'deferred' || intent.kind === 'jsx-immediate'))
 }
 
 /** Orchestrate an edit write: atomic-rename the target file, then (if HMR

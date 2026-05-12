@@ -54,6 +54,12 @@ export class CSSOverrideManager {
   private staleEntries = new Set<string>()
   private staleListeners = new Set<(s: Set<string>) => void>()
 
+  /** Dirty flag — true when overrides/stateOverrides have changed since the last
+   *  successful rebuild(). Defaults to true so the first rebuild always runs
+   *  (cold-start: <style> is empty even if maps are empty). Set false at the end
+   *  of rebuild(); set true by every mutator that touches the maps. */
+  private isDirty = true
+
   /** ZF0-1293: per-key ring buffer of recent `set()` values. When a divergence
    *  fires with an unexplained `actual`, this buffer tells us whether the
    *  user previously set that property to that exact value — the typical
@@ -90,6 +96,9 @@ export class CSSOverrideManager {
     }
   }
 
+  /** @internal — test seam for verifying dirty-flag short-circuit. Do NOT use in production. */
+  get _isDirtyForTesting(): boolean { return this.isDirty }
+
   /** Force any pending RAF rebuild to execute synchronously. */
   flush(): void {
     if (this.rafId !== null) {
@@ -119,6 +128,7 @@ export class CSSOverrideManager {
     props.set(property, value)
     this.recordPriorValue(source, property, pseudo, value)
     trace('set', { source, property, value, pseudo })
+    this.isDirty = true
     this.scheduleRebuild()
   }
 
@@ -270,6 +280,7 @@ export class CSSOverrideManager {
     }
     // Synchronous rebuild — prevents one-frame flicker when HMR clears overrides.
     // RAF batching would show the old override for one extra frame before removal.
+    this.isDirty = true
     this.cancelPendingRebuild()
     this.rebuild()
   }
@@ -623,6 +634,7 @@ export class CSSOverrideManager {
       }
       this.stateOverrides.delete(source)
     }
+    this.isDirty = true
     this.cancelPendingRebuild()
     this.rebuild()
   }
@@ -633,6 +645,7 @@ export class CSSOverrideManager {
    */
   clearStateOverrides(): void {
     this.stateOverrides.clear()
+    this.isDirty = true
     this.cancelPendingRebuild()
     this.rebuild()
   }
@@ -843,6 +856,7 @@ export class CSSOverrideManager {
       this.staleEntries.clear()
       this.emitStale()
     }
+    this.isDirty = true
     this.cancelPendingRebuild()
     this.rebuild()
   }
@@ -925,6 +939,7 @@ export class CSSOverrideManager {
   }
 
   private rebuild(): void {
+    if (!this.isDirty) return
     const allKeys = new Set([...this.overrides.keys(), ...this.stateOverrides.keys()])
     const rules: string[] = []
 
@@ -960,5 +975,6 @@ export class CSSOverrideManager {
       this.styleEl.textContent = newContent
       emitOverrideChange()
     }
+    this.isDirty = false
   }
 }
