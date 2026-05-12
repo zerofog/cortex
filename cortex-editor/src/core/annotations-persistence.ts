@@ -156,7 +156,11 @@ export function saveAnnotations(
     const tmpPath = filePath + '.tmp'
 
     try {
-      fs.writeFileSync(tmpPath, serialized, 'utf8')
+      // mode 0o600 matches the rest of .cortex/ (parent dir is 0o700, token is 0o600).
+      // Defense-in-depth: file-level perms remain restrictive if the parent dir's
+      // mode ever drifts. Annotations are user-authored content (not secrets), so
+      // strict consistency is the right default.
+      fs.writeFileSync(tmpPath, serialized, { encoding: 'utf8', mode: 0o600 })
     } catch (err) {
       console.warn('[cortex] annotations.json write failed:', errMessage(err))
       // Live file at filePath is untouched — atomicity preserved

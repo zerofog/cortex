@@ -56,7 +56,9 @@ export class AnnotationStore {
 
   private persist(): void {
     if (this.persistenceFilePath === undefined) return
-    saveAnnotations(this.persistenceFilePath, this.getAll())
+    // saveAnnotations only reads + serializes — skip getAll()'s per-element
+    // snapshot copy (designed for external callers who might mutate the result).
+    saveAnnotations(this.persistenceFilePath, [...this.annotations.values()])
   }
 
   private snapshot(ann: Annotation): Annotation {
