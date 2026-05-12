@@ -1,0 +1,19 @@
+cortex-editor/tests/browser/css-validation.test.ts
+  s_5a6ee93300ce85::t_db98b628dc01e7 236-239,242
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "d6e475d54fbbbde345526a4119dd345350b1daea",
+  "prompts": {},
+  "sessions": {
+    "s_5a6ee93300ce85": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "95e60211-666a-4f6d-9e6e-47126ea7b1f3",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
