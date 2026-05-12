@@ -1,0 +1,21 @@
+cortex-editor/src/core/edit-pipeline.ts
+  s_5b9856928a784d::t_8d366b64907d55 18-19
+  s_5b9856928a784d::t_0bd4ac8c8ee632 1456,1458,1460-1461,1464-1491,1493-1514,1516-1528,1530-1545,1547-1562,1564-1569
+  s_5b9856928a784d::t_f965bc2448a540 1364
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "1f86399c815073c90b4eb81cfe7206b04eb87a4e",
+  "prompts": {},
+  "sessions": {
+    "s_5b9856928a784d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "297451a6-f29b-46c5-97e8-26e61369214c",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": null
+    }
+  }
+}
