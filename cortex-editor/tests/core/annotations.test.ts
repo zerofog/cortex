@@ -259,9 +259,17 @@ describe("AnnotationStore", () => {
       expect(() => new AnnotationStore({ maxTerminal: 1.5 })).toThrow(
         /positive integer/,
       );
+      // Number.isInteger also rejects NaN and Infinity; lock those in so a
+      // future refactor to `max <= 0 || !Number.isInteger(max)` keeps coverage.
+      expect(() => new AnnotationStore({ maxTerminal: NaN })).toThrow(
+        /positive integer/,
+      );
+      expect(() => new AnnotationStore({ maxTerminal: Infinity })).toThrow(
+        /positive integer/,
+      );
     });
 
-    it("snapshot from a surviving terminal entry is unaffected by a subsequent eviction", () => {
+    it("snapshot captured before eviction retains its payload after the entry is evicted", () => {
       const store = new AnnotationStore({ maxTerminal: 2 });
 
       const a1 = store.create({ elementSource: "A.tsx:1:1", text: "first" });
@@ -276,11 +284,14 @@ describe("AnnotationStore", () => {
       store.acknowledge(a3.id);
       store.resolve(a3.id, "third done");
 
-      // The snapshot captured BEFORE eviction is still intact (snapshots are copies).
+      // What this test actually proves: a snapshot captured at terminal-flip time
+      // continues to carry its full payload AFTER the underlying entry is evicted
+      // from the store. (Note: this does NOT prove `snapshot()` returns a copy vs
+      // a live reference — terminal entries are immutable through the public API,
+      // so the copy-vs-reference distinction is unobservable post-resolve.)
       expect(snap1.id).toBe(a1.id);
       expect(snap1.status).toBe("resolved");
       expect(snap1.resolution).toEqual({ summary: "first done" });
-      // Thread is independently cloned (`thread: [...ann.thread]`) — falsifies if snapshot returns a reference.
       expect(snap1.thread).toEqual([]);
 
       // The store no longer holds a1.
