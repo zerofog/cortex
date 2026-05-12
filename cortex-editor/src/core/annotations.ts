@@ -36,6 +36,10 @@ export class AnnotationStore {
     this.maxTerminal = max
     this.persistenceFilePath = opts?.persistence?.filePath
 
+    // Synchronous hydration is intentional: adapter callers depend on the store
+    // being ready BEFORE the first WebSocket message arrives. Bounded by
+    // maxTerminal (default 100) — never moved to async without re-establishing
+    // that invariant in the adapter wiring.
     if (this.persistenceFilePath !== undefined) {
       const loaded = loadAnnotations(this.persistenceFilePath)
       for (const ann of loaded) {

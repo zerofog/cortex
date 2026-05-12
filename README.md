@@ -207,6 +207,8 @@ When enabled, Cortex writes annotations to `.cortex/annotations.json` in your pr
 
 **Privacy:** `.cortex/` is already in the repo's `.gitignore` — annotations stay local to your machine. Schema is versioned (`{ version: 1, annotations: [...] }`); mismatched versions are dropped with a warning rather than failing the dev server.
 
+**Failure modes:** if `.cortex/` cannot be created (read-only filesystem, container bind-mount, permission issues), Cortex logs a one-time warning and falls back to ephemeral mode — no per-mutation noise. If `annotations.json` becomes corrupt or its schema version no longer matches the running Cortex, the session starts empty and logs a warning; the file is overwritten on the next mutation. If you want to preserve in-flight annotations across a Cortex upgrade with a schema bump, back up `annotations.json` first.
+
 Default behavior (env var unset or any value other than `true`, case-insensitive) is unchanged — annotations remain ephemeral.
 
 ## Troubleshooting
