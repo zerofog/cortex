@@ -1,0 +1,19 @@
+cortex-editor/tests/COVERAGE.md
+  s_cd7665d4595dab::t_ab1547771a459e 48,50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "6618130783d17098e4b8216037e00d6e437b9c20",
+  "prompts": {},
+  "sessions": {
+    "s_cd7665d4595dab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d8365a3e-0615-42e9-8aa1-02956cd36627",
+        "model": "unknown"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
