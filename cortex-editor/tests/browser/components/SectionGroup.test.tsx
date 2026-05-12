@@ -101,8 +101,7 @@ describe('SectionGroup — Panel v2 headerAction slot', () => {
     expect(header!.children[0].classList.contains('cortex-section-group__title')).toBe(true)
   })
 
-  it.skip('TODO: lock title typography invariants once real CSSOM is available', () => {
-    // Awaiting jsdom CSSOM support for var(--cx-text-lg) resolution.
-    // Until then, typography binding is locked in styles.css and the visual review.
-  })
+  // Computed-typography coverage lives in real Chromium — happy-dom cannot
+  // resolve `var(--cx-text-lg)` / `var(--cx-weight-heading)` to meaningful
+  // values. See `tests/e2e/section-group-title-typography.spec.ts` (ZF0-1565).
 })
