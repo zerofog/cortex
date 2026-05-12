@@ -687,4 +687,60 @@ describe('EditPipeline — compound edit (C2)', () => {
       reason_code: 'invalid_class_token',
     }))
   })
+
+  // Greptile P2 (PR #130 review): the original ZF0-1284 implementation
+  // gated each array independently, so a 26-sets + 25-removes payload
+  // passed both per-array caps yet shipped 51 ops to the rewriter —
+  // roughly 2× the stated intent (~6 ops for a real "unlink text
+  // bundle" gesture). The combined ceiling closes that gap.
+  it('rejects compound requests with >50 combined entries (ZF0-1284 — combined cap; neither array alone exceeds)', async () => {
+    // 26 + 25 = 51 combined; neither array alone hits the 50 cap.
+    // Without a combined check, validation would pass and dispatch
+    // 51 inline ops to the rewriter — exactly the DoS-self surface
+    // the ZF0-1284 bound was meant to close.
+    pipeline.handleEdit(baseEdit({
+      classOp: { kind: 'add', add: 'holder' },
+      inlineSets: Array.from({ length: 26 }, () => ({
+        property: 'font-size',
+        value: '14px',
+      })),
+      inlineRemoves: Array.from({ length: 25 }, () => ({ property: 'color' })),
+    }))
+    await flush()
+
+    expect(writes).toHaveLength(0)
+    expect(undoStack.push).not.toHaveBeenCalled()
+    expect(rewriter.rewriteClassListInTransaction).not.toHaveBeenCalled()
+    expect(channel.send).toHaveBeenCalledWith(expect.objectContaining({
+      editId: 'ec1',
+      status: 'failed',
+      reason_code: 'invalid_class_token',
+      reason: expect.stringContaining('exceeds 50'),
+    }))
+  })
+
+  it('accepts compound requests with exactly 50 combined entries (ZF0-1284 — combined cap boundary)', async () => {
+    // 25 + 25 = 50 combined; combined cap accepts inclusive. Off-by-one
+    // drift in the combined check would either reject 50 here or accept
+    // the 51-total case in the rejection test above. Affirmative
+    // progression checks lock in the accept path (negative-only asserts
+    // can silently pass for the wrong reason).
+    mutateTxnInClassOp()
+    pipeline.handleEdit(baseEdit({
+      classOp: { kind: 'add', add: 'holder' },
+      inlineSets: Array.from({ length: 25 }, () => ({
+        property: 'font-size',
+        value: '14px',
+      })),
+      inlineRemoves: Array.from({ length: 25 }, () => ({ property: 'color' })),
+    }))
+    await flush()
+
+    expect(rewriter.rewriteClassListInTransaction).toHaveBeenCalledTimes(1)
+    expect(writes).toHaveLength(1)
+    expect(channel.send).not.toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed',
+      reason_code: 'invalid_class_token',
+    }))
+  })
 })
