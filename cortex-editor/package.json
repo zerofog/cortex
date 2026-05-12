@@ -66,6 +66,7 @@
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:perf": "vitest run --project server tests/adapters/source-transform.test.ts tests/adapters/vite.test.ts",
     "test:watch": "vitest",
     "test:e2e": "npm run build:test && playwright test",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests/e2e/tsconfig.json",
