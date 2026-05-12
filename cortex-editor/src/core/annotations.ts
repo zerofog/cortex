@@ -4,6 +4,7 @@ import type {
   CreateAnnotationParams,
   ThreadMessage,
 } from '../adapters/types.js'
+import { loadAnnotations, saveAnnotations } from './annotations-persistence.js'
 
 const DEFAULT_MAX_TERMINAL = 100
 
@@ -14,12 +15,16 @@ export interface AnnotationStoreOptions {
    *  flip and unobservable. If callers ever raise the cap above ~1000, replace the
    *  string[] queue with a circular buffer or head-index deque to keep eviction O(1). */
   maxTerminal?: number
+  /** When set, AnnotationStore hydrates from this file on construction and
+   *  write-throughs every mutation. When unset, behavior is unchanged. */
+  persistence?: { filePath: string }
 }
 
 export class AnnotationStore {
   private annotations = new Map<string, Annotation>()
   private terminalOrder: string[] = []
   private readonly maxTerminal: number
+  private readonly persistenceFilePath: string | undefined
 
   constructor(opts?: AnnotationStoreOptions) {
     const max = opts?.maxTerminal ?? DEFAULT_MAX_TERMINAL
@@ -29,6 +34,26 @@ export class AnnotationStore {
       )
     }
     this.maxTerminal = max
+    this.persistenceFilePath = opts?.persistence?.filePath
+
+    if (this.persistenceFilePath !== undefined) {
+      const loaded = loadAnnotations(this.persistenceFilePath)
+      for (const ann of loaded) {
+        this.annotations.set(ann.id, ann)
+      }
+      // Rebuild terminalOrder: collect terminal annotations sorted by updatedAt ascending
+      const terminalAnns = loaded
+        .filter((a) => a.status === 'resolved' || a.status === 'dismissed')
+        .sort((a, b) => a.updatedAt - b.updatedAt)
+      for (const ann of terminalAnns) {
+        this.terminalOrder.push(ann.id)
+      }
+    }
+  }
+
+  private persist(): void {
+    if (this.persistenceFilePath === undefined) return
+    saveAnnotations(this.persistenceFilePath, this.getAll())
   }
 
   private snapshot(ann: Annotation): Annotation {
@@ -60,6 +85,7 @@ export class AnnotationStore {
       fixMeta: params.fixMeta,
     }
     this.annotations.set(annotation.id, annotation)
+    this.persist()
     return this.snapshot(annotation)
   }
 
@@ -79,6 +105,7 @@ export class AnnotationStore {
     if (!ann || ann.status !== 'pending') return null
     ann.status = 'acknowledged'
     ann.updatedAt = Date.now()
+    this.persist()
     return this.snapshot(ann)
   }
 
@@ -89,6 +116,7 @@ export class AnnotationStore {
     ann.resolution = { summary }
     ann.updatedAt = Date.now()
     this.markTerminal(id)
+    this.persist()
     return this.snapshot(ann)
   }
 
@@ -100,6 +128,7 @@ export class AnnotationStore {
     if (reason) ann.dismissReason = reason
     ann.updatedAt = Date.now()
     this.markTerminal(id)
+    this.persist()
     return this.snapshot(ann)
   }
 
@@ -118,6 +147,7 @@ export class AnnotationStore {
       timestamp: Date.now(),
     })
     ann.updatedAt = Date.now()
+    this.persist()
     return this.snapshot(ann)
   }
 
