@@ -1214,16 +1214,20 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     localStorage.clear()
   })
 
-  // ZF0-1804: independently verifies the version-bump gate at CortexApp.tsx:686-688.
-  // Existing tests above verify the re-resolve gate at CortexApp.tsx:779 via the
+  // ZF0-1804: independently verifies the version-bump gate in CortexApp.tsx
+  // (the `if (shouldRefresh) setHmrAppliedVersion(v => v + 1)` block inside
+  // the hmr-applied handler). Existing tests above verify the re-resolve gate
+  // (the sibling `if (shouldRefresh) attemptReResolve(); requestAnimationFrame
+  // (...); setTimeout(...)` block further down in the same handler) via the
   // reResolveSelection spy — but both gates share `shouldRefresh`. A surgical
-  // refactor that forces `if (true)` at line 686 while keeping line 779 intact
-  // would pass those tests. This test closes that gap by reading hmrAppliedVersion
-  // directly via a DCE-gated window hook (__cortex_test_get_hmr_applied_version).
-  // Reading pure React state via a ref is coverage-instrumentation-immune —
-  // coverage probes cannot call setHmrAppliedVersion, so the value only changes
-  // when the real gate at line 686 fires (contrast: gcs.mock.calls.length flaked
-  // because coverage probed styles, see ZF0-1564 audit).
+  // refactor that forces `if (true)` around setHmrAppliedVersion while keeping
+  // the re-resolve gate intact would pass those tests. This test closes that
+  // gap by reading hmrAppliedVersion directly via a DCE-gated window hook
+  // (__cortex_test_get_hmr_applied_version). Reading pure React state via a
+  // ref is coverage-instrumentation-immune — coverage probes cannot call
+  // setHmrAppliedVersion, so the value only changes when the real gate fires
+  // (contrast: gcs.mock.calls.length flaked because coverage probed styles,
+  // see ZF0-1564 audit).
   it('does not bump hmrAppliedVersion when hmr files are fully unrelated', async () => {
     const { channel } = await setup('src/foo.tsx:10:5')
 
@@ -1235,16 +1239,16 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     const versionBefore = getVersion!()
 
     // Fire hmr-applied with files unrelated to the selected element (src/foo.tsx).
-    // shouldRefreshOnHMR returns false → the version-bump gate at line 686 must
-    // NOT fire → hmrAppliedVersion must remain unchanged.
+    // shouldRefreshOnHMR returns false → the version-bump gate must NOT fire →
+    // hmrAppliedVersion must remain unchanged.
     channel._simulateMessage({ type: 'hmr-applied', files: ['src/bar.tsx', 'src/baz.tsx'] })
 
     // Wait past the full gated fan-out window (250ms max + 10ms buffer) — same
     // bounded scheduling window used by the existing tests in this describe block.
     await new Promise(r => setTimeout(r, 260))
 
-    // If the gate at CortexApp.tsx:686-688 fired correctly (shouldRefresh is
-    // false), setHmrAppliedVersion was never called and the version stays flat.
+    // If the version-bump gate fired correctly (shouldRefresh is false),
+    // setHmrAppliedVersion was never called and the version stays flat.
     expect(getVersion!()).toBe(versionBefore)
   })
 
