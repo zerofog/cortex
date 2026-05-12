@@ -1,0 +1,23 @@
+cortex-editor/src/core/rewriter/jsx-transaction.ts
+  s_5b9856928a784d::t_7e33e876b5c112 167-177
+cortex-editor/tests/core/edit-pipeline.compound.test.ts
+  s_5b9856928a784d::t_f6de3a90f14565 875-878,882
+  s_5b9856928a784d::t_1a258ff773bf1f 862-874,879-881,883-886,890-892,895-906
+  s_5b9856928a784d::t_835cdc9584c7b4 887-889,893-894
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "d734b83a5c13faefbc898ed01ae8a44b03be68d4",
+  "prompts": {},
+  "sessions": {
+    "s_5b9856928a784d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "297451a6-f29b-46c5-97e8-26e61369214c",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
