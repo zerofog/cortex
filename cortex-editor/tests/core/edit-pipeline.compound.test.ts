@@ -591,4 +591,156 @@ describe('EditPipeline — compound edit (C2)', () => {
       reason: expect.stringContaining('/*'),
     }))
   })
+
+  // ZF0-1284: array-length bound on inlineSets / inlineRemoves. Per-entry
+  // validation alone permitted Array(10000) of valid entries through to the
+  // rewriter, triggering O(N) ts-morph AST mutations under the single file-
+  // lock. Threat model is DoS-self (the WebSocket sits behind localhost-
+  // origin + token auth, so the attacker is the user's own browser), but
+  // an upper bound is cheap hygiene and catches a buggy client before it
+  // wedges the server. MAX_COMPOUND_OPS = 50 is generous — a real text-
+  // bundle "unlink" gesture caps at ~6 inline ops.
+  it('rejects compound requests with >50 inlineSets entries (ZF0-1284 — array-length bound)', async () => {
+    pipeline.handleEdit(baseEdit({
+      classOp: { kind: 'add', add: 'holder' },
+      inlineSets: Array.from({ length: 51 }, () => ({
+        property: 'font-size',
+        value: '14px',
+      })),
+    }))
+    await flush()
+
+    expect(writes).toHaveLength(0)
+    expect(undoStack.push).not.toHaveBeenCalled()
+    // Bound fires BEFORE the per-entry loop and BEFORE handleCompoundEdit,
+    // so the rewriter must never see this request. This is the DoS-self
+    // protection: validation cost stays O(1) regardless of array length.
+    expect(rewriter.rewriteClassListInTransaction).not.toHaveBeenCalled()
+    expect(channel.send).toHaveBeenCalledWith(expect.objectContaining({
+      editId: 'ec1',
+      status: 'failed',
+      reason_code: 'invalid_class_token',
+      reason: expect.stringContaining('exceeds 50'),
+    }))
+  })
+
+  it('rejects compound requests with >50 inlineRemoves entries (ZF0-1284 — array-length bound, symmetric)', async () => {
+    pipeline.handleEdit(baseEdit({
+      classOp: { kind: 'remove', remove: 'text-body-md' },
+      inlineRemoves: Array.from({ length: 51 }, () => ({ property: 'font-size' })),
+    }))
+    await flush()
+
+    expect(writes).toHaveLength(0)
+    expect(undoStack.push).not.toHaveBeenCalled()
+    expect(rewriter.rewriteClassListInTransaction).not.toHaveBeenCalled()
+    expect(channel.send).toHaveBeenCalledWith(expect.objectContaining({
+      editId: 'ec1',
+      status: 'failed',
+      reason_code: 'invalid_class_token',
+      reason: expect.stringContaining('exceeds 50'),
+    }))
+  })
+
+  it('accepts compound requests with exactly 50 inlineSets entries (ZF0-1284 — boundary check)', async () => {
+    // Boundary: 50 entries is the inclusive ceiling; 51 is the first
+    // rejected count. This guards against off-by-one drift in the bound.
+    mutateTxnInClassOp()
+    pipeline.handleEdit(baseEdit({
+      classOp: { kind: 'remove', remove: 'text-body-md' },
+      inlineSets: Array.from({ length: 50 }, () => ({
+        property: 'font-size',
+        value: '14px',
+      })),
+    }))
+    await flush()
+
+    // Affirmative progression: the request must flow through to the
+    // rewrite+write path, not just "fail to reject for some other reason".
+    // Negative-only assertions can pass for the wrong reason (silent
+    // failure, no flush, wrong reason_code) so positive-state checks
+    // are required to prove the bound accepted the request.
+    expect(rewriter.rewriteClassListInTransaction).toHaveBeenCalledTimes(1)
+    expect(writes).toHaveLength(1)
+    expect(channel.send).not.toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed',
+      reason_code: 'invalid_class_token',
+    }))
+  })
+
+  it('accepts compound requests with exactly 50 inlineRemoves entries (ZF0-1284 — boundary check, symmetric)', async () => {
+    // Symmetric boundary guard for inlineRemoves. If the bound logic
+    // were ever split into separate per-array constants, or a comparator
+    // bug were introduced on the removes branch, drift would escape
+    // the inlineSets-only boundary test above. This locks in symmetry.
+    mutateTxnInClassOp()
+    pipeline.handleEdit(baseEdit({
+      classOp: { kind: 'add', add: 'text-heading-1' },
+      inlineRemoves: Array.from({ length: 50 }, () => ({ property: 'font-size' })),
+    }))
+    await flush()
+
+    expect(rewriter.rewriteClassListInTransaction).toHaveBeenCalledTimes(1)
+    expect(writes).toHaveLength(1)
+    expect(channel.send).not.toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed',
+      reason_code: 'invalid_class_token',
+    }))
+  })
+
+  // Greptile P2 (PR #130 review): the original ZF0-1284 implementation
+  // gated each array independently, so a 26-sets + 25-removes payload
+  // passed both per-array caps yet shipped 51 ops to the rewriter —
+  // roughly 2× the stated intent (~6 ops for a real "unlink text
+  // bundle" gesture). The combined ceiling closes that gap.
+  it('rejects compound requests with >50 combined entries (ZF0-1284 — combined cap; neither array alone exceeds)', async () => {
+    // 26 + 25 = 51 combined; neither array alone hits the 50 cap.
+    // Without a combined check, validation would pass and dispatch
+    // 51 inline ops to the rewriter — exactly the DoS-self surface
+    // the ZF0-1284 bound was meant to close.
+    pipeline.handleEdit(baseEdit({
+      classOp: { kind: 'add', add: 'holder' },
+      inlineSets: Array.from({ length: 26 }, () => ({
+        property: 'font-size',
+        value: '14px',
+      })),
+      inlineRemoves: Array.from({ length: 25 }, () => ({ property: 'color' })),
+    }))
+    await flush()
+
+    expect(writes).toHaveLength(0)
+    expect(undoStack.push).not.toHaveBeenCalled()
+    expect(rewriter.rewriteClassListInTransaction).not.toHaveBeenCalled()
+    expect(channel.send).toHaveBeenCalledWith(expect.objectContaining({
+      editId: 'ec1',
+      status: 'failed',
+      reason_code: 'invalid_class_token',
+      reason: expect.stringContaining('exceeds 50'),
+    }))
+  })
+
+  it('accepts compound requests with exactly 50 combined entries (ZF0-1284 — combined cap boundary)', async () => {
+    // 25 + 25 = 50 combined; combined cap accepts inclusive. Off-by-one
+    // drift in the combined check would either reject 50 here or accept
+    // the 51-total case in the rejection test above. Affirmative
+    // progression checks lock in the accept path (negative-only asserts
+    // can silently pass for the wrong reason).
+    mutateTxnInClassOp()
+    pipeline.handleEdit(baseEdit({
+      classOp: { kind: 'add', add: 'holder' },
+      inlineSets: Array.from({ length: 25 }, () => ({
+        property: 'font-size',
+        value: '14px',
+      })),
+      inlineRemoves: Array.from({ length: 25 }, () => ({ property: 'color' })),
+    }))
+    await flush()
+
+    expect(rewriter.rewriteClassListInTransaction).toHaveBeenCalledTimes(1)
+    expect(writes).toHaveLength(1)
+    expect(channel.send).not.toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed',
+      reason_code: 'invalid_class_token',
+    }))
+  })
 })

@@ -37,6 +37,21 @@ const MAX_INLINE_PROP_NAME_LEN = 64
  *  `linear-gradient(...)` strings without being a payload vector. */
 const MAX_INLINE_PROP_VALUE_LEN = 512
 
+/** ZF0-1284: upper bound on COMBINED compound-edit inline-op array
+ *  length (sets + removes). Per-entry validation alone permitted
+ *  Array(10000) of valid entries through to ts-morph, triggering O(N)
+ *  AST mutations under the single file-lock. Threat model is DoS-self
+ *  (WebSocket sits behind localhost-origin + token auth), so this is
+ *  hygiene against a buggy client rather than a remote-attacker
+ *  mitigation. 50 is generous: a real "unlink text bundle" gesture
+ *  caps at ~6 inline ops.
+ *
+ *  Combined ceiling (not per-array) keeps the bounded surface to what's
+ *  actually expected. A buggy 26-sets + 25-removes payload would pass
+ *  two independent per-array gates yet ship 51 ops to the rewriter —
+ *  roughly 2× the stated intent. */
+const MAX_COMPOUND_OPS = 50
+
 /** Shape-validate the compound-edit inline op arrays. Returns null on
  *  success or a specific rejection reason (for reason_code propagation).
  *  Values for sets must be non-empty — empty-string inline edits were
@@ -51,6 +66,14 @@ function validateInlineOps(
   sets: ReadonlyArray<{ property: string; value: string }> | undefined,
   removes: ReadonlyArray<{ property: string }> | undefined,
 ): string | null {
+  // ZF0-1284: fail-fast on oversized COMBINED array length BEFORE the
+  // per-entry loop so rejection cost stays O(1) regardless of attacker-
+  // supplied length. The combined check subsumes per-array checks since
+  // any single-array overflow implies combined overflow.
+  const totalOps = (sets?.length ?? 0) + (removes?.length ?? 0)
+  if (totalOps > MAX_COMPOUND_OPS) {
+    return `compound edit inline op count exceeds ${MAX_COMPOUND_OPS} (got ${totalOps})`
+  }
   for (const s of sets ?? []) {
     const nameErr = validatePropertyName(s.property, MAX_INLINE_PROP_NAME_LEN, 'inlineSets')
     if (nameErr) return nameErr
