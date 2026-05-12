@@ -193,6 +193,22 @@ module.exports = {
 }
 ```
 
+## Optional: Persisting annotations across restarts
+
+By default, annotations and threads live in memory for the lifetime of the dev server and are cleared whenever Vite or Webpack restarts. To survive restarts, opt in via an environment variable:
+
+```bash
+CORTEX_PERSIST_ANNOTATIONS=true npm run dev
+```
+
+When enabled, Cortex writes annotations to `.cortex/annotations.json` in your project root and hydrates from that file on every session start. Writes are atomic (write-temp-then-rename), so a crash mid-write cannot corrupt the live file.
+
+**Staleness caveat:** annotations are tied to a specific snapshot of your UI and source code. After code changes, an annotation may reference DOM elements or source lines that no longer exist. The designer is responsible for resolving or dismissing stale annotations.
+
+**Privacy:** `.cortex/` is already in the repo's `.gitignore` — annotations stay local to your machine. Schema is versioned (`{ version: 1, annotations: [...] }`); mismatched versions are dropped with a warning rather than failing the dev server.
+
+Default behavior (env var unset or any value other than `true`, case-insensitive) is unchanged — annotations remain ephemeral.
+
 ## Troubleshooting
 
 ### `/cortex` says the MCP server is unavailable

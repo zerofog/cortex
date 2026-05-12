@@ -397,7 +397,26 @@ class CortexWebpackRuntime {
 
   private async startInternal(): Promise<void> {
     if (this.session || this.httpServer) return
-    const session = new CortexSession({ root: this.root, mode: this.mode })
+    // Optional annotations persistence — see CORTEX_PERSIST_ANNOTATIONS in README.
+    const persistAnnotations =
+      (process.env.CORTEX_PERSIST_ANNOTATIONS ?? '').trim().toLowerCase() === 'true'
+    const annotationsFilePath = persistAnnotations
+      ? path.join(this.root, '.cortex', 'annotations.json')
+      : undefined
+
+    if (annotationsFilePath) {
+      try {
+        fs.mkdirSync(path.dirname(annotationsFilePath), { recursive: true, mode: 0o700 })
+      } catch (err) {
+        console.warn('[cortex] Could not create .cortex/ for annotations:', err instanceof Error ? err.message : err)
+      }
+    }
+
+    const session = new CortexSession({
+      root: this.root,
+      mode: this.mode,
+      annotationsFilePath,
+    })
     this.session = session
 
     this.browserWss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 })

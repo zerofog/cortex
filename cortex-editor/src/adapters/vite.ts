@@ -859,7 +859,30 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       }
 
       // Create fresh session for this server lifecycle
-      currentSession = new CortexSession({ root: config.root, mode: config.mode })
+      // Optional annotations persistence — see CORTEX_PERSIST_ANNOTATIONS in README.
+      const persistAnnotations =
+        (process.env.CORTEX_PERSIST_ANNOTATIONS ?? '').trim().toLowerCase() === 'true'
+      const annotationsFilePath = persistAnnotations
+        ? path.join(config.root, '.cortex', 'annotations.json')
+        : undefined
+
+      if (annotationsFilePath) {
+        // Ensure .cortex/ exists before constructing the session — writeDiscoveryFiles
+        // creates it lazily on `listening`, but we need it earlier for hydrate.
+        // mkdirSync is idempotent with { recursive: true }; writeDiscoveryFiles's own
+        // mkdir call is a no-op on second run.
+        try {
+          fs.mkdirSync(path.dirname(annotationsFilePath), { recursive: true, mode: 0o700 })
+        } catch (err) {
+          console.warn('[cortex] Could not create .cortex/ for annotations:', err instanceof Error ? err.message : err)
+        }
+      }
+
+      currentSession = new CortexSession({
+        root: config.root,
+        mode: config.mode,
+        annotationsFilePath,
+      })
 
       // Register signal handlers for graceful shutdown.
       // The ?? Promise.resolve() ensures process.exit runs even if currentSession is null
