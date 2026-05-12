@@ -1,0 +1,27 @@
+.github/workflows/cortex-editor-ci.yml
+  s_69f03e11326919::t_352e870f0d12b6 55-59,63
+  s_69f03e11326919::t_e41954fe3a9dd3 67
+  s_69f03e11326919::t_a8d2fd011befe4 53-54,68-69,71-74,76-78
+  s_69f03e11326919::t_35ebc0481c86d1 60-62,64-66,70,75,79
+cortex-editor/tests/COVERAGE.md
+  s_69f03e11326919::t_54478eb2c32900 41
+  s_69f03e11326919::t_1a674f1b4c1340 42
+cortex-editor/package.json
+  s_69f03e11326919::t_56f4282a556ccb 69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "9ee7873b237d83791abacc7f60f14efafe741303",
+  "prompts": {},
+  "sessions": {
+    "s_69f03e11326919": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4239712e-4983-462d-b80f-7ce6d6ea2806",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
