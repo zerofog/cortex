@@ -2,10 +2,10 @@ name: cortex-editor CI
 on:
   push:
     branches: [main]
-    paths: ['cortex-editor/**', '.github/workflows/cortex-editor-ci.yml']
+    paths: ["cortex-editor/**", ".github/workflows/cortex-editor-ci.yml"]
   pull_request:
     branches: [main]
-    paths: ['cortex-editor/**', '.github/workflows/cortex-editor-ci.yml']
+    paths: ["cortex-editor/**", ".github/workflows/cortex-editor-ci.yml"]
 
 permissions:
   contents: read
@@ -50,3 +50,30 @@ jobs:
           name: playwright-report-node${{ matrix.node-version }}
           path: cortex-editor/playwright-report/
           retention-days: 14
+
+  # ZF0-1802: ZF0-1566 made full coverage stable by skipping wall-clock perf
+  # assertions under V8 instrumentation (VITEST_COVERAGE=1 -> it.skipIf). The
+  # `check` job above only runs test:coverage, so those perf tests are never
+  # exercised in CI. This lane runs them without coverage instrumentation so
+  # the budgets gate against real regressions.
+  #
+  # Scope is surgical (see cortex-editor/package.json `test:perf` script):
+  # only the test files containing skipIf(VITEST_COVERAGE) perf assertions.
+  # Running the full server project was rejected because ~10 ts-morph tests
+  # rely on the coverage-mode 15s testTimeout and time out at the
+  # non-coverage 5s default (vitest.config.ts:47). Single Node version
+  # (lowest supported, 20) — perf budgets are wall-clock, not node-runtime-
+  # specific; the main `check` job covers [20, 22] for cross-version compat.
+  test-perf:
+    name: tests (no coverage - wall-clock perf)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: cortex-editor/package-lock.json
+      - run: npm ci
+      - run: npm run test:perf
