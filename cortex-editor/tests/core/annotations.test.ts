@@ -168,5 +168,85 @@ describe("AnnotationStore", () => {
       expect(store.getById(ids[3]!)).not.toBeNull();
       expect(store.getAll()).toHaveLength(3);
     });
+
+    it("never evicts pending or acknowledged entries regardless of cap", () => {
+      const store = new AnnotationStore({ maxTerminal: 2 });
+
+      // Three pending entries — none have flipped terminal.
+      const p1 = store.create({ elementSource: "A.tsx:1:1", text: "p1" });
+      const p2 = store.create({ elementSource: "A.tsx:2:1", text: "p2" });
+      const p3 = store.create({ elementSource: "A.tsx:3:1", text: "p3" });
+
+      // Two acknowledged — still in flight.
+      const a1 = store.create({ elementSource: "A.tsx:4:1", text: "a1" });
+      const a2 = store.create({ elementSource: "A.tsx:5:1", text: "a2" });
+      store.acknowledge(a1.id);
+      store.acknowledge(a2.id);
+
+      // Drive THREE separate entries through to resolved — terminalOrder push
+      // count is 3 > maxTerminal=2 → oldest terminal evicts. Pending/ack must
+      // be untouched.
+      for (let i = 0; i < 3; i++) {
+        const t = store.create({
+          elementSource: `T.tsx:${i}:1`,
+          text: `t${i}`,
+        });
+        store.acknowledge(t.id);
+        store.resolve(t.id, `s${i}`);
+      }
+
+      expect(store.getById(p1.id)).not.toBeNull();
+      expect(store.getById(p2.id)).not.toBeNull();
+      expect(store.getById(p3.id)).not.toBeNull();
+      expect(store.getById(a1.id)).not.toBeNull();
+      expect(store.getById(a2.id)).not.toBeNull();
+      // 5 in-flight + 2 surviving terminal = 7.
+      expect(store.getAll()).toHaveLength(7);
+    });
+
+    it("evicts terminal entries in FIFO order (oldest terminal flip evicts first)", () => {
+      const store = new AnnotationStore({ maxTerminal: 2 });
+
+      // Create three annotations, but resolve them OUT OF CREATION ORDER:
+      // - a1 created first, but resolved LAST.
+      // - a3 created last, but resolved FIRST.
+      const a1 = store.create({
+        elementSource: "A.tsx:1:1",
+        text: "first created",
+      });
+      const a2 = store.create({ elementSource: "A.tsx:2:1", text: "middle" });
+      const a3 = store.create({
+        elementSource: "A.tsx:3:1",
+        text: "last created",
+      });
+
+      store.acknowledge(a3.id);
+      store.resolve(a3.id, "a3 done"); // terminal #1
+      store.acknowledge(a2.id);
+      store.resolve(a2.id, "a2 done"); // terminal #2
+      store.acknowledge(a1.id);
+      store.resolve(a1.id, "a1 done"); // terminal #3 → evicts a3
+
+      expect(store.getById(a3.id)).toBeNull(); // first terminal-flipped → first evicted
+      expect(store.getById(a2.id)).not.toBeNull();
+      expect(store.getById(a1.id)).not.toBeNull();
+    });
+
+    it("dismiss participates in the same FIFO queue as resolve", () => {
+      const store = new AnnotationStore({ maxTerminal: 2 });
+
+      const a1 = store.create({ elementSource: "A.tsx:1:1", text: "one" });
+      const a2 = store.create({ elementSource: "A.tsx:2:1", text: "two" });
+      const a3 = store.create({ elementSource: "A.tsx:3:1", text: "three" });
+
+      store.dismiss(a1.id); // terminal #1 (dismiss)
+      store.acknowledge(a2.id);
+      store.resolve(a2.id, "s"); // terminal #2 (resolve)
+      store.dismiss(a3.id); // terminal #3 → evicts a1
+
+      expect(store.getById(a1.id)).toBeNull();
+      expect(store.getById(a2.id)).not.toBeNull();
+      expect(store.getById(a3.id)).not.toBeNull();
+    });
   });
 });
