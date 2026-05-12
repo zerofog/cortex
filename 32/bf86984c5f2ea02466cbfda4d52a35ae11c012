@@ -1,0 +1,21 @@
+cortex-editor/tests/browser/hooks/use-canvas-zoom.test.tsx
+  s_3c133711d187d9::t_430465e7792479 485-486
+cortex-editor/tests/browser/components/TokenPresetPopover.test.tsx
+  s_3c133711d187d9::t_a9b5910731122e 150-155,157,159-160,166-176,182-184
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "32bf86984c5f2ea02466cbfda4d52a35ae11c012",
+  "prompts": {},
+  "sessions": {
+    "s_3c133711d187d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "277f818b-03b5-42dd-ae6c-45b1348c76cd",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
