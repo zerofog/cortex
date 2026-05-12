@@ -85,6 +85,7 @@ describe('cortex CLI — built-process integration (Layer 5)', () => {
       'cortex_get_intent_context',
       'cortex_get_pending',
       'cortex_get_pending_edits',
+      'cortex_list_active',
       'cortex_resolve',
       'cortex_respond',
       'cortex_status',

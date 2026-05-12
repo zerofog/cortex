@@ -149,6 +149,7 @@ describe('cortex mcp', () => {
       'cortex_get_intent_context',
       'cortex_get_pending',
       'cortex_get_pending_edits',
+      'cortex_list_active',
       'cortex_resolve',
       'cortex_respond',
       'cortex_status',
@@ -511,7 +512,9 @@ describe('cortex mcp', () => {
 
           try {
             let result: unknown
-            if (method === 'getPending') {
+            if (method === 'getActive') {
+              result = [...annotations.values()].filter(a => a.status === 'pending' || a.status === 'acknowledged')
+            } else if (method === 'getPending') {
               result = [...annotations.values()].filter(a => a.status === 'pending')
             } else if (method === 'getDetails') {
               result = annotations.get(params.annotationId as string) ?? null
