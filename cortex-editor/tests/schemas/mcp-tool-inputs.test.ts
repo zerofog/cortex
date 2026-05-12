@@ -11,7 +11,8 @@ import {
 } from '../../src/schemas/mcp-tool-inputs.js'
 
 // --- Tools with no inputs (cortex_activate, cortex_deactivate, cortex_status,
-//     cortex_get_pending, cortex_get_pending_edits, cortex_channel_test) ---
+//     cortex_get_pending, cortex_get_pending_edits, cortex_list_active,
+//     cortex_channel_test) ---
 // They have empty inputSchema (z.object({})), not exported individually since
 // there's nothing interesting to test beyond parsing — covered by contract tests.
 
