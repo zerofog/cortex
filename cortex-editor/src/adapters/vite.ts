@@ -294,7 +294,7 @@ let shutdownHandler: (() => void) | null = null
 // Option B chosen: single dispatcher, TypeScript compile-time safety catches stale call sites.
 const ALLOWED_RPC_METHODS = new Set([
   // Annotation methods (Phase 7)
-  'getPending', 'getDetails', 'acknowledge', 'resolve', 'dismiss', 'respond',
+  'getActive', 'getPending', 'getDetails', 'acknowledge', 'resolve', 'dismiss', 'respond',
   // Staged-edit methods (ZF0-1452 T2)
   'getPendingEdits', 'applyEdits', 'discardEdits', 'getIntentContext',
 ])
@@ -312,6 +312,7 @@ const RPC_METHOD_SCHEMAS = {
   dismiss: cortexDismissInputSchema,
   respond: cortexRespondInputSchema,
   // No-param methods — null means skip params validation
+  getActive: null,
   getPending: null,
   getPendingEdits: null,
 } as const
@@ -323,6 +324,7 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
   // don't use this variable.
   const id = params.annotationId as string | undefined ?? ''
   switch (method) {
+    case 'getActive': return currentSession!.annotations.getActive()
     case 'getPending': return currentSession!.annotations.getPending()
     case 'getDetails': return currentSession!.annotations.getById(id)
     case 'acknowledge': {
