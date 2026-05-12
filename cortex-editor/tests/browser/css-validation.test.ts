@@ -233,9 +233,13 @@ describe('REJECT_URL regex', () => {
   })
 
   it('does not match url substrings not followed by paren', () => {
+    // Each input contains the substring `url` but lacks the trailing
+    // `\s*(` that REJECT_URL requires. Falsifiability: removing the
+    // `\(` requirement would let any `url` substring through and
+    // these would flip true.
     expect(REJECT_URL.test('burl')).toBe(false)
     expect(REJECT_URL.test('curly-url')).toBe(false)
-    expect(REJECT_URL.test('blurb')).toBe(false)
+    expect(REJECT_URL.test('myurltext')).toBe(false)
   })
 
   it('does not match url followed by non-paren character', () => {
