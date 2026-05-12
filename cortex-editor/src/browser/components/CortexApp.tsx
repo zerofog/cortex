@@ -216,8 +216,11 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   })
 
   // ZF0-1804: DCE-gated test hook. Used by the HMR file-list filter test to
-  // independently verify the version-bump gate at line 686-688. Reads pure
-  // React state via a ref — coverage-instrumentation cannot fake state values
+  // independently verify the version-bump gate (the
+  // `if (shouldRefresh) setHmrAppliedVersion(...)` block inside the hmr-applied
+  // handler, distinct from the re-resolve gate further below that calls
+  // attemptReResolve). Reads pure React state via a ref — coverage-instrumentation
+  // cannot fake state values
   // (the failure mode of the original gcs.mock.calls.length assertion, see
   // ZF0-1564 audit). `__CORTEX_TEST_BUILD__` is inlined directly into the `if`
   // condition (per the load-bearing DCE contract documented in types.ts) so
