@@ -558,6 +558,24 @@ describe('cortex mcp', () => {
       expect(parsed[0].text).toBe('Make this blue')
     })
 
+    it('cortex_list_active returns acknowledged annotations (which cortex_get_pending excludes)', async () => {
+      // Falsifiability: if rpc('getActive', ...) were typo'd to rpc('getPending', ...),
+      // the acknowledged annotation would be filtered out and parsed.length would be 0.
+      installRPCHandler(mockVite)
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      await new Promise(r => setTimeout(r, 50))
+
+      await client.callTool({ name: 'cortex_acknowledge', arguments: { annotationId: 'test-ann-1' } })
+
+      const result = await client.callTool({ name: 'cortex_list_active' })
+      expect(result.isError).toBeFalsy()
+      const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+      expect(parsed).toHaveLength(1)
+      expect(parsed[0].id).toBe('test-ann-1')
+      expect(parsed[0].status).toBe('acknowledged')
+    })
+
     it('cortex_get_details returns annotation by id', async () => {
       installRPCHandler(mockVite)
       const client = await startTestServer(mockVite.port)
