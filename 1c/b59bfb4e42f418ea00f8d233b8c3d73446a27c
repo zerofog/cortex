@@ -1,0 +1,19 @@
+cortex-editor/src/core/annotations-persistence.ts
+  s_8e8bd89c92e8ed::t_5ca4a05e40ce02 162
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "1cb59bfb4e42f418ea00f8d233b8c3d73446a27c",
+  "prompts": {},
+  "sessions": {
+    "s_8e8bd89c92e8ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7906b72c-6191-48d8-a505-a907e52b9056",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
