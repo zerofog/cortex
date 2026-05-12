@@ -1,0 +1,24 @@
+cortex-editor/tests/e2e/section-group-title-typography.spec.ts
+  s_8c37e20d7e1160::t_815eaa93ec63df 170-183
+  s_8c37e20d7e1160::t_9a9e5faf4b838f 189-190,193
+  s_8c37e20d7e1160::t_aedd34c904bf05 9-12
+  s_8c37e20d7e1160::t_ae5aae1fa9825d 75-76
+cortex-editor/tests/browser/components/SectionGroup.test.tsx
+  s_8c37e20d7e1160::t_262ecc4c5ab674 105-107
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "af3fcb3088bbfcbc991c26bc45f6b4d9935bd64a",
+  "prompts": {},
+  "sessions": {
+    "s_8c37e20d7e1160": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "31cb18fa-848f-41b8-bc1e-7287a661960e",
+        "model": "unknown"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
