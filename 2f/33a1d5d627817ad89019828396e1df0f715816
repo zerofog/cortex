@@ -1,0 +1,22 @@
+cortex-editor/src/adapters/vite.ts
+  s_7f494e7f4583da::t_ee3f9d28d57726 297
+  s_7f494e7f4583da::t_91e071ec33dfdb 315
+  s_7f494e7f4583da::t_b2d5e14319de59 327
+  s_7f494e7f4583da::t_f6fa0487d233eb 322-324
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "2f33a1d5d627817ad89019828396e1df0f715816",
+  "prompts": {},
+  "sessions": {
+    "s_7f494e7f4583da": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "634c3489-7edb-4184-9eb6-c51bd471548f",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
