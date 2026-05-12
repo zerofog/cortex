@@ -482,8 +482,8 @@ describe('useCanvasZoom', () => {
       // microtasks the full browser suite has accumulated — under serial-
       // singleFork load this exhausts the 500ms vi.waitFor below, producing
       // the ZF0-1568 "scale stayed at 0.85" flake. Banked from ZF0-1361
-      // (same file, lines 359 and 370 use this pattern for trigger flushing).
-      await act(async () => {
+      // (same file, lines 359 and 370 use this trigger-only act() pattern).
+      await act(() => {
         dispatchWheel(100, true)
       })
 
