@@ -1175,6 +1175,7 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     // hmrAppliedVersion stays flat, but hmrEventVersion MUST bump and
     // hmrChangedFiles MUST be updated with the incoming files so buffer.reconcile()
     // can find the staged intent and report intentDriftCount = 1.
+    const hmrSentAt = Date.now()
     expect(() => {
       channel._simulateMessage({ type: 'hmr-applied', files: ['src/Sidebar.tsx', 'src/Other.tsx'] })
     }).not.toThrow()
@@ -1183,21 +1184,29 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     // hmrChangedFiles was propagated non-empty. If setHmrChangedFiles regressed
     // to setHmrChangedFiles([]), the Panel reconcile effect takes the
     // early-return path (intentDriftCount stays 0) and the banner does not render.
-    //
-    // This vi.waitFor also serves as a deterministic time-bound for the
-    // negative-signal assertion below: by the time the banner renders, the
-    // 100ms + 250ms setTimeouts inside the gated block (CortexApp.tsx:779-790)
-    // have both had a chance to fire if the gate failed. No fixed sleep needed.
     await vi.waitFor(() => {
       expect(root.textContent).toContain('staged edit(s) may be affected')
     }, { timeout: WAIT_FOR_COMMIT_MS })
 
-    // ZF0-1564 negative signal (audit Finding 2 fix): assertion runs AFTER the
-    // drift-banner waitFor so the full gated fan-out (sync + rAF + 100ms/250ms
-    // setTimeouts at CortexApp.tsx:780-789) has elapsed. If the gate at
-    // CortexApp.tsx:779 fired correctly, reResolveSelection is never called.
-    // Specific function assertion — immune to coverage-instrumentation noise
-    // on shared globals (the failure mode of the original gcs.mock.calls.length).
+    // ZF0-1564 negative signal (audit Finding 2 + Copilot review fix): the
+    // banner waitFor above can complete as fast as ~10-50ms (Panel's reconcile
+    // effect runs on the next React commit after setHmrEventVersion fires),
+    // which is BEFORE the 250ms setTimeout in the gated block at
+    // CortexApp.tsx:789. If a future regression moved that setTimeout
+    // outside the gate, an assertion right after the banner waitFor could
+    // false-pass (the 250ms timeout hasn't fired yet). Wait for the FULL
+    // gated-fan-out window (250ms max + 10ms buffer) measured from when we
+    // sent hmr-applied. Bounded by production code structure, not empirical
+    // flake-mitigation.
+    const elapsed = Date.now() - hmrSentAt
+    if (elapsed < 260) {
+      await new Promise(r => setTimeout(r, 260 - elapsed))
+    }
+
+    // If the gate at CortexApp.tsx:779 fired correctly, reResolveSelection is
+    // never called. Specific function assertion — immune to coverage-
+    // instrumentation noise on shared globals (the failure mode of the original
+    // gcs.mock.calls.length).
     expect(reResolveSelection).not.toHaveBeenCalled()
 
     localStorage.clear()
