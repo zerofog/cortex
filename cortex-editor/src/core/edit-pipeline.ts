@@ -229,11 +229,11 @@ export interface EditRequest {
 
 export interface WriteIntent {
   kind: 'immediate' | 'jsx-immediate' | 'deferred' | 'undo' | 'redo'
-  /** Override HMR suppression. When set, takes precedence over kind-based default.
-   *  false = allow HMR (file not added to recentEditWriteTimers).
-   *  true = suppress HMR (file added to recentEditWriteTimers with a TTL).
+  /** Override HMR allow flag. When set, takes precedence over kind-based default.
+   *  true = allow HMR (file not added to recentEditWriteTimers).
+   *  false = suppress HMR (file added to recentEditWriteTimers with a TTL).
    *  undefined = use kind-based default (immediate/undo/redo suppress; others allow). */
-  suppressHmr?: boolean
+  allowHmr?: boolean
   filePath: string
   content: string
 }
@@ -907,12 +907,12 @@ export class EditPipeline {
         // while locks are still held.
         for (const change of sortedChanges) {
           try {
-            await this.writeFile({ kind: direction, suppressHmr: !change.requiresHmr, filePath: change.filePath, content: writeContent(change) })
+            await this.writeFile({ kind: direction, allowHmr: change.requiresHmr, filePath: change.filePath, content: writeContent(change) })
           } catch (err) {
             result = { outcome: 'write_failed', err }
             for (const w of [...committedWrites].reverse()) {
               try {
-                await this.writeFile({ kind: direction, suppressHmr: !w.requiresHmr, filePath: w.filePath, content: w.rollbackContent })
+                await this.writeFile({ kind: direction, allowHmr: w.requiresHmr, filePath: w.filePath, content: w.rollbackContent })
               } catch (rollbackErr) {
                 console.error('[cortex] %s rollback failed for %s:', direction, w.filePath, rollbackErr)
               }
@@ -1108,12 +1108,12 @@ export class EditPipeline {
         return
       }
 
-      // Step 5: ONE write. suppressHmr:false because the compound
+      // Step 5: ONE write. allowHmr:true because the compound
       // includes a className change (browser has no override for it).
       try {
         await this.writeFile({
           kind: 'immediate',
-          suppressHmr: false,
+          allowHmr: true,
           filePath: resolvedPath,
           content: newContent,
         })
@@ -1204,7 +1204,7 @@ export class EditPipeline {
         // classOp against the same stale state.
         await this.writeFile({
           kind: 'immediate',
-          suppressHmr: false,
+          allowHmr: true,
           filePath: resolvedPath,
           content: result.newContent,
         })
@@ -1333,8 +1333,8 @@ export class EditPipeline {
               // The CSS override (!important) provides the correct preview.
               // Allowing CSS HMR causes flicker (style recalc) and breaks undo
               // (CSS value in browser can't be rolled back when undo suppresses HMR).
-              await this.writeFile({ kind: 'jsx-immediate', suppressHmr: true, filePath, content: cleanup.newContent })
-              // requiresHmr=false matches the forward write's suppressHmr=true.
+              await this.writeFile({ kind: 'jsx-immediate', allowHmr: false, filePath, content: cleanup.newContent })
+              // requiresHmr=false matches the forward write's allowHmr=false.
               // The cleanup removes inline styles whose visual is supplied by
               // the browser-side CSS override; undo restores those inline
               // styles, but the override is still present at undo time so

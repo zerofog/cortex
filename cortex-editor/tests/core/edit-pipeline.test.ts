@@ -869,11 +869,11 @@ describe('EditPipeline', () => {
     // Undo
     await pipeline.handleUndo()
 
-    // objectContaining tolerates the suppressHmr field added for ZF0-1215
+    // objectContaining tolerates the allowHmr field added for ZF0-1215
     // classOp HMR policy (UndoFileChange.requiresHmr is translated to
-    // suppressHmr here). Property edits set requiresHmr:false, so the
-    // resulting suppressHmr is true (override-layer paints the visual).
-    expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'undo', filePath: '/project/src/App.tsx', content: 'old', suppressHmr: true }))
+    // allowHmr here). Property edits set requiresHmr:false, so the
+    // resulting allowHmr is false (override-layer paints the visual).
+    expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'undo', filePath: '/project/src/App.tsx', content: 'old', allowHmr: false }))
     const undoStatus = channel.sent.find(m => m.type === 'undo_sync_status' && (m as { status: string }).status === 'done')
     expect(undoStatus).toBeDefined()
   })
@@ -1008,7 +1008,7 @@ describe('EditPipeline', () => {
 
     // writeFile was called once for the undo, not for the cancelled edit
     expect(writeFile).toHaveBeenCalledTimes(1)
-    expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'undo', filePath: '/project/src/App.tsx', content: 'old', suppressHmr: true }))
+    expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'undo', filePath: '/project/src/App.tsx', content: 'old', allowHmr: false }))
   })
 
   it('handleRedo re-applies change after undo', async () => {
@@ -1060,7 +1060,7 @@ describe('EditPipeline', () => {
     // Redo (should verify file matches previousContent, then write currentContent)
     await pipeline.handleRedo()
 
-    expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'redo', filePath: '/project/src/App.tsx', content: 'new content', suppressHmr: true }))
+    expect(writeFile).toHaveBeenCalledWith(expect.objectContaining({ kind: 'redo', filePath: '/project/src/App.tsx', content: 'new content', allowHmr: false }))
     const redoStatus = channel.sent.find(m => m.type === 'redo_sync_status' && (m as { status: string }).status === 'done')
     expect(redoStatus).toBeDefined()
   })
@@ -2387,13 +2387,13 @@ describe('EditPipeline', () => {
       expect(cssWrites).toHaveLength(1)
       expect(cssWrites[0]![0].kind).toBe('immediate')
       // Both sources in same file → 1 batched cleanup write (not 2 individual writes).
-      // Cleanup: kind='jsx-immediate' (correct for JSX) + suppressHmr=true (prevent race)
+      // Cleanup: kind='jsx-immediate' (correct for JSX) + allowHmr=false (prevent race)
       const cleanupWrites = writeFile.mock.calls.filter(
         (c: any[]) => c[0]?.filePath?.endsWith('.tsx'),
       )
       expect(cleanupWrites).toHaveLength(1)
       expect(cleanupWrites[0]![0].kind).toBe('jsx-immediate')
-      expect(cleanupWrites[0]![0].suppressHmr).toBe(true)
+      expect(cleanupWrites[0]![0].allowHmr).toBe(false)
       // Verify removeProperties received both targets
       expect(inlineRewriter.removeProperties).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -2444,13 +2444,13 @@ describe('EditPipeline', () => {
           targets: [expect.objectContaining({ line: 5, col: 3, property: 'padding-top' })],
         }),
       )
-      // Cleanup write: kind='jsx-immediate' + suppressHmr=true (both writes suppress HMR)
+      // Cleanup write: kind='jsx-immediate' + allowHmr=false (both writes suppress HMR)
       const cleanupWrites = writeFile.mock.calls.filter(
         (c: any[]) => c[0]?.filePath?.endsWith('.tsx'),
       )
       expect(cleanupWrites).toHaveLength(1)
       expect(cleanupWrites[0]![0].kind).toBe('jsx-immediate')
-      expect(cleanupWrites[0]![0].suppressHmr).toBe(true)
+      expect(cleanupWrites[0]![0].allowHmr).toBe(false)
     })
 
     it('scope=all suppresses HMR for both CSS and cleanup writes (override covers transition)', async () => {
@@ -2489,14 +2489,14 @@ describe('EditPipeline', () => {
       expect(cssWrites).toHaveLength(1)
       expect(cssWrites[0]![0].kind).toBe('immediate')
 
-      // Cleanup write: kind='jsx-immediate' (correct for JSX) + suppressHmr=true
+      // Cleanup write: kind='jsx-immediate' (correct for JSX) + allowHmr=false
       // Both writes suppress HMR — override provides the preview.
       const cleanupWrites = writeFile.mock.calls.filter(
         (c: any[]) => c[0]?.filePath?.endsWith('.tsx'),
       )
       expect(cleanupWrites).toHaveLength(1)
       expect(cleanupWrites[0]![0].kind).toBe('jsx-immediate')
-      expect(cleanupWrites[0]![0].suppressHmr).toBe(true)
+      expect(cleanupWrites[0]![0].allowHmr).toBe(false)
 
       // No trackEdit for either write — override persists naturally.
       expect(verifier.tracked).toHaveLength(0)

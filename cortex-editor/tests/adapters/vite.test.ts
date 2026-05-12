@@ -2111,19 +2111,19 @@ describe('bug #20 regression: per-tab sessionId scoping', () => {
 // that changes which branch fires fails the test rather than coincidentally
 // still passing.
 describe('shouldSuppressHmr', () => {
-  it('honors explicit suppressHmr:true regardless of kind', () => {
-    expect(shouldSuppressHmr({ kind: 'jsx-immediate', suppressHmr: true })).toBe(true)
-    expect(shouldSuppressHmr({ kind: 'deferred', suppressHmr: true })).toBe(true)
-    expect(shouldSuppressHmr({ kind: 'immediate', suppressHmr: true })).toBe(true)
+  it('honors explicit allowHmr:false regardless of kind', () => {
+    expect(shouldSuppressHmr({ kind: 'jsx-immediate', allowHmr: false })).toBe(true)
+    expect(shouldSuppressHmr({ kind: 'deferred', allowHmr: false })).toBe(true)
+    expect(shouldSuppressHmr({ kind: 'immediate', allowHmr: false })).toBe(true)
   })
 
-  it('honors explicit suppressHmr:false regardless of kind (ZF0-1215 classOp contract)', () => {
-    // classOp writes set kind:'immediate' but force suppressHmr:false because
+  it('honors explicit allowHmr:true regardless of kind (ZF0-1215 classOp contract)', () => {
+    // classOp writes set kind:'immediate' but force allowHmr:true because
     // className mutations have no browser-side override. If this contract
     // regresses the Panel's bundle detection goes stale and pills accumulate.
-    expect(shouldSuppressHmr({ kind: 'immediate', suppressHmr: false })).toBe(false)
-    expect(shouldSuppressHmr({ kind: 'undo', suppressHmr: false })).toBe(false)
-    expect(shouldSuppressHmr({ kind: 'redo', suppressHmr: false })).toBe(false)
+    expect(shouldSuppressHmr({ kind: 'immediate', allowHmr: true })).toBe(false)
+    expect(shouldSuppressHmr({ kind: 'undo', allowHmr: true })).toBe(false)
+    expect(shouldSuppressHmr({ kind: 'redo', allowHmr: true })).toBe(false)
   })
 
   it('defaults to suppress for kinds that paint via browser-side override', () => {
@@ -2139,6 +2139,15 @@ describe('shouldSuppressHmr', () => {
     // property — React must re-render to reflect the new source.
     expect(shouldSuppressHmr({ kind: 'jsx-immediate' })).toBe(false)
     expect(shouldSuppressHmr({ kind: 'deferred' })).toBe(false)
+  })
+})
+
+describe('shouldSuppressHmr — allowHmr polarity (ZF0-1833)', () => {
+  it('honors explicit allowHmr=true (caller wants HMR even on immediate)', () => {
+    expect(shouldSuppressHmr({ kind: 'immediate', allowHmr: true })).toBe(false)
+  })
+  it('honors explicit allowHmr=false (caller wants HMR suppressed even on deferred)', () => {
+    expect(shouldSuppressHmr({ kind: 'deferred', allowHmr: false })).toBe(true)
   })
 })
 
@@ -2163,7 +2172,7 @@ describe('performEditWrite', () => {
     const timers = emptyTimers()
 
     await performEditWrite(
-      { kind: 'immediate', suppressHmr: false, filePath: '/project/src/App.tsx', content: 'new-source' },
+      { kind: 'immediate', allowHmr: true, filePath: '/project/src/App.tsx', content: 'new-source' },
       { server: { watcher: { emit } }, recentEditWriteTimers: timers, write },
     )
 
@@ -2202,7 +2211,7 @@ describe('performEditWrite', () => {
     // cleared BEFORE emit fires, so handleHotUpdate sees the path as
     // fresh and lets the 'change' event through.
     await performEditWrite(
-      { kind: 'immediate', suppressHmr: false, filePath: '/project/src/styles.css', content: 'second' },
+      { kind: 'immediate', allowHmr: true, filePath: '/project/src/styles.css', content: 'second' },
       { server: { watcher: { emit } }, recentEditWriteTimers: timers, write },
     )
     expect(emit).toHaveBeenCalledWith('change', '/project/src/styles.css')
@@ -2225,7 +2234,7 @@ describe('performEditWrite', () => {
     expect(timers.has('/project/src/styles.css')).toBe(true)
   })
 
-  it('emits change for jsx-immediate kind even without explicit suppressHmr (default policy)', async () => {
+  it('emits change for jsx-immediate kind even without explicit allowHmr (default policy)', async () => {
     const emit = vi.fn()
     const write = vi.fn<(p: string, c: string) => Promise<void>>().mockResolvedValue(undefined)
 
@@ -2237,7 +2246,7 @@ describe('performEditWrite', () => {
     expect(emit).toHaveBeenCalledWith('change', '/p.tsx')
   })
 
-  it('emits change for deferred kind even without explicit suppressHmr', async () => {
+  it('emits change for deferred kind even without explicit allowHmr', async () => {
     const emit = vi.fn()
     const write = vi.fn<(p: string, c: string) => Promise<void>>().mockResolvedValue(undefined)
 
@@ -2256,7 +2265,7 @@ describe('performEditWrite', () => {
 
     await expect(
       performEditWrite(
-        { kind: 'immediate', suppressHmr: false, filePath: '/p.tsx', content: 'x' },
+        { kind: 'immediate', allowHmr: true, filePath: '/p.tsx', content: 'x' },
         { server: { watcher: { emit } }, recentEditWriteTimers: emptyTimers(), write },
       ),
     ).rejects.toThrow('ENOSPC: disk full')

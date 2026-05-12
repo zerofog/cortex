@@ -180,7 +180,7 @@ describe('EditPipeline — compound edit (C2)', () => {
     expect(rewriter.rewriteClassList).toHaveBeenCalled()
   })
 
-  it('writes ONE file with suppressHmr:false and pushes ONE compound UndoFileChange', async () => {
+  it('writes ONE file with allowHmr:true and pushes ONE compound UndoFileChange', async () => {
     mutateTxnInClassOp()
     pipeline.handleEdit(baseEdit({
       classOp: { kind: 'remove', remove: 'text-body-md' },
@@ -191,7 +191,7 @@ describe('EditPipeline — compound edit (C2)', () => {
     expect(writes).toHaveLength(1)
     expect(writes[0]).toMatchObject({
       kind: 'immediate',
-      suppressHmr: false,
+      allowHmr: true,
       filePath: '/tmp/proj/App.tsx',
     })
 
