@@ -72,7 +72,7 @@ function validateInlineOps(
   // any single-array overflow implies combined overflow.
   const totalOps = (sets?.length ?? 0) + (removes?.length ?? 0)
   if (totalOps > MAX_COMPOUND_OPS) {
-    return `compound edit inline ops exceeds ${MAX_COMPOUND_OPS} entries (got ${totalOps})`
+    return `compound edit inline op count exceeds ${MAX_COMPOUND_OPS} (got ${totalOps})`
   }
   for (const s of sets ?? []) {
     const nameErr = validatePropertyName(s.property, MAX_INLINE_PROP_NAME_LEN, 'inlineSets')
