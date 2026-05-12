@@ -1,0 +1,21 @@
+cortex-editor/tests/core/edit-pipeline.compound.test.ts
+  s_f01fc01d58c233::t_8225cf2f4cefbf 594-663
+cortex-editor/src/core/edit-pipeline.ts
+  s_f01fc01d58c233::t_76e3aaa41088cd 40-48,63-67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "85605b35e0eaf656ca35e79163bde336e3cbd2d2",
+  "prompts": {},
+  "sessions": {
+    "s_f01fc01d58c233": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7548446d-549a-457d-9a1d-61f079e69a98",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
