@@ -9,29 +9,45 @@ import {
 /**
  * Direct-surface tests for the browser-side CSS validation regexes.
  *
- * The browser module is a deliberate two-authoritative-copies mirror
- * of `src/core/css-validation.ts`. They live separately because they
- * cross a bundle boundary — the browser validates before sending, the
- * server validates again at the WebSocket trust boundary regardless of
- * what the browser did. Pinning both sides with tests prevents silent
- * drift when a new attack shape is patched on one side only.
+ * The browser and core modules are deliberate two-authoritative
+ * counterparts — peer copies, not a master/mirror pair. They live
+ * separately because they cross a bundle boundary: the browser
+ * validates before sending, and the server validates again at the
+ * WebSocket trust boundary regardless of what the browser did.
+ * Pinning both sides with tests prevents silent drift when a new
+ * attack shape is patched on one side only.
  *
- * The two consumers in this bundle (`src/browser/override.ts:108` and
- * `src/browser/state-detector.ts:155`) compose the four regexes as a
- * layered defense:
+ * The two exported surfaces are NOT 1:1 — the bundle boundary lets
+ * each side carry the shape its consumers need:
+ *   - Browser exports 4 regex constants
+ *     (`VALID_PROPERTY` / `VALID_VALUE` / `REJECT_URL` / `REJECT_COMMENT`)
+ *   - Core exports 2 regex constants (`VALID_CSS_PROPERTY_NAME` /
+ *     `REJECT_URL`) plus 2 helper functions (`validatePropertyName`
+ *     / `rejectCommonInjectionPatterns`) that consolidate the
+ *     additional vetoes inline rather than exporting them as regexes
+ *
+ * The overlapping invariants are:
+ *   - CSS property name shape: `VALID_PROPERTY` (browser) ↔
+ *     `VALID_CSS_PROPERTY_NAME` (core) — same regex, different name
+ *   - `url(` rejection: `REJECT_URL` on both sides
+ *
+ * The two consumers in this bundle (`src/browser/override.ts:108`
+ * and `src/browser/state-detector.ts:155`) compose the four browser
+ * regexes as a layered defense:
  *
  *   if (!VALID_VALUE.test(v) || REJECT_URL.test(v) || REJECT_COMMENT.test(v))
  *     // reject
  *
- * VALID_PROPERTY / VALID_VALUE are the **charset gates** (must MATCH
- * to pass). REJECT_URL / REJECT_COMMENT are **vetoes** (must NOT match
- * to pass). The tests below exercise each constant in isolation —
- * integration of the layered gate is covered by the consumers' own
- * tests.
+ * `VALID_PROPERTY` / `VALID_VALUE` are the **charset gates** (must
+ * MATCH to pass). `REJECT_URL` / `REJECT_COMMENT` are **vetoes**
+ * (must NOT match to pass). The tests below exercise each constant
+ * in isolation — integration of the layered gate is covered by the
+ * consumers' own tests.
  *
- * Cross-reference: the server-side analog lives at
- * `tests/core/css-validation.test.ts`. New attack shapes added there
- * should be reflected here (and vice versa).
+ * Cross-reference: the core-side analog lives at
+ * `tests/core/css-validation.test.ts`. When a new attack shape is
+ * patched on one side, mirror the test here (and vice versa) — the
+ * point of two peer copies is to make drift visible.
  */
 
 describe('VALID_PROPERTY regex', () => {
