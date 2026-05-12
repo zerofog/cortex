@@ -280,6 +280,8 @@ describe("AnnotationStore", () => {
       expect(snap1.id).toBe(a1.id);
       expect(snap1.status).toBe("resolved");
       expect(snap1.resolution).toEqual({ summary: "first done" });
+      // Thread is independently cloned (`thread: [...ann.thread]`) — falsifies if snapshot returns a reference.
+      expect(snap1.thread).toEqual([]);
 
       // The store no longer holds a1.
       expect(store.getById(a1.id)).toBeNull();
