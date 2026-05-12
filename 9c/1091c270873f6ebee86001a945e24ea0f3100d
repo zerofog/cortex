@@ -1,0 +1,21 @@
+cortex-editor/tests/cli/mcp.test.ts
+  s_7f494e7f4583da::t_96619a4bbbe885 1351-1357
+cortex-editor/src/cli/mcp.ts
+  s_7f494e7f4583da::t_25abfb658bc2e6 101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "9c1091c270873f6ebee86001a945e24ea0f3100d",
+  "prompts": {},
+  "sessions": {
+    "s_7f494e7f4583da": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "634c3489-7edb-4184-9eb6-c51bd471548f",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
