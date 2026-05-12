@@ -93,6 +93,10 @@ describe('annotations-persistence', () => {
 
       expect(result).toEqual([])
       expect(warnSpy).toHaveBeenCalledTimes(1)
+      // Differentiate this error path from schema-mismatch — a regression
+      // collapsing the two into one generic warn would still pass length+called
+      // assertions but fail this content check.
+      expect(warnSpy.mock.calls[0]?.[0]).toMatch(/invalid JSON/i)
     })
 
     it('returns empty array and warns on version mismatch', () => {
@@ -104,6 +108,10 @@ describe('annotations-persistence', () => {
 
       expect(result).toEqual([])
       expect(warnSpy).toHaveBeenCalledTimes(1)
+      // Differentiate this error path from invalid-JSON / shape-mismatch —
+      // a regression collapsing the three into one generic warn would still
+      // pass length+called assertions but fail this content check.
+      expect(warnSpy.mock.calls[0]?.[0]).toMatch(/schema mismatch/i)
     })
 
     it('returns empty array and warns on shape mismatch (id is number instead of string)', () => {
@@ -119,6 +127,8 @@ describe('annotations-persistence', () => {
 
       expect(result).toEqual([])
       expect(warnSpy).toHaveBeenCalledTimes(1)
+      // Same observable-behavior pinning as the version-mismatch test above.
+      expect(warnSpy.mock.calls[0]?.[0]).toMatch(/schema mismatch/i)
     })
 
     it('roundtrips an annotation with all fields and preserves deep equality', () => {
