@@ -1361,6 +1361,7 @@ export class EditPipeline {
    *   5. newContent = txn.getCurrentContent()
    *   6. atomicWrite — ONE disk write
    *   7. undoStack.push with ONE UndoFileChange (requiresHmr: true)
+   *   8. txn.dispose() (in finally) — release Project back to the pool for reuse
    *
    * Failure modes (any step): no write occurs, no undo push, specific
    * reason_code sent. This preserves the all-or-nothing invariant: disk
