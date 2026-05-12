@@ -204,6 +204,32 @@ describe("ProjectPool integration", () => {
       /getCurrentContent\(\) called after dispose/,
     );
   });
+
+  // Test 3 (ZF0-1824) — SK enum identity is stable across pooled transactions
+  //
+  // ts-morph's SyntaxKind enum is a module-level constant. Pool reuse is only
+  // safe if the enum object is identity-stable (===) across transactions —
+  // i.e., ts-morph's module is cached by Node's module system, not reloaded.
+  // If the enum were re-instantiated per-transaction, rewriter code using
+  // `txn.SK.StringLiteral` comparisons across sequential transactions would
+  // silently break (different enum objects can have the same numeric values
+  // but are not the same reference).
+  it("T3: SK enum identity is stable across pooled transactions", async () => {
+    _resetPoolForTesting();
+    const txnA = await createJsxTransaction(
+      "/v/SkA.tsx",
+      "export const A = 1\n",
+    );
+    const skA = txnA.SK;
+    txnA.dispose();
+    const txnB = await createJsxTransaction(
+      "/v/SkB.tsx",
+      "export const B = 2\n",
+    );
+    // Identity check (===), not equality — same module-cached enum object.
+    expect(txnB.SK).toBe(skA);
+    txnB.dispose();
+  });
 });
 
 describe("TailwindRewriter.rewriteClassListInTransaction", () => {
