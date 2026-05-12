@@ -1,0 +1,24 @@
+cortex-editor/tests/core/rewriter/jsx-transaction.test.ts
+  s_5b9856928a784d::t_da3ec8bfd232ac 2-4,22,69,71-74,80,86-87,91,94,96,99,105,107,111-112,119-120,131,133,143-144
+cortex-editor/src/core/edit-pipeline.ts
+  s_5b9856928a784d::t_8d366b64907d55 18-19
+  s_5b9856928a784d::t_0bd4ac8c8ee632 1432,1434,1436-1437,1440-1467,1469-1490,1492-1504,1506-1521,1523-1538,1540-1545
+cortex-editor/src/core/rewriter/jsx-transaction.ts
+  s_5b9856928a784d::t_ebcf4d4c569256 24-25,57-59,63-64,66-67,70-77,80-83,86-91,94,106-109,123,130,134
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "1d94aeb64b6a98ac498b2456446b8e4d1fd2ed54",
+  "prompts": {},
+  "sessions": {
+    "s_5b9856928a784d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "297451a6-f29b-46c5-97e8-26e61369214c",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
