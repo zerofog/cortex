@@ -1102,18 +1102,39 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     return { channel, element }
   }
 
-  it('skips Panel refresh when hmr files are fully unrelated to the selection', async () => {
+  // ZF0-1564 rename: previously "skips Panel refresh ..." but the assertion only
+  // verifies the re-resolution gate at CortexApp.tsx:779, not the version-bump
+  // gate at lines 686-688. The version-bump-gate verification is a separate
+  // coverage concern tracked as a follow-up (the shared `shouldRefresh` variable
+  // means a typical regression breaks BOTH gates and is caught here, but a
+  // surgical refactor of one gate alone would be missed).
+  it('skips selected-element re-resolution when hmr files are fully unrelated', async () => {
     const { channel } = await setup('src/foo.tsx:10:5')
     channel._simulateMessage({ type: 'hmr-applied', files: ['src/bar.tsx', 'src/baz.tsx'] })
+
+    // ZF0-1564 (audit Finding 2 fix): wait past the gated fan-out's longest
+    // scheduling delay. Production at CortexApp.tsx:779-790 contains:
+    //   - synchronous attemptReResolve()              (fires at +0)
+    //   - requestAnimationFrame → requestAnimationFrame (fires at ~+32ms)
+    //   - setTimeout(attemptReResolve, 100)           (fires at +100ms)
+    //   - setTimeout(attemptReResolve, 250)           (fires at +250ms)
+    // A synchronous assertion at +0 would miss a future regression that
+    // moves the rAF/setTimeout schedulers outside the gate while leaving the
+    // sync call gated. 260ms is the bounded upper edge of the production
+    // code's scheduling window (250 + 10ms buffer for setTimeout drift),
+    // NOT an empirical flake bound — increase only if CortexApp.tsx adds a
+    // longer scheduler.
+    await new Promise(r => setTimeout(r, 260))
+
     // ZF0-1564: assert against a SPECIFIC function (reResolveSelection) instead
     // of `gcs.mock.calls.length`. Production gate at CortexApp.tsx:779 calls
-    // `attemptReResolve()` SYNCHRONOUSLY inside `if (shouldRefresh)` and
-    // schedules its rAF/setTimeout fan-out inside the same block. When the gate
-    // returns false (this test's scenario: no CSS in list, no ancestor match,
-    // no own-file match), the sync call is skipped AND nothing is scheduled —
-    // so reResolveSelection is never called, ever. No 200ms wait needed; the
-    // assertion is purely synchronous against a deterministic code path,
-    // immune to coverage-instrumentation noise on shared globals.
+    // `attemptReResolve()` synchronously inside `if (shouldRefresh)` AND
+    // schedules its rAF/setTimeout fan-out inside the same block. When the
+    // gate returns false (this test's scenario: no CSS in list, no ancestor
+    // match, no own-file match), reResolveSelection is never called.
+    // Immune to coverage-instrumentation noise on shared globals — the
+    // original gcs.mock.calls.length flaked because coverage probed styles;
+    // coverage cannot call reResolveSelection.
     expect(reResolveSelection).not.toHaveBeenCalled()
   })
 
@@ -1158,22 +1179,26 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
       channel._simulateMessage({ type: 'hmr-applied', files: ['src/Sidebar.tsx', 'src/Other.tsx'] })
     }).not.toThrow()
 
-    // ZF0-1564 negative signal: selected-element refresh path was skipped.
-    // shouldRefreshOnHMR returns false because Sidebar.tsx/Other.tsx don't match
-    // the selected element's source (src/foo.tsx). The gate at CortexApp.tsx:779
-    // synchronously skips the entire attemptReResolve fan-out (sync call +
-    // double-rAF + 100ms/250ms setTimeouts). Assertion is synchronous and
-    // deterministic — no 200ms sleep, no reliance on `getComputedStyle` global
-    // side-effects that coverage instrumentation can inflate.
-    expect(reResolveSelection).not.toHaveBeenCalled()
-
-    // ZF0-1564 positive signal (unchanged): the drift banner must appear, proving
+    // ZF0-1564 positive signal: the drift banner must appear, proving
     // hmrChangedFiles was propagated non-empty. If setHmrChangedFiles regressed
     // to setHmrChangedFiles([]), the Panel reconcile effect takes the
     // early-return path (intentDriftCount stays 0) and the banner does not render.
+    //
+    // This vi.waitFor also serves as a deterministic time-bound for the
+    // negative-signal assertion below: by the time the banner renders, the
+    // 100ms + 250ms setTimeouts inside the gated block (CortexApp.tsx:779-790)
+    // have both had a chance to fire if the gate failed. No fixed sleep needed.
     await vi.waitFor(() => {
       expect(root.textContent).toContain('staged edit(s) may be affected')
     }, { timeout: WAIT_FOR_COMMIT_MS })
+
+    // ZF0-1564 negative signal (audit Finding 2 fix): assertion runs AFTER the
+    // drift-banner waitFor so the full gated fan-out (sync + rAF + 100ms/250ms
+    // setTimeouts at CortexApp.tsx:780-789) has elapsed. If the gate at
+    // CortexApp.tsx:779 fired correctly, reResolveSelection is never called.
+    // Specific function assertion — immune to coverage-instrumentation noise
+    // on shared globals (the failure mode of the original gcs.mock.calls.length).
+    expect(reResolveSelection).not.toHaveBeenCalled()
 
     localStorage.clear()
   })
