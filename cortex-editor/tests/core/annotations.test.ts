@@ -316,4 +316,65 @@ describe('AnnotationStore', () => {
       expect(store.getAll()).toHaveLength(100)
     })
   })
+
+  describe('getActive', () => {
+    it.each([
+      ['pending', true],
+      ['acknowledged', true],
+      ['resolved', false],
+      ['dismissed', false],
+    ] as const)('status=%s: included=%s', (status, shouldBeIncluded) => {
+      const ann = store.create({ elementSource: 'App.tsx:1:1', text: 'test' })
+      if (status === 'acknowledged') {
+        store.acknowledge(ann.id)
+      } else if (status === 'resolved') {
+        store.acknowledge(ann.id)
+        store.resolve(ann.id, 'done')
+      } else if (status === 'dismissed') {
+        store.dismiss(ann.id)
+      }
+      // pending requires no transition
+
+      const active = store.getActive()
+      if (shouldBeIncluded) {
+        expect(active).toHaveLength(1)
+        expect(active[0]!.id).toBe(ann.id)
+      } else {
+        expect(active).toHaveLength(0)
+      }
+    })
+
+    it('returns pending + acknowledged together, excludes terminal states', () => {
+      const pending = store.create({ elementSource: 'App.tsx:1:1', text: 'pending' })
+      const acknowledged = store.create({ elementSource: 'App.tsx:2:1', text: 'acknowledged' })
+      const resolved = store.create({ elementSource: 'App.tsx:3:1', text: 'resolved' })
+      const dismissed = store.create({ elementSource: 'App.tsx:4:1', text: 'dismissed' })
+
+      store.acknowledge(acknowledged.id)
+      store.acknowledge(resolved.id)
+      store.resolve(resolved.id, 'done')
+      store.dismiss(dismissed.id)
+
+      const active = store.getActive()
+      expect(active).toHaveLength(2)
+      const ids = active.map(a => a.id)
+      expect(ids).toContain(pending.id)
+      expect(ids).toContain(acknowledged.id)
+      expect(ids).not.toContain(resolved.id)
+      expect(ids).not.toContain(dismissed.id)
+    })
+
+    it('returns defensive snapshots (mutating returned annotation does not affect store)', () => {
+      const ann = store.create({ elementSource: 'App.tsx:1:1', text: 'test' })
+      const active = store.getActive()
+      expect(active).toHaveLength(1)
+
+      // mutate the returned snapshot
+      active[0]!.text = 'mutated'
+
+      // store must be unaffected
+      const activeAgain = store.getActive()
+      expect(activeAgain[0]!.text).toBe('test')
+    })
+  })
 })
