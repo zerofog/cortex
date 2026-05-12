@@ -1,0 +1,25 @@
+cortex-editor/tests/browser/css-validation.test.ts
+  s_5a6ee93300ce85::t_32e5eef5c8af6c 256-261
+  s_5a6ee93300ce85::t_d1936370d40ae3 274-279
+  s_5a6ee93300ce85::t_a790c9805e2b47 141-143,145-148
+  s_5a6ee93300ce85::t_76bc0dc65b03ae 225-231
+  s_5a6ee93300ce85::t_fe4bf65e11e190 152-154,156-160
+  s_5a6ee93300ce85::t_547269114247af 1-140,144,149-151,155,161-177,186-224,232-255,262-273,280-302
+  s_5a6ee93300ce85::t_a5a148a9027c5a 178-185
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "8d656325c8d0c6cadf221e1c763b55881924b50f",
+  "prompts": {},
+  "sessions": {
+    "s_5a6ee93300ce85": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "95e60211-666a-4f6d-9e6e-47126ea7b1f3",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
