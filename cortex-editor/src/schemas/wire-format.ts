@@ -330,6 +330,15 @@ export const serverToBrowserSchema = z.discriminatedUnion('type', [
     annotation: annotationSchema,
   }),
 
+  // 12b. annotations-snapshot — server pushes this on browser `init` so
+  // persisted annotations (CORTEX_PERSIST_ANNOTATIONS=true) re-appear in the
+  // UI after a Vite dev-server restart. Without this, the reducer state
+  // starts empty even though server-side AnnotationStore has hydrated.
+  z.object({
+    type: z.literal('annotations-snapshot'),
+    annotations: z.array(annotationSchema),
+  }),
+
   // 13. agent-status
   z.object({
     type: z.literal('agent-status'),

@@ -500,6 +500,62 @@ describe('annotation-updated action', () => {
 })
 
 // ---------------------------------------------------------------------------
+// annotations-snapshot — server-pushed hydration on browser init
+// ---------------------------------------------------------------------------
+
+describe('annotations-snapshot action', () => {
+  it('replaces empty state with the server snapshot on first connect', () => {
+    const a = makeAnnotation({ id: 'persisted-1', text: 'survived restart 1' })
+    const b = makeAnnotation({ id: 'persisted-2', text: 'survived restart 2', status: 'acknowledged' })
+    const { state } = cortexAppReducer(initialCortexAppReducerState, {
+      type: 'annotations-snapshot',
+      annotations: [a, b],
+    })
+    expect(state.annotations.size).toBe(2)
+    expect(state.annotations.get('persisted-1')).toEqual(a)
+    expect(state.annotations.get('persisted-2')).toEqual(b)
+  })
+
+  it('replaces any existing local annotations with the snapshot (server is authoritative)', () => {
+    const stale = makeAnnotation({ id: 'stale-1', text: 'stale local' })
+    const baseState: CortexAppReducerState = {
+      ...initialCortexAppReducerState,
+      annotations: new Map([[stale.id, stale]]),
+    }
+    const fresh = makeAnnotation({ id: 'fresh-1', text: 'fresh from disk' })
+    const { state } = cortexAppReducer(baseState, {
+      type: 'annotations-snapshot',
+      annotations: [fresh],
+    })
+    expect(state.annotations.has('stale-1')).toBe(false)
+    expect(state.annotations.get('fresh-1')).toEqual(fresh)
+    expect(state.annotations.size).toBe(1)
+  })
+
+  it('handles an empty snapshot by clearing existing annotations', () => {
+    const existing = makeAnnotation({ id: 'a' })
+    const baseState: CortexAppReducerState = {
+      ...initialCortexAppReducerState,
+      annotations: new Map([[existing.id, existing]]),
+    }
+    const { state } = cortexAppReducer(baseState, {
+      type: 'annotations-snapshot',
+      annotations: [],
+    })
+    expect(state.annotations.size).toBe(0)
+  })
+
+  it('emits no effects', () => {
+    const ann = makeAnnotation()
+    const { effects } = cortexAppReducer(initialCortexAppReducerState, {
+      type: 'annotations-snapshot',
+      annotations: [ann],
+    })
+    expect(effects).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
 // agent-status
 // ---------------------------------------------------------------------------
 

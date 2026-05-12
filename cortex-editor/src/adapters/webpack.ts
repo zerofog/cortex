@@ -699,6 +699,14 @@ class CortexWebpackRuntime {
       this.sendToBrowser(session, ws, { type: 'agent-status', connected: session.cliClients.size > 0 }, 'webpack.browserMessage.initAgentStatus')
       if (session.editorActive) this.sendToBrowser(session, ws, { type: 'cortex' }, 'webpack.browserMessage.initCortex')
       if (session.capabilitiesCache) this.sendToBrowser(session, ws, { type: 'capabilities', systems: session.capabilitiesCache }, 'webpack.browserMessage.initCapabilities')
+      // Hydrate the browser with annotations the server already has in memory.
+      // Persisted annotations (CORTEX_PERSIST_ANNOTATIONS=true) hydrate into
+      // AnnotationStore on construction but never reach the UI unless we push
+      // them on init — the reducer only handles single-item create/update events.
+      const hydratedAnnotations = session.annotations.getAll()
+      if (hydratedAnnotations.length > 0) {
+        this.sendToBrowser(session, ws, { type: 'annotations-snapshot', annotations: hydratedAnnotations }, 'webpack.browserMessage.initAnnotationsSnapshot')
+      }
       return
     }
     if (data.type === 'comment') {
