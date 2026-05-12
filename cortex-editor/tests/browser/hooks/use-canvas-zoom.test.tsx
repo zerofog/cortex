@@ -473,8 +473,19 @@ describe('useCanvasZoom', () => {
       dispatchWheel(100, false) // start momentum
       stepRAF(2)
 
-      // Cmd+scroll to zoom — should cancel momentum
-      dispatchWheel(100, true)
+      // Cmd+scroll to zoom — should cancel momentum AND trigger setScale.
+      // Wrap in act() so Preact drains its update queue at the await boundary:
+      // (a) the setScale state update commits, (b) the [enabled, scale]
+      // useLayoutEffect runs applyTransformPosition with the new scale (0.80),
+      // (c) result.current reflects the new scale on the next render. Without
+      // act(), the state update sits in Preact's queue behind whatever
+      // microtasks the full browser suite has accumulated — under serial-
+      // singleFork load this exhausts the 500ms vi.waitFor below, producing
+      // the ZF0-1568 "scale stayed at 0.85" flake. Banked from ZF0-1361
+      // (same file, lines 359 and 370 use this trigger-only act() pattern).
+      await act(() => {
+        dispatchWheel(100, true)
+      })
 
       // Verify momentum stopped: position shouldn't change on further frames
       const afterZoom = getY(document.body.style.transform)
@@ -482,7 +493,9 @@ describe('useCanvasZoom', () => {
       const afterMore = getY(document.body.style.transform)
       expect(afterMore).toBe(afterZoom) // momentum is dead
 
-      // Verify scale changed
+      // Verify scale changed. Kept vi.waitFor as a defensive safety net even
+      // though act() above should have made this deterministic — the rerender
+      // forces result.current to refresh from the hook's current render.
       restoreRAFMock()
       await vi.waitFor(() => {
         rerender(() => useCanvasZoom(true))
