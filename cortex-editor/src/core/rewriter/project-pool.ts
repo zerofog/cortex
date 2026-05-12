@@ -13,6 +13,16 @@
  * The pool is generic over its element type. Production callers use the
  * default `T = Project`; tests can pass a structural stub satisfying
  * `PoolableProject` without any casts at the boundary.
+ *
+ * ⚠️ Pool boundary invariant: callers MUST operate on `SourceFile` AST nodes
+ * only (getDescendantsOfKind, asKind, attribute / property mutations). Do NOT
+ * call any Project-level API that builds lazy state — `getTypeChecker()`,
+ * `getLanguageService()`, `getProgram()`, `getCompilerHost()`, or module
+ * resolution APIs. The pool's `release()` only clears source files; lazy
+ * type/language-service state would leak across pooled transactions. If a
+ * future rewriter needs type information, EITHER expand the pool's release
+ * semantics to clear that state OR opt that path out of the pool with a
+ * transient Project.
  */
 import type { Project } from "ts-morph";
 
