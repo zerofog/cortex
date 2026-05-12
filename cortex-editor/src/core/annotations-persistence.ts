@@ -159,7 +159,7 @@ export function saveAnnotations(
     // shared `.tmp` file before rename. The async `atomicWrite` helper in
     // adapters/atomic-write.ts is the canonical implementation (it also does
     // read-back verification against editor revert) but it is async, and
-    // saveAnnotations is called synchronously from six AnnotationStore
+    // saveAnnotations is called synchronously from five AnnotationStore
     // mutation paths — migrating to async would change the sync hydrate→ready
     // contract that adapters depend on. PID + nonce is the smallest delta
     // that closes the collision-safety gap without that ripple.
