@@ -2540,7 +2540,14 @@ describe('ZF0-1500: channel.send outbound validation (Boundary 3)', () => {
 })
 
 describe('ZF0-1500: hot-path performance — browserToServerSchema', () => {
-  it('schema parse on hot path is fast (≤500ms local / ≤2000ms CI for 10k iterations)', () => {
+  // ZF0-1566 sibling-branch audit: same wall-clock perf-test class as
+  // source-transform.test.ts:535. Under V8 coverage instrumentation, 10k
+  // schema parses with hooked branches can exceed the 2000ms CI ceiling —
+  // measurement reflects coverage overhead, not real Zod hot-path cost.
+  // Skip under coverage; the non-coverage `npm test` invocation still
+  // gates against real regressions. See `tests/COVERAGE.md` for the
+  // canonical detection contract and the sibling-audit rationale.
+  it.skipIf(process.env.VITEST_COVERAGE === '1')('schema parse on hot path is fast (≤500ms local / ≤2000ms CI for 10k iterations)', () => {
     const payload = {
       type: 'staged-edit-add' as const,
       edit: makeEdit({ intentId: 'perf-test', property: 'color', value: 'red' }),
