@@ -1,0 +1,21 @@
+cortex-editor/tests/core/rewriter/project-pool.test.ts
+  s_5b9856928a784d::t_850974b30facd6 3-7,9-10,14-15,17-19,22,24-27,29-34,36-39,41-42,46,50,53-55,60,63-65,68,72-74,77,81,84-88,91-92,97-98,100-101,105-106,110-113,117-118,127,131-132,135-137,139,141-142,145-146,149,152,156,160,164,168-169
+cortex-editor/src/core/rewriter/project-pool.ts
+  s_5b9856928a784d::t_1708ab220d1578 1-12,14-15,18,20,22-24,27,31-33,35,38-41,43,45,48-52,54,56,58-63,65-67,69,71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "068202c9182b2fdbd021c098cd46487af818b5b6",
+  "prompts": {},
+  "sessions": {
+    "s_5b9856928a784d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "297451a6-f29b-46c5-97e8-26e61369214c",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
