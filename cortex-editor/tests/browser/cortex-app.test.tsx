@@ -1051,10 +1051,11 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     _resetPopoverStackForTesting()
     cleanDocumentHead()
     vi.useRealTimers()
-    // restoreAllMocks (not clearAllMocks) ensures the getComputedStyle spy
-    // is fully uninstalled between tests — otherwise a failed test that
-    // threw before reaching gcs.mockRestore() would leak the spy into
-    // downstream tests (and other describe blocks).
+    // restoreAllMocks (not clearAllMocks) fully resets the file-scope
+    // reResolveSelection spy between tests — including its call history,
+    // which the `not.toHaveBeenCalled()` assertions in this describe
+    // depend on. Without this, a test that threw mid-setup would leak
+    // its accumulated calls into the next test's spy state.
     vi.restoreAllMocks()
   })
 
