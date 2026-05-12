@@ -248,5 +248,59 @@ describe("AnnotationStore", () => {
       expect(store.getById(a2.id)).not.toBeNull();
       expect(store.getById(a3.id)).not.toBeNull();
     });
+
+    it("rejects non-positive maxTerminal at construction", () => {
+      expect(() => new AnnotationStore({ maxTerminal: 0 })).toThrow(
+        /positive integer/,
+      );
+      expect(() => new AnnotationStore({ maxTerminal: -1 })).toThrow(
+        /positive integer/,
+      );
+      expect(() => new AnnotationStore({ maxTerminal: 1.5 })).toThrow(
+        /positive integer/,
+      );
+    });
+
+    it("snapshot from a surviving terminal entry is unaffected by a subsequent eviction", () => {
+      const store = new AnnotationStore({ maxTerminal: 2 });
+
+      const a1 = store.create({ elementSource: "A.tsx:1:1", text: "first" });
+      store.acknowledge(a1.id);
+      const snap1 = store.resolve(a1.id, "first done")!;
+      const a2 = store.create({ elementSource: "A.tsx:2:1", text: "second" });
+      store.acknowledge(a2.id);
+      store.resolve(a2.id, "second done");
+
+      // Cause an eviction of a1.
+      const a3 = store.create({ elementSource: "A.tsx:3:1", text: "third" });
+      store.acknowledge(a3.id);
+      store.resolve(a3.id, "third done");
+
+      // The snapshot captured BEFORE eviction is still intact (snapshots are copies).
+      expect(snap1.id).toBe(a1.id);
+      expect(snap1.status).toBe("resolved");
+      expect(snap1.resolution).toEqual({ summary: "first done" });
+
+      // The store no longer holds a1.
+      expect(store.getById(a1.id)).toBeNull();
+    });
+
+    it("default maxTerminal is 100 (regression guard)", () => {
+      const store = new AnnotationStore();
+      // Create 101 terminal entries; entry #1 must be evicted.
+      const ids: string[] = [];
+      for (let i = 0; i < 101; i++) {
+        const ann = store.create({
+          elementSource: `App.tsx:${i}:1`,
+          text: `t${i}`,
+        });
+        store.acknowledge(ann.id);
+        store.resolve(ann.id, `s${i}`);
+        ids.push(ann.id);
+      }
+      expect(store.getById(ids[0]!)).toBeNull();
+      expect(store.getById(ids[1]!)).not.toBeNull();
+      expect(store.getAll()).toHaveLength(100);
+    });
   });
 });
