@@ -50,7 +50,7 @@ import { initSelection } from '../../src/browser/selection.js'
 // was invoked. Replaces brittle `expect(gcs.mock.calls.length).toBe(before)`
 // assertions that flaked under coverage instrumentation.
 vi.mock('../../src/browser/selection-metadata.js', async (importOriginal) => {
-  const actual = (await importOriginal()) as typeof import('../../src/browser/selection-metadata.js')
+  const actual = await importOriginal<typeof import('../../src/browser/selection-metadata.js')>()
   return {
     ...actual,
     reResolveSelection: vi.fn(actual.reResolveSelection),
@@ -1058,13 +1058,12 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     vi.restoreAllMocks()
   })
 
-  /** Render CortexApp, activate, select an element with the given source,
-   *  and return the mock channel + a `gcs` spy on getComputedStyle. The spy's
-   *  call count is the observable signal for "Panel refreshed". */
+  /** Render CortexApp, activate, and select an element with the given source.
+   *  The file-scope `reResolveSelection` spy (set up at the top of this file
+   *  via vi.mock + importOriginal passthrough) is the observable signal for
+   *  "selected-element refresh path fired". Tests assert via that spy. */
   async function setup(source: string): Promise<{
     channel: ReturnType<typeof createMockChannel>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    gcs: any
     element: HTMLElement
   }> {
     const sh = createShadowHost()
@@ -1090,25 +1089,21 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     mockGetBoundingClientRect(element, { top: 50, left: 50, width: 100, height: 40 })
 
     selectCb([element], 'replace')
-    // Wait for Panel to fully settle (initial getComputedStyle calls complete)
-    // before installing the spy. Under serial-loop load 20ms wasn't enough —
-    // ambient effects continued into the 200ms observation window and inflated
-    // gcs.mock.calls.length before the hmr-applied message was even sent.
+    // Wait for Panel to fully settle before clearing the spy. Initial mount,
+    // override-bus subscription, and Preact's commit phase can fire ambient
+    // effects; we want them done BEFORE the test starts asserting against
+    // the reResolveSelection spy. Under serial-loop load 20ms wasn't enough.
     await new Promise(r => setTimeout(r, 50))
 
-    // Install spy AFTER selection so the baseline count is post-mount.
-    const gcs = vi.spyOn(window, 'getComputedStyle')
-    await new Promise(r => setTimeout(r, 150))
-    gcs.mockClear()
     // ZF0-1564: clear the file-scope reResolveSelection spy so each test
     // starts with zero recorded calls. Cross-test pollution would otherwise
     // make `not.toHaveBeenCalled()` reflect prior tests, not gate behavior.
     vi.mocked(reResolveSelection).mockClear()
-    return { channel, gcs, element }
+    return { channel, element }
   }
 
   it('skips Panel refresh when hmr files are fully unrelated to the selection', async () => {
-    const { channel, gcs } = await setup('src/foo.tsx:10:5')
+    const { channel } = await setup('src/foo.tsx:10:5')
     channel._simulateMessage({ type: 'hmr-applied', files: ['src/bar.tsx', 'src/baz.tsx'] })
     // ZF0-1564: assert against a SPECIFIC function (reResolveSelection) instead
     // of `gcs.mock.calls.length`. Production gate at CortexApp.tsx:779 calls
@@ -1120,7 +1115,6 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     // assertion is purely synchronous against a deterministic code path,
     // immune to coverage-instrumentation noise on shared globals.
     expect(reResolveSelection).not.toHaveBeenCalled()
-    gcs.mockRestore()
   })
 
   // ZF0-1470 (T4 fix-up, IMPORTANT 1): hmrEventVersion always-bumps, even when
@@ -1153,7 +1147,7 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
       timestamp: Date.now(),
     }])
 
-    const { channel, gcs } = await setup('src/foo.tsx:10:5')
+    const { channel } = await setup('src/foo.tsx:10:5')
 
     // Fire hmr-applied with files that include src/Sidebar.tsx — shouldRefreshOnHMR
     // returns false (src/foo.tsx:10:5 is selected, Sidebar.tsx is unrelated),
@@ -1181,7 +1175,6 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
       expect(root.textContent).toContain('staged edit(s) may be affected')
     }, { timeout: WAIT_FOR_COMMIT_MS })
 
-    gcs.mockRestore()
     localStorage.clear()
   })
 
