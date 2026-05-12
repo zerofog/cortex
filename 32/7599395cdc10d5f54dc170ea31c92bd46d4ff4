@@ -1,0 +1,19 @@
+cortex-editor/src/core/edit-pipeline.ts
+  s_f01fc01d58c233::t_9706edd8e12498 75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "327599395cdc10d5f54dc170ea31c92bd46d4ff4",
+  "prompts": {},
+  "sessions": {
+    "s_f01fc01d58c233": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7548446d-549a-457d-9a1d-61f079e69a98",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
