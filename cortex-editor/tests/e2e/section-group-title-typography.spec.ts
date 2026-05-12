@@ -6,9 +6,10 @@
  * design-system tokens — `font-size: var(--cx-text-lg)`,
  * `font-weight: var(--cx-weight-heading)`, and `color: var(--cx-ink)`.
  * Happy-dom cannot resolve CSS custom properties to meaningful computed
- * values, so the Layer-2 unit test
- * (tests/browser/components/SectionGroup.test.tsx, removed in this PR —
- * see git history) was a permanently-skipped placeholder.
+ * values, so the corresponding Layer-2 `it.skip(...)` placeholder in
+ * `tests/browser/components/SectionGroup.test.tsx` was removed in this PR
+ * (see git history). The other five `SectionGroup` unit tests covering
+ * structural contracts remain untouched.
  *
  * Assertion strategy is two-layered to defeat tautology:
  *
@@ -71,8 +72,8 @@
  *   Each mutation produces a SPECIFIC value mismatch (not a timeout). A
  *   timeout would mean the spec exercises a different code path. All four
  *   mutations were applied, verified, and reverted byte-for-byte before
- *   commit. See `thoughts/shared/ship-task/checkpoints/ZF0-1565-checkpoint.md`
- *   Step 4 for the full reproduction log.
+ *   commit. Reproduction is one `sed` + `npm run build:test` + `npx
+ *   playwright test section-group-title-typography` cycle per mutation.
  */
 import { test, expect } from '@playwright/test'
 import { bootFixture } from './helpers/boot.js'
@@ -166,22 +167,30 @@ test.describe('SectionGroup title typography token contract (ZF0-1565) @fast-ci'
       }
     })
 
-    // Token-existence sanity — `--cx-text-lg`, `--cx-weight-heading`, and
-    // `--cx-ink` MUST be defined on `:host`. Failure here means the token
-    // was deleted; probe-vs-title equality below would tautologically agree
-    // on the broken inherited value if we skipped this guard.
-    expect(resolved.tokens.textLg, '--cx-text-lg defined on :host').not.toBe('')
-    expect(resolved.tokens.weightHeading, '--cx-weight-heading defined on :host').not.toBe('')
-    expect(resolved.tokens.ink, '--cx-ink defined on :host').not.toBe('')
+    // Token-resolution sanity — `--cx-text-lg`, `--cx-weight-heading`, and
+    // `--cx-ink` MUST resolve to non-empty values on the panel host. The
+    // host's cascade is the only authoritative source for `--cx-*` tokens —
+    // they are defined exclusively in `:host`/`:host([data-theme="…"])`
+    // blocks in `cortex-editor/src/browser/styles.css`, so a non-empty
+    // resolution proves the definition still exists somewhere in the
+    // injected stylesheet (technically `getPropertyValue` cannot distinguish
+    // direct definition from inheritance, but no outer ancestor defines
+    // `--cx-*`). Failure here means the token was deleted; probe-vs-title
+    // equality below would tautologically agree on the broken inherited
+    // value if we skipped this guard.
+    expect(resolved.tokens.textLg, '--cx-text-lg resolves on host').not.toBe('')
+    expect(resolved.tokens.weightHeading, '--cx-weight-heading resolves on host').not.toBe('')
+    expect(resolved.tokens.ink, '--cx-ink resolves on host').not.toBe('')
 
     // Real-CSSOM resolution sanity — probe resolved tokens to concrete
     // values. Falsifies the happy-dom failure mode where `var(…)` leaves
     // the literal string in computed style. Tightened regexes:
     //   font-size: requires `\d+(\.\d+)?px` — rejects 'var(--cx-text-lg)'
-    //   font-weight: requires `[1-9]\d{2}` — rejects 'normal' / 'bold' / ''
+    //   font-weight: requires 100-1000 numeric — rejects 'normal' / 'bold' / '';
+    //                upper bound 1000 covers CSS4 variable-font weights
     //   color: requires `rgba?(…)` — rejects '' / 'inherit'
     expect(resolved.probeFontSize).toMatch(/^\d+(\.\d+)?px$/)
-    expect(resolved.probeFontWeight).toMatch(/^[1-9]\d{2}$/)
+    expect(resolved.probeFontWeight).toMatch(/^([1-9]\d{2}|1000)$/)
     expect(resolved.probeColor).toMatch(/^rgba?\(/)
 
     // Token contract — every section group title binds to

@@ -102,6 +102,7 @@ describe('SectionGroup — Panel v2 headerAction slot', () => {
   })
 
   // Computed-typography coverage lives in real Chromium — happy-dom cannot
-  // resolve `var(--cx-text-lg)` / `var(--cx-weight-heading)` to meaningful
-  // values. See `tests/e2e/section-group-title-typography.spec.ts` (ZF0-1565).
+  // resolve `var(--cx-text-lg)` / `var(--cx-weight-heading)` / `var(--cx-ink)`
+  // to meaningful values.
+  // See `tests/e2e/section-group-title-typography.spec.ts` (ZF0-1565).
 })
