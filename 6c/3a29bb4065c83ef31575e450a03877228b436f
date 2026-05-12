@@ -1,0 +1,19 @@
+cortex-editor/package.json
+  s_69f03e11326919::t_17f921c9877bbb 69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "6c3a29bb4065c83ef31575e450a03877228b436f",
+  "prompts": {},
+  "sessions": {
+    "s_69f03e11326919": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4239712e-4983-462d-b80f-7ce6d6ea2806",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
