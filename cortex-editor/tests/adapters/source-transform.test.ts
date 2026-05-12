@@ -521,7 +521,18 @@ const el = <div>
   })
 
   describe('performance', () => {
-    it('transforms a 1000-element file in under 50ms (median of 3)', () => {
+    // ZF0-1566: skip under V8 coverage. performance.now() under coverage
+    // instrumentation measures the cost of hooked branches/statements, not
+    // the transform itself — observed median ballooned to ~214.5ms against
+    // a 50ms local budget. Relaxing the budget to fit would lose regression
+    // signal entirely. The test still runs in normal `npm test` and CI
+    // (without --coverage), where wall-clock timing is meaningful.
+    // VITEST_COVERAGE is set by vitest.config.ts when --coverage is detected
+    // in argv (NODE_V8_COVERAGE is not set by @vitest/coverage-v8 directly).
+    // Compare === '1' explicitly so a stray `VITEST_COVERAGE=0` shell export
+    // does not silently skip the assertion. See `tests/COVERAGE.md` for the
+    // detection contract.
+    it.skipIf(process.env.VITEST_COVERAGE === '1')('transforms a 1000-element file in under 50ms (median of 3)', () => {
       const lines: string[] = []
       for (let i = 0; i < 1000; i++) {
         lines.push(`  <div className="item-${i}">Item ${i}</div>`)

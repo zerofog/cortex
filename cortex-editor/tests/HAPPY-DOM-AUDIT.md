@@ -63,6 +63,7 @@ Coverage evidence:
   - `tests/adapters/source-transform.test.ts:548` failing the local performance budget under coverage, with a 214.5ms median against a 50ms budget.
   - Vitest reporting `[vitest-worker]: Timeout calling "onTaskUpdate"`.
 - Filed ZF0-1566 for the broader full-coverage instrumentation stability issue.
+- Resolved in ZF0-1566: `vitest.config.ts` now scales `testTimeout`/`hookTimeout` to 15s when `--coverage` is detected in argv (covers the ts-morph cold-path tests in `tests/cli/init.test.ts` and `tests/core/tool-applicator.test.ts`), and the source-transform 50ms perf assertion is skipped under coverage because wall-clock timing under V8 instrumentation measures hooked branches rather than the transform itself. The audit command above remains the canonical full-coverage invocation. See `tests/COVERAGE.md` for the canonical command and adjustment rationale.
 - Filed ZF0-1568 for full non-coverage browser-suite order dependence observed separately from coverage instrumentation.
 
 ## Channel Shape Assertions
