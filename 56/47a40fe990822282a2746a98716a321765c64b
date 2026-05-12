@@ -1,0 +1,21 @@
+cortex-editor/tests/core/rewriter/lazy-ts-morph.test.ts
+  s_6a2f8d33574af9::t_fee0173a02984e 6,29-32,34,40-41,58,60,63,65
+cortex-editor/src/core/rewriter/lazy-ts-morph.ts
+  s_6a2f8d33574af9::t_54a84b3c6ff4f2 3-5,7-23,26-27,32-34,36,38-41,43,48,50-52,58-60,62-65,67,70-73,76-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "5647a40fe990822282a2746a98716a321765c64b",
+  "prompts": {},
+  "sessions": {
+    "s_6a2f8d33574af9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "85ef8aef-8010-4988-9fc5-f3b9892f9da7",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
