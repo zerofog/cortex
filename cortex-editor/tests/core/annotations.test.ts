@@ -221,13 +221,13 @@ describe('AnnotationStore', () => {
       })
 
       store.acknowledge(a3.id)
-      store.resolve(a3.id, 'a3 done'); // terminal #1
+      store.resolve(a3.id, 'a3 done') // terminal #1
       store.acknowledge(a2.id)
-      store.resolve(a2.id, 'a2 done'); // terminal #2
+      store.resolve(a2.id, 'a2 done') // terminal #2
       store.acknowledge(a1.id)
-      store.resolve(a1.id, 'a1 done'); // terminal #3 → evicts a3
+      store.resolve(a1.id, 'a1 done') // terminal #3 → evicts a3
 
-      expect(store.getById(a3.id)).toBeNull(); // first terminal-flipped → first evicted
+      expect(store.getById(a3.id)).toBeNull() // first terminal-flipped → first evicted
       expect(store.getById(a2.id)).not.toBeNull()
       expect(store.getById(a1.id)).not.toBeNull()
     })
@@ -239,10 +239,10 @@ describe('AnnotationStore', () => {
       const a2 = store.create({ elementSource: 'A.tsx:2:1', text: 'two' })
       const a3 = store.create({ elementSource: 'A.tsx:3:1', text: 'three' })
 
-      store.dismiss(a1.id); // terminal #1 (dismiss)
+      store.dismiss(a1.id) // terminal #1 (dismiss)
       store.acknowledge(a2.id)
-      store.resolve(a2.id, 's'); // terminal #2 (resolve)
-      store.dismiss(a3.id); // terminal #3 → evicts a1
+      store.resolve(a2.id, 's') // terminal #2 (resolve)
+      store.dismiss(a3.id) // terminal #3 → evicts a1
 
       expect(store.getById(a1.id)).toBeNull()
       expect(store.getById(a2.id)).not.toBeNull()
