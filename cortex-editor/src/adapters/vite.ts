@@ -319,9 +319,9 @@ const RPC_METHOD_SCHEMAS = {
 
 function handleRPC(method: string, params: Record<string, unknown>): unknown {
   // --- Annotation methods ---
-  // params.annotationId is schema-validated as string for all annotation methods
-  // before handleRPC is called. Cast is safe — getPending and staged-edit methods
-  // don't use this variable.
+  // params.annotationId is schema-validated as string upstream (via
+  // RPC_METHOD_SCHEMAS) for any method that reads it; no-id methods ignore
+  // the empty-string fallback.
   const id = params.annotationId as string | undefined ?? ''
   switch (method) {
     case 'getActive': return currentSession!.annotations.getActive()
