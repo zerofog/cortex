@@ -714,25 +714,26 @@ export function Panel({
     [computedStyles.typography.fontFamily],
   )
 
-  // Extract Tailwind utility classes from element's className.
-  // Enables the "direct class path": send the actual class name to the server
-  // instead of relying on fragile computed-style → hex → class-name reverse lookup.
-  const extractedUtilities = useMemo(() => {
-    if (!element) return new Map<string, string>()
-    // SVG elements return SVGAnimatedString for .className — use getAttribute instead
-    const cls = typeof element.className === 'string'
-      ? element.className
-      : (element.getAttribute('class') ?? '')
-    return extractUtilities(cls)
-  }, [element, styleVersion])
-
-  // Raw className attribute — TypographySection detects bundle + chip membership against it.
-  const typographyClassName = useMemo(() => {
+  // Shared raw className read — both extractedUtilities (Tailwind utilities)
+  // and typographyClassName (bundle + chip detection) need the same string.
+  // SVG elements return SVGAnimatedString for .className; use getAttribute for those.
+  const rawClassName = useMemo<string>(() => {
     if (!element) return ''
     return typeof element.className === 'string'
       ? element.className
       : (element.getAttribute('class') ?? '')
   }, [element, styleVersion])
+
+  // Extract Tailwind utility classes from element's className.
+  // Enables the "direct class path": send the actual class name to the server
+  // instead of relying on fragile computed-style → hex → class-name reverse lookup.
+  const extractedUtilities = useMemo(() => {
+    if (!element) return new Map<string, string>()
+    return extractUtilities(rawClassName)
+  }, [element, rawClassName])
+
+  // Raw className attribute — TypographySection detects bundle + chip membership against it.
+  const typographyClassName = useMemo<string>(() => rawClassName, [rawClassName])
 
   // Null-byte separator for composite scrub keys — never appears in CSS properties or source paths.
   const SEP = '\0'

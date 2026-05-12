@@ -1841,3 +1841,90 @@ describe('CSSOverrideManager', () => {
     })
   })
 })
+
+describe('OverrideManager dirty-flag short-circuit (ZF0-1835)', () => {
+  let manager: CSSOverrideManager
+  const originalRAF = window.requestAnimationFrame
+
+  beforeEach(() => {
+    // Synchronous RAF so flush() triggers rebuild() immediately
+    window.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+      cb(performance.now())
+      return 0
+    }) as typeof requestAnimationFrame
+    document.querySelectorAll('[data-cortex-override]').forEach(el => el.remove())
+    document.querySelectorAll('[data-cortex-source]').forEach(el => el.remove())
+    manager = new CSSOverrideManager()
+  })
+
+  afterEach(() => {
+    window.requestAnimationFrame = originalRAF
+    manager.dispose()
+    document.querySelectorAll('[data-cortex-source]').forEach(el => el.remove())
+  })
+
+  it('starts dirty so cold-start rebuild always runs', () => {
+    expect(manager._isDirtyForTesting).toBe(true)
+  })
+
+  it('rebuild short-circuits when nothing changed since last rebuild', () => {
+    manager.set('src.tsx:1:1', 'color', 'red')
+    manager.flush()
+    expect(manager._isDirtyForTesting).toBe(false)
+    manager.flush() // second flush — no mutations between
+    expect(manager._isDirtyForTesting).toBe(false)
+  })
+
+  it('set() marks manager dirty; RAF fires clear it', () => {
+    // Use a capturing RAF so we can inspect isDirty BEFORE the frame executes.
+    // The outer beforeEach uses synchronous RAF which clears dirty inline;
+    // swap it out for this single test so the intermediate state is visible.
+    const rafQueue: FrameRequestCallback[] = []
+    const capturingRaf = ((cb: FrameRequestCallback) => {
+      rafQueue.push(cb)
+      return rafQueue.length
+    }) as typeof requestAnimationFrame
+    window.requestAnimationFrame = capturingRaf
+
+    manager.set('src.tsx:1:1', 'color', 'red')
+    // Dirty is true — RAF queued but not yet fired
+    expect(manager._isDirtyForTesting).toBe(true)
+    // Fire the queued frame — rebuild runs, clears dirty
+    rafQueue.forEach(cb => cb(performance.now()))
+    expect(manager._isDirtyForTesting).toBe(false)
+  })
+
+  it('remove() marks manager dirty', () => {
+    manager.set('src.tsx:1:1', 'color', 'red')
+    manager.flush()
+    expect(manager._isDirtyForTesting).toBe(false)
+    manager.remove('src.tsx:1:1', 'color')
+    // remove() rebuilds synchronously — dirty cleared inline
+    expect(manager._isDirtyForTesting).toBe(false)
+  })
+
+  it('setStateOverrides() marks manager dirty; rebuild clears it', () => {
+    manager.set('src.tsx:1:1', 'color', 'red')
+    manager.flush()
+    expect(manager._isDirtyForTesting).toBe(false)
+    manager.setStateOverrides('src.tsx:1:1', new Map([['background-color', 'blue']]))
+    // setStateOverrides rebuilds synchronously
+    expect(manager._isDirtyForTesting).toBe(false)
+  })
+
+  it('clearStateOverrides() marks manager dirty; rebuild clears it', () => {
+    manager.setStateOverrides('src.tsx:1:1', new Map([['background-color', 'blue']]))
+    // already rebuilt synchronously
+    expect(manager._isDirtyForTesting).toBe(false)
+    manager.clearStateOverrides()
+    expect(manager._isDirtyForTesting).toBe(false)
+  })
+
+  it('clearAll() marks manager dirty; rebuild clears it', () => {
+    manager.set('src.tsx:1:1', 'color', 'red')
+    manager.flush()
+    expect(manager._isDirtyForTesting).toBe(false)
+    manager.clearAll()
+    expect(manager._isDirtyForTesting).toBe(false)
+  })
+})
