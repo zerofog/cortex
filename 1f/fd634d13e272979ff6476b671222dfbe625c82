@@ -1,0 +1,30 @@
+cortex-editor/tests/adapters/annotations-path-resolver.test.ts
+  s_8e8bd89c92e8ed::t_2934c4a4ad771a 1-191
+cortex-editor/src/adapters/webpack.ts
+  s_8e8bd89c92e8ed::t_050fc7572b5bd9 8
+  s_8e8bd89c92e8ed::t_f27ab5f5b924c2 401-403
+cortex-editor/src/adapters/annotations-path-resolver.ts
+  s_8e8bd89c92e8ed::t_c2058b6913a11d 1-72
+cortex-editor/src/adapters/vite.ts
+  s_8e8bd89c92e8ed::t_1823616c80a118 10
+  s_8e8bd89c92e8ed::t_2ae36e7b0d8aa2 862-865
+cortex-editor/src/core/annotations-persistence.ts
+  s_8e8bd89c92e8ed::t_eacfe5bf1b2599 2
+  s_8e8bd89c92e8ed::t_37f29091ff4b0c 157-167,185-193
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "1ffd634d13e272979ff6476b671222dfbe625c82",
+  "prompts": {},
+  "sessions": {
+    "s_8e8bd89c92e8ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7906b72c-6191-48d8-a505-a907e52b9056",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
