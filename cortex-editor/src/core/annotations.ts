@@ -4,6 +4,7 @@ import type {
   CreateAnnotationParams,
   ThreadMessage,
 } from '../adapters/types.js'
+import { loadAnnotations, saveAnnotations } from './annotations-persistence.js'
 
 const DEFAULT_MAX_TERMINAL = 100
 
@@ -14,12 +15,16 @@ export interface AnnotationStoreOptions {
    *  flip and unobservable. If callers ever raise the cap above ~1000, replace the
    *  string[] queue with a circular buffer or head-index deque to keep eviction O(1). */
   maxTerminal?: number
+  /** When set, AnnotationStore hydrates from this file on construction and
+   *  write-throughs every mutation. When unset, behavior is unchanged. */
+  persistence?: { filePath: string }
 }
 
 export class AnnotationStore {
   private annotations = new Map<string, Annotation>()
   private terminalOrder: string[] = []
   private readonly maxTerminal: number
+  private readonly persistenceFilePath: string | undefined
 
   constructor(opts?: AnnotationStoreOptions) {
     const max = opts?.maxTerminal ?? DEFAULT_MAX_TERMINAL
@@ -29,6 +34,45 @@ export class AnnotationStore {
       )
     }
     this.maxTerminal = max
+    this.persistenceFilePath = opts?.persistence?.filePath
+
+    // Synchronous hydration is intentional: adapter callers depend on the store
+    // being ready BEFORE the first WebSocket message arrives. Pending and
+    // acknowledged annotations are never evicted; the terminal set is capped
+    // at maxTerminal here (the file could exceed the cap from a hand-edit
+    // or a reduced maxTerminal between sessions — flagged by Greptile +
+    // Copilot in PR #140). Never moved to async without re-establishing the
+    // sync hydrate→ready invariant in the adapter wiring.
+    if (this.persistenceFilePath !== undefined) {
+      const loaded = loadAnnotations(this.persistenceFilePath)
+
+      // terminalOrder must be FIFO by updatedAt so future eviction removes
+      // the oldest terminal annotation first — same contract as live writes.
+      const sortedTerminal = loaded
+        .filter((a) => a.status === 'resolved' || a.status === 'dismissed')
+        .sort((a, b) => a.updatedAt - b.updatedAt)
+
+      // Enforce the terminal cap on hydration. Drop the oldest excess —
+      // the head of the sorted array is oldest-first.
+      const excess = Math.max(0, sortedTerminal.length - this.maxTerminal)
+      const droppedTerminalIds = new Set(
+        sortedTerminal.slice(0, excess).map((a) => a.id),
+      )
+
+      for (const ann of loaded) {
+        if (!droppedTerminalIds.has(ann.id)) {
+          this.annotations.set(ann.id, ann)
+        }
+      }
+      this.terminalOrder = sortedTerminal.slice(excess).map((a) => a.id)
+    }
+  }
+
+  private persist(): void {
+    if (this.persistenceFilePath === undefined) return
+    // saveAnnotations only reads + serializes — skip getAll()'s per-element
+    // snapshot copy (designed for external callers who might mutate the result).
+    saveAnnotations(this.persistenceFilePath, [...this.annotations.values()])
   }
 
   private snapshot(ann: Annotation): Annotation {
@@ -60,6 +104,7 @@ export class AnnotationStore {
       fixMeta: params.fixMeta,
     }
     this.annotations.set(annotation.id, annotation)
+    this.persist()
     return this.snapshot(annotation)
   }
 
@@ -83,6 +128,7 @@ export class AnnotationStore {
     if (!ann || ann.status !== 'pending') return null
     ann.status = 'acknowledged'
     ann.updatedAt = Date.now()
+    this.persist()
     return this.snapshot(ann)
   }
 
@@ -93,6 +139,7 @@ export class AnnotationStore {
     ann.resolution = { summary }
     ann.updatedAt = Date.now()
     this.markTerminal(id)
+    this.persist()
     return this.snapshot(ann)
   }
 
@@ -104,6 +151,7 @@ export class AnnotationStore {
     if (reason) ann.dismissReason = reason
     ann.updatedAt = Date.now()
     this.markTerminal(id)
+    this.persist()
     return this.snapshot(ann)
   }
 
@@ -122,6 +170,7 @@ export class AnnotationStore {
       timestamp: Date.now(),
     })
     ann.updatedAt = Date.now()
+    this.persist()
     return this.snapshot(ann)
   }
 

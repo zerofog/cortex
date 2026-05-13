@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
@@ -264,6 +264,60 @@ describe('CortexSession', () => {
       await session.dispose() // should not throw
 
       expect(wss.close).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('annotations persistence integration', () => {
+    let tmpDir: string
+    let filePath: string
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-session-int-'))
+      filePath = path.join(tmpDir, 'annotations.json')
+    })
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    })
+
+    it('survives a session restart when annotationsFilePath is set', async () => {
+      // Session 1: create + acknowledge + resolve an annotation
+      const session1 = new CortexSession({
+        root: tmpDir,
+        mode: 'development',
+        annotationsFilePath: filePath,
+      })
+      const ann = session1.annotations.create({
+        elementSource: 'App.tsx:1:1',
+        text: 'survive the restart',
+      })
+      session1.annotations.acknowledge(ann.id)
+      session1.annotations.resolve(ann.id, 'all good')
+      await session1.dispose()
+
+      // Session 2: fresh CortexSession, same path → annotation should be hydrated
+      const session2 = new CortexSession({
+        root: tmpDir,
+        mode: 'development',
+        annotationsFilePath: filePath,
+      })
+      const hydrated = session2.annotations.getById(ann.id)
+      expect(hydrated).not.toBeNull()
+      expect(hydrated?.status).toBe('resolved')
+      expect(hydrated?.resolution).toEqual({ summary: 'all good' })
+      await session2.dispose()
+    })
+
+    it('does NOT persist when annotationsFilePath is unset', async () => {
+      const ephemeralSession = new CortexSession({ root: tmpDir, mode: 'development' })
+      ephemeralSession.annotations.create({ elementSource: 'App.tsx:1:1', text: 'ephemeral' })
+      await ephemeralSession.dispose()
+
+      // No file at the specific path we'd expect, AND nothing else written
+      // into tmpDir either — proves the store wasn't asked to persist anywhere,
+      // not just that this one path is absent.
+      expect(fs.existsSync(filePath)).toBe(false)
+      expect(fs.readdirSync(tmpDir)).toEqual([])
     })
   })
 

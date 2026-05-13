@@ -7,6 +7,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { WebSocketServer, WebSocket } from 'ws'
 import { createSourceTransform } from './source-transform.js'
+import { resolveAnnotationsFilePath } from './annotations-path-resolver.js'
 import type { ServerChannel, BrowserToServer, ServerToBrowser } from './types.js'
 import { TailwindResolver } from '../core/tailwind-resolver.js'
 import { TailwindRewriter } from '../core/rewriter/tailwind.js'
@@ -860,8 +861,16 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         shutdownHandler = null
       }
 
-      // Create fresh session for this server lifecycle
-      currentSession = new CortexSession({ root: config.root, mode: config.mode })
+      // Create fresh session for this server lifecycle.
+      // Annotations persistence opt-in lives in resolveAnnotationsFilePath —
+      // shared by the webpack adapter and unit-tested without a dev server.
+      const annotationsFilePath = resolveAnnotationsFilePath({ root: config.root })
+
+      currentSession = new CortexSession({
+        root: config.root,
+        mode: config.mode,
+        annotationsFilePath,
+      })
 
       // Register signal handlers for graceful shutdown.
       // The ?? Promise.resolve() ensures process.exit runs even if currentSession is null
@@ -1113,6 +1122,15 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             if (currentSession!.capabilitiesCache) {
               currentSession!.channel.send({ type: 'capabilities', systems: currentSession!.capabilitiesCache })
             }
+            // Hydrate the browser with annotations the server has in memory.
+            // Always emit — even an empty snapshot is authoritative. A reconnecting
+            // browser (network blip, HMR re-mount) needs to know the server's
+            // current state so any stale local annotations get replaced. The reducer
+            // performs a full Map replacement on this message.
+            currentSession!.channel.send({
+              type: 'annotations-snapshot',
+              annotations: currentSession!.annotations.getAll(),
+            })
           }
           return
         }

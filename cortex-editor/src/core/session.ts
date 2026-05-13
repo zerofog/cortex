@@ -15,6 +15,10 @@ import { StagedEditsCache } from './staged-edits.js'
 export interface CortexConfig {
   readonly root: string
   readonly mode: string
+  /** When set, AnnotationStore hydrates from this file on construction
+   *  and write-throughs every mutation. Adapter resolves the path from
+   *  the CORTEX_PERSIST_ANNOTATIONS env var. */
+  readonly annotationsFilePath?: string
 }
 
 /**
@@ -96,7 +100,11 @@ export class CortexSession {
     this.config = config
     this.token = randomUUID()
     this.sessionId = randomUUID()
-    this.annotations = new AnnotationStore()
+    this.annotations = new AnnotationStore(
+      config.annotationsFilePath
+        ? { persistence: { filePath: config.annotationsFilePath } }
+        : undefined,
+    )
     this.activityLog = new ActivityLog()
     this.stagedEdits = new StagedEditsCache()
   }
