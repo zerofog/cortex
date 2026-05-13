@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { AnnotationStore } from '../../src/core/annotations.js'
 import { saveAnnotations, loadAnnotations } from '../../src/core/annotations-persistence.js'
 import { CortexSession } from '../../src/core/session.js'
+import type { Annotation } from '../../src/adapters/types.js'
 
 describe('AnnotationStore', () => {
   let store: AnnotationStore
@@ -502,6 +503,81 @@ describe('AnnotationStore', () => {
       expect(allIds).toContain(ann2.id)
       expect(allIds).toContain(ann3.id)
       expect(allIds).toContain(ann4.id)
+    })
+
+    it('caps over-cap hydration — drops oldest terminal entries to fit maxTerminal', () => {
+      // Scenario: annotations.json was hand-edited or maxTerminal was reduced
+      // between sessions, so the file contains MORE terminal entries than the
+      // cap. Constructor must enforce the cap on hydration — otherwise
+      // getAll() returns over-cap until the next mutation triggers eviction,
+      // violating the invariant. Two reviewers (Greptile + Copilot) flagged
+      // this in PR #140.
+      const fixtures: Annotation[] = []
+      for (let i = 0; i < 5; i++) {
+        fixtures.push({
+          id: `evict-${i}`,
+          status: 'resolved',
+          elementSource: `A.tsx:${i}:1`,
+          text: `entry ${i}`,
+          createdAt: i * 100,
+          updatedAt: i * 100,
+          thread: [],
+          kind: 'comment',
+          resolution: { summary: `done ${i}` },
+        })
+      }
+      saveAnnotations(filePath, fixtures)
+
+      const store = new AnnotationStore({ maxTerminal: 3, persistence: { filePath } })
+      const allIds = store.getAll().map((a) => a.id)
+      expect(allIds).toHaveLength(3)
+      // Oldest two (evict-0, evict-1) dropped — chronological by updatedAt
+      expect(allIds).not.toContain('evict-0')
+      expect(allIds).not.toContain('evict-1')
+      expect(allIds).toEqual(expect.arrayContaining(['evict-2', 'evict-3', 'evict-4']))
+    })
+
+    it('preserves all pending/acknowledged annotations on hydration even if over maxTerminal', () => {
+      // Cap applies only to terminal entries — active annotations are NEVER
+      // evicted. A file with 5 pending + 5 resolved should hydrate the 5
+      // pending unconditionally and trim the resolved set to fit maxTerminal.
+      const fixtures: Annotation[] = []
+      for (let i = 0; i < 5; i++) {
+        fixtures.push({
+          id: `pending-${i}`,
+          status: 'pending',
+          elementSource: `A.tsx:${i}:1`,
+          text: `pending ${i}`,
+          createdAt: i * 100,
+          updatedAt: i * 100,
+          thread: [],
+          kind: 'comment',
+        })
+      }
+      for (let i = 0; i < 5; i++) {
+        fixtures.push({
+          id: `resolved-${i}`,
+          status: 'resolved',
+          elementSource: `A.tsx:${i + 5}:1`,
+          text: `resolved ${i}`,
+          createdAt: (i + 5) * 100,
+          updatedAt: (i + 5) * 100,
+          thread: [],
+          kind: 'comment',
+          resolution: { summary: `done ${i}` },
+        })
+      }
+      saveAnnotations(filePath, fixtures)
+
+      const store = new AnnotationStore({ maxTerminal: 2, persistence: { filePath } })
+      // 5 pending + 2 most-recent resolved = 7 total
+      expect(store.getAll()).toHaveLength(7)
+      expect(store.getPending().map((a) => a.id)).toEqual(
+        expect.arrayContaining(['pending-0', 'pending-1', 'pending-2', 'pending-3', 'pending-4']),
+      )
+      const resolvedIds = store.getAll().filter((a) => a.status === 'resolved').map((a) => a.id)
+      expect(resolvedIds).toHaveLength(2)
+      expect(resolvedIds).toEqual(expect.arrayContaining(['resolved-3', 'resolved-4']))
     })
   })
 })

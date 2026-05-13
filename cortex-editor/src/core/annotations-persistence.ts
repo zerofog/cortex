@@ -1,4 +1,4 @@
-import fs from 'fs'
+import fs from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import type { Annotation } from '../adapters/types.js'

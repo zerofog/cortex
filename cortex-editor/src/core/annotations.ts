@@ -37,20 +37,34 @@ export class AnnotationStore {
     this.persistenceFilePath = opts?.persistence?.filePath
 
     // Synchronous hydration is intentional: adapter callers depend on the store
-    // being ready BEFORE the first WebSocket message arrives. Bounded by
-    // maxTerminal (default 100) — never moved to async without re-establishing
-    // that invariant in the adapter wiring.
+    // being ready BEFORE the first WebSocket message arrives. Pending and
+    // acknowledged annotations are never evicted; the terminal set is capped
+    // at maxTerminal here (the file could exceed the cap from a hand-edit
+    // or a reduced maxTerminal between sessions — flagged by Greptile +
+    // Copilot in PR #140). Never moved to async without re-establishing the
+    // sync hydrate→ready invariant in the adapter wiring.
     if (this.persistenceFilePath !== undefined) {
       const loaded = loadAnnotations(this.persistenceFilePath)
-      for (const ann of loaded) {
-        this.annotations.set(ann.id, ann)
-      }
+
       // terminalOrder must be FIFO by updatedAt so future eviction removes
       // the oldest terminal annotation first — same contract as live writes.
-      this.terminalOrder = loaded
+      const sortedTerminal = loaded
         .filter((a) => a.status === 'resolved' || a.status === 'dismissed')
         .sort((a, b) => a.updatedAt - b.updatedAt)
-        .map((a) => a.id)
+
+      // Enforce the terminal cap on hydration. Drop the oldest excess —
+      // the head of the sorted array is oldest-first.
+      const excess = Math.max(0, sortedTerminal.length - this.maxTerminal)
+      const droppedTerminalIds = new Set(
+        sortedTerminal.slice(0, excess).map((a) => a.id),
+      )
+
+      for (const ann of loaded) {
+        if (!droppedTerminalIds.has(ann.id)) {
+          this.annotations.set(ann.id, ann)
+        }
+      }
+      this.terminalOrder = sortedTerminal.slice(excess).map((a) => a.id)
     }
   }
 
