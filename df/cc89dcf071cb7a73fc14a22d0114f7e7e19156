@@ -1,0 +1,23 @@
+cortex-editor/tests/browser/cortex-app-reducer.test.ts
+  s_8e8bd89c92e8ed::t_36f58f80cd133a 566,600,621
+  s_8e8bd89c92e8ed::t_e6ac081cd8e0ac 567
+  s_8e8bd89c92e8ed::t_b2e6f04274b62d 556-565,568-599,601-620,622-633
+cortex-editor/src/browser/cortex-app-reducer.ts
+  s_8e8bd89c92e8ed::t_faa44e81733c31 370-398
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "dfcc89dcf071cb7a73fc14a22d0114f7e7e19156",
+  "prompts": {},
+  "sessions": {
+    "s_8e8bd89c92e8ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7906b72c-6191-48d8-a505-a907e52b9056",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
