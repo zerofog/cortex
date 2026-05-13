@@ -1,5 +1,11 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import fs from 'fs'
+import os from 'node:os'
+import path from 'node:path'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { AnnotationStore } from '../../src/core/annotations.js'
+import { saveAnnotations, loadAnnotations } from '../../src/core/annotations-persistence.js'
+import { CortexSession } from '../../src/core/session.js'
+import type { Annotation } from '../../src/adapters/types.js'
 
 describe('AnnotationStore', () => {
   let store: AnnotationStore
@@ -317,6 +323,263 @@ describe('AnnotationStore', () => {
     })
   })
 
+  describe('with persistence', () => {
+    let tmpDir: string
+    let filePath: string
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-store-'))
+      filePath = path.join(tmpDir, 'annotations.json')
+    })
+
+    afterEach(() => {
+      vi.restoreAllMocks()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    })
+
+    it('hydrates from existing valid file — store integration', () => {
+      const knownAnn = {
+        id: 'hydrate-test-id',
+        status: 'pending' as const,
+        elementSource: 'App.tsx:1:1',
+        text: 'hydrate me',
+        createdAt: 1000,
+        updatedAt: 1000,
+        thread: [],
+        kind: 'comment' as const,
+      }
+      saveAnnotations(filePath, [knownAnn])
+
+      const store = new AnnotationStore({ persistence: { filePath } })
+
+      // Assert the store integrates the loaded data — getById and getPending
+      // must surface the hydrated annotation. (A bug where hydration writes
+      // to a different internal field would pass a getAll-only assertion.)
+      expect(store.getById('hydrate-test-id')).toMatchObject({
+        id: 'hydrate-test-id',
+        text: 'hydrate me',
+        status: 'pending',
+      })
+      expect(store.getPending().map((a) => a.id)).toEqual(['hydrate-test-id'])
+      expect(store.getAll()).toHaveLength(1)
+    })
+
+    it('starts empty when file is missing', () => {
+      // filePath does not exist yet — no file created
+      const store = new AnnotationStore({ persistence: { filePath } })
+      expect(store.getAll()).toEqual([])
+    })
+
+    it('create() writes through to file', () => {
+      const store = new AnnotationStore({ persistence: { filePath } })
+      store.create({ elementSource: 'App.tsx:1:1', text: 'write me' })
+
+      const persisted = loadAnnotations(filePath)
+      expect(persisted).toHaveLength(1)
+      expect(persisted[0]!.text).toBe('write me')
+      expect(persisted[0]!.status).toBe('pending')
+    })
+
+    it('acknowledge() writes through to file', () => {
+      const store = new AnnotationStore({ persistence: { filePath } })
+      const ann = store.create({ elementSource: 'App.tsx:1:1', text: 'ack me' })
+      store.acknowledge(ann.id)
+
+      const persisted = loadAnnotations(filePath)
+      expect(persisted).toHaveLength(1)
+      expect(persisted[0]!.status).toBe('acknowledged')
+    })
+
+    it('resolve() writes through to file', () => {
+      const store = new AnnotationStore({ persistence: { filePath } })
+      const ann = store.create({ elementSource: 'App.tsx:1:1', text: 'resolve me' })
+      store.acknowledge(ann.id)
+      store.resolve(ann.id, 'fixed it')
+
+      const persisted = loadAnnotations(filePath)
+      expect(persisted).toHaveLength(1)
+      expect(persisted[0]!.status).toBe('resolved')
+      expect(persisted[0]!.resolution).toEqual({ summary: 'fixed it' })
+    })
+
+    it('dismiss() writes through to file', () => {
+      const store = new AnnotationStore({ persistence: { filePath } })
+      const ann = store.create({ elementSource: 'App.tsx:1:1', text: 'dismiss me' })
+      store.dismiss(ann.id, 'not applicable')
+
+      const persisted = loadAnnotations(filePath)
+      expect(persisted).toHaveLength(1)
+      expect(persisted[0]!.status).toBe('dismissed')
+      expect(persisted[0]!.dismissReason).toBe('not applicable')
+    })
+
+    it('addMessage() writes through to file', () => {
+      const store = new AnnotationStore({ persistence: { filePath } })
+      const ann = store.create({ elementSource: 'App.tsx:1:1', text: 'message me' })
+      store.addMessage(ann.id, { from: 'user', text: 'hello' })
+
+      const persisted = loadAnnotations(filePath)
+      expect(persisted).toHaveLength(1)
+      expect(persisted[0]!.thread).toHaveLength(1)
+      expect(persisted[0]!.thread[0]!.text).toBe('hello')
+      expect(persisted[0]!.thread[0]!.from).toBe('user')
+    })
+
+    it('eviction is reflected in the persisted file — memory and disk agree', () => {
+      const store = new AnnotationStore({ maxTerminal: 2, persistence: { filePath } })
+
+      const anns: string[] = []
+      for (let i = 0; i < 3; i++) {
+        const ann = store.create({ elementSource: `App.tsx:${i}:1`, text: `t${i}` })
+        store.acknowledge(ann.id)
+        store.resolve(ann.id, `s${i}`)
+        anns.push(ann.id)
+      }
+
+      // 3rd resolve pushes terminalOrder to 3, evicting the 1st
+      const persisted = loadAnnotations(filePath)
+      const persistedIds = persisted.map((a) => a.id)
+      expect(persistedIds).not.toContain(anns[0])
+      expect(persistedIds).toContain(anns[1])
+      expect(persistedIds).toContain(anns[2])
+
+      // Integration claim: in-memory state and on-disk state must agree after eviction.
+      // Without this, a bug where eviction wipes the Map but persists a stale snapshot
+      // would still pass the above 3 assertions.
+      const memoryIds = store.getAll().map((a) => a.id).sort()
+      expect(persistedIds.sort()).toEqual(memoryIds)
+    })
+
+    it('does not call writeFileSync when persistence is unset', () => {
+      // Spy proves negative-behavior: no write attempt anywhere, not just to a
+      // path we happen to know about. Falsifiable by any regression that calls
+      // saveAnnotations() unconditionally.
+      const writeSpy = vi.spyOn(fs, 'writeFileSync')
+      const store = new AnnotationStore()
+      const ann = store.create({ elementSource: 'App.tsx:1:1', text: 'no persist' })
+      store.acknowledge(ann.id)
+      store.resolve(ann.id, 'done')
+
+      expect(writeSpy).not.toHaveBeenCalled()
+    })
+
+    it('hydrated terminalOrder is chronological — evicts oldest by updatedAt', () => {
+      // Counter-based mock: every Date.now() call returns a strictly increasing
+      // value. Robust to refactors that change how many times each mutation
+      // invokes Date.now() — the chronological invariant (ann1 < ann2 < ann3)
+      // holds regardless of call count.
+      let mockTime = 0
+      const dateSpy = vi.spyOn(Date, 'now').mockImplementation(() => {
+        mockTime += 100
+        return mockTime
+      })
+
+      const storeA = new AnnotationStore({ maxTerminal: 3, persistence: { filePath } })
+      const ann1 = storeA.create({ elementSource: 'A.tsx:1:1', text: 'oldest' })
+      storeA.acknowledge(ann1.id)
+      storeA.resolve(ann1.id, 'done1')
+
+      const ann2 = storeA.create({ elementSource: 'A.tsx:2:1', text: 'middle' })
+      storeA.acknowledge(ann2.id)
+      storeA.resolve(ann2.id, 'done2')
+
+      const ann3 = storeA.create({ elementSource: 'A.tsx:3:1', text: 'newest' })
+      storeA.acknowledge(ann3.id)
+      storeA.resolve(ann3.id, 'done3')
+
+      dateSpy.mockRestore()
+
+      // Step 2: construct a NEW store from the same file — terminalOrder hydrated from disk
+      const storeB = new AnnotationStore({ maxTerminal: 3, persistence: { filePath } })
+      expect(storeB.getAll()).toHaveLength(3) // all 3 at cap
+
+      // Step 3: add 4th annotation (create + ack + resolve) — should evict ann1 (oldest updatedAt=300)
+      const ann4 = storeB.create({ elementSource: 'A.tsx:4:1', text: 'fourth' })
+      storeB.acknowledge(ann4.id)
+      storeB.resolve(ann4.id, 'done4')
+
+      const allIds = storeB.getAll().map((a) => a.id)
+      expect(allIds).not.toContain(ann1.id)  // evicted — oldest updatedAt
+      expect(allIds).toContain(ann2.id)
+      expect(allIds).toContain(ann3.id)
+      expect(allIds).toContain(ann4.id)
+    })
+
+    it('caps over-cap hydration — drops oldest terminal entries to fit maxTerminal', () => {
+      // Scenario: annotations.json was hand-edited or maxTerminal was reduced
+      // between sessions, so the file contains MORE terminal entries than the
+      // cap. Constructor must enforce the cap on hydration — otherwise
+      // getAll() returns over-cap until the next mutation triggers eviction,
+      // violating the invariant. Two reviewers (Greptile + Copilot) flagged
+      // this in PR #140.
+      const fixtures: Annotation[] = []
+      for (let i = 0; i < 5; i++) {
+        fixtures.push({
+          id: `evict-${i}`,
+          status: 'resolved',
+          elementSource: `A.tsx:${i}:1`,
+          text: `entry ${i}`,
+          createdAt: i * 100,
+          updatedAt: i * 100,
+          thread: [],
+          kind: 'comment',
+          resolution: { summary: `done ${i}` },
+        })
+      }
+      saveAnnotations(filePath, fixtures)
+
+      const store = new AnnotationStore({ maxTerminal: 3, persistence: { filePath } })
+      const allIds = store.getAll().map((a) => a.id)
+      expect(allIds).toHaveLength(3)
+      // Oldest two (evict-0, evict-1) dropped — chronological by updatedAt
+      expect(allIds).not.toContain('evict-0')
+      expect(allIds).not.toContain('evict-1')
+      expect(allIds).toEqual(expect.arrayContaining(['evict-2', 'evict-3', 'evict-4']))
+    })
+
+    it('preserves all pending/acknowledged annotations on hydration even if over maxTerminal', () => {
+      // Cap applies only to terminal entries — active annotations are NEVER
+      // evicted. A file with 5 pending + 5 resolved should hydrate the 5
+      // pending unconditionally and trim the resolved set to fit maxTerminal.
+      const fixtures: Annotation[] = []
+      for (let i = 0; i < 5; i++) {
+        fixtures.push({
+          id: `pending-${i}`,
+          status: 'pending',
+          elementSource: `A.tsx:${i}:1`,
+          text: `pending ${i}`,
+          createdAt: i * 100,
+          updatedAt: i * 100,
+          thread: [],
+          kind: 'comment',
+        })
+      }
+      for (let i = 0; i < 5; i++) {
+        fixtures.push({
+          id: `resolved-${i}`,
+          status: 'resolved',
+          elementSource: `A.tsx:${i + 5}:1`,
+          text: `resolved ${i}`,
+          createdAt: (i + 5) * 100,
+          updatedAt: (i + 5) * 100,
+          thread: [],
+          kind: 'comment',
+          resolution: { summary: `done ${i}` },
+        })
+      }
+      saveAnnotations(filePath, fixtures)
+
+      const store = new AnnotationStore({ maxTerminal: 2, persistence: { filePath } })
+      // 5 pending + 2 most-recent resolved = 7 total
+      expect(store.getAll()).toHaveLength(7)
+      expect(store.getPending().map((a) => a.id)).toEqual(
+        expect.arrayContaining(['pending-0', 'pending-1', 'pending-2', 'pending-3', 'pending-4']),
+      )
+      const resolvedIds = store.getAll().filter((a) => a.status === 'resolved').map((a) => a.id)
+      expect(resolvedIds).toHaveLength(2)
+      expect(resolvedIds).toEqual(expect.arrayContaining(['resolved-3', 'resolved-4']))
+    })
+  })
   describe('getActive', () => {
     it.each([
       ['pending', true],
@@ -471,5 +734,32 @@ describe('AnnotationStore', () => {
       all[0]!.elementContext!.tagName = 'span'
       expect(store.getById(ann.id)!.elementContext!.tagName).toBe('div')
     })
+  })
+})
+
+describe('CortexSession passthrough', () => {
+  let tmpDir: string
+  let filePath: string
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-session-'))
+    filePath = path.join(tmpDir, 'annotations.json')
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('wires persistence through CortexConfig.annotationsFilePath', () => {
+    const session = new CortexSession({
+      root: '/tmp',
+      mode: 'dev',
+      annotationsFilePath: filePath,
+    })
+    session.annotations.create({ elementSource: 'App.tsx:1:1', text: 'session wired' })
+
+    const persisted = loadAnnotations(filePath)
+    expect(persisted).toHaveLength(1)
+    expect(persisted[0]!.text).toBe('session wired')
   })
 })

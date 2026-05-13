@@ -5,6 +5,7 @@ import { createServer, type IncomingMessage, type Server as HttpServer } from 'n
 import type { Duplex } from 'node:stream'
 import { WebSocket, WebSocketServer } from 'ws'
 import { CortexSession } from '../core/session.js'
+import { resolveAnnotationsFilePath } from './annotations-path-resolver.js'
 import { TailwindResolver } from '../core/tailwind-resolver.js'
 import { TailwindRewriter } from '../core/rewriter/tailwind.js'
 import { InlineStyleRewriter } from '../core/rewriter/inline-style.js'
@@ -398,7 +399,15 @@ class CortexWebpackRuntime {
 
   private async startInternal(): Promise<void> {
     if (this.session || this.httpServer) return
-    const session = new CortexSession({ root: this.root, mode: this.mode })
+    // Annotations persistence opt-in lives in resolveAnnotationsFilePath —
+    // shared by the vite adapter and unit-tested without a webpack runtime.
+    const annotationsFilePath = resolveAnnotationsFilePath({ root: this.root })
+
+    const session = new CortexSession({
+      root: this.root,
+      mode: this.mode,
+      annotationsFilePath,
+    })
     this.session = session
 
     this.browserWss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 })
@@ -691,6 +700,17 @@ class CortexWebpackRuntime {
       this.sendToBrowser(session, ws, { type: 'agent-status', connected: session.cliClients.size > 0 }, 'webpack.browserMessage.initAgentStatus')
       if (session.editorActive) this.sendToBrowser(session, ws, { type: 'cortex' }, 'webpack.browserMessage.initCortex')
       if (session.capabilitiesCache) this.sendToBrowser(session, ws, { type: 'capabilities', systems: session.capabilitiesCache }, 'webpack.browserMessage.initCapabilities')
+      // Hydrate the browser with annotations the server has in memory.
+      // Always emit — even an empty snapshot is authoritative. A reconnecting
+      // browser (network blip, HMR re-mount) needs to know the server's current
+      // state so any stale local annotations get replaced. The reducer performs
+      // a full Map replacement on this message.
+      this.sendToBrowser(
+        session,
+        ws,
+        { type: 'annotations-snapshot', annotations: session.annotations.getAll() },
+        'webpack.browserMessage.initAnnotationsSnapshot',
+      )
       return
     }
     if (data.type === 'comment') {

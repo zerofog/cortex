@@ -500,6 +500,140 @@ describe('annotation-updated action', () => {
 })
 
 // ---------------------------------------------------------------------------
+// annotations-snapshot — server-pushed hydration on browser init
+// ---------------------------------------------------------------------------
+
+describe('annotations-snapshot action', () => {
+  it('replaces empty state with the server snapshot on first connect', () => {
+    const a = makeAnnotation({ id: 'persisted-1', text: 'survived restart 1' })
+    const b = makeAnnotation({ id: 'persisted-2', text: 'survived restart 2', status: 'acknowledged' })
+    const { state } = cortexAppReducer(initialCortexAppReducerState, {
+      type: 'annotations-snapshot',
+      annotations: [a, b],
+    })
+    expect(state.annotations.size).toBe(2)
+    expect(state.annotations.get('persisted-1')).toEqual(a)
+    expect(state.annotations.get('persisted-2')).toEqual(b)
+  })
+
+  it('replaces any existing local annotations with the snapshot (server is authoritative)', () => {
+    const stale = makeAnnotation({ id: 'stale-1', text: 'stale local' })
+    const baseState: CortexAppReducerState = {
+      ...initialCortexAppReducerState,
+      annotations: new Map([[stale.id, stale]]),
+    }
+    const fresh = makeAnnotation({ id: 'fresh-1', text: 'fresh from disk' })
+    const { state } = cortexAppReducer(baseState, {
+      type: 'annotations-snapshot',
+      annotations: [fresh],
+    })
+    expect(state.annotations.has('stale-1')).toBe(false)
+    expect(state.annotations.get('fresh-1')).toEqual(fresh)
+    expect(state.annotations.size).toBe(1)
+  })
+
+  it('handles an empty snapshot by clearing existing annotations', () => {
+    const existing = makeAnnotation({ id: 'a' })
+    const baseState: CortexAppReducerState = {
+      ...initialCortexAppReducerState,
+      annotations: new Map([[existing.id, existing]]),
+    }
+    const { state } = cortexAppReducer(baseState, {
+      type: 'annotations-snapshot',
+      annotations: [],
+    })
+    expect(state.annotations.size).toBe(0)
+  })
+
+  it('emits no effects', () => {
+    const ann = makeAnnotation()
+    const { effects } = cortexAppReducer(initialCortexAppReducerState, {
+      type: 'annotations-snapshot',
+      annotations: [ann],
+    })
+    expect(effects).toEqual([])
+  })
+
+  it('clears editErrors for fix-request annotations resolved/dismissed in the snapshot', () => {
+    // Scenario flagged by Greptile P1 on PR #140: browser had an edit failure
+    // (editErrors populated via edit_status:failed), briefly disconnected, server
+    // resolved the corresponding fix-request during that window. On reconnect,
+    // the annotations-snapshot must clear the stale error entry — same
+    // reconciliation logic the annotation-updated case already implements.
+    const baseStateWithErrors: CortexAppReducerState = {
+      ...initialCortexAppReducerState,
+      editErrors: new Map([
+        ['src/App.tsx:10:3\0color', { source: 'src/App.tsx:10:3', property: 'color', value: 'red', reason: 'design' }],
+        ['src/Other.tsx:5:1\0padding', { source: 'src/Other.tsx:5:1', property: 'padding', value: '1rem', reason: 'design' }],
+      ]),
+    }
+    const resolvedFixRequest = makeAnnotation({
+      id: 'fix-1',
+      status: 'resolved',
+      kind: 'fix-request',
+      elementSource: 'src/App.tsx:10:3',
+      fixMeta: { property: 'color', value: 'red', reason: 'design' },
+    })
+    const dismissedFixRequest = makeAnnotation({
+      id: 'fix-2',
+      status: 'dismissed',
+      kind: 'fix-request',
+      elementSource: 'src/Other.tsx:5:1',
+      fixMeta: { property: 'padding', value: '1rem', reason: 'design' },
+    })
+    const { state } = cortexAppReducer(baseStateWithErrors, {
+      type: 'annotations-snapshot',
+      annotations: [resolvedFixRequest, dismissedFixRequest],
+    })
+    expect(state.editErrors.size).toBe(0)
+    expect(state.editErrors.has('src/App.tsx:10:3\0color')).toBe(false)
+    expect(state.editErrors.has('src/Other.tsx:5:1\0padding')).toBe(false)
+  })
+
+  it('preserves editErrors for fix-requests that are still pending or acknowledged in the snapshot', () => {
+    // Inverse of the previous test: only resolved/dismissed terminal-state
+    // fix-requests should clear their editErrors. Pending or acknowledged ones
+    // mean the failure is still actionable; the error must remain visible.
+    const baseStateWithErrors: CortexAppReducerState = {
+      ...initialCortexAppReducerState,
+      editErrors: new Map([
+        ['src/App.tsx:10:3\0color', { source: 'src/App.tsx:10:3', property: 'color', value: 'red', reason: 'design' }],
+      ]),
+    }
+    const pendingFixRequest = makeAnnotation({
+      id: 'fix-1',
+      status: 'pending',
+      kind: 'fix-request',
+      elementSource: 'src/App.tsx:10:3',
+      fixMeta: { property: 'color', value: 'red', reason: 'design' },
+    })
+    const { state } = cortexAppReducer(baseStateWithErrors, {
+      type: 'annotations-snapshot',
+      annotations: [pendingFixRequest],
+    })
+    expect(state.editErrors.has('src/App.tsx:10:3\0color')).toBe(true)
+  })
+
+  it('keeps editErrors Map identity-stable when no fix-request reconciliation is needed', () => {
+    // Avoid spurious re-renders: if no fix-request in the snapshot triggers a
+    // clear, the existing editErrors Map reference must pass through.
+    const errorMap = new Map([
+      ['src/App.tsx:10:3\0color', { source: 'src/App.tsx:10:3', property: 'color', value: 'red', reason: 'design' }],
+    ])
+    const baseStateWithErrors: CortexAppReducerState = {
+      ...initialCortexAppReducerState,
+      editErrors: errorMap,
+    }
+    const commentAnn = makeAnnotation({ id: 'c1', status: 'resolved', kind: 'comment' })
+    const { state } = cortexAppReducer(baseStateWithErrors, {
+      type: 'annotations-snapshot',
+      annotations: [commentAnn],
+    })
+    expect(state.editErrors).toBe(errorMap)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // agent-status
 // ---------------------------------------------------------------------------
 

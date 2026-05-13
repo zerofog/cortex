@@ -106,6 +106,7 @@ export type CortexAppAction =
     }
   | { type: 'annotation-created'; annotation: Annotation }
   | { type: 'annotation-updated'; annotation: Annotation }
+  | { type: 'annotations-snapshot'; annotations: Annotation[] }
   | { type: 'agent-status'; connected: boolean }
   | { type: 'activity-entry'; entry: ActivityEntry }
   | { type: 'divergence'; diagnostic: OverrideDivergence }
@@ -355,6 +356,46 @@ export function cortexAppReducer(
         effects.push({ type: 'send', message: { type: 'clear_server_undo' } })
       }
       return { state, effects }
+    }
+
+    // -----------------------------------------------------------------------
+    case 'annotations-snapshot': {
+      // Server-authoritative replacement of the annotations Map. Fires on
+      // browser `init` so persisted annotations re-appear after a Vite
+      // dev-server restart (CORTEX_PERSIST_ANNOTATIONS=true). Drops any local
+      // state — typically none, since browser is freshly mounted on init.
+      const nextAnnotations = new Map<string, Annotation>(
+        action.annotations.map((ann) => [ann.id, ann]),
+      )
+
+      // Mirror the editErrors reconciliation from the annotation-updated case:
+      // if the browser was disconnected during an edit failure and the server
+      // resolved/dismissed the corresponding fix-request during that window,
+      // the stale error must clear on reconnect. Identity-stable when no
+      // clearing is needed (Map reference unchanged).
+      let nextErrors = state.editErrors
+      let errorsCloned = false
+      for (const ann of action.annotations) {
+        if (
+          ann.kind === 'fix-request' &&
+          (ann.status === 'resolved' || ann.status === 'dismissed') &&
+          ann.fixMeta
+        ) {
+          const key = `${ann.elementSource}\0${ann.fixMeta.property}`
+          if (nextErrors.has(key)) {
+            if (!errorsCloned) {
+              nextErrors = new Map(nextErrors)
+              errorsCloned = true
+            }
+            nextErrors.delete(key)
+          }
+        }
+      }
+
+      return {
+        state: { ...state, annotations: nextAnnotations, editErrors: nextErrors },
+        effects: [],
+      }
     }
 
     // -----------------------------------------------------------------------
