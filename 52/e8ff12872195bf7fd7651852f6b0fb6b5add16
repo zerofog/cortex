@@ -1,0 +1,21 @@
+cortex-editor/src/adapters/vite.ts
+  s_8e8bd89c92e8ed::t_d56361ffe0503a 1123-1131
+cortex-editor/src/adapters/webpack.ts
+  s_8e8bd89c92e8ed::t_b649bdf567e711 702-712
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "52e8ff12872195bf7fd7651852f6b0fb6b5add16",
+  "prompts": {},
+  "sessions": {
+    "s_8e8bd89c92e8ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7906b72c-6191-48d8-a505-a907e52b9056",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
