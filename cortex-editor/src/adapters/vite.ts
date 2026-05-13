@@ -1120,15 +1120,15 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             if (currentSession!.capabilitiesCache) {
               currentSession!.channel.send({ type: 'capabilities', systems: currentSession!.capabilitiesCache })
             }
-            // Hydrate the browser with annotations the server already has in memory.
-            // Persisted annotations (CORTEX_PERSIST_ANNOTATIONS=true) live in
-            // AnnotationStore after constructor hydration but never reach the UI
-            // unless we push them on init — the reducer only handles single-item
-            // create/update events. Skip the empty case to keep the wire quiet.
-            const hydrated = currentSession!.annotations.getAll()
-            if (hydrated.length > 0) {
-              currentSession!.channel.send({ type: 'annotations-snapshot', annotations: hydrated })
-            }
+            // Hydrate the browser with annotations the server has in memory.
+            // Always emit — even an empty snapshot is authoritative. A reconnecting
+            // browser (network blip, HMR re-mount) needs to know the server's
+            // current state so any stale local annotations get replaced. The reducer
+            // performs a full Map replacement on this message.
+            currentSession!.channel.send({
+              type: 'annotations-snapshot',
+              annotations: currentSession!.annotations.getAll(),
+            })
           }
           return
         }
