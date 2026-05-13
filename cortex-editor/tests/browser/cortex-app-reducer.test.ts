@@ -553,6 +553,84 @@ describe('annotations-snapshot action', () => {
     })
     expect(effects).toEqual([])
   })
+
+  it('clears editErrors for fix-request annotations resolved/dismissed in the snapshot', () => {
+    // Scenario flagged by Greptile P1 on PR #140: browser had an edit failure
+    // (editErrors populated via edit_status:failed), briefly disconnected, server
+    // resolved the corresponding fix-request during that window. On reconnect,
+    // the annotations-snapshot must clear the stale error entry — same
+    // reconciliation logic the annotation-updated case already implements.
+    const baseStateWithErrors: CortexAppReducerState = {
+      ...initialCortexAppReducerState,
+      editErrors: new Map([
+        ['src/App.tsx:10:3\0color', { source: 'src/App.tsx:10:3', property: 'color', value: 'red', reason: 'design' }],
+        ['src/Other.tsx:5:1\0padding', { source: 'src/Other.tsx:5:1', property: 'padding', value: '1rem', reason: 'design' }],
+      ]),
+    }
+    const resolvedFixRequest = makeAnnotation({
+      id: 'fix-1',
+      status: 'resolved',
+      kind: 'fix-request',
+      elementSource: 'src/App.tsx:10:3',
+      fixMeta: { property: 'color', value: 'red', reason: 'design' },
+    })
+    const dismissedFixRequest = makeAnnotation({
+      id: 'fix-2',
+      status: 'dismissed',
+      kind: 'fix-request',
+      elementSource: 'src/Other.tsx:5:1',
+      fixMeta: { property: 'padding', value: '1rem', reason: 'design' },
+    })
+    const { state } = cortexAppReducer(baseStateWithErrors, {
+      type: 'annotations-snapshot',
+      annotations: [resolvedFixRequest, dismissedFixRequest],
+    })
+    expect(state.editErrors.size).toBe(0)
+    expect(state.editErrors.has('src/App.tsx:10:3\0color')).toBe(false)
+    expect(state.editErrors.has('src/Other.tsx:5:1\0padding')).toBe(false)
+  })
+
+  it('preserves editErrors for fix-requests that are still pending or acknowledged in the snapshot', () => {
+    // Inverse of the previous test: only resolved/dismissed terminal-state
+    // fix-requests should clear their editErrors. Pending or acknowledged ones
+    // mean the failure is still actionable; the error must remain visible.
+    const baseStateWithErrors: CortexAppReducerState = {
+      ...initialCortexAppReducerState,
+      editErrors: new Map([
+        ['src/App.tsx:10:3\0color', { source: 'src/App.tsx:10:3', property: 'color', value: 'red', reason: 'design' }],
+      ]),
+    }
+    const pendingFixRequest = makeAnnotation({
+      id: 'fix-1',
+      status: 'pending',
+      kind: 'fix-request',
+      elementSource: 'src/App.tsx:10:3',
+      fixMeta: { property: 'color', value: 'red', reason: 'design' },
+    })
+    const { state } = cortexAppReducer(baseStateWithErrors, {
+      type: 'annotations-snapshot',
+      annotations: [pendingFixRequest],
+    })
+    expect(state.editErrors.has('src/App.tsx:10:3\0color')).toBe(true)
+  })
+
+  it('keeps editErrors Map identity-stable when no fix-request reconciliation is needed', () => {
+    // Avoid spurious re-renders: if no fix-request in the snapshot triggers a
+    // clear, the existing editErrors Map reference must pass through.
+    const errorMap = new Map([
+      ['src/App.tsx:10:3\0color', { source: 'src/App.tsx:10:3', property: 'color', value: 'red', reason: 'design' }],
+    ])
+    const baseStateWithErrors: CortexAppReducerState = {
+      ...initialCortexAppReducerState,
+      editErrors: errorMap,
+    }
+    const commentAnn = makeAnnotation({ id: 'c1', status: 'resolved', kind: 'comment' })
+    const { state } = cortexAppReducer(baseStateWithErrors, {
+      type: 'annotations-snapshot',
+      annotations: [commentAnn],
+    })
+    expect(state.editErrors).toBe(errorMap)
+  })
 })
 
 // ---------------------------------------------------------------------------
