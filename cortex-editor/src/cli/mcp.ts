@@ -98,7 +98,7 @@ export const PROTOCOL_INSTRUCTIONS = `Channel notifications use the <channel sou
 
 Annotation handling protocol (call these tools in this order):
 
-0. Rehydrate before responding: annotation channel notifications (meta.kind = comment, fix-request, or thread-reply) carry the active annotation's id in meta.annotation_id; call cortex_get_details with that id — if thread.length > 0, read it before doing anything else. Other channel notifications (e.g. meta.kind = staged-edits, or notifications with no kind at all) carry different meta shapes and do not include annotation_id — do not call annotation tools for them. After /clear, call cortex_get_pending to catch up on annotations awaiting acknowledgement. cortex_list_active does not exist yet — do not attempt to call it (ZF0-1602 will add cortex_list_active for full pending+acknowledged continuity).
+0. Rehydrate before responding: annotation channel notifications (meta.kind = comment, fix-request, or thread-reply) carry the active annotation's id in meta.annotation_id; call cortex_get_details with that id — if thread.length > 0, read it before doing anything else. Other channel notifications (e.g. meta.kind = staged-edits, or notifications with no kind at all) carry different meta shapes and do not include annotation_id — do not call annotation tools for them. After /clear, call cortex_list_active to enumerate all annotations in active states (pending + acknowledged); for any returned id you don't recognize, call cortex_get_details to fetch its thread before responding. cortex_get_pending remains the entry point for the steady-state annotation workflow (poll → acknowledge → resolve); cortex_list_active is the correct rehydration call specifically after /clear. Entries returned by cortex_list_active with status === 'acknowledged' are already past step 1 — skip the acknowledge and resume from step 2 (cortex_acknowledge would return null for these, indicating "already acknowledged").
 
 1. Acknowledge immediately: call cortex_acknowledge(annotationId).
 
@@ -541,6 +541,19 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     async () => {
       try {
         const result = await rpc('getPending', {})
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Failed: ${err instanceof Error ? err.message : String(err)}` }], isError: true }
+      }
+    },
+  )
+
+  server.registerTool(
+    'cortex_list_active',
+    { description: 'List all active (in-flight) annotations — both pending and acknowledged. Use after Claude Code /clear to rehydrate work that was already in progress; for any returned annotation whose id you don\'t recognize, call cortex_get_details. Excludes resolved and dismissed (terminal) annotations.' },
+    async () => {
+      try {
+        const result = await rpc('getActive', {})
         return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
       } catch (err) {
         return { content: [{ type: 'text' as const, text: `Failed: ${err instanceof Error ? err.message : String(err)}` }], isError: true }

@@ -580,6 +580,161 @@ describe('AnnotationStore', () => {
       expect(resolvedIds).toEqual(expect.arrayContaining(['resolved-3', 'resolved-4']))
     })
   })
+  describe('getActive', () => {
+    it.each([
+      ['pending', true],
+      ['acknowledged', true],
+      ['resolved', false],
+      ['dismissed', false],
+    ] as const)('status=%s: included=%s', (status, shouldBeIncluded) => {
+      const ann = store.create({ elementSource: 'App.tsx:1:1', text: 'test' })
+      if (status === 'acknowledged') {
+        store.acknowledge(ann.id)
+      } else if (status === 'resolved') {
+        store.acknowledge(ann.id)
+        store.resolve(ann.id, 'done')
+      } else if (status === 'dismissed') {
+        store.dismiss(ann.id)
+      }
+      // pending requires no transition
+
+      const active = store.getActive()
+      if (shouldBeIncluded) {
+        expect(active).toHaveLength(1)
+        expect(active[0]!.id).toBe(ann.id)
+      } else {
+        expect(active).toHaveLength(0)
+      }
+    })
+
+    it('returns pending + acknowledged together, excludes terminal states', () => {
+      const pending = store.create({ elementSource: 'App.tsx:1:1', text: 'pending' })
+      const acknowledged = store.create({ elementSource: 'App.tsx:2:1', text: 'acknowledged' })
+      const resolved = store.create({ elementSource: 'App.tsx:3:1', text: 'resolved' })
+      const dismissed = store.create({ elementSource: 'App.tsx:4:1', text: 'dismissed' })
+
+      store.acknowledge(acknowledged.id)
+      store.acknowledge(resolved.id)
+      store.resolve(resolved.id, 'done')
+      store.dismiss(dismissed.id)
+
+      const active = store.getActive()
+      expect(active).toHaveLength(2)
+      const ids = active.map(a => a.id)
+      expect(ids).toContain(pending.id)
+      expect(ids).toContain(acknowledged.id)
+      expect(ids).not.toContain(resolved.id)
+      expect(ids).not.toContain(dismissed.id)
+    })
+
+    it('returns defensive snapshots (mutating returned annotation does not affect store)', () => {
+      const ann = store.create({ elementSource: 'App.tsx:1:1', text: 'test' })
+      const active = store.getActive()
+      expect(active).toHaveLength(1)
+
+      // mutate the returned snapshot
+      active[0]!.text = 'mutated'
+
+      // store must be unaffected
+      const activeAgain = store.getActive()
+      expect(activeAgain[0]!.text).toBe('test')
+    })
+  })
+
+  describe('snapshot deep-clone invariant', () => {
+    it('resolution.summary mutation is isolated from the live store entry', () => {
+      const ann = store.create({ elementSource: 'App.tsx:1:1', text: 'test' })
+      store.acknowledge(ann.id)
+      const resolved = store.resolve(ann.id, 'done')!
+      resolved.resolution!.summary = 'tampered'
+      expect(store.getById(ann.id)!.resolution!.summary).toBe('done')
+    })
+
+    it('thread[0].text mutation is isolated from the live store entry', () => {
+      const ann = store.create({ elementSource: 'App.tsx:1:1', text: 'test' })
+      store.acknowledge(ann.id)
+      const withMessage = store.addMessage(ann.id, {
+        from: 'user',
+        text: 'hello',
+      })!
+      withMessage.thread[0]!.text = 'tampered'
+      expect(store.getById(ann.id)!.thread[0]!.text).toBe('hello')
+    })
+
+    it('pinPosition.x mutation is isolated from the live store entry', () => {
+      const ann = store.create({
+        elementSource: 'App.tsx:1:1',
+        text: 'test',
+        pinPosition: { x: 100, y: 200 },
+      })
+      const snapshot = store.getById(ann.id)!
+      snapshot.pinPosition!.x = 999
+      expect(store.getById(ann.id)!.pinPosition!.x).toBe(100)
+    })
+
+    it('elementContext and currentStyles mutations are isolated from the live store entry', () => {
+      const ann = store.create({
+        elementSource: 'App.tsx:1:1',
+        text: 'test',
+        elementContext: {
+          tagName: 'div',
+          componentName: null,
+          domSelector: '#root',
+          textPreview: 'hi',
+        },
+        currentStyles: { color: 'red' },
+      })
+      const snapshot = store.getById(ann.id)!
+      snapshot.elementContext!.tagName = 'span'
+      snapshot.currentStyles!.color = 'blue'
+      const live = store.getById(ann.id)!
+      expect(live.elementContext!.tagName).toBe('div')
+      expect(live.currentStyles!.color).toBe('red')
+    })
+
+    it('fixMeta.property mutation is isolated from the live store entry', () => {
+      const ann = store.create({
+        elementSource: 'App.tsx:1:1',
+        text: 'test',
+        kind: 'fix-request',
+        fixMeta: { property: 'padding', value: 'lg', reason: 'too tight' },
+      })
+      const snapshot = store.getById(ann.id)!
+      snapshot.fixMeta!.property = 'margin'
+      expect(store.getById(ann.id)!.fixMeta!.property).toBe('padding')
+    })
+
+    it('create() return value is isolated from the live store entry', () => {
+      // Locks the invariant on create()'s exit path specifically, so a future
+      // refactor that returns the freshly-built annotation without snapshot()
+      // is caught.
+      const fresh = store.create({
+        elementSource: 'App.tsx:1:1',
+        text: 'test',
+        pinPosition: { x: 10, y: 20 },
+      })
+      fresh.pinPosition!.x = 999
+      expect(store.getById(fresh.id)!.pinPosition!.x).toBe(10)
+    })
+
+    it('getAll() returns each entry as an isolated snapshot', () => {
+      // Locks the invariant on getAll(), the .map(snapshot) hot path that a
+      // future refactor might "optimize" to return live entries.
+      const ann = store.create({
+        elementSource: 'App.tsx:1:1',
+        text: 'test',
+        elementContext: {
+          tagName: 'div',
+          componentName: null,
+          domSelector: '#root',
+          textPreview: 'hi',
+        },
+      })
+      const all = store.getAll()
+      all[0]!.elementContext!.tagName = 'span'
+      expect(store.getById(ann.id)!.elementContext!.tagName).toBe('div')
+    })
+  })
 })
 
 describe('CortexSession passthrough', () => {

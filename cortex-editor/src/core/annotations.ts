@@ -76,7 +76,7 @@ export class AnnotationStore {
   }
 
   private snapshot(ann: Annotation): Annotation {
-    return { ...ann, thread: [...ann.thread] }
+    return structuredClone(ann)
   }
 
   private markTerminal(id: string): void {
@@ -112,6 +112,10 @@ export class AnnotationStore {
     return [...this.annotations.values()]
       .filter((a) => a.status === 'pending')
       .map((a) => this.snapshot(a))
+  }
+
+  getActive(): Annotation[] {
+    return [...this.annotations.values()].filter(a => a.status === 'pending' || a.status === 'acknowledged').map(a => this.snapshot(a))
   }
 
   getById(id: string): Annotation | null {

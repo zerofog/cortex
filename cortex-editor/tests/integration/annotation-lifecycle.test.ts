@@ -44,6 +44,7 @@ describe('annotation lifecycle integration', () => {
           try {
             let result: unknown
             switch (method) {
+              case 'getActive':   result = annotationStore.getActive(); break
               case 'getPending':  result = annotationStore.getPending(); break
               case 'getDetails':  result = annotationStore.getById(id); break
               case 'acknowledge': result = annotationStore.acknowledge(id); break
@@ -181,6 +182,33 @@ describe('annotation lifecycle integration', () => {
     expect(list).toHaveLength(2)
     const texts = list.map((a: { text: string }) => a.text).sort()
     expect(texts).toEqual(['Second comment', 'Third comment'])
+  })
+
+  it('cortex_list_active returns pending + acknowledged through real AnnotationStore.getActive, excludes terminal states', async () => {
+    // Wire-level coverage for ZF0-1602: exercises MCP tool → rpc('getActive') → real
+    // AnnotationStore.getActive() filter. Falsifiable along multiple axes:
+    //   - If getActive's predicate regressed to include resolved/dismissed → length > 2 fails
+    //   - If rpc method routing typo'd to 'getPending' → acknowledged annotation missing → texts mismatch
+    //   - If filter regressed to status==='pending' only → acknowledged annotation missing → texts mismatch
+    const annPending = annotationStore.create({ elementSource: 'App.tsx:1:1', text: 'pending one' })
+    const annAck = annotationStore.create({ elementSource: 'App.tsx:2:1', text: 'acknowledged one' })
+    const annResolved = annotationStore.create({ elementSource: 'App.tsx:3:1', text: 'resolved one' })
+    const annDismissed = annotationStore.create({ elementSource: 'App.tsx:4:1', text: 'dismissed one' })
+    annotationStore.acknowledge(annAck.id)
+    annotationStore.acknowledge(annResolved.id)
+    annotationStore.resolve(annResolved.id, 'done')
+    annotationStore.dismiss(annDismissed.id, 'not applicable')
+    void annPending // keep id in scope for self-documenting reads
+
+    const client = await startTestMCP()
+
+    const result = await client.callTool({ name: 'cortex_list_active' })
+    expect(result.isError).toBeFalsy()
+    const active = JSON.parse((result.content as Array<{ text: string }>)[0].text) as Array<{ id: string; text: string; status: string }>
+    expect(active).toHaveLength(2)
+    const texts = active.map(a => a.text).sort()
+    expect(texts).toEqual(['acknowledged one', 'pending one'])
+    expect(active.map(a => a.status).sort()).toEqual(['acknowledged', 'pending'])
   })
 
   it('cortex_get_details returns null for unknown annotation id', async () => {
