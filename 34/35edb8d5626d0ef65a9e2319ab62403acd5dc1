@@ -1,0 +1,26 @@
+index.html
+  s_8ee42a83828ed5::t_60520742071d6f 14-19
+  s_8ee42a83828ed5::t_9de3d3e03ad1fb 2872-2885
+  s_8ee42a83828ed5::t_48265e39e59672 2998-3001
+  s_8ee42a83828ed5::t_54398a8b1be45c 2936-2937
+  s_8ee42a83828ed5::t_1a1b2b05ed6d8b 3018
+cortex-demo-stub.js
+  s_8ee42a83828ed5::t_fe23e46958ecf8 1-28,30-172,234
+  s_8ee42a83828ed5::t_7ef29f96b5b55b 173-209,211-230,232-233
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "3435edb8d5626d0ef65a9e2319ab62403acd5dc1",
+  "prompts": {},
+  "sessions": {
+    "s_8ee42a83828ed5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dadc029d-a0c2-4793-be9b-f309fea052ed",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dlee11 <derricklee110@gmail.com>"
+    }
+  }
+}
