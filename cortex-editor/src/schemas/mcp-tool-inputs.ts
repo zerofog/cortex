@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { intentIdSchema } from './pending-edit.js'
+import { intentIdSchema, MAX_FULL_SYNC_SIZE } from './pending-edit.js'
 
 // ---------------------------------------------------------------------------
 // MCP tool input schemas — canonical source consumed by the registerTool calls
@@ -57,7 +57,7 @@ export const cortexApplyEditsInputSchema = z.object({
 
 /** cortex_discard_edits input */
 export const cortexDiscardEditsInputSchema = z.object({
-  intentIds: z.array(intentIdField).describe('IDs of intents to discard'),
+  intentIds: z.array(intentIdField).min(1).max(MAX_FULL_SYNC_SIZE).describe('IDs of intents to discard'),
 })
 
 /** cortex_get_intent_context input */
@@ -67,12 +67,12 @@ export const cortexGetIntentContextInputSchema = z.object({
 
 /** cortex_acknowledge_source_edit input */
 export const cortexAcknowledgeSourceEditInputSchema = z.object({
-  intentIds: z.array(intentIdField).describe('IDs of intents whose source edits have landed via the Edit tool'),
+  intentIds: z.array(intentIdField).min(1).max(MAX_FULL_SYNC_SIZE).describe('IDs of intents whose source edits have landed via the Edit tool'),
 })
 
 /** cortex_report_source_edit_failed input */
 export const cortexReportSourceEditFailedInputSchema = z.object({
-  intentIds: z.array(intentIdField).describe('IDs of intents whose source edits failed via the Edit tool'),
+  intentIds: z.array(intentIdField).min(1).max(MAX_FULL_SYNC_SIZE).describe('IDs of intents whose source edits failed via the Edit tool'),
   reason: z.string().max(2048).describe('Human-readable failure reason — surfaced in the panel via applyError'),
 })
 export type CortexReportSourceEditFailedInput = z.infer<typeof cortexReportSourceEditFailedInputSchema>

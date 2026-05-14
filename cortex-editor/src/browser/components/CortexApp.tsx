@@ -751,6 +751,13 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     // hello response is async, so attaching this handler first guarantees it's live
     // when the response arrives. Emitting init before this line would race.
     const unsubscribe = channel.onMessage((msg) => {
+      // FIX 5: guard against messages arriving in the unmount window.
+      // The `disposed` flag flips in the cleanup callback below; `unsubscribe()`
+      // runs in the same cleanup, but messages already enqueued by the transport
+      // may still be dispatched between disposed=true and unsubscribe taking effect.
+      // Without this guard, those messages would mutate state on a disposed instance.
+      if (disposed) return
+
       // edit_status: ref-lookup before dispatch (impure boundary).
       // The dispatch entry comes from editDispatchRef which is mutable React-side state.
       // We must read AND mutate the ref BEFORE dispatching, so the reducer receives a
@@ -950,10 +957,14 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (msg.type === 'mcp-session-hello') {
         if (lastSessionIdRef.current === null) {
           lastSessionIdRef.current = msg.sessionId      // first adoption — no wipe
-          // Criterion 25: reconcile-on-connect on the first-adopt (no-wipe) path.
-          // Detects intents whose target element already has the expected value —
-          // the safety net for a stuck needs-source-edit intent after a Claude crash
-          // between the Edit tool and cortex_acknowledge_source_edit.
+          // FIX 6 (comment correction): reconcileOnConnect() is called here for
+          // symmetry with the same-UUID path and future-proofing (if buffer
+          // persistence is ever re-added, the no-op becomes meaningful). Under
+          // the current memory-only buffer the buffer is ALWAYS empty at mount —
+          // there is no rehydration source — so this call is a guaranteed no-op
+          // on the first-adopt path. The real work happens on same-UUID reconnects
+          // (the else branch below), where intents may have landed while MCP was
+          // transiently disconnected.
           reconcileOnConnect()
         } else if (lastSessionIdRef.current !== msg.sessionId) {
           buffer.clear()
@@ -961,8 +972,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           lastSessionIdRef.current = msg.sessionId
           // Different-UUID path: buffer already wiped — reconcile is moot.
         } else {
-          // Same-UUID reconnect (transient reconnect) — also a no-wipe path.
-          // Run reconcile to catch intents that landed while MCP was disconnected.
+          // Same-UUID reconnect (transient reconnect — WiFi flap, sleep/wake) — no-wipe path.
+          // reconcileOnConnect() does real work here: intents may have converged
+          // (the Edit tool landed them) while MCP was disconnected between wipes.
           reconcileOnConnect()
         }
         return

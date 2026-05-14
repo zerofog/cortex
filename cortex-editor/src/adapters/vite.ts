@@ -449,10 +449,12 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
       // isn't mounted (HMR transient), the browser will reconcile on next mount
       // via syncFullState (which mergeFullSyncs into the server cache, with
       // newer-timestamp-wins resolution — see StagedEditsCache.mergeFullSync).
-      // The browserNotified flag surfaces this to Claude so the tool response
-      // is honest about what propagated.
+      // FIX 4: browserNotified is now false when browserConnected is false —
+      // server.hot.send is fire-and-forget; the channel existing is not evidence
+      // that a browser actually received the message. browserConnected flips to
+      // true only on a successful 'init' handshake from the browser.
       let browserNotified = false
-      if (currentSession!.channel) {
+      if (currentSession!.channel && currentSession!.browserConnected) {
         try {
           currentSession!.channel.send({ type: 'staged-edits-discard', intentIds })
           browserNotified = true
@@ -473,8 +475,9 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
       // Same wire effect as discardEdits — broadcast to keep the browser canonical
       // buffer in sync. The apply-acked vs user-discarded distinction lives at the
       // MCP tool layer, not the channel layer.
+      // FIX 4: gate on browserConnected (parity with discardEdits).
       let browserNotified = false
-      if (currentSession!.channel) {
+      if (currentSession!.channel && currentSession!.browserConnected) {
         try {
           currentSession!.channel.send({ type: 'staged-edits-discard', intentIds })
           browserNotified = true
@@ -493,8 +496,9 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
       const reason = params.reason as string
       // STATE-MACHINE INVARIANT: do NOT remove intents from the cache. The source
       // edit FAILED — the intent did not land. Keep it so the user can retry/discard.
+      // FIX 4: gate on browserConnected (parity with discardEdits).
       let browserNotified = false
-      if (currentSession!.channel) {
+      if (currentSession!.channel && currentSession!.browserConnected) {
         try {
           currentSession!.channel.send({ type: 'source-edit-failed', intentIds, reason })
           browserNotified = true
@@ -1368,16 +1372,29 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             if (type === 'mcp-session-hello') {
               const sessionId = (parsed as Record<string, unknown>).sessionId
               if (typeof sessionId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
-                // ZF0-1869 Round-1 Fix 2: dual-write — clear the server-side cache
-                // directly so stale intents are evicted even if the browser tab is
-                // closed or backgrounded. Without this, a new Claude session connecting
-                // while the tab is not visible would find stale intents from a prior
-                // session and produce phantom "intent not found" errors on the next apply.
+                // ZF0-1869 Review Fix 1: UUID-change-gated server-side clear, mirroring
+                // the browser's lastSessionIdRef logic. A transient same-UUID reconnect
+                // (WiFi flap, sleep/wake — the MCP server keeps the same process-scoped
+                // UUID) must NOT clear stagedEdits: the browser still has its buffer, and
+                // an unconditional clear causes cortex_get_pending_edits to return zero
+                // while the browser still shows staged edits (silent divergence, no self-heal).
+                // Only a DIFFERENT UUID means a genuinely new Claude session — then we clear.
+                // First hello (lastMcpSessionId === null): adopt UUID, do NOT clear.
                 if (currentSession) {
-                  currentSession.stagedEdits.clear()
+                  if (currentSession.lastMcpSessionId !== null &&
+                      currentSession.lastMcpSessionId !== sessionId) {
+                    // Genuine new Claude session — clear stale intents from prior session.
+                    currentSession.stagedEdits.clear()
+                  }
+                  currentSession.lastMcpSessionId = sessionId
                 }
-                if (currentSession?.channel) {
-                  currentSession.channel.send({ type: 'mcp-session-hello', sessionId })
+                // FIX 3: mcp-session-hello is a server→browser message; send BROWSER-ONLY
+                // via server.hot.send (bypassing forwardToCLI). The channel.send path goes
+                // through validateAndSend → forwardToCLI which would echo this back to CLI
+                // clients — wrong direction, no consumer, latent mis-handle risk.
+                if (currentSession && !currentSession.isDisposed) {
+                  parseOrFail(serverToBrowserSchema, { type: 'mcp-session-hello', sessionId } as ServerToBrowser, 'vite.mcpSessionHello')
+                  server.hot.send(CORTEX_MSG_EVENT, { type: 'mcp-session-hello', sessionId })
                 }
               } else {
                 console.warn('[cortex] mcp-session-hello rejected: sessionId is not a valid UUID')

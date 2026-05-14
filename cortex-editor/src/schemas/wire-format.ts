@@ -358,9 +358,12 @@ export const serverToBrowserSchema = z.discriminatedUnion('type', [
   }),
 
   // 16. staged-edits-discard
+  // .max(MAX_FULL_SYNC_SIZE) is defense-in-depth: a huge intentIds array
+  // produces a multi-MB WebSocket frame + O(n) browser-side work. Cap matches
+  // the MCP input schema bounds in mcp-tool-inputs.ts.
   z.object({
     type: z.literal('staged-edits-discard'),
-    intentIds: z.array(intentIdSchema),
+    intentIds: z.array(intentIdSchema).max(MAX_FULL_SYNC_SIZE),
   }),
 
   // 17. staged-edits-acked
@@ -373,9 +376,11 @@ export const serverToBrowserSchema = z.discriminatedUnion('type', [
   // intent; intent stays in the buffer, reason surfaces via applyError.
   // ZF0-1869 Round-1 Fix 4: reason bounded to 2048 chars (defense-in-depth at the
   // wire layer; MCP input schema is bounded identically in mcp-tool-inputs.ts).
+  // .max(MAX_FULL_SYNC_SIZE) mirrors the staged-edits-discard bound — defense-in-depth
+  // against a huge intentIds array producing a multi-MB frame + O(n) browser work.
   z.object({
     type: z.literal('source-edit-failed'),
-    intentIds: z.array(intentIdSchema),
+    intentIds: z.array(intentIdSchema).max(MAX_FULL_SYNC_SIZE),
     reason: z.string().max(2048),
   }),
 

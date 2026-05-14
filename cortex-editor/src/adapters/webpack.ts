@@ -861,13 +861,24 @@ class CortexWebpackRuntime {
     if (type === 'mcp-session-hello') {
       const sessionId = (parsed as Record<string, unknown>).sessionId
       if (typeof sessionId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
-        // ZF0-1869 Round-1 Fix 2: dual-write — clear the server-side cache
-        // directly so stale intents are evicted even if the browser tab is
-        // closed or backgrounded. Without this, a new Claude session connecting
-        // while the tab is not visible would find stale intents from a prior
-        // session and produce phantom "intent not found" errors on the next apply.
-        session.stagedEdits.clear()
-        session.channel?.send({ type: 'mcp-session-hello', sessionId })
+        // ZF0-1869 Review Fix 1: UUID-change-gated server-side clear, mirroring
+        // the browser's lastSessionIdRef logic. A transient same-UUID reconnect
+        // (WiFi flap, sleep/wake — the MCP server keeps the same process-scoped
+        // UUID) must NOT clear stagedEdits: the browser still has its buffer, and
+        // an unconditional clear causes cortex_get_pending_edits to return zero
+        // while the browser still shows staged edits (silent divergence, no self-heal).
+        // Only a DIFFERENT UUID means a genuinely new Claude session — then we clear.
+        // First hello (lastMcpSessionId === null): adopt UUID, do NOT clear.
+        if (session.lastMcpSessionId !== null &&
+            session.lastMcpSessionId !== sessionId) {
+          // Genuine new Claude session — clear stale intents from prior session.
+          session.stagedEdits.clear()
+        }
+        session.lastMcpSessionId = sessionId
+        // FIX 3: mcp-session-hello is a server→browser message; send BROWSER-ONLY
+        // via sendToInitializedBrowsers (bypassing forwardToCLI). The channel.send
+        // path fans out to CLI clients — wrong direction, no consumer.
+        this.sendToInitializedBrowsers(session, { type: 'mcp-session-hello', sessionId }, 'webpack.mcpSessionHello')
       } else {
         console.warn('[cortex] mcp-session-hello rejected: sessionId is not a valid UUID')
       }
@@ -940,10 +951,13 @@ class CortexWebpackRuntime {
         const stagedEdits = session.stagedEdits
         const pipeline = session.pipeline
         const channel = session.channel
+        const hasBrowserClients = this.initializedBrowserClients.size > 0
         return applyEditsCore(stagedEdits, intentIds, pipeline).then(results => {
           const appliedIds = results.filter(result => result.status === 'applied').map(result => result.intentId)
-          let browserNotified = appliedIds.length === 0
-          if (appliedIds.length > 0 && channel) {
+          let browserNotified = appliedIds.length === 0  // vacuously true: nothing to notify
+          // FIX 4: gate on hasBrowserClients (captured before async) so browserNotified
+          // reflects whether a browser actually received the discard notification.
+          if (appliedIds.length > 0 && channel && hasBrowserClients) {
             channel.send({ type: 'staged-edits-discard', intentIds: appliedIds })
             browserNotified = true
           }
@@ -953,8 +967,11 @@ class CortexWebpackRuntime {
       case 'discardEdits': {
         const intentIds = params.intentIds as string[]
         session.stagedEdits.remove(intentIds)
+        // FIX 4: browserNotified only true when ≥1 initialized browser client exists.
+        // initializedBrowserClients.size > 0 is more accurate than channel existence alone —
+        // sendToInitializedBrowsers is a no-op when the set is empty.
         let browserNotified = false
-        if (session.channel) {
+        if (session.channel && this.initializedBrowserClients.size > 0) {
           try {
             session.channel.send({ type: 'staged-edits-discard', intentIds })
             browserNotified = true
@@ -967,11 +984,9 @@ class CortexWebpackRuntime {
       case 'acknowledgeSourceEdit': {
         const intentIds = params.intentIds as string[]
         session.stagedEdits.remove(intentIds)
-        // ZF0-1869 Round-1 Fix 3: wrap send in try/catch so browserNotified reflects
-        // actual send success (parity with vite.ts). Without this, browserNotified
-        // would be true even when channel.send throws (e.g. closed WebSocket).
+        // FIX 4: browserNotified only true when ≥1 initialized browser client exists.
         let browserNotified = false
-        if (session.channel) {
+        if (session.channel && this.initializedBrowserClients.size > 0) {
           try {
             session.channel.send({ type: 'staged-edits-discard', intentIds })
             browserNotified = true
@@ -985,10 +1000,9 @@ class CortexWebpackRuntime {
         const intentIds = params.intentIds as string[]
         const reason = params.reason as string
         // STATE-MACHINE INVARIANT: do NOT remove from cache — the source edit failed.
-        // ZF0-1869 Round-1 Fix 3: wrap send in try/catch so browserNotified reflects
-        // actual send success (parity with vite.ts).
+        // FIX 4: browserNotified only true when ≥1 initialized browser client exists.
         let browserNotified = false
-        if (session.channel) {
+        if (session.channel && this.initializedBrowserClients.size > 0) {
           try {
             session.channel.send({ type: 'source-edit-failed', intentIds, reason })
             browserNotified = true

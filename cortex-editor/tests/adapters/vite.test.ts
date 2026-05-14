@@ -1183,27 +1183,93 @@ describe('CLI WebSocket bridge', () => {
     })
   })
 
-  // Fix 2 (ZF0-1869 Round-1): mcp-session-hello must clear the server-side
-  // stagedEdits cache via dual-write, independent of the browser round-trip.
-  // Falsifiability: before Fix 2 only the browser was asked to wipe;
-  // after Fix 2 currentSession.stagedEdits.clear() is called server-side.
-  it('mcp-session-hello with valid token clears server-side stagedEdits cache (Fix 2)', async () => {
-    await setupServer()
+  // ─── Fix 1 (ZF0-1869 Review): UUID-change-gated server-side clear ──────────
+  // The server must mirror the browser's lastSessionIdRef logic:
+  //   (a) first mcp-session-hello (lastMcpSessionId === null) → adopt UUID, do NOT clear
+  //   (b) same UUID again (transient reconnect) → do NOT clear
+  //   (c) different UUID (genuine new Claude session) → MUST clear
+  //
+  // Tests (a) and (b) FAIL against the unconditional-clear code and PASS after Fix 1.
+  // Test (c) passes before and after — clearing on UUID-change is the correct behavior.
+
+  it('mcp-session-hello first-adopt (no prior UUID) does NOT clear server stagedEdits (Fix 1 TDD-a)', async () => {
+    const { server } = await setupServer()
     const { ws, nextMessage } = await connectCLI()
     await nextMessage() // drain cortex-status
     await nextMessage() // drain agent-status
 
-    // Seed the server-side cache with a stale edit
     const cache = _getStagedEditsForTesting()!
-    expect(cache).not.toBeNull()
+    cache.append(makeEdit({ intentId: 'keep-me', property: 'color' }))
+    expect(cache.size()).toBe(1)
+
+    // First mcp-session-hello — lastMcpSessionId is null, first adoption.
+    // This is a transient-reconnect-safe no-op: do NOT clear.
+    const UUID_A = '11111111-0000-4000-a000-000000000001'
+    ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_A, token: sessionToken }))
+
+    // Wait for the hello to be forwarded to the browser (proves handler ran), then
+    // assert the cache is still intact — first adopt must NOT wipe existing intents.
+    await vi.waitFor(() => {
+      expect(server._sent.some((s) => (s.data as any).type === 'mcp-session-hello')).toBe(true)
+    })
+    expect(cache.size()).toBe(1)
+  })
+
+  it('mcp-session-hello same-UUID reconnect does NOT clear server stagedEdits (Fix 1 TDD-b)', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status
+
+    const cache = _getStagedEditsForTesting()!
+    const UUID_A = '11111111-0000-4000-a000-000000000002'
+
+    // First hello — adopt UUID (no clear expected on first adopt).
+    ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_A, token: sessionToken }))
+    await vi.waitFor(() => {
+      // Wait until the first hello has been processed (lastMcpSessionId set to UUID_A)
+      // by confirming it was forwarded to the browser channel.
+      const hellos = server._sent.filter((s) => (s.data as any).type === 'mcp-session-hello')
+      expect(hellos.length).toBeGreaterThanOrEqual(1)
+    })
+
+    // Seed edit AFTER first hello — it must survive the same-UUID second hello.
+    cache.append(makeEdit({ intentId: 'keep-me-b', property: 'font-size' }))
+    expect(cache.size()).toBe(1)
+
+    // Second hello — same UUID (transient WiFi-flap / sleep-wake reconnect). Must NOT clear.
+    ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_A, token: sessionToken }))
+
+    await vi.waitFor(() => {
+      const hellos = server._sent.filter((s) => (s.data as any).type === 'mcp-session-hello')
+      expect(hellos.length).toBeGreaterThanOrEqual(2)
+    })
+    expect(cache.size()).toBe(1)
+  })
+
+  it('mcp-session-hello different-UUID DOES clear server stagedEdits (Fix 1 TDD-c)', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status
+
+    const cache = _getStagedEditsForTesting()!
+    const UUID_A = '11111111-0000-4000-a000-000000000003'
+    const UUID_B = '22222222-0000-4000-a000-000000000003'
+
+    // First hello — adopt UUID_A (no clear — first adopt).
+    ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_A, token: sessionToken }))
+    await vi.waitFor(() => {
+      expect(server._sent.some((s) => (s.data as any).type === 'mcp-session-hello')).toBe(true)
+    })
+
+    // Seed an edit (simulates stale session data from the prior Claude session).
     cache.append(makeEdit({ intentId: 'stale-intent', property: 'color' }))
     expect(cache.size()).toBe(1)
 
-    const VALID_UUID = '00000000-0000-4000-a000-000000000099'
-    ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: VALID_UUID, token: sessionToken }))
+    // Second hello — DIFFERENT UUID → genuine new Claude session → MUST clear.
+    ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_B, token: sessionToken }))
 
-    // Server-side cache must be cleared synchronously by the handler —
-    // no browser round-trip required.
     await vi.waitFor(() => {
       expect(cache.size()).toBe(0)
     })
@@ -1495,6 +1561,9 @@ describe('annotation RPC', () => {
     await nextMessage() // drain cortex-status
     await nextMessage() // drain agent-status (connected: true)
 
+    // Simulate a browser connecting so browserConnected=true and browserNotified is honest.
+    server.hot._trigger('cortex:msg', { type: 'init', token: sessionToken })
+
     // Seed one intent directly into the server-side cache.
     const cache = _getStagedEditsForTesting()!
     cache.append(makeEdit({ intentId: 'i1', property: 'color', value: 'red' }))
@@ -1543,6 +1612,9 @@ describe('annotation RPC', () => {
     const { ws, nextMessage } = await connectCLI()
     await nextMessage() // drain cortex-status
     await nextMessage() // drain agent-status (connected: true)
+
+    // Simulate a browser connecting so browserConnected=true and browserNotified is honest.
+    server.hot._trigger('cortex:msg', { type: 'init', token: sessionToken })
 
     // Seed two intents directly into the server-side cache.
     const cache = _getStagedEditsForTesting()!

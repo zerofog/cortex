@@ -599,11 +599,16 @@ describe('cortexWebpack adapter', () => {
     }
   })
 
-  // Fix 2 (ZF0-1869 Round-1): mcp-session-hello must clear the server-side
-  // stagedEdits cache via dual-write, not just forward to the browser.
-  // Falsifiability: before Fix 2, only the browser was asked to wipe;
-  // after Fix 2, session.stagedEdits.clear() is called directly server-side.
-  it('mcp-session-hello with valid token clears server-side stagedEdits cache (Fix 2)', async () => {
+  // ─── Fix 1 (ZF0-1869 Review): UUID-change-gated server-side clear ──────────
+  // The server must mirror the browser's lastSessionIdRef logic:
+  //   (a) first mcp-session-hello (lastMcpSessionId === null) → adopt UUID, do NOT clear
+  //   (b) same UUID again (transient reconnect) → do NOT clear
+  //   (c) different UUID (genuine new Claude session) → MUST clear
+  //
+  // Tests (a) and (b) FAIL against the unconditional-clear code and PASS after Fix 1.
+  // Test (c) passes before and after — clearing on UUID-change is the correct behavior.
+
+  it('mcp-session-hello first-adopt (no prior UUID) does NOT clear server stagedEdits (Fix 1 TDD-a)', async () => {
     const root = makeTempProject()
     const compiler = createMockCompiler(root)
     const plugin = cortexWebpack({ projectRoot: root })
@@ -616,34 +621,119 @@ describe('cortexWebpack adapter', () => {
     const cli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
 
     try {
-      // Initialize browser so staged-edit-add is accepted
       await waitForOpen(browser)
       browser.send(JSON.stringify({ type: 'init', token }))
       await nextMessageOfType(browser, 'hello')
 
-      // Seed one stale edit into the server-side cache via the browser path
-      const staleEdit = {
-        intentId: 'stale-fix2-test',
-        source: 'Hero.tsx:5:3',
-        property: 'color',
-        value: 'red',
-        previousValue: '',
-        timestamp: Date.now(),
-      }
-      browser.send(JSON.stringify({ type: 'staged-edit-add', edit: staleEdit, token }))
+      // Seed one edit before the first hello
+      const edit = { intentId: 'keep-me-a', source: 'Hero.tsx:5:3', property: 'color', value: 'red', previousValue: '', timestamp: Date.now() }
+      browser.send(JSON.stringify({ type: 'staged-edit-add', edit, token }))
 
-      // Verify edit is cached (confirm seed before clearing)
       await waitForOpen(cli)
       await vi.waitFor(async () => {
         const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
         expect(result.count).toBe(1)
       }, { timeout: 1000 })
 
-      // Deliver mcp-session-hello — must clear server-side cache
-      const VALID_UUID = '00000000-0000-4000-a000-000000000099'
-      cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: VALID_UUID, token }))
+      // First mcp-session-hello — first adoption, do NOT clear.
+      const UUID_A = '11111111-0000-4000-a000-000000000001'
+      cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_A, token }))
+      // Wait for browser to receive the hello (proves handler ran)
+      await nextMessageOfType(browser, 'mcp-session-hello')
 
-      // Cache MUST be empty — cleared without browser round-trip
+      // Cache must be intact
+      const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
+      expect(result.count).toBe(1)
+    } finally {
+      cli.close()
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  it('mcp-session-hello same-UUID reconnect does NOT clear server stagedEdits (Fix 1 TDD-b)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+    const cli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      await waitForOpen(cli)
+      const UUID_A = '11111111-0000-4000-a000-000000000002'
+
+      // First hello — adopt UUID (no clear on first adopt)
+      cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_A, token }))
+      await nextMessageOfType(browser, 'mcp-session-hello')
+
+      // Seed edit AFTER first hello so it survives that no-op.
+      const edit = { intentId: 'keep-me-b', source: 'Hero.tsx:5:3', property: 'color', value: 'blue', previousValue: '', timestamp: Date.now() }
+      browser.send(JSON.stringify({ type: 'staged-edit-add', edit, token }))
+      await vi.waitFor(async () => {
+        const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
+        expect(result.count).toBe(1)
+      }, { timeout: 1000 })
+
+      // Second hello — same UUID (transient reconnect). Must NOT clear.
+      cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_A, token }))
+      // Drain the second forwarded hello from the browser queue
+      await nextMessageOfType(browser, 'mcp-session-hello')
+
+      // Cache must still have the edit
+      const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
+      expect(result.count).toBe(1)
+    } finally {
+      cli.close()
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  it('mcp-session-hello different-UUID DOES clear server stagedEdits (Fix 1 TDD-c / Fix 2 successor)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+    const cli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      await waitForOpen(cli)
+      const UUID_A = '11111111-0000-4000-a000-000000000003'
+      const UUID_B = '22222222-0000-4000-a000-000000000003'
+
+      // First hello — adopt UUID_A (first adopt, no clear).
+      cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_A, token }))
+      await nextMessageOfType(browser, 'mcp-session-hello')
+
+      // Seed stale intent from prior session.
+      const staleEdit = { intentId: 'stale-fix1c', source: 'Hero.tsx:5:3', property: 'color', value: 'red', previousValue: '', timestamp: Date.now() }
+      browser.send(JSON.stringify({ type: 'staged-edit-add', edit: staleEdit, token }))
+      await vi.waitFor(async () => {
+        const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
+        expect(result.count).toBe(1)
+      }, { timeout: 1000 })
+
+      // Second hello — DIFFERENT UUID → genuine new Claude session → MUST clear.
+      cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_B, token }))
+
       await vi.waitFor(async () => {
         const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
         expect(result.count).toBe(0)
