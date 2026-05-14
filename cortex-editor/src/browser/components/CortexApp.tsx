@@ -35,6 +35,8 @@ import { captureSelectionMetadata, reResolveSelection, shouldRefreshOnHMR } from
 import type { SelectionMetadata } from '../selection-metadata.js'
 import { dismissTopmostPopover, hasOpenPopover } from '../popover-stack.js'
 import { markPageColorChips } from '../page-color-chips.js'
+import { useEditStagingBuffer, createPanelSyncEmitter } from '../hooks/useEditStagingBuffer.js'
+import type { SyncEmitter } from '../hooks/useEditStagingBuffer.js'
 
 export interface CortexAppProps {
   channel: CortexChannel
@@ -202,6 +204,21 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     list: () => import('../hooks/useEditStagingBuffer.js').PendingEdit[]
     size: () => number
   } | null>(null)
+
+  // Hoisted from Panel.tsx — buffer lifetime is now CortexApp-scoped so it
+  // survives Panel mount/unmount on selection changes (Task 16) and cortex
+  // toggle-off (`if (!active) return null` renders null but doesn't unmount
+  // CortexApp). Lifetime matches CortexApp = the tab session.
+  const appSyncEmitterRef = useRef<SyncEmitter | null>(null)
+  if (appSyncEmitterRef.current === null && channel) {
+    appSyncEmitterRef.current = createPanelSyncEmitter(channel)
+  }
+  const buffer = useEditStagingBuffer(appSyncEmitterRef.current ?? undefined)
+  // DCE-gated ref so the test bridge closure can read the current buffer.version
+  // without capturing a stale value. Follows the same pattern as hmrAppliedVersionRef.
+  const bufferVersionRef = useRef(0)
+  if (__CORTEX_TEST_BUILD__) bufferVersionRef.current = buffer.version
+
   // Exposed outside the useEffect so UI handlers (X-button, Toolbar close) can
   // route through the reducer rather than calling setActive(false) directly.
   // Populated by the mount effect — may be null during first paint when
@@ -459,6 +476,12 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           list: () => bufferListRef.current?.list() ?? [],
           size: () => bufferListRef.current?.size() ?? 0,
         },
+        // TEST-ONLY: reads buffer.version directly from CortexApp's hoisted buffer
+        // instance. Proves CortexApp owns the buffer (not Panel-local). Uses
+        // bufferVersionRef (updated each render via `if (__CORTEX_TEST_BUILD__)
+        // bufferVersionRef.current = buffer.version`) to avoid stale-closure
+        // issues — same pattern as hmrAppliedVersionRef / getCortexAppBufferVersion.
+        getCortexAppBufferVersion: () => bufferVersionRef.current,
         // TEST-ONLY: set multi-element selection via setSelection(elements, 'replace').
         // Allows e2e specs to seed multi-select state without real click interactions.
         // selectElement (above) handles single-element selection via the legacy shim;
@@ -1333,6 +1356,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           hmrChangedFiles={hmrChangedFiles}
           staleOverrideCount={staleOverrideCount}
           staleSources={staleSources}
+          buffer={buffer}
         />
       )}
       <Toolbar
