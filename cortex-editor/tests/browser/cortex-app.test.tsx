@@ -833,6 +833,30 @@ describe('CortexApp', () => {
 
       expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('Unhandled cortex-app-reducer'))
     })
+
+    it('source-edit-failed channel message does not throw and does not reach reducer (ZF0-1869 integration gap)', async () => {
+      // Pins the early-return at CortexApp.tsx for Change 7's source-edit-failed variant.
+      // Panel.tsx owns this message (surfaces a failure banner for the failed intent).
+      // CortexApp must not pass it to the reducer — if the early-return is absent, the
+      // reducer's exhaustive default throws and channel.ts swallows it as a console.warn
+      // on every cortex_report_source_edit_failed call.
+      //
+      // Falsifiability: without the allowlist entry, the reducer throws
+      // "Unhandled cortex-app-reducer action: source-edit-failed", channel.ts
+      // swallows it and emits console.warn('[cortex] Message handler error: Unhandled
+      // cortex-app-reducer action: source-edit-failed'). The spy would catch that warn
+      // and the assertion below would FAIL. With the fix the warn is never emitted.
+      setup()
+      const channel = createMockChannel()
+      const warnSpy = vi.spyOn(console, 'warn')
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+
+      channel._simulateMessage({ type: 'source-edit-failed', intentIds: ['intent-1'], reason: 'edit tool failed' } as any)
+      await new Promise(r => setTimeout(r, 10))
+
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('Unhandled cortex-app-reducer'))
+    })
   })
 
   describe('connection status', () => {

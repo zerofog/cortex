@@ -492,6 +492,112 @@ describe('cortexWebpack adapter', () => {
 
     expect(() => compiler.hooks.done.run({ compilation })).not.toThrow()
   })
+
+  // Change 6 — mcp-session-hello security + forwarding (ZF0-1869, Task 12)
+  // mcp-session-hello triggers a DESTRUCTIVE buffer.clear() on the browser.
+  // The per-message token is the actual auth (the /@cortex/ws upgrade is only
+  // Origin-checked at connect). These three tests pin that:
+  //   1. untokened/wrong-token messages are rejected (AUTH_FAILED) and never forwarded
+  //   2. a valid-token message is forwarded to initialized browser clients, with token stripped
+
+  it('rejects untokened mcp-session-hello and does NOT forward it to the browser (Change 6 security)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+    const cli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      await waitForOpen(cli)
+      const VALID_UUID = '00000000-0000-4000-a000-000000000001'
+      // Send WITHOUT token — must be AUTH_FAILED
+      cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: VALID_UUID }))
+      const response = await nextMessage(cli)
+
+      // The CLI client gets a specific AUTH_FAILED rejection
+      expect(response.type).toBe('error')
+      expect(response.code).toBe('AUTH_FAILED')
+      // And critically: nothing forwarded to the browser channel
+      await expectNoMessageOfType(browser, 'mcp-session-hello')
+    } finally {
+      cli.close()
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  it('rejects wrong-token mcp-session-hello and does NOT forward it to the browser (Change 6 security)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+    const cli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      await waitForOpen(cli)
+      const VALID_UUID = '00000000-0000-4000-a000-000000000002'
+      cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: VALID_UUID, token: 'wrong-token' }))
+      const response = await nextMessage(cli)
+
+      expect(response.type).toBe('error')
+      expect(response.code).toBe('AUTH_FAILED')
+      await expectNoMessageOfType(browser, 'mcp-session-hello')
+    } finally {
+      cli.close()
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  it('forwards a valid-token mcp-session-hello to the browser with token stripped (Change 6)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+    const cli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      await waitForOpen(cli)
+      const VALID_UUID = '00000000-0000-4000-a000-000000000003'
+      cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: VALID_UUID, token }))
+
+      const forwarded = await nextMessageOfType(browser, 'mcp-session-hello')
+      expect(forwarded.sessionId).toBe(VALID_UUID)
+      // Token must be stripped — never leaked to the browser
+      expect('token' in forwarded).toBe(false)
+    } finally {
+      cli.close()
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
 })
 
 function createMockCompiler(root: string) {

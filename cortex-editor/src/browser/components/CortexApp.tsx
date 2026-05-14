@@ -864,6 +864,13 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       // reducer's exhaustive default doesn't fire and log on every Apply.
       if (msg.type === 'staged-edits-acked') return
 
+      // source-edit-failed (ZF0-1869 Change 7) is handled by Panel.tsx's
+      // onMessage subscriber — it surfaces a failure banner for the affected
+      // intent. CortexApp has nothing to do with it; early-return so the
+      // reducer's exhaustive default doesn't fire and log on every
+      // cortex_report_source_edit_failed call.
+      if (msg.type === 'source-edit-failed') return
+
       // mcp-session-hello: the MCP server announces a process-scoped UUID. A CHANGED
       // UUID means a genuinely new Claude session — wipe stale staged edits. Same
       // UUID (transient reconnect: sleep/wake, WiFi flap) → keep edits.
