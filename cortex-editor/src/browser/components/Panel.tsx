@@ -7,7 +7,6 @@ import { PropertyEditCommand, CompoundEditCommand } from '../edit-command.js'
 import type { PropertyChange } from '../edit-command.js'
 import { parseCortexSource, isLibraryComponent, findUserAncestor } from '../label.js'
 import { PANEL_WIDTH } from '../hooks/useSnapToEdge.js'
-import { formatShortcut } from '../format-shortcut.js'
 import { extractUtilities } from '../class-extractor.js'
 import { PanelHeader } from './PanelHeader.js'
 import { ElementTree } from './sections/ElementTree.js'
@@ -1447,72 +1446,9 @@ export function Panel({
     isSnapping && 'cortex-panel--snapping',
   ].filter(Boolean).join(' ')
 
-  // Empty state: panel shell visible, no sections
-  if (!element) {
-    return (
-      <div
-        class={panelClasses}
-        style={{ transform: `translate(${position.x}px, ${position.y}px)`, width: `${PANEL_WIDTH}px` }}
-      >
-        <PanelHeader
-          tagName=""
-          componentName="Cortex"
-          sourceFile={null}
-          sourceLine={null}
-          filePath={null}
-          onClose={onClose}
-          onPointerDown={panelPointerDown}
-          onPointerMove={panelPointerMove}
-          onPointerUp={panelPointerUp}
-          onPointerCancel={panelPointerCancel}
-          bufferSize={buffer.size()}
-          onApply={onApply}
-          onApplyError={handleApplyError}
-        />
-        <div class="cortex-panel__body">
-          {/* ZF0-1453 cross-task fix-up (HIGH 1): applyError banner and StagingDriftBanner
-              must render in the empty state too. A designer can stage edits, deselect
-              (clearing `element`), then click Apply on the still-visible header button.
-              Without these banners here, any sendAndAck rejection or stale-override
-              signal produces zero user feedback while in the empty state. */}
-          {applyError && (
-            <div class="cortex-apply-error" role="alert">
-              <span>{applyError}</span>
-              <button
-                type="button"
-                onClick={() => setApplyError(null)}
-                class="cortex-apply-error__dismiss"
-                aria-label="Dismiss apply error"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          )}
-          <StagingDriftBanner
-            intentDriftCount={intentDriftCount}
-            staleOverrideCount={staleOverrideCount}
-            onIntentRefresh={() => {
-              if (hmrChangedFiles.length > 0) {
-                const result = buffer.reconcile(
-                  hmrChangedFiles,
-                  overrideManager.readSourceValue.bind(overrideManager),
-                )
-                setIntentDriftCount(result.divergent.length)
-              }
-            }}
-            onStaleRefresh={() => window.location.reload()}
-            onDismiss={() => {}}
-          />
-          <div class="cortex-panel__empty">
-            <p class="cortex-panel__empty-action">Click any element to start editing</p>
-            <p class="cortex-panel__empty-hint">Changes write to your source files</p>
-            <p class="cortex-panel__empty-shortcut">{formatShortcut('$mod+Shift+Period')} to toggle</p>
-          </div>
-        </div>
-        <ConnectionStatusFooter status={connectionStatus} />
-      </div>
-    )
-  }
+  // Panel is gated at CortexApp level (selectedElements.length > 0 required to
+  // mount).  This guard is a TS narrowing aid only — it never fires at runtime.
+  if (!element) return null
 
   const sourceInfo = parseCortexSource(element)
   const tagName = element.tagName.toLowerCase()

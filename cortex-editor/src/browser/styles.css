@@ -538,29 +538,6 @@
   background: var(--cx-ink-faint);
   border-radius: 3px;
 }
-.cortex-panel__empty {
-  padding: var(--cx-sp-7) var(--cx-sp-6);
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  gap: var(--cx-sp-3);
-}
-
-.cortex-panel__empty-action {
-  color: var(--cx-ink-secondary);
-  font-size: var(--cx-text-md);
-}
-
-.cortex-panel__empty-hint {
-  color: var(--cx-ink-tertiary);
-  font-size: var(--cx-text-sm);
-}
-
-.cortex-panel__empty-shortcut {
-  color: var(--cx-ink-ghost);
-  font-size: var(--cx-text-xs);
-  font-family: var(--cx-mono);
-}
 
 .cortex-panel__scope {
   display: flex;

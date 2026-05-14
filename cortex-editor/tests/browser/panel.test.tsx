@@ -250,26 +250,16 @@ describe('Panel', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
-  it('renders empty state panel when element is null', () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    render(
-      <Panel
-        selectedElements={[]}
-        overrideManager={{} as any}
-        onClose={() => {}}
-        onSelectElement={() => {}}
-        buffer={makeFakeBuffer()}
-        {...panelPositionProps}
-      />,
-      container,
-    )
-    expect(container.querySelector('.cortex-panel')).not.toBeNull()
-    expect(container.textContent).toContain('Click any element to start editing')
-    // Sections should NOT render in empty state
-    expect(container.querySelector('[data-section-id]')).toBeNull()
-    render(null, container)
-    container.remove()
+  // The empty-state branch (if !element) was deleted in Task 17 — Panel is
+  // gated at the CortexApp level (Task 16) and never mounts without a selected
+  // element.  Rendering WITH a valid element must not produce any
+  // .cortex-panel__empty* markup.
+  it('empty-state branch deleted: no .cortex-panel__empty markup when element selected', () => {
+    const { root } = setup()
+    expect(root.querySelector('.cortex-panel__empty')).toBeNull()
+    expect(root.querySelector('.cortex-panel__empty-action')).toBeNull()
+    expect(root.querySelector('.cortex-panel__empty-hint')).toBeNull()
+    expect(root.querySelector('.cortex-panel__empty-shortcut')).toBeNull()
   })
 
   // NOTE: The old `cortex-panel--cross-fade` animation was removed in ZF0-1122
