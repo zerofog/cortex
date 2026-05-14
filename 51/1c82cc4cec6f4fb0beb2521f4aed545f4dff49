@@ -1,0 +1,23 @@
+cortex-editor/tests/core/annotations-persistence.test.ts
+  s_de44c67238dbc7::t_0c56772fb5dc22 87-95,103-105,107-111,114,122,124-126,129,141,143-181
+cortex-editor/src/core/annotations-persistence.ts
+  s_de44c67238dbc7::t_d5715b8976fa7b 150,160
+  s_de44c67238dbc7::t_c271a58db609c3 95-122
+  s_de44c67238dbc7::t_0a8ca397bcd1de 2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "511c82cc4cec6f4fb0beb2521f4aed545f4dff49",
+  "prompts": {},
+  "sessions": {
+    "s_de44c67238dbc7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "26551397-9740-4158-b824-52c41b5fffab",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
