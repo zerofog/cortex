@@ -7,7 +7,6 @@ import * as focusUtils from '../../src/browser/focus-utils.js'
 import { _resetBusForTesting } from '../../src/browser/override-bus.js'
 import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
 import { _resetPopoverStackForTesting } from '../../src/browser/popover-stack.js'
-import { cortexStorage } from '../../src/browser/persistence.js'
 
 const WAIT_FOR_COMMIT_MS = 2000
 
