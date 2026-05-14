@@ -381,7 +381,7 @@ export const serverToBrowserSchema = z.discriminatedUnion('type', [
   // so the browser can wipe the buffer on a genuine session change.
   z.object({
     type: z.literal('mcp-session-hello'),
-    sessionId: z.string().uuid(),
+    sessionId: z.uuid(),
   }),
 ])
 

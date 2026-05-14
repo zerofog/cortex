@@ -1125,6 +1125,64 @@ describe('CLI WebSocket bridge', () => {
     expect(response.code).toBe('AUTH_FAILED')
   })
 
+  // Task 12, Change 6 — security: mcp-session-hello triggers a DESTRUCTIVE
+  // buffer.clear() on the browser. The /@cortex/ws upgrade is only Origin-checked;
+  // the per-message token is the actual auth. These three tests pin that the
+  // mcp-session-hello handler sits AFTER the token gate: untokened/wrong-token
+  // messages are rejected and never forwarded, a valid-token message IS forwarded.
+  it('rejects untokened mcp-session-hello and does NOT forward it to the browser (Task 12 security)', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status
+
+    const VALID_UUID = '00000000-0000-4000-a000-000000000001'
+    ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: VALID_UUID }))
+    const response = await nextMessage()
+
+    // The CLI client gets a specific AUTH_FAILED rejection — proves enforcement,
+    // not just "an error occurred".
+    expect(response.type).toBe('error')
+    expect(response.code).toBe('AUTH_FAILED')
+    // And critically: nothing was pushed to the browser channel, so no wipe.
+    await new Promise((r) => setTimeout(r, 50))
+    expect(server._sent.some((s) => (s.data as any).type === 'mcp-session-hello')).toBe(false)
+  })
+
+  it('rejects wrong-token mcp-session-hello and does NOT forward it to the browser (Task 12 security)', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status
+
+    const VALID_UUID = '00000000-0000-4000-a000-000000000002'
+    ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: VALID_UUID, token: 'wrong-token' }))
+    const response = await nextMessage()
+
+    expect(response.type).toBe('error')
+    expect(response.code).toBe('AUTH_FAILED')
+    await new Promise((r) => setTimeout(r, 50))
+    expect(server._sent.some((s) => (s.data as any).type === 'mcp-session-hello')).toBe(false)
+  })
+
+  it('forwards a valid-token mcp-session-hello to the browser channel (Task 12)', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status
+
+    const VALID_UUID = '00000000-0000-4000-a000-000000000003'
+    ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: VALID_UUID, token: sessionToken }))
+
+    await vi.waitFor(() => {
+      const hello = server._sent.find((s) => (s.data as any).type === 'mcp-session-hello')
+      expect(hello).toBeDefined()
+      expect((hello!.data as any).sessionId).toBe(VALID_UUID)
+      // Token must be stripped — never leaked onward to the browser.
+      expect('token' in (hello!.data as any)).toBe(false)
+    })
+  })
+
   it('warns when no httpServer (middleware mode)', () => {
     const plugin = initPlugin()
     const server = mockServer()

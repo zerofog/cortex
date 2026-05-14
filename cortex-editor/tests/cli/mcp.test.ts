@@ -282,24 +282,49 @@ describe('cortex mcp', () => {
     expect(status.editorActive).toBe(false)
   })
 
-  it('sends mcp-session-hello with MCP_SESSION_ID on WebSocket open (Task 12, Change 6)', async () => {
+  it('sends mcp-session-hello with MCP_SESSION_ID and the auth token on WebSocket open (Task 12, Change 6)', async () => {
     // MCP_SESSION_ID is a process-scoped UUID constant. On every WebSocket open event
-    // (initial connect AND reconnects), the MCP server must send mcp-session-hello so the
+    // (initial connect AND reconnects), the MCP server announces mcp-session-hello so the
     // browser can detect a genuinely new Claude session vs. a transient reconnect.
-    await startTestServer(mockVite.port)
-    await waitForConnection(mockVite)
-    // Allow the open-handler messages to flush before inspecting.
-    await new Promise(r => setTimeout(r, 50))
+    // SECURITY: mcp-session-hello triggers a destructive buffer.clear() on the browser,
+    // so it must carry the auth token to pass Vite's CLI token gate — exactly like
+    // cortex-status-request. This test pins both the UUID and the token.
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-mcp-hello-'))
+    const cortexDir = path.join(tmpDir, '.cortex')
+    fs.mkdirSync(cortexDir, { recursive: true })
+    fs.writeFileSync(path.join(cortexDir, 'port'), String(mockVite.port))
+    fs.writeFileSync(path.join(cortexDir, 'token'), 'hello-token')
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(tmpDir)
 
-    const hello = mockVite.messages.find(m => m.type === 'mcp-session-hello')
-    expect(hello).toBeDefined()
-    if (hello) {
-      expect(hello.type).toBe('mcp-session-hello')
+    try {
+      await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+
+      const hello = await waitForMessage(mockVite, m => m.type === 'mcp-session-hello')
       expect(hello.sessionId).toBe(MCP_SESSION_ID)
       // MCP_SESSION_ID must be a valid RFC 4122 UUID (any version).
       expect(typeof hello.sessionId).toBe('string')
       expect(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(hello.sessionId as string)).toBe(true)
+      // The token must be attached so Vite's CLI token gate accepts it.
+      expect(hello.token).toBe('hello-token')
+    } finally {
+      cwdSpy.mockRestore()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
     }
+  })
+
+  it('does NOT send mcp-session-hello when no auth token is available (Task 12 security)', async () => {
+    // A tokenless MCP server cannot authenticate any privileged CLI message — and
+    // mcp-session-hello is privileged (it forces a destructive browser wipe). So when
+    // discoverToken() returns null, mcp-session-hello must be suppressed entirely
+    // rather than sent untokened (which Vite would reject anyway). The mock Vite
+    // server here writes no .cortex/token file, so the MCP server finds no token.
+    await startTestServer(mockVite.port)
+    await waitForConnection(mockVite)
+    // Allow the open-handler to flush whatever it would send.
+    await new Promise(r => setTimeout(r, 50))
+
+    expect(mockVite.messages.some(m => m.type === 'mcp-session-hello')).toBe(false)
   })
 
   it('reconnects to dev server with exponential backoff (capped at 30s)', () => {

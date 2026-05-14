@@ -1346,20 +1346,6 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             const type = (parsed as { type: unknown }).type
             if (typeof type !== 'string') return
 
-            // mcp-session-hello — MCP server announces its process-scoped UUID so the
-            // browser can detect a genuine new Claude session and wipe stale staged edits.
-            // This is a server→browser push; it carries no token and requires none.
-            // Handle before the blanket token-validation gate below.
-            if (type === 'mcp-session-hello') {
-              const sessionId = (parsed as Record<string, unknown>).sessionId
-              if (typeof sessionId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
-                if (currentSession?.channel) {
-                  currentSession.channel.send({ type: 'mcp-session-hello', sessionId })
-                }
-              }
-              return
-            }
-
             // Token validation for ALL CLI messages
             const msgToken = (parsed as Record<string, unknown>).token
             if (typeof msgToken !== 'string' || msgToken !== currentSession!.token) {
@@ -1367,6 +1353,24 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
                 ws.send(JSON.stringify({ type: 'error', code: 'AUTH_FAILED', message: 'Invalid or missing auth token' }))
               } catch (sendErr) {
                 console.warn('[cortex] Failed to send AUTH_FAILED to CLI client:', sendErr instanceof Error ? sendErr.message : sendErr)
+              }
+              return
+            }
+
+            // mcp-session-hello — MCP server announces its process-scoped UUID so the
+            // browser can detect a genuine new Claude session and wipe stale staged edits.
+            // This triggers a DESTRUCTIVE buffer.clear() on the browser, so it is gated
+            // behind the same token check as every other privileged CLI message above —
+            // the MCP server attaches the token (see mcp.ts socket.on('open')). The
+            // /@cortex/ws upgrade is only Origin-checked at connect; the per-message token
+            // is the actual auth, so handling this AFTER the gate prevents any other local
+            // process from forcing a wipe with a merely well-formed UUID.
+            if (type === 'mcp-session-hello') {
+              const sessionId = (parsed as Record<string, unknown>).sessionId
+              if (typeof sessionId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
+                if (currentSession?.channel) {
+                  currentSession.channel.send({ type: 'mcp-session-hello', sessionId })
+                }
               }
               return
             }

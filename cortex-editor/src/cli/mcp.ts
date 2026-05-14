@@ -185,13 +185,17 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
       process.stderr.write(`[cortex] Connected to Cortex dev server at ${url}${token ? '' : ' (token not found — writes will be rejected)'}\n`)
       if (token) {
         socket.send(JSON.stringify({ type: 'cortex-status-request', token }))
+        // Announce process-scoped UUID so the browser can detect a genuine new
+        // Claude session and wipe stale staged edits. Sent on every connect so
+        // the browser updates its last-seen UUID on reconnect as well (transient
+        // reconnects keep the same MCP_SESSION_ID, so the browser won't wipe).
+        // Carries the auth token: mcp-session-hello triggers a destructive
+        // buffer.clear() on the browser, so it must pass Vite's CLI token gate
+        // like every other privileged CLI message. A tokenless MCP server cannot
+        // authenticate, so it equally must not be able to force a wipe — gating
+        // it behind the same `if (token)` as cortex-status-request enforces that.
+        socket.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: MCP_SESSION_ID, token }))
       }
-      // Announce process-scoped UUID so the browser can detect a genuine new
-      // Claude session and wipe stale staged edits. No token required — this is
-      // a server→browser push, not a write operation. Sent on every connect so
-      // the browser updates its last-seen UUID on reconnect as well (transient
-      // reconnects keep the same MCP_SESSION_ID, so the browser won't wipe).
-      socket.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: MCP_SESSION_ID }))
     })
 
     socket.on('message', (raw) => {
