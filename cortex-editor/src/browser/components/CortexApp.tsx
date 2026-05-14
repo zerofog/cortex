@@ -733,6 +733,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
 
         const pseudo = edit.pseudo ?? null
         const liveValue = override.readSourceValue(el, edit.property, pseudo).trim()
+        // Deliberate exact string-match (not CSSOverrideManager.valuesMatch): this
+        // is the conservative direction. A false negative (serialization differs,
+        // intent stays) just leaves a stale badge the user can discard; a false
+        // positive would silently drop a real pending intent. Favor the former.
         if (liveValue === edit.value.trim()) {
           convergedIds.push(edit.intentId)
         }
