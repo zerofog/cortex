@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render } from 'preact'
+import { useRef } from 'preact/hooks'
 import { act } from 'preact/test-utils'
 import { Panel } from '../../src/browser/components/Panel.js'
 import { renderInShadow, mockGetComputedStyle, createShadowHost, createMockChannel } from './helpers.js'
@@ -31,6 +32,27 @@ function makeFakeBuffer(): StagingBufferHandle {
  */
 function PanelWithRealBuffer(props: Omit<Parameters<typeof Panel>[0], 'buffer'>) {
   const buffer = useEditStagingBuffer()
+  return <Panel {...props} buffer={buffer} />
+}
+
+/**
+ * Like PanelWithRealBuffer but also appends `initialEdits` to the buffer
+ * synchronously during the render phase (before useEffect), so the buffer
+ * is pre-populated at mount time without relying on localStorage rehydration
+ * (which is removed in Change 4: memory-only buffer).
+ */
+function PanelWithInitEdits({
+  initialEdits,
+  ...props
+}: Omit<Parameters<typeof Panel>[0], 'buffer'> & { initialEdits: PendingEdit[] }) {
+  const buffer = useEditStagingBuffer()
+  const seededRef = useRef(false)
+  if (!seededRef.current) {
+    seededRef.current = true
+    for (const edit of initialEdits) {
+      buffer.append(edit)
+    }
+  }
   return <Panel {...props} buffer={buffer} />
 }
 
@@ -1686,9 +1708,10 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     // cortex_discard_edits tool) to buffer.remove(intentIds). Without this
     // wiring, Claude calls discard, server cache mutates, but the browser
     // canonical buffer keeps the intent and the Apply panel keeps showing
-    // it. The test pre-populates localStorage so the buffer rehydrates on
-    // mount, simulates the server message via channel._simulateMessage,
-    // and verifies the discarded intent is gone while the keeper survives.
+    // it. Pre-populates the buffer via PanelWithInitEdits (Change 4: buffer
+    // is memory-only, no rehydration from localStorage). Simulates the server
+    // message via channel._simulateMessage and verifies the discarded intent
+    // is gone while the keeper survives (asserts via persisted localStorage).
     //
     // Fake timers (for the debounce only): the 150ms persist debounce caused
     // intermittent CI failures when Istanbul instrumentation + 4-way pool
@@ -1698,8 +1721,7 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     // to advance the debounce deterministically. This eliminates the flake while
     // keeping the onMessage subscription flush correct.
 
-    // Seed localStorage so useEditStagingBuffer rehydrates on mount.
-    const seeded: PendingEdit[] = [
+    const initialEdits: PendingEdit[] = [
       {
         intentId: 'keep-me',
         source: 'src/A.tsx:1:1',
@@ -1717,7 +1739,6 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
         timestamp: 2000,
       },
     ]
-    cortexStorage.set('staging-buffer', seeded)
 
     const target = document.createElement('div')
     target.setAttribute('data-cortex-source', 'src/A.tsx:1:1')
@@ -1734,7 +1755,8 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     }
 
     const { cleanup } = renderInShadow(
-      <PanelWithRealBuffer
+      <PanelWithInitEdits
+        initialEdits={initialEdits}
         selectedElements={[target]}
         channel={channel}
         overrideManager={overrideManager as any}

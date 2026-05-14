@@ -1215,21 +1215,21 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
   // propagated non-empty; if the regression collapses it to [], the early-return
   // branch fires (setIntentDriftCount(0)) and the banner stays hidden.
   it('hmr-applied with unrelated files still propagates hmrChangedFiles for buffer reconcile', async () => {
-    // Seed the staging buffer before mount so it is loaded by useEditStagingBuffer on
-    // Panel mount. The intent targets src/Sidebar.tsx — one of the files that the
-    // hmr-applied message will carry — but no DOM element with that data-cortex-source
-    // is present, so reconcile treats it as divergent (element deleted/refactored).
-    localStorage.clear()
-    cortexStorage.set('staging-buffer', [{
-      intentId: 'test-sidebar-intent',
-      source: 'src/Sidebar.tsx:1:1',
-      property: 'color',
-      value: 'red',
-      previousValue: 'blue',
-      timestamp: Date.now(),
-    }])
-
+    // Stage an intent targeting src/Sidebar.tsx — one of the files that the
+    // hmr-applied message will carry — but no DOM element with that
+    // data-cortex-source is present, so reconcile treats it as divergent
+    // (element deleted/refactored). Buffer is memory-only (Change 4), so we
+    // stage the edit via the test bridge after mount instead of seeding
+    // localStorage.
+    ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
     const { channel } = await setup('src/foo.tsx:10:5')
+
+    const bridge = (window as any).__CORTEX_TEST__ as {
+      stageEdit: (source: string, property: string, value: string) => Promise<string>
+    }
+    await act(async () => {
+      await bridge.stageEdit('src/Sidebar.tsx:1:1', 'color', 'red')
+    })
 
     // Fire hmr-applied with files that include src/Sidebar.tsx — shouldRefreshOnHMR
     // returns false (src/foo.tsx:10:5 is selected, Sidebar.tsx is unrelated),
@@ -1269,8 +1269,6 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     // instrumentation noise on shared globals (the failure mode of the original
     // gcs.mock.calls.length).
     expect(reResolveSelection).not.toHaveBeenCalled()
-
-    localStorage.clear()
   })
 
   // ZF0-1804: independently verifies the version-bump gate in CortexApp.tsx

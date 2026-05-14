@@ -141,16 +141,9 @@ function isSourceHintField(value: unknown, options?: { required?: boolean }): va
 }
 
 /** Type guard for an array of PendingEdit (all-or-nothing — exported for tests
- *  that need to round-trip a known-valid buffer). The hook itself uses
- *  `isUnknownArray` + per-entry filtering on rehydration so one bad entry
- *  can't drop the whole buffer. */
+ *  that need to round-trip a known-valid buffer). */
 export function isPendingEditArray(v: unknown): v is PendingEdit[] {
   return Array.isArray(v) && v.every(isPendingEdit)
-}
-
-/** Permissive array guard — used by hook rehydration. */
-function isUnknownArray(v: unknown): v is unknown[] {
-  return Array.isArray(v)
 }
 
 /** Composite key for last-write-wins deduplication. */
@@ -210,38 +203,17 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
   const [version, bumpVersion] = useState(0)
   const bumpRef = useRef(() => bumpVersion(v => v + 1))
 
-  // Initialize from localStorage on first call (before useEffect so list() works immediately).
-  // Per-entry filtering: a single corrupted entry can't nuke 499 valid ones.
-  //
-  // STRICT-MODE INVARIANT: `initRef.current = true` must be set BEFORE the
-  // syncFullState emission below so React/Preact strict-mode's double-
-  // invocation of the function body cannot re-enter this block and double-
-  // emit. Do NOT move the assignment below the emission — that would break
-  // the "exactly one full-sync per mount" contract that the server-side
-  // StagedEditsCache.mergeFullSync relies on (a duplicate mergeFullSync
-  // would be idempotent under newer-timestamp-wins, but the invariant is
-  // the contract, not the cache's tolerance).
+  // STRICT-MODE INVARIANT: `initRef.current = true` must be the FIRST statement
+  // in this block so Preact strict-mode's double-invocation cannot re-enter and
+  // execute the body twice. Do NOT move the assignment after any emission —
+  // that would break the "exactly one full-sync per mount" contract that the
+  // server-side StagedEditsCache.mergeFullSync relies on.
   if (!initRef.current) {
     initRef.current = true
-    const stored = cortexStorage.get(STORAGE_KEY, [], isUnknownArray)
-    let dropped = 0
-    for (const entry of stored) {
-      if (isPendingEdit(entry)) {
-        bufferRef.current.set(compositeKey(entry), entry)
-      } else {
-        dropped++
-      }
-    }
-    if (dropped > 0) {
-      console.warn(
-        `[cortex] Staging buffer rehydrated with ${bufferRef.current.size} valid entries; ${dropped} dropped (schema mismatch)`,
-      )
-    }
-    // Full-sync on Panel mount: if there are rehydrated entries and an emitter
-    // is provided, fire syncFullState once so the server cache catches up.
-    if (bufferRef.current.size > 0 && emitter) {
-      emitter.syncFullState(Array.from(bufferRef.current.values()))
-    }
+    // Change 4: memory-only — no rehydration from localStorage. Intents are
+    // session-scoped; persistence created phantom intents when Claude landed
+    // edits via the Edit tool without an acknowledgement callback (Change 7's
+    // acknowledge protocol is the real fix). bufferRef starts empty.
   }
 
   // Tracks whether we've already warned about a persistence failure this session.
