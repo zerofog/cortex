@@ -1,0 +1,19 @@
+cortex-editor/tests/browser/panel-section-order.test.ts
+  s_472c47cfcc8bfe::t_3b0fca829dfb1b 41-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "b7bf3c15d7bb230fa26f32dcd26b016696ec5b7d",
+  "prompts": {},
+  "sessions": {
+    "s_472c47cfcc8bfe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4f564dec-8711-4ac0-9d33-36690313e69a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
