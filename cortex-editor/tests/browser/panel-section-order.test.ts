@@ -38,6 +38,10 @@ const panelPositionProps = {
   panelPointerMove: vi.fn(),
   panelPointerUp: vi.fn(),
   panelPointerCancel: vi.fn(),
+  // Required by PanelProps (Panel.tsx:254). Neither mount() helper here
+  // exercises HMR behavior, so 0 is the correct stable value — matches the
+  // panelPositionProps fixture pattern in panel.test.tsx.
+  hmrAppliedVersion: 0,
 }
 
 function makeOverrideManager() {
