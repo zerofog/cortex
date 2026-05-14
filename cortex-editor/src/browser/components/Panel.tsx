@@ -281,6 +281,11 @@ export interface PanelProps {
   /** Source strings (path:line:col) whose overrides have gone stale.
    *  Used to compute per-element stale indicators on section controls. */
   staleSources?: Set<string>
+  /** Hoisted from Panel — buffer lifetime is now CortexApp-scoped so it survives
+   *  Panel mount/unmount on selection changes. Transitional: until Task 2 hoists
+   *  the hook to CortexApp, Panel falls back to the local hook (Task 3 removes
+   *  the fallback). */
+  buffer?: import('../hooks/useEditStagingBuffer.js').StagingBufferHandle
 }
 
 export function Panel({
@@ -321,6 +326,7 @@ export function Panel({
   stageEditRef,
   commitEditRef,
   bufferListRef,
+  buffer: bufferProp,
 }: PanelProps): JSX.Element | null {
   // Back-compat alias: primary element for all CSS-parsing code paths (ZF0-1195 / T3).
   // All existing usages of `element` inside this function work unchanged.
@@ -368,7 +374,10 @@ export function Panel({
   const resolvedSpacingTokens = spacingTokens ?? []
 
   // Staging buffer for property edits — accumulates browser-side before Apply gesture.
-  const buffer = useEditStagingBuffer(syncEmitterRef.current ?? undefined)
+  // Transitional: prefer the hoisted prop (Task 2 will pass it from CortexApp);
+  // fall back to the local hook until Task 3 removes this fallback.
+  const localBuffer = useEditStagingBuffer(syncEmitterRef.current ?? undefined)
+  const buffer = bufferProp ?? localBuffer
 
   // staged-edits-discard is server-originated (the MCP server's
   // cortex_discard_edits tool emitted it after mutating its cache). Calling

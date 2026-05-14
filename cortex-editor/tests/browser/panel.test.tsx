@@ -2,11 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
 import { Panel } from '../../src/browser/components/Panel.js'
+import type { PanelProps } from '../../src/browser/components/Panel.js'
 import { renderInShadow, mockGetComputedStyle, createShadowHost, createMockChannel } from './helpers.js'
 import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
 import { _resetBusForTesting } from '../../src/browser/override-bus.js'
 import { cortexStorage } from '../../src/browser/persistence.js'
-import { isPendingEditArray, type PendingEdit } from '../../src/browser/hooks/useEditStagingBuffer.js'
+import { isPendingEditArray, type PendingEdit, type StagingBufferHandle } from '../../src/browser/hooks/useEditStagingBuffer.js'
 import { CommandStack } from '../../src/browser/command-stack.js'
 import { PREVIEW_SOURCE_ATTR, PREVIEW_SOURCE_PREFIX } from '../../src/browser/preview-source.js'
 
@@ -2313,5 +2314,22 @@ describe('Panel — source-only blast-radius banner (ZF0-1583)', () => {
     // Neither banner should appear (panel is rendered but no sharing detected)
     expect(shadowRoot.querySelector('.cortex-panel__scope')).toBeNull()
     expect(shadowRoot.querySelector('.cortex-panel__scope--source-only')).toBeNull()
+  })
+})
+
+describe('PanelProps.buffer', () => {
+  it('accepts a StagingBufferHandle on the buffer prop', () => {
+    const fakeBuffer: StagingBufferHandle = {
+      append: () => undefined,
+      remove: () => undefined,
+      list: () => [],
+      clear: () => undefined,
+      size: () => 0,
+      version: 0,
+      reconcile: () => ({ divergent: [] }),
+    }
+    // Compile-time check: TS would fail if PanelProps lacked the `buffer` field.
+    const props: Pick<PanelProps, 'buffer'> = { buffer: fakeBuffer }
+    expect(props.buffer.size()).toBe(0)
   })
 })
