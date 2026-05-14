@@ -1,0 +1,23 @@
+cortex-editor/tests/browser/toolbar.test.tsx
+  s_472c47cfcc8bfe::t_a9df54bde805f9 3
+  s_472c47cfcc8bfe::t_caf87524585e7d 70,72,86-87,95,100,105
+  s_472c47cfcc8bfe::t_bb6f748adde264 90-94
+  s_472c47cfcc8bfe::t_38987d5568e0d0 71,73-76,88
+  s_472c47cfcc8bfe::t_1fa56211a99613 77-85,89,96-99,101-104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "8461273fef1b05a8b8a448f5c23d373104940996",
+  "prompts": {},
+  "sessions": {
+    "s_472c47cfcc8bfe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4f564dec-8711-4ac0-9d33-36690313e69a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
