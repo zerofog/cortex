@@ -1334,7 +1334,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           hmrAppliedVersion={hmrAppliedVersion}
         />
       ))}
-      {overrideRef.current && (
+      {overrideRef.current && selectedElements.length > 0 && (
         <Panel
           selectedElements={selectedElements}
           overrideManager={overrideRef.current}

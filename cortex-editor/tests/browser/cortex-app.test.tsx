@@ -841,7 +841,21 @@ describe('CortexApp', () => {
       try {
         setup()
         const channel = createMockChannel()
-        render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
+        await act(() => {
+          render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
+        })
+        await vi.advanceTimersByTimeAsync(10)
+
+        // Select an element so Panel mounts and ConnectionStatus is visible.
+        // (Task 16: Panel is gated on selection; ConnectionStatus lives inside Panel.)
+        const { _getCallbacks: _getCbs } = await import('../../src/browser/selection.js') as any
+        const { selectCb: _sCb } = _getCbs()
+        const _target = document.createElement('div')
+        _target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+        document.body.appendChild(_target)
+        orphans.push(_target)
+        mockGetBoundingClientRect(_target, { top: 50, left: 50, width: 100, height: 40 })
+        await act(() => { _sCb([_target], 'replace') })
         await vi.advanceTimersByTimeAsync(10)
 
         // Simulate: reconnecting → connected (starts 2s timer) → reconnecting (should cancel timer)
@@ -887,6 +901,18 @@ describe('CortexApp', () => {
         await act(() => {
           render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
         })
+        await vi.advanceTimersByTimeAsync(10)
+
+        // Select an element so Panel mounts and ConnectionStatus is visible.
+        // (Task 16: Panel is gated on selection; ConnectionStatus lives inside Panel.)
+        const { _getCallbacks: _getCbs2 } = await import('../../src/browser/selection.js') as any
+        const { selectCb: _sCb2 } = _getCbs2()
+        const _target2 = document.createElement('div')
+        _target2.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+        document.body.appendChild(_target2)
+        orphans.push(_target2)
+        mockGetBoundingClientRect(_target2, { top: 50, left: 50, width: 100, height: 40 })
+        await act(() => { _sCb2([_target2], 'replace') })
         await vi.advanceTimersByTimeAsync(10)
 
         // Reconnecting → marks wasDisconnected=true internally. act() flushes
@@ -992,6 +1018,89 @@ describe('CortexApp', () => {
     render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
     await activateEditor(channel)
     expect(root.querySelector('.cortex-activity-log')).toBeNull()
+  })
+
+  describe('Task 16 — Panel gated on selection (ZF0-1869, Change 1)', () => {
+    // Panel renders ONLY when Cortex is active AND an element is selected.
+    // The Toolbar stays visible regardless. Buffer survives Panel unmount on
+    // deselect (buffer is hoisted to CortexApp — Task 2).
+
+    it('Panel NOT rendered when Cortex is active but nothing is selected', async () => {
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await activateEditor(channel)
+
+      // Cortex is active (toolbar visible), nothing selected
+      expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
+      expect(root.querySelector('.cortex-panel')).toBeNull()
+    })
+
+    it('Panel rendered when Cortex is active and an element is selected', async () => {
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await activateEditor(channel)
+
+      const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+      const { selectCb } = _getCallbacks()
+      const target = document.createElement('div')
+      target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+      document.body.appendChild(target)
+      orphans.push(target)
+      mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
+
+      selectCb([target], 'replace')
+
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).not.toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+    })
+
+    it('Panel unmounts on deselect but buffer survives (Change 1 integration payoff)', async () => {
+      ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await activateEditor(channel)
+
+      const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+      const { selectCb } = _getCallbacks()
+      const target = document.createElement('div')
+      target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+      document.body.appendChild(target)
+      orphans.push(target)
+      mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
+
+      // Select an element — Panel should mount
+      selectCb([target], 'replace')
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).not.toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      // Stage an edit so the buffer has 1 item
+      const bridge = (window as any).__CORTEX_TEST__ as {
+        stageEdit: (source: string, property: string, value: string) => Promise<string>
+        buffer: { list: () => unknown[]; size: () => number }
+      }
+      await act(async () => {
+        await bridge.stageEdit('Hero.tsx:5:3', 'color', 'red')
+      })
+      await vi.waitFor(() => {
+        expect(bridge.buffer.size()).toBe(1)
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      // Clear selection — Panel should unmount
+      await act(async () => {
+        selectCb([], 'replace')
+      })
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      // Buffer MUST survive Panel unmount — staged edits are not lost
+      expect(bridge.buffer.size()).toBe(1)
+    })
   })
 })
 
