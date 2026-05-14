@@ -371,10 +371,12 @@ export const serverToBrowserSchema = z.discriminatedUnion('type', [
 
   // 18. source-edit-failed (Change 7) — Edit tool failed to land a needs-source-edit
   // intent; intent stays in the buffer, reason surfaces via applyError.
+  // ZF0-1869 Round-1 Fix 4: reason bounded to 2048 chars (defense-in-depth at the
+  // wire layer; MCP input schema is bounded identically in mcp-tool-inputs.ts).
   z.object({
     type: z.literal('source-edit-failed'),
     intentIds: z.array(intentIdSchema),
-    reason: z.string(),
+    reason: z.string().max(2048),
   }),
 
   // 19. mcp-session-hello (Change 6) — MCP server announces its process-scoped UUID

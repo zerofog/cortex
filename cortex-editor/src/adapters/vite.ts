@@ -1368,6 +1368,14 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             if (type === 'mcp-session-hello') {
               const sessionId = (parsed as Record<string, unknown>).sessionId
               if (typeof sessionId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
+                // ZF0-1869 Round-1 Fix 2: dual-write — clear the server-side cache
+                // directly so stale intents are evicted even if the browser tab is
+                // closed or backgrounded. Without this, a new Claude session connecting
+                // while the tab is not visible would find stale intents from a prior
+                // session and produce phantom "intent not found" errors on the next apply.
+                if (currentSession) {
+                  currentSession.stagedEdits.clear()
+                }
                 if (currentSession?.channel) {
                   currentSession.channel.send({ type: 'mcp-session-hello', sessionId })
                 }

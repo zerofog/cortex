@@ -273,6 +273,13 @@ export interface PanelProps {
   /** Buffer lifetime is CortexApp-scoped (Task 2 hoist). Required — Panel no longer
    *  creates its own buffer (Task 3 removed the local fallback). */
   buffer: StagingBufferHandle
+  /** Apply error lifted to CortexApp (ZF0-1869 Round-1 Fix 1) so it survives
+   *  Panel unmount on deselect. Null means no error. Panel renders the banner
+   *  from this prop; both CortexApp's onMessage handler (source-edit-failed) and
+   *  Panel's handleApplyError (sendAndAck rejection) set it via onSetApplyError. */
+  applyError?: string | null
+  /** Sets or clears the applyError in CortexApp. Pass null to clear. */
+  onSetApplyError?: (err: string | null) => void
 }
 
 export function Panel({
@@ -313,6 +320,8 @@ export function Panel({
   stageEditRef,
   commitEditRef,
   buffer: bufferProp,
+  applyError: applyErrorProp = null,
+  onSetApplyError,
 }: PanelProps): JSX.Element | null {
   // Back-compat alias: primary element for all CSS-parsing code paths (ZF0-1195 / T3).
   // All existing usages of `element` inside this function work unchanged.
@@ -345,46 +354,23 @@ export function Panel({
     throw new Error('[cortex] Panel requires `buffer` prop — hoisted from CortexApp')
   }
 
-  // staged-edits-discard is server-originated (the MCP server's
-  // cortex_discard_edits tool emitted it after mutating its cache). Calling
-  // buffer.remove(ids) here keeps the browser-canonical buffer in lockstep.
-  // Echo-loop trace: buffer.remove → emitterRef.syncRemove → channel.send
-  // 'staged-edit-remove' → server cache.remove. Terminates at depth 1
-  // because cache.remove is idempotent on already-removed ids (the second
-  // remove is a no-op on an empty set). If the round-trip becomes a
-  // measurable cost, add an "is this server-originated?" guard before
-  // propagating the remove through the SyncEmitter.
-  //
-  // IMPORTANT: this depth-1 termination depends on cache.remove(ids) being
-  // idempotent (no side-effect on already-removed ids). If you ever add a
-  // non-idempotent server-side reaction to staged-edit-remove (logging,
-  // telemetry, undo-stack push), this echo loop would generate duplicates —
-  // add the server-originated guard at that point.
-  useEffect(() => {
-    if (!channel) return
-    return channel.onMessage((msg) => {
-      if (msg.type === 'staged-edits-discard') {
-        const ids = (msg as { type: 'staged-edits-discard'; intentIds: string[] }).intentIds
-        buffer.remove(ids)
-      } else if (msg.type === 'source-edit-failed') {
-        // Change 7 (ZF0-1869): server's Edit-tool agent failed to land a
-        // needs-source-edit intent. The intent stays in the buffer so the
-        // designer can retry or discard. Surface the reason string in the
-        // applyError banner so the failure is visible in the UI.
-        const { reason } = msg as { type: 'source-edit-failed'; intentIds: string[]; reason: string }
-        setApplyError(reason)
-      }
-    })
-  }, [channel, buffer])
+  // staged-edits-discard and source-edit-failed are now handled in CortexApp's
+  // onMessage subscriber (ZF0-1869 Round-1 Fix 1). CortexApp owns the buffer and
+  // never unmounts while active; if these handlers lived here, messages arriving
+  // while Panel is unmounted (user deselected) would be silently dropped, causing
+  // buffer divergence and silent apply-error loss. applyError state is also lifted
+  // to CortexApp and flows down as the applyErrorProp + onClearApplyError pair.
 
   // ZF0-1470 (T4 B1): drift count drives StagingDriftBanner's intent-drift row.
   // Updated by buffer.reconcile() whenever hmrChangedFiles changes (see effect below).
   const [intentDriftCount, setIntentDriftCount] = useState(0)
 
-  // ZF0-1470 (T4 fix-up, IMPORTANT 4): Apply error state. Surfaced inline above
-  // StagingDriftBanner when sendAndAck rejects (timeout/disconnect/server error).
-  // Cleared when a new Apply attempt starts (before sendAndAck) or dismissed by user.
-  const [applyError, setApplyError] = useState<string | null>(null)
+  // ZF0-1869 Round-1 Fix 1: applyError state lifted to CortexApp. Panel reads
+  // the error string from applyErrorProp (passed down from CortexApp) and
+  // delegates mutations to onSetApplyError. The local alias keeps the
+  // handleApplyError and onApply pre-flight callsites identical.
+  const applyError = applyErrorProp
+  const setApplyError = onSetApplyError ?? ((_v: string | null) => {})
 
   // ZF0-1470 (T4 B1): Apply handler — sends staged-edits-ready via sendAndAck so
   // Claude's MCP tools can read the buffer. Does NOT call buffer.clear() — per
@@ -1510,6 +1496,7 @@ export function Panel({
         bufferSize={buffer.size()}
         onApply={onApply}
         onApplyError={handleApplyError}
+        applyError={applyError}
       />
       {editErrors && element?.getAttribute('data-cortex-source') && (
         <EditErrorCard

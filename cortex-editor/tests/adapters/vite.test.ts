@@ -1183,6 +1183,32 @@ describe('CLI WebSocket bridge', () => {
     })
   })
 
+  // Fix 2 (ZF0-1869 Round-1): mcp-session-hello must clear the server-side
+  // stagedEdits cache via dual-write, independent of the browser round-trip.
+  // Falsifiability: before Fix 2 only the browser was asked to wipe;
+  // after Fix 2 currentSession.stagedEdits.clear() is called server-side.
+  it('mcp-session-hello with valid token clears server-side stagedEdits cache (Fix 2)', async () => {
+    await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status
+
+    // Seed the server-side cache with a stale edit
+    const cache = _getStagedEditsForTesting()!
+    expect(cache).not.toBeNull()
+    cache.append(makeEdit({ intentId: 'stale-intent', property: 'color' }))
+    expect(cache.size()).toBe(1)
+
+    const VALID_UUID = '00000000-0000-4000-a000-000000000099'
+    ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: VALID_UUID, token: sessionToken }))
+
+    // Server-side cache must be cleared synchronously by the handler —
+    // no browser round-trip required.
+    await vi.waitFor(() => {
+      expect(cache.size()).toBe(0)
+    })
+  })
+
   it('warns when no httpServer (middleware mode)', () => {
     const plugin = initPlugin()
     const server = mockServer()

@@ -1,0 +1,5 @@
+{
+  "type": "source-edit-failed",
+  "intentIds": ["intent-abc"],
+  "reason": "pattern not found at Hero.tsx:31"
+}

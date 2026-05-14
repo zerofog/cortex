@@ -861,6 +861,12 @@ class CortexWebpackRuntime {
     if (type === 'mcp-session-hello') {
       const sessionId = (parsed as Record<string, unknown>).sessionId
       if (typeof sessionId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
+        // ZF0-1869 Round-1 Fix 2: dual-write — clear the server-side cache
+        // directly so stale intents are evicted even if the browser tab is
+        // closed or backgrounded. Without this, a new Claude session connecting
+        // while the tab is not visible would find stale intents from a prior
+        // session and produce phantom "intent not found" errors on the next apply.
+        session.stagedEdits.clear()
         session.channel?.send({ type: 'mcp-session-hello', sessionId })
       }
       return
@@ -951,15 +957,36 @@ class CortexWebpackRuntime {
       case 'acknowledgeSourceEdit': {
         const intentIds = params.intentIds as string[]
         session.stagedEdits.remove(intentIds)
-        session.channel?.send({ type: 'staged-edits-discard', intentIds })
-        return { acknowledged: intentIds, browserNotified: Boolean(session.channel) }
+        // ZF0-1869 Round-1 Fix 3: wrap send in try/catch so browserNotified reflects
+        // actual send success (parity with vite.ts). Without this, browserNotified
+        // would be true even when channel.send throws (e.g. closed WebSocket).
+        let browserNotified = false
+        if (session.channel) {
+          try {
+            session.channel.send({ type: 'staged-edits-discard', intentIds })
+            browserNotified = true
+          } catch (err) {
+            console.warn('[cortex] Failed to send staged-edits-discard (ack) to browser:', err instanceof Error ? err.message : String(err))
+          }
+        }
+        return { acknowledged: intentIds, browserNotified }
       }
       case 'reportSourceEditFailed': {
         const intentIds = params.intentIds as string[]
         const reason = params.reason as string
         // STATE-MACHINE INVARIANT: do NOT remove from cache — the source edit failed.
-        session.channel?.send({ type: 'source-edit-failed', intentIds, reason })
-        return { reported: intentIds, browserNotified: Boolean(session.channel) }
+        // ZF0-1869 Round-1 Fix 3: wrap send in try/catch so browserNotified reflects
+        // actual send success (parity with vite.ts).
+        let browserNotified = false
+        if (session.channel) {
+          try {
+            session.channel.send({ type: 'source-edit-failed', intentIds, reason })
+            browserNotified = true
+          } catch (err) {
+            console.warn('[cortex] Failed to send source-edit-failed to browser:', err instanceof Error ? err.message : String(err))
+          }
+        }
+        return { reported: intentIds, browserNotified }
       }
       case 'getIntentContext': {
         const intentId = params.intentId as string

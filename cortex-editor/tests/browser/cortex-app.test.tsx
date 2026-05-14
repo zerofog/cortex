@@ -1126,6 +1126,135 @@ describe('CortexApp', () => {
       expect(bridge.buffer.size()).toBe(1)
     })
   })
+
+  describe('Fix 1 — CortexApp handles staged-edits-discard + source-edit-failed while Panel unmounted (ZF0-1869 Round-1)', () => {
+    // FALSIFIABILITY: Before Fix 1, CortexApp had early-returns for both
+    // staged-edits-discard and source-edit-failed. With Panel unmounted (no
+    // selection), the messages were silently dropped:
+    //   • staged-edits-discard → buffer diverged (intent stayed in buffer)
+    //   • source-edit-failed   → applyError never set (error was swallowed)
+    // After Fix 1, CortexApp owns both handlers unconditionally. These tests
+    // target that exact scenario: message arrives while Panel is unmounted.
+
+    it('staged-edits-discard while Panel unmounted removes the intent from CortexApp buffer', async () => {
+      ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+      await activateEditor(channel)
+
+      const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+      const { selectCb } = _getCallbacks()
+      const target = document.createElement('div')
+      target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+      document.body.appendChild(target)
+      orphans.push(target)
+      mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
+
+      // Select element — Panel mounts
+      selectCb([target], 'replace')
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).not.toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      // Stage an edit so there is an intent in the buffer
+      const bridge = (window as any).__CORTEX_TEST__ as {
+        stageEdit: (source: string, property: string, value: string) => Promise<string>
+        buffer: { list: () => Array<{ intentId: string }>; size: () => number }
+      }
+      let intentId!: string
+      await act(async () => {
+        intentId = await bridge.stageEdit('Hero.tsx:5:3', 'color', 'red')
+      })
+      await vi.waitFor(() => {
+        expect(bridge.buffer.size()).toBe(1)
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      // Deselect — Panel unmounts (the correctness-critical condition)
+      await act(async () => {
+        selectCb([], 'replace')
+      })
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      // Deliver staged-edits-discard WHILE Panel is unmounted.
+      // Before Fix 1: CortexApp had `return` for this message → buffer unchanged.
+      // After Fix 1:  CortexApp calls buffer.remove(intentIds) → size drops to 0.
+      await act(async () => {
+        channel._simulateMessage({ type: 'staged-edits-discard', intentIds: [intentId] } as any)
+      })
+
+      // Buffer MUST be 0 — intent removed even though Panel was unmounted
+      expect(bridge.buffer.size()).toBe(0)
+    })
+
+    it('source-edit-failed while Panel unmounted sets applyError — banner visible after reselect', async () => {
+      ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+      await activateEditor(channel)
+
+      const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+      const { selectCb } = _getCallbacks()
+      const target = document.createElement('div')
+      target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+      document.body.appendChild(target)
+      orphans.push(target)
+      mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
+
+      // Select element — Panel mounts; stage an edit
+      selectCb([target], 'replace')
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).not.toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      const bridge = (window as any).__CORTEX_TEST__ as {
+        stageEdit: (source: string, property: string, value: string) => Promise<string>
+        buffer: { list: () => Array<{ intentId: string }>; size: () => number }
+      }
+      await act(async () => {
+        await bridge.stageEdit('Hero.tsx:5:3', 'color', 'red')
+      })
+
+      // Deselect — Panel unmounts (the correctness-critical condition)
+      await act(async () => {
+        selectCb([], 'replace')
+      })
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      // Deliver source-edit-failed WHILE Panel is unmounted.
+      // Before Fix 1: CortexApp had `return` for this message → applyError never set.
+      // After Fix 1:  CortexApp calls setApplyError(msg.reason) → state persists.
+      await act(async () => {
+        channel._simulateMessage({
+          type: 'source-edit-failed',
+          intentIds: ['intent-xyz'],
+          reason: 'pattern not found at Hero.tsx:31',
+        } as any)
+      })
+
+      // Re-select the element — Panel remounts and receives applyError prop from CortexApp.
+      // If the error was dropped, applyError would be null → no banner.
+      // If the error was captured, applyError is set → banner present.
+      await act(async () => {
+        selectCb([target], 'replace')
+      })
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).not.toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      // Banner MUST be visible — applyError survived Panel unmount/remount
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-apply-error')).not.toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+    })
+  })
 })
 
 describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {

@@ -1690,24 +1690,14 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     }
   })
 
-  it('staged-edits-discard server message removes intents from canonical buffer', async () => {
-    // ZF0-1452 regression: Panel.tsx's channel.onMessage handler wires
-    // 'staged-edits-discard' (server-originated, emitted by the MCP server's
-    // cortex_discard_edits tool) to buffer.remove(intentIds). Without this
-    // wiring, Claude calls discard, server cache mutates, but the browser
-    // canonical buffer keeps the intent and the Apply panel keeps showing
-    // it. Pre-populates the buffer via PanelWithInitEdits (Change 4: buffer
-    // is memory-only, no rehydration from localStorage). Simulates the server
-    // message via channel._simulateMessage and verifies the discarded intent
-    // is gone while the keeper survives (asserts via persisted localStorage).
-    //
-    // Fake timers (for the debounce only): the 150ms persist debounce caused
-    // intermittent CI failures when Istanbul instrumentation + 4-way pool
-    // concurrency stretched the timer past 15s (ZF0-1474 retro, ZF0-1473 PR #93).
-    // Strategy: flush the useEffect handler-registration with real timers (50ms
-    // covers Preact's 35ms afterNextFrame fallback), then switch to fake timers
-    // to advance the debounce deterministically. This eliminates the flake while
-    // keeping the onMessage subscription flush correct.
+  it('buffer.remove() removes intents from canonical buffer (staged-edits-discard now CortexApp-owned)', async () => {
+    // ZF0-1869 Round-1 Fix 1: staged-edits-discard is now handled in CortexApp
+    // (not Panel) so it survives Panel unmount on deselect. This test validates
+    // that buffer.remove() correctly removes the discarded intent — the same call
+    // CortexApp makes in its onMessage handler when staged-edits-discard arrives.
+    // The channel-simulation path is intentionally dropped: Panel no longer
+    // subscribes to staged-edits-discard. CortexApp-level wire coverage is in
+    // cortex-app.test.tsx.
 
     const initialEdits: PendingEdit[] = [
       {
@@ -1756,22 +1746,19 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
       />,
     )
 
-    // Flush effects so the useEffect that subscribes to channel.onMessage
-    // has registered the handler before we send the discard message.
-    // Real timers here: Preact's afterNextFrame() uses a 35ms rAF-fallback
-    // setTimeout — fake timers would prevent it from firing.
+    // Flush effects so Panel mounts fully.
     await act(async () => {
       await new Promise(r => setTimeout(r, 50))
     })
 
-    // Server tells browser to discard 'discard-me'.
+    // CortexApp (not Panel) handles staged-edits-discard. Simulate what CortexApp
+    // does in its onMessage handler: call buffer.remove() with the discarded IDs.
     await act(async () => {
-      channel._simulateMessage({ type: 'staged-edits-discard', intentIds: ['discard-me'] } as any)
+      discardBufRef.current!.remove(['discard-me'])
       await Promise.resolve()
     })
 
-    // Change 4: memory-only — assert in-memory buffer directly.
-    // remove() is synchronous; no debounce advancement needed.
+    // remove() is synchronous; assert in-memory buffer directly.
     const remaining = discardBufRef.current!.list()
     expect(remaining).toHaveLength(1)
     expect(remaining[0].intentId).toBe('keep-me')
@@ -1780,15 +1767,13 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     target.remove()
   })
 
-  it('source-edit-failed server message surfaces reason in applyError banner (ZF0-1869 Task 10)', async () => {
-    // Change 7 (ZF0-1869): when the server's Edit-tool agent cannot land a
-    // needs-source-edit intent it broadcasts { type: 'source-edit-failed',
-    // intentIds, reason }. The browser must surface `reason` in the applyError
-    // banner so the designer sees why the apply failed and can retry or discard.
-    // The intent deliberately stays in the buffer (server invariant — not removed
-    // on failure so the user can retry). We verify:
-    //   (a) the .cortex-apply-error[role="alert"] banner appears, and
-    //   (b) it contains the reason string.
+  it('applyError prop surfaces reason in applyError banner (ZF0-1869 Round-1 Fix 1)', async () => {
+    // ZF0-1869 Round-1 Fix 1: applyError state lifted to CortexApp. Panel now
+    // receives the error string as the `applyError` prop (set by CortexApp's
+    // onMessage handler when source-edit-failed arrives). This test validates
+    // that Panel renders the banner from the prop.
+    // The channel-simulation path is dropped: Panel no longer subscribes to
+    // source-edit-failed. CortexApp-level wire coverage is in cortex-app.test.tsx.
     const target = document.createElement('div')
     target.setAttribute('data-cortex-source', 'src/App.tsx:31:5')
     document.body.appendChild(target)
@@ -1803,6 +1788,8 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
       flush: vi.fn(),
     }
 
+    const reason = "couldn't find pattern at App.tsx:31"
+
     const { root, cleanup } = renderInShadow(
       <PanelWithInitEdits
         initialEdits={[]}
@@ -1811,28 +1798,15 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        applyError={reason}
+        onSetApplyError={() => {}}
         {...panelPositionProps}
       />,
     )
 
-    // Flush effects so the useEffect that registers the channel.onMessage
-    // subscriber fires before we simulate the inbound message.
+    // Flush effects so Panel mounts fully.
     await act(async () => {
       await new Promise(r => setTimeout(r, 50))
-    })
-
-    // No banner before the failure message.
-    expect(root.querySelector('.cortex-apply-error')).toBeNull()
-
-    // Server reports Edit-tool failure.
-    const reason = "couldn't find pattern at App.tsx:31"
-    await act(async () => {
-      channel._simulateMessage({
-        type: 'source-edit-failed',
-        intentIds: ['i1'],
-        reason,
-      })
-      await Promise.resolve()
     })
 
     // Banner must be visible and contain the reason.

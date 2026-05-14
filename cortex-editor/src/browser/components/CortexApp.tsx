@@ -130,6 +130,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const editDispatchRef = useRef<Map<string, { source: string; property: string; value: string }>>(new Map())
   // Active errors keyed by source\0property
   const [editErrors, setEditErrors] = useState<Map<string, EditError>>(new Map())
+  // ZF0-1869 Round-1 Fix 1: applyError lifted from Panel. Lives here so it
+  // survives Panel unmount (Panel unmounts on deselect; buffer + apply-error
+  // must outlive the selection). Cleared on next Apply attempt or user dismiss.
+  const [applyError, setApplyError] = useState<string | null>(null)
 
   /**
    * Remove an error by key — avoids new Map allocation when key is absent.
@@ -851,12 +855,17 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       // exhaustive throw doesn't fire on every error message.
       if (msg.type === 'error') return
 
-      // staged-edits-discard is owned by Panel.tsx's onMessage subscriber
-      // (which removes the discarded intents from the canonical buffer). It's
-      // a browser-side mirror update, not a CortexAppAction — early-return so
-      // the reducer's exhaustive default doesn't fire and log on every
-      // cortex_discard_edits call.
-      if (msg.type === 'staged-edits-discard') return
+      // staged-edits-discard: the server discarded one or more intents (via
+      // cortex_discard_edits or cortex_acknowledge_source_edit). CortexApp owns
+      // the buffer (hoisted from Panel in Task 2), so the handler lives here —
+      // NOT in Panel.tsx. Panel unmounts on deselect; if the handler lived in
+      // Panel, messages arriving while Panel is unmounted would be silently dropped
+      // and the buffer would permanently diverge from the server cache.
+      // (ZF0-1869 Round-1 Fix 1)
+      if (msg.type === 'staged-edits-discard') {
+        buffer.remove(msg.intentIds)
+        return
+      }
 
       // staged-edits-acked (ZF0-1469) is consumed by channel.sendAndAck's
       // one-shot listener — it correlates the requestId and resolves the Apply
@@ -864,12 +873,14 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       // reducer's exhaustive default doesn't fire and log on every Apply.
       if (msg.type === 'staged-edits-acked') return
 
-      // source-edit-failed (ZF0-1869 Change 7) is handled by Panel.tsx's
-      // onMessage subscriber — it surfaces a failure banner for the affected
-      // intent. CortexApp has nothing to do with it; early-return so the
-      // reducer's exhaustive default doesn't fire and log on every
-      // cortex_report_source_edit_failed call.
-      if (msg.type === 'source-edit-failed') return
+      // source-edit-failed (ZF0-1869 Change 7): the Edit-tool agent failed to
+      // land a needs-source-edit intent. CortexApp owns applyError state (lifted
+      // from Panel in Round-1 Fix 1) so the error banner survives Panel remounts.
+      // The intent stays in the buffer so the designer can retry or discard.
+      if (msg.type === 'source-edit-failed') {
+        setApplyError(msg.reason)
+        return
+      }
 
       // mcp-session-hello: the MCP server announces a process-scoped UUID. A CHANGED
       // UUID means a genuinely new Claude session — wipe stale staged edits. Same
@@ -1379,6 +1390,8 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           staleOverrideCount={staleOverrideCount}
           staleSources={staleSources}
           buffer={buffer}
+          applyError={applyError}
+          onSetApplyError={setApplyError}
         />
       )}
       <Toolbar

@@ -598,6 +598,185 @@ describe('cortexWebpack adapter', () => {
       await compiler.hooks.shutdown.run()
     }
   })
+
+  // Fix 2 (ZF0-1869 Round-1): mcp-session-hello must clear the server-side
+  // stagedEdits cache via dual-write, not just forward to the browser.
+  // Falsifiability: before Fix 2, only the browser was asked to wipe;
+  // after Fix 2, session.stagedEdits.clear() is called directly server-side.
+  it('mcp-session-hello with valid token clears server-side stagedEdits cache (Fix 2)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+    const cli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
+
+    try {
+      // Initialize browser so staged-edit-add is accepted
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      // Seed one stale edit into the server-side cache via the browser path
+      const staleEdit = {
+        intentId: 'stale-fix2-test',
+        source: 'Hero.tsx:5:3',
+        property: 'color',
+        value: 'red',
+        previousValue: '',
+        timestamp: Date.now(),
+      }
+      browser.send(JSON.stringify({ type: 'staged-edit-add', edit: staleEdit, token }))
+
+      // Verify edit is cached (confirm seed before clearing)
+      await waitForOpen(cli)
+      await vi.waitFor(async () => {
+        const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
+        expect(result.count).toBe(1)
+      }, { timeout: 1000 })
+
+      // Deliver mcp-session-hello — must clear server-side cache
+      const VALID_UUID = '00000000-0000-4000-a000-000000000099'
+      cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: VALID_UUID, token }))
+
+      // Cache MUST be empty — cleared without browser round-trip
+      await vi.waitFor(async () => {
+        const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
+        expect(result.count).toBe(0)
+      }, { timeout: 1000 })
+    } finally {
+      cli.close()
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  // Fix 6 (ZF0-1869 Round-1): webpack RPC tests for acknowledgeSourceEdit and
+  // reportSourceEditFailed, mirroring the vite.test.ts patterns.
+
+  it('acknowledgeSourceEdit RPC removes intent from stagedEdits and notifies browser (Fix 6)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+    const cli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      // Seed an intent
+      const edit = {
+        intentId: 'ack-intent-1',
+        source: 'Hero.tsx:5:3',
+        property: 'fontSize',
+        value: '1rem',
+        previousValue: '',
+        timestamp: Date.now(),
+      }
+      browser.send(JSON.stringify({ type: 'staged-edit-add', edit, token }))
+
+      await waitForOpen(cli)
+      await vi.waitFor(async () => {
+        const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
+        expect(result.count).toBe(1)
+      }, { timeout: 1000 })
+
+      // Call acknowledgeSourceEdit — must remove intent + send staged-edits-discard to browser
+      const discardPromise = nextMessageOfType(browser, 'staged-edits-discard')
+      const result = await rpc(cli, token, 'acknowledgeSourceEdit', { intentIds: ['ack-intent-1'] }) as {
+        acknowledged: string[]
+        browserNotified: boolean
+      }
+
+      expect(result.acknowledged).toEqual(['ack-intent-1'])
+      expect(result.browserNotified).toBe(true)
+
+      // Intent removed from cache
+      const afterAck = await rpc(cli, token, 'getPendingEdits') as { count: number }
+      expect(afterAck.count).toBe(0)
+
+      // Browser received staged-edits-discard
+      const discardMsg = await discardPromise
+      expect(discardMsg.intentIds).toEqual(['ack-intent-1'])
+    } finally {
+      cli.close()
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  it('reportSourceEditFailed RPC sends source-edit-failed to browser but does NOT remove intent (Fix 6)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+    const cli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      // Seed an intent
+      const edit = {
+        intentId: 'fail-intent-1',
+        source: 'Hero.tsx:5:3',
+        property: 'color',
+        value: 'blue',
+        previousValue: '',
+        timestamp: Date.now(),
+      }
+      browser.send(JSON.stringify({ type: 'staged-edit-add', edit, token }))
+
+      await waitForOpen(cli)
+      await vi.waitFor(async () => {
+        const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
+        expect(result.count).toBe(1)
+      }, { timeout: 1000 })
+
+      // Call reportSourceEditFailed — must NOT remove intent, but must notify browser
+      const failedPromise = nextMessageOfType(browser, 'source-edit-failed')
+      const result = await rpc(cli, token, 'reportSourceEditFailed', {
+        intentIds: ['fail-intent-1'],
+        reason: 'pattern not found at Hero.tsx:31',
+      }) as {
+        reported: string[]
+        browserNotified: boolean
+      }
+
+      expect(result.reported).toEqual(['fail-intent-1'])
+      expect(result.browserNotified).toBe(true)
+
+      // Intent MUST still be in cache (failure path keeps the intent)
+      const afterReport = await rpc(cli, token, 'getPendingEdits') as { count: number }
+      expect(afterReport.count).toBe(1)
+
+      // Browser received source-edit-failed with correct fields
+      const failedMsg = await failedPromise
+      expect(failedMsg.intentIds).toEqual(['fail-intent-1'])
+      expect(failedMsg.reason).toBe('pattern not found at Hero.tsx:31')
+    } finally {
+      cli.close()
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
 })
 
 function createMockCompiler(root: string) {

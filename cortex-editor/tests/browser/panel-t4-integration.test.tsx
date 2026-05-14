@@ -16,7 +16,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act } from 'preact/test-utils'
-import { useRef } from 'preact/hooks'
+import { useRef, useState } from 'preact/hooks'
 import { Panel } from '../../src/browser/components/Panel.js'
 import { renderInShadow, createMockChannel, cleanDocumentHead } from './helpers.js'
 import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
@@ -55,7 +55,20 @@ function PanelWithInitEdits({
       buffer.append(edit)
     }
   }
-  return <Panel {...props} buffer={buffer} />
+  // ZF0-1869 Round-1 Fix 1: applyError state is lifted to CortexApp in production.
+  // In unit tests that render Panel in isolation, PanelWithInitEdits mirrors
+  // CortexApp's ownership by managing local applyError state and wiring
+  // onSetApplyError — so tests can verify the banner-render path without needing
+  // a full CortexApp tree.
+  const [applyError, setApplyError] = useState<string | null>(props.applyError ?? null)
+  return (
+    <Panel
+      {...props}
+      buffer={buffer}
+      applyError={applyError}
+      onSetApplyError={(v) => setApplyError(v)}
+    />
+  )
 }
 
 const panelPositionProps = {
