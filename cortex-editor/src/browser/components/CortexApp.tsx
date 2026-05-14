@@ -1158,10 +1158,27 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         return
       }
 
-      // No Priority 4 — Cmd+Shift+. and X button are the only close mechanisms.
-      // This intentionally deviates from the spec's Section 4 cascade which included
-      // a close step. Removed per architecture review finding H5 to prevent accidental
-      // editor close on extra Escape press.
+      // Priority 4: Deactivate Cortex (re-added per ZF0-1869, reversing finding H5).
+      //
+      // History: H5 (architecture review, pre-ZF0-1869) removed this step to prevent
+      // accidental editor close on an "extra" Escape press. The concern was valid at
+      // the time because the panel was always-on chrome — even with nothing selected,
+      // the editor was visually present, so a stray Escape would immediately destroy
+      // the user's editing context with no friction.
+      //
+      // Why reverting H5 is now acceptable (ZF0-1869 selection-first redesign):
+      // Under selection-first, the panel only mounts when an element is selected
+      // (Task 16). This means the Esc cascade now naturally requires TWO presses to
+      // close from an active editing state:
+      //   1st Esc → Priority 3 fires → deselects the element → panel unmounts.
+      //   2nd Esc → nothing selected/focused → Priority 4 fires → Cortex closes.
+      // The two-press friction is equivalent to H5's original "accidental close"
+      // protection. The UX context H5 was designed for (always-on panel) no longer
+      // exists; keeping Priority 4 absent would make keyboard-only close impossible,
+      // which contradicts the spec's Section 4 cascade and ZF0-1869's explicit intent.
+      handleClose()
+      e.stopPropagation()
+      e.preventDefault()
     }
 
     window.addEventListener('keydown', handleEscape, { capture: true })

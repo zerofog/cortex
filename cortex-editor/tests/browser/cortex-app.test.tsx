@@ -352,27 +352,78 @@ describe('CortexApp', () => {
     }, { timeout: WAIT_FOR_COMMIT_MS })
   })
 
-  it('Escape with no selection and no comment mode does nothing (no close)', async () => {
+  // --- Esc cascade tests (ZF0-1869, Task 15) ---
+  // Priority 4 (deactivate) was re-added per ZF0-1869's selection-first redesign.
+  // These tests exercise the full cascade and guard against regression.
+
+  it('Esc cascade Priority 4: Escape with nothing selected/focused deactivates Cortex', async () => {
     setup()
     const channel = createMockChannel()
     render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
-    await new Promise(r => setTimeout(r, 10))
+    await activateEditor(channel)
 
-    // Activate — wait for toolbar to appear before proceeding (avoids 10ms
-    // settle flake under serial-loop load where Preact scheduling takes >10ms)
-    channel._simulateMessage({ type: 'cortex' } as any)
-    await vi.waitFor(() => {
-      expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
-    }, { timeout: 1500 })
-
-    // Escape with no selection, no comment mode — should NOT close
+    // Ensure no Cortex input is focused, no host input, no selection, no comment mode
+    vi.spyOn(focusUtils, 'isCortexUIFocused').mockReturnValue(false)
+    vi.spyOn(focusUtils, 'isInputFocused').mockReturnValue(false)
     vi.spyOn(focusUtils, 'isRealEvent').mockReturnValue(true)
+
+    dispatchKeyboardEvent(window, 'keydown', { key: 'Escape' })
+
+    // Priority 4 fires: Cortex must deactivate (cortex-closed sent, toolbar gone)
+    await vi.waitFor(() => {
+      expect(channel._lastSent).toContainEqual({ type: 'cortex-closed' })
+    }, { timeout: WAIT_FOR_COMMIT_MS })
+    await vi.waitFor(() => {
+      expect(root.querySelector('.cortex-toolbar')).toBeNull()
+    }, { timeout: WAIT_FOR_COMMIT_MS })
+  })
+
+  it('Esc cascade Priority 1: Escape with a Cortex input focused blurs it and stays active', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await activateEditor(channel)
+
+    // Create a fake Cortex UI input element and focus it
+    const input = document.createElement('input')
+    shadow.appendChild(input)
+    input.focus()
+
+    // Mock: Cortex UI is focused (Priority 1 guard passes), no open popover
+    vi.spyOn(focusUtils, 'isCortexUIFocused').mockReturnValue(true)
+    vi.spyOn(focusUtils, 'isRealEvent').mockReturnValue(true)
+    // Mock getDeepActiveElement to return our input
+    vi.spyOn(focusUtils, 'getDeepActiveElement').mockReturnValue(input)
+
+    const blurSpy = vi.spyOn(input, 'blur')
+
     dispatchKeyboardEvent(window, 'keydown', { key: 'Escape' })
     await new Promise(r => setTimeout(r, 10))
 
-    // Should NOT send cortex-closed
+    // Priority 1: input was blurred, Cortex stays active
+    expect(blurSpy).toHaveBeenCalledOnce()
+    expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
     expect(channel._lastSent).not.toContainEqual({ type: 'cortex-closed' })
-    // Editor should still be active (toolbar visible)
+
+    input.remove()
+  })
+
+  it('Esc cascade host-app passthrough: Escape with a host-app input focused is a no-op for Cortex', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await activateEditor(channel)
+
+    // Simulate host-app input focused (not Cortex UI)
+    vi.spyOn(focusUtils, 'isInputFocused').mockReturnValue(true)
+    vi.spyOn(focusUtils, 'isCortexUIFocused').mockReturnValue(false)
+    vi.spyOn(focusUtils, 'isRealEvent').mockReturnValue(true)
+
+    dispatchKeyboardEvent(window, 'keydown', { key: 'Escape' })
+    await new Promise(r => setTimeout(r, 10))
+
+    // Cortex must not deactivate — host owns the Escape
+    expect(channel._lastSent).not.toContainEqual({ type: 'cortex-closed' })
     expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
   })
 
