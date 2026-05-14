@@ -475,9 +475,8 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         },
         // TEST-ONLY: reads buffer.version directly from CortexApp's hoisted buffer
         // instance. Proves CortexApp owns the buffer (not Panel-local). Uses
-        // bufferVersionRef (updated each render via `if (__CORTEX_TEST_BUILD__)
-        // bufferVersionRef.current = buffer.version`) to avoid stale-closure
-        // issues — same pattern as hmrAppliedVersionRef / getCortexAppBufferVersion.
+        // bufferVersionRef (a build-gated ref updated each render) to avoid
+        // stale-closure issues — same pattern as hmrAppliedVersionRef.
         getCortexAppBufferVersion: () => bufferVersionRef.current,
         // TEST-ONLY: set multi-element selection via setSelection(elements, 'replace').
         // Allows e2e specs to seed multi-select state without real click interactions.

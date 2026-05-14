@@ -589,11 +589,13 @@ describe('Panel T4 fix-up — IMPORTANT 4: onApplyError surfaces failures to use
   })
 })
 
-describe('Panel T4 fix-up — HIGH 1: empty-state Apply feedback', () => {
-  // HIGH 1: When Panel is in empty state (element=null), Apply rejection must still
-  // surface the error banner. Designer can stage edits, deselect, click Apply on
-  // the still-visible header button, and get zero feedback without this fix.
-  it('shows apply error banner in empty state when sendAndAck rejects', async () => {
+describe('Panel T4 fix-up — HIGH 1: Apply feedback with selection', () => {
+  // HIGH 1 (retargeted from "empty state" → "with selection"):
+  // Panel is gated at CortexApp level on selectedElements.length > 0 (Task 16);
+  // the empty-state branch was deleted (Task 17). These tests verify the same
+  // behaviors (applyError banner, StagingDriftBanner) exist in the main return
+  // path, which requires a selected element.
+  it('shows apply error banner when sendAndAck rejects (element selected)', async () => {
     const edit: PendingEdit = {
       intentId: 'id-empty-err-1',
       source: 'src/Hero.tsx:14:5',
@@ -602,6 +604,10 @@ describe('Panel T4 fix-up — HIGH 1: empty-state Apply feedback', () => {
       previousValue: 'blue',
       timestamp: Date.now(),
     }
+
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    document.body.appendChild(target)
 
     const channel = createMockChannel()
     const errorMsg = 'sendAndAck timeout after 10000ms'
@@ -613,7 +619,7 @@ describe('Panel T4 fix-up — HIGH 1: empty-state Apply feedback', () => {
     const { root, cleanup } = renderInShadow(
       <PanelWithInitEdits
         initialEdits={[edit]}
-        selectedElements={[]}
+        selectedElements={[target]}
         channel={channel as any}
         overrideManager={overrideManager as any}
         onClose={() => {}}
@@ -627,7 +633,7 @@ describe('Panel T4 fix-up — HIGH 1: empty-state Apply feedback', () => {
       await new Promise(r => setTimeout(r, 10))
     })
 
-    // Apply button is still visible in empty state (bufferSize > 0 from seeded edit)
+    // Apply button is visible (bufferSize > 0 from seeded edit)
     const applyBtn = root.querySelector('[data-action="apply"]') as HTMLButtonElement | null
     expect(applyBtn).not.toBeNull()
 
@@ -636,21 +642,27 @@ describe('Panel T4 fix-up — HIGH 1: empty-state Apply feedback', () => {
       await new Promise(r => setTimeout(r, 20))
     })
 
-    // Error banner must appear in the empty-state DOM
+    // Error banner must appear in the main-return DOM (Panel renders with element selected)
+    // Falsifiability: remove the applyError banner from Panel's main return → this fails.
     const errorEl = root.querySelector('.cortex-apply-error')
     expect(errorEl).not.toBeNull()
     expect(errorEl!.textContent).toContain(errorMsg)
 
     cleanup()
+    target.remove()
   })
 
-  // HIGH 1 (stale): StagingDriftBanner renders in empty state when staleOverrideCount > 0
-  it('shows StagingDriftBanner in empty state when staleOverrideCount > 0', async () => {
+  // HIGH 1 (stale): StagingDriftBanner renders when staleOverrideCount > 0 (element selected)
+  it('shows StagingDriftBanner when staleOverrideCount > 0 (element selected)', async () => {
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    document.body.appendChild(target)
+
     const overrideManager = makeOverrideManager()
 
     const { root, cleanup } = renderInShadow(
       <PanelWithRealBuffer
-        selectedElements={[]}
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -665,11 +677,13 @@ describe('Panel T4 fix-up — HIGH 1: empty-state Apply feedback', () => {
       await new Promise(r => setTimeout(r, 10))
     })
 
+    // Falsifiability: remove StagingDriftBanner from Panel's main return → this fails.
     const banner = root.querySelector('.cortex-drift-banner')
     expect(banner).not.toBeNull()
     expect(banner!.textContent).toContain("edit(s) saved but HMR didn't apply")
 
     cleanup()
+    target.remove()
   })
 })
 
