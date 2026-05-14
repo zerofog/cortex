@@ -252,14 +252,25 @@ describe('Panel', () => {
 
   // The empty-state branch (if !element) was deleted in Task 17 — Panel is
   // gated at the CortexApp level (Task 16) and never mounts without a selected
-  // element.  Rendering WITH a valid element must not produce any
-  // .cortex-panel__empty* markup.
-  it('empty-state branch deleted: no .cortex-panel__empty markup when element selected', () => {
-    const { root } = setup()
+  // element. The `if (!element) return null` guard makes Panel no-element-safe.
+  // This test pins both invariants and is FALSIFIABLE:
+  //   - Remove the guard → main return derefs element.tagName → render throws.
+  //   - Re-add the empty-state branch → rendering [] emits .cortex-panel markup
+  //     instead of null → assertion fails.
+  it('Panel renders nothing when no element is selected (empty-state branch deleted)', () => {
+    const { root } = renderInShadow(
+      <Panel
+        selectedElements={[]}
+        overrideManager={{} as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        buffer={makeFakeBuffer()}
+        {...panelPositionProps}
+      />,
+    )
+    // Guard returns null → no Panel output at all in the shadow tree.
+    expect(root.querySelector('.cortex-panel')).toBeNull()
     expect(root.querySelector('.cortex-panel__empty')).toBeNull()
-    expect(root.querySelector('.cortex-panel__empty-action')).toBeNull()
-    expect(root.querySelector('.cortex-panel__empty-hint')).toBeNull()
-    expect(root.querySelector('.cortex-panel__empty-shortcut')).toBeNull()
   })
 
   // NOTE: The old `cortex-panel--cross-fade` animation was removed in ZF0-1122
