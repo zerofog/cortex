@@ -1,0 +1,21 @@
+cortex-editor/tests/core/staged-edits.test.ts
+  s_de44c67238dbc7::t_53823a6ffe1723 192-230
+cortex-editor/src/core/staged-edits.ts
+  s_de44c67238dbc7::t_75d7c801c6aa53 17-22,24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "a06107caebf28d62de9a5d00c503b64aca34e7be",
+  "prompts": {},
+  "sessions": {
+    "s_de44c67238dbc7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "26551397-9740-4158-b824-52c41b5fffab",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
