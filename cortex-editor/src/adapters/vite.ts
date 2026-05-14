@@ -36,6 +36,8 @@ import {
   cortexApplyEditsInputSchema,
   cortexDiscardEditsInputSchema,
   cortexGetIntentContextInputSchema,
+  cortexAcknowledgeSourceEditInputSchema,
+  cortexReportSourceEditFailedInputSchema,
   cortexGetDetailsInputSchema,
   cortexAcknowledgeInputSchema,
   cortexResolveInputSchema,
@@ -297,7 +299,7 @@ const ALLOWED_RPC_METHODS = new Set([
   // Annotation methods (Phase 7)
   'getActive', 'getPending', 'getDetails', 'acknowledge', 'resolve', 'dismiss', 'respond',
   // Staged-edit methods (ZF0-1452 T2)
-  'getPendingEdits', 'applyEdits', 'discardEdits', 'getIntentContext',
+  'getPendingEdits', 'applyEdits', 'discardEdits', 'getIntentContext', 'acknowledgeSourceEdit', 'reportSourceEditFailed',
 ])
 
 // Method-specific param schemas. `null` means "method takes no params — skip validation".
@@ -307,6 +309,8 @@ const RPC_METHOD_SCHEMAS = {
   applyEdits: cortexApplyEditsInputSchema,
   discardEdits: cortexDiscardEditsInputSchema,
   getIntentContext: cortexGetIntentContextInputSchema,
+  acknowledgeSourceEdit: cortexAcknowledgeSourceEditInputSchema,
+  reportSourceEditFailed: cortexReportSourceEditFailedInputSchema,
   getDetails: cortexGetDetailsInputSchema,
   acknowledge: cortexAcknowledgeInputSchema,
   resolve: cortexResolveInputSchema,
@@ -445,10 +449,12 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
       // isn't mounted (HMR transient), the browser will reconcile on next mount
       // via syncFullState (which mergeFullSyncs into the server cache, with
       // newer-timestamp-wins resolution — see StagedEditsCache.mergeFullSync).
-      // The browserNotified flag surfaces this to Claude so the tool response
-      // is honest about what propagated.
+      // FIX 4: browserNotified is now false when browserConnected is false —
+      // server.hot.send is fire-and-forget; the channel existing is not evidence
+      // that a browser actually received the message. browserConnected flips to
+      // true only on a successful 'init' handshake from the browser.
       let browserNotified = false
-      if (currentSession!.channel) {
+      if (currentSession!.channel && currentSession!.browserConnected) {
         try {
           currentSession!.channel.send({ type: 'staged-edits-discard', intentIds })
           browserNotified = true
@@ -460,6 +466,47 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
         }
       }
       return { discarded: intentIds, browserNotified }
+    }
+
+    case 'acknowledgeSourceEdit': {
+      // params.intentIds is schema-validated as string[] before handleRPC is called.
+      const intentIds = params.intentIds as string[]
+      currentSession!.stagedEdits.remove(intentIds)
+      // Same wire effect as discardEdits — broadcast to keep the browser canonical
+      // buffer in sync. The apply-acked vs user-discarded distinction lives at the
+      // MCP tool layer, not the channel layer.
+      // FIX 4: gate on browserConnected (parity with discardEdits).
+      let browserNotified = false
+      if (currentSession!.channel && currentSession!.browserConnected) {
+        try {
+          currentSession!.channel.send({ type: 'staged-edits-discard', intentIds })
+          browserNotified = true
+        } catch (err) {
+          console.warn(
+            '[cortex] Failed to send staged-edits-discard (ack) to browser:',
+            err instanceof Error ? err.message : String(err),
+          )
+        }
+      }
+      return { acknowledged: intentIds, browserNotified }
+    }
+
+    case 'reportSourceEditFailed': {
+      const intentIds = params.intentIds as string[]
+      const reason = params.reason as string
+      // STATE-MACHINE INVARIANT: do NOT remove intents from the cache. The source
+      // edit FAILED — the intent did not land. Keep it so the user can retry/discard.
+      // FIX 4: gate on browserConnected (parity with discardEdits).
+      let browserNotified = false
+      if (currentSession!.channel && currentSession!.browserConnected) {
+        try {
+          currentSession!.channel.send({ type: 'source-edit-failed', intentIds, reason })
+          browserNotified = true
+        } catch (err) {
+          console.warn('[cortex] Failed to send source-edit-failed to browser:', err instanceof Error ? err.message : String(err))
+        }
+      }
+      return { reported: intentIds, browserNotified }
     }
 
     case 'getIntentContext': {
@@ -1310,6 +1357,47 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
                 ws.send(JSON.stringify({ type: 'error', code: 'AUTH_FAILED', message: 'Invalid or missing auth token' }))
               } catch (sendErr) {
                 console.warn('[cortex] Failed to send AUTH_FAILED to CLI client:', sendErr instanceof Error ? sendErr.message : sendErr)
+              }
+              return
+            }
+
+            // mcp-session-hello — MCP server announces its process-scoped UUID so the
+            // browser can detect a genuine new Claude session and wipe stale staged edits.
+            // This triggers a DESTRUCTIVE buffer.clear() on the browser, so it is gated
+            // behind the same token check as every other privileged CLI message above —
+            // the MCP server attaches the token (see mcp.ts socket.on('open')). The
+            // /@cortex/ws upgrade is only Origin-checked at connect; the per-message token
+            // is the actual auth, so handling this AFTER the gate prevents any other local
+            // process from forcing a wipe with a merely well-formed UUID.
+            if (type === 'mcp-session-hello') {
+              const sessionId = (parsed as Record<string, unknown>).sessionId
+              if (typeof sessionId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
+                // ZF0-1869 Review Fix 1: UUID-change-gated server-side clear, mirroring
+                // the browser's lastSessionIdRef logic. A transient same-UUID reconnect
+                // (WiFi flap, sleep/wake — the MCP server keeps the same process-scoped
+                // UUID) must NOT clear stagedEdits: the browser still has its buffer, and
+                // an unconditional clear causes cortex_get_pending_edits to return zero
+                // while the browser still shows staged edits (silent divergence, no self-heal).
+                // Only a DIFFERENT UUID means a genuinely new Claude session — then we clear.
+                // First hello (lastMcpSessionId === null): adopt UUID, do NOT clear.
+                if (currentSession) {
+                  if (currentSession.lastMcpSessionId !== null &&
+                      currentSession.lastMcpSessionId !== sessionId) {
+                    // Genuine new Claude session — clear stale intents from prior session.
+                    currentSession.stagedEdits.clear()
+                  }
+                  currentSession.lastMcpSessionId = sessionId
+                }
+                // FIX 3: mcp-session-hello is a server→browser message; send BROWSER-ONLY
+                // via server.hot.send (bypassing forwardToCLI). The channel.send path goes
+                // through validateAndSend → forwardToCLI which would echo this back to CLI
+                // clients — wrong direction, no consumer, latent mis-handle risk.
+                if (currentSession && !currentSession.isDisposed) {
+                  parseOrFail(serverToBrowserSchema, { type: 'mcp-session-hello', sessionId } as ServerToBrowser, 'vite.mcpSessionHello')
+                  server.hot.send(CORTEX_MSG_EVENT, { type: 'mcp-session-hello', sessionId })
+                }
+              } else {
+                console.warn('[cortex] mcp-session-hello rejected: sessionId is not a valid UUID')
               }
               return
             }

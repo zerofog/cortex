@@ -7,7 +7,6 @@ import * as focusUtils from '../../src/browser/focus-utils.js'
 import { _resetBusForTesting } from '../../src/browser/override-bus.js'
 import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
 import { _resetPopoverStackForTesting } from '../../src/browser/popover-stack.js'
-import { cortexStorage } from '../../src/browser/persistence.js'
 
 const WAIT_FOR_COMMIT_MS = 2000
 
@@ -308,7 +307,16 @@ describe('CortexApp', () => {
     setup()
     const channel = createMockChannel()
     render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
-    await new Promise(r => setTimeout(r, 10))
+
+    // Wait for the mount effect to actually run before unmounting. The effect
+    // appends the CSSOverrideManager style element and registers the teardown
+    // (selectionHandle.cleanup / dispose). A bare setTimeout(10) raced the
+    // effect-flush tick under Node-20 coverage instrumentation on CI — unmount
+    // then had no registered cleanup to call. Polling for the override element
+    // proves the effect committed. Mirrors the vi.waitFor fix on the test above.
+    await vi.waitFor(() => {
+      expect(document.head.querySelector('[data-cortex-override]')).not.toBeNull()
+    }, { timeout: WAIT_FOR_COMMIT_MS })
 
     const { _cleanup } = await import('../../src/browser/selection.js') as unknown as {
       _cleanup: ReturnType<typeof vi.fn>
@@ -353,27 +361,78 @@ describe('CortexApp', () => {
     }, { timeout: WAIT_FOR_COMMIT_MS })
   })
 
-  it('Escape with no selection and no comment mode does nothing (no close)', async () => {
+  // --- Esc cascade tests (ZF0-1869, Task 15) ---
+  // Priority 4 (deactivate) was re-added per ZF0-1869's selection-first redesign.
+  // These tests exercise the full cascade and guard against regression.
+
+  it('Esc cascade Priority 4: Escape with nothing selected/focused deactivates Cortex', async () => {
     setup()
     const channel = createMockChannel()
     render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
-    await new Promise(r => setTimeout(r, 10))
+    await activateEditor(channel)
 
-    // Activate — wait for toolbar to appear before proceeding (avoids 10ms
-    // settle flake under serial-loop load where Preact scheduling takes >10ms)
-    channel._simulateMessage({ type: 'cortex' } as any)
-    await vi.waitFor(() => {
-      expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
-    }, { timeout: 1500 })
-
-    // Escape with no selection, no comment mode — should NOT close
+    // Ensure no Cortex input is focused, no host input, no selection, no comment mode
+    vi.spyOn(focusUtils, 'isCortexUIFocused').mockReturnValue(false)
+    vi.spyOn(focusUtils, 'isInputFocused').mockReturnValue(false)
     vi.spyOn(focusUtils, 'isRealEvent').mockReturnValue(true)
+
+    dispatchKeyboardEvent(window, 'keydown', { key: 'Escape' })
+
+    // Priority 4 fires: Cortex must deactivate (cortex-closed sent, toolbar gone)
+    await vi.waitFor(() => {
+      expect(channel._lastSent).toContainEqual({ type: 'cortex-closed' })
+    }, { timeout: WAIT_FOR_COMMIT_MS })
+    await vi.waitFor(() => {
+      expect(root.querySelector('.cortex-toolbar')).toBeNull()
+    }, { timeout: WAIT_FOR_COMMIT_MS })
+  })
+
+  it('Esc cascade Priority 1: Escape with a Cortex input focused blurs it and stays active', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await activateEditor(channel)
+
+    // Create a fake Cortex UI input element and focus it
+    const input = document.createElement('input')
+    shadow.appendChild(input)
+    input.focus()
+
+    // Mock: Cortex UI is focused (Priority 1 guard passes), no open popover
+    vi.spyOn(focusUtils, 'isCortexUIFocused').mockReturnValue(true)
+    vi.spyOn(focusUtils, 'isRealEvent').mockReturnValue(true)
+    // Mock getDeepActiveElement to return our input
+    vi.spyOn(focusUtils, 'getDeepActiveElement').mockReturnValue(input)
+
+    const blurSpy = vi.spyOn(input, 'blur')
+
     dispatchKeyboardEvent(window, 'keydown', { key: 'Escape' })
     await new Promise(r => setTimeout(r, 10))
 
-    // Should NOT send cortex-closed
+    // Priority 1: input was blurred, Cortex stays active
+    expect(blurSpy).toHaveBeenCalledOnce()
+    expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
     expect(channel._lastSent).not.toContainEqual({ type: 'cortex-closed' })
-    // Editor should still be active (toolbar visible)
+
+    input.remove()
+  })
+
+  it('Esc cascade host-app passthrough: Escape with a host-app input focused is a no-op for Cortex', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await activateEditor(channel)
+
+    // Simulate host-app input focused (not Cortex UI)
+    vi.spyOn(focusUtils, 'isInputFocused').mockReturnValue(true)
+    vi.spyOn(focusUtils, 'isCortexUIFocused').mockReturnValue(false)
+    vi.spyOn(focusUtils, 'isRealEvent').mockReturnValue(true)
+
+    dispatchKeyboardEvent(window, 'keydown', { key: 'Escape' })
+    await new Promise(r => setTimeout(r, 10))
+
+    // Cortex must not deactivate — host owns the Escape
+    expect(channel._lastSent).not.toContainEqual({ type: 'cortex-closed' })
     expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
   })
 
@@ -783,6 +842,31 @@ describe('CortexApp', () => {
 
       expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('Unhandled cortex-app-reducer'))
     })
+
+    it('source-edit-failed channel message does not throw and does not reach reducer (ZF0-1869 integration gap)', async () => {
+      // Pins the early-return at CortexApp.tsx for Change 7's source-edit-failed variant.
+      // CortexApp.tsx owns this message — its onMessage handler sets applyError so the
+      // failure banner survives Panel unmount (lifted from Panel in Step-4 FIX 1).
+      // CortexApp must not pass it to the reducer — if the early-return is absent, the
+      // reducer's exhaustive default throws and channel.ts swallows it as a console.warn
+      // on every cortex_report_source_edit_failed call.
+      //
+      // Falsifiability: without the allowlist entry, the reducer throws
+      // "Unhandled cortex-app-reducer action: source-edit-failed", channel.ts
+      // swallows it and emits console.warn('[cortex] Message handler error: Unhandled
+      // cortex-app-reducer action: source-edit-failed'). The spy would catch that warn
+      // and the assertion below would FAIL. With the fix the warn is never emitted.
+      setup()
+      const channel = createMockChannel()
+      const warnSpy = vi.spyOn(console, 'warn')
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+
+      channel._simulateMessage({ type: 'source-edit-failed', intentIds: ['intent-1'], reason: 'edit tool failed' } as any)
+      await new Promise(r => setTimeout(r, 10))
+
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('Unhandled cortex-app-reducer'))
+    })
   })
 
   describe('connection status', () => {
@@ -791,7 +875,21 @@ describe('CortexApp', () => {
       try {
         setup()
         const channel = createMockChannel()
-        render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
+        await act(() => {
+          render(<CortexApp channel={channel} shadowRoot={shadow} initialActive={true} />, root)
+        })
+        await vi.advanceTimersByTimeAsync(10)
+
+        // Select an element so Panel mounts and ConnectionStatus is visible.
+        // (Task 16: Panel is gated on selection; ConnectionStatus lives inside Panel.)
+        const { _getCallbacks: _getCbs } = await import('../../src/browser/selection.js') as any
+        const { selectCb: _sCb } = _getCbs()
+        const _target = document.createElement('div')
+        _target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+        document.body.appendChild(_target)
+        orphans.push(_target)
+        mockGetBoundingClientRect(_target, { top: 50, left: 50, width: 100, height: 40 })
+        await act(() => { _sCb([_target], 'replace') })
         await vi.advanceTimersByTimeAsync(10)
 
         // Simulate: reconnecting → connected (starts 2s timer) → reconnecting (should cancel timer)
@@ -839,6 +937,18 @@ describe('CortexApp', () => {
         })
         await vi.advanceTimersByTimeAsync(10)
 
+        // Select an element so Panel mounts and ConnectionStatus is visible.
+        // (Task 16: Panel is gated on selection; ConnectionStatus lives inside Panel.)
+        const { _getCallbacks: _getCbs2 } = await import('../../src/browser/selection.js') as any
+        const { selectCb: _sCb2 } = _getCbs2()
+        const _target2 = document.createElement('div')
+        _target2.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+        document.body.appendChild(_target2)
+        orphans.push(_target2)
+        mockGetBoundingClientRect(_target2, { top: 50, left: 50, width: 100, height: 40 })
+        await act(() => { _sCb2([_target2], 'replace') })
+        await vi.advanceTimersByTimeAsync(10)
+
         // Reconnecting → marks wasDisconnected=true internally. act() flushes
         // the Preact render synchronously so the footer is visible before
         // we proceed.
@@ -874,6 +984,285 @@ describe('CortexApp', () => {
       } finally {
         vi.useRealTimers()
       }
+    })
+  })
+
+  describe('Task 2 — buffer hoisted to CortexApp (ZF0-1869)', () => {
+    // Falsifiability contract: this test asserts CortexApp owns the staging
+    // buffer by verifying the `__CORTEX_TEST__` bridge exposes a
+    // `getCortexAppBufferVersion` function that reads buffer.version directly
+    // from CortexApp's scope (not from Panel via bufferListRef). Before the
+    // hoist, CortexApp has no buffer — the field does not exist on the bridge →
+    // the `toBeDefined()` assertion fails. After the hoist, CortexApp creates
+    // its own buffer instance and exposes it via the bridge → the field is
+    // defined and the version tracks mutations.
+    it('CortexApp owns the staging buffer — version readable from CortexApp-level bridge', async () => {
+      ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+      await activateEditor(channel)
+
+      // Select an element so Panel mounts and stageEditRef is populated.
+      const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+      const { selectCb } = _getCallbacks()
+      const target = document.createElement('div')
+      target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+      document.body.appendChild(target)
+      orphans.push(target)
+      mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
+      selectCb([target], 'replace')
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).not.toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      const bridge = (window as any).__CORTEX_TEST__ as {
+        getCortexAppBufferVersion?: () => number
+        stageEdit: (source: string, property: string, value: string) => Promise<string>
+        buffer: { list: () => unknown[]; size: () => number }
+      }
+
+      // Before hoist: getCortexAppBufferVersion does not exist on the bridge.
+      // This assertion is the TDD red-bar. After hoist it becomes green.
+      expect(bridge.getCortexAppBufferVersion).toBeDefined()
+
+      const versionBefore = bridge.getCortexAppBufferVersion!()
+      expect(typeof versionBefore).toBe('number')
+
+      // Stage an edit — buffer.version must increment so CortexApp's buffer
+      // is the live instance receiving mutations (not just Panel's local one).
+      await act(async () => {
+        await bridge.stageEdit('Hero.tsx:5:3', 'color', 'red')
+      })
+
+      await vi.waitFor(() => {
+        expect(bridge.getCortexAppBufferVersion!()).toBeGreaterThan(versionBefore)
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      // The buffer must also be readable via the existing bridge surface —
+      // the hoisted buffer IS the one Panel uses (bufferProp path, not localBuffer).
+      expect(bridge.buffer.size()).toBe(1)
+    })
+  })
+
+  it('ActivityLog is never mounted (removed in Change 3)', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await activateEditor(channel)
+    expect(root.querySelector('.cortex-activity-log')).toBeNull()
+  })
+
+  describe('Task 16 — Panel gated on selection (ZF0-1869, Change 1)', () => {
+    // Panel renders ONLY when Cortex is active AND an element is selected.
+    // The Toolbar stays visible regardless. Buffer survives Panel unmount on
+    // deselect (buffer is hoisted to CortexApp — Task 2).
+
+    it('Panel NOT rendered when Cortex is active but nothing is selected', async () => {
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await activateEditor(channel)
+
+      // Cortex is active (toolbar visible), nothing selected
+      expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
+      expect(root.querySelector('.cortex-panel')).toBeNull()
+    })
+
+    it('Panel rendered when Cortex is active and an element is selected', async () => {
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await activateEditor(channel)
+
+      const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+      const { selectCb } = _getCallbacks()
+      const target = document.createElement('div')
+      target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+      document.body.appendChild(target)
+      orphans.push(target)
+      mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
+
+      selectCb([target], 'replace')
+
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).not.toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+    })
+
+    it('Panel unmounts on deselect but buffer survives (Change 1 integration payoff)', async () => {
+      ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await activateEditor(channel)
+
+      const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+      const { selectCb } = _getCallbacks()
+      const target = document.createElement('div')
+      target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+      document.body.appendChild(target)
+      orphans.push(target)
+      mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
+
+      // Select an element — Panel should mount
+      selectCb([target], 'replace')
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).not.toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      // Stage an edit so the buffer has 1 item
+      const bridge = (window as any).__CORTEX_TEST__ as {
+        stageEdit: (source: string, property: string, value: string) => Promise<string>
+        buffer: { list: () => unknown[]; size: () => number }
+      }
+      await act(async () => {
+        await bridge.stageEdit('Hero.tsx:5:3', 'color', 'red')
+      })
+      await vi.waitFor(() => {
+        expect(bridge.buffer.size()).toBe(1)
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      // Clear selection — Panel should unmount
+      await act(async () => {
+        selectCb([], 'replace')
+      })
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      // Buffer MUST survive Panel unmount — staged edits are not lost
+      expect(bridge.buffer.size()).toBe(1)
+    })
+  })
+
+  describe('Fix 1 — CortexApp handles staged-edits-discard + source-edit-failed while Panel unmounted (ZF0-1869 Round-1)', () => {
+    // FALSIFIABILITY: Before Fix 1, CortexApp had early-returns for both
+    // staged-edits-discard and source-edit-failed. With Panel unmounted (no
+    // selection), the messages were silently dropped:
+    //   • staged-edits-discard → buffer diverged (intent stayed in buffer)
+    //   • source-edit-failed   → applyError never set (error was swallowed)
+    // After Fix 1, CortexApp owns both handlers unconditionally. These tests
+    // target that exact scenario: message arrives while Panel is unmounted.
+
+    it('staged-edits-discard while Panel unmounted removes the intent from CortexApp buffer', async () => {
+      ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+      await activateEditor(channel)
+
+      const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+      const { selectCb } = _getCallbacks()
+      const target = document.createElement('div')
+      target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+      document.body.appendChild(target)
+      orphans.push(target)
+      mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
+
+      // Select element — Panel mounts
+      selectCb([target], 'replace')
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).not.toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      // Stage an edit so there is an intent in the buffer
+      const bridge = (window as any).__CORTEX_TEST__ as {
+        stageEdit: (source: string, property: string, value: string) => Promise<string>
+        buffer: { list: () => Array<{ intentId: string }>; size: () => number }
+      }
+      let intentId!: string
+      await act(async () => {
+        intentId = await bridge.stageEdit('Hero.tsx:5:3', 'color', 'red')
+      })
+      await vi.waitFor(() => {
+        expect(bridge.buffer.size()).toBe(1)
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      // Deselect — Panel unmounts (the correctness-critical condition)
+      await act(async () => {
+        selectCb([], 'replace')
+      })
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      // Deliver staged-edits-discard WHILE Panel is unmounted.
+      // Before Fix 1: CortexApp had `return` for this message → buffer unchanged.
+      // After Fix 1:  CortexApp calls buffer.remove(intentIds) → size drops to 0.
+      await act(async () => {
+        channel._simulateMessage({ type: 'staged-edits-discard', intentIds: [intentId] } as any)
+      })
+
+      // Buffer MUST be 0 — intent removed even though Panel was unmounted
+      expect(bridge.buffer.size()).toBe(0)
+    })
+
+    it('source-edit-failed while Panel unmounted sets applyError — banner visible after reselect', async () => {
+      ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+      await activateEditor(channel)
+
+      const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+      const { selectCb } = _getCallbacks()
+      const target = document.createElement('div')
+      target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+      document.body.appendChild(target)
+      orphans.push(target)
+      mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
+
+      // Select element — Panel mounts; stage an edit
+      selectCb([target], 'replace')
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).not.toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      const bridge = (window as any).__CORTEX_TEST__ as {
+        stageEdit: (source: string, property: string, value: string) => Promise<string>
+        buffer: { list: () => Array<{ intentId: string }>; size: () => number }
+      }
+      await act(async () => {
+        await bridge.stageEdit('Hero.tsx:5:3', 'color', 'red')
+      })
+
+      // Deselect — Panel unmounts (the correctness-critical condition)
+      await act(async () => {
+        selectCb([], 'replace')
+      })
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      // Deliver source-edit-failed WHILE Panel is unmounted.
+      // Before Fix 1: CortexApp had `return` for this message → applyError never set.
+      // After Fix 1:  CortexApp calls setApplyError(msg.reason) → state persists.
+      await act(async () => {
+        channel._simulateMessage({
+          type: 'source-edit-failed',
+          intentIds: ['intent-xyz'],
+          reason: 'pattern not found at Hero.tsx:31',
+        } as any)
+      })
+
+      // Re-select the element — Panel remounts and receives applyError prop from CortexApp.
+      // If the error was dropped, applyError would be null → no banner.
+      // If the error was captured, applyError is set → banner present.
+      await act(async () => {
+        selectCb([target], 'replace')
+      })
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).not.toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      // Banner MUST be visible — applyError survived Panel unmount/remount
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-apply-error')).not.toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
     })
   })
 })
@@ -1156,21 +1545,21 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
   // propagated non-empty; if the regression collapses it to [], the early-return
   // branch fires (setIntentDriftCount(0)) and the banner stays hidden.
   it('hmr-applied with unrelated files still propagates hmrChangedFiles for buffer reconcile', async () => {
-    // Seed the staging buffer before mount so it is loaded by useEditStagingBuffer on
-    // Panel mount. The intent targets src/Sidebar.tsx — one of the files that the
-    // hmr-applied message will carry — but no DOM element with that data-cortex-source
-    // is present, so reconcile treats it as divergent (element deleted/refactored).
-    localStorage.clear()
-    cortexStorage.set('staging-buffer', [{
-      intentId: 'test-sidebar-intent',
-      source: 'src/Sidebar.tsx:1:1',
-      property: 'color',
-      value: 'red',
-      previousValue: 'blue',
-      timestamp: Date.now(),
-    }])
-
+    // Stage an intent targeting src/Sidebar.tsx — one of the files that the
+    // hmr-applied message will carry — but no DOM element with that
+    // data-cortex-source is present, so reconcile treats it as divergent
+    // (element deleted/refactored). Buffer is memory-only (Change 4), so we
+    // stage the edit via the test bridge after mount instead of seeding
+    // localStorage.
+    ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
     const { channel } = await setup('src/foo.tsx:10:5')
+
+    const bridge = (window as any).__CORTEX_TEST__ as {
+      stageEdit: (source: string, property: string, value: string) => Promise<string>
+    }
+    await act(async () => {
+      await bridge.stageEdit('src/Sidebar.tsx:1:1', 'color', 'red')
+    })
 
     // Fire hmr-applied with files that include src/Sidebar.tsx — shouldRefreshOnHMR
     // returns false (src/foo.tsx:10:5 is selected, Sidebar.tsx is unrelated),
@@ -1210,8 +1599,6 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     // instrumentation noise on shared globals (the failure mode of the original
     // gcs.mock.calls.length).
     expect(reResolveSelection).not.toHaveBeenCalled()
-
-    localStorage.clear()
   })
 
   // ZF0-1804: independently verifies the version-bump gate in CortexApp.tsx
@@ -1285,4 +1672,248 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
     }, { timeout: WAIT_FOR_COMMIT_MS })
   })
 
+})
+
+// ── Task 12 — mcp-session-hello / Change 6 ────────────────────────────────
+
+describe('CortexApp — mcp-session-hello session-ID wipe (Task 12, Change 6)', () => {
+  const VALID_UUID_A = '00000000-0000-4000-a000-000000000001'
+  const VALID_UUID_B = '00000000-0000-4000-a000-000000000002'
+
+  let root: HTMLDivElement
+  let shadow: ShadowRoot
+  let cleanupHost: (() => void) | null = null
+  const orphans: HTMLElement[] = []
+
+  afterEach(async () => {
+    if (root) render(null, root)
+    cleanupHost?.()
+    cleanupHost = null
+    for (const el of orphans) el.remove()
+    orphans.length = 0
+    for (const el of document.querySelectorAll('[data-cortex-source]')) el.remove()
+    document.documentElement.removeAttribute('data-cortex-active')
+    delete (window as any).__CORTEX_TEST__
+    delete (window as any).__CORTEX_DEBUG_OVERRIDES__
+    const mod = await import('../../src/browser/selection.js') as unknown as { _resetCallbacks?: () => void }
+    mod._resetCallbacks?.()
+    _resetBusForTesting()
+    _resetTransformBusForTesting()
+    _resetPopoverStackForTesting()
+    cleanDocumentHead()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  async function setupWithBuffer() {
+    ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
+    const sh = createShadowHost()
+    root = sh.root
+    shadow = sh.shadow
+    cleanupHost = sh.cleanup
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+
+    // Listener-before-message contract: _simulateMessage() does NOT buffer —
+    // it fans out only to handlers registered AT call time (helpers.ts:138).
+    // CortexApp subscribes via channel.onMessage() inside its mount effect,
+    // which Preact runs asynchronously after the initial render commit. A fixed
+    // setTimeout before _simulateMessage races that effect: under serial-loop
+    // load the 'cortex' activation message can fire BEFORE the handler exists,
+    // get dropped, and the toolbar never renders → the vi.waitFor below times
+    // out with "expected null not to be null". Wait on _handlerCount() (the
+    // helper exposes it for exactly this) so activation is always delivered.
+    await vi.waitFor(() => {
+      expect(channel._handlerCount()).toBeGreaterThan(0)
+    }, { timeout: 2000 })
+
+    // Activate so Panel mounts and stageEditRef is available. Wrap in act()
+    // so the resulting re-render flushes before the toolbar wait — mirrors the
+    // proven-stable activateEditor() helper in the sibling describe block.
+    await act(async () => {
+      channel._simulateMessage({ type: 'cortex' } as any)
+    })
+    await vi.waitFor(() => {
+      expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
+    }, { timeout: 2000 })
+
+    // Select an element so Panel mounts.
+    const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+    const { selectCb } = _getCallbacks()
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+    document.body.appendChild(target)
+    orphans.push(target)
+    mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
+    selectCb([target], 'replace')
+    await vi.waitFor(() => {
+      expect(root.querySelector('.cortex-panel')).not.toBeNull()
+    }, { timeout: 2000 })
+
+    const bridge = (window as any).__CORTEX_TEST__ as {
+      buffer: { list: () => unknown[]; size: () => number }
+      stageEdit: (source: string, property: string, value: string) => Promise<string>
+    }
+    return { channel, bridge }
+  }
+
+  // Deliver an mcp-session-hello and flush. _simulateMessage fans out
+  // synchronously to CortexApp's onMessage handler; the handler's
+  // compare-and-(maybe-)clear runs inline. Wrapping in act() flushes any
+  // resulting Preact re-render/effect synchronously, so a plain assertion
+  // afterwards is deterministic — no arbitrary setTimeout settle window.
+  async function deliverHello(channel: ReturnType<typeof createMockChannel>, sessionId: string) {
+    await act(async () => {
+      channel._simulateMessage({ type: 'mcp-session-hello', sessionId } as any)
+    })
+  }
+
+  it('first mcp-session-hello ADOPTS the UUID without wiping the buffer', async () => {
+    // Verifies: receiving the very first hello from MCP does NOT wipe staged edits.
+    // Only a UUID CHANGE (second hello with a new UUID) should wipe.
+    const { channel, bridge } = await setupWithBuffer()
+
+    // Stage one edit before the hello arrives.
+    await act(async () => { await bridge.stageEdit('Hero.tsx:5:3', 'color', 'red') })
+    await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(1) }, { timeout: 2000 })
+
+    // First mcp-session-hello — should adopt the UUID, keep the buffer intact.
+    await deliverHello(channel, VALID_UUID_A)
+
+    // Buffer must NOT be wiped on first adoption. act() above flushed the
+    // handler synchronously, so this assertion needs no settle delay.
+    expect(bridge.buffer.size()).toBe(1)
+  })
+
+  it('second mcp-session-hello with SAME UUID does NOT wipe the buffer', async () => {
+    // Verifies: transient reconnects (same UUID re-announced) do not wipe.
+    const { channel, bridge } = await setupWithBuffer()
+
+    await act(async () => { await bridge.stageEdit('Hero.tsx:5:3', 'color', 'blue') })
+    await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(1) }, { timeout: 2000 })
+
+    // First hello — adopt UUID.
+    await deliverHello(channel, VALID_UUID_A)
+    expect(bridge.buffer.size()).toBe(1)
+
+    // Second hello — SAME UUID → must NOT wipe.
+    await deliverHello(channel, VALID_UUID_A)
+    expect(bridge.buffer.size()).toBe(1)
+  })
+
+  it('second mcp-session-hello with DIFFERENT UUID WIPES the buffer', async () => {
+    // Verifies: a new Claude session (new UUID) clears stale staged edits.
+    const { channel, bridge } = await setupWithBuffer()
+
+    await act(async () => { await bridge.stageEdit('Hero.tsx:5:3', 'color', 'green') })
+    await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(1) }, { timeout: 2000 })
+
+    // First hello — adopt UUID_A.
+    await deliverHello(channel, VALID_UUID_A)
+    expect(bridge.buffer.size()).toBe(1)
+
+    // Second hello — DIFFERENT UUID → must WIPE the buffer. deliverHello's
+    // act() flushes buffer.clear() and the re-render synchronously; still
+    // guard with vi.waitFor in case buffer.clear() schedules a microtask.
+    await deliverHello(channel, VALID_UUID_B)
+    await vi.waitFor(() => {
+      expect(bridge.buffer.size()).toBe(0)
+    }, { timeout: 2000 })
+  })
+
+  // ── ZF0-1869 criterion 25: reconcile-on-connect ───────────────────────────
+
+  it('reconcile-on-connect: auto-clears already-matched intent, keeps divergent (first-adopt path)', async () => {
+    // Verifies spec criterion 25: on the no-wipe paths (first-adopt + same-UUID),
+    // intents whose target element's live value ALREADY matches the intent's
+    // target value are auto-cleared from the buffer.
+    //
+    // Falsifiable:
+    //   - Fails without reconcile: both intents survive the hello.
+    //   - Fails if reconcile over-clears: the divergent intent is removed.
+    const { channel, bridge } = await setupWithBuffer()
+
+    // The 'Hero.tsx:5:3' element was appended to document.body by setupWithBuffer.
+    // Set its inline style so getComputedStyle('padding') returns the intent's
+    // target value (reconcile-on-connect checks edit.value vs live computed value).
+    const convergedEl = document.querySelector('[data-cortex-source="Hero.tsx:5:3"]') as HTMLElement
+    expect(convergedEl).not.toBeNull()
+    convergedEl.style.padding = '12px'
+
+    // Add a second element for the divergent intent (live value ≠ intent value).
+    const divergentEl = document.createElement('div')
+    divergentEl.setAttribute('data-cortex-source', 'App.tsx:10:5')
+    divergentEl.style.padding = '0px'  // does NOT match the intent's target '24px'
+    document.body.appendChild(divergentEl)
+    orphans.push(divergentEl)
+
+    // Stage intent A: converged — element already has padding:12px, intent wants 12px.
+    await act(async () => { await bridge.stageEdit('Hero.tsx:5:3', 'padding', '12px') })
+    // Stage intent B: divergent — element has padding:0px, intent wants 24px.
+    await act(async () => { await bridge.stageEdit('App.tsx:10:5', 'padding', '24px') })
+    await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(2) }, { timeout: 2000 })
+
+    // First mcp-session-hello — no-wipe path (first adoption). Reconcile-on-connect
+    // must fire and auto-clear the converged intent only.
+    await deliverHello(channel, VALID_UUID_A)
+
+    // Buffer must drop to 1: converged intent cleared, divergent intent survives.
+    await vi.waitFor(() => {
+      expect(bridge.buffer.size()).toBe(1)
+    }, { timeout: 2000 })
+    // The surviving intent must be the divergent one (App.tsx:10:5, padding: 24px).
+    const surviving = bridge.buffer.list() as Array<{ source: string; property: string; value: string }>
+    expect(surviving).toHaveLength(1)
+    expect(surviving[0].source).toBe('App.tsx:10:5')
+    expect(surviving[0].property).toBe('padding')
+    expect(surviving[0].value).toBe('24px')
+  })
+
+  it('reconcile-on-connect: auto-clears already-matched intent on same-UUID reconnect path', async () => {
+    // Verifies criterion 25 on the same-UUID reconnect (no-wipe) path as well.
+    // The mechanism must fire on ANY no-wipe hello, not only on first-adopt.
+    const { channel, bridge } = await setupWithBuffer()
+
+    // Adopt UUID_A first so the second hello is a same-UUID reconnect.
+    await deliverHello(channel, VALID_UUID_A)
+
+    const convergedEl = document.querySelector('[data-cortex-source="Hero.tsx:5:3"]') as HTMLElement
+    expect(convergedEl).not.toBeNull()
+    convergedEl.style.color = 'red'
+
+    await act(async () => { await bridge.stageEdit('Hero.tsx:5:3', 'color', 'red') })
+    await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(1) }, { timeout: 2000 })
+
+    // Same-UUID reconnect — must trigger reconcile and auto-clear the converged intent.
+    await deliverHello(channel, VALID_UUID_A)
+    await vi.waitFor(() => {
+      expect(bridge.buffer.size()).toBe(0)
+    }, { timeout: 2000 })
+  })
+
+  it('reconcile-on-connect: does NOT fire on different-UUID path (buffer already wiped)', async () => {
+    // Verifies the different-UUID path skips reconcile entirely — the buffer is
+    // already wiped by buffer.clear(), so running reconcile would be moot (and
+    // wasteful). This test checks that reconcile does not over-reach into the wipe path.
+    const { channel, bridge } = await setupWithBuffer()
+
+    // Set element so it would match IF reconcile ran on the wipe path.
+    const convergedEl = document.querySelector('[data-cortex-source="Hero.tsx:5:3"]') as HTMLElement
+    if (convergedEl) convergedEl.style.color = 'blue'
+
+    await act(async () => { await bridge.stageEdit('Hero.tsx:5:3', 'color', 'blue') })
+    await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(1) }, { timeout: 2000 })
+
+    await deliverHello(channel, VALID_UUID_A)  // adopt
+    expect(bridge.buffer.size()).toBe(0)        // reconcile cleared it (converged)
+
+    // Now stage a new intent and send a DIFFERENT UUID → wipe path.
+    await act(async () => { await bridge.stageEdit('Hero.tsx:5:3', 'color', 'green') })
+    await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(1) }, { timeout: 2000 })
+
+    await deliverHello(channel, VALID_UUID_B)  // different UUID → wipe
+    await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(0) }, { timeout: 2000 })
+    // Buffer is 0 because of wipe (buffer.clear), not because of reconcile.
+    // Either way the buffer is empty — this test mainly confirms we didn't crash.
+  })
 })

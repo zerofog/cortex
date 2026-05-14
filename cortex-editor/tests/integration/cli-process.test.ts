@@ -75,6 +75,7 @@ describe('cortex CLI — built-process integration (Layer 5)', () => {
     const names = result.tools.map(t => t.name).sort()
     expect(names).toEqual([
       'cortex_acknowledge',
+      'cortex_acknowledge_source_edit',
       'cortex_activate',
       'cortex_apply_edits',
       'cortex_channel_test',
@@ -86,6 +87,7 @@ describe('cortex CLI — built-process integration (Layer 5)', () => {
       'cortex_get_pending',
       'cortex_get_pending_edits',
       'cortex_list_active',
+      'cortex_report_source_edit_failed',
       'cortex_resolve',
       'cortex_respond',
       'cortex_status',

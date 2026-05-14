@@ -6,19 +6,15 @@ import { formatShortcut } from '../format-shortcut.js'
 import { GripVertical, MessageSquare, MousePointer2, X } from './icons.js'
 
 export interface ToolbarProps {
-  activityCount: number
   onClose: () => void
   commentMode?: boolean
   onCommentMode?: () => void
-  onActivityToggle?: () => void
 }
 
 export function Toolbar({
-  activityCount,
   onClose,
   commentMode,
   onCommentMode,
-  onActivityToggle,
 }: ToolbarProps): JSX.Element {
   const { position, isHorizontal, isSnapping, setPosition, snap } = useToolbarDock()
 
@@ -27,7 +23,7 @@ export function Toolbar({
     onDragEnd() { snap() },
   })
 
-  // Only start drag from the grip handle — not badge or other toolbar areas
+  // Only start drag from the grip handle — not buttons or other toolbar areas
   const handlePointerDown = useCallback((e: PointerEvent) => {
     if (!(e.target as HTMLElement).closest('.cortex-toolbar__grip')) return
     dragPointerDown(e)
@@ -70,19 +66,6 @@ export function Toolbar({
       <div class="cortex-toolbar__grip" role="presentation">
         <GripVertical size={16} />
       </div>
-
-      {activityCount > 0 && (
-        <button
-          type="button"
-          class="cortex-toolbar__badge"
-          onClick={onActivityToggle}
-          aria-label={`${activityCount} ${activityCount === 1 ? 'change' : 'changes'}`}
-          data-tooltip={`${activityCount} ${activityCount === 1 ? 'change' : 'changes'}`}
-          data-tooltip-placement={tooltipPlacement}
-        >
-          {activityCount}
-        </button>
-      )}
 
       <div class="cortex-toolbar__modes" ref={modesRef} role="radiogroup" aria-label="Editor mode">
         <div class="cortex-toolbar__modes-indicator" style={{ transform: indicatorTransform }} />

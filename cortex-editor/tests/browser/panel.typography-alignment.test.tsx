@@ -3,7 +3,7 @@ import { act } from 'preact/test-utils'
 import { Panel } from '../../src/browser/components/Panel.js'
 import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
 import { _resetBusForTesting } from '../../src/browser/override-bus.js'
-import { mockGetComputedStyle, renderInShadow } from './helpers.js'
+import { mockGetComputedStyle, renderInShadow, makeFakeBuffer } from './helpers.js'
 
 const panelPositionProps = {
   position: { x: 1000, y: 12 },
@@ -64,6 +64,7 @@ function setupPanel(styles: Record<string, string>) {
       onClose={() => {}}
       onSelectElement={() => {}}
       {...panelPositionProps}
+      buffer={makeFakeBuffer()}
     />,
   )
   return {

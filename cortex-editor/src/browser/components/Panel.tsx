@@ -7,7 +7,6 @@ import { PropertyEditCommand, CompoundEditCommand } from '../edit-command.js'
 import type { PropertyChange } from '../edit-command.js'
 import { parseCortexSource, isLibraryComponent, findUserAncestor } from '../label.js'
 import { PANEL_WIDTH } from '../hooks/useSnapToEdge.js'
-import { formatShortcut } from '../format-shortcut.js'
 import { extractUtilities } from '../class-extractor.js'
 import { PanelHeader } from './PanelHeader.js'
 import { ElementTree } from './sections/ElementTree.js'
@@ -40,8 +39,7 @@ import { ChevronDown, ChevronUp, Eye, EyeOff, Plus, X } from './icons.js'
 import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
 import { computePanelStyleSnapshot } from './panel-style-snapshot.js'
 import { ALL_DIMMING_PROPERTIES } from './sections/spacing-utils.js'
-import { useEditStagingBuffer, createPanelSyncEmitter } from '../hooks/useEditStagingBuffer.js'
-import type { PendingEdit, SyncEmitter } from '../hooks/useEditStagingBuffer.js'
+import type { PendingEdit, StagingBufferHandle } from '../hooks/useEditStagingBuffer.js'
 import { generateId } from '../uuid.js'
 import { StagingDriftBanner } from './StagingDriftBanner.js'
 import { SpacingTokensContext } from '../tokens/TokenContext.js'
@@ -233,15 +231,6 @@ export interface PanelProps {
    *  Only populated when __CORTEX_TEST_BUILD__ is true (DCE'd from prod bundles).
    *  Returns a Promise that resolves after the microtask-coalesced commitScrub fires. */
   commitEditRef?: { current: ((property: string, value: string) => Promise<void>) | null }
-  /** TEST-ONLY ref written by Panel — exposes buffer.list() and buffer.size() so e2e
-   *  specs can read the staging buffer without a separate bridge surface.
-   *  Only populated when __CORTEX_TEST_BUILD__ is true (DCE'd from prod bundles). */
-  bufferListRef?: {
-    current: {
-      list: () => import('../hooks/useEditStagingBuffer.js').PendingEdit[]
-      size: () => number
-    } | null
-  }
   /** Set by CortexApp during undo/redo — suppresses phantom re-edits from Panel re-renders. */
   undoInProgressRef?: { current: boolean }
   channel?: CortexChannel
@@ -281,6 +270,16 @@ export interface PanelProps {
   /** Source strings (path:line:col) whose overrides have gone stale.
    *  Used to compute per-element stale indicators on section controls. */
   staleSources?: Set<string>
+  /** Buffer lifetime is CortexApp-scoped (Task 2 hoist). Required — Panel no longer
+   *  creates its own buffer (Task 3 removed the local fallback). */
+  buffer: StagingBufferHandle
+  /** Apply error lifted to CortexApp (ZF0-1869 Round-1 Fix 1) so it survives
+   *  Panel unmount on deselect. Null means no error. Panel renders the banner
+   *  from this prop; both CortexApp's onMessage handler (source-edit-failed) and
+   *  Panel's handleApplyError (sendAndAck rejection) set it via onSetApplyError. */
+  applyError?: string | null
+  /** Sets or clears the applyError in CortexApp. Pass null to clear. */
+  onSetApplyError?: (err: string | null) => void
 }
 
 export function Panel({
@@ -320,7 +319,9 @@ export function Panel({
   staleSources,
   stageEditRef,
   commitEditRef,
-  bufferListRef,
+  buffer: bufferProp,
+  applyError: applyErrorProp = null,
+  onSetApplyError,
 }: PanelProps): JSX.Element | null {
   // Back-compat alias: primary element for all CSS-parsing code paths (ZF0-1195 / T3).
   // All existing usages of `element` inside this function work unchanged.
@@ -341,68 +342,35 @@ export function Panel({
   // into a single atomic command via microtask.
   const commitPendingRef = useRef(false)
 
-  // SyncEmitter wires the browser-canonical buffer to the server-side
-  // StagedEditsCache mirror. Each mutation method sends a corresponding
-  // BrowserToServer message; channel.send auto-stamps the token. Without
-  // this, the server cache stays empty and Claude's MCP tools see nothing
-  // of what the designer staged.
-  //
-  // useRef (not useMemo) for stable identity across renders — the hook's
-  // emitterRef.current = emitter reassignment must always see the same
-  // object, otherwise the rehydrate-on-mount syncFullState path could be
-  // bypassed. The factory delegates to channel.send, which is stable for
-  // the channel's lifetime, so a one-time construction is correct.
-  //
-  // When channel is absent (e.g., test mounts without one), the buffer
-  // operates browser-canonical only — no emitter is wired and the server
-  // cache stays out of sync. This is the same backward-compat behavior as
-  // before T2.
-  const syncEmitterRef = useRef<SyncEmitter | null>(null)
-  if (syncEmitterRef.current === null && channel) {
-    syncEmitterRef.current = createPanelSyncEmitter(channel)
-  }
-
   // Spacing tokens flow in as a prop from cortex-app-reducer state, populated
   // by the `hello` handshake at boot. Provided to descendants (NumericInput)
   // via SpacingTokensContext.
   const resolvedSpacingTokens = spacingTokens ?? []
 
-  // Staging buffer for property edits — accumulates browser-side before Apply gesture.
-  const buffer = useEditStagingBuffer(syncEmitterRef.current ?? undefined)
+  // Buffer is provided by CortexApp (Task 2 hoist). The prop is required now
+  // that the local fallback is removed (Task 3).
+  const buffer = bufferProp
+  if (!buffer) {
+    throw new Error('[cortex] Panel requires `buffer` prop — hoisted from CortexApp')
+  }
 
-  // staged-edits-discard is server-originated (the MCP server's
-  // cortex_discard_edits tool emitted it after mutating its cache). Calling
-  // buffer.remove(ids) here keeps the browser-canonical buffer in lockstep.
-  // Echo-loop trace: buffer.remove → emitterRef.syncRemove → channel.send
-  // 'staged-edit-remove' → server cache.remove. Terminates at depth 1
-  // because cache.remove is idempotent on already-removed ids (the second
-  // remove is a no-op on an empty set). If the round-trip becomes a
-  // measurable cost, add an "is this server-originated?" guard before
-  // propagating the remove through the SyncEmitter.
-  //
-  // IMPORTANT: this depth-1 termination depends on cache.remove(ids) being
-  // idempotent (no side-effect on already-removed ids). If you ever add a
-  // non-idempotent server-side reaction to staged-edit-remove (logging,
-  // telemetry, undo-stack push), this echo loop would generate duplicates —
-  // add the server-originated guard at that point.
-  useEffect(() => {
-    if (!channel) return
-    return channel.onMessage((msg) => {
-      if (msg.type === 'staged-edits-discard') {
-        const ids = (msg as { type: 'staged-edits-discard'; intentIds: string[] }).intentIds
-        buffer.remove(ids)
-      }
-    })
-  }, [channel, buffer])
+  // staged-edits-discard and source-edit-failed are now handled in CortexApp's
+  // onMessage subscriber (ZF0-1869 Round-1 Fix 1). CortexApp owns the buffer and
+  // never unmounts while active; if these handlers lived here, messages arriving
+  // while Panel is unmounted (user deselected) would be silently dropped, causing
+  // buffer divergence and silent apply-error loss. applyError state is also lifted
+  // to CortexApp and flows down as the applyErrorProp + onClearApplyError pair.
 
   // ZF0-1470 (T4 B1): drift count drives StagingDriftBanner's intent-drift row.
   // Updated by buffer.reconcile() whenever hmrChangedFiles changes (see effect below).
   const [intentDriftCount, setIntentDriftCount] = useState(0)
 
-  // ZF0-1470 (T4 fix-up, IMPORTANT 4): Apply error state. Surfaced inline above
-  // StagingDriftBanner when sendAndAck rejects (timeout/disconnect/server error).
-  // Cleared when a new Apply attempt starts (before sendAndAck) or dismissed by user.
-  const [applyError, setApplyError] = useState<string | null>(null)
+  // ZF0-1869 Round-1 Fix 1: applyError state lifted to CortexApp. Panel reads
+  // the error string from applyErrorProp (passed down from CortexApp) and
+  // delegates mutations to onSetApplyError. The local alias keeps the
+  // handleApplyError and onApply pre-flight callsites identical.
+  const applyError = applyErrorProp
+  const setApplyError = onSetApplyError ?? ((_v: string | null) => {})
 
   // ZF0-1470 (T4 B1): Apply handler — sends staged-edits-ready via sendAndAck so
   // Claude's MCP tools can read the buffer. Does NOT call buffer.clear() — per
@@ -1072,20 +1040,6 @@ export function Panel({
   // applyOverride is stable (useCallback) — safe dep.
   }, [commitEditRef, applyOverride])
 
-  // TEST-ONLY: expose buffer.list() and buffer.size() via bufferListRef so e2e specs
-  // can read the staging buffer state without additional bridge plumbing. Updated on
-  // every render where the ref is present — the functions read bufferRef.current directly
-  // (synchronous, always current) so there is no staleness risk.
-  useEffect(() => {
-    if (bufferListRef) {
-      bufferListRef.current = {
-        list: () => buffer.list(),
-        size: () => buffer.size(),
-      }
-      return () => { bufferListRef.current = null }
-    }
-  }, [bufferListRef, buffer])
-
   /**
    * Dispatch a className mutation (classOp) to the server, optionally followed
    * by per-property inline-style edits for the same element. Used by the new
@@ -1478,72 +1432,9 @@ export function Panel({
     isSnapping && 'cortex-panel--snapping',
   ].filter(Boolean).join(' ')
 
-  // Empty state: panel shell visible, no sections
-  if (!element) {
-    return (
-      <div
-        class={panelClasses}
-        style={{ transform: `translate(${position.x}px, ${position.y}px)`, width: `${PANEL_WIDTH}px` }}
-      >
-        <PanelHeader
-          tagName=""
-          componentName="Cortex"
-          sourceFile={null}
-          sourceLine={null}
-          filePath={null}
-          onClose={onClose}
-          onPointerDown={panelPointerDown}
-          onPointerMove={panelPointerMove}
-          onPointerUp={panelPointerUp}
-          onPointerCancel={panelPointerCancel}
-          bufferSize={buffer.size()}
-          onApply={onApply}
-          onApplyError={handleApplyError}
-        />
-        <div class="cortex-panel__body">
-          {/* ZF0-1453 cross-task fix-up (HIGH 1): applyError banner and StagingDriftBanner
-              must render in the empty state too. A designer can stage edits, deselect
-              (clearing `element`), then click Apply on the still-visible header button.
-              Without these banners here, any sendAndAck rejection or stale-override
-              signal produces zero user feedback while in the empty state. */}
-          {applyError && (
-            <div class="cortex-apply-error" role="alert">
-              <span>{applyError}</span>
-              <button
-                type="button"
-                onClick={() => setApplyError(null)}
-                class="cortex-apply-error__dismiss"
-                aria-label="Dismiss apply error"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          )}
-          <StagingDriftBanner
-            intentDriftCount={intentDriftCount}
-            staleOverrideCount={staleOverrideCount}
-            onIntentRefresh={() => {
-              if (hmrChangedFiles.length > 0) {
-                const result = buffer.reconcile(
-                  hmrChangedFiles,
-                  overrideManager.readSourceValue.bind(overrideManager),
-                )
-                setIntentDriftCount(result.divergent.length)
-              }
-            }}
-            onStaleRefresh={() => window.location.reload()}
-            onDismiss={() => {}}
-          />
-          <div class="cortex-panel__empty">
-            <p class="cortex-panel__empty-action">Click any element to start editing</p>
-            <p class="cortex-panel__empty-hint">Changes write to your source files</p>
-            <p class="cortex-panel__empty-shortcut">{formatShortcut('$mod+Shift+Period')} to toggle</p>
-          </div>
-        </div>
-        <ConnectionStatusFooter status={connectionStatus} />
-      </div>
-    )
-  }
+  // Panel is gated at CortexApp level (selectedElements.length > 0 required to
+  // mount).  This guard is a TS narrowing aid only — it never fires at runtime.
+  if (!element) return null
 
   const sourceInfo = parseCortexSource(element)
   const tagName = element.tagName.toLowerCase()
@@ -1605,6 +1496,7 @@ export function Panel({
         bufferSize={buffer.size()}
         onApply={onApply}
         onApplyError={handleApplyError}
+        applyError={applyError}
       />
       {editErrors && element?.getAttribute('data-cortex-source') && (
         <EditErrorCard

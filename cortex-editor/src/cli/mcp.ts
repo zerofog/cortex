@@ -15,7 +15,17 @@ import {
   cortexApplyEditsInputSchema,
   cortexDiscardEditsInputSchema,
   cortexGetIntentContextInputSchema,
+  cortexAcknowledgeSourceEditInputSchema,
+  cortexReportSourceEditFailedInputSchema,
 } from '../schemas/index.js'
+
+/** Process-scoped UUID announced to the browser on every WebSocket connect.
+ *  The browser compares this against its last-seen UUID and wipes the staging
+ *  buffer only when the UUID changes — distinguishing a genuine new Claude
+ *  session from a transient reconnect (sleep/wake, WiFi flap) which reuses
+ *  the same process and therefore the same UUID.
+ *  Exported so tests can assert the exact value sent without a live server. */
+export const MCP_SESSION_ID = randomUUID()
 
 /** Exponential backoff with cap for WebSocket reconnection. Exported for testing. */
 export function calculateReconnectDelay(retryCount: number): number {
@@ -175,6 +185,16 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
       process.stderr.write(`[cortex] Connected to Cortex dev server at ${url}${token ? '' : ' (token not found — writes will be rejected)'}\n`)
       if (token) {
         socket.send(JSON.stringify({ type: 'cortex-status-request', token }))
+        // Announce process-scoped UUID so the browser can detect a genuine new
+        // Claude session and wipe stale staged edits. Sent on every connect so
+        // the browser updates its last-seen UUID on reconnect as well (transient
+        // reconnects keep the same MCP_SESSION_ID, so the browser won't wipe).
+        // Carries the auth token: mcp-session-hello triggers a destructive
+        // buffer.clear() on the browser, so it must pass Vite's CLI token gate
+        // like every other privileged CLI message. A tokenless MCP server cannot
+        // authenticate, so it equally must not be able to force a wipe — gating
+        // it behind the same `if (token)` as cortex-status-request enforces that.
+        socket.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: MCP_SESSION_ID, token }))
       }
     })
 
@@ -661,7 +681,17 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
   server.registerTool(
     'cortex_apply_edits',
     {
-      description: "Route staged edits via cortex's deterministic rewriters (TailwindResolver, CSS Modules rewriter, InlineStyleRewriter). Returns per-id result indicating one of: 'applied' (cortex applied directly with mechanism: tailwind | css-module | inline-style), 'needs-source-edit' (use the Edit tool to write source at intent.source), or 'failed' (intent not found, apply timeout, or rewriter error).",
+      description: [
+        "Route staged edits via cortex's deterministic rewriters (TailwindResolver, CSS Modules rewriter, InlineStyleRewriter). Returns per-id result indicating one of: 'applied' (cortex applied directly with mechanism: tailwind | css-module | inline-style), 'needs-source-edit' (use the Edit tool to write source at intent.source), or 'failed' (intent not found, apply timeout, or rewriter error).",
+        '',
+        "For each result with status 'needs-source-edit', the loop MUST close via EXACTLY ONE of four outcomes:",
+        '  1. cortex_acknowledge_source_edit([intentId]) — after Edit tool succeeds (preferred)',
+        '  2. cortex_report_source_edit_failed([intentId], reason) — after Edit tool fails',
+        '  3. cortex_discard_edits([intentId]) — when the user changes their mind',
+        '  4. reconcile-on-connect (automatic fallback) — if you crash or are interrupted before closing the loop, cortex auto-clears the intent on the next MCP reconnect if the target element already reflects the intended value; prefer explicitly closing the loop with (1)/(2)/(3).',
+        '',
+        'Failing to close the loop with (1)/(2)/(3) leaves a phantom intent in the buffer that surfaces as a stale Apply (n) badge to the user.',
+      ].join('\n'),
       inputSchema: cortexApplyEditsInputSchema.shape,
     },
     async ({ intentIds }) => {
@@ -677,12 +707,65 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
   server.registerTool(
     'cortex_discard_edits',
     {
-      description: 'Remove staged edits from the buffer without writing source. Returns the IDs that were discarded.',
+      description: [
+        'Discard staged intents without writing source — use when the user changes their mind or wants to undo a staged change before Apply.',
+        '',
+        'NOT for closing the loop after a successful Edit tool operation — use cortex_acknowledge_source_edit for that. The wire effect is identical (intent leaves the buffer), but the semantic intent matters for telemetry and future protocol evolution.',
+        '',
+        'Returns the IDs that were discarded.',
+      ].join('\n'),
       inputSchema: cortexDiscardEditsInputSchema.shape,
     },
     async ({ intentIds }) => {
       try {
         const result = await rpc('discardEdits', { intentIds })
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Failed: ${err instanceof Error ? err.message : String(err)}` }], isError: true }
+      }
+    },
+  )
+
+  server.registerTool(
+    'cortex_acknowledge_source_edit',
+    {
+      description: `Acknowledge that a needs-source-edit intent has been applied via the Edit tool.
+Removes the intent from cortex's staging buffer.
+
+Call this immediately after the Edit tool succeeds for any intent that
+cortex_apply_edits returned with status "needs-source-edit". Failing to
+acknowledge it leaves a phantom intent in the buffer that displays a
+stale Apply (n) badge to the user.
+
+For Edit failures, use cortex_report_source_edit_failed instead.
+For user-driven abandonment, use cortex_discard_edits.`,
+      inputSchema: cortexAcknowledgeSourceEditInputSchema.shape,
+    },
+    async ({ intentIds }) => {
+      try {
+        const result = await rpc('acknowledgeSourceEdit', { intentIds })
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Failed: ${err instanceof Error ? err.message : String(err)}` }], isError: true }
+      }
+    },
+  )
+
+  server.registerTool(
+    'cortex_report_source_edit_failed',
+    {
+      description: `Report that the Edit tool failed to apply a needs-source-edit intent.
+The intent REMAINS in the buffer (so the user can retry) and the failure
+reason is surfaced in the panel via the applyError banner.
+
+Call this when the Edit tool returns an error for a needs-source-edit
+intent (file structure changed, pattern not found, permission denied,
+etc.) — anything that means the source change did NOT land.`,
+      inputSchema: cortexReportSourceEditFailedInputSchema.shape,
+    },
+    async ({ intentIds, reason }) => {
+      try {
+        const result = await rpc('reportSourceEditFailed', { intentIds, reason })
         return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
       } catch (err) {
         return { content: [{ type: 'text' as const, text: `Failed: ${err instanceof Error ? err.message : String(err)}` }], isError: true }

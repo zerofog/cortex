@@ -4,6 +4,7 @@ import { Panel } from '../../src/browser/components/Panel.js'
 import { CommandStack } from '../../src/browser/command-stack.js'
 import { CompoundEditCommand } from '../../src/browser/edit-command.js'
 import { CSSOverrideManager } from '../../src/browser/override.js'
+import { makeFakeBuffer } from './helpers.js'
 import type { CortexChannel } from '../../src/adapters/types.js'
 import type { TextComponent } from '../../src/core/text-components.js'
 import type { ColorChip } from '../../src/browser/token-detector.js'
@@ -95,6 +96,7 @@ async function mountPanelWithLinkedHeading(
       panelPointerCancel={vi.fn()}
       agentConnected={true}
       onEditDispatch={vi.fn()}
+      buffer={makeFakeBuffer()}
     />,
     container,
   )

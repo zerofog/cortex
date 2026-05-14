@@ -175,20 +175,23 @@ describe('cascade priorities (integration)', () => {
     target.remove()
   })
 
-  // No Priority 4: Escape does nothing at top level
-  it('Escape does nothing when no selection and no comment mode', async () => {
+  // Priority 4: Escape deactivates Cortex when no selection and no comment mode
+  // (H5 reversal in ZF0-1869: Esc-to-close re-added as required keyboard affordance)
+  it('Escape deactivates Cortex when no selection and no comment mode', async () => {
     setup()
     const channel = createMockChannel()
     render(<CortexApp channel={channel} shadowRoot={shadow} initialActive />, root)
     await new Promise(r => setTimeout(r, SETTLE))
 
-    // Press Escape with nothing active
+    // Press Escape with nothing active — Priority 4 fires (no selection, no comment mode,
+    // no focused input, no open popover) → handleClose() → Cortex deactivates.
     dispatchKeyboardEvent(window, 'keydown', { key: 'Escape' })
-    await new Promise(r => setTimeout(r, SETTLE))
-
-    // Editor should still be active, no cortex-closed sent
-    expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
-    expect(channel._lastSent).not.toContainEqual({ type: 'cortex-closed' })
+    await vi.waitFor(() => {
+      // Toolbar should be gone and cortex-closed should have been sent
+      expect(root.querySelector('.cortex-toolbar')).toBeNull()
+    }, { timeout: 500 })
+    // Falsifiability: remove Priority 4 from handleEscape (comment out handleClose()
+    // and the e.stopPropagation/preventDefault) — the toolbar remains and this fails.
   })
 })
 

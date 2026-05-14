@@ -10,9 +10,8 @@ describe('Toolbar', () => {
     cleanup = null
   })
 
-  function setup(overrides: Partial<{ activityCount: number; onClose: () => void }> = {}) {
+  function setup(overrides: Partial<{ onClose: () => void }> = {}) {
     const props = {
-      activityCount: 0,
       onClose: vi.fn(),
       ...overrides,
     }
@@ -36,11 +35,10 @@ describe('Toolbar', () => {
     expect(commentBtn!.classList.contains('cortex-toolbar__mode--active')).toBe(false)
   })
 
-  it('renders grip, badge, and close button', () => {
-    const { root } = setup({ activityCount: 3 })
+  it('renders grip and close button', () => {
+    const { root } = setup()
     expect(root.querySelector('.cortex-toolbar__grip')).not.toBeNull()
     expect(root.querySelector('[data-action="close"]')).not.toBeNull()
-    expect(root.querySelector('.cortex-toolbar__badge')).not.toBeNull()
   })
 
   it('renders mode switcher and close button', () => {
@@ -58,18 +56,6 @@ describe('Toolbar', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
-  it('displays activity count', () => {
-    const { root } = setup({ activityCount: 5 })
-    const badge = root.querySelector('.cortex-toolbar__badge')
-    expect(badge?.textContent).toContain('5')
-  })
-
-  it('hides badge when activity count is 0', () => {
-    const { root } = setup({ activityCount: 0 })
-    const badge = root.querySelector('.cortex-toolbar__badge')
-    expect(badge).toBeNull()
-  })
-
   it('renders grip drag handle as non-button div', () => {
     const { root } = setup()
     const grip = root.querySelector('.cortex-toolbar__grip')
@@ -77,17 +63,44 @@ describe('Toolbar', () => {
     expect(grip?.tagName.toLowerCase()).not.toBe('button')
   })
 
-  it('ignores pointerdown on badge area (drag restricted to grip)', () => {
-    const { root } = setup({ activityCount: 3 })
+  it('badge is never rendered (activity-count badge removed)', () => {
+    const { root } = setup()
+    expect(root.querySelector('.cortex-toolbar__badge')).toBeNull()
+  })
+
+  it('does not start drag when pointerdown is on a non-grip element (divider)', () => {
+    // Toolbar.handlePointerDown's grip-allowlist guard: drag starts ONLY from
+    // .cortex-toolbar__grip. Retargeted off the removed badge onto the divider
+    // — a plain non-interactive <div>. The divider is NOT in useDrag's
+    // interactive blocklist (button/a/input/select/textarea/[role=button]), so
+    // the ONLY thing that can block the drag here is Toolbar's allowlist guard.
+    //
+    // Assertion mechanism: useDrag.handlePointerDown calls
+    // setPointerCapture(pointerId) on the toolbar element synchronously the
+    // moment a drag starts — and only then. Spying on it is a falsifiable
+    // signal: drop the `closest('.cortex-toolbar__grip')` check in Toolbar and
+    // this test fails (the divider would reach useDrag, which doesn't block a
+    // plain div, so the drag starts and setPointerCapture fires). The old
+    // `toolbar.style.transform` mechanism is unusable here — the transform is
+    // Preact-state-driven and does not flush synchronously under happy-dom.
+    const { root } = setup()
     const toolbar = root.querySelector('.cortex-toolbar') as HTMLElement
-    const badge = root.querySelector('.cortex-toolbar__badge') as HTMLElement
+    const divider = root.querySelector('.cortex-toolbar__divider') as HTMLElement
+    const grip = root.querySelector('.cortex-toolbar__grip') as HTMLElement
+    // happy-dom does not implement setPointerCapture — useDrag try/catches the
+    // call for exactly this reason. Install a stub so we can observe whether
+    // useDrag reached the capture call (i.e. whether a drag actually started).
+    const capture = vi.fn()
+    ;(toolbar as unknown as { setPointerCapture: () => void }).setPointerCapture = capture
 
-    const initialTransform = toolbar.style.transform
+    // pointerdown on the divider — Toolbar's allowlist guard must short-circuit
+    // before useDrag runs, so no pointer capture (no drag start).
+    dispatchPointerEvent(divider, 'pointerdown', { clientX: 100, clientY: 100, pointerId: 1 })
+    expect(capture).not.toHaveBeenCalled()
 
-    // Simulate pointerdown on badge — should NOT start drag
-    dispatchPointerEvent(badge, 'pointerdown', { clientX: 100, clientY: 100 })
-    dispatchPointerEvent(toolbar, 'pointermove', { clientX: 200, clientY: 200 })
-
-    expect(toolbar.style.transform).toBe(initialTransform)
+    // Positive control: pointerdown on the grip passes the allowlist, reaches
+    // useDrag, and starts the drag — proving the spy can observe a real start.
+    dispatchPointerEvent(grip, 'pointerdown', { clientX: 100, clientY: 100, pointerId: 1 })
+    expect(capture).toHaveBeenCalled()
   })
 })

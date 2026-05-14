@@ -1125,6 +1125,156 @@ describe('CLI WebSocket bridge', () => {
     expect(response.code).toBe('AUTH_FAILED')
   })
 
+  // Task 12, Change 6 — security: mcp-session-hello triggers a DESTRUCTIVE
+  // buffer.clear() on the browser. The /@cortex/ws upgrade is only Origin-checked;
+  // the per-message token is the actual auth. These three tests pin that the
+  // mcp-session-hello handler sits AFTER the token gate: untokened/wrong-token
+  // messages are rejected and never forwarded, a valid-token message IS forwarded.
+  it('rejects untokened mcp-session-hello and does NOT forward it to the browser (Task 12 security)', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status
+
+    const VALID_UUID = '00000000-0000-4000-a000-000000000001'
+    ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: VALID_UUID }))
+    const response = await nextMessage()
+
+    // The CLI client gets a specific AUTH_FAILED rejection — proves enforcement,
+    // not just "an error occurred".
+    expect(response.type).toBe('error')
+    expect(response.code).toBe('AUTH_FAILED')
+    // And critically: nothing was pushed to the browser channel, so no wipe.
+    await new Promise((r) => setTimeout(r, 50))
+    expect(server._sent.some((s) => (s.data as any).type === 'mcp-session-hello')).toBe(false)
+  })
+
+  it('rejects wrong-token mcp-session-hello and does NOT forward it to the browser (Task 12 security)', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status
+
+    const VALID_UUID = '00000000-0000-4000-a000-000000000002'
+    ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: VALID_UUID, token: 'wrong-token' }))
+    const response = await nextMessage()
+
+    expect(response.type).toBe('error')
+    expect(response.code).toBe('AUTH_FAILED')
+    await new Promise((r) => setTimeout(r, 50))
+    expect(server._sent.some((s) => (s.data as any).type === 'mcp-session-hello')).toBe(false)
+  })
+
+  it('forwards a valid-token mcp-session-hello to the browser channel (Task 12)', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status
+
+    const VALID_UUID = '00000000-0000-4000-a000-000000000003'
+    ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: VALID_UUID, token: sessionToken }))
+
+    await vi.waitFor(() => {
+      const hello = server._sent.find((s) => (s.data as any).type === 'mcp-session-hello')
+      expect(hello).toBeDefined()
+      expect((hello!.data as any).sessionId).toBe(VALID_UUID)
+      // Token must be stripped — never leaked onward to the browser.
+      expect('token' in (hello!.data as any)).toBe(false)
+    })
+  })
+
+  // ─── Fix 1 (ZF0-1869 Review): UUID-change-gated server-side clear ──────────
+  // The server must mirror the browser's lastSessionIdRef logic:
+  //   (a) first mcp-session-hello (lastMcpSessionId === null) → adopt UUID, do NOT clear
+  //   (b) same UUID again (transient reconnect) → do NOT clear
+  //   (c) different UUID (genuine new Claude session) → MUST clear
+  //
+  // Tests (a) and (b) FAIL against the unconditional-clear code and PASS after Fix 1.
+  // Test (c) passes before and after — clearing on UUID-change is the correct behavior.
+
+  it('mcp-session-hello first-adopt (no prior UUID) does NOT clear server stagedEdits (Fix 1 TDD-a)', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status
+
+    const cache = _getStagedEditsForTesting()!
+    cache.append(makeEdit({ intentId: 'keep-me', property: 'color' }))
+    expect(cache.size()).toBe(1)
+
+    // First mcp-session-hello — lastMcpSessionId is null, first adoption.
+    // This is a transient-reconnect-safe no-op: do NOT clear.
+    const UUID_A = '11111111-0000-4000-a000-000000000001'
+    ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_A, token: sessionToken }))
+
+    // Wait for the hello to be forwarded to the browser (proves handler ran), then
+    // assert the cache is still intact — first adopt must NOT wipe existing intents.
+    await vi.waitFor(() => {
+      expect(server._sent.some((s) => (s.data as any).type === 'mcp-session-hello')).toBe(true)
+    })
+    expect(cache.size()).toBe(1)
+  })
+
+  it('mcp-session-hello same-UUID reconnect does NOT clear server stagedEdits (Fix 1 TDD-b)', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status
+
+    const cache = _getStagedEditsForTesting()!
+    const UUID_A = '11111111-0000-4000-a000-000000000002'
+
+    // First hello — adopt UUID (no clear expected on first adopt).
+    ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_A, token: sessionToken }))
+    await vi.waitFor(() => {
+      // Wait until the first hello has been processed (lastMcpSessionId set to UUID_A)
+      // by confirming it was forwarded to the browser channel.
+      const hellos = server._sent.filter((s) => (s.data as any).type === 'mcp-session-hello')
+      expect(hellos.length).toBeGreaterThanOrEqual(1)
+    })
+
+    // Seed edit AFTER first hello — it must survive the same-UUID second hello.
+    cache.append(makeEdit({ intentId: 'keep-me-b', property: 'font-size' }))
+    expect(cache.size()).toBe(1)
+
+    // Second hello — same UUID (transient WiFi-flap / sleep-wake reconnect). Must NOT clear.
+    ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_A, token: sessionToken }))
+
+    await vi.waitFor(() => {
+      const hellos = server._sent.filter((s) => (s.data as any).type === 'mcp-session-hello')
+      expect(hellos.length).toBeGreaterThanOrEqual(2)
+    })
+    expect(cache.size()).toBe(1)
+  })
+
+  it('mcp-session-hello different-UUID DOES clear server stagedEdits (Fix 1 TDD-c)', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status
+
+    const cache = _getStagedEditsForTesting()!
+    const UUID_A = '11111111-0000-4000-a000-000000000003'
+    const UUID_B = '22222222-0000-4000-a000-000000000003'
+
+    // First hello — adopt UUID_A (no clear — first adopt).
+    ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_A, token: sessionToken }))
+    await vi.waitFor(() => {
+      expect(server._sent.some((s) => (s.data as any).type === 'mcp-session-hello')).toBe(true)
+    })
+
+    // Seed an edit (simulates stale session data from the prior Claude session).
+    cache.append(makeEdit({ intentId: 'stale-intent', property: 'color' }))
+    expect(cache.size()).toBe(1)
+
+    // Second hello — DIFFERENT UUID → genuine new Claude session → MUST clear.
+    ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_B, token: sessionToken }))
+
+    await vi.waitFor(() => {
+      expect(cache.size()).toBe(0)
+    })
+  })
+
   it('warns when no httpServer (middleware mode)', () => {
     const plugin = initPlugin()
     const server = mockServer()
@@ -1399,6 +1549,111 @@ describe('annotation RPC', () => {
       (reply.type === 'error' && reply.code === 'SCHEMA_VIOLATION') ||
       reply.type === 'cortex-rpc-error'
     expect(isSchemaViolation).toBe(true)
+  })
+
+  // ── ZF0-1869 Task 8: reportSourceEditFailed RPC ──────────────────────────
+  it('reportSourceEditFailed keeps intent in cache and broadcasts source-edit-failed to browser', async () => {
+    // TDD anchor for Task 8/18 (Change 7). STATE-MACHINE INVARIANT: the source edit
+    // FAILED — the intent did NOT land — so it MUST stay in the buffer for retry/discard.
+    // This is the OPPOSITE of acknowledgeSourceEdit (which removes on success).
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status (connected: true)
+
+    // Simulate a browser connecting so browserConnected=true and browserNotified is honest.
+    server.hot._trigger('cortex:msg', { type: 'init', token: sessionToken })
+
+    // Seed one intent directly into the server-side cache.
+    const cache = _getStagedEditsForTesting()!
+    cache.append(makeEdit({ intentId: 'i1', property: 'color', value: 'red' }))
+    expect(cache.list()).toHaveLength(1)
+
+    // Clear sent messages so we can isolate reportSourceEditFailed's broadcast.
+    server._sent.length = 0
+
+    ws.send(JSON.stringify({
+      type: 'cortex-rpc',
+      requestId: 'fail-src-1',
+      method: 'reportSourceEditFailed',
+      params: { intentIds: ['i1'], reason: "couldn't find pattern at App.tsx:31" },
+      token: sessionToken,
+    }))
+
+    // Wait for the cortex-rpc-result response.
+    let rpcReply: any
+    for (let i = 0; i < 20; i++) {
+      rpcReply = await nextMessage()
+      if (rpcReply.type === 'cortex-rpc-result' && rpcReply.requestId === 'fail-src-1') break
+    }
+
+    // (a) result shape
+    expect(rpcReply.result.reported).toEqual(['i1'])
+    expect(rpcReply.result.browserNotified).toBe(true)
+
+    // (b) STATE-MACHINE INVARIANT: i1 MUST remain in the cache (source edit failed)
+    expect(cache.getById('i1')).toBeDefined()
+
+    // (c) browser channel received source-edit-failed (NOT staged-edits-discard)
+    const failMsg = server._sent.find(
+      (s) => s.event === 'cortex:msg' && (s.data as Record<string, unknown>).type === 'source-edit-failed',
+    )
+    expect(failMsg).toBeDefined()
+    expect((failMsg!.data as Record<string, unknown>).intentIds).toEqual(['i1'])
+    expect((failMsg!.data as Record<string, unknown>).reason).toBe("couldn't find pattern at App.tsx:31")
+  })
+
+  // ── ZF0-1869 Task 6: acknowledgeSourceEdit RPC ───────────────────────────
+  it('acknowledgeSourceEdit removes intent from cache and broadcasts staged-edits-discard to browser', async () => {
+    // TDD anchor for Task 6/18 (Change 7). Wire effect is identical to discardEdits —
+    // remove from server cache + broadcast staged-edits-discard. The distinct method
+    // name carries the apply-acked vs user-discarded distinction at the MCP tool layer.
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status (connected: true)
+
+    // Simulate a browser connecting so browserConnected=true and browserNotified is honest.
+    server.hot._trigger('cortex:msg', { type: 'init', token: sessionToken })
+
+    // Seed two intents directly into the server-side cache.
+    const cache = _getStagedEditsForTesting()!
+    cache.append(makeEdit({ intentId: 'i1', property: 'color', value: 'red' }))
+    cache.append(makeEdit({ intentId: 'i2', property: 'fontSize', value: '16px' }))
+    expect(cache.list()).toHaveLength(2)
+
+    // Clear sent messages so we can isolate acknowledgeSourceEdit's broadcast.
+    server._sent.length = 0
+
+    ws.send(JSON.stringify({
+      type: 'cortex-rpc',
+      requestId: 'ack-src-1',
+      method: 'acknowledgeSourceEdit',
+      params: { intentIds: ['i1'] },
+      token: sessionToken,
+    }))
+
+    // Wait for the cortex-rpc-result response.
+    let rpcReply: any
+    for (let i = 0; i < 20; i++) {
+      rpcReply = await nextMessage()
+      if (rpcReply.type === 'cortex-rpc-result' && rpcReply.requestId === 'ack-src-1') break
+    }
+
+    // (a) result shape
+    expect(rpcReply.result.acknowledged).toEqual(['i1'])
+    expect(rpcReply.result.browserNotified).toBe(true)
+
+    // (b) i1 removed, i2 still present
+    expect(cache.getById('i1')).toBeNull()
+    expect(cache.getById('i2')).not.toBeNull()
+
+    // (c) browser channel received staged-edits-discard
+    const discard = server._sent.find(
+      (s) => s.event === 'cortex:msg' && (s.data as Record<string, unknown>).type === 'staged-edits-discard',
+    )
+    expect(discard).toBeDefined()
+    expect((discard!.data as Record<string, unknown>).intentIds).toEqual(['i1'])
   })
 
   it('comment-reply appends to existing annotation thread', async () => {

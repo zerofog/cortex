@@ -28,8 +28,10 @@ import {
   cortexApplyEditsInputSchema,
   cortexDismissInputSchema,
   cortexDiscardEditsInputSchema,
-  cortexGetDetailsInputSchema,
   cortexGetIntentContextInputSchema,
+  cortexAcknowledgeSourceEditInputSchema,
+  cortexReportSourceEditFailedInputSchema,
+  cortexGetDetailsInputSchema,
   cortexResolveInputSchema,
   cortexRespondInputSchema,
   formatIssues,
@@ -73,13 +75,15 @@ const BROWSER_TO_CLI_FORWARD_TYPES: ReadonlySet<string> = new Set(BROWSER_TO_CLI
 const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close'])
 const ALLOWED_RPC_METHODS = new Set([
   'getActive', 'getPending', 'getDetails', 'acknowledge', 'resolve', 'dismiss', 'respond',
-  'getPendingEdits', 'applyEdits', 'discardEdits', 'getIntentContext',
+  'getPendingEdits', 'applyEdits', 'discardEdits', 'getIntentContext', 'acknowledgeSourceEdit', 'reportSourceEditFailed',
 ])
 
 const RPC_METHOD_SCHEMAS = {
   applyEdits: cortexApplyEditsInputSchema,
   discardEdits: cortexDiscardEditsInputSchema,
   getIntentContext: cortexGetIntentContextInputSchema,
+  acknowledgeSourceEdit: cortexAcknowledgeSourceEditInputSchema,
+  reportSourceEditFailed: cortexReportSourceEditFailedInputSchema,
   getDetails: cortexGetDetailsInputSchema,
   acknowledge: cortexAcknowledgeInputSchema,
   resolve: cortexResolveInputSchema,
@@ -845,6 +849,42 @@ class CortexWebpackRuntime {
       return
     }
 
+    // mcp-session-hello — MCP server announces its process-scoped UUID so the
+    // browser can detect a genuine new Claude session and wipe stale staged edits.
+    // This triggers a DESTRUCTIVE buffer.clear() on the browser, so it is gated
+    // behind the same token check as every other privileged CLI message above —
+    // the MCP server attaches the token (see mcp.ts socket.on('open')). The
+    // /@cortex/ws upgrade is only Origin-checked at connect; the per-message token
+    // is the actual auth, so handling this AFTER the gate prevents any other local
+    // process from forcing a wipe with a merely well-formed UUID.
+    // Token is STRIPPED — never forwarded to the browser.
+    if (type === 'mcp-session-hello') {
+      const sessionId = (parsed as Record<string, unknown>).sessionId
+      if (typeof sessionId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
+        // ZF0-1869 Review Fix 1: UUID-change-gated server-side clear, mirroring
+        // the browser's lastSessionIdRef logic. A transient same-UUID reconnect
+        // (WiFi flap, sleep/wake — the MCP server keeps the same process-scoped
+        // UUID) must NOT clear stagedEdits: the browser still has its buffer, and
+        // an unconditional clear causes cortex_get_pending_edits to return zero
+        // while the browser still shows staged edits (silent divergence, no self-heal).
+        // Only a DIFFERENT UUID means a genuinely new Claude session — then we clear.
+        // First hello (lastMcpSessionId === null): adopt UUID, do NOT clear.
+        if (session.lastMcpSessionId !== null &&
+            session.lastMcpSessionId !== sessionId) {
+          // Genuine new Claude session — clear stale intents from prior session.
+          session.stagedEdits.clear()
+        }
+        session.lastMcpSessionId = sessionId
+        // FIX 3: mcp-session-hello is a server→browser message; send BROWSER-ONLY
+        // via sendToInitializedBrowsers (bypassing forwardToCLI). The channel.send
+        // path fans out to CLI clients — wrong direction, no consumer.
+        this.sendToInitializedBrowsers(session, { type: 'mcp-session-hello', sessionId }, 'webpack.mcpSessionHello')
+      } else {
+        console.warn('[cortex] mcp-session-hello rejected: sessionId is not a valid UUID')
+      }
+      return
+    }
+
     if (type === 'cortex-rpc') {
       const rpcMsg = parseOrFail(cliRpcRequestSchema, parsed, 'webpack.cliDispatcher.cortex-rpc')
       if (rpcMsg === null) {
@@ -911,10 +951,13 @@ class CortexWebpackRuntime {
         const stagedEdits = session.stagedEdits
         const pipeline = session.pipeline
         const channel = session.channel
+        const hasBrowserClients = this.initializedBrowserClients.size > 0
         return applyEditsCore(stagedEdits, intentIds, pipeline).then(results => {
           const appliedIds = results.filter(result => result.status === 'applied').map(result => result.intentId)
-          let browserNotified = appliedIds.length === 0
-          if (appliedIds.length > 0 && channel) {
+          let browserNotified = appliedIds.length === 0  // vacuously true: nothing to notify
+          // FIX 4: gate on hasBrowserClients (captured before async) so browserNotified
+          // reflects whether a browser actually received the discard notification.
+          if (appliedIds.length > 0 && channel && hasBrowserClients) {
             channel.send({ type: 'staged-edits-discard', intentIds: appliedIds })
             browserNotified = true
           }
@@ -924,8 +967,50 @@ class CortexWebpackRuntime {
       case 'discardEdits': {
         const intentIds = params.intentIds as string[]
         session.stagedEdits.remove(intentIds)
-        session.channel?.send({ type: 'staged-edits-discard', intentIds })
-        return { discarded: intentIds, browserNotified: Boolean(session.channel) }
+        // FIX 4: browserNotified only true when ≥1 initialized browser client exists.
+        // initializedBrowserClients.size > 0 is more accurate than channel existence alone —
+        // sendToInitializedBrowsers is a no-op when the set is empty.
+        let browserNotified = false
+        if (session.channel && this.initializedBrowserClients.size > 0) {
+          try {
+            session.channel.send({ type: 'staged-edits-discard', intentIds })
+            browserNotified = true
+          } catch (err) {
+            console.warn('[cortex] Failed to send staged-edits-discard (discard) to browser:', err instanceof Error ? err.message : String(err))
+          }
+        }
+        return { discarded: intentIds, browserNotified }
+      }
+      case 'acknowledgeSourceEdit': {
+        const intentIds = params.intentIds as string[]
+        session.stagedEdits.remove(intentIds)
+        // FIX 4: browserNotified only true when ≥1 initialized browser client exists.
+        let browserNotified = false
+        if (session.channel && this.initializedBrowserClients.size > 0) {
+          try {
+            session.channel.send({ type: 'staged-edits-discard', intentIds })
+            browserNotified = true
+          } catch (err) {
+            console.warn('[cortex] Failed to send staged-edits-discard (ack) to browser:', err instanceof Error ? err.message : String(err))
+          }
+        }
+        return { acknowledged: intentIds, browserNotified }
+      }
+      case 'reportSourceEditFailed': {
+        const intentIds = params.intentIds as string[]
+        const reason = params.reason as string
+        // STATE-MACHINE INVARIANT: do NOT remove from cache — the source edit failed.
+        // FIX 4: browserNotified only true when ≥1 initialized browser client exists.
+        let browserNotified = false
+        if (session.channel && this.initializedBrowserClients.size > 0) {
+          try {
+            session.channel.send({ type: 'source-edit-failed', intentIds, reason })
+            browserNotified = true
+          } catch (err) {
+            console.warn('[cortex] Failed to send source-edit-failed to browser:', err instanceof Error ? err.message : String(err))
+          }
+        }
+        return { reported: intentIds, browserNotified }
       }
       case 'getIntentContext': {
         const intentId = params.intentId as string

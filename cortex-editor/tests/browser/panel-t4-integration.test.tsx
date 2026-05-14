@@ -16,12 +16,60 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act } from 'preact/test-utils'
+import { useRef, useState } from 'preact/hooks'
 import { Panel } from '../../src/browser/components/Panel.js'
 import { renderInShadow, createMockChannel, cleanDocumentHead } from './helpers.js'
 import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
 import { _resetBusForTesting } from '../../src/browser/override-bus.js'
-import { cortexStorage } from '../../src/browser/persistence.js'
-import type { PendingEdit } from '../../src/browser/hooks/useEditStagingBuffer.js'
+import { useEditStagingBuffer, type PendingEdit } from '../../src/browser/hooks/useEditStagingBuffer.js'
+// cortexStorage / seedEdit removed — Task 4 disabled localStorage rehydration;
+// tests now seed via PanelWithInitEdits.initialEdits instead.
+
+/**
+ * Wrapper component that provides a real useEditStagingBuffer() instance to Panel.
+ * Required for T4 integration tests that assert on buffer-driven behavior
+ * (stale indicators, staleOverrideCount props, etc.) without needing initial edits.
+ */
+function PanelWithRealBuffer(props: Omit<Parameters<typeof Panel>[0], 'buffer'>) {
+  const buffer = useEditStagingBuffer()
+  return <Panel {...props} buffer={buffer} />
+}
+
+/**
+ * Like PanelWithRealBuffer but pre-seeds the buffer with initialEdits synchronously
+ * during render (before useEffect), so the buffer is populated at mount time.
+ * Replaces the old seedEdit()/localStorage pattern which no longer works after
+ * Task 4 removed localStorage rehydration.
+ */
+function PanelWithInitEdits({
+  initialEdits,
+  ...props
+}: Omit<Parameters<typeof Panel>[0], 'buffer'> & {
+  initialEdits: PendingEdit[]
+}) {
+  const buffer = useEditStagingBuffer()
+  const seededRef = useRef(false)
+  if (!seededRef.current) {
+    seededRef.current = true
+    for (const edit of initialEdits) {
+      buffer.append(edit)
+    }
+  }
+  // ZF0-1869 Round-1 Fix 1: applyError state is lifted to CortexApp in production.
+  // In unit tests that render Panel in isolation, PanelWithInitEdits mirrors
+  // CortexApp's ownership by managing local applyError state and wiring
+  // onSetApplyError — so tests can verify the banner-render path without needing
+  // a full CortexApp tree.
+  const [applyError, setApplyError] = useState<string | null>(props.applyError ?? null)
+  return (
+    <Panel
+      {...props}
+      buffer={buffer}
+      applyError={applyError}
+      onSetApplyError={(v) => setApplyError(v)}
+    />
+  )
+}
 
 const panelPositionProps = {
   position: { x: 1000, y: 12 },
@@ -49,11 +97,6 @@ function makeOverrideManager(
     flush: vi.fn(),
     readSourceValue: opts?.readSourceValue ?? vi.fn(() => ''),
   }
-}
-
-/** Seed localStorage with a PendingEdit so useEditStagingBuffer rehydrates it on mount. */
-function seedEdit(edit: PendingEdit): void {
-  cortexStorage.set('staging-buffer', [edit])
 }
 
 // Clean state at BOTH bookends so prior test files (especially
@@ -92,7 +135,6 @@ describe('Panel T4 — StagingDriftBanner wiring', () => {
       previousValue: 'blue',
       timestamp: Date.now(),
     }
-    seedEdit(edit)
 
     // Place element in DOM with matching data-cortex-source
     const target = document.createElement('div')
@@ -101,7 +143,8 @@ describe('Panel T4 — StagingDriftBanner wiring', () => {
 
     const overrideManager = makeOverrideManager()
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithInitEdits
+        initialEdits={[edit]}
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
@@ -138,7 +181,6 @@ describe('Panel T4 — StagingDriftBanner wiring', () => {
       previousValue: 'blue',   // previousValue = 'blue'; readSourceValue returns '' → divergent
       timestamp: Date.now(),
     }
-    seedEdit(edit)
 
     const target = document.createElement('div')
     target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
@@ -150,7 +192,8 @@ describe('Panel T4 — StagingDriftBanner wiring', () => {
     })
 
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithInitEdits
+        initialEdits={[edit]}
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
@@ -182,7 +225,7 @@ describe('Panel T4 — StagingDriftBanner wiring', () => {
 
     const overrideManager = makeOverrideManager()
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
@@ -217,7 +260,6 @@ describe('Panel T4 — StagingDriftBanner wiring', () => {
       previousValue: 'blue',
       timestamp: Date.now(),
     }
-    seedEdit(edit)
 
     const target = document.createElement('div')
     target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
@@ -228,7 +270,8 @@ describe('Panel T4 — StagingDriftBanner wiring', () => {
     })
 
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithInitEdits
+        initialEdits={[edit]}
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
@@ -273,7 +316,6 @@ describe('Panel T4 — Apply button wiring', () => {
       previousValue: 'blue',
       timestamp: Date.now(),
     }
-    seedEdit(edit)
 
     const target = document.createElement('div')
     target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
@@ -287,7 +329,8 @@ describe('Panel T4 — Apply button wiring', () => {
     const overrideManager = makeOverrideManager()
 
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithInitEdits
+        initialEdits={[edit]}
         selectedElements={[target]}
         channel={channel as any}
         overrideManager={overrideManager as any}
@@ -329,7 +372,6 @@ describe('Panel T4 — Apply button wiring', () => {
       previousValue: 'blue',
       timestamp: Date.now(),
     }
-    seedEdit(edit)
 
     const target = document.createElement('div')
     target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
@@ -343,7 +385,8 @@ describe('Panel T4 — Apply button wiring', () => {
     const overrideManager = makeOverrideManager()
 
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithInitEdits
+        initialEdits={[edit]}
         selectedElements={[target]}
         channel={channel as any}
         overrideManager={overrideManager as any}
@@ -395,7 +438,6 @@ describe('Panel T4 fix-up — IMPORTANT 1: hmrEventVersion triggers reconcile fo
       previousValue: 'blue',  // readSourceValue returns '' → divergent
       timestamp: Date.now(),
     }
-    seedEdit(edit)
 
     // Selected element uses a DIFFERENT source — simulates the case where
     // shouldRefreshOnHMR returned false (files don't touch selected element).
@@ -412,7 +454,8 @@ describe('Panel T4 fix-up — IMPORTANT 1: hmrEventVersion triggers reconcile fo
     // hmrAppliedVersion stays at 0 (as if shouldRefreshOnHMR returned false for
     // the selected element). hmrEventVersion=1 simulates the always-bump counter.
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithInitEdits
+        initialEdits={[edit]}
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
@@ -448,7 +491,6 @@ describe('Panel T4 fix-up — IMPORTANT 4: onApplyError surfaces failures to use
       previousValue: 'blue',
       timestamp: Date.now(),
     }
-    seedEdit(edit)
 
     const target = document.createElement('div')
     target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
@@ -462,7 +504,8 @@ describe('Panel T4 fix-up — IMPORTANT 4: onApplyError surfaces failures to use
     const overrideManager = makeOverrideManager()
 
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithInitEdits
+        initialEdits={[edit]}
         selectedElements={[target]}
         channel={channel as any}
         overrideManager={overrideManager as any}
@@ -504,7 +547,6 @@ describe('Panel T4 fix-up — IMPORTANT 4: onApplyError surfaces failures to use
       previousValue: 'blue',
       timestamp: Date.now(),
     }
-    seedEdit(edit)
 
     const target = document.createElement('div')
     target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
@@ -517,7 +559,8 @@ describe('Panel T4 fix-up — IMPORTANT 4: onApplyError surfaces failures to use
     const overrideManager = makeOverrideManager()
 
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithInitEdits
+        initialEdits={[edit]}
         selectedElements={[target]}
         channel={channel as any}
         overrideManager={overrideManager as any}
@@ -559,11 +602,13 @@ describe('Panel T4 fix-up — IMPORTANT 4: onApplyError surfaces failures to use
   })
 })
 
-describe('Panel T4 fix-up — HIGH 1: empty-state Apply feedback', () => {
-  // HIGH 1: When Panel is in empty state (element=null), Apply rejection must still
-  // surface the error banner. Designer can stage edits, deselect, click Apply on
-  // the still-visible header button, and get zero feedback without this fix.
-  it('shows apply error banner in empty state when sendAndAck rejects', async () => {
+describe('Panel T4 fix-up — HIGH 1: Apply feedback with selection', () => {
+  // HIGH 1 (retargeted from "empty state" → "with selection"):
+  // Panel is gated at CortexApp level on selectedElements.length > 0 (Task 16);
+  // the empty-state branch was deleted (Task 17). These tests verify the same
+  // behaviors (applyError banner, StagingDriftBanner) exist in the main return
+  // path, which requires a selected element.
+  it('shows apply error banner when sendAndAck rejects (element selected)', async () => {
     const edit: PendingEdit = {
       intentId: 'id-empty-err-1',
       source: 'src/Hero.tsx:14:5',
@@ -572,7 +617,10 @@ describe('Panel T4 fix-up — HIGH 1: empty-state Apply feedback', () => {
       previousValue: 'blue',
       timestamp: Date.now(),
     }
-    seedEdit(edit)
+
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    document.body.appendChild(target)
 
     const channel = createMockChannel()
     const errorMsg = 'sendAndAck timeout after 10000ms'
@@ -582,8 +630,9 @@ describe('Panel T4 fix-up — HIGH 1: empty-state Apply feedback', () => {
     const overrideManager = makeOverrideManager()
 
     const { root, cleanup } = renderInShadow(
-      <Panel
-        selectedElements={[]}
+      <PanelWithInitEdits
+        initialEdits={[edit]}
+        selectedElements={[target]}
         channel={channel as any}
         overrideManager={overrideManager as any}
         onClose={() => {}}
@@ -597,7 +646,7 @@ describe('Panel T4 fix-up — HIGH 1: empty-state Apply feedback', () => {
       await new Promise(r => setTimeout(r, 10))
     })
 
-    // Apply button is still visible in empty state (bufferSize > 0 from seeded edit)
+    // Apply button is visible (bufferSize > 0 from seeded edit)
     const applyBtn = root.querySelector('[data-action="apply"]') as HTMLButtonElement | null
     expect(applyBtn).not.toBeNull()
 
@@ -606,21 +655,27 @@ describe('Panel T4 fix-up — HIGH 1: empty-state Apply feedback', () => {
       await new Promise(r => setTimeout(r, 20))
     })
 
-    // Error banner must appear in the empty-state DOM
+    // Error banner must appear in the main-return DOM (Panel renders with element selected)
+    // Falsifiability: remove the applyError banner from Panel's main return → this fails.
     const errorEl = root.querySelector('.cortex-apply-error')
     expect(errorEl).not.toBeNull()
     expect(errorEl!.textContent).toContain(errorMsg)
 
     cleanup()
+    target.remove()
   })
 
-  // HIGH 1 (stale): StagingDriftBanner renders in empty state when staleOverrideCount > 0
-  it('shows StagingDriftBanner in empty state when staleOverrideCount > 0', async () => {
+  // HIGH 1 (stale): StagingDriftBanner renders when staleOverrideCount > 0 (element selected)
+  it('shows StagingDriftBanner when staleOverrideCount > 0 (element selected)', async () => {
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    document.body.appendChild(target)
+
     const overrideManager = makeOverrideManager()
 
     const { root, cleanup } = renderInShadow(
-      <Panel
-        selectedElements={[]}
+      <PanelWithRealBuffer
+        selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
@@ -635,11 +690,13 @@ describe('Panel T4 fix-up — HIGH 1: empty-state Apply feedback', () => {
       await new Promise(r => setTimeout(r, 10))
     })
 
+    // Falsifiability: remove StagingDriftBanner from Panel's main return → this fails.
     const banner = root.querySelector('.cortex-drift-banner')
     expect(banner).not.toBeNull()
     expect(banner!.textContent).toContain("edit(s) saved but HMR didn't apply")
 
     cleanup()
+    target.remove()
   })
 })
 
@@ -656,7 +713,6 @@ describe('Panel T4 fix-up — IMPORTANT 1: intentDriftCount resets on empty chan
       previousValue: 'blue',
       timestamp: Date.now(),
     }
-    seedEdit(edit)
 
     const target = document.createElement('div')
     target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
@@ -675,10 +731,13 @@ describe('Panel T4 fix-up — IMPORTANT 1: intentDriftCount resets on empty chan
     const root = document.createElement('div')
     shadow.appendChild(root)
 
-    // First render: hmrChangedFiles intersects → intentDriftCount should go > 0
+    // First render: seed the buffer and trigger HMR intersection → intentDriftCount > 0.
+    // PanelWithInitEdits pre-populates the buffer during render (seededRef prevents
+    // double-append on subsequent re-renders of the same component instance).
     await act(async () => {
       render(
-        <Panel
+        <PanelWithInitEdits
+          initialEdits={[edit]}
           selectedElements={[target]}
           overrideManager={overrideManager as any}
           onClose={() => {}}
@@ -696,10 +755,13 @@ describe('Panel T4 fix-up — IMPORTANT 1: intentDriftCount resets on empty chan
     // Banner should be present after first HMR cycle (intentDriftCount > 0)
     expect(root.querySelector('.cortex-drift-banner')).not.toBeNull()
 
-    // Second render: hmrEventVersion bumps but changedFiles is empty
+    // Second render: hmrEventVersion bumps but changedFiles is empty.
+    // Same component type (PanelWithInitEdits) so Preact reuses the instance;
+    // seededRef is true → no double-append; buffer retains the edit from first render.
     await act(async () => {
       render(
-        <Panel
+        <PanelWithInitEdits
+          initialEdits={[]}
           selectedElements={[target]}
           overrideManager={overrideManager as any}
           onClose={() => {}}
@@ -778,7 +840,7 @@ describe('Panel T4 — per-control stale indicator', () => {
     try {
       const overrideManager = makeOverrideManager()
       const { root, cleanup } = renderInShadow(
-        <Panel
+        <PanelWithRealBuffer
           selectedElements={[target]}
           overrideManager={overrideManager as any}
           onClose={() => {}}
@@ -853,7 +915,7 @@ describe('Panel T4 — per-control stale indicator', () => {
     try {
       const overrideManager = makeOverrideManager()
       const { root, cleanup } = renderInShadow(
-        <Panel
+        <PanelWithRealBuffer
           selectedElements={[target]}
           overrideManager={overrideManager as any}
           onClose={() => {}}
@@ -928,7 +990,7 @@ describe('Panel T4 — per-control stale indicator', () => {
     try {
       const overrideManager = makeOverrideManager()
       const { root, cleanup } = renderInShadow(
-        <Panel
+        <PanelWithRealBuffer
           selectedElements={[target]}
           overrideManager={overrideManager as any}
           onClose={() => {}}

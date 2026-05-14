@@ -22,7 +22,6 @@ import { SecondarySelectionOverlay } from './SecondarySelectionOverlay.js'
 import { Panel } from './Panel.js'
 import { Toolbar } from './Toolbar.js'
 import { CommentPin } from './CommentPin.js'
-import { ActivityLog } from './ActivityLog.js'
 import { ErrorToast } from './ErrorToast.js'
 import { CapabilityBanner } from './CapabilityBanner.js'
 import { NoAnnotationsBanner } from './NoAnnotationsBanner.js'
@@ -31,10 +30,12 @@ import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
 import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
 import { useOutsideDismiss } from '../hooks/useOutsideDismiss.js'
-import { captureSelectionMetadata, reResolveSelection, shouldRefreshOnHMR } from '../selection-metadata.js'
+import { captureSelectionMetadata, reResolveSelection, shouldRefreshOnHMR, deepQuerySelectorAll } from '../selection-metadata.js'
 import type { SelectionMetadata } from '../selection-metadata.js'
 import { dismissTopmostPopover, hasOpenPopover } from '../popover-stack.js'
 import { markPageColorChips } from '../page-color-chips.js'
+import { useEditStagingBuffer, createPanelSyncEmitter } from '../hooks/useEditStagingBuffer.js'
+import type { SyncEmitter } from '../hooks/useEditStagingBuffer.js'
 
 export interface CortexAppProps {
   channel: CortexChannel
@@ -113,6 +114,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const [annotations, setAnnotations] = useState<Map<string, Annotation>>(new Map())
   const [agentConnected, setAgentConnected] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionDisplay>({ status: 'connected' })
+  // TODO: orphaned after toolbar-badge removal (ZF0-1869) — clean up in follow-up PR
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
   // ZF0-1470 (T4): stale override signals from CSSOverrideManager.onStale (T1 API).
   // staleOverrideCount drives the StagingDriftBanner; staleSources drives per-control
@@ -123,12 +125,15 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // call buffer.reconcile() with the bypass readSourceValue callback.
   const [hmrChangedFiles, setHmrChangedFiles] = useState<string[]>([])
   const [commentMode, setCommentMode] = useState(false)
-  const [showActivity, setShowActivity] = useState(false)
   const [capabilitySystems, setCapabilitySystems] = useState<StyleCapability[]>([])
   // Error tracking: editId → source+property for lookup when edit_status:failed arrives
   const editDispatchRef = useRef<Map<string, { source: string; property: string; value: string }>>(new Map())
   // Active errors keyed by source\0property
   const [editErrors, setEditErrors] = useState<Map<string, EditError>>(new Map())
+  // ZF0-1869 Round-1 Fix 1: applyError lifted from Panel. Lives here so it
+  // survives Panel unmount (Panel unmounts on deselect; buffer + apply-error
+  // must outlive the selection). Cleared on next Apply attempt or user dismiss.
+  const [applyError, setApplyError] = useState<string | null>(null)
 
   /**
    * Remove an error by key — avoids new Map allocation when key is absent.
@@ -151,7 +156,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const commentModeRef = useRef(false)
   commentModeRef.current = commentMode
 
-  // Activity, active state, refs
+  // TODO: orphaned after toolbar-badge removal (ZF0-1869) — clean up in follow-up PR
   const [activityCount, setActivityCount] = useState(0)
   const [active, setActive] = useState(initialActive ?? false)
   const selectionRef = useRef<SelectionHandle | null>(null)
@@ -196,12 +201,25 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // commandStack.record + buffer.append fan-out so e2e specs can exercise undo
   // without going through actual panel UI. Gated identically to stageEditRef.
   const commitEditRef = useRef<((property: string, value: string) => Promise<void>) | null>(null)
-  // TEST-ONLY: bridge.buffer.list/size read the staging buffer contents. Panel
-  // populates this via bufferListRef so the bridge can expose them synchronously.
-  const bufferListRef = useRef<{
-    list: () => import('../hooks/useEditStagingBuffer.js').PendingEdit[]
-    size: () => number
-  } | null>(null)
+  // Hoisted from Panel.tsx — buffer lifetime is now CortexApp-scoped so it
+  // survives Panel mount/unmount on selection changes (Task 16) and cortex
+  // toggle-off (`if (!active) return null` renders null but doesn't unmount
+  // CortexApp). Lifetime matches CortexApp = the tab session.
+  const appSyncEmitterRef = useRef<SyncEmitter | null>(null)
+  if (appSyncEmitterRef.current === null && channel) {
+    appSyncEmitterRef.current = createPanelSyncEmitter(channel)
+  }
+  const buffer = useEditStagingBuffer(appSyncEmitterRef.current ?? undefined)
+  // DCE-gated ref so the test bridge closure can read the current buffer.version
+  // without capturing a stale value. Follows the same pattern as hmrAppliedVersionRef.
+  const bufferVersionRef = useRef(0)
+  if (__CORTEX_TEST_BUILD__) bufferVersionRef.current = buffer.version
+  // Change 6 (Task 12): track last-seen MCP session UUID. On UUID change,
+  // wipe the staging buffer to discard stale intents from a prior Claude session.
+  // Transient reconnects (sleep/wake, WiFi flap) keep the same MCP_SESSION_ID
+  // and therefore keep the same UUID here → no wipe.
+  const lastSessionIdRef = useRef<string | null>(null)
+
   // Exposed outside the useEffect so UI handlers (X-button, Toolbar close) can
   // route through the reducer rather than calling setActive(false) directly.
   // Populated by the mount effect — may be null during first paint when
@@ -452,13 +470,18 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           }
           return commitEditRef.current(property, value)
         },
-        // TEST-ONLY: expose buffer.list() and buffer.size() via bufferListRef.
-        // Panel populates this ref; these closures delegate to the live ref so
-        // callers always read current buffer state (no staleness risk).
+        // TEST-ONLY: expose buffer.list() and buffer.size() directly from
+        // CortexApp's hoisted buffer instance (bufferListRef indirection removed
+        // in Task 3 — buffer is now owned exclusively by CortexApp).
         buffer: {
-          list: () => bufferListRef.current?.list() ?? [],
-          size: () => bufferListRef.current?.size() ?? 0,
+          list: () => buffer.list(),
+          size: () => buffer.size(),
         },
+        // TEST-ONLY: reads buffer.version directly from CortexApp's hoisted buffer
+        // instance. Proves CortexApp owns the buffer (not Panel-local). Uses
+        // bufferVersionRef (a build-gated ref updated each render) to avoid
+        // stale-closure issues — same pattern as hmrAppliedVersionRef.
+        getCortexAppBufferVersion: () => bufferVersionRef.current,
         // TEST-ONLY: set multi-element selection via setSelection(elements, 'replace').
         // Allows e2e specs to seed multi-select state without real click interactions.
         // selectElement (above) handles single-element selection via the legacy shim;
@@ -665,10 +688,76 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       return entry
     }
 
+    // Criterion 25 (ZF0-1869): reconcile-on-connect — auto-clear already-landed intents.
+    //
+    // On reconnect (mcp-session-hello on the no-wipe paths: first-adopt + same-UUID),
+    // walk the staging buffer and remove intents whose target element's live value
+    // ALREADY equals the intent's target value. This is the 4th outcome safety net
+    // of the Change-7 acknowledgement protocol: if Claude crashed or was interrupted
+    // between the Edit tool and cortex_acknowledge_source_edit, the intent is stuck
+    // in the buffer as a phantom. On the next reconnect this read detects "the edit
+    // clearly already landed" and auto-clears the stale intent.
+    //
+    // IMPORTANT: reads via overrideRef.current.readSourceValue() which bypasses
+    // cortex's own !important override stylesheet. Without the bypass, any intent
+    // with an active CSS override would always appear "matched" (false positive).
+    //
+    // Early-return guards:
+    //   - overrideRef.current is null until the CSSOverrideManager is initialized
+    //     (this useEffect initializes it immediately above, so in practice it's
+    //     always set when reconcileOnConnect is called from the message handler —
+    //     but null-guard is defensive for tests / strict-mode double-mount).
+    //   - buffer.size() === 0: no intents → no work.
+    //
+    // Element resolution uses deepQuerySelectorAll (shadow-piercing, same as
+    // buffer.reconcile's internal element-index build) to find elements annotated
+    // with `data-cortex-source`. Intents whose element is not found in the DOM are
+    // not auto-cleared — they're treated as divergent and left for the user to handle.
+    const reconcileOnConnect = (): void => {
+      const override = overrideRef.current
+      if (!override || buffer.size() === 0) return
+
+      // Build source → element index once (O(DOM)) to avoid O(intents × DOM) fan-out.
+      // Same first-seen-wins + traversal-order semantics as buffer.reconcile internals.
+      const elBySource = new Map<string, Element>()
+      for (const el of deepQuerySelectorAll('[data-cortex-source]')) {
+        const src = el.getAttribute('data-cortex-source')
+        if (src !== null && !elBySource.has(src)) elBySource.set(src, el)
+      }
+
+      const convergedIds: string[] = []
+      for (const edit of buffer.list()) {
+        // Match by full source (data-cortex-source includes :line:col).
+        const el = elBySource.get(edit.source)
+        if (!el) continue  // element not in DOM — leave intent for user to handle
+
+        const pseudo = edit.pseudo ?? null
+        const liveValue = override.readSourceValue(el, edit.property, pseudo).trim()
+        // Deliberate exact string-match (not CSSOverrideManager.valuesMatch): this
+        // is the conservative direction. A false negative (serialization differs,
+        // intent stays) just leaves a stale badge the user can discard; a false
+        // positive would silently drop a real pending intent. Favor the former.
+        if (liveValue === edit.value.trim()) {
+          convergedIds.push(edit.intentId)
+        }
+      }
+
+      if (convergedIds.length > 0) {
+        buffer.remove(convergedIds)
+      }
+    }
+
     // Listen-first ordering: subscribe to onMessage BEFORE sending init. The server's
     // hello response is async, so attaching this handler first guarantees it's live
     // when the response arrives. Emitting init before this line would race.
     const unsubscribe = channel.onMessage((msg) => {
+      // FIX 5: guard against messages arriving in the unmount window.
+      // The `disposed` flag flips in the cleanup callback below; `unsubscribe()`
+      // runs in the same cleanup, but messages already enqueued by the transport
+      // may still be dispatched between disposed=true and unsubscribe taking effect.
+      // Without this guard, those messages would mutate state on a disposed instance.
+      if (disposed) return
+
       // edit_status: ref-lookup before dispatch (impure boundary).
       // The dispatch entry comes from editDispatchRef which is mutable React-side state.
       // We must read AND mutate the ref BEFORE dispatching, so the reducer receives a
@@ -832,18 +921,64 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       // exhaustive throw doesn't fire on every error message.
       if (msg.type === 'error') return
 
-      // staged-edits-discard is owned by Panel.tsx's onMessage subscriber
-      // (which removes the discarded intents from the canonical buffer). It's
-      // a browser-side mirror update, not a CortexAppAction — early-return so
-      // the reducer's exhaustive default doesn't fire and log on every
-      // cortex_discard_edits call.
-      if (msg.type === 'staged-edits-discard') return
+      // staged-edits-discard: the server discarded one or more intents (via
+      // cortex_discard_edits or cortex_acknowledge_source_edit). CortexApp owns
+      // the buffer (hoisted from Panel in Task 2), so the handler lives here —
+      // NOT in Panel.tsx. Panel unmounts on deselect; if the handler lived in
+      // Panel, messages arriving while Panel is unmounted would be silently dropped
+      // and the buffer would permanently diverge from the server cache.
+      // (ZF0-1869 Round-1 Fix 1)
+      if (msg.type === 'staged-edits-discard') {
+        buffer.remove(msg.intentIds)
+        return
+      }
 
       // staged-edits-acked (ZF0-1469) is consumed by channel.sendAndAck's
       // one-shot listener — it correlates the requestId and resolves the Apply
       // button's pending Promise. Not a CortexAppAction; early-return so the
       // reducer's exhaustive default doesn't fire and log on every Apply.
       if (msg.type === 'staged-edits-acked') return
+
+      // source-edit-failed (ZF0-1869 Change 7): the Edit-tool agent failed to
+      // land a needs-source-edit intent. CortexApp owns applyError state (lifted
+      // from Panel in Round-1 Fix 1) so the error banner survives Panel remounts.
+      // The intent stays in the buffer so the designer can retry or discard.
+      if (msg.type === 'source-edit-failed') {
+        // msg.intentIds is intentionally not consumed here. The single applyError banner
+        // showing msg.reason is the v1 signal — per-intent failure highlighting is a
+        // tracked follow-up, not in scope for this PR (ZF0-1869).
+        setApplyError(msg.reason)
+        return
+      }
+
+      // mcp-session-hello: the MCP server announces a process-scoped UUID. A CHANGED
+      // UUID means a genuinely new Claude session — wipe stale staged edits. Same
+      // UUID (transient reconnect: sleep/wake, WiFi flap) → keep edits.
+      if (msg.type === 'mcp-session-hello') {
+        if (lastSessionIdRef.current === null) {
+          lastSessionIdRef.current = msg.sessionId      // first adoption — no wipe
+          // FIX 6 (comment correction): reconcileOnConnect() is called here for
+          // symmetry with the same-UUID path and future-proofing (if buffer
+          // persistence is ever re-added, the no-op becomes meaningful). Under
+          // the current memory-only buffer the buffer is ALWAYS empty at mount —
+          // there is no rehydration source — so this call is a guaranteed no-op
+          // on the first-adopt path. The real work happens on same-UUID reconnects
+          // (the else branch below), where intents may have landed while MCP was
+          // transiently disconnected.
+          reconcileOnConnect()
+        } else if (lastSessionIdRef.current !== msg.sessionId) {
+          buffer.clear()
+          setApplyError(null)   // also clear any stale error banner from the prior session
+          lastSessionIdRef.current = msg.sessionId
+          // Different-UUID path: buffer already wiped — reconcile is moot.
+        } else {
+          // Same-UUID reconnect (transient reconnect — WiFi flap, sleep/wake) — no-wipe path.
+          // reconcileOnConnect() does real work here: intents may have converged
+          // (the Edit tool landed them) while MCP was disconnected between wipes.
+          reconcileOnConnect()
+        }
+        return
+      }
 
       // After the early returns above (edit_status, hmr-applied, error), `msg.type`
       // matches a CortexAppAction discriminant. The cast is a forcing cast — TS
@@ -1008,17 +1143,6 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   }, [selectedElement, availableStates])
 
   const handleCommentMode = useCallback(() => setCommentMode(m => !m), [])
-  const handleActivityToggle = useCallback(() => {
-    setShowActivity(prev => {
-      if (!prev) {
-        setActivityCount(0) // reset badge on open
-        // Mirror into reducerStateRef so the next activity-entry dispatch
-        // increments from 0, not from the pre-reset count.
-        reducerStateRef.current = { ...reducerStateRef.current, activityCount: 0 }
-      }
-      return !prev
-    })
-  }, [])
   const handleCommentReply = useCallback((annotationId: string, text: string) => {
     channel.send({ type: 'comment-reply', annotationId, text })
   }, [channel])
@@ -1136,10 +1260,28 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         return
       }
 
-      // No Priority 4 — Cmd+Shift+. and X button are the only close mechanisms.
-      // This intentionally deviates from the spec's Section 4 cascade which included
-      // a close step. Removed per architecture review finding H5 to prevent accidental
-      // editor close on extra Escape press.
+      // Priority 4: Deactivate Cortex (re-added per ZF0-1869, reversing finding H5).
+      //
+      // Reaching here means nothing earlier in the cascade consumed the Esc — no
+      // Cortex/host input focused, no comment mode, no open popover, no selected
+      // element. In that case Esc deactivates Cortex. From the idle state (Cortex
+      // active, nothing selected) this is a SINGLE Esc press. From a selected-element
+      // state it takes two presses — the first hits Priority 3 and deselects, the
+      // second reaches Priority 4 and closes — but that is a side effect of the
+      // cascade order, NOT a uniform two-press guarantee.
+      //
+      // This single-press-when-idle behavior is the spec's intent: spec §4's Esc
+      // cascade says "Esc while Cortex active, no input focused → Cortex deactivates."
+      //
+      // It reverses architecture-review finding H5, which removed Esc-to-close to
+      // prevent accidental close back when the panel was always-on chrome. The
+      // reversal is a deliberate product decision: keyboard-only close is a required
+      // affordance. The spec's Risks section logs H5's accidental-close / host-app
+      // Esc-collision concern as a KNOWN, ACCEPTED tradeoff to be validated in demo
+      // testing — if a real collision emerges there, the guard is narrowed further.
+      handleClose()
+      e.stopPropagation()
+      e.preventDefault()
     }
 
     window.addEventListener('keydown', handleEscape, { capture: true })
@@ -1294,7 +1436,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           hmrAppliedVersion={hmrAppliedVersion}
         />
       ))}
-      {overrideRef.current && (
+      {overrideRef.current && selectedElements.length > 0 && (
         <Panel
           selectedElements={selectedElements}
           overrideManager={overrideRef.current}
@@ -1302,7 +1444,6 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           flushCommitRef={flushCommitRef}
           stageEditRef={__CORTEX_TEST_BUILD__ ? stageEditRef : undefined}
           commitEditRef={__CORTEX_TEST_BUILD__ ? commitEditRef : undefined}
-          bufferListRef={__CORTEX_TEST_BUILD__ ? bufferListRef : undefined}
           undoInProgressRef={undoInProgressRef}
           onClose={handleClose}
           onSelectElement={handleSelectElement}
@@ -1333,25 +1474,21 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           hmrChangedFiles={hmrChangedFiles}
           staleOverrideCount={staleOverrideCount}
           staleSources={staleSources}
+          buffer={buffer}
+          applyError={applyError}
+          onSetApplyError={setApplyError}
         />
       )}
       <Toolbar
-        activityCount={activityCount}
         onClose={handleClose}
         commentMode={commentMode}
         onCommentMode={handleCommentMode}
-        onActivityToggle={handleActivityToggle}
       />
       <CommentPin
         annotations={[...annotations.values()]}
         commentMode={commentMode}
         channel={channel}
         onReply={handleCommentReply}
-      />
-      <ActivityLog
-        entries={activityEntries}
-        visible={showActivity}
-        onClose={handleActivityToggle}
       />
       </div>
     </>

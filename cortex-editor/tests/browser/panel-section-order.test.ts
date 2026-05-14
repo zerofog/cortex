@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { h } from 'preact'
 import { Panel, hasTypographyContent } from '../../src/browser/components/Panel.js'
-import { renderInShadow } from './helpers.js'
+import { renderInShadow, makeFakeBuffer } from './helpers.js'
 
 // Canonical Panel v2 ordering from DESIGN.md "Section ordering rationale":
 // Elements -> Position -> Layout -> Typography (conditional) -> Appearance ->
@@ -38,6 +38,10 @@ const panelPositionProps = {
   panelPointerMove: vi.fn(),
   panelPointerUp: vi.fn(),
   panelPointerCancel: vi.fn(),
+  // Required by PanelProps (Panel.tsx:254). Neither mount() helper here
+  // exercises HMR behavior, so 0 is the correct stable value — matches the
+  // panelPositionProps fixture pattern in panel.test.tsx.
+  hmrAppliedVersion: 0,
 }
 
 function makeOverrideManager() {
@@ -97,6 +101,7 @@ describe('Panel — canonical section ordering', () => {
         onClose: () => {},
         onSelectElement: () => {},
         ...panelPositionProps,
+        buffer: makeFakeBuffer(),
       }),
     )
     cleanup = () => result.cleanup()
@@ -322,6 +327,7 @@ describe('Panel — Typography conditional rendering', () => {
         onClose: () => {},
         onSelectElement: () => {},
         ...panelPositionProps,
+        buffer: makeFakeBuffer(),
       }),
     )
     cleanup = () => result.cleanup()
