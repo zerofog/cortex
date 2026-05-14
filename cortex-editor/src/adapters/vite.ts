@@ -37,6 +37,7 @@ import {
   cortexDiscardEditsInputSchema,
   cortexGetIntentContextInputSchema,
   cortexAcknowledgeSourceEditInputSchema,
+  cortexReportSourceEditFailedInputSchema,
   cortexGetDetailsInputSchema,
   cortexAcknowledgeInputSchema,
   cortexResolveInputSchema,
@@ -298,7 +299,7 @@ const ALLOWED_RPC_METHODS = new Set([
   // Annotation methods (Phase 7)
   'getActive', 'getPending', 'getDetails', 'acknowledge', 'resolve', 'dismiss', 'respond',
   // Staged-edit methods (ZF0-1452 T2)
-  'getPendingEdits', 'applyEdits', 'discardEdits', 'getIntentContext', 'acknowledgeSourceEdit',
+  'getPendingEdits', 'applyEdits', 'discardEdits', 'getIntentContext', 'acknowledgeSourceEdit', 'reportSourceEditFailed',
 ])
 
 // Method-specific param schemas. `null` means "method takes no params — skip validation".
@@ -309,6 +310,7 @@ const RPC_METHOD_SCHEMAS = {
   discardEdits: cortexDiscardEditsInputSchema,
   getIntentContext: cortexGetIntentContextInputSchema,
   acknowledgeSourceEdit: cortexAcknowledgeSourceEditInputSchema,
+  reportSourceEditFailed: cortexReportSourceEditFailedInputSchema,
   getDetails: cortexGetDetailsInputSchema,
   acknowledge: cortexAcknowledgeInputSchema,
   resolve: cortexResolveInputSchema,
@@ -484,6 +486,23 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
         }
       }
       return { acknowledged: intentIds, browserNotified }
+    }
+
+    case 'reportSourceEditFailed': {
+      const intentIds = params.intentIds as string[]
+      const reason = params.reason as string
+      // STATE-MACHINE INVARIANT: do NOT remove intents from the cache. The source
+      // edit FAILED — the intent did not land. Keep it so the user can retry/discard.
+      let browserNotified = false
+      if (currentSession!.channel) {
+        try {
+          currentSession!.channel.send({ type: 'source-edit-failed', intentIds, reason })
+          browserNotified = true
+        } catch (err) {
+          console.warn('[cortex] Failed to send source-edit-failed to browser:', err instanceof Error ? err.message : String(err))
+        }
+      }
+      return { reported: intentIds, browserNotified }
     }
 
     case 'getIntentContext': {

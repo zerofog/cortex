@@ -30,6 +30,7 @@ import {
   cortexDiscardEditsInputSchema,
   cortexGetIntentContextInputSchema,
   cortexAcknowledgeSourceEditInputSchema,
+  cortexReportSourceEditFailedInputSchema,
   cortexGetDetailsInputSchema,
   cortexResolveInputSchema,
   cortexRespondInputSchema,
@@ -74,7 +75,7 @@ const BROWSER_TO_CLI_FORWARD_TYPES: ReadonlySet<string> = new Set(BROWSER_TO_CLI
 const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close'])
 const ALLOWED_RPC_METHODS = new Set([
   'getActive', 'getPending', 'getDetails', 'acknowledge', 'resolve', 'dismiss', 'respond',
-  'getPendingEdits', 'applyEdits', 'discardEdits', 'getIntentContext', 'acknowledgeSourceEdit',
+  'getPendingEdits', 'applyEdits', 'discardEdits', 'getIntentContext', 'acknowledgeSourceEdit', 'reportSourceEditFailed',
 ])
 
 const RPC_METHOD_SCHEMAS = {
@@ -82,6 +83,7 @@ const RPC_METHOD_SCHEMAS = {
   discardEdits: cortexDiscardEditsInputSchema,
   getIntentContext: cortexGetIntentContextInputSchema,
   acknowledgeSourceEdit: cortexAcknowledgeSourceEditInputSchema,
+  reportSourceEditFailed: cortexReportSourceEditFailedInputSchema,
   getDetails: cortexGetDetailsInputSchema,
   acknowledge: cortexAcknowledgeInputSchema,
   resolve: cortexResolveInputSchema,
@@ -934,6 +936,13 @@ class CortexWebpackRuntime {
         session.stagedEdits.remove(intentIds)
         session.channel?.send({ type: 'staged-edits-discard', intentIds })
         return { acknowledged: intentIds, browserNotified: Boolean(session.channel) }
+      }
+      case 'reportSourceEditFailed': {
+        const intentIds = params.intentIds as string[]
+        const reason = params.reason as string
+        // STATE-MACHINE INVARIANT: do NOT remove from cache — the source edit failed.
+        session.channel?.send({ type: 'source-edit-failed', intentIds, reason })
+        return { reported: intentIds, browserNotified: Boolean(session.channel) }
       }
       case 'getIntentContext': {
         const intentId = params.intentId as string

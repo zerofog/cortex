@@ -151,6 +151,7 @@ describe('cortex mcp', () => {
       'cortex_get_pending',
       'cortex_get_pending_edits',
       'cortex_list_active',
+      'cortex_report_source_edit_failed',
       'cortex_resolve',
       'cortex_respond',
       'cortex_status',
@@ -1443,6 +1444,67 @@ describe('cortex mcp', () => {
       const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
       expect(parsed.acknowledged).toEqual(['intent-abc', 'intent-def'])
       expect(parsed.count).toBe(2)
+    })
+  })
+
+  // ── ZF0-1869 Task 8: cortex_report_source_edit_failed tool ──────────────
+  describe('cortex_report_source_edit_failed', () => {
+    it('is registered — appears in listTools with applyError in description and intentIds/reason in schema', async () => {
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+
+      const { tools } = await client.listTools()
+      const tool = tools.find(t => t.name === 'cortex_report_source_edit_failed')
+      expect(tool).toBeDefined()
+      expect(tool!.description).toContain('applyError')
+      expect(tool!.inputSchema).toBeDefined()
+      const props = (tool!.inputSchema as { properties?: Record<string, unknown> }).properties
+      expect(props).toHaveProperty('intentIds')
+      expect(props).toHaveProperty('reason')
+    })
+
+    it('dispatches to reportSourceEditFailed RPC (NOT acknowledgeSourceEdit) and returns the result', async () => {
+      // Falsifiability: if the tool called rpc('acknowledgeSourceEdit', ...) instead of
+      // rpc('reportSourceEditFailed', ...), the mock returns an error and isError would be truthy.
+      mockVite.wss.on('connection', (ws) => {
+        ws.on('message', (raw) => {
+          let msg: Record<string, unknown>
+          try { msg = JSON.parse(raw.toString()) } catch { return }
+          if (msg.type !== 'cortex-rpc') return
+
+          const requestId = msg.requestId as string
+          const method = msg.method as string
+          const params = (msg.params || {}) as Record<string, unknown>
+
+          if (method === 'reportSourceEditFailed') {
+            const intentIds = params.intentIds as string[]
+            ws.send(JSON.stringify({
+              type: 'cortex-rpc-result',
+              requestId,
+              result: { reported: intentIds, browserNotified: true },
+            }))
+          } else {
+            ws.send(JSON.stringify({
+              type: 'cortex-rpc-error',
+              requestId,
+              error: `Unknown method: ${method}`,
+            }))
+          }
+        })
+      })
+
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      await new Promise(r => setTimeout(r, 50))
+
+      const result = await client.callTool({
+        name: 'cortex_report_source_edit_failed',
+        arguments: { intentIds: ['intent-xyz'], reason: "couldn't find pattern at Hero.tsx:42" },
+      })
+      expect(result.isError).toBeFalsy()
+      const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+      expect(parsed.reported).toEqual(['intent-xyz'])
+      expect(parsed.browserNotified).toBe(true)
     })
   })
 

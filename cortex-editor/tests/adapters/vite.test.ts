@@ -1401,6 +1401,55 @@ describe('annotation RPC', () => {
     expect(isSchemaViolation).toBe(true)
   })
 
+  // ── ZF0-1869 Task 8: reportSourceEditFailed RPC ──────────────────────────
+  it('reportSourceEditFailed keeps intent in cache and broadcasts source-edit-failed to browser', async () => {
+    // TDD anchor for Task 8/18 (Change 7). STATE-MACHINE INVARIANT: the source edit
+    // FAILED — the intent did NOT land — so it MUST stay in the buffer for retry/discard.
+    // This is the OPPOSITE of acknowledgeSourceEdit (which removes on success).
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status (connected: true)
+
+    // Seed one intent directly into the server-side cache.
+    const cache = _getStagedEditsForTesting()!
+    cache.append(makeEdit({ intentId: 'i1', property: 'color', value: 'red' }))
+    expect(cache.list()).toHaveLength(1)
+
+    // Clear sent messages so we can isolate reportSourceEditFailed's broadcast.
+    server._sent.length = 0
+
+    ws.send(JSON.stringify({
+      type: 'cortex-rpc',
+      requestId: 'fail-src-1',
+      method: 'reportSourceEditFailed',
+      params: { intentIds: ['i1'], reason: "couldn't find pattern at App.tsx:31" },
+      token: sessionToken,
+    }))
+
+    // Wait for the cortex-rpc-result response.
+    let rpcReply: any
+    for (let i = 0; i < 20; i++) {
+      rpcReply = await nextMessage()
+      if (rpcReply.type === 'cortex-rpc-result' && rpcReply.requestId === 'fail-src-1') break
+    }
+
+    // (a) result shape
+    expect(rpcReply.result.reported).toEqual(['i1'])
+    expect(rpcReply.result.browserNotified).toBe(true)
+
+    // (b) STATE-MACHINE INVARIANT: i1 MUST remain in the cache (source edit failed)
+    expect(cache.getById('i1')).toBeDefined()
+
+    // (c) browser channel received source-edit-failed (NOT staged-edits-discard)
+    const failMsg = server._sent.find(
+      (s) => s.event === 'cortex:msg' && (s.data as Record<string, unknown>).type === 'source-edit-failed',
+    )
+    expect(failMsg).toBeDefined()
+    expect((failMsg!.data as Record<string, unknown>).intentIds).toEqual(['i1'])
+    expect((failMsg!.data as Record<string, unknown>).reason).toBe("couldn't find pattern at App.tsx:31")
+  })
+
   // ── ZF0-1869 Task 6: acknowledgeSourceEdit RPC ───────────────────────────
   it('acknowledgeSourceEdit removes intent from cache and broadcasts staged-edits-discard to browser', async () => {
     // TDD anchor for Task 6/18 (Change 7). Wire effect is identical to discardEdits —

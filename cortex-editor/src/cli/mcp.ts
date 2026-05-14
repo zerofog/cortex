@@ -16,6 +16,7 @@ import {
   cortexDiscardEditsInputSchema,
   cortexGetIntentContextInputSchema,
   cortexAcknowledgeSourceEditInputSchema,
+  cortexReportSourceEditFailedInputSchema,
 } from '../schemas/index.js'
 
 /** Exponential backoff with cap for WebSocket reconnection. Exported for testing. */
@@ -709,6 +710,28 @@ For user-driven abandonment, use cortex_discard_edits.`,
     async ({ intentIds }) => {
       try {
         const result = await rpc('acknowledgeSourceEdit', { intentIds })
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Failed: ${err instanceof Error ? err.message : String(err)}` }], isError: true }
+      }
+    },
+  )
+
+  server.registerTool(
+    'cortex_report_source_edit_failed',
+    {
+      description: `Report that the Edit tool failed to apply a needs-source-edit intent.
+The intent REMAINS in the buffer (so the user can retry) and the failure
+reason is surfaced in the panel via the applyError banner.
+
+Call this when the Edit tool returns an error for a needs-source-edit
+intent (file structure changed, pattern not found, permission denied,
+etc.) — anything that means the source change did NOT land.`,
+      inputSchema: cortexReportSourceEditFailedInputSchema.shape,
+    },
+    async ({ intentIds, reason }) => {
+      try {
+        const result = await rpc('reportSourceEditFailed', { intentIds, reason })
         return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
       } catch (err) {
         return { content: [{ type: 'text' as const, text: `Failed: ${err instanceof Error ? err.message : String(err)}` }], isError: true }

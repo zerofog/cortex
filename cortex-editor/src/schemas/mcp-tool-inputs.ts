@@ -70,6 +70,13 @@ export const cortexAcknowledgeSourceEditInputSchema = z.object({
   intentIds: z.array(intentIdField).describe('IDs of intents whose source edits have landed via the Edit tool'),
 })
 
+/** cortex_report_source_edit_failed input */
+export const cortexReportSourceEditFailedInputSchema = z.object({
+  intentIds: z.array(intentIdField).describe('IDs of intents whose source edits failed via the Edit tool'),
+  reason: z.string().describe('Human-readable failure reason — surfaced in the panel via applyError'),
+})
+export type CortexReportSourceEditFailedInput = z.infer<typeof cortexReportSourceEditFailedInputSchema>
+
 // --- Inferred types ---
 
 export type CortexGetDetailsInput = z.infer<typeof cortexGetDetailsInputSchema>

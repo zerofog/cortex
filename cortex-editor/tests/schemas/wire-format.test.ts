@@ -621,6 +621,33 @@ describe('serverToBrowserSchema — staged-edits-acked', () => {
   })
 })
 
+describe('serverToBrowserSchema — source-edit-failed (Change 7, Task 8)', () => {
+  it('accepts source-edit-failed with intentIds and reason', () => {
+    const msg = { type: 'source-edit-failed', intentIds: ['i1', 'i2'], reason: 'permission denied' }
+    const result = serverToBrowserSchema.safeParse(msg)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.type).toBe('source-edit-failed')
+      expect(result.data.intentIds).toEqual(['i1', 'i2'])
+      expect(result.data.reason).toBe('permission denied')
+    }
+  })
+  it('rejects source-edit-failed missing intentIds', () => {
+    const r = serverToBrowserSchema.safeParse({ type: 'source-edit-failed', reason: 'oops' })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join('.'))).toContain('intentIds')
+    }
+  })
+  it('rejects source-edit-failed missing reason', () => {
+    const r = serverToBrowserSchema.safeParse({ type: 'source-edit-failed', intentIds: ['i1'] })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join('.'))).toContain('reason')
+    }
+  })
+})
+
 describe('serverToBrowserSchema — unknown type', () => {
   it('rejects unknown type', () => {
     const r = serverToBrowserSchema.safeParse({ type: 'bogus' })

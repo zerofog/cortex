@@ -222,7 +222,7 @@ export const browserToServerSchema = z.discriminatedUnion('type', [
 export type BrowserToServerSchema = z.infer<typeof browserToServerSchema>
 
 // ---------------------------------------------------------------------------
-// ServerToBrowser — all 17 variants from types.ts:148-203
+// ServerToBrowser — all 18 variants from types.ts:148-203
 // ---------------------------------------------------------------------------
 
 export const serverToBrowserSchema = z.discriminatedUnion('type', [
@@ -367,6 +367,14 @@ export const serverToBrowserSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('staged-edits-acked'),
     requestId: z.string(),
+  }),
+
+  // 18. source-edit-failed (Change 7) — Edit tool failed to land a needs-source-edit
+  // intent; intent stays in the buffer, reason surfaces via applyError.
+  z.object({
+    type: z.literal('source-edit-failed'),
+    intentIds: z.array(intentIdSchema),
+    reason: z.string(),
   }),
 ])
 
