@@ -1,0 +1,25 @@
+cortex-editor/src/browser/components/CortexApp.tsx
+  s_472c47cfcc8bfe::t_9c7b4ad65ec8e3 478-479
+cortex-editor/tests/integration/cli-process.test.ts
+  s_472c47cfcc8bfe::t_3a192ade6cb601 78,90
+cortex-editor/tests/browser/panel-t4-integration.test.tsx
+  s_472c47cfcc8bfe::t_f528420907ce54 592-598,608-611,622,636,645-646,652,655-660,665,680,686
+cortex-editor/tests/browser/keyboard-shortcuts.test.tsx
+  s_472c47cfcc8bfe::t_9d4174dee0db1f 178-180,186-187,189-194
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "07599f2e4ed4a7d5f7da697ef024bd5d9d85d564",
+  "prompts": {},
+  "sessions": {
+    "s_472c47cfcc8bfe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4f564dec-8711-4ac0-9d33-36690313e69a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
