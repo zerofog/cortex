@@ -79,7 +79,13 @@ describe('ErrorToast', () => {
 
     const channel = createMockChannel()
     render(<ErrorToast channel={channel} />, container)
-    await flush()
+
+    // Wait deterministically for the useEffect subscription to commit before
+    // switching timer modes. A fixed-duration flush() races the effect commit:
+    // if vi.useFakeTimers() lands before the commit, the subscription is never
+    // registered (empty handler list) AND the pending real-timer commit is
+    // orphaned, since fake timers only control timers created after the switch.
+    await vi.waitFor(() => expect(channel._handlerCount()).toBe(1), { timeout: 500 })
 
     vi.useFakeTimers()
 

@@ -985,6 +985,58 @@ describe('CortexApp', () => {
         vi.useRealTimers()
       }
     })
+
+    it('pushes a full-state sync to the server on reconnect (ZF0-1869)', async () => {
+      ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+      await activateEditor(channel)
+
+      // Select an element + stage an edit so the staging buffer is non-empty.
+      const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+      const { selectCb } = _getCallbacks()
+      const target = document.createElement('div')
+      target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+      document.body.appendChild(target)
+      orphans.push(target)
+      mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
+      selectCb([target], 'replace')
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).not.toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      const bridge = (window as any).__CORTEX_TEST__ as {
+        stageEdit: (source: string, property: string, value: string) => Promise<string>
+        buffer: { size: () => number }
+      }
+      await act(async () => {
+        await bridge.stageEdit('Hero.tsx:5:3', 'color', 'red')
+      })
+      await vi.waitFor(() => {
+        expect(bridge.buffer.size()).toBe(1)
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      // Drop the message log, then simulate a disconnect → reconnect cycle.
+      channel._lastSent.length = 0
+      await act(() => {
+        channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 1, maxRetries: 5 })
+      })
+      await act(() => {
+        channel._simulateConnectionChange({ status: 'connected' })
+      })
+
+      // On reconnect, CortexApp must push the browser-canonical buffer back to
+      // the server as a full-state sync. Without the fix, no staged-edits-sync
+      // is emitted and the server-side StagedEditsCache silently diverges.
+      const syncMsg = channel._lastSent.find(
+        (m): m is { type: string; edits: unknown[] } =>
+          typeof m === 'object' && m !== null && (m as { type?: unknown }).type === 'staged-edits-sync',
+      )
+      expect(syncMsg).toBeDefined()
+      expect(syncMsg!.edits).toHaveLength(1)
+    })
   })
 
   describe('Task 2 — buffer hoisted to CortexApp (ZF0-1869)', () => {

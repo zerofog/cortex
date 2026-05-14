@@ -55,16 +55,21 @@ export function snapToEdge(position: Position): Position {
   return { x, y: freeY }
 }
 
+/** The panel's home position — top-right corner, viewport-clamped. Storage-free,
+ *  so `reset()` can return to a clean default regardless of any persisted drag. */
+export function getDefaultPosition(): Position {
+  if (typeof window === 'undefined') return { x: 0, y: 0 }
+  return normalizePosition({
+    x: Math.max(0, window.innerWidth - PANEL_WIDTH - PANEL_MARGIN),
+    y: PANEL_MARGIN,
+  })
+}
+
 export function getInitialPosition(): Position {
   if (typeof window === 'undefined') return { x: 0, y: 0 }
 
-  const defaultPos: Position = {
-    x: Math.max(0, window.innerWidth - PANEL_WIDTH - PANEL_MARGIN),
-    y: PANEL_MARGIN,
-  }
-
   // Clamp to current viewport — stored position may be from a wider/taller window
-  return normalizePosition(cortexStorage.get('panel-position', defaultPos, isValidPosition))
+  return normalizePosition(cortexStorage.get('panel-position', getDefaultPosition(), isValidPosition))
 }
 
 export interface UseSnapToEdgeResult {
@@ -72,6 +77,10 @@ export interface UseSnapToEdgeResult {
   isSnapping: boolean
   setPosition: (pos: Position) => void
   snap: () => void
+  /** Return the panel to its home position. Called on deselect so each new
+   *  selection opens the panel at its default spot, not the last drag target.
+   *  In-memory only — the persisted cross-reload position is left untouched. */
+  reset: () => void
   recheckOverlap: (elementRect: DOMRect) => void
 }
 
@@ -119,6 +128,12 @@ export function useSnapToEdge(): UseSnapToEdgeResult {
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
+  const reset = useCallback(() => {
+    const home = getDefaultPosition()
+    positionRef.current = home
+    setPositionState(home)
+  }, [])
+
   const recheckOverlap = useCallback((elementRect: DOMRect): void => {
     // Read from positionRef (not state) to avoid stale closure
     const pos = positionRef.current
@@ -149,5 +164,5 @@ export function useSnapToEdge(): UseSnapToEdgeResult {
     }
   }, [])
 
-  return { position, isSnapping, setPosition, snap, recheckOverlap }
+  return { position, isSnapping, setPosition, snap, reset, recheckOverlap }
 }

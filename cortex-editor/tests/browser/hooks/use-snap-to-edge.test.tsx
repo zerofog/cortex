@@ -8,7 +8,6 @@ import {
   getInitialPosition,
   useSnapToEdge,
   PANEL_WIDTH,
-  PANEL_MAX_HEIGHT,
   PANEL_MARGIN,
 } from '../../../src/browser/hooks/useSnapToEdge.js'
 
@@ -171,6 +170,34 @@ describe('useSnapToEdge utilities', () => {
       // Invalid value rejected → same default as empty localStorage
       expect(pos.x).toBe(692)
       expect(pos.y).toBe(12)
+    })
+  })
+
+  describe('reset', () => {
+    let hookContainer: HTMLDivElement | null = null
+
+    afterEach(() => {
+      if (hookContainer) {
+        render(null, hookContainer)
+        hookContainer.remove()
+        hookContainer = null
+      }
+      localStorage.clear()
+    })
+
+    it('returns the panel to its home position after a drag', () => {
+      const { result, container, rerender } = renderHook(() => useSnapToEdge())
+      hookContainer = container
+
+      // Drag the panel well away from its top-right home.
+      act(() => result.current.setPosition({ x: 100, y: 300 }), rerender)
+      expect(result.current.position).not.toEqual({ x: 692, y: 12 })
+
+      act(() => result.current.reset(), rerender)
+
+      // Home position at innerWidth=1024: x = 1024 - PANEL_WIDTH - PANEL_MARGIN = 692, y = PANEL_MARGIN = 12
+      expect(result.current.position.x).toBe(1024 - PANEL_WIDTH - PANEL_MARGIN)
+      expect(result.current.position.y).toBe(PANEL_MARGIN)
     })
   })
 
