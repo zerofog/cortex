@@ -1,0 +1,38 @@
+cortex-editor/tests/browser/cortex-app.test.tsx
+  s_de44c67238dbc7::t_baac32dd6c48fc 5
+  s_de44c67238dbc7::t_efe5483fb478a1 1070-1099,1102,1104,1108-1127
+  s_de44c67238dbc7::t_71fdb6bd72ed9d 1100-1101,1103,1105-1107
+  s_de44c67238dbc7::t_885f4826cc33f2 1030-1066
+cortex-editor/tests/browser/hooks/use-snap-to-edge.test.tsx
+  s_de44c67238dbc7::t_7ae1e8a2178c55 192-193,195
+cortex-editor/src/adapters/vite.ts
+  s_de44c67238dbc7::t_937b6e8c915ed1 956
+cortex-editor/src/browser/hooks/useSnapToEdge.ts
+  s_de44c67238dbc7::t_21b6204e966923 71-74
+cortex-editor/src/browser/components/Panel.tsx
+  s_de44c67238dbc7::t_00f62ec18d060f 491-496
+cortex-editor/src/browser/components/CortexApp.tsx
+  s_de44c67238dbc7::t_7094bc4f53654b 1006-1021
+cortex-editor/tests/adapters/vite.test.ts
+  s_de44c67238dbc7::t_b1c3ddfe727bde 2858-2860
+cortex-editor/tests/adapters/shared-server-constants.test.ts
+  s_de44c67238dbc7::t_a090f96ec48712 1-37
+cortex-editor/tests/browser/error-toast.test.tsx
+  s_de44c67238dbc7::t_e2f7df05831b33 7-10,12-13,34,60,88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "ce4c62b96bf90d03ea0f626d9c591ef9204e06bc",
+  "prompts": {},
+  "sessions": {
+    "s_de44c67238dbc7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "26551397-9740-4158-b824-52c41b5fffab",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
