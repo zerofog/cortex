@@ -1,0 +1,36 @@
+cortex-editor/tests/browser/hooks/use-edit-staging-buffer.test.tsx
+  s_472c47cfcc8bfe::t_5aa00fb8654ce6 487-492,500,504-505,510-515
+  s_472c47cfcc8bfe::t_148d097077134b 45-48
+  s_472c47cfcc8bfe::t_431da4c47c1263 461-486
+cortex-editor/src/browser/hooks/useEditStagingBuffer.ts
+  s_472c47cfcc8bfe::t_834d358f5811b7 148-150,152
+  s_472c47cfcc8bfe::t_ce775d5d5834ec 105
+cortex-editor/tests/browser/panel.test.tsx
+  s_472c47cfcc8bfe::t_af7a9e9c8fbebe 1757,1766,1785-1787
+  s_472c47cfcc8bfe::t_78eb4569dabb30 1878,1886,1894-1895
+  s_472c47cfcc8bfe::t_b497520219d442 1946,1954,1962-1963
+  s_472c47cfcc8bfe::t_149d701d3fdfd7 2003,2011,2019,2021,2033
+  s_472c47cfcc8bfe::t_f9351cf70d9600 2067,2074,2097-2098
+  s_472c47cfcc8bfe::t_f404efbdc8232e 2201,2208,2216-2217
+  s_472c47cfcc8bfe::t_779ebd4d4facdb 1185,1192,1218-1220
+  s_472c47cfcc8bfe::t_6e473a5ddbd744 2147,2154,2174-2175
+  s_472c47cfcc8bfe::t_f5541a4048fbb5 28,30-31,33-36,38-39,50,52-55,57
+  s_472c47cfcc8bfe::t_522141abe7ebcc 1255,1262,1281-1282
+  s_472c47cfcc8bfe::t_734934c51b7015 9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "0e6c37f78a93cc9c9e98f40681e8f4aac817dd0b",
+  "prompts": {},
+  "sessions": {
+    "s_472c47cfcc8bfe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4f564dec-8711-4ac0-9d33-36690313e69a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
