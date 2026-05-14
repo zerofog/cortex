@@ -663,7 +663,16 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
   server.registerTool(
     'cortex_apply_edits',
     {
-      description: "Route staged edits via cortex's deterministic rewriters (TailwindResolver, CSS Modules rewriter, InlineStyleRewriter). Returns per-id result indicating one of: 'applied' (cortex applied directly with mechanism: tailwind | css-module | inline-style), 'needs-source-edit' (use the Edit tool to write source at intent.source), or 'failed' (intent not found, apply timeout, or rewriter error).",
+      description: [
+        "Route staged edits via cortex's deterministic rewriters (TailwindResolver, CSS Modules rewriter, InlineStyleRewriter). Returns per-id result indicating one of: 'applied' (cortex applied directly with mechanism: tailwind | css-module | inline-style), 'needs-source-edit' (use the Edit tool to write source at intent.source), or 'failed' (intent not found, apply timeout, or rewriter error).",
+        '',
+        "For each result with status 'needs-source-edit', close the loop with EXACTLY ONE of:",
+        '  1. cortex_acknowledge_source_edit([intentId]) — after Edit tool succeeds',
+        '  2. cortex_report_source_edit_failed([intentId], reason) — after Edit tool fails',
+        '  3. cortex_discard_edits([intentId]) — when the user changes their mind',
+        '',
+        'Failing to close the loop with (1)/(2)/(3) leaves a phantom intent in the buffer that surfaces as a stale Apply (n) badge to the user.',
+      ].join('\n'),
       inputSchema: cortexApplyEditsInputSchema.shape,
     },
     async ({ intentIds }) => {
@@ -679,7 +688,13 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
   server.registerTool(
     'cortex_discard_edits',
     {
-      description: 'Remove staged edits from the buffer without writing source. Returns the IDs that were discarded.',
+      description: [
+        'Discard staged intents without writing source — use when the user changes their mind or wants to undo a staged change before Apply.',
+        '',
+        'NOT for closing the loop after a successful Edit tool operation — use cortex_acknowledge_source_edit for that. The wire effect is identical (intent leaves the buffer), but the semantic intent matters for telemetry and future protocol evolution.',
+        '',
+        'Returns the IDs that were discarded.',
+      ].join('\n'),
       inputSchema: cortexDiscardEditsInputSchema.shape,
     },
     async ({ intentIds }) => {

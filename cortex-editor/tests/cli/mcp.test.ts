@@ -1508,6 +1508,43 @@ describe('cortex mcp', () => {
     })
   })
 
+  // ── ZF0-1869 Task 9: four-outcome protocol in apply/discard descriptions ──
+  describe('ZF0-1869 Task 9: four-outcome protocol in tool descriptions', () => {
+    // cortex_apply_edits description must enumerate all three loop-closing tools
+    // so Claude knows EXACTLY which tool to call for each needs-source-edit result.
+    // Falsifiable: removing any one tool name from the description fails its row.
+    it.each([
+      ['cortex_acknowledge_source_edit', 'cortex_acknowledge_source_edit'],
+      ['cortex_report_source_edit_failed', 'cortex_report_source_edit_failed'],
+      ['cortex_discard_edits (loop-close reference)', 'cortex_discard_edits'],
+    ] as const)('cortex_apply_edits description names loop-closing tool: %s', async (_label, toolName) => {
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+
+      const { tools } = await client.listTools()
+      const tool = tools.find(t => t.name === 'cortex_apply_edits')
+      expect(tool).toBeDefined()
+      expect(tool!.description).toContain(toolName)
+    })
+
+    // cortex_discard_edits description must:
+    //   (a) contain "user" — distinguishing its semantic purpose (user-driven abandonment)
+    //   (b) reference cortex_acknowledge_source_edit — the contrast tool for Edit success
+    // Falsifiable: a description that only says "Remove staged edits" passes neither row.
+    it.each([
+      ['user (user-driven abandonment purpose)', 'user'],
+      ['cortex_acknowledge_source_edit (contrast tool)', 'cortex_acknowledge_source_edit'],
+    ] as const)('cortex_discard_edits description contains: %s', async (_label, token) => {
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+
+      const { tools } = await client.listTools()
+      const tool = tools.find(t => t.name === 'cortex_discard_edits')
+      expect(tool).toBeDefined()
+      expect(tool!.description).toContain(token)
+    })
+  })
+
   // ── ZF0-1500 review (Step 6): CLI SCHEMA_VIOLATION rejection handling ────
   describe('ZF0-1500 review: CLI handles server-originated SCHEMA_VIOLATION errors', () => {
     it('rejects pending RPC with the actual SCHEMA_VIOLATION message (not "RPC timeout")', async () => {
