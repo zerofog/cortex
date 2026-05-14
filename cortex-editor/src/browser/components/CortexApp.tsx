@@ -1160,22 +1160,23 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
 
       // Priority 4: Deactivate Cortex (re-added per ZF0-1869, reversing finding H5).
       //
-      // History: H5 (architecture review, pre-ZF0-1869) removed this step to prevent
-      // accidental editor close on an "extra" Escape press. The concern was valid at
-      // the time because the panel was always-on chrome — even with nothing selected,
-      // the editor was visually present, so a stray Escape would immediately destroy
-      // the user's editing context with no friction.
+      // Reaching here means nothing earlier in the cascade consumed the Esc — no
+      // Cortex/host input focused, no comment mode, no open popover, no selected
+      // element. In that case Esc deactivates Cortex. From the idle state (Cortex
+      // active, nothing selected) this is a SINGLE Esc press. From a selected-element
+      // state it takes two presses — the first hits Priority 3 and deselects, the
+      // second reaches Priority 4 and closes — but that is a side effect of the
+      // cascade order, NOT a uniform two-press guarantee.
       //
-      // Why reverting H5 is now acceptable (ZF0-1869 selection-first redesign):
-      // Under selection-first, the panel only mounts when an element is selected
-      // (Task 16). This means the Esc cascade now naturally requires TWO presses to
-      // close from an active editing state:
-      //   1st Esc → Priority 3 fires → deselects the element → panel unmounts.
-      //   2nd Esc → nothing selected/focused → Priority 4 fires → Cortex closes.
-      // The two-press friction is equivalent to H5's original "accidental close"
-      // protection. The UX context H5 was designed for (always-on panel) no longer
-      // exists; keeping Priority 4 absent would make keyboard-only close impossible,
-      // which contradicts the spec's Section 4 cascade and ZF0-1869's explicit intent.
+      // This single-press-when-idle behavior is the spec's intent: spec §4's Esc
+      // cascade says "Esc while Cortex active, no input focused → Cortex deactivates."
+      //
+      // It reverses architecture-review finding H5, which removed Esc-to-close to
+      // prevent accidental close back when the panel was always-on chrome. The
+      // reversal is a deliberate product decision: keyboard-only close is a required
+      // affordance. The spec's Risks section logs H5's accidental-close / host-app
+      // Esc-collision concern as a KNOWN, ACCEPTED tradeoff to be validated in demo
+      // testing — if a real collision emerges there, the guard is narrowed further.
       handleClose()
       e.stopPropagation()
       e.preventDefault()
