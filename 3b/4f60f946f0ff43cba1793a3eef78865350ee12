@@ -1,0 +1,50 @@
+cortex-editor/tests/browser/error-toast.test.tsx
+  s_de44c67238dbc7::t_6a6795baab08e0 82-88
+cortex-editor/src/browser/components/CortexApp.tsx
+  s_de44c67238dbc7::t_cabd199ecbf69b 266,272-278
+  s_de44c67238dbc7::t_645b4b47537a52 1006-1012
+  s_de44c67238dbc7::t_38cedfc1673caf 4
+cortex-editor/tests/browser/cortex-app.test.tsx
+  s_de44c67238dbc7::t_caee404d9808b0 988-1039
+cortex-editor/src/adapters/shared-server-constants.ts
+  s_de44c67238dbc7::t_a35853caf70870 1-66
+cortex-editor/src/adapters/vite.ts
+  s_de44c67238dbc7::t_abe47a986cde4a 11-19
+  s_de44c67238dbc7::t_401c845ce70aea 71-73
+cortex-editor/tests/browser/panel.test.tsx
+  s_de44c67238dbc7::t_b4f565f6221012 137,157-158,165,167-168,172-173,177-178
+  s_de44c67238dbc7::t_1efcae1cef3c6b 138-156,159-164,166,169-171,174-176,179-180
+cortex-editor/src/browser/components/Panel.tsx
+  s_de44c67238dbc7::t_8a1938c2efe66a 488-492,494,497
+cortex-editor/tests/adapters/vite.test.ts
+  s_de44c67238dbc7::t_f03bde2fdfd9e3 7-8
+cortex-editor/src/adapters/webpack.ts
+  s_de44c67238dbc7::t_712c713c91ba1a 31
+  s_de44c67238dbc7::t_c71f5b95f04e1d 58-60
+  s_de44c67238dbc7::t_8f598bbcf6db59 21-28
+cortex-editor/src/browser/hooks/useSnapToEdge.ts
+  s_de44c67238dbc7::t_e40211be64e86f 58-60,62,65-69,72
+  s_de44c67238dbc7::t_1ac6d8bd522f85 167
+  s_de44c67238dbc7::t_163ed71026057f 80-83
+  s_de44c67238dbc7::t_3019df0a2afb4b 131-136
+cortex-editor/tests/browser/hooks/use-edit-staging-buffer.test.tsx
+  s_de44c67238dbc7::t_5806f7c69c30ab 728
+cortex-editor/tests/browser/hooks/use-snap-to-edge.test.tsx
+  s_de44c67238dbc7::t_b492e549ab362b 176-203
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "3b4f60f946f0ff43cba1793a3eef78865350ee12",
+  "prompts": {},
+  "sessions": {
+    "s_de44c67238dbc7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "26551397-9740-4158-b824-52c41b5fffab",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
