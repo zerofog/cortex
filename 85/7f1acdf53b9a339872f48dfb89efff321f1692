@@ -1,0 +1,22 @@
+cortex-editor/tests/cli/mcp.test.ts
+  s_472c47cfcc8bfe::t_b989903dc474dc 1511-1547
+cortex-editor/src/cli/mcp.ts
+  s_472c47cfcc8bfe::t_840c868b473f3d 691-697
+  s_472c47cfcc8bfe::t_b7c154db8d97bc 666-675
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "857f1acdf53b9a339872f48dfb89efff321f1692",
+  "prompts": {},
+  "sessions": {
+    "s_472c47cfcc8bfe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4f564dec-8711-4ac0-9d33-36690313e69a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
