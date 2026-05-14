@@ -1,0 +1,29 @@
+cortex-editor/tests/browser/hooks/use-edit-staging-buffer.test.tsx
+  s_472c47cfcc8bfe::t_f5a0d4a8d4b6d8 488-489,491,495,500,504
+  s_472c47cfcc8bfe::t_1ed6d817aff8dd 461-463,473
+cortex-editor/src/browser/hooks/useEditStagingBuffer.ts
+  s_472c47cfcc8bfe::t_d30a8b55662fde 216,220
+  s_472c47cfcc8bfe::t_994a826bb5eab5 179,189
+  s_472c47cfcc8bfe::t_82f79e95c15f49 1
+  s_472c47cfcc8bfe::t_eb3e01f8a4ade7 146-150
+  s_472c47cfcc8bfe::t_8ae02069684794 203,207
+cortex-editor/tests/browser/cortex-app.test.tsx
+  s_472c47cfcc8bfe::t_192a399b4465eb 848-849
+  s_472c47cfcc8bfe::t_ab2b9c38320a94 310-319
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "b5b0ded7390bbf5b4d66efa257761cd50eb490e6",
+  "prompts": {},
+  "sessions": {
+    "s_472c47cfcc8bfe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4f564dec-8711-4ac0-9d33-36690313e69a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
