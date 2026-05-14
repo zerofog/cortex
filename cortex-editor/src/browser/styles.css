@@ -2951,37 +2951,6 @@
   color: var(--cx-destructive);
 }
 
-.cortex-toolbar__badge {
-  font-size: var(--cx-text-sm);
-  font-weight: var(--cx-weight-value);
-  font-family: var(--cx-mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--cx-ink);
-  padding: 0 var(--cx-sp-4);
-  height: 28px;
-  line-height: 28px;
-  background: var(--cx-well);
-  border-radius: var(--cx-radius-sm);
-  white-space: nowrap;
-  border: none;
-  cursor: pointer;
-  transition: background 150ms ease-out, transform 100ms ease-out;
-}
-
-.cortex-toolbar__badge:hover {
-  background: var(--cx-btn-hover);
-}
-
-.cortex-toolbar__badge:active {
-  background: var(--cx-well-active);
-  transform: scale(0.97);
-}
-
-.cortex-toolbar__badge:focus-visible {
-  outline: 2px solid var(--cx-select-muted);
-  outline-offset: 1px;
-}
-
 /* Mode switcher — segmented select/comment */
 .cortex-toolbar__modes {
   display: flex;

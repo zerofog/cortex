@@ -22,7 +22,6 @@ import { SecondarySelectionOverlay } from './SecondarySelectionOverlay.js'
 import { Panel } from './Panel.js'
 import { Toolbar } from './Toolbar.js'
 import { CommentPin } from './CommentPin.js'
-import { ActivityLog } from './ActivityLog.js'
 import { ErrorToast } from './ErrorToast.js'
 import { CapabilityBanner } from './CapabilityBanner.js'
 import { NoAnnotationsBanner } from './NoAnnotationsBanner.js'
@@ -125,7 +124,6 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // call buffer.reconcile() with the bypass readSourceValue callback.
   const [hmrChangedFiles, setHmrChangedFiles] = useState<string[]>([])
   const [commentMode, setCommentMode] = useState(false)
-  const [showActivity, setShowActivity] = useState(false)
   const [capabilitySystems, setCapabilitySystems] = useState<StyleCapability[]>([])
   // Error tracking: editId → source+property for lookup when edit_status:failed arrives
   const editDispatchRef = useRef<Map<string, { source: string; property: string; value: string }>>(new Map())
@@ -153,7 +151,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const commentModeRef = useRef(false)
   commentModeRef.current = commentMode
 
-  // Activity, active state, refs
+  // TODO: orphaned after toolbar-badge removal (ZF0-1869) — clean up in follow-up PR
   const [activityCount, setActivityCount] = useState(0)
   const [active, setActive] = useState(initialActive ?? false)
   const selectionRef = useRef<SelectionHandle | null>(null)
@@ -1042,17 +1040,6 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   }, [selectedElement, availableStates])
 
   const handleCommentMode = useCallback(() => setCommentMode(m => !m), [])
-  const handleActivityToggle = useCallback(() => {
-    setShowActivity(prev => {
-      if (!prev) {
-        setActivityCount(0) // reset badge on open
-        // Mirror into reducerStateRef so the next activity-entry dispatch
-        // increments from 0, not from the pre-reset count.
-        reducerStateRef.current = { ...reducerStateRef.current, activityCount: 0 }
-      }
-      return !prev
-    })
-  }, [])
   const handleCommentReply = useCallback((annotationId: string, text: string) => {
     channel.send({ type: 'comment-reply', annotationId, text })
   }, [channel])
@@ -1370,22 +1357,15 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         />
       )}
       <Toolbar
-        activityCount={activityCount}
         onClose={handleClose}
         commentMode={commentMode}
         onCommentMode={handleCommentMode}
-        onActivityToggle={handleActivityToggle}
       />
       <CommentPin
         annotations={[...annotations.values()]}
         commentMode={commentMode}
         channel={channel}
         onReply={handleCommentReply}
-      />
-      <ActivityLog
-        entries={activityEntries}
-        visible={showActivity}
-        onClose={handleActivityToggle}
       />
       </div>
     </>

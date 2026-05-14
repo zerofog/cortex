@@ -934,6 +934,14 @@ describe('CortexApp', () => {
       expect(bridge.buffer.size()).toBe(1)
     })
   })
+
+  it('ActivityLog is never mounted (removed in Change 3)', async () => {
+    setup()
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await activateEditor(channel)
+    expect(root.querySelector('.cortex-activity-log')).toBeNull()
+  })
 })
 
 describe('CortexApp — HMR-driven selection re-resolution (ZF0-1292)', () => {
