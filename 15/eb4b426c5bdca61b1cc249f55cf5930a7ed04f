@@ -1,0 +1,19 @@
+cortex-editor/tests/browser/panel.test.tsx
+  s_472c47cfcc8bfe::t_8b9a0c9f4a64f6 255-272
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "15eb4b426c5bdca61b1cc249f55cf5930a7ed04f",
+  "prompts": {},
+  "sessions": {
+    "s_472c47cfcc8bfe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4f564dec-8711-4ac0-9d33-36690313e69a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
