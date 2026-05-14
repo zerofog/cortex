@@ -4,6 +4,7 @@ import type {
   CreateAnnotationParams,
   ThreadMessage,
 } from '../adapters/types.js'
+import type { DeepReadonly } from './deep-readonly.js'
 import { loadAnnotations, saveAnnotations } from './annotations-persistence.js'
 
 const DEFAULT_MAX_TERMINAL = 100
@@ -75,7 +76,15 @@ export class AnnotationStore {
     saveAnnotations(this.persistenceFilePath, [...this.annotations.values()])
   }
 
-  private snapshot(ann: Annotation): Annotation {
+  // ZF0-1856: snapshot returns DeepReadonly<Annotation>. ZF0-1844 made the
+  // structuredClone defensive copy a RUNTIME safety net; the DeepReadonly
+  // return type adds the COMPILE-TIME half — a caller that tries to mutate a
+  // returned snapshot now gets a tsc error instead of a silently-ignored write
+  // to a throwaway clone. The store's internal Map stays Map<string, Annotation>
+  // (mutable) — only the public surface is frozen at the type level. The
+  // runtime structuredClone is kept as belt-and-suspenders (DeepReadonly is
+  // erased at compile time; it does not freeze the object at runtime).
+  private snapshot(ann: Annotation): DeepReadonly<Annotation> {
     return structuredClone(ann)
   }
 
@@ -87,7 +96,7 @@ export class AnnotationStore {
     }
   }
 
-  create(params: CreateAnnotationParams): Annotation {
+  create(params: CreateAnnotationParams): DeepReadonly<Annotation> {
     // ZF0-1857 Finding 1 — input-side defensive copy. Deep-clone the
     // caller-owned params up front so the live store entry never shares nested
     // object refs (elementContext, currentStyles, pinPosition, fixMeta) with
@@ -127,22 +136,22 @@ export class AnnotationStore {
     return result
   }
 
-  getPending(): Annotation[] {
+  getPending(): DeepReadonly<Annotation>[] {
     return [...this.annotations.values()]
       .filter((a) => a.status === 'pending')
       .map((a) => this.snapshot(a))
   }
 
-  getActive(): Annotation[] {
+  getActive(): DeepReadonly<Annotation>[] {
     return [...this.annotations.values()].filter(a => a.status === 'pending' || a.status === 'acknowledged').map(a => this.snapshot(a))
   }
 
-  getById(id: string): Annotation | null {
+  getById(id: string): DeepReadonly<Annotation> | null {
     const ann = this.annotations.get(id)
     return ann ? this.snapshot(ann) : null
   }
 
-  acknowledge(id: string): Annotation | null {
+  acknowledge(id: string): DeepReadonly<Annotation> | null {
     const ann = this.annotations.get(id)
     if (!ann || ann.status !== 'pending') return null
     ann.status = 'acknowledged'
@@ -151,7 +160,7 @@ export class AnnotationStore {
     return this.snapshot(ann)
   }
 
-  resolve(id: string, summary: string): Annotation | null {
+  resolve(id: string, summary: string): DeepReadonly<Annotation> | null {
     const ann = this.annotations.get(id)
     if (!ann || ann.status !== 'acknowledged') return null
     ann.status = 'resolved'
@@ -162,7 +171,7 @@ export class AnnotationStore {
     return this.snapshot(ann)
   }
 
-  dismiss(id: string, reason?: string): Annotation | null {
+  dismiss(id: string, reason?: string): DeepReadonly<Annotation> | null {
     const ann = this.annotations.get(id)
     if (!ann || ann.status === 'resolved' || ann.status === 'dismissed')
       return null
@@ -177,7 +186,7 @@ export class AnnotationStore {
   addMessage(
     id: string,
     msg: Omit<ThreadMessage, 'id' | 'timestamp'>,
-  ): Annotation | null {
+  ): DeepReadonly<Annotation> | null {
     const ann = this.annotations.get(id)
     if (!ann || ann.status === 'resolved' || ann.status === 'dismissed')
       return null
@@ -193,7 +202,7 @@ export class AnnotationStore {
     return this.snapshot(ann)
   }
 
-  getAll(): Annotation[] {
+  getAll(): DeepReadonly<Annotation>[] {
     return [...this.annotations.values()].map((a) => this.snapshot(a))
   }
 }

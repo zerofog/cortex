@@ -628,11 +628,13 @@ describe('AnnotationStore', () => {
     })
 
     it('returns defensive snapshots (mutating returned annotation does not affect store)', () => {
-      const ann = store.create({ elementSource: 'App.tsx:1:1', text: 'test' })
+      store.create({ elementSource: 'App.tsx:1:1', text: 'test' })
       const active = store.getActive()
       expect(active).toHaveLength(1)
 
       // mutate the returned snapshot
+      // @ts-expect-error ZF0-1856 — DeepReadonly blocks this write at compile time; the
+      // line still runs (types are erased at runtime) so the structuredClone guard is exercised.
       active[0]!.text = 'mutated'
 
       // store must be unaffected
@@ -641,11 +643,18 @@ describe('AnnotationStore', () => {
     })
   })
 
+  // ZF0-1856: AnnotationStore's public methods return DeepReadonly<Annotation>,
+  // so every mutation below is a COMPILE-TIME error — `@ts-expect-error` both
+  // documents and verifies that. Types are erased at runtime, so each line
+  // still EXECUTES under vitest, which keeps exercising the original ZF0-1844
+  // RUNTIME guard (structuredClone): even a caller who casts the readonly away
+  // cannot corrupt the live store. Each test now pins both layers.
   describe('snapshot deep-clone invariant', () => {
     it('resolution.summary mutation is isolated from the live store entry', () => {
       const ann = store.create({ elementSource: 'App.tsx:1:1', text: 'test' })
       store.acknowledge(ann.id)
       const resolved = store.resolve(ann.id, 'done')!
+      // @ts-expect-error ZF0-1856 — DeepReadonly blocks this; line still runs to exercise the runtime guard.
       resolved.resolution!.summary = 'tampered'
       expect(store.getById(ann.id)!.resolution!.summary).toBe('done')
     })
@@ -657,6 +666,7 @@ describe('AnnotationStore', () => {
         from: 'user',
         text: 'hello',
       })!
+      // @ts-expect-error ZF0-1856 — DeepReadonly blocks this; line still runs to exercise the runtime guard.
       withMessage.thread[0]!.text = 'tampered'
       expect(store.getById(ann.id)!.thread[0]!.text).toBe('hello')
     })
@@ -668,6 +678,7 @@ describe('AnnotationStore', () => {
         pinPosition: { x: 100, y: 200 },
       })
       const snapshot = store.getById(ann.id)!
+      // @ts-expect-error ZF0-1856 — DeepReadonly blocks this; line still runs to exercise the runtime guard.
       snapshot.pinPosition!.x = 999
       expect(store.getById(ann.id)!.pinPosition!.x).toBe(100)
     })
@@ -685,7 +696,9 @@ describe('AnnotationStore', () => {
         currentStyles: { color: 'red' },
       })
       const snapshot = store.getById(ann.id)!
+      // @ts-expect-error ZF0-1856 — DeepReadonly blocks this; line still runs to exercise the runtime guard.
       snapshot.elementContext!.tagName = 'span'
+      // @ts-expect-error ZF0-1856 — DeepReadonly blocks this; line still runs to exercise the runtime guard.
       snapshot.currentStyles!.color = 'blue'
       const live = store.getById(ann.id)!
       expect(live.elementContext!.tagName).toBe('div')
@@ -700,6 +713,7 @@ describe('AnnotationStore', () => {
         fixMeta: { property: 'padding', value: 'lg', reason: 'too tight' },
       })
       const snapshot = store.getById(ann.id)!
+      // @ts-expect-error ZF0-1856 — DeepReadonly blocks this; line still runs to exercise the runtime guard.
       snapshot.fixMeta!.property = 'margin'
       expect(store.getById(ann.id)!.fixMeta!.property).toBe('padding')
     })
@@ -713,6 +727,7 @@ describe('AnnotationStore', () => {
         text: 'test',
         pinPosition: { x: 10, y: 20 },
       })
+      // @ts-expect-error ZF0-1856 — DeepReadonly blocks this; line still runs to exercise the runtime guard.
       fresh.pinPosition!.x = 999
       expect(store.getById(fresh.id)!.pinPosition!.x).toBe(10)
     })
@@ -731,6 +746,7 @@ describe('AnnotationStore', () => {
         },
       })
       const all = store.getAll()
+      // @ts-expect-error ZF0-1856 — DeepReadonly blocks this; line still runs to exercise the runtime guard.
       all[0]!.elementContext!.tagName = 'span'
       expect(store.getById(ann.id)!.elementContext!.tagName).toBe('div')
     })
