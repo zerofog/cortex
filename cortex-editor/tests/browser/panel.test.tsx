@@ -6,9 +6,33 @@ import { renderInShadow, mockGetComputedStyle, createShadowHost, createMockChann
 import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
 import { _resetBusForTesting } from '../../src/browser/override-bus.js'
 import { cortexStorage } from '../../src/browser/persistence.js'
-import { isPendingEditArray, type PendingEdit, type StagingBufferHandle } from '../../src/browser/hooks/useEditStagingBuffer.js'
+import { isPendingEditArray, useEditStagingBuffer, type PendingEdit, type StagingBufferHandle } from '../../src/browser/hooks/useEditStagingBuffer.js'
+import * as bufferModule from '../../src/browser/hooks/useEditStagingBuffer.js'
 import { CommandStack } from '../../src/browser/command-stack.js'
 import { PREVIEW_SOURCE_ATTR, PREVIEW_SOURCE_PREFIX } from '../../src/browser/preview-source.js'
+
+/** Returns a minimal fake StagingBufferHandle with all 7 members as vi.fn() stubs. */
+function makeFakeBuffer(): StagingBufferHandle {
+  return {
+    append: vi.fn(),
+    remove: vi.fn(),
+    list: vi.fn(() => []),
+    clear: vi.fn(),
+    size: vi.fn(() => 0),
+    version: 0,
+    reconcile: vi.fn(() => ({ divergent: [] })),
+  }
+}
+
+/**
+ * Wrapper component for tests that need a real useEditStagingBuffer instance
+ * (e.g. staging-buffer-wiring tests that assert localStorage persistence).
+ * Calls the hook internally and passes the result to Panel as the `buffer` prop.
+ */
+function PanelWithRealBuffer(props: Omit<Parameters<typeof Panel>[0], 'buffer'>) {
+  const buffer = useEditStagingBuffer()
+  return <Panel {...props} buffer={buffer} />
+}
 
 const panelPositionProps = {
   position: { x: 1000, y: 12 },
@@ -74,6 +98,7 @@ describe('Panel', () => {
         overrideManager={overrideManager as any}
         onClose={onClose}
         onSelectElement={onSelectElement}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
         {...overrides}
       />
@@ -216,6 +241,7 @@ describe('Panel', () => {
         overrideManager={{} as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       container,
@@ -277,6 +303,7 @@ describe('Panel', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         textComponents={BUNDLES}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />
     )
@@ -330,6 +357,7 @@ describe('Panel — library detection wiring', () => {
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       container,
@@ -365,6 +393,7 @@ describe('Panel — library detection wiring', () => {
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       container,
@@ -414,6 +443,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         activeState="default"
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       container,
@@ -437,6 +467,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         activeState="hover"
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       container,
@@ -474,6 +505,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         hasBefore={true}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       container,
@@ -517,6 +549,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         activeState="default"
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       container,
@@ -549,6 +582,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onSelectElement={() => {}}
         hasBefore={true}
         hasAfter={true}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       container,
@@ -578,6 +612,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       container,
@@ -605,6 +640,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         hasBefore={true}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       container,
@@ -672,7 +708,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
       await act(() => {
         render(
           <Panel selectedElements={[el]} overrideManager={overrideManager as any}
-            onClose={() => {}} onSelectElement={() => {}} {...panelPositionProps} />,
+            onClose={() => {}} onSelectElement={() => {}} buffer={makeFakeBuffer()} {...panelPositionProps} />,
           container,
         )
       })
@@ -711,6 +747,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     document.body.appendChild(container)
 
     // Render with hasBefore, click ::before tab
+    const fakeBufferForPseudoTest = makeFakeBuffer()
     render(
       <Panel
         selectedElements={[el1]}
@@ -718,6 +755,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         hasBefore={true}
+        buffer={fakeBufferForPseudoTest}
         {...panelPositionProps}
       />,
       container,
@@ -738,6 +776,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         hasBefore={true}
+        buffer={fakeBufferForPseudoTest}
         {...panelPositionProps}
       />,
       container,
@@ -806,6 +845,7 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
 
     const { root: shadowRoot, cleanup: removeHost } = createShadowHost()
 
+    const fakeBufferForHmrTest = makeFakeBuffer()
     const renderPanel = (version: number): void => {
       render(
         <Panel
@@ -813,6 +853,7 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
           overrideManager={overrideManager as any}
           onClose={() => {}}
           onSelectElement={() => {}}
+          buffer={fakeBufferForHmrTest}
           {...panelPositionProps}
           hmrAppliedVersion={version}
         />,
@@ -897,6 +938,7 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
     }
 
     const { shadow, root: shadowRoot, cleanup: removeHost } = createShadowHost()
+    const fakeBufferForScopeTest = makeFakeBuffer()
     const renderPanel = (version: number): void => {
       render(
         <Panel
@@ -904,6 +946,7 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
           overrideManager={overrideManager as any}
           onClose={() => {}}
           onSelectElement={() => {}}
+          buffer={fakeBufferForScopeTest}
           {...panelPositionProps}
           hmrAppliedVersion={version}
         />,
@@ -982,6 +1025,7 @@ describe('Panel mixedProperties (ZF0-1195 / T3)', () => {
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       container,
@@ -1048,6 +1092,7 @@ describe('Panel mixedProperties (ZF0-1195 / T3)', () => {
           overrideManager={overrideManager as any}
           onClose={() => {}}
           onSelectElement={() => {}}
+          buffer={makeFakeBuffer()}
           {...panelPositionProps}
         />,
         container,
@@ -1108,7 +1153,7 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     }
 
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
@@ -1185,7 +1230,7 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     }
 
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
@@ -1271,7 +1316,7 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     const commandStack = new CommandStack()
 
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         commandStack={commandStack}
@@ -1382,7 +1427,7 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     const commandStack = new CommandStack()
 
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         commandStack={commandStack}
@@ -1447,7 +1492,7 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     const commandStack = new CommandStack()
 
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         commandStack={commandStack}
@@ -1523,7 +1568,7 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     const commandStack = new CommandStack()
 
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         commandStack={commandStack}
@@ -1589,7 +1634,7 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     const commandStack = new CommandStack()
 
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         commandStack={commandStack}
@@ -1689,7 +1734,7 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     }
 
     const { cleanup } = renderInShadow(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[target]}
         channel={channel}
         overrideManager={overrideManager as any}
@@ -1814,7 +1859,7 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     document.body.appendChild(container)
 
     render(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[el1, el2]}
         overrideManager={overrideManager as any}
         commandStack={commandStack}
@@ -1882,7 +1927,7 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     document.body.appendChild(container)
 
     render(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[el1, el2, el3]}
         overrideManager={overrideManager as any}
         commandStack={commandStack}
@@ -1938,7 +1983,7 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     document.body.appendChild(container)
 
     render(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[el1, el2]}
         overrideManager={overrideManager as any}
         commandStack={commandStack}
@@ -2005,7 +2050,7 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     document.body.appendChild(container)
 
     render(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[el1, el2]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
@@ -2084,7 +2129,7 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     document.body.appendChild(container)
 
     render(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
@@ -2136,7 +2181,7 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     document.body.appendChild(container)
 
     render(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
@@ -2198,6 +2243,7 @@ describe('Panel — source-only blast-radius banner (ZF0-1583)', () => {
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       shadowRoot,
@@ -2252,6 +2298,7 @@ describe('Panel — source-only blast-radius banner (ZF0-1583)', () => {
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       shadowRoot,
@@ -2294,6 +2341,7 @@ describe('Panel — source-only blast-radius banner (ZF0-1583)', () => {
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       shadowRoot,
@@ -2367,6 +2415,48 @@ describe('PanelProps.buffer', () => {
     // resolved to the prop, not a freshly-constructed local hook.
     expect(fakeBuffer.size).toHaveBeenCalled()
 
+    cleanup()
+    target.remove()
+  })
+
+  it('Panel does not create its own buffer when buffer prop provided (Task 3)', () => {
+    // Proves Task 3: local fallback removed. Panel must NOT call useEditStagingBuffer
+    // internally when the buffer prop is provided.
+    // Reverting to the Task-1 `bufferProp ?? localBuffer` fallback makes this FAIL
+    // because useEditStagingBuffer IS still called for localBuffer.
+    const useBufferSpy = vi.spyOn(bufferModule, 'useEditStagingBuffer')
+
+    const fakeBuffer = makeFakeBuffer()
+
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    document.body.appendChild(target)
+
+    const overrideManager = {
+      set: vi.fn(),
+      get: vi.fn(),
+      remove: vi.fn(),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+    }
+
+    const { cleanup } = renderInShadow(
+      <Panel
+        selectedElements={[target]}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        buffer={fakeBuffer}
+        {...panelPositionProps}
+      />
+    )
+
+    // useEditStagingBuffer must NOT have been called inside Panel —
+    // Panel now delegates entirely to the passed prop.
+    expect(useBufferSpy).not.toHaveBeenCalled()
+
+    useBufferSpy.mockRestore()
     cleanup()
     target.remove()
   })

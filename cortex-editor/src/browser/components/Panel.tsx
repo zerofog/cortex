@@ -40,8 +40,7 @@ import { ChevronDown, ChevronUp, Eye, EyeOff, Plus, X } from './icons.js'
 import type { CortexChannel, ConnectionDisplay } from '../../adapters/types.js'
 import { computePanelStyleSnapshot } from './panel-style-snapshot.js'
 import { ALL_DIMMING_PROPERTIES } from './sections/spacing-utils.js'
-import { useEditStagingBuffer, createPanelSyncEmitter } from '../hooks/useEditStagingBuffer.js'
-import type { PendingEdit, SyncEmitter } from '../hooks/useEditStagingBuffer.js'
+import type { PendingEdit, StagingBufferHandle } from '../hooks/useEditStagingBuffer.js'
 import { generateId } from '../uuid.js'
 import { StagingDriftBanner } from './StagingDriftBanner.js'
 import { SpacingTokensContext } from '../tokens/TokenContext.js'
@@ -233,15 +232,6 @@ export interface PanelProps {
    *  Only populated when __CORTEX_TEST_BUILD__ is true (DCE'd from prod bundles).
    *  Returns a Promise that resolves after the microtask-coalesced commitScrub fires. */
   commitEditRef?: { current: ((property: string, value: string) => Promise<void>) | null }
-  /** TEST-ONLY ref written by Panel — exposes buffer.list() and buffer.size() so e2e
-   *  specs can read the staging buffer without a separate bridge surface.
-   *  Only populated when __CORTEX_TEST_BUILD__ is true (DCE'd from prod bundles). */
-  bufferListRef?: {
-    current: {
-      list: () => import('../hooks/useEditStagingBuffer.js').PendingEdit[]
-      size: () => number
-    } | null
-  }
   /** Set by CortexApp during undo/redo — suppresses phantom re-edits from Panel re-renders. */
   undoInProgressRef?: { current: boolean }
   channel?: CortexChannel
@@ -281,11 +271,9 @@ export interface PanelProps {
   /** Source strings (path:line:col) whose overrides have gone stale.
    *  Used to compute per-element stale indicators on section controls. */
   staleSources?: Set<string>
-  /** Hoisted from Panel — buffer lifetime is now CortexApp-scoped so it survives
-   *  Panel mount/unmount on selection changes. Transitional: until Task 2 hoists
-   *  the hook to CortexApp, Panel falls back to the local hook (Task 3 removes
-   *  the fallback). */
-  buffer?: import('../hooks/useEditStagingBuffer.js').StagingBufferHandle
+  /** Buffer lifetime is CortexApp-scoped (Task 2 hoist). Required — Panel no longer
+   *  creates its own buffer (Task 3 removed the local fallback). */
+  buffer: StagingBufferHandle
 }
 
 export function Panel({
@@ -325,7 +313,6 @@ export function Panel({
   staleSources,
   stageEditRef,
   commitEditRef,
-  bufferListRef,
   buffer: bufferProp,
 }: PanelProps): JSX.Element | null {
   // Back-compat alias: primary element for all CSS-parsing code paths (ZF0-1195 / T3).
@@ -347,37 +334,17 @@ export function Panel({
   // into a single atomic command via microtask.
   const commitPendingRef = useRef(false)
 
-  // SyncEmitter wires the browser-canonical buffer to the server-side
-  // StagedEditsCache mirror. Each mutation method sends a corresponding
-  // BrowserToServer message; channel.send auto-stamps the token. Without
-  // this, the server cache stays empty and Claude's MCP tools see nothing
-  // of what the designer staged.
-  //
-  // useRef (not useMemo) for stable identity across renders — the hook's
-  // emitterRef.current = emitter reassignment must always see the same
-  // object, otherwise the rehydrate-on-mount syncFullState path could be
-  // bypassed. The factory delegates to channel.send, which is stable for
-  // the channel's lifetime, so a one-time construction is correct.
-  //
-  // When channel is absent (e.g., test mounts without one), the buffer
-  // operates browser-canonical only — no emitter is wired and the server
-  // cache stays out of sync. This is the same backward-compat behavior as
-  // before T2.
-  const syncEmitterRef = useRef<SyncEmitter | null>(null)
-  if (syncEmitterRef.current === null && channel) {
-    syncEmitterRef.current = createPanelSyncEmitter(channel)
-  }
-
   // Spacing tokens flow in as a prop from cortex-app-reducer state, populated
   // by the `hello` handshake at boot. Provided to descendants (NumericInput)
   // via SpacingTokensContext.
   const resolvedSpacingTokens = spacingTokens ?? []
 
-  // Staging buffer for property edits — accumulates browser-side before Apply gesture.
-  // Transitional: prefer the hoisted prop (Task 2 will pass it from CortexApp);
-  // fall back to the local hook until Task 3 removes this fallback.
-  const localBuffer = useEditStagingBuffer(syncEmitterRef.current ?? undefined)
-  const buffer = bufferProp ?? localBuffer
+  // Buffer is provided by CortexApp (Task 2 hoist). The prop is required now
+  // that the local fallback is removed (Task 3).
+  const buffer = bufferProp
+  if (!buffer) {
+    throw new Error('[cortex] Panel requires `buffer` prop — hoisted from CortexApp')
+  }
 
   // staged-edits-discard is server-originated (the MCP server's
   // cortex_discard_edits tool emitted it after mutating its cache). Calling
@@ -1080,20 +1047,6 @@ export function Panel({
     }
   // applyOverride is stable (useCallback) — safe dep.
   }, [commitEditRef, applyOverride])
-
-  // TEST-ONLY: expose buffer.list() and buffer.size() via bufferListRef so e2e specs
-  // can read the staging buffer state without additional bridge plumbing. Updated on
-  // every render where the ref is present — the functions read bufferRef.current directly
-  // (synchronous, always current) so there is no staleness risk.
-  useEffect(() => {
-    if (bufferListRef) {
-      bufferListRef.current = {
-        list: () => buffer.list(),
-        size: () => buffer.size(),
-      }
-      return () => { bufferListRef.current = null }
-    }
-  }, [bufferListRef, buffer])
 
   /**
    * Dispatch a className mutation (classOp) to the server, optionally followed

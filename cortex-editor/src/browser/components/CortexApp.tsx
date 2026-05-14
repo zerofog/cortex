@@ -198,13 +198,6 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // commandStack.record + buffer.append fan-out so e2e specs can exercise undo
   // without going through actual panel UI. Gated identically to stageEditRef.
   const commitEditRef = useRef<((property: string, value: string) => Promise<void>) | null>(null)
-  // TEST-ONLY: bridge.buffer.list/size read the staging buffer contents. Panel
-  // populates this via bufferListRef so the bridge can expose them synchronously.
-  const bufferListRef = useRef<{
-    list: () => import('../hooks/useEditStagingBuffer.js').PendingEdit[]
-    size: () => number
-  } | null>(null)
-
   // Hoisted from Panel.tsx — buffer lifetime is now CortexApp-scoped so it
   // survives Panel mount/unmount on selection changes (Task 16) and cortex
   // toggle-off (`if (!active) return null` renders null but doesn't unmount
@@ -469,12 +462,12 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           }
           return commitEditRef.current(property, value)
         },
-        // TEST-ONLY: expose buffer.list() and buffer.size() via bufferListRef.
-        // Panel populates this ref; these closures delegate to the live ref so
-        // callers always read current buffer state (no staleness risk).
+        // TEST-ONLY: expose buffer.list() and buffer.size() directly from
+        // CortexApp's hoisted buffer instance (bufferListRef indirection removed
+        // in Task 3 — buffer is now owned exclusively by CortexApp).
         buffer: {
-          list: () => bufferListRef.current?.list() ?? [],
-          size: () => bufferListRef.current?.size() ?? 0,
+          list: () => buffer.list(),
+          size: () => buffer.size(),
         },
         // TEST-ONLY: reads buffer.version directly from CortexApp's hoisted buffer
         // instance. Proves CortexApp owns the buffer (not Panel-local). Uses
@@ -1325,7 +1318,6 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           flushCommitRef={flushCommitRef}
           stageEditRef={__CORTEX_TEST_BUILD__ ? stageEditRef : undefined}
           commitEditRef={__CORTEX_TEST_BUILD__ ? commitEditRef : undefined}
-          bufferListRef={__CORTEX_TEST_BUILD__ ? bufferListRef : undefined}
           undoInProgressRef={undoInProgressRef}
           onClose={handleClose}
           onSelectElement={handleSelectElement}
