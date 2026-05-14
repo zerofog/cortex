@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
 import { CortexApp } from '../../src/browser/components/CortexApp.js'
-import { createShadowHost, createMockChannel, mockGetBoundingClientRect, dispatchKeyboardEvent, cleanDocumentHead } from './helpers.js'
+import { createShadowHost, createMockChannel, mockGetBoundingClientRect, dispatchKeyboardEvent, dispatchPointerEvent, cleanDocumentHead } from './helpers.js'
 import * as focusUtils from '../../src/browser/focus-utils.js'
 import { _resetBusForTesting } from '../../src/browser/override-bus.js'
 import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
@@ -1027,15 +1027,104 @@ describe('CortexApp', () => {
         channel._simulateConnectionChange({ status: 'connected' })
       })
 
-      // On reconnect, CortexApp must push the browser-canonical buffer back to
-      // the server as a full-state sync. Without the fix, no staged-edits-sync
-      // is emitted and the server-side StagedEditsCache silently diverges.
-      const syncMsg = channel._lastSent.find(
-        (m): m is { type: string; edits: unknown[] } =>
-          typeof m === 'object' && m !== null && (m as { type?: unknown }).type === 'staged-edits-sync',
-      )
-      expect(syncMsg).toBeDefined()
-      expect(syncMsg!.edits).toHaveLength(1)
+      // On reconnect, CortexApp must re-establish the server cache from the
+      // browser-canonical buffer with authoritative replace semantics:
+      // staged-edit-clear FIRST (so removes done while disconnected are not
+      // retained as ghost intents), then staged-edits-sync to repopulate.
+      // Without the fix, no resync is emitted and the server cache diverges.
+      const types = channel._lastSent
+        .filter((m): m is { type: string } => typeof m === 'object' && m !== null && 'type' in m)
+        .map(m => m.type)
+      const clearIdx = types.indexOf('staged-edit-clear')
+      const syncIdx = types.indexOf('staged-edits-sync')
+      expect(clearIdx).toBeGreaterThanOrEqual(0)
+      expect(syncIdx).toBeGreaterThan(clearIdx) // clear must precede sync
+      const syncMsg = channel._lastSent[syncIdx] as { type: string; edits: unknown[] }
+      expect(syncMsg.edits).toHaveLength(1)
+    })
+
+    it('does NOT resync on a first connect with no prior disconnect (ZF0-1869)', async () => {
+      // Pins the wasDisconnected guard: a plain 'connected' event with no
+      // preceding disconnected/reconnecting state must NOT emit a resync.
+      // Without the guard, the browser would spam the server on every connect.
+      ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+      await activateEditor(channel)
+
+      channel._lastSent.length = 0
+      await act(() => {
+        channel._simulateConnectionChange({ status: 'connected' })
+      })
+
+      const types = channel._lastSent
+        .filter((m): m is { type: string } => typeof m === 'object' && m !== null && 'type' in m)
+        .map(m => m.type)
+      expect(types).not.toContain('staged-edit-clear')
+      expect(types).not.toContain('staged-edits-sync')
+    })
+  })
+
+  describe('panel position reset on deselect (ZF0-1869)', () => {
+    it('returns the panel to its home position after drag + deselect + reselect', async () => {
+      ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+      await activateEditor(channel)
+
+      const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+      const { selectCb } = _getCallbacks()
+      const target = document.createElement('div')
+      target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+      document.body.appendChild(target)
+      orphans.push(target)
+      mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
+
+      const panelTransform = (): string => {
+        const p = root.querySelector('.cortex-panel') as HTMLElement | null
+        return p?.style.transform ?? ''
+      }
+
+      // Select → Panel mounts at the default home position (top-right).
+      selectCb([target], 'replace')
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).not.toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+      const homeTransform = panelTransform()
+      expect(homeTransform).toContain('translate(')
+
+      // Drag the panel far from home via the header's pointer handlers (the
+      // panel-header is the drag surface — see PanelHeader onPointerDown wiring).
+      // happy-dom getBoundingClientRect is 0,0 so the drag delta == clientXY.
+      const header = root.querySelector('.cortex-panel-header') as HTMLElement
+      await act(() => {
+        dispatchPointerEvent(header, 'pointerdown', { clientX: 700, clientY: 200 })
+        dispatchPointerEvent(header, 'pointermove', { clientX: 200, clientY: 450 })
+        dispatchPointerEvent(header, 'pointerup', { clientX: 200, clientY: 450 })
+      })
+      await vi.waitFor(() => {
+        expect(panelTransform()).not.toBe(homeTransform)
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+      const draggedTransform = panelTransform()
+
+      // Deselect — the CortexApp deselect effect must fire panelReset().
+      await act(() => { selectCb([], 'replace') })
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      // Reselect — without the reset, useSnapToEdge state (CortexApp-scoped,
+      // survives Panel unmount) would still hold draggedTransform.
+      await act(() => { selectCb([target], 'replace') })
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).not.toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+      expect(panelTransform()).toBe(homeTransform)
+      expect(panelTransform()).not.toBe(draggedTransform)
     })
   })
 

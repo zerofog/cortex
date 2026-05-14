@@ -189,9 +189,10 @@ describe('useSnapToEdge utilities', () => {
       const { result, container, rerender } = renderHook(() => useSnapToEdge())
       hookContainer = container
 
-      // Drag the panel well away from its top-right home.
+      // Drag the panel well away from its top-right home. setPosition normalizes:
+      // at 1024x768 the bounds are x[12,692] y[12,296], so {100,300} clamps to {100,296}.
       act(() => result.current.setPosition({ x: 100, y: 300 }), rerender)
-      expect(result.current.position).not.toEqual({ x: 692, y: 12 })
+      expect(result.current.position).toEqual({ x: 100, y: 296 })
 
       act(() => result.current.reset(), rerender)
 

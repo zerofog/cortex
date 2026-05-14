@@ -68,7 +68,10 @@ export function getDefaultPosition(): Position {
 export function getInitialPosition(): Position {
   if (typeof window === 'undefined') return { x: 0, y: 0 }
 
-  // Clamp to current viewport — stored position may be from a wider/taller window
+  // Clamp to current viewport — stored position may be from a wider/taller window.
+  // Note: reset() (deselect → home) is session-local and does NOT write to
+  // storage, so after a drag + deselect + reload the panel restores the last
+  // *dragged* position, not the reset default. Only snap() persists.
   return normalizePosition(cortexStorage.get('panel-position', getDefaultPosition(), isValidPosition))
 }
 

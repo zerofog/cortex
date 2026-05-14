@@ -4,11 +4,13 @@ import { ErrorToast } from '../../src/browser/components/ErrorToast.js'
 import { createMockChannel } from './helpers.js'
 
 /**
- * Yield for Preact's useEffect to commit before sending channel messages.
- * happy-dom requires ~10ms for Preact's effect commit phase to run and register
- * the channel.onMessage subscription; 0ms (microtask flush only) is insufficient.
+ * Wait for ErrorToast's useEffect to commit and register its channel.onMessage
+ * subscription. Polls the actual invariant (_handlerCount) instead of betting on
+ * a fixed duration — a fixed flush() raced Preact's effect-commit phase, and
+ * under fake timers that race orphaned the pending real-timer commit.
  */
-const flush = () => new Promise<void>(r => setTimeout(r, 10))
+const waitForSubscription = (channel: ReturnType<typeof createMockChannel>) =>
+  vi.waitFor(() => expect(channel._handlerCount()).toBeGreaterThanOrEqual(1), { timeout: 500 })
 
 describe('ErrorToast', () => {
   let container: HTMLDivElement
@@ -29,9 +31,7 @@ describe('ErrorToast', () => {
     const channel = createMockChannel()
     render(<ErrorToast channel={channel} />, container)
 
-    // Yield one macrotask so the useEffect subscription commits before we
-    // send a message. Matches the existing `flush` pattern in comment-input.test.tsx.
-    await flush()
+    await waitForSubscription(channel)
 
     // No toast initially
     expect(container.querySelector('[role="alert"]')).toBeNull()
@@ -57,7 +57,7 @@ describe('ErrorToast', () => {
     const channel = createMockChannel()
     render(<ErrorToast channel={channel} />, container)
 
-    await flush()
+    await waitForSubscription(channel)
 
     channel._simulateMessage({
       type: 'undo_sync_status',
@@ -85,7 +85,7 @@ describe('ErrorToast', () => {
     // if vi.useFakeTimers() lands before the commit, the subscription is never
     // registered (empty handler list) AND the pending real-timer commit is
     // orphaned, since fake timers only control timers created after the switch.
-    await vi.waitFor(() => expect(channel._handlerCount()).toBe(1), { timeout: 500 })
+    await waitForSubscription(channel)
 
     vi.useFakeTimers()
 

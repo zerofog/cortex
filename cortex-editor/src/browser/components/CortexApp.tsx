@@ -1003,12 +1003,22 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
 
     const unsubStatus = channel.onConnectionChange((state) => {
       if (state.status === 'connected' && wasDisconnected) {
-        // ZF0-1869 follow-up: on reconnect, push the browser-canonical staging
-        // buffer back to the server with a full-state sync. Per-mutation sync
-        // messages (staged-edit-add/remove/clear) sent while the socket was
-        // down are lost, so the server's StagedEditsCache can be stale. The
-        // browser buffer is authoritative; mergeFullSync re-establishes it
-        // (newer-timestamp-wins merge — see StagedEditsCache.mergeFullSync).
+        // ZF0-1869 follow-up: on reconnect, re-establish the server's
+        // StagedEditsCache from the browser-canonical buffer. Per-mutation sync
+        // messages (staged-edit-add/-remove/-clear) sent while the socket was
+        // down are lost, so the server cache can be stale in BOTH directions:
+        // missing adds AND retaining removes. mergeFullSync alone only fixes the
+        // former (it upserts, never deletes), which would leave a discarded-
+        // while-disconnected intent as a server-side ghost that MCP could apply.
+        // So we clear-then-set: syncClear() empties the server cache, then
+        // syncFullState() repopulates it with exactly the current buffer.
+        // WebSocket preserves in-connection message order, so this is an
+        // authoritative replace. Multi-tab safe: the multi-tab hazard documented
+        // on StagedEditsCache.mergeFullSync was localStorage rehydration, which
+        // is dead since the buffer became memory-only. buffer.list() delegates
+        // to a stable bufferRef, so reading it from this mount-time effect
+        // closure is not stale.
+        appSyncEmitterRef.current?.syncClear()
         appSyncEmitterRef.current?.syncFullState(buffer.list())
         // Transition from disconnected/reconnecting → connected = "reconnected" flash
         setConnectionStatus({ status: 'reconnected' })
