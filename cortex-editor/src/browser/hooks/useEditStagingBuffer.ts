@@ -1,8 +1,5 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { cortexStorage } from '../persistence.js'
 import { stripLineCol, deepQuerySelectorAll } from '../selection-metadata.js'
-import { MAX_INTENT_SOURCE_BYTES, MAX_SOURCE_HINT_FIELD_BYTES } from '../../shared/pending-edit-limits.js'
-import { isPreviewSource } from '../../shared/preview-source.js'
 import type { CortexChannel, PendingEdit } from '../../adapters/types.js'
 
 // Re-export for backward compatibility — existing test imports rely on this.
@@ -77,74 +74,6 @@ export interface StagingBufferHandle {
 
 const MAX_ENTRIES = 500
 const DEBOUNCE_MS = 150
-const STORAGE_KEY = 'staging-buffer'
-const encoder = new TextEncoder()
-
-/** `path:line:col` shape — line/col must be digits, path must not contain a `"`
- *  (defense-in-depth alongside CSS.escape at the querySelector callsite). */
-const SOURCE_SHAPE = /^[^"]+:\d+:\d+$/
-
-/** Type guard for a single PendingEdit */
-function isPendingEdit(v: unknown): v is PendingEdit {
-  if (typeof v !== 'object' || v === null) return false
-  const o = v as Record<string, unknown>
-  if (
-    typeof o.intentId !== 'string' ||
-    typeof o.source !== 'string' ||
-    typeof o.property !== 'string' ||
-    typeof o.value !== 'string' ||
-    typeof o.previousValue !== 'string' ||
-    typeof o.timestamp !== 'number'
-  ) {
-    return false
-  }
-  // Source format guard. Direct edits use file:line:col; unannotated preview
-  // edits use a cortex-preview source key so Apply can route them to agent
-  // resolution instead of dropping them during localStorage rehydration.
-  const hasPreviewSource = isPreviewSource(o.source)
-  if (encoder.encode(o.source).length > MAX_INTENT_SOURCE_BYTES) return false
-  if (!SOURCE_SHAPE.test(o.source) && !hasPreviewSource) return false
-  // Optional fields: validate ONLY when present. The whole point of the
-  // validator is to short-circuit corrupted localStorage to the [] fallback
-  // before bad data flows into Apply. Accepting `pseudo: 'invalid'`,
-  // `scope: 42`, or `instanceSources: 'oops'` would defeat that.
-  if (o.pseudo !== undefined && o.pseudo !== '::before' && o.pseudo !== '::after') return false
-  if (o.scope !== undefined && o.scope !== 'instance' && o.scope !== 'all') return false
-  if (o.applyMode !== undefined && o.applyMode !== 'direct' && o.applyMode !== 'agent-resolve') return false
-  if ((o.applyMode === 'agent-resolve' || hasPreviewSource) && o.sourceResolutionHint === undefined) return false
-  if (o.sourceResolutionHint !== undefined) {
-    if (typeof o.sourceResolutionHint !== 'object' || o.sourceResolutionHint === null) return false
-    const hint = o.sourceResolutionHint as Record<string, unknown>
-    if (
-      !isSourceHintField(hint.tagName, { required: true }) ||
-      !isSourceHintField(hint.textPreview) ||
-      !isSourceHintField(hint.domSelector, { required: true })
-    ) {
-      return false
-    }
-    if (hint.className !== undefined && !isSourceHintField(hint.className)) return false
-    if (hint.id !== undefined && !isSourceHintField(hint.id)) return false
-  }
-  if (
-    o.instanceSources !== undefined &&
-    (!Array.isArray(o.instanceSources) || !o.instanceSources.every(s => typeof s === 'string'))
-  ) {
-    return false
-  }
-  return true
-}
-
-function isSourceHintField(value: unknown, options?: { required?: boolean }): value is string {
-  if (typeof value !== 'string') return false
-  if (options?.required && value.length === 0) return false
-  return encoder.encode(value).length <= MAX_SOURCE_HINT_FIELD_BYTES
-}
-
-/** Type guard for an array of PendingEdit (all-or-nothing — exported for tests
- *  that need to round-trip a known-valid buffer). */
-export function isPendingEditArray(v: unknown): v is PendingEdit[] {
-  return Array.isArray(v) && v.every(isPendingEdit)
-}
 
 /** Composite key for last-write-wins deduplication. */
 function compositeKey(edit: PendingEdit): string {
@@ -173,7 +102,7 @@ function defaultReadSourceValue(
  * useEditStagingBuffer — accumulates PendingEdit entries browser-side.
  *
  * - last-write-wins by (source\0property\0pseudo) composite key
- * - persisted to localStorage via cortexStorage, debounced ~150ms
+ * - memory-only (Change 4): no localStorage persistence; buffer is session-scoped
  * - bounded at 500 entries (oldest evicted)
  * - stable method identities: append/remove/list/clear/size/reconcile are
  *   held in a useRef and never change across re-renders. The returned wrapper
@@ -216,22 +145,11 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
     // acknowledge protocol is the real fix). bufferRef starts empty.
   }
 
-  // Tracks whether we've already warned about a persistence failure this session.
-  // cortexStorage.set returns false on quota / private-mode failure; we surface
-  // the first failure but suppress repeats to avoid log spam on every debounce.
-  const persistFailedRef = useRef(false)
-
+  // Change 4: memory-only — no-op. The signature is kept so existing callers
+  // (schedulePersist, mutation handlers) don't need plumbing changes in this
+  // PR. Buffer state is in-memory only; it dies with the cortex session.
   const persistNow = useCallback(() => {
-    const ok = cortexStorage.set(STORAGE_KEY, Array.from(bufferRef.current.values()))
-    if (!ok && !persistFailedRef.current) {
-      persistFailedRef.current = true
-      console.warn(
-        '[cortex] Staging buffer persistence failed (localStorage quota or private mode); pending edits live only in memory and will be lost on reload.',
-      )
-    } else if (ok && persistFailedRef.current) {
-      // Recovered — clear the flag so a future failure surfaces again.
-      persistFailedRef.current = false
-    }
+    // intentionally empty — staging buffer is in-memory only
   }, [])
 
   const schedulePersist = useCallback(() => {

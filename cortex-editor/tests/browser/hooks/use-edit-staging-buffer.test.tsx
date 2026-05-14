@@ -42,30 +42,10 @@ describe('useEditStagingBuffer', () => {
     localStorage.clear()
   })
 
-  it('append writes to localStorage debounced (~150ms)', async () => {
-    const setSpy = vi.spyOn(cortexStorage, 'set')
-    const { result, unmount } = renderHook(() => useEditStagingBuffer())
-
-    const edit = makeEdit()
-    await act(() => {
-      result.current.append(edit)
-    })
-
-    // Not called synchronously
-    expect(setSpy).not.toHaveBeenCalledWith('staging-buffer', expect.anything())
-
-    // Advance past debounce threshold
-    await act(() => {
-      vi.advanceTimersByTime(150)
-    })
-
-    expect(setSpy).toHaveBeenCalledWith('staging-buffer', expect.arrayContaining([
-      expect.objectContaining({ intentId: edit.intentId }),
-    ]))
-
-    unmount()
-    setSpy.mockRestore()
-  })
+  // Change 4: memory-only — the old "append writes to localStorage debounced"
+  // test is now inverted: see the "no persistence" test above, which proves
+  // setItem is never called. This placeholder is removed; the no-persistence
+  // test is the canonical assertion for this behavior.
 
   it('same composite key (source\\0property\\0pseudo) collapses last-write-wins', async () => {
     const { result, unmount } = renderHook(() => useEditStagingBuffer())
@@ -478,7 +458,38 @@ describe('useEditStagingBuffer', () => {
     unmount()
   })
 
-  it('unmount flushes pending debounced write', async () => {
+  // Change 4: memory-only — persistNow must be a no-op. This test proves no
+  // setItem referencing the staging-buffer key is ever called after a mutation.
+  it('no persistence: append does not write staging-buffer to localStorage (memory-only)', async () => {
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem')
+    const { result, unmount } = renderHook(() => useEditStagingBuffer())
+
+    const edit = makeEdit({ intentId: 'no-persist-check' })
+    await act(() => {
+      result.current.append(edit)
+    })
+
+    // Advance past debounce threshold to ensure any scheduled persist would have fired
+    await act(() => {
+      vi.advanceTimersByTime(300)
+    })
+
+    // Verify no setItem call referenced the staging-buffer key
+    const stagingBufferWrites = setItemSpy.mock.calls.filter(
+      args => typeof args[0] === 'string' && args[0].includes('staging-buffer'),
+    )
+    expect(stagingBufferWrites).toHaveLength(0)
+
+    unmount()
+    setItemSpy.mockRestore()
+  })
+
+  // Change 4: memory-only — unmount still cancels the debounce timer (no crash,
+  // no dangling setItem). We verify no persistence side-effect occurs and the
+  // hook unmounts cleanly. The old assertion (localStorage written on unmount) is
+  // inverted: no localStorage write must occur.
+  it('unmount cancels debounce timer — no localStorage write occurs', async () => {
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem')
     const { result, unmount } = renderHook(() => useEditStagingBuffer())
 
     const edit = makeEdit({ intentId: 'flush-on-unmount', value: 'flushed-value' })
@@ -486,23 +497,22 @@ describe('useEditStagingBuffer', () => {
       result.current.append(edit)
     })
 
-    // Debounce timer has NOT fired — verify nothing in storage yet
-    // (localStorage key won't exist since we cleared in beforeEach and timer hasn't fired)
+    // Debounce timer has NOT fired — staging-buffer key does not exist
     const keyBefore = Object.keys(localStorage).find(k => k.endsWith(':staging-buffer'))
     expect(keyBefore).toBeUndefined()
 
-    // Unmount should flush immediately without waiting for the debounce
+    // Unmount — this calls flush() which calls persistNow() (now a no-op).
+    // The timer is cancelled; no setItem for the staging-buffer key must fire.
     await act(() => {
       unmount()
     })
 
-    // After unmount, the buffer should be written to localStorage immediately
-    const keyAfter = Object.keys(localStorage).find(k => k.endsWith(':staging-buffer'))
-    expect(keyAfter).toBeDefined()
-    const stored = JSON.parse(localStorage.getItem(keyAfter!)!)
-    expect(stored).toEqual(expect.arrayContaining([
-      expect.objectContaining({ intentId: 'flush-on-unmount' }),
-    ]))
+    const stagingBufferWrites = setItemSpy.mock.calls.filter(
+      args => typeof args[0] === 'string' && args[0].includes('staging-buffer'),
+    )
+    expect(stagingBufferWrites).toHaveLength(0)
+
+    setItemSpy.mockRestore()
   })
 })
 

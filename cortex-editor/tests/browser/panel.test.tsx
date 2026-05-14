@@ -6,8 +6,7 @@ import { Panel } from '../../src/browser/components/Panel.js'
 import { renderInShadow, mockGetComputedStyle, createShadowHost, createMockChannel } from './helpers.js'
 import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
 import { _resetBusForTesting } from '../../src/browser/override-bus.js'
-import { cortexStorage } from '../../src/browser/persistence.js'
-import { isPendingEditArray, useEditStagingBuffer, type PendingEdit, type StagingBufferHandle } from '../../src/browser/hooks/useEditStagingBuffer.js'
+import { useEditStagingBuffer, type PendingEdit, type StagingBufferHandle } from '../../src/browser/hooks/useEditStagingBuffer.js'
 import * as bufferModule from '../../src/browser/hooks/useEditStagingBuffer.js'
 import { CommandStack } from '../../src/browser/command-stack.js'
 import { PREVIEW_SOURCE_ATTR, PREVIEW_SOURCE_PREFIX } from '../../src/browser/preview-source.js'
@@ -26,13 +25,18 @@ function makeFakeBuffer(): StagingBufferHandle {
 }
 
 /**
- * Wrapper component for tests that need a real useEditStagingBuffer instance
- * (e.g. staging-buffer-wiring tests that assert localStorage persistence).
+ * Wrapper component for tests that need a real useEditStagingBuffer instance.
  * Calls the hook internally and passes the result to Panel as the `buffer` prop.
+ * Optional `bufferRef` receives the buffer handle so tests can inspect in-memory
+ * state directly (Change 4: memory-only — no localStorage observation needed).
  */
-function PanelWithRealBuffer(props: Omit<Parameters<typeof Panel>[0], 'buffer'>) {
+function PanelWithRealBuffer(props: Omit<Parameters<typeof Panel>[0], 'buffer'> & {
+  bufferRef?: { current: StagingBufferHandle | null }
+}) {
+  const { bufferRef, ...rest } = props
   const buffer = useEditStagingBuffer()
-  return <Panel {...props} buffer={buffer} />
+  if (bufferRef) bufferRef.current = buffer
+  return <Panel {...rest} buffer={buffer} />
 }
 
 /**
@@ -43,9 +47,14 @@ function PanelWithRealBuffer(props: Omit<Parameters<typeof Panel>[0], 'buffer'>)
  */
 function PanelWithInitEdits({
   initialEdits,
+  bufferRef,
   ...props
-}: Omit<Parameters<typeof Panel>[0], 'buffer'> & { initialEdits: PendingEdit[] }) {
+}: Omit<Parameters<typeof Panel>[0], 'buffer'> & {
+  initialEdits: PendingEdit[]
+  bufferRef?: { current: StagingBufferHandle | null }
+}) {
   const buffer = useEditStagingBuffer()
+  if (bufferRef) bufferRef.current = buffer
   const seededRef = useRef(false)
   if (!seededRef.current) {
     seededRef.current = true
@@ -1151,7 +1160,6 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
   })
 
   it('commitScrub appends PendingEdit to staging buffer', async () => {
-    // Use fake timers to control debounce flush.
     vi.useFakeTimers()
 
     const target = document.createElement('div')
@@ -1174,12 +1182,14 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
       flush: vi.fn(),
     }
 
+    const bufferRef: { current: StagingBufferHandle | null } = { current: null }
     const { root, cleanup } = renderInShadow(
       <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        bufferRef={bufferRef}
         {...panelPositionProps}
       />
     )
@@ -1205,18 +1215,9 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
       await Promise.resolve()
     })
 
-    // Buffer is debounced — not written yet
-    expect(cortexStorage.get('staging-buffer', [], isPendingEditArray)).toHaveLength(0)
-
-    // Advance past debounce threshold
-    await act(() => {
-      vi.advanceTimersByTime(150)
-    })
-
-    // Now the buffer should be persisted to localStorage. Assert exact
-    // property/value/intentId-shape — every assertion must be capable of
-    // failing if the wiring is wrong.
-    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    // Change 4: memory-only — assert in-memory buffer directly (no localStorage).
+    // append() is synchronous; the intent is in the buffer immediately after the click.
+    const stored = bufferRef.current!.list()
     expect(stored.length).toBeGreaterThan(0)
     const edit = stored[0]
     expect(edit.source).toBe('src/Hero.tsx:14:5')
@@ -1251,12 +1252,14 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
       flush: vi.fn(),
     }
 
+    const bufferRef2: { current: StagingBufferHandle | null } = { current: null }
     const { root, cleanup } = renderInShadow(
       <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        bufferRef={bufferRef2}
         {...panelPositionProps}
       />
     )
@@ -1275,11 +1278,8 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
       await Promise.resolve()
     })
 
-    await act(() => {
-      vi.advanceTimersByTime(150)
-    })
-
-    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    // Change 4: memory-only — assert in-memory buffer directly.
+    const stored = bufferRef2.current!.list()
     expect(stored).toHaveLength(1)
     expect(stored[0].source).toMatch(/^cortex-preview:/)
     expect(stored[0].applyMode).toBe('agent-resolve')
@@ -1754,6 +1754,7 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
       flush: vi.fn(),
     }
 
+    const discardBufRef: { current: StagingBufferHandle | null } = { current: null }
     const { cleanup } = renderInShadow(
       <PanelWithInitEdits
         initialEdits={initialEdits}
@@ -1762,6 +1763,7 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        bufferRef={discardBufRef}
         {...panelPositionProps}
       />,
     )
@@ -1774,22 +1776,15 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
       await new Promise(r => setTimeout(r, 50))
     })
 
-    // Switch to fake timers now that the handler is registered, so the
-    // 150ms persist debounce can be advanced deterministically.
-    vi.useFakeTimers()
-
     // Server tells browser to discard 'discard-me'.
     await act(async () => {
       channel._simulateMessage({ type: 'staged-edits-discard', intentIds: ['discard-me'] } as any)
       await Promise.resolve()
     })
 
-    // Advance past the 150ms persist debounce to trigger persistNow().
-    await act(() => {
-      vi.advanceTimersByTime(200)
-    })
-
-    const remaining = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    // Change 4: memory-only — assert in-memory buffer directly.
+    // remove() is synchronous; no debounce advancement needed.
+    const remaining = discardBufRef.current!.list()
     expect(remaining).toHaveLength(1)
     expect(remaining[0].intentId).toBe('keep-me')
 
@@ -1880,6 +1875,7 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
 
+    const ac1BufRef: { current: StagingBufferHandle | null } = { current: null }
     render(
       <PanelWithRealBuffer
         selectedElements={[el1, el2]}
@@ -1887,6 +1883,7 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
         commandStack={commandStack}
         onClose={() => {}}
         onSelectElement={() => {}}
+        bufferRef={ac1BufRef}
         {...panelPositionProps}
       />,
       container,
@@ -1894,10 +1891,8 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
 
     await triggerCommitScrub(container)
 
-    // Advance past the 150ms persist debounce
-    await act(() => { vi.advanceTimersByTime(200) })
-
-    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    // Change 4: memory-only — assert in-memory buffer directly.
+    const stored = ac1BufRef.current!.list()
     expect(stored).toHaveLength(2)
 
     const sources = stored.map(e => e.source).sort()
@@ -1948,6 +1943,7 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
 
+    const ac5BufRef: { current: StagingBufferHandle | null } = { current: null }
     render(
       <PanelWithRealBuffer
         selectedElements={[el1, el2, el3]}
@@ -1955,6 +1951,7 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
         commandStack={commandStack}
         onClose={() => {}}
         onSelectElement={() => {}}
+        bufferRef={ac5BufRef}
         {...panelPositionProps}
       />,
       container,
@@ -1962,9 +1959,8 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
 
     await triggerCommitScrub(container)
 
-    await act(() => { vi.advanceTimersByTime(200) })
-
-    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    // Change 4: memory-only — assert in-memory buffer directly.
+    const stored = ac5BufRef.current!.list()
     expect(stored).toHaveLength(3)
 
     const sources = stored.map(e => e.source).sort()
@@ -2004,6 +2000,7 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
 
+    const ac2BufRef: { current: StagingBufferHandle | null } = { current: null }
     render(
       <PanelWithRealBuffer
         selectedElements={[el1, el2]}
@@ -2011,6 +2008,7 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
         commandStack={commandStack}
         onClose={() => {}}
         onSelectElement={() => {}}
+        bufferRef={ac2BufRef}
         {...panelPositionProps}
       />,
       container,
@@ -2018,11 +2016,9 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
 
     await triggerCommitScrub(container)
 
-    // Advance so intents are persisted
-    await act(() => { vi.advanceTimersByTime(200) })
-
+    // Change 4: memory-only — assert in-memory buffer directly.
     // Verify 2 intents in the buffer
-    const before = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    const before = ac2BufRef.current!.list()
     expect(before).toHaveLength(2)
 
     // One command was recorded
@@ -2034,10 +2030,7 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
       await Promise.resolve()
     })
 
-    // Advance to flush the post-undo remove through the debounce
-    await act(() => { vi.advanceTimersByTime(200) })
-
-    const after = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    const after = ac2BufRef.current!.list()
     expect(after).toHaveLength(0)
 
     render(null, container)
@@ -2071,12 +2064,14 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
 
+    const ac3BufRef: { current: StagingBufferHandle | null } = { current: null }
     render(
       <PanelWithRealBuffer
         selectedElements={[el1, el2]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        bufferRef={ac3BufRef}
         {...panelPositionProps}
       />,
       container,
@@ -2099,9 +2094,8 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     // Now trigger an edit
     await triggerCommitScrub(container)
 
-    await act(() => { vi.advanceTimersByTime(200) })
-
-    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    // Change 4: memory-only — assert in-memory buffer directly.
+    const stored = ac3BufRef.current!.list()
     // 2 intents: one for el1-source, one for el2-source
     expect(stored).toHaveLength(2)
 
@@ -2150,12 +2144,14 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
 
+    const scopeAllBufRef: { current: StagingBufferHandle | null } = { current: null }
     render(
       <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        bufferRef={scopeAllBufRef}
         {...panelPositionProps}
       />,
       container,
@@ -2174,9 +2170,9 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     })
 
     await triggerCommitScrub(container)
-    await act(() => { vi.advanceTimersByTime(200) })
 
-    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    // Change 4: memory-only — assert in-memory buffer directly.
+    const stored = scopeAllBufRef.current!.list()
     expect(stored).toHaveLength(1)
     expect(stored[0].source).toBe('src/A.tsx:10:3')
     expect(stored[0].instanceSources).toContain('src/A.tsx:10:3')
@@ -2202,12 +2198,14 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
 
+    const ac4BufRef: { current: StagingBufferHandle | null } = { current: null }
     render(
       <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        bufferRef={ac4BufRef}
         {...panelPositionProps}
       />,
       container,
@@ -2215,9 +2213,8 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
 
     await triggerCommitScrub(container)
 
-    await act(() => { vi.advanceTimersByTime(200) })
-
-    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    // Change 4: memory-only — assert in-memory buffer directly.
+    const stored = ac4BufRef.current!.list()
     // Single-select: exactly 1 intent for the primary element
     expect(stored).toHaveLength(1)
     expect(stored[0].source).toBe('src/Hero.tsx:14:5')
