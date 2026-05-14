@@ -1,0 +1,62 @@
+cortex-editor/src/schemas/wire-format.ts
+  s_472c47cfcc8bfe::t_3d027dce215f56 374-375,379
+cortex-editor/tests/adapters/webpack.test.ts
+  s_472c47cfcc8bfe::t_cd537325464954 601-779
+cortex-editor/src/adapters/vite.ts
+  s_472c47cfcc8bfe::t_1bcb4527aff808 1371-1378
+cortex-editor/src/adapters/webpack.ts
+  s_472c47cfcc8bfe::t_33bf3a39197f85 864-869
+  s_472c47cfcc8bfe::t_c5f28e7ae2874f 960-972,978-989
+cortex-editor/src/schemas/mcp-tool-inputs.ts
+  s_472c47cfcc8bfe::t_c57febbbd9e84d 76
+cortex-editor/tests/fixtures/wire-format/server-to-browser/source-edit-failed.json
+  s_472c47cfcc8bfe::t_c279dbb7775e74 1-5
+cortex-editor/src/browser/components/CortexApp.tsx
+  s_472c47cfcc8bfe::t_2d2e322cca5c79 1394
+  s_472c47cfcc8bfe::t_965bef49a2e171 133-136
+  s_472c47cfcc8bfe::t_a91a082268941a 858-868,876-883
+  s_472c47cfcc8bfe::t_ad7ba04fe4de9d 1393
+cortex-editor/src/browser/components/Panel.tsx
+  s_472c47cfcc8bfe::t_3bfabb1e2576b8 276-277,280
+  s_472c47cfcc8bfe::t_744d5007fa0414 1499
+  s_472c47cfcc8bfe::t_33a5856f8e1b78 372
+  s_472c47cfcc8bfe::t_1d91219e969923 278-279,281-282
+  s_472c47cfcc8bfe::t_6e9cc79afe077b 323
+  s_472c47cfcc8bfe::t_4f0e6b683e099a 357-362
+  s_472c47cfcc8bfe::t_c508ccbc3391c3 324
+  s_472c47cfcc8bfe::t_39829a2e42d619 368-371,373
+cortex-editor/tests/browser/panel-t4-integration.test.tsx
+  s_472c47cfcc8bfe::t_bbf61506fb75b5 19
+  s_472c47cfcc8bfe::t_b5817ea3034263 58-71
+cortex-editor/tests/browser/cortex-app.test.tsx
+  s_472c47cfcc8bfe::t_847491d5c9b90f 1129-1257
+cortex-editor/tests/adapters/vite.test.ts
+  s_472c47cfcc8bfe::t_9554b218d8ecfb 1186-1211
+cortex-editor/tests/browser/panel.test.tsx
+  s_472c47cfcc8bfe::t_a673ebdf749b1e 1693-1700,1749,1754-1755,1757,1761
+  s_472c47cfcc8bfe::t_f1c98d7c9f6543 1770-1776,1791-1792,1801-1802,1807
+cortex-editor/src/browser/components/PanelHeader.tsx
+  s_472c47cfcc8bfe::t_fdc58157b4f50a 284,291-298
+  s_472c47cfcc8bfe::t_1387062090c92c 240-243
+  s_472c47cfcc8bfe::t_5e25c90472b3ca 267
+cortex-editor/tests/fixtures/wire-format/server-to-browser/mcp-session-hello.json
+  s_472c47cfcc8bfe::t_92ea8662a816a5 1-4
+cortex-editor/tests/schemas/contract.test.ts
+  s_472c47cfcc8bfe::t_89e5e257e41064 68-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "116118683828db2bc55bc027b2d5545167ac800c",
+  "prompts": {},
+  "sessions": {
+    "s_472c47cfcc8bfe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4f564dec-8711-4ac0-9d33-36690313e69a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
