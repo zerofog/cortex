@@ -367,6 +367,13 @@ export function Panel({
       if (msg.type === 'staged-edits-discard') {
         const ids = (msg as { type: 'staged-edits-discard'; intentIds: string[] }).intentIds
         buffer.remove(ids)
+      } else if (msg.type === 'source-edit-failed') {
+        // Change 7 (ZF0-1869): server's Edit-tool agent failed to land a
+        // needs-source-edit intent. The intent stays in the buffer so the
+        // designer can retry or discard. Surface the reason string in the
+        // applyError banner so the failure is visible in the UI.
+        const { reason } = msg as { type: 'source-edit-failed'; intentIds: string[]; reason: string }
+        setApplyError(reason)
       }
     })
   }, [channel, buffer])

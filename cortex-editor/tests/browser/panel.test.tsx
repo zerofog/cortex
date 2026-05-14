@@ -1778,6 +1778,70 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     cleanup()
     target.remove()
   })
+
+  it('source-edit-failed server message surfaces reason in applyError banner (ZF0-1869 Task 10)', async () => {
+    // Change 7 (ZF0-1869): when the server's Edit-tool agent cannot land a
+    // needs-source-edit intent it broadcasts { type: 'source-edit-failed',
+    // intentIds, reason }. The browser must surface `reason` in the applyError
+    // banner so the designer sees why the apply failed and can retry or discard.
+    // The intent deliberately stays in the buffer (server invariant — not removed
+    // on failure so the user can retry). We verify:
+    //   (a) the .cortex-apply-error[role="alert"] banner appears, and
+    //   (b) it contains the reason string.
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/App.tsx:31:5')
+    document.body.appendChild(target)
+
+    const channel = createMockChannel()
+    const overrideManager = {
+      set: vi.fn(),
+      get: vi.fn(),
+      remove: vi.fn(),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+    }
+
+    const { root, cleanup } = renderInShadow(
+      <PanelWithInitEdits
+        initialEdits={[]}
+        selectedElements={[target]}
+        channel={channel}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        {...panelPositionProps}
+      />,
+    )
+
+    // Flush effects so the useEffect that registers the channel.onMessage
+    // subscriber fires before we simulate the inbound message.
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 50))
+    })
+
+    // No banner before the failure message.
+    expect(root.querySelector('.cortex-apply-error')).toBeNull()
+
+    // Server reports Edit-tool failure.
+    const reason = "couldn't find pattern at App.tsx:31"
+    await act(async () => {
+      channel._simulateMessage({
+        type: 'source-edit-failed',
+        intentIds: ['i1'],
+        reason,
+      })
+      await Promise.resolve()
+    })
+
+    // Banner must be visible and contain the reason.
+    const banner = root.querySelector('.cortex-apply-error[role="alert"]')
+    expect(banner).not.toBeNull()
+    expect(banner!.textContent).toContain(reason)
+
+    cleanup()
+    target.remove()
+  })
 })
 
 describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
