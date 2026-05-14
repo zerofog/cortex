@@ -1553,16 +1553,16 @@ describe('cortex mcp', () => {
     })
   })
 
-  // ── ZF0-1869 Task 9: four-outcome protocol in apply/discard descriptions ──
+  // ── ZF0-1869 Task 9 + criterion 26: four-outcome protocol in apply/discard descriptions ──
   describe('ZF0-1869 Task 9: four-outcome protocol in tool descriptions', () => {
-    // cortex_apply_edits description must enumerate all three loop-closing tools
-    // so Claude knows EXACTLY which tool to call for each needs-source-edit result.
-    // Falsifiable: removing any one tool name from the description fails its row.
+    // cortex_apply_edits description must enumerate all four loop-closing outcomes
+    // (criteria 25+26). Falsifiable: removing any one entry from the description fails its row.
     it.each([
       ['cortex_acknowledge_source_edit', 'cortex_acknowledge_source_edit'],
       ['cortex_report_source_edit_failed', 'cortex_report_source_edit_failed'],
       ['cortex_discard_edits (loop-close reference)', 'cortex_discard_edits'],
-    ] as const)('cortex_apply_edits description names loop-closing tool: %s', async (_label, toolName) => {
+      ['reconcile-on-connect (4th outcome automatic fallback)', 'reconcile-on-connect'],
+    ] as const)('cortex_apply_edits description names loop-closing outcome: %s', async (_label, toolName) => {
       const client = await startTestServer(mockVite.port)
       await waitForConnection(mockVite)
 

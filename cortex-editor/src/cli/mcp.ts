@@ -684,10 +684,11 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
       description: [
         "Route staged edits via cortex's deterministic rewriters (TailwindResolver, CSS Modules rewriter, InlineStyleRewriter). Returns per-id result indicating one of: 'applied' (cortex applied directly with mechanism: tailwind | css-module | inline-style), 'needs-source-edit' (use the Edit tool to write source at intent.source), or 'failed' (intent not found, apply timeout, or rewriter error).",
         '',
-        "For each result with status 'needs-source-edit', close the loop with EXACTLY ONE of:",
-        '  1. cortex_acknowledge_source_edit([intentId]) — after Edit tool succeeds',
+        "For each result with status 'needs-source-edit', the loop MUST close via EXACTLY ONE of four outcomes:",
+        '  1. cortex_acknowledge_source_edit([intentId]) — after Edit tool succeeds (preferred)',
         '  2. cortex_report_source_edit_failed([intentId], reason) — after Edit tool fails',
         '  3. cortex_discard_edits([intentId]) — when the user changes their mind',
+        '  4. reconcile-on-connect (automatic fallback) — if you crash or are interrupted before closing the loop, cortex auto-clears the intent on the next MCP reconnect if the target element already reflects the intended value; prefer explicitly closing the loop with (1)/(2)/(3).',
         '',
         'Failing to close the loop with (1)/(2)/(3) leaves a phantom intent in the buffer that surfaces as a stale Apply (n) badge to the user.',
       ].join('\n'),

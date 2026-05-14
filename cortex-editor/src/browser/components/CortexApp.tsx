@@ -30,7 +30,7 @@ import { useDrag } from '../hooks/useDrag.js'
 import { useSnapToEdge } from '../hooks/useSnapToEdge.js'
 import { useCanvasZoom } from '../hooks/useCanvasZoom.js'
 import { useOutsideDismiss } from '../hooks/useOutsideDismiss.js'
-import { captureSelectionMetadata, reResolveSelection, shouldRefreshOnHMR } from '../selection-metadata.js'
+import { captureSelectionMetadata, reResolveSelection, shouldRefreshOnHMR, deepQuerySelectorAll } from '../selection-metadata.js'
 import type { SelectionMetadata } from '../selection-metadata.js'
 import { dismissTopmostPopover, hasOpenPopover } from '../popover-stack.js'
 import { markPageColorChips } from '../page-color-chips.js'
@@ -688,6 +688,61 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       return entry
     }
 
+    // Criterion 25 (ZF0-1869): reconcile-on-connect — auto-clear already-landed intents.
+    //
+    // On reconnect (mcp-session-hello on the no-wipe paths: first-adopt + same-UUID),
+    // walk the staging buffer and remove intents whose target element's live value
+    // ALREADY equals the intent's target value. This is the 4th outcome safety net
+    // of the Change-7 acknowledgement protocol: if Claude crashed or was interrupted
+    // between the Edit tool and cortex_acknowledge_source_edit, the intent is stuck
+    // in the buffer as a phantom. On the next reconnect this read detects "the edit
+    // clearly already landed" and auto-clears the stale intent.
+    //
+    // IMPORTANT: reads via overrideRef.current.readSourceValue() which bypasses
+    // cortex's own !important override stylesheet. Without the bypass, any intent
+    // with an active CSS override would always appear "matched" (false positive).
+    //
+    // Early-return guards:
+    //   - overrideRef.current is null until the CSSOverrideManager is initialized
+    //     (this useEffect initializes it immediately above, so in practice it's
+    //     always set when reconcileOnConnect is called from the message handler —
+    //     but null-guard is defensive for tests / strict-mode double-mount).
+    //   - buffer.size() === 0: no intents → no work.
+    //
+    // Element resolution uses deepQuerySelectorAll (shadow-piercing, same as
+    // buffer.reconcile's internal element-index build) to find elements annotated
+    // with `data-cortex-source`. Intents whose element is not found in the DOM are
+    // not auto-cleared — they're treated as divergent and left for the user to handle.
+    const reconcileOnConnect = (): void => {
+      const override = overrideRef.current
+      if (!override || buffer.size() === 0) return
+
+      // Build source → element index once (O(DOM)) to avoid O(intents × DOM) fan-out.
+      // Same first-seen-wins + traversal-order semantics as buffer.reconcile internals.
+      const elBySource = new Map<string, Element>()
+      for (const el of deepQuerySelectorAll('[data-cortex-source]')) {
+        const src = el.getAttribute('data-cortex-source')
+        if (src !== null && !elBySource.has(src)) elBySource.set(src, el)
+      }
+
+      const convergedIds: string[] = []
+      for (const edit of buffer.list()) {
+        // Match by full source (data-cortex-source includes :line:col).
+        const el = elBySource.get(edit.source)
+        if (!el) continue  // element not in DOM — leave intent for user to handle
+
+        const pseudo = edit.pseudo ?? null
+        const liveValue = override.readSourceValue(el, edit.property, pseudo).trim()
+        if (liveValue === edit.value.trim()) {
+          convergedIds.push(edit.intentId)
+        }
+      }
+
+      if (convergedIds.length > 0) {
+        buffer.remove(convergedIds)
+      }
+    }
+
     // Listen-first ordering: subscribe to onMessage BEFORE sending init. The server's
     // hello response is async, so attaching this handler first guarantees it's live
     // when the response arrives. Emitting init before this line would race.
@@ -891,10 +946,20 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (msg.type === 'mcp-session-hello') {
         if (lastSessionIdRef.current === null) {
           lastSessionIdRef.current = msg.sessionId      // first adoption — no wipe
+          // Criterion 25: reconcile-on-connect on the first-adopt (no-wipe) path.
+          // Detects intents whose target element already has the expected value —
+          // the safety net for a stuck needs-source-edit intent after a Claude crash
+          // between the Edit tool and cortex_acknowledge_source_edit.
+          reconcileOnConnect()
         } else if (lastSessionIdRef.current !== msg.sessionId) {
           buffer.clear()
           setApplyError(null)   // also clear any stale error banner from the prior session
           lastSessionIdRef.current = msg.sessionId
+          // Different-UUID path: buffer already wiped — reconcile is moot.
+        } else {
+          // Same-UUID reconnect (transient reconnect) — also a no-wipe path.
+          // Run reconcile to catch intents that landed while MCP was disconnected.
+          reconcileOnConnect()
         }
         return
       }

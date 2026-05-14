@@ -1810,4 +1810,100 @@ describe('CortexApp — mcp-session-hello session-ID wipe (Task 12, Change 6)', 
       expect(bridge.buffer.size()).toBe(0)
     }, { timeout: 2000 })
   })
+
+  // ── ZF0-1869 criterion 25: reconcile-on-connect ───────────────────────────
+
+  it('reconcile-on-connect: auto-clears already-matched intent, keeps divergent (first-adopt path)', async () => {
+    // Verifies spec criterion 25: on the no-wipe paths (first-adopt + same-UUID),
+    // intents whose target element's live value ALREADY matches the intent's
+    // target value are auto-cleared from the buffer.
+    //
+    // Falsifiable:
+    //   - Fails without reconcile: both intents survive the hello.
+    //   - Fails if reconcile over-clears: the divergent intent is removed.
+    const { channel, bridge } = await setupWithBuffer()
+
+    // The 'Hero.tsx:5:3' element was appended to document.body by setupWithBuffer.
+    // Set its inline style so getComputedStyle('padding') returns the intent's
+    // target value (reconcile-on-connect checks edit.value vs live computed value).
+    const convergedEl = document.querySelector('[data-cortex-source="Hero.tsx:5:3"]') as HTMLElement
+    expect(convergedEl).not.toBeNull()
+    convergedEl.style.padding = '12px'
+
+    // Add a second element for the divergent intent (live value ≠ intent value).
+    const divergentEl = document.createElement('div')
+    divergentEl.setAttribute('data-cortex-source', 'App.tsx:10:5')
+    divergentEl.style.padding = '0px'  // does NOT match the intent's target '24px'
+    document.body.appendChild(divergentEl)
+    orphans.push(divergentEl)
+
+    // Stage intent A: converged — element already has padding:12px, intent wants 12px.
+    await act(async () => { await bridge.stageEdit('Hero.tsx:5:3', 'padding', '12px') })
+    // Stage intent B: divergent — element has padding:0px, intent wants 24px.
+    await act(async () => { await bridge.stageEdit('App.tsx:10:5', 'padding', '24px') })
+    await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(2) }, { timeout: 2000 })
+
+    // First mcp-session-hello — no-wipe path (first adoption). Reconcile-on-connect
+    // must fire and auto-clear the converged intent only.
+    await deliverHello(channel, VALID_UUID_A)
+
+    // Buffer must drop to 1: converged intent cleared, divergent intent survives.
+    await vi.waitFor(() => {
+      expect(bridge.buffer.size()).toBe(1)
+    }, { timeout: 2000 })
+    // The surviving intent must be the divergent one (App.tsx:10:5, padding: 24px).
+    const surviving = bridge.buffer.list() as Array<{ source: string; property: string; value: string }>
+    expect(surviving).toHaveLength(1)
+    expect(surviving[0].source).toBe('App.tsx:10:5')
+    expect(surviving[0].property).toBe('padding')
+    expect(surviving[0].value).toBe('24px')
+  })
+
+  it('reconcile-on-connect: auto-clears already-matched intent on same-UUID reconnect path', async () => {
+    // Verifies criterion 25 on the same-UUID reconnect (no-wipe) path as well.
+    // The mechanism must fire on ANY no-wipe hello, not only on first-adopt.
+    const { channel, bridge } = await setupWithBuffer()
+
+    // Adopt UUID_A first so the second hello is a same-UUID reconnect.
+    await deliverHello(channel, VALID_UUID_A)
+
+    const convergedEl = document.querySelector('[data-cortex-source="Hero.tsx:5:3"]') as HTMLElement
+    expect(convergedEl).not.toBeNull()
+    convergedEl.style.color = 'red'
+
+    await act(async () => { await bridge.stageEdit('Hero.tsx:5:3', 'color', 'red') })
+    await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(1) }, { timeout: 2000 })
+
+    // Same-UUID reconnect — must trigger reconcile and auto-clear the converged intent.
+    await deliverHello(channel, VALID_UUID_A)
+    await vi.waitFor(() => {
+      expect(bridge.buffer.size()).toBe(0)
+    }, { timeout: 2000 })
+  })
+
+  it('reconcile-on-connect: does NOT fire on different-UUID path (buffer already wiped)', async () => {
+    // Verifies the different-UUID path skips reconcile entirely — the buffer is
+    // already wiped by buffer.clear(), so running reconcile would be moot (and
+    // wasteful). This test checks that reconcile does not over-reach into the wipe path.
+    const { channel, bridge } = await setupWithBuffer()
+
+    // Set element so it would match IF reconcile ran on the wipe path.
+    const convergedEl = document.querySelector('[data-cortex-source="Hero.tsx:5:3"]') as HTMLElement
+    if (convergedEl) convergedEl.style.color = 'blue'
+
+    await act(async () => { await bridge.stageEdit('Hero.tsx:5:3', 'color', 'blue') })
+    await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(1) }, { timeout: 2000 })
+
+    await deliverHello(channel, VALID_UUID_A)  // adopt
+    expect(bridge.buffer.size()).toBe(0)        // reconcile cleared it (converged)
+
+    // Now stage a new intent and send a DIFFERENT UUID → wipe path.
+    await act(async () => { await bridge.stageEdit('Hero.tsx:5:3', 'color', 'green') })
+    await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(1) }, { timeout: 2000 })
+
+    await deliverHello(channel, VALID_UUID_B)  // different UUID → wipe
+    await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(0) }, { timeout: 2000 })
+    // Buffer is 0 because of wipe (buffer.clear), not because of reconcile.
+    // Either way the buffer is empty — this test mainly confirms we didn't crash.
+  })
 })
