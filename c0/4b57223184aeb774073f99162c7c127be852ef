@@ -1,0 +1,50 @@
+cortex-editor/tests/browser/panel-section-order.test.ts
+  s_472c47cfcc8bfe::t_ba57dc063bdf53 4
+  s_472c47cfcc8bfe::t_b3d67c88c0a2d8 100
+  s_472c47cfcc8bfe::t_7546bc268a174c 326
+cortex-editor/tests/browser/panel-t4-integration.test.tsx
+  s_472c47cfcc8bfe::t_53c883cfdd9e46 614-615
+  s_472c47cfcc8bfe::t_d1a46eb5ecf556 707-709,712-713,731-733,736-737
+  s_472c47cfcc8bfe::t_badfc75a3d5375 319-320
+  s_472c47cfcc8bfe::t_e1fedabc7c21d0 19,30-31,35-57
+  s_472c47cfcc8bfe::t_71802fc20bd760 215,652,816,891,966
+  s_472c47cfcc8bfe::t_1e6ba4bf770ccd 24,27-29,32-34,58-59
+  s_472c47cfcc8bfe::t_a1fb61b5d5eabf 25-26
+  s_472c47cfcc8bfe::t_4d0074f4d4bc7f 133-134
+  s_472c47cfcc8bfe::t_c327cdfb19abfd 375-376
+  s_472c47cfcc8bfe::t_efeb0f11389da4 444-445
+  s_472c47cfcc8bfe::t_d1e09beac2acc0 494-495
+  s_472c47cfcc8bfe::t_b94cae442c997e 549-550
+  s_472c47cfcc8bfe::t_4fe73d46c25ee0 260-261
+  s_472c47cfcc8bfe::t_da405fc17d54f8 182-183
+cortex-editor/tests/browser/helpers.ts
+  s_472c47cfcc8bfe::t_8c2c3310395fd2 290-306
+  s_472c47cfcc8bfe::t_b3246e0a93da76 4
+cortex-editor/tests/browser/panel-no-bottom-input.test.tsx
+  s_472c47cfcc8bfe::t_21cd82b8f863c2 103
+  s_472c47cfcc8bfe::t_26a2773f61d26d 6
+cortex-editor/tests/browser/panel.test.tsx
+  s_472c47cfcc8bfe::t_47813acea5db77 6
+cortex-editor/tests/browser/panel.classop.test.tsx
+  s_472c47cfcc8bfe::t_be7f63233dfb02 99
+  s_472c47cfcc8bfe::t_5cc3b696a961ec 7
+cortex-editor/tests/browser/panel.typography-alignment.test.tsx
+  s_472c47cfcc8bfe::t_1595bd3d6e4855 67
+  s_472c47cfcc8bfe::t_67f1730cde6224 6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "c04b57223184aeb774073f99162c7c127be852ef",
+  "prompts": {},
+  "sessions": {
+    "s_472c47cfcc8bfe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4f564dec-8711-4ac0-9d33-36690313e69a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
