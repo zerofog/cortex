@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
 import { Panel } from '../../src/browser/components/Panel.js'
-import type { PanelProps } from '../../src/browser/components/Panel.js'
 import { renderInShadow, mockGetComputedStyle, createShadowHost, createMockChannel } from './helpers.js'
 import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
 import { _resetBusForTesting } from '../../src/browser/override-bus.js'
@@ -2318,18 +2317,57 @@ describe('Panel — source-only blast-radius banner (ZF0-1583)', () => {
 })
 
 describe('PanelProps.buffer', () => {
-  it('accepts a StagingBufferHandle on the buffer prop', () => {
+  afterEach(() => {
+    localStorage.clear()
+    _resetBusForTesting()
+    _resetTransformBusForTesting()
+  })
+
+  it('uses the passed buffer prop instead of a fresh local hook', () => {
+    // Falsifiable runtime test for Task 1's transitional `bufferProp ?? localBuffer`
+    // wiring. Panel reads buffer.size() during render to drive the Apply-button
+    // count, so if it picked the prop, the prop's spy must have been invoked.
+    // Reverting the impl to `const buffer = localBuffer` makes this FAIL because
+    // the local hook is a different object and the prop's spies stay untouched.
     const fakeBuffer: StagingBufferHandle = {
-      append: () => undefined,
-      remove: () => undefined,
-      list: () => [],
-      clear: () => undefined,
-      size: () => 0,
+      append: vi.fn(),
+      remove: vi.fn(),
+      list: vi.fn(() => []),
+      clear: vi.fn(),
+      size: vi.fn(() => 0),
       version: 0,
-      reconcile: () => ({ divergent: [] }),
+      reconcile: vi.fn(() => ({ divergent: [] })),
     }
-    // Compile-time check: TS would fail if PanelProps lacked the `buffer` field.
-    const props: Pick<PanelProps, 'buffer'> = { buffer: fakeBuffer }
-    expect(props.buffer.size()).toBe(0)
+
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    document.body.appendChild(target)
+
+    const overrideManager = {
+      set: vi.fn(),
+      get: vi.fn(),
+      remove: vi.fn(),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+    }
+
+    const { cleanup } = renderInShadow(
+      <Panel
+        selectedElements={[target]}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        buffer={fakeBuffer}
+        {...panelPositionProps}
+      />
+    )
+
+    // Panel called size() on the PASSED buffer — proves `bufferProp ?? localBuffer`
+    // resolved to the prop, not a freshly-constructed local hook.
+    expect(fakeBuffer.size).toHaveBeenCalled()
+
+    cleanup()
+    target.remove()
   })
 })
