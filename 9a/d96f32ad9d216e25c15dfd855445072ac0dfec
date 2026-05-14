@@ -1,0 +1,19 @@
+cortex-editor/src/browser/components/CortexApp.tsx
+  s_472c47cfcc8bfe::t_17a58ae1dea337 736-739
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "9ad96f32ad9d216e25c15dfd855445072ac0dfec",
+  "prompts": {},
+  "sessions": {
+    "s_472c47cfcc8bfe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4f564dec-8711-4ac0-9d33-36690313e69a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
