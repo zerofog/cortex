@@ -625,9 +625,12 @@ describe('serverToBrowserSchema — source-edit-failed (Change 7, Task 8)', () =
   it('accepts source-edit-failed with intentIds and reason', () => {
     const msg = { type: 'source-edit-failed', intentIds: ['i1', 'i2'], reason: 'permission denied' }
     const result = serverToBrowserSchema.safeParse(msg)
-    expect(result.success).toBe(true)
-    if (result.success) {
-      expect(result.data.type).toBe('source-edit-failed')
+    // Hard, falsifiable assertion: fails if the schema rejects source-edit-failed
+    // or parses it as a different arm.
+    expect(result.success && result.data.type).toBe('source-edit-failed')
+    // `=== 'source-edit-failed'` narrows the discriminated union so the arm
+    // fields below typecheck (expect().toBe() is a runtime check, not a guard).
+    if (result.success && result.data.type === 'source-edit-failed') {
       expect(result.data.intentIds).toEqual(['i1', 'i2'])
       expect(result.data.reason).toBe('permission denied')
     }
