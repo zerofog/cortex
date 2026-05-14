@@ -4,7 +4,6 @@ import { act } from 'preact/test-utils'
 import { useEditStagingBuffer, createPanelSyncEmitter, type PendingEdit, type SyncEmitter } from '../../../src/browser/hooks/useEditStagingBuffer.js'
 import type { CortexChannel } from '../../../src/adapters/types.js'
 import { cortexStorage } from '../../../src/browser/persistence.js'
-import { MAX_INTENT_SOURCE_BYTES, MAX_SOURCE_HINT_FIELD_BYTES } from '../../../src/shared/pending-edit-limits.js'
 import { makeEdit } from '../../core/helpers.js'
 
 function renderHook<T>(hookFn: () => T): { result: { current: T }; unmount: () => void; rerender: (newHookFn: () => T) => void } {
@@ -43,30 +42,10 @@ describe('useEditStagingBuffer', () => {
     localStorage.clear()
   })
 
-  it('append writes to localStorage debounced (~150ms)', async () => {
-    const setSpy = vi.spyOn(cortexStorage, 'set')
-    const { result, unmount } = renderHook(() => useEditStagingBuffer())
-
-    const edit = makeEdit()
-    await act(() => {
-      result.current.append(edit)
-    })
-
-    // Not called synchronously
-    expect(setSpy).not.toHaveBeenCalledWith('staging-buffer', expect.anything())
-
-    // Advance past debounce threshold
-    await act(() => {
-      vi.advanceTimersByTime(150)
-    })
-
-    expect(setSpy).toHaveBeenCalledWith('staging-buffer', expect.arrayContaining([
-      expect.objectContaining({ intentId: edit.intentId }),
-    ]))
-
-    unmount()
-    setSpy.mockRestore()
-  })
+  // Change 4: memory-only — the old "append writes to localStorage debounced"
+  // test is now inverted: see the "no persistence" test above, which proves
+  // setItem is never called. This placeholder is removed; the no-persistence
+  // test is the canonical assertion for this behavior.
 
   it('same composite key (source\\0property\\0pseudo) collapses last-write-wins', async () => {
     const { result, unmount } = renderHook(() => useEditStagingBuffer())
@@ -128,6 +107,19 @@ describe('useEditStagingBuffer', () => {
     unmount()
   })
 
+  // Change 4: memory-only — rehydration removed. Buffer starts empty on every mount.
+  it('memory-only: fresh mount ignores stale localStorage entries', () => {
+    const staleEdit = makeEdit({ intentId: 'stale-1', property: 'color', value: 'red', previousValue: 'blue' })
+    cortexStorage.set('staging-buffer', [staleEdit])
+
+    const { result, unmount } = renderHook(() => useEditStagingBuffer())
+
+    expect(result.current.size()).toBe(0)
+    expect(result.current.list()).toEqual([])
+
+    unmount()
+  })
+
   it('list returns intents in insertion order', async () => {
     const { result, unmount } = renderHook(() => useEditStagingBuffer())
 
@@ -146,53 +138,6 @@ describe('useEditStagingBuffer', () => {
     expect(list[0].intentId).toBe('a')
     expect(list[1].intentId).toBe('b')
     expect(list[2].intentId).toBe('c')
-
-    unmount()
-  })
-
-  it('hook mount reads existing buffer from localStorage', async () => {
-    const existing: PendingEdit[] = [
-      makeEdit({ intentId: 'existing-1', property: 'color', value: 'purple' }),
-      makeEdit({ intentId: 'existing-2', property: 'fontSize', value: '16px' }),
-    ]
-    // Seed before mount
-    cortexStorage.set('staging-buffer', existing)
-
-    const { result, unmount } = renderHook(() => useEditStagingBuffer())
-
-    const list = result.current.list()
-    expect(list).toHaveLength(2)
-    expect(list[0].intentId).toBe('existing-1')
-    expect(list[1].intentId).toBe('existing-2')
-
-    unmount()
-  })
-
-  it('hook mount keeps preview-source agent-resolve intents from localStorage', async () => {
-    const existing = makeEdit({
-      intentId: 'preview-1',
-      source: 'cortex-preview:p123',
-      property: 'display',
-      value: 'flex',
-      applyMode: 'agent-resolve',
-      sourceResolutionHint: {
-        tagName: 'div',
-        className: 'hero-card',
-        textPreview: 'Unannotated hero',
-        domSelector: 'div.hero-card',
-      },
-    })
-    cortexStorage.set('staging-buffer', [existing])
-
-    const { result, unmount } = renderHook(() => useEditStagingBuffer())
-
-    expect(result.current.list()).toMatchObject([
-      {
-        intentId: 'preview-1',
-        source: 'cortex-preview:p123',
-        applyMode: 'agent-resolve',
-      },
-    ])
 
     unmount()
   })
@@ -440,109 +385,6 @@ describe('useEditStagingBuffer', () => {
     unmount()
   })
 
-  it('mount drops malformed source entries (file:line:col regex) per-entry, keeps valid ones', () => {
-    // Per-entry filtering: a bad entry (no line:col) is dropped; the good
-    // entry survives. Proves the file:line:col guard is wired in AND that
-    // one corrupted entry can't nuke the rest of the buffer.
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const goodEdit = makeEdit({ intentId: 'good', source: 'src/Hero.tsx:14:5' })
-    const malformed = { ...makeEdit(), source: 'no-line-no-col' }
-    cortexStorage.set('staging-buffer', [goodEdit, malformed])
-
-    const { result, unmount } = renderHook(() => useEditStagingBuffer())
-
-    expect(result.current.list()).toHaveLength(1)
-    expect(result.current.list()[0].intentId).toBe('good')
-    expect(warnSpy.mock.calls.some(c => String(c[0]).includes('1 dropped'))).toBe(true)
-
-    warnSpy.mockRestore()
-    unmount()
-  })
-
-  it('mount drops entries whose source contains a quote (selector-injection guard) per-entry', () => {
-    // Defense-in-depth alongside the batch querySelectorAll lookup: a `"`
-    // in source is rejected at validator level even though current code
-    // doesn't interpolate source into a selector.
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const goodEdit = makeEdit({ intentId: 'good' })
-    const injected = { ...makeEdit(), source: 'src/x".tsx:1:1' }
-    cortexStorage.set('staging-buffer', [goodEdit, injected])
-
-    const { result, unmount } = renderHook(() => useEditStagingBuffer())
-    expect(result.current.list()).toHaveLength(1)
-    expect(result.current.list()[0].intentId).toBe('good')
-
-    warnSpy.mockRestore()
-    unmount()
-  })
-
-  it('mount drops preview-source entries without sourceResolutionHint', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const goodEdit = makeEdit({ intentId: 'good' })
-    const missingHint = makeEdit({
-      intentId: 'preview-missing-hint',
-      source: 'cortex-preview:p123',
-      applyMode: 'agent-resolve',
-    })
-    cortexStorage.set('staging-buffer', [goodEdit, missingHint])
-
-    const { result, unmount } = renderHook(() => useEditStagingBuffer())
-    expect(result.current.list()).toHaveLength(1)
-    expect(result.current.list()[0].intentId).toBe('good')
-
-    warnSpy.mockRestore()
-    unmount()
-  })
-
-  it('mount drops preview-source entries with oversized sourceResolutionHint fields', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const goodEdit = makeEdit({ intentId: 'good' })
-    const oversized = 'x'.repeat(MAX_SOURCE_HINT_FIELD_BYTES + 1)
-    const oversizedHint = makeEdit({
-      intentId: 'preview-oversized-hint',
-      source: 'cortex-preview:p123',
-      applyMode: 'agent-resolve',
-      sourceResolutionHint: {
-        tagName: 'div',
-        className: oversized,
-        textPreview: 'Preview',
-        domSelector: 'div.preview',
-      },
-    })
-    cortexStorage.set('staging-buffer', [goodEdit, oversizedHint])
-
-    const { result, unmount } = renderHook(() => useEditStagingBuffer())
-    expect(result.current.list()).toHaveLength(1)
-    expect(result.current.list()[0].intentId).toBe('good')
-
-    warnSpy.mockRestore()
-    unmount()
-  })
-
-  it('mount drops preview-source entries with oversized source values', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const goodEdit = makeEdit({ intentId: 'good' })
-    const oversizedPreviewSource = `cortex-preview:${'x'.repeat(MAX_INTENT_SOURCE_BYTES + 1)}`
-    const oversizedSource = makeEdit({
-      intentId: 'preview-oversized-source',
-      source: oversizedPreviewSource,
-      applyMode: 'agent-resolve',
-      sourceResolutionHint: {
-        tagName: 'div',
-        textPreview: 'Preview',
-        domSelector: 'div.preview',
-      },
-    })
-    cortexStorage.set('staging-buffer', [goodEdit, oversizedSource])
-
-    const { result, unmount } = renderHook(() => useEditStagingBuffer())
-    expect(result.current.list()).toHaveLength(1)
-    expect(result.current.list()[0].intentId).toBe('good')
-
-    warnSpy.mockRestore()
-    unmount()
-  })
-
   it('eviction at 500 entries logs a console.warn', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { result, unmount } = renderHook(() => useEditStagingBuffer())
@@ -616,31 +458,60 @@ describe('useEditStagingBuffer', () => {
     unmount()
   })
 
-  it('unmount flushes pending debounced write', async () => {
+  // Change 4: memory-only — the buffer has no persistence layer. This test
+  // proves no setItem referencing the staging-buffer key is ever called after
+  // a mutation.
+  it('no persistence: append does not write staging-buffer to localStorage (memory-only)', async () => {
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem')
     const { result, unmount } = renderHook(() => useEditStagingBuffer())
 
-    const edit = makeEdit({ intentId: 'flush-on-unmount', value: 'flushed-value' })
+    const edit = makeEdit({ intentId: 'no-persist-check' })
     await act(() => {
       result.current.append(edit)
     })
 
-    // Debounce timer has NOT fired — verify nothing in storage yet
-    // (localStorage key won't exist since we cleared in beforeEach and timer hasn't fired)
+    // Drain all timers — proves no deferred write was ever scheduled.
+    await act(() => {
+      vi.advanceTimersByTime(300)
+    })
+
+    // Verify no setItem call referenced the staging-buffer key
+    const stagingBufferWrites = setItemSpy.mock.calls.filter(
+      args => typeof args[0] === 'string' && args[0].includes('staging-buffer'),
+    )
+    expect(stagingBufferWrites).toHaveLength(0)
+
+    unmount()
+    setItemSpy.mockRestore()
+  })
+
+  // Change 4: memory-only — unmount has no persistence side-effect and the hook
+  // tears down cleanly. The old assertion (localStorage written on unmount) is
+  // inverted: no localStorage write must occur.
+  it('unmount does not write to localStorage (memory-only buffer)', async () => {
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem')
+    const { result, unmount } = renderHook(() => useEditStagingBuffer())
+
+    const edit = makeEdit({ intentId: 'no-write-on-unmount', value: 'staged-value' })
+    await act(() => {
+      result.current.append(edit)
+    })
+
+    // The staging-buffer key never exists — nothing is persisted.
     const keyBefore = Object.keys(localStorage).find(k => k.endsWith(':staging-buffer'))
     expect(keyBefore).toBeUndefined()
 
-    // Unmount should flush immediately without waiting for the debounce
+    // Unmount — no setItem for the staging-buffer key must fire.
     await act(() => {
       unmount()
     })
 
-    // After unmount, the buffer should be written to localStorage immediately
-    const keyAfter = Object.keys(localStorage).find(k => k.endsWith(':staging-buffer'))
-    expect(keyAfter).toBeDefined()
-    const stored = JSON.parse(localStorage.getItem(keyAfter!)!)
-    expect(stored).toEqual(expect.arrayContaining([
-      expect.objectContaining({ intentId: 'flush-on-unmount' }),
-    ]))
+    const stagingBufferWrites = setItemSpy.mock.calls.filter(
+      args => typeof args[0] === 'string' && args[0].includes('staging-buffer'),
+    )
+    expect(stagingBufferWrites).toHaveLength(0)
+
+    setItemSpy.mockRestore()
   })
 })
 
@@ -744,36 +615,6 @@ describe('useEditStagingBuffer — sync emitter integration', () => {
     expect(emitter.syncAdd).not.toHaveBeenCalled()
     expect(emitter.syncRemove).not.toHaveBeenCalled()
     expect(emitter.syncClear).not.toHaveBeenCalled()
-    expect(emitter.syncFullState).not.toHaveBeenCalled()
-
-    unmount()
-  })
-
-  it('Panel mount with localStorage entries → calls emitter.syncFullState(allEntries) exactly once', async () => {
-    const existing: PendingEdit[] = [
-      makeEdit({ intentId: 'ls-1', property: 'color', value: 'purple' }),
-      makeEdit({ intentId: 'ls-2', property: 'fontSize', value: '16px' }),
-    ]
-    cortexStorage.set('staging-buffer', existing)
-
-    const emitter = makeMockEmitter()
-    const { unmount } = renderHook(() => useEditStagingBuffer(emitter))
-
-    // syncFullState must fire exactly once (on mount with rehydrated entries)
-    expect(emitter.syncFullState).toHaveBeenCalledTimes(1)
-    const [calledWith] = emitter.syncFullState.mock.calls[0] as [PendingEdit[]]
-    expect(calledWith).toHaveLength(2)
-    expect(calledWith[0].intentId).toBe('ls-1')
-    expect(calledWith[1].intentId).toBe('ls-2')
-
-    unmount()
-  })
-
-  it('Panel mount with empty localStorage → does NOT call emitter.syncFullState', () => {
-    // No pre-seeded entries
-    const emitter = makeMockEmitter()
-    const { unmount } = renderHook(() => useEditStagingBuffer(emitter))
-
     expect(emitter.syncFullState).not.toHaveBeenCalled()
 
     unmount()

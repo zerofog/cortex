@@ -538,29 +538,6 @@
   background: var(--cx-ink-faint);
   border-radius: 3px;
 }
-.cortex-panel__empty {
-  padding: var(--cx-sp-7) var(--cx-sp-6);
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  gap: var(--cx-sp-3);
-}
-
-.cortex-panel__empty-action {
-  color: var(--cx-ink-secondary);
-  font-size: var(--cx-text-md);
-}
-
-.cortex-panel__empty-hint {
-  color: var(--cx-ink-tertiary);
-  font-size: var(--cx-text-sm);
-}
-
-.cortex-panel__empty-shortcut {
-  color: var(--cx-ink-ghost);
-  font-size: var(--cx-text-xs);
-  font-family: var(--cx-mono);
-}
 
 .cortex-panel__scope {
   display: flex;
@@ -2949,37 +2926,6 @@
 .cortex-toolbar__btn--close:hover {
   background: var(--cx-destructive-surface);
   color: var(--cx-destructive);
-}
-
-.cortex-toolbar__badge {
-  font-size: var(--cx-text-sm);
-  font-weight: var(--cx-weight-value);
-  font-family: var(--cx-mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--cx-ink);
-  padding: 0 var(--cx-sp-4);
-  height: 28px;
-  line-height: 28px;
-  background: var(--cx-well);
-  border-radius: var(--cx-radius-sm);
-  white-space: nowrap;
-  border: none;
-  cursor: pointer;
-  transition: background 150ms ease-out, transform 100ms ease-out;
-}
-
-.cortex-toolbar__badge:hover {
-  background: var(--cx-btn-hover);
-}
-
-.cortex-toolbar__badge:active {
-  background: var(--cx-well-active);
-  transform: scale(0.97);
-}
-
-.cortex-toolbar__badge:focus-visible {
-  outline: 2px solid var(--cx-select-muted);
-  outline-offset: 1px;
 }
 
 /* Mode switcher — segmented select/comment */

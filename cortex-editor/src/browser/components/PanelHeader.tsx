@@ -237,6 +237,10 @@ export interface PanelHeaderProps {
    *  button back to idle — acceptable for T3 where ErrorToast wiring is
    *  out-of-scope. */
   onApplyError?: (err: unknown) => void
+  /** Current apply error string (lifted to CortexApp, ZF0-1869 Round-1 Fix 5).
+   *  When this transitions to a non-null value, pendingClaude is reset so the
+   *  Apply button reappears for retry after a source-edit-failed failure. */
+  applyError?: string | null
 }
 
 export function PanelHeader({
@@ -260,6 +264,7 @@ export function PanelHeader({
   bufferSize,
   onApply,
   onApplyError,
+  applyError,
 }: PanelHeaderProps): JSX.Element {
   const [delivering, setDelivering] = useState(false)
   // ZF0-1453 (post-Step-9.5): "Hidden after success" state per parent ticket.
@@ -276,12 +281,21 @@ export function PanelHeader({
   useLayoutEffect(() => () => { mountedRef.current = false }, [])
 
   // Clear pendingClaude when the buffer drains. Claude's cortex_discard_edits
-  // ultimately fires staged-edits-discard which Panel.tsx forwards to
+  // ultimately fires staged-edits-discard which CortexApp forwards to
   // buffer.remove(); when the last intent goes, bufferSize → 0 and the next
   // user-staged edit will correctly resurface the Apply button.
   useEffect(() => {
     if (bufferSize === 0 && pendingClaude) setPendingClaude(false)
   }, [bufferSize, pendingClaude])
+
+  // ZF0-1869 Round-1 Fix 5: clear pendingClaude when a source-edit-failed error
+  // arrives. reportSourceEditFailed KEEPS the intent in the buffer (bufferSize
+  // stays > 0), so the bufferSize === 0 guard above never fires. Without this,
+  // the Apply button remains hidden and the user cannot retry after seeing the
+  // error banner. Reset pendingClaude when applyError transitions to non-null.
+  useEffect(() => {
+    if (applyError != null && pendingClaude) setPendingClaude(false)
+  }, [applyError, pendingClaude])
 
   const handleApply = (): void => {
     if (delivering) return

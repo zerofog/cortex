@@ -65,6 +65,8 @@ describe('contract: server-to-browser fixtures', () => {
     'server-to-browser/capabilities.json',
     'server-to-browser/staged-edits-discard.json',
     'server-to-browser/staged-edits-acked.json',
+    'server-to-browser/source-edit-failed.json',
+    'server-to-browser/mcp-session-hello.json',
   ])('%s parses and round-trips', (name) => {
     const fixture = loadWireFormatFixture(name)
     assertRoundTrip(serverToBrowserSchema, fixture)

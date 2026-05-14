@@ -1,14 +1,56 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render } from 'preact'
+import { useRef } from 'preact/hooks'
 import { act } from 'preact/test-utils'
 import { Panel } from '../../src/browser/components/Panel.js'
-import { renderInShadow, mockGetComputedStyle, createShadowHost, createMockChannel } from './helpers.js'
+import { renderInShadow, mockGetComputedStyle, createShadowHost, createMockChannel, makeFakeBuffer } from './helpers.js'
 import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
 import { _resetBusForTesting } from '../../src/browser/override-bus.js'
-import { cortexStorage } from '../../src/browser/persistence.js'
-import { isPendingEditArray, type PendingEdit } from '../../src/browser/hooks/useEditStagingBuffer.js'
+import { useEditStagingBuffer, type PendingEdit, type StagingBufferHandle } from '../../src/browser/hooks/useEditStagingBuffer.js'
+import * as bufferModule from '../../src/browser/hooks/useEditStagingBuffer.js'
 import { CommandStack } from '../../src/browser/command-stack.js'
 import { PREVIEW_SOURCE_ATTR, PREVIEW_SOURCE_PREFIX } from '../../src/browser/preview-source.js'
+
+/**
+ * Wrapper component for tests that need a real useEditStagingBuffer instance.
+ * Calls the hook internally and passes the result to Panel as the `buffer` prop.
+ * Optional `bufferRef` receives the buffer handle so tests can inspect in-memory
+ * state directly (Change 4: memory-only — no localStorage observation needed).
+ */
+function PanelWithRealBuffer(props: Omit<Parameters<typeof Panel>[0], 'buffer'> & {
+  bufferRef?: { current: StagingBufferHandle | null }
+}) {
+  const { bufferRef, ...rest } = props
+  const buffer = useEditStagingBuffer()
+  if (bufferRef) bufferRef.current = buffer
+  return <Panel {...rest} buffer={buffer} />
+}
+
+/**
+ * Like PanelWithRealBuffer but also appends `initialEdits` to the buffer
+ * synchronously during the render phase (before useEffect), so the buffer
+ * is pre-populated at mount time without relying on localStorage rehydration
+ * (which is removed in Change 4: memory-only buffer).
+ */
+function PanelWithInitEdits({
+  initialEdits,
+  bufferRef,
+  ...props
+}: Omit<Parameters<typeof Panel>[0], 'buffer'> & {
+  initialEdits: PendingEdit[]
+  bufferRef?: { current: StagingBufferHandle | null }
+}) {
+  const buffer = useEditStagingBuffer()
+  if (bufferRef) bufferRef.current = buffer
+  const seededRef = useRef(false)
+  if (!seededRef.current) {
+    seededRef.current = true
+    for (const edit of initialEdits) {
+      buffer.append(edit)
+    }
+  }
+  return <Panel {...props} buffer={buffer} />
+}
 
 const panelPositionProps = {
   position: { x: 1000, y: 12 },
@@ -74,6 +116,7 @@ describe('Panel', () => {
         overrideManager={overrideManager as any}
         onClose={onClose}
         onSelectElement={onSelectElement}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
         {...overrides}
       />
@@ -207,25 +250,27 @@ describe('Panel', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
-  it('renders empty state panel when element is null', () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    render(
+  // The empty-state branch (if !element) was deleted in Task 17 — Panel is
+  // gated at the CortexApp level (Task 16) and never mounts without a selected
+  // element. The `if (!element) return null` guard makes Panel no-element-safe.
+  // This test pins both invariants and is FALSIFIABLE:
+  //   - Remove the guard → main return derefs element.tagName → render throws.
+  //   - Re-add the empty-state branch → rendering [] emits .cortex-panel markup
+  //     instead of null → assertion fails.
+  it('Panel renders nothing when no element is selected (empty-state branch deleted)', () => {
+    const { root } = renderInShadow(
       <Panel
         selectedElements={[]}
         overrideManager={{} as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
-      container,
     )
-    expect(container.querySelector('.cortex-panel')).not.toBeNull()
-    expect(container.textContent).toContain('Click any element to start editing')
-    // Sections should NOT render in empty state
-    expect(container.querySelector('[data-section-id]')).toBeNull()
-    render(null, container)
-    container.remove()
+    // Guard returns null → no Panel output at all in the shadow tree.
+    expect(root.querySelector('.cortex-panel')).toBeNull()
+    expect(root.querySelector('.cortex-panel__empty')).toBeNull()
   })
 
   // NOTE: The old `cortex-panel--cross-fade` animation was removed in ZF0-1122
@@ -277,6 +322,7 @@ describe('Panel', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         textComponents={BUNDLES}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />
     )
@@ -330,6 +376,7 @@ describe('Panel — library detection wiring', () => {
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       container,
@@ -365,6 +412,7 @@ describe('Panel — library detection wiring', () => {
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       container,
@@ -414,6 +462,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         activeState="default"
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       container,
@@ -437,6 +486,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         activeState="hover"
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       container,
@@ -474,6 +524,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         hasBefore={true}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       container,
@@ -517,6 +568,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         activeState="default"
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       container,
@@ -549,6 +601,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onSelectElement={() => {}}
         hasBefore={true}
         hasAfter={true}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       container,
@@ -578,6 +631,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       container,
@@ -605,6 +659,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         hasBefore={true}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       container,
@@ -672,7 +727,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
       await act(() => {
         render(
           <Panel selectedElements={[el]} overrideManager={overrideManager as any}
-            onClose={() => {}} onSelectElement={() => {}} {...panelPositionProps} />,
+            onClose={() => {}} onSelectElement={() => {}} buffer={makeFakeBuffer()} {...panelPositionProps} />,
           container,
         )
       })
@@ -711,6 +766,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     document.body.appendChild(container)
 
     // Render with hasBefore, click ::before tab
+    const fakeBufferForPseudoTest = makeFakeBuffer()
     render(
       <Panel
         selectedElements={[el1]}
@@ -718,6 +774,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         hasBefore={true}
+        buffer={fakeBufferForPseudoTest}
         {...panelPositionProps}
       />,
       container,
@@ -738,6 +795,7 @@ describe('Panel — activeState + activePseudo + dimming', () => {
         onClose={() => {}}
         onSelectElement={() => {}}
         hasBefore={true}
+        buffer={fakeBufferForPseudoTest}
         {...panelPositionProps}
       />,
       container,
@@ -806,6 +864,7 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
 
     const { root: shadowRoot, cleanup: removeHost } = createShadowHost()
 
+    const fakeBufferForHmrTest = makeFakeBuffer()
     const renderPanel = (version: number): void => {
       render(
         <Panel
@@ -813,6 +872,7 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
           overrideManager={overrideManager as any}
           onClose={() => {}}
           onSelectElement={() => {}}
+          buffer={fakeBufferForHmrTest}
           {...panelPositionProps}
           hmrAppliedVersion={version}
         />,
@@ -897,6 +957,7 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
     }
 
     const { shadow, root: shadowRoot, cleanup: removeHost } = createShadowHost()
+    const fakeBufferForScopeTest = makeFakeBuffer()
     const renderPanel = (version: number): void => {
       render(
         <Panel
@@ -904,6 +965,7 @@ describe('Panel — hmrAppliedVersion (ZF0-1292)', () => {
           overrideManager={overrideManager as any}
           onClose={() => {}}
           onSelectElement={() => {}}
+          buffer={fakeBufferForScopeTest}
           {...panelPositionProps}
           hmrAppliedVersion={version}
         />,
@@ -982,6 +1044,7 @@ describe('Panel mixedProperties (ZF0-1195 / T3)', () => {
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       container,
@@ -1048,6 +1111,7 @@ describe('Panel mixedProperties (ZF0-1195 / T3)', () => {
           overrideManager={overrideManager as any}
           onClose={() => {}}
           onSelectElement={() => {}}
+          buffer={makeFakeBuffer()}
           {...panelPositionProps}
         />,
         container,
@@ -1084,7 +1148,6 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
   })
 
   it('commitScrub appends PendingEdit to staging buffer', async () => {
-    // Use fake timers to control debounce flush.
     vi.useFakeTimers()
 
     const target = document.createElement('div')
@@ -1107,12 +1170,14 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
       flush: vi.fn(),
     }
 
+    const bufferRef: { current: StagingBufferHandle | null } = { current: null }
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        bufferRef={bufferRef}
         {...panelPositionProps}
       />
     )
@@ -1138,18 +1203,9 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
       await Promise.resolve()
     })
 
-    // Buffer is debounced — not written yet
-    expect(cortexStorage.get('staging-buffer', [], isPendingEditArray)).toHaveLength(0)
-
-    // Advance past debounce threshold
-    await act(() => {
-      vi.advanceTimersByTime(150)
-    })
-
-    // Now the buffer should be persisted to localStorage. Assert exact
-    // property/value/intentId-shape — every assertion must be capable of
-    // failing if the wiring is wrong.
-    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    // Change 4: memory-only — assert in-memory buffer directly (no localStorage).
+    // append() is synchronous; the intent is in the buffer immediately after the click.
+    const stored = bufferRef.current!.list()
     expect(stored.length).toBeGreaterThan(0)
     const edit = stored[0]
     expect(edit.source).toBe('src/Hero.tsx:14:5')
@@ -1184,12 +1240,14 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
       flush: vi.fn(),
     }
 
+    const bufferRef2: { current: StagingBufferHandle | null } = { current: null }
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        bufferRef={bufferRef2}
         {...panelPositionProps}
       />
     )
@@ -1208,11 +1266,8 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
       await Promise.resolve()
     })
 
-    await act(() => {
-      vi.advanceTimersByTime(150)
-    })
-
-    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    // Change 4: memory-only — assert in-memory buffer directly.
+    const stored = bufferRef2.current!.list()
     expect(stored).toHaveLength(1)
     expect(stored[0].source).toMatch(/^cortex-preview:/)
     expect(stored[0].applyMode).toBe('agent-resolve')
@@ -1271,7 +1326,7 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     const commandStack = new CommandStack()
 
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         commandStack={commandStack}
@@ -1382,7 +1437,7 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     const commandStack = new CommandStack()
 
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         commandStack={commandStack}
@@ -1447,7 +1502,7 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     const commandStack = new CommandStack()
 
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         commandStack={commandStack}
@@ -1523,7 +1578,7 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     const commandStack = new CommandStack()
 
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         commandStack={commandStack}
@@ -1589,7 +1644,7 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     const commandStack = new CommandStack()
 
     const { root, cleanup } = renderInShadow(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         commandStack={commandStack}
@@ -1635,26 +1690,16 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
     }
   })
 
-  it('staged-edits-discard server message removes intents from canonical buffer', async () => {
-    // ZF0-1452 regression: Panel.tsx's channel.onMessage handler wires
-    // 'staged-edits-discard' (server-originated, emitted by the MCP server's
-    // cortex_discard_edits tool) to buffer.remove(intentIds). Without this
-    // wiring, Claude calls discard, server cache mutates, but the browser
-    // canonical buffer keeps the intent and the Apply panel keeps showing
-    // it. The test pre-populates localStorage so the buffer rehydrates on
-    // mount, simulates the server message via channel._simulateMessage,
-    // and verifies the discarded intent is gone while the keeper survives.
-    //
-    // Fake timers (for the debounce only): the 150ms persist debounce caused
-    // intermittent CI failures when Istanbul instrumentation + 4-way pool
-    // concurrency stretched the timer past 15s (ZF0-1474 retro, ZF0-1473 PR #93).
-    // Strategy: flush the useEffect handler-registration with real timers (50ms
-    // covers Preact's 35ms afterNextFrame fallback), then switch to fake timers
-    // to advance the debounce deterministically. This eliminates the flake while
-    // keeping the onMessage subscription flush correct.
+  it('buffer.remove() removes intents from canonical buffer (staged-edits-discard now CortexApp-owned)', async () => {
+    // ZF0-1869 Round-1 Fix 1: staged-edits-discard is now handled in CortexApp
+    // (not Panel) so it survives Panel unmount on deselect. This test validates
+    // that buffer.remove() correctly removes the discarded intent — the same call
+    // CortexApp makes in its onMessage handler when staged-edits-discard arrives.
+    // The channel-simulation path is intentionally dropped: Panel no longer
+    // subscribes to staged-edits-discard. CortexApp-level wire coverage is in
+    // cortex-app.test.tsx.
 
-    // Seed localStorage so useEditStagingBuffer rehydrates on mount.
-    const seeded: PendingEdit[] = [
+    const initialEdits: PendingEdit[] = [
       {
         intentId: 'keep-me',
         source: 'src/A.tsx:1:1',
@@ -1672,7 +1717,6 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
         timestamp: 2000,
       },
     ]
-    cortexStorage.set('staging-buffer', seeded)
 
     const target = document.createElement('div')
     target.setAttribute('data-cortex-source', 'src/A.tsx:1:1')
@@ -1688,43 +1732,87 @@ describe('Panel — staging buffer wiring (ZF0-1451)', () => {
       flush: vi.fn(),
     }
 
+    const discardBufRef: { current: StagingBufferHandle | null } = { current: null }
     const { cleanup } = renderInShadow(
-      <Panel
+      <PanelWithInitEdits
+        initialEdits={initialEdits}
         selectedElements={[target]}
         channel={channel}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        bufferRef={discardBufRef}
         {...panelPositionProps}
       />,
     )
 
-    // Flush effects so the useEffect that subscribes to channel.onMessage
-    // has registered the handler before we send the discard message.
-    // Real timers here: Preact's afterNextFrame() uses a 35ms rAF-fallback
-    // setTimeout — fake timers would prevent it from firing.
+    // Flush effects so Panel mounts fully.
     await act(async () => {
       await new Promise(r => setTimeout(r, 50))
     })
 
-    // Switch to fake timers now that the handler is registered, so the
-    // 150ms persist debounce can be advanced deterministically.
-    vi.useFakeTimers()
-
-    // Server tells browser to discard 'discard-me'.
+    // CortexApp (not Panel) handles staged-edits-discard. Simulate what CortexApp
+    // does in its onMessage handler: call buffer.remove() with the discarded IDs.
     await act(async () => {
-      channel._simulateMessage({ type: 'staged-edits-discard', intentIds: ['discard-me'] } as any)
+      discardBufRef.current!.remove(['discard-me'])
       await Promise.resolve()
     })
 
-    // Advance past the 150ms persist debounce to trigger persistNow().
-    await act(() => {
-      vi.advanceTimersByTime(200)
-    })
-
-    const remaining = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    // remove() is synchronous; assert in-memory buffer directly.
+    const remaining = discardBufRef.current!.list()
     expect(remaining).toHaveLength(1)
     expect(remaining[0].intentId).toBe('keep-me')
+
+    cleanup()
+    target.remove()
+  })
+
+  it('applyError prop surfaces reason in applyError banner (ZF0-1869 Round-1 Fix 1)', async () => {
+    // ZF0-1869 Round-1 Fix 1: applyError state lifted to CortexApp. Panel now
+    // receives the error string as the `applyError` prop (set by CortexApp's
+    // onMessage handler when source-edit-failed arrives). This test validates
+    // that Panel renders the banner from the prop.
+    // The channel-simulation path is dropped: Panel no longer subscribes to
+    // source-edit-failed. CortexApp-level wire coverage is in cortex-app.test.tsx.
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/App.tsx:31:5')
+    document.body.appendChild(target)
+
+    const channel = createMockChannel()
+    const overrideManager = {
+      set: vi.fn(),
+      get: vi.fn(),
+      remove: vi.fn(),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+    }
+
+    const reason = "couldn't find pattern at App.tsx:31"
+
+    const { root, cleanup } = renderInShadow(
+      <PanelWithInitEdits
+        initialEdits={[]}
+        selectedElements={[target]}
+        channel={channel}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        applyError={reason}
+        onSetApplyError={() => {}}
+        {...panelPositionProps}
+      />,
+    )
+
+    // Flush effects so Panel mounts fully.
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 50))
+    })
+
+    // Banner must be visible and contain the reason.
+    const banner = root.querySelector('.cortex-apply-error[role="alert"]')
+    expect(banner).not.toBeNull()
+    expect(banner!.textContent).toContain(reason)
 
     cleanup()
     target.remove()
@@ -1813,13 +1901,15 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
 
+    const ac1BufRef: { current: StagingBufferHandle | null } = { current: null }
     render(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[el1, el2]}
         overrideManager={overrideManager as any}
         commandStack={commandStack}
         onClose={() => {}}
         onSelectElement={() => {}}
+        bufferRef={ac1BufRef}
         {...panelPositionProps}
       />,
       container,
@@ -1827,10 +1917,8 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
 
     await triggerCommitScrub(container)
 
-    // Advance past the 150ms persist debounce
-    await act(() => { vi.advanceTimersByTime(200) })
-
-    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    // Change 4: memory-only — assert in-memory buffer directly.
+    const stored = ac1BufRef.current!.list()
     expect(stored).toHaveLength(2)
 
     const sources = stored.map(e => e.source).sort()
@@ -1881,13 +1969,15 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
 
+    const ac5BufRef: { current: StagingBufferHandle | null } = { current: null }
     render(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[el1, el2, el3]}
         overrideManager={overrideManager as any}
         commandStack={commandStack}
         onClose={() => {}}
         onSelectElement={() => {}}
+        bufferRef={ac5BufRef}
         {...panelPositionProps}
       />,
       container,
@@ -1895,9 +1985,8 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
 
     await triggerCommitScrub(container)
 
-    await act(() => { vi.advanceTimersByTime(200) })
-
-    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    // Change 4: memory-only — assert in-memory buffer directly.
+    const stored = ac5BufRef.current!.list()
     expect(stored).toHaveLength(3)
 
     const sources = stored.map(e => e.source).sort()
@@ -1937,13 +2026,15 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
 
+    const ac2BufRef: { current: StagingBufferHandle | null } = { current: null }
     render(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[el1, el2]}
         overrideManager={overrideManager as any}
         commandStack={commandStack}
         onClose={() => {}}
         onSelectElement={() => {}}
+        bufferRef={ac2BufRef}
         {...panelPositionProps}
       />,
       container,
@@ -1951,11 +2042,9 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
 
     await triggerCommitScrub(container)
 
-    // Advance so intents are persisted
-    await act(() => { vi.advanceTimersByTime(200) })
-
+    // Change 4: memory-only — assert in-memory buffer directly.
     // Verify 2 intents in the buffer
-    const before = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    const before = ac2BufRef.current!.list()
     expect(before).toHaveLength(2)
 
     // One command was recorded
@@ -1967,10 +2056,7 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
       await Promise.resolve()
     })
 
-    // Advance to flush the post-undo remove through the debounce
-    await act(() => { vi.advanceTimersByTime(200) })
-
-    const after = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    const after = ac2BufRef.current!.list()
     expect(after).toHaveLength(0)
 
     render(null, container)
@@ -2004,12 +2090,14 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
 
+    const ac3BufRef: { current: StagingBufferHandle | null } = { current: null }
     render(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[el1, el2]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        bufferRef={ac3BufRef}
         {...panelPositionProps}
       />,
       container,
@@ -2032,9 +2120,8 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     // Now trigger an edit
     await triggerCommitScrub(container)
 
-    await act(() => { vi.advanceTimersByTime(200) })
-
-    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    // Change 4: memory-only — assert in-memory buffer directly.
+    const stored = ac3BufRef.current!.list()
     // 2 intents: one for el1-source, one for el2-source
     expect(stored).toHaveLength(2)
 
@@ -2083,12 +2170,14 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
 
+    const scopeAllBufRef: { current: StagingBufferHandle | null } = { current: null }
     render(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        bufferRef={scopeAllBufRef}
         {...panelPositionProps}
       />,
       container,
@@ -2107,9 +2196,9 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     })
 
     await triggerCommitScrub(container)
-    await act(() => { vi.advanceTimersByTime(200) })
 
-    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    // Change 4: memory-only — assert in-memory buffer directly.
+    const stored = scopeAllBufRef.current!.list()
     expect(stored).toHaveLength(1)
     expect(stored[0].source).toBe('src/A.tsx:10:3')
     expect(stored[0].instanceSources).toContain('src/A.tsx:10:3')
@@ -2135,12 +2224,14 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
 
+    const ac4BufRef: { current: StagingBufferHandle | null } = { current: null }
     render(
-      <Panel
+      <PanelWithRealBuffer
         selectedElements={[target]}
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        bufferRef={ac4BufRef}
         {...panelPositionProps}
       />,
       container,
@@ -2148,9 +2239,8 @@ describe('commitScrub multi-select fan-out (ZF0-1195 / T4)', () => {
 
     await triggerCommitScrub(container)
 
-    await act(() => { vi.advanceTimersByTime(200) })
-
-    const stored = cortexStorage.get('staging-buffer', [], isPendingEditArray)
+    // Change 4: memory-only — assert in-memory buffer directly.
+    const stored = ac4BufRef.current!.list()
     // Single-select: exactly 1 intent for the primary element
     expect(stored).toHaveLength(1)
     expect(stored[0].source).toBe('src/Hero.tsx:14:5')
@@ -2198,6 +2288,7 @@ describe('Panel — source-only blast-radius banner (ZF0-1583)', () => {
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       shadowRoot,
@@ -2252,6 +2343,7 @@ describe('Panel — source-only blast-radius banner (ZF0-1583)', () => {
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       shadowRoot,
@@ -2294,6 +2386,7 @@ describe('Panel — source-only blast-radius banner (ZF0-1583)', () => {
         overrideManager={overrideManager as any}
         onClose={() => {}}
         onSelectElement={() => {}}
+        buffer={makeFakeBuffer()}
         {...panelPositionProps}
       />,
       shadowRoot,
@@ -2313,5 +2406,103 @@ describe('Panel — source-only blast-radius banner (ZF0-1583)', () => {
     // Neither banner should appear (panel is rendered but no sharing detected)
     expect(shadowRoot.querySelector('.cortex-panel__scope')).toBeNull()
     expect(shadowRoot.querySelector('.cortex-panel__scope--source-only')).toBeNull()
+  })
+})
+
+describe('PanelProps.buffer', () => {
+  afterEach(() => {
+    localStorage.clear()
+    _resetBusForTesting()
+    _resetTransformBusForTesting()
+  })
+
+  it('uses the passed buffer prop instead of a fresh local hook', () => {
+    // Falsifiable runtime test for Task 1's transitional `bufferProp ?? localBuffer`
+    // wiring. Panel reads buffer.size() during render to drive the Apply-button
+    // count, so if it picked the prop, the prop's spy must have been invoked.
+    // Reverting the impl to `const buffer = localBuffer` makes this FAIL because
+    // the local hook is a different object and the prop's spies stay untouched.
+    const fakeBuffer: StagingBufferHandle = {
+      append: vi.fn(),
+      remove: vi.fn(),
+      list: vi.fn(() => []),
+      clear: vi.fn(),
+      size: vi.fn(() => 0),
+      version: 0,
+      reconcile: vi.fn(() => ({ divergent: [] })),
+    }
+
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    document.body.appendChild(target)
+
+    const overrideManager = {
+      set: vi.fn(),
+      get: vi.fn(),
+      remove: vi.fn(),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+    }
+
+    const { cleanup } = renderInShadow(
+      <Panel
+        selectedElements={[target]}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        buffer={fakeBuffer}
+        {...panelPositionProps}
+      />
+    )
+
+    // Panel called size() on the PASSED buffer — proves `bufferProp ?? localBuffer`
+    // resolved to the prop, not a freshly-constructed local hook.
+    expect(fakeBuffer.size).toHaveBeenCalled()
+
+    cleanup()
+    target.remove()
+  })
+
+  it('Panel does not create its own buffer when buffer prop provided (Task 3)', () => {
+    // Proves Task 3: local fallback removed. Panel must NOT call useEditStagingBuffer
+    // internally when the buffer prop is provided.
+    // Reverting to the Task-1 `bufferProp ?? localBuffer` fallback makes this FAIL
+    // because useEditStagingBuffer IS still called for localBuffer.
+    const useBufferSpy = vi.spyOn(bufferModule, 'useEditStagingBuffer')
+
+    const fakeBuffer = makeFakeBuffer()
+
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'src/Hero.tsx:14:5')
+    document.body.appendChild(target)
+
+    const overrideManager = {
+      set: vi.fn(),
+      get: vi.fn(),
+      remove: vi.fn(),
+      clearAll: vi.fn(),
+      dispose: vi.fn(),
+      flush: vi.fn(),
+    }
+
+    const { cleanup } = renderInShadow(
+      <Panel
+        selectedElements={[target]}
+        overrideManager={overrideManager as any}
+        onClose={() => {}}
+        onSelectElement={() => {}}
+        buffer={fakeBuffer}
+        {...panelPositionProps}
+      />
+    )
+
+    // useEditStagingBuffer must NOT have been called inside Panel —
+    // Panel now delegates entirely to the passed prop.
+    expect(useBufferSpy).not.toHaveBeenCalled()
+
+    useBufferSpy.mockRestore()
+    cleanup()
+    target.remove()
   })
 })

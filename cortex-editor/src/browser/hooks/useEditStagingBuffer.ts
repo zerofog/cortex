@@ -1,8 +1,5 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { cortexStorage } from '../persistence.js'
+import { useCallback, useMemo, useRef, useState } from 'preact/hooks'
 import { stripLineCol, deepQuerySelectorAll } from '../selection-metadata.js'
-import { MAX_INTENT_SOURCE_BYTES, MAX_SOURCE_HINT_FIELD_BYTES } from '../../shared/pending-edit-limits.js'
-import { isPreviewSource } from '../../shared/preview-source.js'
 import type { CortexChannel, PendingEdit } from '../../adapters/types.js'
 
 // Re-export for backward compatibility — existing test imports rely on this.
@@ -76,82 +73,6 @@ export interface StagingBufferHandle {
 }
 
 const MAX_ENTRIES = 500
-const DEBOUNCE_MS = 150
-const STORAGE_KEY = 'staging-buffer'
-const encoder = new TextEncoder()
-
-/** `path:line:col` shape — line/col must be digits, path must not contain a `"`
- *  (defense-in-depth alongside CSS.escape at the querySelector callsite). */
-const SOURCE_SHAPE = /^[^"]+:\d+:\d+$/
-
-/** Type guard for a single PendingEdit */
-function isPendingEdit(v: unknown): v is PendingEdit {
-  if (typeof v !== 'object' || v === null) return false
-  const o = v as Record<string, unknown>
-  if (
-    typeof o.intentId !== 'string' ||
-    typeof o.source !== 'string' ||
-    typeof o.property !== 'string' ||
-    typeof o.value !== 'string' ||
-    typeof o.previousValue !== 'string' ||
-    typeof o.timestamp !== 'number'
-  ) {
-    return false
-  }
-  // Source format guard. Direct edits use file:line:col; unannotated preview
-  // edits use a cortex-preview source key so Apply can route them to agent
-  // resolution instead of dropping them during localStorage rehydration.
-  const hasPreviewSource = isPreviewSource(o.source)
-  if (encoder.encode(o.source).length > MAX_INTENT_SOURCE_BYTES) return false
-  if (!SOURCE_SHAPE.test(o.source) && !hasPreviewSource) return false
-  // Optional fields: validate ONLY when present. The whole point of the
-  // validator is to short-circuit corrupted localStorage to the [] fallback
-  // before bad data flows into Apply. Accepting `pseudo: 'invalid'`,
-  // `scope: 42`, or `instanceSources: 'oops'` would defeat that.
-  if (o.pseudo !== undefined && o.pseudo !== '::before' && o.pseudo !== '::after') return false
-  if (o.scope !== undefined && o.scope !== 'instance' && o.scope !== 'all') return false
-  if (o.applyMode !== undefined && o.applyMode !== 'direct' && o.applyMode !== 'agent-resolve') return false
-  if ((o.applyMode === 'agent-resolve' || hasPreviewSource) && o.sourceResolutionHint === undefined) return false
-  if (o.sourceResolutionHint !== undefined) {
-    if (typeof o.sourceResolutionHint !== 'object' || o.sourceResolutionHint === null) return false
-    const hint = o.sourceResolutionHint as Record<string, unknown>
-    if (
-      !isSourceHintField(hint.tagName, { required: true }) ||
-      !isSourceHintField(hint.textPreview) ||
-      !isSourceHintField(hint.domSelector, { required: true })
-    ) {
-      return false
-    }
-    if (hint.className !== undefined && !isSourceHintField(hint.className)) return false
-    if (hint.id !== undefined && !isSourceHintField(hint.id)) return false
-  }
-  if (
-    o.instanceSources !== undefined &&
-    (!Array.isArray(o.instanceSources) || !o.instanceSources.every(s => typeof s === 'string'))
-  ) {
-    return false
-  }
-  return true
-}
-
-function isSourceHintField(value: unknown, options?: { required?: boolean }): value is string {
-  if (typeof value !== 'string') return false
-  if (options?.required && value.length === 0) return false
-  return encoder.encode(value).length <= MAX_SOURCE_HINT_FIELD_BYTES
-}
-
-/** Type guard for an array of PendingEdit (all-or-nothing — exported for tests
- *  that need to round-trip a known-valid buffer). The hook itself uses
- *  `isUnknownArray` + per-entry filtering on rehydration so one bad entry
- *  can't drop the whole buffer. */
-export function isPendingEditArray(v: unknown): v is PendingEdit[] {
-  return Array.isArray(v) && v.every(isPendingEdit)
-}
-
-/** Permissive array guard — used by hook rehydration. */
-function isUnknownArray(v: unknown): v is unknown[] {
-  return Array.isArray(v)
-}
 
 /** Composite key for last-write-wins deduplication. */
 function compositeKey(edit: PendingEdit): string {
@@ -180,7 +101,7 @@ function defaultReadSourceValue(
  * useEditStagingBuffer — accumulates PendingEdit entries browser-side.
  *
  * - last-write-wins by (source\0property\0pseudo) composite key
- * - persisted to localStorage via cortexStorage, debounced ~150ms
+ * - memory-only (Change 4): no localStorage persistence; buffer is session-scoped
  * - bounded at 500 entries (oldest evicted)
  * - stable method identities: append/remove/list/clear/size/reconcile are
  *   held in a useRef and never change across re-renders. The returned wrapper
@@ -194,7 +115,6 @@ function defaultReadSourceValue(
  */
 export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBufferHandle {
   const bufferRef = useRef<Map<string, PendingEdit>>(new Map())
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const initRef = useRef(false)
   // Stable ref to the emitter — avoids stale-closure issues inside useCallback.
   const emitterRef = useRef<SyncEmitter | undefined>(emitter)
@@ -210,83 +130,24 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
   const [version, bumpVersion] = useState(0)
   const bumpRef = useRef(() => bumpVersion(v => v + 1))
 
-  // Initialize from localStorage on first call (before useEffect so list() works immediately).
-  // Per-entry filtering: a single corrupted entry can't nuke 499 valid ones.
-  //
-  // STRICT-MODE INVARIANT: `initRef.current = true` must be set BEFORE the
-  // syncFullState emission below so React/Preact strict-mode's double-
-  // invocation of the function body cannot re-enter this block and double-
-  // emit. Do NOT move the assignment below the emission — that would break
-  // the "exactly one full-sync per mount" contract that the server-side
-  // StagedEditsCache.mergeFullSync relies on (a duplicate mergeFullSync
-  // would be idempotent under newer-timestamp-wins, but the invariant is
-  // the contract, not the cache's tolerance).
+  // STRICT-MODE INVARIANT: `initRef.current = true` must be the FIRST statement
+  // in this block so Preact strict-mode's double-invocation cannot re-enter and
+  // execute the body twice. Do NOT move the assignment after any emission —
+  // that would break the "exactly one full-sync per mount" contract that the
+  // server-side StagedEditsCache.mergeFullSync relies on.
   if (!initRef.current) {
     initRef.current = true
-    const stored = cortexStorage.get(STORAGE_KEY, [], isUnknownArray)
-    let dropped = 0
-    for (const entry of stored) {
-      if (isPendingEdit(entry)) {
-        bufferRef.current.set(compositeKey(entry), entry)
-      } else {
-        dropped++
-      }
-    }
-    if (dropped > 0) {
-      console.warn(
-        `[cortex] Staging buffer rehydrated with ${bufferRef.current.size} valid entries; ${dropped} dropped (schema mismatch)`,
-      )
-    }
-    // Full-sync on Panel mount: if there are rehydrated entries and an emitter
-    // is provided, fire syncFullState once so the server cache catches up.
-    if (bufferRef.current.size > 0 && emitter) {
-      emitter.syncFullState(Array.from(bufferRef.current.values()))
-    }
+    // Change 4: memory-only — no rehydration from localStorage. Intents are
+    // session-scoped; persistence created phantom intents when Claude landed
+    // edits via the Edit tool without an acknowledgement callback (Change 7's
+    // acknowledge protocol is the real fix). bufferRef starts empty.
   }
 
-  // Tracks whether we've already warned about a persistence failure this session.
-  // cortexStorage.set returns false on quota / private-mode failure; we surface
-  // the first failure but suppress repeats to avoid log spam on every debounce.
-  const persistFailedRef = useRef(false)
-
-  const persistNow = useCallback(() => {
-    const ok = cortexStorage.set(STORAGE_KEY, Array.from(bufferRef.current.values()))
-    if (!ok && !persistFailedRef.current) {
-      persistFailedRef.current = true
-      console.warn(
-        '[cortex] Staging buffer persistence failed (localStorage quota or private mode); pending edits live only in memory and will be lost on reload.',
-      )
-    } else if (ok && persistFailedRef.current) {
-      // Recovered — clear the flag so a future failure surfaces again.
-      persistFailedRef.current = false
-    }
-  }, [])
-
-  const schedulePersist = useCallback(() => {
-    if (debounceTimerRef.current !== null) clearTimeout(debounceTimerRef.current)
-    debounceTimerRef.current = setTimeout(() => {
-      debounceTimerRef.current = null
-      persistNow()
-    }, DEBOUNCE_MS)
-  }, [persistNow])
-
-  const flush = useCallback(() => {
-    if (debounceTimerRef.current !== null) {
-      clearTimeout(debounceTimerRef.current)
-      debounceTimerRef.current = null
-      persistNow()
-    }
-  }, [persistNow])
-
-  // Cleanup on unmount: flush pending write + clear timer.
-  // useLayoutEffect runs synchronously during unmount (before useEffect cleanups),
-  // ensuring we don't lose the last append even in test environments where Preact's
-  // act() may not flush useEffect cleanups synchronously.
-  useLayoutEffect(() => {
-    return () => {
-      flush()
-    }
-  }, [flush])
+  // Change 4: memory-only — the staging buffer has no persistence layer.
+  // Mutations update `bufferRef` in memory and bump `version`; the buffer dies
+  // with the cortex session. The previous localStorage debounce chain
+  // (persistNow/schedulePersist/flush) was removed — it allocated a timer per
+  // mutation that only ever called a no-op.
 
   const append = useCallback((edit: PendingEdit) => {
     const key = compositeKey(edit)
@@ -315,7 +176,7 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
       }
     }
 
-    // Emit sync AFTER in-memory map updated, BEFORE localStorage persist.
+    // Emit sync AFTER the in-memory map is updated.
     // Eviction IS a mutation: emit syncRemove so the server cache stays in
     // lockstep with the bounded browser buffer. Without this, the server
     // cache grows unbounded on long sessions while the browser caps at 500.
@@ -325,8 +186,7 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
     }
 
     bumpRef.current()
-    schedulePersist()
-  }, [schedulePersist])
+  }, [])
 
   const remove = useCallback((intentIds: string[]) => {
     const idSet = new Set(intentIds)
@@ -340,12 +200,11 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
       bufferRef.current.delete(key)
     }
 
-    // Emit sync AFTER in-memory map updated, BEFORE localStorage persist.
+    // Emit sync AFTER the in-memory map is updated.
     emitterRef.current?.syncRemove(intentIds)
 
     if (toDeleteKeys.length > 0) bumpRef.current()
-    schedulePersist()
-  }, [schedulePersist])
+  }, [])
 
   const list = useCallback((): PendingEdit[] => {
     return Array.from(bufferRef.current.values())
@@ -353,20 +212,12 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
 
   const clear = useCallback(() => {
     bufferRef.current.clear()
-    // Synchronous persist — Apply (ZF0-1452) calls clear() after a successful
-    // flush; a 150ms debounce window means a reload-within-window resurrects
-    // the cleared entries. Cancel any pending debounced write first.
-    if (debounceTimerRef.current !== null) {
-      clearTimeout(debounceTimerRef.current)
-      debounceTimerRef.current = null
-    }
 
-    // Emit sync AFTER in-memory map updated (clear()), BEFORE persist.
+    // Emit sync AFTER the in-memory map is cleared.
     emitterRef.current?.syncClear()
 
     bumpRef.current()
-    persistNow()
-  }, [persistNow])
+  }, [])
 
   const size = useCallback((): number => {
     return bufferRef.current.size

@@ -3,7 +3,7 @@ import { render } from 'preact'
 import { Panel } from '../../src/browser/components/Panel.js'
 import { CommandStack } from '../../src/browser/command-stack.js'
 import { CSSOverrideManager } from '../../src/browser/override.js'
-import { createMockChannel } from './helpers.js'
+import { createMockChannel, makeFakeBuffer } from './helpers.js'
 import type { TextComponent } from '../../src/core/text-components.js'
 import type { ColorChip } from '../../src/browser/token-detector.js'
 
@@ -100,6 +100,7 @@ describe('Panel bottom-input removal (ZF0-1605 regression)', () => {
         panelPointerCancel={vi.fn()}
         agentConnected={true}
         onEditDispatch={vi.fn()}
+        buffer={makeFakeBuffer()}
       />,
       container,
     )

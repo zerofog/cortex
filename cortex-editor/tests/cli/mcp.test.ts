@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { WebSocketServer, WebSocket } from 'ws'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { startMCPServer, discoverPort, discoverToken, findProjectRoot, calculateReconnectDelay, PROTOCOL_INSTRUCTIONS, type MCPServerHandle } from '../../src/cli/mcp.js'
+import { startMCPServer, discoverPort, discoverToken, findProjectRoot, calculateReconnectDelay, MCP_SESSION_ID, PROTOCOL_INSTRUCTIONS, type MCPServerHandle } from '../../src/cli/mcp.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import http from 'node:http'
@@ -139,6 +139,7 @@ describe('cortex mcp', () => {
     const names = tools.map(t => t.name).sort()
     expect(names).toEqual([
       'cortex_acknowledge',
+      'cortex_acknowledge_source_edit',
       'cortex_activate',
       'cortex_apply_edits',
       'cortex_channel_test',
@@ -150,6 +151,7 @@ describe('cortex mcp', () => {
       'cortex_get_pending',
       'cortex_get_pending_edits',
       'cortex_list_active',
+      'cortex_report_source_edit_failed',
       'cortex_resolve',
       'cortex_respond',
       'cortex_status',
@@ -278,6 +280,51 @@ describe('cortex mcp', () => {
     result = await client.callTool({ name: 'cortex_status' })
     status = JSON.parse((result.content as Array<{ text: string }>)[0].text)
     expect(status.editorActive).toBe(false)
+  })
+
+  it('sends mcp-session-hello with MCP_SESSION_ID and the auth token on WebSocket open (Task 12, Change 6)', async () => {
+    // MCP_SESSION_ID is a process-scoped UUID constant. On every WebSocket open event
+    // (initial connect AND reconnects), the MCP server announces mcp-session-hello so the
+    // browser can detect a genuinely new Claude session vs. a transient reconnect.
+    // SECURITY: mcp-session-hello triggers a destructive buffer.clear() on the browser,
+    // so it must carry the auth token to pass Vite's CLI token gate — exactly like
+    // cortex-status-request. This test pins both the UUID and the token.
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-mcp-hello-'))
+    const cortexDir = path.join(tmpDir, '.cortex')
+    fs.mkdirSync(cortexDir, { recursive: true })
+    fs.writeFileSync(path.join(cortexDir, 'port'), String(mockVite.port))
+    fs.writeFileSync(path.join(cortexDir, 'token'), 'hello-token')
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(tmpDir)
+
+    try {
+      await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+
+      const hello = await waitForMessage(mockVite, m => m.type === 'mcp-session-hello')
+      expect(hello.sessionId).toBe(MCP_SESSION_ID)
+      // MCP_SESSION_ID must be a valid RFC 4122 UUID (any version).
+      expect(typeof hello.sessionId).toBe('string')
+      expect(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(hello.sessionId as string)).toBe(true)
+      // The token must be attached so Vite's CLI token gate accepts it.
+      expect(hello.token).toBe('hello-token')
+    } finally {
+      cwdSpy.mockRestore()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('does NOT send mcp-session-hello when no auth token is available (Task 12 security)', async () => {
+    // A tokenless MCP server cannot authenticate any privileged CLI message — and
+    // mcp-session-hello is privileged (it forces a destructive browser wipe). So when
+    // discoverToken() returns null, mcp-session-hello must be suppressed entirely
+    // rather than sent untokened (which Vite would reject anyway). The mock Vite
+    // server here writes no .cortex/token file, so the MCP server finds no token.
+    await startTestServer(mockVite.port)
+    await waitForConnection(mockVite)
+    // Allow the open-handler to flush whatever it would send.
+    await new Promise(r => setTimeout(r, 50))
+
+    expect(mockVite.messages.some(m => m.type === 'mcp-session-hello')).toBe(false)
   })
 
   it('reconnects to dev server with exponential backoff (capped at 30s)', () => {
@@ -1378,6 +1425,168 @@ describe('cortex mcp', () => {
       const client = await startTestServer(mockVite.port)
       await waitForConnection(mockVite)
       expect(client.getInstructions()).toBe(PROTOCOL_INSTRUCTIONS)
+    })
+  })
+
+  // ── ZF0-1869 Task 7: cortex_acknowledge_source_edit tool ─────────────────
+  describe('cortex_acknowledge_source_edit', () => {
+    it('is registered — appears in listTools with needs-source-edit in description and intentIds in schema', async () => {
+      // Falsifiability: fails if tool is not registered, registered with wrong name,
+      // or registered without a description that names the trigger condition.
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+
+      const { tools } = await client.listTools()
+      const tool = tools.find(t => t.name === 'cortex_acknowledge_source_edit')
+      expect(tool).toBeDefined()
+      expect(tool!.description).toContain('needs-source-edit')
+      expect(tool!.inputSchema).toBeDefined()
+      // intentIds is the required field — schema validation test confirms its type
+      const props = (tool!.inputSchema as { properties?: Record<string, unknown> }).properties
+      expect(props).toHaveProperty('intentIds')
+    })
+
+    it('dispatches to acknowledgeSourceEdit RPC and returns the result', async () => {
+      // Falsifiability: if the tool called rpc('discardEdits', ...) instead of
+      // rpc('acknowledgeSourceEdit', ...), the mock would return an 'unknown method' error
+      // and result.isError would be truthy, failing the assertion below.
+      mockVite.wss.on('connection', (ws) => {
+        ws.on('message', (raw) => {
+          let msg: Record<string, unknown>
+          try { msg = JSON.parse(raw.toString()) } catch { return }
+          if (msg.type !== 'cortex-rpc') return
+
+          const requestId = msg.requestId as string
+          const method = msg.method as string
+          const params = (msg.params || {}) as Record<string, unknown>
+
+          if (method === 'acknowledgeSourceEdit') {
+            const intentIds = params.intentIds as string[]
+            ws.send(JSON.stringify({
+              type: 'cortex-rpc-result',
+              requestId,
+              result: { acknowledged: intentIds, count: intentIds.length },
+            }))
+          } else {
+            ws.send(JSON.stringify({
+              type: 'cortex-rpc-error',
+              requestId,
+              error: `Unknown method: ${method}`,
+            }))
+          }
+        })
+      })
+
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      await new Promise(r => setTimeout(r, 50))
+
+      const result = await client.callTool({
+        name: 'cortex_acknowledge_source_edit',
+        arguments: { intentIds: ['intent-abc', 'intent-def'] },
+      })
+      expect(result.isError).toBeFalsy()
+      const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+      expect(parsed.acknowledged).toEqual(['intent-abc', 'intent-def'])
+      expect(parsed.count).toBe(2)
+    })
+  })
+
+  // ── ZF0-1869 Task 8: cortex_report_source_edit_failed tool ──────────────
+  describe('cortex_report_source_edit_failed', () => {
+    it('is registered — appears in listTools with applyError in description and intentIds/reason in schema', async () => {
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+
+      const { tools } = await client.listTools()
+      const tool = tools.find(t => t.name === 'cortex_report_source_edit_failed')
+      expect(tool).toBeDefined()
+      expect(tool!.description).toContain('applyError')
+      expect(tool!.inputSchema).toBeDefined()
+      const props = (tool!.inputSchema as { properties?: Record<string, unknown> }).properties
+      expect(props).toHaveProperty('intentIds')
+      expect(props).toHaveProperty('reason')
+    })
+
+    it('dispatches to reportSourceEditFailed RPC (NOT acknowledgeSourceEdit) and returns the result', async () => {
+      // Falsifiability: if the tool called rpc('acknowledgeSourceEdit', ...) instead of
+      // rpc('reportSourceEditFailed', ...), the mock returns an error and isError would be truthy.
+      mockVite.wss.on('connection', (ws) => {
+        ws.on('message', (raw) => {
+          let msg: Record<string, unknown>
+          try { msg = JSON.parse(raw.toString()) } catch { return }
+          if (msg.type !== 'cortex-rpc') return
+
+          const requestId = msg.requestId as string
+          const method = msg.method as string
+          const params = (msg.params || {}) as Record<string, unknown>
+
+          if (method === 'reportSourceEditFailed') {
+            const intentIds = params.intentIds as string[]
+            ws.send(JSON.stringify({
+              type: 'cortex-rpc-result',
+              requestId,
+              result: { reported: intentIds, browserNotified: true },
+            }))
+          } else {
+            ws.send(JSON.stringify({
+              type: 'cortex-rpc-error',
+              requestId,
+              error: `Unknown method: ${method}`,
+            }))
+          }
+        })
+      })
+
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      await new Promise(r => setTimeout(r, 50))
+
+      const result = await client.callTool({
+        name: 'cortex_report_source_edit_failed',
+        arguments: { intentIds: ['intent-xyz'], reason: "couldn't find pattern at Hero.tsx:42" },
+      })
+      expect(result.isError).toBeFalsy()
+      const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+      expect(parsed.reported).toEqual(['intent-xyz'])
+      expect(parsed.browserNotified).toBe(true)
+    })
+  })
+
+  // ── ZF0-1869 Task 9 + criterion 26: four-outcome protocol in apply/discard descriptions ──
+  describe('ZF0-1869 Task 9: four-outcome protocol in tool descriptions', () => {
+    // cortex_apply_edits description must enumerate all four loop-closing outcomes
+    // (criteria 25+26). Falsifiable: removing any one entry from the description fails its row.
+    it.each([
+      ['cortex_acknowledge_source_edit', 'cortex_acknowledge_source_edit'],
+      ['cortex_report_source_edit_failed', 'cortex_report_source_edit_failed'],
+      ['cortex_discard_edits (loop-close reference)', 'cortex_discard_edits'],
+      ['reconcile-on-connect (4th outcome automatic fallback)', 'reconcile-on-connect'],
+    ] as const)('cortex_apply_edits description names loop-closing outcome: %s', async (_label, toolName) => {
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+
+      const { tools } = await client.listTools()
+      const tool = tools.find(t => t.name === 'cortex_apply_edits')
+      expect(tool).toBeDefined()
+      expect(tool!.description).toContain(toolName)
+    })
+
+    // cortex_discard_edits description must:
+    //   (a) contain "user" — distinguishing its semantic purpose (user-driven abandonment)
+    //   (b) reference cortex_acknowledge_source_edit — the contrast tool for Edit success
+    // Falsifiable: a description that only says "Remove staged edits" passes neither row.
+    it.each([
+      ['user (user-driven abandonment purpose)', 'user'],
+      ['cortex_acknowledge_source_edit (contrast tool)', 'cortex_acknowledge_source_edit'],
+    ] as const)('cortex_discard_edits description contains: %s', async (_label, token) => {
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+
+      const { tools } = await client.listTools()
+      const tool = tools.find(t => t.name === 'cortex_discard_edits')
+      expect(tool).toBeDefined()
+      expect(tool!.description).toContain(token)
     })
   })
 

@@ -1,6 +1,7 @@
 import { render, type ComponentChild } from 'preact'
 import { vi } from 'vitest'
 import type { CortexChannel, ConnectionState, ServerToBrowser } from '../../src/adapters/types.js'
+import type { StagingBufferHandle } from '../../src/browser/hooks/useEditStagingBuffer.js'
 
 export const EDITABLE_SOURCE = '/src/App.tsx:1:1'
 
@@ -282,6 +283,24 @@ export function renderInShadow(vnode: ComponentChild): {
       render(null, root)
       removeHost()
     },
+  }
+}
+
+/**
+ * Returns a minimal fake StagingBufferHandle with all 7 members as vi.fn() stubs.
+ * Use this for Panel renders that do NOT assert on buffer contents or behavior —
+ * i.e., UI-render / DOM-structure / styling tests. For tests that drive buffer
+ * mutations and check results, use a real useEditStagingBuffer() instance instead.
+ */
+export function makeFakeBuffer(): StagingBufferHandle {
+  return {
+    append: vi.fn(),
+    remove: vi.fn(),
+    list: vi.fn(() => []),
+    clear: vi.fn(),
+    size: vi.fn(() => 0),
+    version: 0,
+    reconcile: vi.fn(() => ({ divergent: [] })),
   }
 }
 

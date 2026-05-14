@@ -60,6 +60,8 @@ export {
   cortexApplyEditsInputSchema,
   cortexDiscardEditsInputSchema,
   cortexGetIntentContextInputSchema,
+  cortexAcknowledgeSourceEditInputSchema,
+  cortexReportSourceEditFailedInputSchema,
 } from './mcp-tool-inputs.js'
 export type {
   CortexGetDetailsInput,
@@ -70,6 +72,8 @@ export type {
   CortexApplyEditsInput,
   CortexDiscardEditsInput,
   CortexGetIntentContextInput,
+  CortexAcknowledgeSourceEditInput,
+  CortexReportSourceEditFailedInput,
 } from './mcp-tool-inputs.js'
 
 // Fixture loader (Node-only, test utilities)

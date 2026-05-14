@@ -492,6 +492,381 @@ describe('cortexWebpack adapter', () => {
 
     expect(() => compiler.hooks.done.run({ compilation })).not.toThrow()
   })
+
+  // Change 6 — mcp-session-hello security + forwarding (ZF0-1869, Task 12)
+  // mcp-session-hello triggers a DESTRUCTIVE buffer.clear() on the browser.
+  // The per-message token is the actual auth (the /@cortex/ws upgrade is only
+  // Origin-checked at connect). These three tests pin that:
+  //   1. untokened/wrong-token messages are rejected (AUTH_FAILED) and never forwarded
+  //   2. a valid-token message is forwarded to initialized browser clients, with token stripped
+
+  it('rejects untokened mcp-session-hello and does NOT forward it to the browser (Change 6 security)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+    const cli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      await waitForOpen(cli)
+      const VALID_UUID = '00000000-0000-4000-a000-000000000001'
+      // Send WITHOUT token — must be AUTH_FAILED
+      cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: VALID_UUID }))
+      const response = await nextMessage(cli)
+
+      // The CLI client gets a specific AUTH_FAILED rejection
+      expect(response.type).toBe('error')
+      expect(response.code).toBe('AUTH_FAILED')
+      // And critically: nothing forwarded to the browser channel
+      await expectNoMessageOfType(browser, 'mcp-session-hello')
+    } finally {
+      cli.close()
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  it('rejects wrong-token mcp-session-hello and does NOT forward it to the browser (Change 6 security)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+    const cli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      await waitForOpen(cli)
+      const VALID_UUID = '00000000-0000-4000-a000-000000000002'
+      cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: VALID_UUID, token: 'wrong-token' }))
+      const response = await nextMessage(cli)
+
+      expect(response.type).toBe('error')
+      expect(response.code).toBe('AUTH_FAILED')
+      await expectNoMessageOfType(browser, 'mcp-session-hello')
+    } finally {
+      cli.close()
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  it('forwards a valid-token mcp-session-hello to the browser with token stripped (Change 6)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+    const cli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      await waitForOpen(cli)
+      const VALID_UUID = '00000000-0000-4000-a000-000000000003'
+      cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: VALID_UUID, token }))
+
+      const forwarded = await nextMessageOfType(browser, 'mcp-session-hello')
+      expect(forwarded.sessionId).toBe(VALID_UUID)
+      // Token must be stripped — never leaked to the browser
+      expect('token' in forwarded).toBe(false)
+    } finally {
+      cli.close()
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  // ─── Fix 1 (ZF0-1869 Review): UUID-change-gated server-side clear ──────────
+  // The server must mirror the browser's lastSessionIdRef logic:
+  //   (a) first mcp-session-hello (lastMcpSessionId === null) → adopt UUID, do NOT clear
+  //   (b) same UUID again (transient reconnect) → do NOT clear
+  //   (c) different UUID (genuine new Claude session) → MUST clear
+  //
+  // Tests (a) and (b) FAIL against the unconditional-clear code and PASS after Fix 1.
+  // Test (c) passes before and after — clearing on UUID-change is the correct behavior.
+
+  it('mcp-session-hello first-adopt (no prior UUID) does NOT clear server stagedEdits (Fix 1 TDD-a)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+    const cli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      // Seed one edit before the first hello
+      const edit = { intentId: 'keep-me-a', source: 'Hero.tsx:5:3', property: 'color', value: 'red', previousValue: '', timestamp: Date.now() }
+      browser.send(JSON.stringify({ type: 'staged-edit-add', edit, token }))
+
+      await waitForOpen(cli)
+      await vi.waitFor(async () => {
+        const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
+        expect(result.count).toBe(1)
+      }, { timeout: 1000 })
+
+      // First mcp-session-hello — first adoption, do NOT clear.
+      const UUID_A = '11111111-0000-4000-a000-000000000001'
+      cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_A, token }))
+      // Wait for browser to receive the hello (proves handler ran)
+      await nextMessageOfType(browser, 'mcp-session-hello')
+
+      // Cache must be intact
+      const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
+      expect(result.count).toBe(1)
+    } finally {
+      cli.close()
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  it('mcp-session-hello same-UUID reconnect does NOT clear server stagedEdits (Fix 1 TDD-b)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+    const cli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      await waitForOpen(cli)
+      const UUID_A = '11111111-0000-4000-a000-000000000002'
+
+      // First hello — adopt UUID (no clear on first adopt)
+      cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_A, token }))
+      await nextMessageOfType(browser, 'mcp-session-hello')
+
+      // Seed edit AFTER first hello so it survives that no-op.
+      const edit = { intentId: 'keep-me-b', source: 'Hero.tsx:5:3', property: 'color', value: 'blue', previousValue: '', timestamp: Date.now() }
+      browser.send(JSON.stringify({ type: 'staged-edit-add', edit, token }))
+      await vi.waitFor(async () => {
+        const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
+        expect(result.count).toBe(1)
+      }, { timeout: 1000 })
+
+      // Second hello — same UUID (transient reconnect). Must NOT clear.
+      cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_A, token }))
+      // Drain the second forwarded hello from the browser queue
+      await nextMessageOfType(browser, 'mcp-session-hello')
+
+      // Cache must still have the edit
+      const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
+      expect(result.count).toBe(1)
+    } finally {
+      cli.close()
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  it('mcp-session-hello different-UUID DOES clear server stagedEdits (Fix 1 TDD-c / Fix 2 successor)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+    const cli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      await waitForOpen(cli)
+      const UUID_A = '11111111-0000-4000-a000-000000000003'
+      const UUID_B = '22222222-0000-4000-a000-000000000003'
+
+      // First hello — adopt UUID_A (first adopt, no clear).
+      cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_A, token }))
+      await nextMessageOfType(browser, 'mcp-session-hello')
+
+      // Seed stale intent from prior session.
+      const staleEdit = { intentId: 'stale-fix1c', source: 'Hero.tsx:5:3', property: 'color', value: 'red', previousValue: '', timestamp: Date.now() }
+      browser.send(JSON.stringify({ type: 'staged-edit-add', edit: staleEdit, token }))
+      await vi.waitFor(async () => {
+        const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
+        expect(result.count).toBe(1)
+      }, { timeout: 1000 })
+
+      // Second hello — DIFFERENT UUID → genuine new Claude session → MUST clear.
+      cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_B, token }))
+
+      await vi.waitFor(async () => {
+        const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
+        expect(result.count).toBe(0)
+      }, { timeout: 1000 })
+    } finally {
+      cli.close()
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  // Fix 6 (ZF0-1869 Round-1): webpack RPC tests for acknowledgeSourceEdit and
+  // reportSourceEditFailed, mirroring the vite.test.ts patterns.
+
+  it('acknowledgeSourceEdit RPC removes intent from stagedEdits and notifies browser (Fix 6)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+    const cli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      // Seed an intent
+      const edit = {
+        intentId: 'ack-intent-1',
+        source: 'Hero.tsx:5:3',
+        property: 'fontSize',
+        value: '1rem',
+        previousValue: '',
+        timestamp: Date.now(),
+      }
+      browser.send(JSON.stringify({ type: 'staged-edit-add', edit, token }))
+
+      await waitForOpen(cli)
+      await vi.waitFor(async () => {
+        const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
+        expect(result.count).toBe(1)
+      }, { timeout: 1000 })
+
+      // Call acknowledgeSourceEdit — must remove intent + send staged-edits-discard to browser
+      const discardPromise = nextMessageOfType(browser, 'staged-edits-discard')
+      const result = await rpc(cli, token, 'acknowledgeSourceEdit', { intentIds: ['ack-intent-1'] }) as {
+        acknowledged: string[]
+        browserNotified: boolean
+      }
+
+      expect(result.acknowledged).toEqual(['ack-intent-1'])
+      expect(result.browserNotified).toBe(true)
+
+      // Intent removed from cache
+      const afterAck = await rpc(cli, token, 'getPendingEdits') as { count: number }
+      expect(afterAck.count).toBe(0)
+
+      // Browser received staged-edits-discard
+      const discardMsg = await discardPromise
+      expect(discardMsg.intentIds).toEqual(['ack-intent-1'])
+    } finally {
+      cli.close()
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  it('reportSourceEditFailed RPC sends source-edit-failed to browser but does NOT remove intent (Fix 6)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+    const cli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      // Seed an intent
+      const edit = {
+        intentId: 'fail-intent-1',
+        source: 'Hero.tsx:5:3',
+        property: 'color',
+        value: 'blue',
+        previousValue: '',
+        timestamp: Date.now(),
+      }
+      browser.send(JSON.stringify({ type: 'staged-edit-add', edit, token }))
+
+      await waitForOpen(cli)
+      await vi.waitFor(async () => {
+        const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
+        expect(result.count).toBe(1)
+      }, { timeout: 1000 })
+
+      // Call reportSourceEditFailed — must NOT remove intent, but must notify browser
+      const failedPromise = nextMessageOfType(browser, 'source-edit-failed')
+      const result = await rpc(cli, token, 'reportSourceEditFailed', {
+        intentIds: ['fail-intent-1'],
+        reason: 'pattern not found at Hero.tsx:31',
+      }) as {
+        reported: string[]
+        browserNotified: boolean
+      }
+
+      expect(result.reported).toEqual(['fail-intent-1'])
+      expect(result.browserNotified).toBe(true)
+
+      // Intent MUST still be in cache (failure path keeps the intent)
+      const afterReport = await rpc(cli, token, 'getPendingEdits') as { count: number }
+      expect(afterReport.count).toBe(1)
+
+      // Browser received source-edit-failed with correct fields
+      const failedMsg = await failedPromise
+      expect(failedMsg.intentIds).toEqual(['fail-intent-1'])
+      expect(failedMsg.reason).toBe('pattern not found at Hero.tsx:31')
+    } finally {
+      cli.close()
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
 })
 
 function createMockCompiler(root: string) {
