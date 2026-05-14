@@ -15,6 +15,7 @@ import {
   cortexApplyEditsInputSchema,
   cortexDiscardEditsInputSchema,
   cortexGetIntentContextInputSchema,
+  cortexAcknowledgeSourceEditInputSchema,
 } from '../schemas/index.js'
 
 /** Exponential backoff with cap for WebSocket reconnection. Exported for testing. */
@@ -683,6 +684,31 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     async ({ intentIds }) => {
       try {
         const result = await rpc('discardEdits', { intentIds })
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Failed: ${err instanceof Error ? err.message : String(err)}` }], isError: true }
+      }
+    },
+  )
+
+  server.registerTool(
+    'cortex_acknowledge_source_edit',
+    {
+      description: `Acknowledge that a needs-source-edit intent has been applied via the Edit tool.
+Removes the intent from cortex's staging buffer.
+
+Call this immediately after the Edit tool succeeds for any intent that
+cortex_apply_edits returned with status "needs-source-edit". Failing to
+acknowledge it leaves a phantom intent in the buffer that displays a
+stale Apply (n) badge to the user.
+
+For Edit failures, use cortex_report_source_edit_failed instead.
+For user-driven abandonment, use cortex_discard_edits.`,
+      inputSchema: cortexAcknowledgeSourceEditInputSchema.shape,
+    },
+    async ({ intentIds }) => {
+      try {
+        const result = await rpc('acknowledgeSourceEdit', { intentIds })
         return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
       } catch (err) {
         return { content: [{ type: 'text' as const, text: `Failed: ${err instanceof Error ? err.message : String(err)}` }], isError: true }

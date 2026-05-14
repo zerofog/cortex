@@ -139,6 +139,7 @@ describe('cortex mcp', () => {
     const names = tools.map(t => t.name).sort()
     expect(names).toEqual([
       'cortex_acknowledge',
+      'cortex_acknowledge_source_edit',
       'cortex_activate',
       'cortex_apply_edits',
       'cortex_channel_test',
@@ -1378,6 +1379,70 @@ describe('cortex mcp', () => {
       const client = await startTestServer(mockVite.port)
       await waitForConnection(mockVite)
       expect(client.getInstructions()).toBe(PROTOCOL_INSTRUCTIONS)
+    })
+  })
+
+  // ── ZF0-1869 Task 7: cortex_acknowledge_source_edit tool ─────────────────
+  describe('cortex_acknowledge_source_edit', () => {
+    it('is registered — appears in listTools with needs-source-edit in description and intentIds in schema', async () => {
+      // Falsifiability: fails if tool is not registered, registered with wrong name,
+      // or registered without a description that names the trigger condition.
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+
+      const { tools } = await client.listTools()
+      const tool = tools.find(t => t.name === 'cortex_acknowledge_source_edit')
+      expect(tool).toBeDefined()
+      expect(tool!.description).toContain('needs-source-edit')
+      expect(tool!.inputSchema).toBeDefined()
+      // intentIds is the required field — schema validation test confirms its type
+      const props = (tool!.inputSchema as { properties?: Record<string, unknown> }).properties
+      expect(props).toHaveProperty('intentIds')
+    })
+
+    it('dispatches to acknowledgeSourceEdit RPC and returns the result', async () => {
+      // Falsifiability: if the tool called rpc('discardEdits', ...) instead of
+      // rpc('acknowledgeSourceEdit', ...), the mock would return an 'unknown method' error
+      // and result.isError would be truthy, failing the assertion below.
+      mockVite.wss.on('connection', (ws) => {
+        ws.on('message', (raw) => {
+          let msg: Record<string, unknown>
+          try { msg = JSON.parse(raw.toString()) } catch { return }
+          if (msg.type !== 'cortex-rpc') return
+
+          const requestId = msg.requestId as string
+          const method = msg.method as string
+          const params = (msg.params || {}) as Record<string, unknown>
+
+          if (method === 'acknowledgeSourceEdit') {
+            const intentIds = params.intentIds as string[]
+            ws.send(JSON.stringify({
+              type: 'cortex-rpc-result',
+              requestId,
+              result: { acknowledged: intentIds, count: intentIds.length },
+            }))
+          } else {
+            ws.send(JSON.stringify({
+              type: 'cortex-rpc-error',
+              requestId,
+              error: `Unknown method: ${method}`,
+            }))
+          }
+        })
+      })
+
+      const client = await startTestServer(mockVite.port)
+      await waitForConnection(mockVite)
+      await new Promise(r => setTimeout(r, 50))
+
+      const result = await client.callTool({
+        name: 'cortex_acknowledge_source_edit',
+        arguments: { intentIds: ['intent-abc', 'intent-def'] },
+      })
+      expect(result.isError).toBeFalsy()
+      const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+      expect(parsed.acknowledged).toEqual(['intent-abc', 'intent-def'])
+      expect(parsed.count).toBe(2)
     })
   })
 
