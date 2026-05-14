@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { Toolbar } from '../../src/browser/components/Toolbar.js'
-import { renderInShadow, dispatchPointerEvent } from './helpers.js'
+import { renderInShadow } from './helpers.js'
 
 describe('Toolbar', () => {
   let cleanup: (() => void) | null = null

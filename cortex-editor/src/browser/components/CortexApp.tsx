@@ -114,6 +114,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const [annotations, setAnnotations] = useState<Map<string, Annotation>>(new Map())
   const [agentConnected, setAgentConnected] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionDisplay>({ status: 'connected' })
+  // TODO: orphaned after toolbar-badge removal (ZF0-1869) — clean up in follow-up PR
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
   // ZF0-1470 (T4): stale override signals from CSSOverrideManager.onStale (T1 API).
   // staleOverrideCount drives the StagingDriftBanner; staleSources drives per-control
