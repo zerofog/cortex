@@ -1379,6 +1379,8 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
                 if (currentSession?.channel) {
                   currentSession.channel.send({ type: 'mcp-session-hello', sessionId })
                 }
+              } else {
+                console.warn('[cortex] mcp-session-hello rejected: sessionId is not a valid UUID')
               }
               return
             }

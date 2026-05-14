@@ -868,6 +868,8 @@ class CortexWebpackRuntime {
         // session and produce phantom "intent not found" errors on the next apply.
         session.stagedEdits.clear()
         session.channel?.send({ type: 'mcp-session-hello', sessionId })
+      } else {
+        console.warn('[cortex] mcp-session-hello rejected: sessionId is not a valid UUID')
       }
       return
     }
@@ -951,8 +953,16 @@ class CortexWebpackRuntime {
       case 'discardEdits': {
         const intentIds = params.intentIds as string[]
         session.stagedEdits.remove(intentIds)
-        session.channel?.send({ type: 'staged-edits-discard', intentIds })
-        return { discarded: intentIds, browserNotified: Boolean(session.channel) }
+        let browserNotified = false
+        if (session.channel) {
+          try {
+            session.channel.send({ type: 'staged-edits-discard', intentIds })
+            browserNotified = true
+          } catch (err) {
+            console.warn('[cortex] Failed to send staged-edits-discard (discard) to browser:', err instanceof Error ? err.message : String(err))
+          }
+        }
+        return { discarded: intentIds, browserNotified }
       }
       case 'acknowledgeSourceEdit': {
         const intentIds = params.intentIds as string[]

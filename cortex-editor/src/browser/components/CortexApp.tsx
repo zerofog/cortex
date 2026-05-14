@@ -878,6 +878,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       // from Panel in Round-1 Fix 1) so the error banner survives Panel remounts.
       // The intent stays in the buffer so the designer can retry or discard.
       if (msg.type === 'source-edit-failed') {
+        // msg.intentIds is intentionally not consumed here. The single applyError banner
+        // showing msg.reason is the v1 signal — per-intent failure highlighting is a
+        // tracked follow-up, not in scope for this PR (ZF0-1869).
         setApplyError(msg.reason)
         return
       }
@@ -890,6 +893,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           lastSessionIdRef.current = msg.sessionId      // first adoption — no wipe
         } else if (lastSessionIdRef.current !== msg.sessionId) {
           buffer.clear()
+          setApplyError(null)   // also clear any stale error banner from the prior session
           lastSessionIdRef.current = msg.sessionId
         }
         return
