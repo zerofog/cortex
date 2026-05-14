@@ -1,0 +1,45 @@
+cortex-editor/src/adapters/vite.ts
+  s_de44c67238dbc7::t_455d18b3697d1c 1113-1114
+  s_de44c67238dbc7::t_deb4fdf82f5b97 338-341,352-355,366-369,380-383
+  s_de44c67238dbc7::t_5d7478301f5f51 1103-1104
+  s_de44c67238dbc7::t_c7bf9bcdedaff5 11
+  s_de44c67238dbc7::t_ac19a5b4a93a81 1193-1194
+cortex-editor/src/core/deep-readonly.ts
+  s_de44c67238dbc7::t_51d1b2c7eaa76f 1-22
+cortex-editor/src/adapters/webpack.ts
+  s_de44c67238dbc7::t_2a7a033436a54d 715-716
+  s_de44c67238dbc7::t_31da740190555a 735-736,741
+  s_de44c67238dbc7::t_91f5b5676661a5 23
+cortex-editor/src/core/annotations.ts
+  s_de44c67238dbc7::t_d39c1733afd965 163
+  s_de44c67238dbc7::t_735f410655f2e8 189
+  s_de44c67238dbc7::t_013f4bd19039e9 7
+  s_de44c67238dbc7::t_81b4dd1943d57a 139
+  s_de44c67238dbc7::t_dccc234e34cafe 205
+  s_de44c67238dbc7::t_de0ee971a2efc9 145
+  s_de44c67238dbc7::t_7bbae5ad1fc770 79-87
+  s_de44c67238dbc7::t_e182b91556febe 154
+  s_de44c67238dbc7::t_5f78577b21323c 149
+  s_de44c67238dbc7::t_eaf557a4d9875e 99
+  s_de44c67238dbc7::t_dc06b97fbe9016 174
+cortex-editor/tests/core/annotations.test.ts
+  s_de44c67238dbc7::t_e84653552d6e5f 631
+  s_de44c67238dbc7::t_8076acfd87f455 636-637
+  s_de44c67238dbc7::t_34c66a0b3f74f3 646-651,657,669,681,699,701,716,730,749
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "758c613bfefe4bb8f84bda066f43a4f341035aff",
+  "prompts": {},
+  "sessions": {
+    "s_de44c67238dbc7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "26551397-9740-4158-b824-52c41b5fffab",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
