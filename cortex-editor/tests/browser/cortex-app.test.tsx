@@ -307,7 +307,16 @@ describe('CortexApp', () => {
     setup()
     const channel = createMockChannel()
     render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
-    await new Promise(r => setTimeout(r, 10))
+
+    // Wait for the mount effect to actually run before unmounting. The effect
+    // appends the CSSOverrideManager style element and registers the teardown
+    // (selectionHandle.cleanup / dispose). A bare setTimeout(10) raced the
+    // effect-flush tick under Node-20 coverage instrumentation on CI — unmount
+    // then had no registered cleanup to call. Polling for the override element
+    // proves the effect committed. Mirrors the vi.waitFor fix on the test above.
+    await vi.waitFor(() => {
+      expect(document.head.querySelector('[data-cortex-override]')).not.toBeNull()
+    }, { timeout: WAIT_FOR_COMMIT_MS })
 
     const { _cleanup } = await import('../../src/browser/selection.js') as unknown as {
       _cleanup: ReturnType<typeof vi.fn>
@@ -836,7 +845,8 @@ describe('CortexApp', () => {
 
     it('source-edit-failed channel message does not throw and does not reach reducer (ZF0-1869 integration gap)', async () => {
       // Pins the early-return at CortexApp.tsx for Change 7's source-edit-failed variant.
-      // Panel.tsx owns this message (surfaces a failure banner for the failed intent).
+      // CortexApp.tsx owns this message — its onMessage handler sets applyError so the
+      // failure banner survives Panel unmount (lifted from Panel in Step-4 FIX 1).
       // CortexApp must not pass it to the reducer — if the early-return is absent, the
       // reducer's exhaustive default throws and channel.ts swallows it as a console.warn
       // on every cortex_report_source_edit_failed call.

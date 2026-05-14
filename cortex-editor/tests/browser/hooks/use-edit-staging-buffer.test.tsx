@@ -458,8 +458,9 @@ describe('useEditStagingBuffer', () => {
     unmount()
   })
 
-  // Change 4: memory-only — persistNow must be a no-op. This test proves no
-  // setItem referencing the staging-buffer key is ever called after a mutation.
+  // Change 4: memory-only — the buffer has no persistence layer. This test
+  // proves no setItem referencing the staging-buffer key is ever called after
+  // a mutation.
   it('no persistence: append does not write staging-buffer to localStorage (memory-only)', async () => {
     const setItemSpy = vi.spyOn(Storage.prototype, 'setItem')
     const { result, unmount } = renderHook(() => useEditStagingBuffer())
@@ -469,7 +470,7 @@ describe('useEditStagingBuffer', () => {
       result.current.append(edit)
     })
 
-    // Advance past debounce threshold to ensure any scheduled persist would have fired
+    // Drain all timers — proves no deferred write was ever scheduled.
     await act(() => {
       vi.advanceTimersByTime(300)
     })
@@ -484,25 +485,23 @@ describe('useEditStagingBuffer', () => {
     setItemSpy.mockRestore()
   })
 
-  // Change 4: memory-only — unmount still cancels the debounce timer (no crash,
-  // no dangling setItem). We verify no persistence side-effect occurs and the
-  // hook unmounts cleanly. The old assertion (localStorage written on unmount) is
+  // Change 4: memory-only — unmount has no persistence side-effect and the hook
+  // tears down cleanly. The old assertion (localStorage written on unmount) is
   // inverted: no localStorage write must occur.
-  it('unmount cancels debounce timer — no localStorage write occurs', async () => {
+  it('unmount does not write to localStorage (memory-only buffer)', async () => {
     const setItemSpy = vi.spyOn(Storage.prototype, 'setItem')
     const { result, unmount } = renderHook(() => useEditStagingBuffer())
 
-    const edit = makeEdit({ intentId: 'flush-on-unmount', value: 'flushed-value' })
+    const edit = makeEdit({ intentId: 'no-write-on-unmount', value: 'staged-value' })
     await act(() => {
       result.current.append(edit)
     })
 
-    // Debounce timer has NOT fired — staging-buffer key does not exist
+    // The staging-buffer key never exists — nothing is persisted.
     const keyBefore = Object.keys(localStorage).find(k => k.endsWith(':staging-buffer'))
     expect(keyBefore).toBeUndefined()
 
-    // Unmount — this calls flush() which calls persistNow() (now a no-op).
-    // The timer is cancelled; no setItem for the staging-buffer key must fire.
+    // Unmount — no setItem for the staging-buffer key must fire.
     await act(() => {
       unmount()
     })

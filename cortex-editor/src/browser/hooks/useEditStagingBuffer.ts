@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useCallback, useMemo, useRef, useState } from 'preact/hooks'
 import { stripLineCol, deepQuerySelectorAll } from '../selection-metadata.js'
 import type { CortexChannel, PendingEdit } from '../../adapters/types.js'
 
@@ -73,7 +73,6 @@ export interface StagingBufferHandle {
 }
 
 const MAX_ENTRIES = 500
-const DEBOUNCE_MS = 150
 
 /** Composite key for last-write-wins deduplication. */
 function compositeKey(edit: PendingEdit): string {
@@ -116,7 +115,6 @@ function defaultReadSourceValue(
  */
 export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBufferHandle {
   const bufferRef = useRef<Map<string, PendingEdit>>(new Map())
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const initRef = useRef(false)
   // Stable ref to the emitter — avoids stale-closure issues inside useCallback.
   const emitterRef = useRef<SyncEmitter | undefined>(emitter)
@@ -145,38 +143,11 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
     // acknowledge protocol is the real fix). bufferRef starts empty.
   }
 
-  // Change 4: memory-only — no-op. The signature is kept so existing callers
-  // (schedulePersist, mutation handlers) don't need plumbing changes in this
-  // PR. Buffer state is in-memory only; it dies with the cortex session.
-  const persistNow = useCallback(() => {
-    // intentionally empty — staging buffer is in-memory only
-  }, [])
-
-  const schedulePersist = useCallback(() => {
-    if (debounceTimerRef.current !== null) clearTimeout(debounceTimerRef.current)
-    debounceTimerRef.current = setTimeout(() => {
-      debounceTimerRef.current = null
-      persistNow()
-    }, DEBOUNCE_MS)
-  }, [persistNow])
-
-  const flush = useCallback(() => {
-    if (debounceTimerRef.current !== null) {
-      clearTimeout(debounceTimerRef.current)
-      debounceTimerRef.current = null
-      persistNow()
-    }
-  }, [persistNow])
-
-  // Cleanup on unmount: flush pending write + clear timer.
-  // useLayoutEffect runs synchronously during unmount (before useEffect cleanups),
-  // ensuring we don't lose the last append even in test environments where Preact's
-  // act() may not flush useEffect cleanups synchronously.
-  useLayoutEffect(() => {
-    return () => {
-      flush()
-    }
-  }, [flush])
+  // Change 4: memory-only — the staging buffer has no persistence layer.
+  // Mutations update `bufferRef` in memory and bump `version`; the buffer dies
+  // with the cortex session. The previous localStorage debounce chain
+  // (persistNow/schedulePersist/flush) was removed — it allocated a timer per
+  // mutation that only ever called a no-op.
 
   const append = useCallback((edit: PendingEdit) => {
     const key = compositeKey(edit)
@@ -205,7 +176,7 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
       }
     }
 
-    // Emit sync AFTER in-memory map updated, BEFORE localStorage persist.
+    // Emit sync AFTER the in-memory map is updated.
     // Eviction IS a mutation: emit syncRemove so the server cache stays in
     // lockstep with the bounded browser buffer. Without this, the server
     // cache grows unbounded on long sessions while the browser caps at 500.
@@ -215,8 +186,7 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
     }
 
     bumpRef.current()
-    schedulePersist()
-  }, [schedulePersist])
+  }, [])
 
   const remove = useCallback((intentIds: string[]) => {
     const idSet = new Set(intentIds)
@@ -230,12 +200,11 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
       bufferRef.current.delete(key)
     }
 
-    // Emit sync AFTER in-memory map updated, BEFORE localStorage persist.
+    // Emit sync AFTER the in-memory map is updated.
     emitterRef.current?.syncRemove(intentIds)
 
     if (toDeleteKeys.length > 0) bumpRef.current()
-    schedulePersist()
-  }, [schedulePersist])
+  }, [])
 
   const list = useCallback((): PendingEdit[] => {
     return Array.from(bufferRef.current.values())
@@ -243,20 +212,12 @@ export default function useEditStagingBuffer(emitter?: SyncEmitter): StagingBuff
 
   const clear = useCallback(() => {
     bufferRef.current.clear()
-    // Synchronous persist — Apply (ZF0-1452) calls clear() after a successful
-    // flush; a 150ms debounce window means a reload-within-window resurrects
-    // the cleared entries. Cancel any pending debounced write first.
-    if (debounceTimerRef.current !== null) {
-      clearTimeout(debounceTimerRef.current)
-      debounceTimerRef.current = null
-    }
 
-    // Emit sync AFTER in-memory map updated (clear()), BEFORE persist.
+    // Emit sync AFTER the in-memory map is cleared.
     emitterRef.current?.syncClear()
 
     bumpRef.current()
-    persistNow()
-  }, [persistNow])
+  }, [])
 
   const size = useCallback((): number => {
     return bufferRef.current.size
