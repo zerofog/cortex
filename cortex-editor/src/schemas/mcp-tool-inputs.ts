@@ -65,6 +65,11 @@ export const cortexGetIntentContextInputSchema = z.object({
   intentId: intentIdField.describe('ID of the intent to get context for'),
 })
 
+/** cortex_acknowledge_source_edit input */
+export const cortexAcknowledgeSourceEditInputSchema = z.object({
+  intentIds: z.array(intentIdField).describe('IDs of intents whose source edits have landed via the Edit tool'),
+})
+
 // --- Inferred types ---
 
 export type CortexGetDetailsInput = z.infer<typeof cortexGetDetailsInputSchema>
@@ -75,3 +80,4 @@ export type CortexRespondInput = z.infer<typeof cortexRespondInputSchema>
 export type CortexApplyEditsInput = z.infer<typeof cortexApplyEditsInputSchema>
 export type CortexDiscardEditsInput = z.infer<typeof cortexDiscardEditsInputSchema>
 export type CortexGetIntentContextInput = z.infer<typeof cortexGetIntentContextInputSchema>
+export type CortexAcknowledgeSourceEditInput = z.infer<typeof cortexAcknowledgeSourceEditInputSchema>

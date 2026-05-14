@@ -28,8 +28,9 @@ import {
   cortexApplyEditsInputSchema,
   cortexDismissInputSchema,
   cortexDiscardEditsInputSchema,
-  cortexGetDetailsInputSchema,
   cortexGetIntentContextInputSchema,
+  cortexAcknowledgeSourceEditInputSchema,
+  cortexGetDetailsInputSchema,
   cortexResolveInputSchema,
   cortexRespondInputSchema,
   formatIssues,
@@ -73,13 +74,14 @@ const BROWSER_TO_CLI_FORWARD_TYPES: ReadonlySet<string> = new Set(BROWSER_TO_CLI
 const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close'])
 const ALLOWED_RPC_METHODS = new Set([
   'getActive', 'getPending', 'getDetails', 'acknowledge', 'resolve', 'dismiss', 'respond',
-  'getPendingEdits', 'applyEdits', 'discardEdits', 'getIntentContext',
+  'getPendingEdits', 'applyEdits', 'discardEdits', 'getIntentContext', 'acknowledgeSourceEdit',
 ])
 
 const RPC_METHOD_SCHEMAS = {
   applyEdits: cortexApplyEditsInputSchema,
   discardEdits: cortexDiscardEditsInputSchema,
   getIntentContext: cortexGetIntentContextInputSchema,
+  acknowledgeSourceEdit: cortexAcknowledgeSourceEditInputSchema,
   getDetails: cortexGetDetailsInputSchema,
   acknowledge: cortexAcknowledgeInputSchema,
   resolve: cortexResolveInputSchema,
@@ -926,6 +928,12 @@ class CortexWebpackRuntime {
         session.stagedEdits.remove(intentIds)
         session.channel?.send({ type: 'staged-edits-discard', intentIds })
         return { discarded: intentIds, browserNotified: Boolean(session.channel) }
+      }
+      case 'acknowledgeSourceEdit': {
+        const intentIds = params.intentIds as string[]
+        session.stagedEdits.remove(intentIds)
+        session.channel?.send({ type: 'staged-edits-discard', intentIds })
+        return { acknowledged: intentIds, browserNotified: Boolean(session.channel) }
       }
       case 'getIntentContext': {
         const intentId = params.intentId as string

@@ -1401,6 +1401,56 @@ describe('annotation RPC', () => {
     expect(isSchemaViolation).toBe(true)
   })
 
+  // ── ZF0-1869 Task 6: acknowledgeSourceEdit RPC ───────────────────────────
+  it('acknowledgeSourceEdit removes intent from cache and broadcasts staged-edits-discard to browser', async () => {
+    // TDD anchor for Task 6/18 (Change 7). Wire effect is identical to discardEdits —
+    // remove from server cache + broadcast staged-edits-discard. The distinct method
+    // name carries the apply-acked vs user-discarded distinction at the MCP tool layer.
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status (connected: true)
+
+    // Seed two intents directly into the server-side cache.
+    const cache = _getStagedEditsForTesting()!
+    cache.append(makeEdit({ intentId: 'i1', property: 'color', value: 'red' }))
+    cache.append(makeEdit({ intentId: 'i2', property: 'fontSize', value: '16px' }))
+    expect(cache.list()).toHaveLength(2)
+
+    // Clear sent messages so we can isolate acknowledgeSourceEdit's broadcast.
+    server._sent.length = 0
+
+    ws.send(JSON.stringify({
+      type: 'cortex-rpc',
+      requestId: 'ack-src-1',
+      method: 'acknowledgeSourceEdit',
+      params: { intentIds: ['i1'] },
+      token: sessionToken,
+    }))
+
+    // Wait for the cortex-rpc-result response.
+    let rpcReply: any
+    for (let i = 0; i < 20; i++) {
+      rpcReply = await nextMessage()
+      if (rpcReply.type === 'cortex-rpc-result' && rpcReply.requestId === 'ack-src-1') break
+    }
+
+    // (a) result shape
+    expect(rpcReply.result.acknowledged).toEqual(['i1'])
+    expect(rpcReply.result.browserNotified).toBe(true)
+
+    // (b) i1 removed, i2 still present
+    expect(cache.getById('i1')).toBeNull()
+    expect(cache.getById('i2')).not.toBeNull()
+
+    // (c) browser channel received staged-edits-discard
+    const discard = server._sent.find(
+      (s) => s.event === 'cortex:msg' && (s.data as Record<string, unknown>).type === 'staged-edits-discard',
+    )
+    expect(discard).toBeDefined()
+    expect((discard!.data as Record<string, unknown>).intentIds).toEqual(['i1'])
+  })
+
   it('comment-reply appends to existing annotation thread', async () => {
     const { server } = await setupServer()
     const { ws, nextMessage } = await connectCLI()

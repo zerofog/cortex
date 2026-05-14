@@ -36,6 +36,7 @@ import {
   cortexApplyEditsInputSchema,
   cortexDiscardEditsInputSchema,
   cortexGetIntentContextInputSchema,
+  cortexAcknowledgeSourceEditInputSchema,
   cortexGetDetailsInputSchema,
   cortexAcknowledgeInputSchema,
   cortexResolveInputSchema,
@@ -297,7 +298,7 @@ const ALLOWED_RPC_METHODS = new Set([
   // Annotation methods (Phase 7)
   'getActive', 'getPending', 'getDetails', 'acknowledge', 'resolve', 'dismiss', 'respond',
   // Staged-edit methods (ZF0-1452 T2)
-  'getPendingEdits', 'applyEdits', 'discardEdits', 'getIntentContext',
+  'getPendingEdits', 'applyEdits', 'discardEdits', 'getIntentContext', 'acknowledgeSourceEdit',
 ])
 
 // Method-specific param schemas. `null` means "method takes no params — skip validation".
@@ -307,6 +308,7 @@ const RPC_METHOD_SCHEMAS = {
   applyEdits: cortexApplyEditsInputSchema,
   discardEdits: cortexDiscardEditsInputSchema,
   getIntentContext: cortexGetIntentContextInputSchema,
+  acknowledgeSourceEdit: cortexAcknowledgeSourceEditInputSchema,
   getDetails: cortexGetDetailsInputSchema,
   acknowledge: cortexAcknowledgeInputSchema,
   resolve: cortexResolveInputSchema,
@@ -460,6 +462,28 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
         }
       }
       return { discarded: intentIds, browserNotified }
+    }
+
+    case 'acknowledgeSourceEdit': {
+      // params.intentIds is schema-validated as string[] before handleRPC is called.
+      const intentIds = params.intentIds as string[]
+      currentSession!.stagedEdits.remove(intentIds)
+      // Same wire effect as discardEdits — broadcast to keep the browser canonical
+      // buffer in sync. The apply-acked vs user-discarded distinction lives at the
+      // MCP tool layer, not the channel layer.
+      let browserNotified = false
+      if (currentSession!.channel) {
+        try {
+          currentSession!.channel.send({ type: 'staged-edits-discard', intentIds })
+          browserNotified = true
+        } catch (err) {
+          console.warn(
+            '[cortex] Failed to send staged-edits-discard (ack) to browser:',
+            err instanceof Error ? err.message : String(err),
+          )
+        }
+      }
+      return { acknowledged: intentIds, browserNotified }
     }
 
     case 'getIntentContext': {
