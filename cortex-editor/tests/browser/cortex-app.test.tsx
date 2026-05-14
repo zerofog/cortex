@@ -1390,10 +1390,26 @@ describe('CortexApp — mcp-session-hello session-ID wipe (Task 12, Change 6)', 
     cleanupHost = sh.cleanup
     const channel = createMockChannel()
     render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
-    await new Promise(r => setTimeout(r, 10))
 
-    // Activate so Panel mounts and stageEditRef is available.
-    channel._simulateMessage({ type: 'cortex' } as any)
+    // Listener-before-message contract: _simulateMessage() does NOT buffer —
+    // it fans out only to handlers registered AT call time (helpers.ts:138).
+    // CortexApp subscribes via channel.onMessage() inside its mount effect,
+    // which Preact runs asynchronously after the initial render commit. A fixed
+    // setTimeout before _simulateMessage races that effect: under serial-loop
+    // load the 'cortex' activation message can fire BEFORE the handler exists,
+    // get dropped, and the toolbar never renders → the vi.waitFor below times
+    // out with "expected null not to be null". Wait on _handlerCount() (the
+    // helper exposes it for exactly this) so activation is always delivered.
+    await vi.waitFor(() => {
+      expect(channel._handlerCount()).toBeGreaterThan(0)
+    }, { timeout: 2000 })
+
+    // Activate so Panel mounts and stageEditRef is available. Wrap in act()
+    // so the resulting re-render flushes before the toolbar wait — mirrors the
+    // proven-stable activateEditor() helper in the sibling describe block.
+    await act(async () => {
+      channel._simulateMessage({ type: 'cortex' } as any)
+    })
     await vi.waitFor(() => {
       expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
     }, { timeout: 2000 })
@@ -1418,6 +1434,17 @@ describe('CortexApp — mcp-session-hello session-ID wipe (Task 12, Change 6)', 
     return { channel, bridge }
   }
 
+  // Deliver an mcp-session-hello and flush. _simulateMessage fans out
+  // synchronously to CortexApp's onMessage handler; the handler's
+  // compare-and-(maybe-)clear runs inline. Wrapping in act() flushes any
+  // resulting Preact re-render/effect synchronously, so a plain assertion
+  // afterwards is deterministic — no arbitrary setTimeout settle window.
+  async function deliverHello(channel: ReturnType<typeof createMockChannel>, sessionId: string) {
+    await act(async () => {
+      channel._simulateMessage({ type: 'mcp-session-hello', sessionId } as any)
+    })
+  }
+
   it('first mcp-session-hello ADOPTS the UUID without wiping the buffer', async () => {
     // Verifies: receiving the very first hello from MCP does NOT wipe staged edits.
     // Only a UUID CHANGE (second hello with a new UUID) should wipe.
@@ -1428,12 +1455,10 @@ describe('CortexApp — mcp-session-hello session-ID wipe (Task 12, Change 6)', 
     await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(1) }, { timeout: 2000 })
 
     // First mcp-session-hello — should adopt the UUID, keep the buffer intact.
-    await act(async () => {
-      channel._simulateMessage({ type: 'mcp-session-hello', sessionId: VALID_UUID_A } as any)
-    })
-    await new Promise(r => setTimeout(r, 20))
+    await deliverHello(channel, VALID_UUID_A)
 
-    // Buffer must NOT be wiped on first adoption.
+    // Buffer must NOT be wiped on first adoption. act() above flushed the
+    // handler synchronously, so this assertion needs no settle delay.
     expect(bridge.buffer.size()).toBe(1)
   })
 
@@ -1445,18 +1470,11 @@ describe('CortexApp — mcp-session-hello session-ID wipe (Task 12, Change 6)', 
     await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(1) }, { timeout: 2000 })
 
     // First hello — adopt UUID.
-    await act(async () => {
-      channel._simulateMessage({ type: 'mcp-session-hello', sessionId: VALID_UUID_A } as any)
-    })
-    await new Promise(r => setTimeout(r, 10))
+    await deliverHello(channel, VALID_UUID_A)
     expect(bridge.buffer.size()).toBe(1)
 
     // Second hello — SAME UUID → must NOT wipe.
-    await act(async () => {
-      channel._simulateMessage({ type: 'mcp-session-hello', sessionId: VALID_UUID_A } as any)
-    })
-    await new Promise(r => setTimeout(r, 10))
-
+    await deliverHello(channel, VALID_UUID_A)
     expect(bridge.buffer.size()).toBe(1)
   })
 
@@ -1468,17 +1486,13 @@ describe('CortexApp — mcp-session-hello session-ID wipe (Task 12, Change 6)', 
     await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(1) }, { timeout: 2000 })
 
     // First hello — adopt UUID_A.
-    await act(async () => {
-      channel._simulateMessage({ type: 'mcp-session-hello', sessionId: VALID_UUID_A } as any)
-    })
-    await new Promise(r => setTimeout(r, 10))
+    await deliverHello(channel, VALID_UUID_A)
     expect(bridge.buffer.size()).toBe(1)
 
-    // Second hello — DIFFERENT UUID → must WIPE the buffer.
-    await act(async () => {
-      channel._simulateMessage({ type: 'mcp-session-hello', sessionId: VALID_UUID_B } as any)
-    })
-
+    // Second hello — DIFFERENT UUID → must WIPE the buffer. deliverHello's
+    // act() flushes buffer.clear() and the re-render synchronously; still
+    // guard with vi.waitFor in case buffer.clear() schedules a microtask.
+    await deliverHello(channel, VALID_UUID_B)
     await vi.waitFor(() => {
       expect(bridge.buffer.size()).toBe(0)
     }, { timeout: 2000 })
