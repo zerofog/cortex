@@ -19,6 +19,14 @@ import {
   cortexReportSourceEditFailedInputSchema,
 } from '../schemas/index.js'
 
+/** Process-scoped UUID announced to the browser on every WebSocket connect.
+ *  The browser compares this against its last-seen UUID and wipes the staging
+ *  buffer only when the UUID changes — distinguishing a genuine new Claude
+ *  session from a transient reconnect (sleep/wake, WiFi flap) which reuses
+ *  the same process and therefore the same UUID.
+ *  Exported so tests can assert the exact value sent without a live server. */
+export const MCP_SESSION_ID = randomUUID()
+
 /** Exponential backoff with cap for WebSocket reconnection. Exported for testing. */
 export function calculateReconnectDelay(retryCount: number): number {
   const clamped = Math.min(retryCount, 15)
@@ -178,6 +186,12 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
       if (token) {
         socket.send(JSON.stringify({ type: 'cortex-status-request', token }))
       }
+      // Announce process-scoped UUID so the browser can detect a genuine new
+      // Claude session and wipe stale staged edits. No token required — this is
+      // a server→browser push, not a write operation. Sent on every connect so
+      // the browser updates its last-seen UUID on reconnect as well (transient
+      // reconnects keep the same MCP_SESSION_ID, so the browser won't wipe).
+      socket.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: MCP_SESSION_ID }))
     })
 
     socket.on('message', (raw) => {

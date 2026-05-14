@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { WebSocketServer, WebSocket } from 'ws'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { startMCPServer, discoverPort, discoverToken, findProjectRoot, calculateReconnectDelay, PROTOCOL_INSTRUCTIONS, type MCPServerHandle } from '../../src/cli/mcp.js'
+import { startMCPServer, discoverPort, discoverToken, findProjectRoot, calculateReconnectDelay, MCP_SESSION_ID, PROTOCOL_INSTRUCTIONS, type MCPServerHandle } from '../../src/cli/mcp.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import http from 'node:http'
@@ -280,6 +280,26 @@ describe('cortex mcp', () => {
     result = await client.callTool({ name: 'cortex_status' })
     status = JSON.parse((result.content as Array<{ text: string }>)[0].text)
     expect(status.editorActive).toBe(false)
+  })
+
+  it('sends mcp-session-hello with MCP_SESSION_ID on WebSocket open (Task 12, Change 6)', async () => {
+    // MCP_SESSION_ID is a process-scoped UUID constant. On every WebSocket open event
+    // (initial connect AND reconnects), the MCP server must send mcp-session-hello so the
+    // browser can detect a genuinely new Claude session vs. a transient reconnect.
+    await startTestServer(mockVite.port)
+    await waitForConnection(mockVite)
+    // Allow the open-handler messages to flush before inspecting.
+    await new Promise(r => setTimeout(r, 50))
+
+    const hello = mockVite.messages.find(m => m.type === 'mcp-session-hello')
+    expect(hello).toBeDefined()
+    if (hello) {
+      expect(hello.type).toBe('mcp-session-hello')
+      expect(hello.sessionId).toBe(MCP_SESSION_ID)
+      // MCP_SESSION_ID must be a valid RFC 4122 UUID (any version).
+      expect(typeof hello.sessionId).toBe('string')
+      expect(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(hello.sessionId as string)).toBe(true)
+    }
   })
 
   it('reconnects to dev server with exponential backoff (capped at 30s)', () => {

@@ -651,6 +651,36 @@ describe('serverToBrowserSchema — source-edit-failed (Change 7, Task 8)', () =
   })
 })
 
+describe('serverToBrowserSchema — mcp-session-hello (Change 6, Task 12)', () => {
+  const VALID_UUID = '550e8400-e29b-41d4-a716-446655440000'
+  it('accepts mcp-session-hello with valid UUID sessionId', () => {
+    const msg = { type: 'mcp-session-hello', sessionId: VALID_UUID }
+    const result = serverToBrowserSchema.safeParse(msg)
+    // Hard, falsifiable assertion: fails if the schema rejects mcp-session-hello
+    // or parses it as a different arm.
+    expect(result.success && result.data.type).toBe('mcp-session-hello')
+    // `=== 'mcp-session-hello'` narrows the discriminated union so the arm
+    // fields below typecheck (expect().toBe() is a runtime check, not a guard).
+    if (result.success && result.data.type === 'mcp-session-hello') {
+      expect(result.data.sessionId).toBe(VALID_UUID)
+    }
+  })
+  it('rejects mcp-session-hello with non-UUID sessionId', () => {
+    const r = serverToBrowserSchema.safeParse({ type: 'mcp-session-hello', sessionId: 'not-a-uuid' })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join('.'))).toContain('sessionId')
+    }
+  })
+  it('rejects mcp-session-hello missing sessionId', () => {
+    const r = serverToBrowserSchema.safeParse({ type: 'mcp-session-hello' })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join('.'))).toContain('sessionId')
+    }
+  })
+})
+
 describe('serverToBrowserSchema — unknown type', () => {
   it('rejects unknown type', () => {
     const r = serverToBrowserSchema.safeParse({ type: 'bogus' })

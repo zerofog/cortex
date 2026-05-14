@@ -211,6 +211,11 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // without capturing a stale value. Follows the same pattern as hmrAppliedVersionRef.
   const bufferVersionRef = useRef(0)
   if (__CORTEX_TEST_BUILD__) bufferVersionRef.current = buffer.version
+  // Change 6 (Task 12): track last-seen MCP session UUID. On UUID change,
+  // wipe the staging buffer to discard stale intents from a prior Claude session.
+  // Transient reconnects (sleep/wake, WiFi flap) keep the same MCP_SESSION_ID
+  // and therefore keep the same UUID here → no wipe.
+  const lastSessionIdRef = useRef<string | null>(null)
 
   // Exposed outside the useEffect so UI handlers (X-button, Toolbar close) can
   // route through the reducer rather than calling setActive(false) directly.
@@ -860,6 +865,19 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       // button's pending Promise. Not a CortexAppAction; early-return so the
       // reducer's exhaustive default doesn't fire and log on every Apply.
       if (msg.type === 'staged-edits-acked') return
+
+      // mcp-session-hello: the MCP server announces a process-scoped UUID. A CHANGED
+      // UUID means a genuinely new Claude session — wipe stale staged edits. Same
+      // UUID (transient reconnect: sleep/wake, WiFi flap) → keep edits.
+      if (msg.type === 'mcp-session-hello') {
+        if (lastSessionIdRef.current === null) {
+          lastSessionIdRef.current = msg.sessionId      // first adoption — no wipe
+        } else if (lastSessionIdRef.current !== msg.sessionId) {
+          buffer.clear()
+          lastSessionIdRef.current = msg.sessionId
+        }
+        return
+      }
 
       // After the early returns above (edit_status, hmr-applied, error), `msg.type`
       // matches a CortexAppAction discriminant. The cast is a forcing cast — TS

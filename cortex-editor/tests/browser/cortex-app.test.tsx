@@ -1342,3 +1342,137 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
   })
 
 })
+
+// ── Task 12 — mcp-session-hello / Change 6 ────────────────────────────────
+
+describe('CortexApp — mcp-session-hello session-ID wipe (Task 12, Change 6)', () => {
+  const VALID_UUID_A = '00000000-0000-4000-a000-000000000001'
+  const VALID_UUID_B = '00000000-0000-4000-a000-000000000002'
+
+  let root: HTMLDivElement
+  let shadow: ShadowRoot
+  let cleanupHost: (() => void) | null = null
+  const orphans: HTMLElement[] = []
+
+  afterEach(async () => {
+    if (root) render(null, root)
+    cleanupHost?.()
+    cleanupHost = null
+    for (const el of orphans) el.remove()
+    orphans.length = 0
+    for (const el of document.querySelectorAll('[data-cortex-source]')) el.remove()
+    document.documentElement.removeAttribute('data-cortex-active')
+    delete (window as any).__CORTEX_TEST__
+    delete (window as any).__CORTEX_DEBUG_OVERRIDES__
+    const mod = await import('../../src/browser/selection.js') as unknown as { _resetCallbacks?: () => void }
+    mod._resetCallbacks?.()
+    _resetBusForTesting()
+    _resetTransformBusForTesting()
+    _resetPopoverStackForTesting()
+    cleanDocumentHead()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  async function setupWithBuffer() {
+    ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
+    const sh = createShadowHost()
+    root = sh.root
+    shadow = sh.shadow
+    cleanupHost = sh.cleanup
+    const channel = createMockChannel()
+    render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+    await new Promise(r => setTimeout(r, 10))
+
+    // Activate so Panel mounts and stageEditRef is available.
+    channel._simulateMessage({ type: 'cortex' } as any)
+    await vi.waitFor(() => {
+      expect(root.querySelector('.cortex-toolbar')).not.toBeNull()
+    }, { timeout: 2000 })
+
+    // Select an element so Panel mounts.
+    const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+    const { selectCb } = _getCallbacks()
+    const target = document.createElement('div')
+    target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+    document.body.appendChild(target)
+    orphans.push(target)
+    mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
+    selectCb([target], 'replace')
+    await vi.waitFor(() => {
+      expect(root.querySelector('.cortex-panel')).not.toBeNull()
+    }, { timeout: 2000 })
+
+    const bridge = (window as any).__CORTEX_TEST__ as {
+      buffer: { list: () => unknown[]; size: () => number }
+      stageEdit: (source: string, property: string, value: string) => Promise<string>
+    }
+    return { channel, bridge }
+  }
+
+  it('first mcp-session-hello ADOPTS the UUID without wiping the buffer', async () => {
+    // Verifies: receiving the very first hello from MCP does NOT wipe staged edits.
+    // Only a UUID CHANGE (second hello with a new UUID) should wipe.
+    const { channel, bridge } = await setupWithBuffer()
+
+    // Stage one edit before the hello arrives.
+    await act(async () => { await bridge.stageEdit('Hero.tsx:5:3', 'color', 'red') })
+    await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(1) }, { timeout: 2000 })
+
+    // First mcp-session-hello — should adopt the UUID, keep the buffer intact.
+    await act(async () => {
+      channel._simulateMessage({ type: 'mcp-session-hello', sessionId: VALID_UUID_A } as any)
+    })
+    await new Promise(r => setTimeout(r, 20))
+
+    // Buffer must NOT be wiped on first adoption.
+    expect(bridge.buffer.size()).toBe(1)
+  })
+
+  it('second mcp-session-hello with SAME UUID does NOT wipe the buffer', async () => {
+    // Verifies: transient reconnects (same UUID re-announced) do not wipe.
+    const { channel, bridge } = await setupWithBuffer()
+
+    await act(async () => { await bridge.stageEdit('Hero.tsx:5:3', 'color', 'blue') })
+    await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(1) }, { timeout: 2000 })
+
+    // First hello — adopt UUID.
+    await act(async () => {
+      channel._simulateMessage({ type: 'mcp-session-hello', sessionId: VALID_UUID_A } as any)
+    })
+    await new Promise(r => setTimeout(r, 10))
+    expect(bridge.buffer.size()).toBe(1)
+
+    // Second hello — SAME UUID → must NOT wipe.
+    await act(async () => {
+      channel._simulateMessage({ type: 'mcp-session-hello', sessionId: VALID_UUID_A } as any)
+    })
+    await new Promise(r => setTimeout(r, 10))
+
+    expect(bridge.buffer.size()).toBe(1)
+  })
+
+  it('second mcp-session-hello with DIFFERENT UUID WIPES the buffer', async () => {
+    // Verifies: a new Claude session (new UUID) clears stale staged edits.
+    const { channel, bridge } = await setupWithBuffer()
+
+    await act(async () => { await bridge.stageEdit('Hero.tsx:5:3', 'color', 'green') })
+    await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(1) }, { timeout: 2000 })
+
+    // First hello — adopt UUID_A.
+    await act(async () => {
+      channel._simulateMessage({ type: 'mcp-session-hello', sessionId: VALID_UUID_A } as any)
+    })
+    await new Promise(r => setTimeout(r, 10))
+    expect(bridge.buffer.size()).toBe(1)
+
+    // Second hello — DIFFERENT UUID → must WIPE the buffer.
+    await act(async () => {
+      channel._simulateMessage({ type: 'mcp-session-hello', sessionId: VALID_UUID_B } as any)
+    })
+
+    await vi.waitFor(() => {
+      expect(bridge.buffer.size()).toBe(0)
+    }, { timeout: 2000 })
+  })
+})

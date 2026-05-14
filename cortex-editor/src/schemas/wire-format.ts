@@ -222,7 +222,7 @@ export const browserToServerSchema = z.discriminatedUnion('type', [
 export type BrowserToServerSchema = z.infer<typeof browserToServerSchema>
 
 // ---------------------------------------------------------------------------
-// ServerToBrowser — all 18 variants from types.ts:148-203
+// ServerToBrowser — all 19 variants from types.ts:148-203
 // ---------------------------------------------------------------------------
 
 export const serverToBrowserSchema = z.discriminatedUnion('type', [
@@ -375,6 +375,13 @@ export const serverToBrowserSchema = z.discriminatedUnion('type', [
     type: z.literal('source-edit-failed'),
     intentIds: z.array(intentIdSchema),
     reason: z.string(),
+  }),
+
+  // 19. mcp-session-hello (Change 6) — MCP server announces its process-scoped UUID
+  // so the browser can wipe the buffer on a genuine session change.
+  z.object({
+    type: z.literal('mcp-session-hello'),
+    sessionId: z.string().uuid(),
   }),
 ])
 
