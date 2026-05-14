@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { h } from 'preact'
 import { Panel, hasTypographyContent } from '../../src/browser/components/Panel.js'
-import { renderInShadow } from './helpers.js'
+import { renderInShadow, makeFakeBuffer } from './helpers.js'
 
 // Canonical Panel v2 ordering from DESIGN.md "Section ordering rationale":
 // Elements -> Position -> Layout -> Typography (conditional) -> Appearance ->
@@ -97,6 +97,7 @@ describe('Panel — canonical section ordering', () => {
         onClose: () => {},
         onSelectElement: () => {},
         ...panelPositionProps,
+        buffer: makeFakeBuffer(),
       }),
     )
     cleanup = () => result.cleanup()
@@ -322,6 +323,7 @@ describe('Panel — Typography conditional rendering', () => {
         onClose: () => {},
         onSelectElement: () => {},
         ...panelPositionProps,
+        buffer: makeFakeBuffer(),
       }),
     )
     cleanup = () => result.cleanup()

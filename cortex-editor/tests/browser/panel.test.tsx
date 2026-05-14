@@ -3,26 +3,13 @@ import { render } from 'preact'
 import { useRef } from 'preact/hooks'
 import { act } from 'preact/test-utils'
 import { Panel } from '../../src/browser/components/Panel.js'
-import { renderInShadow, mockGetComputedStyle, createShadowHost, createMockChannel } from './helpers.js'
+import { renderInShadow, mockGetComputedStyle, createShadowHost, createMockChannel, makeFakeBuffer } from './helpers.js'
 import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
 import { _resetBusForTesting } from '../../src/browser/override-bus.js'
 import { useEditStagingBuffer, type PendingEdit, type StagingBufferHandle } from '../../src/browser/hooks/useEditStagingBuffer.js'
 import * as bufferModule from '../../src/browser/hooks/useEditStagingBuffer.js'
 import { CommandStack } from '../../src/browser/command-stack.js'
 import { PREVIEW_SOURCE_ATTR, PREVIEW_SOURCE_PREFIX } from '../../src/browser/preview-source.js'
-
-/** Returns a minimal fake StagingBufferHandle with all 7 members as vi.fn() stubs. */
-function makeFakeBuffer(): StagingBufferHandle {
-  return {
-    append: vi.fn(),
-    remove: vi.fn(),
-    list: vi.fn(() => []),
-    clear: vi.fn(),
-    size: vi.fn(() => 0),
-    version: 0,
-    reconcile: vi.fn(() => ({ divergent: [] })),
-  }
-}
 
 /**
  * Wrapper component for tests that need a real useEditStagingBuffer instance.
