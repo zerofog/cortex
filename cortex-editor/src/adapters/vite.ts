@@ -31,6 +31,7 @@ import { CSSModulesRewriter } from '../core/rewriter/css-modules.js'
 import { RuntimeCSSResolver } from '../core/rewriter/runtime-resolver.js'
 import { UndoStack } from '../core/session/undo-stack.js'
 import { CortexSession } from '../core/session.js'
+import { LockHeldError } from '../core/cortex-lock.js'
 import { applyEditsCore, sliceIntentContext, checkIntentFileSize, parseIntentSource } from '../core/staged-edits.js'
 import type { StagedEditsCache } from '../core/staged-edits.js'
 import { atomicWrite } from './atomic-write.js'
@@ -249,6 +250,14 @@ if (!document.querySelector('[data-cortex-host]')) {
 }
 
 let currentSession: CortexSession | null = null
+
+// ZF0-1851: set to true when configureServer refused to start because another
+// cortex instance already owns this project's .cortex/. Distinct from
+// `currentSession === null` (which is also the pre-configureServer state — tests
+// exercise transforms in that state and expect injection). When this flag is
+// true, the plugin is cleanly inert: no WS server, no /@cortex/* routes, and
+// no transform injection (which would otherwise 404).
+let cortexDisabledByLock = false
 
 // Single shutdown handler registered on both SIGINT and SIGTERM, tracked for cleanup on re-entry
 let shutdownHandler: (() => void) | null = null
@@ -825,6 +834,11 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       order: 'pre',
       handler(html) {
         if (config.command !== 'serve') return html
+        // ZF0-1851: when configureServer refused due to LockHeldError, no WS
+        // server and no /@cortex/* routes are registered. Injecting the client
+        // script anyway would 404 + pollute the user's console — skip
+        // injection entirely so cortex is cleanly inert.
+        if (cortexDisabledByLock) return html
         // Inject token + sessionId before the module script so globals are available at import time
         const authScript = currentSession
           ? `<script>window.__CORTEX_TOKEN__=${safeJSONForScript(currentSession.token)};window.__CORTEX_SESSION_ID__=${safeJSONForScript(currentSession.sessionId)}</script>\n`
@@ -840,6 +854,10 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
 
     transform(code, id) {
       if (config.command !== 'serve') return null
+      // ZF0-1851: skip source transforms when cortex is disabled (lock held);
+      // the runtime support is absent, so rewriting source would just produce
+      // dangling references.
+      if (cortexDisabledByLock) return null
       const result = transformSource(code, id)
       if (!result) return null
       // Our SourceMap allows nullable optional fields (per source map spec)
@@ -857,6 +875,13 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         }
         currentSession.listeningCleanup?.()
         currentSession.listeningCleanup = null
+        // ZF0-1851: release the .cortex/ lock synchronously BEFORE constructing
+        // the new session. dispose() is fire-and-forget (we don't await its
+        // async channel teardown), so without the explicit handoff the new
+        // acquire would see the old session still in the in-process registry
+        // and refuse with LockHeldError. The full dispose still runs and
+        // re-releases the lock idempotently as its last step.
+        currentSession.releaseLockForHandoff()
         currentSession.dispose().catch((err) => {
           console.warn('[cortex] Failed to dispose previous session:', err instanceof Error ? err.message : err)
         })
@@ -874,11 +899,29 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       // shared by the webpack adapter and unit-tested without a dev server.
       const annotationsFilePath = resolveAnnotationsFilePath({ root: config.root })
 
-      currentSession = new CortexSession({
-        root: config.root,
-        mode: config.mode,
-        annotationsFilePath,
-      })
+      // ZF0-1851: acquire the .cortex/ single-writer lock inside CortexSession's
+      // constructor. A live conflicting instance throws LockHeldError here; we
+      // log it and bail out of configureServer so cortex doesn't start — the
+      // user's Vite dev server itself keeps running.
+      try {
+        currentSession = new CortexSession({
+          root: config.root,
+          mode: config.mode,
+          annotationsFilePath,
+          cortexDir: path.join(config.root, '.cortex'),
+        })
+        // Re-arm in case a prior configureServer run set the flag; a fresh
+        // successful acquire means cortex is enabled for this lifecycle.
+        cortexDisabledByLock = false
+      } catch (err) {
+        if (err instanceof LockHeldError) {
+          console.error(err.message)
+          currentSession = null
+          cortexDisabledByLock = true
+          return
+        }
+        throw err
+      }
 
       // Register signal handlers for graceful shutdown.
       // The ?? Promise.resolve() ensures process.exit runs even if currentSession is null

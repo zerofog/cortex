@@ -1,10 +1,17 @@
 import { createSourceTransform } from './source-transform.js'
+import { isRuntimeDisabled } from './source-loader-utils.js'
 import type { SourceTransformOptions } from './types.js'
 
 export interface SourceLoaderOptions {
   projectRoot: string
   resolveAlias?: Record<string, string>
   includeNodeModules?: string[]
+  /** ZF0-1851: plugin-instance id from the CortexWebpackRuntime that installed
+   *  this loader. Checked against the disabledRuntimes registry to skip
+   *  transformation when that plugin instance was refused the lock — keeps a
+   *  lock-refused plugin's transforms inert without affecting other plugin
+   *  instances (MultiCompiler). */
+  runtimeId?: string
 }
 
 interface LoaderContext {
@@ -57,6 +64,16 @@ export default function cortexSourceLoader(this: LoaderContext, source: string) 
   this.cacheable()
 
   const options = this.getOptions()
+
+  // ZF0-1851: when the plugin instance that installed this loader was refused
+  // the .cortex/ lock, pass through source unchanged. Symmetric to Vite's
+  // cortexDisabledByLock gate. Per-runtime keying so MultiCompiler with one
+  // lock-refused plugin doesn't disable the other's transforms.
+  if (isRuntimeDisabled(options.runtimeId)) {
+    this.callback(null, source)
+    return
+  }
+
   const key = cacheKey(options)
 
   if (!cachedTransform || cachedKey !== key) {
