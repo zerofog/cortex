@@ -5,6 +5,7 @@ import { createServer, type IncomingMessage, type Server as HttpServer } from 'n
 import type { Duplex } from 'node:stream'
 import { WebSocket, WebSocketServer } from 'ws'
 import { CortexSession } from '../core/session.js'
+import { LockHeldError } from '../core/cortex-lock.js'
 import { resolveAnnotationsFilePath } from './annotations-path-resolver.js'
 import { TailwindResolver } from '../core/tailwind-resolver.js'
 import { TailwindRewriter } from '../core/rewriter/tailwind.js'
@@ -407,11 +408,25 @@ class CortexWebpackRuntime {
     // shared by the vite adapter and unit-tested without a webpack runtime.
     const annotationsFilePath = resolveAnnotationsFilePath({ root: this.root })
 
-    const session = new CortexSession({
-      root: this.root,
-      mode: this.mode,
-      annotationsFilePath,
-    })
+    // ZF0-1851: acquire the .cortex/ single-writer lock inside CortexSession's
+    // constructor. A live conflicting instance throws LockHeldError here; we
+    // log it and return cleanly so cortex doesn't start — the user's webpack
+    // build itself keeps running.
+    let session: CortexSession
+    try {
+      session = new CortexSession({
+        root: this.root,
+        mode: this.mode,
+        annotationsFilePath,
+        cortexDir: path.join(this.root, '.cortex'),
+      })
+    } catch (err) {
+      if (err instanceof LockHeldError) {
+        console.error(err.message)
+        return
+      }
+      throw err
+    }
     this.session = session
 
     this.browserWss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 })

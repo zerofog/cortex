@@ -9,6 +9,7 @@ import type { EditPipeline } from './edit-pipeline.js'
 import { AnnotationStore } from './annotations.js'
 import { ActivityLog } from './session/activity-log.js'
 import { StagedEditsCache } from './staged-edits.js'
+import { CortexLock } from './cortex-lock.js'
 
 /** Narrow config interface — only the fields CortexSession actually needs.
  *  Adapters (Vite, Next.js) map their framework config to this at the boundary. */
@@ -19,6 +20,12 @@ export interface CortexConfig {
    *  and write-throughs every mutation. Adapter resolves the path from
    *  the CORTEX_PERSIST_ANNOTATIONS env var. */
   readonly annotationsFilePath?: string
+  /** When set, the session acquires a single-writer advisory lock on this
+   *  `.cortex/` directory at construction (ZF0-1851) — a second cortex instance
+   *  on the same project root fails fast with LockHeldError instead of racing
+   *  `.cortex/` writes. Adapters pass `path.join(root, '.cortex')`; unit tests
+   *  leave it unset (no lock, no behavior change). */
+  readonly cortexDir?: string
 }
 
 /**
@@ -46,6 +53,12 @@ export class CortexSession {
   readonly annotations: AnnotationStore
   readonly activityLog: ActivityLog
   readonly stagedEdits: StagedEditsCache
+
+  // --- Single-writer lock (ZF0-1851) ---
+  /** Held when `config.cortexDir` was set and the lock was acquired. `null` when
+   *  no cortexDir was given (unit tests) or the `.cortex/` dir was unwritable
+   *  (read-only root — degraded, lock-less, same as the pre-ZF0-1851 behavior). */
+  private readonly lock: CortexLock | null
 
   // --- Auth + Session ---
   /** Per-instance auth token — prevents cross-project writes on localhost. */
@@ -105,6 +118,12 @@ export class CortexSession {
 
   constructor(config: CortexConfig) {
     this.config = config
+    // ZF0-1851: acquire the single-writer lock FIRST — before AnnotationStore's
+    // loadAnnotations() reads `.cortex/` and before any later `.cortex/` write.
+    // A live conflicting instance throws LockHeldError here, so the adapter's
+    // `new CortexSession(...)` throws and it refuses to start. `acquire` returns
+    // null (no throw) only when `.cortex/` itself is unwritable — see CortexLock.
+    this.lock = config.cortexDir ? CortexLock.acquire(config.cortexDir) : null
     this.token = randomUUID()
     this.sessionId = randomUUID()
     this.annotations = new AnnotationStore(
@@ -209,6 +228,12 @@ export class CortexSession {
     this.capabilitiesCache = null
     this.upgradeHandlerRef = null
     this.listeningCleanup = null
+
+    // 10. Release the single-writer lock LAST — hold ownership of `.cortex/`
+    //     until every other resource is torn down, so a successor instance
+    //     can't start writing while we're still mid-cleanup. Idempotent and
+    //     no-op when no lock was held (no cortexDir / read-only root).
+    trySync('lock', () => this.lock?.release())
 
     if (errors.length > 0) {
       for (const { step, error } of errors) {

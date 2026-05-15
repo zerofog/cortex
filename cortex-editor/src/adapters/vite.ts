@@ -23,6 +23,7 @@ import { CSSModulesRewriter } from '../core/rewriter/css-modules.js'
 import { RuntimeCSSResolver } from '../core/rewriter/runtime-resolver.js'
 import { UndoStack } from '../core/session/undo-stack.js'
 import { CortexSession } from '../core/session.js'
+import { LockHeldError } from '../core/cortex-lock.js'
 import { applyEditsCore, sliceIntentContext, checkIntentFileSize, parseIntentSource } from '../core/staged-edits.js'
 import type { StagedEditsCache } from '../core/staged-edits.js'
 import { atomicWrite } from './atomic-write.js'
@@ -913,11 +914,25 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       // shared by the webpack adapter and unit-tested without a dev server.
       const annotationsFilePath = resolveAnnotationsFilePath({ root: config.root })
 
-      currentSession = new CortexSession({
-        root: config.root,
-        mode: config.mode,
-        annotationsFilePath,
-      })
+      // ZF0-1851: acquire the .cortex/ single-writer lock inside CortexSession's
+      // constructor. A live conflicting instance throws LockHeldError here; we
+      // log it and bail out of configureServer so cortex doesn't start — the
+      // user's Vite dev server itself keeps running.
+      try {
+        currentSession = new CortexSession({
+          root: config.root,
+          mode: config.mode,
+          annotationsFilePath,
+          cortexDir: path.join(config.root, '.cortex'),
+        })
+      } catch (err) {
+        if (err instanceof LockHeldError) {
+          console.error(err.message)
+          currentSession = null
+          return
+        }
+        throw err
+      }
 
       // Register signal handlers for graceful shutdown.
       // The ?? Promise.resolve() ensures process.exit runs even if currentSession is null
