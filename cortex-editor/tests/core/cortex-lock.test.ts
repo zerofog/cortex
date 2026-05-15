@@ -85,6 +85,11 @@ describe('CortexLock', () => {
     }
     expect(thrown).toBeInstanceOf(LockHeldError)
     expect((thrown as LockHeldError).holderPid).toBe(process.pid)
+    // inProcess flag distinguishes this from a cross-process conflict — the
+    // error message guides users to dispose/handoff, not to delete the lock file.
+    expect((thrown as LockHeldError).inProcess).toBe(true)
+    expect((thrown as LockHeldError).message).toMatch(/dispose the prior session|releaseLockForHandoff/i)
+    expect((thrown as LockHeldError).message).not.toMatch(/delete the stale lock/i)
     // The first owner's lock file is untouched.
     expect(fs.existsSync(lockPath)).toBe(true)
   })
@@ -107,6 +112,10 @@ describe('CortexLock', () => {
     expect(thrown).toBeInstanceOf(LockHeldError)
     expect((thrown as LockHeldError).holderPid).toBe(process.ppid)
     expect((thrown as LockHeldError).message).toContain(lockPath)
+    // Cross-process conflict: inProcess=false, message guides user to delete
+    // the stale lock file (correct manual recovery once the OTHER process exits).
+    expect((thrown as LockHeldError).inProcess).toBe(false)
+    expect((thrown as LockHeldError).message).toMatch(/delete the stale lock/i)
     // The live holder's lock file must be left untouched.
     expect(fs.existsSync(lockPath)).toBe(true)
   })
@@ -191,5 +200,74 @@ describe('CortexLock', () => {
       // Restore writable mode so afterEach's rmSync can clean up.
       fs.chmodSync(cortexDir, 0o700)
     }
+  })
+
+  it('treats a lock file with pid <= 0 as corrupt (process.kill semantics)', () => {
+    // process.kill(0, sig) targets the current process group; process.kill(-N, sig)
+    // targets process group N. A lock claiming such a pid would produce wrong
+    // "alive" verdicts. readLockFile must reject these as corrupt so the file
+    // gets reclaimed instead of treated as a legitimate holder.
+    fs.mkdirSync(cortexDir, { recursive: true })
+    fs.writeFileSync(
+      lockPath,
+      JSON.stringify({ pid: 0, nonce: 'group-pid-nonce', startedAt: Date.now() }),
+    )
+
+    held = CortexLock.acquire(cortexDir)
+    expect(held).not.toBeNull()
+    // Reclaimed — the file now belongs to us with a positive pid.
+    const contents = JSON.parse(fs.readFileSync(lockPath, 'utf8')) as { pid: number }
+    expect(contents.pid).toBe(process.pid)
+  })
+
+  it('canonicalizes the registry key via realpath — symlink alias resolves to the same lock', () => {
+    // Without canonicalization, path.resolve(symlinkPath) and path.resolve(realPath)
+    // are different strings → activeLocks.has() misses the conflict → second
+    // acquire reclaims as "our-own-pid stale" → two live sessions. Real symlink
+    // proves the canonicalization actually traverses, not just normalizes.
+    const realDir = path.join(tmpDir, 'real-cortex')
+    fs.mkdirSync(realDir)
+    const linkDir = path.join(tmpDir, 'link-cortex')
+    fs.symlinkSync(realDir, linkDir)
+
+    held = CortexLock.acquire(realDir)
+    expect(held).not.toBeNull()
+
+    // Acquire via the symlink — same underlying inode, must be detected as
+    // a same-process conflict.
+    let thrown: unknown
+    try {
+      CortexLock.acquire(linkDir)
+    } catch (err) {
+      thrown = err
+    }
+    expect(thrown).toBeInstanceOf(LockHeldError)
+    expect((thrown as LockHeldError).inProcess).toBe(true)
+  })
+
+  it('degrades on non-ENOENT rename errors during stale reclaim', () => {
+    // EPERM on renameSync (e.g., Windows when the file is still open by
+    // another process) used to throw and crash adapter startup. It must now
+    // follow the same degrade-to-null path as every other non-EEXIST lock-IO
+    // error. Hand-write a stale (dead-pid) lock so the reclaim path is taken,
+    // then mock renameSync to throw EPERM.
+    fs.mkdirSync(cortexDir, { recursive: true })
+    fs.writeFileSync(
+      lockPath,
+      // pid 1 (init) is alive on every system, so this would normally throw
+      // LockHeldError — flip the order: pid -> dead via mock. Simpler: use a
+      // CORRUPT file (no nonce) so it takes the stale path without a kill check.
+      JSON.stringify({ pid: 'corrupt' }),
+    )
+    vi.spyOn(fs, 'renameSync').mockImplementation(() => {
+      const err: NodeJS.ErrnoException = new Error('EPERM: operation not permitted')
+      err.code = 'EPERM'
+      throw err
+    })
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const result = CortexLock.acquire(cortexDir)
+    expect(result).toBeNull()
+    expect(warnSpy.mock.calls.some(c => /without the single-writer lock/i.test(c[0]))).toBe(true)
   })
 })
