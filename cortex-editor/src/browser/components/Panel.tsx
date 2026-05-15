@@ -485,20 +485,17 @@ export function Panel({
     setStyleVersion(v => v + 1)
   }, [element])
 
-  // Re-arm the enter animation on every element switch, not just initial mount.
-  // useState(true) covers first paint; keying on [element] replays the
-  // section-group stagger when the user selects a different element while the
-  // Panel stays mounted. Rapid switches within 250ms: isEntering is already
-  // true so the class is not toggled — the in-flight CSS animation continues
-  // rather than restarting — and each switch's cleanup clears the prior timer
-  // and arms a fresh 250ms one, so the entering window extends until switching
-  // settles. A fresh restart on every rapid switch would need an rAF
-  // false→true toggle; not worth the extra frame churn for that edge case.
+  // ZF0-1876: Play the enter animation on mount only, not on element-to-element
+  // switches. useState(true) at line 331 covers first paint; [] keeps it
+  // mount-only so switching the selected element while the Panel stays mounted
+  // is a silent content swap (per the contract at line 505: "sections update
+  // via normal prop changes"). Prior behaviour (re-armed on every [element]
+  // change) produced an ~800ms staggered section-group cascade on every switch
+  // that read as the Panel "flashing".
   useEffect(() => {
-    setIsEntering(true)
     const timer = setTimeout(() => setIsEntering(false), 250)
     return () => clearTimeout(timer)
-  }, [element])
+  }, [])
 
   useEffect(() => {
     if (prevElementRef.current && prevElementRef.current !== element) {

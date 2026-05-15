@@ -134,7 +134,14 @@ describe('Panel', () => {
     expect(panel).not.toBeNull()
   })
 
-  it('replays the enter animation when the selected element switches (ZF0-1869)', async () => {
+  it('plays the enter animation on mount only — does NOT replay on element switch (ZF0-1876)', async () => {
+    // Contract: the cortex-panel--entering class (which triggers the 800ms+
+    // staggered section-group cascade in styles.css:1256-1267) must apply on
+    // initial Panel mount but NOT re-apply when the user switches selection
+    // from one element to another while the Panel stays mounted. Switching
+    // is a silent content swap (per Panel.tsx:505 — "sections update via
+    // normal prop changes"). A future refactor that re-introduces the
+    // [element] dep on the entering useEffect will fail the assertion below.
     const makeTarget = (source: string): HTMLElement => {
       const el = document.createElement('div')
       el.setAttribute('data-cortex-source', source)
@@ -167,15 +174,17 @@ describe('Panel', () => {
     // Animation clears ~250ms after mount.
     await vi.waitFor(() => expect(entering(root)).toBe(false), { timeout: 800 })
 
-    // Switching to a different element re-arms the animation — the regression
-    // this guards: a mount-only [] effect would leave isEntering false here.
-    // act() flushes the element-switch effect synchronously so the state update
-    // is committed before the assertion.
+    // Switching to a different element must NOT re-arm the animation.
+    // act() flushes the element-switch effects synchronously so state updates
+    // are committed before the assertion.
     act(() => { render(<Panel selectedElements={[elB]} {...commonProps} />, root) })
-    expect(entering(root)).toBe(true)
+    expect(entering(root)).toBe(false)
 
-    // ...and clears again ~250ms after the switch.
-    await vi.waitFor(() => expect(entering(root)).toBe(false), { timeout: 800 })
+    // Stays false through a 300ms window. Guards against the prior bug where
+    // the class re-applied for ~250ms after every switch — without this hold,
+    // a same-tick observation alone could miss a brief flash.
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(entering(root)).toBe(false)
   })
 
   it('renders panel header with element info', () => {
