@@ -136,13 +136,13 @@ export class AnnotationStore {
     return result
   }
 
-  getPending(): DeepReadonly<Annotation>[] {
+  getPending(): DeepReadonly<Annotation[]> {
     return [...this.annotations.values()]
       .filter((a) => a.status === 'pending')
       .map((a) => this.snapshot(a))
   }
 
-  getActive(): DeepReadonly<Annotation>[] {
+  getActive(): DeepReadonly<Annotation[]> {
     return [...this.annotations.values()].filter(a => a.status === 'pending' || a.status === 'acknowledged').map(a => this.snapshot(a))
   }
 
@@ -202,7 +202,7 @@ export class AnnotationStore {
     return this.snapshot(ann)
   }
 
-  getAll(): DeepReadonly<Annotation>[] {
+  getAll(): DeepReadonly<Annotation[]> {
     return [...this.annotations.values()].map((a) => this.snapshot(a))
   }
 }
