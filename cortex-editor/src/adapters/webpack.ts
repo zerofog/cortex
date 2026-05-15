@@ -30,7 +30,7 @@ import {
 } from './shared-server-constants.js'
 import { shouldSuppressHmr } from './vite.js'
 import { shouldExcludeCortexSource, markRuntimeDisabled, markRuntimeEnabled } from './source-loader-utils.js'
-import type { ServerChannel, ServerToBrowser } from './types.js'
+import type { ServerChannel, ServerToBrowser, Annotation } from './types.js'
 import {
   browserToServerSchema,
   cliRpcRequestSchema,
@@ -731,7 +731,8 @@ class CortexWebpackRuntime {
       this.sendToBrowser(
         session,
         ws,
-        { type: 'annotations-snapshot', annotations: session.annotations.getAll() },
+        // ZF0-1856: DeepReadonly snapshots → mutable wire shape at the send boundary.
+        { type: 'annotations-snapshot', annotations: session.annotations.getAll() as Annotation[] },
         'webpack.browserMessage.initAnnotationsSnapshot',
       )
       return
@@ -750,12 +751,13 @@ class CortexWebpackRuntime {
         kind: data.kind,
         fixMeta: data.fixMeta,
       })
-      session.channel?.send({ type: 'annotation-created', annotation })
+      // ZF0-1856: DeepReadonly snapshot → mutable wire shape at the send boundary.
+      session.channel?.send({ type: 'annotation-created', annotation: annotation as Annotation })
       return
     }
     if (data.type === 'comment-reply') {
       const annotation = session.annotations.addMessage(data.annotationId, { from: 'user', text: data.text })
-      if (annotation) session.channel?.send({ type: 'annotation-updated', annotation })
+      if (annotation) session.channel?.send({ type: 'annotation-updated', annotation: annotation as Annotation })
       return
     }
     if (data.type === 'staged-edit-add') {

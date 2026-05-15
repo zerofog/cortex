@@ -69,7 +69,7 @@
     "test:perf": "vitest run --no-file-parallelism --project server tests/adapters/source-transform.test.ts tests/adapters/vite.test.ts",
     "test:watch": "vitest",
     "test:e2e": "npm run build:test && playwright test",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tests/e2e/tsconfig.json",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json && tsc --noEmit -p tests/e2e/tsconfig.json",
     "prepublishOnly": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && cross-env CORTEX_TEST_BUILD=false npm run build"
   },
   "devDependencies": {
