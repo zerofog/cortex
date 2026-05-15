@@ -134,6 +134,50 @@ describe('Panel', () => {
     expect(panel).not.toBeNull()
   })
 
+  it('replays the enter animation when the selected element switches (ZF0-1869)', async () => {
+    const makeTarget = (source: string): HTMLElement => {
+      const el = document.createElement('div')
+      el.setAttribute('data-cortex-source', source)
+      document.body.appendChild(el)
+      return el
+    }
+    const elA = makeTarget('src/A.tsx:1:1')
+    const elB = makeTarget('src/B.tsx:2:2')
+    const overrideManager = {
+      set: vi.fn(), get: vi.fn(), remove: vi.fn(),
+      clearAll: vi.fn(), dispose: vi.fn(), flush: vi.fn(),
+    }
+    const commonProps = {
+      overrideManager: overrideManager as any,
+      onClose: vi.fn(),
+      onSelectElement: vi.fn(),
+      buffer: makeFakeBuffer(),
+      ...panelPositionProps,
+    }
+    const entering = (r: ParentNode): boolean =>
+      r.querySelector('.cortex-panel')!.classList.contains('cortex-panel--entering')
+
+    const { root, host } = renderInShadow(
+      <Panel selectedElements={[elA]} {...commonProps} />,
+    )
+    cleanup = () => { host.remove(); elA.remove(); elB.remove() }
+
+    // isEntering starts true on mount (useState(true)).
+    expect(entering(root)).toBe(true)
+    // Animation clears ~250ms after mount.
+    await vi.waitFor(() => expect(entering(root)).toBe(false), { timeout: 800 })
+
+    // Switching to a different element re-arms the animation — the regression
+    // this guards: a mount-only [] effect would leave isEntering false here.
+    // act() flushes the element-switch effect synchronously so the state update
+    // is committed before the assertion.
+    act(() => { render(<Panel selectedElements={[elB]} {...commonProps} />, root) })
+    expect(entering(root)).toBe(true)
+
+    // ...and clears again ~250ms after the switch.
+    await vi.waitFor(() => expect(entering(root)).toBe(false), { timeout: 800 })
+  })
+
   it('renders panel header with element info', () => {
     const { root } = setup()
     expect(root.textContent).toContain('Hero')
@@ -575,10 +619,8 @@ describe('Panel — activeState + activePseudo + dimming', () => {
     )
     // The defaultStylesRef should have been populated by the useEffect on [element].
     // Verify it was called at least once for the snapshot.
-    let initialCount!: number
     await vi.waitFor(() => {
       expect(gcsCallCount).toBeGreaterThanOrEqual(1)
-      initialCount = gcsCallCount
     }, { timeout: 500 })
 
     window.getComputedStyle = original

@@ -485,10 +485,20 @@ export function Panel({
     setStyleVersion(v => v + 1)
   }, [element])
 
+  // Re-arm the enter animation on every element switch, not just initial mount.
+  // useState(true) covers first paint; keying on [element] replays the
+  // section-group stagger when the user selects a different element while the
+  // Panel stays mounted. Rapid switches within 250ms: isEntering is already
+  // true so the class is not toggled — the in-flight CSS animation continues
+  // rather than restarting — and each switch's cleanup clears the prior timer
+  // and arms a fresh 250ms one, so the entering window extends until switching
+  // settles. A fresh restart on every rapid switch would need an rAF
+  // false→true toggle; not worth the extra frame churn for that edge case.
   useEffect(() => {
+    setIsEntering(true)
     const timer = setTimeout(() => setIsEntering(false), 250)
     return () => clearTimeout(timer)
-  }, [])
+  }, [element])
 
   useEffect(() => {
     if (prevElementRef.current && prevElementRef.current !== element) {

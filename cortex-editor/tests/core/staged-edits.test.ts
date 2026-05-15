@@ -189,6 +189,45 @@ describe('StagedEditsCache', () => {
     expect(read(cache).value).toBe('original')
   })
 
+  // ZF0-1855: the snapshot helper must produce a deep-independent copy, not
+  // just a top-level spread. Mutating the nested `instanceSources` array (its
+  // container AND its elements) or the nested `sourceResolutionHint` object
+  // must not leak into the cache. Falsifiable against a naive `{ ...edit }`
+  // shallow clone, which would share those nested references.
+  it.each([
+    ['list()', (c: StagedEditsCache) => c.list()[0]!],
+    ['getById()', (c: StagedEditsCache) => c.getById('nested-snap')!],
+  ])('snapshot semantics: mutating nested fields of %s result does not affect cache', (_name, read) => {
+    const cache = new StagedEditsCache()
+    cache.append(makeEdit({
+      intentId: 'nested-snap',
+      instanceSources: ['src/A.tsx:1:1', 'src/B.tsx:2:2'],
+      sourceResolutionHint: {
+        tagName: 'div',
+        className: 'card',
+        textPreview: 'hello',
+        domSelector: 'body > div.card',
+      },
+    }))
+    const snap = read(cache)
+
+    // Mutate the nested array — both the container and an element.
+    snap.instanceSources!.push('src/INJECTED.tsx:9:9')
+    snap.instanceSources![0] = 'src/MUTATED.tsx:0:0'
+    // Mutate the nested object's fields.
+    snap.sourceResolutionHint!.tagName = 'span'
+    snap.sourceResolutionHint!.className = 'mutated'
+
+    const fresh = read(cache)
+    expect(fresh.instanceSources).toEqual(['src/A.tsx:1:1', 'src/B.tsx:2:2'])
+    expect(fresh.sourceResolutionHint).toEqual({
+      tagName: 'div',
+      className: 'card',
+      textPreview: 'hello',
+      domSelector: 'body > div.card',
+    })
+  })
+
   it('last-write-wins preserves insertion order (new key appended, existing key updated in-place)', () => {
     const cache = new StagedEditsCache()
     // Insert A, B, then update A — A should move to end (re-inserted) or stay

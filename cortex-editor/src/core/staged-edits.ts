@@ -14,16 +14,14 @@ function compositeKey(edit: PendingEdit): string {
 }
 
 /** Defensive snapshot of a PendingEdit — callers mutating the returned object
- *  cannot affect the cache's internal state. */
+ *  cannot affect the cache's internal state. structuredClone makes this
+ *  correct-by-construction: the prior top-level spread + selective shallow
+ *  clones of instanceSources/sourceResolutionHint covered today's flat schema,
+ *  but any nested field added to PendingEdit later would silently leak until
+ *  someone remembered to extend this helper (ZF0-1855, sister of ZF0-1844).
+ *  PendingEdit is plain wire-format data (pending-edit.ts) — fully cloneable. */
 function snapshot(edit: PendingEdit): PendingEdit {
-  const copy: PendingEdit = { ...edit }
-  if (edit.instanceSources !== undefined) {
-    copy.instanceSources = [...edit.instanceSources]
-  }
-  if (edit.sourceResolutionHint !== undefined) {
-    copy.sourceResolutionHint = { ...edit.sourceResolutionHint }
-  }
-  return copy
+  return structuredClone(edit)
 }
 
 function isAgentResolvedIntent(intent: PendingEdit): boolean {

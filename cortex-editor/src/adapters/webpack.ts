@@ -20,9 +20,17 @@ import { RuntimeCSSResolver } from '../core/rewriter/runtime-resolver.js'
 import { UndoStack } from '../core/session/undo-stack.js'
 import { applyEditsCore, checkIntentFileSize, parseIntentSource, sliceIntentContext } from '../core/staged-edits.js'
 import { atomicWrite } from './atomic-write.js'
+import {
+  ALLOWED_ORIGINS,
+  CLI_ALLOWED_TYPES,
+  BROWSER_TO_CLI_FORWARD_TYPES,
+  WRITE_TYPES,
+  HEARTBEAT_INTERVAL,
+  MAX_CLI_CONNECTIONS,
+} from './shared-server-constants.js'
 import { shouldSuppressHmr } from './vite.js'
 import { shouldExcludeCortexSource, markRuntimeDisabled, markRuntimeEnabled } from './source-loader-utils.js'
-import type { BrowserToServer, ServerChannel, ServerToBrowser } from './types.js'
+import type { ServerChannel, ServerToBrowser } from './types.js'
 import {
   browserToServerSchema,
   cliRpcRequestSchema,
@@ -46,35 +54,12 @@ const PLUGIN_NAME = 'CortexWebpackPlugin'
 const CORTEX_BROWSER_PATH = '/@cortex/browser.js'
 const CLI_WS_PATH = '/@cortex/ws'
 const BROWSER_WS_PATH = '/cortex'
-const HEARTBEAT_INTERVAL = 30_000
-const MAX_CLI_CONNECTIONS = 5
-const ALLOWED_ORIGINS = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/
 const DEFAULT_TOGGLE_SHORTCUT = '$mod+Shift+Period'
 const VALID_SHORTCUT = /^\$mod\+(?:Shift\+)?(?:Alt\+)?(?:Key[A-Z]|Digit\d|Period|Comma|Slash|Backslash|BracketLeft|BracketRight|Semicolon|Quote|Backquote|Minus|Equal)$/
 
-type BrowserToServerType = BrowserToServer['type']
-const WRITE_TYPES_ARRAY = [
-  'edit',
-  'undo',
-  'redo',
-  'comment',
-  'comment-reply',
-  'clear_server_undo',
-  'staged-edit-add',
-  'staged-edit-remove',
-  'staged-edit-clear',
-  'staged-edits-sync',
-  'staged-edits-ready',
-] as const satisfies readonly BrowserToServerType[]
-const WRITE_TYPES: ReadonlySet<string> = new Set(WRITE_TYPES_ARRAY)
-
-const BROWSER_TO_CLI_FORWARD_TYPES_ARRAY = [
-  'cortex-closed',
-  'staged-edits-ready',
-] as const satisfies readonly BrowserToServerType[]
-const BROWSER_TO_CLI_FORWARD_TYPES: ReadonlySet<string> = new Set(BROWSER_TO_CLI_FORWARD_TYPES_ARRAY)
-
-const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close'])
+// CLI WebSocket bridge constants (ALLOWED_ORIGINS, WRITE_TYPES, HEARTBEAT_INTERVAL,
+// etc.) live in ./shared-server-constants.ts — shared with the Vite adapter so
+// the two dev-server bridges cannot drift on security/protocol invariants.
 const ALLOWED_RPC_METHODS = new Set([
   'getActive', 'getPending', 'getDetails', 'acknowledge', 'resolve', 'dismiss', 'respond',
   'getPendingEdits', 'applyEdits', 'discardEdits', 'getIntentContext', 'acknowledgeSourceEdit', 'reportSourceEditFailed',

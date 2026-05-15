@@ -8,6 +8,14 @@ import { fileURLToPath } from 'url'
 import { WebSocketServer, WebSocket } from 'ws'
 import { createSourceTransform } from './source-transform.js'
 import { resolveAnnotationsFilePath } from './annotations-path-resolver.js'
+import {
+  ALLOWED_ORIGINS,
+  CLI_ALLOWED_TYPES,
+  BROWSER_TO_CLI_FORWARD_TYPES,
+  WRITE_TYPES,
+  HEARTBEAT_INTERVAL,
+  MAX_CLI_CONNECTIONS,
+} from './shared-server-constants.js'
 import type { ServerChannel, BrowserToServer, ServerToBrowser } from './types.js'
 import { TailwindResolver } from '../core/tailwind-resolver.js'
 import { TailwindRewriter } from '../core/rewriter/tailwind.js'
@@ -60,56 +68,9 @@ const CORTEX_BROWSER_PATH = '/@cortex/browser.js'
 const VIRTUAL_CORTEX_CLIENT = '\0cortex-client'
 const CORTEX_MSG_EVENT = 'cortex:msg'
 
-// CLI WebSocket bridge constants
-const ALLOWED_ORIGINS = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/
-const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close'])
-
-/** Type literal of all BrowserToServer variants — used by the `satisfies`
- *  clauses below to force tsc to reject any allowlist entry that isn't a real
- *  schema variant, preventing silent drift. */
-type BrowserToServerType = BrowserToServer['type']
-
-/** Browser-to-server message types that should be forwarded to CLI clients (MCP).
- *  High-frequency sync messages (staged-edit-add/-remove/-clear/-sync) are
- *  intentionally NOT forwarded — they're internal browser↔Vite-cache sync,
- *  not Claude-relevant. Forwarding them would burn bandwidth/CPU on the MCP
- *  process for no consumer (the MCP server's ws.on('message') handler doesn't
- *  branch on those types).
- *
- *  Verified against mcp.ts ws.on('message'): MCP branches on cortex-rpc-result,
- *  cortex-rpc-error, error, cortex, cortex-closed, cortex-status, staged-edits-ready,
- *  annotation-created, annotation-updated. Of those, only cortex-closed and
- *  staged-edits-ready are browser-originated; the rest are server-originated
- *  (forwarded via the channel.send → forwardToCLI path at the bottom of
- *  configureServer, not here). 'init' is browser-originated but MCP does not
- *  branch on it. */
-export const BROWSER_TO_CLI_FORWARD_TYPES_ARRAY = [
-  'cortex-closed',
-  'staged-edits-ready',
-] as const satisfies readonly BrowserToServerType[]
-const BROWSER_TO_CLI_FORWARD_TYPES: ReadonlySet<string> = new Set(BROWSER_TO_CLI_FORWARD_TYPES_ARRAY)
-
-/** Message types that require token auth — all write/mutation operations.
- *  The `satisfies readonly BrowserToServerType[]` clause forces tsc to reject
- *  any entry that isn't a real BrowserToServer variant — preventing silent
- *  drift from the schema. Exported so tests can pin the runtime invariant. */
-export const WRITE_TYPES_ARRAY = [
-  'edit',
-  'undo',
-  'redo',
-  'comment',
-  'comment-reply',
-  'clear_server_undo',
-  'staged-edit-add',
-  'staged-edit-remove',
-  'staged-edit-clear',
-  'staged-edits-sync',
-  'staged-edits-ready',
-] as const satisfies readonly BrowserToServerType[]
-type WriteMessageType = typeof WRITE_TYPES_ARRAY[number]
-const WRITE_TYPES: ReadonlySet<WriteMessageType> = new Set(WRITE_TYPES_ARRAY)
-const HEARTBEAT_INTERVAL = 30_000
-const MAX_CLI_CONNECTIONS = 5
+// CLI WebSocket bridge constants — shared with the Webpack adapter so the two
+// dev-server bridges cannot drift on security/protocol invariants.
+// See: ./shared-server-constants.ts
 
 // Resolve browser IIFE path relative to this file (dist/vite/vite.js → dist/browser/index.js)
 // CJS: __dirname is reliable. ESM: use import.meta.url.
@@ -1035,7 +996,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
 
         // Token validation for write operations — must precede forwardToCLI to prevent
         // unauthenticated messages from being fanned out to CLI clients.
-        if (WRITE_TYPES.has(data.type as WriteMessageType)) {
+        if (WRITE_TYPES.has(data.type)) {
           if (!('token' in data) || data.token !== currentSession.token) {
             if (currentSession.channel) {
               currentSession!.channel.send({ type: 'error', code: 'AUTH_FAILED', message: 'Invalid or missing auth token' })

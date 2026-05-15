@@ -1,7 +1,7 @@
 import type { JSX } from 'preact'
 import { render as preactRender } from 'preact'
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
-import type { CortexChannel, ConnectionDisplay, Annotation, ActivityEntry, StyleCapability } from '../../adapters/types.js'
+import type { CortexChannel, ConnectionDisplay, Annotation, StyleCapability } from '../../adapters/types.js'
 import type { EditError } from './EditErrorCard.js'
 import { CSSOverrideManager } from '../override.js'
 import { onDivergence } from '../override-bus.js'
@@ -114,8 +114,6 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const [annotations, setAnnotations] = useState<Map<string, Annotation>>(new Map())
   const [agentConnected, setAgentConnected] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionDisplay>({ status: 'connected' })
-  // TODO: orphaned after toolbar-badge removal (ZF0-1869) — clean up in follow-up PR
-  const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
   // ZF0-1470 (T4): stale override signals from CSSOverrideManager.onStale (T1 API).
   // staleOverrideCount drives the StagingDriftBanner; staleSources drives per-control
   // stale indicator in sections. Both flow down to Panel.
@@ -156,8 +154,6 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const commentModeRef = useRef(false)
   commentModeRef.current = commentMode
 
-  // TODO: orphaned after toolbar-badge removal (ZF0-1869) — clean up in follow-up PR
-  const [activityCount, setActivityCount] = useState(0)
   const [active, setActive] = useState(initialActive ?? false)
   const selectionRef = useRef<SelectionHandle | null>(null)
   const selectedElementRef = useRef<HTMLElement | null>(null)
@@ -267,11 +263,29 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   }, [])
 
   // Panel positioning
-  const { position: panelPosition, isSnapping: panelSnapping, setPosition: setPanelPosition, snap: panelSnap } = useSnapToEdge()
+  const { position: panelPosition, isSnapping: panelSnapping, setPosition: setPanelPosition, snap: panelSnap, reset: panelReset } = useSnapToEdge()
   const { handlePointerDown: panelPointerDown, handlePointerMove: panelPointerMove, handlePointerUp: panelPointerUp, handlePointerCancel: panelPointerCancel } = useDrag({
     onDrag(x, y) { setPanelPosition({ x, y }) },
     onDragEnd() { panelSnap() },
   })
+
+  // ZF0-1869 follow-up: on deselect, return the panel to its home position so
+  // the next selection opens it at the default spot rather than wherever it was
+  // last dragged. layerHeight needs no equivalent reset — it is Panel-local
+  // state and Panel unmounts on deselect, so it re-inits to DEFAULT_LAYER_HEIGHT.
+  //
+  // Codex P2 (post-#142): fire only on the NON-EMPTY → EMPTY transition. The
+  // naive `if (length === 0)` body ran on initial mount (length starts at 0)
+  // and overwrote the position useSnapToEdge() restored from localStorage,
+  // regressing cross-reload position persistence for users who had dragged
+  // the panel. The ref tracks the previous length so reset() is bound to a
+  // real deselect event, not the initial render.
+  const prevSelectedCountRef = useRef(selectedElements.length)
+  useEffect(() => {
+    const prev = prevSelectedCountRef.current
+    prevSelectedCountRef.current = selectedElements.length
+    if (prev > 0 && selectedElements.length === 0) panelReset()
+  }, [selectedElements.length, panelReset])
 
   // Canvas zoom (disabled — preserved for future re-enablement)
   useCanvasZoom(false)
@@ -619,11 +633,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       }
       if (next.spacingTokens !== prev.spacingTokens) setSpacingTokens(next.spacingTokens)
       if (next.capabilitySystems !== prev.capabilitySystems) setCapabilitySystems(next.capabilitySystems)
-      if (next.activityCount !== prev.activityCount) setActivityCount(next.activityCount)
       if (next.editErrors !== prev.editErrors) setEditErrors(next.editErrors)
       if (next.annotations !== prev.annotations) setAnnotations(next.annotations)
       if (next.agentConnected !== prev.agentConnected) setAgentConnected(next.agentConnected)
-      if (next.activityEntries !== prev.activityEntries) setActivityEntries(next.activityEntries)
     }
 
     const runEffect = (effect: CortexAppEffect): void => {
@@ -1001,6 +1013,23 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
 
     const unsubStatus = channel.onConnectionChange((state) => {
       if (state.status === 'connected' && wasDisconnected) {
+        // ZF0-1869 follow-up: on reconnect, re-establish the server's
+        // StagedEditsCache from the browser-canonical buffer. Per-mutation sync
+        // messages (staged-edit-add/-remove/-clear) sent while the socket was
+        // down are lost, so the server cache can be stale in BOTH directions:
+        // missing adds AND retaining removes. mergeFullSync alone only fixes the
+        // former (it upserts, never deletes), which would leave a discarded-
+        // while-disconnected intent as a server-side ghost that MCP could apply.
+        // So we clear-then-set: syncClear() empties the server cache, then
+        // syncFullState() repopulates it with exactly the current buffer.
+        // WebSocket preserves in-connection message order, so this is an
+        // authoritative replace. Multi-tab safe: the multi-tab hazard documented
+        // on StagedEditsCache.mergeFullSync was localStorage rehydration, which
+        // is dead since the buffer became memory-only. buffer.list() delegates
+        // to a stable bufferRef, so reading it from this mount-time effect
+        // closure is not stale.
+        appSyncEmitterRef.current?.syncClear()
+        appSyncEmitterRef.current?.syncFullState(buffer.list())
         // Transition from disconnected/reconnecting → connected = "reconnected" flash
         setConnectionStatus({ status: 'reconnected' })
         if (reconnectedTimer !== undefined) clearTimeout(reconnectedTimer)
