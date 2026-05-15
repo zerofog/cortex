@@ -158,13 +158,21 @@ export class CortexLock {
         // Stale: the holder process is dead, the file is corrupt, or it carries
         // OUR pid — a lock leaked by a crashed prior run, or (the common case) a
         // Vite in-process restart where the old session's async dispose hasn't
-        // released yet. All are safe to reclaim. unlink racing another
-        // reclaimer is harmless — the retry resolves it.
+        // released yet. All are safe to reclaim. Use renameSync — the atomic
+        // compare-and-take primitive: only ONE process can rename the file at
+        // that inode. The loser sees ENOENT and falls back to the next
+        // openSync('wx') attempt, which either succeeds (slot empty) or sees
+        // the winner's brand-new lock as a live holder — preserving the
+        // single-writer guarantee even under concurrent stale recovery.
+        const trashPath = `${lockPath}.reclaiming-${process.pid}-${nonce}`
         try {
-          fs.unlinkSync(lockPath)
-        } catch {
-          /* already reclaimed by someone else */
+          fs.renameSync(lockPath, trashPath)
+        } catch (renameErr) {
+          if (!isErrno(renameErr, 'ENOENT')) throw renameErr
+          // Another reclaimer won the rename; loop to retry openSync.
+          continue
         }
+        try { fs.unlinkSync(trashPath) } catch { /* harmless — file gone */ }
       }
     }
 

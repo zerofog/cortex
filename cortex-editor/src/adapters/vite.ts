@@ -290,6 +290,14 @@ if (!document.querySelector('[data-cortex-host]')) {
 
 let currentSession: CortexSession | null = null
 
+// ZF0-1851: set to true when configureServer refused to start because another
+// cortex instance already owns this project's .cortex/. Distinct from
+// `currentSession === null` (which is also the pre-configureServer state — tests
+// exercise transforms in that state and expect injection). When this flag is
+// true, the plugin is cleanly inert: no WS server, no /@cortex/* routes, and
+// no transform injection (which would otherwise 404).
+let cortexDisabledByLock = false
+
 // Single shutdown handler registered on both SIGINT and SIGTERM, tracked for cleanup on re-entry
 let shutdownHandler: (() => void) | null = null
 
@@ -865,6 +873,11 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
       order: 'pre',
       handler(html) {
         if (config.command !== 'serve') return html
+        // ZF0-1851: when configureServer refused due to LockHeldError, no WS
+        // server and no /@cortex/* routes are registered. Injecting the client
+        // script anyway would 404 + pollute the user's console — skip
+        // injection entirely so cortex is cleanly inert.
+        if (cortexDisabledByLock) return html
         // Inject token + sessionId before the module script so globals are available at import time
         const authScript = currentSession
           ? `<script>window.__CORTEX_TOKEN__=${safeJSONForScript(currentSession.token)};window.__CORTEX_SESSION_ID__=${safeJSONForScript(currentSession.sessionId)}</script>\n`
@@ -880,6 +893,10 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
 
     transform(code, id) {
       if (config.command !== 'serve') return null
+      // ZF0-1851: skip source transforms when cortex is disabled (lock held);
+      // the runtime support is absent, so rewriting source would just produce
+      // dangling references.
+      if (cortexDisabledByLock) return null
       const result = transformSource(code, id)
       if (!result) return null
       // Our SourceMap allows nullable optional fields (per source map spec)
@@ -925,10 +942,14 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           annotationsFilePath,
           cortexDir: path.join(config.root, '.cortex'),
         })
+        // Re-arm in case a prior configureServer run set the flag; a fresh
+        // successful acquire means cortex is enabled for this lifecycle.
+        cortexDisabledByLock = false
       } catch (err) {
         if (err instanceof LockHeldError) {
           console.error(err.message)
           currentSession = null
+          cortexDisabledByLock = true
           return
         }
         throw err
