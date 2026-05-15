@@ -88,24 +88,43 @@ export class AnnotationStore {
   }
 
   create(params: CreateAnnotationParams): Annotation {
+    // ZF0-1857 Finding 1 — input-side defensive copy. Deep-clone the
+    // caller-owned params up front so the live store entry never shares nested
+    // object refs (elementContext, currentStyles, pinPosition, fixMeta) with
+    // the caller; a later caller mutation of their params object cannot corrupt
+    // the store. Symmetric with the output-side snapshot() (ZF0-1844).
+    //
+    // ZF0-1857 Finding 2 — transactional insertion. This clone runs BEFORE any
+    // store mutation, so a non-cloneable value that bypassed Zod throws here
+    // and the store is never touched. `annotation` is then built from
+    // structuredClone output, so the snapshot() below is guaranteed cloneable;
+    // snapshotting before `set` keeps the order structurally correct even if
+    // snapshot() ever becomes fallible — no half-inserted poisoned entry.
+    //
+    // Audit note: acknowledge/resolve/dismiss/addMessage need neither fix —
+    // they take no object params (or copy primitive fields into fresh objects),
+    // and their in-place mutations only assign primitives/plain objects, so
+    // snapshot() cannot newly throw on an already-present entry.
+    const cloned = structuredClone(params)
     const now = Date.now()
     const annotation: Annotation = {
       id: randomUUID(),
       status: 'pending',
-      elementSource: params.elementSource,
-      text: params.text,
-      elementContext: params.elementContext,
-      currentStyles: params.currentStyles,
-      pinPosition: params.pinPosition,
+      elementSource: cloned.elementSource,
+      text: cloned.text,
+      elementContext: cloned.elementContext,
+      currentStyles: cloned.currentStyles,
+      pinPosition: cloned.pinPosition,
       createdAt: now,
       updatedAt: now,
       thread: [],
-      kind: params.kind ?? 'comment',
-      fixMeta: params.fixMeta,
+      kind: cloned.kind ?? 'comment',
+      fixMeta: cloned.fixMeta,
     }
+    const result = this.snapshot(annotation)
     this.annotations.set(annotation.id, annotation)
     this.persist()
-    return this.snapshot(annotation)
+    return result
   }
 
   getPending(): Annotation[] {
