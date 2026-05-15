@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
 import { CortexApp } from '../../src/browser/components/CortexApp.js'
-import { createShadowHost, createMockChannel, mockGetBoundingClientRect, dispatchKeyboardEvent, cleanDocumentHead } from './helpers.js'
+import { createShadowHost, createMockChannel, mockGetBoundingClientRect, dispatchKeyboardEvent, dispatchPointerEvent, cleanDocumentHead } from './helpers.js'
 import * as focusUtils from '../../src/browser/focus-utils.js'
 import { _resetBusForTesting } from '../../src/browser/override-bus.js'
 import { _resetTransformBusForTesting } from '../../src/browser/transform-bus.js'
@@ -983,6 +983,185 @@ describe('CortexApp', () => {
         expect(dismissed!.textContent?.trim()).toBe('')
       } finally {
         vi.useRealTimers()
+      }
+    })
+
+    it('pushes a full-state sync to the server on reconnect (ZF0-1869)', async () => {
+      ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+      await activateEditor(channel)
+
+      // Select an element + stage an edit so the staging buffer is non-empty.
+      const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+      const { selectCb } = _getCallbacks()
+      const target = document.createElement('div')
+      target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+      document.body.appendChild(target)
+      orphans.push(target)
+      mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
+      selectCb([target], 'replace')
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).not.toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      const bridge = (window as any).__CORTEX_TEST__ as {
+        stageEdit: (source: string, property: string, value: string) => Promise<string>
+        buffer: { size: () => number }
+      }
+      await act(async () => {
+        await bridge.stageEdit('Hero.tsx:5:3', 'color', 'red')
+      })
+      await vi.waitFor(() => {
+        expect(bridge.buffer.size()).toBe(1)
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      // Drop the message log, then simulate a disconnect → reconnect cycle.
+      channel._lastSent.length = 0
+      await act(() => {
+        channel._simulateConnectionChange({ status: 'reconnecting', retryCount: 1, maxRetries: 5 })
+      })
+      await act(() => {
+        channel._simulateConnectionChange({ status: 'connected' })
+      })
+
+      // On reconnect, CortexApp must re-establish the server cache from the
+      // browser-canonical buffer with authoritative replace semantics:
+      // staged-edit-clear FIRST (so removes done while disconnected are not
+      // retained as ghost intents), then staged-edits-sync to repopulate.
+      // Without the fix, no resync is emitted and the server cache diverges.
+      const types = channel._lastSent
+        .filter((m): m is { type: string } => typeof m === 'object' && m !== null && 'type' in m)
+        .map(m => m.type)
+      const clearIdx = types.indexOf('staged-edit-clear')
+      const syncIdx = types.indexOf('staged-edits-sync')
+      expect(clearIdx).toBeGreaterThanOrEqual(0)
+      expect(syncIdx).toBeGreaterThan(clearIdx) // clear must precede sync
+      const syncMsg = channel._lastSent[syncIdx] as { type: string; edits: unknown[] }
+      expect(syncMsg.edits).toHaveLength(1)
+    })
+
+    it('does NOT resync on a first connect with no prior disconnect (ZF0-1869)', async () => {
+      // Pins the wasDisconnected guard: a plain 'connected' event with no
+      // preceding disconnected/reconnecting state must NOT emit a resync.
+      // Without the guard, the browser would spam the server on every connect.
+      ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+      await activateEditor(channel)
+
+      channel._lastSent.length = 0
+      await act(() => {
+        channel._simulateConnectionChange({ status: 'connected' })
+      })
+
+      const types = channel._lastSent
+        .filter((m): m is { type: string } => typeof m === 'object' && m !== null && 'type' in m)
+        .map(m => m.type)
+      expect(types).not.toContain('staged-edit-clear')
+      expect(types).not.toContain('staged-edits-sync')
+    })
+  })
+
+  describe('panel position reset on deselect (ZF0-1869)', () => {
+    it('returns the panel to its home position after drag + deselect + reselect', async () => {
+      ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
+      setup()
+      const channel = createMockChannel()
+      render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+      await new Promise(r => setTimeout(r, 10))
+      await activateEditor(channel)
+
+      const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+      const { selectCb } = _getCallbacks()
+      const target = document.createElement('div')
+      target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+      document.body.appendChild(target)
+      orphans.push(target)
+      mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
+
+      const panelTransform = (): string => {
+        const p = root.querySelector('.cortex-panel') as HTMLElement | null
+        return p?.style.transform ?? ''
+      }
+
+      // Select → Panel mounts at the default home position (top-right).
+      selectCb([target], 'replace')
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).not.toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+      const homeTransform = panelTransform()
+      expect(homeTransform).toContain('translate(')
+
+      // Drag the panel far from home via the header's pointer handlers (the
+      // panel-header is the drag surface — see PanelHeader onPointerDown wiring).
+      // happy-dom getBoundingClientRect is 0,0 so the drag delta == clientXY.
+      const header = root.querySelector('.cortex-panel-header') as HTMLElement
+      await act(() => {
+        dispatchPointerEvent(header, 'pointerdown', { clientX: 700, clientY: 200 })
+        dispatchPointerEvent(header, 'pointermove', { clientX: 200, clientY: 450 })
+        dispatchPointerEvent(header, 'pointerup', { clientX: 200, clientY: 450 })
+      })
+      await vi.waitFor(() => {
+        expect(panelTransform()).not.toBe(homeTransform)
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+      const draggedTransform = panelTransform()
+
+      // Deselect — the CortexApp deselect effect must fire panelReset().
+      await act(() => { selectCb([], 'replace') })
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+
+      // Reselect — without the reset, useSnapToEdge state (CortexApp-scoped,
+      // survives Panel unmount) would still hold draggedTransform.
+      await act(() => { selectCb([target], 'replace') })
+      await vi.waitFor(() => {
+        expect(root.querySelector('.cortex-panel')).not.toBeNull()
+      }, { timeout: WAIT_FOR_COMMIT_MS })
+      expect(panelTransform()).toBe(homeTransform)
+      expect(panelTransform()).not.toBe(draggedTransform)
+    })
+
+    it('does NOT reset on initial mount — preserves localStorage-restored position (codex post-#142)', async () => {
+      // The naive `if (length === 0) panelReset()` body fires on every render
+      // where length is 0 — including initial mount. That overwrites the
+      // position useSnapToEdge() restored from localStorage. Pin the
+      // transition-only semantic: only a non-empty → empty change resets.
+      const PORT = location.port || '0'
+      const persisted = { x: 100, y: 50 } // not the home (top-right) position
+      localStorage.setItem(`cortex:${PORT}:panel-position`, JSON.stringify(persisted))
+
+      try {
+        ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
+        setup()
+        const channel = createMockChannel()
+        render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+        await new Promise(r => setTimeout(r, 10))
+        await activateEditor(channel)
+
+        const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+        const { selectCb } = _getCallbacks()
+        const target = document.createElement('div')
+        target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+        document.body.appendChild(target)
+        orphans.push(target)
+        mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
+
+        selectCb([target], 'replace')
+        await vi.waitFor(() => {
+          expect(root.querySelector('.cortex-panel')).not.toBeNull()
+        }, { timeout: WAIT_FOR_COMMIT_MS })
+
+        const transform = (root.querySelector('.cortex-panel') as HTMLElement).style.transform
+        // The persisted position survived — was NOT clobbered by an initial-mount reset.
+        expect(transform).toBe(`translate(${persisted.x}px, ${persisted.y}px)`)
+      } finally {
+        localStorage.removeItem(`cortex:${PORT}:panel-position`)
       }
     })
   })
