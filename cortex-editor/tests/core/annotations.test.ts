@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { AnnotationStore } from '../../src/core/annotations.js'
 import { saveAnnotations, loadAnnotations } from '../../src/core/annotations-persistence.js'
 import { CortexSession } from '../../src/core/session.js'
-import type { Annotation } from '../../src/adapters/types.js'
+import type { Annotation, CreateAnnotationParams } from '../../src/adapters/types.js'
 
 describe('AnnotationStore', () => {
   let store: AnnotationStore
@@ -733,6 +733,59 @@ describe('AnnotationStore', () => {
       const all = store.getAll()
       all[0]!.elementContext!.tagName = 'span'
       expect(store.getById(ann.id)!.elementContext!.tagName).toBe('div')
+    })
+  })
+
+  // ZF0-1857: the snapshot-deep-clone block above pins the OUTPUT side (mutating
+  // a returned snapshot). These pin the symmetric INPUT side of create():
+  // (1) the live store entry must not share nested object refs with the caller's
+  // params, and (2) a non-cloneable params value must throw BEFORE any store
+  // mutation, so the store is never left holding a poisoned entry.
+  describe('create() input-side hardening (ZF0-1857)', () => {
+    it('mutating the params object after create() does not corrupt the live store entry', () => {
+      const params: CreateAnnotationParams = {
+        elementSource: 'App.tsx:1:1',
+        text: 'original',
+        elementContext: { tagName: 'div', componentName: null, domSelector: '#root', textPreview: 'hi' },
+        currentStyles: { color: 'red' },
+        pinPosition: { x: 10, y: 20 },
+        kind: 'fix-request',
+        fixMeta: { property: 'padding', value: 'lg', reason: 'too tight' },
+      }
+      const ann = store.create(params)
+
+      // Caller mutates THEIR params object after create() returned.
+      params.elementContext!.tagName = 'span'
+      params.currentStyles!.color = 'blue'
+      params.pinPosition!.x = 999
+      params.fixMeta!.property = 'margin'
+
+      const live = store.getById(ann.id)!
+      expect(live.elementContext!.tagName).toBe('div')
+      expect(live.currentStyles!.color).toBe('red')
+      expect(live.pinPosition!.x).toBe(10)
+      expect(live.fixMeta!.property).toBe('padding')
+    })
+
+    it('non-cloneable params throw before any store mutation — store stays usable', () => {
+      // A non-cloneable value (function) that bypassed Zod validation. The
+      // pre-storage structuredClone throws DataCloneError BEFORE the store is
+      // touched, so there is no half-inserted poisoned entry. Without the
+      // input-side clone, the bad entry lands in the store and every later
+      // getAll()/getById() re-throws on its snapshot.
+      const poison = {
+        elementSource: 'App.tsx:1:1',
+        text: 'poison',
+        currentStyles: { color: (() => {}) as unknown as string },
+      } as CreateAnnotationParams
+
+      expect(() => store.create(poison)).toThrow()
+      // Store untouched — not poisoned, still empty.
+      expect(store.getAll()).toEqual([])
+      // A subsequent valid create still works — the store is not in a bad state.
+      const ok = store.create({ elementSource: 'App.tsx:2:2', text: 'fine' })
+      expect(store.getById(ok.id)).not.toBeNull()
+      expect(store.getAll()).toHaveLength(1)
     })
   })
 })
