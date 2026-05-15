@@ -1126,6 +1126,44 @@ describe('CortexApp', () => {
       expect(panelTransform()).toBe(homeTransform)
       expect(panelTransform()).not.toBe(draggedTransform)
     })
+
+    it('does NOT reset on initial mount — preserves localStorage-restored position (codex post-#142)', async () => {
+      // The naive `if (length === 0) panelReset()` body fires on every render
+      // where length is 0 — including initial mount. That overwrites the
+      // position useSnapToEdge() restored from localStorage. Pin the
+      // transition-only semantic: only a non-empty → empty change resets.
+      const PORT = location.port || '0'
+      const persisted = { x: 100, y: 50 } // not the home (top-right) position
+      localStorage.setItem(`cortex:${PORT}:panel-position`, JSON.stringify(persisted))
+
+      try {
+        ;(window as any).__CORTEX_DEBUG_OVERRIDES__ = true
+        setup()
+        const channel = createMockChannel()
+        render(<CortexApp channel={channel} shadowRoot={shadow} />, root)
+        await new Promise(r => setTimeout(r, 10))
+        await activateEditor(channel)
+
+        const { _getCallbacks } = await import('../../src/browser/selection.js') as any
+        const { selectCb } = _getCallbacks()
+        const target = document.createElement('div')
+        target.setAttribute('data-cortex-source', 'Hero.tsx:5:3')
+        document.body.appendChild(target)
+        orphans.push(target)
+        mockGetBoundingClientRect(target, { top: 50, left: 50, width: 100, height: 40 })
+
+        selectCb([target], 'replace')
+        await vi.waitFor(() => {
+          expect(root.querySelector('.cortex-panel')).not.toBeNull()
+        }, { timeout: WAIT_FOR_COMMIT_MS })
+
+        const transform = (root.querySelector('.cortex-panel') as HTMLElement).style.transform
+        // The persisted position survived — was NOT clobbered by an initial-mount reset.
+        expect(transform).toBe(`translate(${persisted.x}px, ${persisted.y}px)`)
+      } finally {
+        localStorage.removeItem(`cortex:${PORT}:panel-position`)
+      }
+    })
   })
 
   describe('Task 2 — buffer hoisted to CortexApp (ZF0-1869)', () => {

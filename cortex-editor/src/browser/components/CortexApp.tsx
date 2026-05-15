@@ -273,8 +273,18 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // the next selection opens it at the default spot rather than wherever it was
   // last dragged. layerHeight needs no equivalent reset — it is Panel-local
   // state and Panel unmounts on deselect, so it re-inits to DEFAULT_LAYER_HEIGHT.
+  //
+  // Codex P2 (post-#142): fire only on the NON-EMPTY → EMPTY transition. The
+  // naive `if (length === 0)` body ran on initial mount (length starts at 0)
+  // and overwrote the position useSnapToEdge() restored from localStorage,
+  // regressing cross-reload position persistence for users who had dragged
+  // the panel. The ref tracks the previous length so reset() is bound to a
+  // real deselect event, not the initial render.
+  const prevSelectedCountRef = useRef(selectedElements.length)
   useEffect(() => {
-    if (selectedElements.length === 0) panelReset()
+    const prev = prevSelectedCountRef.current
+    prevSelectedCountRef.current = selectedElements.length
+    if (prev > 0 && selectedElements.length === 0) panelReset()
   }, [selectedElements.length, panelReset])
 
   // Canvas zoom (disabled — preserved for future re-enablement)
