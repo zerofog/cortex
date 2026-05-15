@@ -135,6 +135,23 @@ export class CortexSession {
     this.stagedEdits = new StagedEditsCache()
   }
 
+  /**
+   * Synchronously release the .cortex/ single-writer lock without running the
+   * full async dispose() (ZF0-1851). Used by adapters for the in-process
+   * restart handoff (Vite's configureServer re-entry): we want the new
+   * CortexSession to acquire immediately without being blocked by the old
+   * session's lingering registry entry, but we DON'T want to await the full
+   * async teardown (channel.dispose etc.) before constructing the new session.
+   *
+   * Idempotent — safe to call before dispose() (which also releases the lock
+   * as its last step). Webpack adapters don't need this (no in-process
+   * restart pattern); MultiCompiler / double-registration is caught by the
+   * registry's same-process guard.
+   */
+  releaseLockForHandoff(): void {
+    this.lock?.release()
+  }
+
   async dispose(): Promise<void> {
     if (this.disposed) return
     this.disposed = true

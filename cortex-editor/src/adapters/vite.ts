@@ -914,6 +914,13 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         }
         currentSession.listeningCleanup?.()
         currentSession.listeningCleanup = null
+        // ZF0-1851: release the .cortex/ lock synchronously BEFORE constructing
+        // the new session. dispose() is fire-and-forget (we don't await its
+        // async channel teardown), so without the explicit handoff the new
+        // acquire would see the old session still in the in-process registry
+        // and refuse with LockHeldError. The full dispose still runs and
+        // re-releases the lock idempotently as its last step.
+        currentSession.releaseLockForHandoff()
         currentSession.dispose().catch((err) => {
           console.warn('[cortex] Failed to dispose previous session:', err instanceof Error ? err.message : err)
         })

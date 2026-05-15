@@ -48,25 +48,45 @@ describe('CortexLock', () => {
     expect(fs.existsSync(lockPath)).toBe(false)
   })
 
-  it('Vite in-process restart: a same-pid re-acquire reclaims, and the OLD lock’s release no-ops', () => {
-    // Vite restarts configureServer in-process: the old session is disposed
-    // (async, not awaited) and a new session is constructed immediately. Both
-    // share process.pid. The new acquire must reclaim the old, still-present
-    // lock file — and the old session's later release() must NOT unlink the
-    // new owner's file. The per-instance nonce is what makes that correct.
+  it('Vite in-process restart handoff: release-then-reacquire succeeds; old release no-ops', () => {
+    // Vite's configureServer re-entry: the adapter calls releaseLockForHandoff
+    // on the old session BEFORE constructing the new one. The new acquire then
+    // sees an empty registry slot + an empty lockPath and succeeds cleanly.
     const oldLock = CortexLock.acquire(cortexDir)!
     const oldNonce = (JSON.parse(fs.readFileSync(lockPath, 'utf8')) as { nonce: string }).nonce
+    oldLock.release() // the synchronous handoff step
 
-    // New session acquires without the old one having released yet.
     held = CortexLock.acquire(cortexDir)
     expect(held).not.toBeNull()
     const newNonce = (JSON.parse(fs.readFileSync(lockPath, 'utf8')) as { nonce: string }).nonce
     expect(newNonce).not.toBe(oldNonce)
 
-    // Old session's delayed release must be a no-op — the file is the new owner's now.
+    // Old session's full async dispose may run later; calling release() again
+    // is idempotent + must NOT touch the new owner's file.
     oldLock.release()
     expect(fs.existsSync(lockPath)).toBe(true)
     expect((JSON.parse(fs.readFileSync(lockPath, 'utf8')) as { nonce: string }).nonce).toBe(newNonce)
+  })
+
+  it('same-process concurrent acquire: refuses without the explicit handoff (webpack MultiCompiler)', () => {
+    // webpack MultiCompiler or double plugin-registration spins up two
+    // CortexSession instances on the same cortexDir in ONE Node process. Both
+    // carry process.pid; only the in-memory active-locks registry can
+    // distinguish them. Without a releaseLockForHandoff() call between them,
+    // the second acquire must throw rather than reclaim the first's still-live lock.
+    held = CortexLock.acquire(cortexDir)
+    expect(held).not.toBeNull()
+
+    let thrown: unknown
+    try {
+      CortexLock.acquire(cortexDir)
+    } catch (err) {
+      thrown = err
+    }
+    expect(thrown).toBeInstanceOf(LockHeldError)
+    expect((thrown as LockHeldError).holderPid).toBe(process.pid)
+    // The first owner's lock file is untouched.
+    expect(fs.existsSync(lockPath)).toBe(true)
   })
 
   it('conflict: refuses with LockHeldError when a LIVE process already holds the lock', () => {

@@ -93,6 +93,22 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
+/**
+ * In-memory registry of active locks held by THIS process, keyed by the
+ * resolved lockPath. Catches the same-process concurrent-acquire case that
+ * cross-process pid checks miss: webpack MultiCompiler, the plugin registered
+ * twice, or any future setup that spins up two CortexSession instances on the
+ * same cortexDir in one Node runtime. Both would carry the same pid; only an
+ * in-memory record can tell "live conflict" from "Vite restart handoff."
+ *
+ * The Vite-restart path is therefore explicit: adapters must call
+ * CortexSession.releaseLockForHandoff() on the old session BEFORE constructing
+ * the new one — that synchronously removes the old lock from this registry so
+ * the new acquire sees an empty slot. Without that explicit handoff, the
+ * second acquire is treated (correctly) as a concurrent conflict.
+ */
+const activeLocks = new Map<string, CortexLock>()
+
 export class CortexLock {
   private released = false
   private readonly onExit: () => void
@@ -100,6 +116,7 @@ export class CortexLock {
   private constructor(
     private readonly lockPath: string,
     private readonly nonce: string,
+    private readonly registryKey: string,
   ) {
     // Best-effort synchronous release for exit paths the adapter's
     // SIGTERM/SIGINT → dispose() handler didn't already cover (e.g. an
@@ -122,6 +139,19 @@ export class CortexLock {
    */
   static acquire(cortexDir: string): CortexLock | null {
     const lockPath = path.join(cortexDir, '.lock')
+    const registryKey = path.resolve(lockPath)
+
+    // Same-process concurrent-acquire guard. The cross-process pid+liveness
+    // check below cannot distinguish a true same-process conflict (webpack
+    // MultiCompiler, double plugin registration) from a Vite in-process
+    // restart, since both share process.pid. The in-memory registry makes
+    // the distinction explicit: presence here means "another CortexLock
+    // instance in this process still holds it" — refuse rather than reclaim.
+    // Adapters that intend a handoff (Vite restart) call
+    // CortexSession.releaseLockForHandoff() on the old session first.
+    if (activeLocks.has(registryKey)) {
+      throw new LockHeldError(lockPath, process.pid)
+    }
 
     try {
       fs.mkdirSync(cortexDir, { recursive: true, mode: 0o700 })
@@ -173,7 +203,11 @@ export class CortexLock {
         // successful link (the temp was a second name for the same content).
         try { fs.unlinkSync(tmpPath) } catch { /* harmless */ }
       }
-      if (linked) return new CortexLock(lockPath, nonce)
+      if (linked) {
+        const lock = new CortexLock(lockPath, nonce, registryKey)
+        activeLocks.set(registryKey, lock)
+        return lock
+      }
 
       const holder = readLockFile(lockPath)
       if (holder !== null && holder.pid !== process.pid && isProcessAlive(holder.pid)) {
@@ -210,6 +244,7 @@ export class CortexLock {
   release(): void {
     if (this.released) return
     this.released = true
+    activeLocks.delete(this.registryKey)
     process.removeListener('exit', this.onExit)
     try {
       if (readLockFile(this.lockPath)?.nonce === this.nonce) {
