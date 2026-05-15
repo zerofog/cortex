@@ -153,14 +153,24 @@ export class CortexLock {
       throw new LockHeldError(lockPath, process.pid)
     }
 
+    // Any non-EEXIST filesystem error during lock I/O means locking is
+    // impossible for environmental reasons (read-only root, EACCES on a
+    // foreign-owned .cortex/, ENOTDIR for a path under a file, ENOSPC, etc.).
+    // EEXIST is the only "expected" error and is handled separately (held vs
+    // stale). Everything else → degrade: same lock-less behavior as before
+    // ZF0-1851, with one warning. Lock-HELD always throws — never silent.
+    const degrade = (reason: unknown): null => {
+      console.warn(
+        '[cortex] Could not create .cortex/ — running without the single-writer lock:',
+        reason instanceof Error ? reason.message : String(reason),
+      )
+      return null
+    }
+
     try {
       fs.mkdirSync(cortexDir, { recursive: true, mode: 0o700 })
     } catch (err) {
-      console.warn(
-        '[cortex] Could not create .cortex/ — running without the single-writer lock:',
-        err instanceof Error ? err.message : String(err),
-      )
-      return null
+      return degrade(err)
     }
 
     // Two passes: the first may find a stale lock and reclaim it; the second
@@ -182,9 +192,11 @@ export class CortexLock {
       try {
         fs.writeFileSync(tmpPath, JSON.stringify(contents), { mode: 0o600, flag: 'wx' })
       } catch (writeErr) {
-        // Extremely unlikely UUID collision on the temp path — pick a fresh nonce.
+        // EEXIST = UUID collision on the temp path (vanishingly rare) → retry.
+        // Any other error means the dir is unwritable (existing-but-readonly
+        // .cortex/ etc.) — degrade, same as mkdir failure.
         if (isErrno(writeErr, 'EEXIST')) continue
-        throw writeErr
+        return degrade(writeErr)
       }
 
       let linked = false
@@ -194,9 +206,11 @@ export class CortexLock {
         fs.linkSync(tmpPath, lockPath)
         linked = true
       } catch (linkErr) {
+        // EEXIST = lockPath already exists → fall through to held/stale check.
+        // Anything else is an environmental "can't link" — degrade.
         if (!isErrno(linkErr, 'EEXIST')) {
           try { fs.unlinkSync(tmpPath) } catch { /* harmless */ }
-          throw linkErr
+          return degrade(linkErr)
         }
       } finally {
         // Always clean up the temp file; lockPath now has its own inode after a

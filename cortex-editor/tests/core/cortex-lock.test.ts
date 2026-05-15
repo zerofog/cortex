@@ -174,4 +174,22 @@ describe('CortexLock', () => {
     expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy.mock.calls[0]?.[0]).toMatch(/without the single-writer lock/i)
   })
+
+  it('degrades to null when .cortex/ exists but is read-only (EACCES on write)', () => {
+    // mkdirSync({recursive:true}) is idempotent on an existing dir — succeeds
+    // even when the dir isn't writable. Then writeFileSync(tmpPath) fails
+    // EACCES. The adapter only catches LockHeldError; without this degrade,
+    // dev-server startup would CRASH instead of running lock-less.
+    fs.mkdirSync(cortexDir, { recursive: true, mode: 0o500 }) // r-x — no write
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const result = CortexLock.acquire(cortexDir)
+      expect(result).toBeNull()
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy.mock.calls[0]?.[0]).toMatch(/without the single-writer lock/i)
+    } finally {
+      // Restore writable mode so afterEach's rmSync can clean up.
+      fs.chmodSync(cortexDir, 0o700)
+    }
+  })
 })
