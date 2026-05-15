@@ -1,0 +1,19 @@
+cortex-editor/src/core/cortex-lock.ts
+  s_de44c67238dbc7::t_85f4e6928310d7 141-151,153-158,160-169,171-196,198
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "7f9af456cdb8550a64a94491b7dfd309bc8ec5d2",
+  "prompts": {},
+  "sessions": {
+    "s_de44c67238dbc7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "26551397-9740-4158-b824-52c41b5fffab",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
