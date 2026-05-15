@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import path from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import type { Annotation } from '../adapters/types.js'
@@ -91,6 +92,34 @@ function isNodeErrnoException(err: unknown): err is NodeJS.ErrnoException {
   return err instanceof Error && 'code' in err
 }
 
+/**
+ * Best-effort forensic backup of an unreadable annotations.json (ZF0-1853).
+ *
+ * On a parse/validation failure loadAnnotations returns [] and the next save
+ * overwrites the file — silently destroying possibly-recoverable data. Renaming
+ * the corrupt file to `.corrupted-<timestamp>.json` first preserves it for
+ * manual recovery while still letting the session start fresh.
+ *
+ * Only called for failures where the bytes WERE read (corrupt JSON, schema /
+ * version mismatch, Zod shape failure) — never for ENOENT (nothing to back up)
+ * or read errors (can't read => can't move). Backup failure is non-fatal: it
+ * warns and returns so loadAnnotations still degrades to [].
+ */
+function backupCorruptFile(filePath: string): void {
+  try {
+    const backupPath = `${filePath}.corrupted-${Date.now()}.json`
+    fs.renameSync(filePath, backupPath)
+    console.warn(
+      `[cortex] Backed up unreadable annotations.json to ${path.basename(backupPath)}`,
+    )
+  } catch (err) {
+    console.warn(
+      '[cortex] Could not back up corrupt annotations.json:',
+      errMessage(err),
+    )
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -118,6 +147,7 @@ export function loadAnnotations(filePath: string): Annotation[] {
       parsed = JSON.parse(contents)
     } catch (err) {
       console.warn('[cortex] annotations.json invalid JSON:', errMessage(err))
+      backupCorruptFile(filePath)
       return []
     }
 
@@ -127,6 +157,7 @@ export function loadAnnotations(filePath: string): Annotation[] {
         '[cortex] annotations.json schema mismatch:',
         result.error.message,
       )
+      backupCorruptFile(filePath)
       return []
     }
 
