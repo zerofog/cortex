@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { createServer, type IncomingMessage, type Server as HttpServer } from 'node:http'
 import type { Duplex } from 'node:stream'
@@ -20,7 +21,7 @@ import { UndoStack } from '../core/session/undo-stack.js'
 import { applyEditsCore, checkIntentFileSize, parseIntentSource, sliceIntentContext } from '../core/staged-edits.js'
 import { atomicWrite } from './atomic-write.js'
 import { shouldSuppressHmr } from './vite.js'
-import { shouldExcludeCortexSource } from './source-loader-utils.js'
+import { shouldExcludeCortexSource, markRuntimeDisabled, markRuntimeEnabled } from './source-loader-utils.js'
 import type { BrowserToServer, ServerChannel, ServerToBrowser } from './types.js'
 import {
   browserToServerSchema,
@@ -346,6 +347,10 @@ function detectNextProject(root: string): boolean {
 }
 
 class CortexWebpackRuntime {
+  /** Per-runtime id passed to the source-loader so MultiCompiler with one
+   *  lock-refused plugin doesn't accidentally disable the other plugin's
+   *  transforms. ZF0-1851 — see source-loader-utils.disabledRuntimes. */
+  readonly runtimeId: string = randomUUID()
   private readonly root: string
   private readonly mode: string
   private readonly requestedPort?: number
@@ -429,10 +434,18 @@ class CortexWebpackRuntime {
         // no session was created, leaving cortex disabled for the rest of the
         // webpack process even after the conflicting instance exits.
         this.startPromise = null
+        // Disable this runtime's source-loader transforms — the loader was
+        // attached at apply() time and would otherwise still rewrite JSX with
+        // data-cortex-* attributes for a build whose bridge/client are absent.
+        // Symmetric to Vite's cortexDisabledByLock flag.
+        markRuntimeDisabled(this.runtimeId)
         return
       }
       throw err
     }
+    // Successful acquire: ensure this runtime's transforms are enabled. Clears
+    // any prior disabled state from a recovered lock-refused run.
+    markRuntimeEnabled(this.runtimeId)
     this.session = session
 
     this.browserWss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 })
@@ -1112,8 +1125,6 @@ export class CortexWebpackPlugin {
     if (detectNextProject(projectRoot)) {
       console.warn('[cortex] Next.js project detected. Use withCortex() from cortex-editor/next instead of cortexWebpack().')
     }
-    this.addSourceLoaderRule(compiler, projectRoot)
-
     const runtime = new CortexWebpackRuntime({
       root: projectRoot,
       mode: compiler.options.mode ?? 'development',
@@ -1121,6 +1132,7 @@ export class CortexWebpackPlugin {
       toggleShortcut: this.toggleShortcut,
       invalidate: () => compiler.watching?.invalidate?.(),
     })
+    this.addSourceLoaderRule(compiler, projectRoot, runtime)
 
     compiler.hooks.beforeRun?.tapPromise(PLUGIN_NAME, () => runtime.start())
     compiler.hooks.watchRun?.tapPromise(PLUGIN_NAME, () => runtime.start())
@@ -1136,7 +1148,7 @@ export class CortexWebpackPlugin {
     compiler.hooks.shutdown?.tapPromise?.(PLUGIN_NAME, () => runtime.dispose())
   }
 
-  private addSourceLoaderRule(compiler: WebpackCompiler, projectRoot: string): void {
+  private addSourceLoaderRule(compiler: WebpackCompiler, projectRoot: string, runtime: CortexWebpackRuntime): void {
     compiler.options.module ??= {}
     compiler.options.module.rules ??= []
     const rules = compiler.options.module.rules
@@ -1151,6 +1163,9 @@ export class CortexWebpackPlugin {
           projectRoot,
           resolveAlias: this.options.resolveAlias,
           includeNodeModules: this.options.includeNodeModules,
+          // ZF0-1851: the loader checks this runtimeId against the
+          // disabledRuntimes set to decide whether to pass through unchanged.
+          runtimeId: runtime.runtimeId,
         },
       }],
     }
