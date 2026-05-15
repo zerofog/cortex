@@ -4,7 +4,7 @@ import fs from 'fs'
 import os from 'os'
 import pathMod from 'path'
 import WebSocket from 'ws'
-import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting, _getSessionTokenForTesting, _getStagedEditsForTesting, _addCLIClientForTesting, shouldSuppressHmr, performEditWrite, WRITE_TYPES_ARRAY, BROWSER_TO_CLI_FORWARD_TYPES_ARRAY } from '../../src/adapters/vite.js'
+import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting, _getSessionTokenForTesting, _getStagedEditsForTesting, _addCLIClientForTesting, shouldSuppressHmr, performEditWrite } from '../../src/adapters/vite.js'
 import { AnnotationStore } from '../../src/core/annotations.js'
 import { makeEdit } from '../core/helpers.js'
 import type { Plugin } from 'vite'
@@ -2855,28 +2855,9 @@ describe('ZF0-1500 review: staged-edits-sync graceful per-element filtering', ()
   })
 })
 
-// ── ZF0-1500 review: derived WRITE_TYPES (IMPORTANT 2) ─────────────────────
-
-describe('ZF0-1500 review: WRITE_TYPES + BROWSER_TO_CLI_FORWARD_TYPES are subsets of schema-derived BrowserToServer types', () => {
-  it('every WRITE_TYPES_ARRAY entry is a real BrowserToServer variant from the schema', () => {
-    // Pins the runtime invariant matching the satisfies-clause at module-load.
-    // Imports the ACTUAL exported array from vite.ts (no shadow copy) — if a
-    // future ticket adds a new write-type to vite.ts but forgets to add the
-    // schema variant, this fails. Symmetric: if the schema variant is renamed
-    // but vite.ts isn't updated, the satisfies-clause already breaks tsc.
-    const allTypes = browserToServerSchema.options.map((opt) => opt.shape.type.value)
-    for (const t of WRITE_TYPES_ARRAY) {
-      expect(allTypes).toContain(t)
-    }
-  })
-
-  it('every BROWSER_TO_CLI_FORWARD_TYPES_ARRAY entry is a real BrowserToServer variant from the schema', () => {
-    const allTypes = browserToServerSchema.options.map((opt) => opt.shape.type.value)
-    for (const t of BROWSER_TO_CLI_FORWARD_TYPES_ARRAY) {
-      expect(allTypes).toContain(t)
-    }
-  })
-})
+// Note: the WRITE_TYPES_ARRAY / BROWSER_TO_CLI_FORWARD_TYPES_ARRAY schema-subset
+// tests moved to tests/adapters/shared-server-constants.test.ts when those
+// constants were extracted into the shared module (ZF0-1869 follow-up).
 
 // ── ZF0-1500 review: intentId element bounds (MINOR 3) ─────────────────────
 

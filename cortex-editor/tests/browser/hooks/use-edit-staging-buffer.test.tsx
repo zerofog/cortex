@@ -725,6 +725,7 @@ describe('createPanelSyncEmitter — channel.send wiring', () => {
   function makeMockChannel(): CortexChannel & { send: ReturnType<typeof vi.fn> } {
     return {
       send: vi.fn(),
+      sendAndAck: vi.fn(),
       onMessage: vi.fn(() => () => {}),
       onConnectionChange: vi.fn(() => () => {}),
       connected: true,
