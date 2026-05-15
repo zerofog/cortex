@@ -6,6 +6,7 @@ import type { WebSocketServer, WebSocket } from 'ws'
 import type { ServerChannel } from '../../src/adapters/types.js'
 import { CortexSession } from '../../src/core/session.js'
 import type { CortexConfig } from '../../src/core/session.js'
+import { resolveAnnotationsFilePath } from '../../src/adapters/annotations-path-resolver.js'
 
 function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
   return { root: '/tmp/test-project', mode: 'development', ...overrides }
@@ -318,6 +319,52 @@ describe('CortexSession', () => {
       // not just that this one path is absent.
       expect(fs.existsSync(filePath)).toBe(false)
       expect(fs.readdirSync(tmpDir)).toEqual([])
+    })
+
+    // ZF0-1852: case (c) — the mkdir-failure → ephemeral downgrade actually
+    // takes effect. annotations-path-resolver.test.ts proves the resolver
+    // RETURNS undefined on a throwing mkdir; this proves the consequence:
+    // the resulting session writes NOTHING on mutation. Without the cff9c4be
+    // downgrade, annotationsFilePath would still be passed to CortexSession and
+    // every annotations.create() would hit a per-mutation write storm.
+    it('downgrades to ephemeral when mkdir fails — no per-mutation write storm', async () => {
+      // Drive the real resolver with CORTEX_PERSIST_ANNOTATIONS=true and a
+      // mkdirSync that throws EACCES — exactly the read-only-root scenario.
+      const warn = vi.fn()
+      const resolved = resolveAnnotationsFilePath({
+        root: tmpDir,
+        env: { CORTEX_PERSIST_ANNOTATIONS: 'true' } as NodeJS.ProcessEnv,
+        mkdirSync: () => {
+          const err: NodeJS.ErrnoException = new Error('EACCES: permission denied')
+          err.code = 'EACCES'
+          throw err
+        },
+        warn,
+      })
+
+      // Downgrade fired: undefined path + exactly one startup warning.
+      expect(resolved).toBeUndefined()
+      expect(warn).toHaveBeenCalledTimes(1)
+
+      // Feed the downgraded value into a real session and mutate it.
+      const writeSpy = vi.spyOn(fs, 'writeFileSync')
+      try {
+        const session = new CortexSession({
+          root: tmpDir,
+          mode: 'development',
+          annotationsFilePath: resolved, // undefined — the downgrade
+        })
+        session.annotations.create({ elementSource: 'App.tsx:1:1', text: 'should not persist' })
+        session.annotations.create({ elementSource: 'App.tsx:2:2', text: 'still should not persist' })
+        await session.dispose()
+
+        // The downgrade took effect: not a single write attempt, no .tmp orphan,
+        // nothing in tmpDir at all.
+        expect(writeSpy).not.toHaveBeenCalled()
+        expect(fs.readdirSync(tmpDir)).toEqual([])
+      } finally {
+        writeSpy.mockRestore()
+      }
     })
   })
 
