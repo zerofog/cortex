@@ -138,42 +138,64 @@ export class CortexLock {
     // same window — treat that as genuinely held rather than looping.
     for (let attempt = 0; attempt < 2; attempt++) {
       const nonce = randomUUID()
-      try {
-        // 'wx' = O_CREAT | O_EXCL — atomic test-and-set. EEXIST if already held.
-        const fd = fs.openSync(lockPath, 'wx', 0o600)
-        try {
-          const contents: LockFileContents = { pid: process.pid, nonce, startedAt: Date.now() }
-          fs.writeSync(fd, JSON.stringify(contents))
-        } finally {
-          fs.closeSync(fd)
-        }
-        return new CortexLock(lockPath, nonce)
-      } catch (err) {
-        if (!isErrno(err, 'EEXIST')) throw err
 
-        const holder = readLockFile(lockPath)
-        if (holder !== null && holder.pid !== process.pid && isProcessAlive(holder.pid)) {
-          throw new LockHeldError(lockPath, holder.pid)
-        }
-        // Stale: the holder process is dead, the file is corrupt, or it carries
-        // OUR pid — a lock leaked by a crashed prior run, or (the common case) a
-        // Vite in-process restart where the old session's async dispose hasn't
-        // released yet. All are safe to reclaim. Use renameSync — the atomic
-        // compare-and-take primitive: only ONE process can rename the file at
-        // that inode. The loser sees ENOENT and falls back to the next
-        // openSync('wx') attempt, which either succeeds (slot empty) or sees
-        // the winner's brand-new lock as a live holder — preserving the
-        // single-writer guarantee even under concurrent stale recovery.
-        const trashPath = `${lockPath}.reclaiming-${process.pid}-${nonce}`
-        try {
-          fs.renameSync(lockPath, trashPath)
-        } catch (renameErr) {
-          if (!isErrno(renameErr, 'ENOENT')) throw renameErr
-          // Another reclaimer won the rename; loop to retry openSync.
-          continue
-        }
-        try { fs.unlinkSync(trashPath) } catch { /* harmless — file gone */ }
+      // Materialize the new lock CONTENT in a uniquely-named temp file FIRST,
+      // then atomically hard-link it to lockPath. This removes a race the
+      // older O_EXCL-open-then-write pattern had: between `openSync('wx')` and
+      // `writeSync` the file existed but was empty — a second process hitting
+      // EEXIST in that window would `readLockFile` → null → "corrupt, treat as
+      // stale" → reclaim the in-progress lock. linkSync atomically creates
+      // lockPath with the temp file's full content; observers either see no
+      // file (acquire empty slot) or a complete file (live holder / stale).
+      const tmpPath = `${lockPath}.creating-${process.pid}-${nonce}`
+      const contents: LockFileContents = { pid: process.pid, nonce, startedAt: Date.now() }
+      try {
+        fs.writeFileSync(tmpPath, JSON.stringify(contents), { mode: 0o600, flag: 'wx' })
+      } catch (writeErr) {
+        // Extremely unlikely UUID collision on the temp path — pick a fresh nonce.
+        if (isErrno(writeErr, 'EEXIST')) continue
+        throw writeErr
       }
+
+      let linked = false
+      try {
+        // Atomic O_EXCL-equivalent: hard-link the populated temp into place.
+        // EEXIST if lockPath already exists — never partial.
+        fs.linkSync(tmpPath, lockPath)
+        linked = true
+      } catch (linkErr) {
+        if (!isErrno(linkErr, 'EEXIST')) {
+          try { fs.unlinkSync(tmpPath) } catch { /* harmless */ }
+          throw linkErr
+        }
+      } finally {
+        // Always clean up the temp file; lockPath now has its own inode after a
+        // successful link (the temp was a second name for the same content).
+        try { fs.unlinkSync(tmpPath) } catch { /* harmless */ }
+      }
+      if (linked) return new CortexLock(lockPath, nonce)
+
+      const holder = readLockFile(lockPath)
+      if (holder !== null && holder.pid !== process.pid && isProcessAlive(holder.pid)) {
+        throw new LockHeldError(lockPath, holder.pid)
+      }
+      // Stale: the holder process is dead, the file is corrupt, or it carries
+      // OUR pid — a lock leaked by a crashed prior run, or (the common case) a
+      // Vite in-process restart where the old session's async dispose hasn't
+      // released yet. All are safe to reclaim. Use renameSync — the atomic
+      // compare-and-take primitive: only ONE process can rename the file at
+      // that inode. The loser sees ENOENT and the next iteration's linkSync
+      // either succeeds (slot empty) or sees the winner's brand-new lock as a
+      // live holder — preserving the single-writer guarantee even under
+      // concurrent stale recovery.
+      const reclaimPath = `${lockPath}.reclaiming-${process.pid}-${nonce}`
+      try {
+        fs.renameSync(lockPath, reclaimPath)
+      } catch (renameErr) {
+        if (!isErrno(renameErr, 'ENOENT')) throw renameErr
+        continue
+      }
+      try { fs.unlinkSync(reclaimPath) } catch { /* harmless — file gone */ }
     }
 
     // Both attempts lost the reclaim race — extremely unlikely. Refuse rather
