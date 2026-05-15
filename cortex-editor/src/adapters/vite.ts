@@ -16,7 +16,7 @@ import {
   HEARTBEAT_INTERVAL,
   MAX_CLI_CONNECTIONS,
 } from './shared-server-constants.js'
-import type { ServerChannel, BrowserToServer, ServerToBrowser } from './types.js'
+import type { ServerChannel, BrowserToServer, ServerToBrowser, Annotation } from './types.js'
 import { TailwindResolver } from '../core/tailwind-resolver.js'
 import { TailwindRewriter } from '../core/rewriter/tailwind.js'
 import { InlineStyleRewriter } from '../core/rewriter/inline-style.js'
@@ -305,7 +305,10 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
     case 'acknowledge': {
       const result = currentSession!.annotations.acknowledge(id)
       if (result && currentSession!.channel) {
-        currentSession!.channel.send({ type: 'annotation-updated', annotation: result })
+        // ZF0-1856: result is DeepReadonly<Annotation> (compile-time only).
+        // The wire boundary is where that immutability view ends — the payload
+        // is serialized, never mutated. Cast to the mutable wire shape here.
+        currentSession!.channel.send({ type: 'annotation-updated', annotation: result as Annotation })
         const entry = currentSession!.activityLog.add({ type: 'status-change', description: `Acknowledged: ${result.text}`, elementSource: result.elementSource })
         currentSession!.channel.send({ type: 'activity-entry', entry })
       }
@@ -316,7 +319,10 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
       const summary = params.summary as string
       const result = currentSession!.annotations.resolve(id, summary)
       if (result && currentSession!.channel) {
-        currentSession!.channel.send({ type: 'annotation-updated', annotation: result })
+        // ZF0-1856: result is DeepReadonly<Annotation> (compile-time only).
+        // The wire boundary is where that immutability view ends — the payload
+        // is serialized, never mutated. Cast to the mutable wire shape here.
+        currentSession!.channel.send({ type: 'annotation-updated', annotation: result as Annotation })
         const entry = currentSession!.activityLog.add({ type: 'status-change', description: `Resolved: ${summary}`, elementSource: result.elementSource })
         currentSession!.channel.send({ type: 'activity-entry', entry })
       }
@@ -327,7 +333,10 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
       const reason = params.reason as string | undefined
       const result = currentSession!.annotations.dismiss(id, reason)
       if (result && currentSession!.channel) {
-        currentSession!.channel.send({ type: 'annotation-updated', annotation: result })
+        // ZF0-1856: result is DeepReadonly<Annotation> (compile-time only).
+        // The wire boundary is where that immutability view ends — the payload
+        // is serialized, never mutated. Cast to the mutable wire shape here.
+        currentSession!.channel.send({ type: 'annotation-updated', annotation: result as Annotation })
         const entry = currentSession!.activityLog.add({ type: 'status-change', description: `Dismissed: ${result.text}`, elementSource: result.elementSource })
         currentSession!.channel.send({ type: 'activity-entry', entry })
       }
@@ -338,7 +347,10 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
       const text = params.text as string
       const result = currentSession!.annotations.addMessage(id, { from: 'agent', text })
       if (result && currentSession!.channel) {
-        currentSession!.channel.send({ type: 'annotation-updated', annotation: result })
+        // ZF0-1856: result is DeepReadonly<Annotation> (compile-time only).
+        // The wire boundary is where that immutability view ends — the payload
+        // is serialized, never mutated. Cast to the mutable wire shape here.
+        currentSession!.channel.send({ type: 'annotation-updated', annotation: result as Annotation })
       }
       return result
     }
@@ -1092,7 +1104,8 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           })
           const entry = currentSession!.activityLog.add({ type: 'comment', description: data.text, elementSource: data.elementSource })
           if (currentSession!.channel) {
-            currentSession!.channel.send({ type: 'annotation-created', annotation: ann })
+            // ZF0-1856: DeepReadonly snapshot → mutable wire shape at the send boundary.
+            currentSession!.channel.send({ type: 'annotation-created', annotation: ann as Annotation })
             currentSession!.channel.send({ type: 'activity-entry', entry })
           }
         }
@@ -1101,7 +1114,8 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           const ann = currentSession!.annotations.addMessage(data.annotationId, { from: 'user', text: data.text })
           if (ann && currentSession!.channel) {
             const entry = currentSession!.activityLog.add({ type: 'comment', description: data.text, elementSource: ann.elementSource })
-            currentSession!.channel.send({ type: 'annotation-updated', annotation: ann })
+            // ZF0-1856: DeepReadonly snapshot → mutable wire shape at the send boundary.
+            currentSession!.channel.send({ type: 'annotation-updated', annotation: ann as Annotation })
             currentSession!.channel.send({ type: 'activity-entry', entry })
           }
         }
@@ -1180,7 +1194,8 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             // performs a full Map replacement on this message.
             currentSession!.channel.send({
               type: 'annotations-snapshot',
-              annotations: currentSession!.annotations.getAll(),
+              // ZF0-1856: DeepReadonly snapshots → mutable wire shape at the send boundary.
+              annotations: currentSession!.annotations.getAll() as Annotation[],
             })
           }
           return
