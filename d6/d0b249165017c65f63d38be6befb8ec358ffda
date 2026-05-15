@@ -1,0 +1,19 @@
+cortex-editor/src/adapters/webpack.ts
+  s_de44c67238dbc7::t_71befa43e0cafe 426-431
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "d6d0b249165017c65f63d38be6befb8ec358ffda",
+  "prompts": {},
+  "sessions": {
+    "s_de44c67238dbc7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "26551397-9740-4158-b824-52c41b5fffab",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
