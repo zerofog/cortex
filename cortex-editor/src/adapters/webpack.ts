@@ -423,6 +423,12 @@ class CortexWebpackRuntime {
     } catch (err) {
       if (err instanceof LockHeldError) {
         console.error(err.message)
+        // ZF0-1851: clear the cached startPromise so a later start() (next
+        // watchRun, recompile, etc.) re-attempts acquisition. Returning
+        // cleanly without this would memoize a fulfilled promise even though
+        // no session was created, leaving cortex disabled for the rest of the
+        // webpack process even after the conflicting instance exits.
+        this.startPromise = null
         return
       }
       throw err
