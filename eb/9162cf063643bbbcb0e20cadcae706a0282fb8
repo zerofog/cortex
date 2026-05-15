@@ -1,0 +1,57 @@
+cortex-editor/src/browser/hooks/useSnapToEdge.ts
+  s_de44c67238dbc7::t_00fdeda1a3fd63 58-60,62,65-66,68-75,83-86,134-139,170
+cortex-editor/src/browser/components/CortexApp.tsx
+  s_de44c67238dbc7::t_00fdeda1a3fd63 4,266,272-289,1016-1032
+cortex-editor/src/core/staged-edits.ts
+  s_de44c67238dbc7::t_00fdeda1a3fd63 17-22,24
+cortex-editor/tests/browser/cortex-app.test.tsx
+  s_de44c67238dbc7::t_00fdeda1a3fd63 5,988-1164
+cortex-editor/tests/core/annotations.test.ts
+  s_de44c67238dbc7::t_00fdeda1a3fd63 8,738-788
+cortex-editor/src/adapters/webpack.ts
+  ai_agent 23-30,33,60-62
+cortex-editor/tests/core/staged-edits.test.ts
+  s_de44c67238dbc7::t_00fdeda1a3fd63 192-230
+cortex-editor/tests/browser/panel.test.tsx
+  s_de44c67238dbc7::t_00fdeda1a3fd63 137-180
+cortex-editor/src/core/annotations-persistence.ts
+  s_de44c67238dbc7::t_00fdeda1a3fd63 2,95-122,150,160
+cortex-editor/tests/adapters/shared-server-constants.test.ts
+  s_de44c67238dbc7::t_00fdeda1a3fd63 1-21,24-28,31-35
+cortex-editor/src/adapters/shared-server-constants.ts
+  s_de44c67238dbc7::t_00fdeda1a3fd63 1-66
+cortex-editor/src/adapters/vite.ts
+  s_de44c67238dbc7::t_00fdeda1a3fd63 11-18,71-73,999
+cortex-editor/tests/adapters/vite.test.ts
+  s_de44c67238dbc7::t_00fdeda1a3fd63 7,2858-2860
+cortex-editor/tests/browser/error-toast.test.tsx
+  s_de44c67238dbc7::t_00fdeda1a3fd63 7-10,12-13,34,60,82-88
+cortex-editor/tests/browser/hooks/use-snap-to-edge.test.tsx
+  s_de44c67238dbc7::t_00fdeda1a3fd63 176-201
+cortex-editor/tests/core/annotations-persistence.test.ts
+  s_de44c67238dbc7::t_00fdeda1a3fd63 87-95,103-105,107-111,114,122,124-126,129,141,143-181
+cortex-editor/tests/browser/hooks/use-edit-staging-buffer.test.tsx
+  s_de44c67238dbc7::t_00fdeda1a3fd63 728
+cortex-editor/src/browser/components/Panel.tsx
+  s_de44c67238dbc7::t_00fdeda1a3fd63 488-496,498,501
+cortex-editor/src/core/annotations.ts
+  s_de44c67238dbc7::t_00fdeda1a3fd63 91-108,113-117,121-122,124,127
+cortex-editor/tests/core/session.test.ts
+  s_de44c67238dbc7::t_00fdeda1a3fd63 9,323-367
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "eb9162cf063643bbbcb0e20cadcae706a0282fb8",
+  "prompts": {},
+  "sessions": {
+    "s_de44c67238dbc7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "26551397-9740-4158-b824-52c41b5fffab",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
