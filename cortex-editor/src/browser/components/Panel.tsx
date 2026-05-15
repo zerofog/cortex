@@ -486,12 +486,13 @@ export function Panel({
   }, [element])
 
   // ZF0-1876: Play the enter animation on mount only, not on element-to-element
-  // switches. useState(true) at line 331 covers first paint; [] keeps it
-  // mount-only so switching the selected element while the Panel stays mounted
-  // is a silent content swap (per the contract at line 505: "sections update
-  // via normal prop changes"). Prior behaviour (re-armed on every [element]
-  // change) produced an ~800ms staggered section-group cascade on every switch
-  // that read as the Panel "flashing".
+  // switches. The useState(true) initializer above covers first paint; []
+  // keeps it mount-only so switching the selected element while the Panel
+  // stays mounted is a silent content swap (per the contract on the
+  // element-switch effect below: "sections update via normal prop changes").
+  // Prior behaviour (re-armed on every [element] change) produced an ~800ms
+  // staggered section-group cascade on every switch that read as the Panel
+  // "flashing".
   useEffect(() => {
     const timer = setTimeout(() => setIsEntering(false), 250)
     return () => clearTimeout(timer)

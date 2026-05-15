@@ -178,13 +178,18 @@ describe('Panel', () => {
     // act() flushes the element-switch effects synchronously so state updates
     // are committed before the assertion.
     act(() => { render(<Panel selectedElements={[elB]} {...commonProps} />, root) })
-    expect(entering(root)).toBe(false)
 
-    // Stays false through a 300ms window. Guards against the prior bug where
-    // the class re-applied for ~250ms after every switch — without this hold,
-    // a same-tick observation alone could miss a brief flash.
-    await new Promise((resolve) => setTimeout(resolve, 300))
-    expect(entering(root)).toBe(false)
+    // Poll for ~300ms after the switch, sampling at ~30ms intervals. A
+    // single-sample-at-end check (codex P2 #1) would miss a delayed transient
+    // flash that appears at t=100ms and clears by t=300ms. Polling catches
+    // any window in which the class re-applied, not just the boundaries.
+    const POLL_DURATION_MS = 300
+    const POLL_INTERVAL_MS = 30
+    const startTime = Date.now()
+    while (Date.now() - startTime < POLL_DURATION_MS) {
+      expect(entering(root)).toBe(false)
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+    }
   })
 
   it('renders panel header with element info', () => {
