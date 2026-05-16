@@ -992,6 +992,30 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         return
       }
 
+      // Pillar 1: server-authoritative activation broadcast. May be addressed
+      // to one tab in single-tab mode — filter on targetTabId.
+      if (msg.type === 'cortex/active-changed') {
+        const tabId = window.__cortex_tab_id__
+        if (msg.targetTabId && msg.targetTabId !== tabId) return
+        // Update the keyboard-handler cache before the reducer dispatch so
+        // the next keystroke flips the right state.
+        if (window.__cortex_active_cache__) {
+          ;(window.__cortex_active_cache__ as { active: boolean }).active = msg.active
+        }
+        // Dispatch through the unified set-active reducer action (Chunk A).
+        dispatch({ type: 'set-active', active: msg.active })
+        return
+      }
+
+      if (msg.type === 'cortex/inactive-tab') {
+        const tabId = window.__cortex_tab_id__
+        if (msg.targetTabId !== tabId) return
+        // Surface as non-blocking warning today. Future: route into the
+        // existing toast/banner mechanism.
+        console.warn('[cortex]', msg.message)
+        return
+      }
+
       // After the early returns above (edit_status, hmr-applied, error), `msg.type`
       // matches a CortexAppAction discriminant. The cast is a forcing cast — TS
       // does not narrow ServerToBrowser to CortexAppAction across the assignment.
@@ -1005,7 +1029,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
     // data. Placed AFTER onMessage subscription above so the response is guaranteed
     // to reach the handler. Idempotent on the server, so strict-mode double-mount
     // and HMR re-mount both work without special-casing.
-    channel.send({ type: 'init', sessionId: window.__CORTEX_SESSION_ID__ })
+    channel.send({ type: 'init', sessionId: window.__CORTEX_SESSION_ID__, tabId: window.__cortex_tab_id__ })
 
     // Track whether we were disconnected for the "reconnected" flash
     let wasDisconnected = false

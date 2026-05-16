@@ -34,6 +34,7 @@ import { CortexSession } from '../core/session.js'
 import { LockHeldError } from '../core/cortex-lock.js'
 import {
   evaluateSetActive,
+  clearActiveBrowser,
   type SetActiveResult,
 } from './cortex-active-state.js'
 import { applyEditsCore, sliceIntentContext, checkIntentFileSize, parseIntentSource } from '../core/staged-edits.js'
@@ -209,7 +210,30 @@ if (import.meta.hot) {
     });
   }
 }
-// Toggle shortcut — capture phase, always active
+// Pillar 1: generate a stable per-tab ID at injection time (before any cortex
+// script loads). Used by the single-tab gate and to filter cortex/active-changed
+// broadcasts. Each new page load generates a fresh UUID so a refreshed tab gets
+// a new ID and can take over from the stale one.
+if (!window.__cortex_tab_id__) {
+  Object.defineProperty(window, '__cortex_tab_id__', {
+    value: 'tab-' + (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + '-' + Date.now()),
+    writable: false, configurable: false,
+  });
+}
+// Pillar 1: cache of the server's last cortex/active-changed for this tab —
+// read by the keyboard handler to decide which state to flip to. Defined as a
+// mutable wrapper object so the channel can write .active after setup without
+// needing to redefine the property.
+if (!Object.prototype.hasOwnProperty.call(window, '__cortex_active_cache__')) {
+  Object.defineProperty(window, '__cortex_active_cache__', {
+    value: { active: false }, writable: false, configurable: false,
+  });
+}
+// Toggle shortcut — capture phase, always active. Pillar 1 rewrite: no DOM
+// mutation here — the reducer's useEffect on active (CortexApp.tsx) is the
+// SINGLE writer of data-cortex-active. Keyboard handler sends cortex/set-active
+// via __cortex_send__, or queues to __cortex_pending_set_active__ if the channel
+// hasn't initialized yet (bootstrap drains this).
 if (!Object.prototype.hasOwnProperty.call(window, '__cortex_toggle_registered__')) {
   Object.defineProperty(window, '__cortex_toggle_registered__', {
     value: true, writable: false, configurable: false,
@@ -230,17 +254,17 @@ if (!Object.prototype.hasOwnProperty.call(window, '__cortex_toggle_registered__'
     if (e.code !== __cortexCode) return;
     e.preventDefault();
     e.stopPropagation();
-    var active = document.documentElement.hasAttribute('data-cortex-active');
-    var msg = { type: 'cortex-toggle', active: !active };
-    if (active) {
-      document.documentElement.removeAttribute('data-cortex-active');
+    var nextActive = !window.__cortex_active_cache__.active;
+    var msg = {
+      type: 'cortex/set-active',
+      active: nextActive,
+      tabId: window.__cortex_tab_id__,
+    };
+    if (typeof window.__cortex_send__ === 'function') {
+      window.__cortex_send__(msg);
     } else {
-      document.documentElement.setAttribute('data-cortex-active', '');
-    }
-    if (window.__cortex_channel__) {
-      window.__cortex_channel__.handleServerMessage(msg);
-    } else {
-      window.__cortex_pending_toggle__ = msg;
+      // Channel hasn't initialized yet — queue the request for bootstrap drain.
+      window.__cortex_pending_set_active__ = msg;
     }
   }, { capture: true });
 }
@@ -251,6 +275,16 @@ if (!document.querySelector('[data-cortex-host]')) {
   document.head.appendChild(__cortexScript);
 }
 `
+}
+
+/**
+ * Expose the injected client script for testing only — lets the test suite
+ * assert on the text of the script without going through Vite's virtual module
+ * system. Do not import this in production code.
+ * @internal
+ */
+export function _getInjectedClientScriptForTesting(options: { toggleShortcut: string }): string {
+  return getClientScript(options)
 }
 
 let currentSession: CortexSession | null = null
@@ -1240,6 +1274,20 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         // Track browser connection + send current agent status on init
         if (data.type === 'init') {
           currentSession!.browserConnected = true
+
+          // Pillar 1: a fresh init with a different tab ID means the previously
+          // adopted tab is gone (user refreshed). Clear the gate so the new tab
+          // can claim it. Backward-compatible: init without tabId (old injected
+          // script) leaves the gate intact.
+          if (data.tabId && currentSession!.activeState.activeBrowserId &&
+              currentSession!.activeState.activeBrowserId !== data.tabId) {
+            const result = clearActiveBrowser(
+              currentSession!.activeState,
+              currentSession!.activeState.activeBrowserId,
+            )
+            applySetActiveResult(currentSession!, result)
+          }
+
           if (currentSession!.channel) {
             currentSession!.channel.send({ type: 'agent-status', connected: currentSession!.cliClients.size > 0 })
             if (currentSession!.editorActive) currentSession!.channel.send({ type: 'cortex' })

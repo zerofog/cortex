@@ -145,6 +145,15 @@ export function bootstrap(): void {
   if (window.__cortex_pending_toggle__) {
     delete window.__cortex_pending_toggle__
   }
+
+  // Pillar 1: drain any cortex/set-active queued before the channel was ready.
+  if (window.__cortex_pending_set_active__) {
+    const pending = window.__cortex_pending_set_active__
+    delete window.__cortex_pending_set_active__
+    if (typeof window.__cortex_send__ === 'function') {
+      window.__cortex_send__(pending)
+    }
+  }
 }
 
 /**
