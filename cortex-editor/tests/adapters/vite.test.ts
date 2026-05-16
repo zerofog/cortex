@@ -1287,6 +1287,77 @@ describe('CLI WebSocket bridge', () => {
     )
     warnSpy.mockRestore()
   })
+
+  // ─── Pillar 1: cortex/set-active from MCP (Task 5) ──────────────────────────
+
+  it('activates editor when MCP sends cortex/set-active true (Pillar 1)', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status
+
+    ws.send(JSON.stringify({ type: 'cortex/set-active', active: true, token: sessionToken }))
+    await new Promise((r) => setTimeout(r, 50))
+
+    const state = _getActiveStateForTesting()
+    expect(state!.editorActive).toBe(true)
+    expect(state!.activeBrowserId).toBe(null) // CLI has no tabId
+    // cortex/active-changed broadcast (no targetTabId for CLI path)
+    const broadcast = server._sent.find((e) => (e.data as any).type === 'cortex/active-changed')
+    expect(broadcast).toBeDefined()
+    expect((broadcast!.data as any).active).toBe(true)
+    expect((broadcast!.data as any).targetTabId).toBeUndefined()
+  })
+
+  it('deactivates editor when MCP sends cortex/set-active false (Pillar 1)', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status
+
+    ws.send(JSON.stringify({ type: 'cortex/set-active', active: true, token: sessionToken }))
+    await new Promise((r) => setTimeout(r, 50))
+    server._sent.length = 0
+
+    ws.send(JSON.stringify({ type: 'cortex/set-active', active: false, token: sessionToken }))
+    await new Promise((r) => setTimeout(r, 50))
+
+    expect(_getActiveStateForTesting()!.editorActive).toBe(false)
+    const broadcast = server._sent.find((e) => (e.data as any).type === 'cortex/active-changed')
+    expect(broadcast).toBeDefined()
+    expect((broadcast!.data as any).active).toBe(false)
+  })
+
+  it('legacy cortex / cortex-close from MCP still update activeState (dual-mode, Pillar 1)', async () => {
+    const { ws, nextMessage } = await setupServer()
+    const cliConn = await connectCLI()
+    await cliConn.nextMessage() // drain cortex-status
+    await cliConn.nextMessage() // drain agent-status
+
+    cliConn.ws.send(JSON.stringify({ type: 'cortex', token: sessionToken }))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(_getActiveStateForTesting()!.editorActive).toBe(true)
+
+    cliConn.ws.send(JSON.stringify({ type: 'cortex-close', token: sessionToken }))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(_getActiveStateForTesting()!.editorActive).toBe(false)
+  })
+
+  it('rejects cortex/set-active without a token — activeState unchanged (auth gate, Pillar 1)', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status
+
+    ws.send(JSON.stringify({ type: 'cortex/set-active', active: true }))
+    const response = await nextMessage()
+
+    expect(response.type).toBe('error')
+    expect(response.code).toBe('AUTH_FAILED')
+    expect(_getActiveStateForTesting()!.editorActive).toBe(false)
+    const broadcast = server._sent.find((e) => (e.data as any).type === 'cortex/active-changed')
+    expect(broadcast).toBeUndefined()
+  })
 })
 
 describe('annotation RPC', () => {
@@ -2983,31 +3054,3 @@ describe('hotHandler — cortex/set-active from browser (Pillar 1)', () => {
   })
 })
 
-// ── Pillar 1: cortex/set-active CLI WS handler (Task 5) ─────────────────────
-
-describe('CLI WS handler — cortex/set-active from MCP clients (Pillar 1)', () => {
-  // These tests inject fake CLI messages via _addCLIClientForTesting + a fake
-  // bidirectional stub that calls the server's message handler.
-  // Because the CLI WS path requires a real WebSocket upgrade (httpServer),
-  // we test the state-machine helper integration through the applySetActiveResult
-  // path by examining _getActiveStateForTesting() after triggering messages
-  // via the mcp tool path that calls evaluateSetActive directly.
-  //
-  // Strategy: exercise via the exported helpers and state accessors only.
-  // The CLI WS handler itself is an async path requiring a real HTTP server +
-  // WebSocket connection — full integration coverage is in activation-parity.test.ts.
-  // Here we use the hotHandler path with cortex/set-active (same code path that
-  // applySetActiveResult flows through after Task 4), plus direct state assertions.
-
-  it('CLI_ALLOWED_TYPES includes cortex/set-active', async () => {
-    // Import directly to check the constant
-    const { CLI_ALLOWED_TYPES } = await import('../../src/adapters/shared-server-constants.js')
-    expect(CLI_ALLOWED_TYPES.has('cortex/set-active')).toBe(true)
-  })
-
-  it('CLI_ALLOWED_TYPES still includes legacy cortex and cortex-close (dual-mode)', async () => {
-    const { CLI_ALLOWED_TYPES } = await import('../../src/adapters/shared-server-constants.js')
-    expect(CLI_ALLOWED_TYPES.has('cortex')).toBe(true)
-    expect(CLI_ALLOWED_TYPES.has('cortex-close')).toBe(true)
-  })
-})
