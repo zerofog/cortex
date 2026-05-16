@@ -1,0 +1,21 @@
+cortex-editor/tests/adapters/cortex-active-state.test.ts
+  s_fbc801630db4ed::t_f227cbc6bd81cf 1-111
+cortex-editor/src/adapters/cortex-active-state.ts
+  s_fbc801630db4ed::t_b137765a782c1e 1-135
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "cdee746365af2f9b210c02a39462ba76a135f988",
+  "prompts": {},
+  "sessions": {
+    "s_fbc801630db4ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f4cc0cbc-7d5e-4cb6-a210-148eb6b995df",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
