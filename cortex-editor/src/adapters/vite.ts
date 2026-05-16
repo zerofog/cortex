@@ -312,8 +312,17 @@ function applySetActiveResult(
     session.channel?.send(newShape)
 
     // Dual-mode legacy broadcast — drop in the next minor release.
-    const legacyType = result.broadcast.active ? 'cortex' : 'cortex-close'
-    session.channel?.send({ type: legacyType } as ServerToBrowser)
+    // Pillar 1 (ZF0-1881 codex P2.2): skip the untargeted legacy fan-out for
+    // browser-originated activations (those have targetTabId). CortexApp
+    // dispatches legacy `cortex`/`cortex-close` without tabId filtering, so an
+    // untargeted legacy broadcast would open/close the panel in EVERY tab,
+    // bypassing the single-tab gate the new shape correctly enforces. Legacy
+    // shapes are still emitted for CLI-originated activations (no targetTabId
+    // — those genuinely have no tab to target and are server-wide).
+    if (!result.broadcast.targetTabId) {
+      const legacyType = result.broadcast.active ? 'cortex' : 'cortex-close'
+      session.channel?.send({ type: legacyType } as ServerToBrowser)
+    }
   }
 
   if (result.reject) {

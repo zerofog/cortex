@@ -3031,16 +3031,21 @@ describe('hotHandler — cortex/set-active from browser (Pillar 1)', () => {
     expect(_getActiveStateForTesting()!.editorActive).toBe(true)
   })
 
-  it('dual-mode: also broadcasts legacy cortex shape when activating', () => {
+  // Pillar 1 (ZF0-1881 codex P2.2): browser-originated activations (with
+  // targetTabId) must NOT emit the untargeted legacy fan-out — CortexApp
+  // dispatches legacy `cortex`/`cortex-close` without tabId filtering, so an
+  // untargeted legacy broadcast would open/close the panel in EVERY tab and
+  // bypass the single-tab gate the new shape correctly enforces.
+  it('does NOT emit legacy cortex fan-out for browser-originated activation (single-tab gate)', () => {
     const { server, token } = setupServer()
 
     server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: true, tabId: 'tab-A', token })
 
     const legacy = server._sent.find((e) => (e.data as any).type === 'cortex')
-    expect(legacy).toBeDefined()
+    expect(legacy).toBeUndefined()
   })
 
-  it('dual-mode: broadcasts legacy cortex-close shape when deactivating', () => {
+  it('does NOT emit legacy cortex-close fan-out for browser-originated deactivation', () => {
     const { server, token } = setupServer()
 
     server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: true, tabId: 'tab-A', token })
@@ -3049,7 +3054,7 @@ describe('hotHandler — cortex/set-active from browser (Pillar 1)', () => {
     server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: false, tabId: 'tab-A', token })
 
     const legacy = server._sent.find((e) => (e.data as any).type === 'cortex-close')
-    expect(legacy).toBeDefined()
+    expect(legacy).toBeUndefined()
     expect(_getActiveStateForTesting()!.editorActive).toBe(false)
   })
 })

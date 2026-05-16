@@ -908,7 +908,14 @@ describe('cortexWebpack adapter', () => {
     }
   })
 
-  it('dual-mode: browser cortex/set-active true also broadcasts legacy cortex shape (Pillar 1)', async () => {
+  // Pillar 1 (ZF0-1881 codex P2.2): browser-originated activations (with
+  // targetTabId) must NOT emit the untargeted legacy fan-out — see vite.ts
+  // applySetActiveResult for the rationale. These tests assert the gate
+  // suppression by waiting for the cortex/active-changed broadcast and then
+  // verifying that NO legacy cortex/cortex-close shape arrives in a small
+  // grace window. The CLI path (no tabId) still emits legacy — covered by
+  // a separate test below.
+  it('does NOT emit legacy cortex fan-out for browser-originated activation (single-tab gate)', async () => {
     const root = makeTempProject()
     const compiler = createMockCompiler(root)
     const plugin = cortexWebpack({ projectRoot: root })
@@ -924,17 +931,25 @@ describe('cortexWebpack adapter', () => {
       browser.send(JSON.stringify({ type: 'init', token }))
       await nextMessageOfType(browser, 'hello')
 
-      const legacyPromise = nextMessageOfType(browser, 'cortex')
+      const received: Array<{ type: string }> = []
+      browser.on('message', (raw) => {
+        try { received.push(JSON.parse(raw.toString())) } catch {}
+      })
+
       browser.send(JSON.stringify({ type: 'cortex/set-active', active: true, tabId: 'tab-A', token }))
-      const legacy = await legacyPromise
-      expect(legacy.type).toBe('cortex')
+      // Wait for the new-shape broadcast to confirm the activation landed.
+      await nextMessageOfType(browser, 'cortex/active-changed')
+      // Grace window for any legacy broadcast to follow.
+      await new Promise((r) => setTimeout(r, 100))
+
+      expect(received.find((m) => m.type === 'cortex')).toBeUndefined()
     } finally {
       browser.close()
       await compiler.hooks.shutdown.run()
     }
   })
 
-  it('dual-mode: browser cortex/set-active false also broadcasts legacy cortex-close shape (Pillar 1)', async () => {
+  it('does NOT emit legacy cortex-close fan-out for browser-originated deactivation', async () => {
     const root = makeTempProject()
     const compiler = createMockCompiler(root)
     const plugin = cortexWebpack({ projectRoot: root })
@@ -953,10 +968,16 @@ describe('cortexWebpack adapter', () => {
       browser.send(JSON.stringify({ type: 'cortex/set-active', active: true, tabId: 'tab-A', token }))
       await nextMessageOfType(browser, 'cortex/active-changed')
 
-      const legacyClosePromise = nextMessageOfType(browser, 'cortex-close')
+      const received: Array<{ type: string }> = []
+      browser.on('message', (raw) => {
+        try { received.push(JSON.parse(raw.toString())) } catch {}
+      })
+
       browser.send(JSON.stringify({ type: 'cortex/set-active', active: false, tabId: 'tab-A', token }))
-      const legacyClose = await legacyClosePromise
-      expect(legacyClose.type).toBe('cortex-close')
+      await nextMessageOfType(browser, 'cortex/active-changed')
+      await new Promise((r) => setTimeout(r, 100))
+
+      expect(received.find((m) => m.type === 'cortex-close')).toBeUndefined()
     } finally {
       browser.close()
       await compiler.hooks.shutdown.run()
