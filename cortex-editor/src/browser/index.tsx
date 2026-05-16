@@ -132,8 +132,11 @@ export function bootstrap(): void {
   // must guarantee a handler is attached before signaling readiness. Emitting init
   // here would create a race where hello arrives before the subscriber exists.
 
-  // Read initial active state from DOM attribute (set by toggle shortcut before bootstrap)
-  const initialActive = document.documentElement.hasAttribute('data-cortex-active')
+  // Pillar 1: read pending activation request set by the keyboard handler
+  // before the channel was wired. The DOM attribute is reducer-owned
+  // (CortexApp.tsx useEffect) and absent at this point regardless of keyboard
+  // activity — the new injected script no longer writes it imperatively.
+  const initialActive = window.__cortex_pending_set_active__?.active ?? false
 
   // Render Preact app into shadow root
   render(
@@ -144,6 +147,15 @@ export function bootstrap(): void {
   // Clean up pending toggle flag (consumed by initialActive)
   if (window.__cortex_pending_toggle__) {
     delete window.__cortex_pending_toggle__
+  }
+
+  // Pillar 1: drain any cortex/set-active queued before the channel was ready.
+  if (window.__cortex_pending_set_active__) {
+    const pending = window.__cortex_pending_set_active__
+    delete window.__cortex_pending_set_active__
+    if (typeof window.__cortex_send__ === 'function') {
+      window.__cortex_send__(pending)
+    }
   }
 }
 

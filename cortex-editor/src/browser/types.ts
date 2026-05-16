@@ -19,6 +19,18 @@ declare global {
     __CORTEX_TOKEN__?: string
     /** Session ID injected by transformIndexHtml — scopes broadcasts per-session */
     __CORTEX_SESSION_ID__?: string
+
+    /** Pillar 1: stable per-tab ID generated at injected-script time, used to
+     *  scope cortex/active-changed broadcasts and identify the active tab in
+     *  the single-tab gate. */
+    __cortex_tab_id__?: string
+    /** Pillar 1: cache of the server's last cortex/active-changed for this
+     *  tab. Single writer (browser channel after the channel registers);
+     *  single reader (the keyboard handler — decides which state to flip to). */
+    __cortex_active_cache__?: { active: boolean }
+    /** Pillar 1: queued cortex/set-active request emitted by the keyboard
+     *  handler before the channel was ready. Bootstrap drains this. */
+    __cortex_pending_set_active__?: { type: 'cortex/set-active'; active: boolean; tabId: string }
   }
 }
 
