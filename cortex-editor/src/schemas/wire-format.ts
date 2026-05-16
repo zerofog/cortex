@@ -102,6 +102,11 @@ export const browserToServerSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('init'),
     sessionId: z.string().optional(),
+    /** Pillar 1: included by browsers running the new injected script.
+     *  Server uses it to invalidate a stale active-tab adoption when a
+     *  fresh tab connects (e.g. user refreshed). Absent on old browsers
+     *  and CLI — both must continue to work without it. */
+    tabId: z.string().optional(),
   }),
 
   // 2. cortex-closed
