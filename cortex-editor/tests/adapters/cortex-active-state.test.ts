@@ -71,6 +71,20 @@ describe('evaluateSetActive — server-side activation state machine', () => {
       expect(result.broadcast).toBeUndefined()
       expect(result.reject).toBeUndefined()
     })
+
+    // CLI-first race: CLI activates (no tabId), then the first browser tab
+    // comes in and claims the active slot. editorActive stays true but
+    // activeBrowserId transitions null → tabId, and the broadcast must be
+    // targeted to the adopting tab so its reducer fires. Downstream Vite /
+    // Webpack wiring depends on the targeted broadcast to address one tab.
+    it('adopts a browser tab when CLI activated first (race: editorActive already true, no tab adopted)', () => {
+      const cliActivated: ActiveState = { editorActive: true, activeBrowserId: null }
+      const result = evaluateSetActive(cliActivated, { active: true, tabId: 'tab-A' })
+      expect(result.next.editorActive).toBe(true)
+      expect(result.next.activeBrowserId).toBe('tab-A')
+      expect(result.broadcast).toEqual({ active: true, targetTabId: 'tab-A' })
+      expect(result.reject).toBeUndefined()
+    })
   })
 
   describe('clearActiveBrowser — called when the active tab disconnects', () => {
