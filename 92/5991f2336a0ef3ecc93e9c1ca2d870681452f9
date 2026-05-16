@@ -1,0 +1,19 @@
+cortex-editor/src/schemas/wire-format.ts
+  s_fbc801630db4ed::t_ffa5b7b597d83c 105-109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "925991f2336a0ef3ecc93e9c1ca2d870681452f9",
+  "prompts": {},
+  "sessions": {
+    "s_fbc801630db4ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f4cc0cbc-7d5e-4cb6-a210-148eb6b995df",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
