@@ -372,9 +372,11 @@ if (!Object.prototype.hasOwnProperty.call(window, '__cortex_active_cache__')) {
 }
 // Toggle shortcut — capture phase, always active. Pillar 1 rewrite: no DOM
 // mutation here — the reducer's useEffect on active (CortexApp.tsx) is the
-// SINGLE writer of data-cortex-active. Keyboard handler sends cortex/set-active
-// via __cortex_send__, or queues to __cortex_pending_set_active__ if the channel
-// hasn't initialized yet (bootstrap drains this).
+// SINGLE writer of data-cortex-active. Keyboard handler captures __cortex_send__
+// into its OWN closure at injection time (before the channel's capture-and-delete
+// XSS-hardening step), so subsequent keypresses still have a working send even
+// after the channel deletes the window global. Mirrors vite.ts fix for the same
+// ZF0-1881 codex P1.1 regression caught by E2E post-merge.
 if (!Object.prototype.hasOwnProperty.call(window, '__cortex_toggle_registered__')) {
   Object.defineProperty(window, '__cortex_toggle_registered__', {
     value: true, writable: false, configurable: false,
@@ -384,6 +386,8 @@ if (!Object.prototype.hasOwnProperty.call(window, '__cortex_toggle_registered__'
   var __cortexCode = __cortexParts[__cortexParts.length - 1];
   var __cortexNeedShift = __cortexParts.includes('Shift');
   var __cortexNeedAlt = __cortexParts.includes('Alt');
+  // Closure-captured send — see vite.ts for the rationale comment.
+  var __cortexKeyboardSend = window.__cortex_send__;
   window.addEventListener('keydown', function(e) {
     if (!e.isTrusted) return;
     var mod = /Mac|iPod|iPhone|iPad/.test(navigator.platform) ? e.metaKey : e.ctrlKey;
@@ -401,10 +405,12 @@ if (!Object.prototype.hasOwnProperty.call(window, '__cortex_toggle_registered__'
       active: nextActive,
       tabId: window.__cortex_tab_id__,
     };
-    if (typeof window.__cortex_send__ === 'function') {
+    if (typeof __cortexKeyboardSend === 'function') {
+      __cortexKeyboardSend(msg);
+    } else if (typeof window.__cortex_send__ === 'function') {
       window.__cortex_send__(msg);
     } else {
-      // Channel hasn't initialized yet — queue the request for bootstrap drain.
+      // Channel not initialized yet — queue for bootstrap drain.
       window.__cortex_pending_set_active__ = msg;
     }
   }, { capture: true });
