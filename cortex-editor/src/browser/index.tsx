@@ -132,11 +132,19 @@ export function bootstrap(): void {
   // must guarantee a handler is attached before signaling readiness. Emitting init
   // here would create a race where hello arrives before the subscriber exists.
 
-  // Pillar 1: read pending activation request set by the keyboard handler
-  // before the channel was wired. The DOM attribute is reducer-owned
-  // (CortexApp.tsx useEffect) and absent at this point regardless of keyboard
-  // activity — the new injected script no longer writes it imperatively.
-  const initialActive = window.__cortex_pending_set_active__?.active ?? false
+  // Initial active state — two sources, OR'd together:
+  //  1. window.__cortex_pending_set_active__ — set by the keyboard handler
+  //     when a cmd+shift+. fires before the channel is ready (rare).
+  //  2. document.documentElement.hasAttribute('data-cortex-active') — the
+  //     documented escape hatch for E2E tests (helpers/bridge.ts:230 uses
+  //     this to pre-activate Cortex before page.goto, since e2e specs have
+  //     no server to send cortex/set-active). Reducer-owned writes happen
+  //     AFTER bootstrap via CortexApp.tsx's useEffect, so this attribute is
+  //     only present here if something OTHER than the reducer set it
+  //     (the e2e helper, an external script, etc.).
+  const initialActive =
+    (window.__cortex_pending_set_active__?.active ?? false) ||
+    document.documentElement.hasAttribute('data-cortex-active')
 
   // Render Preact app into shadow root
   render(
