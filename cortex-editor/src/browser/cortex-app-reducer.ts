@@ -81,6 +81,7 @@ export type CortexAppAction =
   | { type: 'cortex' }
   | { type: 'cortex-close' }
   | { type: 'cortex-toggle'; active: boolean }
+  | { type: 'set-active'; active: boolean }
   | { type: 'capabilities'; systems: StyleCapability[] }
   | {
       type: 'hello'
@@ -244,6 +245,15 @@ export function cortexAppReducer(
 
     // -----------------------------------------------------------------------
     case 'cortex-toggle': {
+      return cortexAppReducer(state, action.active ? { type: 'cortex' } : { type: 'cortex-close' })
+    }
+
+    // -----------------------------------------------------------------------
+    // Pillar 1 unified action. Routes to the existing cortex/cortex-close
+    // branches so behavior stays identical to the legacy paths during the
+    // dual-mode period. After deprecation removes cortex/cortex-close, this
+    // case absorbs their bodies directly.
+    case 'set-active': {
       return cortexAppReducer(state, action.active ? { type: 'cortex' } : { type: 'cortex-close' })
     }
 
