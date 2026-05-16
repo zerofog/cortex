@@ -217,6 +217,20 @@ export const browserToServerSchema = z.discriminatedUnion('type', [
     requestId: z.string(),
     token: z.string(),
   }),
+
+  // 14. cortex/set-active — unified activation request from any client
+  z.object({
+    type: z.literal('cortex/set-active'),
+    active: z.boolean(),
+    /** Browser-originated requests include the tab's stable ID for single-tab
+     *  gating. CLI-originated requests omit it; server treats omission as
+     *  "trusted CLI" and routes through the editorActive state machine
+     *  without a tab gate. */
+    tabId: z.string().optional(),
+    /** Auth token, present on CLI-originated requests; browser sends as part
+     *  of the standard write-message envelope. */
+    token: z.string().optional(),
+  }),
 ])
 
 export type BrowserToServerSchema = z.infer<typeof browserToServerSchema>
@@ -236,6 +250,24 @@ export const serverToBrowserSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('cortex-toggle'),
     active: z.boolean(),
+  }),
+
+  // cortex/active-changed — server's authoritative broadcast after editorActive
+  // changes. targetTabId scopes the broadcast to one browser tab in single-tab
+  // mode; absence means "every tab applies it" (legacy/MCP path).
+  z.object({
+    type: z.literal('cortex/active-changed'),
+    active: z.boolean(),
+    targetTabId: z.string().optional(),
+  }),
+
+  // cortex/inactive-tab — sent to a tab whose cortex/set-active was rejected
+  // because another tab is the active one. targetTabId identifies the
+  // intended recipient; tabs filter on this so they only react when addressed.
+  z.object({
+    type: z.literal('cortex/inactive-tab'),
+    targetTabId: z.string(),
+    message: z.string(),
   }),
 
   // 4. hello
