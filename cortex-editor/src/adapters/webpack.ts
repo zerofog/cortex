@@ -808,7 +808,17 @@ class CortexWebpackRuntime {
       }
     }
 
-    if (data.type === 'cortex-closed') session.editorActive = false
+    // Pillar 1 (ZF0-1881 codex P1): legacy cortex-closed from Esc/X-button
+    // must route through evaluateSetActive so activeState stays consistent
+    // with editorActive. Without this the same-tab activation is treated as
+    // idempotent and other tabs are rejected — user stuck.
+    if (data.type === 'cortex-closed') {
+      const result = evaluateSetActive(session.activeState, {
+        active: false,
+        tabId: session.activeState.activeBrowserId ?? undefined,
+      })
+      applySetActiveResult(session, result)
+    }
 
     // Pillar 1: unified activation request from the browser.
     if (data.type === 'cortex/set-active') {

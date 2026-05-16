@@ -52,13 +52,16 @@ describe('CLI_ALLOWED_TYPES — Pillar 1 additions', () => {
   })
 })
 
-// Pillar 1: WRITE_TYPES includes cortex/set-active (auth gate)
-describe('WRITE_TYPES — Pillar 1 additions', () => {
-  it('includes cortex/set-active so auth token is required from browser', () => {
-    expect(WRITE_TYPES.has('cortex/set-active')).toBe(true)
+// Pillar 1: cortex/set-active is intentionally NOT in WRITE_TYPES.
+// Browser keyboard handler emits it without a token (browsers have no access
+// to the auth token), and same-origin HMR is already trusted at the transport
+// layer. CLI-side auth is enforced separately by the cliWss token check.
+describe('WRITE_TYPES — Pillar 1 exclusion', () => {
+  it('does NOT include cortex/set-active (browser path must work without token)', () => {
+    expect(WRITE_TYPES.has('cortex/set-active')).toBe(false)
   })
 
-  it('every WRITE_TYPES_ARRAY entry including cortex/set-active is a real BrowserToServer schema variant', () => {
+  it('every WRITE_TYPES_ARRAY entry is a real BrowserToServer schema variant', () => {
     const allTypes = browserToServerSchema.options.map((opt) => opt.shape.type.value)
     for (const t of WRITE_TYPES_ARRAY) {
       expect(allTypes, `expected "${t}" to be a BrowserToServer schema variant`).toContain(t)

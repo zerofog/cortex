@@ -1136,8 +1136,18 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           return
         }
 
-        // Track state from browser messages
-        if (data.type === 'cortex-closed') currentSession!.editorActive = false
+        // Track state from browser messages.
+        // Pillar 1 (ZF0-1881 codex P1): legacy cortex-closed from Esc/X-button
+        // must route through evaluateSetActive so activeState stays consistent
+        // with editorActive. Without this the same-tab activation is treated
+        // as idempotent and other tabs are rejected — user stuck.
+        if (data.type === 'cortex-closed') {
+          const result = evaluateSetActive(currentSession!.activeState, {
+            active: false,
+            tabId: currentSession!.activeState.activeBrowserId ?? undefined,
+          })
+          applySetActiveResult(currentSession!, result)
+        }
 
         // Handshake contract: 'init' is the browser's explicit "ready" signal.
         // Idempotent — every init gets a hello response so multi-tab, HMR re-mount,

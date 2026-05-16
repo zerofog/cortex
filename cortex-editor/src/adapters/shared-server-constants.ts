@@ -61,7 +61,12 @@ export const WRITE_TYPES_ARRAY = [
   'staged-edit-clear',
   'staged-edits-sync',
   'staged-edits-ready',
-  'cortex/set-active',
+  // 'cortex/set-active' is intentionally NOT in WRITE_TYPES — the browser
+  // keyboard handler emits it without a token (browsers have no access to the
+  // server's auth token), and the same-origin HMR channel is already trusted
+  // at the transport layer. The CLI-side auth gate (cliWss in vite.ts /
+  // webpack.ts) enforces token on cortex/set-active from MCP clients.
+  // Adding it to WRITE_TYPES breaks the keyboard shortcut (ZF0-1881 codex P1).
 ] as const satisfies readonly BrowserToServerType[]
 export type WriteMessageType = typeof WRITE_TYPES_ARRAY[number]
 export const WRITE_TYPES: ReadonlySet<string> = new Set(WRITE_TYPES_ARRAY)
