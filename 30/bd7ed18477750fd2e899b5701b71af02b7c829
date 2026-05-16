@@ -1,0 +1,33 @@
+cortex-editor/src/adapters/shared-server-constants.ts
+  s_fbc801630db4ed::t_0d5e61edc6509e 64
+  s_fbc801630db4ed::t_28c51d61ee2b87 16
+cortex-editor/src/core/session.ts
+  s_fbc801630db4ed::t_f9b80ba15a6a24 13
+  s_fbc801630db4ed::t_409a4d63d07877 90-93
+cortex-editor/tests/adapters/vite.test.ts
+  s_fbc801630db4ed::t_f89f2b8f871aa1 7
+  s_fbc801630db4ed::t_b0a03e31774a02 2899-3013
+cortex-editor/src/adapters/vite.ts
+  s_fbc801630db4ed::t_6980f96aca9ab4 35-38
+  s_fbc801630db4ed::t_491bc8171b4db3 258-293
+  s_fbc801630db4ed::t_19e93686e11b60 1095-1104
+  s_fbc801630db4ed::t_cfb53f3fb05cec 1540-1541,1543-1556
+  s_fbc801630db4ed::t_7e0a05e60cfbe3 1542
+  s_fbc801630db4ed::t_8d30f5792b3274 702-710
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "30bd7ed18477750fd2e899b5701b71af02b7c829",
+  "prompts": {},
+  "sessions": {
+    "s_fbc801630db4ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f4cc0cbc-7d5e-4cb6-a210-148eb6b995df",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
