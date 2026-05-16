@@ -1,0 +1,25 @@
+cortex-editor/src/browser/index.tsx
+  s_fbc801630db4ed::t_a7189a501b93f8 135-139
+cortex-editor/tests/schemas/wire-format.test.ts
+  s_fbc801630db4ed::t_5d50be37a4287c 732-736
+cortex-editor/tests/integration/activation-parity-harness.ts
+  s_fbc801630db4ed::t_d2592909f37f53 65
+cortex-editor/src/schemas/wire-format.ts
+  s_fbc801630db4ed::t_6714f147603956 244-247
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "81b39625fc31793a58c02264d3a1a7947e371838",
+  "prompts": {},
+  "sessions": {
+    "s_fbc801630db4ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f4cc0cbc-7d5e-4cb6-a210-148eb6b995df",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
