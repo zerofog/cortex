@@ -1,0 +1,27 @@
+cortex-editor/tests/integration/activation-parity.test.ts
+  s_fbc801630db4ed::t_36c18d51a42fa4 1-103
+cortex-editor/tests/integration/activation-parity-harness.ts
+  s_fbc801630db4ed::t_9489bdaa435e94 1-55,57-193,201-216,223-231,237,239-240,244-278,284-350,355-359,361-414,416-430
+  s_fbc801630db4ed::t_ff39855cd6bfcf 56
+  s_fbc801630db4ed::t_225491f0cdb0aa 415
+  s_fbc801630db4ed::t_0ba4233cd69a3f 194-200,217-222,243
+  s_fbc801630db4ed::t_90ac8fedaeaf37 351-354,360
+  s_fbc801630db4ed::t_135fe18e95db3d 232-236,238,241-242
+  s_fbc801630db4ed::t_7f6e3d476467c9 279-283
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "2ec6559e61d3a671836b79b7337210c149df08de",
+  "prompts": {},
+  "sessions": {
+    "s_fbc801630db4ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f4cc0cbc-7d5e-4cb6-a210-148eb6b995df",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
