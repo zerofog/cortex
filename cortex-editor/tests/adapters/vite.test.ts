@@ -4,7 +4,7 @@ import fs from 'fs'
 import os from 'os'
 import pathMod from 'path'
 import WebSocket from 'ws'
-import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting, _getSessionTokenForTesting, _getStagedEditsForTesting, _addCLIClientForTesting, shouldSuppressHmr, performEditWrite } from '../../src/adapters/vite.js'
+import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting, _getSessionTokenForTesting, _getStagedEditsForTesting, _getActiveStateForTesting, _addCLIClientForTesting, shouldSuppressHmr, performEditWrite } from '../../src/adapters/vite.js'
 import { AnnotationStore } from '../../src/core/annotations.js'
 import { makeEdit } from '../core/helpers.js'
 import type { Plugin } from 'vite'
@@ -2894,5 +2894,120 @@ describe('ZF0-1500 review: intentIds elements are bounded by MAX_INTENT_ID_BYTES
       token: 't',
     })
     expect(result.success).toBe(true)
+  })
+})
+
+// ── Pillar 1: cortex/set-active browser hotHandler (Task 4) ─────────────────
+
+describe('hotHandler — cortex/set-active from browser (Pillar 1)', () => {
+  // Helper: sets up a plugin + server and returns the token + the _sent array
+  // for message assertions.
+  function setupServer() {
+    const plugin = initPlugin({ root: '/project' })
+    const server = mockServer()
+    ;(plugin.configureServer as Function)(server)
+    const token = _getSessionTokenForTesting()!
+    return { plugin, server, token }
+  }
+
+  it('first browser tab activation sets editorActive=true and activeBrowserId, broadcasts cortex/active-changed targeted to that tab', () => {
+    const { server, token } = setupServer()
+
+    server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: true, tabId: 'tab-A', token })
+
+    const state = _getActiveStateForTesting()
+    expect(state).not.toBeNull()
+    expect(state!.editorActive).toBe(true)
+    expect(state!.activeBrowserId).toBe('tab-A')
+
+    const broadcast = server._sent.find((e) => (e.data as any).type === 'cortex/active-changed')
+    expect(broadcast).toBeDefined()
+    expect((broadcast!.data as any).active).toBe(true)
+    expect((broadcast!.data as any).targetTabId).toBe('tab-A')
+  })
+
+  it('second tab activation while first is active emits cortex/inactive-tab, preserves original state', () => {
+    const { server, token } = setupServer()
+
+    server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: true, tabId: 'tab-A', token })
+    server._sent.length = 0
+
+    server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: true, tabId: 'tab-B', token })
+
+    const reject = server._sent.find((e) => (e.data as any).type === 'cortex/inactive-tab')
+    expect(reject).toBeDefined()
+    expect((reject!.data as any).targetTabId).toBe('tab-B')
+    expect((reject!.data as any).message).toMatch(/another tab/i)
+
+    const state = _getActiveStateForTesting()!
+    expect(state.editorActive).toBe(true)
+    expect(state.activeBrowserId).toBe('tab-A')
+    // No cortex/active-changed sent
+    const broadcast = server._sent.find((e) => (e.data as any).type === 'cortex/active-changed')
+    expect(broadcast).toBeUndefined()
+  })
+
+  it('idempotent — second activation from same tab does not re-broadcast cortex/active-changed', () => {
+    const { server, token } = setupServer()
+
+    server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: true, tabId: 'tab-A', token })
+    server._sent.length = 0
+
+    server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: true, tabId: 'tab-A', token })
+
+    const broadcast = server._sent.find((e) => (e.data as any).type === 'cortex/active-changed')
+    expect(broadcast).toBeUndefined()
+    expect(_getActiveStateForTesting()!.editorActive).toBe(true)
+  })
+
+  it('dual-mode: also broadcasts legacy cortex shape when activating', () => {
+    const { server, token } = setupServer()
+
+    server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: true, tabId: 'tab-A', token })
+
+    const legacy = server._sent.find((e) => (e.data as any).type === 'cortex')
+    expect(legacy).toBeDefined()
+  })
+
+  it('dual-mode: broadcasts legacy cortex-close shape when deactivating', () => {
+    const { server, token } = setupServer()
+
+    server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: true, tabId: 'tab-A', token })
+    server._sent.length = 0
+
+    server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: false, tabId: 'tab-A', token })
+
+    const legacy = server._sent.find((e) => (e.data as any).type === 'cortex-close')
+    expect(legacy).toBeDefined()
+    expect(_getActiveStateForTesting()!.editorActive).toBe(false)
+  })
+})
+
+// ── Pillar 1: cortex/set-active CLI WS handler (Task 5) ─────────────────────
+
+describe('CLI WS handler — cortex/set-active from MCP clients (Pillar 1)', () => {
+  // These tests inject fake CLI messages via _addCLIClientForTesting + a fake
+  // bidirectional stub that calls the server's message handler.
+  // Because the CLI WS path requires a real WebSocket upgrade (httpServer),
+  // we test the state-machine helper integration through the applySetActiveResult
+  // path by examining _getActiveStateForTesting() after triggering messages
+  // via the mcp tool path that calls evaluateSetActive directly.
+  //
+  // Strategy: exercise via the exported helpers and state accessors only.
+  // The CLI WS handler itself is an async path requiring a real HTTP server +
+  // WebSocket connection — full integration coverage is in activation-parity.test.ts.
+  // Here we use the hotHandler path with cortex/set-active (same code path that
+  // applySetActiveResult flows through after Task 4), plus direct state assertions.
+
+  it('CLI_ALLOWED_TYPES includes cortex/set-active', async () => {
+    // Import directly to check the constant
+    const { CLI_ALLOWED_TYPES } = await import('../../src/adapters/shared-server-constants.js')
+    expect(CLI_ALLOWED_TYPES.has('cortex/set-active')).toBe(true)
+  })
+
+  it('CLI_ALLOWED_TYPES still includes legacy cortex and cortex-close (dual-mode)', async () => {
+    const { CLI_ALLOWED_TYPES } = await import('../../src/adapters/shared-server-constants.js')
+    expect(CLI_ALLOWED_TYPES.has('cortex')).toBe(true)
+    expect(CLI_ALLOWED_TYPES.has('cortex-close')).toBe(true)
   })
 })

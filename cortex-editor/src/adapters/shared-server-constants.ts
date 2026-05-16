@@ -13,7 +13,7 @@ import type { BrowserToServer } from './types.js'
 export const ALLOWED_ORIGINS = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/
 
 /** Message `type` values a CLI (MCP) client is permitted to send. */
-export const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close'])
+export const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close', 'cortex/set-active'])
 
 /** WebSocket keepalive ping interval (ms) — dead-connection detection. */
 export const HEARTBEAT_INTERVAL = 30_000
@@ -61,6 +61,7 @@ export const WRITE_TYPES_ARRAY = [
   'staged-edit-clear',
   'staged-edits-sync',
   'staged-edits-ready',
+  'cortex/set-active',
 ] as const satisfies readonly BrowserToServerType[]
 export type WriteMessageType = typeof WRITE_TYPES_ARRAY[number]
 export const WRITE_TYPES: ReadonlySet<string> = new Set(WRITE_TYPES_ARRAY)

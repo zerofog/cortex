@@ -10,6 +10,7 @@ import { AnnotationStore } from './annotations.js'
 import { ActivityLog } from './session/activity-log.js'
 import { StagedEditsCache } from './staged-edits.js'
 import { CortexLock } from './cortex-lock.js'
+import { initialActiveState, type ActiveState } from '../adapters/cortex-active-state.js'
 
 /** Narrow config interface — only the fields CortexSession actually needs.
  *  Adapters (Vite, Next.js) map their framework config to this at the boundary. */
@@ -86,6 +87,10 @@ export class CortexSession {
   lastMcpSessionId: string | null = null
 
   // --- Editor state ---
+  /** Pillar 1: server-owned activation state. Replaces editorActive as the
+   *  source of truth. editorActive is kept as a derived field for the dual-mode
+   *  period — readers haven't migrated yet. */
+  activeState: ActiveState = initialActiveState
   editorActive = false
   browserConnected = false
   pipeline: EditPipeline | null = null

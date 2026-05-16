@@ -32,6 +32,10 @@ import { RuntimeCSSResolver } from '../core/rewriter/runtime-resolver.js'
 import { UndoStack } from '../core/session/undo-stack.js'
 import { CortexSession } from '../core/session.js'
 import { LockHeldError } from '../core/cortex-lock.js'
+import {
+  evaluateSetActive,
+  type SetActiveResult,
+} from './cortex-active-state.js'
 import { applyEditsCore, sliceIntentContext, checkIntentFileSize, parseIntentSource } from '../core/staged-edits.js'
 import type { StagedEditsCache } from '../core/staged-edits.js'
 import { atomicWrite } from './atomic-write.js'
@@ -250,6 +254,42 @@ if (!document.querySelector('[data-cortex-host]')) {
 }
 
 let currentSession: CortexSession | null = null
+
+/**
+ * Apply the activation-state result to the session: persist next state,
+ * emit broadcasts. During the dual-mode period this fans out the new wire
+ * shape (cortex/active-changed) AND the legacy shapes (cortex / cortex-close)
+ * so old browsers and old MCP clients keep working unchanged. Remove the
+ * legacy fan-out in the next minor release.
+ */
+function applySetActiveResult(
+  session: CortexSession,
+  result: SetActiveResult,
+): void {
+  session.activeState = result.next
+  session.editorActive = result.next.editorActive
+
+  if (result.broadcast) {
+    const newShape: ServerToBrowser = {
+      type: 'cortex/active-changed',
+      active: result.broadcast.active,
+      ...(result.broadcast.targetTabId ? { targetTabId: result.broadcast.targetTabId } : {}),
+    }
+    session.channel?.send(newShape)
+
+    // Dual-mode legacy broadcast — drop in the next minor release.
+    const legacyType = result.broadcast.active ? 'cortex' : 'cortex-close'
+    session.channel?.send({ type: legacyType } as ServerToBrowser)
+  }
+
+  if (result.reject) {
+    session.channel?.send({
+      type: 'cortex/inactive-tab',
+      targetTabId: result.reject.targetTabId,
+      message: 'Cortex is active in another tab — switch to it or close it first',
+    })
+  }
+}
 
 // ZF0-1851: set to true when configureServer refused to start because another
 // cortex instance already owns this project's .cortex/. Distinct from
@@ -659,6 +699,16 @@ export function _getStagedEditsForTesting(): StagedEditsCache | null {
 }
 
 /**
+ * Get the current session's ActiveState. Exposed for testing only —
+ * lets hotHandler integration tests in vite.test.ts assert that
+ * cortex/set-active WS branches update the Pillar 1 state machine.
+ * @internal
+ */
+export function _getActiveStateForTesting() {
+  return currentSession?.activeState ?? null
+}
+
+/**
  * Add a fake CLI client to the current session. Exposed for testing only —
  * lets vite.test.ts verify forwardToCLI dispatch (e.g., for the
  * staged-edits-ready BROWSER_TO_CLI_FORWARD_TYPES allowlist test) without
@@ -1040,6 +1090,16 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
             parseOrFail(serverToBrowserSchema, ackMsg, 'vite.stagedEditsAck')
             server.hot.send(CORTEX_MSG_EVENT, ackMsg)
           }
+        }
+
+        // Pillar 1: unified activation request from the browser.
+        if (data.type === 'cortex/set-active') {
+          const result = evaluateSetActive(currentSession!.activeState, {
+            active: data.active,
+            tabId: data.tabId,
+          })
+          applySetActiveResult(currentSession!, result)
+          return
         }
 
         // Track state from browser messages
@@ -1477,9 +1537,23 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
               return
             }
 
-            // Track state from CLI commands
-            if (type === 'cortex') currentSession!.editorActive = true
-            if (type === 'cortex-close') currentSession!.editorActive = false
+            // Pillar 1 unified path — accept new shape and route through helper.
+            if (type === 'cortex/set-active') {
+              const active = (parsed as unknown as { active: boolean }).active
+              const result = evaluateSetActive(currentSession!.activeState, { active })
+              applySetActiveResult(currentSession!, result)
+              return
+            }
+
+            // Dual-mode legacy paths — translate into set-active. Drop after one
+            // minor release once all clients have migrated to cortex/set-active.
+            if (type === 'cortex' || type === 'cortex-close') {
+              const result = evaluateSetActive(currentSession!.activeState, {
+                active: type === 'cortex',
+              })
+              applySetActiveResult(currentSession!, result)
+              return
+            }
 
             // Reconstruct message — don't forward arbitrary properties from CLI
             if (!CLI_ALLOWED_TYPES.has(type)) return
