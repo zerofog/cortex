@@ -1329,7 +1329,7 @@ describe('CLI WebSocket bridge', () => {
   })
 
   it('legacy cortex / cortex-close from MCP still update activeState (dual-mode, Pillar 1)', async () => {
-    const { ws, nextMessage } = await setupServer()
+    await setupServer()
     const cliConn = await connectCLI()
     await cliConn.nextMessage() // drain cortex-status
     await cliConn.nextMessage() // drain agent-status
