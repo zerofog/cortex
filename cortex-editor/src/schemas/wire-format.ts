@@ -241,7 +241,10 @@ export const browserToServerSchema = z.discriminatedUnion('type', [
 export type BrowserToServerSchema = z.infer<typeof browserToServerSchema>
 
 // ---------------------------------------------------------------------------
-// ServerToBrowser — all 19 variants from types.ts:148-203
+// ServerToBrowser — variants mirror types.ts. Count is intentionally not stated
+// here so additions (ZF0-1881 Pillar 1 added cortex/active-changed and
+// cortex/inactive-tab) don't require updating a comment whose only role is to
+// drift out of sync.
 // ---------------------------------------------------------------------------
 
 export const serverToBrowserSchema = z.discriminatedUnion('type', [

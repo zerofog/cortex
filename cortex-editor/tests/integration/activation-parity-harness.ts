@@ -54,7 +54,6 @@ import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
 import { vi } from 'vitest'
-import WebSocket from 'ws'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import {
@@ -63,14 +62,13 @@ import {
   _resetForTesting,
   _getSessionTokenForTesting,
 } from '../../src/adapters/vite.js'
-import { startMCPServer, type MCPServerHandle } from '../../src/cli/mcp.js'
+import { startMCPServer } from '../../src/cli/mcp.js'
 import {
   cortexAppReducer,
   initialCortexAppReducerState,
   type CortexAppReducerState,
 } from '../../src/browser/cortex-app-reducer.js'
 import type { ActiveState } from '../../src/adapters/cortex-active-state.js'
-import type { Plugin } from 'vite'
 
 // ---------------------------------------------------------------------------
 // Exported types

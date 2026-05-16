@@ -729,12 +729,11 @@ describe('cortex/set-active wire shape', () => {
       type: 'cortex-toggle',
       active: true,
     })
-    // cortex-toggle has historically been ServerToBrowser only — confirm it still
-    // parses where it currently does (or accept here if dual-mode requires it).
-    // If today's browserToServerSchema does NOT include cortex-toggle, this test
-    // documents that fact; the inbound handler uses ServerToBrowser parsing for
-    // the in-page channel, not browserToServerSchema.
-    expect(result.success === true || result.success === false).toBe(true)
+    // cortex-toggle is ServerToBrowser only (see serverToBrowserSchema). The
+    // browser→server schema must reject it — otherwise the in-page channel and
+    // the WS path would diverge in what they accept, breaking the single-source
+    // assumption Pillar 1 relies on.
+    expect(result.success).toBe(false)
   })
 })
 
