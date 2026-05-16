@@ -1,0 +1,22 @@
+cortex-editor/tests/browser/cortex-app-reducer.test.ts
+  s_fbc801630db4ed::t_fca7f6d0a1add6 745-796
+cortex-editor/src/browser/cortex-app-reducer.ts
+  s_fbc801630db4ed::t_82436b8d59f2fd 84
+  s_fbc801630db4ed::t_a3e0c41a6e1217 252-259
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "02713604dcf06996d5f1183566037d4517e471cc",
+  "prompts": {},
+  "sessions": {
+    "s_fbc801630db4ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f4cc0cbc-7d5e-4cb6-a210-148eb6b995df",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
