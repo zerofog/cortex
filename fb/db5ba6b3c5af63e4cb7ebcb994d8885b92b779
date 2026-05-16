@@ -1,0 +1,22 @@
+cortex-editor/tests/adapters/vite.test.ts
+  s_fbc801630db4ed::t_cb61c446b7490f 1290-1360
+cortex-editor/tests/adapters/shared-server-constants.test.ts
+  s_fbc801630db4ed::t_2b36e6e7ba5400 39-67
+  s_fbc801630db4ed::t_ea4f783aba2462 8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "fbdb5ba6b3c5af63e4cb7ebcb994d8885b92b779",
+  "prompts": {},
+  "sessions": {
+    "s_fbc801630db4ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f4cc0cbc-7d5e-4cb6-a210-148eb6b995df",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
