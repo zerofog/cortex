@@ -21,6 +21,11 @@ import { UndoStack } from '../core/session/undo-stack.js'
 import { applyEditsCore, checkIntentFileSize, parseIntentSource, sliceIntentContext } from '../core/staged-edits.js'
 import { atomicWrite } from './atomic-write.js'
 import {
+  evaluateSetActive,
+  clearActiveBrowser,
+  type SetActiveResult,
+} from './cortex-active-state.js'
+import {
   ALLOWED_ORIGINS,
   CLI_ALLOWED_TYPES,
   BROWSER_TO_CLI_FORWARD_TYPES,
@@ -80,6 +85,78 @@ const RPC_METHOD_SCHEMAS = {
   getPending: null,
   getPendingEdits: null,
 } as const
+
+/**
+ * Apply the activation-state result to the session: persist next state,
+ * emit broadcasts. During the dual-mode period this fans out the new wire
+ * shape (cortex/active-changed) AND the legacy shapes (cortex / cortex-close)
+ * so old browsers and old MCP clients keep working unchanged. Remove the
+ * legacy fan-out in the next minor release.
+ */
+function applySetActiveResult(
+  session: CortexSession,
+  result: SetActiveResult,
+): void {
+  session.activeState = result.next
+  session.editorActive = result.next.editorActive
+
+  if (result.broadcast) {
+    const newShape: ServerToBrowser = {
+      type: 'cortex/active-changed',
+      active: result.broadcast.active,
+      ...(result.broadcast.targetTabId ? { targetTabId: result.broadcast.targetTabId } : {}),
+    }
+    session.channel?.send(newShape)
+
+    // Dual-mode legacy broadcast — drop in the next minor release.
+    const legacyType = result.broadcast.active ? 'cortex' : 'cortex-close'
+    session.channel?.send({ type: legacyType } as ServerToBrowser)
+  }
+
+  if (result.reject) {
+    session.channel?.send({
+      type: 'cortex/inactive-tab',
+      targetTabId: result.reject.targetTabId,
+      message: 'Cortex is active in another tab — switch to it or close it first',
+    })
+  }
+}
+
+/**
+ * Module-level reference to the most-recently started runtime.
+ * Used ONLY by test-only export helpers — do not use in production code.
+ * @internal
+ */
+let _lastRuntime: CortexWebpackRuntime | null = null
+
+/**
+ * Get the current session's ActiveState. Exposed for testing only —
+ * lets webpack.test.ts assert that cortex/set-active WS branches update
+ * the Pillar 1 state machine.
+ * @internal
+ */
+export function _getActiveStateForTesting() {
+  // _lastRuntime.session is private but we're in the same module.
+  // TypeScript private is erased at runtime; the cast makes it accessible.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (_lastRuntime as any)?.session?.activeState ?? null
+}
+
+/**
+ * Expose the injected client script for testing only — lets the test suite
+ * assert on the text of the script without going through webpack's HTML
+ * injection pipeline. Do not import this in production code.
+ * @internal
+ */
+export function _getInjectedClientScriptForTesting(options: { toggleShortcut: string }): string {
+  return createManualInjectionSnippet({
+    port: 0,
+    token: 'test-token',
+    sessionId: 'test-session',
+    browserScriptUrl: 'http://localhost:0/@cortex/browser.js',
+    toggleShortcut: options.toggleShortcut,
+  })
+}
 
 export interface CortexWebpackOptions {
   /** Project root. Defaults to compiler.context/options.context/process.cwd(). */
@@ -265,6 +342,30 @@ export function createManualInjectionSnippet(state: InjectionState): string {
 window.__cortex_ws_port__=${state.port};
 window.__CORTEX_TOKEN__=${safeJSONForScript(state.token)};
 window.__CORTEX_SESSION_ID__=${safeJSONForScript(state.sessionId)};
+// Pillar 1: generate a stable per-tab ID at injection time (before any cortex
+// script loads). Used by the single-tab gate and to filter cortex/active-changed
+// broadcasts. Each new page load generates a fresh UUID so a refreshed tab gets
+// a new ID and can take over from the stale one.
+if (!window.__cortex_tab_id__) {
+  Object.defineProperty(window, '__cortex_tab_id__', {
+    value: 'tab-' + (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + '-' + Date.now()),
+    writable: false, configurable: false,
+  });
+}
+// Pillar 1: cache of the server's last cortex/active-changed for this tab —
+// read by the keyboard handler to decide which state to flip to. Defined as a
+// mutable wrapper object so the channel can write .active after setup without
+// needing to redefine the property.
+if (!Object.prototype.hasOwnProperty.call(window, '__cortex_active_cache__')) {
+  Object.defineProperty(window, '__cortex_active_cache__', {
+    value: { active: false }, writable: false, configurable: false,
+  });
+}
+// Toggle shortcut — capture phase, always active. Pillar 1 rewrite: no DOM
+// mutation here — the reducer's useEffect on active (CortexApp.tsx) is the
+// SINGLE writer of data-cortex-active. Keyboard handler sends cortex/set-active
+// via __cortex_send__, or queues to __cortex_pending_set_active__ if the channel
+// hasn't initialized yet (bootstrap drains this).
 if (!Object.prototype.hasOwnProperty.call(window, '__cortex_toggle_registered__')) {
   Object.defineProperty(window, '__cortex_toggle_registered__', {
     value: true, writable: false, configurable: false,
@@ -285,17 +386,17 @@ if (!Object.prototype.hasOwnProperty.call(window, '__cortex_toggle_registered__'
     if (e.code !== __cortexCode) return;
     e.preventDefault();
     e.stopPropagation();
-    var active = document.documentElement.hasAttribute('data-cortex-active');
-    var msg = { type: 'cortex-toggle', active: !active };
-    if (active) {
-      document.documentElement.removeAttribute('data-cortex-active');
+    var nextActive = !window.__cortex_active_cache__.active;
+    var msg = {
+      type: 'cortex/set-active',
+      active: nextActive,
+      tabId: window.__cortex_tab_id__,
+    };
+    if (typeof window.__cortex_send__ === 'function') {
+      window.__cortex_send__(msg);
     } else {
-      document.documentElement.setAttribute('data-cortex-active', '');
-    }
-    if (window.__cortex_channel__) {
-      window.__cortex_channel__.handleServerMessage(msg);
-    } else {
-      window.__cortex_pending_toggle__ = msg;
+      // Channel hasn't initialized yet — queue the request for bootstrap drain.
+      window.__cortex_pending_set_active__ = msg;
     }
   }, { capture: true });
 }
@@ -432,6 +533,7 @@ class CortexWebpackRuntime {
     // any prior disabled state from a recovered lock-refused run.
     markRuntimeEnabled(this.runtimeId)
     this.session = session
+    _lastRuntime = this
 
     this.browserWss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 })
     this.cliWss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 })
@@ -707,6 +809,17 @@ class CortexWebpackRuntime {
     }
 
     if (data.type === 'cortex-closed') session.editorActive = false
+
+    // Pillar 1: unified activation request from the browser.
+    if (data.type === 'cortex/set-active') {
+      const result = evaluateSetActive(session.activeState, {
+        active: data.active,
+        tabId: data.tabId,
+      })
+      applySetActiveResult(session, result)
+      return
+    }
+
     if (data.type === 'init') {
       const msgToken = (parsed as Record<string, unknown>).token
       if (typeof msgToken !== 'string' || msgToken !== session.token) {
@@ -715,6 +828,21 @@ class CortexWebpackRuntime {
       }
       this.initializedBrowserClients.add(ws)
       session.browserConnected = true
+
+      // Pillar 1: a fresh init with a different tab ID means the previously
+      // adopted tab is gone (user refreshed). Clear the gate so the new tab
+      // can claim it. Backward-compatible: init without tabId (old injected
+      // script) leaves the gate intact.
+      const initTabId = (parsed as Record<string, unknown>).tabId
+      if (typeof initTabId === 'string' && session.activeState.activeBrowserId &&
+          session.activeState.activeBrowserId !== initTabId) {
+        const result = clearActiveBrowser(
+          session.activeState,
+          session.activeState.activeBrowserId,
+        )
+        applySetActiveResult(session, result)
+      }
+
       this.sendToBrowser(session, ws, {
         type: 'hello',
         protocolVersion: 1,
@@ -937,8 +1065,24 @@ class CortexWebpackRuntime {
       return
     }
 
-    if (type === 'cortex') session.editorActive = true
-    if (type === 'cortex-close') session.editorActive = false
+    // Pillar 1 unified path — accept new shape and route through helper.
+    if (type === 'cortex/set-active') {
+      const active = (parsed as unknown as { active: boolean }).active
+      const result = evaluateSetActive(session.activeState, { active })
+      applySetActiveResult(session, result)
+      return
+    }
+
+    // Dual-mode legacy paths — translate into set-active. Drop after one
+    // minor release once all clients have migrated to cortex/set-active.
+    if (type === 'cortex' || type === 'cortex-close') {
+      const result = evaluateSetActive(session.activeState, {
+        active: type === 'cortex',
+      })
+      applySetActiveResult(session, result)
+      return
+    }
+
     if (!CLI_ALLOWED_TYPES.has(type)) return
     session.channel?.send({ type } as ServerToBrowser)
   }
