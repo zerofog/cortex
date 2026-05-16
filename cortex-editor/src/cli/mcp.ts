@@ -269,7 +269,11 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         return
       }
 
-      // Cortex-enabled dev server is single source of truth for state
+      // Pillar 1: cortex/active-changed is the new authoritative broadcast.
+      if (msg.type === 'cortex/active-changed') {
+        editorActive = Boolean(msg.active)
+      }
+      // Dual-mode: still accept legacy shapes during the deprecation window.
       if (msg.type === 'cortex') editorActive = true
       if (msg.type === 'cortex-closed') editorActive = false
       if (msg.type === 'cortex-status') {
@@ -500,7 +504,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         }
       }
       try {
-        ws.send(JSON.stringify({ type: 'cortex', token }))
+        ws.send(JSON.stringify({ type: 'cortex/set-active', active: true, token }))
       } catch (err) {
         return {
           content: [{ type: 'text' as const, text: `Failed to send activation command: ${err instanceof Error ? err.message : String(err)}` }],
@@ -524,7 +528,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
         }
       }
       try {
-        ws.send(JSON.stringify({ type: 'cortex-close', token }))
+        ws.send(JSON.stringify({ type: 'cortex/set-active', active: false, token }))
       } catch (err) {
         return {
           content: [{ type: 'text' as const, text: `Failed to send deactivation command: ${err instanceof Error ? err.message : String(err)}` }],
