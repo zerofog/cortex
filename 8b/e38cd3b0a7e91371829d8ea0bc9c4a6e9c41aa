@@ -1,0 +1,29 @@
+cortex-editor/tests/adapters/webpack.test.ts
+  s_fbc801630db4ed::t_950306ca369639 811-1144
+  s_fbc801630db4ed::t_2d81d105afce66 1208-1242
+  s_fbc801630db4ed::t_bc13a0d72c0941 10-11
+cortex-editor/src/adapters/webpack.ts
+  s_fbc801630db4ed::t_24df927772d426 24-27
+  s_fbc801630db4ed::t_4ae2fb36a6a540 1068-1085
+  s_fbc801630db4ed::t_aa608f9cee1b07 345-368,389-396,398-399
+  s_fbc801630db4ed::t_83534e012b5e6d 139-142
+  s_fbc801630db4ed::t_6087688a415221 536
+  s_fbc801630db4ed::t_e53cc7318b8e37 812-822,831-845
+  s_fbc801630db4ed::t_25793be33dd2de 89-138,143-160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "8be38cd3b0a7e91371829d8ea0bc9c4a6e9c41aa",
+  "prompts": {},
+  "sessions": {
+    "s_fbc801630db4ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f4cc0cbc-7d5e-4cb6-a210-148eb6b995df",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
