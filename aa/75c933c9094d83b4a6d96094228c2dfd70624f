@@ -1,0 +1,19 @@
+cortex-editor/tests/adapters/vite.test.ts
+  s_fbc801630db4ed::t_26e5c9d8606741 1332
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "aa75c933c9094d83b4a6d96094228c2dfd70624f",
+  "prompts": {},
+  "sessions": {
+    "s_fbc801630db4ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f4cc0cbc-7d5e-4cb6-a210-148eb6b995df",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
