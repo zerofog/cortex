@@ -132,11 +132,19 @@ export function bootstrap(): void {
   // must guarantee a handler is attached before signaling readiness. Emitting init
   // here would create a race where hello arrives before the subscriber exists.
 
-  // Pillar 1: read pending activation request set by the keyboard handler
-  // before the channel was wired. The DOM attribute is reducer-owned
-  // (CortexApp.tsx useEffect) and absent at this point regardless of keyboard
-  // activity — the new injected script no longer writes it imperatively.
-  const initialActive = window.__cortex_pending_set_active__?.active ?? false
+  // Initial active state — two sources with explicit precedence (?? not ||):
+  //  1. window.__cortex_pending_set_active__ — the user's NEWER, explicit
+  //     intent from a pre-bootstrap keyboard press. Takes precedence when
+  //     present, whether true OR false.
+  //  2. data-cortex-active on <html> — the documented escape hatch for
+  //     E2E tests (helpers/bridge.ts:230 uses this to pre-activate Cortex
+  //     before page.goto, since e2e specs have no server). Used only when
+  //     no pending request is present.
+  // ?? (nullish coalescing) is intentional: an explicit pending {active:false}
+  // would be lost under ||, which treats false as absent. Codex P2 finding.
+  const initialActive =
+    window.__cortex_pending_set_active__?.active
+      ?? document.documentElement.hasAttribute('data-cortex-active')
 
   // Render Preact app into shadow root
   render(
