@@ -742,3 +742,55 @@ describe('divergence action', () => {
     expect(s2.editErrors.get(key)!.reason).toContain('"new"')
   })
 })
+
+// ---------------------------------------------------------------------------
+// set-active (Pillar 1 — unified activation action)
+// ---------------------------------------------------------------------------
+
+describe('set-active action', () => {
+  it('activates panel when active=true and panel is closed', () => {
+    const { state, effects } = cortexAppReducer(baseState, { type: 'set-active', active: true })
+    expect(state.active).toBe(true)
+    expect(effects).toEqual([])
+  })
+
+  it('is idempotent when already active — returns same reference, no effects', () => {
+    const activeState: CortexAppReducerState = { ...baseState, active: true }
+    const { state, effects } = cortexAppReducer(activeState, { type: 'set-active', active: true })
+    expect(state).toBe(activeState)
+    expect(effects).toEqual([])
+  })
+
+  it('deactivates panel when active=false and panel is open, emits invoke_exit', () => {
+    const activeState: CortexAppReducerState = { ...baseState, active: true }
+    const { state, effects } = cortexAppReducer(activeState, { type: 'set-active', active: false })
+    expect(state.active).toBe(false)
+    expect(state).not.toBe(activeState)
+    expect(effects).toEqual([{ type: 'invoke_exit' }])
+  })
+
+  it('emits invoke_exit when active=false and panel was already closed (idempotency exit shim)', () => {
+    const { state, effects } = cortexAppReducer(baseState, { type: 'set-active', active: false })
+    expect(state).toBe(baseState)
+    expect(effects).toEqual([{ type: 'invoke_exit' }])
+  })
+})
+
+// Confirm legacy actions still work during the dual-mode period.
+describe('legacy cortex / cortex-close / cortex-toggle still work alongside set-active', () => {
+  it('legacy cortex still activates', () => {
+    const { state } = cortexAppReducer(baseState, { type: 'cortex' })
+    expect(state.active).toBe(true)
+  })
+
+  it('legacy cortex-close still deactivates', () => {
+    const activeState: CortexAppReducerState = { ...baseState, active: true }
+    const { state } = cortexAppReducer(activeState, { type: 'cortex-close' })
+    expect(state.active).toBe(false)
+  })
+
+  it('legacy cortex-toggle still works', () => {
+    const { state } = cortexAppReducer(baseState, { type: 'cortex-toggle', active: true })
+    expect(state.active).toBe(true)
+  })
+})

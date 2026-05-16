@@ -7,6 +7,8 @@ import {
   cortexWebpack,
   createManualInjectionSnippet,
   injectWebpackHtml,
+  _getActiveStateForTesting,
+  _getInjectedClientScriptForTesting,
 } from '../../src/adapters/webpack.js'
 
 const cleanupDirs: string[] = []
@@ -806,6 +808,361 @@ describe('cortexWebpack adapter', () => {
     }
   })
 
+  // ── Pillar 1: cortex/set-active from browser (Task 8 — mirror of Chunk B) ───
+
+  it('first browser tab activation sets editorActive=true and activeBrowserId, broadcasts cortex/active-changed (Pillar 1)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+    const statusCli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      const activeChangedPromise = nextMessageOfType(browser, 'cortex/active-changed')
+      browser.send(JSON.stringify({ type: 'cortex/set-active', active: true, tabId: 'tab-A', token }))
+      const msg = await activeChangedPromise
+
+      expect(msg.type).toBe('cortex/active-changed')
+      expect(msg.active).toBe(true)
+      expect(msg.targetTabId).toBe('tab-A')
+
+      await waitForOpen(statusCli)
+      statusCli.send(JSON.stringify({ type: 'cortex-status-request', token }))
+      const status = await nextMessageOfType(statusCli, 'cortex-status')
+      expect(status.editorActive).toBe(true)
+    } finally {
+      statusCli.close()
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  it('second tab activation while first is active emits cortex/inactive-tab and preserves original state (Pillar 1)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      // tab-A activates first
+      browser.send(JSON.stringify({ type: 'cortex/set-active', active: true, tabId: 'tab-A', token }))
+      await nextMessageOfType(browser, 'cortex/active-changed')
+
+      // tab-B attempts to activate — should get cortex/inactive-tab rejection
+      const inactiveTabPromise = nextMessageOfType(browser, 'cortex/inactive-tab')
+      browser.send(JSON.stringify({ type: 'cortex/set-active', active: true, tabId: 'tab-B', token }))
+      const rejection = await inactiveTabPromise
+
+      expect(rejection.type).toBe('cortex/inactive-tab')
+      expect(rejection.targetTabId).toBe('tab-B')
+      expect(String(rejection.message)).toMatch(/another tab/i)
+    } finally {
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  it('idempotent — second activation from same tab does not re-broadcast cortex/active-changed (Pillar 1)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      browser.send(JSON.stringify({ type: 'cortex/set-active', active: true, tabId: 'tab-A', token }))
+      await nextMessageOfType(browser, 'cortex/active-changed')
+
+      // Second identical request — must NOT broadcast again
+      browser.send(JSON.stringify({ type: 'cortex/set-active', active: true, tabId: 'tab-A', token }))
+      await expectNoMessageOfType(browser, 'cortex/active-changed')
+    } finally {
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  // Pillar 1 (ZF0-1881 codex P2.2): browser-originated activations (with
+  // targetTabId) must NOT emit the untargeted legacy fan-out — see vite.ts
+  // applySetActiveResult for the rationale. These tests assert the gate
+  // suppression by waiting for the cortex/active-changed broadcast and then
+  // verifying that NO legacy cortex/cortex-close shape arrives in a small
+  // grace window. The CLI path (no tabId) still emits legacy — covered by
+  // a separate test below.
+  it('does NOT emit legacy cortex fan-out for browser-originated activation (single-tab gate)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      const received: Array<{ type: string }> = []
+      browser.on('message', (raw) => {
+        try { received.push(JSON.parse(raw.toString())) } catch {}
+      })
+
+      browser.send(JSON.stringify({ type: 'cortex/set-active', active: true, tabId: 'tab-A', token }))
+      // Wait for the new-shape broadcast to confirm the activation landed.
+      await nextMessageOfType(browser, 'cortex/active-changed')
+      // Grace window for any legacy broadcast to follow.
+      await new Promise((r) => setTimeout(r, 100))
+
+      expect(received.find((m) => m.type === 'cortex')).toBeUndefined()
+    } finally {
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  it('does NOT emit legacy cortex-close fan-out for browser-originated deactivation', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      browser.send(JSON.stringify({ type: 'cortex/set-active', active: true, tabId: 'tab-A', token }))
+      await nextMessageOfType(browser, 'cortex/active-changed')
+
+      const received: Array<{ type: string }> = []
+      browser.on('message', (raw) => {
+        try { received.push(JSON.parse(raw.toString())) } catch {}
+      })
+
+      browser.send(JSON.stringify({ type: 'cortex/set-active', active: false, tabId: 'tab-A', token }))
+      await nextMessageOfType(browser, 'cortex/active-changed')
+      await new Promise((r) => setTimeout(r, 100))
+
+      expect(received.find((m) => m.type === 'cortex-close')).toBeUndefined()
+    } finally {
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  // ── Pillar 1: cortex/set-active from CLI/MCP (Task 8 — mirror of Chunk B CLI tests) ──
+
+  it('activates editor when MCP sends cortex/set-active true (Pillar 1)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+    const cli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      await waitForOpen(cli)
+      const activeChangedPromise = nextMessageOfType(browser, 'cortex/active-changed')
+      cli.send(JSON.stringify({ type: 'cortex/set-active', active: true, token }))
+      const broadcast = await activeChangedPromise
+
+      expect(broadcast.active).toBe(true)
+      // CLI has no tabId — no targetTabId in broadcast
+      expect('targetTabId' in broadcast).toBe(false)
+
+      const state = _getActiveStateForTesting()
+      expect(state).not.toBeNull()
+      expect(state!.editorActive).toBe(true)
+      expect(state!.activeBrowserId).toBeNull()
+    } finally {
+      cli.close()
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  it('deactivates editor when MCP sends cortex/set-active false (Pillar 1)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+    const cli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      await waitForOpen(cli)
+      cli.send(JSON.stringify({ type: 'cortex/set-active', active: true, token }))
+      await nextMessageOfType(browser, 'cortex/active-changed')
+
+      cli.send(JSON.stringify({ type: 'cortex/set-active', active: false, token }))
+      const deactivateBroadcast = await nextMessageOfType(browser, 'cortex/active-changed')
+
+      expect(deactivateBroadcast.active).toBe(false)
+      expect(_getActiveStateForTesting()!.editorActive).toBe(false)
+    } finally {
+      cli.close()
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  it('legacy cortex / cortex-close from MCP still update activeState via dual-mode path (Pillar 1)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+    const cli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      await waitForOpen(cli)
+      cli.send(JSON.stringify({ type: 'cortex', token }))
+      await nextMessageOfType(browser, 'cortex/active-changed')
+      expect(_getActiveStateForTesting()!.editorActive).toBe(true)
+
+      cli.send(JSON.stringify({ type: 'cortex-close', token }))
+      await nextMessageOfType(browser, 'cortex/active-changed')
+      expect(_getActiveStateForTesting()!.editorActive).toBe(false)
+    } finally {
+      cli.close()
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  it('rejects cortex/set-active from CLI without token — activeState unchanged (auth gate, Pillar 1)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+    const cli = new WebSocket(`ws://localhost:${port}/@cortex/ws`)
+
+    try {
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'init', token }))
+      await nextMessageOfType(browser, 'hello')
+
+      await waitForOpen(cli)
+      // Send without token — must be AUTH_FAILED
+      cli.send(JSON.stringify({ type: 'cortex/set-active', active: true }))
+      const rejection = await nextMessage(cli)
+      expect(rejection.type).toBe('error')
+      expect(rejection.code).toBe('AUTH_FAILED')
+
+      // activeState must be unchanged
+      expect(_getActiveStateForTesting()!.editorActive).toBe(false)
+      await expectNoMessageOfType(browser, 'cortex/active-changed')
+    } finally {
+      cli.close()
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
+  // ── Pillar 1: init takeover — fresh tab resets the active-tab gate (Task 8) ──
+
+  it('init with a different tabId resets activeBrowserId gate, allowing fresh tab to claim activation (Pillar 1)', async () => {
+    const root = makeTempProject()
+    const compiler = createMockCompiler(root)
+    const plugin = cortexWebpack({ projectRoot: root })
+
+    plugin.apply(compiler)
+    await compiler.hooks.watchRun.run()
+    const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+    const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+    const browser = new WebSocket(`ws://localhost:${port}/cortex`)
+
+    try {
+      await waitForOpen(browser)
+      // tab-A adopts activation
+      browser.send(JSON.stringify({ type: 'init', token, tabId: 'tab-A' }))
+      await nextMessageOfType(browser, 'hello')
+      browser.send(JSON.stringify({ type: 'cortex/set-active', active: true, tabId: 'tab-A', token }))
+      await nextMessageOfType(browser, 'cortex/active-changed')
+      expect(_getActiveStateForTesting()!.activeBrowserId).toBe('tab-A')
+
+      // tab-A refreshes: sends init with a different tabId
+      browser.send(JSON.stringify({ type: 'init', token, tabId: 'tab-A2' }))
+      // Drain the hello from re-init
+      await nextMessageOfType(browser, 'hello')
+      // Gate should now be cleared
+      expect(_getActiveStateForTesting()!.activeBrowserId).toBeNull()
+
+      // tab-A2 should be able to activate now
+      const reActivatePromise = nextMessageOfType(browser, 'cortex/active-changed')
+      browser.send(JSON.stringify({ type: 'cortex/set-active', active: true, tabId: 'tab-A2', token }))
+      const reActivate = await reActivatePromise
+      expect(reActivate.active).toBe(true)
+      expect(reActivate.targetTabId).toBe('tab-A2')
+    } finally {
+      browser.close()
+      await compiler.hooks.shutdown.run()
+    }
+  })
+
   it('reportSourceEditFailed RPC sends source-edit-failed to browser but does NOT remove intent (Fix 6)', async () => {
     const root = makeTempProject()
     const compiler = createMockCompiler(root)
@@ -866,6 +1223,41 @@ describe('cortexWebpack adapter', () => {
       browser.close()
       await compiler.hooks.shutdown.run()
     }
+  })
+})
+
+// ── Pillar 1: injected client script — keyboard handler (Task 8 — mirror of Chunk C) ──
+
+describe('webpack injected client — Pillar 1 (keyboard handler emits cortex/set-active)', () => {
+  it('no longer writes data-cortex-active imperatively', () => {
+    const injected = _getInjectedClientScriptForTesting({ toggleShortcut: '$mod+Shift+Period' })
+    expect(injected).not.toMatch(/setAttribute\(['"]data-cortex-active['"]/)
+    expect(injected).not.toMatch(/removeAttribute\(['"]data-cortex-active['"]/)
+  })
+
+  it('emits cortex/set-active with a tab ID', () => {
+    const injected = _getInjectedClientScriptForTesting({ toggleShortcut: '$mod+Shift+Period' })
+    expect(injected).toMatch(/cortex\/set-active/)
+    expect(injected).toMatch(/__cortex_tab_id__/)
+  })
+
+  it('reads current active state from __cortex_active_cache__ rather than the DOM attribute', () => {
+    const injected = _getInjectedClientScriptForTesting({ toggleShortcut: '$mod+Shift+Period' })
+    expect(injected).toMatch(/__cortex_active_cache__/)
+    expect(injected).not.toMatch(/hasAttribute\(['"]data-cortex-active['"]\)/)
+  })
+
+  it('preserves the __cortex_toggle_registered__ idempotency guard', () => {
+    const injected = _getInjectedClientScriptForTesting({ toggleShortcut: '$mod+Shift+Period' })
+    expect(injected).toMatch(/__cortex_toggle_registered__/)
+  })
+
+  it('preserves the XSS-hardening Object.defineProperty patterns for new Pillar 1 globals', () => {
+    const injected = _getInjectedClientScriptForTesting({ toggleShortcut: '$mod+Shift+Period' })
+    // tab ID, active cache, and toggle-registered should all use Object.defineProperty
+    // with writable: false to prevent XSS-injected overrides.
+    const defineCount = (injected.match(/Object\.defineProperty\(window/g) ?? []).length
+    expect(defineCount).toBeGreaterThanOrEqual(3)
   })
 })
 

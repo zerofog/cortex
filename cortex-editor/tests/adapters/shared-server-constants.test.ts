@@ -5,6 +5,7 @@ import {
   BROWSER_TO_CLI_FORWARD_TYPES_ARRAY,
   WRITE_TYPES,
   BROWSER_TO_CLI_FORWARD_TYPES,
+  CLI_ALLOWED_TYPES,
 } from '../../src/adapters/shared-server-constants.js'
 
 // These constants are shared by the Vite and Webpack adapters. The
@@ -33,5 +34,37 @@ describe('shared-server-constants — allowlist arrays are schema-derived', () =
     for (const t of WRITE_TYPES_ARRAY) expect(WRITE_TYPES.has(t)).toBe(true)
     expect(BROWSER_TO_CLI_FORWARD_TYPES.size).toBe(BROWSER_TO_CLI_FORWARD_TYPES_ARRAY.length)
     for (const t of BROWSER_TO_CLI_FORWARD_TYPES_ARRAY) expect(BROWSER_TO_CLI_FORWARD_TYPES.has(t)).toBe(true)
+  })
+})
+
+// Pillar 1: CLI_ALLOWED_TYPES additions (Task 5)
+describe('CLI_ALLOWED_TYPES — Pillar 1 additions', () => {
+  it('includes cortex/set-active (new unified activation shape)', () => {
+    expect(CLI_ALLOWED_TYPES.has('cortex/set-active')).toBe(true)
+  })
+
+  it('still includes legacy cortex (dual-mode period)', () => {
+    expect(CLI_ALLOWED_TYPES.has('cortex')).toBe(true)
+  })
+
+  it('still includes legacy cortex-close (dual-mode period)', () => {
+    expect(CLI_ALLOWED_TYPES.has('cortex-close')).toBe(true)
+  })
+})
+
+// Pillar 1: cortex/set-active is intentionally NOT in WRITE_TYPES.
+// Browser keyboard handler emits it without a token (browsers have no access
+// to the auth token), and same-origin HMR is already trusted at the transport
+// layer. CLI-side auth is enforced separately by the cliWss token check.
+describe('WRITE_TYPES — Pillar 1 exclusion', () => {
+  it('does NOT include cortex/set-active (browser path must work without token)', () => {
+    expect(WRITE_TYPES.has('cortex/set-active')).toBe(false)
+  })
+
+  it('every WRITE_TYPES_ARRAY entry is a real BrowserToServer schema variant', () => {
+    const allTypes = browserToServerSchema.options.map((opt) => opt.shape.type.value)
+    for (const t of WRITE_TYPES_ARRAY) {
+      expect(allTypes, `expected "${t}" to be a BrowserToServer schema variant`).toContain(t)
+    }
   })
 })

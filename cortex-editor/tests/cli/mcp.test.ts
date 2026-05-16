@@ -170,7 +170,7 @@ describe('cortex mcp', () => {
     expect((result.content as Array<{ text: string }>)[0].text).toContain('Cannot connect')
   })
 
-  it('cortex_activate sends cortex message and returns success', async () => {
+  it('cortex_activate sends cortex/set-active true with token', async () => {
     const client = await startTestServer(mockVite.port)
     await waitForConnection(mockVite)
     // Allow client's open + initial message handlers to fire
@@ -180,15 +180,16 @@ describe('cortex mcp', () => {
     expect(result.isError).toBeFalsy()
     expect((result.content as Array<{ text: string }>)[0].text).toContain('Activation command sent')
 
-    // Verify the WS message was received by mock Vite
+    // Verify the WS message received by mock Vite uses the new wire shape
     await new Promise(r => setTimeout(r, 50))
     const msg = mockVite.lastMessage()!
-    expect(msg.type).toBe('cortex')
+    expect(msg.type).toBe('cortex/set-active')
+    expect(msg.active).toBe(true)
     // token is null in tests (no .cortex/token file from mock Vite) — verify the field exists
     expect('token' in msg).toBe(true)
   })
 
-  it('cortex_deactivate sends cortex-close message when connected', async () => {
+  it('cortex_deactivate sends cortex/set-active false with token', async () => {
     const client = await startTestServer(mockVite.port)
     await waitForConnection(mockVite)
     await new Promise(r => setTimeout(r, 50))
@@ -199,8 +200,27 @@ describe('cortex mcp', () => {
 
     await new Promise(r => setTimeout(r, 50))
     const msg = mockVite.lastMessage()!
-    expect(msg.type).toBe('cortex-close')
+    expect(msg.type).toBe('cortex/set-active')
+    expect(msg.active).toBe(false)
     expect('token' in msg).toBe(true)
+  })
+
+  it('connection-error path unchanged — cortex_activate with no WS returns isError with Cannot connect', async () => {
+    const client = await startTestServer(19999)
+    await new Promise(r => setTimeout(r, 200))
+
+    const result = await client.callTool({ name: 'cortex_activate' })
+    expect(result.isError).toBe(true)
+    expect((result.content as Array<{ text: string }>)[0].text).toContain('Cannot connect')
+  })
+
+  it('connection-error path unchanged — cortex_deactivate with no WS returns isError with Cannot connect', async () => {
+    const client = await startTestServer(19999)
+    await new Promise(r => setTimeout(r, 200))
+
+    const result = await client.callTool({ name: 'cortex_deactivate' })
+    expect(result.isError).toBe(true)
+    expect((result.content as Array<{ text: string }>)[0].text).toContain('Cannot connect')
   })
 
   it('cortex_deactivate returns error when not connected to dev server', async () => {
@@ -255,7 +275,8 @@ describe('cortex mcp', () => {
     }
   })
 
-  it('tracks editor active state only from server messages (not optimistically)', async () => {
+  it('MCP inbound handler updates editorActive from cortex/active-changed (true → cortex_status reports true)', async () => {
+    // Pillar 1: cortex/active-changed is the new authoritative broadcast.
     const client = await startTestServer(mockVite.port)
     await waitForConnection(mockVite)
     await new Promise(r => setTimeout(r, 50))
@@ -265,7 +286,50 @@ describe('cortex mcp', () => {
     let status = JSON.parse((result.content as Array<{ text: string }>)[0].text)
     expect(status.editorActive).toBe(false)
 
-    // Simulate server confirming activation
+    // Server broadcasts cortex/active-changed with active: true
+    mockVite.sendToAll({ type: 'cortex/active-changed', active: true })
+    await new Promise(r => setTimeout(r, 50))
+
+    result = await client.callTool({ name: 'cortex_status' })
+    status = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+    expect(status.editorActive).toBe(true)
+  })
+
+  it('MCP inbound handler updates editorActive from cortex/active-changed (false)', async () => {
+    // Pillar 1: cortex/active-changed active: false drives editorActive to false.
+    const client = await startTestServer(mockVite.port)
+    await waitForConnection(mockVite)
+    await new Promise(r => setTimeout(r, 50))
+
+    // First set to true via legacy shape, then flip via new shape
+    mockVite.sendToAll({ type: 'cortex' })
+    await new Promise(r => setTimeout(r, 50))
+
+    let result = await client.callTool({ name: 'cortex_status' })
+    let status = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+    expect(status.editorActive).toBe(true)
+
+    // Server broadcasts cortex/active-changed with active: false
+    mockVite.sendToAll({ type: 'cortex/active-changed', active: false })
+    await new Promise(r => setTimeout(r, 50))
+
+    result = await client.callTool({ name: 'cortex_status' })
+    status = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+    expect(status.editorActive).toBe(false)
+  })
+
+  it('legacy cortex / cortex-closed still tracked (dual-mode)', async () => {
+    // Dual-mode: legacy shapes must still flip editorActive during the deprecation window.
+    const client = await startTestServer(mockVite.port)
+    await waitForConnection(mockVite)
+    await new Promise(r => setTimeout(r, 50))
+
+    // Initial state: editor inactive (from cortex-status on connect)
+    let result = await client.callTool({ name: 'cortex_status' })
+    let status = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+    expect(status.editorActive).toBe(false)
+
+    // Simulate server confirming activation via legacy shape
     mockVite.sendToAll({ type: 'cortex' })
     await new Promise(r => setTimeout(r, 50))
 
@@ -273,7 +337,7 @@ describe('cortex mcp', () => {
     status = JSON.parse((result.content as Array<{ text: string }>)[0].text)
     expect(status.editorActive).toBe(true)
 
-    // Simulate server confirming deactivation
+    // Simulate server confirming deactivation via legacy shape
     mockVite.sendToAll({ type: 'cortex-closed' })
     await new Promise(r => setTimeout(r, 50))
 

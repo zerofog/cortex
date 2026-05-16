@@ -4,7 +4,7 @@ import fs from 'fs'
 import os from 'os'
 import pathMod from 'path'
 import WebSocket from 'ws'
-import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting, _getSessionTokenForTesting, _getStagedEditsForTesting, _addCLIClientForTesting, shouldSuppressHmr, performEditWrite } from '../../src/adapters/vite.js'
+import { cortexEditor, getChannel, onHMRUpdate, _resetForTesting, _getSessionTokenForTesting, _getStagedEditsForTesting, _getActiveStateForTesting, _addCLIClientForTesting, shouldSuppressHmr, performEditWrite, _getInjectedClientScriptForTesting } from '../../src/adapters/vite.js'
 import { AnnotationStore } from '../../src/core/annotations.js'
 import { makeEdit } from '../core/helpers.js'
 import type { Plugin } from 'vite'
@@ -240,13 +240,13 @@ describe('cortexEditor Vite plugin', () => {
     it('client script defines __cortex_send__ as non-writable but configurable (tombstone-deletable, ZF0-1326 Task 1)', () => {
       const plugin = initPlugin()
       const source = (plugin.load as Function)('\0cortex-client') as string
-      // Scope to just the __cortex_send__ descriptor — the unrelated
-      // __cortex_toggle_registered__ descriptor at line 117 of vite.ts uses
-      // configurable: false intentionally, so a global `not.toContain` would
-      // be coupled to unrelated code.
+      // Scope to just the __cortex_send__ descriptor — the Pillar 1 blocks
+      // (__cortex_tab_id__, __cortex_active_cache__, __cortex_toggle_registered__)
+      // that follow intentionally use configurable: false, so the slice must
+      // end BEFORE them. Use the "Pillar 1: generate" comment as the boundary.
       const sendBlock = source.slice(
         source.indexOf("Object.defineProperty(window, '__cortex_send__'"),
-        source.indexOf("// Toggle shortcut"),
+        source.indexOf("// Pillar 1: generate a stable per-tab ID"),
       )
       expect(sendBlock).toContain('writable: false')
       // ZF0-1326 Task 1: configurable MUST be true so the browser channel can
@@ -1286,6 +1286,77 @@ describe('CLI WebSocket bridge', () => {
       '[cortex] No httpServer — running in middleware mode. CLI connections unavailable.'
     )
     warnSpy.mockRestore()
+  })
+
+  // ─── Pillar 1: cortex/set-active from MCP (Task 5) ──────────────────────────
+
+  it('activates editor when MCP sends cortex/set-active true (Pillar 1)', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status
+
+    ws.send(JSON.stringify({ type: 'cortex/set-active', active: true, token: sessionToken }))
+    await new Promise((r) => setTimeout(r, 50))
+
+    const state = _getActiveStateForTesting()
+    expect(state!.editorActive).toBe(true)
+    expect(state!.activeBrowserId).toBe(null) // CLI has no tabId
+    // cortex/active-changed broadcast (no targetTabId for CLI path)
+    const broadcast = server._sent.find((e) => (e.data as any).type === 'cortex/active-changed')
+    expect(broadcast).toBeDefined()
+    expect((broadcast!.data as any).active).toBe(true)
+    expect((broadcast!.data as any).targetTabId).toBeUndefined()
+  })
+
+  it('deactivates editor when MCP sends cortex/set-active false (Pillar 1)', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status
+
+    ws.send(JSON.stringify({ type: 'cortex/set-active', active: true, token: sessionToken }))
+    await new Promise((r) => setTimeout(r, 50))
+    server._sent.length = 0
+
+    ws.send(JSON.stringify({ type: 'cortex/set-active', active: false, token: sessionToken }))
+    await new Promise((r) => setTimeout(r, 50))
+
+    expect(_getActiveStateForTesting()!.editorActive).toBe(false)
+    const broadcast = server._sent.find((e) => (e.data as any).type === 'cortex/active-changed')
+    expect(broadcast).toBeDefined()
+    expect((broadcast!.data as any).active).toBe(false)
+  })
+
+  it('legacy cortex / cortex-close from MCP still update activeState (dual-mode, Pillar 1)', async () => {
+    await setupServer()
+    const cliConn = await connectCLI()
+    await cliConn.nextMessage() // drain cortex-status
+    await cliConn.nextMessage() // drain agent-status
+
+    cliConn.ws.send(JSON.stringify({ type: 'cortex', token: sessionToken }))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(_getActiveStateForTesting()!.editorActive).toBe(true)
+
+    cliConn.ws.send(JSON.stringify({ type: 'cortex-close', token: sessionToken }))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(_getActiveStateForTesting()!.editorActive).toBe(false)
+  })
+
+  it('rejects cortex/set-active without a token — activeState unchanged (auth gate, Pillar 1)', async () => {
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status
+
+    ws.send(JSON.stringify({ type: 'cortex/set-active', active: true }))
+    const response = await nextMessage()
+
+    expect(response.type).toBe('error')
+    expect(response.code).toBe('AUTH_FAILED')
+    expect(_getActiveStateForTesting()!.editorActive).toBe(false)
+    const broadcast = server._sent.find((e) => (e.data as any).type === 'cortex/active-changed')
+    expect(broadcast).toBeUndefined()
   })
 })
 
@@ -2896,3 +2967,188 @@ describe('ZF0-1500 review: intentIds elements are bounded by MAX_INTENT_ID_BYTES
     expect(result.success).toBe(true)
   })
 })
+
+// ── Pillar 1: cortex/set-active browser hotHandler (Task 4) ─────────────────
+
+describe('hotHandler — cortex/set-active from browser (Pillar 1)', () => {
+  // Helper: sets up a plugin + server and returns the token + the _sent array
+  // for message assertions.
+  function setupServer() {
+    const plugin = initPlugin({ root: '/project' })
+    const server = mockServer()
+    ;(plugin.configureServer as Function)(server)
+    const token = _getSessionTokenForTesting()!
+    return { plugin, server, token }
+  }
+
+  it('first browser tab activation sets editorActive=true and activeBrowserId, broadcasts cortex/active-changed targeted to that tab', () => {
+    const { server, token } = setupServer()
+
+    server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: true, tabId: 'tab-A', token })
+
+    const state = _getActiveStateForTesting()
+    expect(state).not.toBeNull()
+    expect(state!.editorActive).toBe(true)
+    expect(state!.activeBrowserId).toBe('tab-A')
+
+    const broadcast = server._sent.find((e) => (e.data as any).type === 'cortex/active-changed')
+    expect(broadcast).toBeDefined()
+    expect((broadcast!.data as any).active).toBe(true)
+    expect((broadcast!.data as any).targetTabId).toBe('tab-A')
+  })
+
+  it('second tab activation while first is active emits cortex/inactive-tab, preserves original state', () => {
+    const { server, token } = setupServer()
+
+    server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: true, tabId: 'tab-A', token })
+    server._sent.length = 0
+
+    server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: true, tabId: 'tab-B', token })
+
+    const reject = server._sent.find((e) => (e.data as any).type === 'cortex/inactive-tab')
+    expect(reject).toBeDefined()
+    expect((reject!.data as any).targetTabId).toBe('tab-B')
+    expect((reject!.data as any).message).toMatch(/another tab/i)
+
+    const state = _getActiveStateForTesting()!
+    expect(state.editorActive).toBe(true)
+    expect(state.activeBrowserId).toBe('tab-A')
+    // No cortex/active-changed sent
+    const broadcast = server._sent.find((e) => (e.data as any).type === 'cortex/active-changed')
+    expect(broadcast).toBeUndefined()
+  })
+
+  it('idempotent — second activation from same tab does not re-broadcast cortex/active-changed', () => {
+    const { server, token } = setupServer()
+
+    server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: true, tabId: 'tab-A', token })
+    server._sent.length = 0
+
+    server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: true, tabId: 'tab-A', token })
+
+    const broadcast = server._sent.find((e) => (e.data as any).type === 'cortex/active-changed')
+    expect(broadcast).toBeUndefined()
+    expect(_getActiveStateForTesting()!.editorActive).toBe(true)
+  })
+
+  // Pillar 1 (ZF0-1881 codex P2.2): browser-originated activations (with
+  // targetTabId) must NOT emit the untargeted legacy fan-out — CortexApp
+  // dispatches legacy `cortex`/`cortex-close` without tabId filtering, so an
+  // untargeted legacy broadcast would open/close the panel in EVERY tab and
+  // bypass the single-tab gate the new shape correctly enforces.
+  it('does NOT emit legacy cortex fan-out for browser-originated activation (single-tab gate)', () => {
+    const { server, token } = setupServer()
+
+    server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: true, tabId: 'tab-A', token })
+
+    const legacy = server._sent.find((e) => (e.data as any).type === 'cortex')
+    expect(legacy).toBeUndefined()
+  })
+
+  it('does NOT emit legacy cortex-close fan-out for browser-originated deactivation', () => {
+    const { server, token } = setupServer()
+
+    server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: true, tabId: 'tab-A', token })
+    server._sent.length = 0
+
+    server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: false, tabId: 'tab-A', token })
+
+    const legacy = server._sent.find((e) => (e.data as any).type === 'cortex-close')
+    expect(legacy).toBeUndefined()
+    expect(_getActiveStateForTesting()!.editorActive).toBe(false)
+  })
+})
+
+// ── Pillar 1: injected client script — keyboard handler (Task 6) ─────────────
+
+describe('vite injected client — Pillar 1 (keyboard handler emits cortex/set-active)', () => {
+  it('no longer writes data-cortex-active imperatively', () => {
+    const injected = _getInjectedClientScriptForTesting({ toggleShortcut: '$mod+Shift+Period' })
+    expect(injected).not.toMatch(/setAttribute\(['"]data-cortex-active['"]/)
+    expect(injected).not.toMatch(/removeAttribute\(['"]data-cortex-active['"]/)
+  })
+
+  it('emits cortex/set-active with a tab ID', () => {
+    const injected = _getInjectedClientScriptForTesting({ toggleShortcut: '$mod+Shift+Period' })
+    expect(injected).toMatch(/cortex\/set-active/)
+    expect(injected).toMatch(/__cortex_tab_id__/)
+  })
+
+  it('reads current active state from __cortex_active_cache__ rather than the DOM attribute', () => {
+    const injected = _getInjectedClientScriptForTesting({ toggleShortcut: '$mod+Shift+Period' })
+    // The new handler reads __cortex_active_cache__.active for toggle state decision.
+    expect(injected).toMatch(/__cortex_active_cache__/)
+    expect(injected).not.toMatch(/hasAttribute\(['"]data-cortex-active['"]\)/)
+  })
+
+  it('preserves the __cortex_toggle_registered__ idempotency guard', () => {
+    const injected = _getInjectedClientScriptForTesting({ toggleShortcut: '$mod+Shift+Period' })
+    expect(injected).toMatch(/__cortex_toggle_registered__/)
+  })
+
+  it('preserves the XSS-hardening Object.defineProperty patterns for new Pillar 1 globals', () => {
+    const injected = _getInjectedClientScriptForTesting({ toggleShortcut: '$mod+Shift+Period' })
+    // tab ID, active cache, and toggle-registered should all use Object.defineProperty
+    // with writable: false to prevent XSS-injected overrides.
+    const defineCount = (injected.match(/Object\.defineProperty\(window/g) ?? []).length
+    expect(defineCount).toBeGreaterThanOrEqual(3)
+  })
+})
+
+// ── Pillar 1: active-tab takeover after fresh init (Task 7) ─────────────────
+
+describe('vite — active-tab takeover after fresh init (Pillar 1 Task 7)', () => {
+  function setupServer() {
+    const plugin = initPlugin({ root: '/project' })
+    const server = mockServer()
+    ;(plugin.configureServer as Function)(server)
+    const token = _getSessionTokenForTesting()!
+    return { plugin, server, token }
+  }
+
+  it('clears activeBrowserId when a different tabId arrives in init, allowing fresh tab to activate', () => {
+    const { server, token } = setupServer()
+
+    // tab-A activates
+    server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: true, tabId: 'tab-A', token })
+    expect(_getActiveStateForTesting()!.activeBrowserId).toBe('tab-A')
+
+    // tab-A refreshes: sends init with a new tab ID (each new page load generates a fresh UUID)
+    server.hot._trigger('cortex:msg', { type: 'init', tabId: 'tab-A2' })
+    // Gate cleared; active state is now inactive
+    expect(_getActiveStateForTesting()!.activeBrowserId).toBeNull()
+
+    // Clear sent list then activate as tab-A2 — this should now succeed
+    server._sent.length = 0
+    server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: true, tabId: 'tab-A2', token })
+    expect(_getActiveStateForTesting()!.activeBrowserId).toBe('tab-A2')
+
+    const broadcast = server._sent.find((e) => (e.data as any).type === 'cortex/active-changed')
+    expect(broadcast).toBeDefined()
+    expect((broadcast!.data as any).targetTabId).toBe('tab-A2')
+  })
+
+  it('init without tabId does not reset the active-tab gate (backward compat — old injected script)', () => {
+    const { server, token } = setupServer()
+
+    // tab-A activates
+    server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: true, tabId: 'tab-A', token })
+    expect(_getActiveStateForTesting()!.activeBrowserId).toBe('tab-A')
+
+    // Old browser (no tabId in init) — gate must remain intact
+    server.hot._trigger('cortex:msg', { type: 'init' })
+    expect(_getActiveStateForTesting()!.activeBrowserId).toBe('tab-A')
+  })
+
+  it('init with same tabId does not clear the gate (HMR re-mount from same tab)', () => {
+    const { server, token } = setupServer()
+
+    server.hot._trigger('cortex:msg', { type: 'cortex/set-active', active: true, tabId: 'tab-A', token })
+    expect(_getActiveStateForTesting()!.activeBrowserId).toBe('tab-A')
+
+    // Same tab sends init again (HMR re-mount) — gate stays intact
+    server.hot._trigger('cortex:msg', { type: 'init', tabId: 'tab-A' })
+    expect(_getActiveStateForTesting()!.activeBrowserId).toBe('tab-A')
+  })
+})
+
