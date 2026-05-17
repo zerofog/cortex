@@ -375,6 +375,70 @@ export function AlignVerticalJustifyEnd({ size = 16, class: cls }: IconProps = {
   )
 }
 
+// Self-alignment (custom — single-child-in-cell metaphor) ──────────────────
+//
+// These icons depict ONE element anchored to start/center/end of its parent's
+// cell, which is the correct mental model for justify-self / align-self.
+// Lucide's AlignHorizontalJustify* / AlignVerticalJustify* icons (above) show
+// MULTIPLE children inside a container — the right metaphor for justify-
+// content / align-items on the parent, but the wrong metaphor for *-self on
+// the child. Designed in-house with stroke-only style to match the rest of
+// the inventory: dashed outer rect = parent cell, solid inner rect = self.
+
+export function JustifySelfStart({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <rect x="2" y="3" width="20" height="18" rx="2" stroke-dasharray="3 2" />
+      <rect x="4" y="6" width="6" height="12" rx="1.5" />
+    </svg>
+  )
+}
+
+export function JustifySelfCenter({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <rect x="2" y="3" width="20" height="18" rx="2" stroke-dasharray="3 2" />
+      <rect x="9" y="6" width="6" height="12" rx="1.5" />
+    </svg>
+  )
+}
+
+export function JustifySelfEnd({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <rect x="2" y="3" width="20" height="18" rx="2" stroke-dasharray="3 2" />
+      <rect x="14" y="6" width="6" height="12" rx="1.5" />
+    </svg>
+  )
+}
+
+export function AlignSelfStart({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <rect x="2" y="3" width="20" height="18" rx="2" stroke-dasharray="3 2" />
+      <rect x="6" y="5" width="12" height="6" rx="1.5" />
+    </svg>
+  )
+}
+
+export function AlignSelfCenter({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <rect x="2" y="3" width="20" height="18" rx="2" stroke-dasharray="3 2" />
+      <rect x="6" y="9" width="12" height="6" rx="1.5" />
+    </svg>
+  )
+}
+
+export function AlignSelfEnd({ size = 16, class: cls }: IconProps = {}): JSX.Element {
+  return (
+    <svg {...svgProps(size, cls)}>
+      <rect x="2" y="3" width="20" height="18" rx="2" stroke-dasharray="3 2" />
+      <rect x="6" y="13" width="12" height="6" rx="1.5" />
+    </svg>
+  )
+}
+
 // Transforms (Task 6) ──────────────────────────────────────────────────────
 
 // source: https://lucide.dev/icons/rotate-cw

@@ -56,6 +56,27 @@ exports[`icons.tsx — lucide.dev snapshot inventory > <AlignRight /> renders th
 }
 `;
 
+exports[`icons.tsx — lucide.dev snapshot inventory > <AlignSelfCenter /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><rect x="2" y="3" width="20" height="18" rx="2" stroke-dasharray="3 2"></rect><rect x="6" y="9" width="12" height="6" rx="1.5"></rect></svg>",
+  "icon": "AlignSelfCenter",
+}
+`;
+
+exports[`icons.tsx — lucide.dev snapshot inventory > <AlignSelfEnd /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><rect x="2" y="3" width="20" height="18" rx="2" stroke-dasharray="3 2"></rect><rect x="6" y="13" width="12" height="6" rx="1.5"></rect></svg>",
+  "icon": "AlignSelfEnd",
+}
+`;
+
+exports[`icons.tsx — lucide.dev snapshot inventory > <AlignSelfStart /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><rect x="2" y="3" width="20" height="18" rx="2" stroke-dasharray="3 2"></rect><rect x="6" y="5" width="12" height="6" rx="1.5"></rect></svg>",
+  "icon": "AlignSelfStart",
+}
+`;
+
 exports[`icons.tsx — lucide.dev snapshot inventory > <AlignVerticalJustifyCenter /> renders the lucide.dev SVG verbatim 1`] = `
 {
   "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><rect width="14" height="6" x="5" y="16" rx="2"></rect><rect width="10" height="6" x="7" y="2" rx="2"></rect><path d="M2 12h20"></path></svg>",
@@ -263,6 +284,27 @@ exports[`icons.tsx — lucide.dev snapshot inventory > <GripVertical /> renders 
 {
   "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="9" cy="12" r="1"></circle><circle cx="9" cy="5" r="1"></circle><circle cx="9" cy="19" r="1"></circle><circle cx="15" cy="12" r="1"></circle><circle cx="15" cy="5" r="1"></circle><circle cx="15" cy="19" r="1"></circle></svg>",
   "icon": "GripVertical",
+}
+`;
+
+exports[`icons.tsx — lucide.dev snapshot inventory > <JustifySelfCenter /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><rect x="2" y="3" width="20" height="18" rx="2" stroke-dasharray="3 2"></rect><rect x="9" y="6" width="6" height="12" rx="1.5"></rect></svg>",
+  "icon": "JustifySelfCenter",
+}
+`;
+
+exports[`icons.tsx — lucide.dev snapshot inventory > <JustifySelfEnd /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><rect x="2" y="3" width="20" height="18" rx="2" stroke-dasharray="3 2"></rect><rect x="14" y="6" width="6" height="12" rx="1.5"></rect></svg>",
+  "icon": "JustifySelfEnd",
+}
+`;
+
+exports[`icons.tsx — lucide.dev snapshot inventory > <JustifySelfStart /> renders the lucide.dev SVG verbatim 1`] = `
+{
+  "html": "<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><rect x="2" y="3" width="20" height="18" rx="2" stroke-dasharray="3 2"></rect><rect x="4" y="6" width="6" height="12" rx="1.5"></rect></svg>",
+  "icon": "JustifySelfStart",
 }
 `;
 
