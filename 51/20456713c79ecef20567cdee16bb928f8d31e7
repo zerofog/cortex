@@ -1,0 +1,21 @@
+cortex-editor/src/browser/components/InactiveTabBanner.tsx
+  s_b858824d134fd5::t_0cbde71dda3fcf 1,13-21
+cortex-editor/tests/browser/inactive-tab-banner.test.tsx
+  s_b858824d134fd5::t_ba9fee0862d936 79-110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "5120456713c79ecef20567cdee16bb928f8d31e7",
+  "prompts": {},
+  "sessions": {
+    "s_b858824d134fd5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "59a66bd9-7e4d-4242-b7bd-bfab72749248",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
