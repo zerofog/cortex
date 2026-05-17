@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks'
+import { useState, useEffect } from 'preact/hooks'
 
 export interface InactiveTabBannerProps {
   message: string | null
@@ -9,6 +9,16 @@ export function InactiveTabBanner({ message }: InactiveTabBannerProps) {
   // A new message (different string from the one that was dismissed) re-shows
   // the banner without needing an effect to reset state on the prop change.
   const [dismissedMessage, setDismissedMessage] = useState<string | null>(null)
+
+  // Clear the dismissed-message memory when the message transitions to null
+  // (this tab became active, conflict resolved). Without this, a future
+  // identical message string from the adapter — which is stable across
+  // events — would stay suppressed. The reset is safe from the original
+  // click-vs-effect race because dismissals and the active-changed clear
+  // are temporally distinct events.
+  useEffect(() => {
+    if (message === null) setDismissedMessage(null)
+  }, [message])
 
   if (!message || message === dismissedMessage) return null
 
