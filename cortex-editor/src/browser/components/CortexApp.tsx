@@ -24,6 +24,7 @@ import { Toolbar } from './Toolbar.js'
 import { CommentPin } from './CommentPin.js'
 import { ErrorToast } from './ErrorToast.js'
 import { CapabilityBanner } from './CapabilityBanner.js'
+import { InactiveTabBanner } from './InactiveTabBanner.js'
 import { NoAnnotationsBanner } from './NoAnnotationsBanner.js'
 import { TooltipLayer } from './TooltipLayer.js'
 import { useDrag } from '../hooks/useDrag.js'
@@ -124,6 +125,11 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   const [hmrChangedFiles, setHmrChangedFiles] = useState<string[]>([])
   const [commentMode, setCommentMode] = useState(false)
   const [capabilitySystems, setCapabilitySystems] = useState<StyleCapability[]>([])
+  // Set when the adapter rejects this tab's cortex/set-active because another
+  // tab is the single active editor. Cleared when this tab becomes active so
+  // the banner doesn't linger after the user resolves the conflict by closing
+  // or deactivating the other tab.
+  const [inactiveTabMessage, setInactiveTabMessage] = useState<string | null>(null)
   // Error tracking: editId → source+property for lookup when edit_status:failed arrives
   const editDispatchRef = useRef<Map<string, { source: string; property: string; value: string }>>(new Map())
   // Active errors keyed by source\0property
@@ -1002,6 +1008,9 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         if (window.__cortex_active_cache__) {
           ;(window.__cortex_active_cache__ as { active: boolean }).active = msg.active
         }
+        // Becoming active in this tab resolves any standing inactive-tab
+        // notice — the conflict is gone, so the banner should not linger.
+        if (msg.active) setInactiveTabMessage(null)
         // Dispatch through the unified set-active reducer action (Chunk A).
         dispatch({ type: 'set-active', active: msg.active })
         return
@@ -1010,9 +1019,10 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       if (msg.type === 'cortex/inactive-tab') {
         const tabId = window.__cortex_tab_id__
         if (msg.targetTabId !== tabId) return
-        // Surface as non-blocking warning today. Future: route into the
-        // existing toast/banner mechanism.
+        // Console for log archeology; banner for the designer who actually
+        // hit this. Banner clears when this tab next becomes active.
         console.warn('[cortex]', msg.message)
+        setInactiveTabMessage(msg.message)
         return
       }
 
@@ -1447,6 +1457,7 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 9998, pointerEvents: 'none', display: 'flex', flexDirection: 'column' }}>
         <NoAnnotationsBanner />
         <CapabilityBanner systems={capabilitySystems} />
+        <InactiveTabBanner message={inactiveTabMessage} />
         <ErrorToast channel={channel} />
       </div>
       <TooltipLayer shadowRoot={shadowRoot} />
