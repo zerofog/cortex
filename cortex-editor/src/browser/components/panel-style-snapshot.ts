@@ -92,6 +92,16 @@ export function computePanelStyleSnapshot(input: ComputePanelStyleSnapshotInput)
     position: parsePositionValues(cs),
     appearance: parseAppearanceValues(cs),
   }
+  // Self-alignment (align-self/justify-self) gating needs the PARENT's
+  // computed display — not the element's. parsePositionValues only sees
+  // the element's CSSStyleDeclaration, so we patch parentDisplay in here
+  // where we still have the live element reference. Defaults to 'block'
+  // when the element has no parent (detached/document root), which makes
+  // selfAlignmentApplies return false for the abs/fixed-only path.
+  const parent = element.parentElement
+  if (parent) {
+    parsed.position.parentDisplay = getComputedStyle(parent).display ?? 'block'
+  }
   // Per CSS spec §8.5.3, getComputedStyle zeroes border-width when
   // border-style is 'none' or 'hidden' — which breaks the existence/
   // visibility split used by summarizeBorder. A user-hidden border (via
