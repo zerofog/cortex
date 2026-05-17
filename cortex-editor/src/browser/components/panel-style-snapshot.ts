@@ -92,15 +92,18 @@ export function computePanelStyleSnapshot(input: ComputePanelStyleSnapshotInput)
     position: parsePositionValues(cs),
     appearance: parseAppearanceValues(cs),
   }
-  // Self-alignment (align-self/justify-self) gating needs the PARENT's
-  // computed display — not the element's. parsePositionValues only sees
-  // the element's CSSStyleDeclaration, so we patch parentDisplay in here
-  // where we still have the live element reference. Defaults to 'block'
-  // when the element has no parent (detached/document root), which makes
-  // selfAlignmentApplies return false for the abs/fixed-only path.
-  const parent = element.parentElement
-  if (parent) {
-    parsed.position.parentDisplay = getComputedStyle(parent).display ?? 'block'
+  // Self-alignment (align-self/justify-self) gating needs the LAYOUT
+  // parent's computed display — not the element's. For real DOM elements
+  // the layout parent is element.parentElement. For ::before/::after
+  // pseudo-elements (pseudo is set), the pseudo is laid out as a child
+  // of its ORIGINATING element, so use `element` itself — otherwise a
+  // pseudo on a flex/grid container appears as if its parent were the
+  // originating element's DOM parent, and the self-alignment controls
+  // hide spuriously (or show as dead controls in the reverse case).
+  // Caught by codex review on the Position QOL PR.
+  const layoutParent = pseudo ? element : element.parentElement
+  if (layoutParent) {
+    parsed.position.parentDisplay = getComputedStyle(layoutParent).display ?? 'block'
   }
   // Per CSS spec §8.5.3, getComputedStyle zeroes border-width when
   // border-style is 'none' or 'hidden' — which breaks the existence/
