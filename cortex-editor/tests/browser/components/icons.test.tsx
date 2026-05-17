@@ -73,7 +73,16 @@ describe('icons.tsx — lucide.dev snapshot inventory', () => {
     //   +1 TriangleAlert                (EditErrorCard warning)
     //   +1 Baseline                     (AlignmentGrid baseline indicator)
     // Net new baseline: 57 + 11 = 68.
-    expect(ICON_EXPORTS.length).toBe(68)
+    //
+    // Position-panel QOL added six custom self-alignment icons that
+    // depict ONE element anchored to start/center/end of its parent cell
+    // (single-child-in-cell metaphor) — the right semantic for
+    // justify-self / align-self, where the existing AlignHorizontalJustify*
+    // / AlignVerticalJustify* (multi-child container metaphor) is wrong:
+    //   +3 JustifySelfStart / JustifySelfCenter / JustifySelfEnd
+    //   +3 AlignSelfStart   / AlignSelfCenter   / AlignSelfEnd
+    // Net new baseline: 68 + 6 = 74.
+    expect(ICON_EXPORTS.length).toBe(74)
   })
 
   it.each(ICON_EXPORTS)('<%s /> renders the lucide.dev SVG verbatim', (name, Component) => {

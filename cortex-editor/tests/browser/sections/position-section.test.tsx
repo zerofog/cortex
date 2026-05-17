@@ -27,18 +27,18 @@ const ICON_FINGERPRINT = {
   flipH: 'M8 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h3',
   // FlipVertical: M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v3
   flipV: 'M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v3',
-  // AlignHorizontalJustifyStart: <rect width="6" height="14" x="6" y="5" rx="2"/>
-  justifyStart: 'x="6" y="5"',
-  // AlignHorizontalJustifyCenter: <path d="M12 2v20"/>
-  justifyCenter: 'M12 2v20',
-  // AlignHorizontalJustifyEnd: <path d="M22 2v20"/>
-  justifyEnd: 'M22 2v20',
-  // AlignVerticalJustifyStart: <path d="M2 2h20"/>
-  alignStart: 'M2 2h20',
-  // AlignVerticalJustifyCenter: <path d="M2 12h20"/>
-  alignCenter: 'M2 12h20',
-  // AlignVerticalJustifyEnd: <path d="M2 22h20"/>
-  alignEnd: 'M2 22h20',
+  // JustifySelfStart: inner solid box anchored to left of cell — <rect x="4" y="6" width="6" ...
+  justifyStart: 'x="4" y="6" width="6"',
+  // JustifySelfCenter: inner solid box centered horizontally — <rect x="9" y="6" width="6" ...
+  justifyCenter: 'x="9" y="6" width="6"',
+  // JustifySelfEnd: inner solid box anchored to right of cell — <rect x="14" y="6" width="6" ...
+  justifyEnd: 'x="14" y="6" width="6"',
+  // AlignSelfStart: inner solid box anchored to top of cell — <rect x="6" y="5" width="12" ...
+  alignStart: 'x="6" y="5" width="12"',
+  // AlignSelfCenter: inner solid box centered vertically — <rect x="6" y="9" width="12" ...
+  alignCenter: 'x="6" y="9" width="12"',
+  // AlignSelfEnd: inner solid box anchored to bottom of cell — <rect x="6" y="13" width="12" ...
+  alignEnd: 'x="6" y="13" width="12"',
 } as const
 
 describe('PositionSection', () => {
@@ -51,6 +51,9 @@ describe('PositionSection', () => {
     }
   })
 
+  // Default to flex parent so existing self-alignment tests keep their
+  // setup terse — they're already exercising the controls' visible state.
+  // Tests for the parentDisplay gating set this explicitly per-case.
   const DEFAULT_VALUES: PositionValues = {
     position: 'static',
     left: 'auto',
@@ -61,6 +64,7 @@ describe('PositionSection', () => {
     scaleY: '1',
     justifySelf: 'auto',
     alignSelf: 'auto',
+    parentDisplay: 'flex',
   }
 
   function setup(overrides?: Partial<Parameters<typeof PositionSection>[0]>) {
@@ -103,6 +107,9 @@ describe('PositionSection', () => {
       scaleY: '1',
       justifySelf: 'center',
       alignSelf: 'end',
+      // parentDisplay defaults to 'block' here; panel-style-snapshot
+      // patches in the real parent's display where the element exists.
+      parentDisplay: 'block',
     })
   })
 
@@ -120,6 +127,7 @@ describe('PositionSection', () => {
       scaleY: '1',
       justifySelf: 'auto',
       alignSelf: 'auto',
+      parentDisplay: 'block',
     })
   })
 
@@ -214,18 +222,27 @@ describe('PositionSection', () => {
     expect(zInput.value).toBe('0')
   })
 
-  it('dims X/Y when position is static', () => {
+  it('hides X and Y inputs entirely when position is static (Z stays visible)', () => {
     setup()
     const xyRow = container.querySelector('.cortex-position-section__xy-row')
     expect(xyRow).not.toBeNull()
-    const tooltip = 'Switch to relative, absolute, fixed, or sticky to edit position'
-    expect(xyRow!.classList.contains('cortex-position-section__xy-row--disabled')).toBe(true)
-    expect(xyRow!.getAttribute('data-tooltip')).toBe(tooltip)
-    const numericInputs = xyRow!.querySelectorAll('.cortex-numeric-input')
-    expect(numericInputs[0].getAttribute('data-tooltip')).toBe(tooltip)
-    expect(numericInputs[0].getAttribute('aria-label')).toBe(tooltip)
-    expect(numericInputs[1].getAttribute('data-tooltip')).toBe(tooltip)
-    expect(numericInputs[1].getAttribute('aria-label')).toBe(tooltip)
+    // No disabled-row class — we hide rather than disable.
+    expect(xyRow!.classList.contains('cortex-position-section__xy-row--disabled')).toBe(false)
+    const prefixes = xyRow!.querySelectorAll('.cortex-numeric-input__prefix')
+    // Only Z remains; X and Y are unmounted.
+    expect(prefixes.length).toBe(1)
+    expect(prefixes[0].textContent).toBe('Z')
+  })
+
+  it('shows X, Y, and Z when position is relative', () => {
+    setup({ values: { ...DEFAULT_VALUES, position: 'relative' } })
+    const xyRow = container.querySelector('.cortex-position-section__xy-row')
+    expect(xyRow).not.toBeNull()
+    const prefixes = xyRow!.querySelectorAll('.cortex-numeric-input__prefix')
+    expect(prefixes.length).toBe(3)
+    expect(prefixes[0].textContent).toBe('X')
+    expect(prefixes[1].textContent).toBe('Y')
+    expect(prefixes[2].textContent).toBe('Z')
   })
 
   // ── Rotate (icon prefix) ───────────────────────────────────────────
@@ -340,6 +357,44 @@ describe('PositionSection', () => {
     expect(groups.length).toBe(2)
     expect(groups[0].querySelectorAll('.cortex-icon-button').length).toBe(3)
     expect(groups[1].querySelectorAll('.cortex-icon-button').length).toBe(3)
+  })
+
+  // ── Self-alignment gating on parent display (Position QOL) ─────────
+
+  it('hides self-alignment block when parent is a block container and element is static', () => {
+    setup({ values: { ...DEFAULT_VALUES, parentDisplay: 'block', position: 'static' } })
+    const groups = container.querySelectorAll('.cortex-position-section__btn-group')
+    expect(groups.length).toBe(0)
+  })
+
+  it('shows self-alignment block when parent is grid', () => {
+    setup({ values: { ...DEFAULT_VALUES, parentDisplay: 'grid', position: 'static' } })
+    const groups = container.querySelectorAll('.cortex-position-section__btn-group')
+    expect(groups.length).toBe(2)
+  })
+
+  it('shows self-alignment block when parent is inline-flex', () => {
+    setup({ values: { ...DEFAULT_VALUES, parentDisplay: 'inline-flex', position: 'static' } })
+    const groups = container.querySelectorAll('.cortex-position-section__btn-group')
+    expect(groups.length).toBe(2)
+  })
+
+  it('shows self-alignment block for absolute element even with a block parent', () => {
+    setup({ values: { ...DEFAULT_VALUES, parentDisplay: 'block', position: 'absolute' } })
+    const groups = container.querySelectorAll('.cortex-position-section__btn-group')
+    expect(groups.length).toBe(2)
+  })
+
+  it('shows self-alignment block for fixed element even with a block parent', () => {
+    setup({ values: { ...DEFAULT_VALUES, parentDisplay: 'block', position: 'fixed' } })
+    const groups = container.querySelectorAll('.cortex-position-section__btn-group')
+    expect(groups.length).toBe(2)
+  })
+
+  it('hides self-alignment block for relative element with a block parent', () => {
+    setup({ values: { ...DEFAULT_VALUES, parentDisplay: 'block', position: 'relative' } })
+    const groups = container.querySelectorAll('.cortex-position-section__btn-group')
+    expect(groups.length).toBe(0)
   })
 
   it('self-alignment buttons render the correct lucide icons (anti-tautology)', () => {

@@ -9,17 +9,15 @@ import {
   RotateCw,
   FlipHorizontal,
   FlipVertical,
-  AlignHorizontalJustifyStart,
-  AlignHorizontalJustifyCenter,
-  AlignHorizontalJustifyEnd,
-  AlignVerticalJustifyStart,
-  AlignVerticalJustifyCenter,
-  AlignVerticalJustifyEnd,
+  JustifySelfStart,
+  JustifySelfCenter,
+  JustifySelfEnd,
+  AlignSelfStart,
+  AlignSelfCenter,
+  AlignSelfEnd,
 } from '../icons.js'
 
 export type PositionChange = SectionChange
-
-const STATIC_POSITION_TOOLTIP = 'Switch to relative, absolute, fixed, or sticky to edit position'
 
 export interface PositionValues {
   position: string   // static | relative | absolute | fixed | sticky
@@ -31,6 +29,12 @@ export interface PositionValues {
   scaleY: string     // from CSS scale property, for flip detection
   justifySelf: string // computed justify-self (e.g., "auto", "start", "center", "end")
   alignSelf: string   // computed align-self (e.g., "auto", "start", "center", "end")
+  /** Parent element's computed `display` (e.g. "block", "flex", "grid").
+   *  Gates self-alignment controls — they only affect layout when the parent
+   *  is a flex or grid container (or when this element is abs/fixed, in which
+   *  case the abs-positioning containing block honors them). Default 'block'
+   *  for elements with no parent so the controls hide. */
+  parentDisplay: string
 }
 
 export interface PositionSectionProps {
@@ -68,7 +72,18 @@ export function parsePositionValues(cs: CSSStyleDeclaration): PositionValues {
     scaleY,
     justifySelf: cs.justifySelf ?? 'auto',
     alignSelf: cs.alignSelf ?? 'auto',
+    parentDisplay: 'block',
   }
+}
+
+/** Whether self-alignment controls would actually affect this element's
+ *  layout. align-self/justify-self only resolve to a non-default behavior
+ *  for flex items, grid items, and abs-positioned boxes — anywhere else
+ *  the values are ignored, so the controls are dead weight. */
+export function selfAlignmentApplies(values: Pick<PositionValues, 'position' | 'parentDisplay'>): boolean {
+  if (values.position === 'absolute' || values.position === 'fixed') return true
+  // includes() catches both 'flex'/'inline-flex' and 'grid'/'inline-grid'.
+  return values.parentDisplay.includes('flex') || values.parentDisplay.includes('grid')
 }
 
 interface SelfAlignmentBlockProps {
@@ -90,14 +105,14 @@ function SelfAlignmentBlock({
   return (
     <div class="cortex-position-section__self-align">
       <div class="cortex-position-section__btn-group" role="group" aria-label="Justify self">
-        <IconButton icon={<AlignHorizontalJustifyStart size={14} />} ariaLabel="Justify self start" tooltip="Justify self · start" onClick={() => setJustify('start')} />
-        <IconButton icon={<AlignHorizontalJustifyCenter size={14} />} ariaLabel="Justify self center" tooltip="Justify self · center" onClick={() => setJustify('center')} />
-        <IconButton icon={<AlignHorizontalJustifyEnd size={14} />} ariaLabel="Justify self end" tooltip="Justify self · end" onClick={() => setJustify('end')} />
+        <IconButton icon={<JustifySelfStart size={14} />} ariaLabel="Justify self start" tooltip="Justify self · start" onClick={() => setJustify('start')} />
+        <IconButton icon={<JustifySelfCenter size={14} />} ariaLabel="Justify self center" tooltip="Justify self · center" onClick={() => setJustify('center')} />
+        <IconButton icon={<JustifySelfEnd size={14} />} ariaLabel="Justify self end" tooltip="Justify self · end" onClick={() => setJustify('end')} />
       </div>
       <div class="cortex-position-section__btn-group" role="group" aria-label="Align self">
-        <IconButton icon={<AlignVerticalJustifyStart size={14} />} ariaLabel="Align self start" tooltip="Align self · start" onClick={() => setAlign('start')} />
-        <IconButton icon={<AlignVerticalJustifyCenter size={14} />} ariaLabel="Align self center" tooltip="Align self · center" onClick={() => setAlign('center')} />
-        <IconButton icon={<AlignVerticalJustifyEnd size={14} />} ariaLabel="Align self end" tooltip="Align self · end" onClick={() => setAlign('end')} />
+        <IconButton icon={<AlignSelfStart size={14} />} ariaLabel="Align self start" tooltip="Align self · start" onClick={() => setAlign('start')} />
+        <IconButton icon={<AlignSelfCenter size={14} />} ariaLabel="Align self center" tooltip="Align self · center" onClick={() => setAlign('center')} />
+        <IconButton icon={<AlignSelfEnd size={14} />} ariaLabel="Align self end" tooltip="Align self · end" onClick={() => setAlign('end')} />
       </div>
     </div>
   )
@@ -205,13 +220,21 @@ export function PositionSection({
           onChange={handlePositionMode}
         />
       </div>
-      <SelfAlignmentBlock onChange={onChange} />
+      {selfAlignmentApplies(values) && <SelfAlignmentBlock onChange={onChange} />}
+      {/* X/Y (top/left) only apply to positioned elements; the CSS spec says
+          they have no effect on position: static, so we hide them entirely
+          rather than render greyed-out dead controls. Z (z-index) still
+          renders because it can affect static elements that are flex/grid
+          items (CSS spec §9.9). */}
       <div
-        class={`cortex-position-section__xy-row${isStatic ? ' cortex-position-section__xy-row--disabled' : ''}${isDimmed(dimmedProperties, 'left', 'top') ? ' cortex-control--dimmed' : ''}`}
-        data-tooltip={isStatic ? STATIC_POSITION_TOOLTIP : undefined}
+        class={`cortex-position-section__xy-row${isDimmed(dimmedProperties, 'left', 'top') ? ' cortex-control--dimmed' : ''}`}
       >
-        <NumericInput value={xValue} unit={isStatic ? 'auto' : 'px'} prefix="X" tooltip={isStatic ? STATIC_POSITION_TOOLTIP : xTooltip} disabled={isStatic} tokenFamily="spacing" onChange={handleXChange} onScrub={handleXScrub} onScrubEnd={handleXScrubEnd} stale={stale} />
-        <NumericInput value={yValue} unit={isStatic ? 'auto' : 'px'} prefix="Y" tooltip={isStatic ? STATIC_POSITION_TOOLTIP : yTooltip} disabled={isStatic} tokenFamily="spacing" onChange={handleYChange} onScrub={handleYScrub} onScrubEnd={handleYScrubEnd} stale={stale} />
+        {!isStatic && (
+          <>
+            <NumericInput value={xValue} unit="px" prefix="X" tooltip={xTooltip} tokenFamily="spacing" onChange={handleXChange} onScrub={handleXScrub} onScrubEnd={handleXScrubEnd} stale={stale} />
+            <NumericInput value={yValue} unit="px" prefix="Y" tooltip={yTooltip} tokenFamily="spacing" onChange={handleYChange} onScrub={handleYScrub} onScrubEnd={handleYScrubEnd} stale={stale} />
+          </>
+        )}
         <NumericInput value={zValue} prefix="Z" tooltip="Z-index" onChange={handleZChange} stale={stale} />
       </div>
       <div class={`cortex-position-section__rotate-row${isDimmed(dimmedProperties, 'rotate', 'scale') ? ' cortex-control--dimmed' : ''}`}>

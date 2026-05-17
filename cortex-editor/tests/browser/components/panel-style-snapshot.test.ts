@@ -305,4 +305,83 @@ describe('computePanelStyleSnapshot', () => {
     }
   })
 
+  // Regression: codex review (P2) on Position QOL PR flagged that pseudo-
+  // element self-alignment gating used element.parentElement, but pseudos
+  // are laid out as children of their ORIGINATING element — so a ::before
+  // on a flex container should see parentDisplay='flex', not whatever the
+  // flex container's DOM parent's display happens to be.
+  it('uses the originating element\'s display as parentDisplay when activePseudo is set', () => {
+    const parent = document.createElement('div')
+    const child = document.createElement('span')
+    parent.appendChild(child)
+    document.body.appendChild(parent)
+
+    const originalGCS = window.getComputedStyle
+    window.getComputedStyle = ((target: Element, pseudo?: string | null) => {
+      // Parent of the originating element is a plain block.
+      if (target === parent) {
+        return { ...originalGCS.call(window, target, pseudo ?? null), display: 'block' } as CSSStyleDeclaration
+      }
+      // Originating element is the flex container — its ::before pseudo
+      // is therefore a flex item, so self-alignment SHOULD apply.
+      if (target === child) {
+        return { ...originalGCS.call(window, target, pseudo ?? null), display: 'flex' } as CSSStyleDeclaration
+      }
+      return originalGCS.call(window, target, pseudo ?? null)
+    }) as typeof window.getComputedStyle
+
+    try {
+      const result = computePanelStyleSnapshot({
+        element: child,
+        activePseudo: '::before',
+        activeState: 'default',
+        sharedInfo: null,
+        editScope: 'instance',
+        overrideManager: { get: vi.fn().mockReturnValue(undefined) },
+        defaultStyles: null,
+      })
+      // Without the pseudo-aware fix this would be 'block' (the parent's
+      // display), making PositionSection hide the self-alignment block on
+      // a pseudo that actually IS a flex item.
+      expect(result.computedStyles.position.parentDisplay).toBe('flex')
+    } finally {
+      window.getComputedStyle = originalGCS
+      parent.remove()
+    }
+  })
+
+  it('uses parentElement\'s display as parentDisplay for non-pseudo selections', () => {
+    const parent = document.createElement('div')
+    const child = document.createElement('span')
+    parent.appendChild(child)
+    document.body.appendChild(parent)
+
+    const originalGCS = window.getComputedStyle
+    window.getComputedStyle = ((target: Element, pseudo?: string | null) => {
+      if (target === parent) {
+        return { ...originalGCS.call(window, target, pseudo ?? null), display: 'grid' } as CSSStyleDeclaration
+      }
+      if (target === child) {
+        return { ...originalGCS.call(window, target, pseudo ?? null), display: 'block' } as CSSStyleDeclaration
+      }
+      return originalGCS.call(window, target, pseudo ?? null)
+    }) as typeof window.getComputedStyle
+
+    try {
+      const result = computePanelStyleSnapshot({
+        element: child,
+        activePseudo: 'element',
+        activeState: 'default',
+        sharedInfo: null,
+        editScope: 'instance',
+        overrideManager: { get: vi.fn().mockReturnValue(undefined) },
+        defaultStyles: null,
+      })
+      expect(result.computedStyles.position.parentDisplay).toBe('grid')
+    } finally {
+      window.getComputedStyle = originalGCS
+      parent.remove()
+    }
+  })
+
 })
