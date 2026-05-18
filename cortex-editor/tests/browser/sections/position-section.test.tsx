@@ -59,6 +59,8 @@ describe('PositionSection', () => {
     position: 'static',
     left: 'auto',
     top: 'auto',
+    right: 'auto',
+    bottom: 'auto',
     zIndex: 'auto',
     rotate: 'none',
     scaleX: '1',
@@ -102,6 +104,8 @@ describe('PositionSection', () => {
       position: 'relative',
       left: '8px',
       top: '16px',
+      right: 'auto',
+      bottom: 'auto',
       zIndex: '5',
       rotate: '45deg',
       scaleX: '-1',
@@ -122,6 +126,8 @@ describe('PositionSection', () => {
       position: 'static',
       left: 'auto',
       top: 'auto',
+      right: 'auto',
+      bottom: 'auto',
       zIndex: 'auto',
       rotate: 'none',
       scaleX: '1',
@@ -145,6 +151,22 @@ describe('PositionSection', () => {
     const result = parsePositionValues(cs)
     expect(result.scaleX).toBe('2')
     expect(result.scaleY).toBe('2')
+  })
+
+  it('parsePositionValues reads all four edge offsets', () => {
+    const cs = {
+      position: 'absolute',
+      left: '4px',
+      top: '8px',
+      right: '12px',
+      bottom: '16px',
+    } as unknown as CSSStyleDeclaration
+
+    const result = parsePositionValues(cs)
+    expect(result.left).toBe('4px')
+    expect(result.top).toBe('8px')
+    expect(result.right).toBe('12px')
+    expect(result.bottom).toBe('16px')
   })
 
   // ── PositionDropdown integration ───────────────────────────────────
@@ -175,27 +197,68 @@ describe('PositionSection', () => {
     expect(onChange).toHaveBeenCalledWith({ property: 'position', value: 'absolute' })
   })
 
-  // ── X / Y / Z numeric inputs (inline prefix slot) ──────────────────
+  // ── T / R / B / L / Z numeric inputs (inline prefix slot) ──────────
 
-  it('renders X/Y/Z inputs with inline prefix slots (not standalone labels)', () => {
+  it('renders T/R/B/L/Z inputs with inline prefix slots (not standalone labels)', () => {
     setup({ values: { ...DEFAULT_VALUES, position: 'relative' } })
     const prefixes = container.querySelectorAll('.cortex-numeric-input__prefix')
-    // X, Y, Z, plus the rotate icon prefix = 4 prefix slots
-    expect(prefixes.length).toBe(4)
-    expect(prefixes[0].textContent).toBe('X')
-    expect(prefixes[1].textContent).toBe('Y')
-    expect(prefixes[2].textContent).toBe('Z')
+    // T, R, B, L (edge row) + Z (z-index row) + rotate icon = 6 prefix slots
+    expect(prefixes.length).toBe(6)
+    expect(prefixes[0].textContent).toBe('T')
+    expect(prefixes[1].textContent).toBe('R')
+    expect(prefixes[2].textContent).toBe('B')
+    expect(prefixes[3].textContent).toBe('L')
+    expect(prefixes[4].textContent).toBe('Z')
   })
 
-  it('emits left change on X input', () => {
-    const { onChange } = setup({ values: { ...DEFAULT_VALUES, position: 'relative', left: '8px', top: '0px' } })
+  it('emits top change on T input', () => {
+    const { onChange } = setup({ values: { ...DEFAULT_VALUES, position: 'relative', top: '8px' } })
     const inputs = container.querySelectorAll('.cortex-numeric-input input')
-    const xInput = inputs[0] as HTMLInputElement
-    expect(xInput).toBeDefined()
-    xInput.focus()
-    xInput.value = '20'
-    xInput.dispatchEvent(new Event('input', { bubbles: true }))
-    xInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    const tInput = inputs[0] as HTMLInputElement
+    expect(tInput).toBeDefined()
+    tInput.focus()
+    tInput.value = '20'
+    tInput.dispatchEvent(new Event('input', { bubbles: true }))
+    tInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    const topCall = onChange.mock.calls.find((c: any) => c[0]?.property === 'top')
+    expect(topCall).toBeDefined()
+    expect(topCall![0].value).toBe('20px')
+  })
+
+  it('emits right change on R input', () => {
+    const { onChange } = setup({ values: { ...DEFAULT_VALUES, position: 'absolute', right: '8px' } })
+    const inputs = container.querySelectorAll('.cortex-numeric-input input')
+    const rInput = inputs[1] as HTMLInputElement
+    rInput.focus()
+    rInput.value = '24'
+    rInput.dispatchEvent(new Event('input', { bubbles: true }))
+    rInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    const rightCall = onChange.mock.calls.find((c: any) => c[0]?.property === 'right')
+    expect(rightCall).toBeDefined()
+    expect(rightCall![0].value).toBe('24px')
+  })
+
+  it('emits bottom change on B input', () => {
+    const { onChange } = setup({ values: { ...DEFAULT_VALUES, position: 'absolute', bottom: '0px' } })
+    const inputs = container.querySelectorAll('.cortex-numeric-input input')
+    const bInput = inputs[2] as HTMLInputElement
+    bInput.focus()
+    bInput.value = '12'
+    bInput.dispatchEvent(new Event('input', { bubbles: true }))
+    bInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    const bottomCall = onChange.mock.calls.find((c: any) => c[0]?.property === 'bottom')
+    expect(bottomCall).toBeDefined()
+    expect(bottomCall![0].value).toBe('12px')
+  })
+
+  it('emits left change on L input', () => {
+    const { onChange } = setup({ values: { ...DEFAULT_VALUES, position: 'relative', left: '8px' } })
+    const inputs = container.querySelectorAll('.cortex-numeric-input input')
+    const lInput = inputs[3] as HTMLInputElement
+    lInput.focus()
+    lInput.value = '20'
+    lInput.dispatchEvent(new Event('input', { bubbles: true }))
+    lInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
     const leftCall = onChange.mock.calls.find((c: any) => c[0]?.property === 'left')
     expect(leftCall).toBeDefined()
     expect(leftCall![0].value).toBe('20px')
@@ -204,8 +267,8 @@ describe('PositionSection', () => {
   it('emits z-index change (no px suffix)', () => {
     const { onChange } = setup({ values: { ...DEFAULT_VALUES, position: 'relative', zIndex: '5' } })
     const inputs = container.querySelectorAll('.cortex-numeric-input input')
-    // Z is the 3rd numeric input (after X and Y)
-    const zInput = inputs[2] as HTMLInputElement
+    // Z is the 5th numeric input (after T, R, B, L)
+    const zInput = inputs[4] as HTMLInputElement
     expect(zInput).toBeDefined()
     zInput.focus()
     zInput.value = '10'
@@ -219,31 +282,129 @@ describe('PositionSection', () => {
   it('coerces z-index "auto" to 0 in the numeric input without sending "auto" back', () => {
     setup({ values: { ...DEFAULT_VALUES, position: 'relative', zIndex: 'auto' } })
     const inputs = container.querySelectorAll('.cortex-numeric-input input')
-    const zInput = inputs[2] as HTMLInputElement
+    const zInput = inputs[4] as HTMLInputElement
     expect(zInput.value).toBe('0')
   })
 
-  it('hides X and Y inputs entirely when position is static (Z stays visible)', () => {
-    setup()
-    const xyRow = container.querySelector('.cortex-position-section__xy-row')
-    expect(xyRow).not.toBeNull()
-    // No disabled-row class — we hide rather than disable.
-    expect(xyRow!.classList.contains('cortex-position-section__xy-row--disabled')).toBe(false)
-    const prefixes = xyRow!.querySelectorAll('.cortex-numeric-input__prefix')
-    // Only Z remains; X and Y are unmounted.
-    expect(prefixes.length).toBe(1)
-    expect(prefixes[0].textContent).toBe('Z')
+  it('shows T R B L disabled with explanatory tooltip when position is static', () => {
+    setup({ values: { ...DEFAULT_VALUES, position: 'static' } })
+    // Visual consistency: edge inputs stay mounted across mode switches.
+    // Disabled state communicates "this control exists but doesn't apply now."
+    for (const prefix of ['T', 'R', 'B', 'L'] as const) {
+      const input = Array.from(
+        container.querySelectorAll('.cortex-numeric-input'),
+      ).find(el => el.querySelector('.cortex-numeric-input__prefix')?.textContent === prefix)
+      expect(input).toBeDefined()
+      const tooltip = input!.getAttribute('data-tooltip')
+      expect(tooltip).toContain('Set position to relative, absolute, fixed, or sticky to use offsets')
+    }
   })
 
-  it('shows X, Y, and Z when position is relative', () => {
+  it('shows T R B L all enabled when position is non-static (absolute)', () => {
+    setup({ values: { ...DEFAULT_VALUES, position: 'absolute' } })
+    const inputs = container.querySelectorAll('.cortex-position-section__xy-row .cortex-numeric-input input')
+    // T R B L should all be enabled (no disabled attribute)
+    for (let i = 0; i < 4; i++) {
+      expect((inputs[i] as HTMLInputElement).disabled).toBe(false)
+    }
+  })
+
+  it('always renders T/R/B/L/Z prefix labels regardless of position (visual consistency)', () => {
+    for (const position of ['static', 'relative', 'absolute', 'fixed', 'sticky'] as const) {
+      setup({ values: { ...DEFAULT_VALUES, position } })
+      const prefixes = container.querySelectorAll('.cortex-numeric-input__prefix')
+      const labels = Array.from(prefixes).map(p => p.textContent)
+      // T R B L Z + rotate icon (no text) — text-bearing prefixes are 5
+      expect(labels.slice(0, 5)).toEqual(['T', 'R', 'B', 'L', 'Z'])
+      // Tear down before next iteration
+      render(null, container)
+      container.remove()
+    }
+  })
+
+  it('tooltip text adapts to position mode (sticky → "stick when scrolled past")', () => {
+    setup({ values: { ...DEFAULT_VALUES, position: 'sticky' } })
+    const tInput = Array.from(
+      container.querySelectorAll('.cortex-numeric-input'),
+    ).find(el => el.querySelector('.cortex-numeric-input__prefix')?.textContent === 'T')
+    expect(tInput!.getAttribute('data-tooltip')).toContain('Stick when scrolled past')
+  })
+
+  it('tooltip text adapts to position mode (fixed → "viewport edge")', () => {
+    setup({ values: { ...DEFAULT_VALUES, position: 'fixed' } })
+    const tInput = Array.from(
+      container.querySelectorAll('.cortex-numeric-input'),
+    ).find(el => el.querySelector('.cortex-numeric-input__prefix')?.textContent === 'T')
+    expect(tInput!.getAttribute('data-tooltip')).toContain('viewport edge')
+  })
+
+  it('tooltip text adapts to position mode (absolute → "containing block edge")', () => {
+    setup({ values: { ...DEFAULT_VALUES, position: 'absolute' } })
+    const tInput = Array.from(
+      container.querySelectorAll('.cortex-numeric-input'),
+    ).find(el => el.querySelector('.cortex-numeric-input__prefix')?.textContent === 'T')
+    expect(tInput!.getAttribute('data-tooltip')).toContain('containing block edge')
+  })
+
+  // Regression: codex review (P2) on PR #158 caught that the old CSS
+  // `.cortex-position-section__xy-row > .cortex-numeric-input:last-child
+  // { flex: 0 0 56px }` rule narrowed whichever input happened to be last.
+  // With T/R/B/L in xy-row, the L input got squashed to 56px; with Z in
+  // the same row, Z got squashed too. The fix gives Z its own row class.
+  it('Z input is in its own __z-row, not __xy-row (CSS layout invariant)', () => {
+    setup({ values: { ...DEFAULT_VALUES, position: 'relative' } })
+    const zInput = Array.from(
+      container.querySelectorAll('.cortex-numeric-input'),
+    ).find(el => el.querySelector('.cortex-numeric-input__prefix')?.textContent === 'Z')
+    expect(zInput).toBeDefined()
+    // Z must NOT be inside an xy-row (where the 4-equal-width rule lives)
+    expect(zInput!.closest('.cortex-position-section__xy-row')).toBeNull()
+    // Z must be inside its own z-row (where the narrow-56px rule lives)
+    expect(zInput!.closest('.cortex-position-section__z-row')).not.toBeNull()
+  })
+
+  it('TRBL inputs all sit inside __xy-row (not __z-row)', () => {
     setup({ values: { ...DEFAULT_VALUES, position: 'relative' } })
     const xyRow = container.querySelector('.cortex-position-section__xy-row')
     expect(xyRow).not.toBeNull()
-    const prefixes = xyRow!.querySelectorAll('.cortex-numeric-input__prefix')
-    expect(prefixes.length).toBe(3)
-    expect(prefixes[0].textContent).toBe('X')
-    expect(prefixes[1].textContent).toBe('Y')
-    expect(prefixes[2].textContent).toBe('Z')
+    const prefixes = Array.from(
+      xyRow!.querySelectorAll('.cortex-numeric-input__prefix'),
+    ).map(p => p.textContent)
+    expect(prefixes).toEqual(['T', 'R', 'B', 'L'])
+  })
+
+  // Regression: codex review (P3) on PR #158 caught that right/bottom
+  // weren't in the dimming registry, so forced-state changes to those
+  // properties wouldn't visually dim the controls.
+  it('dims TRBL row when dimmedProperties includes right or bottom', () => {
+    setup({
+      values: { ...DEFAULT_VALUES, position: 'absolute' },
+      dimmedProperties: new Set(['right']),
+    })
+    const xyRow = container.querySelector('.cortex-position-section__xy-row')
+    expect(xyRow!.classList.contains('cortex-control--dimmed')).toBe(true)
+  })
+
+  it('dims TRBL row when dimmedProperties includes bottom', () => {
+    setup({
+      values: { ...DEFAULT_VALUES, position: 'absolute' },
+      dimmedProperties: new Set(['bottom']),
+    })
+    const xyRow = container.querySelector('.cortex-position-section__xy-row')
+    expect(xyRow!.classList.contains('cortex-control--dimmed')).toBe(true)
+  })
+
+  it('unit chip shows "auto" when the underlying value is auto (not "px")', () => {
+    setup({ values: { ...DEFAULT_VALUES, position: 'absolute', top: '10px', right: 'auto', bottom: 'auto', left: '10px' } })
+    const inputs = container.querySelectorAll('.cortex-position-section__xy-row .cortex-numeric-input')
+    // Inputs[0] = T (10px), [1] = R (auto), [2] = B (auto), [3] = L (10px)
+    const units = Array.from(inputs).map(el =>
+      el.querySelector('.cortex-numeric-input__unit')?.textContent ?? '',
+    )
+    expect(units[0]).toBe('px')
+    expect(units[1]).toBe('auto')
+    expect(units[2]).toBe('auto')
+    expect(units[3]).toBe('px')
   })
 
   // ── Rotate (icon prefix) ───────────────────────────────────────────
@@ -251,8 +412,8 @@ describe('PositionSection', () => {
   it('renders the rotate input with a RotateCw icon prefix (not text)', () => {
     setup({ values: { ...DEFAULT_VALUES, position: 'relative' } })
     const prefixes = container.querySelectorAll('.cortex-numeric-input__prefix')
-    // Rotate is the 4th NumericInput → 4th prefix slot (X, Y, Z, ∠)
-    const rotatePrefix = prefixes[3]
+    // Rotate is the 6th NumericInput → 6th prefix slot (T, R, B, L, Z, ∠)
+    const rotatePrefix = prefixes[5]
     expect(rotatePrefix).toBeDefined()
     const svg = rotatePrefix.querySelector('svg')
     expect(svg).not.toBeNull()
@@ -264,8 +425,8 @@ describe('PositionSection', () => {
   it('emits rotate change', () => {
     const { onChange } = setup({ values: { ...DEFAULT_VALUES, position: 'relative', rotate: '0deg' } })
     const inputs = container.querySelectorAll('.cortex-numeric-input input')
-    // Rotation is the 4th numeric input (after X, Y, Z)
-    const rotInput = inputs[3] as HTMLInputElement
+    // Rotation is the 6th numeric input (after T, R, B, L, Z)
+    const rotInput = inputs[5] as HTMLInputElement
     expect(rotInput).toBeDefined()
     rotInput.focus()
     rotInput.value = '90'

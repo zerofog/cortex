@@ -23,6 +23,8 @@ export interface PositionValues {
   position: string   // static | relative | absolute | fixed | sticky
   left: string       // computed left (e.g., "8px", "auto")
   top: string        // computed top
+  right: string      // computed right (e.g., "8px", "auto")
+  bottom: string     // computed bottom
   zIndex: string     // computed z-index (e.g., "auto", "1")
   rotate: string     // CSS rotate property (e.g., "none", "45deg")
   scaleX: string     // from CSS scale property, for flip detection
@@ -66,6 +68,8 @@ export function parsePositionValues(cs: CSSStyleDeclaration): PositionValues {
     position: cs.position ?? 'static',
     left: cs.left ?? 'auto',
     top: cs.top ?? 'auto',
+    right: cs.right ?? 'auto',
+    bottom: cs.bottom ?? 'auto',
     zIndex: cs.zIndex ?? 'auto',
     rotate: (cs as any).rotate ?? 'none',
     scaleX,
@@ -153,39 +157,25 @@ export function PositionSection({
     [onChange],
   )
 
-  const handleXChange = useCallback(
-    (v: number) => onChange({ property: 'left', value: `${v}px` }),
-    [onChange],
-  )
-
-  const handleYChange = useCallback(
-    (v: number) => onChange({ property: 'top', value: `${v}px` }),
-    [onChange],
-  )
+  // Edge-offset handlers — one per CSS property so absolute/fixed elements
+  // can anchor to any combination of edges (e.g., bottom-right by setting
+  // right + bottom and leaving top + left at 'auto'). The v1 X/Y-only
+  // surface only exposed top + left, which silently broke anchoring to
+  // the opposite corner. Webflow's per-edge pattern, adapted to our
+  // compact panel.
+  const makeEdgeHandler = (property: 'top' | 'right' | 'bottom' | 'left') => ({
+    onChange: (v: number) => onChange({ property, value: `${v}px` }),
+    onScrub: (v: number) => onScrub?.({ property, value: `${v}px` }),
+    onScrubEnd: (v: number) => onScrubEnd?.({ property, value: `${v}px` }),
+  })
+  const topHandlers = makeEdgeHandler('top')
+  const rightHandlers = makeEdgeHandler('right')
+  const bottomHandlers = makeEdgeHandler('bottom')
+  const leftHandlers = makeEdgeHandler('left')
 
   const handleZChange = useCallback(
     (v: number) => onChange({ property: 'z-index', value: `${v}` }),
     [onChange],
-  )
-
-  const handleXScrub = useCallback(
-    (v: number) => onScrub?.({ property: 'left', value: `${v}px` }),
-    [onScrub],
-  )
-
-  const handleYScrub = useCallback(
-    (v: number) => onScrub?.({ property: 'top', value: `${v}px` }),
-    [onScrub],
-  )
-
-  const handleXScrubEnd = useCallback(
-    (v: number) => onScrubEnd?.({ property: 'left', value: `${v}px` }),
-    [onScrubEnd],
-  )
-
-  const handleYScrubEnd = useCallback(
-    (v: number) => onScrubEnd?.({ property: 'top', value: `${v}px` }),
-    [onScrubEnd],
   )
 
   const rotateNum = values.rotate === 'none' ? 0 : parseFloat(values.rotate)
@@ -219,18 +209,34 @@ export function PositionSection({
     onChange({ property: 'scale', value: `${values.scaleX} ${newY}` })
   }, [isFlippedV, values.scaleX, values.scaleY, onChange])
 
-  const leftNum = parseFloat(values.left)
-  const topNum = parseFloat(values.top)
-  const xValue = isStatic ? 0 : (isNaN(leftNum) ? 0 : leftNum)
-  const yValue = isStatic ? 0 : (isNaN(topNum) ? 0 : topNum)
-  // z-index defaults to 'auto' (NaN); coerce to 0 for the numeric input.
-  // Edits send the literal numeric string back, never 'auto'.
+  // CSS 'auto' parses to NaN; coerce to 0 so the numeric input renders a
+  // value. The unit chip switches to 'auto' when the underlying value IS
+  // auto, signalling the difference visually without breaking the spinner.
+  const edgeNum = (raw: string): number => {
+    const n = parseFloat(raw)
+    return isNaN(n) ? 0 : n
+  }
+  const topNum = edgeNum(values.top)
+  const rightNum = edgeNum(values.right)
+  const bottomNum = edgeNum(values.bottom)
+  const leftNum = edgeNum(values.left)
   const zValue = parseFloat(values.zIndex) || 0
+  const edgeUnit = (raw: string): string => (isNaN(parseFloat(raw)) ? 'auto' : 'px')
 
   const isSticky = values.position === 'sticky'
   const isFixed = values.position === 'fixed'
-  const xTooltip = isSticky ? 'Stick at left' : isFixed ? 'Left from viewport' : 'Left offset'
-  const yTooltip = isSticky ? 'Stick at top' : isFixed ? 'Top from viewport' : 'Top offset'
+  const isAbsolute = values.position === 'absolute'
+  // Per-mode tooltip framing — keeps the same label across modes (T/R/B/L)
+  // but explains what the edge MEANS for the current position kind. Hover
+  // teaching beats forcing the designer to read CSS docs.
+  const offsetMode =
+    isStatic    ? 'Set position to relative, absolute, fixed, or sticky to use offsets'
+  : isSticky    ? 'Stick when scrolled past this distance from the edge'
+  : isFixed     ? 'Distance from the viewport edge'
+  : isAbsolute  ? 'Distance from the containing block edge'
+  :               'Nudge from normal flow' // relative
+  const edgeTooltip = (edge: 'top' | 'right' | 'bottom' | 'left'): string =>
+    isStatic ? offsetMode : `${edge.charAt(0).toUpperCase() + edge.slice(1)} — ${offsetMode}`
 
   return (
     <div class="cortex-position-section" data-section-id="position">
@@ -241,21 +247,23 @@ export function PositionSection({
         />
       </div>
       <SelfAlignmentBlock values={values} onChange={onChange} />
-      {/* X/Y (top/left) only apply to positioned elements; the CSS spec says
-          they have no effect on position: static, so we hide them entirely
-          rather than render greyed-out dead controls. Z (z-index) still
-          renders because it can affect static elements that are flex/grid
-          items (CSS spec §9.9). */}
+      {/* Edge offsets row — T R B L always rendered for visual stability
+          across mode switches (designer's mental model breaks when controls
+          come and go). Disabled+tooltip when position is static, per user
+          feedback that hiding them made the panel feel empty. All 4 edges
+          enabled for any non-static position, so absolute/fixed elements
+          can anchor to bottom-right (or any combination) by setting the
+          desired edges and leaving others 'auto'. */}
       <div
-        class={`cortex-position-section__xy-row${isDimmed(dimmedProperties, 'left', 'top') ? ' cortex-control--dimmed' : ''}`}
+        class={`cortex-position-section__xy-row${isDimmed(dimmedProperties, 'left', 'top', 'right', 'bottom') ? ' cortex-control--dimmed' : ''}`}
       >
-        {!isStatic && (
-          <>
-            <NumericInput value={xValue} unit="px" prefix="X" tooltip={xTooltip} tokenFamily="spacing" onChange={handleXChange} onScrub={handleXScrub} onScrubEnd={handleXScrubEnd} stale={stale} />
-            <NumericInput value={yValue} unit="px" prefix="Y" tooltip={yTooltip} tokenFamily="spacing" onChange={handleYChange} onScrub={handleYScrub} onScrubEnd={handleYScrubEnd} stale={stale} />
-          </>
-        )}
-        <NumericInput value={zValue} prefix="Z" tooltip="Z-index" onChange={handleZChange} stale={stale} />
+        <NumericInput value={topNum}    unit={isStatic ? 'auto' : edgeUnit(values.top)}    prefix="T" tooltip={edgeTooltip('top')}    disabled={isStatic} tokenFamily="spacing" onChange={topHandlers.onChange}    onScrub={topHandlers.onScrub}    onScrubEnd={topHandlers.onScrubEnd}    stale={stale} />
+        <NumericInput value={rightNum}  unit={isStatic ? 'auto' : edgeUnit(values.right)}  prefix="R" tooltip={edgeTooltip('right')}  disabled={isStatic} tokenFamily="spacing" onChange={rightHandlers.onChange}  onScrub={rightHandlers.onScrub}  onScrubEnd={rightHandlers.onScrubEnd}  stale={stale} />
+        <NumericInput value={bottomNum} unit={isStatic ? 'auto' : edgeUnit(values.bottom)} prefix="B" tooltip={edgeTooltip('bottom')} disabled={isStatic} tokenFamily="spacing" onChange={bottomHandlers.onChange} onScrub={bottomHandlers.onScrub} onScrubEnd={bottomHandlers.onScrubEnd} stale={stale} />
+        <NumericInput value={leftNum}   unit={isStatic ? 'auto' : edgeUnit(values.left)}   prefix="L" tooltip={edgeTooltip('left')}   disabled={isStatic} tokenFamily="spacing" onChange={leftHandlers.onChange}   onScrub={leftHandlers.onScrub}   onScrubEnd={leftHandlers.onScrubEnd}   stale={stale} />
+      </div>
+      <div class="cortex-position-section__z-row">
+        <NumericInput value={zValue} prefix="Z" tooltip="Z-index — stacking order" onChange={handleZChange} stale={stale} />
       </div>
       <div class={`cortex-position-section__rotate-row${isDimmed(dimmedProperties, 'rotate', 'scale') ? ' cortex-control--dimmed' : ''}`}>
         <NumericInput
