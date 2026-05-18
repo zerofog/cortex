@@ -3323,12 +3323,16 @@
 }
 
 .cortex-position-section__xy-row {
-  display: flex;
+  /* 2x2 grid for T/R/B/L offsets. Single flex row squashed each input
+     to ~60px in the 280px panel; multi-digit values + 'auto' chip then
+     overflowed. 2 columns gives each input ~140px which fits "R 6 auto"
+     comfortably. Order T-R-B-L visits the cells row-major: T R / B L. */
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: var(--cx-sp-2);
 }
 
 .cortex-position-section__xy-row > .cortex-numeric-input {
-  flex: 1;
   min-width: 0;
 }
 
