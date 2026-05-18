@@ -76,23 +76,35 @@ export function parsePositionValues(cs: CSSStyleDeclaration): PositionValues {
   }
 }
 
-/** Whether self-alignment controls would actually affect this element's
- *  layout. align-self/justify-self only resolve to a non-default behavior
- *  for flex items, grid items, and abs-positioned boxes — anywhere else
- *  the values are ignored, so the controls are dead weight. */
-export function selfAlignmentApplies(values: Pick<PositionValues, 'position' | 'parentDisplay'>): boolean {
+/** Whether justify-self would actually affect this element's layout.
+ *  Per CSS Box Alignment Level 3 §10.2, justify-self is explicitly IGNORED
+ *  on flex items — the main-axis position is fully owned by the parent's
+ *  justify-content. So flex children get no justify-self row even though
+ *  align-self still works on them. Grid items and abs-positioned boxes
+ *  honor both. */
+export function justifySelfApplies(values: Pick<PositionValues, 'position' | 'parentDisplay'>): boolean {
   if (values.position === 'absolute' || values.position === 'fixed') return true
-  // includes() catches both 'flex'/'inline-flex' and 'grid'/'inline-grid'.
+  // Grid items honor justify-self; flex items do NOT.
+  return values.parentDisplay.includes('grid')
+}
+
+/** Whether align-self would actually affect this element's layout.
+ *  Honored on flex items (cross-axis), grid items (block-axis), and
+ *  abs-positioned boxes. */
+export function alignSelfApplies(values: Pick<PositionValues, 'position' | 'parentDisplay'>): boolean {
+  if (values.position === 'absolute' || values.position === 'fixed') return true
   return values.parentDisplay.includes('flex') || values.parentDisplay.includes('grid')
 }
 
 interface SelfAlignmentBlockProps {
+  values: Pick<PositionValues, 'position' | 'parentDisplay' | 'justifySelf' | 'alignSelf'>
   onChange: (change: PositionChange) => void
 }
 
 function SelfAlignmentBlock({
+  values,
   onChange,
-}: SelfAlignmentBlockProps): JSX.Element {
+}: SelfAlignmentBlockProps): JSX.Element | null {
   const setJustify = useCallback(
     (value: string) => onChange({ property: 'justify-self', value }),
     [onChange],
@@ -102,18 +114,26 @@ function SelfAlignmentBlock({
     [onChange],
   )
 
+  const showJustify = justifySelfApplies(values)
+  const showAlign = alignSelfApplies(values)
+  if (!showJustify && !showAlign) return null
+
   return (
     <div class="cortex-position-section__self-align">
-      <div class="cortex-position-section__btn-group" role="group" aria-label="Justify self">
-        <IconButton icon={<JustifySelfStart size={14} />} ariaLabel="Justify self start" tooltip="Justify self · start" onClick={() => setJustify('start')} />
-        <IconButton icon={<JustifySelfCenter size={14} />} ariaLabel="Justify self center" tooltip="Justify self · center" onClick={() => setJustify('center')} />
-        <IconButton icon={<JustifySelfEnd size={14} />} ariaLabel="Justify self end" tooltip="Justify self · end" onClick={() => setJustify('end')} />
-      </div>
-      <div class="cortex-position-section__btn-group" role="group" aria-label="Align self">
-        <IconButton icon={<AlignSelfStart size={14} />} ariaLabel="Align self start" tooltip="Align self · start" onClick={() => setAlign('start')} />
-        <IconButton icon={<AlignSelfCenter size={14} />} ariaLabel="Align self center" tooltip="Align self · center" onClick={() => setAlign('center')} />
-        <IconButton icon={<AlignSelfEnd size={14} />} ariaLabel="Align self end" tooltip="Align self · end" onClick={() => setAlign('end')} />
-      </div>
+      {showJustify && (
+        <div class="cortex-position-section__btn-group" role="group" aria-label="Justify self">
+          <IconButton icon={<JustifySelfStart size={14} />} ariaLabel="Justify self start" tooltip="Justify self · start" active={values.justifySelf === 'start'} onClick={() => setJustify('start')} />
+          <IconButton icon={<JustifySelfCenter size={14} />} ariaLabel="Justify self center" tooltip="Justify self · center" active={values.justifySelf === 'center'} onClick={() => setJustify('center')} />
+          <IconButton icon={<JustifySelfEnd size={14} />} ariaLabel="Justify self end" tooltip="Justify self · end" active={values.justifySelf === 'end'} onClick={() => setJustify('end')} />
+        </div>
+      )}
+      {showAlign && (
+        <div class="cortex-position-section__btn-group" role="group" aria-label="Align self">
+          <IconButton icon={<AlignSelfStart size={14} />} ariaLabel="Align self start" tooltip="Align self · start" active={values.alignSelf === 'start'} onClick={() => setAlign('start')} />
+          <IconButton icon={<AlignSelfCenter size={14} />} ariaLabel="Align self center" tooltip="Align self · center" active={values.alignSelf === 'center'} onClick={() => setAlign('center')} />
+          <IconButton icon={<AlignSelfEnd size={14} />} ariaLabel="Align self end" tooltip="Align self · end" active={values.alignSelf === 'end'} onClick={() => setAlign('end')} />
+        </div>
+      )}
     </div>
   )
 }
@@ -220,7 +240,7 @@ export function PositionSection({
           onChange={handlePositionMode}
         />
       </div>
-      {selfAlignmentApplies(values) && <SelfAlignmentBlock onChange={onChange} />}
+      <SelfAlignmentBlock values={values} onChange={onChange} />
       {/* X/Y (top/left) only apply to positioned elements; the CSS spec says
           they have no effect on position: static, so we hide them entirely
           rather than render greyed-out dead controls. Z (z-index) still
