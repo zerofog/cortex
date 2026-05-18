@@ -51,9 +51,10 @@ describe('PositionSection', () => {
     }
   })
 
-  // Default to flex parent so existing self-alignment tests keep their
-  // setup terse — they're already exercising the controls' visible state.
-  // Tests for the parentDisplay gating set this explicitly per-case.
+  // Default to grid parent so existing self-alignment tests see BOTH rows
+  // (grid items honor both justify-self and align-self). Per-axis gating
+  // tests set parentDisplay explicitly per-case to exercise flex (align
+  // only, no justify) and block (neither, abs/fixed override).
   const DEFAULT_VALUES: PositionValues = {
     position: 'static',
     left: 'auto',
@@ -64,7 +65,7 @@ describe('PositionSection', () => {
     scaleY: '1',
     justifySelf: 'auto',
     alignSelf: 'auto',
-    parentDisplay: 'flex',
+    parentDisplay: 'grid',
   }
 
   function setup(overrides?: Partial<Parameters<typeof PositionSection>[0]>) {
@@ -359,39 +360,56 @@ describe('PositionSection', () => {
     expect(groups[1].querySelectorAll('.cortex-icon-button').length).toBe(3)
   })
 
-  // ── Self-alignment gating on parent display (Position QOL) ─────────
+  // ── Self-alignment per-axis gating (Position QOL round 2) ──────────
+  //
+  // Per CSS Box Alignment Level 3 §10.2, justify-self is explicitly
+  // ignored on flex items (the main axis is fully owned by the parent's
+  // justify-content). Grid items honor both axes; abs/fixed elements
+  // honor both via the absolute-positioning containing block.
 
-  it('hides self-alignment block when parent is a block container and element is static', () => {
+  it('hides both rows when parent is a block container and element is static', () => {
     setup({ values: { ...DEFAULT_VALUES, parentDisplay: 'block', position: 'static' } })
     const groups = container.querySelectorAll('.cortex-position-section__btn-group')
     expect(groups.length).toBe(0)
   })
 
-  it('shows self-alignment block when parent is grid', () => {
+  it('shows BOTH rows when parent is grid', () => {
     setup({ values: { ...DEFAULT_VALUES, parentDisplay: 'grid', position: 'static' } })
     const groups = container.querySelectorAll('.cortex-position-section__btn-group')
     expect(groups.length).toBe(2)
+    expect(container.querySelector('[aria-label="Justify self"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="Align self"]')).not.toBeNull()
   })
 
-  it('shows self-alignment block when parent is inline-flex', () => {
+  it('shows ONLY align-self when parent is flex (justify-self is a no-op on flex items)', () => {
+    setup({ values: { ...DEFAULT_VALUES, parentDisplay: 'flex', position: 'static' } })
+    const groups = container.querySelectorAll('.cortex-position-section__btn-group')
+    expect(groups.length).toBe(1)
+    expect(container.querySelector('[aria-label="Justify self"]')).toBeNull()
+    expect(container.querySelector('[aria-label="Align self"]')).not.toBeNull()
+  })
+
+  it('shows ONLY align-self when parent is inline-flex', () => {
     setup({ values: { ...DEFAULT_VALUES, parentDisplay: 'inline-flex', position: 'static' } })
     const groups = container.querySelectorAll('.cortex-position-section__btn-group')
-    expect(groups.length).toBe(2)
+    expect(groups.length).toBe(1)
+    expect(container.querySelector('[aria-label="Justify self"]')).toBeNull()
+    expect(container.querySelector('[aria-label="Align self"]')).not.toBeNull()
   })
 
-  it('shows self-alignment block for absolute element even with a block parent', () => {
+  it('shows BOTH rows for absolute element even with a block parent', () => {
     setup({ values: { ...DEFAULT_VALUES, parentDisplay: 'block', position: 'absolute' } })
     const groups = container.querySelectorAll('.cortex-position-section__btn-group')
     expect(groups.length).toBe(2)
   })
 
-  it('shows self-alignment block for fixed element even with a block parent', () => {
+  it('shows BOTH rows for fixed element even with a block parent', () => {
     setup({ values: { ...DEFAULT_VALUES, parentDisplay: 'block', position: 'fixed' } })
     const groups = container.querySelectorAll('.cortex-position-section__btn-group')
     expect(groups.length).toBe(2)
   })
 
-  it('hides self-alignment block for relative element with a block parent', () => {
+  it('hides both rows for relative element with a block parent', () => {
     setup({ values: { ...DEFAULT_VALUES, parentDisplay: 'block', position: 'relative' } })
     const groups = container.querySelectorAll('.cortex-position-section__btn-group')
     expect(groups.length).toBe(0)
@@ -414,6 +432,41 @@ describe('PositionSection', () => {
     setup()
     const active = container.querySelectorAll('.cortex-position-section__btn-group .cortex-icon-button--active')
     expect(active.length).toBe(0)
+  })
+
+  // ── Active state reflects current values.justifySelf / values.alignSelf ──
+
+  it('marks the justify-self button matching values.justifySelf as active', () => {
+    setup({ values: { ...DEFAULT_VALUES, justifySelf: 'center' } })
+    const btn = container.querySelector('[aria-label="Justify self center"]') as HTMLElement
+    expect(btn.classList.contains('cortex-icon-button--active')).toBe(true)
+    expect(btn.getAttribute('aria-pressed')).toBe('true')
+    // Siblings should NOT be active
+    const start = container.querySelector('[aria-label="Justify self start"]') as HTMLElement
+    const end = container.querySelector('[aria-label="Justify self end"]') as HTMLElement
+    expect(start.classList.contains('cortex-icon-button--active')).toBe(false)
+    expect(end.classList.contains('cortex-icon-button--active')).toBe(false)
+  })
+
+  it('marks the align-self button matching values.alignSelf as active', () => {
+    setup({ values: { ...DEFAULT_VALUES, alignSelf: 'end' } })
+    const btn = container.querySelector('[aria-label="Align self end"]') as HTMLElement
+    expect(btn.classList.contains('cortex-icon-button--active')).toBe(true)
+    expect(btn.getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('justify-self "auto" leaves all buttons inactive (only start/center/end count)', () => {
+    setup({ values: { ...DEFAULT_VALUES, justifySelf: 'auto', alignSelf: 'auto' } })
+    const active = container.querySelectorAll('.cortex-position-section__btn-group .cortex-icon-button--active')
+    expect(active.length).toBe(0)
+  })
+
+  it('marks active states across BOTH rows simultaneously when both are set', () => {
+    setup({ values: { ...DEFAULT_VALUES, justifySelf: 'start', alignSelf: 'end' } })
+    const justifyActive = container.querySelector('[aria-label="Justify self start"]') as HTMLElement
+    const alignActive = container.querySelector('[aria-label="Align self end"]') as HTMLElement
+    expect(justifyActive.classList.contains('cortex-icon-button--active')).toBe(true)
+    expect(alignActive.classList.contains('cortex-icon-button--active')).toBe(true)
   })
 
   it('justify-self start emits onChange with property:"justify-self" value:"start"', () => {
