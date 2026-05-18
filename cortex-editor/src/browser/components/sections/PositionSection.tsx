@@ -262,7 +262,7 @@ export function PositionSection({
         <NumericInput value={bottomNum} unit={isStatic ? 'auto' : edgeUnit(values.bottom)} prefix="B" tooltip={edgeTooltip('bottom')} disabled={isStatic} tokenFamily="spacing" onChange={bottomHandlers.onChange} onScrub={bottomHandlers.onScrub} onScrubEnd={bottomHandlers.onScrubEnd} stale={stale} />
         <NumericInput value={leftNum}   unit={isStatic ? 'auto' : edgeUnit(values.left)}   prefix="L" tooltip={edgeTooltip('left')}   disabled={isStatic} tokenFamily="spacing" onChange={leftHandlers.onChange}   onScrub={leftHandlers.onScrub}   onScrubEnd={leftHandlers.onScrubEnd}   stale={stale} />
       </div>
-      <div class="cortex-position-section__xy-row">
+      <div class="cortex-position-section__z-row">
         <NumericInput value={zValue} prefix="Z" tooltip="Z-index — stacking order" onChange={handleZChange} stale={stale} />
       </div>
       <div class={`cortex-position-section__rotate-row${isDimmed(dimmedProperties, 'rotate', 'scale') ? ' cortex-control--dimmed' : ''}`}>

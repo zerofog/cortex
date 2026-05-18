@@ -346,6 +346,54 @@ describe('PositionSection', () => {
     expect(tInput!.getAttribute('data-tooltip')).toContain('containing block edge')
   })
 
+  // Regression: codex review (P2) on PR #158 caught that the old CSS
+  // `.cortex-position-section__xy-row > .cortex-numeric-input:last-child
+  // { flex: 0 0 56px }` rule narrowed whichever input happened to be last.
+  // With T/R/B/L in xy-row, the L input got squashed to 56px; with Z in
+  // the same row, Z got squashed too. The fix gives Z its own row class.
+  it('Z input is in its own __z-row, not __xy-row (CSS layout invariant)', () => {
+    setup({ values: { ...DEFAULT_VALUES, position: 'relative' } })
+    const zInput = Array.from(
+      container.querySelectorAll('.cortex-numeric-input'),
+    ).find(el => el.querySelector('.cortex-numeric-input__prefix')?.textContent === 'Z')
+    expect(zInput).toBeDefined()
+    // Z must NOT be inside an xy-row (where the 4-equal-width rule lives)
+    expect(zInput!.closest('.cortex-position-section__xy-row')).toBeNull()
+    // Z must be inside its own z-row (where the narrow-56px rule lives)
+    expect(zInput!.closest('.cortex-position-section__z-row')).not.toBeNull()
+  })
+
+  it('TRBL inputs all sit inside __xy-row (not __z-row)', () => {
+    setup({ values: { ...DEFAULT_VALUES, position: 'relative' } })
+    const xyRow = container.querySelector('.cortex-position-section__xy-row')
+    expect(xyRow).not.toBeNull()
+    const prefixes = Array.from(
+      xyRow!.querySelectorAll('.cortex-numeric-input__prefix'),
+    ).map(p => p.textContent)
+    expect(prefixes).toEqual(['T', 'R', 'B', 'L'])
+  })
+
+  // Regression: codex review (P3) on PR #158 caught that right/bottom
+  // weren't in the dimming registry, so forced-state changes to those
+  // properties wouldn't visually dim the controls.
+  it('dims TRBL row when dimmedProperties includes right or bottom', () => {
+    setup({
+      values: { ...DEFAULT_VALUES, position: 'absolute' },
+      dimmedProperties: new Set(['right']),
+    })
+    const xyRow = container.querySelector('.cortex-position-section__xy-row')
+    expect(xyRow!.classList.contains('cortex-control--dimmed')).toBe(true)
+  })
+
+  it('dims TRBL row when dimmedProperties includes bottom', () => {
+    setup({
+      values: { ...DEFAULT_VALUES, position: 'absolute' },
+      dimmedProperties: new Set(['bottom']),
+    })
+    const xyRow = container.querySelector('.cortex-position-section__xy-row')
+    expect(xyRow!.classList.contains('cortex-control--dimmed')).toBe(true)
+  })
+
   it('unit chip shows "auto" when the underlying value is auto (not "px")', () => {
     setup({ values: { ...DEFAULT_VALUES, position: 'absolute', top: '10px', right: 'auto', bottom: 'auto', left: '10px' } })
     const inputs = container.querySelectorAll('.cortex-position-section__xy-row .cortex-numeric-input')
