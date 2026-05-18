@@ -27,18 +27,20 @@ const ICON_FINGERPRINT = {
   flipH: 'M8 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h3',
   // FlipVertical: M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v3
   flipV: 'M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v3',
-  // JustifySelfStart: inner solid box anchored to left of cell — <rect x="4" y="6" width="6" ...
-  justifyStart: 'x="4" y="6" width="6"',
-  // JustifySelfCenter: inner solid box centered horizontally — <rect x="9" y="6" width="6" ...
+  // v2 icons — inner box pushed to within 1 unit of cell edge so the
+  // start↔end shift is large enough to perceive at 14px display size.
+  // JustifySelfStart: inner box at x=3 (cell left edge is x=2, so 1-unit inset)
+  justifyStart: 'x="3" y="6" width="6"',
+  // JustifySelfCenter: inner box at x=9 (centered, since cell spans 2→22)
   justifyCenter: 'x="9" y="6" width="6"',
-  // JustifySelfEnd: inner solid box anchored to right of cell — <rect x="14" y="6" width="6" ...
-  justifyEnd: 'x="14" y="6" width="6"',
-  // AlignSelfStart: inner solid box anchored to top of cell — <rect x="6" y="5" width="12" ...
-  alignStart: 'x="6" y="5" width="12"',
-  // AlignSelfCenter: inner solid box centered vertically — <rect x="6" y="9" width="12" ...
+  // JustifySelfEnd: inner box at x=15 (right edge at x=21, 1-unit inset from x=22)
+  justifyEnd: 'x="15" y="6" width="6"',
+  // AlignSelfStart: inner box at y=4 (cell top is y=3, so 1-unit inset)
+  alignStart: 'x="6" y="4" width="12"',
+  // AlignSelfCenter: inner box at y=9 (centered, cell spans 3→21)
   alignCenter: 'x="6" y="9" width="12"',
-  // AlignSelfEnd: inner solid box anchored to bottom of cell — <rect x="6" y="13" width="12" ...
-  alignEnd: 'x="6" y="13" width="12"',
+  // AlignSelfEnd: inner box at y=14 (bottom at y=20, 1-unit inset from y=21)
+  alignEnd: 'x="6" y="14" width="12"',
 } as const
 
 describe('PositionSection', () => {
