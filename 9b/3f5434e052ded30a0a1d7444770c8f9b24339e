@@ -1,0 +1,25 @@
+cortex-editor/src/browser/styles.css
+  s_b858824d134fd5::t_16a5ede650297e 3335-3339,3341
+cortex-editor/src/browser/components/sections/spacing-utils.ts
+  s_b858824d134fd5::t_f3d39dbebfa8ad 34
+cortex-editor/tests/browser/sections/position-section.test.tsx
+  s_b858824d134fd5::t_e3e1786c220d68 349-396
+cortex-editor/src/browser/components/sections/PositionSection.tsx
+  s_b858824d134fd5::t_e3a54cea53a1f1 265
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.9",
+  "base_commit_sha": "9b3f5434e052ded30a0a1d7444770c8f9b24339e",
+  "prompts": {},
+  "sessions": {
+    "s_b858824d134fd5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "59a66bd9-7e4d-4242-b7bd-bfab72749248",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
