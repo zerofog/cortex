@@ -384,12 +384,19 @@ export function AlignVerticalJustifyEnd({ size = 16, class: cls }: IconProps = {
 // content / align-items on the parent, but the wrong metaphor for *-self on
 // the child. Designed in-house with stroke-only style to match the rest of
 // the inventory: dashed outer rect = parent cell, solid inner rect = self.
+//
+// v2 (post-user-feedback): inner box pushed HARD against the cell edge with
+// just a 1-unit inset for start/end variants. The v1 design had a 2-unit
+// gap which produced only a 4-unit total shift between start and end —
+// invisible at the 14px display size (~2 visible pixels). v2 shifts by 12
+// units for justify and 10 for align, which renders as 5-7 visible pixels
+// at 14px and is unambiguous at a glance.
 
 export function JustifySelfStart({ size = 16, class: cls }: IconProps = {}): JSX.Element {
   return (
     <svg {...svgProps(size, cls)}>
       <rect x="2" y="3" width="20" height="18" rx="2" stroke-dasharray="3 2" />
-      <rect x="4" y="6" width="6" height="12" rx="1.5" />
+      <rect x="3" y="6" width="6" height="12" rx="1.5" />
     </svg>
   )
 }
@@ -407,7 +414,7 @@ export function JustifySelfEnd({ size = 16, class: cls }: IconProps = {}): JSX.E
   return (
     <svg {...svgProps(size, cls)}>
       <rect x="2" y="3" width="20" height="18" rx="2" stroke-dasharray="3 2" />
-      <rect x="14" y="6" width="6" height="12" rx="1.5" />
+      <rect x="15" y="6" width="6" height="12" rx="1.5" />
     </svg>
   )
 }
@@ -416,7 +423,7 @@ export function AlignSelfStart({ size = 16, class: cls }: IconProps = {}): JSX.E
   return (
     <svg {...svgProps(size, cls)}>
       <rect x="2" y="3" width="20" height="18" rx="2" stroke-dasharray="3 2" />
-      <rect x="6" y="5" width="12" height="6" rx="1.5" />
+      <rect x="6" y="4" width="12" height="6" rx="1.5" />
     </svg>
   )
 }
@@ -434,7 +441,7 @@ export function AlignSelfEnd({ size = 16, class: cls }: IconProps = {}): JSX.Ele
   return (
     <svg {...svgProps(size, cls)}>
       <rect x="2" y="3" width="20" height="18" rx="2" stroke-dasharray="3 2" />
-      <rect x="6" y="13" width="12" height="6" rx="1.5" />
+      <rect x="6" y="14" width="12" height="6" rx="1.5" />
     </svg>
   )
 }
