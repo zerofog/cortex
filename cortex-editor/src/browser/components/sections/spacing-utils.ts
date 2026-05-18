@@ -31,7 +31,7 @@ export const ALL_DIMMING_PROPERTIES = [
   'border-bottom-left-radius', 'border-bottom-right-radius',
   'box-shadow',
   'opacity', 'overflow', 'box-sizing', 'cursor', 'filter', 'backdrop-filter',
-  'position', 'left', 'top', 'z-index', 'rotate', 'scale',
+  'position', 'left', 'top', 'right', 'bottom', 'z-index', 'rotate', 'scale',
   'min-width', 'max-width', 'min-height', 'max-height',
 ] as const
 

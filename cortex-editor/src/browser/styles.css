@@ -3332,8 +3332,13 @@
   min-width: 0;
 }
 
-.cortex-position-section__xy-row > .cortex-numeric-input:last-child {
+/* Z-index row: standalone narrow input on the left, no flex:1 sibling
+   to stretch it. Explicit modifier class so we don't rely on
+   structural :last-child selectors that previously broke when the
+   xy-row gained R + B inputs (T/R/B/L all need flex:1). */
+.cortex-position-section__z-row > .cortex-numeric-input {
   flex: 0 0 56px;
+  min-width: 0;
 }
 
 .cortex-position-section__xy-row--disabled {
