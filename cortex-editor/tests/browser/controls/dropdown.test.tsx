@@ -254,4 +254,48 @@ describe('Dropdown', () => {
     const chevron = container.querySelector('.cortex-dropdown__chevron')
     expect(chevron).not.toBeNull()
   })
+
+  // ── disabled option field (added for EffectsSection singleton enforcement) ──
+  describe('disabled option', () => {
+    const DISABLED_OPTIONS = [
+      { value: 'a', label: 'A' },
+      { value: 'b', label: 'B', disabled: true, tooltip: 'B is unavailable' },
+    ]
+
+    it('does not call onChange when a disabled option is clicked', async () => {
+      const { onChange } = setup({ options: DISABLED_OPTIONS, value: 'a' })
+      getTrigger().click()
+      await vi.waitFor(() => {
+        expect(getPopover()).not.toBeNull()
+      })
+      const opts = getOptions()
+      expect(opts.length).toBe(2)
+      const disabledOpt = opts[1] as HTMLElement
+      expect(disabledOpt.getAttribute('aria-disabled')).toBe('true')
+      disabledOpt.click()
+      expect(onChange).not.toHaveBeenCalled()
+    })
+
+    it('applies the --disabled class to disabled options', async () => {
+      setup({ options: DISABLED_OPTIONS, value: 'a' })
+      getTrigger().click()
+      await vi.waitFor(() => {
+        expect(getPopover()).not.toBeNull()
+      })
+      const opts = getOptions()
+      expect((opts[0] as HTMLElement).className).not.toContain('cortex-dropdown__option--disabled')
+      expect((opts[1] as HTMLElement).className).toContain('cortex-dropdown__option--disabled')
+    })
+
+    it('still selects an enabled option in a mixed list', async () => {
+      const { onChange } = setup({ options: DISABLED_OPTIONS, value: 'a' })
+      getTrigger().click()
+      await vi.waitFor(() => {
+        expect(getPopover()).not.toBeNull()
+      })
+      const opts = getOptions()
+      ;(opts[0] as HTMLElement).click()
+      expect(onChange).toHaveBeenCalledWith('a')
+    })
+  })
 })

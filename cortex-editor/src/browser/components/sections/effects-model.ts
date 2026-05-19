@@ -17,7 +17,11 @@
  * Plus the shared filter-function parser used by both build and commit:
  *   parseFilterFunctions: raw filter string -> { blur, rest }
  *
- * The component layer assigns and caches stable IDs via fingerprintEffect (below).
+ * IDs are assigned by buildEffects from position+type (`drop-0`, `inset-1`,
+ * `layer-blur`, `backdrop-blur`). The fingerprint-cache approach planned
+ * earlier was reversed after a codex review found it minted new ids on every
+ * value edit — position-based ids are simpler and have the same stability
+ * for the only cases that matter.
  */
 
 import { parseBoxShadow, serializeBoxShadow } from '../../../core/shadow-utils.js'
@@ -41,6 +45,20 @@ const DEFAULT_SHADOW_FIELDS = {
   y: 2,
   spread: 0,
   color: 'rgba(0, 0, 0, 0.1)',
+} as const
+
+/**
+ * Canonical default shadow used by both the "+" button (handleEffectAdd) and
+ * convertEffect's blur → shadow path. Single source of truth — duplicating
+ * blur:8 here vs elsewhere caused divergent UX between the add and convert flows.
+ */
+export const DEFAULT_SHADOW = {
+  inset: false,
+  x: DEFAULT_SHADOW_FIELDS.x,
+  y: DEFAULT_SHADOW_FIELDS.y,
+  blur: 8,
+  spread: DEFAULT_SHADOW_FIELDS.spread,
+  color: DEFAULT_SHADOW_FIELDS.color,
 } as const
 
 // ---------------------------------------------------------------------------
@@ -103,26 +121,30 @@ export function formatFilter(rest: string, blur: number): string {
 export function buildEffects(values: EffectsValues): Effect[] {
   const effects: Effect[] = []
   const shadows = parseBoxShadow(values.boxShadow)
+  // Clamp at the model boundary — UI inputs use min={0}, but a malformed CSS
+  // source could still produce negative/NaN values that would corrupt the round-trip.
+  const clamp = (n: number) => (Number.isFinite(n) ? Math.max(0, n) : 0)
 
   shadows.forEach((shadow, index) => {
     const type: 'drop' | 'inset' = shadow.inset ? 'inset' : 'drop'
     effects.push({
       id: `${type}-${index}`,
       type,
-      x: shadow.x,
-      y: shadow.y,
-      blur: shadow.blur,
-      spread: shadow.spread,
+      x: Number.isFinite(shadow.x) ? shadow.x : 0,
+      y: Number.isFinite(shadow.y) ? shadow.y : 0,
+      blur: clamp(shadow.blur),
+      spread: Number.isFinite(shadow.spread) ? shadow.spread : 0,
       color: shadow.color,
     })
   })
 
-  if (values.blur > 0) {
-    effects.push({ id: 'layer-blur', type: 'layer-blur', blur: values.blur })
+  const layerBlur = clamp(values.blur)
+  if (layerBlur > 0) {
+    effects.push({ id: 'layer-blur', type: 'layer-blur', blur: layerBlur })
   }
-
-  if (values.backdropBlur > 0) {
-    effects.push({ id: 'backdrop-blur', type: 'backdrop-blur', blur: values.backdropBlur })
+  const backdropBlur = clamp(values.backdropBlur)
+  if (backdropBlur > 0) {
+    effects.push({ id: 'backdrop-blur', type: 'backdrop-blur', blur: backdropBlur })
   }
 
   return effects
@@ -193,50 +215,31 @@ export function commitEffects(
  */
 export function convertEffect(effect: Effect, newType: EffectType): Effect {
   if (effect.type === newType) return effect
-
   const { id } = effect
-  const oldType = effect.type
-  const isOldShadow = oldType === 'drop' || oldType === 'inset'
-  const isNewShadow = newType === 'drop' || newType === 'inset'
-
-  if (isOldShadow && isNewShadow) {
-    // drop ↔ inset: keep all fields, flip discriminant
-    const shadow = effect as Extract<Effect, { type: 'drop' | 'inset' }>
-    return {
-      id,
-      type: newType as 'drop' | 'inset',
-      x: shadow.x,
-      y: shadow.y,
-      blur: shadow.blur,
-      spread: shadow.spread,
-      color: shadow.color,
-    }
+  // Discriminant-driven narrowing — switch on newType so the compiler enforces
+  // exhaustiveness when a fifth Effect kind is added. Casts via `as Extract<>`
+  // would silently accept that future addition; this won't.
+  switch (newType) {
+    case 'drop':
+    case 'inset':
+      if (effect.type === 'drop' || effect.type === 'inset') {
+        return { id, type: newType, x: effect.x, y: effect.y, blur: effect.blur, spread: effect.spread, color: effect.color }
+      }
+      return {
+        id,
+        type: newType,
+        x: DEFAULT_SHADOW_FIELDS.x,
+        y: DEFAULT_SHADOW_FIELDS.y,
+        blur: effect.blur,
+        spread: DEFAULT_SHADOW_FIELDS.spread,
+        color: DEFAULT_SHADOW_FIELDS.color,
+      }
+    case 'layer-blur':
+    case 'backdrop-blur':
+      return { id, type: newType, blur: effect.blur }
   }
-
-  if (isOldShadow && !isNewShadow) {
-    // shadow → blur: keep blur only
-    const shadow = effect as Extract<Effect, { type: 'drop' | 'inset' }>
-    return { id, type: newType as 'layer-blur' | 'backdrop-blur', blur: shadow.blur }
-  }
-
-  if (!isOldShadow && isNewShadow) {
-    // blur → shadow: keep blur, default x/y/spread/color
-    const blur = effect as Extract<Effect, { type: 'layer-blur' | 'backdrop-blur' }>
-    return {
-      id,
-      type: newType as 'drop' | 'inset',
-      x: DEFAULT_SHADOW_FIELDS.x,
-      y: DEFAULT_SHADOW_FIELDS.y,
-      blur: blur.blur,
-      spread: DEFAULT_SHADOW_FIELDS.spread,
-      color: DEFAULT_SHADOW_FIELDS.color,
-    }
-  }
-
-  // blur ↔ blur: keep blur
-  const blur = effect as Extract<Effect, { type: 'layer-blur' | 'backdrop-blur' }>
-  return { id, type: newType as 'layer-blur' | 'backdrop-blur', blur: blur.blur }
 }
+
 
 // ---------------------------------------------------------------------------
 // Singleton helpers — small predicates for UI logic.

@@ -1414,7 +1414,7 @@ export function Panel({
     setBorderWidths('0px')
     commitScrub()
   }, [setBorderWidths, commitScrub])
-  const handleShadowAdd = useCallback(() => {
+  const handleEffectAdd = useCallback(() => {
     applyOverride('box-shadow', addShadow(computedStyles.effects.boxShadow), true)
   }, [computedStyles.effects.boxShadow, applyOverride])
 
@@ -1792,7 +1792,7 @@ export function Panel({
           label="Effects"
           groupId="effects"
           headerAction={
-            <IconButton icon={<Plus size={14} />} ariaLabel="Add effect" tooltip="Add shadow effect" onClick={handleShadowAdd} />
+            <IconButton icon={<Plus size={14} />} ariaLabel="Add effect" tooltip="Add effect" onClick={handleEffectAdd} />
           }
         >
           <EffectsSection

@@ -15,7 +15,7 @@ import {
   convertEffect,
   isTypeOptionDisabled,
   parseFilterFunctions,
-  formatFilter,
+  DEFAULT_SHADOW,
 } from './effects-model.js'
 import type { Effect, EffectType } from './effects-model.js'
 
@@ -45,32 +45,17 @@ export interface EffectsSectionProps {
   mixedProperties?: Set<string>
 }
 
-/**
- * Parse the blur() value from a CSS filter string. Returns 0 if no blur found.
- * Kept exported for backwards compatibility — delegates to parseFilterFunctions.
- */
-export function parseBlurValue(filter: string): number {
-  return parseFilterFunctions(filter).blur
-}
-
-/**
- * Replace or insert a blur() function in a filter string, preserving other functions.
- * Kept exported for backwards compatibility — delegates to parseFilterFunctions + formatFilter.
- */
-export function replaceBlurInFilter(existing: string, newBlur: number): string {
-  return formatFilter(parseFilterFunctions(existing).rest, newBlur)
-}
-
 /** Extract effects-related values from a CSSStyleDeclaration. */
 export function parseEffectsValues(cs: CSSStyleDeclaration): EffectsValues {
+  // Safari < 18 only exposes the prefixed property on CSSStyleDeclaration.
+  const csWithVendor = cs as CSSStyleDeclaration & { webkitBackdropFilter?: string }
+  const backdrop = cs.backdropFilter || csWithVendor.webkitBackdropFilter || ''
   return {
     boxShadow: cs.boxShadow ?? 'none',
-    blur: parseBlurValue(cs.filter ?? ''),
-    backdropBlur: parseBlurValue(
-      cs.backdropFilter ?? (cs as any).webkitBackdropFilter ?? '',
-    ),
+    blur: parseFilterFunctions(cs.filter ?? '').blur,
+    backdropBlur: parseFilterFunctions(backdrop).blur,
     filterRaw: cs.filter ?? '',
-    backdropFilterRaw: cs.backdropFilter ?? (cs as any).webkitBackdropFilter ?? '',
+    backdropFilterRaw: backdrop,
   }
 }
 
@@ -91,22 +76,23 @@ export function addShadow(currentBoxShadow: string): string {
   return serializeBoxShadow([...shadows, { ...DEFAULT_SHADOW }])
 }
 
-const DEFAULT_SHADOW: Shadow = {
-  inset: false,
-  x: 0,
-  y: 2,
-  blur: 8,
-  spread: 0,
-  color: 'rgba(0, 0, 0, 0.1)',
-}
-
 // Per DESIGN.md line 304: "Type dropdown: Drop shadow, Inner shadow, Blur, Background blur"
 const EFFECT_TYPE_OPTIONS = [
   { value: 'drop',          label: 'Drop shadow' },
   { value: 'inset',         label: 'Inner shadow' },
-  { value: 'layer-blur',    label: 'Blur',          tooltip: 'Only one Blur per element' },
-  { value: 'backdrop-blur', label: 'Background blur', tooltip: 'Only one Background blur per element' },
+  { value: 'layer-blur',    label: 'Blur' },
+  { value: 'backdrop-blur', label: 'Background blur' },
 ]
+
+// Tooltips applied ONLY when the option is in the disabled state (sibling row
+// holds the singleton). Avoids showing "Only one Blur per element" on the
+// currently-active row's own selection, which would be confusing copy.
+const DISABLED_TOOLTIP: Record<EffectType, string | undefined> = {
+  'drop': undefined,
+  'inset': undefined,
+  'layer-blur': 'Only one Blur per element',
+  'backdrop-blur': 'Only one Background blur per element',
+}
 
 function isEffectEnabled(e: Effect): boolean {
   if (e.type === 'drop' || e.type === 'inset') {
@@ -201,25 +187,23 @@ export function EffectsSection({
     (phase: 'change' | 'scrub' | 'scrubEnd', nextEffects: Effect[]) => {
       const callback = phase === 'change' ? onChange : phase === 'scrub' ? onScrub : onScrubEnd
       if (!callback) return
-      const { boxShadow, filter, backdropFilter } = commitEffects(
-        nextEffects,
-        values.filterRaw,
-        values.backdropFilterRaw,
-      )
-      // Per-property emit gating: only fire onChange for properties that actually
-      // changed. Compare against the last snapshot (or current values if no prior
-      // emit). This prevents stale !important overrides on properties the gesture
-      // didn't touch (Panel.applyOverride installs them eagerly).
-      const lastCss = lastEmittedCssRef.current
-      const currentBoxShadow = lastCss?.boxShadow ?? values.boxShadow
-      const currentFilter = lastCss?.filter ?? formatFilter(parseFilterFunctions(values.filterRaw).rest, values.blur)
-      const currentBackdrop = lastCss?.backdropFilter ?? formatFilter(parseFilterFunctions(values.backdropFilterRaw).rest, values.backdropBlur)
-      if (boxShadow !== currentBoxShadow) callback({ property: 'box-shadow', value: boxShadow })
-      if (filter !== currentFilter) callback({ property: 'filter', value: filter })
-      if (backdropFilter !== currentBackdrop) callback({ property: 'backdrop-filter', value: backdropFilter })
-      lastEmittedCssRef.current = { boxShadow, filter, backdropFilter }
+      const next = commitEffects(nextEffects, values.filterRaw, values.backdropFilterRaw)
+      // Per-property emit gating: compare against the LAST EMITTED snapshot, or
+      // — for the first emission of the component — the canonical commitEffects
+      // output of the current baseEffects. Both sides must live in the same
+      // coordinate system (our serialized form), NOT against values.boxShadow
+      // which the browser has normalized (rgb()/rgba()/0px-padding). Comparing
+      // serialized vs. normalized always reports "different" and defeats the
+      // gating — emitting all three properties on every gesture, which is
+      // exactly the stale-override leak the gating was supposed to prevent.
+      const baseline = lastEmittedCssRef.current
+        ?? commitEffects(baseEffects, values.filterRaw, values.backdropFilterRaw)
+      if (next.boxShadow !== baseline.boxShadow) callback({ property: 'box-shadow', value: next.boxShadow })
+      if (next.filter !== baseline.filter) callback({ property: 'filter', value: next.filter })
+      if (next.backdropFilter !== baseline.backdropFilter) callback({ property: 'backdrop-filter', value: next.backdropFilter })
+      lastEmittedCssRef.current = next
     },
-    [onChange, onScrub, onScrubEnd, values.boxShadow, values.blur, values.backdropBlur, values.filterRaw, values.backdropFilterRaw],
+    [onChange, onScrub, onScrubEnd, baseEffects, values.filterRaw, values.backdropFilterRaw],
   )
 
   // ---- Field-level handlers (drop/inset rows) -----------------------------
@@ -378,10 +362,16 @@ export function EffectsSection({
 
   const optionsForRow = useCallback(
     (rowIndex: number) =>
-      EFFECT_TYPE_OPTIONS.map((opt) => ({
-        ...opt,
-        disabled: isTypeOptionDisabled(effects, rowIndex, opt.value as EffectType),
-      })),
+      EFFECT_TYPE_OPTIONS.map((opt) => {
+        const disabled = isTypeOptionDisabled(effects, rowIndex, opt.value as EffectType)
+        return {
+          ...opt,
+          disabled,
+          // Tooltip surfaces only when the option is greyed out — otherwise
+          // the user sees a sibling-row constraint on their own active selection.
+          tooltip: disabled ? DISABLED_TOOLTIP[opt.value as EffectType] : undefined,
+        }
+      }),
     [effects],
   )
 
