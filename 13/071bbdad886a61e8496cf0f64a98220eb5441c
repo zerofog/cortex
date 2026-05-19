@@ -1,0 +1,37 @@
+cortex-editor/tests/browser/controls/dropdown.test.tsx
+  s_ba6a606b1722f3::t_139d38ce2cb477 257-300
+cortex-editor/src/browser/components/sections/effects-model.ts
+  s_ba6a606b1722f3::t_b710eccb406a2c 20-24
+  s_ba6a606b1722f3::t_a845df5030c2b7 50-63
+  s_ba6a606b1722f3::t_54bf3ebcad7fb4 124-126,133-136,141-143,145-147
+  s_ba6a606b1722f3::t_d7f7a3a8033fb5 219-239
+cortex-editor/tests/browser/sections/effects-section.test.tsx
+  s_ba6a606b1722f3::t_132fb6909be8f0 299-389
+  s_ba6a606b1722f3::t_6bc49e24828ed4 87-89
+cortex-editor/src/browser/components/Panel.tsx
+  s_ba6a606b1722f3::t_79b7faf96da470 1795
+  s_ba6a606b1722f3::t_1fab60e429dc78 1417
+cortex-editor/src/browser/components/sections/EffectsSection.tsx
+  s_ba6a606b1722f3::t_ead2b995ed2dac 55-56
+  s_ba6a606b1722f3::t_53b0b9f1d798d1 50-52,58
+  s_ba6a606b1722f3::t_e571b66be26792 83-84,87-95
+  s_ba6a606b1722f3::t_f7a38a1c046a5b 190-204,206
+  s_ba6a606b1722f3::t_598a0dc851c1c4 18
+  s_ba6a606b1722f3::t_ffac19dddee7f4 365-374
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.10",
+  "base_commit_sha": "13071bbdad886a61e8496cf0f64a98220eb5441c",
+  "prompts": {},
+  "sessions": {
+    "s_ba6a606b1722f3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "99055495-fe39-48b4-8660-f13313973cd7",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
