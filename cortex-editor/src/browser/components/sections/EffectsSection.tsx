@@ -129,28 +129,32 @@ export function EffectsSection({
   dimmedProperties,
   mixedProperties,
 }: EffectsSectionProps): JSX.Element {
-  // Stable-ID cache: fingerprint -> id. Persists across renders so the same
-  // structural shape always gets the same id, even when re-parsing the same
-  // CSS snapshot. Without this, the eye-toggle stash and expanded-row state
-  // would lose their tether on every parent re-render.
-  const idCacheRef = useRef<Map<string, string>>(new Map())
-  const idCounterRef = useRef(0)
-  const getId = useCallback((fingerprint: string): string => {
-    const cache = idCacheRef.current
-    let id = cache.get(fingerprint)
-    if (!id) {
-      id = `effect-${idCounterRef.current++}`
-      cache.set(fingerprint, id)
-    }
-    return id
-  }, [])
+  // Effects derived from values. IDs are position-based (drop-0, inset-1, layer-blur,
+  // backdrop-blur), so value edits preserve identity — only structural changes
+  // (add/remove/reorder) churn ids.
+  const baseEffects = useMemo(() => buildEffects(values), [values])
 
-  const effects = useMemo(() => buildEffects(values, getId), [values, getId])
+  // Disabled singletons stay visible in the UI even when their blur is 0 (which
+  // would normally drop them from buildEffects). This lets the eye toggle work
+  // as a true on/off — the row persists with its stash entry available for restore.
+  const [disabledSingletons, setDisabledSingletons] = useState<Set<'layer-blur' | 'backdrop-blur'>>(new Set())
+
+  const effects = useMemo(() => {
+    const result = [...baseEffects]
+    // Augment with disabled singletons that buildEffects dropped (blur=0).
+    for (const type of disabledSingletons) {
+      if (!result.some((e) => e.type === type)) {
+        result.push({ id: type, type, blur: 0 })
+      }
+    }
+    return result
+  }, [baseEffects, disabledSingletons])
 
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  // Stash map keyed by stable Effect id, not array index. Cross-domain conversion
-  // (shadow ↔ blur) drops the stash entry at the conversion call site so a stale
-  // shadow payload can never leak into a blur restore.
+  // Stash map keyed by Effect id. Shadow ids shift on add/remove, so handleRemove
+  // remaps stash entries. Singleton ids ('layer-blur', 'backdrop-blur') are always
+  // stable. Cross-domain conversion (shadow ↔ blur) drops the stash entry at the
+  // conversion call site so a stale shadow payload can never leak into a blur restore.
   const stashRef = useRef<Map<string, StashEntry>>(new Map())
 
   // ---- Emission helpers ---------------------------------------------------
@@ -205,12 +209,43 @@ export function EffectsSection({
 
   const handleRemove = useCallback(
     (id: string) => {
+      const idx = effects.findIndex((e) => e.id === id)
+      if (idx === -1) return
+      const target = effects[idx]!
       stashRef.current.delete(id)
       if (expandedId === id) setExpandedId(null)
+      // If a singleton was hiding in disabledSingletons, drop it on remove.
+      if (target.type === 'layer-blur' || target.type === 'backdrop-blur') {
+        if (disabledSingletons.has(target.type)) {
+          const next = new Set(disabledSingletons)
+          next.delete(target.type)
+          setDisabledSingletons(next)
+        }
+      }
+      // Shift shadow stash entries: a shadow at index > idx will become index - 1
+      // on the next render, so its id changes (drop-2 → drop-1). Pre-migrate the
+      // stash so the eye-toggle restore still finds the right payload.
+      if (target.type === 'drop' || target.type === 'inset') {
+        const newStash = new Map<string, StashEntry>()
+        effects.forEach((e, i) => {
+          if (i === idx) return
+          const entry = stashRef.current.get(e.id)
+          if (!entry) return
+          if (e.type === 'drop' || e.type === 'inset') {
+            const newIdx = i > idx ? i - 1 : i
+            const newId = `${e.type}-${newIdx}`
+            newStash.set(newId, entry)
+          } else {
+            // Singleton ids don't shift
+            newStash.set(e.id, entry)
+          }
+        })
+        stashRef.current = newStash
+      }
       const next = effects.filter((e) => e.id !== id)
       emit('change', next)
     },
-    [effects, emit, expandedId],
+    [effects, emit, expandedId, disabledSingletons],
   )
 
   const handleTypeChange = useCallback(
@@ -262,13 +297,24 @@ export function EffectsSection({
           updated = { ...target, ...restore }
         }
       } else {
-        // layer-blur or backdrop-blur
+        // layer-blur or backdrop-blur — keep the row visible across the disabled state
         if (enabled) {
           stashRef.current.set(id, { kind: 'blur', blur: target.blur })
+          // Mark this singleton as "disabled but visible" so the next render
+          // (which sees values.blur === 0 and would drop the row) still shows it.
+          const nextDisabled = new Set(disabledSingletons)
+          nextDisabled.add(target.type)
+          setDisabledSingletons(nextDisabled)
           updated = { ...target, blur: 0 }
         } else {
           const stashed = stashRef.current.get(id)
           stashRef.current.delete(id)
+          // No longer "disabled but visible" — values.blur > 0 will keep it on its own.
+          if (disabledSingletons.has(target.type)) {
+            const nextDisabled = new Set(disabledSingletons)
+            nextDisabled.delete(target.type)
+            setDisabledSingletons(nextDisabled)
+          }
           const restoreBlur = stashed && stashed.kind === 'blur' ? stashed.blur : DEFAULT_SHADOW.blur
           updated = { ...target, blur: restoreBlur }
         }
@@ -276,7 +322,7 @@ export function EffectsSection({
       const next = effects.map((e) => (e.id === id ? updated : e))
       emit('change', next)
     },
-    [effects, emit],
+    [effects, emit, disabledSingletons],
   )
 
   const toggleExpand = useCallback((id: string) => {

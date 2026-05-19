@@ -5,7 +5,6 @@ import {
   convertEffect,
   commitEffects,
   buildEffects,
-  fingerprintEffect,
   hasSingleton,
   isTypeOptionDisabled,
 } from '../../../src/browser/components/sections/effects-model.js'
@@ -276,60 +275,9 @@ describe('isTypeOptionDisabled', () => {
 })
 
 // ---------------------------------------------------------------------------
-// fingerprintEffect — contract tests (these guide the Learn by Doing implementation)
+// buildEffects — CSS snapshot to Effect[]
+// IDs are deterministic from position+type. No id cache needed.
 // ---------------------------------------------------------------------------
-describe('fingerprintEffect', () => {
-  it('produces identical fingerprints for identical inputs (determinism)', () => {
-    const a = fingerprintEffect({ type: 'drop', x: 1, y: 2, blur: 8, spread: 0, color: '#000' }, 0)
-    const b = fingerprintEffect({ type: 'drop', x: 1, y: 2, blur: 8, spread: 0, color: '#000' }, 0)
-    expect(a).toBe(b)
-  })
-
-  it('two structurally identical shadows at DIFFERENT positions get different fingerprints', () => {
-    const a = fingerprintEffect({ type: 'drop', x: 1, y: 2, blur: 8, spread: 0, color: '#000' }, 0)
-    const b = fingerprintEffect({ type: 'drop', x: 1, y: 2, blur: 8, spread: 0, color: '#000' }, 1)
-    expect(a).not.toBe(b)
-  })
-
-  it('differing fields produce different fingerprints', () => {
-    const a = fingerprintEffect({ type: 'drop', x: 1, y: 2, blur: 8, spread: 0, color: '#000' }, 0)
-    const b = fingerprintEffect({ type: 'drop', x: 1, y: 2, blur: 9, spread: 0, color: '#000' }, 0)
-    expect(a).not.toBe(b)
-  })
-
-  it('drop and inset with otherwise identical fields produce different fingerprints', () => {
-    const a = fingerprintEffect({ type: 'drop', x: 1, y: 2, blur: 8, spread: 0, color: '#000' }, 0)
-    const b = fingerprintEffect({ type: 'inset', x: 1, y: 2, blur: 8, spread: 0, color: '#000' }, 0)
-    expect(a).not.toBe(b)
-  })
-
-  it('layer-blur and backdrop-blur singletons have distinct, position-independent fingerprints', () => {
-    const layerA = fingerprintEffect({ type: 'layer-blur', blur: 4 }, -1)
-    const layerB = fingerprintEffect({ type: 'layer-blur', blur: 12 }, -1)
-    const backdrop = fingerprintEffect({ type: 'backdrop-blur', blur: 4 }, -1)
-    // Singletons: same type → same fingerprint regardless of blur value
-    expect(layerA).toBe(layerB)
-    // Different types → different fingerprints
-    expect(layerA).not.toBe(backdrop)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// buildEffects — CSS snapshot to Effect[] (depends on fingerprintEffect)
-// ---------------------------------------------------------------------------
-function makeIdCache(): (fp: string) => string {
-  const cache = new Map<string, string>()
-  let counter = 0
-  return (fp: string) => {
-    let id = cache.get(fp)
-    if (!id) {
-      id = `id-${counter++}`
-      cache.set(fp, id)
-    }
-    return id
-  }
-}
-
 const EMPTY_VALUES: EffectsValues = {
   boxShadow: 'none',
   blur: 0,
@@ -340,44 +288,46 @@ const EMPTY_VALUES: EffectsValues = {
 
 describe('buildEffects', () => {
   it('empty values -> empty list', () => {
-    expect(buildEffects(EMPTY_VALUES, makeIdCache())).toEqual([])
+    expect(buildEffects(EMPTY_VALUES)).toEqual([])
   })
 
-  it('single drop shadow -> one drop effect', () => {
-    const result = buildEffects(
-      { ...EMPTY_VALUES, boxShadow: '1px 2px 8px 0px rgba(0, 0, 0, 0.1)' },
-      makeIdCache(),
-    )
+  it('single drop shadow -> one drop effect with id "drop-0"', () => {
+    const result = buildEffects({ ...EMPTY_VALUES, boxShadow: '1px 2px 8px 0px rgba(0, 0, 0, 0.1)' })
     expect(result).toHaveLength(1)
     expect(result[0]?.type).toBe('drop')
+    expect(result[0]?.id).toBe('drop-0')
   })
 
-  it('layer-blur only -> one layer-blur effect', () => {
-    const result = buildEffects({ ...EMPTY_VALUES, blur: 4, filterRaw: 'blur(4px)' }, makeIdCache())
+  it('layer-blur only -> one layer-blur effect with id "layer-blur"', () => {
+    const result = buildEffects({ ...EMPTY_VALUES, blur: 4, filterRaw: 'blur(4px)' })
     expect(result).toHaveLength(1)
-    expect(result[0]).toMatchObject({ type: 'layer-blur', blur: 4 })
+    expect(result[0]).toMatchObject({ id: 'layer-blur', type: 'layer-blur', blur: 4 })
   })
 
   it('mixed: shadow + layer-blur + backdrop-blur in this order', () => {
-    const result = buildEffects(
-      {
-        boxShadow: '1px 2px 8px 0px #000',
-        blur: 4,
-        backdropBlur: 6,
-        filterRaw: 'blur(4px)',
-        backdropFilterRaw: 'blur(6px)',
-      },
-      makeIdCache(),
-    )
+    const result = buildEffects({
+      boxShadow: '1px 2px 8px 0px #000',
+      blur: 4,
+      backdropBlur: 6,
+      filterRaw: 'blur(4px)',
+      backdropFilterRaw: 'blur(6px)',
+    })
     expect(result.map((e) => e.type)).toEqual(['drop', 'layer-blur', 'backdrop-blur'])
   })
 
-  it('id cache returns stable ids across two builds with identical input', () => {
-    const cache = makeIdCache()
+  it('id is stable across builds with identical input', () => {
     const v: EffectsValues = { ...EMPTY_VALUES, boxShadow: '1px 2px 8px 0px #000' }
-    const a = buildEffects(v, cache)
-    const b = buildEffects(v, cache)
+    const a = buildEffects(v)
+    const b = buildEffects(v)
     expect(a[0]?.id).toBe(b[0]?.id)
+  })
+
+  it('id is stable across builds when only field values change (regression: bug 1)', () => {
+    // The Codex review caught this: editing x/y/blur/color should NOT mint a new id.
+    // Otherwise expandedId and stash lookups by id break on every edit.
+    const before: EffectsValues = { ...EMPTY_VALUES, boxShadow: '0px 0px 8px 0px #000' }
+    const after: EffectsValues = { ...EMPTY_VALUES, boxShadow: '5px 5px 12px 2px #fff' }
+    expect(buildEffects(before)[0]?.id).toBe(buildEffects(after)[0]?.id)
   })
 
   it('round-trip: commitEffects(buildEffects(values)) preserves the shape (sans whitespace)', () => {
@@ -388,10 +338,21 @@ describe('buildEffects', () => {
       filterRaw: 'blur(4px)',
       backdropFilterRaw: '',
     }
-    const effects = buildEffects(v, makeIdCache())
+    const effects = buildEffects(v)
     const out = commitEffects(effects, v.filterRaw, v.backdropFilterRaw)
     expect(out.boxShadow).toBe('1px 2px 8px 0px #000')
     expect(out.filter).toBe('blur(4px)')
     expect(out.backdropFilter).toBe('none')
+  })
+
+  it('two identical shadows get distinct ids by position', () => {
+    const v: EffectsValues = {
+      ...EMPTY_VALUES,
+      boxShadow: '0px 0px 4px 0px #000, 0px 0px 4px 0px #000',
+    }
+    const result = buildEffects(v)
+    expect(result).toHaveLength(2)
+    expect(result[0]?.id).toBe('drop-0')
+    expect(result[1]?.id).toBe('drop-1')
   })
 })

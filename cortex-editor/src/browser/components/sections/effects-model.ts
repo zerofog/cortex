@@ -81,59 +81,6 @@ export function formatFilter(rest: string, blur: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// fingerprintEffect — structural identity for stable IDs.
-// ---------------------------------------------------------------------------
-
-/**
- * Input shape for fingerprintEffect — an Effect without its id.
- * Spelled out as an explicit union (rather than Omit<Effect, 'id'>) so TS
- * narrows cleanly at each variant call site.
- */
-export type FingerprintInput =
-  | { type: 'drop';          x: number; y: number; blur: number; spread: number; color: string }
-  | { type: 'inset';         x: number; y: number; blur: number; spread: number; color: string }
-  | { type: 'layer-blur';    blur: number }
-  | { type: 'backdrop-blur'; blur: number }
-
-/**
- * Generate a stable structural fingerprint for an Effect (sans id).
- *
- * The component caches a Map<fingerprint, id> across renders so that re-parsing
- * the same CSS snapshot produces the same per-row IDs. This lets the eye-toggle
- * stash, expanded-row state, and DOM identity all key by an id that survives
- * re-renders without React reconciliation churn.
- *
- * Contract:
- *   - Determinism: same inputs always produce the same output.
- *   - Collision behavior for non-singletons: two identical shadows in source
- *     must produce DIFFERENT fingerprints — that's what positionalIndex is for.
- *   - Singletons (layer-blur, backdrop-blur): at most one per element by
- *     definition, so the type name alone is sufficient — pass positionalIndex = -1
- *     from the caller for singletons; the function may ignore it for those types.
- *
- * @param effect Effect without its assigned id.
- * @param positionalIndex Caller-provided disambiguator. >=0 for shadows, -1 for singletons.
- * @returns A string suitable for Map keys.
- */
-export function fingerprintEffect(
-  effect: FingerprintInput,
-  positionalIndex: number,
-): string {
-  if (effect.type === 'layer-blur' || effect.type === 'backdrop-blur') {
-    return effect.type
-  }
-  return [
-    effect.type,
-    effect.x,
-    effect.y,
-    effect.blur,
-    effect.spread,
-    effect.color,
-    positionalIndex,
-  ].join('|')
-}
-
-// ---------------------------------------------------------------------------
 // buildEffects — CSS snapshot to Effect[]
 // ---------------------------------------------------------------------------
 
@@ -144,24 +91,23 @@ export function fingerprintEffect(
  * (if present), then backdrop-blur singleton (if present). Cross-property ordering
  * is not preserved by CSS — there is no shared ordering to recover, so we impose this.
  *
- * The `getId` callback lets the component's stable-ID cache hand back an existing id
- * or mint a fresh one based on the structural fingerprint.
+ * IDs are derived deterministically from position and type:
+ *   - Shadows: `${type}-${index}`  (e.g., `drop-0`, `inset-1`)
+ *   - Singletons: just the type name (`layer-blur`, `backdrop-blur`)
+ *
+ * This keeps ids stable across value edits (a shadow at position 1 is always
+ * `drop-1` regardless of its current x/y/color). The CALLER is responsible for
+ * shifting stash/expanded state when shadows are added/removed and positions
+ * shift — see handleRemove in EffectsSection.tsx.
  */
-export function buildEffects(
-  values: EffectsValues,
-  getId: (fingerprint: string) => string,
-): Effect[] {
+export function buildEffects(values: EffectsValues): Effect[] {
   const effects: Effect[] = []
   const shadows = parseBoxShadow(values.boxShadow)
 
   shadows.forEach((shadow, index) => {
     const type: 'drop' | 'inset' = shadow.inset ? 'inset' : 'drop'
-    const fp = fingerprintEffect(
-      { type, x: shadow.x, y: shadow.y, blur: shadow.blur, spread: shadow.spread, color: shadow.color },
-      index,
-    )
     effects.push({
-      id: getId(fp),
+      id: `${type}-${index}`,
       type,
       x: shadow.x,
       y: shadow.y,
@@ -172,13 +118,11 @@ export function buildEffects(
   })
 
   if (values.blur > 0) {
-    const fp = fingerprintEffect({ type: 'layer-blur', blur: values.blur }, -1)
-    effects.push({ id: getId(fp), type: 'layer-blur', blur: values.blur })
+    effects.push({ id: 'layer-blur', type: 'layer-blur', blur: values.blur })
   }
 
   if (values.backdropBlur > 0) {
-    const fp = fingerprintEffect({ type: 'backdrop-blur', blur: values.backdropBlur }, -1)
-    effects.push({ id: getId(fp), type: 'backdrop-blur', blur: values.backdropBlur })
+    effects.push({ id: 'backdrop-blur', type: 'backdrop-blur', blur: values.backdropBlur })
   }
 
   return effects
