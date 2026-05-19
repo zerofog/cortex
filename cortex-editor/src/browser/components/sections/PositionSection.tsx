@@ -109,13 +109,26 @@ function SelfAlignmentBlock({
   values,
   onChange,
 }: SelfAlignmentBlockProps): JSX.Element | null {
+  // Toggle-to-clear: clicking the already-active button emits 'auto'
+  // instead of re-emitting the same value. Matches Figma / Webflow /
+  // Linear convention — every set is undoable via the inverse gesture,
+  // so the panel doesn't need a separate "reset" affordance for the
+  // common case of "I clicked center by accident, get me back to auto."
   const setJustify = useCallback(
-    (value: string) => onChange({ property: 'justify-self', value }),
-    [onChange],
+    (value: string) =>
+      onChange({
+        property: 'justify-self',
+        value: values.justifySelf === value ? 'auto' : value,
+      }),
+    [onChange, values.justifySelf],
   )
   const setAlign = useCallback(
-    (value: string) => onChange({ property: 'align-self', value }),
-    [onChange],
+    (value: string) =>
+      onChange({
+        property: 'align-self',
+        value: values.alignSelf === value ? 'auto' : value,
+      }),
+    [onChange, values.alignSelf],
   )
 
   const showJustify = justifySelfApplies(values)
