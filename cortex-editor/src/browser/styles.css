@@ -1636,6 +1636,17 @@
   cursor: not-allowed;
 }
 
+/* Per-option disable (e.g. `display: inline` when parent is flex/grid).
+   Visible at reduced opacity so the user sees the option exists but can
+   tell it isn't currently usable; tooltip explains why. Click handler
+   no-ops via the disabled prop, but cursor cue matters for hover. */
+.cortex-segmented__option--disabled,
+.cortex-segmented__option--disabled:hover:not(.cortex-segmented__option--active) {
+  color: var(--cx-ink-tertiary);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .cortex-segmented--sm .cortex-segmented__option {
   height: 22px;
   padding: 0 var(--cx-sp-3);
