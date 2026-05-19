@@ -1785,8 +1785,8 @@
   cursor: pointer;
 }
 
-.cortex-dropdown__option:hover,
-.cortex-dropdown__option--active {
+.cortex-dropdown__option:not(.cortex-dropdown__option--disabled):hover,
+.cortex-dropdown__option--active:not(.cortex-dropdown__option--disabled) {
   background: var(--cx-well);
   color: var(--cx-ink);
 }
@@ -1794,6 +1794,13 @@
 .cortex-dropdown__option--selected {
   font-weight: var(--cx-weight-value);
   color: var(--cx-select);
+}
+
+/* Disabled options (e.g. a singleton effect type already used by another row):
+   greyed out, no pointer affordance, no hover/active highlight. */
+.cortex-dropdown__option--disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .cortex-dropdown__empty {
@@ -2608,7 +2615,6 @@
   gap: var(--cx-sp-6);
 }
 
-.cortex-effects-section__shadows,
 .cortex-effects-section__effects {
   display: flex;
   flex-direction: column;
@@ -2674,12 +2680,6 @@
 .cortex-effects-section__grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--cx-sp-3);
-}
-
-.cortex-effects-section__blur-controls {
-  display: flex;
-  flex-direction: column;
   gap: var(--cx-sp-3);
 }
 

@@ -17,6 +17,14 @@ import {
 } from './helpers/panel.js'
 
 test('NumericInput tooltip escapes panel-body clipping without Native Popover API', async ({ page }) => {
+  // Shrink the viewport so the panel body is reliably shorter than its section
+  // content. This test scrolls the Width NumericInput to the panel-body's top
+  // edge — which only works if there is at least a viewport's worth of content
+  // below it. The default 1280x800 viewport left almost no slack, so a section
+  // legitimately getting shorter (e.g. the Effects empty state losing the
+  // always-on BL/BG block) would clamp the scroll and break the precondition.
+  // A 600px-tall viewport guarantees the panel overflows regardless.
+  await page.setViewportSize({ width: 1280, height: 600 })
   await bootWithSendSpy(page)
   await selectElement(page, FIXTURE_SEED_SELECTOR)
   await waitForElementStatePanel(page)

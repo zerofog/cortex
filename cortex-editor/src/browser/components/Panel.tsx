@@ -1796,6 +1796,14 @@ export function Panel({
           }
         >
           <EffectsSection
+            // Keyed on the selected element's identity so a selection change
+            // remounts EffectsSection fresh — this resets its local UI state
+            // (disabledSingletons, expandedId, stashRef). Without the remount,
+            // disabling a blur on element A then selecting element B leaves a
+            // ghost disabled-blur row on B. The key is stable during a scrub
+            // (selection doesn't change mid-gesture), so it never interrupts an
+            // in-progress edit.
+            key={`${element.tagName}|${element.id}|${element.getAttribute('data-cortex-source') ?? ''}`}
             values={computedStyles.effects}
             onChange={handleCommit}
             onScrub={handleScrub}

@@ -297,5 +297,49 @@ describe('Dropdown', () => {
       ;(opts[0] as HTMLElement).click()
       expect(onChange).toHaveBeenCalledWith('a')
     })
+
+    it('ArrowDown skips a disabled option and lands on the next enabled one', async () => {
+      // [enabled A, disabled B, enabled C] — ArrowDown from A must skip B → C.
+      const MIXED = [
+        { value: 'a', label: 'A' },
+        { value: 'b', label: 'B', disabled: true },
+        { value: 'c', label: 'C' },
+      ]
+      setup({ options: MIXED, value: 'a' })
+      getTrigger().click()
+      await vi.waitFor(() => {
+        expect(getPopover()).not.toBeNull()
+      })
+      const filter = getFilter()!
+      // Highlight starts on the first enabled option (A, index 0).
+      await vi.waitFor(() => {
+        const id = filter.getAttribute('aria-activedescendant')
+        expect(document.getElementById(id!)).toBe(getOptions()[0])
+      })
+      // ArrowDown must skip the disabled B (index 1) and land on C (index 2).
+      dispatchKeyboardEvent(filter, 'keydown', { key: 'ArrowDown' })
+      await vi.waitFor(() => {
+        const id = filter.getAttribute('aria-activedescendant')
+        expect(document.getElementById(id!)).toBe(getOptions()[2])
+      }, { timeout: 500 })
+    })
+
+    it('opens with the highlight on the first enabled option', async () => {
+      // First option disabled — the initial highlight must skip to index 1.
+      const LEADING_DISABLED = [
+        { value: 'a', label: 'A', disabled: true },
+        { value: 'b', label: 'B' },
+      ]
+      setup({ options: LEADING_DISABLED, value: 'b' })
+      getTrigger().click()
+      await vi.waitFor(() => {
+        expect(getPopover()).not.toBeNull()
+      })
+      const filter = getFilter()!
+      await vi.waitFor(() => {
+        const id = filter.getAttribute('aria-activedescendant')
+        expect(document.getElementById(id!)).toBe(getOptions()[1])
+      }, { timeout: 500 })
+    })
   })
 })

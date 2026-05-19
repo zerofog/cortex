@@ -88,13 +88,16 @@ export function Dropdown({
     return () => { cancelled = true }
   }, [isOpen])
 
-  // Focus filter input when opened
+  // Focus filter input when opened. Land the highlight on the first ENABLED
+  // option — starting on a disabled row would make the first Enter a no-op.
+  // (filter is reset to '' on open, so `options` === the filtered list here.)
   useEffect(() => {
     if (isOpen) {
       filterRef.current?.focus()
-      setHighlightIdx(0)
+      const firstEnabled = options.findIndex((o) => !o.disabled)
+      setHighlightIdx(firstEnabled === -1 ? 0 : firstEnabled)
     }
-  }, [isOpen])
+  }, [isOpen, options])
 
   const open = useCallback(() => {
     setFilter('')
@@ -121,6 +124,19 @@ export function Dropdown({
     setHighlightIdx(0)
   }, [])
 
+  // Walk from `from` in `dir` to the next non-disabled option index. Returns
+  // `from` unchanged if there is no enabled option in that direction, so arrow
+  // keys never strand the highlight on a disabled (non-actionable) row.
+  const nextEnabledIdx = useCallback(
+    (from: number, dir: 1 | -1): number => {
+      for (let i = from + dir; i >= 0 && i < filtered.length; i += dir) {
+        if (!filtered[i]?.disabled) return i
+      }
+      return from
+    },
+    [filtered],
+  )
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -128,10 +144,10 @@ export function Dropdown({
         close()
       } else if (e.key === 'ArrowDown') {
         e.preventDefault()
-        if (filtered.length > 0) setHighlightIdx((i) => Math.min(i + 1, filtered.length - 1))
+        if (filtered.length > 0) setHighlightIdx((i) => nextEnabledIdx(i, 1))
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
-        if (filtered.length > 0) setHighlightIdx((i) => Math.max(i - 1, 0))
+        if (filtered.length > 0) setHighlightIdx((i) => nextEnabledIdx(i, -1))
       } else if (e.key === 'Enter') {
         e.preventDefault()
         if (filtered[highlightIdx]) {
@@ -139,7 +155,7 @@ export function Dropdown({
         }
       }
     },
-    [close, select, filtered, highlightIdx],
+    [close, select, filtered, highlightIdx, nextEnabledIdx],
   )
 
   return (

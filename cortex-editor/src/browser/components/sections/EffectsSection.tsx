@@ -123,6 +123,9 @@ export function EffectsSection({
   // Disabled singletons stay visible in the UI even when their blur is 0 (which
   // would normally drop them from buildEffects). This lets the eye toggle work
   // as a true on/off — the row persists with its stash entry available for restore.
+  // This state is selection-scoped: Panel keys EffectsSection on the selected
+  // element, so a selection change remounts the component and resets this set —
+  // no stale disabled-blur row can leak onto a different element.
   const [disabledSingletons, setDisabledSingletons] = useState<Set<'layer-blur' | 'backdrop-blur'>>(new Set())
 
   const effects = useMemo(() => {
@@ -168,10 +171,17 @@ export function EffectsSection({
   const rowsContainerRef = useRef<HTMLDivElement>(null)
   const prevEffectsCountRef = useRef(effects.length)
   useEffect(() => {
-    if (effects.length > prevEffectsCountRef.current) {
-      // A new row was added. `block: 'end'` puts the new row at the bottom edge
-      // of the viewport; the CSS `scroll-margin-bottom` on `__row` adds padding
-      // so the row sits comfortably above the panel edge instead of hugging it.
+    // Only scroll on a genuine user-add: the count grew AND the section already
+    // had at least one row. The `prevCount > 0` guard is load-bearing — without
+    // it, the populate-from-empty transition (0 → N when an element is first
+    // selected and computedStyles resolves) is misread as "a row was added" and
+    // fires a smooth scroll that fights other scroll operations (it broke the
+    // tooltip-layer e2e test, which scrolls the panel body itself). When the
+    // section is empty, the first added row sits at the section top — visible
+    // without any scroll — so skipping that case loses nothing.
+    if (prevEffectsCountRef.current > 0 && effects.length > prevEffectsCountRef.current) {
+      // `block: 'end'` puts the new row at the bottom edge; the CSS
+      // `scroll-margin-bottom` on `__row` keeps it off the panel edge.
       const last = rowsContainerRef.current?.lastElementChild as HTMLElement | null
       last?.scrollIntoView({ block: 'end', behavior: 'smooth' })
     }
@@ -524,7 +534,7 @@ export function EffectsSection({
                   <NumericInput
                     value={effect.blur}
                     unit="px"
-                    label={effect.type === 'layer-blur' ? 'Blur' : 'BG Blur'}
+                    label={effect.type === 'layer-blur' ? 'Blur' : 'Background blur'}
                     tooltip={effect.type === 'layer-blur' ? 'Element blur' : 'Backdrop blur'}
                     min={0}
                     mixed={mixed}
