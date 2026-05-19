@@ -488,8 +488,30 @@ describe('LayoutSection', () => {
     expect(inlineDisplayApplies({ tagName: 'div', parentDisplay: 'inline-grid' })).toBe(false)
   })
 
-  it('inlineDisplayApplies: <img> (replaced element) → false', () => {
-    expect(inlineDisplayApplies({ tagName: 'img', parentDisplay: 'block' })).toBe(false)
+  // Regression: codex review (P2) on PR #162 caught that <img>, <video>,
+  // <canvas>, <iframe>, <embed>, <object> all honor display:inline
+  // correctly (verified live: each computes to "inline" when set).
+  // They're atomic-inline by default but display:inline remains a valid
+  // edit — switching from block/flex/grid BACK to inline must stay
+  // available. The original PR over-included these in WIDGET_TAGS.
+  it.each([
+    ['img'],
+    ['video'],
+    ['canvas'],
+    ['iframe'],
+    ['embed'],
+    ['object'],
+  ])('inlineDisplayApplies: <%s> (replaced/media element) in block parent → true', (tag) => {
+    expect(inlineDisplayApplies({ tagName: tag, parentDisplay: 'block' })).toBe(true)
+  })
+
+  it('inlineDisplayApplies: pseudo-element on a widget host → true', () => {
+    // Regression: codex review (P2) on PR #162. When editing ::before on
+    // a <button>, the pseudo-element is NOT subject to widget coercion —
+    // it's a generated box, not the form control itself. panel-style-
+    // snapshot now sets tagName='' for pseudo-element snapshots, which
+    // bypasses WIDGET_TAGS. Verified at the predicate level here.
+    expect(inlineDisplayApplies({ tagName: '', parentDisplay: 'block' })).toBe(true)
   })
 
   // ── UI: disabled state on the inline option ───────────────────────────

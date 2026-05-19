@@ -384,4 +384,46 @@ describe('computePanelStyleSnapshot', () => {
     }
   })
 
+  // Regression: codex review (P2) on PR #162 — pseudo-element snapshots
+  // should NOT carry the host element's tag because the pseudo-element
+  // isn't subject to widget-display coercion. ::before on a <button> is
+  // a generated box, not the button itself; display:inline works fine.
+  it('layout.tagName is empty for pseudo-element snapshots (widget host bypass)', () => {
+    const target = document.createElement('button')
+    document.body.appendChild(target)
+    try {
+      const result = computePanelStyleSnapshot({
+        element: target,
+        activePseudo: '::before',
+        activeState: 'default',
+        sharedInfo: null,
+        editScope: 'instance',
+        overrideManager: { get: vi.fn().mockReturnValue(undefined) },
+        defaultStyles: null,
+      })
+      expect(result.computedStyles.layout.tagName).toBe('')
+    } finally {
+      target.remove()
+    }
+  })
+
+  it('layout.tagName is the element tag for non-pseudo snapshots', () => {
+    const target = document.createElement('button')
+    document.body.appendChild(target)
+    try {
+      const result = computePanelStyleSnapshot({
+        element: target,
+        activePseudo: 'element',
+        activeState: 'default',
+        sharedInfo: null,
+        editScope: 'instance',
+        overrideManager: { get: vi.fn().mockReturnValue(undefined) },
+        defaultStyles: null,
+      })
+      expect(result.computedStyles.layout.tagName).toBe('button')
+    } finally {
+      target.remove()
+    }
+  })
+
 })

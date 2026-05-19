@@ -118,15 +118,20 @@ export function parseLayoutValues(cs: CSSStyleDeclaration): LayoutValues {
   }
 }
 
-/** HTML widget tags whose user-agent stylesheet treats them as replaced-
- *  element-like: `display: inline` gets coerced to `display: inline-block`
- *  (and then normalized back to "block" by the panel's normalizeDisplay).
- *  So the "inline" option silently no-ops for these — we disable it. */
+/** HTML form-widget tags whose user-agent stylesheet coerces
+ *  `display: inline` into `display: inline-block` (which the panel's
+ *  normalizeDisplay maps back to "block"). For these the inline option
+ *  is a no-op, so the panel disables it.
+ *
+ *  Replaced/media elements (img/video/canvas/iframe/embed/object) are
+ *  INTENTIONALLY excluded — they're atomic-inline by default and
+ *  display:inline is a valid edit on them (verified live: each computes
+ *  to "inline" when set, not coerced). Including them here would block
+ *  legitimate "switch back to inline" edits — caught by codex review on
+ *  PR #162. */
 const WIDGET_TAGS: ReadonlySet<string> = new Set([
   'button', 'input', 'select', 'textarea',
   'progress', 'meter',
-  'img', 'video', 'audio', 'canvas', 'iframe',
-  'embed', 'object',
 ])
 
 /** Whether `display: inline` would actually take effect on this element.

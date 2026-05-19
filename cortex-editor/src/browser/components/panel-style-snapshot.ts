@@ -119,10 +119,15 @@ export function computePanelStyleSnapshot(input: ComputePanelStyleSnapshotInput)
   }
   // Tag name drives widget-coercion detection in LayoutSection ('inline'
   // is a no-op on button/input/select/etc. per HTML UA stylesheet).
-  // Pseudo-elements don't have their own tag — they inherit from the
-  // originating element, which for both pseudo and non-pseudo cases is
-  // `element` itself.
-  parsed.layout.tagName = element.tagName.toLowerCase()
+  //
+  // Pseudo-elements (::before/::after) are NOT subject to widget
+  // coercion — they're generated boxes, not the form control. Their
+  // computed display for `inline` value is honored normally. So we
+  // leave tagName empty for pseudo-element snapshots, which makes
+  // WIDGET_TAGS.has('') return false and the inline option stay
+  // enabled. The remaining gate (parent flex/grid blockification) is
+  // still applied via parentDisplay. Caught by codex review on PR #162.
+  parsed.layout.tagName = pseudo ? '' : element.tagName.toLowerCase()
   // Per CSS spec §8.5.3, getComputedStyle zeroes border-width when
   // border-style is 'none' or 'hidden' — which breaks the existence/
   // visibility split used by summarizeBorder. A user-hidden border (via
