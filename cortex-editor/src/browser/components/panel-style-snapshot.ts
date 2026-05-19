@@ -101,9 +101,16 @@ export function computePanelStyleSnapshot(input: ComputePanelStyleSnapshotInput)
   // originating element's DOM parent, and the self-alignment controls
   // hide spuriously (or show as dead controls in the reverse case).
   // Caught by codex review on the Position QOL PR.
+  //
+  // parentFlexDirection drives parent-aware icon/label selection in
+  // PositionSection (align-self cross-axis depends on it for flex
+  // parents). Read it from the same layoutParent so the pseudo logic
+  // carries through.
   const layoutParent = pseudo ? element : element.parentElement
   if (layoutParent) {
-    parsed.position.parentDisplay = getComputedStyle(layoutParent).display ?? 'block'
+    const parentCs = getComputedStyle(layoutParent)
+    parsed.position.parentDisplay = parentCs.display ?? 'block'
+    parsed.position.parentFlexDirection = parentCs.flexDirection ?? 'row'
   }
   // Per CSS spec §8.5.3, getComputedStyle zeroes border-width when
   // border-style is 'none' or 'hidden' — which breaks the existence/

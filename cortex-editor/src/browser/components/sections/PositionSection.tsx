@@ -37,6 +37,14 @@ export interface PositionValues {
    *  case the abs-positioning containing block honors them). Default 'block'
    *  for elements with no parent so the controls hide. */
   parentDisplay: string
+  /** Parent element's computed `flex-direction`. Only meaningful when
+   *  parentDisplay is flex/inline-flex. Determines which axis align-self
+   *  operates on: row* → cross axis is VERTICAL (top/middle/bottom);
+   *  column* → cross axis is HORIZONTAL (left/center/right). For grid
+   *  parents and abs/fixed elements, align-self always operates on the
+   *  block axis (vertical in horizontal writing modes), so this field is
+   *  ignored. Default 'row' for elements with no flex parent. */
+  parentFlexDirection: string
 }
 
 export interface PositionSectionProps {
@@ -77,7 +85,44 @@ export function parsePositionValues(cs: CSSStyleDeclaration): PositionValues {
     justifySelf: cs.justifySelf ?? 'auto',
     alignSelf: cs.alignSelf ?? 'auto',
     parentDisplay: 'block',
+    parentFlexDirection: 'row',
   }
+}
+
+/** Which spatial axis align-self operates on for this element's parent.
+ *  Returns 'horizontal' (left/center/right labels + horizontal-shift icons)
+ *  or 'vertical' (top/middle/bottom labels + vertical-shift icons).
+ *
+ *  - Abs/fixed elements: ALWAYS vertical — abs-positioned boxes are not
+ *    flex items, so the parent's flex-direction does NOT determine their
+ *    cross axis. align-self operates on the abs-positioning containing
+ *    block's block axis (vertical in horizontal writing modes). This
+ *    check comes FIRST because abs/fixed escapes the parent's layout
+ *    system. (Caught by codex review on PR #161.)
+ *  - Grid items: align-self is the block axis → vertical
+ *  - Flex items (non-abs): cross axis depends on flex-direction
+ *      row*    → cross is vertical
+ *      column* → cross is horizontal
+ *  - Default (block parent, abs not set): vertical
+ *
+ *  This is the core of the parent-aware UI: same CSS property write, but
+ *  icons + labels + aria adapt to what the user will actually SEE happen
+ *  on screen. Eliminates the v1 lie where align-self icons always showed
+ *  vertical movement even when parent was column-flex (where align-self
+ *  actually moves the element horizontally). */
+export function alignSelfAxis(
+  values: Pick<PositionValues, 'position' | 'parentDisplay' | 'parentFlexDirection'>,
+): 'horizontal' | 'vertical' {
+  // Abs/fixed escapes the parent's layout system — flex-direction does
+  // not apply. Must come before the flex check.
+  if (values.position === 'absolute' || values.position === 'fixed') return 'vertical'
+  if (values.parentDisplay.includes('flex')) {
+    const dir = values.parentFlexDirection
+    if (dir === 'column' || dir === 'column-reverse') return 'horizontal'
+    return 'vertical'
+  }
+  // Grid items align-self = block axis. Default = vertical.
+  return 'vertical'
 }
 
 /** Whether justify-self would actually affect this element's layout.
@@ -101,9 +146,34 @@ export function alignSelfApplies(values: Pick<PositionValues, 'position' | 'pare
 }
 
 interface SelfAlignmentBlockProps {
-  values: Pick<PositionValues, 'position' | 'parentDisplay' | 'justifySelf' | 'alignSelf'>
+  values: Pick<PositionValues, 'position' | 'parentDisplay' | 'parentFlexDirection' | 'justifySelf' | 'alignSelf'>
   onChange: (change: PositionChange) => void
 }
+
+// Axis-specific icon and label sets — chosen at render time per row based
+// on which spatial axis each CSS property is operating on for this parent.
+// HORIZONTAL labels read left/center/right and pair with horizontal-shift
+// icons (JustifySelf*). VERTICAL labels read top/middle/bottom and pair
+// with vertical-shift icons (AlignSelf*). Names of the icons retain their
+// CSS-property origin but the visual semantic is "anchor box left/center/
+// right within cell" vs "anchor box top/middle/bottom within cell" — both
+// are reusable across justify-self and align-self depending on parent.
+const HORIZONTAL_AXIS = {
+  startIcon: JustifySelfStart,
+  centerIcon: JustifySelfCenter,
+  endIcon: JustifySelfEnd,
+  startLabel: 'left',
+  centerLabel: 'center',
+  endLabel: 'right',
+} as const
+const VERTICAL_AXIS = {
+  startIcon: AlignSelfStart,
+  centerIcon: AlignSelfCenter,
+  endIcon: AlignSelfEnd,
+  startLabel: 'top',
+  centerLabel: 'middle',
+  endLabel: 'bottom',
+} as const
 
 function SelfAlignmentBlock({
   values,
@@ -111,9 +181,7 @@ function SelfAlignmentBlock({
 }: SelfAlignmentBlockProps): JSX.Element | null {
   // Toggle-to-clear: clicking the already-active button emits 'auto'
   // instead of re-emitting the same value. Matches Figma / Webflow /
-  // Linear convention — every set is undoable via the inverse gesture,
-  // so the panel doesn't need a separate "reset" affordance for the
-  // common case of "I clicked center by accident, get me back to auto."
+  // Linear convention — every set is undoable via the inverse gesture.
   const setJustify = useCallback(
     (value: string) =>
       onChange({
@@ -135,20 +203,29 @@ function SelfAlignmentBlock({
   const showAlign = alignSelfApplies(values)
   if (!showJustify && !showAlign) return null
 
+  // justify-self always operates on the horizontal axis when it applies
+  // (grid inline axis or abs-positioning containing block). align-self
+  // varies — see alignSelfAxis().
+  const justifyAxis = HORIZONTAL_AXIS
+  const alignAxis = alignSelfAxis(values) === 'horizontal' ? HORIZONTAL_AXIS : VERTICAL_AXIS
+
+  // Capitalize for sentence-case in aria labels and tooltips.
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+
   return (
     <div class="cortex-position-section__self-align">
       {showJustify && (
-        <div class="cortex-position-section__btn-group" role="group" aria-label="Justify self">
-          <IconButton icon={<JustifySelfStart size={14} />} ariaLabel="Justify self start" tooltip="Justify self · start" active={values.justifySelf === 'start'} onClick={() => setJustify('start')} />
-          <IconButton icon={<JustifySelfCenter size={14} />} ariaLabel="Justify self center" tooltip="Justify self · center" active={values.justifySelf === 'center'} onClick={() => setJustify('center')} />
-          <IconButton icon={<JustifySelfEnd size={14} />} ariaLabel="Justify self end" tooltip="Justify self · end" active={values.justifySelf === 'end'} onClick={() => setJustify('end')} />
+        <div class="cortex-position-section__btn-group" role="group" aria-label={`Justify self ${justifyAxis.startLabel}/${justifyAxis.centerLabel}/${justifyAxis.endLabel}`}>
+          <IconButton icon={<justifyAxis.startIcon size={14} />}  ariaLabel={`Justify self ${justifyAxis.startLabel}`}  tooltip={`Justify self · ${cap(justifyAxis.startLabel)}`}  active={values.justifySelf === 'start'}  onClick={() => setJustify('start')} />
+          <IconButton icon={<justifyAxis.centerIcon size={14} />} ariaLabel={`Justify self ${justifyAxis.centerLabel}`} tooltip={`Justify self · ${cap(justifyAxis.centerLabel)}`} active={values.justifySelf === 'center'} onClick={() => setJustify('center')} />
+          <IconButton icon={<justifyAxis.endIcon size={14} />}    ariaLabel={`Justify self ${justifyAxis.endLabel}`}    tooltip={`Justify self · ${cap(justifyAxis.endLabel)}`}    active={values.justifySelf === 'end'}    onClick={() => setJustify('end')} />
         </div>
       )}
       {showAlign && (
-        <div class="cortex-position-section__btn-group" role="group" aria-label="Align self">
-          <IconButton icon={<AlignSelfStart size={14} />} ariaLabel="Align self start" tooltip="Align self · start" active={values.alignSelf === 'start'} onClick={() => setAlign('start')} />
-          <IconButton icon={<AlignSelfCenter size={14} />} ariaLabel="Align self center" tooltip="Align self · center" active={values.alignSelf === 'center'} onClick={() => setAlign('center')} />
-          <IconButton icon={<AlignSelfEnd size={14} />} ariaLabel="Align self end" tooltip="Align self · end" active={values.alignSelf === 'end'} onClick={() => setAlign('end')} />
+        <div class="cortex-position-section__btn-group" role="group" aria-label={`Align self ${alignAxis.startLabel}/${alignAxis.centerLabel}/${alignAxis.endLabel}`}>
+          <IconButton icon={<alignAxis.startIcon size={14} />}  ariaLabel={`Align self ${alignAxis.startLabel}`}  tooltip={`Align self · ${cap(alignAxis.startLabel)}`}  active={values.alignSelf === 'start'}  onClick={() => setAlign('start')} />
+          <IconButton icon={<alignAxis.centerIcon size={14} />} ariaLabel={`Align self ${alignAxis.centerLabel}`} tooltip={`Align self · ${cap(alignAxis.centerLabel)}`} active={values.alignSelf === 'center'} onClick={() => setAlign('center')} />
+          <IconButton icon={<alignAxis.endIcon size={14} />}    ariaLabel={`Align self ${alignAxis.endLabel}`}    tooltip={`Align self · ${cap(alignAxis.endLabel)}`}    active={values.alignSelf === 'end'}    onClick={() => setAlign('end')} />
         </div>
       )}
     </div>
