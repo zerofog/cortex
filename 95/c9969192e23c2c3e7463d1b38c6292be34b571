@@ -1,0 +1,38 @@
+cortex-editor/src/browser/styles.css
+  s_b858824d134fd5::t_069aa75e8b0815 1639-1649
+cortex-editor/src/browser/components/panel-style-snapshot.ts
+  s_b858824d134fd5::t_49879e28e8db5c 114-118,120-125
+cortex-editor/tests/browser/sections/layout-section.test.tsx
+  s_b858824d134fd5::t_ba3c6b0750e45d 43-46
+  s_b858824d134fd5::t_9a8df2019749c5 443-544
+  s_b858824d134fd5::t_e5140865cee2a3 3
+cortex-editor/tests/browser/controls/segmented-control.test.tsx
+  s_b858824d134fd5::t_0970439ffbfb1b 254
+  s_b858824d134fd5::t_55ca68f57f56e7 186-237,239-253,255-268,270-283
+  s_b858824d134fd5::t_f9877c25bb9194 238,269
+cortex-editor/src/browser/components/controls/SegmentedControl.tsx
+  s_b858824d134fd5::t_7c9405f8795b22 9-16
+  s_b858824d134fd5::t_3c78439069fed9 65-66,84-94,100-101
+  s_b858824d134fd5::t_107f2faed41b32 122-130,134,139,141,143
+  s_b858824d134fd5::t_53ad1430669ca6 96-99
+cortex-editor/src/browser/components/sections/LayoutSection.tsx
+  s_b858824d134fd5::t_203543c970a1a2 116-117,121-165
+  s_b858824d134fd5::t_86112d6bf760d3 221
+  s_b858824d134fd5::t_6dd0a2ac46dd66 49-57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.9",
+  "base_commit_sha": "95c9969192e23c2c3e7463d1b38c6292be34b571",
+  "prompts": {},
+  "sessions": {
+    "s_b858824d134fd5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "59a66bd9-7e4d-4242-b7bd-bfab72749248",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
