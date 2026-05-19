@@ -9,6 +9,15 @@ import { parseBoxShadow, serializeBoxShadow } from '../../../core/shadow-utils.j
 import type { Shadow } from '../../../core/shadow-utils.js'
 import { Eye, EyeClosed, BoxShadow, Minus } from '../icons.js'
 import { IconButton } from '../controls/IconButton.js'
+import {
+  buildEffects,
+  commitEffects,
+  convertEffect,
+  isTypeOptionDisabled,
+  parseFilterFunctions,
+  formatFilter,
+} from './effects-model.js'
+import type { Effect, EffectType } from './effects-model.js'
 
 // Re-export for downstream consumers (tests, Panel, other sections)
 export { parseBoxShadow, serializeBoxShadow }
@@ -36,18 +45,20 @@ export interface EffectsSectionProps {
   mixedProperties?: Set<string>
 }
 
-/** Parse the blur() value from a CSS filter string. Returns 0 if no blur found. */
+/**
+ * Parse the blur() value from a CSS filter string. Returns 0 if no blur found.
+ * Kept exported for backwards compatibility — delegates to parseFilterFunctions.
+ */
 export function parseBlurValue(filter: string): number {
-  const m = filter.match(/blur\(([\d.]+)px\)/)
-  return m?.[1] ? parseFloat(m[1]) : 0
+  return parseFilterFunctions(filter).blur
 }
 
-/** Replace or insert a blur() function in a filter string, preserving other functions. */
+/**
+ * Replace or insert a blur() function in a filter string, preserving other functions.
+ * Kept exported for backwards compatibility — delegates to parseFilterFunctions + formatFilter.
+ */
 export function replaceBlurInFilter(existing: string, newBlur: number): string {
-  const normalized = (!existing || existing === 'none') ? '' : existing
-  const withoutBlur = normalized.replace(/blur\([^)]*\)/g, '').replace(/\s{2,}/g, ' ').trim()
-  if (newBlur === 0) return withoutBlur || 'none'
-  return withoutBlur ? `${withoutBlur} blur(${newBlur}px)` : `blur(${newBlur}px)`
+  return formatFilter(parseFilterFunctions(existing).rest, newBlur)
 }
 
 /** Extract effects-related values from a CSSStyleDeclaration. */
@@ -89,26 +100,25 @@ const DEFAULT_SHADOW: Shadow = {
   color: 'rgba(0, 0, 0, 0.1)',
 }
 
-const SHADOW_TYPE_OPTIONS = [
-  { value: 'drop', label: 'Drop shadow' },
-  { value: 'inset', label: 'Inner shadow' },
+// Per DESIGN.md line 304: "Type dropdown: Drop shadow, Inner shadow, Blur, Background blur"
+const EFFECT_TYPE_OPTIONS = [
+  { value: 'drop',          label: 'Drop shadow' },
+  { value: 'inset',         label: 'Inner shadow' },
+  { value: 'layer-blur',    label: 'Blur',          tooltip: 'Only one Blur per element' },
+  { value: 'backdrop-blur', label: 'Background blur', tooltip: 'Only one Background blur per element' },
 ]
 
-/** A zeroed-out shadow used for the "disabled" (eye-off) state. */
-const ZEROED_SHADOW: Omit<Shadow, 'inset' | 'color'> = {
-  x: 0, y: 0, blur: 0, spread: 0,
+function isEffectEnabled(e: Effect): boolean {
+  if (e.type === 'drop' || e.type === 'inset') {
+    return e.x !== 0 || e.y !== 0 || e.blur !== 0 || e.spread !== 0
+  }
+  return e.blur !== 0
 }
 
-function isShadowEnabled(s: Shadow): boolean {
-  return s.x !== 0 || s.y !== 0 || s.blur !== 0 || s.spread !== 0
-}
-
-/** Shadow with a stable key and stashed values for eye toggle. */
-interface KeyedShadow extends Shadow {
-  _key: number
-  /** Stashed values before disabling — restored when re-enabled. */
-  _stash?: { x: number; y: number; blur: number; spread: number }
-}
+/** Stash payload for the eye-toggle restore — shape varies by effect kind. */
+type StashEntry =
+  | { kind: 'shadow'; x: number; y: number; blur: number; spread: number }
+  | { kind: 'blur'; blur: number }
 
 export function EffectsSection({
   values,
@@ -119,234 +129,299 @@ export function EffectsSection({
   dimmedProperties,
   mixedProperties,
 }: EffectsSectionProps): JSX.Element {
-  const [expandedKey, setExpandedKey] = useState<number | null>(null)
-  // Stashed values per _key for eye toggle restore
-  const stashRef = useRef<Map<number, { x: number; y: number; blur: number; spread: number }>>(new Map())
+  // Stable-ID cache: fingerprint -> id. Persists across renders so the same
+  // structural shape always gets the same id, even when re-parsing the same
+  // CSS snapshot. Without this, the eye-toggle stash and expanded-row state
+  // would lose their tether on every parent re-render.
+  const idCacheRef = useRef<Map<string, string>>(new Map())
+  const idCounterRef = useRef(0)
+  const getId = useCallback((fingerprint: string): string => {
+    const cache = idCacheRef.current
+    let id = cache.get(fingerprint)
+    if (!id) {
+      id = `effect-${idCounterRef.current++}`
+      cache.set(fingerprint, id)
+    }
+    return id
+  }, [])
 
-  const shadows = useMemo(() => {
-    const parsed = parseBoxShadow(values.boxShadow)
-    // Use array index as a stable key. Shadow order is preserved in the CSS
-    // string, so indices are stable across single-property edits. Keys only
-    // shift on add/remove, which is when we WANT the UI to re-layout.
-    return parsed.map((s, i): KeyedShadow => ({ ...s, _key: i }))
-  }, [values.boxShadow])
+  const effects = useMemo(() => buildEffects(values, getId), [values, getId])
 
-  const emitChange = useCallback(
-    (updated: KeyedShadow[]) => {
-      onChange({ property: 'box-shadow', value: serializeBoxShadow(updated) })
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  // Stash map keyed by stable Effect id, not array index. Cross-domain conversion
+  // (shadow ↔ blur) drops the stash entry at the conversion call site so a stale
+  // shadow payload can never leak into a blur restore.
+  const stashRef = useRef<Map<string, StashEntry>>(new Map())
+
+  // ---- Emission helpers ---------------------------------------------------
+
+  const emit = useCallback(
+    (phase: 'change' | 'scrub' | 'scrubEnd', nextEffects: Effect[]) => {
+      const callback = phase === 'change' ? onChange : phase === 'scrub' ? onScrub : onScrubEnd
+      if (!callback) return
+      const { boxShadow, filter, backdropFilter } = commitEffects(
+        nextEffects,
+        values.filterRaw,
+        values.backdropFilterRaw,
+      )
+      // Emit each property; Panel's microtask coalescer dedupes by (source, property, pseudo)
+      // so unchanged properties are essentially free.
+      callback({ property: 'box-shadow', value: boxShadow })
+      callback({ property: 'filter', value: filter })
+      callback({ property: 'backdrop-filter', value: backdropFilter })
     },
-    [onChange],
+    [onChange, onScrub, onScrubEnd, values.filterRaw, values.backdropFilterRaw],
   )
+
+  // ---- Field-level handlers (drop/inset rows) -----------------------------
+
+  type ShadowField = 'x' | 'y' | 'blur' | 'spread' | 'color'
+
+  const updateShadowField = useCallback(
+    (id: string, field: ShadowField, value: number | string, phase: 'change' | 'scrub' | 'scrubEnd' = 'change') => {
+      const next = effects.map((e) => {
+        if (e.id !== id) return e
+        if (e.type !== 'drop' && e.type !== 'inset') return e
+        return { ...e, [field]: value }
+      })
+      emit(phase, next)
+    },
+    [effects, emit],
+  )
+
+  const updateBlurField = useCallback(
+    (id: string, value: number, phase: 'change' | 'scrub' | 'scrubEnd' = 'change') => {
+      const next = effects.map((e) => {
+        if (e.id !== id) return e
+        if (e.type !== 'layer-blur' && e.type !== 'backdrop-blur') return e
+        return { ...e, blur: value } satisfies Effect
+      })
+      emit(phase, next)
+    },
+    [effects, emit],
+  )
+
+  // ---- Row-level handlers (apply across all effect types) -----------------
 
   const handleRemove = useCallback(
-    (index: number) => {
-      // Shift stash keys down for indices above the removed shadow.
-      // _key is index-based, so when shadow B at index 1 is removed,
-      // shadow C shifts from index 2 → 1. Without shifting, C's stash
-      // (keyed under 2) becomes orphaned and the eye re-enable falls
-      // back to defaults instead of restoring the user's values.
-      const shifted = new Map<number, { x: number; y: number; blur: number; spread: number }>()
-      for (const [key, val] of stashRef.current) {
-        if (key < index) shifted.set(key, val)
-        else if (key > index) shifted.set(key - 1, val)
-        // key === index: discard (removing this shadow)
-      }
-      stashRef.current = shifted
-
-      // Shift expandedKey the same way — it also tracks _key (= index).
-      setExpandedKey(prev => {
-        if (prev === null || prev === index) return null
-        return prev > index ? prev - 1 : prev
-      })
-
-      const updated = shadows.filter((_, i) => i !== index)
-      emitChange(updated)
+    (id: string) => {
+      stashRef.current.delete(id)
+      if (expandedId === id) setExpandedId(null)
+      const next = effects.filter((e) => e.id !== id)
+      emit('change', next)
     },
-    [shadows, emitChange],
-  )
-
-  const handleFieldChange = useCallback(
-    (index: number, field: keyof Shadow, value: number | string | boolean) => {
-      const updated = shadows.map((s, i) =>
-        i === index ? { ...s, [field]: value } : s,
-      )
-      emitChange(updated)
-    },
-    [shadows, emitChange],
-  )
-
-  const handleFieldScrub = useCallback(
-    (index: number, field: keyof Shadow, value: number | string | boolean) => {
-      if (!onScrub) return
-      const updated = shadows.map((s, i) =>
-        i === index ? { ...s, [field]: value } : s,
-      )
-      onScrub({ property: 'box-shadow', value: serializeBoxShadow(updated) })
-    },
-    [shadows, onScrub],
-  )
-
-  const handleFieldScrubEnd = useCallback(
-    (index: number, field: keyof Shadow, value: number | string | boolean) => {
-      if (!onScrubEnd) return
-      const updated = shadows.map((s, i) =>
-        i === index ? { ...s, [field]: value } : s,
-      )
-      onScrubEnd({ property: 'box-shadow', value: serializeBoxShadow(updated) })
-    },
-    [shadows, onScrubEnd],
+    [effects, emit, expandedId],
   )
 
   const handleTypeChange = useCallback(
-    (index: number, type: string) => {
-      handleFieldChange(index, 'inset', type === 'inset')
+    (id: string, newType: EffectType) => {
+      const target = effects.find((e) => e.id === id)
+      if (!target || target.type === newType) return
+
+      // Singleton enforcement: silently no-op if the target type already exists elsewhere
+      if ((newType === 'layer-blur' || newType === 'backdrop-blur') &&
+          effects.some((e) => e.id !== id && e.type === newType)) {
+        return
+      }
+
+      // Cross-domain conversion (shadow ↔ blur) drops any stash for this id —
+      // the stash payload shape differs by kind and restoring stale state would corrupt.
+      const isOldShadow = target.type === 'drop' || target.type === 'inset'
+      const isNewShadow = newType === 'drop' || newType === 'inset'
+      if (isOldShadow !== isNewShadow) {
+        stashRef.current.delete(id)
+      }
+
+      const converted = convertEffect(target, newType)
+      const next = effects.map((e) => (e.id === id ? converted : e))
+      emit('change', next)
     },
-    [handleFieldChange],
+    [effects, emit],
   )
 
   const handleEyeToggle = useCallback(
-    (index: number) => {
-      const shadow = shadows[index]
-      if (!shadow) return
-      const enabled = isShadowEnabled(shadow)
-      if (enabled) {
-        // Disable: stash current values, zero out
-        stashRef.current.set(shadow._key, {
-          x: shadow.x, y: shadow.y, blur: shadow.blur, spread: shadow.spread,
-        })
-        const updated = shadows.map((s, i) =>
-          i === index ? { ...s, ...ZEROED_SHADOW } : s,
-        )
-        emitChange(updated)
+    (id: string) => {
+      const target = effects.find((e) => e.id === id)
+      if (!target) return
+      const enabled = isEffectEnabled(target)
+
+      let updated: Effect
+      if (target.type === 'drop' || target.type === 'inset') {
+        if (enabled) {
+          stashRef.current.set(id, {
+            kind: 'shadow',
+            x: target.x, y: target.y, blur: target.blur, spread: target.spread,
+          })
+          updated = { ...target, x: 0, y: 0, blur: 0, spread: 0 }
+        } else {
+          const stashed = stashRef.current.get(id)
+          stashRef.current.delete(id)
+          const restore = stashed && stashed.kind === 'shadow'
+            ? { x: stashed.x, y: stashed.y, blur: stashed.blur, spread: stashed.spread }
+            : { x: DEFAULT_SHADOW.x, y: DEFAULT_SHADOW.y, blur: DEFAULT_SHADOW.blur, spread: DEFAULT_SHADOW.spread }
+          updated = { ...target, ...restore }
+        }
       } else {
-        // Enable: restore stashed values or apply default
-        const stashed = stashRef.current.get(shadow._key)
-        const restore = stashed ?? { x: DEFAULT_SHADOW.x, y: DEFAULT_SHADOW.y, blur: DEFAULT_SHADOW.blur, spread: DEFAULT_SHADOW.spread }
-        stashRef.current.delete(shadow._key)
-        const updated = shadows.map((s, i) =>
-          i === index ? { ...s, ...restore } : s,
-        )
-        emitChange(updated)
+        // layer-blur or backdrop-blur
+        if (enabled) {
+          stashRef.current.set(id, { kind: 'blur', blur: target.blur })
+          updated = { ...target, blur: 0 }
+        } else {
+          const stashed = stashRef.current.get(id)
+          stashRef.current.delete(id)
+          const restoreBlur = stashed && stashed.kind === 'blur' ? stashed.blur : DEFAULT_SHADOW.blur
+          updated = { ...target, blur: restoreBlur }
+        }
       }
+      const next = effects.map((e) => (e.id === id ? updated : e))
+      emit('change', next)
     },
-    [shadows, emitChange],
+    [effects, emit],
   )
 
-  const toggleExpand = useCallback((key: number) => {
-    setExpandedKey(prev => prev === key ? null : key)
+  const toggleExpand = useCallback((id: string) => {
+    setExpandedId((prev) => (prev === id ? null : id))
   }, [])
 
-  // Blur handlers — preserve existing non-blur filter functions
-  const handleBlurChange = useCallback(
-    (v: number) => onChange({ property: 'filter', value: replaceBlurInFilter(values.filterRaw, v) }),
-    [onChange, values.filterRaw],
-  )
-  const handleBlurScrub = useCallback(
-    (v: number) => { if (onScrub) onScrub({ property: 'filter', value: replaceBlurInFilter(values.filterRaw, v) }) },
-    [onScrub, values.filterRaw],
-  )
-  const handleBlurScrubEnd = useCallback(
-    (v: number) => { if (onScrubEnd) onScrubEnd({ property: 'filter', value: replaceBlurInFilter(values.filterRaw, v) }) },
-    [onScrubEnd, values.filterRaw],
+  // ---- Per-row dropdown options with singleton disable state ---------------
+
+  const optionsForRow = useCallback(
+    (rowIndex: number) =>
+      EFFECT_TYPE_OPTIONS.map((opt) => ({
+        ...opt,
+        disabled: isTypeOptionDisabled(effects, rowIndex, opt.value as EffectType),
+      })),
+    [effects],
   )
 
-  // Backdrop blur handlers — preserve existing non-blur backdrop-filter functions
-  const handleBackdropBlurChange = useCallback(
-    (v: number) => onChange({ property: 'backdrop-filter', value: replaceBlurInFilter(values.backdropFilterRaw, v) }),
-    [onChange, values.backdropFilterRaw],
-  )
-  const handleBackdropBlurScrub = useCallback(
-    (v: number) => { if (onScrub) onScrub({ property: 'backdrop-filter', value: replaceBlurInFilter(values.backdropFilterRaw, v) }) },
-    [onScrub, values.backdropFilterRaw],
-  )
-  const handleBackdropBlurScrubEnd = useCallback(
-    (v: number) => { if (onScrubEnd) onScrubEnd({ property: 'backdrop-filter', value: replaceBlurInFilter(values.backdropFilterRaw, v) }) },
-    [onScrubEnd, values.backdropFilterRaw],
-  )
+  // ---- Per-property mixed/dimmed helpers ----------------------------------
+
+  function dimmedForType(type: EffectType): boolean {
+    if (type === 'drop' || type === 'inset') return isDimmed(dimmedProperties, 'box-shadow')
+    if (type === 'layer-blur') return isDimmed(dimmedProperties, 'filter')
+    return isDimmed(dimmedProperties, 'backdrop-filter')
+  }
+
+  function mixedForType(type: EffectType): boolean | undefined {
+    if (type === 'drop' || type === 'inset') return mixedProperties?.has('box-shadow')
+    if (type === 'layer-blur') return mixedProperties?.has('filter')
+    return mixedProperties?.has('backdrop-filter')
+  }
+
+  // ---- Render -------------------------------------------------------------
 
   return (
     <div class="cortex-effects-section" data-section-id="effects">
-      {/* Shadow list */}
-      <div class={`cortex-effects-section__shadows${isDimmed(dimmedProperties, 'box-shadow') ? ' cortex-control--dimmed' : ''}`}>
-        {shadows.map((shadow, index) => {
-          const isExpanded = expandedKey === shadow._key
-          const enabled = isShadowEnabled(shadow)
+      <div class="cortex-effects-section__effects">
+        {effects.map((effect, index) => {
+          const isExpanded = expandedId === effect.id
+          const enabled = isEffectEnabled(effect)
+          const dimmed = dimmedForType(effect.type)
+          const mixed = mixedForType(effect.type)
           return (
-            <div class="cortex-effects-section__row" key={shadow._key} data-expanded={String(isExpanded)}>
+            <div
+              class={`cortex-effects-section__row${dimmed ? ' cortex-control--dimmed' : ''}`}
+              key={effect.id}
+              data-expanded={String(isExpanded)}
+              data-effect-type={effect.type}
+            >
               <div class="cortex-effects-section__row-header">
                 <button
                   class="cortex-effects-section__expand-btn"
                   type="button"
-                  aria-label={isExpanded ? 'Collapse shadow controls' : 'Expand shadow controls'}
+                  aria-label={isExpanded ? 'Collapse effect controls' : 'Expand effect controls'}
                   aria-expanded={isExpanded}
-                  onClick={() => toggleExpand(shadow._key)}
+                  onClick={() => toggleExpand(effect.id)}
                 >
                   <BoxShadow size={14} />
                 </button>
                 <div class="cortex-effects-section__type">
                   <Dropdown
-                    options={SHADOW_TYPE_OPTIONS}
-                    value={shadow.inset ? 'inset' : 'drop'}
-                    onChange={(v: string) => handleTypeChange(index, v)}
+                    options={optionsForRow(index)}
+                    value={effect.type}
+                    onChange={(v: string) => handleTypeChange(effect.id, v as EffectType)}
                   />
                 </div>
                 <IconButton
                   icon={enabled ? <Eye size={14} /> : <EyeClosed size={14} />}
-                  ariaLabel={enabled ? 'Disable shadow' : 'Enable shadow'}
-                  tooltip={enabled ? 'Disable shadow' : 'Enable shadow'}
-                  onClick={() => handleEyeToggle(index)}
+                  ariaLabel={enabled ? 'Disable effect' : 'Enable effect'}
+                  tooltip={enabled ? 'Disable effect' : 'Enable effect'}
+                  onClick={() => handleEyeToggle(effect.id)}
                 />
                 <IconButton
                   icon={<Minus size={14} />}
-                  ariaLabel="Remove shadow"
-                  tooltip="Remove shadow"
-                  onClick={() => handleRemove(index)}
+                  ariaLabel="Remove effect"
+                  tooltip="Remove effect"
+                  onClick={() => handleRemove(effect.id)}
                 />
               </div>
-              {isExpanded && (
+              {isExpanded && (effect.type === 'drop' || effect.type === 'inset') && (
                 <div class="cortex-effects-section__detail">
                   <div class="cortex-effects-section__grid">
                     <NumericInput
-                      value={shadow.x}
+                      value={effect.x}
                       unit="px"
                       label="X"
                       tooltip="Horizontal offset"
-                      mixed={mixedProperties?.has('box-shadow')}
-                      onChange={(v: number) => handleFieldChange(index, 'x', v)}
+                      mixed={mixed}
+                      onChange={(v: number) => updateShadowField(effect.id, 'x', v)}
+                      onScrub={onScrub ? (v: number) => updateShadowField(effect.id, 'x', v, 'scrub') : undefined}
+                      onScrubEnd={onScrubEnd ? (v: number) => updateShadowField(effect.id, 'x', v, 'scrubEnd') : undefined}
                     />
                     <NumericInput
-                      value={shadow.y}
+                      value={effect.y}
                       unit="px"
                       label="Y"
                       tooltip="Vertical offset"
-                      mixed={mixedProperties?.has('box-shadow')}
-                      onChange={(v: number) => handleFieldChange(index, 'y', v)}
+                      mixed={mixed}
+                      onChange={(v: number) => updateShadowField(effect.id, 'y', v)}
+                      onScrub={onScrub ? (v: number) => updateShadowField(effect.id, 'y', v, 'scrub') : undefined}
+                      onScrubEnd={onScrubEnd ? (v: number) => updateShadowField(effect.id, 'y', v, 'scrubEnd') : undefined}
                     />
                     <NumericInput
-                      value={shadow.blur}
+                      value={effect.blur}
                       unit="px"
                       label="B"
                       tooltip="Blur radius"
                       min={0}
-                      mixed={mixedProperties?.has('box-shadow')}
-                      onChange={(v: number) => handleFieldChange(index, 'blur', v)}
+                      mixed={mixed}
+                      onChange={(v: number) => updateShadowField(effect.id, 'blur', v)}
+                      onScrub={onScrub ? (v: number) => updateShadowField(effect.id, 'blur', v, 'scrub') : undefined}
+                      onScrubEnd={onScrubEnd ? (v: number) => updateShadowField(effect.id, 'blur', v, 'scrubEnd') : undefined}
                     />
                     <NumericInput
-                      value={shadow.spread}
+                      value={effect.spread}
                       unit="px"
                       label="S"
                       tooltip="Spread radius"
-                      mixed={mixedProperties?.has('box-shadow')}
-                      onChange={(v: number) => handleFieldChange(index, 'spread', v)}
+                      mixed={mixed}
+                      onChange={(v: number) => updateShadowField(effect.id, 'spread', v)}
+                      onScrub={onScrub ? (v: number) => updateShadowField(effect.id, 'spread', v, 'scrub') : undefined}
+                      onScrubEnd={onScrubEnd ? (v: number) => updateShadowField(effect.id, 'spread', v, 'scrubEnd') : undefined}
                     />
                   </div>
                   <ColorInput
-                    value={shadow.color}
-                    onChange={(hex: string) => handleFieldChange(index, 'color', hex)}
-                    onScrub={onScrub ? (hex: string) => handleFieldScrub(index, 'color', hex) : undefined}
-                    onScrubEnd={onScrubEnd ? (hex: string) => handleFieldScrubEnd(index, 'color', hex) : undefined}
+                    value={effect.color}
+                    onChange={(hex: string) => updateShadowField(effect.id, 'color', hex)}
+                    onScrub={onScrub ? (hex: string) => updateShadowField(effect.id, 'color', hex, 'scrub') : undefined}
+                    onScrubEnd={onScrubEnd ? (hex: string) => updateShadowField(effect.id, 'color', hex, 'scrubEnd') : undefined}
                     swatches={swatches}
-                    mixed={mixedProperties?.has('box-shadow')}
+                    mixed={mixed}
+                  />
+                </div>
+              )}
+              {isExpanded && (effect.type === 'layer-blur' || effect.type === 'backdrop-blur') && (
+                <div class="cortex-effects-section__detail">
+                  <NumericInput
+                    value={effect.blur}
+                    unit="px"
+                    label={effect.type === 'layer-blur' ? 'Blur' : 'BG Blur'}
+                    tooltip={effect.type === 'layer-blur' ? 'Element blur' : 'Backdrop blur'}
+                    min={0}
+                    mixed={mixed}
+                    onChange={(v: number) => updateBlurField(effect.id, v)}
+                    onScrub={onScrub ? (v: number) => updateBlurField(effect.id, v, 'scrub') : undefined}
+                    onScrubEnd={onScrubEnd ? (v: number) => updateBlurField(effect.id, v, 'scrubEnd') : undefined}
                   />
                 </div>
               )}
@@ -354,42 +429,6 @@ export function EffectsSection({
           )
         })}
       </div>
-
-      {/* Blur controls — hidden when there are no effects to keep the
-          empty state clean (just section header + plus button). The
-          moment the user adds any effect (shadow, filter blur, or
-          backdrop blur) the BL/BG inputs reveal so they can tune
-          element-level blur and backdrop-level blur. */}
-      {(shadows.length > 0 || values.blur > 0 || values.backdropBlur > 0) && (
-        <div class="cortex-effects-section__blur-controls">
-          <div class={isDimmed(dimmedProperties, 'filter') ? 'cortex-control--dimmed' : undefined}>
-            <NumericInput
-              value={values.blur}
-              unit="px"
-              label="BL"
-              tooltip="Blur"
-              min={0}
-              mixed={mixedProperties?.has('filter')}
-              onChange={handleBlurChange}
-              onScrub={handleBlurScrub}
-              onScrubEnd={handleBlurScrubEnd}
-            />
-          </div>
-          <div class={isDimmed(dimmedProperties, 'backdrop-filter') ? 'cortex-control--dimmed' : undefined}>
-            <NumericInput
-              value={values.backdropBlur}
-              unit="px"
-              label="BG"
-              tooltip="Background Blur"
-              min={0}
-              mixed={mixedProperties?.has('backdrop-filter')}
-              onChange={handleBackdropBlurChange}
-              onScrub={handleBackdropBlurScrub}
-              onScrubEnd={handleBackdropBlurScrubEnd}
-            />
-          </div>
-        </div>
-      )}
     </div>
   )
 }

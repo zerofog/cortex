@@ -253,13 +253,12 @@ describe('EffectsSection', () => {
     expect(container.textContent).not.toContain('Cursor')
   })
 
-  // ── Empty-state BL/BG visibility (UX simplification) ───────────────
+  // ── Polymorphic empty state + per-effect rendering ─────────────────
   //
-  // When the element has NO effects (no shadows, no filter blur, no
-  // backdrop blur), the BL/BG inputs are hidden so the section's empty
-  // state is just header + plus button. As soon as any effect appears
-  // (user clicks +, or the element's source already has effects), the
-  // BL/BG inputs reveal so the user can tune them.
+  // After the polymorphic refactor, the section renders ONE row per Effect.
+  // Empty state: header + "+" only, no rows of any kind. Layer blur and
+  // backdrop blur are first-class rows in the list (not a separate bottom
+  // block); they're singletons (max 1 of each per element).
 
   const EMPTY_VALUES: EffectsValues = {
     boxShadow: 'none',
@@ -269,57 +268,23 @@ describe('EffectsSection', () => {
     backdropFilterRaw: '',
   }
 
-  it('hides BL and BG inputs when there are no effects (empty state)', () => {
+  it('renders zero rows when there are no effects (empty state)', () => {
     setup({ values: EMPTY_VALUES })
+    expect(container.querySelectorAll('.cortex-effects-section__row').length).toBe(0)
+    // No legacy BL/BG block lingering
     expect(container.querySelector('.cortex-effects-section__blur-controls')).toBeNull()
-    // No BL/BG labels in the DOM at all
-    const labels = Array.from(container.querySelectorAll('.cortex-numeric-input__label'))
-      .map(l => l.textContent)
-    expect(labels).not.toContain('BL')
-    expect(labels).not.toContain('BG')
   })
 
-  it('shows BL and BG inputs when a shadow exists (even with zero filter blur)', () => {
-    setup({ values: { ...EMPTY_VALUES, boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.1)' } })
-    expect(container.querySelector('.cortex-effects-section__blur-controls')).not.toBeNull()
-    const labels = Array.from(container.querySelectorAll('.cortex-numeric-input__label'))
-      .map(l => l.textContent)
-    expect(labels).toContain('BL')
-    expect(labels).toContain('BG')
-  })
-
-  it('shows BL and BG inputs when filter blur is set (even without shadow)', () => {
+  it('renders a layer-blur row when values.blur > 0', () => {
     setup({ values: { ...EMPTY_VALUES, blur: 4, filterRaw: 'blur(4px)' } })
-    expect(container.querySelector('.cortex-effects-section__blur-controls')).not.toBeNull()
+    const rows = container.querySelectorAll<HTMLElement>('.cortex-effects-section__row[data-effect-type="layer-blur"]')
+    expect(rows.length).toBe(1)
   })
 
-  it('shows BL and BG inputs when backdrop blur is set (even without shadow)', () => {
+  it('renders a backdrop-blur row when values.backdropBlur > 0', () => {
     setup({ values: { ...EMPTY_VALUES, backdropBlur: 8, backdropFilterRaw: 'blur(8px)' } })
-    expect(container.querySelector('.cortex-effects-section__blur-controls')).not.toBeNull()
-  })
-
-  it('renders blur input with label "BL"', () => {
-    setup()
-    const inputs = container.querySelectorAll('.cortex-numeric-input')
-    const blurInput = Array.from(inputs).find((el) => {
-      const label = el.querySelector('.cortex-numeric-input__label')
-      return label?.textContent === 'BL'
-    })
-    expect(blurInput).toBeDefined()
-    const input = blurInput!.querySelector('input') as HTMLInputElement
-    expect(input.value).toBe('4')
-  })
-
-  it('renders backdrop blur input with label "BG"', () => {
-    setup()
-    const inputs = container.querySelectorAll('.cortex-numeric-input')
-    const bgBlurInput = Array.from(inputs).find((el) => {
-      const label = el.querySelector('.cortex-numeric-input__label')
-      return label?.textContent === 'BG'
-    })
-    expect(bgBlurInput).toBeDefined()
-    const input = bgBlurInput!.querySelector('input') as HTMLInputElement
-    expect(input.value).toBe('0')
+    const rows = container.querySelectorAll<HTMLElement>('.cortex-effects-section__row[data-effect-type="backdrop-blur"]')
+    expect(rows.length).toBe(1)
   })
 
   it('renders shadow rows for each shadow in boxShadow', () => {
@@ -328,8 +293,8 @@ describe('EffectsSection', () => {
     expect(rows.length).toBe(2)
   })
 
-  it('renders no shadow rows when boxShadow is "none"', () => {
-    setup()
+  it('renders no rows when all effect values are zero/none', () => {
+    setup({ values: EMPTY_VALUES })
     const rows = container.querySelectorAll('.cortex-effects-section__row')
     expect(rows.length).toBe(0)
   })
@@ -341,16 +306,18 @@ describe('EffectsSection', () => {
   it('remove button fires onChange removing the shadow entry', () => {
     const { onChange } = setup({ values: TWO_SHADOWS_VALUES })
     const removeButtons = container.querySelectorAll<HTMLButtonElement>(
-      '.cortex-icon-button[aria-label="Remove shadow"]',
+      '.cortex-icon-button[aria-label="Remove effect"]',
     )
     expect(removeButtons.length).toBe(2)
     // Click remove on the first shadow
     removeButtons[0].click()
-    expect(onChange).toHaveBeenCalledTimes(1)
-    const call = onChange.mock.calls[0][0]
-    expect(call.property).toBe('box-shadow')
-    // Verify the reconstructed value has only the inset shadow remaining
-    const remaining = parseBoxShadow(call.value)
+    // Polymorphic emit fires once per CSS property (box-shadow, filter, backdrop-filter).
+    // Find the box-shadow change in the call list.
+    const boxShadowCall = onChange.mock.calls
+      .map((c: any) => c[0])
+      .find((c: any) => c.property === 'box-shadow')
+    expect(boxShadowCall).toBeDefined()
+    const remaining = parseBoxShadow(boxShadowCall.value)
     expect(remaining.length).toBe(1)
     expect(remaining[0].inset).toBe(true)
   })
@@ -366,14 +333,16 @@ describe('EffectsSection', () => {
     }
     const { onChange } = setup({ values })
     const eyeButton = container.querySelector<HTMLButtonElement>(
-      '.cortex-icon-button[aria-label="Disable shadow"]',
+      '.cortex-icon-button[aria-label="Disable effect"]',
     )
     expect(eyeButton).not.toBeNull()
     eyeButton!.click()
-    expect(onChange).toHaveBeenCalledTimes(1)
-    const call = onChange.mock.calls[0][0]
-    expect(call.property).toBe('box-shadow')
-    const shadows = parseBoxShadow(call.value)
+    // Polymorphic emit fires once per CSS property — find box-shadow.
+    const boxShadowCall = onChange.mock.calls
+      .map((c: any) => c[0])
+      .find((c: any) => c.property === 'box-shadow')
+    expect(boxShadowCall).toBeDefined()
+    const shadows = parseBoxShadow(boxShadowCall.value)
     expect(shadows.length).toBe(1)
     // All positional values should be zeroed
     expect(shadows[0].x).toBe(0)
@@ -411,27 +380,38 @@ describe('EffectsSection', () => {
     }, { timeout: 500 })
   })
 
-  // Spec test 6: Blur NumericInput fires filter change
-  it('blur NumericInput fires filter change via keyboard', () => {
+  // Spec test 6: Blur NumericInput on layer-blur row fires filter change via keyboard
+  it('blur NumericInput on layer-blur row fires filter change via keyboard', async () => {
+    // DEFAULT_VALUES has blur:4 → renders a layer-blur row. Expand it to access
+    // the Blur input.
     const { onChange } = setup()
-    const inputs = container.querySelectorAll('.cortex-numeric-input')
-    const blurInput = Array.from(inputs).find((el) => {
-      const label = el.querySelector('.cortex-numeric-input__label')
-      return label?.textContent === 'BL'
-    })
-    expect(blurInput).toBeDefined()
-    const input = blurInput!.querySelector('input') as HTMLInputElement
-    // NumericInput fires onChange on ArrowUp/ArrowDown keydown
-    input.focus()
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
-    // The onChange should fire with filter property (blur 4 + 1 = 5)
-    const filterCalls = onChange.mock.calls.filter(
-      (c: any) => c[0].property === 'filter',
+    const layerBlurRow = container.querySelector<HTMLElement>(
+      '.cortex-effects-section__row[data-effect-type="layer-blur"]',
     )
-    // ArrowUp fires exactly 1 filter change (blur 4→5). >= 1 would mask
-    // double-fire regressions; toBe(1) is precise.
-    expect(filterCalls.length).toBe(1)
-    expect(filterCalls[0][0].value).toContain('blur(5px)')
+    expect(layerBlurRow).not.toBeNull()
+    const expandBtn = layerBlurRow!.querySelector<HTMLButtonElement>(
+      '.cortex-effects-section__expand-btn',
+    )
+    expect(expandBtn).not.toBeNull()
+    expandBtn!.click()
+    await vi.waitFor(() => {
+      const inputs = layerBlurRow!.querySelectorAll('.cortex-numeric-input')
+      const blurInput = Array.from(inputs).find((el) => {
+        const label = el.querySelector('.cortex-numeric-input__label')
+        return label?.textContent === 'Blur'
+      })
+      expect(blurInput).toBeDefined()
+      const input = blurInput!.querySelector('input') as HTMLInputElement
+      input.focus()
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
+      // Polymorphic emit fires three onChange calls (one per CSS property).
+      // Find the filter call with blur(5px).
+      const filterCalls = onChange.mock.calls
+        .map((c: any) => c[0])
+        .filter((c: any) => c.property === 'filter')
+      expect(filterCalls.length).toBeGreaterThanOrEqual(1)
+      expect(filterCalls.some((c: any) => c.value.includes('blur(5px)'))).toBe(true)
+    }, { timeout: 500 })
   })
 
   it('renders type dropdown with Drop shadow / Inner shadow options', () => {

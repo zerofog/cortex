@@ -7,6 +7,8 @@ export interface DropdownOption {
   value: string
   label: string
   tooltip?: string
+  /** When true, the option renders greyed out and cannot be selected. */
+  disabled?: boolean
 }
 
 export interface DropdownProps {
@@ -95,10 +97,12 @@ export function Dropdown({
 
   const select = useCallback(
     (optValue: string) => {
+      const opt = options.find((o) => o.value === optValue)
+      if (opt?.disabled) return
       onChange(optValue)
       close()
     },
-    [onChange, close],
+    [onChange, close, options],
   )
 
   const handleFilterInput = useCallback((e: Event) => {
@@ -179,11 +183,13 @@ export function Dropdown({
                       'cortex-dropdown__option',
                       i === highlightIdx && 'cortex-dropdown__option--active',
                       !mixed && opt.value === value && 'cortex-dropdown__option--selected',
+                      opt.disabled && 'cortex-dropdown__option--disabled',
                     ]
                       .filter(Boolean)
                       .join(' ')}
                     role="option"
                     aria-selected={!mixed && opt.value === value ? 'true' : 'false'}
+                    aria-disabled={opt.disabled ? 'true' : undefined}
                     data-tooltip={opt.tooltip}
                     onClick={() => select(opt.value)}
                   >
