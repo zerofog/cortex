@@ -1,0 +1,37 @@
+cortex-editor/src/browser/components/panel-style-snapshot.ts
+  s_b858824d134fd5::t_f6048916000efa 104-108,111-113
+cortex-editor/tests/browser/sections/position-section.test.tsx
+  s_b858824d134fd5::t_70a2ca349d95fd 3
+  s_b858824d134fd5::t_207b30288d9a36 73-76
+  s_b858824d134fd5::t_d1abba293de33b 121-124,126,147
+  s_b858824d134fd5::t_c17a58166becd5 551,559,567
+  s_b858824d134fd5::t_89b08614692f4e 552,560,568
+  s_b858824d134fd5::t_3e790d1e0d93b7 616,637,821
+  s_b858824d134fd5::t_9fd1ef053dad81 617,665,835
+  s_b858824d134fd5::t_cbd0daa2f780b7 624,638,658,856
+  s_b858824d134fd5::t_b4b0b84943da0b 643-657,659-664,666-676,806-818
+  s_b858824d134fd5::t_e04655bec1d952 677-805
+  s_b858824d134fd5::t_aaf603dc1fad4b 842
+  s_b858824d134fd5::t_9e65b6b6be63ce 849
+cortex-editor/src/browser/components/sections/PositionSection.tsx
+  s_b858824d134fd5::t_78e820b7321044 40-47
+  s_b858824d134fd5::t_a09b777391a49e 88,92-116
+  s_b858824d134fd5::t_4ca6b5258138c5 140,144-168,175,197-205,209-212,216-219
+  s_b858824d134fd5::t_559cfc5d7accea 173-174,177-182,185-190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.9",
+  "base_commit_sha": "5e134a9dab367185318bfdf45319778b653fc29f",
+  "prompts": {},
+  "sessions": {
+    "s_b858824d134fd5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "59a66bd9-7e4d-4242-b7bd-bfab72749248",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
