@@ -632,6 +632,53 @@ describe('PositionSection', () => {
     expect(alignActive.classList.contains('cortex-icon-button--active')).toBe(true)
   })
 
+  // ── Toggle-to-clear (Figma/Webflow convention) ─────────────────────
+  //
+  // Clicking an already-active self-alignment button emits 'auto' instead
+  // of re-emitting the same value. The inverse gesture (same click) is
+  // the reset, so the panel doesn't need a separate clear affordance.
+
+  it('clicking the active justify-self button emits "auto" (toggle-to-clear)', () => {
+    const { onChange } = setup({ values: { ...DEFAULT_VALUES, justifySelf: 'center' } })
+    const btn = container.querySelector('[aria-label="Justify self center"]') as HTMLElement
+    btn.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'justify-self', value: 'auto' })
+  })
+
+  it('clicking the active align-self button emits "auto" (toggle-to-clear)', () => {
+    const { onChange } = setup({ values: { ...DEFAULT_VALUES, alignSelf: 'end' } })
+    const btn = container.querySelector('[aria-label="Align self end"]') as HTMLElement
+    btn.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'align-self', value: 'auto' })
+  })
+
+  it('clicking a DIFFERENT justify-self button still emits the new value (not auto)', () => {
+    const { onChange } = setup({ values: { ...DEFAULT_VALUES, justifySelf: 'start' } })
+    const btn = container.querySelector('[aria-label="Justify self end"]') as HTMLElement
+    btn.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'justify-self', value: 'end' })
+  })
+
+  it('clicking an inactive button when value is "auto" emits the new value', () => {
+    const { onChange } = setup({ values: { ...DEFAULT_VALUES, justifySelf: 'auto' } })
+    const btn = container.querySelector('[aria-label="Justify self center"]') as HTMLElement
+    btn.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'justify-self', value: 'center' })
+  })
+
+  it('toggle-to-clear is independent across rows: clicking active justify does NOT affect align', () => {
+    const { onChange } = setup({
+      values: { ...DEFAULT_VALUES, justifySelf: 'center', alignSelf: 'end' },
+    })
+    const btn = container.querySelector('[aria-label="Justify self center"]') as HTMLElement
+    btn.click()
+    // Only justify-self should have been touched, set to auto
+    expect(onChange).toHaveBeenCalledWith({ property: 'justify-self', value: 'auto' })
+    // No align-self emission should have occurred
+    const alignCalls = onChange.mock.calls.filter((c: any) => c[0]?.property === 'align-self')
+    expect(alignCalls.length).toBe(0)
+  })
+
   it('justify-self start emits onChange with property:"justify-self" value:"start"', () => {
     const { onChange } = setup()
     const btn = container.querySelector('[aria-label="Justify self start"]') as HTMLElement
