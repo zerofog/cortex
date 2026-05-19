@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
-import { PositionSection, parsePositionValues } from '../../../src/browser/components/sections/PositionSection.js'
+import { PositionSection, parsePositionValues, alignSelfAxis } from '../../../src/browser/components/sections/PositionSection.js'
 import type { PositionValues } from '../../../src/browser/components/sections/PositionSection.js'
 
 // Mock @floating-ui/dom — PositionSection now hosts a PositionDropdown
@@ -70,6 +70,10 @@ describe('PositionSection', () => {
     justifySelf: 'auto',
     alignSelf: 'auto',
     parentDisplay: 'grid',
+    // 'row' is the CSS default and the natural mental model for align-self
+    // (cross axis = vertical = top/middle/bottom labels). Tests for the
+    // column-flex code path set this explicitly per-case.
+    parentFlexDirection: 'row',
   }
 
   function setup(overrides?: Partial<Parameters<typeof PositionSection>[0]>) {
@@ -114,9 +118,12 @@ describe('PositionSection', () => {
       scaleY: '1',
       justifySelf: 'center',
       alignSelf: 'end',
-      // parentDisplay defaults to 'block' here; panel-style-snapshot
-      // patches in the real parent's display where the element exists.
+      // parentDisplay/parentFlexDirection default here; panel-style-
+      // snapshot patches in the real parent's values where the element
+      // exists. Defaults are 'block' (so self-alignment hides by default)
+      // and 'row' (so align-self uses vertical axis by default).
       parentDisplay: 'block',
+      parentFlexDirection: 'row',
     })
   })
 
@@ -137,6 +144,7 @@ describe('PositionSection', () => {
       justifySelf: 'auto',
       alignSelf: 'auto',
       parentDisplay: 'block',
+      parentFlexDirection: 'row',
     })
   })
 
@@ -540,24 +548,24 @@ describe('PositionSection', () => {
     setup({ values: { ...DEFAULT_VALUES, parentDisplay: 'grid', position: 'static' } })
     const groups = container.querySelectorAll('.cortex-position-section__btn-group')
     expect(groups.length).toBe(2)
-    expect(container.querySelector('[aria-label="Justify self"]')).not.toBeNull()
-    expect(container.querySelector('[aria-label="Align self"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label^="Justify self "]')).not.toBeNull()
+    expect(container.querySelector('[aria-label^="Align self "]')).not.toBeNull()
   })
 
   it('shows ONLY align-self when parent is flex (justify-self is a no-op on flex items)', () => {
     setup({ values: { ...DEFAULT_VALUES, parentDisplay: 'flex', position: 'static' } })
     const groups = container.querySelectorAll('.cortex-position-section__btn-group')
     expect(groups.length).toBe(1)
-    expect(container.querySelector('[aria-label="Justify self"]')).toBeNull()
-    expect(container.querySelector('[aria-label="Align self"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label^="Justify self "]')).toBeNull()
+    expect(container.querySelector('[aria-label^="Align self "]')).not.toBeNull()
   })
 
   it('shows ONLY align-self when parent is inline-flex', () => {
     setup({ values: { ...DEFAULT_VALUES, parentDisplay: 'inline-flex', position: 'static' } })
     const groups = container.querySelectorAll('.cortex-position-section__btn-group')
     expect(groups.length).toBe(1)
-    expect(container.querySelector('[aria-label="Justify self"]')).toBeNull()
-    expect(container.querySelector('[aria-label="Align self"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label^="Justify self "]')).toBeNull()
+    expect(container.querySelector('[aria-label^="Align self "]')).not.toBeNull()
   })
 
   it('shows BOTH rows for absolute element even with a block parent', () => {
@@ -605,15 +613,15 @@ describe('PositionSection', () => {
     expect(btn.classList.contains('cortex-icon-button--active')).toBe(true)
     expect(btn.getAttribute('aria-pressed')).toBe('true')
     // Siblings should NOT be active
-    const start = container.querySelector('[aria-label="Justify self start"]') as HTMLElement
-    const end = container.querySelector('[aria-label="Justify self end"]') as HTMLElement
+    const start = container.querySelector('[aria-label="Justify self left"]') as HTMLElement
+    const end = container.querySelector('[aria-label="Justify self right"]') as HTMLElement
     expect(start.classList.contains('cortex-icon-button--active')).toBe(false)
     expect(end.classList.contains('cortex-icon-button--active')).toBe(false)
   })
 
   it('marks the align-self button matching values.alignSelf as active', () => {
     setup({ values: { ...DEFAULT_VALUES, alignSelf: 'end' } })
-    const btn = container.querySelector('[aria-label="Align self end"]') as HTMLElement
+    const btn = container.querySelector('[aria-label="Align self bottom"]') as HTMLElement
     expect(btn.classList.contains('cortex-icon-button--active')).toBe(true)
     expect(btn.getAttribute('aria-pressed')).toBe('true')
   })
@@ -626,8 +634,8 @@ describe('PositionSection', () => {
 
   it('marks active states across BOTH rows simultaneously when both are set', () => {
     setup({ values: { ...DEFAULT_VALUES, justifySelf: 'start', alignSelf: 'end' } })
-    const justifyActive = container.querySelector('[aria-label="Justify self start"]') as HTMLElement
-    const alignActive = container.querySelector('[aria-label="Align self end"]') as HTMLElement
+    const justifyActive = container.querySelector('[aria-label="Justify self left"]') as HTMLElement
+    const alignActive = container.querySelector('[aria-label="Align self bottom"]') as HTMLElement
     expect(justifyActive.classList.contains('cortex-icon-button--active')).toBe(true)
     expect(alignActive.classList.contains('cortex-icon-button--active')).toBe(true)
   })
@@ -647,14 +655,14 @@ describe('PositionSection', () => {
 
   it('clicking the active align-self button emits "auto" (toggle-to-clear)', () => {
     const { onChange } = setup({ values: { ...DEFAULT_VALUES, alignSelf: 'end' } })
-    const btn = container.querySelector('[aria-label="Align self end"]') as HTMLElement
+    const btn = container.querySelector('[aria-label="Align self bottom"]') as HTMLElement
     btn.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'align-self', value: 'auto' })
   })
 
   it('clicking a DIFFERENT justify-self button still emits the new value (not auto)', () => {
     const { onChange } = setup({ values: { ...DEFAULT_VALUES, justifySelf: 'start' } })
-    const btn = container.querySelector('[aria-label="Justify self end"]') as HTMLElement
+    const btn = container.querySelector('[aria-label="Justify self right"]') as HTMLElement
     btn.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'justify-self', value: 'end' })
   })
@@ -664,6 +672,135 @@ describe('PositionSection', () => {
     const btn = container.querySelector('[aria-label="Justify self center"]') as HTMLElement
     btn.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'justify-self', value: 'center' })
+  })
+
+  // ── Parent-aware self-alignment (axis adaptation) ─────────────────
+  //
+  // align-self operates on the cross axis (flex) or block axis (grid).
+  // For flex parents, cross axis depends on flex-direction. Icons and
+  // labels now adapt so the panel always speaks designer-spatial
+  // language (left/right/top/bottom) rather than CSS-axis language
+  // (start/center/end) which lies in column-flex.
+
+  it('alignSelfAxis: row-flex parent → vertical (top/middle/bottom)', () => {
+    expect(alignSelfAxis({ parentDisplay: 'flex', parentFlexDirection: 'row' })).toBe('vertical')
+  })
+
+  it('alignSelfAxis: row-reverse-flex parent → vertical', () => {
+    expect(alignSelfAxis({ parentDisplay: 'flex', parentFlexDirection: 'row-reverse' })).toBe('vertical')
+  })
+
+  it('alignSelfAxis: column-flex parent → horizontal (left/center/right)', () => {
+    expect(alignSelfAxis({ parentDisplay: 'flex', parentFlexDirection: 'column' })).toBe('horizontal')
+  })
+
+  it('alignSelfAxis: column-reverse-flex parent → horizontal', () => {
+    expect(alignSelfAxis({ parentDisplay: 'flex', parentFlexDirection: 'column-reverse' })).toBe('horizontal')
+  })
+
+  it('alignSelfAxis: grid parent → vertical (block axis in horizontal writing modes)', () => {
+    // flex-direction is irrelevant for grid; should still be vertical
+    expect(alignSelfAxis({ parentDisplay: 'grid', parentFlexDirection: 'row' })).toBe('vertical')
+    expect(alignSelfAxis({ parentDisplay: 'grid', parentFlexDirection: 'column' })).toBe('vertical')
+  })
+
+  it('alignSelfAxis: block parent (no flex/grid) → vertical (default)', () => {
+    expect(alignSelfAxis({ parentDisplay: 'block', parentFlexDirection: 'row' })).toBe('vertical')
+  })
+
+  it('align-self labels are top/middle/bottom when parent is row-flex', () => {
+    setup({
+      values: {
+        ...DEFAULT_VALUES,
+        parentDisplay: 'flex',
+        parentFlexDirection: 'row',
+      },
+    })
+    expect(container.querySelector('[aria-label="Align self top"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="Align self middle"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="Align self bottom"]')).not.toBeNull()
+    // The spatial-mismatched labels (left/right/center) should NOT exist
+    expect(container.querySelector('[aria-label="Align self left"]')).toBeNull()
+    expect(container.querySelector('[aria-label="Align self right"]')).toBeNull()
+  })
+
+  it('align-self labels are left/center/right when parent is column-flex (KEY parent-aware case)', () => {
+    setup({
+      values: {
+        ...DEFAULT_VALUES,
+        parentDisplay: 'flex',
+        parentFlexDirection: 'column',
+      },
+    })
+    expect(container.querySelector('[aria-label="Align self left"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="Align self center"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="Align self right"]')).not.toBeNull()
+    // The vertical-axis labels should NOT exist
+    expect(container.querySelector('[aria-label="Align self top"]')).toBeNull()
+    expect(container.querySelector('[aria-label="Align self bottom"]')).toBeNull()
+  })
+
+  it('justify-self labels are ALWAYS left/center/right regardless of parent (justify is always horizontal axis)', () => {
+    for (const parentFlexDirection of ['row', 'row-reverse', 'column', 'column-reverse'] as const) {
+      setup({
+        values: {
+          ...DEFAULT_VALUES,
+          parentDisplay: 'grid', // grid honors justify-self
+          parentFlexDirection,
+        },
+      })
+      expect(container.querySelector('[aria-label="Justify self left"]')).not.toBeNull()
+      expect(container.querySelector('[aria-label="Justify self center"]')).not.toBeNull()
+      expect(container.querySelector('[aria-label="Justify self right"]')).not.toBeNull()
+      // Vertical labels must never appear on the justify row
+      expect(container.querySelector('[aria-label="Justify self top"]')).toBeNull()
+      expect(container.querySelector('[aria-label="Justify self bottom"]')).toBeNull()
+      render(null, container)
+      container.remove()
+    }
+  })
+
+  it('tooltip text adapts to axis: align-self center is "Middle" when vertical, "Center" when horizontal', () => {
+    // Vertical axis (default row-flex): center label is "Middle"
+    setup({ values: { ...DEFAULT_VALUES, parentDisplay: 'flex', parentFlexDirection: 'row' } })
+    const verticalCenter = container.querySelector('[aria-label="Align self middle"]') as HTMLElement
+    expect(verticalCenter.getAttribute('data-tooltip')).toBe('Align self · Middle')
+    render(null, container)
+    container.remove()
+
+    // Horizontal axis (column-flex): center label is "Center"
+    setup({ values: { ...DEFAULT_VALUES, parentDisplay: 'flex', parentFlexDirection: 'column' } })
+    const horizontalCenter = container.querySelector('[aria-label="Align self center"]') as HTMLElement
+    expect(horizontalCenter.getAttribute('data-tooltip')).toBe('Align self · Center')
+  })
+
+  it('column-flex align-self uses horizontal-shift icons (JustifySelf icons reused for axis)', () => {
+    setup({
+      values: {
+        ...DEFAULT_VALUES,
+        parentDisplay: 'flex',
+        parentFlexDirection: 'column',
+      },
+    })
+    const leftBtn = container.querySelector('[aria-label="Align self left"]') as HTMLElement
+    const svg = leftBtn.querySelector('svg')
+    expect(svg).not.toBeNull()
+    // Horizontal-shift icon (the same icon used for justify-self start) has
+    // the inner box at x=3 — its anti-tautology fingerprint.
+    expect(svg!.innerHTML).toContain(ICON_FINGERPRINT.justifyStart)
+  })
+
+  it('row-flex align-self uses vertical-shift icons (existing align fingerprint)', () => {
+    setup({
+      values: {
+        ...DEFAULT_VALUES,
+        parentDisplay: 'flex',
+        parentFlexDirection: 'row',
+      },
+    })
+    const topBtn = container.querySelector('[aria-label="Align self top"]') as HTMLElement
+    const svg = topBtn.querySelector('svg')
+    expect(svg!.innerHTML).toContain(ICON_FINGERPRINT.alignStart)
   })
 
   it('toggle-to-clear is independent across rows: clicking active justify does NOT affect align', () => {
@@ -681,7 +818,7 @@ describe('PositionSection', () => {
 
   it('justify-self start emits onChange with property:"justify-self" value:"start"', () => {
     const { onChange } = setup()
-    const btn = container.querySelector('[aria-label="Justify self start"]') as HTMLElement
+    const btn = container.querySelector('[aria-label="Justify self left"]') as HTMLElement
     btn.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'justify-self', value: 'start' })
   })
@@ -695,28 +832,28 @@ describe('PositionSection', () => {
 
   it('justify-self end emits the end value', () => {
     const { onChange } = setup()
-    const btn = container.querySelector('[aria-label="Justify self end"]') as HTMLElement
+    const btn = container.querySelector('[aria-label="Justify self right"]') as HTMLElement
     btn.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'justify-self', value: 'end' })
   })
 
   it('align-self start emits onChange with property:"align-self" value:"start"', () => {
     const { onChange } = setup()
-    const btn = container.querySelector('[aria-label="Align self start"]') as HTMLElement
+    const btn = container.querySelector('[aria-label="Align self top"]') as HTMLElement
     btn.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'align-self', value: 'start' })
   })
 
   it('align-self center emits the center value', () => {
     const { onChange } = setup()
-    const btn = container.querySelector('[aria-label="Align self center"]') as HTMLElement
+    const btn = container.querySelector('[aria-label="Align self middle"]') as HTMLElement
     btn.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'align-self', value: 'center' })
   })
 
   it('align-self end emits the end value', () => {
     const { onChange } = setup()
-    const btn = container.querySelector('[aria-label="Align self end"]') as HTMLElement
+    const btn = container.querySelector('[aria-label="Align self bottom"]') as HTMLElement
     btn.click()
     expect(onChange).toHaveBeenCalledWith({ property: 'align-self', value: 'end' })
   })
