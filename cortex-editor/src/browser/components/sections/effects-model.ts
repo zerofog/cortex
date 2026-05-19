@@ -121,8 +121,10 @@ export function formatFilter(rest: string, blur: number): string {
 export function buildEffects(values: EffectsValues): Effect[] {
   const effects: Effect[] = []
   const shadows = parseBoxShadow(values.boxShadow)
-  // Clamp at the model boundary — UI inputs use min={0}, but a malformed CSS
-  // source could still produce negative/NaN values that would corrupt the round-trip.
+  // Clamp blur at the model boundary: blur cannot be negative. x/y/spread are
+  // NOT clamped to non-negative (shadows legitimately offset up/left and spread
+  // inward), only NaN-guarded. A malformed CSS source could otherwise corrupt
+  // the round-trip with NaN/negative blur.
   const clamp = (n: number) => (Number.isFinite(n) ? Math.max(0, n) : 0)
 
   shadows.forEach((shadow, index) => {

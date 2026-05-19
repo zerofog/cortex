@@ -9,6 +9,7 @@ import {
 } from '../../../src/browser/components/sections/EffectsSection.js'
 import type { EffectsValues } from '../../../src/browser/components/sections/EffectsSection.js'
 import { parseBoxShadow } from '../../../src/core/shadow-utils.js'
+import { dispatchPointerEvent } from '../helpers.js'
 
 // Mock @floating-ui/dom for Dropdown
 vi.mock('@floating-ui/dom', () => ({
@@ -343,6 +344,106 @@ describe('EffectsSection', () => {
       // Critical: filter and backdrop-filter must NOT be in the call list
       expect(properties).not.toContain('filter')
       expect(properties).not.toContain('backdrop-filter')
+    })
+  })
+
+  // ── Undo-stack scrub trace (regression: Issue B from /investigate) ──
+  //
+  // A scrub gesture fires onScrub repeatedly during the drag, then onScrubEnd
+  // once on release — at the SAME value as the last onScrub tick. The
+  // per-property emit gating must still fire onScrubEnd's box-shadow emission
+  // (compared against the parent's pre-gesture `values`, NOT the last emit),
+  // otherwise Panel never runs commitScrub, no PropertyEditCommand lands in the
+  // undo stack, and Cmd+Z undoes the WRONG thing (the prior gesture).
+  it('scrubEnd emits box-shadow even when value equals the last scrub tick', async () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+
+    const scrubEnd = vi.fn()
+    const scrub = vi.fn()
+    function Wrapper() {
+      const initial: EffectsValues = {
+        boxShadow: '0px 2px 8px 0px rgba(0, 0, 0, 0.1)',
+        blur: 0, backdropBlur: 0, filterRaw: '', backdropFilterRaw: '',
+      }
+      // values stays FROZEN through the scrub — mirrors Panel, which only bumps
+      // styleVersion on commit, not on scrub.
+      const [v] = useState(initial)
+      return <EffectsSection values={v} onChange={vi.fn()} onScrub={scrub} onScrubEnd={scrubEnd} />
+    }
+    render(<Wrapper />, container)
+
+    const expandBtn = container.querySelector<HTMLButtonElement>('.cortex-effects-section__expand-btn')
+    expandBtn!.click()
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-effects-section__detail')).not.toBeNull()
+    })
+
+    // Drive a real scrub on the X NumericInput: pointerdown → move → up.
+    const xWrapper = container.querySelector<HTMLElement>('.cortex-effects-section__grid .cortex-numeric-input')!
+    dispatchPointerEvent(xWrapper, 'pointerdown', { clientX: 100 })
+    await new Promise((r) => setTimeout(r, 0))
+    dispatchPointerEvent(xWrapper, 'pointermove', { clientX: 130 })
+    await vi.waitFor(() => {
+      expect(scrub).toHaveBeenCalled()
+    })
+    // Release at the SAME clientX as the last move — scrubEnd value === last scrub tick.
+    dispatchPointerEvent(xWrapper, 'pointerup', { clientX: 130 })
+
+    // scrubEnd MUST have fired a box-shadow emission — this is the undo trace.
+    await vi.waitFor(() => {
+      const props = scrubEnd.mock.calls.map((c: any) => c[0].property)
+      expect(props).toContain('box-shadow')
+    })
+  })
+
+  // ── Return-to-baseline scrub (regression: codex [P1]) ──
+  //
+  // Scrub a value away from baseline then back to it before release. The
+  // "touched property" set must keep emitting box-shadow on the return tick
+  // and at scrubEnd — otherwise the stale mid-scrub override stays installed
+  // and commitScrub never runs to clean it up.
+  it('scrub away-and-back still emits box-shadow on the return tick + scrubEnd', async () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+
+    const scrub = vi.fn()
+    const scrubEnd = vi.fn()
+    function Wrapper() {
+      const initial: EffectsValues = {
+        boxShadow: '0px 2px 8px 0px rgba(0, 0, 0, 0.1)',
+        blur: 0, backdropBlur: 0, filterRaw: '', backdropFilterRaw: '',
+      }
+      const [v] = useState(initial)
+      return <EffectsSection values={v} onChange={vi.fn()} onScrub={scrub} onScrubEnd={scrubEnd} />
+    }
+    render(<Wrapper />, container)
+
+    const expandBtn = container.querySelector<HTMLButtonElement>('.cortex-effects-section__expand-btn')
+    expandBtn!.click()
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-effects-section__detail')).not.toBeNull()
+    })
+
+    const xWrapper = container.querySelector<HTMLElement>('.cortex-effects-section__grid .cortex-numeric-input')!
+    dispatchPointerEvent(xWrapper, 'pointerdown', { clientX: 100 })
+    await new Promise((r) => setTimeout(r, 0))
+    // Move away from baseline
+    dispatchPointerEvent(xWrapper, 'pointermove', { clientX: 130 })
+    await vi.waitFor(() => { expect(scrub).toHaveBeenCalled() })
+    scrub.mockClear()
+    // Move back to the exact starting X — value returns to baseline
+    dispatchPointerEvent(xWrapper, 'pointermove', { clientX: 100 })
+    // The return tick must still emit box-shadow (touched-property path)
+    await vi.waitFor(() => {
+      const props = scrub.mock.calls.map((c: any) => c[0].property)
+      expect(props).toContain('box-shadow')
+    })
+    // Release at baseline — scrubEnd must still emit box-shadow so commitScrub runs
+    dispatchPointerEvent(xWrapper, 'pointerup', { clientX: 100 })
+    await vi.waitFor(() => {
+      const props = scrubEnd.mock.calls.map((c: any) => c[0].property)
+      expect(props).toContain('box-shadow')
     })
   })
 

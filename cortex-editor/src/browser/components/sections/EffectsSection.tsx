@@ -190,18 +190,42 @@ export function EffectsSection({
 
   // ---- Emission helpers ---------------------------------------------------
 
+  // Properties emitted at least once during the current gesture. Once a
+  // property is "touched", every later emit in the same gesture re-emits it —
+  // even when its value returns to the pre-gesture baseline. Without this, a
+  // scrub that moves a value away then back (0 → 15 → 0) would suppress the
+  // return-to-0 tick, leaving the stale 15px override installed and skipping
+  // the scrubEnd commit. Cleared at the end of every gesture (scrubEnd) and at
+  // the start of every atomic 'change'.
+  const touchedPropsRef = useRef<Set<'box-shadow' | 'filter' | 'backdrop-filter'>>(new Set())
+
   const emit = useCallback(
     (phase: 'change' | 'scrub' | 'scrubEnd', nextEffects: Effect[]) => {
       const callback = phase === 'change' ? onChange : phase === 'scrub' ? onScrub : onScrubEnd
       if (!callback) return
+      // A 'change' is atomic — no scrub carry-over (also defends against a
+      // cancelled scrub that never reached scrubEnd to clear the set).
+      if (phase === 'change') touchedPropsRef.current.clear()
       const next = commitEffects(nextEffects, values.filterRaw, values.backdropFilterRaw)
-      // Per-property gating: compare against the parent's pre-gesture baseline,
-      // not against our own last emit. Both sides live in the serialized
-      // coordinate system (commitEffects output) so browser-normalization
-      // differences don't matter.
-      if (next.boxShadow !== baseline.boxShadow) callback({ property: 'box-shadow', value: next.boxShadow })
-      if (next.filter !== baseline.filter) callback({ property: 'filter', value: next.filter })
-      if (next.backdropFilter !== baseline.backdropFilter) callback({ property: 'backdrop-filter', value: next.backdropFilter })
+      // Per-property gating: emit a property if it differs from the parent's
+      // pre-gesture baseline OR if it was already touched this gesture. Both
+      // sides live in the serialized coordinate system (commitEffects output),
+      // so browser-normalization differences don't matter.
+      const emitProp = (
+        property: 'box-shadow' | 'filter' | 'backdrop-filter',
+        value: string,
+        baselineValue: string,
+      ) => {
+        const changed = value !== baselineValue
+        if (changed || touchedPropsRef.current.has(property)) {
+          callback({ property, value })
+          if (changed) touchedPropsRef.current.add(property)
+        }
+      }
+      emitProp('box-shadow', next.boxShadow, baseline.boxShadow)
+      emitProp('filter', next.filter, baseline.filter)
+      emitProp('backdrop-filter', next.backdropFilter, baseline.backdropFilter)
+      if (phase === 'scrubEnd' || phase === 'change') touchedPropsRef.current.clear()
     },
     [onChange, onScrub, onScrubEnd, baseline, values.filterRaw, values.backdropFilterRaw],
   )

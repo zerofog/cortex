@@ -304,6 +304,14 @@ describe('buildEffects', () => {
     expect(result[0]).toMatchObject({ id: 'layer-blur', type: 'layer-blur', blur: 4 })
   })
 
+  it('preserves negative shadow x/y offsets — clamp must NOT zero them', () => {
+    // A shadow offset up-and-to-the-left is legitimate CSS. The buildEffects
+    // clamp applies Math.max(0, ...) ONLY to blur, never to x/y/spread.
+    const result = buildEffects({ ...EMPTY_VALUES, boxShadow: '-5px -8px 4px -2px #000' })
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({ type: 'drop', x: -5, y: -8, blur: 4, spread: -2 })
+  })
+
   it('mixed: shadow + layer-blur + backdrop-blur in this order', () => {
     const result = buildEffects({
       boxShadow: '1px 2px 8px 0px #000',
