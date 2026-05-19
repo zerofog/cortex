@@ -111,7 +111,18 @@ export function computePanelStyleSnapshot(input: ComputePanelStyleSnapshotInput)
     const parentCs = getComputedStyle(layoutParent)
     parsed.position.parentDisplay = parentCs.display ?? 'block'
     parsed.position.parentFlexDirection = parentCs.flexDirection ?? 'row'
+    // LayoutSection mirrors the parentDisplay read so the display
+    // SegmentedControl can disable the 'inline' option when CSS would
+    // blockify it (flex/grid child) — same underlying signal, different
+    // consumer.
+    parsed.layout.parentDisplay = parentCs.display ?? 'block'
   }
+  // Tag name drives widget-coercion detection in LayoutSection ('inline'
+  // is a no-op on button/input/select/etc. per HTML UA stylesheet).
+  // Pseudo-elements don't have their own tag — they inherit from the
+  // originating element, which for both pseudo and non-pseudo cases is
+  // `element` itself.
+  parsed.layout.tagName = element.tagName.toLowerCase()
   // Per CSS spec §8.5.3, getComputedStyle zeroes border-width when
   // border-style is 'none' or 'hidden' — which breaks the existence/
   // visibility split used by summarizeBorder. A user-hidden border (via

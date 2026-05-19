@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
-import { LayoutSection, parseLayoutValues } from '../../../src/browser/components/sections/LayoutSection.js'
+import { LayoutSection, parseLayoutValues, inlineDisplayApplies } from '../../../src/browser/components/sections/LayoutSection.js'
 import type { LayoutValues } from '../../../src/browser/components/sections/LayoutSection.js'
 
 vi.mock('@floating-ui/dom', () => ({
@@ -40,6 +40,10 @@ describe('LayoutSection', () => {
     maxHeight: 'none',
     overflow: 'visible',
     boxSizing: 'content-box',
+    // Default to <div> with block parent so 'inline' option is enabled —
+    // gating tests set tagName/parentDisplay explicitly per-case.
+    tagName: 'div',
+    parentDisplay: 'block',
   }
 
   const DEFAULT_SPACING = {
@@ -435,5 +439,107 @@ describe('LayoutSection', () => {
     const result = parseLayoutValues(cs)
     expect(result.overflow).toBe('visible')
     expect(result.boxSizing).toBe('content-box')
+  })
+
+  // ── inline-display gating (CSS blockification + widget UA coercion) ──
+  //
+  // /investigate root cause: clicking "inline" silently no-ops for two
+  // CSS-spec-driven reasons that combine in the most common UI cases:
+  //   (1) Flexbox §4 / Grid §3.4 blockify any child's display:inline to
+  //       block when parent is a flex/grid container.
+  //   (2) HTML widget UA stylesheets coerce display:inline to inline-
+  //       block on <button>, <input>, <select>, <textarea>, etc.
+  // The panel disables the 'inline' option in both cases with an
+  // explanatory tooltip rather than letting the user click into a no-op.
+
+  it('inlineDisplayApplies: <div> with block parent → true (works)', () => {
+    expect(inlineDisplayApplies({ tagName: 'div', parentDisplay: 'block' })).toBe(true)
+  })
+
+  it('inlineDisplayApplies: <button> with block parent → false (UA coercion)', () => {
+    expect(inlineDisplayApplies({ tagName: 'button', parentDisplay: 'block' })).toBe(false)
+  })
+
+  it('inlineDisplayApplies: <input> with block parent → false (UA coercion)', () => {
+    expect(inlineDisplayApplies({ tagName: 'input', parentDisplay: 'block' })).toBe(false)
+  })
+
+  it('inlineDisplayApplies: <select> with block parent → false (UA coercion)', () => {
+    expect(inlineDisplayApplies({ tagName: 'select', parentDisplay: 'block' })).toBe(false)
+  })
+
+  it('inlineDisplayApplies: <textarea> with block parent → false (UA coercion)', () => {
+    expect(inlineDisplayApplies({ tagName: 'textarea', parentDisplay: 'block' })).toBe(false)
+  })
+
+  it('inlineDisplayApplies: <div> with flex parent → false (blockification)', () => {
+    expect(inlineDisplayApplies({ tagName: 'div', parentDisplay: 'flex' })).toBe(false)
+  })
+
+  it('inlineDisplayApplies: <div> with inline-flex parent → false (blockification)', () => {
+    expect(inlineDisplayApplies({ tagName: 'div', parentDisplay: 'inline-flex' })).toBe(false)
+  })
+
+  it('inlineDisplayApplies: <div> with grid parent → false (blockification)', () => {
+    expect(inlineDisplayApplies({ tagName: 'div', parentDisplay: 'grid' })).toBe(false)
+  })
+
+  it('inlineDisplayApplies: <div> with inline-grid parent → false (blockification)', () => {
+    expect(inlineDisplayApplies({ tagName: 'div', parentDisplay: 'inline-grid' })).toBe(false)
+  })
+
+  it('inlineDisplayApplies: <img> (replaced element) → false', () => {
+    expect(inlineDisplayApplies({ tagName: 'img', parentDisplay: 'block' })).toBe(false)
+  })
+
+  // ── UI: disabled state on the inline option ───────────────────────────
+
+  it('renders inline option enabled for <div> with block parent', () => {
+    setup({ values: { ...DEFAULT_VALUES, tagName: 'div', parentDisplay: 'block' } })
+    const inlineBtn = container.querySelector('[data-value="inline"]') as HTMLElement
+    expect(inlineBtn).not.toBeNull()
+    expect(inlineBtn.getAttribute('aria-disabled')).toBeNull()
+    expect(inlineBtn.classList.contains('cortex-segmented__option--disabled')).toBe(false)
+  })
+
+  it('renders inline option disabled for <button> (widget coercion)', () => {
+    setup({ values: { ...DEFAULT_VALUES, tagName: 'button', parentDisplay: 'block' } })
+    const inlineBtn = container.querySelector('[data-value="inline"]') as HTMLElement
+    expect(inlineBtn).not.toBeNull()
+    expect(inlineBtn.getAttribute('aria-disabled')).toBe('true')
+    expect(inlineBtn.classList.contains('cortex-segmented__option--disabled')).toBe(true)
+    const tooltip = inlineBtn.getAttribute('data-tooltip')
+    expect(tooltip).toContain('button')
+    expect(tooltip).toContain('inline-block')
+  })
+
+  it('renders inline option disabled for <div> with flex parent (blockification)', () => {
+    setup({ values: { ...DEFAULT_VALUES, tagName: 'div', parentDisplay: 'flex' } })
+    const inlineBtn = container.querySelector('[data-value="inline"]') as HTMLElement
+    expect(inlineBtn.getAttribute('aria-disabled')).toBe('true')
+    const tooltip = inlineBtn.getAttribute('data-tooltip')
+    expect(tooltip).toContain('flex')
+    expect(tooltip).toContain('block')
+  })
+
+  it('renders inline option disabled for <div> with grid parent', () => {
+    setup({ values: { ...DEFAULT_VALUES, tagName: 'div', parentDisplay: 'grid' } })
+    const inlineBtn = container.querySelector('[data-value="inline"]') as HTMLElement
+    expect(inlineBtn.getAttribute('aria-disabled')).toBe('true')
+  })
+
+  it('clicking the disabled inline option does NOT fire onChange', () => {
+    const { onChange } = setup({ values: { ...DEFAULT_VALUES, tagName: 'button', parentDisplay: 'block' } })
+    const inlineBtn = container.querySelector('[data-value="inline"]') as HTMLElement
+    inlineBtn.click()
+    const inlineCall = onChange.mock.calls.find((c: any) => c[0]?.property === 'display' && c[0]?.value === 'inline')
+    expect(inlineCall).toBeUndefined()
+  })
+
+  it('clicking other display options still fires onChange when inline is disabled', () => {
+    const { onChange } = setup({ values: { ...DEFAULT_VALUES, tagName: 'button', parentDisplay: 'block' } })
+    const flexBtn = container.querySelector('[data-value="flex"]') as HTMLElement
+    flexBtn.click()
+    expect(onChange).toHaveBeenCalledWith({ property: 'display', value: 'flex' })
   })
 })
