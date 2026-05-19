@@ -57,7 +57,13 @@ export function Dropdown({
     popover.style.width = `${trigger.offsetWidth}px`
     computePosition(trigger, popover, {
       placement: 'bottom-start',
-      middleware: [flip(), shift()],
+      middleware: [
+        // Flip to top-start if there's no room below the trigger. Padding leaves
+        // room for the iframe's chrome / shadow boundary so the dropdown doesn't
+        // hug the viewport edge.
+        flip({ padding: 8, fallbackPlacements: ['top-start', 'bottom-end', 'top-end'] }),
+        shift({ padding: 8 }),
+      ],
     }).then(({ x, y }) => {
       if (!cancelled && popoverRef.current) {
         popoverRef.current.style.left = `${x}px`

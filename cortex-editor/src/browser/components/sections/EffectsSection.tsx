@@ -157,35 +157,76 @@ export function EffectsSection({
   // conversion call site so a stale shadow payload can never leak into a blur restore.
   const stashRef = useRef<Map<string, StashEntry>>(new Map())
 
-  // Snapshot of the CSS values we most recently emitted upward. Used for:
-  //   (1) per-property emit gating — don't fire onChange for unchanged properties
-  //       (otherwise Panel.applyOverride leaks stale !important overrides onto
-  //       the element for properties this gesture didn't actually touch)
-  //   (2) selection-context detection — if incoming `values` doesn't match what
-  //       we last emitted, the parent gave us new values from a different element
-  //       (or external mutation), so we must reset local state like
-  //       disabledSingletons + stashRef + expandedId.
-  const lastEmittedRef = useRef<{ boxShadow: string; filter: string; backdropFilter: string } | null>(null)
+  // Snapshot of the structural shape we most recently emitted upward. We compare
+  // by STRUCTURE (parsed shadow count + per-shadow numeric fields + scalar blur
+  // values), not raw CSS strings. The browser normalizes colors and unit forms
+  // during reflow (`#000` → `rgb(0, 0, 0)`, `0px 2px 8px` → `0px 2px 8px 0px`),
+  // so raw-string comparison falsely flags our own emits as "external" and
+  // collapses the expanded panel mid-scrub.
+  type EffectShape = {
+    shadows: Array<{ inset: boolean; x: number; y: number; blur: number; spread: number }>
+    blur: number
+    backdropBlur: number
+  }
+  const lastEmittedShapeRef = useRef<EffectShape | null>(null)
 
-  // Detect selection-context change and reset local state. Compare incoming
-  // values' CSS-equivalent strings to what we last emitted. If they differ,
-  // the change is external; clear our cached UI state.
+  function shapeFromValues(v: EffectsValues): EffectShape {
+    const shadows = parseBoxShadow(v.boxShadow).map((s) => ({
+      inset: s.inset, x: s.x, y: s.y, blur: s.blur, spread: s.spread,
+    }))
+    return { shadows, blur: v.blur, backdropBlur: v.backdropBlur }
+  }
+
+  function shapesEqual(a: EffectShape, b: EffectShape): boolean {
+    if (a.blur !== b.blur || a.backdropBlur !== b.backdropBlur) return false
+    if (a.shadows.length !== b.shadows.length) return false
+    for (let i = 0; i < a.shadows.length; i++) {
+      const s1 = a.shadows[i]!, s2 = b.shadows[i]!
+      if (s1.inset !== s2.inset || s1.x !== s2.x || s1.y !== s2.y || s1.blur !== s2.blur || s1.spread !== s2.spread) return false
+    }
+    return true
+  }
+
+  // Detect selection-context change via STRUCTURAL comparison. Color normalization
+  // and CSS string formatting differences from the browser do NOT trigger a reset.
   useEffect(() => {
-    const last = lastEmittedRef.current
+    const last = lastEmittedShapeRef.current
     if (!last) return
-    const incomingFilter = formatFilter(parseFilterFunctions(values.filterRaw).rest, values.blur)
-    const incomingBackdrop = formatFilter(parseFilterFunctions(values.backdropFilterRaw).rest, values.backdropBlur)
-    const isExternalChange =
-      values.boxShadow !== last.boxShadow ||
-      incomingFilter !== last.filter ||
-      incomingBackdrop !== last.backdropFilter
-    if (isExternalChange) {
+    if (!shapesEqual(shapeFromValues(values), last)) {
       setDisabledSingletons((prev) => (prev.size === 0 ? prev : new Set()))
       stashRef.current = new Map()
       setExpandedId(null)
-      lastEmittedRef.current = null
+      lastEmittedShapeRef.current = null
     }
-  }, [values.boxShadow, values.blur, values.backdropBlur, values.filterRaw, values.backdropFilterRaw])
+  }, [values.boxShadow, values.blur, values.backdropBlur])
+
+  // Per-property emit gating tracks the raw CSS strings we emit, so we can
+  // suppress unchanged-property onChange calls. This is independent of the
+  // shape-based external-change detection above — they have different jobs.
+  const lastEmittedCssRef = useRef<{ boxShadow: string; filter: string; backdropFilter: string } | null>(null)
+
+  // Auto-scroll: when the user adds a new row via "+" or expands a row that's
+  // below the fold, bring it into view. Tracks row count and expanded id changes.
+  const rowsContainerRef = useRef<HTMLDivElement>(null)
+  const prevEffectsCountRef = useRef(effects.length)
+  useEffect(() => {
+    if (effects.length > prevEffectsCountRef.current) {
+      // A new row was added. Scroll the last row into view.
+      const last = rowsContainerRef.current?.lastElementChild as HTMLElement | null
+      last?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+    prevEffectsCountRef.current = effects.length
+  }, [effects.length])
+
+  useEffect(() => {
+    if (!expandedId) return
+    // Scroll the just-expanded row into view (block: 'nearest' avoids over-scroll
+    // if the row is already mostly visible).
+    const row = rowsContainerRef.current?.querySelector<HTMLElement>(
+      `.cortex-effects-section__row[data-effect-id="${expandedId}"]`,
+    )
+    row?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [expandedId])
 
   // ---- Emission helpers ---------------------------------------------------
 
@@ -202,14 +243,25 @@ export function EffectsSection({
       // changed. Compare against the last snapshot (or current values if no prior
       // emit). This prevents stale !important overrides on properties the gesture
       // didn't touch (Panel.applyOverride installs them eagerly).
-      const last = lastEmittedRef.current
-      const currentBoxShadow = last?.boxShadow ?? values.boxShadow
-      const currentFilter = last?.filter ?? formatFilter(parseFilterFunctions(values.filterRaw).rest, values.blur)
-      const currentBackdrop = last?.backdropFilter ?? formatFilter(parseFilterFunctions(values.backdropFilterRaw).rest, values.backdropBlur)
+      const lastCss = lastEmittedCssRef.current
+      const currentBoxShadow = lastCss?.boxShadow ?? values.boxShadow
+      const currentFilter = lastCss?.filter ?? formatFilter(parseFilterFunctions(values.filterRaw).rest, values.blur)
+      const currentBackdrop = lastCss?.backdropFilter ?? formatFilter(parseFilterFunctions(values.backdropFilterRaw).rest, values.backdropBlur)
       if (boxShadow !== currentBoxShadow) callback({ property: 'box-shadow', value: boxShadow })
       if (filter !== currentFilter) callback({ property: 'filter', value: filter })
       if (backdropFilter !== currentBackdrop) callback({ property: 'backdrop-filter', value: backdropFilter })
-      lastEmittedRef.current = { boxShadow, filter, backdropFilter }
+      lastEmittedCssRef.current = { boxShadow, filter, backdropFilter }
+      // Also snapshot the structural shape so the external-change useEffect can
+      // identify our own emit when it re-renders with the parent's reflowed values.
+      const layerBlur = nextEffects.find((e) => e.type === 'layer-blur')
+      const backdropBlurEff = nextEffects.find((e) => e.type === 'backdrop-blur')
+      lastEmittedShapeRef.current = {
+        shadows: nextEffects
+          .filter((e): e is Extract<Effect, { type: 'drop' | 'inset' }> => e.type === 'drop' || e.type === 'inset')
+          .map((e) => ({ inset: e.type === 'inset', x: e.x, y: e.y, blur: e.blur, spread: e.spread })),
+        blur: layerBlur && layerBlur.type === 'layer-blur' ? layerBlur.blur : 0,
+        backdropBlur: backdropBlurEff && backdropBlurEff.type === 'backdrop-blur' ? backdropBlurEff.blur : 0,
+      }
     },
     [onChange, onScrub, onScrubEnd, values.boxShadow, values.blur, values.backdropBlur, values.filterRaw, values.backdropFilterRaw],
   )
@@ -395,7 +447,7 @@ export function EffectsSection({
 
   return (
     <div class="cortex-effects-section" data-section-id="effects">
-      <div class="cortex-effects-section__effects">
+      <div class="cortex-effects-section__effects" ref={rowsContainerRef}>
         {effects.map((effect, index) => {
           const isExpanded = expandedId === effect.id
           const enabled = isEffectEnabled(effect)
@@ -407,6 +459,7 @@ export function EffectsSection({
               key={effect.id}
               data-expanded={String(isExpanded)}
               data-effect-type={effect.type}
+              data-effect-id={effect.id}
             >
               <div class="cortex-effects-section__row-header">
                 <button

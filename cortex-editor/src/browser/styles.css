@@ -2608,7 +2608,8 @@
   gap: var(--cx-sp-6);
 }
 
-.cortex-effects-section__shadows {
+.cortex-effects-section__shadows,
+.cortex-effects-section__effects {
   display: flex;
   flex-direction: column;
   gap: var(--cx-sp-6);
