@@ -2612,7 +2612,7 @@
 .cortex-effects-section__effects {
   display: flex;
   flex-direction: column;
-  gap: var(--cx-sp-6);
+  gap: var(--cx-sp-4);
 }
 
 .cortex-effects-section__row {

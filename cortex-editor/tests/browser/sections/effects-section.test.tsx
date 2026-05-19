@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
+import { useState } from 'preact/hooks'
 import {
   EffectsSection,
   parseEffectsValues,
@@ -245,6 +246,52 @@ describe('EffectsSection', () => {
     setup()
     const root = container.querySelector('[data-section-id="effects"]')
     expect(root).not.toBeNull()
+  })
+
+  // ── Regression: detail panel must survive a parent re-render after onChange ──
+  //
+  // User report: scrubbing an X input collapses the detail panel on mouse
+  // release. Root cause hypothesis: the external-change-detection useEffect
+  // misidentifies our own emit as external and clears expandedId. This test
+  // simulates the round-trip (emit → parent applies override → re-render with
+  // new values) and asserts the detail panel stays open.
+  it('detail panel survives onChange round-trip (regression: scrub collapse)', async () => {
+    // Setup a stateful wrapper so the parent re-renders with the emitted value.
+    container = document.createElement('div')
+    document.body.appendChild(container)
+
+    function Wrapper() {
+      const initial: EffectsValues = {
+        boxShadow: '0px 2px 8px 0px rgba(0, 0, 0, 0.1)',
+        blur: 0, backdropBlur: 0, filterRaw: '', backdropFilterRaw: '',
+      }
+      const [v, setV] = useState(initial)
+      const commit = (c: { property: string; value: string }) => {
+        if (c.property === 'box-shadow') setV((prev) => ({ ...prev, boxShadow: c.value }))
+      }
+      return <EffectsSection values={v} onChange={commit} onScrubEnd={commit} />
+    }
+    render(<Wrapper />, container)
+
+    // Expand the row
+    const expandBtn = container.querySelector<HTMLButtonElement>('.cortex-effects-section__expand-btn')
+    expandBtn!.click()
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-effects-section__detail')).not.toBeNull()
+    })
+
+    // Fire onChange on the X input (simulating scrub-end / typing commit)
+    const xInput = container.querySelector<HTMLInputElement>('.cortex-effects-section__grid input')
+    expect(xInput).not.toBeNull()
+    xInput!.focus()
+    xInput!.value = '15.1'
+    xInput!.dispatchEvent(new Event('input', { bubbles: true }))
+    xInput!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+
+    // Detail must still be visible after the round-trip
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-effects-section__detail')).not.toBeNull()
+    })
   })
 
   it('does NOT render overflow or cursor controls (removed in v2)', () => {

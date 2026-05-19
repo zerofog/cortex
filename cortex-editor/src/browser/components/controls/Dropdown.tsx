@@ -55,14 +55,19 @@ export function Dropdown({
     const popover = popoverRef.current
     // Set popover width to match trigger (position:fixed ignores relative parent)
     popover.style.width = `${trigger.offsetWidth}px`
+    // Use the panel body as boundary so flip respects the panel's scroll
+    // window, not the document viewport. Default 'clippingAncestors' uses the
+    // document body (panel is in shadow DOM, document body is large), so flip
+    // never triggers even when the dropdown overflows the panel.
+    const panelBody = trigger.closest('.cortex-panel__body') as HTMLElement | null
+    const boundary = panelBody ?? undefined
     computePosition(trigger, popover, {
       placement: 'bottom-start',
       middleware: [
-        // Flip to top-start if there's no room below the trigger. Padding leaves
-        // room for the iframe's chrome / shadow boundary so the dropdown doesn't
-        // hug the viewport edge.
-        flip({ padding: 8, fallbackPlacements: ['top-start', 'bottom-end', 'top-end'] }),
-        shift({ padding: 8 }),
+        // Flip to top-start if there's no room below the trigger inside the
+        // panel's scroll window.
+        flip({ padding: 8, boundary, fallbackPlacements: ['top-start', 'bottom-end', 'top-end'] }),
+        shift({ padding: 8, boundary }),
       ],
     }).then(({ x, y }) => {
       if (!cancelled && popoverRef.current) {

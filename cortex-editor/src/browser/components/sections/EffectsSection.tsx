@@ -157,52 +157,19 @@ export function EffectsSection({
   // conversion call site so a stale shadow payload can never leak into a blur restore.
   const stashRef = useRef<Map<string, StashEntry>>(new Map())
 
-  // Snapshot of the structural shape we most recently emitted upward. We compare
-  // by STRUCTURE (parsed shadow count + per-shadow numeric fields + scalar blur
-  // values), not raw CSS strings. The browser normalizes colors and unit forms
-  // during reflow (`#000` → `rgb(0, 0, 0)`, `0px 2px 8px` → `0px 2px 8px 0px`),
-  // so raw-string comparison falsely flags our own emits as "external" and
-  // collapses the expanded panel mid-scrub.
-  type EffectShape = {
-    shadows: Array<{ inset: boolean; x: number; y: number; blur: number; spread: number }>
-    blur: number
-    backdropBlur: number
-  }
-  const lastEmittedShapeRef = useRef<EffectShape | null>(null)
-
-  function shapeFromValues(v: EffectsValues): EffectShape {
-    const shadows = parseBoxShadow(v.boxShadow).map((s) => ({
-      inset: s.inset, x: s.x, y: s.y, blur: s.blur, spread: s.spread,
-    }))
-    return { shadows, blur: v.blur, backdropBlur: v.backdropBlur }
-  }
-
-  function shapesEqual(a: EffectShape, b: EffectShape): boolean {
-    if (a.blur !== b.blur || a.backdropBlur !== b.backdropBlur) return false
-    if (a.shadows.length !== b.shadows.length) return false
-    for (let i = 0; i < a.shadows.length; i++) {
-      const s1 = a.shadows[i]!, s2 = b.shadows[i]!
-      if (s1.inset !== s2.inset || s1.x !== s2.x || s1.y !== s2.y || s1.blur !== s2.blur || s1.spread !== s2.spread) return false
-    }
-    return true
-  }
-
-  // Detect selection-context change via STRUCTURAL comparison. Color normalization
-  // and CSS string formatting differences from the browser do NOT trigger a reset.
-  useEffect(() => {
-    const last = lastEmittedShapeRef.current
-    if (!last) return
-    if (!shapesEqual(shapeFromValues(values), last)) {
-      setDisabledSingletons((prev) => (prev.size === 0 ? prev : new Set()))
-      stashRef.current = new Map()
-      setExpandedId(null)
-      lastEmittedShapeRef.current = null
-    }
-  }, [values.boxShadow, values.blur, values.backdropBlur])
-
-  // Per-property emit gating tracks the raw CSS strings we emit, so we can
-  // suppress unchanged-property onChange calls. This is independent of the
-  // shape-based external-change detection above — they have different jobs.
+  // Snapshot of the CSS we last emitted, used ONLY for per-property emit gating
+  // (suppress unchanged-property onChange calls so Panel.applyOverride doesn't
+  // install stale !important overrides on properties the gesture didn't touch).
+  //
+  // The previous version of this also did structural comparison to detect
+  // selection-context changes and reset local state. That fix solved a
+  // theoretical codex finding (Bug 4: disabledSingletons surviving element
+  // selection changes) but caused a real user-facing regression: in the
+  // browser, getComputedStyle returns CSS that round-trips to a structurally
+  // different shape than what we emitted (browser normalization), so the
+  // useEffect misclassified our own scrubs as external and collapsed the
+  // expanded detail panel mid-gesture. Bug 4 is now a known limitation —
+  // disabledSingletons may leak across selection changes. Acceptable trade.
   const lastEmittedCssRef = useRef<{ boxShadow: string; filter: string; backdropFilter: string } | null>(null)
 
   // Auto-scroll: when the user adds a new row via "+" or expands a row that's
@@ -251,17 +218,6 @@ export function EffectsSection({
       if (filter !== currentFilter) callback({ property: 'filter', value: filter })
       if (backdropFilter !== currentBackdrop) callback({ property: 'backdrop-filter', value: backdropFilter })
       lastEmittedCssRef.current = { boxShadow, filter, backdropFilter }
-      // Also snapshot the structural shape so the external-change useEffect can
-      // identify our own emit when it re-renders with the parent's reflowed values.
-      const layerBlur = nextEffects.find((e) => e.type === 'layer-blur')
-      const backdropBlurEff = nextEffects.find((e) => e.type === 'backdrop-blur')
-      lastEmittedShapeRef.current = {
-        shadows: nextEffects
-          .filter((e): e is Extract<Effect, { type: 'drop' | 'inset' }> => e.type === 'drop' || e.type === 'inset')
-          .map((e) => ({ inset: e.type === 'inset', x: e.x, y: e.y, blur: e.blur, spread: e.spread })),
-        blur: layerBlur && layerBlur.type === 'layer-blur' ? layerBlur.blur : 0,
-        backdropBlur: backdropBlurEff && backdropBlurEff.type === 'backdrop-blur' ? backdropBlurEff.blur : 0,
-      }
     },
     [onChange, onScrub, onScrubEnd, values.boxShadow, values.blur, values.backdropBlur, values.filterRaw, values.backdropFilterRaw],
   )
