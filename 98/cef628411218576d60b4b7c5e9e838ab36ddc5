@@ -1,0 +1,36 @@
+cortex-editor/src/browser/components/sections/effects-model.ts
+  s_ba6a606b1722f3::t_c5c953130a80c7 122-133
+  s_ba6a606b1722f3::t_27b0938e8d1d29 1-87,99-113,115-118,120-121,134-317
+  s_ba6a606b1722f3::t_de304ca426197b 88-98,114,119
+cortex-editor/tests/browser/sections/effects-model.test.ts
+  s_ba6a606b1722f3::t_69bfc5f7400d27 1-397
+cortex-editor/src/browser/components/controls/Dropdown.tsx
+  s_ba6a606b1722f3::t_349330a575da40 10-11
+  s_ba6a606b1722f3::t_9e896ada2c690d 186,192
+  s_ba6a606b1722f3::t_effa4cd0dca2a7 100-101,105
+cortex-editor/src/browser/components/sections/EffectsSection.tsx
+  s_ba6a606b1722f3::t_8f9c1d99fa629b 12-20,48-51,53,56-59,61,103-108,111-115,118-121,132-146,148,150-156,158-171,173,176-187,189,192-199,201,204-211,213,217-237,239,243-263,265-274,276-277,279,282-283,286,288-294,297-312,315-320,322-327,332,334,340-342,347-349,353-355,358,362,366-369,372,376-379,382,387-390,393,397-400,404-407,409-424
+cortex-editor/tests/browser/sections/effects-section.test.tsx
+  s_ba6a606b1722f3::t_b1010939278bad 314-320
+  s_ba6a606b1722f3::t_d21b684125d7e7 336
+  s_ba6a606b1722f3::t_e916e3217f53f6 256,258-261,271,273-274,278,280-281,284,286-287,296-297
+  s_ba6a606b1722f3::t_0c7727b8e9fe03 309
+  s_ba6a606b1722f3::t_dbd87d1e1b7b5d 383-386,388-393,395-414
+  s_ba6a606b1722f3::t_d2eff1425bd0a0 340-345
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.9",
+  "base_commit_sha": "98cef628411218576d60b4b7c5e9e838ab36ddc5",
+  "prompts": {},
+  "sessions": {
+    "s_ba6a606b1722f3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "99055495-fe39-48b4-8660-f13313973cd7",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
