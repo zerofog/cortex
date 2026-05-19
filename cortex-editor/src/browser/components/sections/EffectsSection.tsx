@@ -1,5 +1,5 @@
 import type { JSX } from 'preact'
-import { useState, useCallback, useMemo, useRef } from 'preact/hooks'
+import { useState, useCallback, useMemo, useRef, useEffect } from 'preact/hooks'
 import { isDimmed } from './types.js'
 import type { SectionChange } from './types.js'
 import { NumericInput } from '../controls/NumericInput.js'
@@ -157,6 +157,36 @@ export function EffectsSection({
   // conversion call site so a stale shadow payload can never leak into a blur restore.
   const stashRef = useRef<Map<string, StashEntry>>(new Map())
 
+  // Snapshot of the CSS values we most recently emitted upward. Used for:
+  //   (1) per-property emit gating — don't fire onChange for unchanged properties
+  //       (otherwise Panel.applyOverride leaks stale !important overrides onto
+  //       the element for properties this gesture didn't actually touch)
+  //   (2) selection-context detection — if incoming `values` doesn't match what
+  //       we last emitted, the parent gave us new values from a different element
+  //       (or external mutation), so we must reset local state like
+  //       disabledSingletons + stashRef + expandedId.
+  const lastEmittedRef = useRef<{ boxShadow: string; filter: string; backdropFilter: string } | null>(null)
+
+  // Detect selection-context change and reset local state. Compare incoming
+  // values' CSS-equivalent strings to what we last emitted. If they differ,
+  // the change is external; clear our cached UI state.
+  useEffect(() => {
+    const last = lastEmittedRef.current
+    if (!last) return
+    const incomingFilter = formatFilter(parseFilterFunctions(values.filterRaw).rest, values.blur)
+    const incomingBackdrop = formatFilter(parseFilterFunctions(values.backdropFilterRaw).rest, values.backdropBlur)
+    const isExternalChange =
+      values.boxShadow !== last.boxShadow ||
+      incomingFilter !== last.filter ||
+      incomingBackdrop !== last.backdropFilter
+    if (isExternalChange) {
+      setDisabledSingletons((prev) => (prev.size === 0 ? prev : new Set()))
+      stashRef.current = new Map()
+      setExpandedId(null)
+      lastEmittedRef.current = null
+    }
+  }, [values.boxShadow, values.blur, values.backdropBlur, values.filterRaw, values.backdropFilterRaw])
+
   // ---- Emission helpers ---------------------------------------------------
 
   const emit = useCallback(
@@ -168,13 +198,20 @@ export function EffectsSection({
         values.filterRaw,
         values.backdropFilterRaw,
       )
-      // Emit each property; Panel's microtask coalescer dedupes by (source, property, pseudo)
-      // so unchanged properties are essentially free.
-      callback({ property: 'box-shadow', value: boxShadow })
-      callback({ property: 'filter', value: filter })
-      callback({ property: 'backdrop-filter', value: backdropFilter })
+      // Per-property emit gating: only fire onChange for properties that actually
+      // changed. Compare against the last snapshot (or current values if no prior
+      // emit). This prevents stale !important overrides on properties the gesture
+      // didn't touch (Panel.applyOverride installs them eagerly).
+      const last = lastEmittedRef.current
+      const currentBoxShadow = last?.boxShadow ?? values.boxShadow
+      const currentFilter = last?.filter ?? formatFilter(parseFilterFunctions(values.filterRaw).rest, values.blur)
+      const currentBackdrop = last?.backdropFilter ?? formatFilter(parseFilterFunctions(values.backdropFilterRaw).rest, values.backdropBlur)
+      if (boxShadow !== currentBoxShadow) callback({ property: 'box-shadow', value: boxShadow })
+      if (filter !== currentFilter) callback({ property: 'filter', value: filter })
+      if (backdropFilter !== currentBackdrop) callback({ property: 'backdrop-filter', value: backdropFilter })
+      lastEmittedRef.current = { boxShadow, filter, backdropFilter }
     },
-    [onChange, onScrub, onScrubEnd, values.filterRaw, values.backdropFilterRaw],
+    [onChange, onScrub, onScrubEnd, values.boxShadow, values.blur, values.backdropBlur, values.filterRaw, values.backdropFilterRaw],
   )
 
   // ---- Field-level handlers (drop/inset rows) -----------------------------
