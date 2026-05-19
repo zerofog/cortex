@@ -253,6 +253,51 @@ describe('EffectsSection', () => {
     expect(container.textContent).not.toContain('Cursor')
   })
 
+  // ── Empty-state BL/BG visibility (UX simplification) ───────────────
+  //
+  // When the element has NO effects (no shadows, no filter blur, no
+  // backdrop blur), the BL/BG inputs are hidden so the section's empty
+  // state is just header + plus button. As soon as any effect appears
+  // (user clicks +, or the element's source already has effects), the
+  // BL/BG inputs reveal so the user can tune them.
+
+  const EMPTY_VALUES: EffectsValues = {
+    boxShadow: 'none',
+    blur: 0,
+    backdropBlur: 0,
+    filterRaw: '',
+    backdropFilterRaw: '',
+  }
+
+  it('hides BL and BG inputs when there are no effects (empty state)', () => {
+    setup({ values: EMPTY_VALUES })
+    expect(container.querySelector('.cortex-effects-section__blur-controls')).toBeNull()
+    // No BL/BG labels in the DOM at all
+    const labels = Array.from(container.querySelectorAll('.cortex-numeric-input__label'))
+      .map(l => l.textContent)
+    expect(labels).not.toContain('BL')
+    expect(labels).not.toContain('BG')
+  })
+
+  it('shows BL and BG inputs when a shadow exists (even with zero filter blur)', () => {
+    setup({ values: { ...EMPTY_VALUES, boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.1)' } })
+    expect(container.querySelector('.cortex-effects-section__blur-controls')).not.toBeNull()
+    const labels = Array.from(container.querySelectorAll('.cortex-numeric-input__label'))
+      .map(l => l.textContent)
+    expect(labels).toContain('BL')
+    expect(labels).toContain('BG')
+  })
+
+  it('shows BL and BG inputs when filter blur is set (even without shadow)', () => {
+    setup({ values: { ...EMPTY_VALUES, blur: 4, filterRaw: 'blur(4px)' } })
+    expect(container.querySelector('.cortex-effects-section__blur-controls')).not.toBeNull()
+  })
+
+  it('shows BL and BG inputs when backdrop blur is set (even without shadow)', () => {
+    setup({ values: { ...EMPTY_VALUES, backdropBlur: 8, backdropFilterRaw: 'blur(8px)' } })
+    expect(container.querySelector('.cortex-effects-section__blur-controls')).not.toBeNull()
+  })
+
   it('renders blur input with label "BL"', () => {
     setup()
     const inputs = container.querySelectorAll('.cortex-numeric-input')
