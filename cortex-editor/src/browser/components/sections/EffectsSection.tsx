@@ -143,20 +143,25 @@ export function EffectsSection({
   // conversion call site so a stale shadow payload can never leak into a blur restore.
   const stashRef = useRef<Map<string, StashEntry>>(new Map())
 
-  // Snapshot of the CSS we last emitted, used ONLY for per-property emit gating
-  // (suppress unchanged-property onChange calls so Panel.applyOverride doesn't
-  // install stale !important overrides on properties the gesture didn't touch).
+  // Baseline for per-property emit gating: the canonical CSS form of the
+  // parent's last-committed state. We compare emitted CSS against this baseline
+  // so we only fire onChange for properties the gesture actually changed.
   //
-  // The previous version of this also did structural comparison to detect
-  // selection-context changes and reset local state. That fix solved a
-  // theoretical codex finding (Bug 4: disabledSingletons surviving element
-  // selection changes) but caused a real user-facing regression: in the
-  // browser, getComputedStyle returns CSS that round-trips to a structurally
-  // different shape than what we emitted (browser normalization), so the
-  // useEffect misclassified our own scrubs as external and collapsed the
-  // expanded detail panel mid-gesture. Bug 4 is now a known limitation —
-  // disabledSingletons may leak across selection changes. Acceptable trade.
-  const lastEmittedCssRef = useRef<{ boxShadow: string; filter: string; backdropFilter: string } | null>(null)
+  // CRITICAL: baseline must come from `values` (parent state, only updates on
+  // commit), NOT from our own last-emit cache. During a scrub, the parent
+  // doesn't re-render — so `values` stays fixed through every scrub-move tick
+  // AND through scrubEnd. This is the only way scrubEnd can detect "this value
+  // is different from the pre-gesture baseline" and fire onScrubEnd to trigger
+  // Panel.commitScrub → PropertyEditCommand → undo entry.
+  //
+  // A previous attempt used `lastEmittedCssRef` (cached last-emit) as baseline.
+  // It defeated the scrubEnd commit: lastEmit matched scrubEnd's value, gating
+  // suppressed the emit, no commit fired, scrubs left no undo trace, and Cmd+Z
+  // then undid the *previous* gesture (e.g., the "+" that added the shadow).
+  const baseline = useMemo(
+    () => commitEffects(baseEffects, values.filterRaw, values.backdropFilterRaw),
+    [baseEffects, values.filterRaw, values.backdropFilterRaw],
+  )
 
   // Auto-scroll: when the user adds a new row via "+" or expands a row that's
   // below the fold, bring it into view. Tracks row count and expanded id changes.
@@ -164,9 +169,11 @@ export function EffectsSection({
   const prevEffectsCountRef = useRef(effects.length)
   useEffect(() => {
     if (effects.length > prevEffectsCountRef.current) {
-      // A new row was added. Scroll the last row into view.
+      // A new row was added. `block: 'end'` puts the new row at the bottom edge
+      // of the viewport; the CSS `scroll-margin-bottom` on `__row` adds padding
+      // so the row sits comfortably above the panel edge instead of hugging it.
       const last = rowsContainerRef.current?.lastElementChild as HTMLElement | null
-      last?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      last?.scrollIntoView({ block: 'end', behavior: 'smooth' })
     }
     prevEffectsCountRef.current = effects.length
   }, [effects.length])
@@ -188,22 +195,15 @@ export function EffectsSection({
       const callback = phase === 'change' ? onChange : phase === 'scrub' ? onScrub : onScrubEnd
       if (!callback) return
       const next = commitEffects(nextEffects, values.filterRaw, values.backdropFilterRaw)
-      // Per-property emit gating: compare against the LAST EMITTED snapshot, or
-      // — for the first emission of the component — the canonical commitEffects
-      // output of the current baseEffects. Both sides must live in the same
-      // coordinate system (our serialized form), NOT against values.boxShadow
-      // which the browser has normalized (rgb()/rgba()/0px-padding). Comparing
-      // serialized vs. normalized always reports "different" and defeats the
-      // gating — emitting all three properties on every gesture, which is
-      // exactly the stale-override leak the gating was supposed to prevent.
-      const baseline = lastEmittedCssRef.current
-        ?? commitEffects(baseEffects, values.filterRaw, values.backdropFilterRaw)
+      // Per-property gating: compare against the parent's pre-gesture baseline,
+      // not against our own last emit. Both sides live in the serialized
+      // coordinate system (commitEffects output) so browser-normalization
+      // differences don't matter.
       if (next.boxShadow !== baseline.boxShadow) callback({ property: 'box-shadow', value: next.boxShadow })
       if (next.filter !== baseline.filter) callback({ property: 'filter', value: next.filter })
       if (next.backdropFilter !== baseline.backdropFilter) callback({ property: 'backdrop-filter', value: next.backdropFilter })
-      lastEmittedCssRef.current = next
     },
-    [onChange, onScrub, onScrubEnd, baseEffects, values.filterRaw, values.backdropFilterRaw],
+    [onChange, onScrub, onScrubEnd, baseline, values.filterRaw, values.backdropFilterRaw],
   )
 
   // ---- Field-level handlers (drop/inset rows) -----------------------------

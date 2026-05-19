@@ -2619,6 +2619,10 @@
   display: flex;
   flex-direction: column;
   gap: var(--cx-sp-3);
+  /* Reserve space below the row when auto-scrolling new rows into view via
+     scrollIntoView({ block: 'end' }) — without this, the row hugs the panel
+     bottom edge and the user has to scroll a bit more to see it comfortably. */
+  scroll-margin-bottom: var(--cx-sp-5);
 }
 
 .cortex-effects-section__row-header {
