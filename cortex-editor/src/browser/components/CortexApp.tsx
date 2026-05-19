@@ -1543,8 +1543,11 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
           onSetApplyError={setApplyError}
         />
       )}
+      {/* Toolbar's X button was removed in favor of Esc-to-deactivate
+          (cascading Escape handler Priority 4 already calls handleClose
+          when nothing else consumed the key). handleClose stays alive
+          and reachable via Esc. */}
       <Toolbar
-        onClose={handleClose}
         commentMode={commentMode}
         onCommentMode={handleCommentMode}
       />
