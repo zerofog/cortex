@@ -183,4 +183,102 @@ describe('SegmentedControl', () => {
     ;(buttons[0] as HTMLElement).click()
     expect(onChange).not.toHaveBeenCalled()
   })
+
+  // ── Per-option disabled (e.g. display:inline on flex/grid children) ──
+
+  it('renders option-level disabled with the option-disabled class', () => {
+    setup({
+      options: [
+        { value: 'block', label: 'Block' },
+        { value: 'flex', label: 'Flex' },
+        { value: 'inline', label: 'Inline', disabled: true, disabledTooltip: 'no-op here' },
+      ],
+    })
+    const inlineBtn = container.querySelector('[data-value="inline"]') as HTMLElement
+    expect(inlineBtn.classList.contains('cortex-segmented__option--disabled')).toBe(true)
+    expect(inlineBtn.getAttribute('aria-disabled')).toBe('true')
+    expect(inlineBtn.getAttribute('data-tooltip')).toBe('no-op here')
+  })
+
+  it('clicking a per-option disabled button does NOT fire onChange', () => {
+    const { onChange } = setup({
+      options: [
+        { value: 'block', label: 'Block' },
+        { value: 'inline', label: 'Inline', disabled: true },
+      ],
+    })
+    const inlineBtn = container.querySelector('[data-value="inline"]') as HTMLElement
+    inlineBtn.click()
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('clicking an enabled neighbor still works when another option is disabled', () => {
+    const { onChange } = setup({
+      options: [
+        { value: 'block', label: 'Block' },
+        { value: 'flex', label: 'Flex' },
+        { value: 'inline', label: 'Inline', disabled: true },
+      ],
+    })
+    const flexBtn = container.querySelector('[data-value="flex"]') as HTMLElement
+    flexBtn.click()
+    expect(onChange).toHaveBeenCalledWith('flex')
+  })
+
+  it('arrow-key navigation skips per-option disabled entries', () => {
+    const { onChange } = setup({
+      value: 'block',
+      options: [
+        { value: 'block', label: 'Block' },
+        { value: 'flex', label: 'Flex', disabled: true },
+        { value: 'grid', label: 'Grid' },
+      ],
+    })
+    const blockBtn = container.querySelector('[data-value="block"]') as HTMLElement
+    dispatchKeyboardEvent(blockBtn, 'keydown', { key: 'ArrowRight' })
+    // 'flex' is disabled → skip to 'grid'
+    expect(onChange).toHaveBeenCalledWith('grid')
+  })
+
+  it('arrow-key navigation wraps around skipping disabled entries', () => {
+    const { onChange } = setup({
+      value: 'block',
+      options: [
+        { value: 'block', label: 'Block' },
+        { value: 'flex', label: 'Flex', disabled: true },
+        { value: 'grid', label: 'Grid', disabled: true },
+        { value: 'none', label: 'None' },
+      ],
+    })
+    const blockBtn = container.querySelector('[data-value="block"]') as HTMLElement
+    dispatchKeyboardEvent(blockBtn, 'keydown', { key: 'ArrowLeft' })
+    // ArrowLeft from 'block' wraps to 'none' (skipping disabled grid + flex)
+    expect(onChange).toHaveBeenCalledWith('none')
+  })
+
+  it('arrow-key navigation no-ops when all OTHER options are disabled', () => {
+    const { onChange } = setup({
+      value: 'block',
+      options: [
+        { value: 'block', label: 'Block' },
+        { value: 'flex', label: 'Flex', disabled: true },
+        { value: 'grid', label: 'Grid', disabled: true },
+      ],
+    })
+    const blockBtn = container.querySelector('[data-value="block"]') as HTMLElement
+    dispatchKeyboardEvent(blockBtn, 'keydown', { key: 'ArrowRight' })
+    // No enabled target other than 'block' itself → no onChange
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('per-option disabled tooltip falls back to title when disabledTooltip omitted', () => {
+    setup({
+      options: [
+        { value: 'block', label: 'Block', title: 'default' },
+        { value: 'inline', label: 'Inline', title: 'normal-hover-tip', disabled: true },
+      ],
+    })
+    const inlineBtn = container.querySelector('[data-value="inline"]') as HTMLElement
+    expect(inlineBtn.getAttribute('data-tooltip')).toBe('normal-hover-tip')
+  })
 })

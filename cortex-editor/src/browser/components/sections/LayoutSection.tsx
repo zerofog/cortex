@@ -46,6 +46,15 @@ export interface LayoutValues {
   maxHeight: string
   overflow: string
   boxSizing: string
+  /** Selected element's tag name, lowercase. Used to detect HTML widgets
+   *  (button/input/select/textarea/etc.) whose user-agent stylesheet
+   *  coerces `display: inline` to `inline-block`, making the panel's
+   *  "inline" option silently no-op. Empty string when unknown. */
+  tagName: string
+  /** Parent element's computed `display`. When parent is flex/grid, CSS
+   *  blockifies any child's `display: inline` to `display: block` per
+   *  Flexbox §4 and Grid §3.4 — the inline option is also a no-op. */
+  parentDisplay: string
 }
 
 export interface LayoutSectionProps {
@@ -104,16 +113,61 @@ export function parseLayoutValues(cs: CSSStyleDeclaration): LayoutValues {
     maxHeight: cs.maxHeight ?? 'none',
     overflow: cs.overflow ?? 'visible',
     boxSizing: cs.boxSizing ?? 'content-box',
+    tagName: '',
+    parentDisplay: 'block',
   }
 }
 
-const DISPLAY_OPTIONS = [
-  { value: 'block', label: 'block' },
-  { value: 'flex', label: 'flex' },
-  { value: 'grid', label: 'grid' },
-  { value: 'inline', label: 'inline' },
-  { value: 'none', label: 'none' },
-]
+/** HTML form-widget tags whose user-agent stylesheet coerces
+ *  `display: inline` into `display: inline-block` (which the panel's
+ *  normalizeDisplay maps back to "block"). For these the inline option
+ *  is a no-op, so the panel disables it.
+ *
+ *  Replaced/media elements (img/video/canvas/iframe/embed/object) are
+ *  INTENTIONALLY excluded — they're atomic-inline by default and
+ *  display:inline is a valid edit on them (verified live: each computes
+ *  to "inline" when set, not coerced). Including them here would block
+ *  legitimate "switch back to inline" edits — caught by codex review on
+ *  PR #162. */
+const WIDGET_TAGS: ReadonlySet<string> = new Set([
+  'button', 'input', 'select', 'textarea',
+  'progress', 'meter',
+])
+
+/** Whether `display: inline` would actually take effect on this element.
+ *  Returns false when:
+ *    - parent is flex/grid (CSS blockification per Flexbox §4 / Grid §3.4)
+ *    - tag is an HTML widget (UA stylesheet coercion to inline-block)
+ *  In either case clicking "inline" silently no-ops; the panel disables
+ *  the option with an explanatory tooltip rather than letting the user
+ *  click into a black hole. */
+export function inlineDisplayApplies(values: Pick<LayoutValues, 'tagName' | 'parentDisplay'>): boolean {
+  if (WIDGET_TAGS.has(values.tagName)) return false
+  if (values.parentDisplay.includes('flex')) return false
+  if (values.parentDisplay.includes('grid')) return false
+  return true
+}
+
+function buildDisplayOptions(values: Pick<LayoutValues, 'tagName' | 'parentDisplay'>) {
+  const inlineEnabled = inlineDisplayApplies(values)
+  const inlineDisabledReason = !inlineEnabled
+    ? WIDGET_TAGS.has(values.tagName)
+      ? `<${values.tagName}> elements coerce display:inline to inline-block (HTML widget UA stylesheet) — no visible change`
+      : `Parent is ${values.parentDisplay}; flex/grid children blockify display:inline to block (CSS spec) — no visible change`
+    : undefined
+  return [
+    { value: 'block', label: 'block' },
+    { value: 'flex', label: 'flex' },
+    { value: 'grid', label: 'grid' },
+    {
+      value: 'inline',
+      label: 'inline',
+      disabled: !inlineEnabled,
+      disabledTooltip: inlineDisabledReason,
+    },
+    { value: 'none', label: 'none' },
+  ]
+}
 
 export function LayoutSection({
   values,
@@ -169,7 +223,7 @@ export function LayoutSection({
     <div class="cortex-layout-section" data-section-id="layout">
       <div class={`cortex-layout-section__group${isDimmed(dimmedProperties, 'display') ? ' cortex-control--dimmed' : ''}`}>
         <SegmentedControl
-          options={DISPLAY_OPTIONS}
+          options={buildDisplayOptions(values)}
           value={values.display}
           onChange={handleDisplayChange}
           mixed={mixedProperties?.has('display')}
