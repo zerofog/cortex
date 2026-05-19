@@ -1,0 +1,25 @@
+cortex-editor/tests/browser/sections/effects-model.test.ts
+  s_ba6a606b1722f3::t_85dcb88c3a60c9 278-279,291,294-295,298,301-302,304,308-314,318,320-321,325-332,341,347-356
+cortex-editor/src/browser/components/sections/effects-model.ts
+  s_ba6a606b1722f3::t_cb687bac2d9e43 94-101,103,110,121,125
+cortex-editor/src/browser/components/sections/EffectsSection.tsx
+  s_ba6a606b1722f3::t_ed72fb3e4dcedd 132-135,137-151,154-157
+  s_ba6a606b1722f3::t_a3ff57c160835f 300,303-307,312-317,325
+  s_ba6a606b1722f3::t_a4326c204f0960 212-214,217-244,248
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.10",
+  "base_commit_sha": "11a15499443a51d8e1a3d4d565cd9b4de7318465",
+  "prompts": {},
+  "sessions": {
+    "s_ba6a606b1722f3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "99055495-fe39-48b4-8660-f13313973cd7",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
