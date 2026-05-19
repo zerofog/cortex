@@ -2930,15 +2930,6 @@
   outline-color: var(--cx-select-muted);
 }
 
-.cortex-toolbar__btn--close {
-  color: var(--cx-ink-faint);
-}
-
-.cortex-toolbar__btn--close:hover {
-  background: var(--cx-destructive-surface);
-  color: var(--cx-destructive);
-}
-
 /* Mode switcher — segmented select/comment */
 .cortex-toolbar__modes {
   display: flex;
@@ -3007,12 +2998,6 @@
   outline-color: var(--cx-select-muted);
 }
 
-.cortex-toolbar__divider {
-  width: 1px;
-  height: 24px;
-  background: var(--cx-rule);
-  flex-shrink: 0;
-}
 
 /* ── Comment Thread ──────────────────────────── */
 

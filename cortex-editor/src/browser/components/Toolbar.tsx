@@ -3,16 +3,21 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { useDrag } from '../hooks/useDrag.js'
 import { useToolbarDock } from '../hooks/useToolbarDock.js'
 import { formatShortcut } from '../format-shortcut.js'
-import { GripVertical, MessageSquare, MousePointer2, X } from './icons.js'
+import { GripVertical, MessageSquare, MousePointer2 } from './icons.js'
 
 export interface ToolbarProps {
-  onClose: () => void
   commentMode?: boolean
   onCommentMode?: () => void
 }
 
+// Close-from-toolbar removed in favor of Esc-to-deactivate.
+// CortexApp.tsx's cascading Escape handler (Priority 4) already calls
+// handleClose() when nothing else consumed the key — same behavior the
+// old X button triggered. The hotkey (cmd+shift+. / ctrl+shift+.) still
+// reactivates Cortex from anywhere. See thoughts/ for the UX rationale:
+// the X button was rarely used and added visual noise; Esc is the
+// industry-standard "get out of here" affordance.
 export function Toolbar({
-  onClose,
   commentMode,
   onCommentMode,
 }: ToolbarProps): JSX.Element {
@@ -96,20 +101,6 @@ export function Toolbar({
           <MessageSquare size={16} />
         </button>
       </div>
-
-      <div class="cortex-toolbar__divider" />
-
-      <button
-        type="button"
-        class="cortex-toolbar__btn cortex-toolbar__btn--close"
-        data-action="close"
-        onClick={onClose}
-        aria-label="Close Cortex"
-        data-tooltip="Close Cortex"
-        data-tooltip-placement={tooltipPlacement}
-      >
-        <X size={16} />
-      </button>
     </div>
   )
 }
