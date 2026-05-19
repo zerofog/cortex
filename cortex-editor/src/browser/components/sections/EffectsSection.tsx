@@ -195,17 +195,20 @@ export function EffectsSection({
   // even when its value returns to the pre-gesture baseline. Without this, a
   // scrub that moves a value away then back (0 → 15 → 0) would suppress the
   // return-to-0 tick, leaving the stale 15px override installed and skipping
-  // the scrubEnd commit. Cleared at the end of every gesture (scrubEnd) and at
-  // the start of every atomic 'change'.
+  // the scrubEnd commit. Cleared at the start of every fresh gesture.
   const touchedPropsRef = useRef<Set<'box-shadow' | 'filter' | 'backdrop-filter'>>(new Set())
+  const prevPhaseRef = useRef<'change' | 'scrub' | 'scrubEnd' | null>(null)
 
   const emit = useCallback(
     (phase: 'change' | 'scrub' | 'scrubEnd', nextEffects: Effect[]) => {
       const callback = phase === 'change' ? onChange : phase === 'scrub' ? onScrub : onScrubEnd
       if (!callback) return
-      // A 'change' is atomic — no scrub carry-over (also defends against a
-      // cancelled scrub that never reached scrubEnd to clear the set).
-      if (phase === 'change') touchedPropsRef.current.clear()
+      // Clear touched at the start of a fresh gesture: an atomic 'change', or
+      // the first 'scrub' after a terminal phase. The latter defends against a
+      // cancelled scrub (pointercancel) whose scrubEnd never fired to clear it.
+      const isNewGesture = phase === 'change' || (phase === 'scrub' && prevPhaseRef.current !== 'scrub')
+      if (isNewGesture) touchedPropsRef.current.clear()
+      prevPhaseRef.current = phase
       const next = commitEffects(nextEffects, values.filterRaw, values.backdropFilterRaw)
       // Per-property gating: emit a property if it differs from the parent's
       // pre-gesture baseline OR if it was already touched this gesture. Both
