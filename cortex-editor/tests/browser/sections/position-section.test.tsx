@@ -683,29 +683,65 @@ describe('PositionSection', () => {
   // (start/center/end) which lies in column-flex.
 
   it('alignSelfAxis: row-flex parent → vertical (top/middle/bottom)', () => {
-    expect(alignSelfAxis({ parentDisplay: 'flex', parentFlexDirection: 'row' })).toBe('vertical')
+    expect(alignSelfAxis({ position: 'static', parentDisplay: 'flex', parentFlexDirection: 'row' })).toBe('vertical')
   })
 
   it('alignSelfAxis: row-reverse-flex parent → vertical', () => {
-    expect(alignSelfAxis({ parentDisplay: 'flex', parentFlexDirection: 'row-reverse' })).toBe('vertical')
+    expect(alignSelfAxis({ position: 'static', parentDisplay: 'flex', parentFlexDirection: 'row-reverse' })).toBe('vertical')
   })
 
   it('alignSelfAxis: column-flex parent → horizontal (left/center/right)', () => {
-    expect(alignSelfAxis({ parentDisplay: 'flex', parentFlexDirection: 'column' })).toBe('horizontal')
+    expect(alignSelfAxis({ position: 'static', parentDisplay: 'flex', parentFlexDirection: 'column' })).toBe('horizontal')
   })
 
   it('alignSelfAxis: column-reverse-flex parent → horizontal', () => {
-    expect(alignSelfAxis({ parentDisplay: 'flex', parentFlexDirection: 'column-reverse' })).toBe('horizontal')
+    expect(alignSelfAxis({ position: 'static', parentDisplay: 'flex', parentFlexDirection: 'column-reverse' })).toBe('horizontal')
   })
 
   it('alignSelfAxis: grid parent → vertical (block axis in horizontal writing modes)', () => {
     // flex-direction is irrelevant for grid; should still be vertical
-    expect(alignSelfAxis({ parentDisplay: 'grid', parentFlexDirection: 'row' })).toBe('vertical')
-    expect(alignSelfAxis({ parentDisplay: 'grid', parentFlexDirection: 'column' })).toBe('vertical')
+    expect(alignSelfAxis({ position: 'static', parentDisplay: 'grid', parentFlexDirection: 'row' })).toBe('vertical')
+    expect(alignSelfAxis({ position: 'static', parentDisplay: 'grid', parentFlexDirection: 'column' })).toBe('vertical')
   })
 
   it('alignSelfAxis: block parent (no flex/grid) → vertical (default)', () => {
-    expect(alignSelfAxis({ parentDisplay: 'block', parentFlexDirection: 'row' })).toBe('vertical')
+    expect(alignSelfAxis({ position: 'static', parentDisplay: 'block', parentFlexDirection: 'row' })).toBe('vertical')
+  })
+
+  // Regression: codex review (P2) on PR #161 caught that abs/fixed elements
+  // inside column-flex parents were spuriously getting horizontal labels.
+  // Abs/fixed escapes the flex layout — their align-self operates on the
+  // abs-positioning containing block's block axis (always vertical), NOT
+  // the parent's cross axis.
+  it('alignSelfAxis: abs element in column-flex parent → vertical (escapes flex)', () => {
+    expect(alignSelfAxis({ position: 'absolute', parentDisplay: 'flex', parentFlexDirection: 'column' })).toBe('vertical')
+  })
+
+  it('alignSelfAxis: fixed element in column-flex parent → vertical (escapes flex)', () => {
+    expect(alignSelfAxis({ position: 'fixed', parentDisplay: 'flex', parentFlexDirection: 'column' })).toBe('vertical')
+  })
+
+  it('alignSelfAxis: relative element in column-flex parent → horizontal (relative is still a flex item)', () => {
+    // Sanity check: relative does NOT escape flex, so column direction applies.
+    expect(alignSelfAxis({ position: 'relative', parentDisplay: 'flex', parentFlexDirection: 'column' })).toBe('horizontal')
+  })
+
+  it('UI: absolute element in column-flex shows VERTICAL align-self labels', () => {
+    setup({
+      values: {
+        ...DEFAULT_VALUES,
+        position: 'absolute',
+        parentDisplay: 'flex',
+        parentFlexDirection: 'column',
+      },
+    })
+    // Must read top/middle/bottom (not left/center/right) because the
+    // abs element doesn't participate in the column-flex cross axis.
+    expect(container.querySelector('[aria-label="Align self top"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="Align self middle"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="Align self bottom"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="Align self left"]')).toBeNull()
+    expect(container.querySelector('[aria-label="Align self right"]')).toBeNull()
   })
 
   it('align-self labels are top/middle/bottom when parent is row-flex', () => {

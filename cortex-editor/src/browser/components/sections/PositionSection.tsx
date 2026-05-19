@@ -93,11 +93,17 @@ export function parsePositionValues(cs: CSSStyleDeclaration): PositionValues {
  *  Returns 'horizontal' (left/center/right labels + horizontal-shift icons)
  *  or 'vertical' (top/middle/bottom labels + vertical-shift icons).
  *
- *  - Grid items: align-self is the block axis → vertical (horizontal writing modes)
- *  - Flex items: align-self is the cross axis → depends on flex-direction
+ *  - Abs/fixed elements: ALWAYS vertical — abs-positioned boxes are not
+ *    flex items, so the parent's flex-direction does NOT determine their
+ *    cross axis. align-self operates on the abs-positioning containing
+ *    block's block axis (vertical in horizontal writing modes). This
+ *    check comes FIRST because abs/fixed escapes the parent's layout
+ *    system. (Caught by codex review on PR #161.)
+ *  - Grid items: align-self is the block axis → vertical
+ *  - Flex items (non-abs): cross axis depends on flex-direction
  *      row*    → cross is vertical
  *      column* → cross is horizontal
- *  - Abs/fixed elements: default to vertical (no flex parent context)
+ *  - Default (block parent, abs not set): vertical
  *
  *  This is the core of the parent-aware UI: same CSS property write, but
  *  icons + labels + aria adapt to what the user will actually SEE happen
@@ -105,14 +111,17 @@ export function parsePositionValues(cs: CSSStyleDeclaration): PositionValues {
  *  vertical movement even when parent was column-flex (where align-self
  *  actually moves the element horizontally). */
 export function alignSelfAxis(
-  values: Pick<PositionValues, 'parentDisplay' | 'parentFlexDirection'>,
+  values: Pick<PositionValues, 'position' | 'parentDisplay' | 'parentFlexDirection'>,
 ): 'horizontal' | 'vertical' {
+  // Abs/fixed escapes the parent's layout system — flex-direction does
+  // not apply. Must come before the flex check.
+  if (values.position === 'absolute' || values.position === 'fixed') return 'vertical'
   if (values.parentDisplay.includes('flex')) {
     const dir = values.parentFlexDirection
     if (dir === 'column' || dir === 'column-reverse') return 'horizontal'
     return 'vertical'
   }
-  // Grid items align-self = block axis. Abs/fixed default = vertical.
+  // Grid items align-self = block axis. Default = vertical.
   return 'vertical'
 }
 
